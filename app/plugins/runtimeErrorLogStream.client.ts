@@ -42,9 +42,16 @@ export default defineNuxtPlugin((nuxtApp) => {
     const { reportRuntimeError } = useRuntimeErrorReports();
     const localeCookie = useCookie<TLocale>('i18n_redirected');
     const t = createPluginTranslate(() => localeCookie.value);
+    let unsubscribeDebugLog: (() => void) | null = null;
+
+    const cleanupDebugLogSubscription = () => {
+        unsubscribeDebugLog?.();
+        unsubscribeDebugLog = null;
+    };
 
     nuxtApp.hook('app:mounted', () => {
-        getSettingsCapability().onDebugLog((entry) => {
+        cleanupDebugLogSubscription();
+        unsubscribeDebugLog = getSettingsCapability().onDebugLog((entry) => {
             if (!isUiReportableLog(entry)) {
                 return;
             }
@@ -57,4 +64,9 @@ export default defineNuxtPlugin((nuxtApp) => {
             });
         });
     });
+
+    window.addEventListener('beforeunload', cleanupDebugLogSubscription, { once: true });
+    if (import.meta.hot) {
+        import.meta.hot.dispose(cleanupDebugLogSubscription);
+    }
 });

@@ -533,6 +533,14 @@ function beginDocumentOpenTransaction(intent: IDocumentOpenIntent) {
         kind: resolveDocumentOpenTransactionKind(intent.action),
         documentRef: resolveTransactionDocumentRef(target, documentPath ?? null),
     });
+    if (!sessionTransaction) {
+        BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Document open transaction deferred because another transaction is active', {
+            tabId: tabId,
+            action: intent.action,
+            activeTransaction: activeDocumentSession.value.snapshot.value.activeTransaction,
+        });
+        return null;
+    }
     const transaction: IDocumentOpenTransactionRun = {
         sessionTransaction,
         action: intent.action,
@@ -645,6 +653,9 @@ async function runWithDocumentOpenInFlight<T>(
         return false;
     }
     const transaction = beginDocumentOpenTransaction(intent);
+    if (!transaction) {
+        return false;
+    }
     let result: T | undefined;
     let didThrow = false;
     let didReachTerminalState = false;

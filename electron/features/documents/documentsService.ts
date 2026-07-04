@@ -20,6 +20,7 @@ import type {
     IPdfOptimizeOptions,
     IPdfOptimizeResult,
     IPdfSaveAsOptions,
+    IPdfSerializedSaveOptions,
     TDocumentSaveResult,
 } from '@contracts/electronApiDocuments';
 import type { IRecentFile } from '@contracts/shared';
@@ -74,6 +75,7 @@ export interface IDocumentsService {
         workingPath: string,
         data: Uint8Array,
         options?: IPdfSaveAsOptions,
+        serializedSaveOptions?: IPdfSerializedSaveOptions,
     ) => Promise<{
         path: string | null;
         validation: IPdfValidationResult | null;
@@ -83,6 +85,7 @@ export interface IDocumentsService {
         workingPath: string,
         totalBytes: number,
         options?: IPdfSaveAsOptions,
+        serializedSaveOptions?: IPdfSerializedSaveOptions,
     ) => Promise<IBeginSerializedPdfSaveAsResult>;
     savePdfDialog: (context: IDocumentsDialogContext, suggestedName: string) => Promise<string | null>;
     saveDocxAs: (context: IDocumentsDialogContext, workingPath: string) => Promise<string | null>;
@@ -123,11 +126,18 @@ export interface IDocumentsService {
         canceled?: boolean;
         error?: string;
     }>;
-    writeFile: (context: IDocumentsSenderIdContext, filePath: string, data: Uint8Array) => Promise<boolean>;
+    writeFile: (
+        context: IDocumentsSenderIdContext,
+        filePath: string,
+        data: Uint8Array,
+        options?: IPdfSerializedSaveOptions,
+    ) => Promise<boolean>;
+    resyncWorkingCopy: (context: IDocumentsSenderIdContext, workingPath: string) => Promise<TDocumentSaveResult>;
     replaceWorkingCopyFromPath: (
         context: IDocumentsSenderIdContext,
         workingCopyPath: string,
         sourcePath: string,
+        options?: IPdfSerializedSaveOptions,
     ) => Promise<boolean>;
     writeDocxFile: (context: IDocumentsSenderIdContext, filePath: string, data: Uint8Array) => Promise<boolean>;
     saveFileStructured: (context: IDocumentsSenderIdContext, workingPath: string) => Promise<TDocumentSaveResult>;
@@ -139,24 +149,32 @@ export interface IDocumentsService {
         options: IPdfOptimizeOptions,
         requestId?: string,
     ) => Promise<IPdfOptimizeResult>;
-    savePdfData: (context: IDocumentsSenderIdContext, workingPath: string, data: Uint8Array) => Promise<IPdfValidationResult>;
+    savePdfData: (
+        context: IDocumentsSenderIdContext,
+        workingPath: string,
+        data: Uint8Array,
+        options?: IPdfSerializedSaveOptions,
+    ) => Promise<IPdfValidationResult>;
     savePdfNoteTextUpdates: (
         context: IDocumentsSenderIdContext,
         workingPath: string,
         updates: IPdfNoteTextUpdate[],
         modifiedAt: string,
+        options?: IPdfSerializedSaveOptions,
     ) => Promise<IPdfNativeNoteTextSaveResult>;
     savePdfNoteChanges: (
         context: IDocumentsSenderIdContext,
         workingPath: string,
         changes: IPdfNativeNoteChanges,
         modifiedAt: string,
+        options?: IPdfSerializedSaveOptions,
     ) => Promise<IPdfNativeNoteTextSaveResult>;
     savePdfNativeMutations: (
         context: IDocumentsSenderIdContext,
         workingPath: string,
         mutations: IPdfNativeMutationSet,
         modifiedAt: string,
+        options?: IPdfSerializedSaveOptions,
     ) => Promise<IPdfNativeSaveResult>;
     applyPdfNativeMutationsToWorkingCopy: (
         context: IDocumentsSenderIdContext,
@@ -164,11 +182,13 @@ export interface IDocumentsService {
         mutations: IPdfNativeMutationSet,
         modifiedAt: string,
         expectedBase: IPdfNativeWorkingCopyExpectation,
+        options?: IPdfSerializedSaveOptions,
     ) => Promise<IPdfNativeSaveResult>;
     beginSavePdfData: (
         context: IDocumentsWebContentsContext,
         workingPath: string,
         totalBytes: number,
+        options?: IPdfSerializedSaveOptions,
     ) => Promise<IBeginSerializedPdfPersistenceResult>;
     cleanupFile: (context: IDocumentsSenderIdContext, workingPath: string) => void;
     cleanupOcrTemp: (context: IDocumentsSenderIdContext, filePath: string) => Promise<void>;

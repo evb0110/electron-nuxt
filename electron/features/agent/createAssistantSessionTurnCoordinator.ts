@@ -41,6 +41,7 @@ export function createAssistantSessionTurnCoordinator(options: IAssistantSession
     function claimSessionTurn(session: IAssistantChatSession) {
         session.turnOwner = claimAssistantTurn(session.turnOwner, createAssistantSessionScopeBinding(session));
         syncSessionTurnScope(session);
+        options.sessionStore.recordTurnBoundary(session);
         return session.turnOwner.generation;
     }
 
@@ -52,6 +53,9 @@ export function createAssistantSessionTurnCoordinator(options: IAssistantSession
         const previousOwner = session.turnOwner;
         session.turnOwner = markAssistantTurnRunning(session.turnOwner, generation, providerTurnId);
         syncSessionTurnScope(session);
+        if (session.turnOwner !== previousOwner) {
+            options.sessionStore.recordTurnBoundary(session);
+        }
         return session.turnOwner !== previousOwner;
     }
 
@@ -63,6 +67,9 @@ export function createAssistantSessionTurnCoordinator(options: IAssistantSession
         const previousOwner = session.turnOwner;
         session.turnOwner = completeAssistantTurn(session.turnOwner, generation, providerTurnId);
         syncSessionTurnScope(session);
+        if (session.turnOwner !== previousOwner) {
+            options.sessionStore.recordTurnBoundary(session);
+        }
         return session.turnOwner !== previousOwner;
     }
 
@@ -75,6 +82,9 @@ export function createAssistantSessionTurnCoordinator(options: IAssistantSession
         const previousOwner = session.turnOwner;
         session.turnOwner = errorAssistantTurn(session.turnOwner, generation, error, providerTurnId);
         syncSessionTurnScope(session);
+        if (session.turnOwner !== previousOwner) {
+            options.sessionStore.recordTurnBoundary(session);
+        }
         return session.turnOwner !== previousOwner;
     }
 
@@ -82,16 +92,19 @@ export function createAssistantSessionTurnCoordinator(options: IAssistantSession
         const supersededOwner = supersedeAssistantTurn(session.turnOwner);
         session.turnOwner = errorAssistantTurn(supersededOwner, supersededOwner.generation, error);
         syncSessionTurnScope(session);
+        options.sessionStore.recordTurnBoundary(session);
     }
 
     function interruptSessionTurn(session: IAssistantChatSession) {
         session.turnOwner = markAssistantTurnInterrupting(session.turnOwner);
         syncSessionTurnScope(session);
+        options.sessionStore.recordTurnBoundary(session);
     }
 
     function supersedeSessionTurn(session: IAssistantChatSession) {
         session.turnOwner = supersedeAssistantTurn(session.turnOwner);
         syncSessionTurnScope(session);
+        options.sessionStore.recordTurnBoundary(session);
     }
 
     function rememberStateScope(

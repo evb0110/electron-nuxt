@@ -52,9 +52,13 @@ export const CORE_IPC_EVENT_CHANNELS = {
     debugLog: 'debug:log',
     hostEnvironmentChanged: 'host:environmentChanged',
     hostZenModeChanged: 'host:zenModeChanged',
+    shutdownSaveFlushRequest: 'shutdown:saveFlushRequest',
 } as const;
 
-export const CORE_IPC_SEND_CHANNELS = {rendererLog: 'renderer:log'} as const;
+export const CORE_IPC_SEND_CHANNELS = {
+    rendererLog: 'renderer:log',
+    shutdownSaveFlushResult: 'shutdown:saveFlushResult',
+} as const;
 
 type TNoIpcResult = Awaited<Promise<void>>;
 
@@ -148,4 +152,14 @@ export interface ICoreEventMap {
     [CORE_IPC_EVENT_CHANNELS.debugLog]: IDebugLogEntry;
     [CORE_IPC_EVENT_CHANNELS.hostEnvironmentChanged]: IHostEnvironmentSnapshot;
     [CORE_IPC_EVENT_CHANNELS.hostZenModeChanged]: IHostZenModeState;
+    [CORE_IPC_EVENT_CHANNELS.shutdownSaveFlushRequest]: IShutdownSaveFlushRequest;
+}
+
+export interface IShutdownSaveFlushRequest { requestId: string; }
+
+export interface IShutdownSaveFlushResult {
+    requestId: string;
+    dirtyWorkingCopyPaths?: string[];
+    error?: string;
+    flushedWorkingCopyPaths?: string[];
 }

@@ -14,7 +14,6 @@ import {
     canCompleteAssistantTurnWithoutProviderTurn,
     getAssistantTurnProviderTurnId,
     isAssistantTurnActive,
-    matchesProviderTurn,
 } from '@electron/features/agent/assistantTurnLifecycle';
 import type { ICodexAppServerNotification } from '@electron/features/agent/codexAppServerClient';
 import {
@@ -64,7 +63,7 @@ interface IAssistantAppServerNotificationsOptions {
     publishState: (scope?: IAgentAssistantChatScope | null, selection?: IAssistantSelection) => void;
     reconcileFailedTurnMessages: (session: IAssistantChatSession, errorMessage: string) => void;
     refreshAuthStateAndRuntimeAvailability: (options?: { recoverFromError?: boolean }) => Promise<void>;
-    sessionStore: Pick<TAssistantChatSessionStore, 'listSessions' | 'setActiveSession'>;
+    sessionStore: Pick<TAssistantChatSessionStore, 'listSessions' | 'recordSessionSnapshot' | 'setActiveSession'>;
     supersedeSessionTurn: (session: IAssistantChatSession) => void;
     upsertAssistantMessage: (
         session: IAssistantChatSession,
@@ -138,9 +137,40 @@ export function createAssistantAppServerNotificationController(options: IAssista
 
     function shouldDropNotificationForTurn(session: IAssistantChatSession, params: unknown) {
         const turnId = getNotificationTurnId(params);
-        return turnId === null
-            ? !isAssistantTurnActive(session.turnOwner)
-            : !matchesProviderTurn(session.turnOwner, turnId);
+        return !bindNotificationTurn(session, turnId);
+    }
+
+    function bindNotificationTurn(
+        session: IAssistantChatSession,
+        turnId: string | null,
+        optionsOverride: { emitStartedEvent?: boolean } = {},
+    ) {
+        if (turnId === null) {
+            return isAssistantTurnActive(session.turnOwner);
+        }
+
+        const activeProviderTurnId = getAssistantTurnProviderTurnId(session.turnOwner);
+        if (activeProviderTurnId === turnId) {
+            return true;
+        }
+        if (activeProviderTurnId !== null || !isAssistantTurnActive(session.turnOwner)) {
+            return false;
+        }
+
+        const generation = session.turnOwner.generation;
+        if (!options.markSessionTurnRunning(session, generation, turnId)) {
+            return getAssistantTurnProviderTurnId(session.turnOwner) === turnId;
+        }
+
+        options.sessionStore.setActiveSession(session);
+        options.codexProviderRuntime.runtimeState = 'busy';
+        if (optionsOverride.emitStartedEvent ?? true) {
+            options.publishAssistantEvent({
+                type: 'turn-started',
+                turnId,
+            }, session.scope, session);
+        }
+        return true;
     }
 
     function handleNotification(notification: ICodexAppServerNotification) {
@@ -184,16 +214,19 @@ export function createAssistantAppServerNotificationController(options: IAssista
                 return;
             }
             const turnId = getNotificationTurnId(params);
-            if (!options.markSessionTurnRunning(session, session.turnOwner.generation, turnId)) {
+            const turnAlreadyBound = turnId !== null && getAssistantTurnProviderTurnId(session.turnOwner) === turnId;
+            if (!bindNotificationTurn(session, turnId, { emitStartedEvent: false })) {
                 options.logger.info(`Ignoring stale assistant turn start: ${method}`);
                 return;
             }
             options.sessionStore.setActiveSession(session);
             options.codexProviderRuntime.runtimeState = 'busy';
-            options.publishAssistantEvent({
-                type: 'turn-started',
-                ...(turnId ? { turnId } : {}),
-            }, session.scope, session);
+            if (!turnAlreadyBound) {
+                options.publishAssistantEvent({
+                    type: 'turn-started',
+                    ...(turnId ? { turnId } : {}),
+                }, session.scope, session);
+            }
             return;
         }
 
@@ -203,6 +236,10 @@ export function createAssistantAppServerNotificationController(options: IAssista
                 return;
             }
             const turnId = getNotificationTurnId(params);
+            if (!bindNotificationTurn(session, turnId)) {
+                options.logger.info('Ignoring stale assistant turn completion.');
+                return;
+            }
             if (turnId === null && !canCompleteAssistantTurnWithoutProviderTurn(session.turnOwner)) {
                 options.logger.info('Ignoring assistant turn completion without active running turn.');
                 return;
@@ -217,6 +254,7 @@ export function createAssistantAppServerNotificationController(options: IAssista
                     message.pending = false;
                 }
             }
+            options.sessionStore.recordSessionSnapshot(session);
             options.publishAssistantEvent({ type: 'turn-completed' }, session.scope, session);
             return;
         }
@@ -309,6 +347,7 @@ export function createAssistantAppServerNotificationController(options: IAssista
         if (session) {
             options.errorSessionTurn(session, session.turnOwner.generation, message);
             session.lastError = message;
+            options.sessionStore.recordSessionSnapshot(session);
         }
         options.codexProviderRuntime.lastError = message;
         options.publishAssistantEvent({

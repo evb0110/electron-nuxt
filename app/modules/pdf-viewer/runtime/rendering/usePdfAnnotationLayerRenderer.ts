@@ -76,6 +76,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
     annotationUiManager: MaybeRefOrGetter<AnnotationEditorUIManager | null>;
     annotationL10n: MaybeRefOrGetter<IPdfjsL10n | null>;
     renderSupervisor?: IPdfRenderSupervisor | undefined;
+    getDocumentVersion?: (() => number) | undefined;
     scrollToPage?: (pageNumber: number) => void;
 }) => {
     const compatibilityAdapter = createPdfAnnotationEditorCompatibilityAdapter({
@@ -552,8 +553,51 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         annotationEditorLayerDiv.hidden = true;
     }
 
+    function isDocumentVersionCurrent(options?: IAnnotationLayerRenderOptions) {
+        return options?.documentVersion === undefined
+            || deps.getDocumentVersion?.() === undefined
+            || deps.getDocumentVersion() === options.documentVersion;
+    }
+
     function shouldContinueLayerRender(options?: IAnnotationLayerRenderOptions) {
-        return options?.shouldContinue?.() !== false;
+        return options?.signal?.aborted !== true
+            && isDocumentVersionCurrent(options)
+            && options?.shouldContinue?.() !== false;
+    }
+
+    function createAnnotationLayerCancelledError(pageNumber: number) {
+        const error = new Error(`Annotation layer render cancelled for page ${pageNumber}`);
+        error.name = 'AbortError';
+        return error;
+    }
+
+    async function raceWithAnnotationAbort<T>(
+        promise: Promise<T>,
+        pageNumber: number,
+        options?: IAnnotationLayerRenderOptions,
+    ) {
+        const signal = options?.signal;
+        if (!signal) {
+            return promise;
+        }
+        if (signal.aborted) {
+            throw createAnnotationLayerCancelledError(pageNumber);
+        }
+
+        let removeAbortListener = () => {};
+        const abortPromise = new Promise<never>((_resolve, reject) => {
+            const abort = () => reject(createAnnotationLayerCancelledError(pageNumber));
+            signal.addEventListener('abort', abort, { once: true });
+            removeAbortListener = () => signal.removeEventListener('abort', abort);
+        });
+        try {
+            return await Promise.race([
+                promise,
+                abortPromise,
+            ]);
+        } finally {
+            removeAbortListener();
+        }
     }
 
     function getPageContainerForLayer(layer: HTMLElement) {
@@ -587,7 +631,11 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             },
         );
         try {
-            const annotations = await pdfPage.getAnnotations();
+            const annotations = await raceWithAnnotationAbort(
+                pdfPage.getAnnotations(),
+                pageNumber,
+                options,
+            );
             tracePdfAnnotationSaveEvent(
                 'annotation-layer:get-annotations:resolved',
                 {
@@ -596,7 +644,10 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                     renderToken,
                 },
             );
-            if (annotationLayerPageRenderTokens.get(pageNumber) !== renderToken) {
+            if (
+                annotationLayerPageRenderTokens.get(pageNumber) !== renderToken
+                || !shouldContinueLayerRender(options)
+            ) {
                 tracePdfAnnotationSaveDom(
                     'annotation-layer:get-annotations:stale-token',
                     pageContainer,
@@ -605,12 +656,6 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                         renderToken,
                     },
                 );
-                return null;
-            }
-            if (!shouldContinueLayerRender(options)) {
-                if (annotationLayerPageRenderTokens.get(pageNumber) === renderToken) {
-                    annotationLayerDiv.innerHTML = '';
-                }
                 return null;
             }
             const hiddenAnnotationIds = getNormalizedHiddenAnnotationIds();
@@ -721,17 +766,24 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                     visibleAnnotations: visibleAnnotations.length,
                 },
             );
-            await withHiddenAnnotationRenderGuards(annotationUiManager, pageContainer, async () => {
-                await annotationLayerInstance.render({
-                    annotations: visibleAnnotations,
-                    viewport,
-                    div: annotationLayerDiv as HTMLDivElement,
-                    page: pdfPage,
-                    linkService: simpleLinkService as never,
-                    renderForms: false,
-                    annotationStorage,
-                });
-            });
+            await raceWithAnnotationAbort(
+                withHiddenAnnotationRenderGuards(annotationUiManager, pageContainer, async () => {
+                    if (!shouldContinueLayerRender(options)) {
+                        return;
+                    }
+                    await annotationLayerInstance.render({
+                        annotations: visibleAnnotations,
+                        viewport,
+                        div: annotationLayerDiv as HTMLDivElement,
+                        page: pdfPage,
+                        linkService: simpleLinkService as never,
+                        renderForms: false,
+                        annotationStorage,
+                    });
+                }),
+                pageNumber,
+                options,
+            );
             if (
                 annotationLayerPageRenderTokens.get(pageNumber) !== renderToken
             ) {

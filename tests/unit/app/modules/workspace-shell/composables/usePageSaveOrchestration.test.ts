@@ -134,6 +134,7 @@ describe('usePageSaveOrchestration', () => {
             openOcrPopup: vi.fn(),
             isExportingDocx: ref(false),
             workingCopyPath: ref('/tmp/document.pdf'),
+            documentRevisionToken: ref(null),
             annotationComments: ref([]),
             totalPages: ref(50),
             pageLabelsDirty: ref(false),
@@ -219,6 +220,7 @@ describe('usePageSaveOrchestration', () => {
             openOcrPopup: vi.fn(),
             isExportingDocx: ref(false),
             workingCopyPath: ref('/tmp/document.pdf'),
+            documentRevisionToken: ref(null),
             annotationComments: ref([]),
             totalPages: ref(1),
             pageLabelsDirty: ref(false),
@@ -296,6 +298,7 @@ describe('usePageSaveOrchestration', () => {
             openOcrPopup: vi.fn(),
             isExportingDocx: ref(false),
             workingCopyPath: ref('/tmp/document.pdf'),
+            documentRevisionToken: ref(null),
             annotationComments: ref([]),
             totalPages: ref(1),
             pageLabelsDirty: ref(false),
@@ -367,6 +370,7 @@ describe('usePageSaveOrchestration', () => {
             openOcrPopup: vi.fn(),
             isExportingDocx: ref(false),
             workingCopyPath: ref('/tmp/document.pdf'),
+            documentRevisionToken: ref(null),
             annotationComments: ref([]),
             totalPages: ref(1),
             pageLabelsDirty: ref(false),
@@ -446,6 +450,7 @@ describe('usePageSaveOrchestration', () => {
             openOcrPopup: vi.fn(),
             isExportingDocx: ref(false),
             workingCopyPath: ref('/tmp/work.pdf'),
+            documentRevisionToken: ref('revision-token'),
             annotationComments: ref([]),
             totalPages: ref(12),
             pageLabelsDirty: ref(false),
@@ -512,6 +517,7 @@ describe('usePageSaveOrchestration', () => {
         expect(platformMocks.replaceWorkingCopyFromPath).toHaveBeenCalledWith(
             '/tmp/work.pdf',
             '/tmp/ocr-1-merged.pdf',
+            {expectedDocumentRevisionToken: 'revision-token'},
         );
         expect(reloadWorkingCopyIntoHistory).toHaveBeenCalledWith({ markDirty: true });
         expect(platformMocks.acknowledgeResultFile).toHaveBeenCalledWith(
@@ -550,6 +556,7 @@ describe('usePageSaveOrchestration', () => {
             openOcrPopup: vi.fn(),
             isExportingDocx: ref(false),
             workingCopyPath: ref('/tmp/work.pdf'),
+            documentRevisionToken: ref('revision-token'),
             annotationComments: ref([]),
             totalPages: ref(12),
             pageLabelsDirty: ref(false),
@@ -637,6 +644,7 @@ describe('usePageSaveOrchestration', () => {
             openOcrPopup: vi.fn(),
             isExportingDocx: ref(false),
             workingCopyPath: ref('/tmp/work.pdf'),
+            documentRevisionToken: ref('revision-token'),
             annotationComments: ref([]),
             totalPages: ref(12),
             pageLabelsDirty: ref(false),
@@ -718,6 +726,7 @@ describe('usePageSaveOrchestration', () => {
             openOcrPopup: vi.fn(),
             isExportingDocx: ref(false),
             workingCopyPath: ref('/tmp/work.pdf'),
+            documentRevisionToken: ref('revision-token'),
             annotationComments: ref([]),
             totalPages: ref(12),
             pageLabelsDirty: ref(false),
@@ -779,6 +788,7 @@ describe('usePageSaveOrchestration', () => {
         expect(platformMocks.replaceWorkingCopyFromPath).toHaveBeenCalledWith(
             '/tmp/work.pdf',
             '/tmp/ocr-1-merged.pdf',
+            {expectedDocumentRevisionToken: 'revision-token'},
         );
         expect(platformMocks.acknowledgeResultFile).not.toHaveBeenCalled();
         expect(platformMocks.cleanupOcrTemp).not.toHaveBeenCalled();

@@ -181,6 +181,76 @@ describe('search worker warmup and cache behavior', () => {
         });
     });
 
+    it('singleflights concurrent warmup index builds for the same document revision', async () => {
+        let resolveBuild!: () => void;
+        mocks.buildSearchIndex.mockImplementation(async () => new Promise((resolve) => {
+            resolveBuild = () => resolve({
+                schemaVersion: 7,
+                documentRevision: {token: DOCUMENT_REVISION},
+                pdfPath: TEST_PDF_PATH,
+                createdAt: Date.now(),
+                pageCount: 1,
+                pages: [{
+                    pageNumber: 1,
+                    text: PAGE_TEXT,
+                }],
+            });
+        }));
+
+        await import('@electron/search/worker');
+        const handleMessage = mocks.messageHandlers.get('message');
+        expect(handleMessage).toBeTypeOf('function');
+
+        handleMessage?.({
+            type: 'search',
+            payload: {
+                requestId: 'warm-singleflight-1',
+                pdfPath: TEST_PDF_PATH,
+                documentRevision: DOCUMENT_REVISION,
+                query: '',
+                pageCount: 1,
+                warmup: true,
+            },
+        });
+        handleMessage?.({
+            type: 'search',
+            payload: {
+                requestId: 'warm-singleflight-2',
+                pdfPath: TEST_PDF_PATH,
+                documentRevision: DOCUMENT_REVISION,
+                query: '',
+                pageCount: 1,
+                warmup: true,
+            },
+        });
+
+        await vi.waitFor(() => {
+            expect(mocks.buildSearchIndex).toHaveBeenCalledTimes(1);
+        });
+
+        resolveBuild();
+
+        await vi.waitFor(() => {
+            expect(mocks.postedMessages).toContainEqual({
+                type: 'complete',
+                requestId: 'warm-singleflight-1',
+                response: {
+                    results: [],
+                    truncated: false,
+                },
+            });
+            expect(mocks.postedMessages).toContainEqual({
+                type: 'complete',
+                requestId: 'warm-singleflight-2',
+                response: {
+                    results: [],
+                    truncated: false,
+                },
+            });
+        });
+        expect(mocks.buildSearchIndex).toHaveBeenCalledTimes(1);
+    });
+
     it('evicts the oldest cached index once the default cache budget is exceeded', async () => {
         await import('@electron/search/worker');
         const handleMessage = mocks.messageHandlers.get('message');

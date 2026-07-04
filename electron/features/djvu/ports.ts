@@ -33,6 +33,10 @@ export interface IDjvuService {
         context: IDjvuOperationContext,
         ...args: Parameters<TDjvuApi['cancel']>
     ) => ReturnType<TDjvuApi['cancel']>;
+    cancelPagePreview: (
+        context: IDjvuOperationContext,
+        ...args: Parameters<TDjvuApi['cancelPagePreview']>
+    ) => ReturnType<TDjvuApi['cancelPagePreview']>;
     getInfo: (
         context: IDjvuOperationContext,
         ...args: Parameters<TDjvuApi['getInfo']>

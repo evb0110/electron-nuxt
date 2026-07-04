@@ -257,6 +257,119 @@ describe('documents ipc adapter', () => {
         }, '/tmp/owned.pdf', 'owned.pdf', [1]);
     });
 
+    it('forwards expected revision options for working-copy mutation channels', async () => {
+        const {
+            eventRegistrar,
+            handlers,
+            registrar,
+        } = createRegistrationHarness();
+        const sender = {id: 51};
+        const expectedOptions = {expectedDocumentRevisionToken: 'drt1:test:renderer-base'};
+        const service = {
+            applyPdfNativeMutationsToWorkingCopy: vi.fn(async () => ({success: true})),
+            replaceWorkingCopyFromPath: vi.fn(async () => true),
+            savePdfNativeMutations: vi.fn(async () => ({success: true})),
+            savePdfNoteChanges: vi.fn(async () => ({success: true})),
+            savePdfNoteTextUpdates: vi.fn(async () => ({success: true})),
+            writeFile: vi.fn(async () => true),
+        };
+        const { registerDocumentsIpcAdapter } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
+
+        registerDocumentsIpcAdapter(registrar as never, service as never, {eventRegistrar});
+
+        await handlers.get(DOCUMENTS_CHANNELS.fileWrite)?.(
+            {sender},
+            '/tmp/work.pdf',
+            new Uint8Array([1]),
+            expectedOptions,
+        );
+        await handlers.get(DOCUMENTS_CHANNELS.fileReplaceWorkingCopyFromPath)?.(
+            {sender},
+            '/tmp/work.pdf',
+            '/tmp/ocr-output.pdf',
+            expectedOptions,
+        );
+        await handlers.get(DOCUMENTS_CHANNELS.fileSavePdfNoteTextUpdates)?.(
+            {sender},
+            '/tmp/work.pdf',
+            [],
+            '2026-07-04T00:00:00.000Z',
+            expectedOptions,
+        );
+        await handlers.get(DOCUMENTS_CHANNELS.fileSavePdfNoteChanges)?.(
+            {sender},
+            '/tmp/work.pdf',
+            [],
+            '2026-07-04T00:00:00.000Z',
+            expectedOptions,
+        );
+        await handlers.get(DOCUMENTS_CHANNELS.fileSavePdfNativeMutations)?.(
+            {sender},
+            '/tmp/work.pdf',
+            [],
+            '2026-07-04T00:00:00.000Z',
+            expectedOptions,
+        );
+        await handlers.get(DOCUMENTS_CHANNELS.fileApplyPdfNativeMutationsToWorkingCopy)?.(
+            {sender},
+            '/tmp/work.pdf',
+            [],
+            '2026-07-04T00:00:00.000Z',
+            {
+                size: 11,
+                mtimeMs: 22,
+                contentFingerprint: 'base-fingerprint',
+            },
+            expectedOptions,
+        );
+
+        expect(service.writeFile).toHaveBeenCalledWith(
+            {senderId: 51},
+            '/tmp/work.pdf',
+            new Uint8Array([1]),
+            expectedOptions,
+        );
+        expect(service.replaceWorkingCopyFromPath).toHaveBeenCalledWith(
+            {senderId: 51},
+            '/tmp/work.pdf',
+            '/tmp/ocr-output.pdf',
+            expectedOptions,
+        );
+        expect(service.savePdfNoteTextUpdates).toHaveBeenCalledWith(
+            {senderId: 51},
+            '/tmp/work.pdf',
+            [],
+            '2026-07-04T00:00:00.000Z',
+            expectedOptions,
+        );
+        expect(service.savePdfNoteChanges).toHaveBeenCalledWith(
+            {senderId: 51},
+            '/tmp/work.pdf',
+            [],
+            '2026-07-04T00:00:00.000Z',
+            expectedOptions,
+        );
+        expect(service.savePdfNativeMutations).toHaveBeenCalledWith(
+            {senderId: 51},
+            '/tmp/work.pdf',
+            [],
+            '2026-07-04T00:00:00.000Z',
+            expectedOptions,
+        );
+        expect(service.applyPdfNativeMutationsToWorkingCopy).toHaveBeenCalledWith(
+            {senderId: 51},
+            '/tmp/work.pdf',
+            [],
+            '2026-07-04T00:00:00.000Z',
+            {
+                size: 11,
+                mtimeMs: 22,
+                contentFingerprint: 'base-fingerprint',
+            },
+            expectedOptions,
+        );
+    });
+
 
     it('grants renderer file-open paths to the sender webContents owner', async () => {
         const tempRoot = mkdtempSync(join(tmpdir(), 'evb-documents-ipc-adapter-test-'));

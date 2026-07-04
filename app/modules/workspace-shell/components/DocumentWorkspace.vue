@@ -400,6 +400,7 @@ import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tab
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import type { IWorkspaceDocumentSessionController } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
 import { useWorkspaceViewerAdapterBinding } from '@app/modules/workspace-shell/viewers/useWorkspaceViewerAdapterBinding';
+import { emitAutomationEvent } from '@app/modules/workspace-shell/automation/automationReadinessEvents';
 
 const DjvuConversionOverlay = defineAsyncComponent(() => import('@app/modules/djvu-viewer/public').then(componentModule => componentModule.DjvuConversionOverlay));
 
@@ -499,6 +500,7 @@ const pendingDjvuDocumentOpen = computed(() => (
     && typeof pendingDocumentPath === 'string'
     && getDocumentKindFromPath(pendingDocumentPath) === 'djvu'
 ));
+let latestDocumentOpenedToken: symbol | null = null;
 const isActiveRef = computed({
     get: () => isActive,
     set: () => {},
@@ -940,7 +942,7 @@ const {
     onFitModeUpdate: value => { fitMode.value = value as typeof fitMode.value; },
     onImagePlacementFinalize: annotationSession.handleFinalizePlacedImage,
     onInitialVisualPending: handleDocumentInitialVisualPending,
-    onInitialVisualReady: handleDocumentInitialVisualReady,
+    onInitialVisualReady: handleDocumentInitialVisualReadyWithAutomationEvent,
     onLoadError: handlePdfViewerLoadError,
     onLoading: value => { isLoading.value = value; },
     onNavigationFeedbackPageUpdate: value => { navigationFeedbackPage.value = value; },
@@ -1086,7 +1088,7 @@ const {
     tabId: tabId,
     emitOpenSettings: () => emit('open-settings'),
     closeAllDropdowns,
-    handleSave,
+    handleSave: handleSaveWithAutomationEvent,
     handleRepairSave,
     handleOptimizePdfForInteraction: openOptimizePdfForInteractionDialog,
     handleSaveAs,
@@ -1223,6 +1225,35 @@ function handleViewerCurrentPageUpdate(page: number) {
         viewerScrollLeft: viewer ? Math.round(viewer.scrollLeft) : null,
     });
     currentPage.value = page;
+    void nextTick().then(() => {
+        emitAutomationEvent('navigation-idle', {
+            page,
+            previousPage,
+            tabId,
+            totalPages: totalPages.value,
+        });
+    });
+}
+
+function handleDocumentInitialVisualReadyWithAutomationEvent() {
+    handleDocumentInitialVisualReady();
+    emitAutomationEvent('first-page-rendered', {
+        currentPage: currentPage.value,
+        path: originalPath.value ?? workingCopyPath.value,
+        tabId,
+        totalPages: totalPages.value,
+    });
+}
+
+async function handleSaveWithAutomationEvent() {
+    const saved = await handleSave();
+    if (saved) {
+        emitAutomationEvent('save-committed', {
+            path: originalPath.value ?? workingCopyPath.value,
+            tabId,
+        });
+    }
+    return saved;
 }
 watch(pdfSrc, (src) => {
     navigationFeedbackPage.value = null;
@@ -1240,6 +1271,34 @@ watch(showNativePreviewViewer, (visible) => {
         navigationFeedbackPage.value = null;
         scheduleStartupOpenVisualReady(showNativePdfViewer.value ? 'native-pdf-src' : 'djvu-src');
     }
+});
+watch([
+    workingCopyPath,
+    originalPath,
+], ([
+    nextWorkingCopyPath,
+    nextOriginalPath,
+]) => {
+    const documentPath = nextOriginalPath ?? nextWorkingCopyPath;
+    if (!documentPath) {
+        return;
+    }
+
+    const openToken = Symbol('document-opened');
+    latestDocumentOpenedToken = openToken;
+    void waitForDocumentOpenSettled()
+        .then(() => {
+            if (latestDocumentOpenedToken !== openToken) {
+                return;
+            }
+            emitAutomationEvent('document-opened', {
+                currentPage: currentPage.value,
+                path: documentPath,
+                tabId,
+                totalPages: totalPages.value,
+            });
+        })
+        .catch(() => {});
 });
 watch([
     pdfError,
@@ -1432,7 +1491,7 @@ const {
 });
 const readHasPreservedAnnotationSourceChanges = (): boolean => hasPreservedAnnotationSourceChanges();
 const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
-    handleSave,
+    handleSave: handleSaveWithAutomationEvent,
     handleRepairSave,
     handleOptimizePdfForInteraction: () => Promise.resolve(openOptimizePdfForInteractionDialog()),
     handleSaveAs,

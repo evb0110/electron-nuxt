@@ -3,10 +3,12 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { closePagePreviewSource } from '@app/modules/pdf-viewer/engine/pdf-page-preview/createPagePreviewCache';
 import type { createPagePreviewCache } from '@app/modules/pdf-viewer/engine/pdf-page-preview/createPagePreviewCache';
 import type { TPdfPagePreviewSource } from '@app/modules/pdf-viewer/engine/pdf-page-preview/pdfPagePreviewTypes';
+import { runCoordinatedPdfPageRender } from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
 
 interface ICreatePagePreviewRenderQueueOptions {
     cache: ReturnType<typeof createPagePreviewCache>;
-    getPage: (pageNumber: number) => Promise<PDFPageProxy>;
+    leasePage: (pageNumber: number) => Promise<PDFPageProxy>;
+    releasePage: (pageNumber: number, pdfPage: PDFPageProxy) => void;
     maxLongestSidePx: number;
     concurrency: number;
     shouldSkipPage?: ((pageNumber: number) => boolean) | undefined;
@@ -23,6 +25,7 @@ interface IQueuedPreviewRender {
 export const PAGE_PREVIEW_TARGET_PRIORITY = 100;
 const MAX_IN_FLIGHT_PREFETCH_RENDERS = 1;
 const RENDER_DURATION_SAMPLE_LIMIT = 4;
+const PAGE_PREVIEW_RENDER_PRIORITY = 1;
 
 function normalizePositiveInteger(value: number, fallback: number) {
     return Number.isFinite(value) && value > 0
@@ -60,7 +63,9 @@ async function createPreviewSourceFromCanvas(canvas: HTMLCanvasElement): Promise
 
 async function renderPagePreviewSource(
     pdfPage: PDFPageProxy,
+    pageNumber: number,
     maxLongestSidePx: number,
+    signal: AbortSignal,
 ) {
     const scale = getRenderScale(pdfPage, maxLongestSidePx);
     const viewport = pdfPage.getViewport({ scale });
@@ -71,14 +76,26 @@ async function renderPagePreviewSource(
         return null;
     }
 
-    const renderTask = pdfPage.render({
-        canvas,
-        canvasContext: context,
-        viewport,
-        annotationMode: 0,
-    });
     try {
-        await renderTask.promise;
+        await runCoordinatedPdfPageRender({
+            owner: 'page-preview',
+            pageNumber,
+            pdfPage,
+            priority: PAGE_PREVIEW_RENDER_PRIORITY,
+            signal,
+            shouldStart: () => !signal.aborted,
+            startRender: () => pdfPage.render({
+                canvas,
+                canvasContext: context,
+                viewport,
+                annotationMode: 0,
+            }),
+        });
+        if (signal.aborted) {
+            closePagePreviewSource(canvas);
+            return null;
+        }
+
         const source = await createPreviewSourceFromCanvas(canvas);
         return {
             source,
@@ -91,15 +108,31 @@ async function renderPagePreviewSource(
     }
 }
 
+function isAbortError(error: unknown) {
+    return error instanceof Error
+        && (
+            error.name === 'AbortError'
+            || error.name === 'RenderingCancelledException'
+        );
+}
+
 export function createPagePreviewRenderQueue(options: ICreatePagePreviewRenderQueueOptions) {
     const maxLongestSidePx = normalizePositiveInteger(options.maxLongestSidePx, 640);
     const concurrency = normalizePositiveInteger(options.concurrency, 1);
     const queued = new Map<number, IQueuedPreviewRender>();
     const renderDurationSamplesMs: number[] = [];
+    const activeAbortControllers = new Set<AbortController>();
     let activeCount = 0;
     let activePrefetchCount = 0;
     let sequence = 0;
     let generation = 0;
+
+    function abortActiveRenders() {
+        for (const controller of activeAbortControllers) {
+            controller.abort();
+        }
+        activeAbortControllers.clear();
+    }
 
     function getGeneration() {
         return generation;
@@ -108,6 +141,7 @@ export function createPagePreviewRenderQueue(options: ICreatePagePreviewRenderQu
     function reset() {
         generation += 1;
         queued.clear();
+        abortActiveRenders();
         renderDurationSamplesMs.length = 0;
         options.cache.clear();
     }
@@ -191,10 +225,14 @@ export function createPagePreviewRenderQueue(options: ICreatePagePreviewRenderQu
             return;
         }
 
+        const abortController = new AbortController();
+        activeAbortControllers.add(abortController);
+        let pdfPage: PDFPageProxy | null = null;
         try {
-            const pdfPage = await options.getPage(request.pageNumber);
+            pdfPage = await options.leasePage(request.pageNumber);
             if (
-                request.generation !== generation
+                abortController.signal.aborted
+                || request.generation !== generation
                 || options.cache.has(request.pageNumber, generation)
                 || options.shouldSkipPage?.(request.pageNumber) === true
             ) {
@@ -202,12 +240,17 @@ export function createPagePreviewRenderQueue(options: ICreatePagePreviewRenderQu
             }
 
             const renderStartedAtMs = performance.now();
-            const preview = await renderPagePreviewSource(pdfPage, maxLongestSidePx);
+            const preview = await renderPagePreviewSource(
+                pdfPage,
+                request.pageNumber,
+                maxLongestSidePx,
+                abortController.signal,
+            );
             if (!preview) {
                 return;
             }
 
-            if (request.generation !== generation) {
+            if (abortController.signal.aborted || request.generation !== generation) {
                 closePagePreviewSource(preview.source);
                 return;
             }
@@ -222,11 +265,19 @@ export function createPagePreviewRenderQueue(options: ICreatePagePreviewRenderQu
             });
             options.onPreviewReady?.(request.pageNumber);
         } catch (error) {
+            if (isAbortError(error)) {
+                return;
+            }
             BrowserLogger.warn(
                 'pdf-renderer',
                 `Failed to render low-resolution preview for page ${request.pageNumber}`,
                 error,
             );
+        } finally {
+            activeAbortControllers.delete(abortController);
+            if (pdfPage) {
+                options.releasePage(request.pageNumber, pdfPage);
+            }
         }
     }
 

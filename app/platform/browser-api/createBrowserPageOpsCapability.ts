@@ -1,4 +1,7 @@
-import type { IPageOpsCapability } from '@contracts/electronApiPageOps';
+import type {
+    IPageOpsCapability,
+    IPageOpsMutationOptions,
+} from '@contracts/electronApiPageOps';
 import type { IPageGeometry } from '@contracts/shared';
 import type * as BrowserPageOpsCoreModule from '@app/platform/browser-api/browserPageOpsCore';
 import {
@@ -97,12 +100,19 @@ export function createBrowserPageOpsCapability(
 
     async function serializeWorkingCopyMutation<T>(
         workingCopyPath: string,
+        mutationOptions: IPageOpsMutationOptions | undefined,
         run: () => Promise<T>,
     ) {
         const previous = workingCopyMutationQueues.get(workingCopyPath) ?? Promise.resolve();
         const next = previous
             .catch(() => {})
-            .then(run);
+            .then(async () => {
+                await browserDocumentStore.assertDocumentRevisionCurrent(
+                    workingCopyPath,
+                    mutationOptions?.expectedDocumentRevisionToken,
+                );
+                return run();
+            });
         workingCopyMutationQueues.set(workingCopyPath, next);
         try {
             return await next;
@@ -259,8 +269,8 @@ export function createBrowserPageOpsCapability(
     }
 
     const pageOps: IPageOpsCapability = {
-        async delete(workingCopyPath, pages) {
-            return serializeWorkingCopyMutation(workingCopyPath, async () => {
+        async delete(workingCopyPath, pages, _totalPages, mutationOptions) {
+            return serializeWorkingCopyMutation(workingCopyPath, mutationOptions, async () => {
                 const result = await runWorkerBackedPdfOperation({
                     path: workingCopyPath,
                     label: 'Deleting pages',
@@ -355,8 +365,8 @@ export function createBrowserPageOpsCapability(
                 destPath,
             };
         },
-        async reorder(workingCopyPath, newOrder) {
-            return serializeWorkingCopyMutation(workingCopyPath, async () => {
+        async reorder(workingCopyPath, newOrder, mutationOptions) {
+            return serializeWorkingCopyMutation(workingCopyPath, mutationOptions, async () => {
                 const result = await runWorkerBackedPdfOperation({
                     path: workingCopyPath,
                     label: 'Reordering pages',
@@ -378,7 +388,7 @@ export function createBrowserPageOpsCapability(
                 );
             });
         },
-        async insert(workingCopyPath, _totalPages, afterPage) {
+        async insert(workingCopyPath, _totalPages, afterPage, mutationOptions) {
             const pickedFiles = await options.pickFiles({
                 accept: options.openInputAccept,
                 multiple: true,
@@ -408,6 +418,8 @@ export function createBrowserPageOpsCapability(
                     0,
                     afterPage,
                     sourcePaths,
+                    undefined,
+                    mutationOptions,
                 );
             } finally {
                 await Promise.allSettled(
@@ -417,8 +429,8 @@ export function createBrowserPageOpsCapability(
                 );
             }
         },
-        async insertFile(workingCopyPath, _totalPages, afterPage, sourcePaths, requestId) {
-            return serializeWorkingCopyMutation(workingCopyPath, async () => {
+        async insertFile(workingCopyPath, _totalPages, afterPage, sourcePaths, requestId, mutationOptions) {
+            return serializeWorkingCopyMutation(workingCopyPath, mutationOptions, async () => {
                 await ensurePdfWithinBudget(
                     workingCopyPath,
                     'Inserting pages',
@@ -497,8 +509,8 @@ export function createBrowserPageOpsCapability(
                 );
             });
         },
-        async rotate(workingCopyPath, pages, _totalPages, angle) {
-            return serializeWorkingCopyMutation(workingCopyPath, async () => {
+        async rotate(workingCopyPath, pages, _totalPages, angle, mutationOptions) {
+            return serializeWorkingCopyMutation(workingCopyPath, mutationOptions, async () => {
                 const result = await runWorkerBackedPdfOperation({
                     path: workingCopyPath,
                     label: 'Rotating pages',
@@ -521,8 +533,8 @@ export function createBrowserPageOpsCapability(
                 );
             });
         },
-        async crop(workingCopyPath, pages, _totalPages, margins) {
-            return serializeWorkingCopyMutation(workingCopyPath, async () => {
+        async crop(workingCopyPath, pages, _totalPages, margins, mutationOptions) {
+            return serializeWorkingCopyMutation(workingCopyPath, mutationOptions, async () => {
                 const result = await runWorkerBackedPdfOperation({
                     path: workingCopyPath,
                     label: 'Cropping pages',
@@ -545,8 +557,8 @@ export function createBrowserPageOpsCapability(
                 );
             });
         },
-        async removeCrop(workingCopyPath, pages, _totalPages) {
-            return serializeWorkingCopyMutation(workingCopyPath, async () => {
+        async removeCrop(workingCopyPath, pages, _totalPages, mutationOptions) {
+            return serializeWorkingCopyMutation(workingCopyPath, mutationOptions, async () => {
                 const result = await runWorkerBackedPdfOperation({
                     path: workingCopyPath,
                     label: 'Removing crop',

@@ -1,5 +1,6 @@
 import {
     handleDjvuCancelOperation,
+    handleDjvuCancelPagePreview,
     handleDjvuCleanupTemp,
     handleDjvuConvertToPdfOperation,
     handleDjvuEstimateSizes,
@@ -26,6 +27,8 @@ export function createDjvuService(): IDjvuService {
             handleDjvuPrintPathOperation(context, djvuPath, options),
         cancel: (context, jobId) =>
             handleDjvuCancelOperation(context, jobId),
+        cancelPagePreview: (context, requestId) =>
+            handleDjvuCancelPagePreview(context, requestId),
         getInfo: (context, djvuPath) =>
             handleDjvuGetInfo(context, djvuPath),
         getPageSizes: (context, djvuPath) =>

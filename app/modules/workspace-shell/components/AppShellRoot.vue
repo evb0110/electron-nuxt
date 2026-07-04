@@ -665,14 +665,20 @@ const assistantChatScope = computed<IAgentAssistantChatScope | null>(() => {
         return null;
     }
 
+    const session = documentSessionsByTabId.value[tab.id] ?? null;
+    const documentSessionKey = session ? unref(session.snapshot).identity.documentSessionKey : null;
     const documentRef = tab.originalPath;
     const documentBackend = resolveDocumentRefBackend(documentRef);
     const documentIdentity = activeDocumentRecord.value?.documentIdentity ?? null;
-    const commandTarget = documentSessionsByTabId.value[tab.id]?.createCommandTarget();
+    const commandTarget = session?.createCommandTarget();
     const title = tab.fileName ?? documentRef ?? null;
     return {
         kind: 'document',
-        key: documentRef ? `document:${documentRef}` : `tab:${tab.id}`,
+        key: documentSessionKey
+            ? `document-session:${documentSessionKey}`
+            : documentRef
+                ? `document:${documentBackend ?? 'unknown'}:${documentRef}`
+                : `tab:${tab.id}`,
         title,
         tabId: tab.id,
         ...(documentRef ? { documentRef } : {}),

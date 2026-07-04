@@ -365,6 +365,51 @@ describe('usePdfRendererVisibleRenderController', () => {
         expect(renderSingleVisiblePage).not.toHaveBeenCalled();
     });
 
+    it('fences legacy visible render requests when the document version changes mid-render', async () => {
+        const renderSingleVisiblePage = vi.fn(async () => undefined);
+        const ensurePageMetricsInRange = vi.fn(async () => {
+            documentVersion = 51;
+            return true;
+        });
+        let documentVersion = 50;
+        const renderVisiblePages = usePdfRendererVisibleRenderController({
+            container: ref(cast<HTMLElement>({
+                querySelector: vi.fn(() => null),
+                querySelectorAll: vi.fn(() => []),
+            })),
+            currentPage: ref(16),
+            numPages: ref(20),
+            isActive: true,
+            bufferPages: 0,
+            renderConcurrency: 1,
+            effectiveScale: 1,
+            renderedPages: new Set<number>(),
+            staleRenderedPages: new Set<number>(),
+            renderingPages: new Map<number, number>(),
+            renderingPageRequestIds: new Map<number, number>(),
+            getRenderVersion: () => documentVersion,
+            getDocumentVersion: () => documentVersion,
+            getRenderDocumentToken: () => 'doc-1',
+            getVisibleRenderRequestId: () => 1,
+            nextVisibleRenderRequestId: () => 1,
+            ensurePageMetricsInRange,
+            setupPagePlaceholders: vi.fn(),
+            cleanupPage: vi.fn(),
+            cancelObsoleteInFlightRenders: vi.fn(),
+            renderSingleVisiblePage,
+            scheduleMissingRenderTargetRetry: vi.fn(),
+            throttleMs: 0,
+        });
+
+        await renderVisiblePages({
+            start: 16,
+            end: 16,
+        });
+
+        expect(ensurePageMetricsInRange).toHaveBeenCalledOnce();
+        expect(renderSingleVisiblePage).not.toHaveBeenCalled();
+    });
+
     it('passes transaction metadata to missing-target retry scheduling', async () => {
         const request = createTransactionRequest();
         let visibleRenderRequestId = 0;

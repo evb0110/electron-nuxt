@@ -87,6 +87,7 @@ describe('useAppShellTabLifecycle', () => {
         expect(beginTransaction).toHaveBeenCalledWith({
             kind: 'close',
             documentRef: '/tmp/sample.pdf',
+            persist: true,
         });
         expect(workspace.handleCloseFileFromUi).toHaveBeenCalledWith({persist: true});
         expect(finishTransaction).toHaveBeenCalledWith('close-transaction-1', 'committed');

@@ -8,12 +8,17 @@ import {
 import { AGENT_EVENT_CHANNELS } from '@electron/features/agent/contract';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 import { CORE_IPC_EVENT_CHANNELS } from '@electron/platform-ipc/coreContract';
+import { getPlatformDocumentCapabilityMirrors } from '@contracts/platformApi';
 
 const documentsClientMock = vi.hoisted(() => ({
     openDocumentDialog: vi.fn(async () => null),
     openPdfDialog: vi.fn(async () => null),
     openCombineDialog: vi.fn(async () => null),
     openFolderDialog: vi.fn(async () => null),
+    openFolderDialogStructured: vi.fn(async () => ({
+        ok: false,
+        reason: 'unsupported',
+    })),
     openImageDialog: vi.fn(async () => null),
     openDocumentDirect: vi.fn(async (path: string) => ({ path })),
     openPdfDirect: vi.fn(async (path: string) => ({ path })),
@@ -29,6 +34,12 @@ const documentsClientMock = vi.hoisted(() => ({
     readFile: vi.fn(async () => new Uint8Array()),
     statFile: vi.fn(async () => ({size: 0})),
     readFileRange: vi.fn(async () => new Uint8Array()),
+    getPdfNativePageSizes: vi.fn(async () => []),
+    renderPdfNativePagePreview: vi.fn(async () => ({
+        bytes: new Uint8Array(),
+        height: 0,
+        width: 0,
+    })),
     readFileChunks: vi.fn(async () => ({
         size: 0,
         bytesRead: 0,
@@ -63,6 +74,7 @@ const documentsClientMock = vi.hoisted(() => ({
         workingCopyRefreshed: true,
         validation: null,
     })),
+    resyncWorkingCopy: vi.fn(async () => ({success: true})),
     savePdfData: vi.fn(async () => ({valid: true})),
     savePdfDataChunks: vi.fn(async () => ({valid: true})),
     repairPdf: vi.fn(async () => ({valid: true})),
@@ -76,6 +88,8 @@ const documentsClientMock = vi.hoisted(() => ({
     cleanupOcrTemp: vi.fn(async () => undefined),
     setWindowTitle: vi.fn(async () => undefined),
     showItemInFolder: vi.fn(async () => true),
+    showItemInFolderStructured: vi.fn(async () => ({ok: true})),
+    createCombinedPdfFromFiles: vi.fn(async () => new Uint8Array()),
     recentFiles: {
         get: vi.fn(async () => []),
         remove: vi.fn(async () => undefined),
@@ -129,158 +143,13 @@ vi.mock('@electron/features/search/createSearchPreloadClient', () => ({ createSe
 vi.mock('@electron/features/djvu/createDjvuPreloadClient', () => ({ createDjvuPreloadClient: () => ({}) }));
 vi.mock('@electron/preload/debugLogBuffer', () => ({ getDebugLogMessages: () => [] }));
 
-const splitDocumentCapabilityMirrorGroups = [
-    {
-        splitRoot: 'documentPicker',
-        paths: [
-            ['openDocumentDialog'],
-            ['openPdfDialog'],
-            ['openCombineDialog'],
-            ['openFolderDialog'],
-            ['openImageDialog'],
-            ['getPathForFile'],
-            ['getPathsForFiles'],
-        ],
-    },
-    {
-        splitRoot: 'documentOpen',
-        paths: [
-            ['openDocumentDirect'],
-            ['openPdfDirect'],
-            ['openDocumentDirectBatch'],
-            ['openPdfDirectBatch'],
-        ],
-    },
-    {
-        splitRoot: 'documentWorkingCopy',
-        paths: [
-            ['createWorkingCopyFromData'],
-            ['createWorkingCopyFromPath'],
-            ['cleanupFile'],
-            ['cleanupOcrTemp'],
-        ],
-    },
-    {
-        splitRoot: 'documentFiles',
-        paths: [
-            ['readFile'],
-            ['statFile'],
-            ['readFileRange'],
-            ['readFileChunks'],
-            ['readTextFile'],
-            ['fileExists'],
-            ['getDocumentRevision'],
-            ['onDocumentRevisionChanged'],
-            ['savePdfAs'],
-            ['savePdfDataAs'],
-            ['savePdfDialog'],
-            ['saveDocxAs'],
-            ['writeFile'],
-            ['replaceWorkingCopyFromPath'],
-            ['writeDocxFile'],
-            ['saveFileStructured'],
-            ['savePdfData'],
-            ['savePdfDataChunks'],
-            ['repairPdf'],
-            ['optimizePdfForInteraction'],
-            ['optimizePdfAsCopy'],
-            ['savePdfNoteTextUpdates'],
-            ['savePdfNoteChanges'],
-            ['savePdfNativeMutations'],
-            ['applyPdfNativeMutationsToWorkingCopy'],
-        ],
-    },
-    {
-        splitRoot: 'documentPdf',
-        paths: [
-            ['analyzePdfConformance'],
-            ['validatePdfData'],
-            ['validatePdfPath'],
-            ['openPdfInDefaultAppData'],
-            ['openPdfInDefaultAppPath'],
-            ['printPdfData'],
-            ['printPdfPath'],
-        ],
-    },
-    {
-        splitRoot: 'documentRecentFiles',
-        paths: [
-            [
-                'recentFiles',
-                'get',
-            ],
-            [
-                'recentFiles',
-                'remove',
-            ],
-            [
-                'recentFiles',
-                'clear',
-            ],
-        ],
-    },
-    {
-        splitRoot: 'documentWindow',
-        paths: [
-            ['setWindowTitle'],
-            ['showItemInFolder'],
-        ],
-    },
-    {
-        splitRoot: 'documentMenu',
-        paths: [
-            ['setMenuDocumentState'],
-            ['setMenuTabCount'],
-            ['onPdfOptimizeProgress'],
-            ['onMenuOpenPdf'],
-            ['onMenuInsertImageFromFile'],
-            ['onMenuPasteImageFromClipboard'],
-            ['onMenuSave'],
-            ['onMenuRepairSave'],
-            ['onMenuOptimizePdfForInteraction'],
-            ['onMenuSaveAs'],
-            ['onMenuPrint'],
-            ['onMenuPrintCurrentPage'],
-            ['onMenuExportDocx'],
-            ['onMenuExportImages'],
-            ['onMenuExportMultiPageTiff'],
-            ['onMenuZoomIn'],
-            ['onMenuZoomOut'],
-            ['onMenuActualSize'],
-            ['onMenuFitWidth'],
-            ['onMenuFitHeight'],
-            ['onMenuViewModeSingle'],
-            ['onMenuViewModeFacing'],
-            ['onMenuViewModeFacingFirstSingle'],
-            ['onMenuToggleAssistant'],
-            ['onMenuUndo'],
-            ['onMenuRedo'],
-            ['onMenuDeletePages'],
-            ['onMenuExtractPages'],
-            ['onMenuRotateCw'],
-            ['onMenuRotateCcw'],
-            ['onMenuInsertPages'],
-            ['onMenuOpenRecentFile'],
-            ['onMenuOpenExternalPaths'],
-            ['onMenuClearRecentFiles'],
-            ['onOpenDocumentDirectBatchProgress'],
-            ['onOpenPdfDirectBatchProgress'],
-        ],
-    },
-] as const;
-
-const splitDocumentCapabilityMirrors = splitDocumentCapabilityMirrorGroups.flatMap(group =>
-    group.paths.map(path => ({
-        splitPath: [
-            group.splitRoot,
-            ...path,
-        ],
-        legacyPath: [
-            'documents',
-            ...path,
-        ],
-    } as const)),
-);
+const splitDocumentCapabilityMirrors = getPlatformDocumentCapabilityMirrors();
+const splitDocumentCapabilityRoots = [...new Set(
+    splitDocumentCapabilityMirrors.flatMap((mirror) => {
+        const root = mirror.splitPath[0];
+        return root === undefined ? [] : [root];
+    }),
+)];
 
 const expectedLegacyDocumentFunctionPaths = splitDocumentCapabilityMirrors.map(mirror => mirror.legacyPath);
 
@@ -336,7 +205,7 @@ describe('createElectronApi', () => {
             { getPathForFile },
         );
 
-        for (const {splitRoot} of splitDocumentCapabilityMirrorGroups) {
+        for (const splitRoot of splitDocumentCapabilityRoots) {
             expect(readPropertyPath(api, [splitRoot]), splitRoot).toBeDefined();
         }
 

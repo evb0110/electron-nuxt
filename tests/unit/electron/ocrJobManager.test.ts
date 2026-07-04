@@ -164,6 +164,13 @@ function getResourceDeniedMessages(worker: { postMessage: ReturnType<typeof vi.f
         });
 }
 
+function getOcrCompleteCalls() {
+    return mocks.sendToLiveWindow.mock.calls.filter(([
+        ,
+        channel,
+    ]) => channel === 'ocr:complete');
+}
+
 describe('ocr job manager preparing-stage robustness', () => {
     beforeEach(() => {
         vi.resetModules();
@@ -510,6 +517,20 @@ describe('ocr job manager preparing-stage robustness', () => {
         mocks.sendToLiveWindow.mockClear();
 
         expect(handleOcrCancel(context, 'job-6')).toEqual({ canceled: true });
+        const cancelCompleteCalls = getOcrCompleteCalls();
+        expect(cancelCompleteCalls).toHaveLength(1);
+        expect(cancelCompleteCalls[0]?.[2]).toEqual([expect.objectContaining({
+            requestId: 'job-6',
+            success: false,
+            errors: ['OCR job was cancelled'],
+            errorEnvelope: expect.objectContaining({
+                code: 'OCR_INTERNAL_ERROR',
+                message: 'OCR job was cancelled',
+                retryable: false,
+                timestamp: expect.any(Number),
+                details: 'explicit cancel request',
+            }),
+        })]);
 
         worker?.emit('message', {
             type: 'progress',
@@ -530,7 +551,98 @@ describe('ocr job manager preparing-stage robustness', () => {
             },
         });
 
-        expect(mocks.sendToLiveWindow).not.toHaveBeenCalled();
+        expect(getOcrCompleteCalls()).toHaveLength(1);
+    });
+
+    it('emits a terminal completion when canceling a queued job', async () => {
+        vi.stubEnv('EVB_OCR_WORKER_POOL_SIZE', '1');
+        mocks.ensureTessdataLanguages.mockResolvedValue(undefined);
+
+        const {
+            handleOcrCancel,
+            handleOcrCreateSearchablePdfAsync,
+        } = await import('@electron/ocr/jobManager');
+
+        await expect(handleOcrCreateSearchablePdfAsync(
+            createContext(69),
+            '/tmp/work-69.pdf',
+            [{
+                pageNumber: 1,
+                languages: ['eng'],
+            }],
+            'job-69',
+        )).resolves.toMatchObject({
+            started: true,
+            jobId: 'job-69',
+        });
+
+        await expect(handleOcrCreateSearchablePdfAsync(
+            createContext(70),
+            '/tmp/work-70.pdf',
+            [{
+                pageNumber: 1,
+                languages: ['eng'],
+            }],
+            'job-70',
+        )).resolves.toMatchObject({
+            started: true,
+            jobId: 'job-70',
+        });
+        expect(mocks.workerInstances).toHaveLength(1);
+        mocks.sendToLiveWindow.mockClear();
+
+        expect(handleOcrCancel(createContext(70), 'job-70')).toEqual({ canceled: true });
+        expect(getOcrCompleteCalls()).toHaveLength(1);
+        expect(getOcrCompleteCalls()[0]?.[2]).toEqual([expect.objectContaining({
+            requestId: 'job-70',
+            success: false,
+            errors: ['OCR job was cancelled'],
+            errorEnvelope: expect.objectContaining({details: 'explicit cancel request'}),
+        })]);
+        expect(mocks.workerInstances).toHaveLength(1);
+    });
+
+    it('emits a terminal completion when canceling a preparing job', async () => {
+        const context = createContext(71);
+        mocks.ensureTessdataLanguages.mockImplementationOnce((_languages, options?: { signal?: AbortSignal }) => {
+            return new Promise<void>((_resolve, reject) => {
+                options?.signal?.addEventListener('abort', () => {
+                    reject(options.signal?.reason ?? new Error('aborted'));
+                }, { once: true });
+            });
+        });
+
+        const {
+            handleOcrCancel,
+            handleOcrCreateSearchablePdfAsync,
+        } = await import('@electron/ocr/jobManager');
+
+        const startPromise = handleOcrCreateSearchablePdfAsync(
+            context,
+            '/tmp/work-71.pdf',
+            [{
+                pageNumber: 1,
+                languages: ['eng'],
+            }],
+            'job-71',
+        );
+
+        await vi.waitFor(() => {
+            expect(mocks.ensureTessdataLanguages).toHaveBeenCalledTimes(1);
+        });
+        mocks.sendToLiveWindow.mockClear();
+
+        expect(handleOcrCancel(context, 'job-71')).toEqual({ canceled: true });
+        expect(getOcrCompleteCalls()).toHaveLength(1);
+        expect(getOcrCompleteCalls()[0]?.[2]).toEqual([expect.objectContaining({
+            requestId: 'job-71',
+            success: false,
+            errors: ['OCR job was cancelled'],
+        })]);
+        await expect(startPromise).resolves.toMatchObject({
+            started: false,
+            error: 'OCR job was cancelled before it started',
+        });
     });
 
     it('keeps active cancellation in the worker pool until termination settles', async () => {

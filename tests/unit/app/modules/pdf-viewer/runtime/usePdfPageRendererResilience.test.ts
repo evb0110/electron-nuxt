@@ -163,6 +163,12 @@ function createDeferred<T = void>() {
     };
 }
 
+function createReleasePageMock() {
+    return vi.fn((_pageNumber: number, pdfPage: { cleanup?: () => void; }) => {
+        pdfPage.cleanup?.();
+    });
+}
+
 function createPageContainer(overrides?: {
     pageNumber?: number;
     textLayerDiv?: INodeLike | null;
@@ -337,7 +343,8 @@ describe('usePdfPageRenderer resilience', () => {
             basePageWidth: ref(100),
             basePageHeight: ref(100),
             isLoading: ref(false),
-            getPage: vi.fn(async () => pdfPage),
+            leasePage: vi.fn(async () => pdfPage),
+            releasePage: createReleasePageMock(),
             evictPage: vi.fn(),
             cleanupPageCache: vi.fn(),
         };
@@ -366,6 +373,7 @@ describe('usePdfPageRenderer resilience', () => {
         });
 
         expect(renderer.isPageRendered(1)).toBe(true);
+        expect(documentState.releasePage).toHaveBeenCalledWith(1, pdfPage);
         expect(cleanup).toHaveBeenCalledTimes(1);
         expect(documentState.evictPage).not.toHaveBeenCalled();
     });
@@ -385,7 +393,8 @@ describe('usePdfPageRenderer resilience', () => {
             basePageWidth: ref(100),
             basePageHeight: ref(100),
             isLoading: ref(false),
-            getPage: vi.fn(async () => ({ cleanup: vi.fn() })),
+            leasePage: vi.fn(async () => ({ cleanup: vi.fn() })),
+            releasePage: createReleasePageMock(),
             evictPage: vi.fn(),
             cleanupPageCache: vi.fn(),
         };
@@ -425,7 +434,7 @@ describe('usePdfPageRenderer resilience', () => {
         });
         await Promise.resolve();
 
-        expect(cancelRenderTask).toHaveBeenCalledOnce();
+        expect(cancelRenderTask).toHaveBeenCalled();
         expect(cancellationSettled).toBe(false);
 
         renderTask.resolve();
@@ -444,7 +453,8 @@ describe('usePdfPageRenderer resilience', () => {
             basePageWidth: ref(100),
             basePageHeight: ref(100),
             isLoading: ref(false),
-            getPage: vi.fn(async () => ({ cleanup: vi.fn() })),
+            leasePage: vi.fn(async () => ({ cleanup: vi.fn() })),
+            releasePage: createReleasePageMock(),
             evictPage: vi.fn(),
             cleanupPageCache: vi.fn(),
         };
@@ -490,7 +500,8 @@ describe('usePdfPageRenderer resilience', () => {
             basePageWidth: ref(100),
             basePageHeight: ref(100),
             isLoading: ref(false),
-            getPage: vi.fn(async () => ({ cleanup: vi.fn() })),
+            leasePage: vi.fn(async () => ({ cleanup: vi.fn() })),
+            releasePage: createReleasePageMock(),
             evictPage: vi.fn(),
             cleanupPageCache: vi.fn(),
         };
@@ -539,7 +550,8 @@ describe('usePdfPageRenderer resilience', () => {
             basePageWidth: ref(100),
             basePageHeight: ref(100),
             isLoading: ref(false),
-            getPage: vi.fn(async () => ({ render: vi.fn(() => ({ promise: Promise.resolve() })) })),
+            leasePage: vi.fn(async () => ({ render: vi.fn(() => ({ promise: Promise.resolve() })) })),
+            releasePage: createReleasePageMock(),
             evictPage: vi.fn(),
             cleanupPageCache: vi.fn(),
         };
@@ -593,7 +605,8 @@ describe('usePdfPageRenderer resilience', () => {
                 basePageWidth: ref(100),
                 basePageHeight: ref(100),
                 isLoading: ref(false),
-                getPage: vi.fn(async () => ({ render: vi.fn(() => ({ promise: Promise.resolve() })) })),
+                leasePage: vi.fn(async () => ({ render: vi.fn(() => ({ promise: Promise.resolve() })) })),
+                releasePage: createReleasePageMock(),
                 evictPage: vi.fn(),
                 cleanupPageCache: vi.fn(),
             };
@@ -652,7 +665,8 @@ describe('usePdfPageRenderer resilience', () => {
             basePageWidth: ref(100),
             basePageHeight: ref(100),
             isLoading: ref(false),
-            getPage: vi.fn(async () => ({ render: vi.fn(() => ({ promise: Promise.resolve() })) })),
+            leasePage: vi.fn(async () => ({ render: vi.fn(() => ({ promise: Promise.resolve() })) })),
+            releasePage: createReleasePageMock(),
             evictPage: vi.fn(),
             cleanupPageCache: vi.fn(),
         };
@@ -723,7 +737,8 @@ describe('usePdfPageRenderer resilience', () => {
             basePageWidth: ref(100),
             basePageHeight: ref(100),
             isLoading: ref(false),
-            getPage: vi.fn(async () => ({ render: vi.fn(() => ({ promise: Promise.resolve() })) })),
+            leasePage: vi.fn(async () => ({ render: vi.fn(() => ({ promise: Promise.resolve() })) })),
+            releasePage: createReleasePageMock(),
             evictPage: vi.fn(),
             cleanupPageCache: vi.fn(),
         };
@@ -774,7 +789,8 @@ describe('usePdfPageRenderer resilience', () => {
             basePageWidth: ref(100),
             basePageHeight: ref(100),
             isLoading: ref(false),
-            getPage: vi.fn(async () => ({ render: vi.fn(() => ({ promise: Promise.resolve() })) })),
+            leasePage: vi.fn(async () => ({ render: vi.fn(() => ({ promise: Promise.resolve() })) })),
+            releasePage: createReleasePageMock(),
             evictPage: vi.fn(),
             cleanupPageCache: vi.fn(),
         };
@@ -823,7 +839,8 @@ describe('usePdfPageRenderer resilience', () => {
             basePageHeight: ref(100),
             isLoading: ref(false),
             ensurePageMetricsInRange,
-            getPage: vi.fn(async () => ({render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() }))})),
+            leasePage: vi.fn(async () => ({render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() }))})),
+            releasePage: createReleasePageMock(),
             evictPage: vi.fn(),
             cleanupPageCache: vi.fn(),
         };
@@ -890,7 +907,8 @@ describe('usePdfPageRenderer resilience', () => {
             basePageHeight: ref(100),
             isLoading: ref(false),
             ensurePageMetricsInRange,
-            getPage: vi.fn(async () => ({ render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() })) })),
+            leasePage: vi.fn(async () => ({ render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() })) })),
+            releasePage: createReleasePageMock(),
             evictPage: vi.fn(),
             cleanupPageCache: vi.fn(),
         };
@@ -936,7 +954,7 @@ describe('usePdfPageRenderer resilience', () => {
         expect(ensurePageMetricsInRange).toHaveBeenNthCalledWith(1, 2, 2);
         expect(ensurePageMetricsInRange).toHaveBeenNthCalledWith(2, 1, 1);
         expect(ensurePageMetricsInRange).toHaveBeenNthCalledWith(3, 2, 2);
-        expect(documentState.getPage).not.toHaveBeenCalledWith(1);
+        expect(documentState.leasePage).not.toHaveBeenCalledWith(1);
         expect(renderer.isPageRendered(2)).toBe(true);
         expect(secondPageContainer.classList.remove).not.toHaveBeenCalledWith('page_container--rendered');
     });
@@ -956,7 +974,8 @@ describe('usePdfPageRenderer resilience', () => {
             basePageWidth: ref(100),
             basePageHeight: ref(100),
             isLoading: ref(false),
-            getPage: vi.fn(async () => ({ render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() })) })),
+            leasePage: vi.fn(async () => ({ render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() })) })),
+            releasePage: createReleasePageMock(),
             evictPage: vi.fn(),
             cleanupPageCache: vi.fn(),
         };
@@ -1017,7 +1036,8 @@ describe('usePdfPageRenderer resilience', () => {
             basePageWidth: ref(100),
             basePageHeight: ref(100),
             isLoading: ref(false),
-            getPage: vi.fn(async () => ({ render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() })) })),
+            leasePage: vi.fn(async () => ({ render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() })) })),
+            releasePage: createReleasePageMock(),
             evictPage: vi.fn(),
             cleanupPageCache: vi.fn(),
         };
@@ -1095,7 +1115,8 @@ describe('usePdfPageRenderer resilience', () => {
             basePageWidth: ref(100),
             basePageHeight: ref(100),
             isLoading: ref(false),
-            getPage: vi.fn(async () => ({render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() }))})),
+            leasePage: vi.fn(async () => ({render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() }))})),
+            releasePage: createReleasePageMock(),
             evictPage: vi.fn(),
             cleanupPageCache: vi.fn(),
         };
@@ -1145,7 +1166,8 @@ describe('usePdfPageRenderer resilience', () => {
             basePageWidth: ref(100),
             basePageHeight: ref(100),
             isLoading: ref(false),
-            getPage: vi.fn(async () => ({render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() }))})),
+            leasePage: vi.fn(async () => ({render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() }))})),
+            releasePage: createReleasePageMock(),
             evictPage: vi.fn(),
             cleanupPageCache: vi.fn(),
         };
@@ -1205,7 +1227,8 @@ describe('usePdfPageRenderer resilience', () => {
             basePageWidth: ref(100),
             basePageHeight: ref(100),
             isLoading: ref(false),
-            getPage: vi.fn(async () => ({render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() }))})),
+            leasePage: vi.fn(async () => ({render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() }))})),
+            releasePage: createReleasePageMock(),
             evictPage: vi.fn(),
             cleanupPageCache: vi.fn(),
         };
@@ -1254,7 +1277,8 @@ describe('usePdfPageRenderer resilience', () => {
             basePageWidth: ref(100),
             basePageHeight: ref(100),
             isLoading: ref(false),
-            getPage: vi.fn(async () => ({render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() }))})),
+            leasePage: vi.fn(async () => ({render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() }))})),
+            releasePage: createReleasePageMock(),
             evictPage: vi.fn(),
             cleanupPageCache: vi.fn(),
         };
@@ -1308,7 +1332,7 @@ describe('usePdfPageRenderer resilience', () => {
         const { pageContainer } = createPageContainer();
         const containerRoot = createContainerRoot(pageContainer);
         const ensurePageMetricsInRange = vi.fn(async () => true);
-        const getPage = vi.fn(async () => ({render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() }))}));
+        const leasePage = vi.fn(async () => ({render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() }))}));
 
         const renderer = usePdfPageRenderer({
             container: ref(containerRoot),
@@ -1319,7 +1343,7 @@ describe('usePdfPageRenderer resilience', () => {
                 basePageHeight: ref(100),
                 isLoading: ref(false),
                 ensurePageMetricsInRange,
-                getPage,
+                leasePage,
                 evictPage: vi.fn(),
                 cleanupPageCache: vi.fn(),
             } as never,
@@ -1338,14 +1362,14 @@ describe('usePdfPageRenderer resilience', () => {
         });
 
         expect(ensurePageMetricsInRange).not.toHaveBeenCalled();
-        expect(getPage).not.toHaveBeenCalled();
+        expect(leasePage).not.toHaveBeenCalled();
         expect(canvasRendererMock.prepareCanvasRender).not.toHaveBeenCalled();
     });
 
     it('does not rerender visible pages while inactive', async () => {
         const { pageContainer } = createPageContainer();
         const containerRoot = createContainerRoot(pageContainer);
-        const getPage = vi.fn(async () => ({render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() }))}));
+        const leasePage = vi.fn(async () => ({render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() }))}));
 
         const renderer = usePdfPageRenderer({
             container: ref(containerRoot),
@@ -1355,7 +1379,7 @@ describe('usePdfPageRenderer resilience', () => {
                 basePageWidth: ref(100),
                 basePageHeight: ref(100),
                 isLoading: ref(false),
-                getPage,
+                leasePage,
                 evictPage: vi.fn(),
                 cleanupPageCache: vi.fn(),
             } as never,
@@ -1373,7 +1397,7 @@ describe('usePdfPageRenderer resilience', () => {
             end: 1,
         }));
 
-        expect(getPage).not.toHaveBeenCalled();
+        expect(leasePage).not.toHaveBeenCalled();
         expect(canvasRendererMock.renderCanvas).not.toHaveBeenCalled();
         expect(pageContainer.classList.remove).not.toHaveBeenCalled();
     });

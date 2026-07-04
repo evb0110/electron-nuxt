@@ -277,9 +277,23 @@ export async function runCoordinatedPdfPageRender<TTask extends ICoordinatedPdfP
     });
     onTask?.(task);
 
+    const abortWaiter = createAbortWaiter(signal, pageNumber, owner, () => {
+        try {
+            task.cancel();
+        } catch {
+            // PDF.js cancellation is best-effort and the render promise still settles.
+        }
+    });
+
     try {
-        await task.promise;
+        await (abortWaiter
+            ? Promise.race([
+                task.promise,
+                abortWaiter.promise,
+            ])
+            : task.promise);
     } finally {
+        abortWaiter?.remove();
         await settled;
     }
 }

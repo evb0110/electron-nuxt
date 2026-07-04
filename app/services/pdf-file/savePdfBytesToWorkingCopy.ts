@@ -1,5 +1,8 @@
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { IDocumentSaveFailureResult } from '@contracts/electronApiDocuments';
+import type {
+    IDocumentSaveFailureResult,
+    IPdfSerializedSaveOptions,
+} from '@contracts/electronApiDocuments';
 import {
     getDocumentFilesCapability,
     getDocumentPdfCapability,
@@ -21,15 +24,20 @@ function getStructuredSaveFailureErrors(result: IDocumentSaveFailureResult) {
 export async function savePdfBytesToWorkingCopy(
     workingPath: TDocumentRef,
     data: Uint8Array,
+    options?: IPdfSerializedSaveOptions,
 ) {
     const documentFiles = getDocumentFilesCapability();
     if (typeof documentFiles.savePdfData === 'function') {
-        return documentFiles.savePdfData(workingPath, data);
+        return documentFiles.savePdfData(workingPath, data, options);
     }
 
     const validation = await getDocumentPdfCapability().validatePdfData(data);
     if (validation.isValid) {
-        await documentFiles.writeFile(workingPath, data);
+        if (options) {
+            await documentFiles.writeFile(workingPath, data, options);
+        } else {
+            await documentFiles.writeFile(workingPath, data);
+        }
         const structuredSave = await documentFiles.saveFileStructured(workingPath);
         if (!structuredSave.ok) {
             return {

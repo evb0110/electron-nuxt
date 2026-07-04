@@ -23,11 +23,17 @@ import type { IUpdatesCapability } from '@contracts/electronApiUpdates';
 import type { IWindowTabsCapability } from '@contracts/electronApiWindowTabs';
 import type { IPlatformRuntimeManifest } from '@contracts/platformManifest';
 export type * from '@contracts/platformManifest';
+export type * from '@contracts/platformApiDescriptor';
 export {
     BROWSER_PLATFORM_MANIFEST,
     ELECTRON_PLATFORM_MANIFEST,
     PLATFORM_CONTRACT_VERSION,
 } from '@contracts/platformManifest';
+export {
+    getPlatformDocumentCapabilityMirrors,
+    getPlatformMethodDescriptor,
+    PLATFORM_API_DESCRIPTOR,
+} from '@contracts/platformApiDescriptor';
 
 export interface IPlatformApi {
     manifest: IPlatformRuntimeManifest;

@@ -79,6 +79,15 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
 
 const { registerDjvuIpcAdapter } = await import('@electron/features/djvu/registerDjvuIpcAdapter');
 
+function createIpcEvent(senderId: number) {
+    return {sender: {
+        id: senderId,
+        on: vi.fn(),
+        once: vi.fn(),
+        removeListener: vi.fn(),
+    }};
+}
+
 function getHandler(channel: string) {
     const handler = mocks.handlers.get(channel);
     if (!handler) {
@@ -160,7 +169,7 @@ describe('registerDjvuIpcAdapter', () => {
     it('releases viewing paths without requiring the source file to still exist', () => {
         registerDjvuIpcAdapter();
         const handler = getHandler('djvu:releaseViewingPath');
-        const event = {sender: {id: 1}};
+        const event = createIpcEvent(1);
 
         handler(event, '/tmp/missing.djvu');
 
@@ -184,7 +193,7 @@ describe('registerDjvuIpcAdapter', () => {
             const canonicalRealPath = realpathSync.native(realPath);
 
             const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
-            const event = {sender: {id: 1}};
+            const event = createIpcEvent(1);
             allowOpenPath(symlinkPath, event.sender as never);
             registerDjvuIpcAdapter();
             const handler = getHandler('djvu:releaseViewingPath');
@@ -215,7 +224,7 @@ describe('registerDjvuIpcAdapter', () => {
             const canonicalRealPath = realpathSync.native(realPath);
 
             const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
-            const event = {sender: {id: 1}};
+            const event = createIpcEvent(1);
             allowOpenPath(realPath, event.sender as never);
             registerDjvuIpcAdapter();
             const handler = getHandler('djvu:convertToPdf');
@@ -255,7 +264,7 @@ describe('registerDjvuIpcAdapter', () => {
             writeFileSync(realPath, new Uint8Array([1]));
 
             const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
-            const event = {sender: {id: 1}};
+            const event = createIpcEvent(1);
             allowOpenPath(realPath, event.sender as never);
             mocks.isAllowedDjvuViewingPath.mockReturnValue(false);
             registerDjvuIpcAdapter();
@@ -280,7 +289,7 @@ describe('registerDjvuIpcAdapter', () => {
             const canonicalRealPath = realpathSync.native(realPath);
 
             const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
-            const event = {sender: {id: 1}};
+            const event = createIpcEvent(1);
             allowOpenPath(realPath, event.sender as never);
             registerDjvuIpcAdapter();
             const handler = getHandler('djvu:renderPagePreview');
@@ -291,7 +300,18 @@ describe('registerDjvuIpcAdapter', () => {
                 height: 200,
             });
 
-            expect(mocks.renderDjvuPagePreview).toHaveBeenCalledWith(canonicalRealPath, 1, {subsample: 3});
+            expect(mocks.renderDjvuPagePreview).toHaveBeenCalledWith(
+                canonicalRealPath,
+                1,
+                expect.objectContaining({
+                    previewRequestId: expect.stringMatching(/^djvu-preview-/u),
+                    subsample: 3,
+                }),
+                expect.objectContaining({
+                    cancelGroup: expect.stringMatching(/^djvu-preview:djvu-preview-/u),
+                    signal: expect.any(AbortSignal),
+                }),
+            );
             expect(mocks.getDjvuPageCount).not.toHaveBeenCalled();
         } finally {
             rmSync(tempRoot, {
@@ -328,7 +348,7 @@ describe('registerDjvuIpcAdapter', () => {
                 .mockReturnValueOnce(fourthPreview.promise);
 
             const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
-            const event = {sender: {id: 9}};
+            const event = createIpcEvent(9);
             allowOpenPath(realPath, event.sender as never);
             registerDjvuIpcAdapter();
             const handler = getHandler('djvu:renderPagePreview');
@@ -367,7 +387,10 @@ describe('registerDjvuIpcAdapter', () => {
             expect(mocks.renderDjvuPagePreview).toHaveBeenNthCalledWith(3, canonicalRealPath, 1, {
                 previewRequestId: 'preview-4',
                 subsample: 3,
-            });
+            }, expect.objectContaining({
+                cancelGroup: 'djvu-preview:preview-4',
+                signal: expect.any(AbortSignal),
+            }));
 
             secondPreview.resolve({
                 bytes: new Uint8Array([2]),
@@ -424,7 +447,7 @@ describe('registerDjvuIpcAdapter', () => {
                 .mockReturnValueOnce(retainedPreview.promise);
 
             const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
-            const event = {sender: {id: 10}};
+            const event = createIpcEvent(10);
             allowOpenPath(realPath, event.sender as never);
             registerDjvuIpcAdapter();
             const handler = getHandler('djvu:renderPagePreview');
@@ -464,7 +487,10 @@ describe('registerDjvuIpcAdapter', () => {
                 previewPriority: 20,
                 previewRequestId: '1:3:1',
                 subsample: 3,
-            });
+            }, expect.objectContaining({
+                cancelGroup: 'djvu-preview:1:3:1',
+                signal: expect.any(AbortSignal),
+            }));
 
             secondPreview.resolve({
                 bytes: new Uint8Array([2]),
@@ -477,7 +503,10 @@ describe('registerDjvuIpcAdapter', () => {
                 previewPriority: 1,
                 previewRequestId: '1:8:1',
                 subsample: 3,
-            });
+            }, expect.objectContaining({
+                cancelGroup: 'djvu-preview:1:8:1',
+                signal: expect.any(AbortSignal),
+            }));
 
             visiblePreview.resolve({
                 bytes: new Uint8Array([3]),
@@ -529,7 +558,7 @@ describe('registerDjvuIpcAdapter', () => {
                 .mockReturnValueOnce(nextGenerationPreview.promise);
 
             const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
-            const event = {sender: {id: 11}};
+            const event = createIpcEvent(11);
             allowOpenPath(realPath, event.sender as never);
             registerDjvuIpcAdapter();
             const handler = getHandler('djvu:renderPagePreview');
@@ -571,7 +600,10 @@ describe('registerDjvuIpcAdapter', () => {
                 previewPriority: 20,
                 previewRequestId: '2:3:1',
                 subsample: 3,
-            });
+            }, expect.objectContaining({
+                cancelGroup: 'djvu-preview:2:3:1',
+                signal: expect.any(AbortSignal),
+            }));
 
             secondPreview.resolve({
                 bytes: new Uint8Array([2]),

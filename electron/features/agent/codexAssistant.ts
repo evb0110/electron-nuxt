@@ -633,6 +633,7 @@ function markClaudeTurnCompleted(session: IAssistantChatSession, turnId: string 
             message.pending = false;
         }
     }
+    sessionStore.recordSessionSnapshot(session);
     publishAssistantEvent({ type: 'turn-completed' }, session.scope, session);
 }
 
@@ -695,6 +696,7 @@ function createClaudeCallbacks(session: IAssistantChatSession) {
             if (claudeProviderRuntime.runtimeState !== 'busy') {
                 claudeProviderRuntime.runtimeState = 'ready';
             }
+            sessionStore.recordSessionSnapshot(session);
             publishState(session.scope, session);
         },
         onTurnStarted: (turnId: string) => {
@@ -772,6 +774,7 @@ async function ensureClaudeAssistantSession(
             session.model = normalizedModel;
             session.effort = normalizedEffort;
             session.speedMode = normalizedSpeedMode;
+            sessionStore.recordSessionSnapshot(session);
             return session.claudeSession;
         }
         await session.claudeSession.close().catch((error: unknown) => {
@@ -793,6 +796,7 @@ async function ensureClaudeAssistantSession(
     session.model = normalizedModel;
     session.effort = normalizedEffort;
     session.speedMode = normalizedSpeedMode;
+    sessionStore.recordSessionSnapshot(session);
     session.claudeSession = new ClaudeAgentAssistantSession({
         cwd,
         model: session.model,
@@ -998,6 +1002,14 @@ export async function sendAgentAssistantMessage(
         });
     }
     if (session.sendInFlight) {
+        const error = getAssistantTurnBusyError();
+        return withAssistantErrorEnvelope({
+            ok: false,
+            state: currentState(session.scope, session),
+            error,
+        });
+    }
+    if (isAssistantTurnActive(session.turnOwner)) {
         const error = getAssistantTurnBusyError();
         return withAssistantErrorEnvelope({
             ok: false,
@@ -1228,15 +1240,28 @@ export async function interruptAgentAssistant(
 
     const currentRuntime = runtimeLifecycle.getRuntime();
     const activeTurnId = session ? getAssistantTurnProviderTurnId(session.turnOwner) : null;
+    let codexInterruptRequested = false;
     if (currentRuntime && session?.providerThreadId && activeTurnId) {
+        codexInterruptRequested = true;
         interruptSessionTurn(session);
+        codexProviderRuntime.runtimeState = 'busy';
         publishState(session.scope, session);
-        await currentRuntime.client.request('turn/interrupt', {
-            threadId: session.providerThreadId,
-            turnId: activeTurnId,
-        }).catch((error: unknown) => {
-            logger.warn(`Failed to interrupt assistant turn: ${getErrorMessage(error)}`);
-        });
+        try {
+            await currentRuntime.client.request('turn/interrupt', {
+                threadId: session.providerThreadId,
+                turnId: activeTurnId,
+            });
+        } catch (error) {
+            const message = getErrorMessage(error);
+            logger.warn(`Failed to interrupt assistant turn: ${message}`);
+            codexProviderRuntime.lastError = message;
+            session.lastError = message;
+        }
+    }
+    if (session && codexInterruptRequested) {
+        codexProviderRuntime.runtimeState = 'busy';
+        publishState(session.scope, session);
+        return currentState(session.scope, session);
     }
     if (session) {
         supersedeSessionTurn(session);
@@ -1275,6 +1300,7 @@ export async function resetAgentAssistantChat(
         session.messages.length = 0;
         delete session.lastError;
         sessionStore.clearActiveSessionIfMatches(session);
+        sessionStore.resetSessionTranscript(session, 'reset');
         delete claudeProviderRuntime.lastError;
         claudeProviderRuntime.runtimeState = claudeInfoCache?.installed ? 'ready' : 'stopped';
         publishState(session.scope, session);
@@ -1306,6 +1332,7 @@ export async function resetAgentAssistantChat(
     session.messages.length = 0;
     delete session.lastError;
     sessionStore.clearActiveSessionIfMatches(session);
+    sessionStore.resetSessionTranscript(session, 'reset');
     delete codexProviderRuntime.lastError;
     codexProviderRuntime.runtimeState = codexProviderRuntime.authState === 'signed-in' ? 'ready' : 'stopped';
     publishState(session.scope, session);

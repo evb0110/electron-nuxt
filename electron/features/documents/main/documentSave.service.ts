@@ -3,8 +3,12 @@ import {
     rm,
     writeFile,
 } from 'fs/promises';
-import type { IPdfSaveAsOptions } from '@contracts/electronApiDocuments';
+import type {
+    IPdfSaveAsOptions,
+    IPdfSerializedSaveOptions,
+} from '@contracts/electronApiDocuments';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import {
     basename,
     extname,
@@ -30,6 +34,11 @@ import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMut
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
 import { optimizePdfForSaveAs } from '@electron/features/documents/main/pdfSaveAsOptimization';
 import type { IDocumentsDialogContext } from '@electron/features/documents/documentsService';
+import {
+    markWorkingCopySyncRequired,
+    markWorkingCopyContentChanged,
+} from '@electron/file-access/documentRevisionStore';
+import { assertQueuedWorkingCopyMutationPreconditions } from '@electron/file-access/documentMutationGuards';
 
 export type TShowSaveDialogWithExtension = (
     context: IDocumentsDialogContext,
@@ -40,6 +49,17 @@ export type TShowSaveDialogWithExtension = (
         extension: string;
     },
 ) => Promise<string | null>;
+
+function normalizeExpectedDocumentRevisionToken(options?: IPdfSerializedSaveOptions | null): TDocumentRevisionToken | null {
+    const token = options?.expectedDocumentRevisionToken;
+    if (token === undefined || token === null) {
+        return null;
+    }
+    if (typeof token !== 'string' || token.trim().length === 0) {
+        throw new TypeError('expectedDocumentRevisionToken must be a non-empty string');
+    }
+    return token.trim();
+}
 
 export async function savePdfAs(
     context: IDocumentsDialogContext,
@@ -80,6 +100,7 @@ export async function savePdfAs(
     }
 
     await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
+        await assertQueuedWorkingCopyMutationPreconditions(normalizedWorkingPath);
         if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, context.senderId)) {
             throw new Error('Working copy path is not managed');
         }
@@ -120,6 +141,7 @@ export async function savePdfDataAs(
     data: unknown,
     options: IPdfSaveAsOptions | undefined,
     showSaveDialogWithExtension: TShowSaveDialogWithExtension,
+    serializedSaveOptions?: IPdfSerializedSaveOptions,
 ): Promise<{
     path: string | null;
     validation: IPdfValidationResult | null;
@@ -159,6 +181,7 @@ export async function savePdfDataAs(
     }
 
     const tempPath = makeSiblingTempPath(targetPath);
+    const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(serializedSaveOptions);
     let replaced = false;
     try {
         await writeFile(tempPath, payload);
@@ -170,18 +193,49 @@ export async function savePdfDataAs(
             };
         }
         const optimizedValidation = await optimizePdfForSaveAs(tempPath, options);
+        const committedValidation = optimizedValidation ?? validation;
+        const resultRef: {current: {
+            path: string | null;
+            validation: IPdfValidationResult;
+        } | null;} = { current: null };
 
-        await atomicReplace(tempPath, targetPath);
-        replaced = true;
-        await copyFileCopyOnWrite(targetPath, normalizedWorkingPath);
-        setWorkingCopyOriginalPath(normalizedWorkingPath, targetPath, context.senderId);
-        allowOpenPath(targetPath, context.sender);
-        await addRecentFile(targetPath);
-        updateRecentFilesMenu();
+        await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
+            if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, context.senderId)) {
+                throw new Error('Working copy path is not managed');
+            }
+            await assertQueuedWorkingCopyMutationPreconditions(
+                normalizedWorkingPath,
+                expectedDocumentRevisionToken,
+            );
+            if (!existsSync(normalizedWorkingPath)) {
+                throw new Error(`File not found: ${normalizedWorkingPath}`);
+            }
+            await atomicReplace(tempPath, targetPath);
+            replaced = true;
+            try {
+                await copyFileCopyOnWrite(targetPath, normalizedWorkingPath);
+            } catch (syncError) {
+                markWorkingCopySyncRequired(
+                    normalizedWorkingPath,
+                    `Target file was saved, but the working copy refresh failed: ${syncError instanceof Error ? syncError.message : String(syncError)}`,
+                );
+                throw syncError;
+            }
+            await markWorkingCopyContentChanged(normalizedWorkingPath, 'save-sync', context.senderId);
+            setWorkingCopyOriginalPath(normalizedWorkingPath, targetPath, context.senderId);
+            allowOpenPath(targetPath, context.sender);
+            await addRecentFile(targetPath);
+            updateRecentFilesMenu();
+            resultRef.current = {
+                path: targetPath,
+                validation: committedValidation,
+            };
+        });
 
+        const result = resultRef.current;
         return {
-            path: targetPath,
-            validation: optimizedValidation ?? validation,
+            path: result?.path ?? null,
+            validation: result?.validation ?? committedValidation,
         };
     } finally {
         if (!replaced) {

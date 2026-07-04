@@ -46,6 +46,7 @@ function createContextPorts(overrides: {
             documentIdentity: {
                 workingCopyPath: ref('/tmp/work.pdf'),
                 originalPath: ref('/tmp/source.pdf'),
+                documentRevisionToken: ref('rev-1'),
             },
             annotations: {
                 annotationDirty: ref(false),

@@ -1,0 +1,158 @@
+import type {
+    IPlatformApi,
+    IPlatformRuntimeManifest,
+    TPlatformBackend,
+} from '@contracts/platformApi';
+import {
+    getPlatformDocumentCapabilityMirrors,
+    PLATFORM_API_DESCRIPTOR,
+} from '@contracts/platformApi';
+import type { IPlatformMethodDescriptor } from '@contracts/platformApiDescriptor';
+import { isRecord } from '@contracts/runtimeGuards';
+import { createDefaultPlatformApiFixtureMethod } from '@tests/helpers/createDefaultPlatformApiFixtureMethod';
+
+type TDeepPartial<T> = {
+    [TKey in keyof T]?: NonNullable<T[TKey]> extends (...args: never[]) => unknown
+        ? T[TKey]
+        : NonNullable<T[TKey]> extends object
+            ? TDeepPartial<NonNullable<T[TKey]>>
+            : T[TKey];
+};
+
+export type TPlatformApiFixtureOverrides = TDeepPartial<IPlatformApi>;
+
+export interface ICreatePlatformApiFixtureOptions {
+    backend: TPlatformBackend;
+    manifest: IPlatformRuntimeManifest;
+    overrides?: TPlatformApiFixtureOverrides;
+}
+
+function setPath(root: Record<string, unknown>, path: readonly string[], value: unknown) {
+    let owner = root;
+    for (const segment of path.slice(0, -1)) {
+        const current = owner[segment];
+        if (isRecord(current)) {
+            owner = current;
+            continue;
+        }
+        const child: Record<string, unknown> = {};
+        owner[segment] = child;
+        owner = child;
+    }
+    owner[path.at(-1)!] = value;
+}
+
+function readPath(root: unknown, path: readonly string[]) {
+    let value = root;
+    for (const segment of path) {
+        if (!isRecord(value)) {
+            return undefined;
+        }
+        value = value[segment];
+    }
+    return value;
+}
+
+function hasPath(root: unknown, path: readonly string[]) {
+    let value = root;
+    for (const segment of path) {
+        if (!isRecord(value) || !(segment in value)) {
+            return false;
+        }
+        value = value[segment];
+    }
+    return true;
+}
+
+function cloneValue<T>(value: T): T {
+    if (Array.isArray(value)) {
+        return value.map(item => cloneValue(item)) as T;
+    }
+    if (isRecord(value) && typeof value !== 'function') {
+        return Object.fromEntries(
+            Object.entries(value).map(([
+                key,
+                child,
+            ]) => [
+                key,
+                cloneValue(child),
+            ]),
+        ) as T;
+    }
+    return value;
+}
+
+function deepMerge(
+    target: Record<string, unknown>,
+    overrides: unknown,
+) {
+    if (!isRecord(overrides)) {
+        return target;
+    }
+    for (const [
+        key,
+        value,
+    ] of Object.entries(overrides)) {
+        const current = target[key];
+        if (isRecord(current) && isRecord(value) && typeof current !== 'function' && typeof value !== 'function') {
+            deepMerge(current, value);
+            continue;
+        }
+        target[key] = value;
+    }
+    return target;
+}
+
+function createBasePlatformApiFixture(manifest: IPlatformRuntimeManifest) {
+    const api: Record<string, unknown> = {manifest: cloneValue(manifest)};
+    const methods: readonly IPlatformMethodDescriptor[] = PLATFORM_API_DESCRIPTOR.methods;
+    for (const descriptor of methods) {
+        if (descriptor.aliasOf !== undefined) {
+            continue;
+        }
+        setPath(api, descriptor.path, createDefaultPlatformApiFixtureMethod(descriptor));
+    }
+    for (const {
+        legacyPath,
+        splitPath,
+    } of getPlatformDocumentCapabilityMirrors()) {
+        setPath(api, legacyPath, readPath(api, splitPath));
+    }
+    return api;
+}
+
+function mirrorDocumentOverrides(api: Record<string, unknown>, overrides: TPlatformApiFixtureOverrides) {
+    for (const {
+        legacyPath,
+        splitPath,
+    } of getPlatformDocumentCapabilityMirrors()) {
+        const hasSplitOverride = hasPath(overrides, splitPath);
+        const hasLegacyOverride = hasPath(overrides, legacyPath);
+        if (hasSplitOverride && !hasLegacyOverride) {
+            setPath(api, legacyPath, readPath(api, splitPath));
+        } else if (hasLegacyOverride && !hasSplitOverride) {
+            setPath(api, splitPath, readPath(api, legacyPath));
+        } else if (!hasSplitOverride && !hasLegacyOverride) {
+            setPath(api, legacyPath, readPath(api, splitPath));
+        }
+    }
+}
+
+function assertPlatformApiFixture(api: Record<string, unknown>): asserts api is Record<string, unknown> & IPlatformApi {
+    for (const descriptor of PLATFORM_API_DESCRIPTOR.methods) {
+        if (typeof readPath(api, descriptor.path) !== 'function') {
+            throw new TypeError(`Missing platform API fixture method ${descriptor.path.join('.')}`);
+        }
+    }
+}
+
+export function createPlatformApiFixture({
+    manifest,
+    overrides = {},
+}: ICreatePlatformApiFixtureOptions): IPlatformApi {
+    const api = createBasePlatformApiFixture(manifest);
+    deepMerge(api, overrides);
+    mirrorDocumentOverrides(api, overrides);
+    assertPlatformApiFixture(api);
+    return api;
+}

@@ -1173,7 +1173,7 @@ describe('usePdfFile', () => {
             await file.persistPdfDataSilently(bytes2);
 
             expect(file.pdfData.value).toEqual(bytes2);
-            expect(mockDocumentFiles.writeFile).toHaveBeenCalledWith('/tmp/persist.pdf', expect.any(Uint8Array));
+            expect(mockDocumentFiles.writeFile).toHaveBeenCalledWith('/tmp/persist.pdf', expect.any(Uint8Array), {expectedDocumentRevisionToken: 'revision-token'});
             expect(file.pdfSrc.value).toBeInstanceOf(Blob);
             expect(new Uint8Array(await (file.pdfSrc.value as Blob).arrayBuffer())).toEqual(bytes2);
         });

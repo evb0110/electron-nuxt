@@ -1,4 +1,8 @@
 import { setNuxtPort } from '@scripts/electron-run/electronRunPortConfig';
+import {
+    buildStrictE2ERunEnv,
+    getE2ERunId,
+} from '@scripts/electron-run/electronRunRunId';
 
 const TRUTHY_ENV_VALUES = new Set([
     '1',
@@ -50,7 +54,12 @@ export function buildE2ESharedRendererEnv(port: number): NodeJS.ProcessEnv {
     }
 
     return {
+        ...buildStrictE2ERunEnv(process.env),
         [E2E_SHARED_RENDERER_ENABLED_ENV]: '1',
         [E2E_SHARED_RENDERER_PORT_ENV]: String(port),
     };
+}
+
+export function getE2ESharedRendererSessionName(env: NodeJS.ProcessEnv = process.env) {
+    return `e2e-${getE2ERunId(env)}-shared-renderer`;
 }

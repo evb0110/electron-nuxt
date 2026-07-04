@@ -18,6 +18,7 @@ import type { IFileOperationsSaveAdapterPorts } from '@app/modules/workspace-she
 import { PDF_SAVE_TIMEOUT_MS } from '@app/constants/timeouts';
 import { useFileOperationsSaveController as useFileOperationsSaveControllerPublic } from '@app/modules/workspace-shell/composables/file-operations/useFileOperationsSaveController';
 import { usePdfViewerSaveTransaction } from '@app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction';
+import { createStaleRevisionError } from '@contracts/documentMutationErrors';
 import { cast } from '@tests/helpers/cast';
 
 const toastAddMock = vi.fn();
@@ -117,6 +118,7 @@ function createDeps(overrides: Partial<Parameters<typeof useFileOperationsSaveCo
         isSavingAs: ref(false),
         originalPath: ref('/tmp/source.pdf'),
         workingCopyPath: ref('/tmp/work.pdf'),
+        documentRevisionToken: ref('rev-1'),
         annotationDirty: ref(false),
         annotationComments: ref([]),
         pageLabelsDirty: ref(false),
@@ -333,6 +335,85 @@ describe('useFileOperationsSaveController', () => {
         expectWorkspaceSaveMarked(deps);
         expect(deps.isSaving.value).toBe(false);
         expect(deps.validatePdfPath).not.toHaveBeenCalled();
+    });
+
+    it('rebuilds and retries a serialized save after a stale revision rejection', async () => {
+        const sourceBytes = [
+            new Uint8Array([1]),
+            new Uint8Array([9]),
+        ];
+        const getSourcePdfData = vi.fn(async () => sourceBytes.shift() ?? new Uint8Array([0]));
+        const saveFile = vi.fn()
+            .mockRejectedValueOnce(createStaleRevisionError({
+                documentRef: '/tmp/work.pdf',
+                expectedRevision: 'drt1:test:before-save',
+                actualRevision: 'drt1:test:page-op',
+            }))
+            .mockResolvedValueOnce({
+                success: true,
+                outPath: '/tmp/work.pdf',
+                saveMode: 'rewrite' as const,
+                didSaveAs: false,
+            });
+        const { deps } = createDeps({
+            annotationDirty: ref(true),
+            getSourcePdfData,
+            saveFile,
+        });
+        const { handleSave } = useFileOperationsSaveController(deps);
+
+        await expect(handleSave()).resolves.toBe(true);
+
+        expect(getSourcePdfData).toHaveBeenCalledTimes(2);
+        expect(deps.serializePdfForSave).toHaveBeenCalledTimes(2);
+        expect(saveFile).toHaveBeenCalledTimes(2);
+        expect(Array.from(saveFile.mock.calls[0]?.[0] ?? [])).toEqual([
+            1,
+            2,
+            3,
+            6,
+            4,
+            5,
+        ]);
+        expect(Array.from(saveFile.mock.calls[1]?.[0] ?? [])).toEqual([
+            9,
+            2,
+            3,
+            6,
+            4,
+            5,
+        ]);
+        expect(toastAddMock).not.toHaveBeenCalled();
+        expectWorkspaceSaveMarked(deps);
+    });
+
+    it('stops stale revision save retries after the bounded retry budget', async () => {
+        const staleError = createStaleRevisionError({
+            documentRef: '/tmp/work.pdf',
+            expectedRevision: 'drt1:test:before-save',
+            actualRevision: 'drt1:test:ocr-apply',
+        });
+        const saveFile = vi.fn(async () => {
+            throw staleError;
+        });
+        const { deps } = createDeps({
+            annotationDirty: ref(true),
+            getSourcePdfData: vi.fn(async () => new Uint8Array([1])),
+            saveFile,
+        });
+        const { handleSave } = useFileOperationsSaveController(deps);
+
+        await expect(handleSave()).resolves.toBe(false);
+
+        expect(deps.getSourcePdfData).toHaveBeenCalledTimes(3);
+        expect(deps.serializePdfForSave).toHaveBeenCalledTimes(3);
+        expect(saveFile).toHaveBeenCalledTimes(3);
+        expectWorkspaceSaveNotMarked(deps);
+        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
+            color: 'error',
+            title: 'errors.file.save',
+            description: 'Document changed while this edit was being prepared',
+        }));
     });
 
     it('saves working copy directly when no serialization work is required', async () => {

@@ -9,28 +9,14 @@ import {
     validateBrowserPlatformApi,
     validateElectronPlatformApi,
 } from '@app/platform/validatePlatformApi';
-
-interface IWindowWithPlatformApi extends Window {electronAPI?: IPlatformApi;}
-
-function getElectronWindow() {
-    if (typeof window === 'undefined') {
-        return null;
-    }
-
-    return window as IWindowWithPlatformApi;
-}
-
-function getRawElectronAPI() {
-    return getElectronWindow()?.electronAPI !== undefined;
-}
-
-export function hasElectronPlatformBridge() {
-    return getRawElectronAPI();
-}
+import {
+    getRawElectronPlatformApi,
+    getValidatedElectronPlatformApi,
+    hasElectronPlatformBridge,
+} from '@app/utils/electronPlatformBridge';
 
 export function hasElectronAPI() {
-    const electronApi = getElectronWindow()?.electronAPI;
-    return electronApi !== undefined && validateElectronPlatformApi(electronApi).ok;
+    return getValidatedElectronPlatformApi() !== null;
 }
 
 export function isDesktopPlatformActive(electronApiAvailable = hasElectronAPI()) {
@@ -99,7 +85,7 @@ function createPlatformContractError(result: ReturnType<typeof validateElectronP
 }
 
 export function getPlatformAPI(): IPlatformApi {
-    const electronApi = getElectronWindow()?.electronAPI;
+    const electronApi = getRawElectronPlatformApi();
     if (electronApi) {
         const result = validateElectronPlatformApi(electronApi);
         if (!result.ok) {

@@ -1,8 +1,10 @@
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
 import * as VueUse from '@vueuse/core';
+import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { useContextMenuPosition } from '@app/composables/useContextMenuPosition';
+import { runWithoutDocumentOperationLease } from '@app/utils/runWithoutDocumentOperationLease';
 import type * as WorkspaceOrchestration from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import type { TPageAnnotationActionsPdfViewer } from '@app/modules/workspace-shell/composables/pageAnnotationActionsPdfViewer';
 import type {
@@ -90,6 +92,10 @@ interface IPageAnnotationActionsDeps {
         data: Uint8Array,
         placement: IPdfPlacedImageFinalizePayload,
     ) => Promise<Uint8Array>;
+    runWithDocumentOperationLease?: <T>(
+        kind: TDocumentOperationKind,
+        operation: () => Promise<T>,
+    ) => Promise<T>;
 }
 
 export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
@@ -125,6 +131,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         restoreAnnotationToCache,
         getEmbeddedMutationBaseData,
         embedPlacedImageToPage,
+        runWithDocumentOperationLease = runWithoutDocumentOperationLease,
     } = deps;
 
     let isCreatingContextMenuFreeNote = false;
@@ -917,43 +924,45 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
 
         imageFinalizeInFlight = true;
         try {
-            const capturedWorkingCopy = captureActiveWorkingCopy();
-            const rawData = await getEmbeddedMutationBaseData();
-            if (!rawData) {
-                pdfViewerRef.value.restorePendingImagePlacement?.();
-                return false;
-            }
-            if (!isCapturedWorkingCopyActive(capturedWorkingCopy)) {
-                pdfViewerRef.value?.clearPendingImagePlacement?.();
-                return false;
-            }
+            return await runWithDocumentOperationLease('page-operation', async () => {
+                const capturedWorkingCopy = captureActiveWorkingCopy();
+                const rawData = await getEmbeddedMutationBaseData();
+                if (!rawData) {
+                    pdfViewerRef.value?.restorePendingImagePlacement?.();
+                    return false;
+                }
+                if (!isCapturedWorkingCopyActive(capturedWorkingCopy)) {
+                    pdfViewerRef.value?.clearPendingImagePlacement?.();
+                    return false;
+                }
 
-            const embeddedData = await embedPlacedImageToPage(rawData, placement);
-            if (!isCapturedWorkingCopyActive(capturedWorkingCopy)) {
+                const embeddedData = await embedPlacedImageToPage(rawData, placement);
+                if (!isCapturedWorkingCopyActive(capturedWorkingCopy)) {
+                    pdfViewerRef.value?.clearPendingImagePlacement?.();
+                    return false;
+                }
+                const pageToRestore = placement.pageNumber || currentPage.value;
+                const restorePromise = waitForPdfReload(pageToRestore);
+                await loadPdfFromData(embeddedData, {
+                    pushHistory: true,
+                    persistWorkingCopy: !!capturedWorkingCopy,
+                });
+                if (!isCapturedWorkingCopyActive(capturedWorkingCopy)) {
+                    void restorePromise.catch(() => {});
+                    pdfViewerRef.value?.clearPendingImagePlacement?.();
+                    return false;
+                }
+                await restorePromise;
+                if (!isCapturedWorkingCopyActive(capturedWorkingCopy)) {
+                    pdfViewerRef.value?.clearPendingImagePlacement?.();
+                    return false;
+                }
                 pdfViewerRef.value?.clearPendingImagePlacement?.();
-                return false;
-            }
-            const pageToRestore = placement.pageNumber || currentPage.value;
-            const restorePromise = waitForPdfReload(pageToRestore);
-            await loadPdfFromData(embeddedData, {
-                pushHistory: true,
-                persistWorkingCopy: !!capturedWorkingCopy,
+                return true;
             });
-            if (!isCapturedWorkingCopyActive(capturedWorkingCopy)) {
-                void restorePromise.catch(() => {});
-                pdfViewerRef.value?.clearPendingImagePlacement?.();
-                return false;
-            }
-            await restorePromise;
-            if (!isCapturedWorkingCopyActive(capturedWorkingCopy)) {
-                pdfViewerRef.value?.clearPendingImagePlacement?.();
-                return false;
-            }
-            pdfViewerRef.value?.clearPendingImagePlacement?.();
-            return true;
         } catch (error) {
             BrowserLogger.warn('annotations', 'Failed to finalize placed image', error);
-            pdfViewerRef.value.restorePendingImagePlacement?.();
+            pdfViewerRef.value?.restorePendingImagePlacement?.();
             return false;
         } finally {
             imageFinalizeInFlight = false;
@@ -1079,34 +1088,36 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             return false;
         }
 
-        const capturedWorkingCopy = captureActiveWorkingCopy();
-        const saveTransaction = await pdfViewerRef.value.runSaveTransaction({
-            mode: 'embedded-mutation',
-            forcePdfjsMaterialize: true,
-        });
-        const rawData = saveTransaction.serializedBytes ?? saveTransaction.baseBytes;
-        if (!rawData) {
-            return false;
-        }
-        if (!isCapturedWorkingCopyActive(capturedWorkingCopy)) {
-            return false;
-        }
+        return runWithDocumentOperationLease('page-operation', async () => {
+            const capturedWorkingCopy = captureActiveWorkingCopy();
+            const saveTransaction = await pdfViewerRef.value?.runSaveTransaction({
+                mode: 'embedded-mutation',
+                forcePdfjsMaterialize: true,
+            });
+            const rawData = saveTransaction?.serializedBytes ?? saveTransaction?.baseBytes;
+            if (!rawData) {
+                return false;
+            }
+            if (!isCapturedWorkingCopyActive(capturedWorkingCopy)) {
+                return false;
+            }
 
-        const pageToRestore = currentPage.value;
-        const restorePromise = waitForPdfReload(pageToRestore);
-        await loadPdfFromData(rawData, {
-            pushHistory: true,
-            persistWorkingCopy: !!capturedWorkingCopy,
+            const pageToRestore = currentPage.value;
+            const restorePromise = waitForPdfReload(pageToRestore);
+            await loadPdfFromData(rawData, {
+                pushHistory: true,
+                persistWorkingCopy: !!capturedWorkingCopy,
+            });
+            if (!isCapturedWorkingCopyActive(capturedWorkingCopy)) {
+                void restorePromise.catch(() => {});
+                return false;
+            }
+            await restorePromise;
+            if (!isCapturedWorkingCopyActive(capturedWorkingCopy)) {
+                return false;
+            }
+            return true;
         });
-        if (!isCapturedWorkingCopyActive(capturedWorkingCopy)) {
-            void restorePromise.catch(() => {});
-            return false;
-        }
-        await restorePromise;
-        if (!isCapturedWorkingCopyActive(capturedWorkingCopy)) {
-            return false;
-        }
-        return true;
     }
 
     async function handleCopyAnnotationComment(comment: IAnnotationCommentSummary) {

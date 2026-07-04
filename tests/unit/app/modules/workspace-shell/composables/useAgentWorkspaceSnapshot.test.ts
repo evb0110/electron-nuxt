@@ -30,7 +30,7 @@ import type { IRecentFile } from '@contracts/shared';
 import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import type { IWorkspaceDocumentSessionController } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
 import { cast } from '@tests/helpers/cast';
-import { ELECTRON_PLATFORM_MANIFEST } from '@contracts/platformApi';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 interface IWindowWithElectronApi extends Window {electronAPI?: IPlatformApi;}
 
@@ -94,29 +94,7 @@ function createTestSession(path = '/tmp/document.pdf') {
 }
 
 function createElectronApiFixture(agent: IAgentCapability) {
-    return cast<IPlatformApi>({
-        manifest: ELECTRON_PLATFORM_MANIFEST,
-        documents: {
-            openDocumentDialog: vi.fn(),
-            openDocumentDirect: vi.fn(),
-            readFile: vi.fn(),
-            registerFilesForOpen: vi.fn(async () => []),
-            saveFileStructured: vi.fn(),
-            recentFiles: {get: vi.fn()},
-        },
-        pageOps: {delete: vi.fn()},
-        imageExport: {exportPdfToImages: vi.fn()},
-        ocr: {recognize: vi.fn()},
-        search: {run: vi.fn()},
-        djvu: {openForViewing: vi.fn()},
-        settings: {get: vi.fn()},
-        system: {getMemoryInfo: vi.fn()},
-        updates: {getState: vi.fn()},
-        windowTabs: {transfer: vi.fn()},
-        shell: {openExternal: vi.fn()},
-        host: {getEnvironment: vi.fn()},
-        agent,
-    });
+    return createElectronPlatformApiFixture({agent});
 }
 
 async function flushAsyncWork() {
@@ -343,6 +321,26 @@ describe('buildAgentWorkspaceSnapshot', () => {
                 },
             }),
         });
+        const pdfSession = createWorkspaceDocumentSessionCore({
+            tabId: 'tab-pdf',
+            sessionId: 'session-pdf',
+            initialRecord: createWorkspaceDocumentRecord({
+                tab: {
+                    fileName: 'Grammar.pdf',
+                    originalPath: '/tmp/Grammar.pdf',
+                    isDirty: false,
+                    isDjvu: false,
+                },
+                documentIdentity: createDocumentIdentity('revision-1', 1, '/tmp/Grammar.pdf'),
+                toolbarSnapshot: {
+                    hasPdf: true,
+                    currentPage: 12,
+                    totalPages: 80,
+                },
+            }),
+            createDocumentSessionKey: () => 'document-session-key-pdf',
+        });
+        const documentSessionsByTabId = ref<Record<string, IWorkspaceDocumentSessionController>>({'tab-pdf': pdfSession});
 
         const snapshot = buildAgentWorkspaceSnapshot({
             panes,
@@ -354,6 +352,7 @@ describe('buildAgentWorkspaceSnapshot', () => {
             recentFilesResolved: ref(true),
             workspaceRefs,
             documentRecordsByTabId,
+            documentSessionsByTabId,
             getPaneByTabId: tabId => panes.value.find(pane => pane.tabIds.includes(tabId)) ?? null,
         });
 
@@ -367,6 +366,7 @@ describe('buildAgentWorkspaceSnapshot', () => {
                 tabId: 'tab-pdf',
                 kind: 'pdf',
                 originalPath: '/tmp/Grammar.pdf',
+                documentSessionKey: 'document-session-key-pdf',
             },
         });
         expect(snapshot.recentFiles).toEqual([{
@@ -393,6 +393,7 @@ describe('buildAgentWorkspaceSnapshot', () => {
 
         const pdfTab = snapshot.tabs.find(tab => tab.tabId === 'tab-pdf');
         expect(pdfTab?.kind).toBe('pdf');
+        expect(pdfTab?.documentSessionKey).toBe('document-session-key-pdf');
         expect(pdfTab?.currentPage).toBe(12);
         expect(pdfTab?.readiness.ocr?.status).toBe('unknown');
         expect(pdfTab?.readiness.recommendations.map(item => item.id)).toEqual(['ocr_all_pages']);

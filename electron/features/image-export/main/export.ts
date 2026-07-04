@@ -71,6 +71,7 @@ interface IRenderedPageFile {
 }
 
 interface IExportPdfOptions {
+    cancelGroup?: string;
     pageNumbers?: number[];
     signal?: AbortSignal;
     onProgress?: (progress: IImageExportProgressUpdate) => void;
@@ -293,7 +294,12 @@ function createLosslessGrayscaleData(data: Uint8Array) {
     return grayscaleData;
 }
 
-async function tryConvertRenderedPpmToPngNative(sourcePath: string, pngPath: string) {
+async function tryConvertRenderedPpmToPngNative(
+    sourcePath: string,
+    pngPath: string,
+    signal?: AbortSignal,
+    cancelGroup?: string,
+) {
     if (isNativePdfImageCombineDisabled()) {
         return false;
     }
@@ -314,6 +320,8 @@ async function tryConvertRenderedPpmToPngNative(sourcePath: string, pngPath: str
         ], {
             timeoutMs: PDFTOPPM_TIMEOUT_MS,
             commandLabel: 'evb-pdf-image-combine(ppm-to-png)',
+            ...(signal ? { signal } : {}),
+            ...(cancelGroup ? { cancelGroup } : {}),
         });
         await unlink(sourcePath).catch(() => undefined);
         return true;
@@ -324,13 +332,19 @@ async function tryConvertRenderedPpmToPngNative(sourcePath: string, pngPath: str
     }
 }
 
-async function convertRenderedPpmToPng(sourcePath: string) {
+async function convertRenderedPpmToPng(
+    sourcePath: string,
+    signal?: AbortSignal,
+    cancelGroup?: string,
+) {
     const pngPath = sourcePath.replace(/\.ppm$/i, '.png');
-    if (await tryConvertRenderedPpmToPngNative(sourcePath, pngPath)) {
+    if (await tryConvertRenderedPpmToPngNative(sourcePath, pngPath, signal, cancelGroup)) {
         return pngPath;
     }
 
+    throwIfAborted(signal);
     const sourceBytes = await readFile(sourcePath);
+    throwIfAborted(signal);
     const image = parseRawPpm(sourceBytes);
     const grayscaleData = createLosslessGrayscaleData(image.data);
     const pngBytes = encodePng({
@@ -446,6 +460,7 @@ async function detectExportDpi(
     popplerRuntimePaths: IPopplerRuntimePaths,
     pageRange: IExportPageRange,
     signal?: AbortSignal,
+    cancelGroup?: string,
 ) {
     if (!pdfimagesBinary) {
         return null;
@@ -458,6 +473,7 @@ async function detectExportDpi(
             timeoutMs: PDFIMAGES_DPI_PROBE_TIMEOUT_MS,
             commandLabel: 'pdfimages(export-dpi)',
             ...(signal ? { signal } : {}),
+            ...(cancelGroup ? { cancelGroup } : {}),
         };
         if (popplerEnv !== undefined) {
             commandOptions.env = popplerEnv;
@@ -484,13 +500,21 @@ async function detectExportDpi(
     }
 }
 
-export async function getPdfPageCount(pdfPath: string) {
+export async function getPdfPageCount(
+    pdfPath: string,
+    options: {
+        cancelGroup?: string;
+        signal?: AbortSignal;
+    } = {},
+) {
     const result = await runNativeToolCommand(getPdfNativeToolPaths().qpdf, [
         '--show-npages',
         pdfPath,
     ], {
         timeoutMs: QPDF_TIMEOUT_MS,
         commandLabel: 'qpdf(export-page-count)',
+        ...(options.signal ? { signal: options.signal } : {}),
+        ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
     });
     const pageCount = Number.parseInt(result.stdout.trim(), 10);
     if (!Number.isInteger(pageCount) || pageCount < 1) {
@@ -524,6 +548,7 @@ async function renderPdfToTempPages(
     format: TImageExportFormat,
     pageRange: IExportPageRange,
     signal?: AbortSignal,
+    cancelGroup?: string,
 ): Promise<IRenderedPageFile[]> {
     const tempDir = await mkdtemp(join(tmpdir(), 'pdfExport-'));
     const prefix = join(tempDir, 'page');
@@ -537,6 +562,7 @@ async function renderPdfToTempPages(
             paths,
             pageRange,
             signal,
+            cancelGroup,
         );
         const renderDpi = clampDpi(detectedDpi ?? 300);
 
@@ -547,6 +573,7 @@ async function renderPdfToTempPages(
             timeoutMs: PDFTOPPM_TIMEOUT_MS,
             commandLabel: `pdftoppm(export-${format})`,
             ...(signal ? { signal } : {}),
+            ...(cancelGroup ? { cancelGroup } : {}),
         };
         if (popplerEnv !== undefined) {
             commandOptions.env = popplerEnv;
@@ -588,7 +615,7 @@ async function renderPdfToTempPages(
         if (renderFormat === 'ppm') {
             for (const pageFile of pageFiles) {
                 throwIfAborted(signal);
-                pageFile.path = await convertRenderedPpmToPng(pageFile.path);
+                pageFile.path = await convertRenderedPpmToPng(pageFile.path, signal, cancelGroup);
             }
         }
 
@@ -705,6 +732,7 @@ async function prepareSourcePdfForExport(pdfPath: string, options: IExportPdfOpt
                 timeoutMs: QPDF_TIMEOUT_MS,
                 commandLabel: 'qpdf(export-subset)',
                 ...(options.signal ? { signal: options.signal } : {}),
+                ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
             });
         } finally {
             await argsFile.cleanup();
@@ -779,7 +807,13 @@ export async function exportPdfPagesAsImages(
                 format === 'png' ? PDF_EXPORT_PNG_RENDER_CHUNK_PAGES : PDF_EXPORT_RENDER_CHUNK_PAGES,
             )) {
                 throwIfAborted(options.signal);
-                const pageFiles = await renderPdfToTempPages(preparedSourcePdf.pdfPath, format, pageRange, options.signal);
+                const pageFiles = await renderPdfToTempPages(
+                    preparedSourcePdf.pdfPath,
+                    format,
+                    pageRange,
+                    options.signal,
+                    options.cancelGroup,
+                );
 
                 try {
                     for (const source of pageFiles) {

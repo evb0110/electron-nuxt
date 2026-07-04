@@ -1,0 +1,83 @@
+import { vi } from 'vitest';
+import type { IPlatformMethodDescriptor } from '@contracts/platformApiDescriptor';
+
+function createAsyncDefault(path: string) {
+    if (path.endsWith('.get')) {
+        return vi.fn(async () => ({}));
+    }
+    if (path.endsWith('.getMemoryInfo')) {
+        return vi.fn(() => null);
+    }
+    if (path.endsWith('.fileExists')) {
+        return vi.fn(async () => false);
+    }
+    if (path.endsWith('.readFile') || path.endsWith('.readFileRange')) {
+        return vi.fn(async () => new Uint8Array());
+    }
+    if (path.endsWith('.readFileChunks')) {
+        return vi.fn(async () => ({
+            bytesRead: 0,
+            chunks: 0,
+            size: 0,
+        }));
+    }
+    if (path.endsWith('.readTextFile')) {
+        return vi.fn(async () => '');
+    }
+    if (path.endsWith('.registerFilesForOpen')) {
+        return vi.fn(async () => []);
+    }
+    if (path.endsWith('.getDocumentRevision')) {
+        return vi.fn(async () => ({
+            authority: 'electron-working-copy',
+            contentRevision: 1,
+            documentRef: '/tmp/fixture.pdf',
+            mintedAt: 1,
+            token: 'drt1:1:1:fixture',
+            version: 1,
+        }));
+    }
+    if (path.includes('validatePdf') || path.includes('repairPdf') || path.includes('savePdfData')) {
+        return vi.fn(async () => ({valid: true}));
+    }
+    if (path.endsWith('.saveFileStructured')) {
+        return vi.fn(async () => ({
+            externalWriteCommitted: true,
+            ok: true,
+            validation: null,
+            workingCopyRefreshed: true,
+        }));
+    }
+    if (path.includes('openDocument') || path.includes('openPdf')) {
+        return vi.fn(async () => null);
+    }
+    if (path.includes('getPathForFile')) {
+        return vi.fn(() => '/tmp/fixture.pdf');
+    }
+    if (path.includes('getPathsForFiles')) {
+        return vi.fn(() => []);
+    }
+    return vi.fn(async () => undefined);
+}
+
+export function createDefaultPlatformApiFixtureMethod(descriptor: IPlatformMethodDescriptor) {
+    const path = descriptor.path.join('.');
+    if (descriptor.kind === 'event') {
+        return vi.fn(() => {});
+    }
+    if (descriptor.kind === 'sync') {
+        if (path.endsWith('.getMemoryInfo')) {
+            return vi.fn(() => null);
+        }
+        if (path.endsWith('.getPathForFile')) {
+            return vi.fn(() => '/tmp/fixture.pdf');
+        }
+        if (path.endsWith('.getPathsForFiles')) {
+            return vi.fn(() => []);
+        }
+    }
+    if (descriptor.kind === 'void') {
+        return vi.fn(() => undefined);
+    }
+    return createAsyncDefault(path);
+}

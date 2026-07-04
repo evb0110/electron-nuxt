@@ -3,6 +3,8 @@ import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 export const OCR_WORKER_POOL_SIZE = parseIntegerEnv('EVB_OCR_WORKER_POOL_SIZE', 2, 1);
 export const OCR_QUEUE_MAX_SIZE = parseIntegerEnv('EVB_OCR_QUEUE_MAX_SIZE', 8, 1);
 export const OCR_QUEUE_MAX_BUFFERED_BYTES = parseIntegerEnv('EVB_OCR_QUEUE_MAX_BUFFERED_MB', 768, 32) * 1024 * 1024;
+export const OCR_QUEUE_MAX_DOCUMENT_PAGE_WORK = parseIntegerEnv('EVB_OCR_DOCUMENT_PAGE_WORK_MAX', 96, 1);
+export const OCR_QUEUE_MAX_GLOBAL_PAGE_WORK = parseIntegerEnv('EVB_OCR_GLOBAL_PAGE_WORK_MAX', 384, 1);
 export const OCR_QUEUE_MAX_AGE_MS = parseIntegerEnv('EVB_OCR_QUEUE_MAX_AGE_MS', 10 * 60 * 1000, 5_000);
 export const OCR_RESULT_FILE_ACK_TTL_MS = parseIntegerEnv('EVB_OCR_RESULT_FILE_TTL_MS', 15 * 60 * 1000, 60_000);
 export const OCR_JOB_IDLE_TIMEOUT_MS = parseIntegerEnv(

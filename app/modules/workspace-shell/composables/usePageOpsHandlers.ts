@@ -3,6 +3,7 @@ import { difference } from 'es-toolkit/array';
 import { range } from 'es-toolkit/math';
 import type { ICropMargins } from '@app/types/crop';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import { usePageOperations } from '@app/modules/pdf-viewer/public';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 
@@ -10,6 +11,7 @@ interface IPdfViewerForPageOps {invalidatePages: (pages: number[]) => void;}
 
 export interface IPageOpsHandlersDeps {
     workingCopyPath: Ref<TDocumentRef | null>;
+    documentRevisionToken?: Ref<TDocumentRevisionToken | null>;
     currentPage: Ref<number>;
     totalPages: Ref<number>;
     selectedThumbnailPages: Ref<number[]>;
@@ -45,6 +47,7 @@ export interface IPageOpsHandlersDeps {
 export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
     const {
         workingCopyPath,
+        documentRevisionToken,
         currentPage,
         totalPages,
         selectedThumbnailPages,
@@ -77,6 +80,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         removeCrop: pageOpsRemoveCrop,
     } = usePageOperations({
         workingCopyPath,
+        ...(documentRevisionToken !== undefined ? { documentRevisionToken } : {}),
         ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,
         clearOcrCache,

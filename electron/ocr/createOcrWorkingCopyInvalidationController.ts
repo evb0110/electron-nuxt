@@ -13,6 +13,10 @@ interface IOcrWorkingCopyInvalidationControllerOptions {
     logger: IOcrWorkingCopyInvalidationLogger;
     queuedJobs: IOcrQueuedJob[];
     removeQueuedJob: (scopedJobId: string, nextState: 'cancelling' | 'finalized') => IOcrQueuedJob | null;
+    sendJobCancellation: (
+        job: Pick<IOcrQueuedJob | IOcrPreparingJob, 'scopedJobId' | 'requestId' | 'webContentsId'>,
+        reason: string,
+    ) => void;
     terminateAndFinalizeActiveJob: (
         scopedJobId: string,
         options: {
@@ -39,6 +43,7 @@ export function createOcrWorkingCopyInvalidationController(options: IOcrWorkingC
 
             if (options.abortPreparingJob(preparingJob.scopedJobId, reason)) {
                 canceledCount += 1;
+                options.sendJobCancellation(preparingJob, reason);
                 options.logger.info(`[${preparingJob.requestId}] Cancelled preparing OCR job for stale working copy: ${reason}`);
             }
         }
@@ -50,6 +55,7 @@ export function createOcrWorkingCopyInvalidationController(options: IOcrWorkingC
             const removedJob = options.removeQueuedJob(scopedJobId, 'cancelling');
             if (removedJob) {
                 canceledCount += 1;
+                options.sendJobCancellation(removedJob, reason);
                 options.logger.info(`[${removedJob.requestId}] Removed queued OCR job for stale working copy: ${reason}`);
             }
         }

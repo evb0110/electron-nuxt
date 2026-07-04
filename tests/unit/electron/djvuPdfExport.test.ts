@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => {
             mode: 'success',
             workerTerminate: vi.fn(() => Promise.resolve(0)),
             rejectPendingBookmark: null as ((error: Error) => void) | null,
+            lastBookmarkSignal: null as AbortSignal | null,
         },
         browserWindowFromWebContents: vi.fn(() => null),
         randomUUID: vi.fn(),
@@ -166,6 +167,7 @@ describe('handleDjvuConvertToPdf', () => {
         mocks.randomUUID.mockReset();
         mocks.bookmarkTaskState.mode = 'success';
         mocks.bookmarkTaskState.rejectPendingBookmark = null;
+        mocks.bookmarkTaskState.lastBookmarkSignal = null;
         mocks.bookmarkTaskState.workerTerminate = vi.fn(() => {
             mocks.bookmarkTaskState.rejectPendingBookmark?.(new Error('worker terminated'));
             return Promise.resolve(0);
@@ -226,7 +228,13 @@ describe('handleDjvuConvertToPdf', () => {
         mocks.embedBookmarksIntoPdfFile.mockResolvedValue(123);
         mocks.optimizeGeneratedPdfForInteraction.mockResolvedValue(null);
         mocks.printManagedTempPdfPath.mockResolvedValue({ success: true });
-        mocks.createDjvuPdfBookmarkTask.mockImplementation(() => {
+        mocks.createDjvuPdfBookmarkTask.mockImplementation((
+            _inputPdfPath: string,
+            _outputPdfPath: string,
+            _bookmarks: unknown[],
+            options?: { signal?: AbortSignal },
+        ) => {
+            mocks.bookmarkTaskState.lastBookmarkSignal = options?.signal ?? null;
             if (mocks.bookmarkTaskState.mode === 'startup-error') {
                 throw new mocks.StartupError('bookmark worker missing');
             }
@@ -234,6 +242,12 @@ describe('handleDjvuConvertToPdf', () => {
             if (mocks.bookmarkTaskState.mode === 'cancel-pending') {
                 const promise = new Promise<void>((_resolve, reject) => {
                     mocks.bookmarkTaskState.rejectPendingBookmark = reject;
+                    const rejectCanceled = () => reject(new Error('DjVu PDF worker canceled'));
+                    if (options?.signal?.aborted) {
+                        rejectCanceled();
+                        return;
+                    }
+                    options?.signal?.addEventListener('abort', rejectCanceled, {once: true});
                 });
                 return {
                     worker: { terminate: mocks.bookmarkTaskState.workerTerminate },
@@ -465,9 +479,16 @@ describe('handleDjvuConvertToPdf', () => {
         expect(mocks.optimizeGeneratedPdfForInteraction).not.toHaveBeenCalled();
         expect(mocks.copyFile).not.toHaveBeenCalled();
         expect(mocks.atomicReplace).not.toHaveBeenCalled();
+        expect(mocks.safeSendToWindow).toHaveBeenLastCalledWith(null, 'djvu:progress', {
+            jobId: 'djvu-convert-convert-123',
+            phase: 'converting',
+            percent: 100,
+            status: 'failed',
+            error: 'compact failed',
+        });
     });
 
-    it('terminates the active bookmark worker when cancel is requested', async () => {
+    it('aborts the active bookmark worker when cancel is requested', async () => {
         mocks.bookmarkTaskState.mode = 'cancel-pending';
 
         const convertPromise = handleDjvuConvertToPdf(
@@ -488,10 +509,28 @@ describe('handleDjvuConvertToPdf', () => {
         const result = await convertPromise;
 
         expect(cancelResult).toEqual({canceled: true});
-        expect(mocks.bookmarkTaskState.workerTerminate).toHaveBeenCalledTimes(1);
+        expect(mocks.createDjvuPdfBookmarkTask).toHaveBeenCalledWith(
+            '/tmp/djvu-export-test/convert-123.convert.pdf',
+            '/tmp/djvu-export-test/convert-123.bookmarks.pdf',
+            [{
+                title: 'Chapter 1',
+                pageIndex: 0,
+                items: [],
+            }],
+            {signal: expect.any(AbortSignal)},
+        );
+        expect(mocks.bookmarkTaskState.lastBookmarkSignal?.aborted).toBe(true);
+        expect(mocks.bookmarkTaskState.workerTerminate).not.toHaveBeenCalled();
         expect(result).toEqual({
             success: false,
             jobId: 'djvu-convert-convert-123',
+            error: 'DjVu conversion canceled',
+        });
+        expect(mocks.safeSendToWindow).toHaveBeenLastCalledWith(null, 'djvu:progress', {
+            jobId: 'djvu-convert-convert-123',
+            phase: 'bookmarks',
+            percent: 100,
+            status: 'canceled',
             error: 'DjVu conversion canceled',
         });
     });
@@ -531,6 +570,13 @@ describe('handleDjvuConvertToPdf', () => {
         expect(result).toEqual({
             success: false,
             jobId: 'djvu-convert-convert-123',
+            error: 'DjVu conversion canceled',
+        });
+        expect(mocks.safeSendToWindow).toHaveBeenLastCalledWith(null, 'djvu:progress', {
+            jobId: 'djvu-convert-convert-123',
+            phase: 'converting',
+            percent: 100,
+            status: 'canceled',
             error: 'DjVu conversion canceled',
         });
     });

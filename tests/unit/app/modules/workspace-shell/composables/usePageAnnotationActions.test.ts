@@ -19,6 +19,7 @@ import type {
     TAnnotationTool,
 } from '@app/types/annotations';
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacement';
+import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import { usePageAnnotationActions } from '@app/modules/workspace-shell/composables/usePageAnnotationActions';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
@@ -84,6 +85,13 @@ function deferred<T>() {
         resolve: (value: T) => resolve?.(value),
     };
 }
+
+type TRunWithDocumentOperationLease = <T>(
+    kind: TDocumentOperationKind,
+    operation: () => Promise<T>,
+) => Promise<T>;
+
+type TRunWithDocumentOperationLeaseMock = TRunWithDocumentOperationLease & {mockImplementationOnce: (implementation: TRunWithDocumentOperationLease) => TRunWithDocumentOperationLeaseMock;};
 
 async function waitForCondition(condition: () => boolean, timeoutMs = 300) {
     const intervalMs = 5;
@@ -227,6 +235,10 @@ function createHarness() {
         dragMode.value = false;
     });
 
+    const runWithDocumentOperationLease: TRunWithDocumentOperationLeaseMock = vi.fn(async <T>(
+        _kind: TDocumentOperationKind,
+        operation: () => Promise<T>,
+    ) => operation()) as TRunWithDocumentOperationLeaseMock;
     const deps = {
         pdfViewerRef: ref(viewer),
         annotationTool,
@@ -283,6 +295,7 @@ function createHarness() {
             7,
             7,
         ])),
+        runWithDocumentOperationLease,
     };
 
     return {
@@ -1008,6 +1021,56 @@ describe('usePageAnnotationActions', () => {
         expect(viewer.saveDocument).not.toHaveBeenCalled();
     });
 
+    it('runs placed image working-copy writes through the document operation lease', async () => {
+        const {
+            deps,
+            actions,
+        } = createHarness();
+        const leaseGate = deferred<undefined>();
+        deps.runWithDocumentOperationLease.mockImplementationOnce(async <T>(
+            kind: TDocumentOperationKind,
+            operation: () => Promise<T>,
+        ) => {
+            expect(kind).toBe('page-operation');
+            await leaseGate.promise;
+            return operation();
+        });
+
+        const finalizePromise = actions.handleFinalizePlacedImage({
+            pageNumber: 4,
+            x: 0.1,
+            y: 0.2,
+            width: 0.3,
+            height: 0.15,
+            rotationDegrees: 90,
+            fileName: 'image.png',
+            mimeType: 'image/png',
+            bytes: new Uint8Array([
+                1,
+                2,
+                3,
+            ]),
+            targetPixelWidth: 240,
+            targetPixelHeight: 120,
+        });
+        await Promise.resolve();
+
+        expect(deps.runWithDocumentOperationLease).toHaveBeenCalledWith('page-operation', expect.any(Function));
+        expect(deps.getEmbeddedMutationBaseData).not.toHaveBeenCalled();
+        expect(deps.loadPdfFromData).not.toHaveBeenCalled();
+
+        leaseGate.resolve(undefined);
+        await expect(finalizePromise).resolves.toBe(true);
+
+        expect(deps.loadPdfFromData).toHaveBeenCalledWith(new Uint8Array([
+            7,
+            7,
+        ]), {
+            pushHistory: true,
+            persistWorkingCopy: true,
+        });
+    });
+
     it('clears pending image placement when finalization resolves after the working copy changes', async () => {
         const {
             deps,
@@ -1484,6 +1547,38 @@ describe('usePageAnnotationActions', () => {
 
         expect(didReload).toBe(true);
         expect(deps.waitForPdfReload).toHaveBeenCalledWith(3);
+        expect(deps.loadPdfFromData).toHaveBeenCalledWith(new Uint8Array([
+            9,
+            9,
+        ]), {
+            pushHistory: true,
+            persistWorkingCopy: true,
+        });
+    });
+
+    it('runs embedded fallback working-copy reloads through the document operation lease', async () => {
+        const {
+            deps,
+            actions,
+        } = createHarness();
+        const leaseGate = deferred<undefined>();
+        deps.runWithDocumentOperationLease.mockImplementationOnce(async <T>(
+            kind: TDocumentOperationKind,
+            operation: () => Promise<T>,
+        ) => {
+            expect(kind).toBe('page-operation');
+            await leaseGate.promise;
+            return operation();
+        });
+
+        const reloadPromise = actions.serializeCurrentPdfForEmbeddedFallback();
+        await Promise.resolve();
+
+        expect(deps.runWithDocumentOperationLease).toHaveBeenCalledWith('page-operation', expect.any(Function));
+        expect(deps.loadPdfFromData).not.toHaveBeenCalled();
+
+        leaseGate.resolve(undefined);
+        await expect(reloadPromise).resolves.toBe(true);
         expect(deps.loadPdfFromData).toHaveBeenCalledWith(new Uint8Array([
             9,
             9,

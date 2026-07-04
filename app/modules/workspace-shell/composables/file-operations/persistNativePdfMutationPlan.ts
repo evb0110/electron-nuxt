@@ -5,6 +5,7 @@ import type {
     IPdfNoteTextUpdate,
 } from '@contracts/electronApiDocuments';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TPdfSaveMode } from '@app/types/pdfContracts';
 import type { IPdfPersistResult } from '@app/types/pdfUi';
 import type { INativePdfMutationPlan } from '@app/modules/pdf-viewer/public';
@@ -16,6 +17,7 @@ export interface IPersistNativePdfMutationPlanDeps {
             saveMode: TPdfSaveMode;
             preserveLoadedSource?: boolean;
             expectedWorkingPath?: TDocumentRef | null;
+            expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
             modifiedAt: string;
         },
     ) => Promise<IPdfPersistResult | null>;
@@ -25,6 +27,7 @@ export interface IPersistNativePdfMutationPlanDeps {
             saveMode: TPdfSaveMode;
             preserveLoadedSource?: boolean;
             expectedWorkingPath?: TDocumentRef | null;
+            expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
             modifiedAt: string;
             freeTextNotes?: IPdfNativeFreeTextNote[];
             deletes?: IPdfNativeAnnotationDelete[];
@@ -36,6 +39,7 @@ export interface IPersistNativePdfMutationPlanOptions {
     saveMode: TPdfSaveMode;
     preserveLoadedSource: boolean;
     expectedWorkingPath: TDocumentRef;
+    expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
     modifiedAt: string;
 }
 

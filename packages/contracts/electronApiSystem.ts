@@ -3,4 +3,14 @@ export interface ISystemMemoryInfo {
     freeBytes: number;
 }
 
-export interface ISystemCapability { getMemoryInfo: () => ISystemMemoryInfo | null; }
+export interface IShutdownSaveFlushResponse {
+    dirtyWorkingCopyPaths?: string[];
+    flushedWorkingCopyPaths?: string[];
+}
+
+export interface ISystemCapability {
+    getMemoryInfo: () => ISystemMemoryInfo | null;
+    onShutdownSaveFlushRequest: (
+        callback: () => Promise<IShutdownSaveFlushResponse> | IShutdownSaveFlushResponse,
+    ) => () => void;
+}

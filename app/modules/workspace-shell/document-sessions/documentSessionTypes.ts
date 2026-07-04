@@ -19,12 +19,12 @@ export type TWorkspaceDocumentSessionPhase =
     | 'ready'
     | 'reloading'
     | 'closing'
-    | 'closed'
     | 'error';
 
 export type TWorkspaceDocumentTransactionKind = 'open' | 'restore' | 'reload' | 'close';
 
 export interface IWorkspaceDocumentIdentity {
+    documentSessionKey: string | null;
     documentRef: TDocumentRef | null;
     originalPath: TDocumentRef | null;
     workingCopyPath: TDocumentRef | null;
@@ -39,6 +39,7 @@ export interface IWorkspaceDocumentTransaction {
     kind: TWorkspaceDocumentTransactionKind;
     documentRef: TDocumentRef | null;
     startedAt: number;
+    persist?: boolean | undefined;
 }
 
 export interface IWorkspacePendingCloseDecision {

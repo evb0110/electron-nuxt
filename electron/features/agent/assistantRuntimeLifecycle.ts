@@ -162,6 +162,7 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
             session.providerThreadId = null;
             session.turnOwner = supersedeAssistantTurn(session.turnOwner);
             session.scopeBinding = null;
+            options.sessionStore.recordTurnBoundary(session);
         }
         mcpToolCount = 0;
         if (shutdownOptions.shutdownMcp === true) {

@@ -36,6 +36,12 @@ interface IPdfPreloadedRange {
     data: Uint8Array;
 }
 
+interface IPdfCachedPageEntry {
+    page: PDFPageProxy;
+    leases: number;
+    pendingEviction: boolean;
+}
+
 const PDF_RANGE_SUBREAD_BYTES = 8 * 1024 * 1024;
 const MAX_AGGREGATE_PDF_RANGE_BYTES = 64 * 1024 * 1024;
 
@@ -82,7 +88,7 @@ export const usePdfDocument = () => {
     const loadError = shallowRef<unknown | null>(null);
 
     let renderVersion = 0;
-    const pdfPageCache = new Map<number, PDFPageProxy>();
+    const pdfPageCache = new Map<number, IPdfCachedPageEntry>();
     const pageMetricLoads = new Map<number, Promise<IPdfPageMetric | null>>();
     let objectUrl: string | null = null;
     let loadingTask: ReturnType<typeof pdfjsLib.getDocument> | null = null;
@@ -93,16 +99,28 @@ export const usePdfDocument = () => {
         return createPdfjsDocumentOptions(pdfjsLib);
     }
 
-    function touchCachedPage(pageNumber: number, page: PDFPageProxy) {
+    function touchCachedPage(pageNumber: number, entry: IPdfCachedPageEntry) {
         pdfPageCache.delete(pageNumber);
-        pdfPageCache.set(pageNumber, page);
+        pdfPageCache.set(pageNumber, entry);
     }
 
     function rememberCachedPage(pageNumber: number, page: PDFPageProxy) {
-        touchCachedPage(pageNumber, page);
-        while (pdfPageCache.size > maxCachedPdfPages) {
-            const oldestPageNumber = pdfPageCache.keys().next().value;
-            if (typeof oldestPageNumber !== 'number') {
+        const existingEntry = pdfPageCache.get(pageNumber);
+        const entry = existingEntry?.page === page
+            ? existingEntry
+            : {
+                page,
+                leases: 0,
+                pendingEviction: false,
+            };
+        entry.pendingEviction = false;
+        touchCachedPage(pageNumber, entry);
+        enforcePageCacheLimit();
+    }
+
+    function enforcePageCacheLimit() {
+        for (const oldestPageNumber of [...pdfPageCache.keys()]) {
+            if (pdfPageCache.size <= maxCachedPdfPages) {
                 break;
             }
             evictPage(oldestPageNumber);
@@ -800,7 +818,8 @@ export const usePdfDocument = () => {
             throw new Error('No PDF document loaded');
         }
 
-        let page = pdfPageCache.get(pageNumber);
+        const entry = pdfPageCache.get(pageNumber);
+        let page = entry?.page;
         if (!page) {
             logPdfRenderTrace('pdf-document-page-cache-miss', {
                 pageNumber,
@@ -828,23 +847,77 @@ export const usePdfDocument = () => {
             logPdfRenderTrace('pdf-document-page-cache-hit', {
                 pageNumber,
                 cacheSize: pdfPageCache.size,
+                leases: entry?.leases ?? 0,
+                pendingEviction: entry?.pendingEviction ?? false,
             });
-            touchCachedPage(pageNumber, page);
+            if (entry) {
+                touchCachedPage(pageNumber, entry);
+            }
         }
         return page;
     }
 
+    async function leasePage(pageNumber: number) {
+        const page = await getPage(pageNumber);
+        const entry = pdfPageCache.get(pageNumber);
+        if (!entry || entry.page !== page) {
+            throw createStalePdfDocumentError(
+                'Rendering cancelled: PDF page lease became stale',
+            );
+        }
+        entry.leases += 1;
+        logPdfRenderTrace('pdf-document-page-lease-acquire', {
+            pageNumber,
+            leases: entry.leases,
+            renderVersion,
+        });
+        return page;
+    }
+
+    function cleanupPageEntry(pageNumber: number, entry: IPdfCachedPageEntry) {
+        logPdfRenderTrace('pdf-document-page-cache-cleanup-page', {
+            pageNumber,
+            leases: entry.leases,
+            pendingEviction: entry.pendingEviction,
+            renderVersion,
+        });
+        entry.page.cleanup();
+    }
+
+    function releasePage(pageNumber: number, page: PDFPageProxy) {
+        const entry = pdfPageCache.get(pageNumber);
+        if (!entry || entry.page !== page) {
+            return;
+        }
+
+        entry.leases = Math.max(0, entry.leases - 1);
+        logPdfRenderTrace('pdf-document-page-lease-release', {
+            pageNumber,
+            leases: entry.leases,
+            pendingEviction: entry.pendingEviction,
+            renderVersion,
+        });
+        if (entry.leases === 0 && entry.pendingEviction) {
+            evictPage(pageNumber);
+        }
+    }
+
     function evictPage(pageNumber: number) {
-        const page = pdfPageCache.get(pageNumber);
-        if (!page) {
+        const entry = pdfPageCache.get(pageNumber);
+        if (!entry) {
             return;
         }
 
         logPdfRenderTrace('pdf-document-page-cache-evict', {
             pageNumber,
             cacheSize: pdfPageCache.size,
+            leases: entry.leases,
         });
-        page.cleanup();
+        if (entry.leases > 0) {
+            entry.pendingEviction = true;
+            return;
+        }
+        cleanupPageEntry(pageNumber, entry);
         pdfPageCache.delete(pageNumber);
     }
 
@@ -854,9 +927,10 @@ export const usePdfDocument = () => {
             pages: Array.from(pdfPageCache.keys()).slice(0, 40),
         });
         for (const [
-            , page,
+            pageNumber,
+            entry,
         ] of pdfPageCache) {
-            page.cleanup();
+            cleanupPageEntry(pageNumber, entry);
         }
         pdfPageCache.clear();
     }
@@ -903,6 +977,8 @@ export const usePdfDocument = () => {
         loadPdf,
         ensurePageMetricsInRange,
         getPage,
+        leasePage,
+        releasePage,
         evictPage,
         cleanupPageCache,
         cleanup,

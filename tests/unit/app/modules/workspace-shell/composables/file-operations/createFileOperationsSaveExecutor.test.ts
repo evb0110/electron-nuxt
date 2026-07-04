@@ -44,6 +44,7 @@ function createExecutorFixture(overrides: {runSaveTransaction?: () => Promise<Pa
             documentIdentity: {
                 workingCopyPath: ref('/tmp/work.pdf'),
                 originalPath: ref('/tmp/source.pdf'),
+                documentRevisionToken: ref('rev-1'),
             },
             metadata: {
                 pageLabelsDirty: ref(false),
@@ -264,6 +265,7 @@ describe('createFileOperationsSaveExecutor', () => {
             saveMode: 'rewrite',
             preserveLoadedSource: true,
             expectedWorkingPath: '/tmp/work.pdf',
+            expectedDocumentRevisionToken: null,
         });
         expect(fixture.services.completion.primePersistedShapeStateForSave)
             .toHaveBeenCalledWith(serializedResult.finalBytes, false);

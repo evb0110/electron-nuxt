@@ -70,7 +70,7 @@ describe('savePdfBytesToWorkingCopy', () => {
         const result = await savePdfBytesToWorkingCopy('/tmp/working.pdf', data);
 
         expect(result).toBe(validation);
-        expect(savePdfData).toHaveBeenCalledWith('/tmp/working.pdf', data);
+        expect(savePdfData).toHaveBeenCalledWith('/tmp/working.pdf', data, undefined);
         expect(mocks.documentPdf.validatePdfData).not.toHaveBeenCalled();
         expect(mocks.documentFiles.writeFile).not.toHaveBeenCalled();
         expect(mocks.documentFiles.saveFileStructured).not.toHaveBeenCalled();

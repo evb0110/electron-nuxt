@@ -182,7 +182,7 @@ describe('createDocumentPersistence', () => {
             7,
             8,
             9,
-        ]));
+        ]), {expectedDocumentRevisionToken: null});
         expect(mocks.documentFilesCapability.writeFile.mock.calls[0]?.[1]).not.toBe(data);
         expect(deps.pushHistorySnapshot).toHaveBeenCalledWith(new Uint8Array([
             7,
@@ -362,6 +362,7 @@ describe('createDocumentPersistence', () => {
             '/tmp/old-working.pdf',
             mutations,
             'D:20260628123456+03\'00\'',
+            {expectedDocumentRevisionToken: null},
         );
         expect(mocks.documentFilesCapability.savePdfNoteChanges).not.toHaveBeenCalled();
         expect(mocks.documentFilesCapability.savePdfNoteTextUpdates).not.toHaveBeenCalled();
@@ -395,6 +396,7 @@ describe('createDocumentPersistence', () => {
             '/tmp/old-working.pdf',
             mutations,
             'D:20260628123526+03\'00\'',
+            {expectedDocumentRevisionToken: null},
         );
         expect(mocks.documentFilesCapability.savePdfNoteChanges).not.toHaveBeenCalled();
         expect(mocks.documentFilesCapability.savePdfNoteTextUpdates).not.toHaveBeenCalled();
@@ -422,6 +424,7 @@ describe('createDocumentPersistence', () => {
             '/tmp/old-working.pdf',
             updates,
             'D:20260628123556+03\'00\'',
+            {expectedDocumentRevisionToken: null},
         );
         expect(mocks.documentFilesCapability.savePdfNoteChanges).not.toHaveBeenCalled();
         expectBroadFilePersistenceFacadeNotUsed();
@@ -465,6 +468,7 @@ describe('createDocumentPersistence', () => {
                 deletes,
             },
             'D:20260628123626+03\'00\'',
+            {expectedDocumentRevisionToken: null},
         );
         expect(mocks.documentFilesCapability.savePdfNoteTextUpdates).not.toHaveBeenCalled();
         expectBroadFilePersistenceFacadeNotUsed();

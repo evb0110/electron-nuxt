@@ -22,6 +22,7 @@ import {
     sessionStartingFilePath,
     sessionsBaseDir,
 } from '@scripts/electron-run/electronRunSessionPaths';
+import { E2E_RUN_ID_ENV } from '@scripts/electron-run/electronRunRunId';
 import {
     findPidsByCommandSubstring,
     isProcessAlive,
@@ -72,6 +73,7 @@ function normalizeSessionInfo(raw: ISessionInfo): ISessionInfo {
     return {
         ...raw,
         nuxtPort: raw.nuxtPort || DEFAULT_NUXT_PORT,
+        runId: typeof raw.runId === 'string' ? raw.runId : null,
     };
 }
 
@@ -99,6 +101,7 @@ function normalizeSessionStartingInfo(raw: ISessionStartingInfo): ISessionStarti
             : null,
         nuxtPid: isNullablePositiveInt(raw.nuxtPid) ? raw.nuxtPid : null,
         nuxtPort: isNullablePositiveInt(raw.nuxtPort) ? raw.nuxtPort : null,
+        runId: typeof raw.runId === 'string' ? raw.runId : null,
     };
 }
 
@@ -138,6 +141,7 @@ export function markSessionStarting(pid: number) {
         electronUserDataDir: electronUserDataPath(),
         nuxtPid: null,
         nuxtPort: null,
+        runId: process.env[E2E_RUN_ID_ENV] ?? null,
     }));
 }
 

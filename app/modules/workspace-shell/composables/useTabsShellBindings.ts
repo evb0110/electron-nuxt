@@ -33,6 +33,11 @@ import {
     type TWorkspaceExposeMethod,
 } from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
 import { registerDirectOpenAutomationDelegate } from '@app/modules/workspace-shell/automation/directOpenAutomationDispatcher';
+import {
+    getAutomationEvents,
+    onAutomationEvent,
+    waitForAutomationEvent,
+} from '@app/modules/workspace-shell/automation/automationReadinessEvents';
 
 const STARTUP_OPEN_CLAIMED_EVENT_NAME = 'evb:startup-open-claimed';
 type TTabKeyboardShortcutAction = 'new-tab' | 'close-tab' | 'next-tab' | 'previous-tab';
@@ -180,6 +185,9 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         return {
             openFile: openPathInAppropriateTab,
             openFiles: openPathsInAppropriateTab,
+            getAutomationEvents,
+            onAutomationEvent,
+            waitForAutomationEvent,
             getActiveTabId: () => activeTabId.value,
             getActiveWorkspaceHandle,
             getActiveToolbarSnapshot: () => readWorkspaceSnapshot(activeTabId.value, getActiveWorkspaceHandle()),

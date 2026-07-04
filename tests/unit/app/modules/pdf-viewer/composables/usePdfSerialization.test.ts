@@ -25,6 +25,8 @@ import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { importEmbeddedShapeAnnotations } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
 import { useAnnotationShapes } from '@app/modules/pdf-viewer/tools/useAnnotationShapes';
 import { usePdfSerialization } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization';
+import { serializePdfEdits } from '@app/modules/pdf-viewer/engine/pdf-serialization-operations/serializePdfEdits';
+import type { IPdfSerializationSavePayload } from '@app/modules/pdf-viewer/engine/pdf-serialization-operations/pdfSerializationSavePayload';
 import { readDocumentBytes } from '@app/utils/documentBytes';
 
 vi.mock('@app/utils/documentBytes', () => ({ readDocumentBytes: vi.fn() }));
@@ -63,6 +65,29 @@ function createSerializationHarness(options: {workingCopyPath?: string | null;} 
         getMarkupSubtypeOverrides: () => undefined,
         getAllShapes: () => [],
     });
+}
+
+function createEmptySerializationPayload(): IPdfSerializationSavePayload {
+    return {
+        forceRewrite: true,
+        markupSubtypeOverrides: [],
+        markupSubtypeHints: [],
+        rewriteShapeState: false,
+        shapes: [],
+        deletedShapeAnnotationIds: [],
+        deletedShapeStableKeys: [],
+        freeTextComments: [],
+        annotationComments: [],
+        pendingEmbeddedTextUpdates: [],
+        pendingEmbeddedAnnotationDeletes: [],
+        pageLabelsDirty: false,
+        pageLabelRanges: [],
+        totalPages: 1,
+        bookmarksDirty: false,
+        bookmarkItems: [],
+        untitledBookmarkLabel: '',
+        placedImage: null,
+    };
 }
 
 function getPageAnnotRefs(doc: PDFDocument, pageIndex = 0) {
@@ -128,7 +153,10 @@ async function createPdfDataWithFreeTextAnnotation() {
     });
     const freeTextRef = doc.context.register(freeTextDict);
     page.node.set(PDFName.of('Annots'), doc.context.obj([freeTextRef]));
-    return new Uint8Array(await doc.save());
+    return {
+        bytes: new Uint8Array(await doc.save()),
+        freeTextRef,
+    };
 }
 
 async function createBlankPdfData() {
@@ -274,6 +302,41 @@ describe('usePdfSerialization FreeText note comments', () => {
 
         expect(noteContents).toContain(localComment.text);
     });
+
+    it('fails full rewrite saves when an expected FreeText annotation is missing from the result', async () => {
+        const source = await createBlankPdfData();
+        const payload = createEmptySerializationPayload();
+        const missingComment: IAnnotationCommentSummary = {
+            id: '999R',
+            stableKey: 'ann:0:999R',
+            sortIndex: null,
+            pageIndex: 0,
+            pageNumber: 1,
+            text: 'persist me',
+            kindLabel: 'Inline Note',
+            subtype: 'FreeText',
+            author: null,
+            modifiedAt: null,
+            color: null,
+            uid: null,
+            annotationId: '999R',
+            annotationName: 'missing-freetext',
+            source: 'pdf',
+            hasNote: true,
+            markerRect: {
+                left: 0.1,
+                top: 0.1,
+                width: 0.001,
+                height: 0.001,
+            },
+        };
+        payload.freeTextComments = [missingComment];
+        payload.annotationComments = [missingComment];
+
+        await expect(serializePdfEdits(source, payload))
+            .rejects
+            .toThrow('PDF serialization failed semantic annotation validation');
+    });
 });
 
 describe('usePdfSerialization embedded annotation deletes', () => {
@@ -375,6 +438,7 @@ describe('usePdfSerialization embedPlacedImageToPage', () => {
                 byteLength: baseBytes.byteLength,
                 sha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
             },
+            {expectedDocumentRevisionToken: null},
         );
         expect(applyPdfNativeMutationsToWorkingCopy.mock.calls[0]?.[1].placedImages?.[0]?.bytes).toBeInstanceOf(Uint8Array);
         expect(readDocumentBytes).toHaveBeenNthCalledWith(1, '/tmp/work.pdf');
@@ -423,6 +487,7 @@ describe('usePdfSerialization embedPlacedImageToPage', () => {
                 byteLength: baseBytes.byteLength,
                 sha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
             },
+            {expectedDocumentRevisionToken: null},
         );
         expect(readDocumentBytes).not.toHaveBeenCalled();
     });
@@ -473,8 +538,9 @@ describe('usePdfSerialization embedPlacedImageToPage', () => {
 
     it('appends the placed image stamp after existing annotations so it stays topmost', async () => {
         const serializer = createSerializationHarness();
+        const { bytes } = await createPdfDataWithFreeTextAnnotation();
         const result = await serializer.embedPlacedImageToPage(
-            await createPdfDataWithFreeTextAnnotation(),
+            bytes,
             {
                 pageNumber: 1,
                 x: 0.12,

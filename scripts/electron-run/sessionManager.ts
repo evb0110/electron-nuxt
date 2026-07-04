@@ -35,6 +35,7 @@ import {
 } from '@scripts/electron-run/electronRunLaunchConfig';
 import { getNuxtPort } from '@scripts/electron-run/electronRunPortConfig';
 import { applyE2ESharedRendererPort } from '@scripts/electron-run/electronRunE2ESharedRenderer';
+import { E2E_RUN_ID_ENV } from '@scripts/electron-run/electronRunRunId';
 import {
     ELECTRON_SERVER_PATH,
     cleanupOrphanedProjectNuxtRoots,
@@ -117,6 +118,7 @@ const ELECTRON_STARTUP_LOG_MAX_LINES = 300;
 const ELECTRON_STARTUP_LOG_TAIL_LINES = 60;
 const PNPM_COMMAND = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 const KEEP_NUXT_ON_STOP_MARKER = 'keep-nuxt-on-stop';
+const INITIAL_OPEN_PATHS_ENV = 'EVB_AUTOMATION_INITIAL_OPEN_PATHS';
 
 function formatElapsedMs(startedAt: number) {
     return `${((Date.now() - startedAt) / 1000).toFixed(2)}s`;
@@ -234,7 +236,7 @@ function createElectronStartupLog() {
     };
 }
 
-function buildElectronRuntimeEnv(cdpPort: number, mainJs: string) {
+function buildElectronRuntimeEnv(cdpPort: number, mainJs: string, initialOpenPaths: string[] = []) {
     const automationUserDataDir = electronUserDataPath();
     const automationWindowEnv = resolveAutomationWindowEnv(process.env);
     const shouldBootstrapDevProfile = shouldBootstrapInteractiveDevProfile({
@@ -266,16 +268,17 @@ function buildElectronRuntimeEnv(cdpPort: number, mainJs: string) {
             cdpPort,
             automationUserDataDir,
             mainJs,
+            initialOpenPaths,
             env: electronRuntimeEnv,
         }),
     };
 }
 
-function buildElectronLaunchPlan(cdpPort: number, mainJs: string) {
+function buildElectronLaunchPlan(cdpPort: number, mainJs: string, initialOpenPaths: string[] = []) {
     const {
         electronRuntimeEnv,
         electronArgs,
-    } = buildElectronRuntimeEnv(cdpPort, mainJs);
+    } = buildElectronRuntimeEnv(cdpPort, mainJs, initialOpenPaths);
     const electronPath = buildElectronExecutablePath();
     const electronAppPath = join(projectRoot, 'node_modules', 'electron', 'dist', 'Electron.app');
     const launchViaHiddenMacApp = shouldUseMacOSHiddenAppLauncher(electronRuntimeEnv)
@@ -301,10 +304,12 @@ function buildElectronLaunchPlan(cdpPort: number, mainJs: string) {
     const launchCommand = launchViaHiddenMacApp
         ? hiddenAutomationBundlePaths!.executablePath
         : electronPath;
+    const mainArgIndex = electronArgs.indexOf(mainJs);
     const launchArgs = launchViaHiddenMacApp
         ? [
-            ...electronArgs.slice(0, -1),
+            ...electronArgs.slice(0, mainArgIndex),
             hiddenAutomationAppEntryPath,
+            ...electronArgs.slice(mainArgIndex + 1),
         ]
         : electronArgs;
 
@@ -315,12 +320,17 @@ function buildElectronLaunchPlan(cdpPort: number, mainJs: string) {
     };
 }
 
-function spawnElectronProcess(cdpPort: number, mainJs: string, startupLog: ReturnType<typeof createElectronStartupLog>) {
+function spawnElectronProcess(
+    cdpPort: number,
+    mainJs: string,
+    startupLog: ReturnType<typeof createElectronStartupLog>,
+    initialOpenPaths: string[] = [],
+) {
     const {
         launchCommand,
         launchArgs,
         electronRuntimeEnv,
-    } = buildElectronLaunchPlan(cdpPort, mainJs);
+    } = buildElectronLaunchPlan(cdpPort, mainJs, initialOpenPaths);
     const electron = spawn(launchCommand, launchArgs, {
         cwd: projectRoot,
         stdio: [
@@ -391,7 +401,7 @@ async function stopFailedElectronStartup(electron: ChildProcess, cdpPort: number
     }
 }
 
-async function startElectron(cdpPort: number): Promise<ChildProcess> {
+async function startElectron(cdpPort: number, initialOpenPaths: string[] = []): Promise<ChildProcess> {
     const mainJs = join(projectRoot, 'dist-electron', 'main.cjs');
     if (!existsSync(mainJs)) {
         throw new Error('dist-electron/main.cjs not found. Run `pnpm run build:electron` first.');
@@ -401,7 +411,7 @@ async function startElectron(cdpPort: number): Promise<ChildProcess> {
     mkdirSync(sessionDir(), { recursive: true });
 
     const startupLog = createElectronStartupLog();
-    const electron = spawnElectronProcess(cdpPort, mainJs, startupLog);
+    const electron = spawnElectronProcess(cdpPort, mainJs, startupLog, initialOpenPaths);
     const exitDetails: {
         code: number | null;
         signal: NodeJS.Signals | null;
@@ -527,8 +537,34 @@ interface IAutomationLaunchResult {
     cdpPort: number;
 }
 
+interface IStartSessionOptions {initialOpenPaths?: string[];}
+
+function normalizeInitialOpenPaths(paths: string[] | undefined) {
+    return (paths ?? [])
+        .map(path => path.trim())
+        .filter(Boolean);
+}
+
+function readInitialOpenPathsFromEnv(env: NodeJS.ProcessEnv = process.env) {
+    const rawValue = env[INITIAL_OPEN_PATHS_ENV];
+    if (!rawValue) {
+        return [];
+    }
+
+    try {
+        const parsed = safeJsonParse(rawValue);
+        if (!Array.isArray(parsed)) {
+            return [];
+        }
+        return normalizeInitialOpenPaths(parsed.filter((value): value is string => typeof value === 'string'));
+    } catch {
+        return [];
+    }
+}
+
 async function launchAutomationSessionWithRecovery(options: {
     cdpPort: number;
+    initialOpenPaths: string[];
     nuxtProcess: ChildProcess | null;
     otherRunning: string[];
     usesSharedRenderer: boolean;
@@ -553,7 +589,7 @@ async function launchAutomationSessionWithRecovery(options: {
                 nuxtPid: nuxtProcess?.pid ?? null,
                 nuxtPort: getNuxtPort(),
             });
-            electronProcess = await startElectron(cdpPort);
+            electronProcess = await startElectron(cdpPort, options.initialOpenPaths);
             if (electronProcess.pid) {
                 recordSessionStartingAttempt({electronPids: [electronProcess.pid]});
             }
@@ -910,6 +946,7 @@ function listenForSessionCommands(options: {
             electronPid: options.electronProcess.pid ?? null,
             nuxtPid: options.nuxtProcess?.pid ?? null,
             nuxtPort: getNuxtPort(),
+            runId: process.env[E2E_RUN_ID_ENV] ?? null,
         }));
         clearSessionStarting();
 
@@ -919,7 +956,7 @@ function listenForSessionCommands(options: {
     });
 }
 
-export async function startSession(forceClean = false) {
+export async function startSession(forceClean = false, options: IStartSessionOptions = {}) {
     const logTiming = createStartupLogger();
     if (!await ensureSessionCanStart()) {
         return;
@@ -965,8 +1002,16 @@ export async function startSession(forceClean = false) {
         if (await stopIfStartupInterrupted()) {
             return;
         }
+        const initialOpenPaths = normalizeInitialOpenPaths([
+            ...readInitialOpenPathsFromEnv(),
+            ...(options.initialOpenPaths ?? []),
+        ]);
+        if (initialOpenPaths.length > 0) {
+            console.log(`[Electron] Initial open path(s): ${initialOpenPaths.length}`);
+        }
         const launch = await launchAutomationSessionWithRecovery({
             cdpPort: ports.cdpPort,
+            initialOpenPaths,
             nuxtProcess,
             otherRunning: startupOptions.otherRunning,
             usesSharedRenderer: sharedRenderer !== null,
@@ -1193,7 +1238,10 @@ export async function waitForSessionReady(timeoutMs = SESSION_WAIT_TIMEOUT_MS) {
     return false;
 }
 
-export async function startSessionDetached(options: { env?: NodeJS.ProcessEnv } = {}) {
+export async function startSessionDetached(options: {
+    env?: NodeJS.ProcessEnv;
+    initialOpenPaths?: string[];
+} = {}) {
     await cleanupStaleSessionArtifacts();
 
     if (await isSessionRunning()) {
@@ -1228,6 +1276,9 @@ export async function startSessionDetached(options: { env?: NodeJS.ProcessEnv } 
         env: {
             ...process.env,
             ...options.env,
+            ...(options.initialOpenPaths
+                ? { [INITIAL_OPEN_PATHS_ENV]: JSON.stringify(normalizeInitialOpenPaths(options.initialOpenPaths)) }
+                : {}),
         },
     });
     closeSync(logFd);

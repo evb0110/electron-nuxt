@@ -20,7 +20,10 @@ const {
 } = createBrowserSearchCapability();
 
 const browserDocumentCapabilities = createBrowserDocumentsCapability({clearSearchCaches});
-const browserSystemApi: IPlatformApi['system'] = { getMemoryInfo: () => null };
+const browserSystemApi: IPlatformApi['system'] = {
+    getMemoryInfo: () => null,
+    onShutdownSaveFlushRequest: () => () => {},
+};
 const browserShellApi: IPlatformApi['shell'] = { openExternal(url: string) {
     if (typeof window === 'undefined') {
         return Promise.resolve();

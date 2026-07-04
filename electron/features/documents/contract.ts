@@ -4,6 +4,7 @@ import type {
     IDocumentsMenuCapability,
     IPdfNativePagePreviewOptions,
     IPdfSaveAsOptions,
+    IPdfSerializedSaveOptions,
     IPdfOptimizeOptions,
     IPdfOptimizeProgress,
     TOpenBatchProgressOperation,
@@ -55,6 +56,7 @@ export const DOCUMENTS_CHANNELS = {
     fileReplaceWorkingCopyFromPath: 'file:replaceWorkingCopyFromPath',
     fileWriteDocx: 'file:writeDocx',
     fileSaveStructured: 'file:saveStructured',
+    fileResyncWorkingCopy: 'file:resyncWorkingCopy',
     fileRepairPdf: 'file:repairPdf',
     fileOptimizePdfForInteraction: 'file:optimizePdfForInteraction',
     fileOptimizePdfAsCopy: 'file:optimizePdfAsCopy',
@@ -181,11 +183,21 @@ export interface IDocumentsInvokeMap {
         result: Awaited<ReturnType<IDocumentsFileCapability['savePdfAs']>>;
     };
     [DOCUMENTS_CHANNELS.savePdfDataAs]: {
-        args: [workingPath: string, data: Uint8Array, options?: IPdfSaveAsOptions];
+        args: [
+            workingPath: string,
+            data: Uint8Array,
+            options?: IPdfSaveAsOptions,
+            serializedSaveOptions?: IPdfSerializedSaveOptions,
+        ];
         result: Awaited<ReturnType<IDocumentsFileCapability['savePdfDataAs']>>;
     };
     [DOCUMENTS_CHANNELS.savePdfDataAsBegin]: {
-        args: [workingPath: string, totalBytes: number, options?: IPdfSaveAsOptions];
+        args: [
+            workingPath: string,
+            totalBytes: number,
+            options?: IPdfSaveAsOptions,
+            serializedSaveOptions?: IPdfSerializedSaveOptions,
+        ];
         result: IBeginSerializedPdfSaveAsResult;
     };
     [DOCUMENTS_CHANNELS.savePdfDialog]: {
@@ -257,11 +269,11 @@ export interface IDocumentsInvokeMap {
         result: Awaited<ReturnType<IDocumentsFileCapability['printPdfPath']>>;
     };
     [DOCUMENTS_CHANNELS.fileWrite]: {
-        args: [path: string, data: Uint8Array];
+        args: [path: string, data: Uint8Array, options?: IPdfSerializedSaveOptions];
         result: Awaited<ReturnType<IDocumentsFileCapability['writeFile']>>;
     };
     [DOCUMENTS_CHANNELS.fileReplaceWorkingCopyFromPath]: {
-        args: [workingCopyPath: string, sourcePath: string];
+        args: [workingCopyPath: string, sourcePath: string, options?: IPdfSerializedSaveOptions];
         result: Awaited<ReturnType<IDocumentsFileCapability['replaceWorkingCopyFromPath']>>;
     };
     [DOCUMENTS_CHANNELS.fileWriteDocx]: {
@@ -271,6 +283,10 @@ export interface IDocumentsInvokeMap {
     [DOCUMENTS_CHANNELS.fileSaveStructured]: {
         args: [path: string];
         result: Awaited<ReturnType<IDocumentsFileCapability['saveFileStructured']>>;
+    };
+    [DOCUMENTS_CHANNELS.fileResyncWorkingCopy]: {
+        args: [path: string];
+        result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['resyncWorkingCopy']>>>;
     };
     [DOCUMENTS_CHANNELS.fileRepairPdf]: {
         args: [path: string];
@@ -285,11 +301,11 @@ export interface IDocumentsInvokeMap {
         result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['optimizePdfAsCopy']>>>;
     };
     [DOCUMENTS_CHANNELS.fileSavePdfData]: {
-        args: [path: string, data: Uint8Array];
+        args: [path: string, data: Uint8Array, options?: IPdfSerializedSaveOptions];
         result: Awaited<ReturnType<IDocumentsFileCapability['savePdfData']>>;
     };
     [DOCUMENTS_CHANNELS.fileSavePdfDataBegin]: {
-        args: [path: string, totalBytes: number];
+        args: [path: string, totalBytes: number, options?: IPdfSerializedSaveOptions];
         result: IBeginSerializedPdfPersistenceResult;
     };
     [DOCUMENTS_CHANNELS.fileSavePdfNoteTextUpdates]: {
@@ -297,6 +313,7 @@ export interface IDocumentsInvokeMap {
             path: string,
             updates: Parameters<NonNullable<IDocumentsFileCapability['savePdfNoteTextUpdates']>>[1],
             modifiedAt: string,
+            options?: IPdfSerializedSaveOptions,
         ];
         result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['savePdfNoteTextUpdates']>>>;
     };
@@ -305,6 +322,7 @@ export interface IDocumentsInvokeMap {
             path: string,
             changes: Parameters<NonNullable<IDocumentsFileCapability['savePdfNoteChanges']>>[1],
             modifiedAt: string,
+            options?: IPdfSerializedSaveOptions,
         ];
         result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['savePdfNoteChanges']>>>;
     };
@@ -313,6 +331,7 @@ export interface IDocumentsInvokeMap {
             path: string,
             mutations: Parameters<NonNullable<IDocumentsFileCapability['savePdfNativeMutations']>>[1],
             modifiedAt: string,
+            options?: IPdfSerializedSaveOptions,
         ];
         result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['savePdfNativeMutations']>>>;
     };
@@ -322,6 +341,7 @@ export interface IDocumentsInvokeMap {
             mutations: Parameters<NonNullable<IDocumentsFileCapability['applyPdfNativeMutationsToWorkingCopy']>>[1],
             modifiedAt: string,
             expectedBase: Parameters<NonNullable<IDocumentsFileCapability['applyPdfNativeMutationsToWorkingCopy']>>[3],
+            options?: IPdfSerializedSaveOptions,
         ];
         result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['applyPdfNativeMutationsToWorkingCopy']>>>;
     };

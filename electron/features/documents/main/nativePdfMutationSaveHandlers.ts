@@ -10,6 +10,7 @@ import { tmpdir } from 'os';
 import { performance } from 'perf_hooks';
 import { join } from 'path';
 import type {
+    IDocumentMutationRevisionOptions,
     IPdfNativeNoteTextSaveResult,
     IPdfNativeWorkingCopyExpectation,
 } from '@contracts/electronApiDocuments';
@@ -40,7 +41,14 @@ import {
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
-import { markWorkingCopyContentChanged } from '@electron/file-access/documentRevisionStore';
+import {
+    markWorkingCopyContentChanged,
+    markWorkingCopySyncRequired,
+} from '@electron/file-access/documentRevisionStore';
+import {
+    assertQueuedWorkingCopyMutationPreconditions,
+    normalizeExpectedDocumentRevisionToken,
+} from '@electron/file-access/documentMutationGuards';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
@@ -79,14 +87,14 @@ function createNativeValidationResult(): IPdfValidationResult {
     };
 }
 
-function requireSenderId(context: IDocumentsSenderIdContext) {
+function requireSenderId(context: IDocumentsSenderIdContext): number {
     if (typeof context.senderId !== 'number') {
         throw new Error('Missing sender identity');
     }
     return context.senderId;
 }
 
-function normalizeWorkingPath(workingPath: unknown) {
+function normalizeWorkingPath(workingPath: unknown): string {
     const normalizedWorkingPath = typeof workingPath === 'string' ? workingPath.trim() : '';
     if (!normalizedWorkingPath) {
         throw new Error('Invalid file path');
@@ -95,7 +103,7 @@ function normalizeWorkingPath(workingPath: unknown) {
     return normalizedWorkingPath;
 }
 
-function normalizeModifiedAt(modifiedAt: unknown) {
+function normalizeModifiedAt(modifiedAt: unknown): ReturnType<typeof normalizePdfNativeModifiedAt> {
     try {
         return normalizePdfNativeModifiedAt(modifiedAt, 'modifiedAt', {errorKind: 'error'});
     } catch {
@@ -132,7 +140,7 @@ async function workingCopyMatchesExpectation(
     return sha256 === expectedBase.sha256;
 }
 
-function getValidatedOriginalPath(workingPath: string, senderWebContentsId: number) {
+function getValidatedOriginalPath(workingPath: string, senderWebContentsId: number): string {
     const originalPath = getWorkingCopyOriginalPath(workingPath, senderWebContentsId)?.originalPath;
     if (!originalPath) {
         throw new Error('No original path found for this working copy');
@@ -144,15 +152,15 @@ function getValidatedOriginalPath(workingPath: string, senderWebContentsId: numb
     return originalPath;
 }
 
-async function assertNativeOutputReady(outputPath: string) {
+async function assertNativeOutputReady(outputPath: string): Promise<void> {
     const outputStat = await stat(outputPath);
     if (outputStat.size === 0) {
         throw new Error('Native note text update produced an empty PDF');
     }
 }
 
-async function cleanupTempPath(path: string) {
-    await rm(path, {force: true}).catch((error) => {
+async function cleanupTempPath(path: string): Promise<void> {
+    await rm(path, {force: true}).catch((error: unknown) => {
         if (isErrnoException(error) && error.code === 'ENOENT') {
             return;
         }
@@ -180,7 +188,7 @@ async function syncNativeOutputToRequestingWorkingCopy(
     originalPath: string,
     requestedWorkingPath: string,
     senderWebContentsId: number,
-) {
+): Promise<void> {
     const currentWorkingPath = findWorkingCopyPathByOriginalPath(originalPath, senderWebContentsId);
     await ensureWorkingCopyDirectory(requestedWorkingPath, senderWebContentsId);
     await copyFileCopyOnWrite(originalPath, requestedWorkingPath);
@@ -198,11 +206,13 @@ async function runNativeNoteCommand(
     context: IDocumentsSenderIdContext,
     workingPath: unknown,
     rawModifiedAt: unknown,
+    revisionOptions: IDocumentMutationRevisionOptions | undefined,
     options: INativeNoteCommandOptions,
 ): Promise<IPdfNativeNoteTextSaveResult> {
     const senderId = requireSenderId(context);
     const normalizedWorkingPath = normalizeWorkingPath(workingPath);
     const modifiedAt = normalizeModifiedAt(rawModifiedAt);
+    const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(revisionOptions);
 
     if (isNativePageOpsDisabled()) {
         return createNotAppliedResult();
@@ -221,6 +231,10 @@ async function runNativeNoteCommand(
     return enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
         const phaseTimings: INativeNotePhaseTiming[] = [];
         const operationStart = performance.now();
+        await assertQueuedWorkingCopyMutationPreconditions(
+            normalizedWorkingPath,
+            expectedDocumentRevisionToken,
+        );
         if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, senderId)) {
             throw new Error('Working copy path is not managed');
         }
@@ -273,6 +287,10 @@ async function runNativeNoteCommand(
                     syncNativeOutputToRequestingWorkingCopy(originalPath, normalizedWorkingPath, senderId));
                 await markWorkingCopyContentChanged(normalizedWorkingPath, 'native-mutation', senderId);
             } catch (syncError) {
+                markWorkingCopySyncRequired(
+                    normalizedWorkingPath,
+                    `Original file was saved, but the working copy refresh failed: ${getErrorMessage(syncError)}`,
+                );
                 log.warn(`Native note save committed, but working copy sync failed: ${JSON.stringify({
                     command: options.command,
                     totalMs: Math.round((performance.now() - operationStart) * 10) / 10,
@@ -324,12 +342,14 @@ async function runNativeWorkingCopyCommand(
     workingPath: unknown,
     rawModifiedAt: unknown,
     rawExpectedBase: unknown,
+    revisionOptions: IDocumentMutationRevisionOptions | undefined,
     options: INativeNoteCommandOptions,
 ): Promise<IPdfNativeNoteTextSaveResult> {
     const senderId = requireSenderId(context);
     const normalizedWorkingPath = normalizeWorkingPath(workingPath);
     const modifiedAt = normalizeModifiedAt(rawModifiedAt);
     const expectedBase = normalizeWorkingCopyExpectation(rawExpectedBase);
+    const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(revisionOptions);
 
     if (isNativePageOpsDisabled()) {
         return createNotAppliedResult();
@@ -347,6 +367,10 @@ async function runNativeWorkingCopyCommand(
     return enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
         const phaseTimings: INativeNotePhaseTiming[] = [];
         const operationStart = performance.now();
+        await assertQueuedWorkingCopyMutationPreconditions(
+            normalizedWorkingPath,
+            expectedDocumentRevisionToken,
+        );
         if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, senderId)) {
             throw new Error('Working copy path is not managed');
         }
@@ -421,9 +445,10 @@ export async function handleNativeNoteTextSave(
     workingPath: unknown,
     rawUpdates: unknown,
     rawModifiedAt: unknown,
+    revisionOptions?: IDocumentMutationRevisionOptions,
 ): Promise<IPdfNativeNoteTextSaveResult> {
     const updates = normalizePdfNativeNoteTextUpdates(rawUpdates, 'note text update list', {errorKind: 'error'});
-    return runNativeNoteCommand(context, workingPath, rawModifiedAt, {
+    return runNativeNoteCommand(context, workingPath, rawModifiedAt, revisionOptions, {
         command: 'update-note-text',
         payloadFileName: 'updates.json',
         payloadFlag: '--updates-file',
@@ -437,9 +462,10 @@ export async function handleNativeNoteChangesSave(
     workingPath: unknown,
     rawChanges: unknown,
     rawModifiedAt: unknown,
+    revisionOptions?: IDocumentMutationRevisionOptions,
 ): Promise<IPdfNativeNoteTextSaveResult> {
     const changes = normalizePdfNativeNoteChanges(rawChanges, 'native note changes', {errorKind: 'error'});
-    return runNativeNoteCommand(context, workingPath, rawModifiedAt, {
+    return runNativeNoteCommand(context, workingPath, rawModifiedAt, revisionOptions, {
         command: 'save-note-changes',
         payloadFileName: 'changes.json',
         payloadFlag: '--changes-file',
@@ -453,9 +479,10 @@ export async function handleNativePdfMutationsSave(
     workingPath: unknown,
     rawMutations: unknown,
     rawModifiedAt: unknown,
+    revisionOptions?: IDocumentMutationRevisionOptions,
 ): Promise<IPdfNativeNoteTextSaveResult> {
     const mutations = normalizeNativeMutationSet(rawMutations);
-    return runNativeNoteCommand(context, workingPath, rawModifiedAt, {
+    return runNativeNoteCommand(context, workingPath, rawModifiedAt, revisionOptions, {
         command: 'save-mutations',
         payloadFileName: 'mutations.json',
         payloadFlag: '--mutations-file',
@@ -470,9 +497,10 @@ export async function handleNativePdfMutationsApplyToWorkingCopy(
     rawMutations: unknown,
     rawModifiedAt: unknown,
     rawExpectedBase: unknown,
+    revisionOptions?: IDocumentMutationRevisionOptions,
 ): Promise<IPdfNativeNoteTextSaveResult> {
     const mutations = normalizeNativeMutationSet(rawMutations);
-    return runNativeWorkingCopyCommand(context, workingPath, rawModifiedAt, rawExpectedBase, {
+    return runNativeWorkingCopyCommand(context, workingPath, rawModifiedAt, rawExpectedBase, revisionOptions, {
         command: 'save-mutations',
         payloadFileName: 'mutations.json',
         payloadFlag: '--mutations-file',

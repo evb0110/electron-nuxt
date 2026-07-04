@@ -10,21 +10,10 @@ TESSDATA_BASE_URL="https://raw.githubusercontent.com/tesseract-ocr/tessdata_best
 
 mkdir -p "$TESSDATA_DIR"
 
+# scripts/printOcrLanguageCodes.ts reads packages/contracts/ocrLanguages.ts with
+# source.matchAll(languageCodePattern), keeping downloads tied to the canonical registry.
 LANGS="$(
-  PROJECT_ROOT="$PROJECT_ROOT" \
-  node - <<'NODE'
-const fs = require('fs');
-const path = require('path');
-const registryPath = path.join(process.env.PROJECT_ROOT, 'packages/contracts/ocrLanguages.ts');
-const source = fs.readFileSync(registryPath, 'utf8');
-const quote = String.fromCharCode(39);
-const languageCodePattern = new RegExp(`code:\\s*${quote}([^${quote}]+)${quote}`, 'g');
-const codes = [...source.matchAll(languageCodePattern)].map(match => match[1]);
-if (codes.length === 0) {
-  throw new Error(`No OCR language codes found in ${registryPath}`);
-}
-process.stdout.write(codes.join(' '));
-NODE
+  cd "$PROJECT_ROOT" && pnpm exec tsx scripts/printOcrLanguageCodes.ts --space
 )"
 
 echo "Downloading tessdata_best language files to $TESSDATA_DIR..."

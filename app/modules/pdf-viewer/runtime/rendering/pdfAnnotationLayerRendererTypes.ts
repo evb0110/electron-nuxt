@@ -17,7 +17,11 @@ export interface IAnnotationLayerWithEditableAnnotations {
     getEditableAnnotation?: (id: string) => unknown;
 }
 
-export interface IAnnotationLayerRenderOptions {shouldContinue?: () => boolean;}
+export interface IAnnotationLayerRenderOptions {
+    shouldContinue?: () => boolean;
+    signal?: AbortSignal | undefined;
+    documentVersion?: number | undefined;
+}
 
 export type TAnnotationEditorLayerFailureReason =
     | 'render-error'

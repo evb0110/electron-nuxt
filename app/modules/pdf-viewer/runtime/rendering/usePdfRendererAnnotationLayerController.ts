@@ -36,6 +36,20 @@ export const usePdfRendererAnnotationLayerController = (options: IUsePdfRenderer
         logNonCriticalStageError,
         onAnnotationLayersRendered,
     } = options;
+    const activeAnnotationLayerAbortControllers = new Map<number, AbortController>();
+
+    function createAnnotationLayerAbortController(pageNumber: number) {
+        activeAnnotationLayerAbortControllers.get(pageNumber)?.abort();
+        const controller = new AbortController();
+        activeAnnotationLayerAbortControllers.set(pageNumber, controller);
+        return controller;
+    }
+
+    function releaseAnnotationLayerAbortController(pageNumber: number, controller: AbortController) {
+        if (activeAnnotationLayerAbortControllers.get(pageNumber) === controller) {
+            activeAnnotationLayerAbortControllers.delete(pageNumber);
+        }
+    }
 
     async function renderAnnotationLayersForPage(
         pageNumber: number,
@@ -66,6 +80,7 @@ export const usePdfRendererAnnotationLayerController = (options: IUsePdfRenderer
                 };
             }
 
+            const annotationAbortController = createAnnotationLayerAbortController(pageNumber);
             try {
                 annotationLayerInstance =
                     await annotationLayerRenderer.renderAnnotationLayer(
@@ -74,7 +89,11 @@ export const usePdfRendererAnnotationLayerController = (options: IUsePdfRenderer
                         viewport,
                         pageNumber,
                         annotationCanvasMap,
-                        { shouldContinue },
+                        {
+                            documentVersion: version,
+                            signal: annotationAbortController.signal,
+                            shouldContinue,
+                        },
                     );
             } catch (annotationError) {
                 logNonCriticalStageError(
@@ -82,6 +101,8 @@ export const usePdfRendererAnnotationLayerController = (options: IUsePdfRenderer
                     'annotation layer',
                     annotationError,
                 );
+            } finally {
+                releaseAnnotationLayerAbortController(pageNumber, annotationAbortController);
             }
 
             if (getRenderVersion() !== version || !shouldContinue()) {

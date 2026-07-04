@@ -20,6 +20,7 @@ import {
 } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import { createStaleRevisionError } from '@contracts/documentMutationErrors';
 
 const mocks = vi.hoisted(() => ({
     showSaveDialog: vi.fn(),
@@ -34,6 +35,8 @@ const mocks = vi.hoisted(() => ({
     makeSiblingTempPath: vi.fn((targetPath: string) => `${targetPath}.tmp`),
     validatePdfFile: vi.fn(),
     optimizePdfForSaveAs: vi.fn(),
+    assertWorkingCopyRevisionCurrent: vi.fn(),
+    markWorkingCopyContentChanged: vi.fn(),
 }));
 
 vi.mock('electron', () => ({
@@ -108,6 +111,30 @@ vi.mock('@electron/features/documents/main/pdfSaveAsOptimization', () => ({
     ),
     optimizePdfForSaveAs: (...args: unknown[]) => mocks.optimizePdfForSaveAs(...args),
 }));
+vi.mock('@electron/file-access/documentRevisionStore', () => ({
+    assertWorkingCopyRevisionCurrent: (...args: unknown[]) => mocks.assertWorkingCopyRevisionCurrent(...args),
+    markWorkingCopyContentChanged: (...args: unknown[]) => mocks.markWorkingCopyContentChanged(...args),
+}));
+vi.mock('@electron/file-access/documentMutationGuards', () => ({
+    assertQueuedWorkingCopyMutationPreconditions: (...args: unknown[]) => mocks.assertWorkingCopyRevisionCurrent(...args),
+    assertWorkingCopyMutationAllowed: (...args: unknown[]) => mocks.assertWorkingCopyRevisionCurrent(...args),
+    normalizeExpectedDocumentRevisionToken: (options?: { expectedDocumentRevisionToken?: string | null; } | null) =>
+        options?.expectedDocumentRevisionToken?.trim() ?? null,
+}));
+
+function deferred<T>() {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    let reject!: (reason?: unknown) => void;
+    const promise = new Promise<T>((promiseResolve, promiseReject) => {
+        resolve = promiseResolve;
+        reject = promiseReject;
+    });
+    return {
+        promise,
+        resolve,
+        reject,
+    };
+}
 
 describe('handleSavePdfAs', () => {
     let tempRoot = '';
@@ -136,6 +163,8 @@ describe('handleSavePdfAs', () => {
             metadata: null,
         });
         mocks.optimizePdfForSaveAs.mockResolvedValue(null);
+        mocks.assertWorkingCopyRevisionCurrent.mockResolvedValue(undefined);
+        mocks.markWorkingCopyContentChanged.mockResolvedValue(undefined);
     });
 
     afterEach(() => {
@@ -275,6 +304,78 @@ describe('handleSavePdfAs', () => {
 
         expect(mocks.showSaveDialog).not.toHaveBeenCalled();
         expect(mocks.makeSiblingTempPath).not.toHaveBeenCalled();
+    });
+
+    it('routes legacy serialized Save As commit through the shared mutation queue', async () => {
+        const workingPath = join(tempRoot, 'working.pdf');
+        const targetPath = join(tempRoot, 'saved.pdf');
+        const tempPath = `${targetPath}.tmp`;
+        writeFileSync(workingPath, 'old-working');
+        writeFileSync(targetPath, 'old-target');
+        mocks.getWorkingCopyOriginalPath.mockReturnValue(null);
+        mocks.showSaveDialog.mockResolvedValue({
+            canceled: false,
+            filePath: targetPath,
+        });
+        const queuedMutation = deferred<undefined>();
+        const { enqueueWorkingCopyMutation } = await import('@electron/file-access/workingCopyMutationQueue');
+        const blockingMutation = enqueueWorkingCopyMutation(workingPath, () => queuedMutation.promise);
+
+        const { handleSavePdfDataAs } = await import('@electron/features/documents/main/documentSaveDialogHandlers');
+        const resultPromise = handleSavePdfDataAs(
+            dialogContext,
+            workingPath,
+            new Uint8Array(Buffer.from('new-pdf')),
+        );
+
+        await vi.waitFor(() => {
+            expect(mocks.validatePdfFile).toHaveBeenCalledWith(tempPath);
+        });
+
+        expect(readFileSyncUtf8(workingPath)).toBe('old-working');
+        expect(readFileSyncUtf8(targetPath)).toBe('old-target');
+        expect(mocks.atomicReplace).not.toHaveBeenCalled();
+        expect(mocks.markWorkingCopyContentChanged).not.toHaveBeenCalled();
+
+        queuedMutation.resolve(undefined);
+        await blockingMutation;
+        await expect(resultPromise).resolves.toMatchObject({
+            path: targetPath,
+            validation: { isValid: true },
+        });
+        expect(readFileSyncUtf8(workingPath)).toBe('new-pdf');
+        expect(readFileSyncUtf8(targetPath)).toBe('new-pdf');
+        expect(mocks.markWorkingCopyContentChanged).toHaveBeenCalledWith(workingPath, 'save-sync', 42);
+    });
+
+    it('rejects stale legacy serialized Save As payloads inside the mutation queue', async () => {
+        const workingPath = join(tempRoot, 'working-stale.pdf');
+        const targetPath = join(tempRoot, 'saved-stale.pdf');
+        writeFileSync(workingPath, 'old-working');
+        writeFileSync(targetPath, 'old-target');
+        mocks.getWorkingCopyOriginalPath.mockReturnValue(null);
+        mocks.showSaveDialog.mockResolvedValue({
+            canceled: false,
+            filePath: targetPath,
+        });
+        mocks.assertWorkingCopyRevisionCurrent.mockRejectedValueOnce(createStaleRevisionError({
+            documentRef: workingPath,
+            expectedRevision: 'revision-before-save',
+        }));
+
+        const { handleSavePdfDataAs } = await import('@electron/features/documents/main/documentSaveDialogHandlers');
+
+        await expect(handleSavePdfDataAs(
+            dialogContext,
+            workingPath,
+            new Uint8Array(Buffer.from('new-pdf')),
+            undefined,
+            { expectedDocumentRevisionToken: 'revision-before-save' },
+        )).rejects.toMatchObject({code: 'STALE_REVISION'});
+        expect(readFileSyncUtf8(workingPath)).toBe('old-working');
+        expect(readFileSyncUtf8(targetPath)).toBe('old-target');
+        expect(mocks.atomicReplace).not.toHaveBeenCalled();
+        expect(mocks.setWorkingCopyOriginalPath).not.toHaveBeenCalled();
     });
 });
 

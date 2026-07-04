@@ -25,6 +25,7 @@ import {
     type IAssistantSessionScopeBinding,
     type TAssistantTurnOwnerState,
 } from '@electron/features/agent/assistantTurnLifecycle';
+import { AssistantChatPersistence } from '@electron/features/agent/assistantChatPersistence';
 
 export interface IAssistantChatSession {
     provider: TAgentAssistantProviderId;
@@ -46,6 +47,7 @@ export interface IAssistantChatSession {
 interface IAssistantChatSessionStoreOptions {
     maxEntries?: number;
     ttlMs?: number;
+    persistence?: AssistantChatPersistence | false;
     onSessionDeleted?: (session: IAssistantChatSession, reason: string) => void;
     onSessionMessageEvent?: (event: IAgentAssistantEvent, session: IAssistantChatSession) => void;
 }
@@ -137,10 +139,32 @@ function isEvictableChatSession(session: IAssistantChatSession) {
 export function createAssistantChatSessionStore(options: IAssistantChatSessionStoreOptions = {}) {
     const maxEntries = options.maxEntries ?? readAssistantChatSessionMaxEntries();
     const ttlMs = options.ttlMs ?? readAssistantChatSessionTtlMs();
+    const persistence = options.persistence === false
+        ? null
+        : options.persistence ?? new AssistantChatPersistence();
     const chatSessions = new Map<string, IAssistantChatSession>();
     let activeChatKey: string | null = null;
     let lastStateScope: IAgentAssistantChatScope | null = null;
     let lastSelection: IAssistantSelection = DEFAULT_SELECTION;
+
+    for (const recovered of persistence?.recoverSessions() ?? []) {
+        chatSessions.set(recovered.key, {
+            provider: recovered.session.provider,
+            scope: recovered.session.scope,
+            model: recovered.session.model,
+            effort: recovered.session.effort,
+            speedMode: recovered.session.speedMode,
+            providerThreadId: recovered.session.providerThreadId,
+            lastSenderWindowId: recovered.session.lastSenderWindowId,
+            turnOwner: recovered.session.turnOwner,
+            sendInFlight: null,
+            scopeBinding: recovered.session.scopeBinding,
+            messages: recovered.session.messages,
+            lastAccessedAtMs: recovered.session.lastAccessedAtMs,
+            claudeSession: undefined,
+            ...(recovered.session.lastError === undefined ? {} : { lastError: recovered.session.lastError }),
+        });
+    }
 
     function getRememberedScope() {
         return lastStateScope;
@@ -196,6 +220,7 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
 
     function setActiveSession(session: IAssistantChatSession) {
         activeChatKey = keyForSession(session);
+        persistence?.recordSessionSnapshot(activeChatKey, session);
     }
 
     function deleteSession(key: string, reason: string) {
@@ -213,6 +238,7 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
         }
 
         options.onSessionDeleted?.(session, reason);
+        persistence?.archiveSession(key, reason);
     }
 
     function pruneSessions(now = Date.now()) {
@@ -267,7 +293,9 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
             existing.model = selection.model;
             existing.effort = selection.effort;
             existing.speedMode = selection.speedMode;
-            return touchSession(existing, now);
+            touchSession(existing, now);
+            persistence?.recordSessionSnapshot(sessionKey, existing);
+            return existing;
         }
 
         if (!getOptions.create) {
@@ -290,6 +318,7 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
             claudeSession: undefined,
         } satisfies IAssistantChatSession;
         chatSessions.set(sessionKey, session);
+        persistence?.recordSessionSnapshot(sessionKey, session);
         pruneSessions(now);
         return session;
     }
@@ -338,6 +367,7 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
             type: 'message',
             message: nextMessage,
         }, session);
+        persistence?.recordSessionSnapshot(keyForSession(session), session);
         return nextMessage;
     }
 
@@ -354,6 +384,7 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
                 type: 'message',
                 message: cloneAssistantMessage(existing),
             }, session);
+            persistence?.recordSessionSnapshot(keyForSession(session), session);
             return existing;
         }
 
@@ -383,6 +414,24 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
             messageId,
             delta,
         }, session);
+        persistence?.recordSessionSnapshot(keyForSession(session), session);
+    }
+
+    function recordSessionSnapshot(session: IAssistantChatSession) {
+        persistence?.recordSessionSnapshot(keyForSession(session), session);
+    }
+
+    function recordTurnBoundary(session: IAssistantChatSession) {
+        persistence?.recordTurnBoundary(keyForSession(session), session);
+    }
+
+    function resetSessionTranscript(session: IAssistantChatSession, reason = 'reset') {
+        persistence?.archiveSession(keyForSession(session), reason);
+        persistence?.recordSessionSnapshot(keyForSession(session), session);
+    }
+
+    function flushPersistenceForTests() {
+        return persistence?.flushForTests() ?? Promise.resolve([]);
     }
 
     return {
@@ -398,10 +447,14 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
         getRememberedSelection,
         getSession,
         getSessionByThreadId,
+        flushPersistenceForTests,
         keyForSession,
         listSessions,
         rememberStateScope,
+        recordSessionSnapshot,
+        recordTurnBoundary,
         resolveRequestedScope,
+        resetSessionTranscript,
         setActiveSession,
         touchSession,
         updateRememberedSelection,

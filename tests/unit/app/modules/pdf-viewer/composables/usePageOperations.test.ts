@@ -261,6 +261,43 @@ describe('usePageOperations', () => {
         expect(onExtractedDocument).toHaveBeenCalledWith('browser://documents/extract.pdf');
     });
 
+    it('persists pending changes before structural page mutations', async () => {
+        const ensureWorkingCopyFreshForRead = vi.fn(async () => true);
+        const {
+            pageOps,
+            ensureHistoryBaselineForExternalMutation,
+        } = createHarness('/tmp/work.pdf', { ensureWorkingCopyFreshForRead });
+        pageOpsApi.rotate.mockResolvedValueOnce({ success: true });
+
+        await expect(pageOps.rotatePages([1], 10, 90)).resolves.toBe(true);
+
+        expect(ensureWorkingCopyFreshForRead).toHaveBeenCalledOnce();
+        expect(ensureHistoryBaselineForExternalMutation).toHaveBeenCalledOnce();
+        expect(pageOpsApi.rotate).toHaveBeenCalledWith('/tmp/work.pdf', [1], 10, 90);
+        expect(ensureWorkingCopyFreshForRead.mock.invocationCallOrder[0]!)
+            .toBeLessThan(ensureHistoryBaselineForExternalMutation.mock.invocationCallOrder[0]!);
+        expect(ensureWorkingCopyFreshForRead.mock.invocationCallOrder[0]!)
+            .toBeLessThan(pageOpsApi.rotate.mock.invocationCallOrder[0]!);
+    });
+
+    it('does not run structural page mutations when pending changes cannot be persisted', async () => {
+        const ensureWorkingCopyFreshForRead = vi.fn(async () => false);
+        const {
+            pageOps,
+            ensureHistoryBaselineForExternalMutation,
+        } = createHarness('/tmp/work.pdf', { ensureWorkingCopyFreshForRead });
+
+        await expect(pageOps.rotatePages([1], 10, 90)).resolves.toBe(false);
+
+        expect(pageOps.lastOutcome.value).toEqual({
+            status: 'blocked',
+            reason: 'preflight',
+        });
+        expect(ensureWorkingCopyFreshForRead).toHaveBeenCalledOnce();
+        expect(ensureHistoryBaselineForExternalMutation).not.toHaveBeenCalled();
+        expect(pageOpsApi.rotate).not.toHaveBeenCalled();
+    });
+
     it('runs page mutations inside the document operation lease', async () => {
         const leaseRelease = deferred<undefined>();
         const runWithDocumentOperationLeaseSpy = vi.fn();

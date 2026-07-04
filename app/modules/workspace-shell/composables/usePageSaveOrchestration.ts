@@ -10,6 +10,7 @@ import type {
     IPdfPageLabelRange,
 } from '@app/types/pdfContracts';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { IPdfOptimizeOptions } from '@contracts/electronApiDocuments';
 import {
     usePdfSerialization,
@@ -51,6 +52,7 @@ interface IPageSaveOrchestrationDeps {
     isExportingDocx: Ref<boolean>;
     workingCopyPath: Ref<TDocumentRef | null>;
     originalPath: Ref<TDocumentRef | null>;
+    documentRevisionToken: Ref<TDocumentRevisionToken | null>;
     annotationComments: Ref<IAnnotationCommentSummary[]>;
     totalPages: Ref<number>;
     pageLabelsDirty: Ref<boolean>;
@@ -118,6 +120,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         isExportingDocx,
         workingCopyPath,
         originalPath,
+        documentRevisionToken,
         annotationComments,
         totalPages,
         pageLabelsDirty,
@@ -179,6 +182,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
     } = usePdfSerialization({
         pdfData,
         workingCopyPath,
+        documentRevisionToken,
         annotationComments,
         totalPages,
         pageLabelsDirty,
@@ -203,6 +207,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             documentIdentity: {
                 workingCopyPath,
                 originalPath,
+                documentRevisionToken,
             },
             annotations: {
                 annotationDirty,
@@ -447,6 +452,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             await getDocumentFilesCapability().replaceWorkingCopyFromPath(
                 payload.sourceWorkingCopyPath,
                 payload.pdfPath,
+                {expectedDocumentRevisionToken: documentRevisionToken.value},
             );
             didReplaceWorkingCopy = true;
             if (workingCopyPath.value !== payload.sourceWorkingCopyPath) {

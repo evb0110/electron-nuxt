@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const mocks = vi.hoisted(() => ({
     stat: vi.fn(),
@@ -106,10 +107,10 @@ describe('createDjvuWorkerFromPath', () => {
                 throw new Error('legacy readFileRange should not be used');
             }),
         };
-        vi.stubGlobal('window', { electronAPI: {
+        vi.stubGlobal('window', { electronAPI: createElectronPlatformApiFixture({
             documentFiles,
             documents: legacyDocuments,
-        } });
+        }) });
         const { createDjvuWorkerFromPath } =
             await import('@app/platform/browser-api/createDjvuWorkerFromPath');
 
@@ -174,10 +175,10 @@ describe('createDjvuWorkerFromPath', () => {
     });
 
     it('uses native desktop page previews without reading the full DjVu into djvu.js', async () => {
-        vi.stubGlobal('window', { electronAPI: { djvu: {
+        vi.stubGlobal('window', { electronAPI: createElectronPlatformApiFixture({ djvu: {
             getPageSizes: mocks.nativeGetPageSizes,
             renderPagePreview: mocks.nativeRenderPagePreview,
-        } } });
+        } }) });
         vi.stubGlobal('URL', {
             createObjectURL: vi.fn(() => 'blob:native-preview'),
             revokeObjectURL: vi.fn(),
@@ -208,6 +209,9 @@ describe('createDjvuWorkerFromPath', () => {
         expect(mocks.loadDjvuJs).not.toHaveBeenCalled();
         expect(mocks.stat).not.toHaveBeenCalled();
         expect(mocks.read).not.toHaveBeenCalled();
-        expect(mocks.nativeRenderPagePreview).toHaveBeenCalledWith('/Users/test/book.djvu', 1, { subsample: 2 });
+        expect(mocks.nativeRenderPagePreview).toHaveBeenCalledWith('/Users/test/book.djvu', 1, {
+            previewRequestId: 'native-preview:1:1',
+            subsample: 2,
+        });
     });
 });

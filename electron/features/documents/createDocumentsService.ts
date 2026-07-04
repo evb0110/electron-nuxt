@@ -54,6 +54,7 @@ import {
     handleFileSaveStructured,
     handleOptimizePdfForInteraction,
     handleRepairPdfSave,
+    handleResyncWorkingCopy,
     handleSerializedPdfSave,
 } from '@electron/features/documents/main/workingCopySave';
 import { handleOptimizePdfAsCopy } from '@electron/features/documents/main/handleOptimizePdfAsCopy';
@@ -142,6 +143,8 @@ export function createDocumentsService(): IDocumentsService {
         writeDocxFile: (...args: TDocumentsServiceArgs<'writeDocxFile'>) => handleFileWriteDocx(...args),
         saveFileStructured: (...args: TDocumentsServiceArgs<'saveFileStructured'>) =>
             handleFileSaveStructured(...args),
+        resyncWorkingCopy: (...args: TDocumentsServiceArgs<'resyncWorkingCopy'>) =>
+            handleResyncWorkingCopy(...args),
         repairPdf: (...args: TDocumentsServiceArgs<'repairPdf'>) => handleRepairPdfSave(...args),
         optimizePdfForInteraction: (...args: TDocumentsServiceArgs<'optimizePdfForInteraction'>) =>
             handleOptimizePdfForInteraction(...args),

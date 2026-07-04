@@ -13,6 +13,7 @@ export interface IRunNativeToolCommandOptions {
     rejectOnStdoutTruncation?: boolean;
     allowedExitCodes?: number[];
     signal?: AbortSignal;
+    cancelGroup?: string;
     commandLabel?: string;
     log?: (level: 'debug' | 'warn' | 'error', message: string) => void;
 }
@@ -31,6 +32,7 @@ export async function runNativeToolCommand(
         rejectOnStdoutTruncation,
         allowedExitCodes,
         signal,
+        cancelGroup,
         commandLabel,
         log,
     } = options;
@@ -64,6 +66,9 @@ export async function runNativeToolCommand(
     }
     if (signal !== undefined) {
         commandOptions.signal = signal;
+    }
+    if (cancelGroup !== undefined) {
+        commandOptions.cancelGroup = cancelGroup;
     }
     if (commandLabel !== undefined) {
         commandOptions.commandLabel = commandLabel;

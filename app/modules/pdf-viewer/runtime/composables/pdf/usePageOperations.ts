@@ -3,6 +3,7 @@ import { clamp } from 'es-toolkit/math';
 import type { ICropMargins } from '@app/types/crop';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { IPageOpsResult } from '@contracts/electronApiPageOps';
 import type { TTranslationKey } from '@i18n-app';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -81,6 +82,7 @@ function didPageOperationSucceed(outcome: TPageOperationOutcome) {
 
 export const usePageOperations = (deps: {
     workingCopyPath: Ref<TDocumentRef | null>;
+    documentRevisionToken?: Ref<TDocumentRevisionToken | null>;
     ensureHistoryBaselineForExternalMutation: () => Promise<boolean>;
     reloadWorkingCopyIntoHistory: (opts?: { markDirty?: boolean }) => Promise<boolean>;
     clearOcrCache: (path: TDocumentRef) => void;
@@ -97,6 +99,7 @@ export const usePageOperations = (deps: {
     const { reportRuntimeError } = useRuntimeErrorReports();
     const {
         workingCopyPath,
+        documentRevisionToken,
         ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,
         clearOcrCache,
@@ -132,6 +135,66 @@ export const usePageOperations = (deps: {
         resetSearchCache();
     }
 
+    function getPageMutationOptions() {
+        const token = documentRevisionToken?.value;
+        return token ? {expectedDocumentRevisionToken: token} : undefined;
+    }
+
+    function runDeletePageOp(path: TDocumentRef, pages: number[], totalPages: number) {
+        const mutationOptions = getPageMutationOptions();
+        return mutationOptions
+            ? getPageOpsCapability().delete(path, pages, totalPages, mutationOptions)
+            : getPageOpsCapability().delete(path, pages, totalPages);
+    }
+
+    function runRotatePageOp(path: TDocumentRef, pages: number[], totalPages: number, angle: TPageOpsRotation) {
+        const mutationOptions = getPageMutationOptions();
+        return mutationOptions
+            ? getPageOpsCapability().rotate(path, pages, totalPages, angle, mutationOptions)
+            : getPageOpsCapability().rotate(path, pages, totalPages, angle);
+    }
+
+    function runInsertPageOp(path: TDocumentRef, totalPages: number, afterPage: number) {
+        const mutationOptions = getPageMutationOptions();
+        return mutationOptions
+            ? getPageOpsCapability().insert(path, totalPages, afterPage, mutationOptions)
+            : getPageOpsCapability().insert(path, totalPages, afterPage);
+    }
+
+    function runInsertFilePageOp(
+        path: TDocumentRef,
+        totalPages: number,
+        afterPage: number,
+        sourcePaths: TDocumentRef[],
+        requestId: string | undefined,
+    ) {
+        const mutationOptions = getPageMutationOptions();
+        return mutationOptions
+            ? getPageOpsCapability().insertFile(path, totalPages, afterPage, sourcePaths, requestId, mutationOptions)
+            : getPageOpsCapability().insertFile(path, totalPages, afterPage, sourcePaths, requestId);
+    }
+
+    function runReorderPageOp(path: TDocumentRef, newOrder: number[]) {
+        const mutationOptions = getPageMutationOptions();
+        return mutationOptions
+            ? getPageOpsCapability().reorder(path, newOrder, mutationOptions)
+            : getPageOpsCapability().reorder(path, newOrder);
+    }
+
+    function runCropPageOp(path: TDocumentRef, pages: number[], totalPages: number, margins: ICropMargins) {
+        const mutationOptions = getPageMutationOptions();
+        return mutationOptions
+            ? getPageOpsCapability().crop(path, pages, totalPages, margins, mutationOptions)
+            : getPageOpsCapability().crop(path, pages, totalPages, margins);
+    }
+
+    function runRemoveCropPageOp(path: TDocumentRef, pages: number[], totalPages: number) {
+        const mutationOptions = getPageMutationOptions();
+        return mutationOptions
+            ? getPageOpsCapability().removeCrop(path, pages, totalPages, mutationOptions)
+            : getPageOpsCapability().removeCrop(path, pages, totalPages);
+    }
+
     async function runOperationDetailed<TResult extends IPageOpsResult>(options: {
         operationName: string;
         errorKey: TPageOperationErrorKey;
@@ -160,28 +223,42 @@ export const usePageOperations = (deps: {
         error.value = null;
 
         try {
-            if (options.beforeRun) {
-                const canRun = await options.beforeRun();
-                if (!canRun) {
-                    return recordOutcome<TResult>({
-                        status: 'blocked',
-                        reason: 'preflight',
-                    });
-                }
-                if (workingCopyPath.value !== path) {
-                    return recordOutcome<TResult>({
-                        status: 'stale',
-                        phase: 'before-run',
-                    });
-                }
-            }
-
             return await runWithDocumentOperationLease('page-operation', async () => {
                 if (workingCopyPath.value !== path) {
                     return recordOutcome<TResult>({
                         status: 'stale',
                         phase: 'before-run',
                     });
+                }
+                if (options.shouldReload && ensureWorkingCopyFreshForRead) {
+                    const isFresh = await ensureWorkingCopyFreshForRead();
+                    if (!isFresh) {
+                        return recordOutcome<TResult>({
+                            status: 'blocked',
+                            reason: 'preflight',
+                        });
+                    }
+                    if (workingCopyPath.value !== path) {
+                        return recordOutcome<TResult>({
+                            status: 'stale',
+                            phase: 'before-run',
+                        });
+                    }
+                }
+                if (options.beforeRun) {
+                    const canRun = await options.beforeRun();
+                    if (!canRun) {
+                        return recordOutcome<TResult>({
+                            status: 'blocked',
+                            reason: 'preflight',
+                        });
+                    }
+                    if (workingCopyPath.value !== path) {
+                        return recordOutcome<TResult>({
+                            status: 'stale',
+                            phase: 'before-run',
+                        });
+                    }
                 }
                 if (options.shouldReload) {
                     const didPrimeHistory = await ensureHistoryBaselineForExternalMutation();
@@ -284,7 +361,7 @@ export const usePageOperations = (deps: {
             operationName: 'deletePages',
             errorKey: 'errors.pageOps.delete',
             shouldReload: true,
-            run: (path) => getPageOpsCapability().delete(path, [...pages], totalPages),
+            run: (path) => runDeletePageOp(path, [...pages], totalPages),
         });
         if (didPageOperationSucceed(outcome)) {
             analytics.track('page_operation_completed', {
@@ -349,7 +426,7 @@ export const usePageOperations = (deps: {
             operationName: 'rotatePages',
             errorKey: 'errors.pageOps.rotate',
             shouldReload: true,
-            run: (path) => getPageOpsCapability().rotate(path, [...pages], totalPages, angle),
+            run: (path) => runRotatePageOp(path, [...pages], totalPages, angle),
         });
         if (didPageOperationSucceed(outcome)) {
             analytics.track('page_operation_completed', {
@@ -372,7 +449,7 @@ export const usePageOperations = (deps: {
             operationName: 'insertPages',
             errorKey: 'errors.pageOps.insert',
             shouldReload: true,
-            run: (path) => getPageOpsCapability().insert(path, totalPages, afterPage),
+            run: (path) => runInsertPageOp(path, totalPages, afterPage),
         });
         if (didPageOperationSucceed(outcome)) {
             analytics.track('page_operation_completed', {
@@ -430,7 +507,7 @@ export const usePageOperations = (deps: {
                 operationName: 'insertFile',
                 errorKey: 'errors.pageOps.insertFile',
                 shouldReload: true,
-                run: (path) => getPageOpsCapability().insertFile(
+                run: (path) => runInsertFilePageOp(
                     path,
                     totalPages,
                     afterPage,
@@ -470,7 +547,7 @@ export const usePageOperations = (deps: {
             operationName: 'reorderPages',
             errorKey: 'errors.pageOps.reorder',
             shouldReload: true,
-            run: (path) => getPageOpsCapability().reorder(path, [...newOrder]),
+            run: (path) => runReorderPageOp(path, [...newOrder]),
         });
         if (didPageOperationSucceed(outcome)) {
             analytics.track('page_operation_completed', {
@@ -498,7 +575,7 @@ export const usePageOperations = (deps: {
             operationName: 'cropPages',
             errorKey: 'errors.pageOps.crop',
             shouldReload: true,
-            run: (path) => getPageOpsCapability().crop(path, [...pages], totalPages, margins),
+            run: (path) => runCropPageOp(path, [...pages], totalPages, margins),
         });
         if (didPageOperationSucceed(outcome)) {
             analytics.track('page_operation_completed', {
@@ -526,7 +603,7 @@ export const usePageOperations = (deps: {
             operationName: 'removeCrop',
             errorKey: 'errors.pageOps.removeCrop',
             shouldReload: true,
-            run: (path) => getPageOpsCapability().removeCrop(path, [...pages], totalPages),
+            run: (path) => runRemoveCropPageOp(path, [...pages], totalPages),
         });
         if (didPageOperationSucceed(outcome)) {
             analytics.track('page_operation_completed', {

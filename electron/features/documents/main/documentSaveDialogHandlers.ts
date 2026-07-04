@@ -17,6 +17,7 @@ import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCre
 import { te } from '@electron/te';
 import { normalizePdfSaveAsOptions } from '@electron/features/documents/main/pdfSaveAsOptimization';
 import type { IDocumentsDialogContext } from '@electron/features/documents/documentsService';
+import type { IPdfSerializedSaveOptions } from '@contracts/electronApiDocuments';
 
 export async function handleSavePdfAs(
     context: IDocumentsDialogContext,
@@ -31,11 +32,19 @@ export async function handleSavePdfDataAs(
     workingPath: string,
     data: unknown,
     options?: unknown,
+    serializedSaveOptions?: IPdfSerializedSaveOptions,
 ): Promise<{
     path: string | null;
     validation: IPdfValidationResult | null;
 }> {
-    return savePdfDataAs(context, workingPath, data, normalizePdfSaveAsOptions(options), showSaveDialogWithExtension);
+    return savePdfDataAs(
+        context,
+        workingPath,
+        data,
+        normalizePdfSaveAsOptions(options),
+        showSaveDialogWithExtension,
+        serializedSaveOptions,
+    );
 }
 
 export async function handleBeginSavePdfDataAs(
@@ -43,6 +52,7 @@ export async function handleBeginSavePdfDataAs(
     workingPath: string,
     totalBytes: number,
     options?: unknown,
+    serializedSaveOptions?: IPdfSerializedSaveOptions,
 ): Promise<IBeginSerializedPdfSaveAsResult> {
     const normalizedWorkingPath = typeof workingPath === 'string' ? workingPath.trim() : '';
     if (!normalizedWorkingPath) {
@@ -67,7 +77,14 @@ export async function handleBeginSavePdfDataAs(
         extension: 'pdf',
     });
 
-    return beginSerializedPdfSaveAs(context, workingPath, totalBytes, targetPath, normalizePdfSaveAsOptions(options));
+    return beginSerializedPdfSaveAs(
+        context,
+        workingPath,
+        totalBytes,
+        targetPath,
+        normalizePdfSaveAsOptions(options),
+        serializedSaveOptions,
+    );
 }
 
 export async function handleSavePdfDialog(

@@ -14,6 +14,7 @@ const yieldToBrowserMock = vi.hoisted(() => vi.fn(async () => {}));
 const browserDocumentStoreMock = vi.hoisted(() => ({
     read: vi.fn(),
     stat: vi.fn(),
+    assertDocumentRevisionCurrent: vi.fn(async () => {}),
     write: vi.fn(async () => {}),
     createStoredDocument: vi.fn(),
     replaceWithHandleBackedDocument: vi.fn(async () => {}),
@@ -42,6 +43,8 @@ describe('createBrowserPageOpsCapability', () => {
         vi.clearAllMocks();
         browserDocumentStoreMock.read.mockReset();
         browserDocumentStoreMock.stat.mockReset();
+        browserDocumentStoreMock.assertDocumentRevisionCurrent.mockReset();
+        browserDocumentStoreMock.assertDocumentRevisionCurrent.mockResolvedValue(undefined);
         browserDocumentStoreMock.write.mockReset();
         browserDocumentStoreMock.write.mockResolvedValue(undefined);
         browserDocumentStoreMock.createStoredDocument.mockReset();

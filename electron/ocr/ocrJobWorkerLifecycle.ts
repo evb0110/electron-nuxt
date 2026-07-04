@@ -10,6 +10,7 @@ import {
 } from '@electron/ocr/jobManager.config';
 import type {
     IOcrActiveJob,
+    IOcrPreparingJob,
     IOcrQueuedJob,
 } from '@electron/ocr/jobManager.types';
 import type { createPendingResultFileStore } from '@electron/ocr/createPendingResultFileStore';
@@ -53,6 +54,7 @@ interface IOcrJobWorkerLifecycleControllerOptions {
     clearOcrProgressPump: (scopedJobId: string, requestId?: string) => void;
     dispatchQueuedJobs: () => void;
     getJobWindow: (webContentsId: number) => BrowserWindow | null | undefined;
+    onFinalizeActiveJob?: (scopedJobId: string, job: IOcrActiveJob | null) => void;
     removeResultFile: (path: string) => Promise<boolean>;
     safeSendToWindow: (
         window: BrowserWindow | null | undefined,
@@ -63,6 +65,7 @@ interface IOcrJobWorkerLifecycleControllerOptions {
 
 export interface IOcrTerminalErrorEnvelopeOptions {
     code?: TOcrErrorCode;
+    details?: string;
     retryable?: boolean;
 }
 
@@ -79,6 +82,7 @@ export interface IOcrJobWorkerLifecycleController {
     removePendingCompletionResultFile(job: IOcrActiveJob): void;
     resetJobWatchdog(job: IOcrQueuedJob): void;
     sendJobFailure(job: IOcrQueuedJob, error: string, failureOptions?: IOcrTerminalErrorEnvelopeOptions): void;
+    sendJobCancellation(job: Pick<IOcrQueuedJob | IOcrPreparingJob, 'scopedJobId' | 'requestId' | 'webContentsId'>, reason: string): void;
     sendPendingCompletionResult(job: IOcrActiveJob): boolean;
     terminateAndFinalizeActiveJob(scopedJobId: string, terminateOptions: IOcrTerminateActiveJobOptions): void;
     terminateWorkerSafely(scopedJobId: string, worker: Worker, reason: string, requestId?: string): Promise<void>;
@@ -96,6 +100,7 @@ export function createOcrJobWorkerLifecycleController(
         clearOcrProgressPump,
         dispatchQueuedJobs,
         getJobWindow,
+        onFinalizeActiveJob,
         removeResultFile,
         safeSendToWindow,
     } = options;
@@ -125,7 +130,10 @@ export function createOcrJobWorkerLifecycleController(
         return buildOcrErrorEnvelope(
             envelopeOptions.code ?? 'OCR_INTERNAL_ERROR',
             error,
-            { retryable: envelopeOptions.retryable ?? false },
+            {
+                retryable: envelopeOptions.retryable ?? false,
+                ...(envelopeOptions.details ? { details: envelopeOptions.details } : {}),
+            },
         );
     }
 
@@ -141,6 +149,21 @@ export function createOcrJobWorkerLifecycleController(
             success: false,
             errors: [error],
             errorEnvelope: createTerminalOcrErrorEnvelope(error, failureOptions),
+        });
+    }
+
+    function sendJobCancellation(
+        job: Pick<IOcrQueuedJob | IOcrPreparingJob, 'scopedJobId' | 'requestId' | 'webContentsId'>,
+        reason: string,
+    ) {
+        const message = 'OCR job was cancelled';
+        const window = getJobWindow(job.webContentsId);
+        clearOcrProgressPump(job.scopedJobId, job.requestId);
+        safeSendToWindow(window, OCR_EVENT_CHANNELS.complete, {
+            requestId: job.requestId,
+            success: false,
+            errors: [message],
+            errorEnvelope: createTerminalOcrErrorEnvelope(message, { details: reason }),
         });
     }
 
@@ -204,6 +227,7 @@ export function createOcrJobWorkerLifecycleController(
         }
         clearOcrProgressPump(scopedJobId);
         activeJobs.delete(scopedJobId);
+        onFinalizeActiveJob?.(scopedJobId, activeJob ?? null);
         dispatchQueuedJobs();
     }
 
@@ -222,16 +246,22 @@ export function createOcrJobWorkerLifecycleController(
         activeJob.completed = true;
         activeJob.terminatedByUs = true;
         if (terminateOptions.markCancelled) {
-            if (activeJob.lifecycleState !== 'terminal-result-sent') {
+            cancelledJobs.add(scopedJobId);
+            if (!activeJob.terminalResultSent) {
+                removePendingCompletionResultFile(activeJob);
+                activeJob.lifecycleState = transitionOcrJobLifecycle(
+                    activeJob.lifecycleState,
+                    'terminal-result-sent',
+                    scopedJobId,
+                );
+                activeJob.terminalResultSent = true;
+                sendJobCancellation(activeJob, terminateOptions.reason);
+            } else if (activeJob.lifecycleState !== 'terminal-result-sent') {
                 activeJob.lifecycleState = transitionOcrJobLifecycle(
                     activeJob.lifecycleState,
                     'cancelling',
                     scopedJobId,
                 );
-            }
-            cancelledJobs.add(scopedJobId);
-            if (!activeJob.terminalResultSent) {
-                removePendingCompletionResultFile(activeJob);
             }
         }
         clearJobWatchdog(scopedJobId);
@@ -313,6 +343,12 @@ export function createOcrJobWorkerLifecycleController(
             }
 
             sendJobFailure(job, `OCR job idle timed out after ${OCR_JOB_IDLE_TIMEOUT_MS}ms without worker activity`);
+            pendingActiveJob.lifecycleState = transitionOcrJobLifecycle(
+                pendingActiveJob.lifecycleState,
+                'terminal-result-sent',
+                job.scopedJobId,
+            );
+            pendingActiveJob.terminalResultSent = true;
             terminateAndFinalizeActiveJob(job.scopedJobId, {
                 markCancelled: true,
                 reason: `watchdog idle timeout (${OCR_JOB_IDLE_TIMEOUT_MS}ms)`,
@@ -336,6 +372,7 @@ export function createOcrJobWorkerLifecycleController(
         removePendingCompletionResultFile,
         resetJobWatchdog,
         sendJobFailure,
+        sendJobCancellation,
         sendPendingCompletionResult,
         terminateAndFinalizeActiveJob,
         terminateWorkerSafely,

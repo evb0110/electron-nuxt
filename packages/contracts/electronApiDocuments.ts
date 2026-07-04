@@ -6,6 +6,7 @@ import type {
 import type {
     IDocumentRevisionChangedEvent,
     IDocumentRevisionInfo,
+    TDocumentRevisionToken,
 } from '@contracts/documentRevision';
 import type {
     IPdfBox,
@@ -120,6 +121,10 @@ export type TPdfOptimizeProgressPhase =
     | 'complete';
 
 export interface IPdfOptimizeOptions { preset: TPdfOptimizePreset; }
+
+export interface IPdfSerializedSaveOptions {expectedDocumentRevisionToken?: TDocumentRevisionToken | null;}
+
+export interface IDocumentMutationRevisionOptions {expectedDocumentRevisionToken?: TDocumentRevisionToken | null;}
 
 export interface IPdfOptimizeProgress {
     requestId: string;
@@ -292,6 +297,7 @@ export type TDocumentSaveFailureReason =
     | 'working-copy-missing'
     | 'write-failed'
     | 'refresh-failed'
+    | 'working-copy-sync-required'
     | 'unsupported'
     | 'stale'
     | 'unknown';
@@ -312,6 +318,7 @@ export interface IDocumentSaveFailureResult {
     reason: TDocumentSaveFailureReason;
     message?: string;
     externalWriteCommitted?: boolean;
+    workingCopySyncRequired?: boolean;
     validation?: IPdfValidationResult | null;
 }
 
@@ -446,17 +453,27 @@ export interface IDocumentsFileCapability {
         error?: string;
         unsupportedReason?: TPlatformUnsupportedReason;
     }>;
-    writeFile: (path: TDocumentRef, data: Uint8Array) => Promise<boolean>;
-    replaceWorkingCopyFromPath: (workingCopyPath: TDocumentRef, sourcePath: TDocumentRef) => Promise<boolean>;
+    writeFile: (path: TDocumentRef, data: Uint8Array, options?: IDocumentMutationRevisionOptions) => Promise<boolean>;
+    replaceWorkingCopyFromPath: (
+        workingCopyPath: TDocumentRef,
+        sourcePath: TDocumentRef,
+        options?: IDocumentMutationRevisionOptions,
+    ) => Promise<boolean>;
     writeDocxFile: (path: TDocumentRef, data: Uint8Array) => Promise<boolean>;
     createWorkingCopyFromData: (fileName: string, data: Uint8Array, originalPath?: TDocumentRef) => Promise<TDocumentRef>;
     createWorkingCopyFromPath: (sourcePath: TDocumentRef, originalPath?: TDocumentRef) => Promise<TDocumentRef>;
     saveFileStructured: (path: TDocumentRef) => Promise<TDocumentSaveResult>;
-    savePdfData: (path: TDocumentRef, data: Uint8Array) => Promise<IPdfValidationResult>;
+    resyncWorkingCopy?: (path: TDocumentRef) => Promise<TDocumentSaveResult>;
+    savePdfData: (
+        path: TDocumentRef,
+        data: Uint8Array,
+        options?: IPdfSerializedSaveOptions,
+    ) => Promise<IPdfValidationResult>;
     savePdfDataChunks: (
         path: TDocumentRef,
         totalBytes: number,
         chunks: TDocumentChunkSource,
+        options?: IPdfSerializedSaveOptions,
     ) => Promise<IPdfValidationResult>;
     repairPdf?: (path: TDocumentRef) => Promise<IPdfValidationResult>;
     optimizePdfForInteraction?: (path: TDocumentRef) => Promise<IPdfValidationResult>;
@@ -469,24 +486,33 @@ export interface IDocumentsFileCapability {
         path: TDocumentRef,
         updates: IPdfNoteTextUpdate[],
         modifiedAt: string,
+        options?: IDocumentMutationRevisionOptions,
     ) => Promise<IPdfNativeNoteTextSaveResult>;
     savePdfNoteChanges?: (
         path: TDocumentRef,
         changes: IPdfNativeNoteChanges,
         modifiedAt: string,
+        options?: IDocumentMutationRevisionOptions,
     ) => Promise<IPdfNativeNoteTextSaveResult>;
     savePdfNativeMutations?: (
         path: TDocumentRef,
         mutations: IPdfNativeMutationSet,
         modifiedAt: string,
+        options?: IDocumentMutationRevisionOptions,
     ) => Promise<IPdfNativeSaveResult>;
     applyPdfNativeMutationsToWorkingCopy?: (
         path: TDocumentRef,
         mutations: IPdfNativeMutationSet,
         modifiedAt: string,
         expectedBase: IPdfNativeWorkingCopyExpectation,
+        options?: IDocumentMutationRevisionOptions,
     ) => Promise<IPdfNativeSaveResult>;
-    savePdfDataAs: (workingCopyPath: TDocumentRef, data: Uint8Array, options?: IPdfSaveAsOptions) => Promise<{
+    savePdfDataAs: (
+        workingCopyPath: TDocumentRef,
+        data: Uint8Array,
+        options?: IPdfSaveAsOptions,
+        serializedSaveOptions?: IPdfSerializedSaveOptions,
+    ) => Promise<{
         path: TDocumentRef | null;
         validation: IPdfValidationResult | null;
     }>;
@@ -594,6 +620,7 @@ export interface IDocumentsPdfPersistenceCapability extends Pick<
     | 'replaceWorkingCopyFromPath'
     | 'writeDocxFile'
     | 'saveFileStructured'
+    | 'resyncWorkingCopy'
     | 'savePdfData'
     | 'savePdfDataChunks'
     | 'repairPdf'

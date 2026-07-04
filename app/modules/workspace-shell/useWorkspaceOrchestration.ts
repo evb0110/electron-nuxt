@@ -488,6 +488,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         isExportingDocx: isDocxExporting,
         workingCopyPath,
         originalPath,
+        documentRevisionToken,
         annotationComments,
         totalPages,
         pageLabelsDirty,
@@ -750,6 +751,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         getAnnotationCommentsStatusSnapshot: () => annotationCommentsStatus.value,
         getEmbeddedMutationBaseData: pageSaveOrchestration.getEmbeddedMutationBaseData,
         embedPlacedImageToPage,
+        runWithDocumentOperationLease: documentOperationLease.runExclusive,
     });
     const {
         insertImageFromFileAt,
@@ -790,6 +792,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pdfSrc,
         originalPath: statusOriginalPath,
         workingCopyPath,
+        documentRevisionToken,
         currentPage,
         effectiveZoom,
         canSave,

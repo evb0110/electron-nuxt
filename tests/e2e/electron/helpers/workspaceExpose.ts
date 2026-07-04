@@ -1,4 +1,8 @@
 import type { Page } from 'puppeteer-core';
+import type {
+    IEvbAutomationEvent,
+    TEvbAutomationEventType,
+} from '@app/types/evbAutomationEvents';
 import type { IEvbTestApi } from '@app/types/evbTestApi';
 import type {
     IWorkspaceExpose,
@@ -235,6 +239,63 @@ export async function waitForWorkspaceToolbarIdle(
     }, { timeout: timeoutMs }, {
         ...searchOptions,
         requiredMethods: collectRequiredMethods(searchOptions, 'getToolbarSnapshot'),
+    });
+}
+
+export async function waitForAutomationEvent(
+    page: Page,
+    type: TEvbAutomationEventType,
+    options: {
+        afterEventId?: number;
+        path?: string;
+        timeoutMs?: number;
+    } = {},
+): Promise<IEvbAutomationEvent | null> {
+    const afterEventId = options.afterEventId ?? 0;
+    const timeoutMs = options.timeoutMs ?? 30_000;
+    const normalizedPath = options.path?.replace(/\\/gu, '/').toLowerCase() ?? null;
+
+    await installWorkspaceExposeProbe(page);
+    return page.evaluate(async (payload: {
+        afterEventId: number;
+        normalizedPath: string | null;
+        timeoutMs: number;
+        type: TEvbAutomationEventType;
+    }) => {
+        const api = (window as IWorkspaceExposeProbeWindow).__evbTestApi;
+        if (!api?.waitForAutomationEvent) {
+            return null;
+        }
+
+        return api.waitForAutomationEvent(
+            payload.type,
+            (event) => {
+                if (event.id <= payload.afterEventId) {
+                    return false;
+                }
+                if (!payload.normalizedPath) {
+                    return true;
+                }
+                const path = typeof event.detail.path === 'string'
+                    ? event.detail.path.replace(/\\/gu, '/').toLowerCase()
+                    : '';
+                return path === payload.normalizedPath;
+            },
+            payload.timeoutMs,
+        );
+    }, {
+        afterEventId,
+        normalizedPath,
+        timeoutMs,
+        type,
+    });
+}
+
+export async function getLatestAutomationEventId(page: Page) {
+    await installWorkspaceExposeProbe(page);
+    return page.evaluate(() => {
+        const events = (window as IWorkspaceExposeProbeWindow).__evbTestApi?.getAutomationEvents?.() ?? [];
+        return events.at(-1)?.id ?? 0;
     });
 }
 

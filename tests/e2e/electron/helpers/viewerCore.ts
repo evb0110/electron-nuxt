@@ -11,8 +11,10 @@ import {
 } from '@tests/e2e/electron/helpers/viewerDom';
 import {
     callWorkspaceCommand,
+    getLatestAutomationEventId,
     getWorkspaceToolbarSnapshot,
     installWorkspaceExposeProbe,
+    waitForAutomationEvent,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 
 const TOOLBAR_ACTION_ICON_HINTS: Record<string, string[]> = {
@@ -415,6 +417,7 @@ async function openPathInApp(
     const startedAt = Date.now();
     let lastError: Error | null = null;
     let openTriggered = false;
+    let openBaselineEventId = 0;
     let openedFreshTabAfterBlockedOpen = false;
 
     while (Date.now() - startedAt < timeoutMs) {
@@ -424,6 +427,7 @@ async function openPathInApp(
             await waitForRendererBindings(page, Math.min(remainingMs, 8_000));
 
             if (!openTriggered) {
+                openBaselineEventId = await getLatestAutomationEventId(page);
                 const openResult = await runWithExecutionContextRetry(page, async () => {
                     return evaluateInPage(page, async (path: string) => {
                         const automationGrant = (window as IE2EWindow & IAutomationFileOpenGrantApi).__allowRendererFileOpenForAutomation;
@@ -468,8 +472,33 @@ async function openPathInApp(
                 openTriggered = true;
             }
 
-            await waitForActiveDocumentPath(page, path, remainingMs);
-            await waitForLoaded(page, remainingMs);
+            const domWait = (async () => {
+                await waitForActiveDocumentPath(page, path, remainingMs);
+                await waitForLoaded(page, remainingMs);
+            })();
+            const eventWait = Promise.all([
+                waitForAutomationEvent(page, 'document-opened', {
+                    afterEventId: openBaselineEventId,
+                    path,
+                    timeoutMs: remainingMs,
+                }),
+                waitForAutomationEvent(page, 'first-page-rendered', {
+                    afterEventId: openBaselineEventId,
+                    path,
+                    timeoutMs: remainingMs,
+                }),
+            ])
+                .then(async (events) => {
+                    if (events.every(Boolean)) {
+                        return;
+                    }
+                    await domWait;
+                })
+                .catch(() => domWait);
+            await Promise.race([
+                eventWait,
+                domWait,
+            ]);
             return;
         } catch (error) {
             if (!isExecutionContextDestroyedError(error)) {
@@ -1530,6 +1559,7 @@ export async function resizeSidebarBy(page: Page, deltaX: number, steps = 12) {
 }
 
 export async function saveViaWindowHandle(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
+    const saveBaselineEventId = await getLatestAutomationEventId(page);
     const workspaceSave = await callWorkspaceCommand(page, 'handleSave');
     const saved = workspaceSave.called || await page.evaluate(async () => {
         const save = (window as IE2EWindow & { __handleSave?: () => Promise<unknown> }).__handleSave;
@@ -1544,7 +1574,7 @@ export async function saveViaWindowHandle(page: Page, timeoutMs = DEFAULT_TIMEOU
         throw new Error('window.__handleSave is not available');
     }
 
-    await page.waitForFunction(() => {
+    const domWait = page.waitForFunction(() => {
         const hasPendingToolbarLoading = document.querySelector('.toolbar-btn.is-loading');
         if (hasPendingToolbarLoading) {
             return false;
@@ -1553,4 +1583,19 @@ export async function saveViaWindowHandle(page: Page, timeoutMs = DEFAULT_TIMEOU
         const savingStatuses = Array.from(document.querySelectorAll('.note-window__status, .pdf-annotation-note-window__status'));
         return savingStatuses.length === 0;
     }, {timeout: timeoutMs});
+    const eventWait = waitForAutomationEvent(page, 'save-committed', {
+        afterEventId: saveBaselineEventId,
+        timeoutMs,
+    })
+        .then(async (event) => {
+            if (event) {
+                return;
+            }
+            await domWait;
+        })
+        .catch(() => domWait);
+    await Promise.race([
+        eventWait,
+        domWait,
+    ]);
 }

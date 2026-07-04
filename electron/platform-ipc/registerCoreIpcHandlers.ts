@@ -13,6 +13,7 @@ import type {
     IWindowTabTransferAck,
     IWindowTabTargetWindow,
 } from '@contracts/windowTabs';
+import type { ISettingsData } from '@contracts/shared';
 import { decodeWindowTabTransferRequest } from '@contracts/windowTabsValidation';
 import { te } from '@electron/te';
 import {
@@ -121,7 +122,7 @@ async function applySettingsSavePatch(
     shutdownAssistant: () => Promise<void>,
 ) {
     let shouldShutdownAssistant = false;
-    await updateSettings((currentSettings) => {
+    await updateSettings((currentSettings: ISettingsData) => {
         const incoming = sanitizeSettings({
             ...currentSettings,
             ...settingsPayload,
@@ -280,7 +281,7 @@ export function registerCoreIpcHandlers(
 
     registrar.handle(CORE_IPC_CHANNELS.acknowledgePendingExternalOpenPaths, (event, failedPaths: unknown) => {
         const normalizedFailedPaths = Array.isArray(failedPaths)
-            ? failedPaths.filter((path): path is string => typeof path === 'string' && path.trim().length > 0)
+            ? (failedPaths as unknown[]).filter((path): path is string => typeof path === 'string' && path.trim().length > 0)
             : [];
         options.acknowledgePendingExternalOpenPaths?.(event, normalizedFailedPaths);
     });

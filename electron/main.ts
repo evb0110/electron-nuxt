@@ -21,6 +21,7 @@ import {
     createShutdownCoordinator,
     runShutdownSteps,
 } from '@electron/bootstrap/shutdown';
+import { requestShutdownSaveFlush } from '@electron/bootstrap/requestShutdownSaveFlush';
 import { createStartupTrace } from '@electron/bootstrap/createStartupTrace';
 import { config } from '@electron/config';
 import { registerIpcHandlers } from '@electron/platform-ipc/registerIpcHandlers';
@@ -64,8 +65,10 @@ import {
 import { promptSetDefaultViewer } from '@electron/promptSetDefaultViewer';
 import { createLogger } from '@electron/utils/createLogger';
 import {
+    closeCachedRangeReadHandles,
     sweepStaleDefaultAppTempPdfs,
     sweepStaleOcrTempArtifacts,
+    shutdownSerializedPdfPersistence,
 } from '@electron/features/documents/public';
 import {
     configureUpdateInstallShutdown,
@@ -79,6 +82,10 @@ import {
 } from '@electron/protocol';
 import { resetSettingsCacheAfterUserDataPathChange } from '@electron/settings';
 import { configureMacKeychainAccess } from '@electron/security/macKeychainAccess';
+import {
+    cancelAllMainOperations,
+    drainCriticalMainOperations,
+} from '@electron/operation-lifecycle/mainOperationLifecycle';
 
 app.setName(app.isPackaged ? 'EVB Viewer' : 'EVB Viewer Dev');
 configureMacKeychainAccess(app);
@@ -225,6 +232,9 @@ const externalOpenManager = createExternalOpenManager({
 });
 macOpenFileRouter.attachExternalOpenManager(externalOpenManager);
 
+const MAIN_OPERATION_CRITICAL_DRAIN_TIMEOUT_MS = 30_000;
+const RENDERER_SAVE_FLUSH_TIMEOUT_MS = 2_500;
+
 function maybePromptForDefaultViewer() {
     if (config.automation.noFocus) {
         return;
@@ -254,8 +264,27 @@ async function performShutdownCleanup() {
     }
     externalOpenManager.clearTimers();
     shutdownCoordinator?.clearGracefulQuitForceTimer();
+    const workingCopyCleanupSkipPaths = new Set<string>();
 
     await runShutdownSteps(logger, [
+        {
+            label: 'renderer-save-flush',
+            timeoutMs: RENDERER_SAVE_FLUSH_TIMEOUT_MS + 500,
+            run: async () => {
+                const result = await requestShutdownSaveFlush({
+                    getWindows: getAllRegisteredAppWindows,
+                    logger,
+                    timeoutMs: RENDERER_SAVE_FLUSH_TIMEOUT_MS,
+                });
+                for (const workingCopyPath of result.dirtyWorkingCopyPaths) {
+                    workingCopyCleanupSkipPaths.add(workingCopyPath);
+                    logger.error(`Renderer reported dirty working copy during shutdown; skipping deletion: ${workingCopyPath}`);
+                }
+                if (result.flushedWorkingCopyPaths.length > 0) {
+                    logger.info(`Renderer flushed ${result.flushedWorkingCopyPaths.length} working copy path(s) before shutdown`);
+                }
+            },
+        },
         {
             label: 'agent-assistant',
             run: () => shutdownAgentAssistant(),
@@ -267,6 +296,36 @@ async function performShutdownCleanup() {
         {
             label: 'updates',
             run: () => shutdownUpdates(),
+        },
+        {
+            label: 'main-operations-cancel',
+            run: () => {
+                cancelAllMainOperations('app shutdown');
+            },
+        },
+        {
+            label: 'serialized-pdf-persistence',
+            run: () => shutdownSerializedPdfPersistence(),
+        },
+        {
+            label: 'main-critical-writes',
+            timeoutMs: MAIN_OPERATION_CRITICAL_DRAIN_TIMEOUT_MS,
+            run: async () => {
+                const result = await drainCriticalMainOperations({timeoutMs: MAIN_OPERATION_CRITICAL_DRAIN_TIMEOUT_MS});
+                if (!result.completed) {
+                    logger.error(`Timed out waiting for ${result.pending.length} critical main operation(s) during shutdown`);
+                    for (const operation of result.pending) {
+                        if (operation.workingCopyPath) {
+                            workingCopyCleanupSkipPaths.add(operation.workingCopyPath);
+                            logger.error(
+                                `Skipping working-copy deletion for pending critical write path: ${operation.workingCopyPath}`,
+                            );
+                        } else {
+                            logger.error(`Pending critical write has no working-copy path; operation=${operation.id}`);
+                        }
+                    }
+                }
+            },
         },
         {
             label: 'djvu-conversions',
@@ -281,8 +340,12 @@ async function performShutdownCleanup() {
             run: () => shutdownOcrJobManager(), 
         },
         {
+            label: 'range-read-handles',
+            run: () => closeCachedRangeReadHandles(),
+        },
+        {
             label: 'working-copies',
-            run: () => clearAllWorkingCopies(), 
+            run: () => clearAllWorkingCopies({skipPaths: workingCopyCleanupSkipPaths}), 
         },
     ]);
 }

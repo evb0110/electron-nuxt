@@ -271,6 +271,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
     );
     let getNavigationRenderTargetPage = (): number | null => null;
     const userViewportInteractionEpoch = ref(0);
+    const documentLoadToken = ref(0);
     let transactionController: ReturnType<typeof usePdfViewerTransactionController> | null = null;
     const {
         setupPagePlaceholders,
@@ -419,6 +420,8 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         pdfDocument,
         userViewportInteractionEpoch,
         emitCurrentPage: viewerEvents.updateCurrentPage,
+        getDocumentLoadToken: () => documentLoadToken.value,
+        getDocumentVersion: pdfDocumentResult.getRenderVersion,
     });
     getNavigationRenderTargetPage = () => (
         transactionController?.targetPage.value ?? null
@@ -689,7 +692,12 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         },
         transactionController: transactionController ?? undefined,
         emitLoadError: viewerEvents.loadError,
-        onDocumentLoadStateChange,
+        onDocumentLoadStateChange: (payload) => {
+            if (payload.phase === 'started') {
+                documentLoadToken.value = payload.token;
+            }
+            onDocumentLoadStateChange(payload);
+        },
         emit,
     });
     setUndoPdfjsAnnotationHandler(runtimeLifecycle.undoAnnotation);

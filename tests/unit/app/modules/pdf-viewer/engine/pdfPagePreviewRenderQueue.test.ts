@@ -19,6 +19,7 @@ import { cast } from '@tests/helpers/cast';
 interface IRenderControl {
     promise: Promise<void>;
     resolve: () => void;
+    reject: (error: unknown) => void;
 }
 
 function flushAsync() {
@@ -37,11 +38,14 @@ function createQueueHarness(options?: { concurrency?: number; }) {
         }
 
         let resolveRender!: () => void;
-        const promise = new Promise<void>((resolve) => {
+        let rejectRender!: (error: unknown) => void;
+        const promise = new Promise<void>((resolve, reject) => {
             resolveRender = resolve;
+            rejectRender = reject;
         });
         const control = {
             promise,
+            reject: rejectRender,
             resolve: resolveRender,
         };
         renderControls.set(pageNumber, control);
@@ -50,16 +54,24 @@ function createQueueHarness(options?: { concurrency?: number; }) {
 
     const queue = createPagePreviewRenderQueue({
         cache,
-        getPage: async pageNumber => cast<PDFPageProxy>({
+        leasePage: async pageNumber => cast<PDFPageProxy>({
             getViewport: () => ({
                 width: 100,
                 height: 100,
             }),
             render: () => {
                 startedRenders.push(pageNumber);
-                return { promise: ensureRenderControl(pageNumber).promise };
+                return {
+                    promise: ensureRenderControl(pageNumber).promise,
+                    cancel: vi.fn(() => {
+                        const error = new Error('cancelled');
+                        error.name = 'RenderingCancelledException';
+                        ensureRenderControl(pageNumber).reject(error);
+                    }),
+                };
             },
         }),
+        releasePage: vi.fn(),
         maxLongestSidePx: 768,
         concurrency: options?.concurrency ?? 2,
     });
@@ -219,6 +231,20 @@ describe('createPagePreviewRenderQueue', () => {
         expect(harness.queue.getAverageRenderDurationMs()).toBe((60 + 40 + 30 + 10) / 4);
 
         harness.queue.reset();
+        expect(harness.queue.getAverageRenderDurationMs()).toBeNull();
+    });
+
+    it('cancels an active preview render on reset without caching stale output', async () => {
+        const harness = createQueueHarness({ concurrency: 1 });
+
+        harness.queue.ensurePage(1, PAGE_PREVIEW_TARGET_PRIORITY);
+        await flushAsync();
+        expect(harness.startedRenders).toEqual([1]);
+
+        harness.queue.reset();
+        await flushAsync();
+
+        expect(harness.cache.has(1, harness.queue.getGeneration())).toBe(false);
         expect(harness.queue.getAverageRenderDurationMs()).toBeNull();
     });
 });

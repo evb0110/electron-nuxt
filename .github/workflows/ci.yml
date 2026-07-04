@@ -50,6 +50,34 @@ jobs:
       - name: Unit tests
         run: pnpm run test:unit
 
+  pr_electron_blocking_smoke:
+    name: Pull Request Electron Blocking Smoke
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+
+      - name: Verify Electron install
+        run: pnpm run check:electron:install
+
+      - name: Electron blocking save smoke
+        run: pnpm run test:e2e:electron:blocking-smoke:headless
+
   manual_quality:
     name: Manual Quality Gates
     if: ${{ github.event_name == 'workflow_dispatch' }}

@@ -1,4 +1,5 @@
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { IDocumentDirtyState } from '@app/modules/workspace-shell/composables/file-operations/saveDirtyState';
 import {
     computeShouldSerializeFlag,
@@ -28,6 +29,7 @@ export interface IWorkspaceSavePlanInput {
     workingCopyPath: TDocumentRef | null;
     expectedOriginalPath: TDocumentRef | null;
     expectedWorkingPath: TDocumentRef | null;
+    expectedDocumentRevisionToken: TDocumentRevisionToken | null;
     dirtyState: IDocumentDirtyState;
     hasManagedShapes: boolean;
 }
@@ -51,6 +53,7 @@ export interface IWorkspaceSavePlan {
     staleTargetProtection: {
         expectedOriginalPath: TDocumentRef | null;
         expectedWorkingPath: TDocumentRef | null;
+        expectedDocumentRevisionToken: TDocumentRevisionToken | null;
     };
 }
 
@@ -99,6 +102,7 @@ export function buildWorkspaceSavePlan(
         staleTargetProtection: {
             expectedOriginalPath: input.expectedOriginalPath,
             expectedWorkingPath: input.expectedWorkingPath,
+            expectedDocumentRevisionToken: input.expectedDocumentRevisionToken,
         },
     };
 }

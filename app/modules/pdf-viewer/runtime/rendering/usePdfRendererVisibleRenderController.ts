@@ -53,6 +53,7 @@ interface IUsePdfRendererVisibleRenderControllerOptions {
     renderingPages: Map<number, number>;
     renderingPageRequestIds: Map<number, number>;
     getRenderVersion: () => number;
+    getDocumentVersion?: (() => number) | undefined;
     getRenderDocumentToken: () => string;
     getVisibleRenderRequestId: () => number;
     nextVisibleRenderRequestId: () => number;
@@ -105,6 +106,7 @@ export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVi
         renderingPages,
         renderingPageRequestIds,
         getRenderVersion,
+        getDocumentVersion = getRenderVersion,
         getRenderDocumentToken,
         getVisibleRenderRequestId,
         nextVisibleRenderRequestId,
@@ -275,8 +277,12 @@ export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVi
     function isTransactionRenderRequestCurrent(
         transactionRequest: IPdfViewerTransactionRenderRequest | undefined,
     ) {
-        if (!transactionRequest || transactionRequest.transactionId === LEGACY_RENDER_TRANSACTION_ID) {
+        if (!transactionRequest) {
             return true;
+        }
+        if (transactionRequest.transactionId === LEGACY_RENDER_TRANSACTION_ID) {
+            return transactionRequest.documentVersion === getDocumentVersion()
+                && transactionRequest.renderVersion === getRenderVersion();
         }
         return isRenderRequestCurrent?.(transactionRequest) !== false;
     }
@@ -298,7 +304,7 @@ export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVi
         return {
             transactionId: LEGACY_RENDER_TRANSACTION_ID,
             renderRequestId: requestId,
-            documentVersion: 0,
+            documentVersion: getDocumentVersion(),
             renderVersion: request.version,
             source: PDF_RERENDER_SOURCE.ReRender,
             range: visibleRange,

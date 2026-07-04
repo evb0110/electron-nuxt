@@ -82,6 +82,7 @@ describe('usePdfRendererCanvasController', () => {
             hiddenAnnotationIds,
             getRenderVersion: () => 5,
             getPage: vi.fn(),
+            releasePage: vi.fn(),
             cancelActiveRenderTask: vi.fn(),
             cancelActiveRenderTaskIfCurrent: vi.fn(),
         });
@@ -129,6 +130,7 @@ describe('usePdfRendererCanvasController', () => {
             hiddenAnnotationIds: (_pageNumber: number) => new Set(['hidden-7']),
             getRenderVersion: () => 5,
             getPage: vi.fn(),
+            releasePage: vi.fn(),
             cancelActiveRenderTask: vi.fn(),
             cancelActiveRenderTaskIfCurrent: vi.fn(),
             onRenderStall,
@@ -195,6 +197,7 @@ describe('usePdfRendererCanvasController', () => {
             hiddenAnnotationIds: (_pageNumber: number) => undefined,
             getRenderVersion: () => 5,
             getPage: vi.fn(),
+            releasePage: vi.fn(),
             cancelActiveRenderTask,
             cancelActiveRenderTaskIfCurrent: vi.fn(),
         });
@@ -289,6 +292,7 @@ describe('usePdfRendererCanvasController', () => {
             hiddenAnnotationIds: (_pageNumber: number) => undefined,
             getRenderVersion: () => 5,
             getPage: vi.fn(),
+            releasePage: vi.fn(),
             cancelActiveRenderTask: vi.fn(),
             cancelActiveRenderTaskIfCurrent: vi.fn(),
             onRenderStall,

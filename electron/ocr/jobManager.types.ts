@@ -10,6 +10,7 @@ import type {
 export interface IOcrQueuedJob<TState extends TOcrJobLifecycleState = TOcrJobLifecycleState> {
     lifecycleState: TState;
     scopedJobId: string;
+    documentJobKey: string;
     requestId: string;
     webContentsId: number;
     sourcePdfPath: string;
@@ -18,16 +19,19 @@ export interface IOcrQueuedJob<TState extends TOcrJobLifecycleState = TOcrJobLif
     options: IOcrSearchablePdfOptions;
     queuedAtMs: number;
     requestedBytes: number;
+    pageWork: number;
 }
 
 export interface IOcrPreparingJob {
     lifecycleState: 'preparing' | 'cancelling';
     scopedJobId: string;
+    documentJobKey: string;
     requestId: string;
     webContentsId: number;
     sourcePdfPath: string;
     documentRevision: IDocumentRevisionInfo;
     requestedBytes: number;
+    pageWork: number;
     startedAtMs: number;
     abortController: AbortController;
 }

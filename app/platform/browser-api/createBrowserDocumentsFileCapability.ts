@@ -1,4 +1,7 @@
-import type { IDocumentsFileCapability } from '@contracts/electronApiDocuments';
+import type {
+    IDocumentMutationRevisionOptions,
+    IDocumentsFileCapability,
+} from '@contracts/electronApiDocuments';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
 import type { IRecentFile } from '@contracts/shared';
 import {
@@ -103,7 +106,12 @@ export function createBrowserDocumentsFileCapability(
     async function savePdfAsWithOptionalData(
         workingCopyPath: string,
         data?: Uint8Array,
+        revisionOptions?: IDocumentMutationRevisionOptions,
     ) {
+        await browserDocumentStore.assertDocumentRevisionCurrent(
+            workingCopyPath,
+            revisionOptions?.expectedDocumentRevisionToken,
+        );
         const saveTarget =
             await browserDocumentStore.getSaveTarget(workingCopyPath);
         const previousSourceRef =
@@ -197,7 +205,7 @@ export function createBrowserDocumentsFileCapability(
             );
         }
         if (data) {
-            await browserDocumentStore.write(workingCopyPath, data);
+            await browserDocumentStore.write(workingCopyPath, data, revisionOptions);
         }
         await browserDocumentStore.replaceWorkingCopySource(
             workingCopyPath,
@@ -354,7 +362,7 @@ export function createBrowserDocumentsFileCapability(
         async savePdfAs(workingCopyPath) {
             return savePdfAsWithOptionalData(workingCopyPath);
         },
-        async savePdfDataAs(workingCopyPath, data) {
+        async savePdfDataAs(workingCopyPath, data, _options, serializedSaveOptions) {
             const validation = await validateBrowserPdfData(data);
             if (!validation.isValid) {
                 return {
@@ -363,7 +371,7 @@ export function createBrowserDocumentsFileCapability(
                 };
             }
 
-            const path = await savePdfAsWithOptionalData(workingCopyPath, data);
+            const path = await savePdfAsWithOptionalData(workingCopyPath, data, serializedSaveOptions);
             return {
                 path,
                 validation,
@@ -501,22 +509,22 @@ export function createBrowserDocumentsFileCapability(
                 unsupportedReason: 'requires-native-backend',
             });
         },
-        async writeFile(path, data) {
+        async writeFile(path, data, options) {
             clearSearchCaches();
-            return browserDocumentStore.write(path, data);
+            return browserDocumentStore.write(path, data, options);
         },
-        async replaceWorkingCopyFromPath(workingCopyPath, sourcePath) {
+        async replaceWorkingCopyFromPath(workingCopyPath, sourcePath, options) {
             const bytes = await browserDocumentStore.read(sourcePath);
             clearSearchCaches(workingCopyPath);
-            return browserDocumentStore.write(workingCopyPath, bytes);
+            return browserDocumentStore.write(workingCopyPath, bytes, options);
         },
-        async savePdfData(path, data) {
+        async savePdfData(path, data, options) {
             const validation = await validateBrowserPdfData(data);
             if (!validation.isValid) {
                 return validation;
             }
 
-            await browserDocumentStore.write(path, data);
+            await browserDocumentStore.write(path, data, options);
             const saved = await saveWorkingBytesToSource(path, browserLargeSaveHandleHintProvider);
             if (!saved) {
                 return createCanceledSaveValidationResult(validation);
@@ -524,7 +532,7 @@ export function createBrowserDocumentsFileCapability(
             clearSearchCaches();
             return validation;
         },
-        async savePdfDataChunks(path, totalBytes, chunks) {
+        async savePdfDataChunks(path, totalBytes, chunks, options) {
             if (!Number.isSafeInteger(totalBytes) || totalBytes < 1) {
                 throw new Error('savePdfDataChunks.totalBytes must be a positive safe integer');
             }
@@ -603,6 +611,10 @@ export function createBrowserDocumentsFileCapability(
                     return validation;
                 }
 
+                await browserDocumentStore.assertDocumentRevisionCurrent(
+                    path,
+                    options?.expectedDocumentRevisionToken,
+                );
                 await copyChunkedDocument(stagingPath, path, totalBytes);
                 const saved = await saveWorkingBytesToSource(path, browserLargeSaveHandleHintProvider);
                 if (!saved) {
@@ -694,6 +706,28 @@ export function createBrowserDocumentsFileCapability(
                 clearSearchCaches();
             }
             return result;
+        },
+        async resyncWorkingCopy(path) {
+            try {
+                const sourceRef = await browserDocumentStore.getSourceRef(path);
+                const bytes = await browserDocumentStore.read(sourceRef);
+                await browserDocumentStore.write(path, bytes);
+                clearSearchCaches(path);
+                return {
+                    ok: true,
+                    externalWriteCommitted: false,
+                    workingCopyRefreshed: true,
+                    validation: null,
+                };
+            } catch (error) {
+                return {
+                    ok: false,
+                    reason: 'write-failed',
+                    message: error instanceof Error ? error.message : String(error),
+                    externalWriteCommitted: false,
+                    validation: null,
+                };
+            }
         },
         async cleanupFile(path) {
             const entry = await browserDocumentStore.ensureEntry(path);

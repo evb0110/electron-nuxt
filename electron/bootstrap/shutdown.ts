@@ -16,6 +16,7 @@ interface IAppLike {
 interface IShutdownStep {
     label: string;
     run: () => Promise<void> | void;
+    timeoutMs?: number | null;
 }
 
 interface ICreateShutdownCoordinatorOptions {
@@ -33,14 +34,20 @@ export function runShutdownSteps(
     return withTimeout(async () => {
         for (const step of steps) {
             try {
-                await withTimeout(async () => {
+                if (step.timeoutMs === null) {
                     await step.run();
-                }, SHUTDOWN_STEP_TIMEOUT_MS);
+                } else {
+                    const timeoutMs = step.timeoutMs ?? SHUTDOWN_STEP_TIMEOUT_MS;
+                    await withTimeout(async () => {
+                        await step.run();
+                    }, timeoutMs);
+                }
             } catch (error) {
                 const timeout = isTimeoutError(error);
+                const timeoutMs = step.timeoutMs ?? SHUTDOWN_STEP_TIMEOUT_MS;
                 logger.error(
                     timeout
-                        ? `Shutdown step timed out (${step.label}, ${SHUTDOWN_STEP_TIMEOUT_MS}ms)`
+                        ? `Shutdown step timed out (${step.label}, ${timeoutMs}ms)`
                         : `Shutdown step failed (${step.label}): ${getErrorMessage(error)}`,
                 );
             }

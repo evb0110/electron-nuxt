@@ -10,7 +10,11 @@ import type {
     WebContents,
 } from 'electron';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
-import type { IPdfSaveAsOptions } from '@contracts/electronApiDocuments';
+import type {
+    IPdfSaveAsOptions,
+    IPdfSerializedSaveOptions,
+} from '@contracts/electronApiDocuments';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
     IBeginSerializedPdfPersistenceResult,
     IBeginSerializedPdfSaveAsResult,
@@ -49,7 +53,12 @@ import { allowOpenPath } from '@electron/file-access/openPathCapabilities';
 import { addRecentFile } from '@electron/recentFiles';
 import { updateRecentFilesMenu } from '@electron/menu';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
-import { markWorkingCopyContentChanged } from '@electron/file-access/documentRevisionStore';
+import {
+    getWorkingCopyRevision,
+    markWorkingCopySyncRequired,
+    markWorkingCopyContentChanged,
+} from '@electron/file-access/documentRevisionStore';
+import { assertQueuedWorkingCopyMutationPreconditions } from '@electron/file-access/documentMutationGuards';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
 import { originalPathSaveBaseMatches } from '@electron/features/documents/main/originalPathSaveBaseMatches';
 import {
@@ -57,6 +66,10 @@ import {
     optimizePdfForSaveAs,
 } from '@electron/features/documents/main/pdfSaveAsOptimization';
 import type { IDocumentsWebContentsContext } from '@electron/features/documents/documentsService';
+import {
+    registerMainOperation,
+    type IRegisteredMainOperation,
+} from '@electron/operation-lifecycle/mainOperationLifecycle';
 
 const SERIALIZED_PDF_SESSION_TIMEOUT_MS = 10 * 60_000;
 const SERIALIZED_PDF_MAX_CHUNK_BYTES = PDF_PERSISTENCE_DEFAULT_CHUNK_BYTES;
@@ -105,6 +118,7 @@ interface ISerializedPdfPersistenceSession {
     workingPath: string;
     targetPath: string;
     saveAsOptions: IPdfSaveAsOptions | undefined;
+    expectedDocumentRevisionToken: TDocumentRevisionToken | null;
     tempPath: string;
     totalBytes: number;
     receivedBytes: number;
@@ -117,6 +131,7 @@ interface ISerializedPdfPersistenceSession {
     queue: Promise<void>;
     unregisterSenderCleanup: () => void;
     releaseSenderReservation: () => void;
+    lifecycleOperation: IRegisteredMainOperation;
 }
 
 const sessions = new Map<string, ISerializedPdfPersistenceSession>();
@@ -138,6 +153,17 @@ function createOriginalChangedValidationResult() {
     return createEmptyPdfValidationResult('Original file changed on disk; save skipped to avoid overwriting external edits');
 }
 
+function normalizeExpectedDocumentRevisionToken(options?: IPdfSerializedSaveOptions | null) {
+    const token = options?.expectedDocumentRevisionToken;
+    if (token === undefined || token === null) {
+        return null;
+    }
+    if (typeof token !== 'string' || token.trim().length === 0) {
+        throw new TypeError('expectedDocumentRevisionToken must be a non-empty string');
+    }
+    return token.trim();
+}
+
 function getSerializedPdfPersistenceLimits(): ISerializedPdfPersistenceLimits {
     return {
         protocolVersion: SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION,
@@ -150,11 +176,17 @@ function getSerializedPdfPersistenceLimits(): ISerializedPdfPersistenceLimits {
 }
 
 function withWorkingCopySyncWarning(validation: IPdfValidationResult, error: unknown): IPdfValidationResult {
+    const message = `Saved target file, but failed to refresh the working copy: ${getErrorMessage(error)}`;
     return {
         ...validation,
+        isValid: false,
+        errors: [
+            ...validation.errors,
+            message,
+        ],
         warnings: [
             ...validation.warnings,
-            `Saved target file, but failed to refresh the working copy: ${getErrorMessage(error)}`,
+            message,
         ],
     };
 }
@@ -258,6 +290,7 @@ async function cleanupSession(session: ISerializedPdfPersistenceSession) {
     sessions.delete(session.id);
     await session.handle.close().catch(() => undefined);
     await rm(session.tempPath, { force: true }).catch(() => undefined);
+    session.lifecycleOperation.complete();
 }
 
 function finishSessionLifecycle(session: ISerializedPdfPersistenceSession) {
@@ -265,6 +298,7 @@ function finishSessionLifecycle(session: ISerializedPdfPersistenceSession) {
     session.unregisterSenderCleanup();
     session.releaseSenderReservation();
     sessions.delete(session.id);
+    session.lifecycleOperation.complete();
 }
 
 function registerSessionSenderCleanup(sender: WebContents, getSession: () => ISerializedPdfPersistenceSession) {
@@ -309,8 +343,12 @@ async function createSession(options: {
     workingPath: string;
     targetPath: string;
     saveAsOptions?: IPdfSaveAsOptions | undefined;
+    serializedSaveOptions?: IPdfSerializedSaveOptions | undefined;
     totalBytes: number;
 }) {
+    const rendererExpectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options.serializedSaveOptions);
+    const mainBaseRevision = await getWorkingCopyRevision(options.workingPath, options.sender.id);
+    const expectedDocumentRevisionToken = rendererExpectedDocumentRevisionToken ?? mainBaseRevision.token;
     const releaseSenderReservation = reserveSenderPersistenceCapacity(options.sender.id, options.totalBytes);
     const tempPath = makeSiblingTempPath(options.targetPath);
     let handle: FileHandle;
@@ -323,6 +361,11 @@ async function createSession(options: {
     const id = randomUUID();
     const timeout = setTimeout(() => undefined, SERIALIZED_PDF_SESSION_TIMEOUT_MS);
     timeout.unref?.();
+    const lifecycleOperation = registerMainOperation({
+        kind: 'critical-write',
+        ownerWebContentsId: options.sender.id,
+        workingCopyPath: options.workingPath,
+    });
 
     const session: ISerializedPdfPersistenceSession = {
         id,
@@ -332,6 +375,7 @@ async function createSession(options: {
         workingPath: options.workingPath,
         targetPath: options.targetPath,
         saveAsOptions: options.saveAsOptions,
+        expectedDocumentRevisionToken,
         tempPath,
         totalBytes: options.totalBytes,
         receivedBytes: 0,
@@ -344,6 +388,7 @@ async function createSession(options: {
         queue: Promise.resolve(),
         unregisterSenderCleanup: () => undefined,
         releaseSenderReservation,
+        lifecycleOperation,
     };
     session.unregisterSenderCleanup = registerSessionSenderCleanup(options.sender, () => session);
     refreshSessionTimeout(session);
@@ -355,6 +400,7 @@ export async function beginSerializedPdfSaveToOriginal(
     context: IDocumentsWebContentsContext,
     workingPath: unknown,
     totalBytes: unknown,
+    serializedSaveOptions?: IPdfSerializedSaveOptions,
 ): Promise<IBeginSerializedPdfPersistenceResult> {
     const normalizedWorkingPath = normalizeWorkingPath(workingPath);
     const normalizedTotalBytes = normalizeTotalBytes(totalBytes);
@@ -368,6 +414,7 @@ export async function beginSerializedPdfSaveToOriginal(
         sender: context.sender,
         workingPath: normalizedWorkingPath,
         targetPath: originalPath,
+        serializedSaveOptions,
         totalBytes: normalizedTotalBytes,
     });
 
@@ -383,6 +430,7 @@ export async function beginSerializedPdfSaveAs(
     totalBytes: unknown,
     targetPath: string | null,
     saveAsOptions?: IPdfSaveAsOptions,
+    serializedSaveOptions?: IPdfSerializedSaveOptions,
 ): Promise<IBeginSerializedPdfSaveAsResult> {
     const normalizedWorkingPath = normalizeWorkingPath(workingPath);
     const normalizedTotalBytes = normalizeTotalBytes(totalBytes);
@@ -403,6 +451,7 @@ export async function beginSerializedPdfSaveAs(
         workingPath: normalizedWorkingPath,
         targetPath,
         saveAsOptions,
+        serializedSaveOptions,
         totalBytes: normalizedTotalBytes,
     });
 
@@ -437,12 +486,20 @@ async function finishSession(session: ISerializedPdfPersistenceSession) {
         if (!await ensureWorkingCopyDirectory(session.workingPath, session.senderId)) {
             throw new Error('Working copy path is not managed');
         }
+        await assertQueuedWorkingCopyMutationPreconditions(
+            session.workingPath,
+            session.expectedDocumentRevisionToken,
+        );
 
         if (session.mode === 'save_as') {
             await atomicReplace(session.tempPath, session.targetPath);
             try {
                 await copyFileCopyOnWrite(session.targetPath, session.workingPath);
             } catch (syncError) {
+                markWorkingCopySyncRequired(
+                    session.workingPath,
+                    `Target file was saved, but the working copy refresh failed: ${getErrorMessage(syncError)}`,
+                );
                 syncWarningValidation = withWorkingCopySyncWarning(committedValidation, syncError);
             }
             setWorkingCopyOriginalPath(session.workingPath, session.targetPath, session.senderId);
@@ -463,6 +520,10 @@ async function finishSession(session: ISerializedPdfPersistenceSession) {
                 refreshWorkingCopyOriginalFileExpectation(session.workingPath, session.senderId);
                 await markWorkingCopyContentChanged(session.workingPath, 'save-sync', session.senderId);
             } catch (syncError) {
+                markWorkingCopySyncRequired(
+                    session.workingPath,
+                    `Original file was saved, but the working copy refresh failed: ${getErrorMessage(syncError)}`,
+                );
                 syncWarningValidation = withWorkingCopySyncWarning(committedValidation, syncError);
             }
         }
@@ -518,6 +579,9 @@ async function handlePortMessage(
     let errorPhase: TPdfPersistenceErrorPhase = 'streaming';
     let errorSeq: number | undefined;
     try {
+        if (session.lifecycleOperation.signal.aborted && !session.isCommitting) {
+            throw new Error('PDF persistence stream canceled during shutdown');
+        }
         const normalizedMessage = normalizePdfPersistencePreloadToMainPayload(message);
         if (!isPdfPersistencePreloadToMainPayload(normalizedMessage)) {
             throw new Error(`Unknown PDF persistence message (${describePdfPersistenceMessage(normalizedMessage)})`);
@@ -526,6 +590,9 @@ async function handlePortMessage(
         refreshSessionTimeout(session);
         if (payload.type === 'chunk') {
             errorPhase = 'streaming';
+            if (session.lifecycleOperation.signal.aborted && !session.isCommitting) {
+                throw new Error('PDF persistence stream canceled during shutdown');
+            }
             errorSeq = typeof payload.seq === 'number' ? payload.seq : undefined;
             if (payload.seq !== session.nextSeq) {
                 throw new Error('Unexpected PDF persistence chunk sequence');
@@ -551,7 +618,11 @@ async function handlePortMessage(
 
         if (payload.type === 'complete') {
             errorPhase = 'complete';
+            if (session.lifecycleOperation.signal.aborted && !session.isCommitting) {
+                throw new Error('PDF persistence stream canceled during shutdown');
+            }
             session.isCommitting = true;
+            session.lifecycleOperation.markCommitStarted();
             clearSessionTimeout(session);
             const validation = await finishSession(session);
             const path = validation.isValid ? session.targetPath : null;
@@ -587,4 +658,14 @@ async function handlePortMessage(
         port.postMessage(createPdfPersistenceErrorFrame(error, errorFrameOptions));
         port.close();
     }
+}
+
+export async function shutdownSerializedPdfPersistence() {
+    await Promise.all([...sessions.values()].map(async (session) => {
+        if (session.isCommitting) {
+            await session.queue.catch(() => undefined);
+            return;
+        }
+        await cleanupSession(session);
+    }));
 }

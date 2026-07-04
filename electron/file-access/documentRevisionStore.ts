@@ -17,6 +17,10 @@ import type {
     TDocumentRevisionChangeReason,
     TDocumentRevisionToken,
 } from '@contracts/documentRevision';
+import {
+    createStaleRevisionError,
+    createWorkingCopySyncRequiredError,
+} from '@contracts/documentMutationErrors';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import {
@@ -38,6 +42,7 @@ import { clearWorkingCopyOcrArtifacts } from '@electron/file-access/workingCopyM
 const log = createLogger('documentRevisionStore');
 const revisionListeners = new Set<(event: IDocumentRevisionChangedEvent) => void>();
 const generatedRegistrationIds = new Map<string, string>();
+const workingCopySyncRequired = new Map<string, string>();
 let nextGeneratedRegistrationId = 0;
 
 function getRevisionQueueKey(workingCopyPath: string) {
@@ -193,7 +198,7 @@ export async function markWorkingCopyContentChanged(
     workingCopyPath: string,
     reason: TDocumentRevisionChangeReason,
     senderId?: number,
-) {
+): Promise<IDocumentRevisionChangedEvent> {
     const event = await markWorkingCopyRevisionChanged(workingCopyPath, reason, senderId);
     await clearWorkingCopyOcrArtifacts(workingCopyPath);
     return event;
@@ -202,7 +207,7 @@ export async function markWorkingCopyContentChanged(
 export function isWorkingCopyRevisionCurrent(
     workingCopyPath: string,
     token: TDocumentRevisionToken,
-) {
+): Promise<boolean> {
     return readWorkingCopyRevisionSidecar(workingCopyPath)
         .then(sidecar => sidecar?.token === token);
 }
@@ -210,10 +215,36 @@ export function isWorkingCopyRevisionCurrent(
 export async function assertWorkingCopyRevisionCurrent(
     workingCopyPath: string,
     token: TDocumentRevisionToken,
-) {
-    if (!await isWorkingCopyRevisionCurrent(workingCopyPath, token)) {
-        throw new Error('Document revision is stale');
+): Promise<void> {
+    const sidecar = await readWorkingCopyRevisionSidecar(workingCopyPath);
+    if (sidecar?.token !== token) {
+        throw createStaleRevisionError({
+            documentRef: workingCopyPath,
+            expectedRevision: token,
+            actualRevision: sidecar?.token ?? null,
+        });
     }
+}
+
+export function assertWorkingCopyMutationAllowed(workingCopyPath: string) {
+    const reason = workingCopySyncRequired.get(getRevisionQueueKey(workingCopyPath));
+    if (reason !== undefined) {
+        throw createWorkingCopySyncRequiredError({
+            documentRef: workingCopyPath,
+            message: reason,
+        });
+    }
+}
+
+export function markWorkingCopySyncRequired(workingCopyPath: string, reason: string) {
+    workingCopySyncRequired.set(
+        getRevisionQueueKey(workingCopyPath),
+        reason,
+    );
+}
+
+export function clearWorkingCopySyncRequired(workingCopyPath: string) {
+    workingCopySyncRequired.delete(getRevisionQueueKey(workingCopyPath));
 }
 
 export function onWorkingCopyRevisionChanged(listener: (event: IDocumentRevisionChangedEvent) => void) {

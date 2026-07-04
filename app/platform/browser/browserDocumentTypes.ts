@@ -62,7 +62,10 @@ export interface ICreateStoredDocumentOptions {
     chunkGeneration?: string;
 }
 
-export interface IWriteDocumentOptions { unloadAfterPersist?: boolean; }
+export interface IWriteDocumentOptions {
+    unloadAfterPersist?: boolean;
+    expectedDocumentRevisionToken?: string | null;
+}
 
 export interface IBrowserDocumentChunkRecord {
     key: string;

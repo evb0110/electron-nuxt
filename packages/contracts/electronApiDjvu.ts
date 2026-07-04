@@ -14,9 +14,11 @@ export type { TDjvuPdfExportStrategy } from '@contracts/djvuConversionPolicy';
 export interface IDjvuProgress {
     jobId: string;
     phase: 'converting' | 'bookmarks' | 'optimizing' | 'loading' | 'printing';
+    status?: 'running' | 'success' | 'canceled' | 'failed';
     current?: number;
     total?: number;
     percent: number;
+    error?: string;
 }
 
 export interface IDjvuInfo {
@@ -108,6 +110,7 @@ export interface IDjvuAPI {
     convertToPdf: (djvuPath: TDocumentRef, outputPath: string, options: IDjvuConvertOptions) => Promise<IDjvuConvertResult>;
     printDjvuPath: (djvuPath: TDocumentRef, options: IDjvuPrintOptions) => Promise<IDjvuPrintResult>;
     cancel: (jobId: string) => Promise<{ canceled: boolean }>;
+    cancelPagePreview: (requestId: string) => Promise<{ canceled: boolean }>;
     getInfo: (djvuPath: TDocumentRef) => Promise<IDjvuInfo>;
     getPageSizes: (djvuPath: TDocumentRef) => Promise<IDjvuPageSize[]>;
     renderPagePreview: (

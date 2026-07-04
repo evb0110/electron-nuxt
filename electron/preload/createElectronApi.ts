@@ -42,6 +42,8 @@ import {
     CORE_IPC_SEND_CHANNELS,
     type ICoreEventMap,
     type ICoreInvokeMap,
+    type IShutdownSaveFlushRequest,
+    type IShutdownSaveFlushResult,
 } from '@electron/platform-ipc/coreContract';
 
 const preloadStartupStart = Date.now();
@@ -114,6 +116,13 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
     const baseDocuments = createDocumentsPreloadClient(ipcRenderer);
     const pageOps = createDocumentsPreloadPageOpsClient(ipcRenderer);
     const imageExport = createImageExportPreloadClient(ipcRenderer);
+    const shutdownSaveFlushCallbacks = new Set<() => Promise<{
+        dirtyWorkingCopyPaths?: string[];
+        flushedWorkingCopyPaths?: string[];
+    }> | {
+        dirtyWorkingCopyPaths?: string[];
+        flushedWorkingCopyPaths?: string[];
+    }>();
     const pendingRendererFileOpenAllows = new Map<string, {
         token: string;
         promise: Promise<boolean>;
@@ -176,6 +185,19 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         return allowPromise;
     }
 
+    function observeRendererFileOpenGrant(promise: Promise<boolean>, details: Record<string, unknown>) {
+        promise.catch((error: unknown) => {
+            tracePreloadStartup('renderer-file-open-grant:error', {
+                ...details,
+                error: getErrorMessage(error),
+            });
+            console.warn('Failed to authorize renderer file-open capability', {
+                ...details,
+                error: getErrorMessage(error),
+            });
+        });
+    }
+
     const openDocumentDirect = async (path: string) => {
         const pendingAllow = pendingRendererFileOpenAllows.get(path)?.promise;
         if (pendingAllow && !await pendingAllow) {
@@ -205,13 +227,13 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
     const getPathForFile = (file: File) => {
         const filePath = electronWebUtils.getPathForFile(file);
         if (filePath) {
-            void allowRendererFileOpen(filePath);
+            observeRendererFileOpenGrant(allowRendererFileOpen(filePath), { filePath });
         }
         return filePath;
     };
     const getPathsForFiles = (files: File[]) => {
         const filePaths = extractPathsForFiles(files);
-        void allowRendererFileOpenBatch(filePaths);
+        observeRendererFileOpenGrant(allowRendererFileOpenBatch(filePaths), { fileCount: filePaths.length });
         return filePaths;
     };
     const registerFilesForOpen = async (files: File[]) => {
@@ -220,15 +242,59 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         return allowed ? filePaths : [];
     };
 
+    ipcRenderer.on(CORE_IPC_EVENT_CHANNELS.shutdownSaveFlushRequest, (_event, payload: IShutdownSaveFlushRequest) => {
+        const requestId = typeof payload?.requestId === 'string' ? payload.requestId : '';
+        if (!requestId) {
+            return;
+        }
+        void (async () => {
+            const dirtyWorkingCopyPaths = new Set<string>();
+            const flushedWorkingCopyPaths = new Set<string>();
+            const errors: string[] = [];
+
+            for (const callback of shutdownSaveFlushCallbacks) {
+                try {
+                    const result = await callback();
+                    for (const path of result.dirtyWorkingCopyPaths ?? []) {
+                        if (path) {
+                            dirtyWorkingCopyPaths.add(path);
+                        }
+                    }
+                    for (const path of result.flushedWorkingCopyPaths ?? []) {
+                        if (path) {
+                            flushedWorkingCopyPaths.add(path);
+                        }
+                    }
+                } catch (error) {
+                    errors.push(getErrorMessage(error));
+                }
+            }
+
+            const response: IShutdownSaveFlushResult = {
+                requestId,
+                dirtyWorkingCopyPaths: Array.from(dirtyWorkingCopyPaths),
+                flushedWorkingCopyPaths: Array.from(flushedWorkingCopyPaths),
+                ...(errors.length > 0 ? {error: errors.join('; ')} : {}),
+            };
+            ipcRenderer.send(CORE_IPC_SEND_CHANNELS.shutdownSaveFlushResult, response);
+        })();
+    });
+
     const documentPicker = {
         openDocumentDialog: baseDocuments.openDocumentDialog,
         openPdfDialog: baseDocuments.openPdfDialog,
         openCombineDialog: baseDocuments.openCombineDialog,
         openFolderDialog: baseDocuments.openFolderDialog,
+        ...(baseDocuments.openFolderDialogStructured
+            ? {openFolderDialogStructured: baseDocuments.openFolderDialogStructured}
+            : {}),
         openImageDialog: baseDocuments.openImageDialog,
         getPathForFile,
         getPathsForFiles,
         registerFilesForOpen,
+        ...(baseDocuments.createCombinedPdfFromFiles
+            ? {createCombinedPdfFromFiles: baseDocuments.createCombinedPdfFromFiles}
+            : {}),
     } satisfies IDocumentsPickerCapability;
     const documentOpen = {
         openDocumentDirect,
@@ -276,6 +342,7 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         replaceWorkingCopyFromPath: baseDocuments.replaceWorkingCopyFromPath,
         writeDocxFile: baseDocuments.writeDocxFile,
         saveFileStructured: baseDocuments.saveFileStructured,
+        ...(baseDocuments.resyncWorkingCopy ? {resyncWorkingCopy: baseDocuments.resyncWorkingCopy} : {}),
         savePdfData: baseDocuments.savePdfData,
         savePdfDataChunks: baseDocuments.savePdfDataChunks,
         ...optionalDocumentFileMethods,
@@ -293,6 +360,9 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
     const documentWindow = {
         setWindowTitle: baseDocuments.setWindowTitle,
         showItemInFolder: baseDocuments.showItemInFolder,
+        ...(baseDocuments.showItemInFolderStructured
+            ? {showItemInFolderStructured: baseDocuments.showItemInFolderStructured}
+            : {}),
     } satisfies IDocumentsWindowCapability;
     const documentMenu = {
         setMenuDocumentState: baseDocuments.setMenuDocumentState,
@@ -378,7 +448,15 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
                 eventSubscriber.onNoArg(CORE_IPC_EVENT_CHANNELS.menuOpenSettings, callback),
         },
 
-        system: { getMemoryInfo: readSystemMemoryInfo },
+        system: {
+            getMemoryInfo: readSystemMemoryInfo,
+            onShutdownSaveFlushRequest: (callback) => {
+                shutdownSaveFlushCallbacks.add(callback);
+                return () => {
+                    shutdownSaveFlushCallbacks.delete(callback);
+                };
+            },
+        },
 
         updates: {
             getState: () => invokeCore(CORE_IPC_CHANNELS.updatesGetState),

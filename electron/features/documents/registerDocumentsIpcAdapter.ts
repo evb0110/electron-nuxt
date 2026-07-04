@@ -400,18 +400,20 @@ export function registerDocumentsIpcAdapter(
             workingPath,
             data,
             options,
+            serializedSaveOptions,
         ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.savePdfDataAs>
     ) =>
-        service.savePdfDataAs(createDialogContext(event), workingPath, data, options));
+        service.savePdfDataAs(createDialogContext(event), workingPath, data, options, serializedSaveOptions));
     register(DOCUMENTS_CHANNELS.savePdfDataAsBegin, (
         event: IpcMainInvokeEvent,
         ...[
             workingPath,
             totalBytes,
             options,
+            serializedSaveOptions,
         ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.savePdfDataAsBegin>
     ) =>
-        service.beginSavePdfDataAs(createDialogContext(event), workingPath, totalBytes, options));
+        service.beginSavePdfDataAs(createDialogContext(event), workingPath, totalBytes, options, serializedSaveOptions));
     register(DOCUMENTS_CHANNELS.savePdfDialog, (
         event: IpcMainInvokeEvent,
         ...[suggestedName]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.savePdfDialog>
@@ -524,17 +526,19 @@ export function registerDocumentsIpcAdapter(
         ...[
             filePath,
             data,
+            options,
         ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileWrite>
     ) =>
-        service.writeFile(createSenderIdContext(event), filePath, data));
+        service.writeFile(createSenderIdContext(event), filePath, data, options));
     register(DOCUMENTS_CHANNELS.fileReplaceWorkingCopyFromPath, (
         event: IpcMainInvokeEvent,
         ...[
             workingCopyPath,
             sourcePath,
+            options,
         ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileReplaceWorkingCopyFromPath>
     ) =>
-        service.replaceWorkingCopyFromPath(createSenderIdContext(event), workingCopyPath, sourcePath));
+        service.replaceWorkingCopyFromPath(createSenderIdContext(event), workingCopyPath, sourcePath, options));
     register(DOCUMENTS_CHANNELS.fileWriteDocx, (
         event: IpcMainInvokeEvent,
         ...[
@@ -548,6 +552,11 @@ export function registerDocumentsIpcAdapter(
         ...[workingPath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileSaveStructured>
     ) =>
         service.saveFileStructured(createSenderIdContext(event), workingPath));
+    register(DOCUMENTS_CHANNELS.fileResyncWorkingCopy, (
+        event: IpcMainInvokeEvent,
+        ...[workingPath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileResyncWorkingCopy>
+    ) =>
+        service.resyncWorkingCopy(createSenderIdContext(event), workingPath));
     register(DOCUMENTS_CHANNELS.fileRepairPdf, (
         event: IpcMainInvokeEvent,
         ...[workingPath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileRepairPdf>
@@ -572,36 +581,40 @@ export function registerDocumentsIpcAdapter(
         ...[
             workingPath,
             data,
+            options,
         ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileSavePdfData>
     ) =>
-        service.savePdfData(createSenderIdContext(event), workingPath, data));
+        service.savePdfData(createSenderIdContext(event), workingPath, data, options));
     register(DOCUMENTS_CHANNELS.fileSavePdfNoteTextUpdates, (
         event: IpcMainInvokeEvent,
         ...[
             workingPath,
             updates,
             modifiedAt,
+            options,
         ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileSavePdfNoteTextUpdates>
     ) =>
-        service.savePdfNoteTextUpdates(createSenderIdContext(event), workingPath, updates, modifiedAt));
+        service.savePdfNoteTextUpdates(createSenderIdContext(event), workingPath, updates, modifiedAt, options));
     register(DOCUMENTS_CHANNELS.fileSavePdfNoteChanges, (
         event: IpcMainInvokeEvent,
         ...[
             workingPath,
             changes,
             modifiedAt,
+            options,
         ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileSavePdfNoteChanges>
     ) =>
-        service.savePdfNoteChanges(createSenderIdContext(event), workingPath, changes, modifiedAt));
+        service.savePdfNoteChanges(createSenderIdContext(event), workingPath, changes, modifiedAt, options));
     register(DOCUMENTS_CHANNELS.fileSavePdfNativeMutations, (
         event: IpcMainInvokeEvent,
         ...[
             workingPath,
             mutations,
             modifiedAt,
+            options,
         ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileSavePdfNativeMutations>
     ) =>
-        service.savePdfNativeMutations(createSenderIdContext(event), workingPath, mutations, modifiedAt));
+        service.savePdfNativeMutations(createSenderIdContext(event), workingPath, mutations, modifiedAt, options));
     register(DOCUMENTS_CHANNELS.fileApplyPdfNativeMutationsToWorkingCopy, (
         event: IpcMainInvokeEvent,
         ...[
@@ -609,6 +622,7 @@ export function registerDocumentsIpcAdapter(
             mutations,
             modifiedAt,
             expectedBase,
+            options,
         ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileApplyPdfNativeMutationsToWorkingCopy>
     ) =>
         service.applyPdfNativeMutationsToWorkingCopy(
@@ -617,15 +631,17 @@ export function registerDocumentsIpcAdapter(
             mutations,
             modifiedAt,
             expectedBase,
+            options,
         ));
     register(DOCUMENTS_CHANNELS.fileSavePdfDataBegin, (
         event: IpcMainInvokeEvent,
         ...[
             workingPath,
             totalBytes,
+            options,
         ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileSavePdfDataBegin>
     ) =>
-        service.beginSavePdfData(createWebContentsContext(event), workingPath, totalBytes));
+        service.beginSavePdfData(createWebContentsContext(event), workingPath, totalBytes, options));
     register(DOCUMENTS_CHANNELS.fileCleanupOcrTemp, (
         event: IpcMainInvokeEvent,
         ...[filePath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileCleanupOcrTemp>

@@ -68,6 +68,7 @@ import type {
     TDocumentRevisionChangeReason,
     TDocumentRevisionToken,
 } from '@contracts/documentRevision';
+import { createStaleRevisionError } from '@contracts/documentMutationErrors';
 
 export class BrowserDocumentStore {
     private readonly entries = new Map<string, IBrowserDocumentEntry>();
@@ -455,6 +456,23 @@ export class BrowserDocumentStore {
         return createBrowserDocumentRevisionInfo(entry);
     }
 
+    public async assertDocumentRevisionCurrent(
+        ref: string,
+        expectedRevision: TDocumentRevisionToken | null | undefined,
+    ) {
+        if (!expectedRevision) {
+            return;
+        }
+        const actualRevision = await this.getDocumentRevision(ref);
+        if (actualRevision.token !== expectedRevision) {
+            throw createStaleRevisionError({
+                documentRef: ref,
+                expectedRevision,
+                actualRevision: actualRevision.token,
+            });
+        }
+    }
+
     public onDocumentRevisionChanged(listener: (event: IDocumentRevisionChangedEvent) => void) {
         this.revisionListeners.add(listener);
         return () => {
@@ -475,6 +493,7 @@ export class BrowserDocumentStore {
         data: Uint8Array | ArrayBuffer,
         options: IWriteDocumentOptions = {},
     ) {
+        await this.assertDocumentRevisionCurrent(ref, options.expectedDocumentRevisionToken);
         const entry = await this.requireEntry(ref);
         const bytes = options.unloadAfterPersist
             ? normalizePersistedWriteBytes(data, false)

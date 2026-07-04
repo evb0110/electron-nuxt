@@ -109,7 +109,8 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         basePageWidth,
         basePageHeight,
         isLoading,
-        getPage,
+        leasePage,
+        releasePage,
         evictPage,
         cleanupPageCache,
     } = options.document;
@@ -158,6 +159,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         annotationUiManager: options.annotationUiManager ?? null,
         annotationL10n: options.annotationL10n ?? null,
         renderSupervisor,
+        getDocumentVersion: () => renderVersion,
         ...(options.scrollToPage ? { scrollToPage: options.scrollToPage } : {}),
     });
 
@@ -616,7 +618,8 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         pageCanvases,
         hiddenAnnotationIds: pageNumber => resolveCanvasHiddenAnnotationIds(pageNumber),
         getRenderVersion: () => renderVersion,
-        getPage,
+        getPage: leasePage,
+        releasePage,
         cancelActiveRenderTask,
         cancelActiveRenderTaskIfCurrent,
         onRenderStall: options.onRenderStall,
@@ -781,6 +784,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         renderingPages,
         renderingPageRequestIds,
         getRenderVersion: () => renderVersion,
+        getDocumentVersion: () => renderVersion,
         getRenderDocumentToken,
         getVisibleRenderRequestId: () => visibleRenderRequestId,
         nextVisibleRenderRequestId: () => {

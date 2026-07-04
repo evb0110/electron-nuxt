@@ -436,6 +436,7 @@ export const useAppShellTabLifecycle = (
         const transaction = session?.beginTransaction({
             kind: 'close',
             documentRef: session.snapshot.value.identity.documentRef,
+            persist: shouldPersistBeforeClose,
         }) ?? null;
         workspaceRestoreTracker.start(tabId);
         let closed = false;

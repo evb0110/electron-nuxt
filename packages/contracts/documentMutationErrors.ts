@@ -1,0 +1,149 @@
+import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import { getErrorMessage } from '@contracts/getErrorMessage';
+import { isRecord } from '@contracts/runtimeGuards';
+
+export const DOCUMENT_MUTATION_ERROR_PREFIX = 'EVB_DOCUMENT_MUTATION_ERROR:';
+
+export type TDocumentMutationErrorCode =
+    | 'STALE_REVISION'
+    | 'WORKING_COPY_SYNC_REQUIRED';
+
+export interface IDocumentMutationErrorPayload {
+    code: TDocumentMutationErrorCode;
+    message: string;
+    documentRef?: TDocumentRef;
+    expectedRevision?: TDocumentRevisionToken | null;
+    actualRevision?: TDocumentRevisionToken | null;
+}
+
+export class DocumentMutationError extends Error {
+    readonly code: TDocumentMutationErrorCode;
+    readonly documentRef: TDocumentRef | undefined;
+    readonly expectedRevision: TDocumentRevisionToken | null | undefined;
+    readonly actualRevision: TDocumentRevisionToken | null | undefined;
+
+    constructor(payload: IDocumentMutationErrorPayload) {
+        super(encodeDocumentMutationError(payload));
+        this.name = 'DocumentMutationError';
+        this.code = payload.code;
+        this.documentRef = payload.documentRef;
+        this.expectedRevision = payload.expectedRevision;
+        this.actualRevision = payload.actualRevision;
+    }
+}
+
+export function encodeDocumentMutationError(payload: IDocumentMutationErrorPayload) {
+    return `${DOCUMENT_MUTATION_ERROR_PREFIX}${JSON.stringify(payload)}`;
+}
+
+function decodeDocumentMutationErrorMessage(message: string): IDocumentMutationErrorPayload | null {
+    const markerIndex = message.indexOf(DOCUMENT_MUTATION_ERROR_PREFIX);
+    if (markerIndex < 0) {
+        return null;
+    }
+
+    const encoded = message.slice(markerIndex + DOCUMENT_MUTATION_ERROR_PREFIX.length).trim();
+    try {
+        const parsed: unknown = JSON.parse(encoded);
+        if (!isRecord(parsed)) {
+            return null;
+        }
+        if (parsed.code !== 'STALE_REVISION' && parsed.code !== 'WORKING_COPY_SYNC_REQUIRED') {
+            return null;
+        }
+        const fallbackMessage = parsed.code === 'STALE_REVISION'
+            ? 'Document revision is stale'
+            : 'Working copy must be resynced before further edits';
+        return {
+            code: parsed.code,
+            message: typeof parsed.message === 'string' && parsed.message.length > 0
+                ? parsed.message
+                : fallbackMessage,
+            ...(typeof parsed.documentRef === 'string' ? {documentRef: parsed.documentRef} : {}),
+            ...(typeof parsed.expectedRevision === 'string' || parsed.expectedRevision === null
+                ? {expectedRevision: parsed.expectedRevision}
+                : {}),
+            ...(typeof parsed.actualRevision === 'string' || parsed.actualRevision === null
+                ? {actualRevision: parsed.actualRevision}
+                : {}),
+        };
+    } catch {
+        return null;
+    }
+}
+
+export function getDocumentMutationErrorPayload(error: unknown): IDocumentMutationErrorPayload | null {
+    if (error instanceof DocumentMutationError) {
+        return decodeDocumentMutationErrorMessage(error.message) ?? {
+            code: error.code,
+            message: error.code === 'STALE_REVISION'
+                ? 'Document revision is stale'
+                : 'Working copy must be resynced before further edits',
+            ...(error.documentRef !== undefined ? {documentRef: error.documentRef} : {}),
+            ...(error.expectedRevision !== undefined ? {expectedRevision: error.expectedRevision} : {}),
+            ...(error.actualRevision !== undefined ? {actualRevision: error.actualRevision} : {}),
+        };
+    }
+    if (isRecord(error)) {
+        if (
+            (error.code === 'STALE_REVISION' || error.code === 'WORKING_COPY_SYNC_REQUIRED')
+            && typeof error.message === 'string'
+        ) {
+            return {
+                code: error.code,
+                message: error.message,
+                ...(typeof error.documentRef === 'string' ? {documentRef: error.documentRef} : {}),
+                ...(typeof error.expectedRevision === 'string' || error.expectedRevision === null
+                    ? {expectedRevision: error.expectedRevision}
+                    : {}),
+                ...(typeof error.actualRevision === 'string' || error.actualRevision === null
+                    ? {actualRevision: error.actualRevision}
+                    : {}),
+            };
+        }
+        const causePayload = getDocumentMutationErrorPayload(error.cause);
+        if (causePayload) {
+            return causePayload;
+        }
+    }
+    return decodeDocumentMutationErrorMessage(getErrorMessage(error));
+}
+
+export function isDocumentMutationErrorCode(error: unknown, code: TDocumentMutationErrorCode) {
+    return getDocumentMutationErrorPayload(error)?.code === code;
+}
+
+export function isStaleRevisionError(error: unknown) {
+    return isDocumentMutationErrorCode(error, 'STALE_REVISION');
+}
+
+export function isWorkingCopySyncRequiredError(error: unknown) {
+    return isDocumentMutationErrorCode(error, 'WORKING_COPY_SYNC_REQUIRED');
+}
+
+export function createStaleRevisionError(payload: {
+    documentRef?: TDocumentRef;
+    expectedRevision?: TDocumentRevisionToken | null;
+    actualRevision?: TDocumentRevisionToken | null;
+    message?: string;
+}) {
+    return new DocumentMutationError({
+        code: 'STALE_REVISION',
+        message: payload.message ?? 'Document changed while this edit was being prepared',
+        ...(payload.documentRef !== undefined ? {documentRef: payload.documentRef} : {}),
+        ...(payload.expectedRevision !== undefined ? {expectedRevision: payload.expectedRevision} : {}),
+        ...(payload.actualRevision !== undefined ? {actualRevision: payload.actualRevision} : {}),
+    });
+}
+
+export function createWorkingCopySyncRequiredError(payload: {
+    documentRef?: TDocumentRef;
+    message?: string;
+}) {
+    return new DocumentMutationError({
+        code: 'WORKING_COPY_SYNC_REQUIRED',
+        message: payload.message ?? 'Working copy must be resynced before further edits',
+        ...(payload.documentRef !== undefined ? {documentRef: payload.documentRef} : {}),
+    });
+}

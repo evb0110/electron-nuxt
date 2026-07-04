@@ -12,6 +12,7 @@ const vitestProjectNames = {
     unit: 'unit',
     bundleIntegrity: 'bundle-integrity',
     electronE2ESmoke: 'e2e-smoke',
+    electronE2EBlockingSmoke: 'e2e-blocking-smoke',
     electronE2EDrawShapes: 'e2e-draw-shapes',
     electronE2ELargePdf: 'e2e-large-pdf',
     electronE2ERapidNavigation: 'e2e-rapid-navigation',
@@ -32,6 +33,7 @@ const electronE2ESmokeTestFiles = [
     'tests/e2e/electron/squigglyMarkup.e2e.test.ts',
 ];
 
+const electronE2EBlockingSmokeTestFiles = ['tests/e2e/electron/blockingPdfSaveSmoke.e2e.test.ts'];
 const electronE2EDrawShapeTestFiles = ['tests/e2e/electron/drawShapeLifecycle.e2e.test.ts'];
 const electronE2ELargePdfTestFiles = [
     'tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts',
@@ -104,6 +106,7 @@ export const vitestProjects = [
     createUnitTestProject(),
     createBundleIntegrityTestProject(),
     createElectronE2ETestProject(vitestProjectNames.electronE2ESmoke, electronE2ESmokeTestFiles),
+    createElectronE2ETestProject(vitestProjectNames.electronE2EBlockingSmoke, electronE2EBlockingSmokeTestFiles),
     createElectronE2ETestProject(vitestProjectNames.electronE2EDrawShapes, electronE2EDrawShapeTestFiles),
     createElectronE2ETestProject(vitestProjectNames.electronE2ELargePdf, electronE2ELargePdfTestFiles),
     createElectronE2ETestProject(vitestProjectNames.electronE2ERapidNavigation, electronE2ERapidNavigationTestFiles),

@@ -165,6 +165,7 @@ function buildAgentTabSnapshot(
     const toolbarSnapshot = record?.toolbarSnapshot ?? null;
     const kind = inferDocumentKind(tab, toolbarSnapshot);
     const commandTarget = session?.createCommandTarget();
+    const documentSessionKey = session ? unref(session.snapshot).identity.documentSessionKey : null;
     const originalPath = getTabPath(tab);
     const originalBackend = resolveDocumentRefBackend(originalPath);
     return {
@@ -173,6 +174,7 @@ function buildAgentTabSnapshot(
         fileName: tab.fileName,
         originalPath,
         ...(originalBackend === undefined ? {} : {originalBackend}),
+        ...(documentSessionKey === null ? {} : {documentSessionKey}),
         ...(record?.documentIdentity === undefined ? {} : { documentIdentity: record.documentIdentity }),
         ...(commandTarget === undefined ? {} : { commandTarget }),
         isDirty: tab.isDirty,
@@ -205,6 +207,7 @@ function createDocumentReference(tab: IAgentTabSnapshot): IAgentDocumentReferenc
         fileName: tab.fileName,
         originalPath: tab.originalPath,
         ...(tab.originalBackend === undefined ? {} : {originalBackend: tab.originalBackend}),
+        ...(tab.documentSessionKey === undefined ? {} : {documentSessionKey: tab.documentSessionKey}),
         ...(tab.documentIdentity === undefined ? {} : { documentIdentity: tab.documentIdentity }),
         ...(tab.commandTarget === undefined ? {} : { commandTarget: tab.commandTarget }),
         kind: tab.kind,

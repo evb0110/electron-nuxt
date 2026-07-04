@@ -39,6 +39,8 @@ export function registerDjvuIpcAdapter(
         service.printDjvuPath(createDjvuOperationContext(event), djvuPath, options));
     registrar.handle(DJVU_CHANNELS.cancel, (event, jobId) =>
         service.cancel(createDjvuOperationContext(event), jobId));
+    registrar.handle(DJVU_CHANNELS.cancelPagePreview, (event, requestId) =>
+        service.cancelPagePreview(createDjvuOperationContext(event), requestId));
     registrar.handle(DJVU_CHANNELS.getInfo, (event, djvuPath) =>
         service.getInfo(createDjvuOperationContext(event), djvuPath));
     registrar.handle(DJVU_CHANNELS.getPageSizes, (event, djvuPath) =>

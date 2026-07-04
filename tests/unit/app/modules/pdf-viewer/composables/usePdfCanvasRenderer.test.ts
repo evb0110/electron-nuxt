@@ -396,4 +396,49 @@ describe('usePdfCanvasRenderer', () => {
         expect(firstRenderFilter(3)).toBe(false);
         expect(secondRenderFilter(0)).toBe(false);
     });
+
+    it('does not allocate a canvas after hidden annotation preflight aborts', async () => {
+        const createElement = vi.fn(() => ({
+            width: 0,
+            height: 0,
+            style: {} as CSSStyleDeclaration,
+            getContext: vi.fn(() => ({})),
+            remove: vi.fn(),
+        }));
+        (globalThis as Record<string, unknown>).document = { createElement };
+
+        const abortController = new AbortController();
+        const pdfPage = {
+            pageNumber: 4,
+            getViewport: vi.fn(() => ({
+                width: 200,
+                height: 100,
+                userUnit: 1,
+                rawDims: {
+                    pageWidth: 200,
+                    pageHeight: 100,
+                },
+            })),
+            getOperatorList: vi.fn(() => new Promise(() => undefined)),
+            render: vi.fn(),
+        } as const;
+
+        const renderer = usePdfCanvasRenderer({ outputScale: 1 });
+        const preparePromise = renderer.prepareCanvasRender(pdfPage as never, 1, {
+            hiddenAnnotationIds: new Set(['12R0']),
+            pageRenderCoordination: {
+                owner: 'viewer',
+                priority: 100,
+                signal: abortController.signal,
+                shouldContinue: () => !abortController.signal.aborted,
+            },
+        });
+
+        await Promise.resolve();
+        abortController.abort();
+
+        await expect(preparePromise).resolves.toBeNull();
+        expect(createElement).not.toHaveBeenCalled();
+        expect(pdfPage.render).not.toHaveBeenCalled();
+    });
 });

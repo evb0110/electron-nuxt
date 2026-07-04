@@ -1,6 +1,9 @@
 import type { ChildProcess } from 'node:child_process';
 import { pruneStaleE2ESessions } from '@scripts/electron-run/electronRunE2ESessionPrune';
-import { buildE2ESharedRendererEnv } from '@scripts/electron-run/electronRunE2ESharedRenderer';
+import {
+    buildE2ESharedRendererEnv,
+    getE2ESharedRendererSessionName,
+} from '@scripts/electron-run/electronRunE2ESharedRenderer';
 import { getNuxtPort } from '@scripts/electron-run/electronRunPortConfig';
 import { startNuxtServer } from '@scripts/electron-run/electronRunNuxtServer';
 import {
@@ -11,8 +14,6 @@ import {
     getCurrentSessionName,
     setCurrentSessionName,
 } from '@scripts/electron-run/electronRunSessionPaths';
-
-const SHARED_RENDERER_SESSION_NAME = 'e2e-shared-renderer';
 
 export default async function setup() {
     const result = await pruneStaleE2ESessions();
@@ -29,7 +30,8 @@ export default async function setup() {
     }
 
     const previousSessionName = getCurrentSessionName();
-    setCurrentSessionName(SHARED_RENDERER_SESSION_NAME);
+    const sharedRendererSessionName = getE2ESharedRendererSessionName(process.env);
+    setCurrentSessionName(sharedRendererSessionName);
 
     let sharedRendererProcess: ChildProcess | null = null;
     try {

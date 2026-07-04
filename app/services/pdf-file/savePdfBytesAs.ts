@@ -1,5 +1,8 @@
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { IPdfSaveAsOptions } from '@contracts/electronApiDocuments';
+import type {
+    IPdfSaveAsOptions,
+    IPdfSerializedSaveOptions,
+} from '@contracts/electronApiDocuments';
 import {
     getDocumentFilesCapability,
     getDocumentPdfCapability,
@@ -12,9 +15,13 @@ export async function savePdfBytesAs(
     workingPath: TDocumentRef,
     data: Uint8Array,
     options?: IPdfSaveAsOptions,
+    serializedSaveOptions?: IPdfSerializedSaveOptions,
 ) {
     const documentFiles = getDocumentFilesCapability();
     if (typeof documentFiles.savePdfDataAs === 'function') {
+        if (serializedSaveOptions) {
+            return documentFiles.savePdfDataAs(workingPath, data, options, serializedSaveOptions);
+        }
         return options
             ? documentFiles.savePdfDataAs(workingPath, data, options)
             : documentFiles.savePdfDataAs(workingPath, data);

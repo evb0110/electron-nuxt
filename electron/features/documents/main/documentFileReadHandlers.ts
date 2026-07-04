@@ -167,7 +167,7 @@ onWorkingCopyMutationSettled((workingCopyPath) => {
     void closeCachedRangeReadHandle(workingCopyPath);
 });
 
-export async function clearCachedRangeReadHandlesForTests() {
+export async function closeCachedRangeReadHandles() {
     await Promise.all(
         Array.from(rangeReadHandleOpens.entries(), async ([
             resolvedPath,
@@ -182,6 +182,10 @@ export async function clearCachedRangeReadHandlesForTests() {
             entry,
         ]) => closeRangeReadHandleEntry(resolvedPath, entry)),
     );
+}
+
+export async function clearCachedRangeReadHandlesForTests() {
+    await closeCachedRangeReadHandles();
 }
 
 export async function handleFileRead(context: IDocumentsSenderIdContext, filePath: unknown) {

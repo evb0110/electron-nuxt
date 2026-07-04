@@ -35,14 +35,22 @@ export function buildElectronAutomationArgs(options: {
     cdpPort: number;
     automationUserDataDir: string;
     mainJs: string;
+    initialOpenPaths?: string[];
     env?: NodeJS.ProcessEnv;
     platform?: NodeJS.Platform;
 }) {
+    const initialOpenPaths = options.initialOpenPaths ?? [];
     const args = [
         `--remote-debugging-port=${options.cdpPort}`,
         `--user-data-dir=${options.automationUserDataDir}`,
         '--disable-http-cache',
         options.mainJs,
+        ...(initialOpenPaths.length > 0
+            ? [
+                '--',
+                ...initialOpenPaths,
+            ]
+            : []),
     ];
 
     if (shouldDisableAutomationSandbox(options.env, options.platform)) {

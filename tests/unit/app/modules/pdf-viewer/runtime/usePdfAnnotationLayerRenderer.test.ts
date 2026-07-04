@@ -140,6 +140,58 @@ describe('usePdfAnnotationLayerRenderer', () => {
         await renderPromise;
     });
 
+    it('aborts annotation rendering on document switch before mutating DOM', async () => {
+        const annotations = Promise.withResolvers<unknown[]>();
+        let documentVersion = 1;
+        const abortController = new AbortController();
+        const renderer = usePdfAnnotationLayerRenderer({
+            numPages: ref(3),
+            currentPage: ref(1),
+            pdfDocument: ref({ annotationStorage: {} } as never),
+            showAnnotations: ref(true),
+            annotationUiManager: ref(null),
+            annotationL10n: ref(null),
+            getDocumentVersion: () => documentVersion,
+        });
+        const viewport = {
+            width: 200,
+            height: 300,
+            rotation: 0,
+        };
+        const pdfPage = {getAnnotations: vi.fn(() => annotations.promise)} as never;
+        const annotationLayerDiv = {
+            innerHTML: '<section class="existingAnnotation"></section>',
+            querySelectorAll: vi.fn(() => []),
+        };
+
+        const renderPromise = renderer.renderAnnotationLayer(
+            pdfPage,
+            annotationLayerDiv as never,
+            viewport as never,
+            1,
+            null,
+            {
+                documentVersion: 1,
+                signal: abortController.signal,
+            },
+        ).catch(error => error as Error);
+        await Promise.resolve();
+
+        documentVersion = 2;
+        abortController.abort();
+
+        const error = await renderPromise;
+        expect(error).toBeInstanceOf(Error);
+        if (!(error instanceof Error)) {
+            throw new TypeError('Expected annotation layer render to reject');
+        }
+        expect(error.name).toBe('AbortError');
+        expect(annotationLayerRender).not.toHaveBeenCalled();
+        expect(annotationLayerDiv.innerHTML).toContain('existingAnnotation');
+
+        annotations.resolve([]);
+    });
+
     it('serializes hidden annotation UI manager guards and restores original methods', async () => {
         const firstRender = Promise.withResolvers<undefined>();
         const secondRender = Promise.withResolvers<undefined>();

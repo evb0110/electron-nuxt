@@ -708,6 +708,7 @@ describe('createDocumentsPreloadFileClient', () => {
                 text: 'Updated note',
             }],
             'D:20260609133855+03\'00\'',
+            undefined,
         );
     });
 
@@ -797,6 +798,7 @@ describe('createDocumentsPreloadFileClient', () => {
                 ],
             },
             'D:20260609133855+03\'00\'',
+            undefined,
         );
     });
 
@@ -937,6 +939,7 @@ describe('createDocumentsPreloadFileClient', () => {
                 },
             },
             'D:20260609133855+03\'00\'',
+            undefined,
         );
     });
 
@@ -947,6 +950,7 @@ describe('createDocumentsPreloadFileClient', () => {
             mutations: INativeMutationInvokePayload,
             modifiedAt: string,
             expectedBase: IWorkingCopyExpectationInvokePayload,
+            options: unknown,
         ) => Promise<unknown>>(async () => ({
             applied: true,
             validation: {
@@ -997,6 +1001,7 @@ describe('createDocumentsPreloadFileClient', () => {
             })]},
             'D:20260609133855+03\'00\'',
             expectedBase,
+            undefined,
         );
         const firstCall = invoke.mock.calls[0];
         expect(firstCall).toBeDefined();

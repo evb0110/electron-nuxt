@@ -184,6 +184,7 @@ export function createFileOperationsSaveContext(
             workingCopyPath: state.documentIdentity.workingCopyPath.value,
             expectedOriginalPath,
             expectedWorkingPath,
+            expectedDocumentRevisionToken: state.documentIdentity.documentRevisionToken.value,
             dirtyState,
             hasManagedShapes: viewer.shapes.hasManagedShapes?.() ?? false,
         });

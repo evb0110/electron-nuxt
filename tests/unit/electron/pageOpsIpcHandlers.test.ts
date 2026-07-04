@@ -62,6 +62,8 @@ const mocks = vi.hoisted(() => ({
     runCommand: vi.fn(),
     ensureWorkingCopyDirectory: vi.fn(),
     findWorkingCopyPathByOriginalPath: vi.fn(),
+    assertWorkingCopyMutationAllowed: vi.fn(),
+    assertWorkingCopyRevisionCurrent: vi.fn(),
     markWorkingCopyContentChanged: vi.fn(),
     allowOpenPath: vi.fn(),
     allowOpenPaths: vi.fn(),
@@ -105,7 +107,11 @@ vi.mock('@electron/file-access/workingCopyStore', () => ({
     findWorkingCopyPathByOriginalPath: (...args: unknown[]) => mocks.findWorkingCopyPathByOriginalPath(...args),
     normalizePathForLookup: (path: string) => path.trim(),
 }));
-vi.mock('@electron/file-access/documentRevisionStore', () => ({markWorkingCopyContentChanged: (...args: unknown[]) => mocks.markWorkingCopyContentChanged(...args)}));
+vi.mock('@electron/file-access/documentRevisionStore', () => ({
+    assertWorkingCopyMutationAllowed: (...args: unknown[]) => mocks.assertWorkingCopyMutationAllowed(...args),
+    assertWorkingCopyRevisionCurrent: (...args: unknown[]) => mocks.assertWorkingCopyRevisionCurrent(...args),
+    markWorkingCopyContentChanged: (...args: unknown[]) => mocks.markWorkingCopyContentChanged(...args),
+}));
 vi.mock('@electron/features/page-ops/main/qpdf', () => ({
     QPDF_OUTPUT_SUCCESS_EXIT_CODES: [
         0,
@@ -177,7 +183,17 @@ describe('registerPageOpsIpcAdapter', () => {
         mocks.isPdfOrImagePath.mockReturnValue(true);
         mocks.ensureWorkingCopyDirectory.mockResolvedValue(true);
         mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(null);
-        mocks.markWorkingCopyContentChanged.mockResolvedValue({});
+        mocks.assertWorkingCopyMutationAllowed.mockResolvedValue(undefined);
+        mocks.assertWorkingCopyRevisionCurrent.mockResolvedValue(undefined);
+        mocks.markWorkingCopyContentChanged.mockImplementation(async (workingPath: string) => ({
+            version: 1,
+            documentRef: workingPath,
+            authority: 'electron-working-copy',
+            token: 'drt1:test:after-page-op',
+            contentRevision: 2,
+            mintedAt: 2,
+            reason: 'page-ops',
+        }));
         mocks.writeFile.mockResolvedValue(undefined);
         mocks.open.mockResolvedValue({
             close: vi.fn(async () => undefined),
@@ -244,11 +260,11 @@ describe('registerPageOpsIpcAdapter', () => {
 
         firstGate.resolve(undefined);
 
-        await expect(first).resolves.toEqual({
+        await expect(first).resolves.toMatchObject({
             success: true,
             pageCount: 3,
         });
-        await expect(second).resolves.toEqual({
+        await expect(second).resolves.toMatchObject({
             success: true,
             pageCount: 3,
         });
@@ -287,8 +303,8 @@ describe('registerPageOpsIpcAdapter', () => {
         pathOneGate.resolve(undefined);
         pathTwoGate.resolve(undefined);
 
-        await expect(first).resolves.toEqual({success: true});
-        await expect(second).resolves.toEqual({success: true});
+        await expect(first).resolves.toMatchObject({success: true});
+        await expect(second).resolves.toMatchObject({success: true});
     });
 
     it('rechecks reorder permutations against the actual working-copy page count inside the queue', async () => {
@@ -312,6 +328,27 @@ describe('registerPageOpsIpcAdapter', () => {
             .rejects.toThrow('Renderer page count is stale');
 
         expect(mocks.rotatePages).not.toHaveBeenCalled();
+    });
+
+    it('asserts page-op expected revision inside the mutation queue', async () => {
+        const handler = getHandler('page-ops:rotate');
+
+        await expect(handler(
+            {sender: {id: 1}},
+            '/tmp/revision-guarded.pdf',
+            [1],
+            3,
+            90,
+            {expectedDocumentRevisionToken: 'drt1:test:before-page-op'},
+        )).resolves.toMatchObject({success: true});
+
+        expect(mocks.assertWorkingCopyMutationAllowed).toHaveBeenCalledWith('/tmp/revision-guarded.pdf');
+        expect(mocks.assertWorkingCopyRevisionCurrent).toHaveBeenCalledWith(
+            '/tmp/revision-guarded.pdf',
+            'drt1:test:before-page-op',
+        );
+        expect(mocks.assertWorkingCopyRevisionCurrent.mock.invocationCallOrder[0])
+            .toBeLessThan(mocks.rotatePages.mock.invocationCallOrder[0]!);
     });
 
     it('rejects stale crop page selections inside the mutation queue', async () => {
@@ -373,7 +410,7 @@ describe('registerPageOpsIpcAdapter', () => {
         firstGate.resolve(undefined);
 
         await expect(first).rejects.toThrow('delete failed');
-        await expect(second).resolves.toEqual({
+        await expect(second).resolves.toMatchObject({
             success: true,
             pageCount: 2,
         });
@@ -595,7 +632,7 @@ describe('registerPageOpsIpcAdapter', () => {
         const handler = getHandler('page-ops:insert-file');
 
         await expect(handler({sender: {id: 1}}, '/tmp/pdf-work-1/work.pdf', 3, 1, ['/tmp/source.png']))
-            .resolves.toEqual({success: true});
+            .resolves.toMatchObject({success: true});
 
         expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith('/tmp/pdf-work-1/work.pdf', 1);
         expect(mocks.writeFile).toHaveBeenCalledWith(
@@ -641,7 +678,7 @@ describe('registerPageOpsIpcAdapter', () => {
         await expect(handler({sender}, '/tmp/pdf-work-1/work.pdf', 3, 1, [
             '/tmp/source-a.png',
             '/tmp/source-b.png',
-        ], 'insert-request-1')).resolves.toEqual({success: true});
+        ], 'insert-request-1')).resolves.toMatchObject({success: true});
 
         expect(sender.send).toHaveBeenCalledWith('dialog:openPdfDirectBatch:progress', {
             operation: 'page-insert',
@@ -674,7 +711,7 @@ describe('registerPageOpsIpcAdapter', () => {
     it('marks stale derived artifacts after mutating the working copy', async () => {
         const handler = getHandler('page-ops:rotate');
 
-        await expect(handler({sender: {id: 1}}, '/tmp/a.pdf', [1], 3, 90)).resolves.toEqual({success: true});
+        await expect(handler({sender: {id: 1}}, '/tmp/a.pdf', [1], 3, 90)).resolves.toMatchObject({success: true});
 
         expect(mocks.markWorkingCopyContentChanged).toHaveBeenCalledWith('/tmp/a.pdf', 'page-ops', 1);
     });

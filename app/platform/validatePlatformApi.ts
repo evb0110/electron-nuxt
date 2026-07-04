@@ -1,10 +1,14 @@
 import type {
-    IPlatformCapabilityManifest,
     IPlatformRuntimeManifest,
     TPlatformBackend,
 } from '@contracts/platformManifest';
 import { PLATFORM_CONTRACT_VERSION } from '@contracts/platformManifest';
 import { isRecord } from '@contracts/runtimeGuards';
+import {
+    PLATFORM_API_DESCRIPTOR,
+    type IPlatformCapabilityDescriptor,
+    type IPlatformMethodDescriptor,
+} from '@contracts/platformApiDescriptor';
 
 export type TPlatformValidationFailureCode =
     | 'missing-manifest'
@@ -24,45 +28,6 @@ export interface IPlatformValidationResult {
     ok: boolean;
     failures: IPlatformValidationFailure[];
 }
-
-const DOCUMENT_CAPABILITY_KEYS = [
-    'picker',
-    'folderPicker',
-    'nativePaths',
-    'browserDocumentRefs',
-    'nativePrint',
-    'nativeOpenInDefaultApp',
-    'recentFiles',
-    'menuEvents',
-    'structuredSaveResult',
-] as const satisfies ReadonlyArray<keyof IPlatformCapabilityManifest['documents']>;
-
-const TOP_LEVEL_CAPABILITY_KEYS = [
-    'windowTabs',
-    'agent',
-    'updates',
-] as const satisfies ReadonlyArray<keyof Omit<IPlatformCapabilityManifest, 'documents'>>;
-
-const REQUIRED_METHOD_PATHS = [
-    'documents.openDocumentDialog',
-    'documents.registerFilesForOpen',
-    'documents.openDocumentDirect',
-    'documents.readFile',
-    'documents.saveFileStructured',
-    'documents.recentFiles.get',
-    'pageOps.delete',
-    'imageExport.exportPdfToImages',
-    'ocr.recognize',
-    'search.run',
-    'djvu.openForViewing',
-    'settings.get',
-    'system.getMemoryInfo',
-    'updates.getState',
-    'windowTabs.transfer',
-    'shell.openExternal',
-    'host.getEnvironment',
-    'agent.onWorkspaceSnapshotRequest',
-] as const;
 
 export class PlatformContractError extends Error {
     readonly failures: IPlatformValidationFailure[];
@@ -86,15 +51,19 @@ function createFailure(
     };
 }
 
-function readPath(root: unknown, path: string) {
+function readPath(root: unknown, path: readonly string[]) {
     let value = root;
-    for (const segment of path.split('.')) {
+    for (const segment of path) {
         if (!isRecord(value)) {
             return undefined;
         }
         value = value[segment];
     }
     return value;
+}
+
+function formatPath(path: readonly string[]) {
+    return path.join('.');
 }
 
 function isPlatformRuntimeManifest(value: unknown): value is IPlatformRuntimeManifest {
@@ -114,80 +83,86 @@ function validateCapabilityManifest(
         return;
     }
 
-    for (const key of DOCUMENT_CAPABILITY_KEYS) {
-        if (typeof manifest.capabilities.documents[key] !== 'boolean') {
+    const capabilities: readonly IPlatformCapabilityDescriptor[] = PLATFORM_API_DESCRIPTOR.capabilities;
+    for (const descriptor of capabilities) {
+        if (descriptor.manifestPath === undefined) {
+            continue;
+        }
+        const manifestPath = [
+            'manifest',
+            'capabilities',
+            ...descriptor.manifestPath,
+        ];
+        const value = readPath({manifest}, manifestPath);
+        if (typeof value !== 'boolean') {
             failures.push(createFailure(
                 'malformed-capability-manifest',
-                `Platform document capability ${key} must be boolean.`,
-                `manifest.capabilities.documents.${key}`,
+                `Platform capability ${formatPath(descriptor.manifestPath)} must be boolean.`,
+                formatPath(manifestPath),
             ));
         }
     }
+}
 
-    for (const key of TOP_LEVEL_CAPABILITY_KEYS) {
-        if (typeof manifest.capabilities[key] !== 'boolean') {
-            failures.push(createFailure(
-                'malformed-capability-manifest',
-                `Platform capability ${key} must be boolean.`,
-                `manifest.capabilities.${key}`,
-            ));
-        }
-    }
+function getRequiredPlatformCapabilities(backend: TPlatformBackend) {
+    const capabilities: readonly IPlatformCapabilityDescriptor[] = PLATFORM_API_DESCRIPTOR.capabilities;
+    return capabilities.filter(descriptor => descriptor.required[backend]);
+}
+
+function getRequiredPlatformMethods(backend: TPlatformBackend) {
+    const methods: readonly IPlatformMethodDescriptor[] = PLATFORM_API_DESCRIPTOR.methods;
+    return methods.filter(descriptor => descriptor.required[backend]);
 }
 
 function validateRequiredCapabilities(
+    api: unknown,
     manifest: IPlatformRuntimeManifest,
     failures: IPlatformValidationFailure[],
 ) {
-    const { documents } = manifest.capabilities;
-    const requiredDocumentCapabilities: Array<keyof IPlatformCapabilityManifest['documents']> = [
-        'picker',
-        'recentFiles',
-        'structuredSaveResult',
-    ];
-    if (manifest.backend === 'electron') {
-        requiredDocumentCapabilities.push(
-            'folderPicker',
-            'nativePaths',
-            'nativePrint',
-            'nativeOpenInDefaultApp',
-            'menuEvents',
-        );
-    } else {
-        requiredDocumentCapabilities.push('browserDocumentRefs');
-    }
-
-    for (const key of requiredDocumentCapabilities) {
-        if (documents[key] !== true) {
+    for (const descriptor of getRequiredPlatformCapabilities(manifest.backend)) {
+        const value = descriptor.manifestPath === undefined
+            ? readPath(api, descriptor.path)
+            : readPath({manifest}, [
+                'manifest',
+                'capabilities',
+                ...descriptor.manifestPath,
+            ]);
+        const valid = descriptor.manifestPath === undefined
+            ? value !== undefined
+            : value === true;
+        if (!valid) {
             failures.push(createFailure(
                 'missing-required-capability',
-                `Platform document capability ${key} is required.`,
-                `manifest.capabilities.documents.${key}`,
-            ));
-        }
-    }
-
-    for (const key of [
-        'windowTabs',
-        'agent',
-    ] as const) {
-        if (manifest.capabilities[key] !== true) {
-            failures.push(createFailure(
-                'missing-required-capability',
-                `Platform capability ${key} is required.`,
-                `manifest.capabilities.${key}`,
+                `Platform capability ${formatPath(descriptor.path)} is required.`,
+                descriptor.manifestPath === undefined
+                    ? formatPath(descriptor.path)
+                    : formatPath([
+                        'manifest',
+                        'capabilities',
+                        ...descriptor.manifestPath,
+                    ]),
             ));
         }
     }
 }
 
-function validateRequiredMethods(api: unknown, failures: IPlatformValidationFailure[]) {
-    for (const path of REQUIRED_METHOD_PATHS) {
-        if (typeof readPath(api, path) !== 'function') {
+function validateMethods(
+    api: unknown,
+    backend: TPlatformBackend,
+    failures: IPlatformValidationFailure[],
+) {
+    const requiredMethods = new Set(getRequiredPlatformMethods(backend));
+    const methods: readonly IPlatformMethodDescriptor[] = PLATFORM_API_DESCRIPTOR.methods;
+    for (const descriptor of methods) {
+        const value = readPath(api, descriptor.path);
+        if (typeof value === 'function') {
+            continue;
+        }
+        if (requiredMethods.has(descriptor) || (value !== undefined && descriptor.optionalWhenImplemented)) {
             failures.push(createFailure(
                 'missing-required-method',
-                `Platform method ${path} is required.`,
-                path,
+                `Platform method ${formatPath(descriptor.path)} is required.`,
+                formatPath(descriptor.path),
             ));
         }
     }
@@ -239,9 +214,9 @@ export function validatePlatformApi(
 
     validateCapabilityManifest(manifest, failures);
     if (failures.every(failure => failure.code !== 'malformed-capability-manifest')) {
-        validateRequiredCapabilities(manifest, failures);
+        validateRequiredCapabilities(api, manifest, failures);
     }
-    validateRequiredMethods(api, failures);
+    validateMethods(api, manifest.backend, failures);
     return {
         ok: failures.length === 0,
         failures,

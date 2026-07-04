@@ -2,38 +2,19 @@ import {
     describe,
     expect,
     it,
-    vi,
 } from 'vitest';
 import {
     BROWSER_PLATFORM_MANIFEST,
     PLATFORM_CONTRACT_VERSION,
 } from '@contracts/platformManifest';
 import { validatePlatformApi } from '@app/platform/validatePlatformApi';
+import { createPlatformApiFixture } from '@tests/helpers/createPlatformApiFixture';
 
 function createBrowserApiFixture() {
-    return {
+    return createPlatformApiFixture({
+        backend: 'browser',
         manifest: BROWSER_PLATFORM_MANIFEST,
-        documents: {
-            openDocumentDialog: vi.fn(),
-            registerFilesForOpen: vi.fn(),
-            openDocumentDirect: vi.fn(),
-            readFile: vi.fn(),
-            saveFileStructured: vi.fn(),
-            recentFiles: {get: vi.fn()},
-        },
-        pageOps: {delete: vi.fn()},
-        imageExport: {exportPdfToImages: vi.fn()},
-        ocr: {recognize: vi.fn()},
-        search: {run: vi.fn()},
-        djvu: {openForViewing: vi.fn()},
-        settings: {get: vi.fn()},
-        system: {getMemoryInfo: vi.fn()},
-        updates: {getState: vi.fn()},
-        windowTabs: {transfer: vi.fn()},
-        shell: {openExternal: vi.fn()},
-        host: {getEnvironment: vi.fn()},
-        agent: {onWorkspaceSnapshotRequest: vi.fn()},
-    };
+    });
 }
 
 describe('validatePlatformApi', () => {

@@ -17,6 +17,7 @@ import { getErrorMessage } from '@electron/utils/error';
 import {
     clearRetiredWorkingCopyOriginals,
     clearWorkingCopyOriginalPaths,
+    forgetRetiredWorkingCopyOriginal,
     forgetWorkingCopyOriginalPath,
     getWorkingCopyOwnerWebContentsId,
     rememberRetiredWorkingCopyOriginal,
@@ -189,12 +190,32 @@ export function cleanupWorkingCopy(workingPath: string, senderWebContentsId?: nu
     });
 }
 
-export async function clearAllWorkingCopies() {
+export async function clearAllWorkingCopies(options: {skipPaths?: Iterable<string>} = {}) {
     await drainWorkingCopyMutations();
     const paths = [...workingCopyMap.keys()];
-    clearWorkingCopyOriginalPaths();
-    clearRetiredWorkingCopyOriginals();
+    const skipPaths = new Set(Array.from(options.skipPaths ?? [])
+        .map(path => typeof path === 'string' ? path.trim() : '')
+        .filter(Boolean));
+    const pathsToDelete = skipPaths.size === 0
+        ? paths
+        : paths.filter(path => !skipPaths.has(path));
+
+    if (skipPaths.size === 0) {
+        clearWorkingCopyOriginalPaths();
+        clearRetiredWorkingCopyOriginals();
+    } else {
+        for (const workingPath of pathsToDelete) {
+            forgetWorkingCopyOriginalPath(workingPath);
+            forgetRetiredWorkingCopyOriginal(workingPath);
+        }
+        logger.error(
+            `Skipped shutdown deletion for ${skipPaths.size} working copy path(s) with pending writes: ${
+                Array.from(skipPaths).join(', ')
+            }`,
+        );
+    }
+
     await Promise.allSettled(
-        paths.map(workingPath => cleanupWorkingCopyDirectory(workingPath)),
+        pathsToDelete.map(workingPath => cleanupWorkingCopyDirectory(workingPath)),
     );
 }

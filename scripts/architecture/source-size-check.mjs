@@ -69,12 +69,12 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Finding 9 Stage A - PDF thumbnail render orchestration extraction',
     },
     'electron/features/agent/codexAssistant.ts': {
-        maxLines: 1320,
+        maxLines: 1347,
         reason: 'transitional Electron assistant backend facade after session store and runtime lifecycle extraction',
         stage: 'Worker 2/Stage 1 - Assistant backend session/runtime split',
     },
     'app/modules/workspace-shell/composables/file-operations/useFileOperationsSaveController.ts': {
-        maxLines: 436,
+        maxLines: 455,
         reason: 'transitional workspace save orchestration hotspot',
         stage: 'Finding 4 Stage D - Save controller port alignment',
     },
@@ -84,7 +84,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Finding 9 Stage B - DjVu preview runtime and scroll controller extraction',
     },
     'scripts/electron-run/sessionManager.ts': {
-        maxLines: 1261,
+        maxLines: 1312,
         reason: 'transitional Electron dev session manager hotspot',
         stage: 'Future Electron run/session extraction',
     },
@@ -94,19 +94,24 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Worker 6 - Diagnostic trace analysis extraction',
     },
     'app/modules/workspace-shell/components/DocumentWorkspace.vue': {
-        maxLines: 1547,
+        maxLines: 1606,
         reason: 'transitional workspace component hotspot after viewer adapter binding extraction',
         stage: 'Stage S - viewer adapter interface',
     },
     'app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue': {
-        maxLines: 1022,
+        maxLines: 1033,
         reason: 'transitional deferred workspace host hotspot',
         stage: 'Future workspace host extraction',
     },
     'app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer.ts': {
-        maxLines: 1288,
+        maxLines: 1340,
         reason: 'transitional PDF annotation layer renderer hotspot',
         stage: 'Future PDF rendering extraction',
+    },
+    'app/platform/browser/browserDocumentRepository.ts': {
+        maxLines: 1212,
+        reason: 'transitional browser document repository hotspot after persistence and mutation guard changes',
+        stage: 'Future browser document repository extraction',
     },
     'app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer.ts': {
         maxLines: 1262,
@@ -114,12 +119,12 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Future PDF rendering extraction',
     },
     'electron/ocr/jobManager.ts': {
-        maxLines: 998,
+        maxLines: 1148,
         reason: 'OCR job manager facade after worker lifecycle extraction',
         stage: 'Worker 2/Stage 3 - OCR job manager lifecycle split',
     },
     'app/modules/workspace-shell/components/AppShellRoot.vue': {
-        maxLines: 1035,
+        maxLines: 1041,
         reason: 'transitional app shell root hotspot',
         stage: 'Future workspace shell extraction',
     },

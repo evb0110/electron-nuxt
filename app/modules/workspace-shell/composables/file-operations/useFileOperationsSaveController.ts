@@ -3,6 +3,10 @@ import type { TPdfSaveMode } from '@app/types/pdfContracts';
 import type { IPdfPersistResult } from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IPdfOptimizeOptions } from '@contracts/electronApiDocuments';
+import {
+    getDocumentMutationErrorPayload,
+    isStaleRevisionError,
+} from '@contracts/documentMutationErrors';
 import type { Ref } from 'vue';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { useAnalytics } from '@app/composables/useAnalytics';
@@ -22,6 +26,7 @@ import {
 
 const SLOW_SAVE_PHASE_WARN_MS = 5_000;
 const SLOW_SAVE_TOTAL_WARN_MS = 10_000;
+const MAX_STALE_REVISION_SAVE_RETRIES = 2;
 
 type TSaveFlowMode = 'save' | 'save_as';
 
@@ -232,44 +237,58 @@ export const useFileOperationsSaveController = (ports: IFileOperationsSaveAdapte
         config.saveIndicator.value = true;
         const expectedWorkingPath = documentIdentity.workingCopyPath.value;
         const expectedOriginalPath = documentIdentity.originalPath.value;
-        let context: IFileOperationsSaveContext | null = null;
         return runWithDocumentOperationLease(config.operationKind, async () => {
             try {
-                context = await prepareSaveContext({
-                    mode: config.mode,
-                    persistOpenNotesAbortMessage: config.persistOpenNotesAbortMessage,
-                    shouldPreferWorkingCopy: config.shouldPreferWorkingCopy,
-                    canPersistNativeWorkingCopy: Boolean(config.persistNativeWorkingCopy),
-                    canAttemptNativeMutationSave: saveExecutor.hasNativePdfMutationCapability(),
-                    ...(config.forceSerialize !== undefined ? {forceSerialize: config.forceSerialize} : {}),
-                    ...(config.forceRewrite !== undefined ? {forceRewrite: config.forceRewrite} : {}),
-                }, expectedWorkingPath, expectedOriginalPath);
-                if (!context) {
-                    return false;
-                }
+                for (let attempt = 0; attempt <= MAX_STALE_REVISION_SAVE_RETRIES; attempt += 1) {
+                    let context: IFileOperationsSaveContext | null = null;
+                    try {
+                        context = await prepareSaveContext({
+                            mode: config.mode,
+                            persistOpenNotesAbortMessage: config.persistOpenNotesAbortMessage,
+                            shouldPreferWorkingCopy: config.shouldPreferWorkingCopy,
+                            canPersistNativeWorkingCopy: Boolean(config.persistNativeWorkingCopy),
+                            canAttemptNativeMutationSave: saveExecutor.hasNativePdfMutationCapability(),
+                            ...(config.forceSerialize !== undefined ? {forceSerialize: config.forceSerialize} : {}),
+                            ...(config.forceRewrite !== undefined ? {forceRewrite: config.forceRewrite} : {}),
+                        }, expectedWorkingPath, expectedOriginalPath);
+                        if (!context) {
+                            return false;
+                        }
 
-                const saveSucceeded = await saveExecutor.executeSelectedSavePath(config, context);
-                if (!saveSucceeded && context.pendingChangesSource === 'workspace-compat') {
-                    restorePendingEmbeddedAnnotationChanges(context.pendingTexts, context.pendingDeletes);
+                        const saveSucceeded = await saveExecutor.executeSelectedSavePath(config, context);
+                        if (!saveSucceeded && context.pendingChangesSource === 'workspace-compat') {
+                            restorePendingEmbeddedAnnotationChanges(context.pendingTexts, context.pendingDeletes);
+                        }
+                        saveSucceededForTelemetry = saveSucceeded;
+                        return saveSucceeded;
+                    } catch (error) {
+                        if (context?.pendingChangesSource === 'workspace-compat') {
+                            restorePendingEmbeddedAnnotationChanges(
+                                context.pendingTexts,
+                                context.pendingDeletes,
+                            );
+                        }
+                        context?.reloadWaiter.cancelPending();
+                        if (isStaleRevisionError(error) && attempt < MAX_STALE_REVISION_SAVE_RETRIES) {
+                            BrowserLogger.debug('workspace', 'Retrying save after stale document revision', {
+                                attempt: attempt + 1,
+                                maxRetries: MAX_STALE_REVISION_SAVE_RETRIES,
+                            });
+                            continue;
+                        }
+                        BrowserLogger.error('workspace', config.failureLogMessage, error);
+                        toast.add({
+                            color: 'error',
+                            title: t('errors.file.save'),
+                            description: getDocumentMutationErrorPayload(error)?.message ?? getErrorMessage(error),
+                        });
+                        return false;
+                    } finally {
+                        context?.reloadWaiter.cancelPending();
+                    }
                 }
-                saveSucceededForTelemetry = saveSucceeded;
-                return saveSucceeded;
-            } catch (error) {
-                if (context?.pendingChangesSource === 'workspace-compat') {
-                    restorePendingEmbeddedAnnotationChanges(
-                        context.pendingTexts,
-                        context.pendingDeletes,
-                    );
-                }
-                BrowserLogger.error('workspace', config.failureLogMessage, error);
-                toast.add({
-                    color: 'error',
-                    title: t('errors.file.save'),
-                    description: getErrorMessage(error),
-                });
                 return false;
             } finally {
-                context?.reloadWaiter.cancelPending();
                 logSavePhase(
                     config.totalPhase,
                     saveStartedAtMs,

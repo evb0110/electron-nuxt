@@ -21,6 +21,7 @@ export async function runElectronCommand(
         rejectOnStdoutTruncation?: boolean;
         allowedExitCodes?: number[];
         signal?: AbortSignal;
+        cancelGroup?: string;
     } = {},
 ): Promise<IRunCommandResult> {
     const {
@@ -32,6 +33,7 @@ export async function runElectronCommand(
         rejectOnStdoutTruncation,
         allowedExitCodes,
         signal,
+        cancelGroup,
     } = options;
 
     const commandOptions: IRunCommandOptions = {
@@ -62,6 +64,9 @@ export async function runElectronCommand(
     }
     if (signal !== undefined) {
         commandOptions.signal = signal;
+    }
+    if (cancelGroup !== undefined) {
+        commandOptions.cancelGroup = cancelGroup;
     }
 
     return runNativeCommand(command, args, commandOptions);

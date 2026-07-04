@@ -19,6 +19,7 @@ import type {
     IScrollSnapshot,
 } from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
     IPdfNativeAnnotationDelete,
     IPdfNativeFreeTextNote,
@@ -47,6 +48,7 @@ export interface IWorkspaceSaveStatusPort {
 export interface IWorkspaceSaveDocumentIdentityPort {
     workingCopyPath: Ref<TDocumentRef | null>;
     originalPath: Ref<TDocumentRef | null>;
+    documentRevisionToken: Ref<TDocumentRevisionToken | null>;
 }
 
 export interface IWorkspaceSaveAnnotationStatePort {
@@ -99,6 +101,7 @@ export interface IWorkspaceSavePdfSerializationPort {serializePdfForSave: (
 export interface IWorkspaceSavePersistOptions {
     saveMode?: TPdfSaveMode;
     expectedWorkingPath?: TDocumentRef | null;
+    expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
 }
 
 export interface IWorkspaceSavePersistSerializedOptions extends IWorkspaceSavePersistOptions {preserveLoadedSource?: boolean;}

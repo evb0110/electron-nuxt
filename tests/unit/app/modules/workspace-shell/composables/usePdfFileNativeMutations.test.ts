@@ -115,6 +115,7 @@ describe('usePdfFile native mutations', () => {
             '/tmp/work.pdf',
             mutations,
             'D:20260609133855+03\'00\'',
+            {expectedDocumentRevisionToken: null},
         );
         expect(documentsMock.savePdfNoteChanges).not.toHaveBeenCalled();
         expect(documentsMock.savePdfNoteTextUpdates).not.toHaveBeenCalled();

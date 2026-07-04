@@ -19,6 +19,10 @@ import {
     sessionDir,
     setCurrentSessionName,
 } from '@scripts/electron-run/electronRunSessionPaths';
+import {
+    buildStrictE2ERunEnv,
+    createE2ERunScopedSessionName,
+} from '@scripts/electron-run/electronRunRunId';
 import type { TElectronRunCommand } from '@scripts/electron-run/electronRunProtocol';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/getE2EWindow';
 import {
@@ -227,54 +231,65 @@ async function connectToSessionPage(sessionName: string) {
     };
 }
 
-export async function startElectronE2ESession(sessionName: string, options?: {clean?: boolean;}): Promise<IElectronE2ESession> {
+export async function startElectronE2ESession(sessionName: string, options?: {
+    clean?: boolean;
+    initialOpenPaths?: string[];
+}): Promise<IElectronE2ESession> {
+    const scopedSessionName = createE2ERunScopedSessionName(sessionName, process.env);
     const clean = options?.clean ?? true;
 
     await withSessionTimeout(
-        sessionName,
-        `Stopping stale Electron E2E session '${sessionName}'`,
+        scopedSessionName,
+        `Stopping stale Electron E2E session '${scopedSessionName}'`,
         SESSION_STOP_TIMEOUT_MS,
-        stopSingleSession(sessionName),
+        stopSingleSession(scopedSessionName),
     );
     if (clean) {
-        cleanupSessionArtifacts(sessionName);
+        cleanupSessionArtifacts(scopedSessionName);
     }
 
-    setCurrentSessionName(sessionName);
+    setCurrentSessionName(scopedSessionName);
+    const startOptions = {
+        env: {
+            ...buildHeadlessAutomationEnv(process.env),
+            ...buildStrictE2ERunEnv(process.env),
+        },
+        ...(options?.initialOpenPaths ? { initialOpenPaths: options.initialOpenPaths } : {}),
+    };
     await withSessionTimeout(
-        sessionName,
-        `Starting Electron E2E session '${sessionName}'`,
+        scopedSessionName,
+        `Starting Electron E2E session '${scopedSessionName}'`,
         SESSION_READY_TIMEOUT_MS,
-        startSessionDetached({ env: buildHeadlessAutomationEnv(process.env) }),
+        startSessionDetached(startOptions),
         { cleanupOnTimeout: true },
     );
 
     const ready = await withSessionTimeout(
-        sessionName,
-        `Waiting for Electron E2E session '${sessionName}' metadata`,
+        scopedSessionName,
+        `Waiting for Electron E2E session '${scopedSessionName}' metadata`,
         SESSION_READY_TIMEOUT_MS,
         waitForSessionReady(SESSION_READY_TIMEOUT_MS),
         { cleanupOnTimeout: true },
     );
     if (!ready) {
-        throw new Error(`Session '${sessionName}' was not ready within ${Math.round(SESSION_READY_TIMEOUT_MS / 1000)}s.\n${createSessionDiagnostics(sessionName)}`);
+        throw new Error(`Session '${scopedSessionName}' was not ready within ${Math.round(SESSION_READY_TIMEOUT_MS / 1000)}s.\n${createSessionDiagnostics(scopedSessionName)}`);
     }
 
     await withSessionTimeout(
-        sessionName,
-        `Waiting for Electron E2E session '${sessionName}' health`,
+        scopedSessionName,
+        `Waiting for Electron E2E session '${scopedSessionName}' health`,
         SESSION_READY_TIMEOUT_MS,
-        waitForHealthReady(sessionName, SESSION_READY_TIMEOUT_MS),
+        waitForHealthReady(scopedSessionName, SESSION_READY_TIMEOUT_MS),
         { cleanupOnTimeout: true },
     );
     const {
         browser,
         page,
     } = await withSessionTimeout(
-        sessionName,
-        `Connecting to Electron E2E session '${sessionName}' renderer`,
+        scopedSessionName,
+        `Connecting to Electron E2E session '${scopedSessionName}' renderer`,
         RENDERER_READY_TIMEOUT_MS + 20_000,
-        connectToSessionPage(sessionName),
+        connectToSessionPage(scopedSessionName),
         { cleanupOnTimeout: true },
     );
 
@@ -283,7 +298,7 @@ export async function startElectronE2ESession(sessionName: string, options?: {cl
         args: unknown[] = [],
         timeoutMs?: number,
     ) => {
-        setCurrentSessionName(sessionName);
+        setCurrentSessionName(scopedSessionName);
         return await sendCommand(nextCommand, args, timeoutMs) as T;
     };
 
@@ -294,18 +309,18 @@ export async function startElectronE2ESession(sessionName: string, options?: {cl
             // Disconnect best-effort for cleanup.
         }
         await withSessionTimeout(
-            sessionName,
-            `Stopping Electron E2E session '${sessionName}'`,
+            scopedSessionName,
+            `Stopping Electron E2E session '${scopedSessionName}'`,
             SESSION_STOP_TIMEOUT_MS,
-            stopSingleSession(sessionName),
+            stopSingleSession(scopedSessionName),
         );
         if (!shouldPreserveE2EArtifacts()) {
-            cleanupSessionArtifacts(sessionName);
+            cleanupSessionArtifacts(scopedSessionName);
         }
     };
 
     return {
-        name: sessionName,
+        name: scopedSessionName,
         browser,
         page,
         command,

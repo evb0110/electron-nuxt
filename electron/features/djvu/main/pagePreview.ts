@@ -73,27 +73,6 @@ function normalizePreviewSubsample(options: IDjvuPagePreviewOptions | undefined)
     return subsample;
 }
 
-async function readDjvuPageSizeForPreview(djvuPath: string, pageNumber: number) {
-    const dpi = await getDjvuResolution(djvuPath);
-    const { djvused } = getDjvuNativeToolPaths();
-    const result = await runNativeCommand(djvused, [
-        djvuPath,
-        '-e',
-        `select ${pageNumber}; size`,
-    ], {
-        env: buildDjvuRuntimeEnv(),
-        timeoutMs: DJVU_PAGE_SIZE_TIMEOUT_MS,
-        maxStdoutBytes: DJVU_PAGE_SIZE_MAX_STDOUT_BYTES,
-        commandLabel: 'djvused(page-size)',
-        defaultCwdToCommandDir: true,
-        prependCommandDirToPath: true,
-        includeProcessEnv: true,
-        windowsHide: true,
-        rejectOnStdoutTruncation: true,
-    });
-    return parseDjvuPageSizeOutput(result.stdout, dpi)[0] ?? null;
-}
-
 function getMinimumPreviewSubsample(pageSize: Omit<IDjvuPageSize, 'dpi'> | null) {
     if (!pageSize) {
         return 1;
@@ -115,9 +94,10 @@ async function resolvePreviewSubsample(
     djvuPath: string,
     pageNumber: number,
     options: IDjvuPagePreviewOptions | undefined,
+    lifecycleOptions: IDjvuPagePreviewLifecycleOptions,
 ) {
     const requestedSubsample = normalizePreviewSubsample(options) ?? 1;
-    const pageSize = await readDjvuPageSizeForPreview(djvuPath, pageNumber).catch(() => null);
+    const pageSize = await readDjvuPageSizeForPreview(djvuPath, pageNumber, lifecycleOptions).catch(() => null);
     return Math.max(requestedSubsample, getMinimumPreviewSubsample(pageSize));
 }
 
@@ -159,6 +139,47 @@ export function parseDjvuPageSizeOutput(stdout: string, dpi: number): IDjvuPageS
         }));
 }
 
+interface IDjvuPagePreviewLifecycleOptions {
+    cancelGroup?: string;
+    signal?: AbortSignal;
+}
+
+function throwIfAborted(signal?: AbortSignal) {
+    if (signal?.aborted) {
+        throw signal.reason instanceof Error ? signal.reason : new Error('The operation was aborted');
+    }
+}
+
+async function readDjvuPageSizeForPreview(
+    djvuPath: string,
+    pageNumber: number,
+    options: IDjvuPagePreviewLifecycleOptions = {},
+) {
+    throwIfAborted(options.signal);
+    const dpi = await getDjvuResolution(djvuPath);
+    throwIfAborted(options.signal);
+    const { djvused } = getDjvuNativeToolPaths();
+    const result = await runNativeCommand(djvused, [
+        djvuPath,
+        '-e',
+        `select ${pageNumber}; size`,
+    ], {
+        env: buildDjvuRuntimeEnv(),
+        timeoutMs: DJVU_PAGE_SIZE_TIMEOUT_MS,
+        maxStdoutBytes: DJVU_PAGE_SIZE_MAX_STDOUT_BYTES,
+        commandLabel: 'djvused(page-size)',
+        defaultCwdToCommandDir: true,
+        prependCommandDirToPath: true,
+        includeProcessEnv: true,
+        windowsHide: true,
+        rejectOnStdoutTruncation: true,
+        ...(options.signal ? { signal: options.signal } : {}),
+        ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
+    });
+    throwIfAborted(options.signal);
+    return parseDjvuPageSizeOutput(result.stdout, dpi)[0] ?? null;
+}
+
 export async function getDjvuPageSizesForViewing(djvuPath: string, expectedPageCount: number): Promise<IDjvuPageSize[]> {
     const dpi = await getDjvuResolution(djvuPath);
     const { djvused } = getDjvuNativeToolPaths();
@@ -188,32 +209,38 @@ export async function renderDjvuPagePreview(
     djvuPath: string,
     pageNumber: number,
     options?: IDjvuPagePreviewOptions,
+    lifecycleOptions: IDjvuPagePreviewLifecycleOptions = {},
 ): Promise<IDjvuPagePreview> {
     if (!Number.isInteger(pageNumber) || pageNumber < 1) {
         throw new Error(`Invalid DjVu page number: ${pageNumber}`);
     }
-    const subsample = await resolvePreviewSubsample(djvuPath, pageNumber, options);
+    const subsample = await resolvePreviewSubsample(djvuPath, pageNumber, options, lifecycleOptions);
 
     const tempDir = await mkdtemp(join(tmpdir(), 'djvu-preview-'));
     const ppmPath = join(tempDir, `page-${pageNumber}-${randomUUID()}.ppm`);
 
     try {
+        throwIfAborted(lifecycleOptions.signal);
+        const processId = lifecycleOptions.cancelGroup ?? `djvu-preview-page-${pageNumber}-${randomUUID()}`;
         const result = await convertDjvuPageToImage(
             djvuPath,
             ppmPath,
             pageNumber,
-            `djvu-preview-page-${pageNumber}-${randomUUID()}`,
+            processId,
             {
                 format: 'ppm',
                 ...(subsample && subsample > 1 ? { subsample } : {}),
             },
         );
+        throwIfAborted(lifecycleOptions.signal);
         if (!result.success) {
             throw new Error(result.error ?? `Failed to render DjVu page ${pageNumber}`);
         }
 
         await assertPreviewNetpbmReadSafe(ppmPath);
+        throwIfAborted(lifecycleOptions.signal);
         const ppmBytes = await readFile(ppmPath);
+        throwIfAborted(lifecycleOptions.signal);
         const {
             width,
             height,

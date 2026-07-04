@@ -44,6 +44,9 @@ export type {
     IPageOpsCapability,
     IOcrCapability,
     IPlatformApi,
+    IPlatformApiDescriptor,
+    IPlatformCapabilityDescriptor,
+    IPlatformMethodDescriptor,
     IRendererLogEntry,
     ISearchCapability,
     ISettingsCapability,
@@ -63,6 +66,13 @@ export type {
     TMenuEventUnsubscribe,
     TRendererLogLevel,
     TOpenFileResult,
+    TBrowserPlatformLazyMode,
+    TPlatformMethodKind,
+} from '@contracts/platformApi';
+export {
+    getPlatformDocumentCapabilityMirrors,
+    getPlatformMethodDescriptor,
+    PLATFORM_API_DESCRIPTOR,
 } from '@contracts/platformApi';
 export type { IElectronAPI } from '@contracts/electronApi';
 
@@ -110,6 +120,21 @@ export type {
     TDocumentRevisionToken,
 } from '@contracts/documentRevision';
 export { isDocumentRevisionInfo } from '@contracts/documentRevision';
+export {
+    DOCUMENT_MUTATION_ERROR_PREFIX,
+    DocumentMutationError,
+    createStaleRevisionError,
+    createWorkingCopySyncRequiredError,
+    encodeDocumentMutationError,
+    getDocumentMutationErrorPayload,
+    isDocumentMutationErrorCode,
+    isStaleRevisionError,
+    isWorkingCopySyncRequiredError,
+} from '@contracts/documentMutationErrors';
+export type {
+    IDocumentMutationErrorPayload,
+    TDocumentMutationErrorCode,
+} from '@contracts/documentMutationErrors';
 
 export {
     DJVU_PDF_CONVERSION_PRESET_SUBSAMPLES,

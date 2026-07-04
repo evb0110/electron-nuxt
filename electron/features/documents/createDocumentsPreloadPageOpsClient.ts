@@ -25,28 +25,29 @@ export function createDocumentsPreloadPageOpsClient(
     const invoke = createTypedIpcInvoker<IPageOpsInvokeMap>(ipcRenderer, {invokeTimeoutMsByChannel: PAGE_OPS_INVOKE_TIMEOUT_MS_BY_CHANNEL});
 
     return {
-        delete: (workingCopyPath, pages, totalPages) =>
-            invoke(PAGE_OPS_CHANNELS.delete, workingCopyPath, pages, totalPages),
+        delete: (workingCopyPath, pages, totalPages, options) =>
+            invoke(PAGE_OPS_CHANNELS.delete, workingCopyPath, pages, totalPages, options),
         extract: (workingCopyPath, pages) =>
             invoke(PAGE_OPS_CHANNELS.extract, workingCopyPath, pages),
-        reorder: (workingCopyPath, newOrder) =>
-            invoke(PAGE_OPS_CHANNELS.reorder, workingCopyPath, newOrder),
-        insert: (workingCopyPath, totalPages, afterPage) =>
-            invoke(PAGE_OPS_CHANNELS.insert, workingCopyPath, totalPages, afterPage),
+        reorder: (workingCopyPath, newOrder, options) =>
+            invoke(PAGE_OPS_CHANNELS.reorder, workingCopyPath, newOrder, options),
+        insert: (workingCopyPath, totalPages, afterPage, options) =>
+            invoke(PAGE_OPS_CHANNELS.insert, workingCopyPath, totalPages, afterPage, options),
         insertFile: (
             workingCopyPath,
             totalPages,
             afterPage,
             sourcePaths,
             requestId?: string,
+            options?,
         ) =>
-            invoke(PAGE_OPS_CHANNELS.insertFile, workingCopyPath, totalPages, afterPage, sourcePaths, requestId),
-        rotate: (workingCopyPath, pages, totalPages, angle) =>
-            invoke(PAGE_OPS_CHANNELS.rotate, workingCopyPath, pages, totalPages, angle),
-        crop: (workingCopyPath, pages, totalPages, margins) =>
-            invoke(PAGE_OPS_CHANNELS.crop, workingCopyPath, pages, totalPages, margins),
-        removeCrop: (workingCopyPath, pages, totalPages) =>
-            invoke(PAGE_OPS_CHANNELS.removeCrop, workingCopyPath, pages, totalPages),
+            invoke(PAGE_OPS_CHANNELS.insertFile, workingCopyPath, totalPages, afterPage, sourcePaths, requestId, options),
+        rotate: (workingCopyPath, pages, totalPages, angle, options) =>
+            invoke(PAGE_OPS_CHANNELS.rotate, workingCopyPath, pages, totalPages, angle, options),
+        crop: (workingCopyPath, pages, totalPages, margins, options) =>
+            invoke(PAGE_OPS_CHANNELS.crop, workingCopyPath, pages, totalPages, margins, options),
+        removeCrop: (workingCopyPath, pages, totalPages, options) =>
+            invoke(PAGE_OPS_CHANNELS.removeCrop, workingCopyPath, pages, totalPages, options),
         getPageGeometry: (workingCopyPath, pageNumber) =>
             invoke(PAGE_OPS_CHANNELS.getPageGeometry, workingCopyPath, pageNumber),
     };

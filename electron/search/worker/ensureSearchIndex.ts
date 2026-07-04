@@ -11,6 +11,10 @@ import {
     buildSearchIndex,
     loadSearchIndex,
 } from '@electron/search/indexBuilder';
+import {
+    abortErrorFromSignal,
+    createAbortError,
+} from '@electron/utils/abort';
 
 export interface ICachedIndex {
     mtimeMs: number;
@@ -35,6 +39,12 @@ interface IEnsureSearchIndexOptions {
     onPageIndexed?: (page: IPdfSearchIndex['pages'][number]) => void;
 }
 
+interface IInFlightSearchIndexBuild {
+    controller: AbortController;
+    promise: Promise<ICachedIndex>;
+    waiterCount: number;
+}
+
 class SearchIndexTextBudgetError extends Error {
     constructor(message: string) {
         super(message);
@@ -49,6 +59,15 @@ function getIndexPath(pdfPath: string) {
 function getIndexCacheKey(pdfPath: string, documentRevision: TDocumentRevisionToken) {
     return `${pdfPath}\0${documentRevision}`;
 }
+
+function getIndexBuildKey(
+    pdfPath: string,
+    documentRevision: TDocumentRevisionToken,
+) {
+    return getIndexCacheKey(pdfPath, documentRevision);
+}
+
+const inFlightIndexBuilds = new Map<string, IInFlightSearchIndexBuild>();
 
 async function statMtimeMs(filePath: string) {
     try {
@@ -279,6 +298,98 @@ async function ensureNativeSearchSidecar(
     }
 }
 
+function waitForInFlightIndexBuild(
+    build: IInFlightSearchIndexBuild,
+    signal?: AbortSignal,
+) {
+    if (signal?.aborted) {
+        return Promise.reject(abortErrorFromSignal(signal));
+    }
+
+    build.waiterCount += 1;
+    let released = false;
+
+    return new Promise<ICachedIndex>((resolve, reject) => {
+        const release = (abortIfOrphaned: boolean) => {
+            if (released) {
+                return;
+            }
+            released = true;
+            if (signal) {
+                signal.removeEventListener('abort', handleAbort);
+            }
+            build.waiterCount = Math.max(0, build.waiterCount - 1);
+            if (abortIfOrphaned && build.waiterCount === 0 && !build.controller.signal.aborted) {
+                build.controller.abort(createAbortError('Search index build cancelled; no waiting requests remain'));
+            }
+        };
+
+        const handleAbort = () => {
+            release(true);
+            reject(signal ? abortErrorFromSignal(signal) : createAbortError());
+        };
+
+        if (signal) {
+            signal.addEventListener('abort', handleAbort, {once: true});
+        }
+
+        build.promise.then(
+            entry => {
+                release(false);
+                resolve(entry);
+            },
+            error => {
+                release(false);
+                reject(error);
+            },
+        );
+    });
+}
+
+function createInFlightIndexBuild(
+    indexCache: Map<string, ICachedIndex>,
+    pdfPath: string,
+    documentRevision: TDocumentRevisionToken,
+    cacheOptions: ISearchIndexCacheOptions,
+    ensureOptions: IEnsureSearchIndexOptions,
+) {
+    const buildKey = getIndexBuildKey(pdfPath, documentRevision);
+    const existing = inFlightIndexBuilds.get(buildKey);
+    if (existing) {
+        return existing;
+    }
+
+    const controller = new AbortController();
+    const buildOptions: Parameters<typeof buildSearchIndex>[2] = {
+        documentRevision,
+        signal: controller.signal,
+    };
+    if (ensureOptions.onPageIndexed !== undefined) {
+        buildOptions.onPageIndexed = ensureOptions.onPageIndexed;
+    }
+    buildOptions.validateBeforePersist = index => validateIndexTextBudget(index, cacheOptions);
+
+    const build: IInFlightSearchIndexBuild = {
+        controller,
+        waiterCount: 0,
+        promise: (async () => {
+            const entry = await cacheBuiltIndex(
+                indexCache,
+                pdfPath,
+                documentRevision,
+                await buildSearchIndex(pdfPath, [], buildOptions),
+                cacheOptions,
+            );
+            await ensureNativeSearchSidecar(pdfPath, entry, documentRevision, controller.signal);
+            return entry;
+        })().finally(() => {
+            inFlightIndexBuilds.delete(buildKey);
+        }),
+    };
+    inFlightIndexBuilds.set(buildKey, build);
+    return build;
+}
+
 export async function ensureSearchIndex(
     indexCache: Map<string, ICachedIndex>,
     pdfPath: string,
@@ -294,28 +405,15 @@ export async function ensureSearchIndex(
 
     let entry = await loadCachedIndex(indexCache, pdfPath, documentRevision, cacheOptions);
     ensureOptions.throwIfCancelled(signal);
-    if (!entry || shouldRebuildCachedIndex(entry, documentRevision, expectedCount)) {
-        const buildOptions: Parameters<typeof buildSearchIndex>[2] = {documentRevision};
-        if (expectedCount !== undefined) {
-            buildOptions.pageCount = expectedCount;
-        }
-        if (signal !== undefined) {
-            buildOptions.signal = signal;
-        }
-        if (ensureOptions.onPageIndexed !== undefined) {
-            buildOptions.onPageIndexed = ensureOptions.onPageIndexed;
-        }
-        buildOptions.validateBeforePersist = index => validateIndexTextBudget(index, cacheOptions);
-
-        entry = await cacheBuiltIndex(
+    while (!entry || shouldRebuildCachedIndex(entry, documentRevision, expectedCount)) {
+        entry = await waitForInFlightIndexBuild(createInFlightIndexBuild(
             indexCache,
             pdfPath,
             documentRevision,
-            await buildSearchIndex(pdfPath, [], buildOptions),
             cacheOptions,
-        );
-        await ensureNativeSearchSidecar(pdfPath, entry, documentRevision, signal);
-        return entry;
+            ensureOptions,
+        ), signal);
+        ensureOptions.throwIfCancelled(signal);
     }
 
     if (!entry.validatedTextBudget) {

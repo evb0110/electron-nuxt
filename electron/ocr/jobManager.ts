@@ -5,8 +5,10 @@ import { remove } from 'es-toolkit/array';
 import { sumBy } from 'es-toolkit/math';
 import {
     OCR_MODEL_PREP_TIMEOUT_MS,
+    OCR_QUEUE_MAX_DOCUMENT_PAGE_WORK,
     OCR_QUEUE_MAX_AGE_MS,
     OCR_QUEUE_MAX_BUFFERED_BYTES,
+    OCR_QUEUE_MAX_GLOBAL_PAGE_WORK,
     OCR_QUEUE_MAX_SIZE,
     OCR_RESULT_FILE_ACK_TTL_MS,
     OCR_WORKER_POOL_SIZE,
@@ -61,6 +63,7 @@ import { getErrorMessage } from '@electron/utils/error';
 import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import { sendToLiveWindow } from '@electron/utils/sendToLiveWindow';
 import { getWorkingCopyRevision } from '@electron/file-access/documentRevisionStore';
+import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
 
 const log = createLogger('ocr-ipc');
 
@@ -68,6 +71,7 @@ const activeJobs = new Map<string, IOcrActiveJob>();
 const queuedJobs: IOcrQueuedJob[] = [];
 const queuedJobIds = new Set<string>();
 const preparingJobs = new Map<string, IOcrPreparingJob>();
+const scopedJobIdsByDocumentJobKey = new Map<string, string>();
 const cancelledJobs = new Set<string>();
 const registeredSenderCleanupIds = new Set<number>();
 const progressPumpsByScopedJobId = new Map<string, ReturnType<typeof createIpcProgressPump<IOcrProgress>>>();
@@ -172,6 +176,60 @@ function getBufferedBytes(options: { excludePreparingJobId?: string } = {}) {
     return preparingBytes + activeBytes + queuedBytes;
 }
 
+function getBufferedPageWork(options: { excludePreparingJobId?: string } = {}) {
+    const preparingWork = sumBy([...preparingJobs.values()], job =>
+        job.scopedJobId === options.excludePreparingJobId ? 0 : job.pageWork);
+    const activeWork = sumBy([...activeJobs.values()], job => job.pageWork);
+    const queuedWork = sumBy(queuedJobs, job => job.pageWork);
+    return preparingWork + activeWork + queuedWork;
+}
+
+function getBufferedPageWorkForDocument(
+    documentJobKey: string,
+    options: { excludePreparingJobId?: string } = {},
+) {
+    const preparingWork = sumBy([...preparingJobs.values()], job =>
+        job.documentJobKey === documentJobKey && job.scopedJobId !== options.excludePreparingJobId ? job.pageWork : 0);
+    const activeWork = sumBy([...activeJobs.values()], job => job.documentJobKey === documentJobKey ? job.pageWork : 0);
+    const queuedWork = sumBy(queuedJobs, job => job.documentJobKey === documentJobKey ? job.pageWork : 0);
+    return preparingWork + activeWork + queuedWork;
+}
+
+function getOcrSourcePathKey(sourcePdfPath: string) {
+    return normalizePathForLookup(sourcePdfPath) || sourcePdfPath;
+}
+
+function getOcrDocumentJobKey(sourcePdfPath: string, documentRevision: IOcrQueuedJob['documentRevision']) {
+    return `${getOcrSourcePathKey(sourcePdfPath)}\0${documentRevision.token}`;
+}
+
+function reserveOcrDocumentJob(documentJobKey: string, scopedJobId: string) {
+    const existingScopedJobId = scopedJobIdsByDocumentJobKey.get(documentJobKey);
+    if (existingScopedJobId && existingScopedJobId !== scopedJobId) {
+        return existingScopedJobId;
+    }
+    scopedJobIdsByDocumentJobKey.set(documentJobKey, scopedJobId);
+    return null;
+}
+
+function releaseOcrDocumentJobReservation(scopedJobId: string, documentJobKey?: string) {
+    if (documentJobKey !== undefined) {
+        if (scopedJobIdsByDocumentJobKey.get(documentJobKey) === scopedJobId) {
+            scopedJobIdsByDocumentJobKey.delete(documentJobKey);
+        }
+        return;
+    }
+
+    for (const [
+        candidateDocumentJobKey,
+        candidateScopedJobId,
+    ] of scopedJobIdsByDocumentJobKey.entries()) {
+        if (candidateScopedJobId === scopedJobId) {
+            scopedJobIdsByDocumentJobKey.delete(candidateDocumentJobKey);
+        }
+    }
+}
+
 function evictStaleQueuedJobs(nowMs = Date.now()) {
     if (queuedJobs.length === 0) {
         return;
@@ -220,6 +278,7 @@ const {
     removePendingCompletionResultFile,
     resetJobWatchdog,
     sendJobFailure,
+    sendJobCancellation,
     sendPendingCompletionResult,
     terminateAndFinalizeActiveJob,
     terminateWorkerSafely,
@@ -232,6 +291,9 @@ const {
     clearOcrProgressPump,
     dispatchQueuedJobs,
     getJobWindow,
+    onFinalizeActiveJob: (scopedJobId, job) => {
+        releaseOcrDocumentJobReservation(scopedJobId, job?.documentJobKey);
+    },
     removeResultFile,
     safeSendToWindow,
 });
@@ -242,7 +304,11 @@ type TQueueCapacityResult = { ok: true; } | {
 };
 
 function ensureQueueCapacity(
-    additionalBytes: number,
+    additionalWork: {
+        bytes: number;
+        pageWork: number;
+        documentJobKey: string 
+    },
     options: { excludePreparingJobId?: string } = {},
 ): TQueueCapacityResult {
     const preparingCount = options.excludePreparingJobId === undefined
@@ -256,29 +322,50 @@ function ensureQueueCapacity(
     }
 
     const bufferedBytes = getBufferedBytes(options);
-    if (bufferedBytes + additionalBytes > OCR_QUEUE_MAX_BUFFERED_BYTES) {
+    if (bufferedBytes + additionalWork.bytes > OCR_QUEUE_MAX_BUFFERED_BYTES) {
         return {
             ok: false,
             error: `OCR queue is full (buffer cap ${Math.floor(OCR_QUEUE_MAX_BUFFERED_BYTES / (1024 * 1024))}MB reached)`,
         };
     }
 
+    const documentPageWork = getBufferedPageWorkForDocument(additionalWork.documentJobKey, options);
+    if (documentPageWork + additionalWork.pageWork > OCR_QUEUE_MAX_DOCUMENT_PAGE_WORK) {
+        return {
+            ok: false,
+            error: `OCR queue is full (document page-work cap ${OCR_QUEUE_MAX_DOCUMENT_PAGE_WORK} reached)`,
+        };
+    }
+
+    const globalPageWork = getBufferedPageWork(options);
+    if (globalPageWork + additionalWork.pageWork > OCR_QUEUE_MAX_GLOBAL_PAGE_WORK) {
+        return {
+            ok: false,
+            error: `OCR queue is full (global page-work cap ${OCR_QUEUE_MAX_GLOBAL_PAGE_WORK} reached)`,
+        };
+    }
+
     return { ok: true };
 }
 
-async function estimateRequestBytes(
-    sourcePdfPath: string,
+function estimateRenderedBytesForPage(renderDpi: number) {
+    const widthPx = Math.ceil(8.5 * renderDpi);
+    const heightPx = Math.ceil(11 * renderDpi);
+    return widthPx * heightPx * 4;
+}
+
+function estimateRequestWork(
     pages: IOcrPdfPageRequest[],
+    options: IOcrSearchablePdfOptions,
 ) {
-    const averagePageOverhead = 32 * 1024;
-    let sourcePdfBytes = 0;
-    try {
-        sourcePdfBytes = (await fsPromises.stat(sourcePdfPath)).size;
-    } catch (err) {
-        const errMsg = getErrorMessage(err);
-        log.warn(`Failed to stat OCR source PDF "${sourcePdfPath}" for queue estimation: ${errMsg}`);
-    }
-    return sourcePdfBytes + (pages.length * averagePageOverhead);
+    const renderDpi = options.renderDpi ?? 300;
+    const perPageBytes = estimateRenderedBytesForPage(renderDpi);
+    const baselinePageBytes = estimateRenderedBytesForPage(300);
+    const pageWork = pages.length * Math.max(1, Math.ceil(perPageBytes / baselinePageBytes));
+    return {
+        bytes: pages.length * perPageBytes,
+        pageWork,
+    };
 }
 
 function logQueueDepth(context: string) {
@@ -321,6 +408,7 @@ function removeQueuedJob(
     }
     job.lifecycleState = transitionOcrJobLifecycle(job.lifecycleState, nextState, scopedJobId);
     queuedJobIds.delete(scopedJobId);
+    releaseOcrDocumentJobReservation(scopedJobId, job.documentJobKey);
     clearOcrProgressPump(scopedJobId, job.requestId);
     return job;
 }
@@ -332,6 +420,7 @@ function cancelJobsForSender(webContentsId: number, reason: string) {
         }
 
         abortPreparingJob(preparingJob.scopedJobId, reason);
+        sendJobCancellation(preparingJob, reason);
         log.info(`[${preparingJob.requestId}] Marked preparing OCR job as cancelled: ${reason}`);
     }
 
@@ -341,6 +430,7 @@ function cancelJobsForSender(webContentsId: number, reason: string) {
     for (const scopedJobId of queuedForSender) {
         const removedJob = removeQueuedJob(scopedJobId, 'cancelling');
         if (removedJob) {
+            sendJobCancellation(removedJob, reason);
             log.info(`[${removedJob.requestId}] Removed queued OCR job: ${reason}`);
         }
     }
@@ -364,6 +454,7 @@ export const { cancelOcrJobsForWorkingCopy } = createOcrWorkingCopyInvalidationC
     logger: log,
     queuedJobs,
     removeQueuedJob,
+    sendJobCancellation,
     terminateAndFinalizeActiveJob,
     preparingJobs,
 });
@@ -533,6 +624,7 @@ function startQueuedJob(job: IOcrQueuedJob) {
             code: 'OCR_WORKER_UNAVAILABLE',
             retryable: true,
         });
+        releaseOcrDocumentJobReservation(job.scopedJobId, job.documentJobKey);
         log.error(`Failed to start OCR worker for job ${job.requestId}: ${message}`);
         dispatchQueuedJobs();
         return;
@@ -657,7 +749,10 @@ function findQueueBlockingResult(
     context: IOcrJobOperationContext,
     scopedJobId: string,
     requestId: string,
-    options: { includePreparing: boolean },
+    options: {
+        includePreparing: boolean;
+        documentJobKey?: string 
+    },
 ): IOcrQueueStartResult | null {
     if (context.sender.isDestroyed()) {
         return createOcrQueueFailure(requestId, 'Renderer disconnected before OCR request could be queued');
@@ -672,6 +767,17 @@ function findQueueBlockingResult(
             `OCR job with id "${requestId}" already exists`,
             'OCR_QUEUE_BACKPRESSURE',
         );
+    }
+
+    if (options.documentJobKey) {
+        const existingScopedJobId = scopedJobIdsByDocumentJobKey.get(options.documentJobKey);
+        if (existingScopedJobId && existingScopedJobId !== scopedJobId) {
+            return createOcrQueueFailure(
+                requestId,
+                'OCR job for this document revision is already in progress',
+                'OCR_QUEUE_BACKPRESSURE',
+            );
+        }
     }
 
     if (pendingResultFileStore.find(context.senderId, requestId)) {
@@ -743,11 +849,13 @@ function getCancelledBeforeStartResult(scopedJobId: string, requestId: string) {
 function enqueuePreparedOcrJob(
     context: IOcrJobOperationContext,
     scopedJobId: string,
+    documentJobKey: string,
     sourcePdfPath: string,
     documentRevision: IOcrQueuedJob['documentRevision'],
     pages: IOcrPdfPageRequest[],
     requestId: string,
     requestBytes: number,
+    pageWork: number,
     options: IOcrSearchablePdfOptions,
 ) {
     const preparingLifecycleState = preparingJobs.get(scopedJobId)?.lifecycleState ?? 'preparing';
@@ -758,6 +866,7 @@ function enqueuePreparedOcrJob(
             scopedJobId,
         ),
         scopedJobId,
+        documentJobKey,
         requestId,
         webContentsId: context.senderId,
         sourcePdfPath,
@@ -766,6 +875,7 @@ function enqueuePreparedOcrJob(
         options,
         queuedAtMs: Date.now(),
         requestedBytes: requestBytes,
+        pageWork,
     };
     preparingJobs.delete(scopedJobId);
     queuedJobs.splice(queuedJobs.length, 0, queuedJob);
@@ -808,17 +918,38 @@ export async function handleOcrCreateSearchablePdfAsync(
         }
         cancelledJobs.delete(scopedJobId);
         const documentRevision = await getWorkingCopyRevision(sourcePdfPath, context.senderId);
+        const documentJobKey = getOcrDocumentJobKey(sourcePdfPath, documentRevision);
+        const documentBlock = findQueueBlockingResult(context, scopedJobId, requestId, {
+            includePreparing: true,
+            documentJobKey,
+        });
+        if (documentBlock) {
+            return documentBlock;
+        }
+        const existingDocumentJob = reserveOcrDocumentJob(documentJobKey, scopedJobId);
+        if (existingDocumentJob) {
+            return createOcrQueueFailure(
+                requestId,
+                'OCR job for this document revision is already in progress',
+                'OCR_QUEUE_BACKPRESSURE',
+            );
+        }
 
         // Reserve the scoped id before long async prep to avoid duplicate in-flight
         // requests racing into the queue with the same requestId.
-        const preparingJob = createPreparingOcrJob(context, scopedJobId, requestId, sourcePdfPath, documentRevision);
+        const preparingJob = createPreparingOcrJob(context, scopedJobId, documentJobKey, requestId, sourcePdfPath, documentRevision);
         preparingJobs.set(scopedJobId, preparingJob);
         isPreparingReserved = true;
         sendOcrProgressStage(context.senderId, requestId, pages, 'model-prep');
 
-        const requestBytes = await estimateRequestBytes(sourcePdfPath, pages);
-        preparingJob.requestedBytes = requestBytes;
-        const capacityResult = ensureQueueCapacity(requestBytes, { excludePreparingJobId: scopedJobId });
+        const requestWork = estimateRequestWork(pages, options);
+        preparingJob.requestedBytes = requestWork.bytes;
+        preparingJob.pageWork = requestWork.pageWork;
+        const capacityResult = ensureQueueCapacity({
+            bytes: requestWork.bytes,
+            pageWork: requestWork.pageWork,
+            documentJobKey,
+        }, { excludePreparingJobId: scopedJobId });
         if (!capacityResult.ok) {
             return createOcrQueueFailure(requestId, capacityResult.error, 'OCR_QUEUE_BACKPRESSURE');
         }
@@ -838,11 +969,18 @@ export async function handleOcrCreateSearchablePdfAsync(
         if (canceledBeforeRecheck) {
             return canceledBeforeRecheck;
         }
-        const recheckBlock = findQueueBlockingResult(context, scopedJobId, requestId, { includePreparing: false });
+        const recheckBlock = findQueueBlockingResult(context, scopedJobId, requestId, {
+            includePreparing: false,
+            documentJobKey,
+        });
         if (recheckBlock) {
             return recheckBlock;
         }
-        const recheckedCapacityResult = ensureQueueCapacity(requestBytes, { excludePreparingJobId: scopedJobId });
+        const recheckedCapacityResult = ensureQueueCapacity({
+            bytes: requestWork.bytes,
+            pageWork: requestWork.pageWork,
+            documentJobKey,
+        }, { excludePreparingJobId: scopedJobId });
         if (!recheckedCapacityResult.ok) {
             return createOcrQueueFailure(requestId, recheckedCapacityResult.error, 'OCR_QUEUE_BACKPRESSURE');
         }
@@ -854,11 +992,13 @@ export async function handleOcrCreateSearchablePdfAsync(
         enqueuePreparedOcrJob(
             context,
             scopedJobId,
+            documentJobKey,
             sourcePdfPath,
             documentRevision,
             pages,
             requestId,
-            requestBytes,
+            requestWork.bytes,
+            requestWork.pageWork,
             options,
         );
         isPreparingReserved = false;
@@ -886,7 +1026,9 @@ export async function handleOcrCreateSearchablePdfAsync(
         };
     } finally {
         if (isPreparingReserved) {
+            const preparingJob = preparingJobs.get(scopedJobId);
             preparingJobs.delete(scopedJobId);
+            releaseOcrDocumentJobReservation(scopedJobId, preparingJob?.documentJobKey);
             clearOcrProgressPump(scopedJobId, requestId);
         }
         cleanupCancelledPreparation(scopedJobId);
@@ -927,13 +1069,18 @@ export function handleOcrCancel(
     log.info(`[${requestId}] Cancel requested`);
 
     if (preparingJobs.has(scopedJobId)) {
+        const preparingJob = preparingJobs.get(scopedJobId);
         abortPreparingJob(scopedJobId, 'explicit cancel request');
+        if (preparingJob) {
+            sendJobCancellation(preparingJob, 'explicit cancel request');
+        }
         log.info(`[${requestId}] Preparing OCR job marked as cancelled`);
         return { canceled: true };
     }
 
     const queued = removeQueuedJob(scopedJobId, 'cancelling');
     if (queued) {
+        sendJobCancellation(queued, 'explicit cancel request');
         log.info(`[${requestId}] Queued OCR job cancelled`);
         return { canceled: true };
     }
@@ -958,11 +1105,13 @@ export function handleOcrCancel(
 export async function shutdownOcrJobManager() {
     for (const queuedJob of queuedJobs) {
         clearOcrProgressPump(queuedJob.scopedJobId, queuedJob.requestId);
+        releaseOcrDocumentJobReservation(queuedJob.scopedJobId, queuedJob.documentJobKey);
     }
     queuedJobs.splice(0, queuedJobs.length);
     queuedJobIds.clear();
     for (const preparingJob of preparingJobs.values()) {
         clearOcrProgressPump(preparingJob.scopedJobId, preparingJob.requestId);
+        releaseOcrDocumentJobReservation(preparingJob.scopedJobId, preparingJob.documentJobKey);
         if (!preparingJob.abortController.signal.aborted) {
             preparingJob.abortController.abort(createAbortError('OCR job manager shutdown'));
         }
@@ -993,6 +1142,7 @@ export async function shutdownOcrJobManager() {
     await pendingResultFileStore.shutdown();
 
     ocrResourceGovernor.reset();
+    scopedJobIdsByDocumentJobKey.clear();
     cancelledJobs.clear();
     registeredSenderCleanupIds.clear();
 }

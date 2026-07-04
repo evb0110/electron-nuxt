@@ -82,6 +82,7 @@ export interface ISessionInfo {
     electronPid: number | null;
     nuxtPid: number | null;
     nuxtPort: number;
+    runId?: string | null;
 }
 
 export interface ISessionStartingInfo {
@@ -92,4 +93,5 @@ export interface ISessionStartingInfo {
     electronUserDataDir: string | null;
     nuxtPid: number | null;
     nuxtPort: number | null;
+    runId?: string | null;
 }

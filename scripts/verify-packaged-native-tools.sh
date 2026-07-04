@@ -85,17 +85,9 @@ check_no_absolute_symlinks() {
 }
 
 get_registry_language_codes() {
-  PROJECT_ROOT="$(pwd)" node - <<'NODE'
-const fs = require('fs');
-const path = require('path');
-const registryPath = path.join(process.env.PROJECT_ROOT, 'packages/contracts/ocrLanguages.ts');
-const source = fs.readFileSync(registryPath, 'utf8');
-const codes = [...source.matchAll(/code:\s*'([^']+)'/g)].map(match => match[1]).sort();
-if (codes.length === 0) {
-  throw new Error(`No OCR language codes found in ${registryPath}`);
-}
-process.stdout.write(codes.join('\n'));
-NODE
+  # scripts/printOcrLanguageCodes.ts reads packages/contracts/ocrLanguages.ts with
+  # source.matchAll(languageCodePattern), keeping packaged tessdata tied to the canonical registry.
+  pnpm exec tsx scripts/printOcrLanguageCodes.ts
 }
 
 verify_tessdata_registry_complete() {

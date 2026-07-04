@@ -21,6 +21,8 @@ import { createLogger } from '@electron/utils/createLogger';
 import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
 import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import type { IImageExportOperationContext } from '@electron/features/image-export/ports';
+import { cancelNativeCommandGroup } from '@electron/native-tools/runNativeCommand';
+import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
 
 const logger = createLogger('image-export');
 
@@ -85,11 +87,15 @@ function normalizeRequestedPageNumbers(pageNumbers: unknown): number[] | undefin
 async function validateRequestedPageNumbersWithinPdf(
     pdfPath: string,
     pageNumbers: number[] | undefined,
+    operationOptions?: {
+        cancelGroup?: string;
+        signal?: AbortSignal;
+    },
 ) {
     if (!pageNumbers) {
         return;
     }
-    const pageCount = await getPdfPageCount(pdfPath);
+    const pageCount = await getPdfPageCount(pdfPath, operationOptions);
     const outOfRangePage = pageNumbers.find(pageNumber => pageNumber > pageCount);
     if (outOfRangePage !== undefined) {
         throw new Error(`Page number ${outOfRangePage} exceeds PDF page count (${pageCount})`);
@@ -156,6 +162,37 @@ function createRendererLifecycleAbortController(sender: Electron.WebContents) {
     return {
         signal: abortController.signal,
         cleanup,
+    };
+}
+
+function createLinkedAbortSignal(
+    signals: AbortSignal[],
+) {
+    const controller = new AbortController();
+    const abort = (signal: AbortSignal) => {
+        if (!controller.signal.aborted) {
+            controller.abort(signal.reason instanceof Error ? signal.reason : new Error('Operation canceled'));
+        }
+    };
+    const cleanupCallbacks: Array<() => void> = [];
+
+    for (const signal of signals) {
+        if (signal.aborted) {
+            abort(signal);
+            continue;
+        }
+        const abortHandler = () => abort(signal);
+        signal.addEventListener('abort', abortHandler, { once: true });
+        cleanupCallbacks.push(() => signal.removeEventListener('abort', abortHandler));
+    }
+
+    return {
+        signal: controller.signal,
+        cleanup: () => {
+            for (const cleanup of cleanupCallbacks.splice(0)) {
+                cleanup();
+            }
+        },
     };
 }
 
@@ -266,14 +303,30 @@ export async function handlePdfExportImages(
     outputPaths?: string[];
 }> {
     const normalizedRequestId = normalizeExportRequestId(requestId);
-    const normalizedWorkingCopyPath = await validateWorkingPdfPath(workingCopyPath, context.senderId);
-    const normalizedPageNumbers = normalizeRequestedPageNumbers(pageNumbers);
-    await validateRequestedPageNumbersWithinPdf(normalizedWorkingCopyPath, normalizedPageNumbers);
+    const mainOperation = registerMainOperation({
+        kind: 'abortable-work',
+        ownerWebContentsId: context.senderId,
+        workingCopyPath,
+        cancel: (reason) => {
+            cancelNativeCommandGroup(`image-export:${mainOperation.id}`);
+            logger.warn(`Canceled image export operation ${mainOperation.id}: ${reason}`);
+        },
+    });
+    const cancelGroup = `image-export:${mainOperation.id}`;
     const lifecycle = createRendererLifecycleAbortController(context.sender);
-
+    const linkedAbort = createLinkedAbortSignal([
+        lifecycle.signal,
+        mainOperation.signal,
+    ]);
     try {
+        const normalizedWorkingCopyPath = await validateWorkingPdfPath(workingCopyPath, context.senderId);
+        const normalizedPageNumbers = normalizeRequestedPageNumbers(pageNumbers);
+        await validateRequestedPageNumbersWithinPdf(normalizedWorkingCopyPath, normalizedPageNumbers, {
+            cancelGroup,
+            signal: linkedAbort.signal,
+        });
         const result = await showExportImageDialog(context.parentWindow, buildImageSuggestedName(normalizedPageNumbers));
-        if (result.canceled || !result.filePath || lifecycle.signal.aborted) {
+        if (result.canceled || !result.filePath || linkedAbort.signal.aborted) {
             return {
                 success: false,
                 canceled: true,
@@ -283,11 +336,12 @@ export async function handlePdfExportImages(
         const { normalizedPath } = normalizeImageExportPath(result.filePath, 'jpeg');
         const onProgress = createImageExportProgressReporter(context.sender, 'images', normalizedRequestId);
         const outputPaths = await exportPdfPagesAsImages(normalizedWorkingCopyPath, normalizedPath, {
+            cancelGroup,
             ...(normalizedPageNumbers ? { pageNumbers: normalizedPageNumbers } : {}),
-            signal: lifecycle.signal,
+            signal: linkedAbort.signal,
             ...(onProgress ? { onProgress } : {}),
         });
-        if (lifecycle.signal.aborted) {
+        if (linkedAbort.signal.aborted) {
             return {
                 success: false,
                 canceled: true,
@@ -307,7 +361,9 @@ export async function handlePdfExportImages(
         }
         throw error;
     } finally {
+        linkedAbort.cleanup();
         lifecycle.cleanup();
+        mainOperation.complete();
     }
 }
 
@@ -323,14 +379,30 @@ export async function handlePdfExportMultiPageTiff(
     outputPaths?: string[];
 }> {
     const normalizedRequestId = normalizeExportRequestId(requestId);
-    const normalizedWorkingCopyPath = await validateWorkingPdfPath(workingCopyPath, context.senderId);
-    const normalizedPageNumbers = normalizeRequestedPageNumbers(pageNumbers);
-    await validateRequestedPageNumbersWithinPdf(normalizedWorkingCopyPath, normalizedPageNumbers);
+    const mainOperation = registerMainOperation({
+        kind: 'abortable-work',
+        ownerWebContentsId: context.senderId,
+        workingCopyPath,
+        cancel: (reason) => {
+            cancelNativeCommandGroup(`image-export:${mainOperation.id}`);
+            logger.warn(`Canceled multi-page TIFF export operation ${mainOperation.id}: ${reason}`);
+        },
+    });
+    const cancelGroup = `image-export:${mainOperation.id}`;
     const lifecycle = createRendererLifecycleAbortController(context.sender);
-
+    const linkedAbort = createLinkedAbortSignal([
+        lifecycle.signal,
+        mainOperation.signal,
+    ]);
     try {
+        const normalizedWorkingCopyPath = await validateWorkingPdfPath(workingCopyPath, context.senderId);
+        const normalizedPageNumbers = normalizeRequestedPageNumbers(pageNumbers);
+        await validateRequestedPageNumbersWithinPdf(normalizedWorkingCopyPath, normalizedPageNumbers, {
+            cancelGroup,
+            signal: linkedAbort.signal,
+        });
         const result = await showMultiPageTiffDialog(context.parentWindow, buildMultiPageTiffSuggestedName(normalizedPageNumbers));
-        if (result.canceled || !result.filePath || lifecycle.signal.aborted) {
+        if (result.canceled || !result.filePath || linkedAbort.signal.aborted) {
             return {
                 success: false,
                 canceled: true,
@@ -339,11 +411,12 @@ export async function handlePdfExportMultiPageTiff(
 
         const onProgress = createImageExportProgressReporter(context.sender, 'multipage-tiff', normalizedRequestId);
         const outputPaths = await exportPdfAsMultiPageTiff(normalizedWorkingCopyPath, result.filePath, {
+            cancelGroup,
             ...(normalizedPageNumbers ? { pageNumbers: normalizedPageNumbers } : {}),
-            signal: lifecycle.signal,
+            signal: linkedAbort.signal,
             ...(onProgress ? { onProgress } : {}),
         });
-        if (lifecycle.signal.aborted) {
+        if (linkedAbort.signal.aborted) {
             return {
                 success: false,
                 canceled: true,
@@ -369,6 +442,8 @@ export async function handlePdfExportMultiPageTiff(
         }
         throw error;
     } finally {
+        linkedAbort.cleanup();
         lifecycle.cleanup();
+        mainOperation.complete();
     }
 }

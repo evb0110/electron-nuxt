@@ -54,6 +54,14 @@ function decodeDjvuProgress(payload: unknown): IDjvuProgress | null {
         )
         || (payload.current !== undefined && !isFiniteNumber(payload.current))
         || (payload.total !== undefined && !isFiniteNumber(payload.total))
+        || (
+            payload.status !== undefined
+            && payload.status !== 'running'
+            && payload.status !== 'success'
+            && payload.status !== 'canceled'
+            && payload.status !== 'failed'
+        )
+        || (payload.error !== undefined && typeof payload.error !== 'string')
     ) {
         return null;
     }
@@ -62,8 +70,10 @@ function decodeDjvuProgress(payload: unknown): IDjvuProgress | null {
         jobId: payload.jobId,
         phase: payload.phase,
         percent: payload.percent,
+        ...(payload.status === undefined ? {} : { status: payload.status }),
         ...(payload.current === undefined ? {} : { current: payload.current }),
         ...(payload.total === undefined ? {} : { total: payload.total }),
+        ...(payload.error === undefined ? {} : { error: payload.error }),
     };
 }
 
@@ -239,6 +249,7 @@ export function createDjvuPreloadClient(ipcRenderer: IpcRenderer): IDjvuCapabili
             normalizeDjvuPrintOptions(options),
         ),
         cancel: (jobId: string) => invoke(DJVU_CHANNELS.cancel, jobId),
+        cancelPagePreview: (requestId: string) => invoke(DJVU_CHANNELS.cancelPagePreview, requestId),
         getInfo: (djvuPath: TDocumentRef) => invoke(DJVU_CHANNELS.getInfo, djvuPath),
         getPageSizes: (djvuPath: TDocumentRef) => invoke(DJVU_CHANNELS.getPageSizes, djvuPath),
         renderPagePreview: (

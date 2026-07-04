@@ -754,6 +754,9 @@ export const browserDjvuCapability: IDjvuCapability = {
         }));
     },
     async releaseViewingPath(_djvuPath) {},
+    cancelPagePreview(_requestId) {
+        return Promise.resolve({ canceled: false });
+    },
     async convertToPdf(djvuPath, outputPath, options) {
         if (!isBrowserDocumentRef(outputPath)) {
             return {

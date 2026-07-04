@@ -140,6 +140,9 @@ export function createBrowserDocumentsCapability(
         getPathForFile: fileCapability.getPathForFile,
         getPathsForFiles: fileCapability.getPathsForFiles,
         registerFilesForOpen: fileCapability.registerFilesForOpen,
+        ...(fileCapability.createCombinedPdfFromFiles
+            ? {createCombinedPdfFromFiles: fileCapability.createCombinedPdfFromFiles}
+            : {}),
     } satisfies IDocumentsPickerCapability;
     const documentOpen = {
         openDocumentDirect: fileCapability.openDocumentDirect,
@@ -181,6 +184,7 @@ export function createBrowserDocumentsCapability(
         replaceWorkingCopyFromPath: fileCapability.replaceWorkingCopyFromPath,
         writeDocxFile: fileCapability.writeDocxFile,
         saveFileStructured: fileCapability.saveFileStructured,
+        ...(fileCapability.resyncWorkingCopy ? {resyncWorkingCopy: fileCapability.resyncWorkingCopy} : {}),
         savePdfData: fileCapability.savePdfData,
         savePdfDataChunks: fileCapability.savePdfDataChunks,
         ...optionalDocumentFileMethods,

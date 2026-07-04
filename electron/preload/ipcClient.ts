@@ -4,6 +4,7 @@ import type {
 } from 'electron';
 import type { TMenuEventUnsubscribe } from '@contracts/electronApiCommon';
 import type { IIpcInvokeSpec } from '@contracts/ipcMain';
+import { CORE_IPC_SEND_CHANNELS } from '@electron/platform-ipc/coreContract';
 
 type TNoArgEventChannel<TEventMap extends {[TChannel in keyof TEventMap]: unknown}> = Extract<{
     [TChannel in keyof TEventMap]: TEventMap[TChannel] extends undefined ? TChannel : never;
@@ -19,6 +20,28 @@ type TIpcPayloadDecoder<TPayload> = (value: unknown) => TPayload | null;
 type TIpcInvokeTimeoutMap<TChannel extends string = string> = Readonly<Partial<Record<TChannel, number>>>;
 
 interface IIpcInvokerOptions<TChannel extends string = string> { invokeTimeoutMsByChannel?: TIpcInvokeTimeoutMap<TChannel>; }
+
+function logDecodedEventValidationFailure(
+    ipcRenderer: Pick<IpcRenderer, 'send'>,
+    channel: string,
+    payload: unknown,
+) {
+    const message = `Dropped invalid decoded IPC event payload for ${channel}`;
+    if (process.env.NODE_ENV !== 'production') {
+        console.warn(message, payload);
+    }
+    try {
+        ipcRenderer.send(CORE_IPC_SEND_CHANNELS.rendererLog, {
+            level: 'warn',
+            section: 'ipc-client',
+            message,
+            timestamp: new Date().toISOString(),
+            data: { channel },
+        });
+    } catch {
+        // Ignore logging failures in preload.
+    }
+}
 
 class IpcInvokeTimeoutError extends Error {
     readonly channel: string;
@@ -140,7 +163,9 @@ export function createTypedIpcEventSubscriber<
                 const decoded = decode(payload);
                 if (decoded !== null) {
                     callback(decoded);
+                    return;
                 }
+                logDecodedEventValidationFailure(ipcRenderer, channel, payload);
             };
             ipcRenderer.on(channel, handler);
             return () => ipcRenderer.removeListener(channel, handler);

@@ -53,6 +53,25 @@ describe('platform runtime detection', () => {
         vi.resetModules();
         let browserPlatformImportCount = 0;
         const openExternal = vi.fn().mockResolvedValue(undefined);
+        vi.doMock('@app/platform/validatePlatformApi', () => ({
+            PlatformContractError: class PlatformContractError extends Error {
+                readonly failures: unknown[];
+
+                constructor(message: string, failures: unknown[]) {
+                    super(message);
+                    this.name = 'PlatformContractError';
+                    this.failures = failures;
+                }
+            },
+            validateBrowserPlatformApi: vi.fn(() => ({
+                ok: true,
+                failures: [],
+            })),
+            validateElectronPlatformApi: vi.fn(() => ({
+                ok: false,
+                failures: [],
+            })),
+        }));
         vi.doMock('@app/platform/browserPlatformApi', () => {
             browserPlatformImportCount += 1;
             return { browserPlatformApi: { shell: { openExternal } } };
@@ -68,6 +87,7 @@ describe('platform runtime detection', () => {
 
         vi.unstubAllGlobals();
         vi.doUnmock('@app/platform/browserPlatformApi');
+        vi.doUnmock('@app/platform/validatePlatformApi');
     });
 
     it('does not treat lazy browser capabilities as thenables', async () => {

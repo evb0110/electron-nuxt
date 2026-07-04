@@ -25,6 +25,22 @@ vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
     error: mocks.browserLoggerError,
 }}));
 
+vi.mock('@app/platform/validatePlatformApi', () => ({
+    PlatformContractError: class PlatformContractError extends Error {
+        readonly failures: unknown[];
+
+        constructor(message: string, failures: unknown[]) {
+            super(message);
+            this.name = 'PlatformContractError';
+            this.failures = failures;
+        }
+    },
+    validateBrowserPlatformApi: vi.fn(() => ({
+        ok: true,
+        failures: [],
+    })),
+}));
+
 vi.mock('@app/platform/browserPlatformApi', () => {
     mocks.browserPlatformImportCount += 1;
     return {browserPlatformApi: {

@@ -127,6 +127,7 @@ export interface IAgentTabSnapshot {
     fileName: string | null;
     originalPath: string | null;
     originalBackend?: TDocumentBackend;
+    documentSessionKey?: string | null;
     documentIdentity?: IDocumentRevisionInfo | null;
     commandTarget?: TAgentWorkspaceCommandTarget;
     isDirty: boolean;
@@ -147,6 +148,7 @@ export interface IAgentDocumentReference {
     fileName: string | null;
     originalPath: TDocumentRef | null;
     originalBackend?: TDocumentBackend;
+    documentSessionKey?: string | null;
     documentIdentity?: IDocumentRevisionInfo | null;
     commandTarget?: TAgentWorkspaceCommandTarget;
     kind: TAgentDocumentKind;

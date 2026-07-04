@@ -4,6 +4,7 @@ import {
 } from 'fs/promises';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
 import type {
+    IPdfSerializedSaveOptions,
     TDocumentSaveFailureReason,
     TDocumentSaveResult,
 } from '@contracts/electronApiDocuments';
@@ -22,7 +23,12 @@ import { WorkingCopyMissingError } from '@electron/file-access/workingCopyMissin
 import { normalizeIpcWritePayload } from '@electron/features/documents/main/documentFileWriteAtomic';
 import { validatePdfFile } from '@electron/features/documents/main/pdfConformance';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
-import { markWorkingCopyContentChanged } from '@electron/file-access/documentRevisionStore';
+import {
+    clearWorkingCopySyncRequired,
+    markWorkingCopySyncRequired,
+    markWorkingCopyContentChanged,
+} from '@electron/file-access/documentRevisionStore';
+import { assertQueuedWorkingCopyMutationPreconditions } from '@electron/file-access/documentMutationGuards';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
 import { originalPathSaveBaseMatches } from '@electron/features/documents/main/originalPathSaveBaseMatches';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
@@ -40,7 +46,7 @@ const QPDF_REPAIR_SAVE_TIMEOUT_MS = parseIntegerEnv(
     1_000,
 );
 
-function requireSenderId(context: IDocumentsSenderIdContext) {
+function requireSenderId(context: IDocumentsSenderIdContext): number {
     if (typeof context.senderId !== 'number') {
         throw new Error('Missing sender identity');
     }
@@ -56,8 +62,22 @@ function createOriginalChangedValidationResult(): IPdfValidationResult {
     };
 }
 
-function getValidationSaveFailureReason(validation: IPdfValidationResult) {
-    return validation.errors.some(error => error.includes('Original file changed on disk'))
+function normalizeExpectedDocumentRevisionToken(options?: IPdfSerializedSaveOptions | null): string | null {
+    const token = options?.expectedDocumentRevisionToken;
+    if (token === undefined || token === null) {
+        return null;
+    }
+    if (typeof token !== 'string' || token.trim().length === 0) {
+        throw new TypeError('expectedDocumentRevisionToken must be a non-empty string');
+    }
+    return token.trim();
+}
+
+function getValidationSaveFailureReason(validation: IPdfValidationResult): TDocumentSaveFailureReason {
+    return validation.errors.some(error => (
+        error.includes('Original file changed on disk')
+        || error.includes('Document changed while save was being prepared')
+    ))
         ? 'stale'
         : 'validation-failed';
 }
@@ -76,16 +96,30 @@ function createSaveFailureResult(
         reason,
         ...(message === undefined ? {} : {message}),
         ...(options.externalWriteCommitted === undefined ? {} : {externalWriteCommitted: options.externalWriteCommitted}),
+        ...(reason === 'working-copy-sync-required' ? {workingCopySyncRequired: true} : {}),
         ...(options.validation === undefined ? {} : {validation: options.validation}),
     };
 }
 
+function createWorkingCopySyncRequiredResult(error: unknown, validation?: IPdfValidationResult | null): TDocumentSaveResult {
+    return createSaveFailureResult('working-copy-sync-required', error, {
+        externalWriteCommitted: true,
+        validation: validation ?? null,
+    });
+}
+
 function withWorkingCopySyncWarning(validation: IPdfValidationResult, error: unknown): IPdfValidationResult {
+    const message = `Saved original file, but failed to refresh the working copy: ${getErrorMessage(error)}`;
     return {
         ...validation,
+        isValid: false,
+        errors: [
+            ...validation.errors,
+            message,
+        ],
         warnings: [
             ...validation.warnings,
-            `Saved original file, but failed to refresh the working copy: ${getErrorMessage(error)}`,
+            message,
         ],
     };
 }
@@ -171,6 +205,7 @@ export async function handleFileSaveStructured(
         const normalizedWorkingPath = workingPath.trim();
         const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
         const saveResult = await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
+            await assertQueuedWorkingCopyMutationPreconditions(normalizedWorkingPath);
             if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, senderId)) {
                 throw new WorkingCopyMissingError('Working copy path is not managed');
             }
@@ -190,6 +225,10 @@ export async function handleFileSaveStructured(
                         workingCopyRefreshed: true,
                     };
                 } catch (refreshError) {
+                    markWorkingCopySyncRequired(
+                        normalizedWorkingPath,
+                        `Original file was saved, but the working copy refresh failed: ${getErrorMessage(refreshError)}`,
+                    );
                     return {
                         validation: queuedValidation,
                         workingCopyRefreshed: false,
@@ -215,15 +254,15 @@ export async function handleFileSaveStructured(
             );
         }
 
+        if (!saveResult.workingCopyRefreshed) {
+            return createWorkingCopySyncRequiredResult(saveResult.refreshError, saveResult.validation);
+        }
+
         return {
             ok: true,
             externalWriteCommitted: true,
-            workingCopyRefreshed: saveResult.workingCopyRefreshed,
+            workingCopyRefreshed: true,
             validation: saveResult.validation,
-            ...(saveResult.refreshError === undefined ? {} : {warning: {
-                reason: 'refresh-failed',
-                message: getErrorMessage(saveResult.refreshError),
-            }}),
         };
     } catch (err) {
         if (err instanceof WorkingCopyMissingError) {
@@ -239,10 +278,56 @@ export async function handleFileSaveStructured(
     }
 }
 
+export async function handleResyncWorkingCopy(
+    context: IDocumentsSenderIdContext,
+    workingPath: string,
+): Promise<TDocumentSaveResult> {
+    try {
+        const senderId = requireSenderId(context);
+        if (!workingPath || workingPath.trim() === '') {
+            return createSaveFailureResult('write-failed', new Error('Invalid file path'), {
+                externalWriteCommitted: false,
+                validation: null,
+            });
+        }
+
+        const normalizedWorkingPath = workingPath.trim();
+        const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
+        await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
+            if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, senderId)) {
+                throw new WorkingCopyMissingError('Working copy path is not managed');
+            }
+            await copyFileCopyOnWrite(originalPath, normalizedWorkingPath);
+            refreshWorkingCopyOriginalFileExpectation(normalizedWorkingPath, senderId);
+            clearWorkingCopySyncRequired(normalizedWorkingPath);
+            await markWorkingCopyContentChanged(normalizedWorkingPath, 'save-sync', senderId);
+        });
+
+        return {
+            ok: true,
+            externalWriteCommitted: false,
+            workingCopyRefreshed: true,
+            validation: null,
+        };
+    } catch (error) {
+        if (error instanceof WorkingCopyMissingError) {
+            return createSaveFailureResult('working-copy-missing', error, {
+                externalWriteCommitted: false,
+                validation: null,
+            });
+        }
+        return createSaveFailureResult('write-failed', error, {
+            externalWriteCommitted: false,
+            validation: null,
+        });
+    }
+}
+
 export async function handleSerializedPdfSave(
     context: IDocumentsSenderIdContext,
     workingPath: string,
     data: unknown,
+    options?: IPdfSerializedSaveOptions,
 ): Promise<IPdfValidationResult> {
     const senderId = requireSenderId(context);
     if (!workingPath || workingPath.trim() === '') {
@@ -252,12 +337,14 @@ export async function handleSerializedPdfSave(
     const normalizedWorkingPath = workingPath.trim();
     const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
     const payload = normalizeIpcWritePayload(data);
+    const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
 
     try {
         const validation = await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
             if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, senderId)) {
                 throw new Error('Working copy path is not managed');
             }
+            await assertQueuedWorkingCopyMutationPreconditions(normalizedWorkingPath, expectedDocumentRevisionToken);
 
             const queuedValidation = await replaceOriginalWithValidatedTemp(
                 originalPath,
@@ -272,6 +359,10 @@ export async function handleSerializedPdfSave(
                     refreshWorkingCopyOriginalFileExpectation(normalizedWorkingPath, senderId);
                     await markWorkingCopyContentChanged(normalizedWorkingPath, 'save-sync', senderId);
                 } catch (syncError) {
+                    markWorkingCopySyncRequired(
+                        normalizedWorkingPath,
+                        `Original file was saved, but the working copy refresh failed: ${getErrorMessage(syncError)}`,
+                    );
                     return withWorkingCopySyncWarning(queuedValidation, syncError);
                 }
             }
@@ -308,6 +399,7 @@ export async function handleRepairPdfSave(
             if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, senderId)) {
                 throw new Error('Working copy path is not managed');
             }
+            await assertQueuedWorkingCopyMutationPreconditions(normalizedWorkingPath);
 
             const queuedValidation = await replaceOriginalWithValidatedTemp(
                 originalPath,
@@ -322,6 +414,10 @@ export async function handleRepairPdfSave(
                     refreshWorkingCopyOriginalFileExpectation(normalizedWorkingPath, senderId);
                     await markWorkingCopyContentChanged(normalizedWorkingPath, 'save-sync', senderId);
                 } catch (syncError) {
+                    markWorkingCopySyncRequired(
+                        normalizedWorkingPath,
+                        `Original file was saved, but the working copy refresh failed: ${getErrorMessage(syncError)}`,
+                    );
                     return withWorkingCopySyncWarning(queuedValidation, syncError);
                 }
             }
@@ -358,6 +454,7 @@ export async function handleOptimizePdfForInteraction(
             if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, senderId)) {
                 throw new Error('Working copy path is not managed');
             }
+            await assertQueuedWorkingCopyMutationPreconditions(normalizedWorkingPath);
 
             const queuedValidation = await replaceOriginalWithValidatedTemp(
                 originalPath,
@@ -372,6 +469,10 @@ export async function handleOptimizePdfForInteraction(
                     refreshWorkingCopyOriginalFileExpectation(normalizedWorkingPath, senderId);
                     await markWorkingCopyContentChanged(normalizedWorkingPath, 'save-sync', senderId);
                 } catch (syncError) {
+                    markWorkingCopySyncRequired(
+                        normalizedWorkingPath,
+                        `Original file was saved, but the working copy refresh failed: ${getErrorMessage(syncError)}`,
+                    );
                     return withWorkingCopySyncWarning(queuedValidation, syncError);
                 }
             }

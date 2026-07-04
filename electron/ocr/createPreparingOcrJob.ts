@@ -4,6 +4,7 @@ import type { IOcrJobOperationContext } from '@electron/ocr/ocrJobOperationConte
 export function createPreparingOcrJob(
     context: IOcrJobOperationContext,
     scopedJobId: string,
+    documentJobKey: string,
     requestId: string,
     sourcePdfPath: string,
     documentRevision: IOcrPreparingJob['documentRevision'],
@@ -11,11 +12,13 @@ export function createPreparingOcrJob(
     return {
         lifecycleState: 'preparing',
         scopedJobId,
+        documentJobKey,
         requestId,
         webContentsId: context.senderId,
         sourcePdfPath,
         documentRevision,
         requestedBytes: 0,
+        pageWork: 0,
         startedAtMs: Date.now(),
         abortController: new AbortController(),
     };

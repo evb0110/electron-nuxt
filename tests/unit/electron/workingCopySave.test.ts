@@ -40,6 +40,10 @@ const mocks = vi.hoisted(() => ({
     optimizeLargePdfForSave: vi.fn(),
     optimizePdfForSave: vi.fn(),
     copyFileCopyOnWrite: vi.fn(),
+    assertWorkingCopyMutationAllowed: vi.fn(),
+    assertWorkingCopyRevisionCurrent: vi.fn(),
+    markWorkingCopySyncRequired: vi.fn(),
+    clearWorkingCopySyncRequired: vi.fn(),
     markWorkingCopyContentChanged: vi.fn(),
 }));
 
@@ -59,7 +63,13 @@ vi.mock('@electron/file-access/workingCopyStore', () => ({
     normalizePathForLookup: (path: string) => path.trim(),
     refreshWorkingCopyOriginalFileExpectation: (...args: unknown[]) => mocks.refreshWorkingCopyOriginalFileExpectation(...args),
 }));
-vi.mock('@electron/file-access/documentRevisionStore', () => ({markWorkingCopyContentChanged: (...args: unknown[]) => mocks.markWorkingCopyContentChanged(...args)}));
+vi.mock('@electron/file-access/documentRevisionStore', () => ({
+    assertWorkingCopyMutationAllowed: (...args: unknown[]) => mocks.assertWorkingCopyMutationAllowed(...args),
+    assertWorkingCopyRevisionCurrent: (...args: unknown[]) => mocks.assertWorkingCopyRevisionCurrent(...args),
+    clearWorkingCopySyncRequired: (...args: unknown[]) => mocks.clearWorkingCopySyncRequired(...args),
+    markWorkingCopyContentChanged: (...args: unknown[]) => mocks.markWorkingCopyContentChanged(...args),
+    markWorkingCopySyncRequired: (...args: unknown[]) => mocks.markWorkingCopySyncRequired(...args),
+}));
 vi.mock('@electron/file-access/isAllowedOriginalSavePath', () => ({isAllowedOriginalSavePath: (...args: unknown[]) => mocks.isAllowedOriginalSavePath(...args)}));
 vi.mock('@electron/file-access/workingCopyDirectory', () => ({copyFileCopyOnWrite: (...args: [string, string]) => mocks.copyFileCopyOnWrite(...args)}));
 vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: (...args: unknown[]) => mocks.getPdfNativeToolPaths(...args)}));
@@ -110,6 +120,8 @@ describe('workingCopySave', () => {
             errors: [],
             warnings: [],
         });
+        mocks.assertWorkingCopyMutationAllowed.mockResolvedValue(undefined);
+        mocks.assertWorkingCopyRevisionCurrent.mockResolvedValue(undefined);
         mocks.markWorkingCopyContentChanged.mockResolvedValue({});
         mocks.copyFileCopyOnWrite.mockImplementation(async (sourcePath: string, targetPath: string) => {
             await writeFile(targetPath, await readFile(sourcePath));
@@ -175,7 +187,7 @@ describe('workingCopySave', () => {
         expect(readFileSyncUtf8(originalPath)).toBe('new-working');
     });
 
-    it('returns structured partial success when original refresh fails after save', async () => {
+    it('returns structured failure when original refresh fails after save', async () => {
         const workingPath = join(tempRoot, 'refresh-fail-working.pdf');
         const originalPath = join(tempRoot, 'refresh-fail-original.pdf');
         writeFileSync(workingPath, 'new-working');
@@ -189,14 +201,17 @@ describe('workingCopySave', () => {
         await expect(handleFileSaveStructured(context, workingPath))
             .resolves
             .toMatchObject({
-                ok: true,
+                ok: false,
+                reason: 'working-copy-sync-required',
+                message: 'refresh failed',
                 externalWriteCommitted: true,
-                workingCopyRefreshed: false,
-                warning: {
-                    reason: 'refresh-failed',
-                    message: 'refresh failed',
-                },
+                workingCopySyncRequired: true,
+                validation: {isValid: true},
             });
+        expect(mocks.markWorkingCopySyncRequired).toHaveBeenCalledWith(
+            workingPath,
+            expect.stringContaining('refresh failed'),
+        );
         expect(readFileSyncUtf8(originalPath)).toBe('new-working');
     });
 
@@ -254,7 +269,7 @@ describe('workingCopySave', () => {
         expect(mocks.refreshWorkingCopyOriginalFileExpectation).not.toHaveBeenCalled();
     });
 
-    it('reports serialized save success with a warning when copy-back fails after replacing the original', async () => {
+    it('reports serialized save failure when copy-back fails after replacing the original', async () => {
         const workingPath = join(tempRoot, 'copyback-working.pdf');
         const originalPath = join(tempRoot, 'copyback-original.pdf');
         writeFileSync(workingPath, 'old-working');
@@ -266,7 +281,8 @@ describe('workingCopySave', () => {
         await expect(handleSerializedPdfSave(context, workingPath, Buffer.from('serialized-pdf')))
             .resolves
             .toMatchObject({
-                isValid: true,
+                isValid: false,
+                errors: [expect.stringContaining('copy-back failed')],
                 warnings: [expect.stringContaining('copy-back failed')],
             });
 

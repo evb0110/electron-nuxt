@@ -138,6 +138,7 @@ const PUBLIC_ONLY_INTERNAL_ENTRYPOINTS = [ {
 
 const PLATFORM_API_AGGREGATE_COMPOSITION_FILES = new Set(`
 app/platform/browserPlatformApi.ts
+app/platform/generated/createLazyBrowserPlatformApiGenerated.ts
 app/platform/lazyBrowserPlatformApi.ts
 app/utils/platform.ts
 `.trim().split('\n'));

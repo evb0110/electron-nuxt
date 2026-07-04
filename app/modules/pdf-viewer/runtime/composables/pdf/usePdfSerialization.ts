@@ -1,5 +1,6 @@
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import { parsePageIndex } from '@contracts/pageNumbers';
 import type {
     IAnnotationCommentSummary,
@@ -35,6 +36,7 @@ const PDF_SERIALIZATION_LOG_SECTION = 'pdf-serialization';
 export interface IPdfSerializationDeps {
     pdfData: Ref<Uint8Array | null>;
     workingCopyPath: Ref<TDocumentRef | null>;
+    documentRevisionToken?: Ref<TDocumentRevisionToken | null>;
     annotationComments: Ref<IAnnotationCommentSummary[]>;
     totalPages: Ref<number>;
     pageLabelsDirty: Ref<boolean>;
@@ -64,6 +66,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
     const {
         pdfData,
         workingCopyPath,
+        documentRevisionToken,
         annotationComments,
         totalPages,
         pageLabelsDirty,
@@ -258,6 +261,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
                 {placedImages: [nativeImage]},
                 toPdfDateString(),
                 expectedBase,
+                {expectedDocumentRevisionToken: documentRevisionToken?.value ?? null},
             );
             if (!result.applied || !result.validation?.isValid) {
                 BrowserLogger.debug(PDF_SERIALIZATION_LOG_SECTION, 'Native placed image mutation was not applied', {

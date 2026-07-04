@@ -34,6 +34,7 @@ const BASE_INPUT: IWorkspaceSavePlanInput = {
     workingCopyPath: '/tmp/work.pdf',
     expectedOriginalPath: '/tmp/source.pdf',
     expectedWorkingPath: '/tmp/work.pdf',
+    expectedDocumentRevisionToken: 'rev-1',
     dirtyState: CLEAN_DIRTY_STATE,
     hasManagedShapes: false,
 };
@@ -80,6 +81,7 @@ describe('workspaceSavePlan', () => {
         expect(saveAsPlan.staleTargetProtection).toEqual({
             expectedOriginalPath: '/tmp/source.pdf',
             expectedWorkingPath: '/tmp/work.pdf',
+            expectedDocumentRevisionToken: 'rev-1',
         });
     });
 

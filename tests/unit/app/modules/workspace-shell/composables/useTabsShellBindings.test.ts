@@ -222,11 +222,25 @@ describe('useTabsShellBindings', () => {
         options.openPathInAppropriateTab = vi.fn(async () => true);
 
         const unmount = await mountBindingsClient(options);
+        const { emitAutomationEvent } = await import('@app/modules/workspace-shell/automation/automationReadinessEvents');
+        const observedEvents: string[] = [];
+        const stopObserving = window.__evbTestApi?.onAutomationEvent(event => {
+            observedEvents.push(event.type);
+        });
+        const eventPromise = window.__evbTestApi?.waitForAutomationEvent('navigation-idle', event => event.detail.page === 3, 1_000);
+        emitAutomationEvent('navigation-idle', {page: 3});
 
         await expect(window.__evbTestApi?.openFile('/tmp/sample.pdf')).resolves.toBe(true);
         expect(options.openPathInAppropriateTab).toHaveBeenCalledWith('/tmp/sample.pdf');
         expect(window.__evbTestApi?.getActiveTabId()).toBe('tab-1');
         expect(window.__evbTestApi?.getActiveToolbarSnapshot()?.currentPage).toBe(1);
+        await expect(eventPromise).resolves.toMatchObject({
+            detail: {page: 3},
+            type: 'navigation-idle',
+        });
+        expect(window.__evbTestApi?.getAutomationEvents().at(-1)).toMatchObject({type: 'navigation-idle'});
+        expect(observedEvents).toContain('navigation-idle');
+        stopObserving?.();
         await expect(window.__evbTestApi?.waitForActiveDocumentOpenSettled()).resolves.toBe(true);
 
         unmount();

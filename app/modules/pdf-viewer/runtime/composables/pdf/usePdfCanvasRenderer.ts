@@ -193,6 +193,12 @@ export const usePdfCanvasRenderer = (deps: {
         };
     }
 
+    function shouldContinueCanvasPreparation(options?: IRenderCanvasOptions) {
+        const coordination = options?.pageRenderCoordination;
+        return coordination?.signal?.aborted !== true
+            && coordination?.shouldContinue?.() !== false;
+    }
+
     async function prepareCanvasRender(
         pdfPage: PDFPageProxy,
         scale: number,
@@ -206,12 +212,6 @@ export const usePdfCanvasRenderer = (deps: {
             pageHeight: number;
         };
 
-        const canvas = document.createElement('canvas');
-        const context = canvas.getContext('2d');
-        if (!context) {
-            return null;
-        }
-
         const cssWidth = viewport.width;
         const cssHeight = viewport.height;
         if (!isValidViewportSize(cssWidth, cssHeight)) {
@@ -223,7 +223,10 @@ export const usePdfCanvasRenderer = (deps: {
         }
 
         const pixelSize = calculateCanvasPixelSize(cssWidth, cssHeight, options);
-        const canvasScale = setupCanvas(canvas, cssWidth, cssHeight, pixelSize);
+        const canvasScale = {
+            scaleX: pixelSize.pixelWidth / cssWidth,
+            scaleY: pixelSize.pixelHeight / cssHeight,
+        };
         if (!isValidCanvasScale(canvasScale)) {
             BrowserLogger.warn(
                 'pdf-renderer',
@@ -233,6 +236,15 @@ export const usePdfCanvasRenderer = (deps: {
         }
 
         const annotationOptions = await createAnnotationRenderOptions(pdfPage, options);
+        if (!shouldContinueCanvasPreparation(options)) {
+            return null;
+        }
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        if (!context) {
+            return null;
+        }
+        setupCanvas(canvas, cssWidth, cssHeight, pixelSize);
 
         const renderContext = {
             canvasContext: context,

@@ -62,6 +62,11 @@ interface ISenderSearchState {
     lastActivityAtMs: number;
 }
 
+interface IWarmupSingleflight {
+    requestId: string;
+    promise: Promise<ISearchResponse>;
+}
+
 interface IDispatchSearchRequestPayload {
     resolvedPdfPath: string;
     documentRevision: TDocumentRevisionToken;
@@ -97,6 +102,10 @@ function buildSearchWorkerRequest(
 
 function getSearchPdfPathKey(pdfPath: string) {
     return normalizePathForLookup(pdfPath) || pdfPath;
+}
+
+function getSearchDocumentBuildKey(pdfPath: string, documentRevision: TDocumentRevisionToken) {
+    return `${getSearchPdfPathKey(pdfPath)}\0${documentRevision}`;
 }
 
 const log = createLogger('search-ipc');
@@ -436,6 +445,7 @@ export class SearchWorkerService {
     private readonly registeredSenderCleanup = new Set<number>();
     private readonly workerTerminationPromises = new Map<number, Promise<void>>();
     private readonly progressPumpsBySenderId = new Map<number, ReturnType<typeof createIpcProgressPump<ISearchProgressPayload>>>();
+    private readonly warmupSingleflightsByDocument = new Map<string, IWarmupSingleflight>();
 
     constructor(private readonly resolveWorkerPath: () => string) {}
 
@@ -467,6 +477,16 @@ export class SearchWorkerService {
             this.cancelRequest(state, state.activeRequestId);
         }
 
+        const documentBuildKey = getSearchDocumentBuildKey(payload.resolvedPdfPath, payload.documentRevision);
+        if (payload.warmup) {
+            const existingWarmup = this.warmupSingleflightsByDocument.get(documentBuildKey);
+            if (existingWarmup && existingWarmup.requestId !== requestId) {
+                this.markStateActivity(state);
+                this.clearIdleCleanupTimer(state);
+                return existingWarmup.promise;
+            }
+        }
+
         if (!payload.warmup) {
             this.activateRequest(state, requestId);
         } else {
@@ -474,7 +494,7 @@ export class SearchWorkerService {
         }
         this.clearIdleCleanupTimer(state);
 
-        return new Promise<ISearchResponse>((resolve, reject) => {
+        const requestPromise = new Promise<ISearchResponse>((resolve, reject) => {
             state.pendingByRequestId.set(requestId, {
                 resolve,
                 reject,
@@ -527,6 +547,19 @@ export class SearchWorkerService {
                 this.scheduleIdleCleanup(state);
             }
         });
+        if (payload.warmup) {
+            this.warmupSingleflightsByDocument.set(documentBuildKey, {
+                requestId,
+                promise: requestPromise,
+            });
+            void requestPromise.finally(() => {
+                const current = this.warmupSingleflightsByDocument.get(documentBuildKey);
+                if (current?.requestId === requestId) {
+                    this.warmupSingleflightsByDocument.delete(documentBuildKey);
+                }
+            });
+        }
+        return requestPromise;
     }
 
     cancel(context: ISearchOperationContext, requestId?: unknown) {
@@ -731,6 +764,14 @@ export class SearchWorkerService {
             clearTimeout(timeout);
         }
         state.requestTimeouts.clear();
+        for (const [
+            documentBuildKey,
+            warmup,
+        ] of this.warmupSingleflightsByDocument.entries()) {
+            if (state.pendingByRequestId.has(warmup.requestId)) {
+                this.warmupSingleflightsByDocument.delete(documentBuildKey);
+            }
+        }
 
         const reason = options?.reason ?? 'Search worker stopped';
         for (const pending of state.pendingByRequestId.values()) {

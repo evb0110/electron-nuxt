@@ -72,7 +72,8 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
     }
 
     function createDocumentSessionSignature(tabId: string) {
-        const snapshot = options.documentSessionsByTabId?.value[tabId]?.snapshot.value;
+        const session = options.documentSessionsByTabId?.value[tabId] ?? null;
+        const snapshot = session ? unref(session.snapshot) : null;
         if (!snapshot) {
             return null;
         }
@@ -81,6 +82,7 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
             sessionId: snapshot.sessionId,
             sessionRevision: snapshot.sessionRevision,
             phase: snapshot.phase,
+            documentSessionKey: snapshot.identity.documentSessionKey,
             documentRef: snapshot.identity.documentRef,
             documentBackend: resolveDocumentRefBackend(snapshot.identity.documentRef),
             documentRevisionToken: snapshot.identity.revisionInfo?.token ?? null,
@@ -220,13 +222,15 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
     }
 
     function getTabDocumentIdentity(tabId: string): IDocumentRevisionInfo | null {
-        return options.documentSessionsByTabId?.value[tabId]?.snapshot.value.identity.revisionInfo
+        const session = options.documentSessionsByTabId?.value[tabId] ?? null;
+        return (session ? unref(session.snapshot).identity.revisionInfo : null)
             ?? options.documentRecordsByTabId.value[tabId]?.documentIdentity
             ?? null;
     }
 
     function getTabDocumentRef(tabId: string) {
-        const sessionRef = options.documentSessionsByTabId?.value[tabId]?.snapshot.value.identity.documentRef;
+        const session = options.documentSessionsByTabId?.value[tabId] ?? null;
+        const sessionRef = session ? unref(session.snapshot).identity.documentRef : null;
         if (sessionRef) {
             return sessionRef;
         }
@@ -313,7 +317,7 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
             return;
         }
 
-        const snapshot = session.snapshot.value;
+        const snapshot = unref(session.snapshot);
         if (
             target.tabId !== snapshot.tabId
             || target.sessionId !== snapshot.sessionId

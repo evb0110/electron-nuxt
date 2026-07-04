@@ -22,6 +22,7 @@ interface IUsePdfRendererCanvasControllerOptions {
     hiddenAnnotationIds: (pageNumber: number) => Set<string> | undefined;
     getRenderVersion: () => number;
     getPage: (pageNumber: number) => Promise<PDFPageProxy>;
+    releasePage: (pageNumber: number, pdfPage: PDFPageProxy) => void;
     cancelActiveRenderTask: (pageNumber: number) => void;
     cancelActiveRenderTaskIfCurrent: (pageNumber: number, version: number, requestId: number) => void;
     onRenderStall?: ((payload: IPageRenderStallPayload) => void) | undefined;
@@ -36,6 +37,7 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
         hiddenAnnotationIds,
         getRenderVersion,
         getPage,
+        releasePage,
         cancelActiveRenderTask,
         cancelActiveRenderTaskIfCurrent,
         onRenderStall,
@@ -59,7 +61,7 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
                 pageNumber,
                 renderVersion: getRenderVersion(),
             });
-            pdfPage.cleanup();
+            releasePage(pageNumber, pdfPage);
             logPdfRenderTrace('renderer-page-cleanup-end', {
                 pageNumber,
                 renderVersion: getRenderVersion(),

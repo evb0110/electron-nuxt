@@ -86,7 +86,7 @@ describe('documentRevisionStore', () => {
         await expect(isWorkingCopyRevisionCurrent(workingPath, revision.token)).resolves.toBe(false);
         await expect(assertWorkingCopyRevisionCurrent(workingPath, revision.token))
             .rejects
-            .toThrow('Document revision is stale');
+            .toMatchObject({code: 'STALE_REVISION'});
 
         await writeWorkingCopyRevisionSidecar(workingPath, {
             sidecarVersion: 1,

@@ -74,6 +74,12 @@ vi.mock('@electron/file-access/workingCopyStore', () => ({
     refreshWorkingCopyOriginalFileExpectation: mocks.refreshWorkingCopyOriginalFileExpectation,
 }));
 vi.mock('@electron/file-access/documentRevisionStore', () => ({markWorkingCopyContentChanged: mocks.markWorkingCopyContentChanged}));
+vi.mock('@electron/file-access/documentMutationGuards', () => ({
+    assertQueuedWorkingCopyMutationPreconditions: vi.fn(),
+    assertWorkingCopyMutationAllowed: vi.fn(),
+    normalizeExpectedDocumentRevisionToken: (options?: { expectedDocumentRevisionToken?: string | null; } | null) =>
+        options?.expectedDocumentRevisionToken?.trim() ?? null,
+}));
 vi.mock('@electron/features/documents/main/originalPathSaveBaseMatches', () => ({originalPathSaveBaseMatches: mocks.originalPathSaveBaseMatches}));
 vi.mock('@electron/djvu/viewing', () => ({isAllowedDjvuViewingPath: mocks.isAllowedDjvuViewingPath}));
 vi.mock('@electron/ocr/createPendingResultFileStore', () => ({findPendingOcrResultFileForPath: mocks.findPendingOcrResultFileForPath}));

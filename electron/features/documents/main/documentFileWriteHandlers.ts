@@ -10,7 +10,12 @@ import {
 } from '@electron/utils/pathValidator';
 import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
+import type { IDocumentMutationRevisionOptions } from '@contracts/electronApiDocuments';
 import { markWorkingCopyContentChanged } from '@electron/file-access/documentRevisionStore';
+import {
+    assertQueuedWorkingCopyMutationPreconditions,
+    normalizeExpectedDocumentRevisionToken,
+} from '@electron/file-access/documentMutationGuards';
 import { consumeAllowedDocxWritePath } from '@electron/file-access/docxExportPaths';
 import {
     copyFileAtomic,
@@ -62,10 +67,12 @@ export async function handleFileWrite(
     context: IDocumentsSenderIdContext,
     filePath: unknown,
     data: unknown,
+    options?: IDocumentMutationRevisionOptions,
 ) {
     const senderId = requireSenderId(context);
     const normalizedPath = normalizeNonEmptyPath(filePath);
     const payload = normalizeIpcWritePayload(data);
+    const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
 
     const resolvedPath = await resolveAllowedWritePath(normalizedPath);
     if (!resolvedPath) {
@@ -76,6 +83,7 @@ export async function handleFileWrite(
         throw new Error('Invalid file path: writes require a managed working copy');
     }
     return enqueueWorkingCopyMutation(resolvedPath, async () => {
+        await assertQueuedWorkingCopyMutationPreconditions(resolvedPath, expectedDocumentRevisionToken);
         if (!await ensureWorkingCopyDirectory(resolvedPath, senderId)) {
             throw new Error('Invalid file path: writes require a managed working copy');
         }
@@ -100,10 +108,12 @@ export async function handleReplaceWorkingCopyFromPath(
     context: IDocumentsSenderIdContext,
     workingCopyPath: unknown,
     sourcePath: unknown,
+    options?: IDocumentMutationRevisionOptions,
 ) {
     const senderId = requireSenderId(context);
     const normalizedWorkingCopyPath = normalizeNonEmptyPath(workingCopyPath);
     const normalizedSourcePath = normalizeNonEmptyPath(sourcePath);
+    const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
 
     const resolvedWorkingCopyPath = await resolveAllowedWritePath(normalizedWorkingCopyPath);
     if (!resolvedWorkingCopyPath) {
@@ -120,6 +130,10 @@ export async function handleReplaceWorkingCopyFromPath(
     assertOcrPdfResultSourcePath(resolvedSourcePath, senderId);
 
     return enqueueWorkingCopyMutation(resolvedWorkingCopyPath, async () => {
+        await assertQueuedWorkingCopyMutationPreconditions(
+            resolvedWorkingCopyPath,
+            expectedDocumentRevisionToken,
+        );
         if (!await ensureWorkingCopyDirectory(resolvedWorkingCopyPath, senderId)) {
             throw new Error('Invalid file path: writes require a managed working copy');
         }

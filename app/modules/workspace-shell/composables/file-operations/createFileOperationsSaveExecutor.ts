@@ -1,6 +1,7 @@
 import type { TPdfSaveMode } from '@app/types/pdfContracts';
 import type { IPdfPersistResult } from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { IPdfOptimizeOptions } from '@contracts/electronApiDocuments';
 import type { INativePdfMutationPlan } from '@app/modules/pdf-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -24,6 +25,7 @@ export interface IPersistSerializedOptions {
     saveMode: TPdfSaveMode;
     preserveLoadedSource?: boolean;
     expectedWorkingPath?: TDocumentRef | null;
+    expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
     optimizeLossless?: boolean;
 }
 
@@ -273,6 +275,7 @@ export function createFileOperationsSaveExecutor(
         ) => Promise<IPdfPersistResult>,
         preserveLoadedSource: boolean,
         expectedWorkingPath: TDocumentRef | null = null,
+        expectedDocumentRevisionToken: TDocumentRevisionToken | null = null,
         saveStateSnapshot?: ISaveStateSnapshot,
     ) {
         let preparedShapeStateSnapshot: unknown = null;
@@ -288,6 +291,7 @@ export function createFileOperationsSaveExecutor(
                     saveMode: saveResult.saveMode,
                     preserveLoadedSource,
                     expectedWorkingPath,
+                    expectedDocumentRevisionToken,
                 }),
                 result => ({
                     bytes: saveResult.finalBytes.byteLength,
@@ -424,6 +428,7 @@ export function createFileOperationsSaveExecutor(
         ) => Promise<IPdfPersistResult>,
         preserveLoadedSource = false,
         expectedWorkingPath: TDocumentRef | null,
+        expectedDocumentRevisionToken: TDocumentRevisionToken | null,
         saveStateSnapshot: ISaveStateSnapshot,
         onPersistenceSettled?: () => void,
     ) {
@@ -439,6 +444,7 @@ export function createFileOperationsSaveExecutor(
                 persist,
                 preserveLoadedSource,
                 expectedWorkingPath,
+                expectedDocumentRevisionToken,
                 completionSaveStateSnapshot,
             )
             : false;
@@ -531,6 +537,7 @@ export function createFileOperationsSaveExecutor(
                     saveMode: config.saveMode,
                     preserveLoadedSource: true,
                     expectedWorkingPath: persistenceExpectedWorkingPath,
+                    expectedDocumentRevisionToken: context.savePlan.staleTargetProtection.expectedDocumentRevisionToken,
                     modifiedAt: toPdfDateString(new Date()),
                 },
             ),
@@ -753,6 +760,7 @@ export function createFileOperationsSaveExecutor(
                     config.persistSerialized,
                     context.savePlan.livePdfjsAnnotationSession.canPreserve,
                     persistenceExpectedWorkingPath,
+                    context.savePlan.staleTargetProtection.expectedDocumentRevisionToken,
                     context.saveStateSnapshot,
                     () => services.clearSaveIndicator(config.mode),
                 );

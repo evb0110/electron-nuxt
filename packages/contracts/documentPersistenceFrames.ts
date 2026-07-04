@@ -1,5 +1,9 @@
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
 import { getErrorMessage } from '@contracts/getErrorMessage';
+import {
+    getDocumentMutationErrorPayload,
+    isStaleRevisionError,
+} from '@contracts/documentMutationErrors';
 import { isRecord } from '@contracts/runtimeGuards';
 
 export const SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION = 1;
@@ -14,6 +18,7 @@ export const PDF_PERSISTENCE_ERROR_CODES = [
     'PROTOCOL_ERROR',
     'ACK_TIMEOUT',
     'COMMIT_FAILED',
+    'STALE_REVISION',
     'WORKING_COPY_SYNC_WARNING',
     'UNKNOWN',
 ] as const;
@@ -143,22 +148,25 @@ export function createPdfPersistenceErrorFrame(
     const message = getErrorMessage(error);
     const code = options.phase === 'cancel'
         ? 'CANCELED'
-        : options.phase === 'commit' || options.phase === 'complete'
-            ? 'COMMIT_FAILED'
-            : 'PROTOCOL_ERROR';
+        : isStaleRevisionError(error)
+            ? 'STALE_REVISION'
+            : options.phase === 'commit' || options.phase === 'complete'
+                ? 'COMMIT_FAILED'
+                : 'PROTOCOL_ERROR';
     return {
         type: 'error',
         code,
         phase: options.phase,
-        retryable: false,
-        expected: options.expected ?? false,
+        retryable: code === 'STALE_REVISION',
+        expected: options.expected ?? code === 'STALE_REVISION',
         error: message,
         ...(options.seq === undefined ? {} : {seq: options.seq}),
     };
 }
 
 export function getPdfPersistenceErrorMessage(payload: Pick<IPdfPersistenceErrorFrame, 'error'> | { error?: string }) {
-    return typeof payload.error === 'string' ? payload.error : 'PDF persistence failed';
+    const error = typeof payload.error === 'string' ? payload.error : 'PDF persistence failed';
+    return getDocumentMutationErrorPayload(error)?.message ?? error;
 }
 
 export function isPdfValidationResult(value: unknown): value is IPdfValidationResult {

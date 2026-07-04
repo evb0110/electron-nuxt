@@ -1,5 +1,11 @@
 import type { TDocumentRef } from '@contracts/documentRef';
 import type {
+    IEvbAutomationEvent,
+    TEvbAutomationEventListener,
+    TEvbAutomationEventPredicate,
+    TEvbAutomationEventType,
+} from '@app/types/evbAutomationEvents';
+import type {
     IWorkspaceAutomationStateSnapshot,
     IWorkspaceExpose,
     IWorkspaceToolbarSnapshot,
@@ -32,13 +38,20 @@ export interface IEvbTestApi {
         args?: unknown[],
     ) => Promise<IEvbTestCommandResult<TResult>>;
     collectWorkspaceDebugState: () => IEvbTestWorkspaceDebugState;
+    getAutomationEvents: () => IEvbAutomationEvent[];
     getActiveTabId: () => string | null;
     getActiveToolbarSnapshot: () => IWorkspaceToolbarSnapshot | null;
     getActiveWorkspaceHandle: () => IWorkspaceExpose | null;
+    onAutomationEvent: (cb: TEvbAutomationEventListener) => () => void;
     openFile: (path: TDocumentRef) => Promise<boolean>;
     openFiles: (paths: TDocumentRef[]) => Promise<void>;
     readActiveWorkspaceStateValues: <TValues extends Record<string, unknown> = Record<string, unknown>>(
         propertyNames: string[],
     ) => TValues;
+    waitForAutomationEvent: (
+        type: TEvbAutomationEventType,
+        predicate?: TEvbAutomationEventPredicate,
+        timeoutMs?: number,
+    ) => Promise<IEvbAutomationEvent>;
     waitForActiveDocumentOpenSettled: () => Promise<boolean>;
 }
