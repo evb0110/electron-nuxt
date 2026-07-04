@@ -78,6 +78,7 @@ import type {
     IAgentMcpIntegrationStatus,
 } from '@contracts/agent';
 import { ANNOTATION_COLOR_SWATCHES } from '@app/constants/pdfColors';
+import { LOCALE_DEFINITIONS } from '@i18n-core';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getErrorMessage } from '@app/utils/error';
 import { getAgentCapability } from '@app/utils/getAgentCapability';
@@ -89,56 +90,25 @@ import SettingsUpdatesPanel from '@app/components/settings/SettingsUpdatesPanel.
 import SettingsViewerDefaultsPanel from '@app/components/settings/SettingsViewerDefaultsPanel.vue';
 
 const { isDesktopRuntime } = useRuntimeEnvironment();
-const LOCALE_OPTION_DEFINITIONS = [
-    {
-        value: 'en',
-        icon: 'i-circle-flags-gb',
-        labelKey: 'settings.languageEnglish',
-    },
-    {
-        value: 'ru',
-        icon: 'i-circle-flags-ru',
-        labelKey: 'settings.languageRussian',
-    },
-    {
-        value: 'fr',
-        icon: 'i-circle-flags-fr',
-        labelKey: 'settings.languageFrench',
-    },
-    {
-        value: 'de',
-        icon: 'i-circle-flags-de',
-        labelKey: 'settings.languageGerman',
-    },
-    {
-        value: 'es',
-        icon: 'i-circle-flags-es',
-        labelKey: 'settings.languageSpanish',
-    },
-    {
-        value: 'it',
-        icon: 'i-circle-flags-it',
-        labelKey: 'settings.languageItalian',
-    },
-    {
-        value: 'pt',
-        icon: 'i-circle-flags-pt',
-        labelKey: 'settings.languagePortuguese',
-    },
-    {
-        value: 'pt-BR',
-        icon: 'i-circle-flags-br',
-        labelKey: 'settings.languagePortugueseBr',
-    },
-    {
-        value: 'nl',
-        icon: 'i-circle-flags-nl',
-        labelKey: 'settings.languageDutch',
-    },
-] as const satisfies ReadonlyArray<{
+const LOCALE_FLAGS = {
+    en: 'i-circle-flags-gb',
+    ru: 'i-circle-flags-ru',
+    fr: 'i-circle-flags-fr',
+    de: 'i-circle-flags-de',
+    es: 'i-circle-flags-es',
+    it: 'i-circle-flags-it',
+    pt: 'i-circle-flags-pt',
+    'pt-BR': 'i-circle-flags-br',
+    nl: 'i-circle-flags-nl',
+} as const satisfies Record<TAppLocale, string>;
+const LOCALE_OPTION_DEFINITIONS = LOCALE_DEFINITIONS.map(localeDefinition => ({
+    value: localeDefinition.code,
+    label: localeDefinition.name,
+    icon: LOCALE_FLAGS[localeDefinition.code],
+})) satisfies ReadonlyArray<{
     value: TAppLocale;
+    label: string;
     icon: string;
-    labelKey: string;
 }>;
 const ZOOM_PRESET_OPTION_DEFINITIONS = [
     {
@@ -225,18 +195,6 @@ const {
     isUpdateSupported,
 } = useAppUpdates();
 
-const LOCALE_FLAGS = {
-    en: 'i-circle-flags-gb',
-    ru: 'i-circle-flags-ru',
-    fr: 'i-circle-flags-fr',
-    de: 'i-circle-flags-de',
-    es: 'i-circle-flags-es',
-    it: 'i-circle-flags-it',
-    pt: 'i-circle-flags-pt',
-    'pt-BR': 'i-circle-flags-br',
-    nl: 'i-circle-flags-nl',
-} as const satisfies Record<TAppLocale, string>;
-
 const selectedFlagIcon = computed(() => LOCALE_FLAGS[settings.value.locale] ?? LOCALE_FLAGS.en);
 const annotationColorSwatches = ANNOTATION_COLOR_SWATCHES;
 const agentMcpStatus = ref<IAgentMcpIntegrationStatus | null>(null);
@@ -252,7 +210,7 @@ const shortcutsDescription = computed(() => isDesktopRuntime.value
     : t('settings.browserShortcutsDescription'));
 
 const localeItems = computed(() => LOCALE_OPTION_DEFINITIONS.map(option => ({
-    label: t(option.labelKey),
+    label: option.label,
     value: option.value,
     icon: option.icon,
 })));
