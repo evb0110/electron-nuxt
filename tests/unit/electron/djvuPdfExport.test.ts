@@ -641,7 +641,148 @@ describe('handleDjvuConvertToPdf', () => {
         }));
         expect(mocks.convertDjvuToPdfFile).not.toHaveBeenCalled();
         expect(mocks.optimizeGeneratedPdfForInteraction).toHaveBeenCalledWith(expectedFinalPath);
-        expect(mocks.printManagedTempPdfPath).toHaveBeenCalledWith({window: null}, expectedFinalPath, 'book.djvu');
+        expect(mocks.safeSendToWindow).toHaveBeenCalledWith(null, 'djvu:progress', {
+            jobId: 'djvu-print-print-req',
+            phase: 'printing',
+            percent: 100,
+        });
+        expect(mocks.printManagedTempPdfPath).toHaveBeenCalledWith(
+            {window: null},
+            expectedFinalPath,
+            'book p1-2',
+            {
+                signal: expect.any(AbortSignal),
+                surface: 'rasterized-html',
+            },
+        );
+    });
+
+    it('adds the selected DjVu page number to the native print save title', async () => {
+        mocks.getDjvuPageCount.mockResolvedValueOnce(60);
+        const event = createOperationContext(13);
+
+        const result = await handleDjvuPrintPath(
+            event as never,
+            trustedDjvuPath,
+            {
+                requestId: 'print-page-50',
+                fileName: 'book.djvu',
+                pageNumbers: [50],
+                viewMode: 'single',
+                orientation: 'auto',
+            },
+        );
+
+        expect(result).toEqual({
+            success: true,
+            jobId: 'djvu-print-print-page-50',
+        });
+        expect(mocks.buildCompactDjvuAwarePdfFromDjvu).toHaveBeenCalledWith(expect.objectContaining({pages: [50]}));
+        expect(mocks.printManagedTempPdfPath).toHaveBeenCalledWith(
+            {window: null},
+            '/tmp/evb-viewer/print-djvu-djvu-print-print-page-50.pdf',
+            'book p50',
+            {
+                signal: expect.any(AbortSignal),
+                surface: 'rasterized-html',
+            },
+        );
+    });
+
+    it('aborts an active native DjVu print handoff when cancel is requested', async () => {
+        let printSignal: AbortSignal | undefined;
+        mocks.printManagedTempPdfPath.mockImplementationOnce((
+            _context: unknown,
+            _path: unknown,
+            _fileName: unknown,
+            options?: { signal?: AbortSignal },
+        ) => {
+            printSignal = options?.signal;
+            return new Promise(resolve => {
+                options?.signal?.addEventListener('abort', () => {
+                    resolve({
+                        success: false,
+                        canceled: true,
+                        error: 'Print handoff canceled',
+                    });
+                }, { once: true });
+            });
+        });
+        const event = createOperationContext(14);
+
+        const printPromise = handleDjvuPrintPath(
+            event as never,
+            trustedDjvuPath,
+            {
+                requestId: 'cancel-print',
+                fileName: 'book.djvu',
+                viewMode: 'single',
+                orientation: 'auto',
+            },
+        );
+
+        for (let attempt = 0; attempt < 20 && mocks.printManagedTempPdfPath.mock.calls.length === 0; attempt += 1) {
+            await Promise.resolve();
+        }
+        expect(mocks.printManagedTempPdfPath).toHaveBeenCalledTimes(1);
+
+        const cancelResult = await handleDjvuCancel(
+            event as never,
+            'djvu-print-cancel-print',
+        );
+        const result = await printPromise;
+
+        expect(cancelResult).toEqual({ canceled: true });
+        expect(printSignal?.aborted).toBe(true);
+        expect(result).toEqual({
+            success: false,
+            canceled: true,
+            jobId: 'djvu-print-cancel-print',
+            error: 'DjVu print preparation canceled',
+        });
+        expect(mocks.loggerError).not.toHaveBeenCalled();
+    });
+
+    it('treats canceling DjVu print preparation as non-error logging', async () => {
+        mocks.getDjvuPageCount.mockImplementationOnce((
+            _filePath: string,
+            options?: { signal?: AbortSignal },
+        ) => new Promise((_resolve, reject) => {
+            options?.signal?.addEventListener('abort', () => {
+                reject(new Error('DjVu conversion canceled'));
+            });
+        }));
+        const event = createOperationContext(15);
+
+        const printPromise = handleDjvuPrintPath(
+            event as never,
+            trustedDjvuPath,
+            {
+                requestId: 'cancel-prep',
+                fileName: 'book.djvu',
+                viewMode: 'single',
+                orientation: 'auto',
+            },
+        );
+
+        for (let attempt = 0; attempt < 5 && mocks.getDjvuPageCount.mock.calls.length === 0; attempt += 1) {
+            await Promise.resolve();
+        }
+        const cancelResult = await handleDjvuCancel(
+            event as never,
+            'djvu-print-cancel-prep',
+        );
+        const result = await printPromise;
+
+        expect(cancelResult).toEqual({ canceled: true });
+        expect(result).toEqual({
+            success: false,
+            canceled: true,
+            jobId: 'djvu-print-cancel-prep',
+            error: 'DjVu print preparation canceled',
+        });
+        expect(mocks.loggerError).not.toHaveBeenCalled();
+        expect(mocks.loggerInfo).toHaveBeenCalledWith(expect.stringContaining('DjVu print preparation canceled'));
     });
 
     it('cancels active jobs when the sender is destroyed', async () => {

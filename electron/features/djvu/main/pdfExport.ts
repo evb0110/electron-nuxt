@@ -14,7 +14,11 @@ import {
     stat,
     writeFile,
 } from 'fs/promises';
-import { join } from 'path';
+import {
+    basename,
+    join,
+    parse,
+} from 'path';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import type {
     IDjvuPrintOptions,
@@ -405,6 +409,23 @@ function formatDjvuPageSelection(pages: number[]) {
     return ranges.join(',');
 }
 
+function resolveDjvuPrintDocumentTitle(
+    djvuPath: string,
+    fileName: string | undefined,
+    selectedPages: number[] | undefined,
+) {
+    const rawName = typeof fileName === 'string' && fileName.trim()
+        ? fileName.trim()
+        : djvuPath;
+    const baseName = basename(rawName) || 'document';
+    const title = parse(baseName).name || baseName || 'document';
+    if (!selectedPages || selectedPages.length === 0) {
+        return title;
+    }
+
+    return `${title} p${formatDjvuPageSelection(selectedPages)}`;
+}
+
 async function getDjvuConversionPageSizes(jobId: string, djvuPath: string, pageCount: number) {
     try {
         const pageSizes: IDjvuConversionPageMetrics[] = await getDjvuPageSizesForViewing(djvuPath, pageCount);
@@ -640,13 +661,30 @@ export async function handleDjvuPrintPath(
                 phase: 'optimizing' as const,
                 percent: 100,
             });
+            progressPump.enqueue({
+                jobId,
+                phase: 'printing' as const,
+                percent: 100,
+            });
 
-            finalPdfHandedToPrint = printablePdfPath === finalPdfPath;
             const printResult = await printManagedTempPdfPath(
                 {window: context.parentWindow},
                 printablePdfPath,
-                options.fileName,
+                resolveDjvuPrintDocumentTitle(djvuPath, options.fileName, selectedPages),
+                {
+                    signal: abortController.signal,
+                    surface: 'rasterized-html',
+                },
             );
+            if (abortController.signal.aborted || canceledJobIds.has(jobId)) {
+                return {
+                    success: false,
+                    canceled: true,
+                    jobId,
+                    error: 'DjVu print preparation canceled',
+                };
+            }
+            finalPdfHandedToPrint = printResult.success && printablePdfPath === finalPdfPath;
             logger.info(`[${jobId}] DjVu print handoff complete: success=${printResult.success} canceled=${printResult.canceled === true}`);
             return {
                 ...printResult,
@@ -654,13 +692,21 @@ export async function handleDjvuPrintPath(
             };
         });
     } catch (error) {
-        logger.error(`[${jobId}] DjVu print preparation failed: ${getErrorMessage(error)}`);
-        const canceled = canceledJobIds.has(jobId);
+        const errorMessage = getErrorMessage(error);
+        const canceled = abortController.signal.aborted
+            || canceledJobIds.has(jobId)
+            || errorMessage.includes('DjVu conversion canceled')
+            || errorMessage.includes('Print handoff canceled');
+        if (canceled) {
+            logger.info(`[${jobId}] DjVu print preparation canceled`);
+        } else {
+            logger.error(`[${jobId}] DjVu print preparation failed: ${errorMessage}`);
+        }
         return {
             success: false,
             ...(canceled ? { canceled: true } : {}),
             jobId,
-            error: canceled ? 'DjVu print preparation canceled' : getErrorMessage(error),
+            error: canceled ? 'DjVu print preparation canceled' : errorMessage,
         };
     } finally {
         canceledJobIds.delete(jobId);

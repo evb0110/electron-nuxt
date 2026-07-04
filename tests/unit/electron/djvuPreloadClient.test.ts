@@ -35,6 +35,11 @@ describe('createDjvuPreloadClient', () => {
             percent: 25,
         });
         listeners.get(DJVU_EVENT_CHANNELS.progress)?.({}, {
+            jobId: 'djvu-1',
+            phase: 'printing',
+            percent: 100,
+        });
+        listeners.get(DJVU_EVENT_CHANNELS.progress)?.({}, {
             jobId: 'djvu-2',
             phase: 'invalid',
             percent: 25,
@@ -54,11 +59,16 @@ describe('createDjvuPreloadClient', () => {
         });
         listeners.get(DJVU_EVENT_CHANNELS.viewingError)?.({}, {error: 42});
 
-        expect(progressCallback).toHaveBeenCalledOnce();
-        expect(progressCallback).toHaveBeenCalledWith({
+        expect(progressCallback).toHaveBeenCalledTimes(2);
+        expect(progressCallback).toHaveBeenNthCalledWith(1, {
             jobId: 'djvu-1',
             phase: 'converting',
             percent: 25,
+        });
+        expect(progressCallback).toHaveBeenNthCalledWith(2, {
+            jobId: 'djvu-1',
+            phase: 'printing',
+            percent: 100,
         });
         expect(readyCallback).toHaveBeenCalledOnce();
         expect(readyCallback).toHaveBeenCalledWith({

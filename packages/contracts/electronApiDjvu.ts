@@ -13,7 +13,7 @@ export type { TDjvuPdfExportStrategy } from '@contracts/djvuConversionPolicy';
 
 export interface IDjvuProgress {
     jobId: string;
-    phase: 'converting' | 'bookmarks' | 'optimizing' | 'loading';
+    phase: 'converting' | 'bookmarks' | 'optimizing' | 'loading' | 'printing';
     current?: number;
     total?: number;
     percent: number;

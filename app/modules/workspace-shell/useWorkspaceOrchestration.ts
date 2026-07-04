@@ -22,6 +22,7 @@ import { useWorkspaceSidebarSearchSyncController } from '@app/modules/workspace-
 import { useWorkspaceAnnotationSession } from '@app/modules/workspace-shell/composables/useWorkspaceAnnotationSession';
 import { mergeWorkspaceAnnotationComments } from '@app/modules/workspace-shell/annotations/mergeWorkspaceAnnotationComments';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { IDjvuProgress } from '@contracts/electronApiDjvu';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type {
     IRecentFile,
@@ -914,7 +915,10 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
 
     async function printDjvuSource(
         payload: IWorkspacePrintSubmitPayload,
-        options?: { signal?: AbortSignal },
+        options?: {
+            onNativePrintHandoffStart?: () => void;
+            signal?: AbortSignal;
+        },
     ) {
         const sourcePath = djvuSourcePath.value;
         if (!isDjvuMode.value || !sourcePath) {
@@ -928,9 +932,23 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             cancelRequested = true;
             void getDjvuCapability().cancel(jobId).catch(() => undefined);
         };
+        let didNotifyNativePrintHandoff = false;
+        const notifyNativePrintHandoff = () => {
+            if (didNotifyNativePrintHandoff) {
+                return;
+            }
+            didNotifyNativePrintHandoff = true;
+            options?.onNativePrintHandoffStart?.();
+        };
+        const handleProgress = (progress: IDjvuProgress) => {
+            if (progress.jobId === jobId && progress.phase === 'printing') {
+                notifyNativePrintHandoff();
+            }
+        };
 
         throwIfDjvuPrintAborted(options?.signal);
         options?.signal?.addEventListener('abort', cancelPrint, { once: true });
+        const unsubscribeProgress = getDjvuCapability().onProgress(handleProgress);
         try {
             const result = await getDjvuCapability().printDjvuPath(sourcePath, {
                 ...payload,
@@ -948,6 +966,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
                 throw new Error(result.error ?? 'DjVu print preparation failed');
             }
         } finally {
+            unsubscribeProgress();
             options?.signal?.removeEventListener('abort', cancelPrint);
         }
     }
@@ -962,6 +981,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         hasPendingUnsavedChanges,
         hasPendingPrintSerializationChanges,
         canPrintDjvuSource: computed(() => isDjvuMode.value && Boolean(djvuSourcePath.value)),
+        getCurrentPrintPage: () => documentViewerRef.value?.getCurrentPage?.() ?? currentPage.value,
         getQuickPrintPageMetrics,
         getPrintableSourceData,
         renderLoadedPdfPagesForBrowserPrint,

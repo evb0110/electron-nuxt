@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => {
         public readonly setTitle = vi.fn();
         public readonly showInactive = vi.fn();
         public readonly webContents = {
+            executeJavaScript: vi.fn(async () => true),
             on: vi.fn(),
             print: vi.fn(printHandler),
             printToPDF: vi.fn(async () => Buffer.from('%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n')),
@@ -51,7 +52,17 @@ const mocks = vi.hoisted(() => {
         browserWindowInstances,
         openPath: vi.fn(async () => ''),
         printHandler,
+        pdfPageCount: 1,
+        pdfPageSize: {
+            width: 612,
+            height: 792,
+        },
+        pdfDocumentLoad: vi.fn(),
         readdir: vi.fn<() => Promise<string[]>>(async () => []),
+        mkdtemp: vi.fn(async () => '/tmp/evb-viewer/raster-work'),
+        readFile: vi.fn(async () => Buffer.from('%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n')),
+        rm: vi.fn(async () => {}),
+        runNativeToolCommand: vi.fn(async () => ({})),
         randomUUID: vi.fn(() => 'print-job-id'),
         ensuredReadablePaths: new Set<string>(),
         ownedReadablePathsBySender: new Map<number, Set<string>>(),
@@ -82,19 +93,26 @@ vi.mock('electron', () => ({
 }));
 
 vi.mock('fs/promises', () => ({
+    mkdtemp: mocks.mkdtemp,
     readdir: mocks.readdir,
+    readFile: mocks.readFile,
+    rm: mocks.rm,
     stat: mocks.stat,
     unlink: mocks.unlink,
     writeFile: mocks.writeFile,
 }));
 
 vi.mock('crypto', () => ({ randomUUID: mocks.randomUUID }));
+vi.mock('pdf-lib', () => ({ PDFDocument: { load: (...args: unknown[]) => mocks.pdfDocumentLoad(...args) } }));
 
 vi.mock('@electron/utils/pathValidator', () => ({resolveAllowedReadPath: mocks.resolveAllowedReadPath}));
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: mocks.ensureWorkingCopyDirectory}));
 vi.mock('@electron/file-access/workingCopyStore', () => ({findWorkingCopyPathByOriginalPath: mocks.findWorkingCopyPathByOriginalPath}));
 vi.mock('@electron/features/page-ops/main/qpdf', () => ({extractPages: mocks.extractPages}));
 vi.mock('@electron/features/page-ops/public', () => ({extractPages: mocks.extractPages}));
+vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({pdftoppm: '/mock/pdftoppm'})}));
+vi.mock('@electron/native-tools/buildPopplerEnv', () => ({buildPopplerEnv: () => undefined}));
+vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runNativeToolCommand}));
 
 vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => ({
     debug: vi.fn(),
@@ -110,6 +128,7 @@ const {
     handlePrintPdfPath,
     sweepStaleDefaultAppTempPdfs,
 } = await import('@electron/features/documents/main/print');
+const { printManagedTempPdfPath } = await import('@electron/utils/printHandoff');
 
 const tempRoot = '/tmp/evb-viewer';
 const validPdfBytes = Buffer.from('%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n');
@@ -127,6 +146,15 @@ describe('documents print', () => {
         mocks.browserWindowInstances.length = 0;
         mocks.appGetPath.mockReturnValue('/tmp');
         mocks.randomUUID.mockReturnValue('print-job-id');
+        mocks.pdfPageCount = 1;
+        mocks.pdfPageSize = {
+            width: 612,
+            height: 792,
+        };
+        mocks.pdfDocumentLoad.mockImplementation(async () => ({
+            getPageCount: () => mocks.pdfPageCount,
+            getPage: () => ({getSize: () => mocks.pdfPageSize}),
+        }));
         mocks.ensuredReadablePaths.clear();
         mocks.ownedReadablePathsBySender.clear();
         mocks.ownedReadablePathsBySender.set(senderId, new Set([sourcePdfPath]));
@@ -139,6 +167,10 @@ describe('documents print', () => {
             return true;
         });
         mocks.readdir.mockResolvedValue([]);
+        mocks.mkdtemp.mockResolvedValue('/tmp/evb-viewer/raster-work');
+        mocks.readFile.mockResolvedValue(validPdfBytes);
+        mocks.rm.mockResolvedValue(undefined);
+        mocks.runNativeToolCommand.mockResolvedValue({});
         mocks.printHandler.mockImplementation((
             _options: unknown,
             callback: (success: boolean, failureReason?: string) => void,
@@ -163,6 +195,7 @@ describe('documents print', () => {
     afterEach(() => {
         vi.useRealTimers();
         delete process.env.EVB_PRINT_DIALOG_TEST_MODE;
+        delete process.env.EVB_PRINT_DIALOG_TEST_OUTPUT_PATH;
         rmSync(sourcePdfWorkDir, {
             force: true,
             recursive: true,
@@ -215,6 +248,7 @@ describe('documents print', () => {
 
     it('uses the env-gated print-to-PDF smoke mode without opening the native dialog', async () => {
         process.env.EVB_PRINT_DIALOG_TEST_MODE = 'print-to-pdf';
+        process.env.EVB_PRINT_DIALOG_TEST_OUTPUT_PATH = '/tmp/print-smoke-output.pdf';
         vi.useFakeTimers();
 
         const resultPromise = handlePrintPdfPath(
@@ -227,12 +261,100 @@ describe('documents print', () => {
         expect(result).toEqual({ success: true });
         expect(mocks.browserWindowInstances[0]?.webContents.print).not.toHaveBeenCalled();
         expect(mocks.browserWindowInstances[0]?.webContents.printToPDF).toHaveBeenCalledWith({printBackground: true});
+        expect(mocks.writeFile).toHaveBeenCalledWith(
+            '/tmp/print-smoke-output.pdf',
+            Buffer.from('%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n'),
+        );
         expect(mocks.browserWindowInstances[0]?.close).not.toHaveBeenCalled();
         expect(mocks.browserWindowInstances[0]?.showInactive).not.toHaveBeenCalled();
 
         await vi.runOnlyPendingTimersAsync();
 
         expect(mocks.browserWindowInstances[0]?.close).toHaveBeenCalledTimes(1);
+    });
+
+    it('prints managed DjVu PDFs through a rasterized HTML surface', async () => {
+        vi.useFakeTimers();
+        mocks.pdfPageCount = 2;
+        mocks.pdfPageSize = {
+            width: 420,
+            height: 594,
+        };
+        mocks.readdir.mockResolvedValue([
+            'page-00001-2.jpg',
+            'page-00001-1.jpg',
+            'unrelated.jpg',
+        ]);
+
+        const resultPromise = printManagedTempPdfPath(
+            windowContext,
+            sourcePdfPath,
+            'book.djvu',
+            { surface: 'rasterized-html' },
+        );
+        const result = await settleNativePrint(resultPromise);
+
+        expect(result).toEqual({ success: true });
+        expect(mocks.pdfDocumentLoad).toHaveBeenCalledWith(validPdfBytes, { updateMetadata: false });
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
+            '/mock/pdftoppm',
+            [
+                '-jpeg',
+                '-r',
+                '180',
+                '-f',
+                '1',
+                '-l',
+                '2',
+                sourcePdfPath,
+                '/tmp/evb-viewer/raster-work/page-00001',
+            ],
+            expect.objectContaining({
+                commandLabel: 'pdftoppm(print-raster)',
+                timeoutMs: 180_000,
+            }),
+        );
+        expect(mocks.writeFile).toHaveBeenCalledWith(
+            '/tmp/evb-viewer/raster-work/print.html',
+            expect.stringContaining('data-page-number="2"'),
+            'utf8',
+        );
+        expect(mocks.browserWindowInstances[0]?.loadURL).toHaveBeenCalledWith(
+            pathToFileURL('/tmp/evb-viewer/raster-work/print.html').toString(),
+        );
+        expect(mocks.browserWindowInstances[0]?.showInactive).not.toHaveBeenCalled();
+        expect(mocks.browserWindowInstances[0]?.webContents.executeJavaScript).toHaveBeenCalledTimes(1);
+        expect(mocks.browserWindowInstances[0]?.webContents.print).toHaveBeenCalledWith(
+            expect.objectContaining({ printBackground: true }),
+            expect.any(Function),
+        );
+        expect(mocks.unlink).not.toHaveBeenCalledWith(sourcePdfPath);
+
+        await vi.runOnlyPendingTimersAsync();
+
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/evb-viewer/raster-work', {
+            force: true,
+            recursive: true,
+        });
+        expect(mocks.unlink).toHaveBeenCalledWith(sourcePdfPath);
+    });
+
+    it('cleans up managed temp PDFs when size validation fails before handoff', async () => {
+        mocks.stat.mockResolvedValueOnce({
+            ctimeMs: 0,
+            isFile: () => true,
+            mtimeMs: 0,
+            size: 300 * 1024 * 1024,
+        });
+
+        await expect(printManagedTempPdfPath(
+            windowContext,
+            sourcePdfPath,
+            'oversized.pdf',
+        )).rejects.toThrow('PDF file is too large');
+
+        expect(mocks.browserWindowInstances).toHaveLength(0);
+        expect(mocks.unlink).toHaveBeenCalledWith(sourcePdfPath);
     });
 
     it('writes temporary PDF bytes before opening the native print dialog', async () => {

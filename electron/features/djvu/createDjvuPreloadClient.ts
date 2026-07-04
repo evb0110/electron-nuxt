@@ -50,6 +50,7 @@ function decodeDjvuProgress(payload: unknown): IDjvuProgress | null {
             && payload.phase !== 'bookmarks'
             && payload.phase !== 'optimizing'
             && payload.phase !== 'loading'
+            && payload.phase !== 'printing'
         )
         || (payload.current !== undefined && !isFiniteNumber(payload.current))
         || (payload.total !== undefined && !isFiniteNumber(payload.total))

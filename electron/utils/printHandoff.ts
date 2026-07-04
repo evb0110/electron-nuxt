@@ -1,18 +1,31 @@
 import { BrowserWindow } from 'electron';
 import type { WebContentsPrintOptions } from 'electron';
 import {
+    mkdtemp,
+    readdir,
+    readFile,
+    rm,
     stat,
     unlink,
+    writeFile,
 } from 'fs/promises';
 import {
     basename,
+    join,
     parse,
 } from 'path';
 import { pathToFileURL } from 'url';
 import { delay } from 'es-toolkit/promise';
+import { tmpdir } from 'os';
+import { sortBy } from 'es-toolkit/array';
+import { range } from 'es-toolkit/math';
+import { PDFDocument } from 'pdf-lib';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
+import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
+import { buildPopplerEnv } from '@electron/native-tools/buildPopplerEnv';
+import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 
 const logger = createLogger('documents-print');
 // Low-end Windows machines can report the PDF plugin as loaded before it has painted.
@@ -21,11 +34,17 @@ const PRINT_JOB_RESOURCE_RETENTION_MS = 30_000;
 const PRINT_DIALOG_TIMEOUT_MS = parseIntegerEnv('EVB_PRINT_DIALOG_TIMEOUT_MS', 5 * 60 * 1000, 5_000);
 const PRINT_DIALOG_TEST_MODE_ENV = 'EVB_PRINT_DIALOG_TEST_MODE';
 const PRINT_DIALOG_TEST_MODE_PRINT_TO_PDF = 'print-to-pdf';
+const PRINT_DIALOG_TEST_OUTPUT_PATH_ENV = 'EVB_PRINT_DIALOG_TEST_OUTPUT_PATH';
 const PRINT_WINDOW_WIDTH_PX = 1280;
 const PRINT_WINDOW_HEIGHT_PX = 1600;
 const PRINT_WINDOW_VISIBLE_ON_DARWIN = process.platform === 'darwin';
 export const PRINT_DJVU_TEMP_PREFIX = 'print-djvu-';
 const MAX_PRINT_PDF_BYTES = parseIntegerEnv('EVB_PRINT_PDF_MAX_MB', 256, 1, 2048) * 1024 * 1024;
+const PRINT_RASTER_DPI = parseIntegerEnv('EVB_PRINT_RASTER_DPI', 180, 72, 300);
+const PRINT_RASTER_CHUNK_PAGES = parseIntegerEnv('EVB_PRINT_RASTER_CHUNK_PAGES', 50, 1, 100);
+const PRINT_RASTER_MAX_PAGES = parseIntegerEnv('EVB_PRINT_RASTER_MAX_PAGES', 2000, 1, 10000);
+const PRINT_RASTER_RENDER_TIMEOUT_MS = parseIntegerEnv('EVB_PRINT_RASTER_TIMEOUT_MS', 3 * 60 * 1000, 5_000);
+const PRINT_RASTER_IMAGE_LOAD_TIMEOUT_MS = parseIntegerEnv('EVB_PRINT_RASTER_IMAGE_LOAD_TIMEOUT_MS', 30_000, 1_000);
 const PDF_HEADER_SCAN_BYTES = 1024;
 const PDF_EOF_SCAN_BYTES = 1024 * 1024;
 const scheduledPrintTempCleanup = new Map<string, ReturnType<typeof setTimeout>>();
@@ -37,6 +56,26 @@ export interface IPrintPdfResult {
 }
 
 export interface IPrintWindowContext {window?: BrowserWindow | null;}
+
+interface IPrintHandoffOptions {
+    signal?: AbortSignal;
+    surface?: 'pdf-plugin' | 'rasterized-html';
+}
+
+interface IPdfPageSize {
+    width: number;
+    height: number;
+}
+
+interface IPdfPrintLayout {
+    pageCount: number;
+    firstPageSize: IPdfPageSize;
+}
+
+interface IPrintImagePage {
+    pageNumber: number;
+    path: string;
+}
 
 function includesAsciiToken(data: Uint8Array, token: string, start: number, end: number) {
     const tokenBytes = Buffer.from(token, 'ascii');
@@ -122,7 +161,7 @@ function sanitizePrintDocumentTitle(title: string) {
     return sanitized || 'document';
 }
 
-export function resolvePrintDocumentTitle(filePath: string, fileName?: string) {
+function resolvePrintDocumentTitle(filePath: string, fileName?: string) {
     const candidate = typeof fileName === 'string' && fileName.trim()
         ? fileName.trim()
         : filePath;
@@ -156,6 +195,239 @@ function createPrintWindow(ownerWindow: BrowserWindow | undefined, documentTitle
             backgroundThrottling: false,
         },
     });
+}
+
+function escapeHtml(value: string) {
+    return value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function normalizePdfPageSize(rawSize: {
+    height?: unknown;
+    width?: unknown;
+} | undefined): IPdfPageSize {
+    const width = typeof rawSize?.width === 'number' && Number.isFinite(rawSize.width) && rawSize.width > 0
+        ? rawSize.width
+        : 612;
+    const height = typeof rawSize?.height === 'number' && Number.isFinite(rawSize.height) && rawSize.height > 0
+        ? rawSize.height
+        : 792;
+    return {
+        width,
+        height,
+    };
+}
+
+async function readPdfPrintLayout(path: string): Promise<IPdfPrintLayout> {
+    const pdfData = await readFile(path);
+    const pdfDocument = await PDFDocument.load(pdfData, {updateMetadata: false});
+    const pageCount = pdfDocument.getPageCount();
+    if (!Number.isInteger(pageCount) || pageCount < 1) {
+        throw new Error('Printable PDF has no pages');
+    }
+    if (pageCount > PRINT_RASTER_MAX_PAGES) {
+        throw new Error(`Native print handoff is capped at ${PRINT_RASTER_MAX_PAGES} pages`);
+    }
+
+    const firstPage = pdfDocument.getPage(0);
+    return {
+        pageCount,
+        firstPageSize: normalizePdfPageSize(firstPage.getSize()),
+    };
+}
+
+function parseRenderedImagePageNumber(fileName: string) {
+    const match = fileName.match(/-(\d+)\.(?:jpe?g)$/iu);
+    if (!match) {
+        return Number.POSITIVE_INFINITY;
+    }
+    return Number.parseInt(match[1] ?? '', 10);
+}
+
+function isRenderedPrintImage(fileName: string, prefixBaseName: string) {
+    return fileName.startsWith(`${prefixBaseName}-`) && /\.(?:jpe?g)$/iu.test(fileName);
+}
+
+async function renderPdfPrintImages(
+    pdfPath: string,
+    layout: IPdfPrintLayout,
+    workDir: string,
+    signal?: AbortSignal,
+) {
+    const paths = getPdfNativeToolPaths();
+    const popplerEnv = buildPopplerEnv(paths);
+    const renderedPages: IPrintImagePage[] = [];
+
+    for (const firstPage of range(1, layout.pageCount + 1, PRINT_RASTER_CHUNK_PAGES)) {
+        throwIfPrintHandoffAborted(signal);
+        const lastPage = Math.min(layout.pageCount, firstPage + PRINT_RASTER_CHUNK_PAGES - 1);
+        const prefixBaseName = `page-${String(firstPage).padStart(5, '0')}`;
+        const prefix = join(workDir, prefixBaseName);
+        const commandOptions: Parameters<typeof runNativeToolCommand>[2] = {
+            timeoutMs: PRINT_RASTER_RENDER_TIMEOUT_MS,
+            commandLabel: 'pdftoppm(print-raster)',
+            ...(signal ? { signal } : {}),
+        };
+        if (popplerEnv !== undefined) {
+            commandOptions.env = popplerEnv;
+        }
+
+        await runNativeToolCommand(paths.pdftoppm, [
+            '-jpeg',
+            '-r',
+            String(PRINT_RASTER_DPI),
+            '-f',
+            String(firstPage),
+            '-l',
+            String(lastPage),
+            pdfPath,
+            prefix,
+        ], commandOptions);
+        throwIfPrintHandoffAborted(signal);
+
+        const fileNames = await readdir(workDir);
+        renderedPages.push(...sortBy(
+            fileNames
+                .filter(fileName => isRenderedPrintImage(fileName, prefixBaseName))
+                .map(fileName => ({
+                    pageNumber: parseRenderedImagePageNumber(fileName),
+                    path: join(workDir, fileName),
+                })),
+            ['pageNumber'],
+        ));
+    }
+
+    if (renderedPages.length !== layout.pageCount) {
+        throw new Error(`Expected ${layout.pageCount} printable page image(s), rendered ${renderedPages.length}`);
+    }
+
+    return renderedPages;
+}
+
+function buildRasterPrintHtml(
+    title: string,
+    layout: IPdfPrintLayout,
+    imagePages: IPrintImagePage[],
+) {
+    const pageWidth = Math.max(1, layout.firstPageSize.width);
+    const pageHeight = Math.max(1, layout.firstPageSize.height);
+    const escapedTitle = escapeHtml(title);
+    const pagesHtml = imagePages.map(page => `
+        <section class="print-page" data-page-number="${page.pageNumber}">
+            <img src="${escapeHtml(pathToFileURL(page.path).toString())}" alt="">
+        </section>
+    `).join('');
+
+    return `<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>${escapedTitle}</title>
+    <style>
+        @page {
+            size: ${pageWidth.toFixed(2)}pt ${pageHeight.toFixed(2)}pt;
+            margin: 0;
+        }
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+            background: #fff;
+        }
+        .print-page {
+            box-sizing: border-box;
+            width: ${pageWidth.toFixed(2)}pt;
+            height: ${pageHeight.toFixed(2)}pt;
+            margin: 0;
+            overflow: hidden;
+            break-after: page;
+            page-break-after: always;
+            background: #fff;
+        }
+        .print-page:last-child {
+            break-after: auto;
+            page-break-after: auto;
+        }
+        .print-page img {
+            display: block;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+    </style>
+</head>
+<body>${pagesHtml}</body>
+</html>`;
+}
+
+async function waitForRasterPrintSurfaceReady(printWindow: BrowserWindow) {
+    await printWindow.webContents.executeJavaScript(`
+        (() => {
+            const timeoutMs = ${PRINT_RASTER_IMAGE_LOAD_TIMEOUT_MS};
+            const waitForImage = (image) => {
+                if (image.complete && image.naturalWidth > 0) {
+                    return Promise.resolve(true);
+                }
+                if (typeof image.decode === 'function') {
+                    return image.decode().then(() => {
+                        if (image.naturalWidth <= 0) {
+                            throw new Error('Printable page image decoded without dimensions');
+                        }
+                        return true;
+                    });
+                }
+                return new Promise((resolve, reject) => {
+                    image.addEventListener('load', () => resolve(true), {once: true});
+                    image.addEventListener('error', () => reject(new Error('Printable page image failed to load')), {once: true});
+                });
+            };
+            return Promise.race([
+                Promise.all(Array.from(document.images).map(waitForImage)).then(() => true),
+                new Promise((_, reject) => {
+                    setTimeout(() => reject(new Error('Timed out loading printable page images')), timeoutMs);
+                }),
+            ]);
+        })()
+    `, true);
+}
+
+async function createRasterPrintHtmlPath(path: string, documentTitle: string, signal?: AbortSignal) {
+    const workDir = await mkdtemp(join(tmpdir(), 'evb-print-raster-'));
+    try {
+        throwIfPrintHandoffAborted(signal);
+        const layout = await readPdfPrintLayout(path);
+        throwIfPrintHandoffAborted(signal);
+        const imagePages = await renderPdfPrintImages(path, layout, workDir, signal);
+        throwIfPrintHandoffAborted(signal);
+        const htmlPath = join(workDir, 'print.html');
+        await writeFile(htmlPath, buildRasterPrintHtml(documentTitle, layout, imagePages), 'utf8');
+        return {
+            htmlPath,
+            workDir,
+        };
+    } catch (error) {
+        await rm(workDir, {
+            force: true,
+            recursive: true,
+        }).catch(() => undefined);
+        throw error;
+    }
+}
+
+function throwIfPrintHandoffAborted(signal: AbortSignal | undefined) {
+    if (signal?.aborted) {
+        const error = new Error('Print handoff canceled');
+        error.name = 'AbortError';
+        throw error;
+    }
+}
+
+function isPrintHandoffAbort(error: unknown) {
+    return error instanceof Error && error.name === 'AbortError';
 }
 
 function lockPrintWindowTitle(printWindow: BrowserWindow, documentTitle: string) {
@@ -209,6 +481,10 @@ async function runPrintToPdfSmoke(printWindow: BrowserWindow): Promise<IPrintPdf
     try {
         const data = await printWindow.webContents.printToPDF({printBackground: true});
         validatePdfBytesForHandoff(data, 'print smoke');
+        const outputPath = process.env[PRINT_DIALOG_TEST_OUTPUT_PATH_ENV]?.trim();
+        if (outputPath) {
+            await writeFile(outputPath, data);
+        }
         return { success: true };
     } catch (error) {
         return {
@@ -311,33 +587,72 @@ export async function openNativePrintDialogForPath(
     path: string,
     printOptions: WebContentsPrintOptions = {},
     fileName?: string,
+    handoffOptions: IPrintHandoffOptions = {},
 ): Promise<IPrintPdfResult> {
     const documentTitle = resolvePrintDocumentTitle(path, fileName);
+    const shouldUseRasterSurface = handoffOptions.surface === 'rasterized-html';
+    let rasterSurface: Awaited<ReturnType<typeof createRasterPrintHtmlPath>> | null = null;
     const printWindow = createPrintWindow(ownerWindow, documentTitle);
     const releasePrintWindowTitle = lockPrintWindowTitle(printWindow, documentTitle);
     let shouldRetainPrintWindow = false;
+    const closeForAbort = () => {
+        closePrintWindow(printWindow);
+    };
+    handoffOptions.signal?.addEventListener('abort', closeForAbort, { once: true });
 
     try {
-        await printWindow.loadURL(pathToFileURL(path).toString());
-        revealPrintWindowForNativeDialog(printWindow);
+        throwIfPrintHandoffAborted(handoffOptions.signal);
+        rasterSurface = shouldUseRasterSurface
+            ? await createRasterPrintHtmlPath(path, documentTitle, handoffOptions.signal)
+            : null;
+        throwIfPrintHandoffAborted(handoffOptions.signal);
+        await printWindow.loadURL(rasterSurface ? pathToFileURL(rasterSurface.htmlPath).toString() : pathToFileURL(path).toString());
+        throwIfPrintHandoffAborted(handoffOptions.signal);
+        if (!rasterSurface) {
+            revealPrintWindowForNativeDialog(printWindow);
+        } else {
+            await waitForRasterPrintSurfaceReady(printWindow);
+        }
+        throwIfPrintHandoffAborted(handoffOptions.signal);
         await delay(PRINT_LOAD_SETTLE_DELAY_MS);
+        throwIfPrintHandoffAborted(handoffOptions.signal);
         const result = await runNativePrintDialog(printWindow, printOptions);
+        if (handoffOptions.signal?.aborted) {
+            return {
+                success: false,
+                canceled: true,
+                error: 'Print handoff canceled',
+            };
+        }
         if (result.success) {
             shouldRetainPrintWindow = true;
-            hideRevealedPrintWindow(printWindow);
+            if (!rasterSurface) {
+                hideRevealedPrintWindow(printWindow);
+            }
             schedulePrintWindowClose(printWindow);
         }
         return result;
     } catch (error) {
+        if (isPrintHandoffAbort(error) || handoffOptions.signal?.aborted) {
+            return {
+                success: false,
+                canceled: true,
+                error: 'Print handoff canceled',
+            };
+        }
         logger.warn(`Failed to open native print dialog: ${getErrorMessage(error)}`);
         return {
             success: false,
             error: error instanceof Error ? error.message : 'Failed to open native print dialog',
         };
     } finally {
+        handoffOptions.signal?.removeEventListener('abort', closeForAbort);
         releasePrintWindowTitle();
         if (!shouldRetainPrintWindow) {
             closePrintWindow(printWindow);
+        }
+        if (rasterSurface) {
+            scheduleRasterSurfaceCleanup(rasterSurface.workDir);
         }
     }
 }
@@ -346,12 +661,13 @@ export async function printManagedTempPdfPath(
     context: IPrintWindowContext,
     filePath: string,
     fileName?: string,
+    handoffOptions: IPrintHandoffOptions = {},
 ): Promise<IPrintPdfResult> {
-    await assertPdfPathWithinSizeLimit(filePath);
     const ownerWindow = context.window ?? undefined;
     let shouldRetainTempPdf = false;
     try {
-        const result = await openNativePrintDialogForPath(ownerWindow, filePath, {}, fileName);
+        await assertPdfPathWithinSizeLimit(filePath);
+        const result = await openNativePrintDialogForPath(ownerWindow, filePath, {}, fileName, handoffOptions);
         if (result.success) {
             shouldRetainTempPdf = true;
             schedulePrintTempCleanup(filePath);
@@ -362,4 +678,14 @@ export async function printManagedTempPdfPath(
             await cleanupPrintTempPath(filePath);
         }
     }
+}
+
+function scheduleRasterSurfaceCleanup(path: string, delayMs = PRINT_JOB_RESOURCE_RETENTION_MS) {
+    const timer = setTimeout(() => {
+        void rm(path, {
+            force: true,
+            recursive: true,
+        }).catch(() => undefined);
+    }, delayMs);
+    timer.unref?.();
 }

@@ -219,6 +219,9 @@ export const useDjvu = () => {
                     };
                     return;
                 }
+                if (progress.phase === 'printing') {
+                    return;
+                }
 
                 conversionState.value = {
                     isConverting: true,

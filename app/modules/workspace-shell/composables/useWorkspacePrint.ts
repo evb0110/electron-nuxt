@@ -15,6 +15,7 @@ import {
 const BROWSER_PRINT_CLEANUP_TIMEOUT_MS = 60000;
 const BROWSER_PRINT_LOAD_TIMEOUT_MS = 30000;
 const BROWSER_PRINT_LOAD_SETTLE_DELAY_MS = 300;
+const PRINT_PREPARING_TOAST_DELAY_MS = 600;
 const BROWSER_PRINT_FRAME_MIN_WIDTH_PX = 1280;
 const BROWSER_PRINT_FRAME_MIN_HEIGHT_PX = 1600;
 const PDF_MIME_TYPE = 'application/pdf';
@@ -59,6 +60,7 @@ interface IWorkspacePrintDeps {
     hasPendingUnsavedChanges: Readonly<Ref<boolean>>;
     hasPendingPrintSerializationChanges?: Readonly<Ref<boolean>>;
     canPrintDjvuSource?: Readonly<Ref<boolean>>;
+    getCurrentPrintPage?: () => number | null | undefined;
     getQuickPrintPageMetrics: () => Promise<IPdfPageMetric[] | null>;
     getPrintableSourceData: () => Promise<Uint8Array | null>;
     renderLoadedPdfPagesForBrowserPrint?: (
@@ -68,7 +70,10 @@ interface IWorkspacePrintDeps {
     ) => Promise<void>;
     printDjvuSource?: (
         payload: IPrintDialogSubmitPayload,
-        options?: { signal?: AbortSignal },
+        options?: {
+            onNativePrintHandoffStart?: () => void;
+            signal?: AbortSignal;
+        },
     ) => Promise<void>;
 }
 
@@ -96,6 +101,8 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     let activeBrowserPrintUrl: string | null = null;
     let activePrintAbortController: AbortController | null = null;
     let closeDialogForSystemPrint = false;
+    let preparingPrintToastTimer: number | null = null;
+    let preparingPrintToastId: string | number | null = null;
 
     function canPrintDjvuSource() {
         return Boolean(deps.printDjvuSource)
@@ -142,8 +149,44 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         }
     }
 
+    function clearPreparingPrintToast() {
+        if (typeof window !== 'undefined' && preparingPrintToastTimer !== null) {
+            window.clearTimeout(preparingPrintToastTimer);
+        }
+        preparingPrintToastTimer = null;
+
+        if (preparingPrintToastId !== null) {
+            toast.remove(preparingPrintToastId);
+            preparingPrintToastId = null;
+        }
+    }
+
+    function schedulePreparingPrintToast() {
+        if (typeof window === 'undefined' || preparingPrintToastTimer !== null || preparingPrintToastId !== null) {
+            return;
+        }
+
+        preparingPrintToastTimer = window.setTimeout(() => {
+            preparingPrintToastTimer = null;
+            if (!isPreparingPrint.value) {
+                return;
+            }
+
+            const preparingToast = toast.add({
+                close: false,
+                color: 'neutral',
+                description: t('print.systemDialogHint'),
+                duration: 0,
+                icon: 'i-ph-circle-notch',
+                title: t('print.preparing'),
+            });
+            preparingPrintToastId = preparingToast.id;
+        }, PRINT_PREPARING_TOAST_DELAY_MS);
+    }
+
     function cancelActivePrintPreparation() {
         activePrintAbortController?.abort();
+        clearPreparingPrintToast();
         cleanupPrintFrame();
         isPreparingPrint.value = false;
         activePrintAction.value = null;
@@ -151,6 +194,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
 
     function closePrintDialogForSystemDialog() {
         closeDialogForSystemPrint = true;
+        clearPreparingPrintToast();
         printDialogOpen.value = false;
     }
 
@@ -161,7 +205,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     }
 
     function normalizeCurrentPage() {
-        const page = deps.currentPage.value;
+        const page = deps.getCurrentPrintPage?.() ?? deps.currentPage.value;
         if (!Number.isInteger(page) || page < 1 || page > deps.totalPages.value) {
             return null;
         }
@@ -545,13 +589,25 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         isPreparingPrint.value = true;
         activePrintAction.value = options.action ?? 'default';
         resetPrintError();
+        if (!printDialogOpen.value) {
+            schedulePreparingPrintToast();
+        }
 
         try {
             if (canPrintDjvuSource() && deps.printDjvuSource) {
                 throwIfPrintAborted(signal);
-                await deps.printDjvuSource(payload, { signal });
+                let didStartNativePrintHandoff = false;
+                await deps.printDjvuSource(payload, {
+                    signal,
+                    onNativePrintHandoffStart: () => {
+                        didStartNativePrintHandoff = true;
+                        closePrintDialogForSystemDialog();
+                    },
+                });
                 throwIfPrintAborted(signal);
-                closePrintDialogForSystemDialog();
+                if (!didStartNativePrintHandoff) {
+                    closePrintDialogForSystemDialog();
+                }
                 return;
             }
 
@@ -602,6 +658,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         } finally {
             if (activePrintAbortController === abortController) {
                 activePrintAbortController = null;
+                clearPreparingPrintToast();
                 isPreparingPrint.value = false;
                 activePrintAction.value = null;
                 closeDialogForSystemPrint = false;
@@ -612,6 +669,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     onScopeDispose(() => {
         activePrintAbortController?.abort();
         activePrintAbortController = null;
+        clearPreparingPrintToast();
         cleanupPrintFrame();
         printDialogOpen.value = false;
         printDialogSelectedPages.value = [];

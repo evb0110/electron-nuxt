@@ -41,6 +41,7 @@ const documentsCapabilityMock = vi.hoisted(() => ({
     printPdfPath: vi.fn(),
 }));
 const toastAddMock = vi.hoisted(() => vi.fn());
+const toastRemoveMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@app/utils/pdfPrint', () => ({
     buildPrintablePdfData: buildPrintablePdfDataMock,
@@ -200,13 +201,17 @@ function createState(options?: {
     }> | null>;
     getPrintableSourceData?: () => Promise<Uint8Array | null>;
     canPrintDjvuSource?: boolean;
+    getCurrentPrintPage?: () => number | null | undefined;
     printDjvuSource?: (
         payload: {
             pageNumbers?: number[];
             viewMode: string;
             orientation: string;
         },
-        options?: { signal?: AbortSignal },
+        options?: {
+            onNativePrintHandoffStart?: () => void;
+            signal?: AbortSignal;
+        },
     ) => Promise<void>;
     renderLoadedPdfPagesForBrowserPrint?: (
         targetDocument: IBrowserPrintDocument,
@@ -234,6 +239,9 @@ function createState(options?: {
             : {}),
         ...(options?.canPrintDjvuSource !== undefined
             ? { canPrintDjvuSource: ref(options.canPrintDjvuSource) }
+            : {}),
+        ...(options?.getCurrentPrintPage
+            ? { getCurrentPrintPage: options.getCurrentPrintPage }
             : {}),
         getQuickPrintPageMetrics,
         getPrintableSourceData,
@@ -265,6 +273,7 @@ describe('useWorkspacePrint', () => {
         createObjectURLMock.mockReturnValue('blob:print-pdf');
         shouldPrintPageMetricsDirectlyMock.mockReturnValue(null);
         shouldPrintSourcePdfDirectlyMock.mockResolvedValue(true);
+        toastAddMock.mockReturnValue({ id: 'toast-id' });
         documentsCapabilityMock.openPdfInDefaultAppData.mockResolvedValue({ success: false });
         documentsCapabilityMock.openPdfInDefaultAppPath.mockResolvedValue({ success: false });
         documentsCapabilityMock.printPdfData.mockResolvedValue({
@@ -281,7 +290,10 @@ describe('useWorkspacePrint', () => {
             }
             return key;
         } }));
-        vi.stubGlobal('useToast', () => ({ add: toastAddMock }));
+        vi.stubGlobal('useToast', () => ({
+            add: toastAddMock,
+            remove: toastRemoveMock,
+        }));
         vi.stubGlobal('URL', {
             createObjectURL: createObjectURLMock,
             revokeObjectURL: revokeObjectURLMock,
@@ -375,10 +387,144 @@ describe('useWorkspacePrint', () => {
                 pageNumbers: [4],
                 viewMode: 'single',
                 orientation: 'auto',
-            }, {signal: expect.any(AbortSignal)});
+            }, {
+                onNativePrintHandoffStart: expect.any(Function),
+                signal: expect.any(AbortSignal),
+            });
             expect(getPrintableSourceData).not.toHaveBeenCalled();
             expect(buildPrintablePdfDataMock).not.toHaveBeenCalled();
             expect(state.isPreparingPrint.value).toBe(false);
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('closes the app print dialog as soon as DjVu reaches the native print handoff', async () => {
+        let finishPrint!: () => void;
+        const printDjvuSource = vi.fn(async (
+            _payload,
+            options?: { onNativePrintHandoffStart?: () => void },
+        ) => {
+            options?.onNativePrintHandoffStart?.();
+            await new Promise<void>(resolve => {
+                finishPrint = resolve;
+            });
+        });
+        const {
+            scope,
+            state,
+        } = createState({
+            canPrintDjvuSource: true,
+            printDjvuSource,
+        });
+
+        try {
+            state.handlePrint();
+            expect(state.printDialogOpen.value).toBe(true);
+
+            const submitPromise = state.handlePrintDialogSubmit({
+                pageNumbers: [4],
+                viewMode: 'single',
+                orientation: 'auto',
+            });
+            await flushMicrotasks(4);
+
+            expect(state.printDialogOpen.value).toBe(false);
+            expect(state.isPreparingPrint.value).toBe(true);
+
+            finishPrint();
+            await submitPromise;
+
+            expect(state.isPreparingPrint.value).toBe(false);
+            expect(state.printError.value).toBeNull();
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('uses the live viewer page when printing the current DjVu page', async () => {
+        const printDjvuSource = vi.fn(async () => {});
+        const {
+            scope,
+            state,
+        } = createState({
+            canPrintDjvuSource: true,
+            getCurrentPrintPage: () => 7,
+            printDjvuSource,
+        });
+
+        try {
+            await state.handlePrintCurrentPage();
+
+            expect(printDjvuSource).toHaveBeenCalledWith({
+                pageNumbers: [7],
+                viewMode: 'single',
+                orientation: 'auto',
+            }, {
+                onNativePrintHandoffStart: expect.any(Function),
+                signal: expect.any(AbortSignal),
+            });
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('shows delayed preparing feedback while current-page DjVu printing waits for native handoff', async () => {
+        const timeoutCallbacks = new Map<number, () => void>();
+        let timerId = 0;
+        vi.stubGlobal('window', {
+            setTimeout: vi.fn((callback: () => void) => {
+                timerId += 1;
+                timeoutCallbacks.set(timerId, callback);
+                return timerId;
+            }),
+            clearTimeout: vi.fn((id: number) => {
+                timeoutCallbacks.delete(id);
+            }),
+        });
+
+        let finishPrint!: () => void;
+        let startNativePrintHandoff!: () => void;
+        const printDjvuSource = vi.fn(async (
+            _payload,
+            options?: { onNativePrintHandoffStart?: () => void },
+        ) => {
+            startNativePrintHandoff = () => options?.onNativePrintHandoffStart?.();
+            await new Promise<void>(resolve => {
+                finishPrint = resolve;
+            });
+        });
+        const {
+            scope,
+            state,
+        } = createState({
+            canPrintDjvuSource: true,
+            getCurrentPrintPage: () => 7,
+            printDjvuSource,
+        });
+
+        try {
+            const printPromise = state.handlePrintCurrentPage();
+            await flushMicrotasks(4);
+
+            timeoutCallbacks.get(1)?.();
+            expect(toastAddMock).toHaveBeenCalledWith({
+                close: false,
+                color: 'neutral',
+                description: 'print.systemDialogHint',
+                duration: 0,
+                icon: 'i-ph-circle-notch',
+                title: 'print.preparing',
+            });
+
+            startNativePrintHandoff();
+            expect(toastRemoveMock).toHaveBeenCalledWith('toast-id');
+
+            finishPrint();
+            await printPromise;
+
+            expect(state.isPreparingPrint.value).toBe(false);
+            expect(state.printError.value).toBeNull();
         } finally {
             scope.stop();
         }
