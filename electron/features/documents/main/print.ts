@@ -182,7 +182,7 @@ export async function handlePrintPdfData(
 
     try {
         await writeFile(tempPath, Buffer.from(data));
-        const result = await openNativePrintDialogForPath(ownerWindow, tempPath);
+        const result = await openNativePrintDialogForPath(ownerWindow, tempPath, {}, fileName);
         if (result.success) {
             shouldRetainTempPdf = true;
             schedulePrintTempCleanup(tempPath);
@@ -238,7 +238,7 @@ export async function handlePrintPdfPath(
     const resolvedPath = await resolveReadablePdfPathForSender(filePath, context.senderId);
     const normalizedPageNumbers = normalizePrintPageNumbers(pageNumbers);
     if (!normalizedPageNumbers) {
-        return openNativePrintDialogForPath(ownerWindow, resolvedPath);
+        return openNativePrintDialogForPath(ownerWindow, resolvedPath, {}, _fileName);
     }
 
     const tempFileName = `${PRINT_PAGE_TEMP_PREFIX}${randomUUID()}-${normalizePrintableFileName(_fileName)}`;
@@ -249,7 +249,7 @@ export async function handlePrintPdfPath(
         const result = await openNativePrintDialogForPath(ownerWindow, tempPath, {pageRanges: [{
             from: 0,
             to: normalizedPageNumbers.length - 1,
-        }]});
+        }]}, _fileName);
         if (result.success) {
             shouldRetainTempPdf = true;
             schedulePrintTempCleanup(tempPath);

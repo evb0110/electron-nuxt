@@ -23,11 +23,15 @@ const mocks = vi.hoisted(() => {
 
     class MockBrowserWindow {
         public readonly close = vi.fn();
+        public readonly hide = vi.fn();
         public readonly isDestroyed = vi.fn(() => false);
         public readonly loadURL = vi.fn(async () => {});
         public readonly once = vi.fn();
         public readonly removeListener = vi.fn();
+        public readonly setTitle = vi.fn();
+        public readonly showInactive = vi.fn();
         public readonly webContents = {
+            on: vi.fn(),
             print: vi.fn(printHandler),
             printToPDF: vi.fn(async () => Buffer.from('%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n')),
             once: vi.fn(),
@@ -187,11 +191,17 @@ describe('documents print', () => {
         expect(mocks.browserWindowInstances).toHaveLength(1);
         expect(mocks.browserWindowInstances[0]?.options).toEqual(expect.objectContaining({
             show: false,
+            title: 'source',
             webPreferences: expect.objectContaining({
                 backgroundThrottling: false,
                 plugins: true,
             }),
         }));
+        expect(mocks.browserWindowInstances[0]?.setTitle).toHaveBeenCalledWith('source');
+        expect(mocks.browserWindowInstances[0]?.webContents.on).toHaveBeenCalledWith(
+            'page-title-updated',
+            expect.any(Function),
+        );
         expect(mocks.browserWindowInstances[0]?.loadURL).toHaveBeenCalledWith(
             pathToFileURL(sourcePdfPath).toString(),
         );
@@ -218,6 +228,7 @@ describe('documents print', () => {
         expect(mocks.browserWindowInstances[0]?.webContents.print).not.toHaveBeenCalled();
         expect(mocks.browserWindowInstances[0]?.webContents.printToPDF).toHaveBeenCalledWith({printBackground: true});
         expect(mocks.browserWindowInstances[0]?.close).not.toHaveBeenCalled();
+        expect(mocks.browserWindowInstances[0]?.showInactive).not.toHaveBeenCalled();
 
         await vi.runOnlyPendingTimersAsync();
 
@@ -238,6 +249,7 @@ describe('documents print', () => {
             `${tempRoot}/print-data-print-job-id-document.pdf`,
             Buffer.from(validPdfBytes),
         );
+        expect(mocks.browserWindowInstances[0]?.options).toEqual(expect.objectContaining({title: 'document'}));
         expect(mocks.unlink).not.toHaveBeenCalled();
 
         await vi.runOnlyPendingTimersAsync();

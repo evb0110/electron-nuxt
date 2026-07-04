@@ -4,6 +4,10 @@ import {
     stat,
     unlink,
 } from 'fs/promises';
+import {
+    basename,
+    parse,
+} from 'path';
 import { pathToFileURL } from 'url';
 import { delay } from 'es-toolkit/promise';
 import { createLogger } from '@electron/utils/createLogger';
@@ -19,6 +23,7 @@ const PRINT_DIALOG_TEST_MODE_ENV = 'EVB_PRINT_DIALOG_TEST_MODE';
 const PRINT_DIALOG_TEST_MODE_PRINT_TO_PDF = 'print-to-pdf';
 const PRINT_WINDOW_WIDTH_PX = 1280;
 const PRINT_WINDOW_HEIGHT_PX = 1600;
+const PRINT_WINDOW_VISIBLE_ON_DARWIN = process.platform === 'darwin';
 export const PRINT_DJVU_TEMP_PREFIX = 'print-djvu-';
 const MAX_PRINT_PDF_BYTES = parseIntegerEnv('EVB_PRINT_PDF_MAX_MB', 256, 1, 2048) * 1024 * 1024;
 const PDF_HEADER_SCAN_BYTES = 1024;
@@ -103,13 +108,40 @@ export async function cleanupPrintTempPath(path: string) {
     await unlink(path).catch(() => undefined);
 }
 
-function createPrintWindow(ownerWindow?: BrowserWindow) {
+function sanitizePrintDocumentTitle(title: string) {
+    const sanitized = Array.from(title)
+        .map((character) => {
+            const codePoint = character.codePointAt(0) ?? 0;
+            if (codePoint < 32 || character === '/' || character === '\\' || character === ':') {
+                return '-';
+            }
+            return character;
+        })
+        .join('')
+        .trim();
+    return sanitized || 'document';
+}
+
+export function resolvePrintDocumentTitle(filePath: string, fileName?: string) {
+    const candidate = typeof fileName === 'string' && fileName.trim()
+        ? fileName.trim()
+        : filePath;
+    const candidateBaseName = basename(candidate) || 'document';
+    const parsed = parse(candidateBaseName);
+    return sanitizePrintDocumentTitle(parsed.name || candidateBaseName || 'document');
+}
+
+function createPrintWindow(ownerWindow: BrowserWindow | undefined, documentTitle: string) {
     return new BrowserWindow({
         show: false,
+        title: documentTitle,
         autoHideMenuBar: true,
         ...(ownerWindow ? { parent: ownerWindow } : {}),
         width: PRINT_WINDOW_WIDTH_PX,
         height: PRINT_WINDOW_HEIGHT_PX,
+        skipTaskbar: true,
+        minimizable: false,
+        fullscreenable: false,
         paintWhenInitiallyHidden: true,
         backgroundColor: '#ffffff',
         webPreferences: {
@@ -124,6 +156,36 @@ function createPrintWindow(ownerWindow?: BrowserWindow) {
             backgroundThrottling: false,
         },
     });
+}
+
+function lockPrintWindowTitle(printWindow: BrowserWindow, documentTitle: string) {
+    printWindow.setTitle(documentTitle);
+    const handlePageTitleUpdated = (event: Electron.Event) => {
+        event.preventDefault();
+        printWindow.setTitle(documentTitle);
+    };
+    printWindow.webContents.on('page-title-updated', handlePageTitleUpdated);
+
+    return () => {
+        printWindow.webContents.removeListener('page-title-updated', handlePageTitleUpdated);
+    };
+}
+
+function revealPrintWindowForNativeDialog(printWindow: BrowserWindow) {
+    if (!PRINT_WINDOW_VISIBLE_ON_DARWIN || shouldRunPrintToPdfSmoke()) {
+        return;
+    }
+
+    // macOS can hand a blank hidden PDF plugin surface to the native print dialog.
+    // Showing the transient print window gives Chromium's PDF viewer a real surface
+    // while the dialog is open; the window is hidden again after the print callback.
+    printWindow.showInactive();
+}
+
+function hideRevealedPrintWindow(printWindow: BrowserWindow) {
+    if (PRINT_WINDOW_VISIBLE_ON_DARWIN && !printWindow.isDestroyed()) {
+        printWindow.hide();
+    }
 }
 
 function closePrintWindow(printWindow: BrowserWindow) {
@@ -248,16 +310,21 @@ export async function openNativePrintDialogForPath(
     ownerWindow: BrowserWindow | undefined,
     path: string,
     printOptions: WebContentsPrintOptions = {},
+    fileName?: string,
 ): Promise<IPrintPdfResult> {
-    const printWindow = createPrintWindow(ownerWindow);
+    const documentTitle = resolvePrintDocumentTitle(path, fileName);
+    const printWindow = createPrintWindow(ownerWindow, documentTitle);
+    const releasePrintWindowTitle = lockPrintWindowTitle(printWindow, documentTitle);
     let shouldRetainPrintWindow = false;
 
     try {
         await printWindow.loadURL(pathToFileURL(path).toString());
+        revealPrintWindowForNativeDialog(printWindow);
         await delay(PRINT_LOAD_SETTLE_DELAY_MS);
         const result = await runNativePrintDialog(printWindow, printOptions);
         if (result.success) {
             shouldRetainPrintWindow = true;
+            hideRevealedPrintWindow(printWindow);
             schedulePrintWindowClose(printWindow);
         }
         return result;
@@ -268,6 +335,7 @@ export async function openNativePrintDialogForPath(
             error: error instanceof Error ? error.message : 'Failed to open native print dialog',
         };
     } finally {
+        releasePrintWindowTitle();
         if (!shouldRetainPrintWindow) {
             closePrintWindow(printWindow);
         }
@@ -277,13 +345,13 @@ export async function openNativePrintDialogForPath(
 export async function printManagedTempPdfPath(
     context: IPrintWindowContext,
     filePath: string,
-    _fileName?: string,
+    fileName?: string,
 ): Promise<IPrintPdfResult> {
     await assertPdfPathWithinSizeLimit(filePath);
     const ownerWindow = context.window ?? undefined;
     let shouldRetainTempPdf = false;
     try {
-        const result = await openNativePrintDialogForPath(ownerWindow, filePath);
+        const result = await openNativePrintDialogForPath(ownerWindow, filePath, {}, fileName);
         if (result.success) {
             shouldRetainTempPdf = true;
             schedulePrintTempCleanup(filePath);
