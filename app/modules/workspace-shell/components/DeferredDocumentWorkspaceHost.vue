@@ -116,6 +116,7 @@ import { resolveWorkspaceRequestedState } from '@app/modules/workspace-shell/hos
 import { shouldPreloadWorkspaceOnHostMount } from '@app/modules/workspace-shell/host/shouldPreloadWorkspaceOnHostMount';
 import { shouldShowWorkspaceHostLoader } from '@app/modules/workspace-shell/host/shouldShowWorkspaceHostLoader';
 import { shouldShowWorkspacePlaceholder } from '@app/modules/workspace-shell/host/shouldShowWorkspacePlaceholder';
+import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
 import {
     createWorkspaceRestoreAttemptState,
     tryClaimWorkspaceRestoreAttempt,
@@ -290,7 +291,8 @@ const activeDocumentOpenTransaction = computed(() => {
 });
 const workspaceVisibleDocument = computed(() => {
     const snapshot = currentToolbarSnapshot.value;
-    return hasWorkspaceViewerDocumentCapabilities(snapshot.viewerCapabilities) || snapshot.isOpeningDocument || snapshot.hasOpenError;
+    return hasWorkspaceViewerDocumentCapabilities(snapshot.viewerCapabilities)
+        || snapshot.isOpeningDocument || snapshot.hasOpenError || documentRecord?.documentIdentity !== null || tabHasDocumentHint(documentRecord?.tab ?? {});
 });
 const hasPendingDocumentHint = computed(() => hasDocumentHint === true && !workspaceVisibleDocument.value);
 const pendingDocumentPath = computed(() => (
@@ -656,19 +658,17 @@ async function runWithDocumentOpenInFlight<T>(
     if (!transaction) {
         return false;
     }
-    let result: T | undefined;
-    let didThrow = false;
-    let didReachTerminalState = false;
+    let opened = false;
     try {
-        result = await run();
-        didReachTerminalState = await waitForDocumentOpenTerminalState(transaction, result !== false);
-        return didReachTerminalState ? result : false;
-    } catch (error) {
-        didThrow = true;
-        throw error;
+        const result = await run();
+        if (result === false) {
+            return false;
+        }
+        opened = true;
+        await waitForDocumentOpenTerminalState(transaction, true);
+        return result;
     } finally {
-        const opened = !didThrow && result !== false;
-        finishDocumentOpenTransaction(transaction, opened && didReachTerminalState);
+        finishDocumentOpenTransaction(transaction, opened);
     }
 }
 

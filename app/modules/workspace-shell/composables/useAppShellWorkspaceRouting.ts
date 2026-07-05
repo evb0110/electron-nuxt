@@ -50,6 +50,9 @@ interface IOpenInExistingTabOptions {
     reuseAlreadyReserved?: boolean;
 }
 
+const DOCUMENT_OPEN_RECOVERY_TIMEOUT_MS = 800;
+const DOCUMENT_OPEN_RECOVERY_POLL_INTERVAL_MS = 50;
+
 function readWorkspaceToolbarSnapshot(workspace: IWorkspaceExpose) {
     try {
         return workspace.getToolbarSnapshot();
@@ -86,10 +89,60 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
     }
 
     function recordOccupiesTab(record: IWorkspaceDocumentRecord | null) {
+        if (!record) {
+            return false;
+        }
+
         const snapshot = record?.toolbarSnapshot;
         return hasWorkspaceViewerDocumentCapabilities(snapshot?.viewerCapabilities)
             || snapshot?.isOpeningDocument === true
-            || snapshot?.hasOpenError === true;
+            || snapshot?.hasOpenError === true
+            || record.documentIdentity !== null
+            || tabHasDocumentHint(record.tab);
+    }
+
+    function recordHasSettledDocumentEvidence(record: IWorkspaceDocumentRecord | null) {
+        if (!record || record.toolbarSnapshot.isOpeningDocument) {
+            return false;
+        }
+
+        return hasWorkspaceViewerDocumentCapabilities(record.toolbarSnapshot.viewerCapabilities)
+            || record.toolbarSnapshot.hasOpenError === true
+            || record.documentIdentity !== null
+            || record.tab.originalPath !== null
+            || record.tab.fileName !== null
+            || record.tab.isDjvu;
+    }
+
+    function workspaceHasSettledDocumentEvidence(tabId: string, workspace: IWorkspaceExpose | null) {
+        if (recordHasSettledDocumentEvidence(getDocumentRecord(tabId))) {
+            return true;
+        }
+
+        if (!workspace) {
+            return false;
+        }
+
+        const snapshot = readWorkspaceToolbarSnapshot(workspace);
+        return snapshot?.isOpeningDocument !== true
+            && (
+                hasWorkspaceViewerDocumentCapabilities(snapshot?.viewerCapabilities)
+                || snapshot?.hasOpenError === true
+                || workspaceHasPdf(workspace)
+            );
+    }
+
+    async function waitForSettledDocumentEvidence(tabId: string, workspace: IWorkspaceExpose | null) {
+        const deadline = Date.now() + DOCUMENT_OPEN_RECOVERY_TIMEOUT_MS;
+        while (Date.now() < deadline) {
+            if (workspaceHasSettledDocumentEvidence(tabId, workspace)) {
+                return true;
+            }
+
+            await new Promise(resolve => setTimeout(resolve, DOCUMENT_OPEN_RECOVERY_POLL_INTERVAL_MS));
+        }
+
+        return workspaceHasSettledDocumentEvidence(tabId, workspace);
     }
 
     function workspaceOccupiesTab(tabId: string, workspace: IWorkspaceExpose) {
@@ -210,6 +263,11 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
 
         const opened = await openDocumentInWorkspace(workspace, pathOrResult);
         if (!opened) {
+            if (await waitForSettledDocumentEvidence(tab.id, workspace)) {
+                BrowserLogger.warn('workspace-routing', 'Keeping new tab after open returned false because document state settled', {tabId: tab.id});
+                return true;
+            }
+
             removeTabFromState(tab.id);
         }
         return opened;
@@ -328,6 +386,14 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
                 }
                 const opened = await workspace.handleOpenFileDirectWithPersist(path);
                 if (!opened) {
+                    if (await waitForSettledDocumentEvidence(tab.id, workspace)) {
+                        BrowserLogger.warn('workspace-routing', 'Keeping startup-created tab after open returned false because document state settled', {
+                            tabId: tab.id,
+                            pathIndex: index,
+                        });
+                        return;
+                    }
+
                     removeTabFromState(tab.id);
                     throw new Error('Startup tab document open did not complete');
                 }

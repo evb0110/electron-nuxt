@@ -66,6 +66,23 @@ describe('useDocumentTransitionSkeletonLease', () => {
         expect(harness.lease.showDocumentTransitionSkeleton.value).toBe(false);
     });
 
+    it('does not rearm after a second pending event in the same open transaction', async () => {
+        const harness = createHarness();
+
+        harness.pendingDocumentOpen.value = true;
+        await nextTick();
+        harness.lease.handleDocumentInitialVisualPending();
+        harness.lease.handleDocumentInitialVisualReady();
+        await nextTick();
+
+        harness.lease.handleDocumentInitialVisualPending();
+        await nextTick();
+
+        expect(harness.pendingDocumentOpen.value).toBe(true);
+        expect(harness.initialDocumentVisualReady.value).toBe(false);
+        expect(harness.lease.showDocumentTransitionSkeleton.value).toBe(false);
+    });
+
     it('clears the lease when the host transaction finishes or an error appears', async () => {
         const harness = createHarness();
 

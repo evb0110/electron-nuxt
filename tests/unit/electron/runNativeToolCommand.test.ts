@@ -58,12 +58,12 @@ describe('runNativeToolCommand', () => {
             stderr: '',
             stdout: '99\n',
         });
-        const {
-            NativeToolProtocolVersionError,
-            runNativeToolCommand,
-        } = await loadModule();
+        const {runNativeToolCommand} = await loadModule();
 
-        await expect(runNativeToolCommand('/tools/evb-pdf-search', ['search'])).rejects.toBeInstanceOf(NativeToolProtocolVersionError);
+        await expect(runNativeToolCommand('/tools/evb-pdf-search', ['search'])).rejects.toMatchObject({
+            name: 'NativeToolProtocolVersionError',
+            message: 'evb-pdf-search unsupported native protocol version: expected 1, got 99',
+        });
         expect(mocks.runNativeCommand).toHaveBeenCalledTimes(1);
         expect(mocks.runNativeCommand).toHaveBeenCalledWith(
             '/tools/evb-pdf-search',
