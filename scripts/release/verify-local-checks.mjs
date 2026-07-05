@@ -121,6 +121,27 @@ export function getLocalReleaseCheckCommands() {
         {
             args: [
                 'run',
+                'build:pdf-image-combine',
+            ],
+            command: 'pnpm',
+        },
+        {
+            args: [
+                'run',
+                'build:pdf-page-ops',
+            ],
+            command: 'pnpm',
+        },
+        {
+            args: [
+                'run',
+                'build:pdf-search',
+            ],
+            command: 'pnpm',
+        },
+        {
+            args: [
+                'run',
                 'check:generated-native-resources:host',
             ],
             command: 'pnpm',
