@@ -8,6 +8,10 @@
 - `pnpm build:desktop`
 - `pnpm preview`
 - `pnpm lint && pnpm typecheck && pnpm build`
+- `pnpm run test:bundle-integrity:no-build`
+- `pnpm exec vitest run --project unit-policy tests/unit/scripts/releasePolicy.test.ts`
+- `pnpm run validate:changed`
+- `pnpm run fallow:changed`
 - `pnpm validate`
 
 ## Intended Use
@@ -16,7 +20,8 @@
 - `build` produces the Nuxt web build used for deployment, including prerendered app routes, Nitro server endpoints, and a post-build check that required browser WASM assets were copied into the deploy output.
 - `build:desktop` adds the Electron bundles on top of the Nuxt web build for local packaging and release flows.
 - Vercel builds emit Nitro output into `.vercel/output`; local desktop flows keep using `nuxt-output/`.
-- `pnpm lint && pnpm typecheck && pnpm build` is the current web-scope verification batch and is independent of the separate `landing/` app.
+- `pnpm lint && pnpm typecheck && pnpm build` is the current web-scope verification batch and is independent of the separate `landing/` app. `lint` owns ESLint, stylelint, and the fast static checks; slower static report/assets checks are split into `pnpm run check:static:reports` and `pnpm run check:static:assets`.
+- After a desktop build has produced `dist-electron/`, `pnpm run test:bundle-integrity:no-build` runs the bundle-integrity assertions without forcing another build. Use `pnpm run test:bundle-integrity` when you want the script-managed build, prune, and hygiene wrapper.
 - Browser Rust/WASM artifacts are prebuilt under `public/wasm/`; web deploys verify and serve those artifacts but do not rebuild them remotely.
 
 ## Current Scope
@@ -36,11 +41,17 @@
 
 ## Broader Gates
 
-- `pnpm run check:architecture` validates app/module boundaries.
+- `pnpm run check:architecture` validates app/module boundaries and source-size policy. Normal `lint` runs the focused import/boundary subset through `check:architecture:imports`.
 - `pnpm run check:dependency-lockstep` keeps Vue runtime/compiler pins,
   intlify runtime pins, `vue-i18n`, and pnpm overrides aligned.
-- `pnpm validate` is the broad local gate: lint, typecheck, type coverage,
-  strict build, fallow checks, and architecture checks.
+- `pnpm validate` is the broad local gate: lint, split static report/assets
+  checks, typecheck, unit tests, type coverage, strict build, fallow checks,
+  and source-size policy.
+- Changed or fast loops are for iteration only: `pnpm run validate:changed`
+  runs cached ESLint, changed Vitest tests, and changed fallow checks;
+  `pnpm exec vitest run --project unit-policy tests/unit/scripts/releasePolicy.test.ts`
+  keeps release/local policy edits tight. Run the broader gate before relying
+  on the result for release or merge confidence.
 
 ## Dependency Lockstep
 

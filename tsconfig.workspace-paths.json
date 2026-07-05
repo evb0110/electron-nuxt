@@ -1,0 +1,34 @@
+{
+    "compilerOptions": {
+        "baseUrl": ".",
+        "paths": {
+            "@app/*": ["app/*"],
+            "@contracts": ["packages/contracts/index.ts"],
+            "@contracts/*": ["packages/contracts/*"],
+            "@evb/contracts": ["packages/contracts/index.ts"],
+            "@evb/contracts/*": ["packages/contracts/*"],
+            "@pdf-core": ["packages/pdf-core/index.ts"],
+            "@pdf-core/*": ["packages/pdf-core/*"],
+            "@evb/pdf-core": ["packages/pdf-core/index.ts"],
+            "@evb/pdf-core/*": ["packages/pdf-core/*"],
+            "@electron-worker-bundles/*": ["packages/electron-worker-bundles/*"],
+            "@evb/electron-worker-bundles/*": ["packages/electron-worker-bundles/*"],
+            "@electron/*": ["electron/*"],
+            "@i18n-core": ["packages/i18n-core/index.ts"],
+            "@i18n-core/*": ["packages/i18n-core/*"],
+            "@evb/i18n-core": ["packages/i18n-core/index.ts"],
+            "@evb/i18n-core/*": ["packages/i18n-core/*"],
+            "@i18n-app": ["packages/i18n-app/index.ts"],
+            "@i18n-app/*": ["packages/i18n-app/*"],
+            "@evb/i18n-app": ["packages/i18n-app/index.ts"],
+            "@evb/i18n-app/*": ["packages/i18n-app/*"],
+            "@releaseSelection": ["packages/release-selection/index.ts"],
+            "@releaseSelection/*": ["packages/release-selection/*"],
+            "@evb/releaseSelection": ["packages/release-selection/index.ts"],
+            "@evb/releaseSelection/*": ["packages/release-selection/*"],
+            "@scripts/*": ["scripts/*"],
+            "@server/*": ["server/*"],
+            "@tests/*": ["tests/*"]
+        }
+    }
+}

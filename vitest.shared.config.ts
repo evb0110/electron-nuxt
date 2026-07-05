@@ -9,9 +9,13 @@ export const unitSlowTestThresholdMs = 300;
 export const electronE2ETeardownTimeoutMs = 30_000;
 
 const vitestProjectNames = {
-    unit: 'unit',
+    unitCore: 'unit-core',
+    unitApp: 'unit-app',
+    unitElectron: 'unit-electron',
+    unitScripts: 'unit-scripts',
+    unitPolicy: 'unit-policy',
     bundleIntegrity: 'bundle-integrity',
-    electronE2ESmoke: 'e2e-smoke',
+    electronE2ERegression: 'e2e-regression',
     electronE2EBlockingSmoke: 'e2e-blocking-smoke',
     electronE2EDrawShapes: 'e2e-draw-shapes',
     electronE2ELargePdf: 'e2e-large-pdf',
@@ -21,6 +25,11 @@ const vitestProjectNames = {
 
 const bundleIntegrityTestFiles = ['tests/unit/electron/bundleIntegrity.test.ts'];
 const landingUnitTestFiles = ['tests/unit/landing/**/*.test.ts'];
+const unitPolicyTestFiles = [
+    'tests/unit/scripts/*Policy.test.ts',
+    'tests/unit/scripts/electronE2eSmokeConfig.test.ts',
+    'tests/unit/scripts/packageScripts.test.ts',
+];
 
 const electronE2ESmokeTestFiles = [
     'tests/e2e/electron/startupHydration.e2e.test.ts',
@@ -55,19 +64,32 @@ function createUnitAutoImportPlugin() {
     });
 }
 
-function createUnitTestProject() {
+function createUnitTestProject(
+    name: string,
+    include: string[],
+    {
+        autoImport = false,
+        exclude = [],
+        setupFiles,
+    }: {
+        autoImport?: boolean;
+        exclude?: string[];
+        setupFiles?: string[];
+    } = {},
+) {
     return {
-        plugins: [createUnitAutoImportPlugin()],
+        plugins: autoImport ? [createUnitAutoImportPlugin()] : [],
         resolve: vitestResolveConfig,
         test: {
-            name: vitestProjectNames.unit,
-            include: ['tests/unit/**/*.test.ts'],
+            name,
+            include,
             exclude: [
                 ...bundleIntegrityTestFiles,
                 ...landingUnitTestFiles,
+                ...exclude,
             ],
             globals: false,
-            setupFiles: unitTestSetupFiles,
+            ...(setupFiles ? { setupFiles } : {}),
         },
     } satisfies TestProjectConfiguration;
 }
@@ -106,9 +128,46 @@ function createElectronE2ETestProject(
 }
 
 export const vitestProjects = [
-    createUnitTestProject(),
+    createUnitTestProject(
+        vitestProjectNames.unitCore,
+        [
+            'tests/unit/contracts/**/*.test.ts',
+            'tests/unit/helpers/**/*.test.ts',
+            'tests/unit/i18n/**/*.test.ts',
+            'tests/unit/packages/**/*.test.ts',
+            'tests/unit/pdf/**/*.test.ts',
+            'tests/unit/pdf-core/**/*.test.ts',
+            'tests/unit/pdf-viewer/**/*.test.ts',
+            'tests/unit/server/**/*.test.ts',
+        ],
+        { autoImport: true },
+    ),
+    createUnitTestProject(
+        vitestProjectNames.unitApp,
+        ['tests/unit/app/**/*.test.ts'],
+        {
+            autoImport: true,
+            setupFiles: unitTestSetupFiles,
+        },
+    ),
+    createUnitTestProject(
+        vitestProjectNames.unitElectron,
+        [
+            'tests/unit/e2e/**/*.test.ts',
+            'tests/unit/electron/**/*.test.ts',
+        ],
+    ),
+    createUnitTestProject(
+        vitestProjectNames.unitScripts,
+        ['tests/unit/scripts/**/*.test.ts'],
+        { exclude: unitPolicyTestFiles },
+    ),
+    createUnitTestProject(
+        vitestProjectNames.unitPolicy,
+        unitPolicyTestFiles,
+    ),
     createBundleIntegrityTestProject(),
-    createElectronE2ETestProject(vitestProjectNames.electronE2ESmoke, electronE2ESmokeTestFiles),
+    createElectronE2ETestProject(vitestProjectNames.electronE2ERegression, electronE2ESmokeTestFiles),
     createElectronE2ETestProject(vitestProjectNames.electronE2EBlockingSmoke, electronE2EBlockingSmokeTestFiles),
     createElectronE2ETestProject(vitestProjectNames.electronE2EDrawShapes, electronE2EDrawShapeTestFiles),
     createElectronE2ETestProject(vitestProjectNames.electronE2ELargePdf, electronE2ELargePdfTestFiles),

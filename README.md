@@ -180,8 +180,14 @@ Copy `.env.example` files when you need local environment overrides. Do not comm
 ## Testing And Verification
 
 ```bash
-# Root app static checks
+# Root app lint and fast static checks
 pnpm lint
+
+# Static checks split out from lint
+pnpm run check:static:reports
+pnpm run check:static:assets
+
+# Type checks
 pnpm typecheck
 
 # Unit tests
@@ -193,8 +199,17 @@ pnpm run test:coverage
 # Heavy generated Electron bundle integrity check
 pnpm run test:bundle-integrity
 
+# No-build bundle integrity against an existing dist-electron/
+pnpm run test:bundle-integrity:no-build
+
+# Fast release/local policy loop
+pnpm exec vitest run --project unit-policy tests/unit/scripts/releasePolicy.test.ts
+
 # Manual Electron E2E diagnostics
 pnpm run test:e2e:electron
+
+# Changed-file local loop
+pnpm run validate:changed
 
 # Full contributor validation
 pnpm validate
@@ -220,14 +235,20 @@ install and build commands.
 
 Release-critical checks intentionally stop at linting, typechecking, Electron
 install verification, strict artifact builds, current-platform packaging, and
-the fast unit suite. Broader maintenance checks stay in
-`pnpm validate` and scheduled nightly CI. Direct pushes to `main` run
+the fast unit suite. `pnpm run release:verify` is the full host-side proof: it
+runs the CI-mode lint/static/test gate first, then the current-platform
+build/package gate. Broader maintenance checks stay in
+`pnpm validate` and scheduled nightly CI. For local iteration, use changed or
+file-scoped loops such as `pnpm run validate:changed`,
+`pnpm exec vitest run --project unit-policy tests/unit/scripts/releasePolicy.test.ts`, or
+`pnpm run test:bundle-integrity:no-build` after
+`dist-electron/` already exists. Direct pushes to `main` run
 `pnpm lint`, `pnpm typecheck`, and `pnpm run test:release`; native, landing,
 and Python page-processor changes also get path-filtered checks. Electron E2E
 and PDF tab diagnostics run in nightly/manual diagnostics until they are stable
 enough to promote into a blocking release gate.
 
-The manual Electron E2E smoke lane currently covers:
+The Electron E2E regression suite currently covers:
 
 - Startup hydration, recent files, core viewer smoke, inactive PDF/DjVu tabs,
   annotation lifecycle, and squiggly markup on desktop

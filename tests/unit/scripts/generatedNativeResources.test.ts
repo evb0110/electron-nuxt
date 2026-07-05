@@ -1,4 +1,5 @@
 import {
+    access,
     mkdir,
     mkdtemp,
     rm,
@@ -35,7 +36,10 @@ interface INativeResourceTarget {
     platform: string;
 }
 
-interface INativeResourceOptions { projectRoot?: string; }
+interface INativeResourceOptions {
+    projectRoot?: string;
+    pruneStale?: boolean;
+}
 
 const {
     GENERATED_NATIVE_TOOLS,
@@ -110,7 +114,7 @@ describe('generated native resource freshness', () => {
         }).toThrow('Unsupported host platform');
     });
 
-    it('removes stale staged payloads and fails before packaging', async () => {
+    it('fails stale staged payloads without mutating by default', async () => {
         const root = await createNativeResourceFixture();
         try {
             expect(() => {
@@ -119,6 +123,28 @@ describe('generated native resource freshness', () => {
                     platform: 'linux',
                 }, {projectRoot: root});
             }).toThrow('Stale generated native payloads');
+            await expect(access(path.join(root, '.tmp', 'pdf-image-combine', 'linux-x64'))).resolves.toBeUndefined();
+        } finally {
+            await rm(root, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('removes stale staged payloads only in explicit prune mode', async () => {
+        const root = await createNativeResourceFixture();
+        try {
+            expect(() => {
+                assertGeneratedNativeResourceFresh({
+                    arch: 'x64',
+                    platform: 'linux',
+                }, {
+                    projectRoot: root,
+                    pruneStale: true,
+                });
+            }).toThrow('removed stale .tmp directories');
+            await expect(access(path.join(root, '.tmp', 'pdf-image-combine', 'linux-x64'))).rejects.toThrow();
         } finally {
             await rm(root, {
                 force: true,

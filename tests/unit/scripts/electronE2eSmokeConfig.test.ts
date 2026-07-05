@@ -13,7 +13,8 @@ import type {
     Simplify,
 } from 'type-fest';
 
-interface IElectronE2EProjectTestConfig {
+interface IVitestProjectTestConfig {
+    exclude?: string[];
     fileParallelism?: boolean;
     globalSetup?: string[];
     hookTimeout?: number;
@@ -22,24 +23,56 @@ interface IElectronE2EProjectTestConfig {
     name?: string;
     retry?: number;
     sequence?: {concurrent?: boolean};
+    setupFiles?: string[];
     testTimeout?: number;
 }
 
-interface IElectronE2EProjectConfig { test?: IElectronE2EProjectTestConfig }
+interface IVitestProjectConfig {
+    plugins?: unknown[];
+    test?: IVitestProjectTestConfig;
+}
 
-interface IVitestSharedConfigModule { vitestProjects: IElectronE2EProjectConfig[] }
+interface IVitestSharedConfigModule { vitestProjects: IVitestProjectConfig[] }
 
 type TPackageJsonWithScripts = Simplify<SetRequired<PackageJson, 'scripts'>>;
 
 const vitestProjectNames = {
-    electronE2ESmoke: 'e2e-smoke',
+    unitCore: 'unit-core',
+    unitApp: 'unit-app',
+    unitElectron: 'unit-electron',
+    unitScripts: 'unit-scripts',
+    unitPolicy: 'unit-policy',
+    electronE2ERegression: 'e2e-regression',
+    electronE2EBlockingSmoke: 'e2e-blocking-smoke',
     electronE2EDrawShapes: 'e2e-draw-shapes',
     electronE2ELargePdf: 'e2e-large-pdf',
     electronE2ERapidNavigation: 'e2e-rapid-navigation',
     electronE2EQuarantine: 'e2e-quarantine',
 } as const;
 
-const electronE2ESmokeTestFiles = [
+const unitCoreTestFiles = [
+    'tests/unit/contracts/**/*.test.ts',
+    'tests/unit/helpers/**/*.test.ts',
+    'tests/unit/i18n/**/*.test.ts',
+    'tests/unit/packages/**/*.test.ts',
+    'tests/unit/pdf/**/*.test.ts',
+    'tests/unit/pdf-core/**/*.test.ts',
+    'tests/unit/pdf-viewer/**/*.test.ts',
+    'tests/unit/server/**/*.test.ts',
+];
+const unitAppTestFiles = ['tests/unit/app/**/*.test.ts'];
+const unitElectronTestFiles = [
+    'tests/unit/e2e/**/*.test.ts',
+    'tests/unit/electron/**/*.test.ts',
+];
+const unitScriptTestFiles = ['tests/unit/scripts/**/*.test.ts'];
+const unitPolicyTestFiles = [
+    'tests/unit/scripts/*Policy.test.ts',
+    'tests/unit/scripts/electronE2eSmokeConfig.test.ts',
+    'tests/unit/scripts/packageScripts.test.ts',
+];
+
+const electronE2ERegressionTestFiles = [
     'tests/e2e/electron/startupHydration.e2e.test.ts',
     'tests/e2e/electron/recentFiles.e2e.test.ts',
     'tests/e2e/electron/viewerSmoke.e2e.test.ts',
@@ -50,6 +83,10 @@ const electronE2ESmokeTestFiles = [
     'tests/e2e/electron/squigglyMarkup.e2e.test.ts',
 ];
 
+const electronE2EBlockingSmokeTestFiles = [
+    'tests/e2e/electron/blockingPdfSaveSmoke.e2e.test.ts',
+    'tests/e2e/electron/prBlockingSmoke.e2e.test.ts',
+];
 const electronE2EDrawShapeTestFiles = ['tests/e2e/electron/drawShapeLifecycle.e2e.test.ts'];
 const electronE2ELargePdfTestFiles = [
     'tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts',
@@ -100,7 +137,8 @@ function projectByName(
 
 function e2eProjectNames() {
     return [
-        vitestProjectNames.electronE2ESmoke,
+        vitestProjectNames.electronE2ERegression,
+        vitestProjectNames.electronE2EBlockingSmoke,
         vitestProjectNames.electronE2EDrawShapes,
         vitestProjectNames.electronE2ELargePdf,
         vitestProjectNames.electronE2ERapidNavigation,
@@ -117,45 +155,69 @@ async function readPackageJsonWithScripts(): Promise<TPackageJsonWithScripts> {
     return packageJson as TPackageJsonWithScripts;
 }
 
+describe('unit Vitest project topology', () => {
+    it('keeps unit tests split by owner and policy lane', async () => {
+        const config = await loadVitestSharedConfig(undefined);
+        const projectNames = config.vitestProjects.map(project => project.test?.name);
+
+        expect(projectNames).not.toContain('unit');
+        expect(projectByName(config, vitestProjectNames.unitCore).test?.include)
+            .toEqual(unitCoreTestFiles);
+        expect(projectByName(config, vitestProjectNames.unitCore).plugins)
+            .toHaveLength(1);
+        expect(projectByName(config, vitestProjectNames.unitApp).test?.include)
+            .toEqual(unitAppTestFiles);
+        expect(projectByName(config, vitestProjectNames.unitApp).plugins)
+            .toHaveLength(1);
+        expect(projectByName(config, vitestProjectNames.unitApp).test?.setupFiles)
+            .toEqual(['tests/setup.ts']);
+        expect(projectByName(config, vitestProjectNames.unitElectron).test?.include)
+            .toEqual(unitElectronTestFiles);
+        expect(projectByName(config, vitestProjectNames.unitScripts).test?.include)
+            .toEqual(unitScriptTestFiles);
+        expect(projectByName(config, vitestProjectNames.unitScripts).test?.exclude)
+            .toEqual(expect.arrayContaining(unitPolicyTestFiles));
+        expect(projectByName(config, vitestProjectNames.unitPolicy).test?.include)
+            .toEqual(unitPolicyTestFiles);
+    });
+});
+
 describe('electron e2e Vitest project topology', () => {
     it('keeps one local retry and two CI retries for startup flakes', async () => {
         const localConfig = await loadVitestSharedConfig(undefined);
         const ciConfig = await loadVitestSharedConfig('true');
 
         expect(e2eProjectNames().map(projectName => projectByName(localConfig, projectName).test?.retry))
-            .toEqual([
-                1,
-                1,
-                1,
-                1,
-                1,
-            ]);
+            .toEqual(Array.from({ length: e2eProjectNames().length }, () => 1));
         expect(e2eProjectNames().map(projectName => projectByName(ciConfig, projectName).test?.retry))
-            .toEqual([
-                2,
-                2,
-                2,
-                2,
-                2,
-            ]);
+            .toEqual(Array.from({ length: e2eProjectNames().length }, () => 2));
     });
 
-    it('keeps the default smoke project narrow and serial', async () => {
+    it('keeps the broad regression project focused and serial', async () => {
         const config = await loadVitestSharedConfig(undefined);
-        const smokeProject = projectByName(config, vitestProjectNames.electronE2ESmoke);
+        const regressionProject = projectByName(config, vitestProjectNames.electronE2ERegression);
 
-        expect(smokeProject.test?.include).toEqual(electronE2ESmokeTestFiles);
-        expect(smokeProject.test?.include).not.toContain('tests/e2e/electron/drawShapeLifecycle.e2e.test.ts');
-        expect(smokeProject.test?.include).not.toContain('tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts');
-        expect(smokeProject.test?.include).not.toContain('tests/e2e/electron/rapidPdfNavigation.e2e.test.ts');
-        expect(smokeProject.test?.include).not.toContain('tests/e2e/electron/pdfSkeletonNavigationDiagnostics.e2e.test.ts');
-        expect(smokeProject.test?.include).not.toContain('tests/e2e/electron/arnoldPdfOpenDiagnostics.e2e.test.ts');
-        expect(smokeProject.test?.globalSetup).toEqual(['tests/e2e/electron/globalSetup.ts']);
-        expect(smokeProject.test?.fileParallelism).toBe(false);
-        expect(smokeProject.test?.maxWorkers).toBe(1);
-        expect(smokeProject.test?.sequence).toEqual({ concurrent: false });
-        expect(smokeProject.test?.testTimeout).toBe(90_000);
-        expect(smokeProject.test?.hookTimeout).toBe(150_000);
+        expect(regressionProject.test?.include).toEqual(electronE2ERegressionTestFiles);
+        expect(regressionProject.test?.include).not.toContain('tests/e2e/electron/blockingPdfSaveSmoke.e2e.test.ts');
+        expect(regressionProject.test?.include).not.toContain('tests/e2e/electron/drawShapeLifecycle.e2e.test.ts');
+        expect(regressionProject.test?.include).not.toContain('tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts');
+        expect(regressionProject.test?.include).not.toContain('tests/e2e/electron/rapidPdfNavigation.e2e.test.ts');
+        expect(regressionProject.test?.include).not.toContain('tests/e2e/electron/pdfSkeletonNavigationDiagnostics.e2e.test.ts');
+        expect(regressionProject.test?.include).not.toContain('tests/e2e/electron/arnoldPdfOpenDiagnostics.e2e.test.ts');
+        expect(regressionProject.test?.globalSetup).toEqual(['tests/e2e/electron/globalSetup.ts']);
+        expect(regressionProject.test?.fileParallelism).toBe(false);
+        expect(regressionProject.test?.maxWorkers).toBe(1);
+        expect(regressionProject.test?.sequence).toEqual({ concurrent: false });
+        expect(regressionProject.test?.testTimeout).toBe(90_000);
+        expect(regressionProject.test?.hookTimeout).toBe(150_000);
+    });
+
+    it('keeps the PR blocking smoke project separate from broad regression', async () => {
+        const config = await loadVitestSharedConfig(undefined);
+        const blockingSmokeProject = projectByName(config, vitestProjectNames.electronE2EBlockingSmoke);
+
+        expect(blockingSmokeProject.test?.include).toEqual(electronE2EBlockingSmokeTestFiles);
+        expect(blockingSmokeProject.test?.include).not.toContain('tests/e2e/electron/viewerSmoke.e2e.test.ts');
     });
 
     it('exposes opt-in e2e subsets as named projects instead of env-mutated includes', async () => {
@@ -187,6 +249,13 @@ describe('electron e2e Vitest project topology', () => {
             .toBe('EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1 vitest run --project e2e-large-pdf --reporter verbose');
         expect(packageScripts['test:e2e:electron:rapid-navigation:no-build'])
             .toBe('vitest run --project e2e-rapid-navigation --reporter verbose');
+        expect(packageScripts['test:e2e:electron'])
+            .toBe('pnpm run build:electron && pnpm run test:e2e:electron:regression:no-build');
+        expect(packageScripts['test:e2e:electron:regression:no-build'])
+            .toBe('vitest run --project e2e-regression --reporter verbose');
+        expect(packageScripts['test:e2e:electron:smoke:no-build']).toBeUndefined();
+        expect(packageScripts['test:e2e:electron:watch'])
+            .toBe('vitest --project e2e-regression --reporter verbose');
     });
 });
 

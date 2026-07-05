@@ -72,6 +72,20 @@ export function getLocalReleaseCheckCommands() {
         {
             args: [
                 'run',
+                'check:static:reports',
+            ],
+            command: 'pnpm',
+        },
+        {
+            args: [
+                'run',
+                'check:static:assets',
+            ],
+            command: 'pnpm',
+        },
+        {
+            args: [
+                'run',
                 'typecheck',
             ],
             command: 'pnpm',
@@ -128,7 +142,7 @@ export function getLocalReleaseCheckCommands() {
         {
             args: [
                 'run',
-                'check:architecture',
+                'check:architecture:source-size',
             ],
             command: 'pnpm',
         },

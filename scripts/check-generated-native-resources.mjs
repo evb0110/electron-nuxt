@@ -108,6 +108,7 @@ function collectSourceMtimes(sourceRoot, root = projectRoot) {
 
 export function assertGeneratedNativeResourceFresh(target, options = {}) {
     const root = options.projectRoot ?? projectRoot;
+    const pruneStale = options.pruneStale === true;
     const platformArch = `${normalizePlatform(target.platform)}-${target.arch}`;
     const staleStagingDirs = [];
 
@@ -132,16 +133,22 @@ export function assertGeneratedNativeResourceFresh(target, options = {}) {
     }
 
     if (staleStagingDirs.length > 0) {
-        for (const dir of staleStagingDirs) {
-            rmSync(dir, {
-                force: true,
-                recursive: true,
-            });
+        if (pruneStale) {
+            for (const dir of staleStagingDirs) {
+                rmSync(dir, {
+                    force: true,
+                    recursive: true,
+                });
+            }
         }
         throw new Error([
-            `Stale generated native payloads for ${platformArch}; removed stale .tmp directories.`,
+            pruneStale
+                ? `Stale generated native payloads for ${platformArch}; removed stale .tmp directories.`
+                : `Stale generated native payloads for ${platformArch}.`,
             ...staleStagingDirs.map(dir => `  ${path.relative(root, dir)}`),
-            'Rebuild the Rust native tools before packaging.',
+            pruneStale
+                ? 'Rebuild the Rust native tools before packaging.'
+                : 'Rebuild the Rust native tools before packaging, or rerun with --prune-stale to remove stale .tmp directories.',
         ].join('\n'));
     }
 }
@@ -151,25 +158,27 @@ const isDirectCliRun = process.argv[1]
 
 if (isDirectCliRun) {
     const argv = process.argv.slice(2);
+    const pruneStale = argv.includes('--prune-stale');
+    const positionalArgs = argv.filter(argument => argument !== '--prune-stale');
     let target;
 
-    if (argv.length === 1 && argv[0] === '--host') {
+    if (positionalArgs.length === 1 && positionalArgs[0] === '--host') {
         target = detectHostGeneratedNativeResourceTarget();
-    } else if (argv.length === 2) {
+    } else if (positionalArgs.length === 2) {
         target = {
-            arch: argv[1],
-            platform: argv[0],
+            arch: positionalArgs[1],
+            platform: positionalArgs[0],
         };
     } else {
         console.error(
-            'Usage: node scripts/check-generated-native-resources.mjs --host '
-            + '| <mac|win|linux> <x64|arm64>',
+            'Usage: node scripts/check-generated-native-resources.mjs [--prune-stale] '
+            + '--host | <mac|win|linux> <x64|arm64>',
         );
         process.exit(1);
     }
 
     try {
-        assertGeneratedNativeResourceFresh(target);
+        assertGeneratedNativeResourceFresh(target, { pruneStale });
         console.log(`Generated native payloads are fresh for ${target.platform}-${target.arch}.`);
     } catch (error) {
         console.error(error instanceof Error ? error.message : String(error));

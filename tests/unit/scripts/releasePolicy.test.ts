@@ -3,6 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 
@@ -176,6 +177,14 @@ interface ICutReleaseModule {
         targetSha: string;
     }) => string[];
     parseCutReleaseArgs: (argv: string[]) => ICutReleaseArgs;
+}
+
+function getPackageScripts(): Record<string, string> {
+    const packageJson = JSON.parse(
+        readFileSync(resolve(process.cwd(), 'package.json'), 'utf8'),
+    ) as { scripts?: Record<string, string> };
+
+    return packageJson.scripts ?? {};
 }
 
 const {
@@ -430,71 +439,43 @@ describe('release policy', () => {
         });
     });
 
-    it('keeps release checks focused on static checks and release-critical tests', () => {
+    it('keeps release checks split between lint/static gates and release-critical tests', () => {
         const commandArgs: string[][] = getLocalReleaseCheckCommands()
             .map((command: { args: string[] }) => command.args);
         const scriptNames = commandArgs
             .filter(args => args[0] === 'run')
             .map(args => args[1]);
+        const lintAndStaticGateScripts = [
+            'lint',
+            'check:static:reports',
+            'check:static:assets',
+            'typecheck',
+            'typecheck:coverage',
+            'check:drizzle-schema',
+            'check:electron:install',
+            'check:electron-builder:asar-unpack',
+            'check:generated-native-resources:host',
+            'check:resources:matrix',
+            'check:wasm:portable',
+            'check:architecture:source-size',
+            'fallow:all',
+        ];
+        const releaseCriticalTestScripts = [
+            'test:rust',
+            'test:coverage',
+            'test:bundle-integrity',
+        ];
 
         expect(commandArgs).toEqual([
-            [
-                'run',
-                'lint',
-            ],
-            [
-                'run',
-                'typecheck',
-            ],
-            [
-                'run',
-                'typecheck:coverage',
-            ],
-            [
-                'run',
-                'check:drizzle-schema',
-            ],
-            [
-                'run',
-                'check:electron:install',
-            ],
-            [
-                'run',
-                'check:electron-builder:asar-unpack',
-            ],
-            [
-                'run',
-                'check:generated-native-resources:host',
-            ],
-            [
-                'run',
-                'check:resources:matrix',
-            ],
-            [
-                'run',
-                'check:wasm:portable',
-            ],
-            [
-                'run',
-                'check:architecture',
-            ],
-            [
-                'run',
-                'fallow:all',
-            ],
-            [
-                'run',
-                'test:rust',
-            ],
-            [
-                'run',
-                'test:coverage',
-            ],
-            [
-                'run',
-                'test:bundle-integrity',
-            ],
-        ]);
+            ...lintAndStaticGateScripts,
+            ...releaseCriticalTestScripts,
+        ].map(scriptName => [
+            'run',
+            scriptName,
+        ]));
+        expect(scriptNames.slice(0, lintAndStaticGateScripts.length)).toEqual(lintAndStaticGateScripts);
+        expect(scriptNames.slice(lintAndStaticGateScripts.length)).toEqual(releaseCriticalTestScripts);
+        expect(scriptNames).not.toContain('build:strict');
         expect(scriptNames).not.toContain('validate');
         expect(scriptNames).not.toContain('test:release');
         expect(scriptNames).not.toContain('test:python-page-processor');
@@ -535,7 +516,7 @@ describe('release policy', () => {
         ]);
     });
 
-    it('keeps standalone release verification composed from focused local gates', () => {
+    it('keeps standalone release verification split into check and package gates', () => {
         expect(getLocalReleaseVerifyCommands().map((command: { args: string[] }) => command.args)).toEqual([
             [
                 'run',
@@ -769,7 +750,7 @@ describe('release policy', () => {
         ]);
     });
 
-    it('keeps build-warning enforcement in the local packaging phase', () => {
+    it('keeps strict build enforcement in the local packaging phase', () => {
         expect(getLocalReleaseBuildCommand()).toEqual({
             args: [
                 'run',
@@ -777,6 +758,17 @@ describe('release policy', () => {
             ],
             command: 'pnpm',
         });
+    });
+
+    it('keeps bundle integrity reusable without rebuilding after build output exists', () => {
+        const scripts = getPackageScripts();
+
+        expect(scripts['test:bundle-integrity']).toBe(
+            'pnpm run build:electron && pnpm run test:bundle-integrity:no-build && node scripts/prune-build-artifacts.mjs && pnpm run check:build-artifacts:hygiene',
+        );
+        expect(scripts['test:bundle-integrity:no-build']).toBe(
+            'vitest run --project bundle-integrity',
+        );
     });
 
     it('does not generate optional page-processor resources during local release packaging', () => {

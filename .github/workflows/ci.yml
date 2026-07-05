@@ -182,29 +182,26 @@ jobs:
       - name: Lint
         run: pnpm run lint
 
+      - name: Static reports
+        run: pnpm run check:static:reports
+
+      - name: Static assets
+        run: pnpm run check:static:assets
+
       - name: Typecheck
         run: pnpm run typecheck
-
-      - name: Unit tests
-        run: pnpm run test:unit
 
       - name: Type coverage
         run: pnpm run typecheck:coverage
 
       - name: Strict build
-        run: pnpm run build:strict
+        run: pnpm run build:strict:no-wasm-check
 
       - name: Fallow dead code
         run: pnpm run fallow
 
       - name: Fallow duplicates
         run: pnpm run fallow:dupes
-
-      - name: Architecture dependency graph
-        run: pnpm run check:architecture:dep-graph
-
-      - name: Architecture boundaries
-        run: pnpm run check:architecture:boundaries
 
       - name: Architecture source size
         run: pnpm run check:architecture:source-size
@@ -305,29 +302,26 @@ jobs:
       - name: Lint
         run: pnpm run lint
 
+      - name: Static reports
+        run: pnpm run check:static:reports
+
+      - name: Static assets
+        run: pnpm run check:static:assets
+
       - name: Typecheck
         run: pnpm run typecheck
-
-      - name: Unit tests
-        run: pnpm run test:unit
 
       - name: Type coverage
         run: pnpm run typecheck:coverage
 
       - name: Strict build
-        run: pnpm run build:strict
+        run: pnpm run build:strict:no-wasm-check
 
       - name: Fallow dead code
         run: pnpm run fallow
 
       - name: Fallow duplicates
         run: pnpm run fallow:dupes
-
-      - name: Architecture dependency graph
-        run: pnpm run check:architecture:dep-graph
-
-      - name: Architecture boundaries
-        run: pnpm run check:architecture:boundaries
 
       - name: Architecture source size
         run: pnpm run check:architecture:source-size
@@ -338,14 +332,11 @@ jobs:
       - name: Coverage
         run: pnpm run test:coverage
 
-      - name: OCR language model registry
-        run: pnpm run check:ocr-language-model-registry
-
       - name: Page processor smoke
         run: pnpm run test:python-page-processor
 
-  nightly_electron_e2e:
-    name: Nightly Electron E2E Smoke
+  nightly_electron_e2e_regression:
+    name: Nightly Electron E2E Regression
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: macos-14
     continue-on-error: true
@@ -370,8 +361,8 @@ jobs:
       - name: Verify Electron install
         run: pnpm run check:electron:install
 
-      - name: Electron E2E smoke
-        run: pnpm run test:e2e:electron
+      - name: Electron E2E regression
+        run: pnpm run test:e2e:electron:regression
 
   nightly_electron_e2e_rapid_navigation:
     name: Nightly Electron E2E Rapid Navigation

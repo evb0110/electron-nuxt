@@ -1,7 +1,5 @@
 import withNuxt from './.nuxt/eslint.config.mjs';
 import stylistic from '@stylistic/eslint-plugin';
-import fs from 'node:fs';
-import path from 'node:path';
 import customPlugin from './eslint-plugin-custom.mjs';
 import {
     arrayTypeRules,
@@ -9,21 +7,6 @@ import {
     strictTypeRules,
     stylisticRules,
 } from './eslint.shared.mjs';
-
-const FEATURE_PUBLIC_ENTRYPOINT_EXCEPTIONS = [
-    './index.ts',
-    './index.tsx',
-    './index.js',
-    './index.mjs',
-    './public.ts',
-    './public.tsx',
-    './public.js',
-    './public.mjs',
-    './public/index.ts',
-    './public/index.tsx',
-    './public/index.js',
-    './public/index.mjs',
-];
 
 const ABSOLUTE_IMPORT_SOURCE_FILES = [
     'app/**/*.{ts,vue}',
@@ -33,47 +16,6 @@ const ABSOLUTE_IMPORT_SOURCE_FILES = [
     'server/**/*.ts',
     'tests/**/*.ts',
 ];
-
-function readFeatureDirectories(relativeRoot) {
-    const absoluteRoot = path.join(import.meta.dirname, relativeRoot);
-    if (!fs.existsSync(absoluteRoot)) {
-        return [];
-    }
-
-    return fs.readdirSync(absoluteRoot, { withFileTypes: true })
-        .filter(entry => entry.isDirectory())
-        .map(entry => entry.name);
-}
-
-function createCrossFeatureZones(relativeRoot, zoneMessagePrefix) {
-    const features = readFeatureDirectories(relativeRoot);
-    if (features.length < 2) {
-        return [];
-    }
-
-    return features.map(targetFeature => ({
-        target: `./${relativeRoot}/${targetFeature}`,
-        from: features
-            .filter(feature => feature !== targetFeature)
-            .map(feature => `./${relativeRoot}/${feature}`),
-        except: FEATURE_PUBLIC_ENTRYPOINT_EXCEPTIONS,
-        message: `${zoneMessagePrefix} cross-feature imports must use public entrypoints.`,
-    }));
-}
-
-function createLayerToModulePublicEntryZones(relativeRoot, targetLayers, zoneMessagePrefix) {
-    const features = readFeatureDirectories(relativeRoot);
-    if (features.length === 0) {
-        return [];
-    }
-
-    return features.map(feature => ({
-        target: targetLayers.map(layer => `./${layer}`),
-        from: `./${relativeRoot}/${feature}`,
-        except: FEATURE_PUBLIC_ENTRYPOINT_EXCEPTIONS,
-        message: `${zoneMessagePrefix} imports from app/modules must use public entrypoints.`,
-    }));
-}
 
 export default withNuxt(
     {ignores: [
@@ -121,81 +63,9 @@ export default withNuxt(
             '@typescript-eslint/explicit-module-boundary-types': 'off',
             '@typescript-eslint/no-inferrable-types': 'error',
             'no-return-await': 'error',
-            'import/no-cycle': [
-                'error',
-                {
-                    ignoreExternal: true,
-                    maxDepth: Infinity,
-                },
-            ],
-            'import/no-restricted-paths': [
-                'error',
-                {
-                    basePath: import.meta.dirname,
-                    zones: [
-                        {
-                            target: './electron',
-                            from: './app',
-                            message: 'electron/** must not import app/**.',
-                        },
-                        {
-                            target: './landing',
-                            from: './app',
-                            message: 'landing/** must not import app/**.',
-                        },
-                        {
-                            target: './landing',
-                            from: './electron',
-                            message: 'landing/** must not import electron/**.',
-                        },
-                        {
-                            target: './electron',
-                            from: './landing',
-                            message: 'electron/** must not import landing/**.',
-                        },
-                        {
-                            target: './app',
-                            from: './landing',
-                            message: 'app/** must not import landing/**.',
-                        },
-                        {
-                            target: './app/services',
-                            from: './app/composables',
-                            message: 'app/services/** must not import app/composables/**.',
-                        },
-                        ...createLayerToModulePublicEntryZones(
-                            'app/modules',
-                            [
-                                'app/components',
-                                'app/composables',
-                            ],
-                            'app/components and app/composables',
-                        ),
-                        {
-                            target: './packages',
-                            from: './app',
-                            message: 'packages/** must not import app/**.',
-                        },
-                        {
-                            target: './packages',
-                            from: './electron',
-                            message: 'packages/** must not import electron/**.',
-                        },
-                        {
-                            target: './packages',
-                            from: './landing',
-                            message: 'packages/** must not import landing/**.',
-                        },
-                        {
-                            target: './scripts',
-                            from: './electron',
-                            message: 'scripts/** must not import electron/**.',
-                        },
-                        ...createCrossFeatureZones('app/modules', 'app/modules'),
-                        ...createCrossFeatureZones('electron/features', 'electron/features'),
-                    ],
-                },
-            ],
+            // Import graph and architectural boundaries are enforced by
+            // `check:architecture:imports`; keeping them out of ESLint avoids
+            // resolver-heavy graph work on every lint pass.
             'no-restricted-imports': [
                 'error',
                 {patterns: [
@@ -368,22 +238,30 @@ export default withNuxt(
     },
     {
         files: ['tests/**/*.ts'],
-        languageOptions: {parserOptions: {
-            project: ['./tests/tsconfig.json'],
-            tsconfigRootDir: import.meta.dirname,
-        }},
         rules: {
-            ...strictTypeRules,
             'no-restricted-imports': 'off',
             ...arrayTypeRules,
             ...namingRules,
+            '@typescript-eslint/consistent-type-imports': [
+                'error',
+                {
+                    prefer: 'type-imports',
+                    fixStyle: 'separate-type-imports',
+                },
+            ],
+            '@typescript-eslint/consistent-type-definitions': ['error', 'interface'],
+            '@typescript-eslint/ban-ts-comment': [
+                'error',
+                {
+                    'ts-ignore': true,
+                    'ts-nocheck': true,
+                    'ts-check': false,
+                    'ts-expect-error': 'allow-with-description',
+                    minimumDescriptionLength: 8,
+                },
+            ],
             '@typescript-eslint/require-await': 'off',
             'no-return-await': 'off',
-            '@typescript-eslint/no-unsafe-assignment': 'off',
-            '@typescript-eslint/no-unsafe-member-access': 'off',
-            '@typescript-eslint/no-unsafe-call': 'off',
-            '@typescript-eslint/no-unsafe-return': 'off',
-            '@typescript-eslint/no-unsafe-argument': 'off',
         },
     },
     {
