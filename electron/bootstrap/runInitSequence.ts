@@ -113,7 +113,7 @@ function bootSingleInstance(options: IRunInitSequenceOptions) {
         logger.info('Automation harness mode: bypassing single-instance lock to allow multiple sessions');
     }
 
-    if (process.platform !== 'darwin') {
+    if (process.platform !== 'darwin' || allowMultipleAutomationSessions) {
         externalOpenManager.queueOpenRequestFromArgs(process.argv.slice(1));
     }
 

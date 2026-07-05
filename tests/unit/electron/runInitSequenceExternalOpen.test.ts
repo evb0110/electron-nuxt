@@ -18,7 +18,7 @@ interface IRegisteredExternalOpenIpcHandlers {
 }
 
 describe('runInitSequence external open IPC', () => {
-    async function createHarness() {
+    async function createHarness(options: {allowMultipleAutomationSessions?: boolean} = {}) {
         const app = new EventEmitter() as EventEmitter & {
             dock?: { hide: () => void; };
             hide: () => void;
@@ -61,7 +61,7 @@ describe('runInitSequence external open IPC', () => {
         await runInitSequence({
             app: app as never,
             aboutIconPath: '/app/icon.png',
-            allowMultipleAutomationSessions: false,
+            allowMultipleAutomationSessions: options.allowMultipleAutomationSessions ?? false,
             allowOpenPaths,
             attachHostEnvironmentToWindow: vi.fn(),
             broadcastUpdateStatus: vi.fn(),
@@ -150,5 +150,25 @@ describe('runInitSequence external open IPC', () => {
 
         expect(harness.externalOpenManager.acknowledgeClaimedOpenPaths).toHaveBeenCalledTimes(1);
         expect(harness.externalOpenManager.acknowledgeClaimedOpenPaths).toHaveBeenCalledWith(['/docs/startup.pdf']);
+    });
+
+    it('queues startup argv open paths on macOS when the automation harness is active', async () => {
+        const platformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
+        Object.defineProperty(process, 'platform', {
+            configurable: true,
+            value: 'darwin',
+        });
+        try {
+            const automationHarness = await createHarness({allowMultipleAutomationSessions: true});
+            expect(automationHarness.externalOpenManager.queueOpenRequestFromArgs)
+                .toHaveBeenCalledWith(process.argv.slice(1));
+
+            const finderHarness = await createHarness();
+            expect(finderHarness.externalOpenManager.queueOpenRequestFromArgs).not.toHaveBeenCalled();
+        } finally {
+            if (platformDescriptor) {
+                Object.defineProperty(process, 'platform', platformDescriptor);
+            }
+        }
     });
 });
