@@ -1,15 +1,19 @@
+import { execFileSync } from 'node:child_process';
 import {
     copyFileSync,
     existsSync,
+    mkdtempSync,
     mkdirSync,
     readFileSync,
-    readdirSync,
+    renameSync,
     rmSync,
     statSync,
     writeFileSync,
 } from 'node:fs';
+import { tmpdir } from 'node:os';
 import {
     basename,
+    dirname,
     join,
     resolve,
 } from 'node:path';
@@ -32,6 +36,17 @@ const LARGE_PDF_REQUIRE_ENV_VAR = 'EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE';
 const DEFAULT_LARGE_PDF_FIXTURE = 'large-pdf-fixtures/turkish-english-lexicon-letter-bookmarks.pdf';
 const DJVU_FIXTURE_ENV_VAR = 'EVB_E2E_DJVU_FIXTURE';
 const DJVU_REQUIRE_ENV_VAR = 'EVB_E2E_REQUIRE_DJVU_FIXTURE';
+const DEFAULT_DJVU_FIXTURE = 'djvu-fixtures/viewer-smoke.djvu';
+const GENERATED_DJVU_FIXTURE_PAGE_COUNT = 100;
+const GENERATED_DJVU_FIXTURE_WIDTH = 1200;
+const GENERATED_DJVU_FIXTURE_HEIGHT = 1600;
+const GENERATED_DJVU_FIXTURE_DPI = 150;
+const GENERATED_DJVU_FIXTURE_FILENAME = [
+    'generated-viewer-smoke',
+    `${GENERATED_DJVU_FIXTURE_PAGE_COUNT}p`,
+    `${GENERATED_DJVU_FIXTURE_WIDTH}x${GENERATED_DJVU_FIXTURE_HEIGHT}`,
+    `${GENERATED_DJVU_FIXTURE_DPI}dpi.djvu`,
+].join('-');
 const PDFJS_ERRORS_VERBOSITY = (
     pdfjs as typeof pdfjs & {VerbosityLevel?: {ERRORS?: number;};}
 ).VerbosityLevel?.ERRORS;
@@ -64,10 +79,18 @@ interface IPathFixtureAvailabilityOptions {
     requiredEnvVar: string;
 }
 
+interface IDjvuFixtureAvailabilityOptions {
+    devkitFixtureDir?: string;
+    env?: NodeJS.ProcessEnv;
+    generate?: boolean;
+    generatedFixtureFactory?: () => string;
+    trackedFixtureDir?: string;
+}
+
 const reportedMissingFixtureReasons = new Set<string>();
 
-function isEnvFlagEnabled(envVar: string) {
-    return process.env[envVar] === '1';
+function isEnvFlagEnabled(envVar: string, env: NodeJS.ProcessEnv = process.env) {
+    return env[envVar] === '1';
 }
 
 export function resolvePathFixtureAvailability(options: IPathFixtureAvailabilityOptions): IFixtureAvailability {
@@ -408,13 +431,116 @@ export function findDjvuFixturePath() {
     return resolveDjvuFixturePath().path;
 }
 
-export function isDjvuFixtureRequired() {
-    return isEnvFlagEnabled(DJVU_REQUIRE_ENV_VAR);
+export function isDjvuFixtureRequired(env: NodeJS.ProcessEnv = process.env) {
+    return isEnvFlagEnabled(DJVU_REQUIRE_ENV_VAR, env);
 }
 
-export function resolveDjvuFixturePath() {
-    const required = isDjvuFixtureRequired();
-    const overridePath = process.env[DJVU_FIXTURE_ENV_VAR]?.trim();
+function getGeneratedDjvuFixturePath() {
+    return join(FIXTURE_ROOT_DIR, 'generated', GENERATED_DJVU_FIXTURE_FILENAME);
+}
+
+function createGeneratedDjvuPagePbm() {
+    const rowBytes = Math.ceil(GENERATED_DJVU_FIXTURE_WIDTH / 8);
+    const bitmap = Buffer.alloc(rowBytes * GENERATED_DJVU_FIXTURE_HEIGHT, 0);
+    const setPixel = (x: number, y: number) => {
+        if (
+            x < 0
+            || y < 0
+            || x >= GENERATED_DJVU_FIXTURE_WIDTH
+            || y >= GENERATED_DJVU_FIXTURE_HEIGHT
+        ) {
+            return;
+        }
+        const byteIndex = y * rowBytes + (x >> 3);
+        bitmap[byteIndex] = (bitmap[byteIndex] ?? 0) | (0x80 >> (x & 7));
+    };
+    const drawHorizontalLine = (y: number, left: number, right: number) => {
+        for (let x = left; x <= right; x += 1) {
+            setPixel(x, y);
+            setPixel(x, y + 1);
+        }
+    };
+    const drawVerticalLine = (x: number, top: number, bottom: number) => {
+        for (let y = top; y <= bottom; y += 1) {
+            setPixel(x, y);
+            setPixel(x + 1, y);
+        }
+    };
+
+    drawHorizontalLine(96, 80, 1120);
+    drawHorizontalLine(260, 160, 1040);
+    drawHorizontalLine(580, 160, 1040);
+    drawHorizontalLine(900, 160, 1040);
+    drawHorizontalLine(1220, 160, 1040);
+    drawVerticalLine(80, 96, 1500);
+    drawVerticalLine(1120, 96, 1500);
+
+    return Buffer.concat([
+        Buffer.from(`P4\n${GENERATED_DJVU_FIXTURE_WIDTH} ${GENERATED_DJVU_FIXTURE_HEIGHT}\n`, 'ascii'),
+        bitmap,
+    ]);
+}
+
+function generateDjvuFixture(targetPath = getGeneratedDjvuFixturePath()) {
+    if (existsSync(targetPath) && statSync(targetPath).isFile()) {
+        return targetPath;
+    }
+
+    mkdirSync(dirname(targetPath), { recursive: true });
+    const workDir = mkdtempSync(join(tmpdir(), 'evb-djvu-fixture-'));
+    const pagePbmPath = join(workDir, 'page.pbm');
+    const pageDjvuPath = join(workDir, 'page.djvu');
+    const outputPath = join(workDir, 'document.djvu');
+
+    try {
+        writeFileSync(pagePbmPath, createGeneratedDjvuPagePbm());
+        execFileSync('cjb2', [
+            '-dpi',
+            String(GENERATED_DJVU_FIXTURE_DPI),
+            pagePbmPath,
+            pageDjvuPath,
+        ], { stdio: 'pipe' });
+        execFileSync('djvm', [
+            '-create',
+            outputPath,
+            ...Array.from({ length: GENERATED_DJVU_FIXTURE_PAGE_COUNT }, () => pageDjvuPath),
+        ], { stdio: 'pipe' });
+
+        const output = statSync(outputPath);
+        if (!output.isFile() || output.size <= 0) {
+            throw new Error(`Generated DjVu fixture is empty: ${outputPath}`);
+        }
+
+        try {
+            renameSync(outputPath, targetPath);
+        } catch (error) {
+            if (existsSync(targetPath) && statSync(targetPath).isFile()) {
+                return targetPath;
+            }
+            throw error;
+        }
+        return targetPath;
+    } finally {
+        rmSync(workDir, {
+            recursive: true,
+            force: true,
+        });
+    }
+}
+
+function describeGeneratedDjvuFixtureFailure(error: unknown) {
+    if (error instanceof Error && error.message.trim()) {
+        return error.message;
+    }
+    return String(error);
+}
+
+export function resolveDjvuFixturePath(options: IDjvuFixtureAvailabilityOptions = {}) {
+    const env = options.env ?? process.env;
+    const trackedFixtureDir = options.trackedFixtureDir ?? TRACKED_PROJECT_FIXTURE_DIR;
+    const devkitFixtureDir = options.devkitFixtureDir ?? PROJECT_ROOT_FIXTURE_DIR;
+    const required = isDjvuFixtureRequired(env);
+    const overridePath = env[DJVU_FIXTURE_ENV_VAR]?.trim();
     if (overridePath) {
         const absoluteOverridePath = resolve(overridePath);
         if (!existsSync(absoluteOverridePath)) {
@@ -445,22 +571,11 @@ export function resolveDjvuFixturePath() {
         };
     }
 
-    const fixtureDir = resolve(PROJECT_ROOT_FIXTURE_DIR, 'pdfs');
-    if (!existsSync(fixtureDir)) {
-        return {
-            path: null,
-            reason: `DjVu fixture directory does not exist: ${fixtureDir}`,
-            required,
-        };
-    }
-
-    const candidates = readdirSync(fixtureDir)
-        .filter(hasDjvuExtension)
-        .sort((left, right) => left.localeCompare(right));
-
-    for (const candidate of candidates) {
-        const candidatePath = join(fixtureDir, candidate);
-        if (statSync(candidatePath).isFile()) {
+    for (const candidatePath of [
+        resolve(trackedFixtureDir, DEFAULT_DJVU_FIXTURE),
+        resolve(devkitFixtureDir, DEFAULT_DJVU_FIXTURE),
+    ]) {
+        if (existsSync(candidatePath) && statSync(candidatePath).isFile()) {
             return {
                 path: candidatePath,
                 reason: `Using DjVu fixture: ${candidatePath}`,
@@ -469,9 +584,35 @@ export function resolveDjvuFixturePath() {
         }
     }
 
+    if (options.generate !== false) {
+        try {
+            const generatedPath = options.generatedFixtureFactory
+                ? options.generatedFixtureFactory()
+                : generateDjvuFixture();
+            if (!existsSync(generatedPath) || !statSync(generatedPath).isFile()) {
+                throw new Error(`Generated DjVu fixture was not created: ${generatedPath}`);
+            }
+            if (!hasDjvuExtension(generatedPath)) {
+                throw new Error(`Generated DjVu fixture must be a .djvu or .djv file: ${generatedPath}`);
+            }
+            return {
+                path: generatedPath,
+                reason: `Using generated DjVu fixture: ${generatedPath}`,
+                required,
+            };
+        } catch (error) {
+            return {
+                path: null,
+                reason: `Generated DjVu fixture is not available: ${describeGeneratedDjvuFixtureFailure(error)}`,
+                required,
+            };
+        }
+    }
+
     return {
         path: null,
-        reason: `No .djvu or .djv fixtures found in ${fixtureDir}`,
+        reason: `DjVu fixture is not available. Set ${DJVU_FIXTURE_ENV_VAR}`
+            + ` or place ${DEFAULT_DJVU_FIXTURE} under tests/fixtures/electron or .devkit.`,
         required,
     };
 }

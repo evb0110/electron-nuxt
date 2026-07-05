@@ -5,26 +5,12 @@ import {
     difference,
 } from 'es-toolkit/array';
 import { run } from './shared.mjs';
+import { getLocalReleaseVerifyGateCommands } from './policy.mjs';
 
 const RELEASE_VERIFY_DIFF_BUFFER_BYTES = 128 * 1024 * 1024;
 
 export function getLocalReleaseVerifyCommands() {
-    return [
-        {
-            args: [
-                'run',
-                'release:verify:checks',
-            ],
-            command: 'pnpm',
-        },
-        {
-            args: [
-                'run',
-                'release:verify:package:local',
-            ],
-            command: 'pnpm',
-        },
-    ];
+    return getLocalReleaseVerifyGateCommands();
 }
 
 function splitGitOutput(output) {

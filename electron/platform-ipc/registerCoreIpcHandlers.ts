@@ -44,6 +44,7 @@ import {
     createValidatedIpcMainEventRegistrar,
     createValidatedIpcMainRegistrar,
 } from '@electron/platform-ipc/validatedIpcRegistrar';
+import { CORE_IPC_ARGUMENT_VALIDATION_POLICY } from '@electron/platform-ipc/ipcInvokeArgumentValidationPolicy';
 import {
     setHostZenModeForWindow,
     snapshotHostEnvironmentForWindow,
@@ -261,7 +262,10 @@ export function registerCoreIpcHandlers(
     options: ICoreIpcHandlerOptions,
     dependencies: ICoreIpcHandlerDependencies,
 ) {
-    const registrar = createValidatedIpcMainRegistrar<ICoreInvokeMap>(ipcMain, {allowedChannels: CORE_INVOKE_CHANNEL_SET});
+    const registrar = createValidatedIpcMainRegistrar<ICoreInvokeMap>(ipcMain, {
+        allowedChannels: CORE_INVOKE_CHANNEL_SET,
+        argumentValidation: CORE_IPC_ARGUMENT_VALIDATION_POLICY,
+    });
     const eventRegistrar = createValidatedIpcMainEventRegistrar(ipcMain, {allowedChannels: CORE_RAW_EVENT_CHANNEL_SET});
     registerRendererLogBridge({
         isTrustedSender: isTrustedWebContentsSender,

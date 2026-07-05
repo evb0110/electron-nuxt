@@ -6,6 +6,145 @@ export function hasWindowsSigningCredentials(env = process.env) {
     return Boolean(env.WIN_CSC_LINK && env.WIN_CSC_KEY_PASSWORD);
 }
 
+const GATE_POLICY_MANIFEST = Object.freeze({
+    ci: {changedAreas: {nativeOrBuild: {
+        owner: 'pr_native_build_safety',
+        paths: [
+            'native/**',
+            'scripts/bundle-*.sh',
+            'scripts/build-*.mjs',
+            'scripts/check-build-*.mjs',
+            'scripts/check-drizzle-schema.mjs',
+            'scripts/check-electron-builder-asar-unpack.mjs',
+            'scripts/check-generated-native-resources.mjs',
+            'scripts/check-native-tools-source-matrix.sh',
+            'scripts/check-wasm-freshness.mjs',
+            'scripts/native-rust-targets.mjs',
+            'scripts/prune-build-artifacts.mjs',
+            'scripts/release/**',
+            'scripts/run-workspace-package-typecheck.mjs',
+            'scripts/run-build-strict.mjs',
+            'scripts/verify-packaged-native-tools.sh',
+            'scripts/wasm-artifacts.mjs',
+            'scripts/workspace-roots.mjs',
+            'pnpm-workspace.yaml',
+            'electron-builder.yml',
+            'package.json',
+            'pnpm-lock.yaml',
+        ],
+    }}},
+    release: {
+        localChecks: {
+            gateGroups: [
+                {
+                    id: 'lint-static',
+                    owner: 'release',
+                    scripts: [
+                        'lint',
+                        'check:static:reports',
+                        'check:static:assets',
+                        'typecheck',
+                        'typecheck:coverage',
+                        'check:drizzle-schema',
+                        'check:electron:install',
+                        'check:electron-builder:asar-unpack',
+                        'build:pdf-image-combine',
+                        'build:pdf-page-ops',
+                        'build:pdf-search',
+                        'check:generated-native-resources:host',
+                        'check:resources:matrix',
+                        'check:wasm:portable',
+                        'check:architecture:source-size',
+                        'fallow:all',
+                    ],
+                },
+                {
+                    id: 'release-critical-tests',
+                    owner: 'release',
+                    scripts: [
+                        'test:rust',
+                        'test:coverage',
+                        'test:bundle-integrity',
+                    ],
+                },
+            ],
+            owner: 'release',
+        },
+        localVerify: {
+            gates: [
+                {
+                    args: [
+                        'run',
+                        'release:verify:checks',
+                    ],
+                    command: 'pnpm',
+                    id: 'checks',
+                    owner: 'release',
+                },
+                {
+                    args: [
+                        'run',
+                        'release:verify:package:local',
+                    ],
+                    command: 'pnpm',
+                    id: 'package-local',
+                    owner: 'release',
+                },
+            ],
+            owner: 'release',
+        },
+    },
+    schemaVersion: 1,
+});
+
+function cloneGateCommand(gate) {
+    return {
+        args: [...gate.args],
+        command: gate.command,
+    };
+}
+
+export function getGatePolicyManifest() {
+    return {
+        ci: {changedAreas: {nativeOrBuild: {
+            owner: GATE_POLICY_MANIFEST.ci.changedAreas.nativeOrBuild.owner,
+            paths: [...GATE_POLICY_MANIFEST.ci.changedAreas.nativeOrBuild.paths],
+        }}},
+        release: {
+            localChecks: {
+                gateGroups: GATE_POLICY_MANIFEST.release.localChecks.gateGroups.map(group => ({
+                    id: group.id,
+                    owner: group.owner,
+                    scripts: [...group.scripts],
+                })),
+                owner: GATE_POLICY_MANIFEST.release.localChecks.owner,
+            },
+            localVerify: {
+                gates: GATE_POLICY_MANIFEST.release.localVerify.gates.map(gate => ({
+                    ...cloneGateCommand(gate),
+                    id: gate.id,
+                    owner: gate.owner,
+                })),
+                owner: GATE_POLICY_MANIFEST.release.localVerify.owner,
+            },
+        },
+        schemaVersion: GATE_POLICY_MANIFEST.schemaVersion,
+    };
+}
+
+export function getNativeOrBuildChangedAreaPaths() {
+    return [...GATE_POLICY_MANIFEST.ci.changedAreas.nativeOrBuild.paths];
+}
+
+export function getLocalReleaseCheckGateScripts() {
+    return GATE_POLICY_MANIFEST.release.localChecks.gateGroups
+        .flatMap(group => group.scripts);
+}
+
+export function getLocalReleaseVerifyGateCommands() {
+    return GATE_POLICY_MANIFEST.release.localVerify.gates.map(cloneGateCommand);
+}
+
 export function expectsUpdaterMetadata(target, env = process.env) {
     if (!target.expectsUpdaterMetadata) {
         return false;

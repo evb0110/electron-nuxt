@@ -1,7 +1,10 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { run } from './shared.mjs';
-import { getReleaseCiEnv } from './policy.mjs';
+import {
+    getLocalReleaseCheckGateScripts,
+    getReleaseCiEnv,
+} from './policy.mjs';
 
 const SKIP_ACK_ENV_VAR = 'EVB_RELEASE_VERIFY_SKIP_ACK';
 
@@ -61,141 +64,13 @@ export function assertReleaseVerifySkipAcknowledged(skippedScripts, {allowSkip} 
 }
 
 export function getLocalReleaseCheckCommands() {
-    return [
-        {
-            args: [
-                'run',
-                'lint',
-            ],
-            command: 'pnpm',
-        },
-        {
-            args: [
-                'run',
-                'check:static:reports',
-            ],
-            command: 'pnpm',
-        },
-        {
-            args: [
-                'run',
-                'check:static:assets',
-            ],
-            command: 'pnpm',
-        },
-        {
-            args: [
-                'run',
-                'typecheck',
-            ],
-            command: 'pnpm',
-        },
-        {
-            args: [
-                'run',
-                'typecheck:coverage',
-            ],
-            command: 'pnpm',
-        },
-        {
-            args: [
-                'run',
-                'check:drizzle-schema',
-            ],
-            command: 'pnpm',
-        },
-        {
-            args: [
-                'run',
-                'check:electron:install',
-            ],
-            command: 'pnpm',
-        },
-        {
-            args: [
-                'run',
-                'check:electron-builder:asar-unpack',
-            ],
-            command: 'pnpm',
-        },
-        {
-            args: [
-                'run',
-                'build:pdf-image-combine',
-            ],
-            command: 'pnpm',
-        },
-        {
-            args: [
-                'run',
-                'build:pdf-page-ops',
-            ],
-            command: 'pnpm',
-        },
-        {
-            args: [
-                'run',
-                'build:pdf-search',
-            ],
-            command: 'pnpm',
-        },
-        {
-            args: [
-                'run',
-                'check:generated-native-resources:host',
-            ],
-            command: 'pnpm',
-        },
-        {
-            args: [
-                'run',
-                'check:resources:matrix',
-            ],
-            command: 'pnpm',
-        },
-        {
-            args: [
-                'run',
-                'check:wasm:portable',
-            ],
-            command: 'pnpm',
-        },
-        {
-            args: [
-                'run',
-                'check:architecture:source-size',
-            ],
-            command: 'pnpm',
-        },
-        {
-            args: [
-                'run',
-                'fallow:all',
-            ],
-            command: 'pnpm',
-        },
-        {
-            args: [
-                'run',
-                'test:rust',
-            ],
-            command: 'pnpm',
-        },
-        {
-            args: [
-                'run',
-                'test:coverage',
-            ],
-            command: 'pnpm',
-        },
-        {
-            args: [
-                'run',
-                'test:bundle-integrity',
-            ],
-            command: 'pnpm',
-        },
-    ];
+    return getLocalReleaseCheckGateScripts().map(scriptName => ({
+        args: [
+            'run',
+            scriptName,
+        ],
+        command: 'pnpm',
+    }));
 }
 
 export function runLocalReleaseChecks({

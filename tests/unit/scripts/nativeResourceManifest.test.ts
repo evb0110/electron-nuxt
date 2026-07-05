@@ -1,0 +1,113 @@
+import {
+    describe,
+    expect,
+    it,
+} from 'vitest';
+import { formatNativeSourceMatrixCliEntry } from '@scripts/nativeResourceManifestCli';
+import {
+    GENERATED_NATIVE_TOOL_RESOURCES,
+    getNativeSourceMatrixCheckEntries,
+    NATIVE_RESOURCE_PLATFORM_ARCHES,
+    NATIVE_TOOL_RESOURCE_FAMILIES,
+    type TNativeSourceMatrixCheckEntry,
+} from '@scripts/nativeResourceManifest';
+
+function findRequiredEntry(
+    entries: readonly TNativeSourceMatrixCheckEntry[],
+    label: string,
+) {
+    const entry = entries.find((candidate): candidate is Extract<TNativeSourceMatrixCheckEntry, {kind: 'required'}> => (
+        candidate.kind === 'required' && candidate.label === label
+    ));
+
+    if (!entry) {
+        throw new Error(`Missing required native source matrix entry: ${label}`);
+    }
+
+    return entry;
+}
+
+describe('native resource manifest', () => {
+    it('enumerates the release resource matrix tags', () => {
+        expect(NATIVE_RESOURCE_PLATFORM_ARCHES).toEqual([
+            'darwin-x64',
+            'darwin-arm64',
+            'linux-x64',
+            'linux-arm64',
+            'win32-x64',
+            'win32-arm64',
+        ]);
+    });
+
+    it('renders host-style source matrix paths from the manifest', () => {
+        const entries = getNativeSourceMatrixCheckEntries('linux-x64');
+
+        expect(findRequiredEntry(entries, 'tesseract')).toEqual({
+            kind: 'required',
+            label: 'tesseract',
+            path: 'resources/tesseract/linux-x64/bin/tesseract',
+            type: 'file',
+        });
+        expect(findRequiredEntry(entries, 'unpaper')).toEqual({
+            kind: 'required',
+            label: 'unpaper',
+            path: 'resources/tesseract/linux-x64/bin/unpaper',
+            type: 'file',
+        });
+        expect(entries.some(entry => entry.label === 'pdftocairo')).toBe(false);
+    });
+
+    it('renders Windows-only source matrix requirements and skips', () => {
+        const entries = getNativeSourceMatrixCheckEntries('win32-arm64');
+
+        expect(entries).toContainEqual({
+            kind: 'skip',
+            label: 'unpaper',
+            reason: 'not bundled on Windows',
+        });
+        expect(findRequiredEntry(entries, 'pdftocairo')).toEqual({
+            kind: 'required',
+            label: 'pdftocairo',
+            path: 'resources/poppler/win32-arm64/bin/pdftocairo.exe',
+            type: 'file',
+        });
+        expect(findRequiredEntry(entries, 'poppler data directory')).toEqual({
+            kind: 'required',
+            label: 'poppler data directory',
+            path: 'resources/poppler/win32-arm64/share/poppler',
+            type: 'directory',
+        });
+    });
+
+    it('keeps generated native tools attached to package resource families', () => {
+        const familyIds = new Set(NATIVE_TOOL_RESOURCE_FAMILIES.map(family => family.id));
+
+        expect(GENERATED_NATIVE_TOOL_RESOURCES.map(tool => tool.familyId)).toEqual([
+            'pdf-image-combine',
+            'pdf-page-ops',
+            'pdf-search',
+        ]);
+        for (const tool of GENERATED_NATIVE_TOOL_RESOURCES) {
+            expect(familyIds.has(tool.familyId)).toBe(true);
+        }
+
+        expect(NATIVE_TOOL_RESOURCE_FAMILIES
+            .filter(family => family.sourceKind === 'generated')
+            .map(family => family.sourceRootSegments.join('/'))).toEqual([
+            '.tmp/pdf-image-combine',
+            '.tmp/pdf-page-ops',
+            '.tmp/pdf-search',
+        ]);
+    });
+
+    it('formats source matrix entries for the shell checker', () => {
+        const entry = findRequiredEntry(getNativeSourceMatrixCheckEntries('linux-x64'), 'qpdf');
+
+        expect(formatNativeSourceMatrixCliEntry(entry)).toBe('file\tresources/qpdf/linux-x64/bin/qpdf\tqpdf');
+        expect(formatNativeSourceMatrixCliEntry({
+            kind: 'skip',
+            label: 'unpaper',
+            reason: 'not bundled on Windows',
+        })).toBe('skip\tunpaper\tnot bundled on Windows');
+    });
+});

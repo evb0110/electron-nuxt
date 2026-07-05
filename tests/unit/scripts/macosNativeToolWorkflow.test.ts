@@ -15,6 +15,7 @@ import {
     expect,
     it,
 } from 'vitest';
+import { getNativeSourceMatrixCheckEntries } from '@scripts/nativeResourceManifest';
 
 const platformArchHelperPath = resolve(process.cwd(), 'scripts/release/platform-arch.sh');
 const sourceMatrixScriptPath = resolve(process.cwd(), 'scripts/check-native-tools-source-matrix.sh');
@@ -231,13 +232,20 @@ describe('macOS native tool workflow', () => {
     });
 
     it('keeps packaged unpaper required outside Windows and smoke-tested on macOS', async () => {
-        const sourceMatrix = await readProjectFile('scripts/check-native-tools-source-matrix.sh');
         const verifier = await readProjectFile('scripts/verify-packaged-native-tools.sh');
         const bundleUnpaper = await readProjectFile('scripts/bundle-leptonica-unpaper-macos.sh');
-        const sourceMatrixCheckTag = extractShellFunction(sourceMatrix, 'check_tag');
 
-        expect(sourceMatrixCheckTag).toContain('check_file_for_tag "resources/tesseract/$tag/bin/unpaper$exe_suffix" "unpaper" "$tag"');
-        expect(sourceMatrixCheckTag).toContain('SKIP    unpaper: not bundled on Windows');
+        expect(getNativeSourceMatrixCheckEntries('linux-x64')).toContainEqual({
+            kind: 'required',
+            label: 'unpaper',
+            path: 'resources/tesseract/linux-x64/bin/unpaper',
+            type: 'file',
+        });
+        expect(getNativeSourceMatrixCheckEntries('win32-x64')).toContainEqual({
+            kind: 'skip',
+            label: 'unpaper',
+            reason: 'not bundled on Windows',
+        });
         expect(verifier).toContain('unpaper binary');
         expect(verifier).toContain('run_macos_packaged_tool_smoke "unpaper"');
         expect(bundleUnpaper).toContain('if "$DEST/bin/unpaper" --help > /dev/null 2>&1; then');
@@ -286,6 +294,8 @@ describe('macOS native tool workflow', () => {
         expect(afterSign).toContain('runtime: true');
         expect(sourceMatrix).not.toContain('page_processor_required_for_tag()');
         expect(sourceMatrix).not.toContain('&& [ -f "scripts/bundle-page-processor-macos.sh" ]');
+        expect(sourceMatrix).toContain('nativeResourceManifestCli.ts');
+        expect(sourceMatrix).toContain('source-matrix "$tag"');
         expect(sourceMatrix).toContain('EVB_CHECK_OPTIONAL_PAGE_PROCESSOR=1');
         expect(sourceMatrix).toContain('check_optional_page_processor="${EVB_CHECK_OPTIONAL_PAGE_PROCESSOR:-0}"');
         expect(sourceMatrix).toContain('EVB_CHECK_OPTIONAL_PAGE_PROCESSOR must be 0 or 1');

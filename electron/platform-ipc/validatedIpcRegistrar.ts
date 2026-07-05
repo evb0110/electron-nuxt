@@ -29,6 +29,16 @@ class IpcArgumentValidationError extends Error {
 
 export interface IIpcMainDecodeOptions<TArgs extends unknown[]> {decode: (args: unknown[], channel: string) => TArgs;}
 
+export interface IIpcInvokeArgumentValidationPolicy {
+    noArgumentChannels?: ReadonlySet<string>;
+    channelsValidatedWithoutRegistrarDecoder?: ReadonlySet<string>;
+}
+
+export interface IValidatedIpcMainRegistrarOptions {
+    allowedChannels?: ReadonlySet<string>;
+    argumentValidation?: IIpcInvokeArgumentValidationPolicy;
+}
+
 export interface IValidatedIpcMainRegistrar<
     TMap extends {[TChannel in keyof TMap]: IIpcInvokeSpec} = never,
     TEvent = unknown,
@@ -54,39 +64,88 @@ export function createChannelSet<T extends Record<string, string>>(channels: T) 
     return new Set<string>(Object.values(channels));
 }
 
-function assertKnownChannelRegistration(
+function assertAllowedChannelRegistration(
     kind: 'invoke' | 'event',
-    registeredChannels: Set<string>,
     channel: string,
     allowedChannels?: ReadonlySet<string>,
 ) {
     if (allowedChannels && !allowedChannels.has(channel)) {
         throw new Error(`Unknown ${kind} IPC channel registered: ${channel}`);
     }
+}
+
+function assertUniqueChannelRegistration(
+    kind: 'invoke' | 'event',
+    registeredChannels: Set<string>,
+    channel: string,
+) {
     if (registeredChannels.has(channel)) {
         throw new Error(`Duplicate ${kind} IPC channel registration: ${channel}`);
     }
     registeredChannels.add(channel);
 }
 
+function assertKnownChannelRegistration(
+    kind: 'invoke' | 'event',
+    registeredChannels: Set<string>,
+    channel: string,
+    allowedChannels?: ReadonlySet<string>,
+) {
+    assertAllowedChannelRegistration(kind, channel, allowedChannels);
+    assertUniqueChannelRegistration(kind, registeredChannels, channel);
+}
+
 function getDecodeErrorMessage(error: unknown) {
     return error instanceof Error ? error.message : String(error);
 }
 
+function getPolicyChannels(policy: IIpcInvokeArgumentValidationPolicy | undefined) {
+    return [
+        ...(policy?.noArgumentChannels ?? []),
+        ...(policy?.channelsValidatedWithoutRegistrarDecoder ?? []),
+    ];
+}
+
+function assertArgumentValidationPolicyChannelsAreKnown(options: IValidatedIpcMainRegistrarOptions) {
+    if (!options.allowedChannels) {
+        return;
+    }
+
+    for (const channel of getPolicyChannels(options.argumentValidation)) {
+        if (!options.allowedChannels.has(channel)) {
+            throw new Error(`IPC argument validation policy contains unknown invoke channel: ${channel}`);
+        }
+    }
+}
+
+function getArgumentValidationBypassKind(
+    channel: string,
+    policy: IIpcInvokeArgumentValidationPolicy | undefined,
+) {
+    if (policy?.noArgumentChannels?.has(channel)) {
+        return 'no-arguments';
+    }
+    if (policy?.channelsValidatedWithoutRegistrarDecoder?.has(channel)) {
+        return 'validated-without-registrar-decoder';
+    }
+    return null;
+}
+
 export function createValidatedIpcMainRegistrar(
     registrar: IIpcMainRegistrar<never, IpcMainInvokeEvent>,
-    options?: {allowedChannels?: ReadonlySet<string>;},
+    options?: IValidatedIpcMainRegistrarOptions,
 ): IValidatedIpcMainRegistrar<never, IpcMainInvokeEvent>;
 export function createValidatedIpcMainRegistrar<
     TMap extends {[TChannel in keyof TMap]: IIpcInvokeSpec},
 >(
     registrar: IIpcMainRegistrar<never, IpcMainInvokeEvent>,
-    options?: {allowedChannels?: ReadonlySet<string>;},
+    options?: IValidatedIpcMainRegistrarOptions,
 ): IValidatedIpcMainRegistrar<TMap, IpcMainInvokeEvent>;
 export function createValidatedIpcMainRegistrar(
     registrar: IIpcMainRegistrar<never, IpcMainInvokeEvent>,
-    options: {allowedChannels?: ReadonlySet<string>;} = {},
+    options: IValidatedIpcMainRegistrarOptions = {},
 ): IValidatedIpcMainRegistrar<never, IpcMainInvokeEvent> {
+    assertArgumentValidationPolicyChannelsAreKnown(options);
     return {handle: <TArgs extends unknown[], TResult>(
         channel: string,
         handler: (
@@ -95,16 +154,32 @@ export function createValidatedIpcMainRegistrar(
         ) => TResult | Promise<TResult>,
         decodeOptions?: IIpcMainDecodeOptions<TArgs>,
     ) => {
-        assertKnownChannelRegistration('invoke', registeredInvokeChannels, channel, options.allowedChannels);
+        assertAllowedChannelRegistration('invoke', channel, options.allowedChannels);
+        const hasDecoder = typeof decodeOptions?.decode === 'function';
+        const argumentValidationBypassKind = hasDecoder
+            ? null
+            : getArgumentValidationBypassKind(channel, options.argumentValidation);
+        if (!hasDecoder && !argumentValidationBypassKind) {
+            throw new Error(`IPC invoke channel registered without an argument decoder or explicit no-arg/validated allowlist: ${channel}`);
+        }
+        assertUniqueChannelRegistration('invoke', registeredInvokeChannels, channel);
         registrar.handle(channel, async (event, ...args: unknown[]) => {
             if (!isTrustedIpcInvokeSender(event, channel)) {
                 throw new Error('IPC sender is not trusted');
             }
             let decodedArgs: TArgs;
             try {
-                decodedArgs = decodeOptions?.decode
-                    ? decodeOptions.decode(args, channel)
-                    : args as TArgs;
+                if (argumentValidationBypassKind === 'no-arguments') {
+                    if (args.length > 0) {
+                        throw new Error('expected no arguments');
+                    }
+                    const noArgs: unknown[] = [];
+                    decodedArgs = noArgs as TArgs;
+                } else {
+                    decodedArgs = decodeOptions?.decode
+                        ? decodeOptions.decode(args, channel)
+                        : args as TArgs;
+                }
             } catch (error) {
                 throw new IpcArgumentValidationError(channel, getDecodeErrorMessage(error), error);
             }

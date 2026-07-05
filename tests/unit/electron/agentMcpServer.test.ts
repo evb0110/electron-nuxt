@@ -230,6 +230,10 @@ function createOptions() {
     };
 }
 
+function expectStructuredCloneable(value: unknown) {
+    expect(() => structuredClone(value)).not.toThrow();
+}
+
 describe('processMcpRequest', () => {
     afterEach(async () => {
         await shutdownLocalMcpServer();
@@ -1051,6 +1055,7 @@ describe('processMcpRequest', () => {
             },
         }, options);
 
+        expectStructuredCloneable(response);
         expect(response?.result).toMatchObject({structuredContent: {
             domain: 'document',
             capabilities: expect.arrayContaining([expect.objectContaining({
@@ -1098,6 +1103,7 @@ describe('processMcpRequest', () => {
             },
         }, options);
 
+        expectStructuredCloneable(response);
         expect(options.runCommand).toHaveBeenCalledWith({
             name: 'run_action',
             arguments: {

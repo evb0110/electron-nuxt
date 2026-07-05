@@ -34,6 +34,31 @@ interface IReleaseCommand {
     command: string;
 }
 
+interface IReleaseGatePolicyManifest {
+    ci: {changedAreas: {nativeOrBuild: {
+        owner: string;
+        paths: string[];
+    };};};
+    release: {
+        localChecks: {
+            gateGroups: Array<{
+                id: string;
+                owner: string;
+                scripts: string[];
+            }>;
+            owner: string;
+        };
+        localVerify: {
+            gates: Array<IReleaseCommand & {
+                id: string;
+                owner: string;
+            }>;
+            owner: string;
+        };
+    };
+    schemaVersion: number;
+}
+
 interface IRunCommandOptions {
     env?: TReleaseEnv;
     stdio?: 'inherit';
@@ -57,6 +82,7 @@ interface IReleasePolicyModule {
         arch?: TReleaseArch;
         platform?: NodeJS.Platform;
     }) => IReleaseTarget[];
+    getGatePolicyManifest: () => IReleaseGatePolicyManifest;
     getReleaseAutomationEnv: (
         baseEnv?: TReleaseEnv,
     ) => TReleaseEnv;
@@ -192,6 +218,7 @@ const {
     assertPublishUpdaterMetadataReferences,
     assertPublishUpdaterMetadataPolicy,
     expectsUpdaterMetadata,
+    getGatePolicyManifest,
     getLocalReleaseTargets,
     getReleaseAutomationEnv,
     getRequiredArtifactPatterns,
@@ -440,12 +467,22 @@ describe('release policy', () => {
     });
 
     it('keeps release checks split between lint/static gates and release-critical tests', () => {
+        const manifest = getGatePolicyManifest();
         const commandArgs: string[][] = getLocalReleaseCheckCommands()
             .map((command: { args: string[] }) => command.args);
-        const scriptNames = commandArgs
-            .filter(args => args[0] === 'run')
-            .map(args => args[1]);
-        const lintAndStaticGateScripts = [
+        const packageScripts = getPackageScripts();
+        const lintAndStaticGate = manifest.release.localChecks.gateGroups.find(group => group.id === 'lint-static');
+        const releaseCriticalTestGate = manifest.release.localChecks.gateGroups.find(group => group.id === 'release-critical-tests');
+        const scriptNames = manifest.release.localChecks.gateGroups.flatMap(group => group.scripts);
+
+        expect(manifest.schemaVersion).toBe(1);
+        expect(manifest.release.localChecks.owner).toBe('release');
+        expect(manifest.release.localChecks.gateGroups.map(group => group.id)).toEqual([
+            'lint-static',
+            'release-critical-tests',
+        ]);
+        expect(lintAndStaticGate?.owner).toBe('release');
+        expect(lintAndStaticGate?.scripts).toEqual([
             'lint',
             'check:static:reports',
             'check:static:assets',
@@ -462,22 +499,19 @@ describe('release policy', () => {
             'check:wasm:portable',
             'check:architecture:source-size',
             'fallow:all',
-        ];
-        const releaseCriticalTestScripts = [
+        ]);
+        expect(releaseCriticalTestGate?.owner).toBe('release');
+        expect(releaseCriticalTestGate?.scripts).toEqual([
             'test:rust',
             'test:coverage',
             'test:bundle-integrity',
-        ];
-
-        expect(commandArgs).toEqual([
-            ...lintAndStaticGateScripts,
-            ...releaseCriticalTestScripts,
-        ].map(scriptName => [
+        ]);
+        expect(releaseCriticalTestGate?.scripts.every(scriptName => scriptName.startsWith('test:'))).toBe(true);
+        expect(scriptNames.every(scriptName => Boolean(packageScripts[scriptName]))).toBe(true);
+        expect(commandArgs).toEqual(scriptNames.map(scriptName => [
             'run',
             scriptName,
         ]));
-        expect(scriptNames.slice(0, lintAndStaticGateScripts.length)).toEqual(lintAndStaticGateScripts);
-        expect(scriptNames.slice(lintAndStaticGateScripts.length)).toEqual(releaseCriticalTestScripts);
         expect(scriptNames).not.toContain('build:strict');
         expect(scriptNames).not.toContain('validate');
         expect(scriptNames).not.toContain('test:release');
@@ -520,16 +554,26 @@ describe('release policy', () => {
     });
 
     it('keeps standalone release verification split into check and package gates', () => {
-        expect(getLocalReleaseVerifyCommands().map((command: { args: string[] }) => command.args)).toEqual([
-            [
-                'run',
-                'release:verify:checks',
-            ],
-            [
-                'run',
-                'release:verify:package:local',
-            ],
+        const manifest = getGatePolicyManifest();
+        const packageScripts = getPackageScripts();
+        const manifestCommands = manifest.release.localVerify.gates.map(gate => ({
+            args: gate.args,
+            command: gate.command,
+        }));
+
+        expect(manifest.release.localVerify.owner).toBe('release');
+        expect(manifest.release.localVerify.gates.map(gate => gate.id)).toEqual([
+            'checks',
+            'package-local',
         ]);
+        expect(manifest.release.localVerify.gates.every((gate) => {
+            const scriptName = gate.args[1];
+            return gate.command === 'pnpm'
+                && gate.args[0] === 'run'
+                && typeof scriptName === 'string'
+                && Boolean(packageScripts[scriptName]);
+        })).toBe(true);
+        expect(getLocalReleaseVerifyCommands()).toEqual(manifestCommands);
     });
 
     it('can ignore landing-only worktree changes for main app releases', () => {
@@ -741,16 +785,7 @@ describe('release policy', () => {
             },
         })).toThrow('tracked diff');
 
-        expect(calls.map(call => call.args)).toEqual([
-            [
-                'run',
-                'release:verify:checks',
-            ],
-            [
-                'run',
-                'release:verify:package:local',
-            ],
-        ]);
+        expect(calls).toEqual(getLocalReleaseVerifyCommands());
     });
 
     it('keeps strict build enforcement in the local packaging phase', () => {

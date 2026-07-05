@@ -46,7 +46,9 @@ fi
 
 missing=0
 tag_file="$(mktemp)"
-trap 'rm -f "$tag_file"' EXIT
+manifest_entries_file="$(mktemp)"
+trap 'rm -f "$tag_file" "$manifest_entries_file"' EXIT
+native_manifest_cli=(node --import tsx scripts/nativeResourceManifestCli.ts)
 
 resolve_host_tag() {
   local uname_s
@@ -222,38 +224,40 @@ check_windows_arm64_runtime_dll_policy() {
 
 check_tag() {
   local tag="$1"
-  local platform="${tag%-*}"
-  local exe_suffix=""
-  if [ "$platform" = "win32" ]; then
-    exe_suffix=".exe"
-  fi
+  local entry_type
+  local entry_path
+  local entry_label
 
   echo "== Checking $tag =="
-  check_file_for_tag "resources/tesseract/$tag/bin/tesseract$exe_suffix" "tesseract" "$tag"
-  if [ "$platform" != "win32" ]; then
-    check_file_for_tag "resources/tesseract/$tag/bin/unpaper$exe_suffix" "unpaper" "$tag"
-  else
-    echo "  SKIP    unpaper: not bundled on Windows"
+  if ! "${native_manifest_cli[@]}" source-matrix "$tag" > "$manifest_entries_file"; then
+    echo "Error: Unable to load native resource manifest entries for $tag" >&2
+    exit 1
   fi
-  check_file_for_tag "resources/poppler/$tag/bin/pdfinfo$exe_suffix" "pdfinfo" "$tag"
-  check_file_for_tag "resources/poppler/$tag/bin/pdftoppm$exe_suffix" "pdftoppm" "$tag"
-  check_file_for_tag "resources/poppler/$tag/bin/pdftotext$exe_suffix" "pdftotext" "$tag"
-  if [ "$platform" = "win32" ]; then
-    check_file_for_tag "resources/poppler/$tag/bin/pdftocairo$exe_suffix" "pdftocairo" "$tag"
-    check_dir_for_tag "resources/poppler/$tag/share/poppler" "poppler data directory" "$tag"
-  fi
-  check_file_for_tag "resources/qpdf/$tag/bin/qpdf$exe_suffix" "qpdf" "$tag"
-  check_file_for_tag "resources/djvulibre/$tag/bin/ddjvu$exe_suffix" "ddjvu" "$tag"
-  check_file_for_tag "resources/djvulibre/$tag/bin/djvused$exe_suffix" "djvused" "$tag"
+
+  while IFS=$'\t' read -r entry_type entry_path entry_label; do
+    [ -n "$entry_type" ] || continue
+    case "$entry_type" in
+      file)
+        check_file_for_tag "$entry_path" "$entry_label" "$tag"
+        ;;
+      directory)
+        check_dir_for_tag "$entry_path" "$entry_label" "$tag"
+        ;;
+      skip)
+        echo "  SKIP    $entry_path: $entry_label"
+        ;;
+      *)
+        echo "Error: Unsupported native resource manifest entry type for $tag: $entry_type" >&2
+        exit 1
+        ;;
+    esac
+  done < "$manifest_entries_file"
+
   check_page_processor_for_tag "$tag"
 }
 
 if [ "$check_all" -eq 1 ]; then
-  for platform in darwin win32 linux; do
-    for arch in x64 arm64; do
-      echo "${platform}-${arch}" >> "$tag_file"
-    done
-  done
+  "${native_manifest_cli[@]}" matrix-tags > "$tag_file"
 else
   resolve_host_tag >> "$tag_file"
 fi

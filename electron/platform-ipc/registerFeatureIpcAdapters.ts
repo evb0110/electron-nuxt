@@ -43,6 +43,14 @@ import {
     createValidatedIpcMainEventRegistrar,
     createValidatedIpcMainRegistrar,
 } from '@electron/platform-ipc/validatedIpcRegistrar';
+import {
+    AGENT_IPC_ARGUMENT_VALIDATION_POLICY,
+    DJVU_IPC_ARGUMENT_VALIDATION_POLICY,
+    DOCUMENTS_IPC_ARGUMENT_VALIDATION_POLICY,
+    IMAGE_EXPORT_IPC_ARGUMENT_VALIDATION_POLICY,
+    OCR_IPC_ARGUMENT_VALIDATION_POLICY,
+    SEARCH_IPC_ARGUMENT_VALIDATION_POLICY,
+} from '@electron/platform-ipc/ipcInvokeArgumentValidationPolicy';
 
 const DOCUMENTS_CHANNEL_SET = createChannelSet(DOCUMENTS_CHANNELS);
 
@@ -53,19 +61,37 @@ export function registerFeatureIpcAdapters(
     options: IFeatureIpcAdapterOptions,
 ) {
     registerDocumentsIpcAdapter(
-        createValidatedIpcMainRegistrar<IDocumentsInvokeMap>(ipcMain, {allowedChannels: DOCUMENTS_CHANNEL_SET}),
+        createValidatedIpcMainRegistrar<IDocumentsInvokeMap>(ipcMain, {
+            allowedChannels: DOCUMENTS_CHANNEL_SET,
+            argumentValidation: DOCUMENTS_IPC_ARGUMENT_VALIDATION_POLICY,
+        }),
         undefined,
         {eventRegistrar: createValidatedIpcMainEventRegistrar(ipcMain, {allowedChannels: DOCUMENTS_CHANNEL_SET})},
     );
     registerDocumentRevisionEventBridge();
     registerDocumentRevisionInvalidationEffects();
     registerAgentIpcAdapter(
-        createValidatedIpcMainRegistrar<IAgentInvokeMap>(ipcMain, {allowedChannels: createChannelSet(AGENT_CHANNELS)}),
+        createValidatedIpcMainRegistrar<IAgentInvokeMap>(ipcMain, {
+            allowedChannels: createChannelSet(AGENT_CHANNELS),
+            argumentValidation: AGENT_IPC_ARGUMENT_VALIDATION_POLICY,
+        }),
         options.agentService,
     );
-    registerImageExportIpcAdapter(createValidatedIpcMainRegistrar<IImageExportInvokeMap>(ipcMain, {allowedChannels: createChannelSet(IMAGE_EXPORT_CHANNELS)}));
+    registerImageExportIpcAdapter(createValidatedIpcMainRegistrar<IImageExportInvokeMap>(ipcMain, {
+        allowedChannels: createChannelSet(IMAGE_EXPORT_CHANNELS),
+        argumentValidation: IMAGE_EXPORT_IPC_ARGUMENT_VALIDATION_POLICY,
+    }));
     registerPageOpsIpcAdapter(createValidatedIpcMainRegistrar<IPageOpsInvokeMap>(ipcMain, {allowedChannels: createChannelSet(PAGE_OPS_CHANNELS)}));
-    registerOcrIpcAdapter(createValidatedIpcMainRegistrar<IOcrInvokeMap>(ipcMain, {allowedChannels: createChannelSet(OCR_CHANNELS)}));
-    registerSearchIpcAdapter(createValidatedIpcMainRegistrar<ISearchInvokeMap>(ipcMain, {allowedChannels: createChannelSet(SEARCH_CHANNELS)}));
-    registerDjvuIpcAdapter(createValidatedIpcMainRegistrar<IDjvuInvokeMap>(ipcMain, {allowedChannels: createChannelSet(DJVU_CHANNELS)}));
+    registerOcrIpcAdapter(createValidatedIpcMainRegistrar<IOcrInvokeMap>(ipcMain, {
+        allowedChannels: createChannelSet(OCR_CHANNELS),
+        argumentValidation: OCR_IPC_ARGUMENT_VALIDATION_POLICY,
+    }));
+    registerSearchIpcAdapter(createValidatedIpcMainRegistrar<ISearchInvokeMap>(ipcMain, {
+        allowedChannels: createChannelSet(SEARCH_CHANNELS),
+        argumentValidation: SEARCH_IPC_ARGUMENT_VALIDATION_POLICY,
+    }));
+    registerDjvuIpcAdapter(createValidatedIpcMainRegistrar<IDjvuInvokeMap>(ipcMain, {
+        allowedChannels: createChannelSet(DJVU_CHANNELS),
+        argumentValidation: DJVU_IPC_ARGUMENT_VALIDATION_POLICY,
+    }));
 }
