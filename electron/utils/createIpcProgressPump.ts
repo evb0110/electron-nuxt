@@ -16,7 +16,7 @@ const DEFAULT_PROGRESS_PUMP_INTERVAL_MS = 50;
 
 export function createIpcProgressPump<TPayload>(options: IIpcProgressPumpOptions<TPayload>) {
     const pendingByKey = new Map<string, TPayload>();
-    const latestActiveByKey = new Map<string, TPayload>();
+    const retainedByKey = new Map<string, TPayload>();
     const timersByKey = new Map<string, ReturnType<typeof setTimeout>>();
     const subscribers = new Set<IProgressPumpTarget<TPayload>>();
     const intervalMs = Math.max(0, options.intervalMs ?? DEFAULT_PROGRESS_PUMP_INTERVAL_MS);
@@ -71,14 +71,14 @@ export function createIpcProgressPump<TPayload>(options: IIpcProgressPumpOptions
     function enqueue(payload: TPayload) {
         const key = options.getKey(payload);
         if (options.isTerminal?.(payload) === true) {
-            latestActiveByKey.delete(key);
             pendingByKey.delete(key);
+            retainedByKey.delete(key);
             clearTimer(key);
             send(payload);
             return;
         }
 
-        latestActiveByKey.set(key, payload);
+        retainedByKey.set(key, payload);
         pendingByKey.set(key, payload);
         if (timersByKey.has(key)) {
             return;
@@ -88,19 +88,12 @@ export function createIpcProgressPump<TPayload>(options: IIpcProgressPumpOptions
         scheduleFlush(key);
     }
 
-    function clear() {
-        for (const timer of timersByKey.values()) {
-            clearTimeout(timer);
-        }
-        timersByKey.clear();
-        pendingByKey.clear();
-        latestActiveByKey.clear();
-        subscribers.clear();
-    }
-
     function subscribe(target: IProgressPumpTarget<TPayload>) {
+        if (target.isDestroyed?.() === true) {
+            return;
+        }
         subscribers.add(target);
-        for (const payload of latestActiveByKey.values()) {
+        for (const payload of retainedByKey.values()) {
             sendToTarget(target, payload);
         }
 
@@ -109,10 +102,20 @@ export function createIpcProgressPump<TPayload>(options: IIpcProgressPumpOptions
         };
     }
 
+    function clear() {
+        for (const timer of timersByKey.values()) {
+            clearTimeout(timer);
+        }
+        timersByKey.clear();
+        pendingByKey.clear();
+        retainedByKey.clear();
+        subscribers.clear();
+    }
+
     return {
         enqueue,
-        subscribe,
         flush,
+        subscribe,
         clear,
     };
 }
