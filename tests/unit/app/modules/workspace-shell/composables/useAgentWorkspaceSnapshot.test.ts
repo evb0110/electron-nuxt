@@ -497,6 +497,34 @@ describe('buildAgentWorkspaceSnapshot', () => {
 });
 
 describe('useAgentWorkspaceSnapshot bridge registration', () => {
+    it('submits a structured-cloneable snapshot response from reactive workspace records', async () => {
+        const harness = await mountAgentWorkspaceSnapshotHarness();
+        const cloneFailures: unknown[] = [];
+        vi.mocked(harness.agent.submitWorkspaceSnapshot).mockImplementationOnce(async (response) => {
+            try {
+                structuredClone(response);
+            } catch (error) {
+                cloneFailures.push(error);
+            }
+            return {accepted: true};
+        });
+
+        await harness.submitSnapshot({
+            requestId: 'structured-cloneable-snapshot',
+            windowId: 42,
+        });
+
+        expect(cloneFailures).toEqual([]);
+        expect(harness.agent.submitWorkspaceSnapshot).toHaveBeenCalledWith(expect.objectContaining({
+            requestId: 'structured-cloneable-snapshot',
+            windowId: 42,
+            ok: true,
+            snapshot: expect.objectContaining({activeTabId: 'tab-1'}),
+        }));
+
+        harness.app.unmount();
+    });
+
     it('waits for the Electron bridge when Electron preload appears after browser runtime classification', async () => {
         vi.spyOn(window.navigator, 'userAgent', 'get')
             .mockReturnValue('Mozilla/5.0 AppleWebKit/537.36 Electron/42.3.3 Safari/537.36');

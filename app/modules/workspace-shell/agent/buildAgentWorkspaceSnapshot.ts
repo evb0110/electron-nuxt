@@ -5,8 +5,10 @@ import type {
     IAgentRecentFileSnapshot,
     IAgentTabSnapshot,
     IAgentWorkspaceSnapshot,
+    TAgentWorkspaceCommandTarget,
     TAgentDocumentKind,
 } from '@contracts/agent';
+import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import type {
     IEditorPaneState,
     TEditorLayoutNode,
@@ -79,6 +81,18 @@ function inferDocumentKindFromName(name: string): TAgentDocumentKind {
     }
 
     return name ? 'unknown' : 'empty';
+}
+
+function cloneDocumentIdentity(identity: IDocumentRevisionInfo | null): IDocumentRevisionInfo | null {
+    return identity === null
+        ? null
+        : {...identity};
+}
+
+function cloneCommandTarget(target: TAgentWorkspaceCommandTarget | undefined) {
+    return target === undefined
+        ? undefined
+        : {...target};
 }
 
 function inferDocumentKind(
@@ -164,7 +178,10 @@ function buildAgentTabSnapshot(
 ): IAgentTabSnapshot {
     const toolbarSnapshot = record?.toolbarSnapshot ?? null;
     const kind = inferDocumentKind(tab, toolbarSnapshot);
-    const commandTarget = session?.createCommandTarget();
+    const commandTarget = cloneCommandTarget(session?.createCommandTarget());
+    const documentIdentity = record?.documentIdentity === undefined
+        ? undefined
+        : cloneDocumentIdentity(record.documentIdentity);
     const identity = session ? unref(session.snapshot).identity : null;
     const documentSessionKey = identity?.documentSessionKey ?? null;
     const documentInstanceId = identity?.documentInstanceId ?? null;
@@ -178,7 +195,7 @@ function buildAgentTabSnapshot(
         ...(originalBackend === undefined ? {} : {originalBackend}),
         ...(documentSessionKey === null ? {} : {documentSessionKey}),
         ...(documentInstanceId === null ? {} : {documentInstanceId}),
-        ...(record?.documentIdentity === undefined ? {} : { documentIdentity: record.documentIdentity }),
+        ...(documentIdentity === undefined ? {} : { documentIdentity }),
         ...(commandTarget === undefined ? {} : { commandTarget }),
         isDirty: tab.isDirty,
         kind,
