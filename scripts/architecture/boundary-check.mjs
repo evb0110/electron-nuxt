@@ -145,6 +145,7 @@ app/utils/platform.ts
 
 const PLATFORM_API_AGGREGATE_TYPE_BOUNDARY_FILES = new Set(`
 app/platform/browserPlatformPathDescriptors.ts
+packages/contracts/platformMethodManifest.ts
 app/types/electron.d.ts
 packages/contracts/electronApi.ts
 packages/contracts/index.ts

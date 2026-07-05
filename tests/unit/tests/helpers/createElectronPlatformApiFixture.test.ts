@@ -3,7 +3,6 @@ import {
     expect,
     it,
 } from 'vitest';
-import { PlatformContractError } from '@app/platform/validatePlatformApi';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 describe('createElectronPlatformApiFixture', () => {
@@ -17,6 +16,6 @@ describe('createElectronPlatformApiFixture', () => {
 
     it('rejects overrides that remove a required manifest method', () => {
         expect(() => createElectronPlatformApiFixture({documents: {readFile: undefined}}))
-            .toThrow(PlatformContractError);
+            .toThrow('Missing platform API fixture method documentFiles.readFile');
     });
 });

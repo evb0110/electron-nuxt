@@ -8,6 +8,7 @@ use std::process;
 use unicode_casefold::{Locale, UnicodeCaseFold, Variant};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+const PROTOCOL_VERSION: u32 = 1;
 const MAGIC: &[u8; 8] = b"EVBSIDX2";
 const SCHEMA_VERSION: u32 = 2;
 const HEADER_SIZE: usize = 64;
@@ -606,6 +607,10 @@ fn run_cli(mut args: impl Iterator<Item = String>) -> Result<(), Box<dyn Error>>
     match command.as_str() {
         "--version" | "-V" => {
             println!("evb-pdf-search {VERSION}");
+            Ok(())
+        }
+        "--protocol-version" => {
+            println!("{PROTOCOL_VERSION}");
             Ok(())
         }
         "search" => {

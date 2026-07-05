@@ -540,7 +540,6 @@ export const platformMethodManifest = {
         onOpenPdfDirectBatchProgress: eventPath('documents', 'onOpenPdfDirectBatchProgress'),
     },
     imageExport: {
-        cancel: asyncPath('imageExport', 'cancel'),
         exportPdfToImages: asyncPath('imageExport', 'exportPdfToImages'),
         exportPdfToMultiPageTiff: asyncPath('imageExport', 'exportPdfToMultiPageTiff'),
         onProgress: eventPath('imageExport', 'onProgress'),

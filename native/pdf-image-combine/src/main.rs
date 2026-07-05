@@ -12,6 +12,7 @@ use evb_pdf_image_combine::{
 };
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+const PROTOCOL_VERSION: u32 = 1;
 
 struct Config {
     output_path: PathBuf,
@@ -37,6 +38,11 @@ fn main() {
 }
 
 fn run() -> Result<()> {
+    if env::args().skip(1).any(|arg| arg == "--protocol-version") {
+        println!("{PROTOCOL_VERSION}");
+        return Ok(());
+    }
+
     if env::args().skip(1).any(|arg| arg == "--version") {
         println!("evb-pdf-image-combine {VERSION}");
         return Ok(());

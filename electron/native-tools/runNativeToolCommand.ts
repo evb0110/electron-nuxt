@@ -1,3 +1,4 @@
+import { basename } from 'path';
 import {
     runNativeCommand,
     type IRunCommandOptions,
@@ -18,11 +19,94 @@ export interface IRunNativeToolCommandOptions {
     log?: (level: 'debug' | 'warn' | 'error', message: string) => void;
 }
 
+export class NativeToolProtocolVersionError extends Error {
+    readonly toolName: string;
+    readonly expectedVersion: number;
+    readonly actualVersion: string;
+
+    constructor(toolName: string, expectedVersion: number, actualVersion: string) {
+        super(`${toolName} unsupported native protocol version: expected ${expectedVersion}, got ${actualVersion}`);
+        this.name = 'NativeToolProtocolVersionError';
+        this.toolName = toolName;
+        this.expectedVersion = expectedVersion;
+        this.actualVersion = actualVersion;
+    }
+}
+
+const NATIVE_TOOL_PROTOCOL_VERSION_TIMEOUT_MS = 5_000;
+const expectedNativeToolProtocolVersions = new Map<string, number>([
+    [
+        'evb-pdf-image-combine',
+        1,
+    ],
+    [
+        'evb-pdf-page-ops',
+        1,
+    ],
+    [
+        'evb-pdf-search',
+        1,
+    ],
+]);
+const nativeToolProtocolHandshakeCache = new Map<string, Promise<void>>();
+
 export async function runNativeToolCommand(
     command: string,
     args: string[],
     options: IRunNativeToolCommandOptions = {},
 ): Promise<IProcessResult> {
+    await verifyNativeToolProtocol(command, options);
+    return runNativeCommand(command, args, createBaseRunCommandOptions(options));
+}
+
+async function verifyNativeToolProtocol(command: string, options: IRunNativeToolCommandOptions) {
+    const toolName = getNativeToolName(command);
+    if (toolName === null) {
+        return;
+    }
+
+    const cachedHandshake = nativeToolProtocolHandshakeCache.get(command);
+    if (cachedHandshake) {
+        await cachedHandshake;
+        return;
+    }
+
+    const handshake = runNativeToolProtocolHandshake(command, toolName, options);
+    nativeToolProtocolHandshakeCache.set(command, handshake);
+    await handshake;
+}
+
+function getNativeToolName(command: string) {
+    const baseName = basename(command).toLowerCase();
+    const toolName = baseName.endsWith('.exe') ? baseName.slice(0, -4) : baseName;
+    return toolName.startsWith('evb-') ? toolName : null;
+}
+
+async function runNativeToolProtocolHandshake(
+    command: string,
+    toolName: string,
+    options: IRunNativeToolCommandOptions,
+) {
+    const expectedVersion = expectedNativeToolProtocolVersions.get(toolName);
+    if (expectedVersion === undefined) {
+        throw new NativeToolProtocolVersionError(toolName, -1, 'unknown tool');
+    }
+
+    const commandOptions = createBaseRunCommandOptions(options);
+    commandOptions.timeoutMs = NATIVE_TOOL_PROTOCOL_VERSION_TIMEOUT_MS;
+    commandOptions.commandLabel = `${toolName}(protocol-version)`;
+    commandOptions.maxStdoutBytes = 128;
+    commandOptions.maxStderrBytes = 4_096;
+    commandOptions.allowedExitCodes = [0];
+    const result = await runNativeCommand(command, ['--protocol-version'], commandOptions);
+    const actualVersionText = result.stdout.trim();
+    const actualVersion = Number.parseInt(actualVersionText, 10);
+    if (!Number.isSafeInteger(actualVersion) || actualVersion.toString() !== actualVersionText || actualVersion !== expectedVersion) {
+        throw new NativeToolProtocolVersionError(toolName, expectedVersion, actualVersionText || '<empty>');
+    }
+}
+
+function createBaseRunCommandOptions(options: IRunNativeToolCommandOptions): IRunCommandOptions {
     const {
         cwd,
         env,
@@ -77,5 +161,5 @@ export async function runNativeToolCommand(
         commandOptions.log = log;
     }
 
-    return runNativeCommand(command, args, commandOptions);
+    return commandOptions;
 }

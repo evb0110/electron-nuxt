@@ -26,7 +26,7 @@ describe('runNativeToolCommand', () => {
     });
 
     it('performs a cached Rust native tool protocol handshake before use', async () => {
-        const { runNativeToolCommand } = await loadModule();
+        const {runNativeToolCommand} = await loadModule();
 
         await runNativeToolCommand('/tools/evb-pdf-page-ops', ['page-sizes']);
         await runNativeToolCommand('/tools/evb-pdf-page-ops', ['page-sizes']);
@@ -44,17 +44,64 @@ describe('runNativeToolCommand', () => {
             ['page-sizes'],
             expect.any(Object),
         );
+        expect(mocks.runNativeCommand).toHaveBeenNthCalledWith(
+            3,
+            '/tools/evb-pdf-page-ops',
+            ['page-sizes'],
+            expect.any(Object),
+        );
     });
 
-    it('rejects unsupported Rust native tool protocols', async () => {
+    it('rejects unsupported Rust native tool protocols before running the real command', async () => {
         mocks.runNativeCommand.mockResolvedValueOnce({
             exitCode: 0,
             stderr: '',
             stdout: '99\n',
         });
-        const { runNativeToolCommand } = await loadModule();
+        const {
+            NativeToolProtocolVersionError,
+            runNativeToolCommand,
+        } = await loadModule();
 
-        await expect(runNativeToolCommand('/tools/evb-pdf-search', ['search'])).rejects.toThrow('unsupported');
+        await expect(runNativeToolCommand('/tools/evb-pdf-search', ['search'])).rejects.toBeInstanceOf(NativeToolProtocolVersionError);
         expect(mocks.runNativeCommand).toHaveBeenCalledTimes(1);
+        expect(mocks.runNativeCommand).toHaveBeenCalledWith(
+            '/tools/evb-pdf-search',
+            ['--protocol-version'],
+            expect.objectContaining({timeoutMs: 5_000}),
+        );
+    });
+
+    it('caches unsupported Rust native tool protocol failures', async () => {
+        mocks.runNativeCommand.mockResolvedValueOnce({
+            exitCode: 0,
+            stderr: '',
+            stdout: 'bogus\n',
+        });
+        const {runNativeToolCommand} = await loadModule();
+
+        await expect(runNativeToolCommand('/tools/evb-pdf-image-combine', [
+            '--output',
+            'out.pdf',
+        ])).rejects.toThrow('expected 1, got bogus');
+        await expect(runNativeToolCommand('/tools/evb-pdf-image-combine', [
+            '--output',
+            'out.pdf',
+        ])).rejects.toThrow('expected 1, got bogus');
+
+        expect(mocks.runNativeCommand).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not handshake non-evb commands', async () => {
+        const {runNativeToolCommand} = await loadModule();
+
+        await runNativeToolCommand('/tools/qpdf', ['--version']);
+
+        expect(mocks.runNativeCommand).toHaveBeenCalledTimes(1);
+        expect(mocks.runNativeCommand).toHaveBeenCalledWith(
+            '/tools/qpdf',
+            ['--version'],
+            expect.any(Object),
+        );
     });
 });

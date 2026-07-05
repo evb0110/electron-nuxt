@@ -31,10 +31,9 @@ describe('DjVu PDF worker client', () => {
         const controller = new AbortController();
         const { createDjvuPdfBookmarkTask } = await import('@electron/features/djvu/main/pdfWorkerClient');
 
-        createDjvuPdfBookmarkTask('/tmp/input.pdf', '/tmp/output.pdf', [], controller.signal);
+        createDjvuPdfBookmarkTask('/tmp/input.pdf', '/tmp/output.pdf', [], {signal: controller.signal});
 
         expect(mocks.startStreamingWorkerTask).toHaveBeenCalledWith(expect.objectContaining({
-            cooperativeCancelDelayMs: 5_000,
             createCancelMessage: expect.any(Function),
             signal: controller.signal,
         }));

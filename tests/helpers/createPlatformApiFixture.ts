@@ -13,10 +13,10 @@ import { createDefaultPlatformApiFixtureMethod } from '@tests/helpers/createDefa
 
 type TDeepPartial<T> = {
     [TKey in keyof T]?: NonNullable<T[TKey]> extends (...args: never[]) => unknown
-        ? T[TKey]
+        ? T[TKey] | undefined
         : NonNullable<T[TKey]> extends object
-            ? TDeepPartial<NonNullable<T[TKey]>>
-            : T[TKey];
+            ? TDeepPartial<NonNullable<T[TKey]>> | undefined
+            : T[TKey] | undefined;
 };
 
 export type TPlatformApiFixtureOverrides = TDeepPartial<IPlatformApi>;

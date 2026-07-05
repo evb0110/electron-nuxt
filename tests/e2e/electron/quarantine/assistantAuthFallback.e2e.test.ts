@@ -28,9 +28,11 @@ import {
     electronUserDataPath,
     sessionDir,
 } from '@scripts/electron-run/electronRunSessionPaths';
+import { createE2ERunScopedSessionName } from '@scripts/electron-run/electronRunRunId';
 
 const ASSISTANT_AUTH_E2E_TIMEOUT_MS = 90_000;
 const SESSION_NAME = 'assistant-auth-fallback';
+const SCOPED_SESSION_NAME = createE2ERunScopedSessionName(SESSION_NAME);
 const fakeCodexPath = resolve(process.cwd(), '.devkit', 'tmp', 'e2e-fake-codex', 'assistant-auth-fallback', 'codex');
 const previousCodexCliPath = process.env.CODEX_CLI_PATH;
 
@@ -115,19 +117,19 @@ rl.on('line', (line) => {
 
 installFakeCodexCli();
 process.env.CODEX_CLI_PATH = fakeCodexPath;
-rmSync(sessionDir(SESSION_NAME), {
+rmSync(sessionDir(SCOPED_SESSION_NAME), {
     recursive: true,
     force: true,
 });
-mkdirSync(electronUserDataPath(SESSION_NAME), {recursive: true});
+mkdirSync(electronUserDataPath(SCOPED_SESSION_NAME), {recursive: true});
 writeFileSync(
-    resolve(electronUserDataPath(SESSION_NAME), 'settings.json'),
+    resolve(electronUserDataPath(SCOPED_SESSION_NAME), 'settings.json'),
     JSON.stringify({assistantPanelEnabled: true}, null, 2),
     'utf-8',
 );
 
 const sessionFixture = createElectronE2ESessionFixture({
-    sessionName: SESSION_NAME,
+    sessionName: SCOPED_SESSION_NAME,
     clean: false,
     timeoutMs: ASSISTANT_AUTH_E2E_TIMEOUT_MS,
 });
@@ -138,7 +140,7 @@ afterAll(() => {
     } else {
         process.env.CODEX_CLI_PATH = previousCodexCliPath;
     }
-    rmSync(sessionDir(SESSION_NAME), {
+    rmSync(sessionDir(SCOPED_SESSION_NAME), {
         recursive: true,
         force: true,
     });

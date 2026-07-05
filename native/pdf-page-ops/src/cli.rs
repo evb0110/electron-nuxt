@@ -1,3 +1,5 @@
+const PROTOCOL_VERSION: u32 = 1;
+
 fn main() {
     if let Err(error) = run() {
         eprintln!("{error}");
@@ -6,6 +8,11 @@ fn main() {
 }
 
 fn run() -> Result<()> {
+    if env::args().skip(1).any(|arg| arg == "--protocol-version") {
+        println!("{PROTOCOL_VERSION}");
+        return Ok(());
+    }
+
     if env::args().skip(1).any(|arg| arg == "--version") {
         println!("evb-pdf-page-ops {VERSION}");
         return Ok(());
