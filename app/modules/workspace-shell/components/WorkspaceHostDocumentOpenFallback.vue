@@ -15,7 +15,6 @@
 
     <Teleport v-if="canTeleportStatus" to="#editor-global-status-host">
         <PdfStatusBar
-            :file-name="statusFileName"
             :file-path="statusFilePath"
             :file-size-label="statusFileSizeLabel"
             :zoom-label="statusZoomLabel"
@@ -58,7 +57,6 @@ const statusIsAnySaving = ref(false);
 const statusIsHistoryBusy = ref(false);
 
 const {
-    statusFileName,
     statusFilePath,
     statusFileSizeLabel,
     statusZoomLabel,

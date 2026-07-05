@@ -212,7 +212,6 @@
         <WorkspaceExportProgressOverlay :overlay="exportOverlay" />
         <Teleport v-if="isActive && canTeleportStatus" to="#editor-global-status-host">
             <PdfStatusBar
-                :file-name="statusFileName"
                 :file-path="statusFilePath"
                 :file-size-label="statusFileSizeLabel"
                 :zoom-label="statusZoomLabelForDisplay"
@@ -769,7 +768,6 @@ const {
 } = interactionControls;
 
 const {
-    statusFileName,
     statusFilePath,
     statusFileSizeLabel,
     statusZoomLabel,
