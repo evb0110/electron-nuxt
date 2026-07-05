@@ -47,6 +47,7 @@ const ONE_PIXEL_PNG = Uint8Array.from(Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0ioAAAAASUVORK5CYII=',
     'base64',
 ));
+const TEST_DOCUMENT_REVISION_TOKEN = 'drt1:test:serialization-base';
 
 beforeEach(() => {
     platformMocks.documentFilesCapability = {};
@@ -58,6 +59,7 @@ function createSerializationHarness(options: {workingCopyPath?: string | null;} 
     return usePdfSerialization({
         pdfData: ref(null),
         workingCopyPath: ref(options.workingCopyPath ?? null),
+        documentRevisionToken: ref(TEST_DOCUMENT_REVISION_TOKEN),
         annotationComments: ref([]),
         totalPages: ref(1),
         pageLabelsDirty: ref(false),
@@ -439,7 +441,7 @@ describe('usePdfSerialization embedPlacedImageToPage', () => {
                 byteLength: baseBytes.byteLength,
                 sha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
             },
-            {expectedDocumentRevisionToken: null},
+            {expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN},
         );
         expect(applyPdfNativeMutationsToWorkingCopy.mock.calls[0]?.[1].placedImages?.[0]?.bytes).toBeInstanceOf(Uint8Array);
         expect(readDocumentBytes).toHaveBeenNthCalledWith(1, '/tmp/work.pdf');
@@ -488,7 +490,7 @@ describe('usePdfSerialization embedPlacedImageToPage', () => {
                 byteLength: baseBytes.byteLength,
                 sha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
             },
-            {expectedDocumentRevisionToken: null},
+            {expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN},
         );
         expect(readDocumentBytes).not.toHaveBeenCalled();
     });

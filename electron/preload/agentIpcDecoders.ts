@@ -110,17 +110,27 @@ function normalizeOptionalDocumentRevisionToken(value: unknown) {
     return normalizeNonEmptyString(value);
 }
 
+function normalizeOptionalDocumentInstanceId(value: unknown) {
+    if (value === undefined || value === null) {
+        return null;
+    }
+
+    return normalizeNonEmptyString(value);
+}
+
 function decodeCommandTargetBase(value: Record<PropertyKey, unknown>) {
     const tabId = normalizeNonEmptyString(value.tabId);
     const sessionId = normalizeNonEmptyString(value.sessionId);
     const documentRef = normalizeNullableDocumentRef(value.documentRef);
     const documentBackend = normalizeOptionalDocumentBackend(value.documentBackend);
+    const documentInstanceId = normalizeOptionalDocumentInstanceId(value.documentInstanceId);
     const documentRevisionToken = normalizeOptionalDocumentRevisionToken(value.documentRevisionToken);
     if (
         tabId === null
         || sessionId === null
         || documentRef === null && value.documentRef !== null
         || documentBackend === null
+        || documentInstanceId === null && value.documentInstanceId !== null && value.documentInstanceId !== undefined
         || documentRevisionToken === null
     ) {
         return null;
@@ -131,6 +141,7 @@ function decodeCommandTargetBase(value: Record<PropertyKey, unknown>) {
         sessionId,
         documentRef,
         ...(documentBackend === undefined ? {} : {documentBackend}),
+        documentInstanceId,
         ...(documentRevisionToken === undefined ? {} : {documentRevisionToken}),
     };
 }
@@ -185,6 +196,7 @@ function decodeCommandExecutionScope(value: unknown): IAgentCommandExecutionScop
     const tabId = normalizeNonEmptyString(value.tabId);
     const documentRef = normalizeOptionalDocumentRef(value.documentRef);
     const documentBackend = normalizeOptionalDocumentBackend(value.documentBackend);
+    const documentInstanceId = normalizeOptionalDocumentInstanceId(value.documentInstanceId);
     const documentIdentity = value.documentIdentity === undefined || value.documentIdentity === null
         ? null
         : isDocumentRevisionInfo(value.documentIdentity)
@@ -197,6 +209,7 @@ function decodeCommandExecutionScope(value: unknown): IAgentCommandExecutionScop
         || tabId === null
         || documentRef === null
         || documentBackend === null
+        || documentInstanceId === null && value.documentInstanceId !== null && value.documentInstanceId !== undefined
         || documentIdentity === undefined
         || commandTarget === null
     ) {
@@ -208,6 +221,7 @@ function decodeCommandExecutionScope(value: unknown): IAgentCommandExecutionScop
         tabId,
         documentRef,
         ...(documentBackend === undefined ? {} : {documentBackend}),
+        documentInstanceId,
         documentIdentity,
         ...(commandTarget === undefined ? {} : {commandTarget}),
     };

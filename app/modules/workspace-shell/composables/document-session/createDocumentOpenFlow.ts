@@ -5,7 +5,11 @@ import type {
 } from '@app/composables/useAnalytics';
 import type { TTranslateFn } from '@i18n-app';
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { TOpenFileResult } from '@contracts/electronApiDocuments';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type {
+    IDocumentMutationRevisionOptions,
+    TOpenFileResult,
+} from '@contracts/electronApiDocuments';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { IDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/createDocumentSessionState';
@@ -61,6 +65,15 @@ interface ICreateDocumentOpenFlowDeps {
 
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
 const MAX_IN_MEMORY_PDF_BYTES = 64 * 1024 * 1024;
+
+function createDocumentMutationRevisionOptions(
+    expectedDocumentRevisionToken: TDocumentRevisionToken | null | undefined,
+): IDocumentMutationRevisionOptions | undefined {
+    if (expectedDocumentRevisionToken === null || expectedDocumentRevisionToken === undefined) {
+        return undefined;
+    }
+    return { expectedDocumentRevisionToken };
+}
 
 export function createDocumentOpenFlow(
     state: IDocumentSessionState,
@@ -691,7 +704,11 @@ export function createDocumentOpenFlow(
             return false;
         }
         if (persist && expectedWorkingPath) {
-            await getDocumentFilesCapability().writeFile(expectedWorkingPath, snapshot);
+            await getDocumentFilesCapability().writeFile(
+                expectedWorkingPath,
+                snapshot,
+                createDocumentMutationRevisionOptions(state.documentRevisionToken.value),
+            );
             if (!state.isActiveWorkingCopy(expectedWorkingPath)) {
                 return false;
             }

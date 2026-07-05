@@ -4,6 +4,7 @@ import type { TTranslateFn } from '@i18n-app';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
+    IDocumentMutationRevisionOptions,
     IPdfNativeAnnotationDelete,
     IPdfNativeFreeTextNote,
     IPdfNativeMutationSet,
@@ -57,10 +58,33 @@ interface ICreateDocumentPersistenceDeps {
 
 const MAX_IN_MEMORY_PDF_BYTES = 64 * 1024 * 1024;
 
+function createDocumentMutationRevisionOptions(
+    expectedDocumentRevisionToken: TDocumentRevisionToken | null | undefined,
+): IDocumentMutationRevisionOptions | undefined {
+    if (expectedDocumentRevisionToken === null || expectedDocumentRevisionToken === undefined) {
+        return undefined;
+    }
+    return { expectedDocumentRevisionToken };
+}
+
 export function createDocumentPersistence(
     state: IDocumentSessionState,
     deps: ICreateDocumentPersistenceDeps,
 ) {
+    function resolveDocumentMutationRevisionToken(
+        opts?: {expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined},
+    ) {
+        return opts && Object.prototype.hasOwnProperty.call(opts, 'expectedDocumentRevisionToken')
+            ? opts.expectedDocumentRevisionToken
+            : state.documentRevisionToken.value;
+    }
+
+    function resolveDocumentMutationRevisionOptions(
+        opts?: {expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined},
+    ) {
+        return createDocumentMutationRevisionOptions(resolveDocumentMutationRevisionToken(opts));
+    }
+
     async function commitPersistedPdfState(
         snapshotHint?: Uint8Array | null,
         expectedWorkingPath?: TDocumentRef,
@@ -220,7 +244,11 @@ export function createDocumentPersistence(
         const expectedWorkingPath = state.workingCopyPath.value;
         const snapshot = data.slice();
         if (expectedWorkingPath) {
-            await getDocumentFilesCapability().writeFile(expectedWorkingPath, snapshot, {expectedDocumentRevisionToken: state.documentRevisionToken.value});
+            await getDocumentFilesCapability().writeFile(
+                expectedWorkingPath,
+                snapshot,
+                createDocumentMutationRevisionOptions(state.documentRevisionToken.value),
+            );
             if (!state.isActiveWorkingCopy(expectedWorkingPath)) {
                 BrowserLogger.debug('pdf-file', 'Skipped stale silent PDF data persistence', {
                     expectedWorkingPath,
@@ -261,9 +289,15 @@ export function createDocumentPersistence(
         }
     }
 
-    async function saveWorkingCopyToOriginal(workingPath: TDocumentRef) {
+    async function saveWorkingCopyToOriginal(
+        workingPath: TDocumentRef,
+        expectedDocumentRevisionToken: TDocumentRevisionToken | null | undefined,
+    ) {
         const documentFiles = getDocumentFilesCapability();
-        const result = await documentFiles.saveFileStructured(workingPath);
+        const result = await documentFiles.saveFileStructured(
+            workingPath,
+            createDocumentMutationRevisionOptions(expectedDocumentRevisionToken),
+        );
         if (!result.ok) {
             state.error.value = result.validation?.errors.join('\n')
                 ?? result.message
@@ -282,11 +316,12 @@ export function createDocumentPersistence(
             saveMode?: TPdfSaveMode;
             preserveLoadedSource?: boolean;
             expectedWorkingPath?: TDocumentRef | null;
-            expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
+            expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined;
         },
     ): Promise<IPdfPersistResult> {
         const requestedSaveMode = opts?.saveMode ?? 'rewrite';
         return runPersistOperation(requestedSaveMode, false, async (workingPath) => {
+            const expectedDocumentRevisionToken = resolveDocumentMutationRevisionToken(opts);
             const forceSaveAs = await deps.shouldForceSaveAsForWorkingCopy(requestedSaveMode, workingPath);
             if (!state.isActiveWorkingCopy(workingPath)) {
                 BrowserLogger.debug('workspace', 'Skipped stale PDF save before write', {
@@ -300,10 +335,15 @@ export function createDocumentPersistence(
                 return saveWorkingCopyAs(data, {
                     saveMode: 'save_as_rewrite',
                     expectedWorkingPath: workingPath,
+                    expectedDocumentRevisionToken,
                 });
             }
 
-            const validation = await savePdfBytesToWorkingCopy(workingPath, data, {expectedDocumentRevisionToken: opts?.expectedDocumentRevisionToken ?? null});
+            const validation = await savePdfBytesToWorkingCopy(
+                workingPath,
+                data,
+                createDocumentMutationRevisionOptions(expectedDocumentRevisionToken),
+            );
             if (!state.isActiveWorkingCopy(workingPath)) {
                 BrowserLogger.debug('workspace', 'Skipped stale PDF save completion', {
                     workingPath,
@@ -331,10 +371,12 @@ export function createDocumentPersistence(
         opts?: {
             saveMode?: TPdfSaveMode;
             expectedWorkingPath?: TDocumentRef | null;
+            expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined;
         },
     ): Promise<IPdfPersistResult> {
         const requestedSaveMode = opts?.saveMode ?? 'rewrite';
         return runPersistOperation(requestedSaveMode, false, async (workingPath) => {
+            const expectedDocumentRevisionToken = resolveDocumentMutationRevisionToken(opts);
             const forceSaveAs = await deps.shouldForceSaveAsForWorkingCopy(requestedSaveMode, workingPath);
             if (!state.isActiveWorkingCopy(workingPath)) {
                 BrowserLogger.debug('workspace', 'Skipped stale working-copy save before write', {
@@ -348,10 +390,11 @@ export function createDocumentPersistence(
                 return saveWorkingCopyAs(undefined, {
                     saveMode: 'save_as_rewrite',
                     expectedWorkingPath: workingPath,
+                    expectedDocumentRevisionToken,
                 });
             }
 
-            if (!await saveWorkingCopyToOriginal(workingPath)) {
+            if (!await saveWorkingCopyToOriginal(workingPath, expectedDocumentRevisionToken)) {
                 return createFailedPersistResult(requestedSaveMode, false);
             }
             if (!state.isActiveWorkingCopy(workingPath)) {
@@ -374,10 +417,12 @@ export function createDocumentPersistence(
         opts?: {
             saveMode?: TPdfSaveMode;
             expectedWorkingPath?: TDocumentRef | null;
+            expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined;
         },
     ): Promise<IPdfPersistResult> {
         const requestedSaveMode = opts?.saveMode ?? 'rewrite';
         return runPersistOperation(requestedSaveMode, false, async (workingPath) => {
+            const expectedDocumentRevisionToken = resolveDocumentMutationRevisionToken(opts);
             const forceSaveAs = await deps.shouldForceSaveAsForWorkingCopy(requestedSaveMode, workingPath);
             if (!state.isActiveWorkingCopy(workingPath)) {
                 BrowserLogger.debug('workspace', 'Skipped stale working-copy repair before write', {
@@ -391,6 +436,7 @@ export function createDocumentPersistence(
                 return saveWorkingCopyAs(undefined, {
                     saveMode: 'save_as_rewrite',
                     expectedWorkingPath: workingPath,
+                    expectedDocumentRevisionToken,
                 });
             }
 
@@ -398,7 +444,10 @@ export function createDocumentPersistence(
             if (!repairPdf) {
                 return createFailedPersistResult(requestedSaveMode, false);
             }
-            const validation = await repairPdf(workingPath);
+            const validation = await repairPdf(
+                workingPath,
+                createDocumentMutationRevisionOptions(expectedDocumentRevisionToken),
+            );
             if (!state.isActiveWorkingCopy(workingPath)) {
                 BrowserLogger.debug('workspace', 'Skipped stale working-copy repair completion', {
                     workingPath,
@@ -423,10 +472,12 @@ export function createDocumentPersistence(
         opts?: {
             saveMode?: TPdfSaveMode;
             expectedWorkingPath?: TDocumentRef | null;
+            expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined;
         },
     ): Promise<IPdfPersistResult> {
         const requestedSaveMode = opts?.saveMode ?? 'rewrite';
         return runPersistOperation(requestedSaveMode, false, async (workingPath) => {
+            const expectedDocumentRevisionToken = resolveDocumentMutationRevisionToken(opts);
             const forceSaveAs = await deps.shouldForceSaveAsForWorkingCopy(requestedSaveMode, workingPath);
             if (!state.isActiveWorkingCopy(workingPath)) {
                 BrowserLogger.debug('workspace', 'Skipped stale working-copy optimize before write', {
@@ -440,6 +491,7 @@ export function createDocumentPersistence(
                 return saveWorkingCopyAs(undefined, {
                     saveMode: 'save_as_rewrite',
                     expectedWorkingPath: workingPath,
+                    expectedDocumentRevisionToken,
                 });
             }
 
@@ -447,7 +499,10 @@ export function createDocumentPersistence(
             if (!optimizePdfForInteraction) {
                 return createFailedPersistResult(requestedSaveMode, false);
             }
-            const validation = await optimizePdfForInteraction(workingPath);
+            const validation = await optimizePdfForInteraction(
+                workingPath,
+                createDocumentMutationRevisionOptions(expectedDocumentRevisionToken),
+            );
             if (!state.isActiveWorkingCopy(workingPath)) {
                 BrowserLogger.debug('workspace', 'Skipped stale working-copy optimize completion', {
                     workingPath,
@@ -559,7 +614,7 @@ export function createDocumentPersistence(
             saveMode: TPdfSaveMode;
             preserveLoadedSource?: boolean;
             expectedWorkingPath?: TDocumentRef | null;
-            expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
+            expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined;
             modifiedAt: string;
             freeTextNotes?: IPdfNativeFreeTextNote[];
             deletes?: IPdfNativeAnnotationDelete[];
@@ -578,7 +633,7 @@ export function createDocumentPersistence(
             saveMode: TPdfSaveMode;
             preserveLoadedSource?: boolean;
             expectedWorkingPath?: TDocumentRef | null;
-            expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
+            expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined;
             modifiedAt: string;
         },
     ): Promise<IPdfPersistResult | null> {
@@ -629,6 +684,7 @@ export function createDocumentPersistence(
             return null;
         }
 
+        const expectedDocumentRevisionToken = resolveDocumentMutationRevisionToken(opts);
         const requestedSaveMode = opts.saveMode;
         const workingPath = state.workingCopyPath.value;
         const expectedOriginalPath = state.originalPath.value;
@@ -689,16 +745,26 @@ export function createDocumentPersistence(
                 'native-ipc',
                 () => {
                     if (canUseGenericNativeMutations) {
-                        return documentFiles.savePdfNativeMutations!(workingPath, mutations, opts.modifiedAt, {expectedDocumentRevisionToken: opts.expectedDocumentRevisionToken ?? null});
+                        return documentFiles.savePdfNativeMutations!(
+                            workingPath,
+                            mutations,
+                            opts.modifiedAt,
+                            createDocumentMutationRevisionOptions(expectedDocumentRevisionToken),
+                        );
                     }
                     if (canUseLegacyNativeNoteChanges) {
                         return documentFiles.savePdfNoteChanges!(workingPath, {
                             ...(updates.length > 0 ? {updates} : {}),
                             ...(freeTextNotes.length > 0 ? {freeTextNotes} : {}),
                             ...(deletes.length > 0 ? {deletes} : {}),
-                        }, opts.modifiedAt, {expectedDocumentRevisionToken: opts.expectedDocumentRevisionToken ?? null});
+                        }, opts.modifiedAt, createDocumentMutationRevisionOptions(expectedDocumentRevisionToken));
                     }
-                    return documentFiles.savePdfNoteTextUpdates!(workingPath, updates, opts.modifiedAt, {expectedDocumentRevisionToken: opts.expectedDocumentRevisionToken ?? null});
+                    return documentFiles.savePdfNoteTextUpdates!(
+                        workingPath,
+                        updates,
+                        opts.modifiedAt,
+                        createDocumentMutationRevisionOptions(expectedDocumentRevisionToken),
+                    );
                 },
             );
             if (!result.applied || !result.validation?.isValid) {
@@ -777,22 +843,30 @@ export function createDocumentPersistence(
         opts?: {
             saveMode?: TPdfSaveMode;
             expectedWorkingPath?: TDocumentRef | null;
-            expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
+            expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined;
             optimizeLossless?: boolean;
         },
     ): Promise<IPdfPersistResult> {
         const requestedSaveMode = opts?.saveMode ?? 'save_as_rewrite';
         return runPersistOperation(requestedSaveMode, true, async (workingPath) => {
+            const revisionOptions = resolveDocumentMutationRevisionOptions(opts);
             const previousWorkingPath = workingPath;
             const saveAsOptions = opts?.optimizeLossless === true
                 ? { optimizeLossless: true }
                 : undefined;
             const saveAsResult = data
-                ? await savePdfBytesAs(workingPath, data, saveAsOptions, {expectedDocumentRevisionToken: opts?.expectedDocumentRevisionToken ?? null})
+                ? await savePdfBytesAs(
+                    workingPath,
+                    data,
+                    saveAsOptions,
+                    revisionOptions,
+                )
                 : {
-                    path: saveAsOptions
-                        ? await getDocumentFilesCapability().savePdfAs(workingPath, saveAsOptions)
-                        : await getDocumentFilesCapability().savePdfAs(workingPath),
+                    path: await getDocumentFilesCapability().savePdfAs(
+                        workingPath,
+                        saveAsOptions,
+                        revisionOptions,
+                    ),
                     validation: null,
                 };
             if (saveAsResult.validation && !saveAsResult.validation.isValid) {

@@ -3,6 +3,8 @@ import { fileURLToPath } from 'node:url';
 import { run } from './shared.mjs';
 import { getReleaseCiEnv } from './policy.mjs';
 
+const SKIP_ACK_ENV_VAR = 'EVB_RELEASE_VERIFY_SKIP_ACK';
+
 export function parseReleaseVerifySkipList(rawSkipList, {knownScripts} = {}) {
     const requested = (rawSkipList ?? '')
         .split(',')
@@ -21,6 +23,41 @@ export function parseReleaseVerifySkipList(rawSkipList, {knownScripts} = {}) {
     }
 
     return requested;
+}
+
+export function isReleaseVerifySkipAcknowledged({
+    argv = process.argv.slice(2),
+    env = process.env,
+} = {}) {
+    return env[SKIP_ACK_ENV_VAR] === '1' || argv.includes('--allow-skip');
+}
+
+function writeSkippedGateSummary(skippedScripts, stderr) {
+    if (skippedScripts.length === 0) {
+        return;
+    }
+
+    stderr.write([
+        '',
+        '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!',
+        '!! release:verify is running with skipped local gates',
+        `!! skipped gates: ${skippedScripts.join(', ')}`,
+        `!! acknowledgement: ${SKIP_ACK_ENV_VAR}=1 or --allow-skip`,
+        '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!',
+        '',
+    ].join('\n'));
+}
+
+export function assertReleaseVerifySkipAcknowledged(skippedScripts, {allowSkip} = {}) {
+    if (skippedScripts.length === 0 || allowSkip) {
+        return;
+    }
+
+    throw new Error(
+        'EVB_RELEASE_VERIFY_SKIP was set without explicit acknowledgement. '
+        + `Set ${SKIP_ACK_ENV_VAR}=1 or pass --allow-skip to skip release gates. `
+        + `Requested skipped gates: ${skippedScripts.join(', ')}`,
+    );
 }
 
 export function getLocalReleaseCheckCommands() {
@@ -92,9 +129,14 @@ export function getLocalReleaseCheckCommands() {
 }
 
 export function runLocalReleaseChecks({
+    argv = process.argv.slice(2),
     env = getReleaseCiEnv(),
+    allowSkip = isReleaseVerifySkipAcknowledged({
+        argv,
+        env,
+    }),
     runCommand = run,
-    skipList = process.env.EVB_RELEASE_VERIFY_SKIP,
+    skipList = env.EVB_RELEASE_VERIFY_SKIP,
     stderr = process.stderr,
 } = {}) {
     const commands = getLocalReleaseCheckCommands();
@@ -103,9 +145,8 @@ export function runLocalReleaseChecks({
         .map(command => command.args[1]);
     const skippedScripts = parseReleaseVerifySkipList(skipList, {knownScripts});
 
-    for (const script of skippedScripts) {
-        stderr.write(`release:verify: skipping ${script} (EVB_RELEASE_VERIFY_SKIP)\n`);
-    }
+    assertReleaseVerifySkipAcknowledged(skippedScripts, {allowSkip});
+    writeSkippedGateSummary(skippedScripts, stderr);
 
     // Run the local release gate under CI-mode test semantics so runner-only
     // behavior is more likely to fail before we ever push a release tag.

@@ -18,6 +18,8 @@ import {
     type IRunNativeToolCommandOptions,
 } from '@electron/native-tools/runNativeToolCommand';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
+import { cancelNativeCommandGroup } from '@electron/native-tools/runNativeCommand';
+import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
 
 const PDFINFO_TIMEOUT_MS = 20_000;
 const PDF_RENDER_TIMEOUT_MS = 30_000;
@@ -144,6 +146,45 @@ async function resolvePdfPath(context: IDocumentsSenderIdContext, filePath: unkn
     return resolveExistingReadablePdfPath(filePath, context.senderId);
 }
 
+function abortPreviewController(controller: AbortController, reason: string) {
+    if (!controller.signal.aborted) {
+        controller.abort(new Error(reason));
+    }
+}
+
+function registerPreviewSenderCleanup(sender: Electron.WebContents | undefined, abort: (reason: string) => void) {
+    if (!sender) {
+        return () => undefined;
+    }
+    if (sender.isDestroyed()) {
+        abort('Renderer lifecycle ended');
+        return () => undefined;
+    }
+
+    const handleDestroyed = () => abort('Renderer lifecycle ended');
+    const handleRenderProcessGone = () => abort('Renderer lifecycle ended');
+    const handleNavigation = (
+        _event: Electron.Event,
+        _url: string,
+        isInPlace: boolean,
+        isMainFrame: boolean,
+    ) => {
+        if (isMainFrame && !isInPlace) {
+            abort('Renderer navigation canceled native PDF preview');
+        }
+    };
+
+    sender.once('destroyed', handleDestroyed);
+    sender.once('render-process-gone', handleRenderProcessGone);
+    sender.on('did-start-navigation', handleNavigation);
+
+    return () => {
+        sender.removeListener('destroyed', handleDestroyed);
+        sender.removeListener('render-process-gone', handleRenderProcessGone);
+        sender.removeListener('did-start-navigation', handleNavigation);
+    };
+}
+
 export async function handlePdfNativePageSizes(
     context: IDocumentsSenderIdContext,
     filePath: unknown,
@@ -207,11 +248,35 @@ export async function handlePdfNativePagePreview(
     const targetWidthPx = normalizePreviewTargetWidth(options);
     const tools = getPdfNativeToolPaths();
     const env = buildPopplerEnv(tools);
-    const tempDir = await mkdtemp(join(tmpdir(), 'evb-pdf-native-preview-'));
-    const outputPrefix = join(tempDir, 'page');
-    const outputPath = `${outputPrefix}.png`;
+    const abortController = new AbortController();
+    let cancelGroup = '';
+    const mainOperation = registerMainOperation({
+        kind: 'abortable-work',
+        ownerWebContentsId: context.senderId,
+        workingCopyPath: resolvedPath,
+        cancel: (reason) => {
+            abortPreviewController(abortController, reason);
+            if (cancelGroup) {
+                cancelNativeCommandGroup(cancelGroup);
+            }
+        },
+    });
+    cancelGroup = `pdf-native-preview:${mainOperation.id}`;
+    const handleMainAbort = () => {
+        abortPreviewController(abortController, 'Native PDF preview canceled');
+        cancelNativeCommandGroup(cancelGroup);
+    };
+    const unregisterSenderCleanup = registerPreviewSenderCleanup(context.sender, (reason) => {
+        abortPreviewController(abortController, reason);
+        cancelNativeCommandGroup(cancelGroup);
+    });
+    mainOperation.signal.addEventListener('abort', handleMainAbort, { once: true });
+    let tempDir: string | null = null;
 
     try {
+        tempDir = await mkdtemp(join(tmpdir(), 'evb-pdf-native-preview-'));
+        const outputPrefix = join(tempDir, 'page');
+        const outputPath = `${outputPrefix}.png`;
         await runNativeToolCommand(
             tools.pdftoppm,
             [
@@ -233,6 +298,8 @@ export async function handlePdfNativePagePreview(
                 maxStdoutBytes: 64 * 1024,
                 maxStderrBytes: 512 * 1024,
                 commandLabel: 'pdftoppm',
+                signal: abortController.signal,
+                cancelGroup,
             }),
         );
         const bytes = new Uint8Array(await readFile(outputPath));
@@ -246,9 +313,14 @@ export async function handlePdfNativePagePreview(
             height,
         };
     } finally {
-        await rm(tempDir, {
-            recursive: true,
-            force: true, 
-        }).catch(() => undefined);
+        if (tempDir !== null) {
+            await rm(tempDir, {
+                recursive: true,
+                force: true,
+            }).catch(() => undefined);
+        }
+        mainOperation.signal.removeEventListener('abort', handleMainAbort);
+        unregisterSenderCleanup();
+        mainOperation.complete();
     }
 }

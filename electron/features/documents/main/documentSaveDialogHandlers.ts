@@ -17,14 +17,24 @@ import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCre
 import { te } from '@electron/te';
 import { normalizePdfSaveAsOptions } from '@electron/features/documents/main/pdfSaveAsOptimization';
 import type { IDocumentsDialogContext } from '@electron/features/documents/documentsService';
-import type { IPdfSerializedSaveOptions } from '@contracts/electronApiDocuments';
+import type {
+    IDocumentMutationRevisionOptions,
+    IPdfSerializedSaveOptions,
+} from '@contracts/electronApiDocuments';
 
 export async function handleSavePdfAs(
     context: IDocumentsDialogContext,
     workingPath: string,
     options?: unknown,
+    revisionOptions?: IDocumentMutationRevisionOptions,
 ) {
-    return savePdfAs(context, workingPath, normalizePdfSaveAsOptions(options), showSaveDialogWithExtension);
+    return savePdfAs(
+        context,
+        workingPath,
+        normalizePdfSaveAsOptions(options),
+        showSaveDialogWithExtension,
+        revisionOptions,
+    );
 }
 
 export async function handleSavePdfDataAs(

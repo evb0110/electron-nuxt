@@ -1,6 +1,6 @@
 import {
     spawn,
-    type ChildProcessWithoutNullStreams,
+    type ChildProcess,
 } from 'child_process';
 import { app } from 'electron';
 import { isRecord } from '@contracts/runtimeGuards';
@@ -8,10 +8,17 @@ import { getErrorMessage } from '@electron/utils/error';
 import { createLogger } from '@electron/utils/createLogger';
 import { appendTextChunkWithByteCap } from '@electron/native-tools/appendTextChunkWithByteCap';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
+import {
+    createDetachedChildProcessSpawnOptions,
+    terminateDetachedChildProcess,
+} from '@electron/utils/nativeChildProcess';
+import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
 
 const logger = createLogger('agent-codex-assistant');
 const APP_SERVER_REQUEST_TIMEOUT_MS = 30_000;
 const APP_SERVER_MAX_STDERR_BYTES = parseIntegerEnv('EVB_CODEX_APP_SERVER_MAX_STDERR_BYTES', 262_144, 1_024);
+const APP_SERVER_SHUTDOWN_GRACE_MS = parseIntegerEnv('EVB_CODEX_APP_SERVER_SHUTDOWN_GRACE_MS', 1_000, 250);
+const APP_SERVER_SHUTDOWN_CLOSE_TIMEOUT_MS = parseIntegerEnv('EVB_CODEX_APP_SERVER_SHUTDOWN_CLOSE_TIMEOUT_MS', 500, 100);
 
 type TAppServerJsonRpcId = number;
 
@@ -56,13 +63,25 @@ export function isCodexAppServerRequestTimeoutError(error: unknown): error is Co
 }
 
 export class CodexAppServerClient {
-    private readonly child: ChildProcessWithoutNullStreams;
+    private readonly child: ChildProcess;
+    private readonly stdin: NonNullable<ChildProcess['stdin']>;
+    private readonly stdout: NonNullable<ChildProcess['stdout']>;
+    private readonly stderr: NonNullable<ChildProcess['stderr']>;
     private readonly pending = new Map<TAppServerJsonRpcId, IPendingAppServerRequest>();
     private nextId = 1;
     private stdoutBuffer = '';
     private stderrBuffer = '';
     private stderrTruncated = false;
     private closed = false;
+    private shutdownPromise: Promise<void> | null = null;
+    private readonly closePromise: Promise<void>;
+    private resolveClosePromise: () => void = () => undefined;
+    private readonly lifecycleOperation = registerMainOperation({
+        kind: 'resource-cleanup',
+        cancel: () => {
+            void this.shutdown();
+        },
+    });
 
     constructor(
         codexPath: string,
@@ -71,23 +90,36 @@ export class CodexAppServerClient {
         private readonly onNotification: (notification: ICodexAppServerNotification) => void,
         private readonly onExit: (message: string) => void,
     ) {
-        this.child = spawn(codexPath, [
+        this.closePromise = new Promise(resolve => {
+            this.resolveClosePromise = resolve;
+        });
+        const child = spawn(codexPath, [
             'app-server',
             '--listen',
             'stdio://',
-        ], {
+        ], createDetachedChildProcessSpawnOptions({
             cwd,
             env,
             windowsHide: true,
-        });
+        }));
+        if (!child.stdin || !child.stdout || !child.stderr) {
+            this.lifecycleOperation.complete();
+            throw new Error('Codex app-server stdio pipes were not created.');
+        }
+        this.child = child;
+        this.stdin = child.stdin;
+        this.stdout = child.stdout;
+        this.stderr = child.stderr;
 
-        this.child.stdout.setEncoding('utf8');
-        this.child.stderr.setEncoding('utf8');
-        this.child.stdout.on('data', (chunk: string | Buffer) => this.handleStdout(String(chunk)));
-        this.child.stderr.on('data', (chunk: string | Buffer) => this.handleStderr(String(chunk)));
-        this.child.stdin.on('error', error => this.failAll(`Codex app-server stdin failed: ${getErrorMessage(error)}`));
+        this.stdout.setEncoding('utf8');
+        this.stderr.setEncoding('utf8');
+        this.stdout.on('data', (chunk: string | Buffer) => this.handleStdout(String(chunk)));
+        this.stderr.on('data', (chunk: string | Buffer) => this.handleStderr(String(chunk)));
+        this.stdin.on('error', error => this.failAll(`Codex app-server stdin failed: ${getErrorMessage(error)}`));
         this.child.on('error', error => this.failAll(`Codex app-server failed: ${getErrorMessage(error)}`));
         this.child.on('close', (exitCode) => {
+            this.resolveClosePromise();
+            this.lifecycleOperation.complete();
             const detail = this.getStderrDetail();
             this.failAll(`Codex app-server exited${exitCode === null ? '' : ` with code ${exitCode}`}${detail ? `: ${detail}` : '.'}`);
         });
@@ -200,7 +232,11 @@ export class CodexAppServerClient {
         });
     }
 
-    shutdown() {
+    async shutdown() {
+        if (this.shutdownPromise) {
+            return this.shutdownPromise;
+        }
+
         this.closed = true;
         for (const [
             id,
@@ -210,7 +246,34 @@ export class CodexAppServerClient {
             pending.reject(new Error('Codex app-server is shutting down.'));
             this.pending.delete(id);
         }
-        this.child.kill();
+        this.shutdownPromise = this.terminateChild();
+        return this.shutdownPromise;
+    }
+
+    private async terminateChild() {
+        try {
+            await terminateDetachedChildProcess(this.child, APP_SERVER_SHUTDOWN_GRACE_MS);
+            await this.waitForClose(APP_SERVER_SHUTDOWN_CLOSE_TIMEOUT_MS);
+        } finally {
+            this.lifecycleOperation.complete();
+        }
+    }
+
+    private async waitForClose(timeoutMs: number) {
+        let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+        try {
+            await Promise.race([
+                this.closePromise,
+                new Promise<void>(resolve => {
+                    timeoutHandle = setTimeout(resolve, timeoutMs);
+                    timeoutHandle.unref?.();
+                }),
+            ]);
+        } finally {
+            if (timeoutHandle) {
+                clearTimeout(timeoutHandle);
+            }
+        }
     }
 
     private writeLine(
@@ -218,7 +281,7 @@ export class CodexAppServerClient {
         callback: (error: Error | null) => void,
     ) {
         try {
-            this.child.stdin.write(`${JSON.stringify(payload)}\n`, (error) => {
+            this.stdin.write(`${JSON.stringify(payload)}\n`, (error) => {
                 callback(error ?? null);
             });
         } catch (error) {
@@ -346,6 +409,7 @@ export class CodexAppServerClient {
         }
 
         this.closed = true;
+        this.lifecycleOperation.complete();
         for (const [
             id,
             pending,

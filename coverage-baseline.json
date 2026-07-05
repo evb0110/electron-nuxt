@@ -2,22 +2,58 @@
   "version": 1,
   "tolerancePercentagePoints": 0.5,
   "metrics": {
-    "statements": 67.67,
-    "branches": 58.95,
-    "functions": 72.1,
-    "lines": 67.81
+    "statements": 67.97,
+    "branches": 58.97,
+    "functions": 71.94,
+    "lines": 68.15
   },
   "areas": {
     "electron-core": {
       "include": [
         "electron/"
       ],
-      "fileCount": 262,
+      "fileCount": 270,
       "metrics": {
-        "statements": 70.12,
-        "branches": 59.89,
-        "functions": 72.22,
-        "lines": 70.38
+        "statements": 70.57,
+        "branches": 60.04,
+        "functions": 72.11,
+        "lines": 70.87
+      }
+    },
+    "electron-djvu-feature": {
+      "include": [
+        "electron/features/djvu/"
+      ],
+      "fileCount": 12,
+      "metrics": {
+        "statements": 68.35,
+        "branches": 56.87,
+        "functions": 67.16,
+        "lines": 68.62
+      }
+    },
+    "electron-ocr": {
+      "include": [
+        "electron/ocr/"
+      ],
+      "fileCount": 35,
+      "metrics": {
+        "statements": 74.23,
+        "branches": 64.9,
+        "functions": 82.82,
+        "lines": 74.17
+      }
+    },
+    "electron-updates": {
+      "include": [
+        "electron/updates"
+      ],
+      "fileCount": 3,
+      "metrics": {
+        "statements": 71.7,
+        "branches": 56.43,
+        "functions": 78.26,
+        "lines": 71.63
       }
     },
     "pdf-viewer-engine": {
@@ -26,10 +62,10 @@
       ],
       "fileCount": 307,
       "metrics": {
-        "statements": 75.97,
-        "branches": 67.14,
-        "functions": 87.77,
-        "lines": 75.98
+        "statements": 76.13,
+        "branches": 67.22,
+        "functions": 87.9,
+        "lines": 76.13
       }
     },
     "pdf-viewer-navigation": {
@@ -50,10 +86,22 @@
       ],
       "fileCount": 16,
       "metrics": {
-        "statements": 72.88,
-        "branches": 66.48,
-        "functions": 75.54,
-        "lines": 73.17
+        "statements": 73.31,
+        "branches": 66.86,
+        "functions": 75.37,
+        "lines": 73.57
+      }
+    },
+    "release-scripts": {
+      "include": [
+        "scripts/release/"
+      ],
+      "fileCount": 11,
+      "metrics": {
+        "statements": 48.59,
+        "branches": 52.88,
+        "functions": 60,
+        "lines": 47.73
       }
     },
     "workspace-shell-composables": {
@@ -62,10 +110,10 @@
       ],
       "fileCount": 61,
       "metrics": {
-        "statements": 73.23,
-        "branches": 60.83,
-        "functions": 77.9,
-        "lines": 73.43
+        "statements": 73.5,
+        "branches": 61.12,
+        "functions": 78.17,
+        "lines": 73.7
       }
     }
   }

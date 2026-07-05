@@ -7,6 +7,7 @@ import type {
     TAgentAssistantProviderId,
     TAgentAssistantSpeedMode,
 } from '@contracts/agent';
+import { buildAgentAssistantScopeFingerprint } from '@contracts/agent';
 import {
     ASSISTANT_DEFAULT_EFFORT,
     ASSISTANT_DEFAULT_SPEED_MODE,
@@ -20,6 +21,8 @@ export function cloneAssistantScope(scope: IAgentAssistantChatScope): IAgentAssi
         key: scope.key,
         title: scope.title,
         ...(scope.tabId == null ? {} : {tabId: scope.tabId}),
+        ...(scope.documentSessionKey == null ? {} : {documentSessionKey: scope.documentSessionKey}),
+        ...(scope.documentInstanceId == null ? {} : {documentInstanceId: scope.documentInstanceId}),
         ...(scope.documentRef == null ? {} : {documentRef: scope.documentRef}),
         ...(scope.documentBackend === undefined ? {} : {documentBackend: scope.documentBackend}),
         ...(scope.documentIdentity == null ? {} : {documentIdentity: {...scope.documentIdentity}}),
@@ -139,8 +142,8 @@ export function createSelectedAssistantStatus(
     } satisfies IAgentAssistantStatus;
 }
 
-export function getStateScopeKey(nextState: IAgentAssistantState) {
-    return nextState.scope?.key ?? null;
+export function getStateScopeFingerprint(nextState: IAgentAssistantState) {
+    return buildAgentAssistantScopeFingerprint(nextState.status.provider, nextState.scope);
 }
 
 export function providerDefaultModel(

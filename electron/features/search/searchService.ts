@@ -16,5 +16,6 @@ export interface ISearchService {
     warmIndex: (context: ISearchOperationContext, request: unknown) => Promise<boolean>;
     cancel: (context: ISearchOperationContext, requestId?: unknown) => { canceled: boolean };
     resetCache: () => boolean;
+    subscribeProgress: (context: ISearchOperationContext) => void;
     cleanupAll: (reason: string) => void;
 }

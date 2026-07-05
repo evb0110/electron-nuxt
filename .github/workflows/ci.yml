@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 env:
   # Pin exact Node 24 patch level so CI does not drift independently of local verification.
@@ -77,6 +78,71 @@ jobs:
 
       - name: Electron blocking save smoke
         run: pnpm run test:e2e:electron:blocking-smoke:headless
+
+  pr_changed_areas:
+    name: Pull Request Changed Area Detection
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      native_or_build: ${{ steps.filter.outputs.native_or_build }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Detect native or build-script changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            native_or_build:
+              - 'native/**'
+              - 'scripts/build-*.mjs'
+              - 'scripts/check-build-*.mjs'
+              - 'scripts/check-native-tools-source-matrix.sh'
+              - 'scripts/check-wasm-freshness.mjs'
+              - 'scripts/native-rust-targets.mjs'
+              - 'scripts/prune-build-artifacts.mjs'
+              - 'scripts/release/**'
+              - 'scripts/run-build-strict.mjs'
+              - 'scripts/verify-packaged-native-tools.sh'
+              - 'scripts/wasm-artifacts.mjs'
+              - 'electron-builder.yml'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+
+  pr_native_build_safety:
+    name: Pull Request Native And Build Safety
+    if: ${{ github.event_name == 'pull_request' && needs.pr_changed_areas.outputs.native_or_build == 'true' }}
+    needs: pr_changed_areas
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+
+      - name: Install Rust WASM target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Rust tests
+        run: pnpm run test:rust
+
+      - name: Strict build
+        run: pnpm run build:strict
 
   manual_quality:
     name: Manual Quality Gates

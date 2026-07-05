@@ -6,6 +6,43 @@ import {
 import { parseWorkerMessage } from '@electron/ocr/jobManagerProtocol';
 
 describe('parseWorkerMessage', () => {
+    it('preserves source revision tokens on successful completion messages', () => {
+        expect(parseWorkerMessage({
+            type: 'complete',
+            jobId: 'job-1',
+            result: {
+                success: true,
+                pdfPath: '/tmp/searchable.pdf',
+                sourceDocumentRevisionToken: 'source-revision-token',
+                requiresCleanupAck: true,
+                errors: [],
+            },
+        })).toEqual({
+            type: 'complete',
+            jobId: 'job-1',
+            result: {
+                success: true,
+                pdfPath: '/tmp/searchable.pdf',
+                sourceDocumentRevisionToken: 'source-revision-token',
+                requiresCleanupAck: true,
+                errors: [],
+            },
+        });
+    });
+
+    it('rejects successful completion messages without a source revision token', () => {
+        expect(parseWorkerMessage({
+            type: 'complete',
+            jobId: 'job-1',
+            result: {
+                success: true,
+                pdfPath: '/tmp/searchable.pdf',
+                requiresCleanupAck: true,
+                errors: [],
+            },
+        })).toBeNull();
+    });
+
     it('preserves valid worker error envelopes on failed completion messages', () => {
         const errorEnvelope = {
             code: 'OCR_INVALID_PAYLOAD',

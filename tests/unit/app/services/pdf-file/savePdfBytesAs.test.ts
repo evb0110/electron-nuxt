@@ -10,6 +10,7 @@ import { savePdfBytesAs } from '@app/services/pdf-file/savePdfBytesAs';
 
 const mocks = vi.hoisted(() => ({
     documentFiles: {
+        getDocumentRevision: vi.fn(),
         savePdfAs: vi.fn(),
         savePdfDataAs: undefined as undefined | ReturnType<typeof vi.fn>,
         writeFile: vi.fn(),
@@ -48,11 +49,22 @@ vi.mock('@app/utils/platformDocuments', () => ({
     getDocumentsCapability: () => mocks.legacyDocuments,
 }));
 
+const SERIALIZED_SAVE_OPTIONS = { expectedDocumentRevisionToken: 'drt1:test:serialized-base' };
+const STAGED_REVISION = {
+    authority: 'browser-working-copy' as const,
+    contentRevision: 1,
+    documentRef: '/tmp/staged.pdf',
+    mintedAt: 1,
+    token: 'drt1:test:staged-base',
+    version: 1,
+};
+
 describe('savePdfBytesAs', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.documentFiles.savePdfAs.mockResolvedValue('/tmp/saved.pdf');
         mocks.documentFiles.savePdfDataAs = undefined;
+        mocks.documentFiles.getDocumentRevision.mockResolvedValue(STAGED_REVISION);
         mocks.documentFiles.writeFile.mockResolvedValue(undefined);
         mocks.documentPdf.validatePdfData.mockResolvedValue({
             isValid: true,
@@ -78,10 +90,10 @@ describe('savePdfBytesAs', () => {
         const data = new Uint8Array([1]);
         const options = { optimizeLossless: true };
 
-        const result = await savePdfBytesAs('/tmp/active.pdf', data, options);
+        const result = await savePdfBytesAs('/tmp/active.pdf', data, options, SERIALIZED_SAVE_OPTIONS);
 
         expect(result.path).toBe('/tmp/fast.pdf');
-        expect(savePdfDataAs).toHaveBeenCalledWith('/tmp/active.pdf', data, options);
+        expect(savePdfDataAs).toHaveBeenCalledWith('/tmp/active.pdf', data, options, SERIALIZED_SAVE_OPTIONS);
         expect(mocks.documentPdf.validatePdfData).not.toHaveBeenCalled();
         expect(mocks.documentWorkingCopy.createWorkingCopyFromData).not.toHaveBeenCalled();
         expect(mocks.legacyDocuments.savePdfDataAs).not.toHaveBeenCalled();
@@ -103,7 +115,12 @@ describe('savePdfBytesAs', () => {
             'active.pdf',
             data,
         );
-        expect(mocks.documentFiles.savePdfAs).toHaveBeenCalledWith('/tmp/staged.pdf');
+        expect(mocks.documentFiles.getDocumentRevision).toHaveBeenCalledWith('/tmp/staged.pdf');
+        expect(mocks.documentFiles.savePdfAs).toHaveBeenCalledWith(
+            '/tmp/staged.pdf',
+            undefined,
+            { expectedDocumentRevisionToken: STAGED_REVISION.token },
+        );
         expect(mocks.documentWorkingCopy.cleanupFile).toHaveBeenCalledWith('/tmp/staged.pdf');
         expect(mocks.legacyDocuments.createWorkingCopyFromData).not.toHaveBeenCalled();
         expect(mocks.legacyDocuments.savePdfAs).not.toHaveBeenCalled();

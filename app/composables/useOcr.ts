@@ -396,10 +396,14 @@ export const useOcr = () => {
         if (!response.pdfPath) {
             throw new Error(t('errors.ocr.noPdfData'));
         }
+        if (!response.sourceDocumentRevisionToken) {
+            throw new Error(t('errors.ocr.noPdfData'));
+        }
 
         BrowserLogger.debug('ocr', 'Storing OCR PDF result path', {
             requestId,
             path: response.pdfPath,
+            sourceDocumentRevisionToken: response.sourceDocumentRevisionToken,
             requiresCleanupAck: response.requiresCleanupAck === true,
         });
 
@@ -411,6 +415,7 @@ export const useOcr = () => {
             searchablePdfResult: {
                 requestId,
                 pdfPath: response.pdfPath,
+                sourceDocumentRevisionToken: response.sourceDocumentRevisionToken,
                 requiresCleanupAck: response.requiresCleanupAck === true,
             },
         };

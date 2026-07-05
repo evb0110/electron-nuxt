@@ -241,6 +241,29 @@ describe('WindowTabTransferBroker', () => {
         expect(result.error).toContain('closed');
     });
 
+    it('fails delivered transfers when the target window becomes not ready before ack', async () => {
+        const targetWindow = createWindow(6);
+        windowsById.set(targetWindow.id, targetWindow);
+        broker.markWindowReady(targetWindow.id);
+
+        const transferPromise = broker.requestTransfer(1, {
+            ...createTransferRequest(targetWindow.id),
+            timeoutMs: 12_000,
+        });
+
+        await flushTransferTasks();
+        expect(targetWindow.sentTransfers).toHaveLength(1);
+
+        broker.markWindowNotReady(targetWindow.id);
+
+        const result = await transferPromise;
+        expect(result).toMatchObject({
+            success: false,
+            targetWindowId: targetWindow.id,
+            error: 'Target window became unavailable before transfer acknowledgement.',
+        });
+    });
+
     it('fails queued transfers when the source window closes before target readiness', async () => {
         const targetWindow = createWindow(55);
         windowsById.set(targetWindow.id, targetWindow);

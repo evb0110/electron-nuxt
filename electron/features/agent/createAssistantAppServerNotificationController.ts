@@ -3,6 +3,7 @@ import type {
     IAgentAssistantEvent,
     IAgentAssistantStatus,
 } from '@contracts/agent';
+import { buildAgentAssistantScopeFingerprint } from '@contracts/agent';
 import { isRecord } from '@contracts/runtimeGuards';
 import type {
     IAssistantChatSession,
@@ -12,7 +13,9 @@ import type { IAssistantProviderRuntimeState } from '@electron/features/agent/as
 import type { IAssistantSelection } from '@electron/features/agent/assistantProviderStatus';
 import {
     canCompleteAssistantTurnWithoutProviderTurn,
+    buildAssistantSessionScopeBindingFingerprint,
     getAssistantTurnProviderTurnId,
+    getAssistantTurnScope,
     isAssistantTurnActive,
 } from '@electron/features/agent/assistantTurnLifecycle';
 import type { ICodexAppServerNotification } from '@electron/features/agent/codexAppServerClient';
@@ -140,20 +143,30 @@ export function createAssistantAppServerNotificationController(options: IAssista
         return !bindNotificationTurn(session, turnId);
     }
 
+    function isActiveTurnScopeCurrent(session: IAssistantChatSession) {
+        const turnScope = getAssistantTurnScope(session.turnOwner);
+        return !turnScope
+            || buildAssistantSessionScopeBindingFingerprint(turnScope)
+                === buildAgentAssistantScopeFingerprint(session.provider, session.scope);
+    }
+
     function bindNotificationTurn(
         session: IAssistantChatSession,
         turnId: string | null,
         optionsOverride: { emitStartedEvent?: boolean } = {},
     ) {
         if (turnId === null) {
-            return isAssistantTurnActive(session.turnOwner);
+            return isAssistantTurnActive(session.turnOwner) && isActiveTurnScopeCurrent(session);
         }
 
         const activeProviderTurnId = getAssistantTurnProviderTurnId(session.turnOwner);
         if (activeProviderTurnId === turnId) {
-            return true;
+            return isActiveTurnScopeCurrent(session);
         }
         if (activeProviderTurnId !== null || !isAssistantTurnActive(session.turnOwner)) {
+            return false;
+        }
+        if (!isActiveTurnScopeCurrent(session)) {
             return false;
         }
 

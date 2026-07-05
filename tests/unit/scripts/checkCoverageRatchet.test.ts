@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import {
     compareCoverageToBaseline,
     createCoverageBaseline,
+    DEFAULT_COVERAGE_AREAS,
     formatCoverageRatchetResult,
     parseCoverageSummary,
     runCoverageRatchet,
@@ -190,6 +191,15 @@ describe('coverage ratchet', () => {
             status: 'regressed',
         }));
         expect(formatCoverageRatchetResult(result)).toContain('pdf-viewer-navigation lines');
+    });
+
+    it('requires area ratchets for release, OCR, DjVu, and updater hot paths', () => {
+        expect(DEFAULT_COVERAGE_AREAS).toMatchObject({
+            'electron-djvu-feature': {include: ['electron/features/djvu/']},
+            'electron-ocr': {include: ['electron/ocr/']},
+            'electron-updates': {include: ['electron/updates']},
+            'release-scripts': {include: ['scripts/release/']},
+        });
     });
 
     it('updates the baseline deterministically from a generated summary', async () => {

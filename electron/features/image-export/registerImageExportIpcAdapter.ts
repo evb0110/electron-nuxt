@@ -45,4 +45,15 @@ export function registerImageExportIpcAdapter(
                 requestId,
             ),
     );
+    registrar.handle(
+        IMAGE_EXPORT_CHANNELS.subscribeProgress,
+        (event) => {
+            service.subscribeProgress({
+                sender: event.sender,
+                senderId: event.sender.id,
+                parentWindow: BrowserWindow.fromWebContents(event.sender),
+            });
+            return undefined;
+        },
+    );
 }

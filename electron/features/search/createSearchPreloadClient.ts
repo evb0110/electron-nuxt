@@ -172,8 +172,11 @@ export function createSearchPreloadClient(ipcRenderer: IpcRenderer): ISearchPrel
         ),
         cancel: (requestId?: string): Promise<{ canceled: boolean }> =>
             invoke(SEARCH_CHANNELS.cancel, normalizeOptionalSearchRequestId(requestId)),
-        onProgress: (callback): (() => void) =>
-            eventSubscriber.onDecodedPayload(SEARCH_EVENT_CHANNELS.progress, decodeSearchProgress, callback),
+        onProgress: (callback): (() => void) => {
+            const unsubscribe = eventSubscriber.onDecodedPayload(SEARCH_EVENT_CHANNELS.progress, decodeSearchProgress, callback);
+            void invoke(SEARCH_CHANNELS.subscribeProgress);
+            return unsubscribe;
+        },
         resetCache: () => invoke(SEARCH_CHANNELS.resetCache),
     };
 }

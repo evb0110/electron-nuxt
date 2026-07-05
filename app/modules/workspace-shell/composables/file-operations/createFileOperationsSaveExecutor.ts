@@ -39,10 +39,12 @@ export interface IFileOperationsSaveExecutionConfig {
     persistUnserialized: (opts: {
         saveMode: TPdfSaveMode;
         expectedWorkingPath?: TDocumentRef | null;
+        expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
     }) => Promise<IPdfPersistResult>;
     persistNativeWorkingCopy?: (opts: {
         saveMode: TPdfSaveMode;
         expectedWorkingPath?: TDocumentRef | null;
+        expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
     }) => Promise<IPdfPersistResult>;
     forceRewrite?: boolean;
 }
@@ -325,8 +327,10 @@ export function createFileOperationsSaveExecutor(
         persist: (opts: {
             saveMode: TPdfSaveMode;
             expectedWorkingPath?: TDocumentRef | null;
+            expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
         }) => Promise<IPdfPersistResult>,
         expectedWorkingPath: TDocumentRef | null,
+        expectedDocumentRevisionToken: TDocumentRevisionToken | null,
         saveStateSnapshot?: ISaveStateSnapshot,
     ) {
         const saveResult = await validateWorkingCopySnapshot(saveMode);
@@ -349,6 +353,7 @@ export function createFileOperationsSaveExecutor(
             () => persist({
                 saveMode: saveResult.saveMode,
                 expectedWorkingPath,
+                expectedDocumentRevisionToken,
             }),
             result => ({
                 saveMode: saveResult.saveMode,
@@ -376,8 +381,10 @@ export function createFileOperationsSaveExecutor(
         persist: (opts: {
             saveMode: TPdfSaveMode;
             expectedWorkingPath?: TDocumentRef | null;
+            expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
         }) => Promise<IPdfPersistResult>,
         expectedWorkingPath: TDocumentRef | null,
+        expectedDocumentRevisionToken: TDocumentRevisionToken | null,
         saveStateSnapshot?: ISaveStateSnapshot,
     ) {
         if (!expectedWorkingPath || state.documentIdentity.workingCopyPath.value !== expectedWorkingPath) {
@@ -394,6 +401,7 @@ export function createFileOperationsSaveExecutor(
             () => persist({
                 saveMode,
                 expectedWorkingPath,
+                expectedDocumentRevisionToken,
             }),
             result => ({
                 saveMode,
@@ -468,6 +476,7 @@ export function createFileOperationsSaveExecutor(
             config.mode,
             config.persistUnserialized,
             context.savePlan.staleTargetProtection.expectedWorkingPath,
+            context.savePlan.staleTargetProtection.expectedDocumentRevisionToken,
             context.saveStateSnapshot,
         );
         services.clearSaveIndicator(config.mode);
@@ -495,6 +504,7 @@ export function createFileOperationsSaveExecutor(
             config.mode,
             config.persistNativeWorkingCopy,
             context.savePlan.staleTargetProtection.expectedWorkingPath,
+            context.savePlan.staleTargetProtection.expectedDocumentRevisionToken,
             context.saveStateSnapshot,
         );
         services.clearSaveIndicator(config.mode);

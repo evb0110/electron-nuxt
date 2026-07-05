@@ -156,35 +156,93 @@ class PlainOcrLimiter {
 
 const plainOcrLimiter = new PlainOcrLimiter();
 const plainOcrBatchControllers = new Map<string, AbortController>();
+const plainOcrProgressPumpsBySenderId = new Map<number, ReturnType<typeof createIpcProgressPump<IOcrProgress>>>();
+const plainOcrProgressCleanupSenderIds = new Set<number>();
 
 type TOcrJobManagerContext = Parameters<typeof handleOcrCreateSearchablePdfAsync>[0];
+type TOcrJobManagerSender = TOcrJobManagerContext['sender'];
+type TOcrSenderLifecycleListener = Parameters<TOcrJobManagerSender['once']>[1];
 
 function toScopedPlainOcrBatchId(senderId: number, requestId: string) {
     return `${senderId}:${requestId}`;
 }
 
+function getPlainOcrProgressPump(context: IOcrOperationContext) {
+    let pump = plainOcrProgressPumpsBySenderId.get(context.senderId);
+    if (pump) {
+        return pump;
+    }
+
+    pump = createIpcProgressPump<IOcrProgress>({
+        channel: OCR_EVENT_CHANNELS.progress,
+        getTarget: () => ({
+            isDestroyed: () => context.sender.isDestroyed(),
+            send: (channel: string, payload: IOcrProgress) => safeSendToWindow(
+                context.parentWindow,
+                channel as typeof OCR_EVENT_CHANNELS.progress,
+                payload,
+            ),
+        }),
+        getKey: (progress: IOcrProgress) => progress.requestId,
+        isTerminal: (progress: IOcrProgress) => progress.totalPages > 0 && progress.processedCount >= progress.totalPages,
+        onError: (error: unknown) => {
+            log.debug(`Failed to send OCR batch progress: ${getErrorMessage(error)}`);
+        },
+        onIdle: () => {
+            plainOcrProgressPumpsBySenderId.delete(context.senderId);
+        },
+    });
+    plainOcrProgressPumpsBySenderId.set(context.senderId, pump);
+
+    if (!plainOcrProgressCleanupSenderIds.has(context.senderId)) {
+        plainOcrProgressCleanupSenderIds.add(context.senderId);
+        context.sender.once('destroyed', () => {
+            plainOcrProgressPumpsBySenderId.get(context.senderId)?.dispose();
+            plainOcrProgressPumpsBySenderId.delete(context.senderId);
+            plainOcrProgressCleanupSenderIds.delete(context.senderId);
+        });
+    }
+
+    return pump;
+}
+
+export function subscribePlainOcrProgress(context: IOcrOperationContext) {
+    plainOcrProgressPumpsBySenderId.get(context.senderId)?.subscribe({
+        isDestroyed: () => context.sender.isDestroyed(),
+        send: (channel: string, payload: IOcrProgress) => safeSendToWindow(
+            context.parentWindow,
+            channel as typeof OCR_EVENT_CHANNELS.progress,
+            payload,
+        ),
+    });
+}
+
 function createOcrJobManagerContext(context: IOcrOperationContext): TOcrJobManagerContext {
     const {sender} = context;
+    const once: TOcrJobManagerSender['once'] = (event, listener) => {
+        if (event === 'destroyed') {
+            return sender.once('destroyed', listener);
+        }
+        return sender.once('render-process-gone', listener);
+    };
+    const on: TOcrJobManagerSender['on'] = (event, listener) => sender.on(event, listener);
+    const removeListener: TOcrJobManagerSender['removeListener'] = (event, listener) => {
+        if (event === 'destroyed') {
+            return sender.removeListener('destroyed', listener as TOcrSenderLifecycleListener);
+        }
+        if (event === 'render-process-gone') {
+            return sender.removeListener('render-process-gone', listener as TOcrSenderLifecycleListener);
+        }
+        return sender.removeListener('did-start-navigation', listener);
+    };
+
     return {
         senderId: context.senderId,
         sender: {
             isDestroyed: () => sender.isDestroyed(),
-            once: (event, listener) => {
-                if (event === 'destroyed') {
-                    return sender.once('destroyed', listener);
-                }
-                return sender.once('render-process-gone', listener);
-            },
-            on: (event, listener) => sender.on(event, listener),
-            removeListener: (event, listener) => {
-                if (event === 'destroyed') {
-                    return sender.removeListener('destroyed', listener as () => void);
-                }
-                if (event === 'render-process-gone') {
-                    return sender.removeListener('render-process-gone', listener as () => void);
-                }
-                return sender.removeListener('did-start-navigation', listener);
-            },
+            once,
+            on,
+            removeListener,
         },
     };
 }
@@ -304,26 +362,10 @@ export async function handleOcrRecognizeBatch(
         plainOcrBatchControllers.set(scopedBatchId, senderAbort.controller);
         registeredBatchController = true;
         const targetPages = pages;
-        const window = context.parentWindow;
         const results: Record<number, string> = {};
         const errors: string[] = [];
         let firstErrorEnvelope: IOcrErrorEnvelope | undefined;
-        const progressPump = createIpcProgressPump<IOcrProgress>({
-            channel: OCR_EVENT_CHANNELS.progress,
-            getTarget: () => ({
-                isDestroyed: () => context.sender.isDestroyed(),
-                send: (channel, payload) => safeSendToWindow(
-                    window,
-                    channel as typeof OCR_EVENT_CHANNELS.progress,
-                    payload,
-                ),
-            }),
-            getKey: progress => progress.requestId,
-            isTerminal: progress => progress.totalPages > 0 && progress.processedCount >= progress.totalPages,
-            onError: error => {
-                log.debug(`Failed to send OCR batch progress: ${getErrorMessage(error)}`);
-            },
-        });
+        const progressPump = getPlainOcrProgressPump(context);
 
         const concurrency = getOcrConcurrency(targetPages.length);
         const tesseractThreads = getTesseractThreadLimit(concurrency);
@@ -382,7 +424,7 @@ export async function handleOcrRecognizeBatch(
                 }
             });
         } finally {
-            progressPump.clear();
+            progressPump.clearKey(requestId);
         }
 
         const response: IOcrRecognizeBatchResult = {

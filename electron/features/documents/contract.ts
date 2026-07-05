@@ -179,7 +179,7 @@ export interface IDocumentsInvokeMap {
         result: Awaited<ReturnType<IDocumentsFileCapability['createWorkingCopyFromPath']>>;
     };
     [DOCUMENTS_CHANNELS.savePdfAs]: {
-        args: [workingPath: string, options?: IPdfSaveAsOptions];
+        args: [workingPath: string, options: IPdfSaveAsOptions | undefined, revisionOptions?: IPdfSerializedSaveOptions];
         result: Awaited<ReturnType<IDocumentsFileCapability['savePdfAs']>>;
     };
     [DOCUMENTS_CHANNELS.savePdfDataAs]: {
@@ -281,7 +281,7 @@ export interface IDocumentsInvokeMap {
         result: Awaited<ReturnType<IDocumentsFileCapability['writeDocxFile']>>;
     };
     [DOCUMENTS_CHANNELS.fileSaveStructured]: {
-        args: [path: string];
+        args: [path: string, options?: IPdfSerializedSaveOptions];
         result: Awaited<ReturnType<IDocumentsFileCapability['saveFileStructured']>>;
     };
     [DOCUMENTS_CHANNELS.fileResyncWorkingCopy]: {
@@ -289,11 +289,11 @@ export interface IDocumentsInvokeMap {
         result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['resyncWorkingCopy']>>>;
     };
     [DOCUMENTS_CHANNELS.fileRepairPdf]: {
-        args: [path: string];
+        args: [path: string, options?: IPdfSerializedSaveOptions];
         result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['repairPdf']>>>;
     };
     [DOCUMENTS_CHANNELS.fileOptimizePdfForInteraction]: {
-        args: [path: string];
+        args: [path: string, options?: IPdfSerializedSaveOptions];
         result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['optimizePdfForInteraction']>>>;
     };
     [DOCUMENTS_CHANNELS.fileOptimizePdfAsCopy]: {

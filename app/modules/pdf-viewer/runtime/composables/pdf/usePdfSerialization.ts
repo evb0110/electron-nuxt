@@ -257,12 +257,15 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
                 BrowserLogger.debug(PDF_SERIALIZATION_LOG_SECTION, 'Native placed image mutation skipped because base hashing is unavailable', {pageNumber: payload.pageNumber});
                 return null;
             }
+            const revisionOptions = documentRevisionToken?.value === null || documentRevisionToken?.value === undefined
+                ? undefined
+                : {expectedDocumentRevisionToken: documentRevisionToken.value};
             const result = await documentFiles.applyPdfNativeMutationsToWorkingCopy(
                 workingPath,
                 {placedImages: [nativeImage]},
                 toPdfDateString(),
                 expectedBase,
-                {expectedDocumentRevisionToken: documentRevisionToken?.value ?? null},
+                revisionOptions,
             );
             if (!result.applied || !result.validation?.isValid) {
                 BrowserLogger.debug(PDF_SERIALIZATION_LOG_SECTION, 'Native placed image mutation was not applied', {

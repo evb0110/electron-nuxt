@@ -924,6 +924,7 @@ async function processOcrJob(
         sendComplete(jobId, {
             success: true,
             pdfPath: mergedPdfPath,
+            sourceDocumentRevisionToken: documentRevision.token,
             requiresCleanupAck: true,
             errors: completionMessages,
         });

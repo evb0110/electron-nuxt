@@ -8,6 +8,7 @@ import type {
     IPdfValidationResult,
 } from '@contracts/pdfConformance';
 import type {
+    IDocumentMutationRevisionOptions,
     IPdfNativeMutationSet,
     IPdfNativeNoteChanges,
     IPdfNativeSaveResult,
@@ -39,7 +40,10 @@ export interface IDocumentsWebContentsContext {
 
 export interface IDocumentsDialogContext extends IDocumentsWebContentsContext { parentWindow: BrowserWindow | null; }
 
-export interface IDocumentsSenderIdContext { senderId?: number; }
+export interface IDocumentsSenderIdContext {
+    sender?: WebContents;
+    senderId?: number;
+}
 
 export interface IDocumentsWindowContext {
     senderId?: number;
@@ -69,7 +73,12 @@ export interface IDocumentsService {
         sourcePath: TOpenPath,
         originalPath?: string,
     ) => Promise<string>;
-    savePdfAs: (context: IDocumentsDialogContext, workingPath: string, options?: IPdfSaveAsOptions) => Promise<string | null>;
+    savePdfAs: (
+        context: IDocumentsDialogContext,
+        workingPath: string,
+        options: IPdfSaveAsOptions | undefined,
+        revisionOptions?: IDocumentMutationRevisionOptions,
+    ) => Promise<string | null>;
     savePdfDataAs: (
         context: IDocumentsDialogContext,
         workingPath: string,
@@ -140,9 +149,21 @@ export interface IDocumentsService {
         options?: IPdfSerializedSaveOptions,
     ) => Promise<boolean>;
     writeDocxFile: (context: IDocumentsSenderIdContext, filePath: string, data: Uint8Array) => Promise<boolean>;
-    saveFileStructured: (context: IDocumentsSenderIdContext, workingPath: string) => Promise<TDocumentSaveResult>;
-    repairPdf: (context: IDocumentsSenderIdContext, workingPath: string) => Promise<IPdfValidationResult>;
-    optimizePdfForInteraction: (context: IDocumentsSenderIdContext, workingPath: string) => Promise<IPdfValidationResult>;
+    saveFileStructured: (
+        context: IDocumentsSenderIdContext,
+        workingPath: string,
+        options?: IDocumentMutationRevisionOptions,
+    ) => Promise<TDocumentSaveResult>;
+    repairPdf: (
+        context: IDocumentsSenderIdContext,
+        workingPath: string,
+        options?: IDocumentMutationRevisionOptions,
+    ) => Promise<IPdfValidationResult>;
+    optimizePdfForInteraction: (
+        context: IDocumentsSenderIdContext,
+        workingPath: string,
+        options?: IDocumentMutationRevisionOptions,
+    ) => Promise<IPdfValidationResult>;
     optimizePdfAsCopy: (
         context: IDocumentsDialogContext,
         workingPath: string,

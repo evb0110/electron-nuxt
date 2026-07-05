@@ -12,7 +12,7 @@ import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/cre
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import { getWorkspaceViewerCapabilitiesForDocumentType } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 
-export type TWorkspaceDocumentTabState = Pick<ITab, 'fileName' | 'originalPath' | 'isDirty' | 'isDjvu'>;
+export type TWorkspaceDocumentTabState = Pick<ITab, 'fileName' | 'originalPath' | 'documentInstanceId' | 'isDirty' | 'isDjvu'>;
 
 export interface IWorkspaceDocumentRecord {
     tab: TWorkspaceDocumentTabState;
@@ -32,6 +32,7 @@ function normalizeTabState(tab?: TTabUpdate | TWorkspaceDocumentTabState): TWork
     return {
         fileName: tab?.fileName ?? null,
         originalPath: tab?.originalPath ?? null,
+        ...(tab?.documentInstanceId === undefined ? {} : {documentInstanceId: tab.documentInstanceId}),
         isDirty: tab?.isDirty ?? false,
         isDjvu: tab?.isDjvu ?? false,
     };

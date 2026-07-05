@@ -38,6 +38,10 @@ const mocks = vi.hoisted(() => ({
     makeSiblingTempPath: vi.fn((targetPath: string) => `${targetPath}.tmp`),
     atomicReplace: vi.fn(),
     copyFileCopyOnWrite: vi.fn(),
+    assertWorkingCopyMutationAllowed: vi.fn(),
+    assertWorkingCopyRevisionCurrent: vi.fn(),
+    markWorkingCopyContentChanged: vi.fn(),
+    markWorkingCopySyncRequired: vi.fn(),
 }));
 
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
@@ -54,6 +58,12 @@ vi.mock('@electron/file-access/workingCopyStore', () => ({
 }));
 vi.mock('@electron/file-access/isAllowedOriginalSavePath', () => ({isAllowedOriginalSavePath: (...args: unknown[]) => mocks.isAllowedOriginalSavePath(...args)}));
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: (...args: unknown[]) => mocks.ensureWorkingCopyDirectory(...args)}));
+vi.mock('@electron/file-access/documentRevisionStore', () => ({
+    assertWorkingCopyMutationAllowed: (...args: unknown[]) => mocks.assertWorkingCopyMutationAllowed(...args),
+    assertWorkingCopyRevisionCurrent: (...args: unknown[]) => mocks.assertWorkingCopyRevisionCurrent(...args),
+    markWorkingCopyContentChanged: (...args: unknown[]) => mocks.markWorkingCopyContentChanged(...args),
+    markWorkingCopySyncRequired: (...args: unknown[]) => mocks.markWorkingCopySyncRequired(...args),
+}));
 vi.mock('@electron/utils/atomicReplace', () => ({
     atomicReplace: (...args: [string, string]) => mocks.atomicReplace(...args),
     makeSiblingTempPath: (...args: [string]) => mocks.makeSiblingTempPath(...args),
@@ -151,6 +161,7 @@ function createNativePlacedImage() {
 describe('handleNativeNoteTextSave', () => {
     let tempRoot = '';
     const context = {senderId: 42};
+    const revisionOptions = {expectedDocumentRevisionToken: 'revision-before-native-mutation'};
 
     beforeEach(() => {
         vi.clearAllMocks();
@@ -159,6 +170,10 @@ describe('handleNativeNoteTextSave', () => {
         mocks.resolveNativePageOpsPath.mockReturnValue('/native/evb-pdf-page-ops');
         mocks.isAllowedOriginalSavePath.mockReturnValue(true);
         mocks.ensureWorkingCopyDirectory.mockResolvedValue(true);
+        mocks.assertWorkingCopyMutationAllowed.mockReturnValue(undefined);
+        mocks.assertWorkingCopyRevisionCurrent.mockResolvedValue(undefined);
+        mocks.markWorkingCopyContentChanged.mockResolvedValue(undefined);
+        mocks.markWorkingCopySyncRequired.mockReturnValue(undefined);
         mocks.getWorkingCopyOriginalFileExpectation.mockImplementation((workingPath: string, senderWebContentsId?: number) => {
             const original = mocks.getWorkingCopyOriginalPath(workingPath, senderWebContentsId);
             return original?.originalPath
@@ -208,7 +223,7 @@ describe('handleNativeNoteTextSave', () => {
             objectNumber: 42,
             generationNumber: 0,
             text: 'Updated note',
-        }], 'D:20260609133855+03\'00\'');
+        }], 'D:20260609133855+03\'00\'', revisionOptions);
 
         expect(result).toMatchObject({
             applied: true,
@@ -227,7 +242,11 @@ describe('handleNativeNoteTextSave', () => {
                 '--output',
                 tempPath,
             ]),
-            expect.objectContaining({commandLabel: 'evb-pdf-page-ops(update-note-text)'}),
+            expect.objectContaining({
+                cancelGroup: expect.stringMatching(/^working-copy-mutation:/u),
+                commandLabel: 'evb-pdf-page-ops(update-note-text)',
+                signal: expect.any(AbortSignal),
+            }),
         );
         expect(mocks.atomicReplace).toHaveBeenCalledWith(tempPath, originalPath);
         expect(mocks.copyFileCopyOnWrite).toHaveBeenLastCalledWith(originalPath, requestedWorkingPath);
@@ -258,7 +277,7 @@ describe('handleNativeNoteTextSave', () => {
             objectNumber: 42,
             generationNumber: 0,
             text: 'Updated note',
-        }], 'D:20260609133855+03\'00\'');
+        }], 'D:20260609133855+03\'00\'', revisionOptions);
 
         expect(result).toMatchObject({
             applied: true,
@@ -341,6 +360,7 @@ describe('handleNativeNoteTextSave', () => {
                 ],
             },
             'D:20260609133855+03\'00\'',
+            revisionOptions,
         );
 
         expect(result).toMatchObject({
@@ -513,6 +533,7 @@ describe('handleNativeNoteTextSave', () => {
                 },
             },
             'D:20260609133855+03\'00\'',
+            revisionOptions,
         );
 
         expect(result).toMatchObject({
@@ -561,7 +582,7 @@ describe('handleNativeNoteTextSave', () => {
             objectNumber: 42,
             generationNumber: 0,
             text: 'Updated note',
-        }], 'D:20260609133855+03\'00\'');
+        }], 'D:20260609133855+03\'00\'', revisionOptions);
         await expect(savePromise).resolves.toMatchObject({applied: true});
         expect(mocks.atomicReplace).toHaveBeenCalledWith(tempPath, originalPath);
         expect(mocks.copyFileCopyOnWrite).toHaveBeenCalledWith(originalPath, requestedWorkingPath);
@@ -596,7 +617,7 @@ describe('handleNativeNoteTextSave', () => {
             objectNumber: 42,
             generationNumber: 0,
             text: 'Updated note',
-        }], 'D:20260609133855+03\'00\'');
+        }], 'D:20260609133855+03\'00\'', revisionOptions);
 
         expect(result).toEqual({
             applied: false,
@@ -646,6 +667,7 @@ describe('handleNativeNoteTextSave', () => {
                     .update('base-before')
                     .digest('hex'),
             },
+            revisionOptions,
         );
         await waitForSettledQueueTurn();
 

@@ -350,9 +350,7 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
         if (policy?.cancelsOnDocumentChange === false) {
             return;
         }
-        if (!allowRevisionChange) {
-            context.assertCurrentDocument();
-        }
+        context.assertCurrentDocument({allowRevisionChange});
         assertDocumentIdentityMatches(context.documentIdentity, allowRevisionChange);
     }
 

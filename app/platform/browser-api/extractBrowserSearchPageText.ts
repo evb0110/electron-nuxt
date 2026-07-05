@@ -19,6 +19,13 @@ interface IBrowserSearchGeometryPageLike extends IBrowserSearchTextPageLike {
     view?: unknown;
 }
 
+interface IExtractBrowserSearchPageTextOptions {shouldContinue?: () => Promise<boolean> | boolean;}
+
+/*
+ * BGX-2: PDF.js does not expose cancellable handles for browser search
+ * getOperatorList()/getTextContent() extraction, so cancellation can overshoot
+ * by at most the currently awaited page extraction step.
+ */
 export interface IBrowserSearchPageData {
     text: string;
     words?: IOcrWord[];
@@ -26,11 +33,21 @@ export interface IBrowserSearchPageData {
     pageHeight?: number;
 }
 
-async function extractTextContentPageText(page: IBrowserSearchTextPageLike) {
+async function throwIfBrowserSearchCanceled(shouldContinue?: IExtractBrowserSearchPageTextOptions['shouldContinue']) {
+    if (await shouldContinue?.() === false) {
+        throw new Error('ERR_BROWSER_SEARCH_CANCELED');
+    }
+}
+
+async function extractTextContentPageText(
+    page: IBrowserSearchTextPageLike,
+    options: IExtractBrowserSearchPageTextOptions = {},
+) {
     const content = await page.getTextContent({
         includeMarkedContent: true,
         disableNormalization: true,
     });
+    await throwIfBrowserSearchCanceled(options.shouldContinue);
     const textChunks: string[] = [];
 
     for (let index = 0; index < content.items.length; index += 128) {
@@ -46,6 +63,7 @@ async function extractTextContentPageText(page: IBrowserSearchTextPageLike) {
 
         if (index + 128 < content.items.length) {
             await yieldToBrowser();
+            await throwIfBrowserSearchCanceled(options.shouldContinue);
         }
     }
 
@@ -60,10 +78,15 @@ async function cleanupBrowserSearchPage(page: IBrowserSearchTextPageLike) {
     }
 }
 
-export async function extractBrowserSearchPageText(page: IBrowserSearchTextPageLike) {
-    const text = await extractTextContentPageText(page);
-    await cleanupBrowserSearchPage(page);
-    return text;
+export async function extractBrowserSearchPageText(
+    page: IBrowserSearchTextPageLike,
+    options: IExtractBrowserSearchPageTextOptions = {},
+) {
+    try {
+        return await extractTextContentPageText(page, options);
+    } finally {
+        await cleanupBrowserSearchPage(page);
+    }
 }
 
 function hasUsableGeometry(page: IBrowserSearchPageData) {
@@ -80,11 +103,13 @@ function hasUsableGeometry(page: IBrowserSearchPageData) {
 export async function extractBrowserSearchPageData(
     page: IBrowserSearchGeometryPageLike,
     pdfjsOps: TPdfjsTextOps,
+    options: IExtractBrowserSearchPageTextOptions = {},
 ): Promise<IBrowserSearchPageData> {
     try {
         if (typeof page.getOperatorList === 'function') {
             const pageBox = getPdfjsPageViewBox(page);
             const operatorList = await page.getOperatorList();
+            await throwIfBrowserSearchCanceled(options.shouldContinue);
             const words = extractPdfjsWordBoxesFromOperatorList(operatorList, pageBox, pdfjsOps);
             const pageData: IBrowserSearchPageData = {
                 text: buildOcrTextLayerIndexText(words),
@@ -97,7 +122,8 @@ export async function extractBrowserSearchPageData(
             }
         }
 
-        return {text: await extractTextContentPageText(page)};
+        await throwIfBrowserSearchCanceled(options.shouldContinue);
+        return {text: await extractTextContentPageText(page, options)};
     } finally {
         await cleanupBrowserSearchPage(page);
     }

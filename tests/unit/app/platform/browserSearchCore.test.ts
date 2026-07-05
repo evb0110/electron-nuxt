@@ -1,0 +1,69 @@
+import {
+    beforeEach,
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
+
+const mocks = vi.hoisted(() => ({
+    createPdfjsDocumentInitFromBrowserDocument: vi.fn(),
+    destroyDocument: vi.fn(),
+    destroyLoadingTask: vi.fn(),
+    extractBrowserSearchPageData: vi.fn(),
+    getDocument: vi.fn(),
+    getPage: vi.fn(),
+    yieldToBrowser: vi.fn(),
+}));
+
+vi.mock('@app/platform/browser-api/browserPdfjsDocumentInit', () => ({
+    createPdfjsDocumentInitFromBrowserDocument: mocks.createPdfjsDocumentInitFromBrowserDocument,
+    getPdfjsLib: vi.fn(async () => ({
+        OPS: {},
+        getDocument: mocks.getDocument,
+    })),
+}));
+
+vi.mock('@app/platform/browser-api/browserYield', () => ({yieldToBrowser: mocks.yieldToBrowser}));
+
+vi.mock('@app/platform/browser-api/extractBrowserSearchPageText', () => ({extractBrowserSearchPageData: mocks.extractBrowserSearchPageData}));
+
+describe('browserSearchCore', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mocks.createPdfjsDocumentInitFromBrowserDocument.mockResolvedValue({url: '/tmp/search.pdf'});
+        mocks.destroyDocument.mockResolvedValue(undefined);
+        mocks.destroyLoadingTask.mockResolvedValue(undefined);
+        mocks.extractBrowserSearchPageData.mockResolvedValue({text: 'alpha'});
+        mocks.getPage.mockResolvedValue({});
+        mocks.getDocument.mockReturnValue({
+            destroy: mocks.destroyLoadingTask,
+            promise: Promise.resolve({
+                destroy: mocks.destroyDocument,
+                getPage: mocks.getPage,
+                numPages: 1,
+            }),
+        });
+        mocks.yieldToBrowser.mockResolvedValue(undefined);
+    });
+
+    it('cancels after getPage resolves without starting page text extraction', async () => {
+        const { iterateBrowserSearchDocumentPages } =
+            await import('@app/platform/browser-api/browserSearchCore');
+        let shouldContinue = true;
+        mocks.getPage.mockImplementation(async () => {
+            shouldContinue = false;
+            return {};
+        });
+
+        await expect(iterateBrowserSearchDocumentPages(
+            '/tmp/search.pdf',
+            vi.fn(),
+            {shouldContinue: () => shouldContinue},
+        )).rejects.toThrow('ERR_BROWSER_SEARCH_CANCELED');
+
+        expect(mocks.getPage).toHaveBeenCalledWith(1);
+        expect(mocks.extractBrowserSearchPageData).not.toHaveBeenCalled();
+        expect(mocks.destroyDocument).toHaveBeenCalledOnce();
+    });
+});

@@ -359,8 +359,8 @@ export function createBrowserDocumentsFileCapability(
                 throw error;
             }
         },
-        async savePdfAs(workingCopyPath) {
-            return savePdfAsWithOptionalData(workingCopyPath);
+        async savePdfAs(workingCopyPath, _options, revisionOptions) {
+            return savePdfAsWithOptionalData(workingCopyPath, undefined, revisionOptions);
         },
         async savePdfDataAs(workingCopyPath, data, _options, serializedSaveOptions) {
             const validation = await validateBrowserPdfData(data);
@@ -700,8 +700,12 @@ export function createBrowserDocumentsFileCapability(
             await decryptBrowserWorkingCopy(workingPath);
             return workingPath;
         },
-        async saveFileStructured(path) {
-            const result = await saveWorkingBytesToSourceStructured(path, browserLargeSaveHandleHintProvider);
+        async saveFileStructured(path, revisionOptions) {
+            const result = await saveWorkingBytesToSourceStructured(
+                path,
+                browserLargeSaveHandleHintProvider,
+                revisionOptions,
+            );
             if (result.ok) {
                 clearSearchCaches();
             }
@@ -711,7 +715,11 @@ export function createBrowserDocumentsFileCapability(
             try {
                 const sourceRef = await browserDocumentStore.getSourceRef(path);
                 const bytes = await browserDocumentStore.read(sourceRef);
-                await browserDocumentStore.write(path, bytes);
+                await browserDocumentStore.writeForBootstrap(
+                    path,
+                    bytes,
+                    'resync-after-external-change',
+                );
                 clearSearchCaches(path);
                 return {
                     ok: true,

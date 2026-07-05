@@ -134,7 +134,7 @@ describe('createDocumentOpenFlow', () => {
 
         await openFlow.loadPdfFromData(snapshot, { persistWorkingCopy: true });
 
-        expect(mocks.documentFiles.writeFile).toHaveBeenCalledWith('/tmp/work.pdf', snapshot);
+        expect(mocks.documentFiles.writeFile).toHaveBeenCalledWith('/tmp/work.pdf', snapshot, undefined);
         expect(mocks.legacyDocuments.writeFile).not.toHaveBeenCalled();
     });
 

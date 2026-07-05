@@ -5,7 +5,9 @@ import {
     it,
     vi,
 } from 'vitest';
+import {getMainOperationErrorEnvelope} from '@contracts/mainOperationErrors';
 import {
+    beginMainOperationShutdown,
     cancelAllMainOperations,
     drainCriticalMainOperations,
     registerMainOperation,
@@ -79,6 +81,27 @@ describe('mainOperationLifecycle', () => {
         operation.complete();
         operation.complete();
 
+        expect(snapshotMainOperations()).toEqual([]);
+    });
+
+    it('rejects registrations after shutdown admission closes without leaving drain orphans', async () => {
+        beginMainOperationShutdown('Main process is shutting down');
+
+        let caught: unknown;
+        try {
+            registerMainOperation({kind: 'critical-write'});
+        } catch (error) {
+            caught = error;
+        }
+
+        expect(getMainOperationErrorEnvelope(caught)).toEqual({
+            code: 'shutting-down',
+            message: 'Main process is shutting down',
+        });
+        await expect(drainCriticalMainOperations({timeoutMs: 50})).resolves.toEqual({
+            completed: true,
+            pending: [],
+        });
         expect(snapshotMainOperations()).toEqual([]);
     });
 });

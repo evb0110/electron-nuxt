@@ -67,6 +67,7 @@ function isAgentWorkspaceCommandTarget(target: unknown): target is TAgentWorkspa
         || target.sessionId.trim().length === 0
         || (target.documentRef !== null && typeof target.documentRef !== 'string')
         || (target.documentBackend !== undefined && target.documentBackend !== 'browser' && target.documentBackend !== 'electron')
+        || (target.documentInstanceId !== undefined && target.documentInstanceId !== null && typeof target.documentInstanceId !== 'string')
         || (target.documentRevisionToken !== undefined && typeof target.documentRevisionToken !== 'string')
     ) {
         return false;
@@ -98,6 +99,8 @@ function isAgentAssistantChatScope(scope: unknown): scope is IAgentAssistantChat
         && scope.key.trim().length > 0
         && (scope.title === null || typeof scope.title === 'string')
         && (scope.tabId === undefined || scope.tabId === null || typeof scope.tabId === 'string')
+        && (scope.documentSessionKey === undefined || scope.documentSessionKey === null || typeof scope.documentSessionKey === 'string')
+        && (scope.documentInstanceId === undefined || scope.documentInstanceId === null || typeof scope.documentInstanceId === 'string')
         && (scope.documentRef === undefined || scope.documentRef === null || typeof scope.documentRef === 'string')
         && (
             scope.documentBackend === undefined

@@ -74,7 +74,7 @@ const preparingJobs = new Map<string, IOcrPreparingJob>();
 const scopedJobIdsByDocumentJobKey = new Map<string, string>();
 const cancelledJobs = new Set<string>();
 const registeredSenderCleanupIds = new Set<number>();
-const progressPumpsByScopedJobId = new Map<string, ReturnType<typeof createIpcProgressPump<IOcrProgress>>>();
+const progressPumpsBySenderId = new Map<number, ReturnType<typeof createIpcProgressPump<IOcrProgress>>>();
 const workerCleanupTimersByScopedJobId = new Map<string, NodeJS.Timeout>();
 
 function assertNever(value: never) {
@@ -91,27 +91,36 @@ export function safeSendToWindow(
     });
 }
 
-function getOcrProgressPump(
-    scopedJobId: string,
-    window: BrowserWindow | null | undefined,
-) {
-    let pump = progressPumpsByScopedJobId.get(scopedJobId);
+function getSenderIdFromScopedJobId(scopedJobId: string) {
+    const separatorIndex = scopedJobId.indexOf(':');
+    if (separatorIndex <= 0) {
+        return null;
+    }
+    const senderId = Number.parseInt(scopedJobId.slice(0, separatorIndex), 10);
+    return Number.isSafeInteger(senderId) && senderId > 0 ? senderId : null;
+}
+
+function getOcrProgressPump(senderId: number) {
+    let pump = progressPumpsBySenderId.get(senderId);
     if (pump) {
         return pump;
     }
 
     pump = createIpcProgressPump<IOcrProgress>({
         channel: OCR_EVENT_CHANNELS.progress,
-        getTarget: () => ({
-            isDestroyed: () => !window
-                || window.isDestroyed?.() === true
-                || window.webContents.isDestroyed?.() === true,
-            send: (_channel: string, payload: IOcrProgress) => safeSendToWindow(
-                window,
-                OCR_EVENT_CHANNELS.progress,
-                payload,
-            ),
-        }),
+        getTarget: () => {
+            const window = getJobWindow(senderId);
+            return {
+                isDestroyed: () => !window
+                    || window.isDestroyed?.() === true
+                    || window.webContents.isDestroyed?.() === true,
+                send: (_channel: string, payload: IOcrProgress) => safeSendToWindow(
+                    window,
+                    OCR_EVENT_CHANNELS.progress,
+                    payload,
+                ),
+            };
+        },
         getKey: (payload: IOcrProgress) => payload.requestId,
         isTerminal: (payload: IOcrProgress) =>
             payload.phase === 'indexing'
@@ -120,29 +129,47 @@ function getOcrProgressPump(
         onError: (error: unknown) => {
             log.debug(`Failed to send OCR progress: ${getErrorMessage(error)}`);
         },
+        onIdle: () => {
+            progressPumpsBySenderId.delete(senderId);
+        },
     });
-    progressPumpsByScopedJobId.set(scopedJobId, pump);
+    progressPumpsBySenderId.set(senderId, pump);
     return pump;
+}
+
+export function subscribeManagedOcrProgress(senderId: number, target: {
+    isDestroyed?: () => boolean;
+    send: (channel: string, payload: IOcrProgress) => void;
+}) {
+    progressPumpsBySenderId.get(senderId)?.subscribe(target);
 }
 
 function enqueueOcrProgress(
     scopedJobId: string,
-    window: BrowserWindow | null | undefined,
     progress: IOcrProgress,
 ) {
-    getOcrProgressPump(scopedJobId, window).enqueue(progress);
+    const senderId = getSenderIdFromScopedJobId(scopedJobId);
+    if (senderId === null) {
+        return;
+    }
+    getOcrProgressPump(senderId).enqueue(progress);
 }
 
 function clearOcrProgressPump(scopedJobId: string, requestId?: string) {
-    const pump = progressPumpsByScopedJobId.get(scopedJobId);
+    const senderId = getSenderIdFromScopedJobId(scopedJobId);
+    if (senderId === null) {
+        return;
+    }
+    const pump = progressPumpsBySenderId.get(senderId);
     if (!pump) {
         return;
     }
     if (requestId) {
         pump.flush(requestId);
+        pump.clearKey(requestId);
+        return;
     }
     pump.clear();
-    progressPumpsByScopedJobId.delete(scopedJobId);
 }
 
 function getJobWindow(webContentsId: number) {
@@ -158,7 +185,7 @@ function sendOcrProgressStage(
     phase: TOcrProgressPhase,
     phaseProgress?: number,
 ) {
-    enqueueOcrProgress(toScopedOcrJobId(webContentsId, requestId), getJobWindow(webContentsId), {
+    enqueueOcrProgress(toScopedOcrJobId(webContentsId, requestId), {
         requestId,
         currentPage: pages[0]?.pageNumber ?? 0,
         processedCount: 0,
@@ -540,7 +567,7 @@ function handleWorkerMessage(
                 }
                 return;
             }
-            enqueueOcrProgress(scopedJobId, window, message.progress);
+            enqueueOcrProgress(scopedJobId, message.progress);
             return;
         }
         case 'complete': {

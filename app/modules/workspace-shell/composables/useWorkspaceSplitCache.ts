@@ -80,6 +80,7 @@ function cloneSession(
             sessionRevision: session.sessionRevision,
             documentRef: session.documentRef,
             ...(session.documentBackend === undefined ? {} : {documentBackend: session.documentBackend}),
+            documentInstanceId: session.documentInstanceId ?? null,
             ...(session.documentRevisionToken === undefined ? {} : {documentRevisionToken: session.documentRevisionToken}),
         };
 }
@@ -96,6 +97,7 @@ function entryMatchesSession(
         && entry.session.sessionRevision === expectedSession.sessionRevision
         && entry.session.documentRef === expectedSession.documentRef
         && entry.session.documentBackend === expectedSession.documentBackend
+        && (entry.session.documentInstanceId ?? null) === (expectedSession.documentInstanceId ?? null)
         && entry.session.documentRevisionToken === expectedSession.documentRevisionToken;
 }
 

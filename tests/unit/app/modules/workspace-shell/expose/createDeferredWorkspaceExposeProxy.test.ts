@@ -117,6 +117,7 @@ describe('createDeferredWorkspaceExposeProxy', () => {
         const context = {
             signal: new AbortController().signal,
             documentIdentity: null,
+            documentInstanceId: null,
             assertCurrentDocument: vi.fn(),
         };
         const runAgentAction = vi.fn(async () => ({ok: true}));
@@ -286,6 +287,7 @@ describe('createDeferredWorkspaceExposeProxy', () => {
         await expect(proxy.runAgentAction('file.save', {}, undefined, {
             signal: new AbortController().signal,
             documentIdentity: null,
+            documentInstanceId: null,
             commandTarget,
             assertCurrentDocument: vi.fn(),
         })).resolves.toEqual({

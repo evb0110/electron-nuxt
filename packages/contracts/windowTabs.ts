@@ -4,6 +4,7 @@ import type {
     TDocumentRef,
 } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type { TDocumentInstanceId } from '@contracts/documentInstanceId';
 
 export interface IEmptySplitPayload {kind: 'empty';}
 
@@ -33,6 +34,7 @@ export interface ITabMetadataCore {
     fileName: string | null;
     originalPath: TDocumentRef | null;
     originalBackend?: TDocumentBackend;
+    documentInstanceId?: TDocumentInstanceId | null;
     isDirty: boolean;
     isDjvu: boolean;
 }
@@ -44,6 +46,7 @@ export interface IWindowTabTransferSessionState {
     sessionRevision: number;
     documentRef: TDocumentRef | null;
     documentBackend?: TDocumentBackend;
+    documentInstanceId?: TDocumentInstanceId | null;
     documentRevisionToken?: TDocumentRevisionToken;
 }
 

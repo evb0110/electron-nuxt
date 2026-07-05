@@ -21,6 +21,10 @@ function isNullableString(value: unknown): value is string | null {
     return value === null || typeof value === 'string';
 }
 
+function isOptionalNullableString(value: unknown): value is string | null | undefined {
+    return value === undefined || isNullableString(value);
+}
+
 function isPositiveWindowId(value: unknown): value is number {
     return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 }
@@ -50,6 +54,7 @@ function decodeTransferredTabState(value: unknown): ITransferredTabState | null 
     if (
         !isNullableString(value.fileName)
         || !isNullableString(value.originalPath)
+        || !isOptionalNullableString(value.documentInstanceId)
         || typeof value.isDirty !== 'boolean'
         || typeof value.isDjvu !== 'boolean'
         || originalBackend === null
@@ -61,6 +66,7 @@ function decodeTransferredTabState(value: unknown): ITransferredTabState | null 
         fileName: value.fileName,
         originalPath: value.originalPath,
         ...(originalBackend === undefined ? {} : {originalBackend}),
+        ...(value.documentInstanceId === undefined ? {} : {documentInstanceId: value.documentInstanceId}),
         isDirty: value.isDirty,
         isDjvu: value.isDjvu,
     };
@@ -156,6 +162,7 @@ function decodeTransferSession(value: unknown): IWindowTabTransferSessionState |
         sessionId === null
         || !isNonNegativeInteger(value.sessionRevision)
         || !isNullableString(value.documentRef)
+        || !isOptionalNullableString(value.documentInstanceId)
         || documentRevisionToken === null
         || documentBackend === null
     ) {
@@ -167,6 +174,7 @@ function decodeTransferSession(value: unknown): IWindowTabTransferSessionState |
         sessionRevision: value.sessionRevision,
         documentRef: value.documentRef,
         ...(documentBackend === undefined ? {} : {documentBackend}),
+        ...(value.documentInstanceId === undefined ? {} : {documentInstanceId: value.documentInstanceId}),
         ...(documentRevisionToken === undefined ? {} : {documentRevisionToken}),
     };
 }

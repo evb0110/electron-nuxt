@@ -37,6 +37,8 @@ vi.mock('@app/utils/platformDocuments', () => ({
     getDocumentsCapability: () => mocks.legacyDocuments,
 }));
 
+const SERIALIZED_SAVE_OPTIONS = { expectedDocumentRevisionToken: 'drt1:test:serialized-base' };
+
 describe('savePdfBytesToWorkingCopy', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -67,10 +69,10 @@ describe('savePdfBytesToWorkingCopy', () => {
         mocks.documentFiles.savePdfData = savePdfData;
         const data = new Uint8Array([1]);
 
-        const result = await savePdfBytesToWorkingCopy('/tmp/working.pdf', data);
+        const result = await savePdfBytesToWorkingCopy('/tmp/working.pdf', data, SERIALIZED_SAVE_OPTIONS);
 
         expect(result).toBe(validation);
-        expect(savePdfData).toHaveBeenCalledWith('/tmp/working.pdf', data, undefined);
+        expect(savePdfData).toHaveBeenCalledWith('/tmp/working.pdf', data, SERIALIZED_SAVE_OPTIONS);
         expect(mocks.documentPdf.validatePdfData).not.toHaveBeenCalled();
         expect(mocks.documentFiles.writeFile).not.toHaveBeenCalled();
         expect(mocks.documentFiles.saveFileStructured).not.toHaveBeenCalled();
@@ -84,15 +86,15 @@ describe('savePdfBytesToWorkingCopy', () => {
             3,
         ]);
 
-        const result = await savePdfBytesToWorkingCopy('/tmp/working.pdf', data);
+        const result = await savePdfBytesToWorkingCopy('/tmp/working.pdf', data, SERIALIZED_SAVE_OPTIONS);
 
         expect(result).toEqual({
             isValid: true,
             errors: [],
         });
         expect(mocks.documentPdf.validatePdfData).toHaveBeenCalledWith(data);
-        expect(mocks.documentFiles.writeFile).toHaveBeenCalledWith('/tmp/working.pdf', data);
-        expect(mocks.documentFiles.saveFileStructured).toHaveBeenCalledWith('/tmp/working.pdf');
+        expect(mocks.documentFiles.writeFile).toHaveBeenCalledWith('/tmp/working.pdf', data, SERIALIZED_SAVE_OPTIONS);
+        expect(mocks.documentFiles.saveFileStructured).toHaveBeenCalledWith('/tmp/working.pdf', SERIALIZED_SAVE_OPTIONS);
         expect(mocks.legacyDocuments.validatePdfData).not.toHaveBeenCalled();
         expect(mocks.legacyDocuments.writeFile).not.toHaveBeenCalled();
         expect(mocks.legacyDocuments.saveFileStructured).not.toHaveBeenCalled();
@@ -111,15 +113,15 @@ describe('savePdfBytesToWorkingCopy', () => {
             6,
         ]);
 
-        const result = await savePdfBytesToWorkingCopy('/tmp/working.pdf', data);
+        const result = await savePdfBytesToWorkingCopy('/tmp/working.pdf', data, SERIALIZED_SAVE_OPTIONS);
 
         expect(result).toEqual({
             isValid: false,
             errors: [],
         });
         expect(mocks.documentPdf.validatePdfData).toHaveBeenCalledWith(data);
-        expect(mocks.documentFiles.writeFile).toHaveBeenCalledWith('/tmp/working.pdf', data);
-        expect(mocks.documentFiles.saveFileStructured).toHaveBeenCalledWith('/tmp/working.pdf');
+        expect(mocks.documentFiles.writeFile).toHaveBeenCalledWith('/tmp/working.pdf', data, SERIALIZED_SAVE_OPTIONS);
+        expect(mocks.documentFiles.saveFileStructured).toHaveBeenCalledWith('/tmp/working.pdf', SERIALIZED_SAVE_OPTIONS);
     });
 
     it('returns a failed validation result with the structured save failure message', async () => {
@@ -136,15 +138,15 @@ describe('savePdfBytesToWorkingCopy', () => {
             9,
         ]);
 
-        const result = await savePdfBytesToWorkingCopy('/tmp/working.pdf', data);
+        const result = await savePdfBytesToWorkingCopy('/tmp/working.pdf', data, SERIALIZED_SAVE_OPTIONS);
 
         expect(result).toEqual({
             isValid: false,
             errors: ['Browser write permission was not granted for this file.'],
         });
         expect(mocks.documentPdf.validatePdfData).toHaveBeenCalledWith(data);
-        expect(mocks.documentFiles.writeFile).toHaveBeenCalledWith('/tmp/working.pdf', data);
-        expect(mocks.documentFiles.saveFileStructured).toHaveBeenCalledWith('/tmp/working.pdf');
+        expect(mocks.documentFiles.writeFile).toHaveBeenCalledWith('/tmp/working.pdf', data, SERIALIZED_SAVE_OPTIONS);
+        expect(mocks.documentFiles.saveFileStructured).toHaveBeenCalledWith('/tmp/working.pdf', SERIALIZED_SAVE_OPTIONS);
     });
 
     it('returns a failed validation result with the structured save failure reason when no message is available', async () => {
@@ -155,14 +157,22 @@ describe('savePdfBytesToWorkingCopy', () => {
             validation: null,
         });
 
-        const result = await savePdfBytesToWorkingCopy('/tmp/working.pdf', new Uint8Array([10]));
+        const result = await savePdfBytesToWorkingCopy(
+            '/tmp/working.pdf',
+            new Uint8Array([10]),
+            SERIALIZED_SAVE_OPTIONS,
+        );
 
         expect(result).toEqual({
             isValid: false,
             errors: ['working-copy-missing'],
         });
-        expect(mocks.documentFiles.writeFile).toHaveBeenCalledWith('/tmp/working.pdf', new Uint8Array([10]));
-        expect(mocks.documentFiles.saveFileStructured).toHaveBeenCalledWith('/tmp/working.pdf');
+        expect(mocks.documentFiles.writeFile).toHaveBeenCalledWith(
+            '/tmp/working.pdf',
+            new Uint8Array([10]),
+            SERIALIZED_SAVE_OPTIONS,
+        );
+        expect(mocks.documentFiles.saveFileStructured).toHaveBeenCalledWith('/tmp/working.pdf', SERIALIZED_SAVE_OPTIONS);
     });
 
     it('returns invalid validation without writing or saving', async () => {

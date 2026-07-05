@@ -17,6 +17,7 @@ export const DJVU_CHANNELS = {
     renderPagePreview: 'djvu:renderPagePreview',
     estimateSizes: 'djvu:estimateSizes',
     cleanupTemp: 'djvu:cleanupTemp',
+    subscribeProgress: 'djvu:progress:subscribe',
 } as const;
 
 export const DJVU_EVENT_CHANNELS = {
@@ -74,6 +75,10 @@ export interface IDjvuInvokeMap {
     [DJVU_CHANNELS.cleanupTemp]: {
         args: [tempPdfPath: string];
         result: Awaited<ReturnType<IDjvuCapability['cleanupTemp']>>;
+    };
+    [DJVU_CHANNELS.subscribeProgress]: {
+        args: [];
+        result: undefined;
     };
 }
 

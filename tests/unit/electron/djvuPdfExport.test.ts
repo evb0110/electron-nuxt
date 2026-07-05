@@ -735,6 +735,46 @@ describe('handleDjvuConvertToPdf', () => {
         );
     });
 
+    it('reports failed terminal progress when DjVu print handoff fails', async () => {
+        mocks.printManagedTempPdfPath.mockResolvedValueOnce({
+            success: false,
+            error: 'Print handoff failed',
+        });
+        const event = createOperationContext(14);
+
+        const result = await handleDjvuPrintPath(
+            event as never,
+            trustedDjvuPath,
+            {
+                requestId: 'print-failure',
+                fileName: 'book.djvu',
+                viewMode: 'single',
+                orientation: 'auto',
+            },
+        );
+
+        expect(result).toEqual({
+            success: false,
+            jobId: 'djvu-print-print-failure',
+            error: 'Print handoff failed',
+        });
+        const terminalProgressCalls = mocks.safeSendToWindow.mock.calls.filter((call) => {
+            const progress = call[2] as { status?: string } | undefined;
+            return call[1] === 'djvu:progress' && progress?.status !== undefined;
+        });
+        expect(terminalProgressCalls).toEqual([[
+            null,
+            'djvu:progress',
+            {
+                jobId: 'djvu-print-print-failure',
+                phase: 'printing',
+                percent: 100,
+                status: 'failed',
+                error: 'Print handoff failed',
+            },
+        ]]);
+    });
+
     it('aborts an active native DjVu print handoff when cancel is requested', async () => {
         let printSignal: AbortSignal | undefined;
         mocks.printManagedTempPdfPath.mockImplementationOnce((

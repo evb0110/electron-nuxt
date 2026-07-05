@@ -4,6 +4,7 @@ import {
     it,
 } from 'vitest';
 import type {
+    IAgentAssistantState,
     IAgentAssistantProviderStatus,
     IAgentAssistantStatus,
     TAgentAssistantProviderId,
@@ -11,6 +12,7 @@ import type {
 import {
     cloneAssistantScope,
     createSelectedAssistantStatus,
+    getStateScopeFingerprint,
     modelForSelection,
     normalizeEffortValue,
     normalizeModelValue,
@@ -287,6 +289,52 @@ describe('assistantSelectionState', () => {
             key: 'scope-2',
             title: null,
         });
+    });
+
+    it('fingerprints assistant state by provider, logical session, instance, and revision', () => {
+        const status = createAssistantStatus('codex');
+        const baseState = {
+            scope: {
+                kind: 'document',
+                key: 'document-session:logical-1',
+                title: 'Document',
+                tabId: 'tab-1',
+                documentSessionKey: 'logical-1',
+                documentInstanceId: 'instance-a',
+                documentIdentity: {
+                    version: 1,
+                    authority: 'browser-document-store',
+                    contentRevision: 1,
+                    documentRef: '/tmp/document.pdf',
+                    mintedAt: 1,
+                    token: 'revision-1',
+                },
+            },
+            status,
+            messages: [],
+        } satisfies IAgentAssistantState;
+
+        expect(getStateScopeFingerprint({
+            ...baseState,
+            scope: {
+                ...baseState.scope,
+                documentInstanceId: 'instance-b',
+            },
+        })).not.toBe(getStateScopeFingerprint(baseState));
+        expect(getStateScopeFingerprint({
+            ...baseState,
+            status: createAssistantStatus('claude'),
+        })).not.toBe(getStateScopeFingerprint(baseState));
+        expect(getStateScopeFingerprint({
+            ...baseState,
+            scope: {
+                ...baseState.scope,
+                documentIdentity: {
+                    ...baseState.scope.documentIdentity,
+                    token: 'revision-2',
+                },
+            },
+        })).not.toBe(getStateScopeFingerprint(baseState));
     });
 
     it('resolves provider default model and effort with stable fallbacks', () => {

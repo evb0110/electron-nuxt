@@ -60,7 +60,10 @@ const electronApi = {
 
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => electronApi}));
 
-const {usePdfDocument} = await import('@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument');
+const {
+    releasePdfDocumentPage,
+    usePdfDocument,
+} = await import('@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument');
 const {maxCachedPdfPages} = await import('@app/modules/pdf-viewer/engine/maxCachedPdfPages');
 
 const rangePreloadTestTimeoutMs = 15_000;
@@ -926,5 +929,67 @@ describe('usePdfDocument range loading', () => {
 
         expect(getPage).toHaveBeenCalledTimes(maxCachedPdfPages + 2);
         expect(loadedPages.get(2)?.[0]?.cleanup).toHaveBeenCalledTimes(1);
+    });
+
+    it('defers cache cleanup for active page leases until release', async () => {
+        const loadedPages = new Map<number, Array<{
+            cleanup: ReturnType<typeof vi.fn>;
+            getViewport: ReturnType<typeof vi.fn>;
+            pageNumber: number;
+        }>>();
+        const getPage = vi.fn(async (pageNumber: number) => {
+            const page = {
+                cleanup: vi.fn(),
+                getViewport: vi.fn(() => ({
+                    width: 200,
+                    height: 400,
+                })),
+                pageNumber,
+            };
+            loadedPages.set(pageNumber, [
+                ...(loadedPages.get(pageNumber) ?? []),
+                page,
+            ]);
+            return page;
+        });
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.resolve({
+                numPages: 2,
+                getPage,
+                destroy: vi.fn(),
+            }),
+            destroy: vi.fn(),
+        });
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+            4,
+        ]));
+
+        const documentState = usePdfDocument();
+        await documentState.loadPdf({
+            kind: 'path',
+            path: '/tmp/deferred-lease-cleanup.pdf',
+            size: 2048,
+        });
+        const loadedDocument = documentState.pdfDocument.value;
+        if (!loadedDocument) {
+            throw new Error('Expected loaded PDF document');
+        }
+
+        const leasedPage = await documentState.leasePage(1);
+        documentState.cleanupPageCache();
+
+        expect(loadedPages.get(1)?.[0]?.cleanup).not.toHaveBeenCalled();
+
+        releasePdfDocumentPage(loadedDocument, 1, leasedPage);
+
+        expect(loadedPages.get(1)?.[0]?.cleanup).toHaveBeenCalledTimes(1);
+
+        await documentState.getPage(1);
+
+        expect(getPage).toHaveBeenCalledTimes(2);
+        expect(loadedPages.get(1)?.[1]?.cleanup).not.toHaveBeenCalled();
     });
 });

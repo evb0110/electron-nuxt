@@ -151,6 +151,7 @@ export class WindowTabTransferBroker {
 
     markWindowNotReady(windowId: number) {
         this.readyWindowIds.delete(windowId);
+        this.finishTransfersForTargetWindow(windowId, 'Target window became unavailable before transfer acknowledgement.');
         this.finishTransfersForSourceWindow(windowId, 'Source window became unavailable before transfer completion.');
     }
 
@@ -236,6 +237,19 @@ export class WindowTabTransferBroker {
             .map(transfer => transfer.transferId);
 
         for (const transferId of pendingForSourceWindow) {
+            this.finishTransfer(transferId, {
+                success: false,
+                error,
+            });
+        }
+    }
+
+    private finishTransfersForTargetWindow(windowId: number, error: string) {
+        const pendingForTargetWindow = Array.from(this.pendingTransfers.values())
+            .filter(transfer => transfer.targetWindowId === windowId)
+            .map(transfer => transfer.transferId);
+
+        for (const transferId of pendingForTargetWindow) {
             this.finishTransfer(transferId, {
                 success: false,
                 error,

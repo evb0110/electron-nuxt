@@ -55,7 +55,36 @@ describe('DjVu optimized PDF native fast path', () => {
         expect(mocks.nativeBuild).toHaveBeenCalledWith([
             '/tmp/page-1.pgm',
             '/tmp/page-2.pgm',
-        ], 300, onPageProcessed);
+        ], 300, onPageProcessed, undefined);
+    });
+
+    it('passes abort signals into the native optimized PDF builder', async () => {
+        const nativeBytes = new Uint8Array([
+            4,
+            5,
+            6,
+        ]);
+        const controller = new AbortController();
+        mocks.nativeBuild.mockResolvedValueOnce(nativeBytes);
+
+        const { buildOptimizedPdf } = await import('@electron/djvu/buildOptimizedPdf');
+        const onPageProcessed = vi.fn();
+
+        await expect(buildOptimizedPdf(['/tmp/page-1.pgm'], 300, onPageProcessed, {signal: controller.signal})).resolves.toBe(nativeBytes);
+
+        expect(mocks.nativeBuild).toHaveBeenCalledWith(['/tmp/page-1.pgm'], 300, onPageProcessed, {signal: controller.signal});
+    });
+
+    it('checks for cancellation after the native builder declines the input', async () => {
+        const controller = new AbortController();
+        mocks.nativeBuild.mockImplementationOnce(() => {
+            controller.abort(new DOMException('canceled after native build', 'AbortError'));
+            return Promise.resolve(null);
+        });
+
+        const { buildOptimizedPdf } = await import('@electron/djvu/buildOptimizedPdf');
+
+        await expect(buildOptimizedPdf(['/tmp/missing-page.pgm'], 300, undefined, {signal: controller.signal})).rejects.toThrow('canceled after native build');
     });
 
     it('falls back to the TypeScript Netpbm builder when native output is unavailable', async () => {
@@ -76,5 +105,33 @@ describe('DjVu optimized PDF native fast path', () => {
             width: 0.72,
             height: 0.36,
         });
+    });
+
+    it('checks for cancellation between fallback pages', async () => {
+        mocks.nativeBuild.mockResolvedValueOnce(null);
+        const firstImagePath = join(tempDir, 'page-1.pgm');
+        const secondImagePath = join(tempDir, 'page-2.pgm');
+        await writeFile(firstImagePath, Buffer.from([
+            ...Buffer.from('P5\n2 1\n255\n', 'ascii'),
+            10,
+            20,
+        ]));
+        await writeFile(secondImagePath, Buffer.from([
+            ...Buffer.from('P5\n2 1\n255\n', 'ascii'),
+            30,
+            40,
+        ]));
+        const controller = new AbortController();
+        const onPageProcessed = vi.fn(() => {
+            controller.abort(new DOMException('fallback canceled', 'AbortError'));
+        });
+
+        const { buildOptimizedPdf } = await import('@electron/djvu/buildOptimizedPdf');
+
+        await expect(buildOptimizedPdf([
+            firstImagePath,
+            secondImagePath,
+        ], 200, onPageProcessed, {signal: controller.signal})).rejects.toThrow('fallback canceled');
+        expect(onPageProcessed).toHaveBeenCalledTimes(1);
     });
 });

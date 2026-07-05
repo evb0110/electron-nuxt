@@ -18,6 +18,10 @@ import { createHiddenAnnotationOperationsFilter } from '@app/modules/pdf-viewer/
 import { runCoordinatedPdfPageRender } from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
 import type { IPdfPagePreviewEntry } from '@app/modules/pdf-viewer/engine/pdf-page-preview/pdfPagePreviewTypes';
 import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
+import {
+    leasePdfDocumentPage,
+    releasePdfDocumentPage,
+} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import { isPdfDocumentUsable } from '@app/utils/isPdfDocumentUsable';
@@ -466,25 +470,30 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
         canvas.style.removeProperty('height');
     }
 
-    function cleanupPdfPage(page: PDFPageProxy, pageNumber: number, reason: string) {
+    function releaseThumbnailPage(
+        pdfDocument: PDFDocumentProxy,
+        page: PDFPageProxy,
+        pageNumber: number,
+        reason: string,
+    ) {
         try {
-            logPdfRenderTrace('thumbnail-page-cleanup-begin', {
+            logPdfRenderTrace('thumbnail-page-release-begin', {
                 pageNumber,
                 reason,
             });
-            page.cleanup();
-            logPdfRenderTrace('thumbnail-page-cleanup-end', {
+            releasePdfDocumentPage(pdfDocument, pageNumber, page);
+            logPdfRenderTrace('thumbnail-page-release-end', {
                 pageNumber,
                 reason,
             });
         } catch (error) {
-            logPdfRenderTrace('thumbnail-page-cleanup-error', {
+            logPdfRenderTrace('thumbnail-page-release-error', {
                 pageNumber,
                 reason,
                 errorName: error instanceof Error ? error.name : null,
                 errorMessage: error instanceof Error ? error.message : String(error),
             });
-            BrowserLogger.diagnostic(PDF_THUMBNAIL_LOG_SECTION, 'Failed to cleanup thumbnail PDF page', {error});
+            BrowserLogger.diagnostic(PDF_THUMBNAIL_LOG_SECTION, 'Failed to release thumbnail PDF page', {error});
         }
     }
 
@@ -546,7 +555,7 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
             renderKey,
             renderRunId,
         });
-        const page = await pdfDocument.getPage(pageNum);
+        const page = await leasePdfDocumentPage(pdfDocument, pageNum);
         const renderAbortController = new AbortController();
         logPdfRenderTrace('thumbnail-page-load-end', {
             pageNumber: pageNum,
@@ -714,7 +723,7 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
             finalizeRenderedThumbnail(pageNum, canvas, renderKey);
         } finally {
             thumbnailRenderState.clearAbortController(pageNum, renderAbortController);
-            cleanupPdfPage(page, pageNum, 'render-thumbnail');
+            releaseThumbnailPage(pdfDocument, page, pageNum, 'render-thumbnail');
         }
     }
 
@@ -888,7 +897,7 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
     async function preloadThumbnailAspectRatio(pdfDocument: PDFDocumentProxy, runId: number) {
         const pageNum = clamp(source.currentPage.value || 1, 1, Math.max(1, source.totalPages.value));
         try {
-            const page = await pdfDocument.getPage(pageNum);
+            const page = await leasePdfDocumentPage(pdfDocument, pageNum);
             try {
                 if (!isThumbnailRenderGenerationCurrent(pdfDocument, runId)) {
                     return;
@@ -903,7 +912,7 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
                 );
                 void effects.refreshVisibleThumbnailPane('preload-viewport');
             } finally {
-                cleanupPdfPage(page, pageNum, 'preload-aspect-ratio');
+                releaseThumbnailPage(pdfDocument, page, pageNum, 'preload-aspect-ratio');
             }
         } catch (error) {
             if (shouldIgnoreThumbnailRenderError(error, pdfDocument, runId)) {

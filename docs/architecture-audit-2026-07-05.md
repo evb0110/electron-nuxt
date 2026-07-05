@@ -32,6 +32,8 @@ Key verifications (current line numbers):
   (`:456`) — external-edit protection for the *target*, never "has the working copy
   advanced past the revision these bytes were serialized from". `documentRevisionStore`
   now mints tokens but no write path enforces them as CAS.
+  _Second-pass correction: mandatory typed missing-revision/CAS rejections were not
+  present at this snapshot; they were added in the remediation section below._
 - **PDFRT-1: the fencing machinery is wired but inert.** The transaction controller
   supports `getDocumentLoadToken`/`getDocumentVersion`
   (`usePdfViewerTransactionController.ts:46,118`) but
@@ -64,11 +66,15 @@ Key verifications (current line numbers):
    targets carry revision tokens, but identity is still `documentRef` + `originalPath`
    + `workingCopyPath` + tab state; no `documentInstanceId`; assistant sessions still
    keyed `provider:scopeKey`.
+   _Second-pass correction: `documentInstanceId` was added and is now part of command,
+   assistant, restore, reload, and tab-transfer identity; see the section below._
 4. **Contracts at compile time only — unchanged.** Descriptor tests reduce lazy/browser
    drift, but preload, browser impl, lazy proxy, validation sample, and test fixture
    remain five hand-maintained surfaces.
 5. **Terminal-event guarantee — improved, incomplete.** Progress pump sends terminal
    payloads immediately; OCR cancel and DjVu failure/cancel still lack terminal events.
+   _Second-pass correction: latest-state replay on subscribe did not exist here; the
+   per-feature progress subscription/replay model was added below._
 6. **Safety net — improved isolation, same gate.** Nothing real-app blocks a release.
 
 ## New findings — remediation regressions (wave 1)
@@ -144,6 +150,8 @@ Key verifications (current line numbers):
   fence (`useSettings.ts:90–145`).
 - RGAP-7 (M, P) Global error-guard listeners installed permanently, no cleanup/HMR path
   (`rendererErrorGuard.client.ts:114–171`).
+  _Second-pass correction: the `rendererHygienePlugins` test existed; the plugin code
+  failed that test until SAF-1 below._
 - RGAP-8 (M, P) Browser repo returns refs before ingestion completes; failures collapse
   to "not found" (`browserDocumentRepository.ts:121,361`).
 - RGAP-9 (M, P) Browser search cancel is page-boundary cooperative; old extraction
@@ -262,3 +270,62 @@ type coverage, strict build, fallow, architecture), `pnpm run test:rust` green.
 - **TEST-5** (e2e bypasses UX), **IPC-1** (registrar-level validation invariant):
   not addressed this pass.
 - RGAP-4 fold-in of `NativePdfViewer` into the shared viewport runtime: deferred.
+
+## Second-pass verification and remediation — 2026-07-05
+
+### Overhaul verdicts
+
+| Overhaul | Second-pass verdict |
+|---|---|
+| Contracts | CONFIRMED. Contract descriptors and generated-platform checks remain the right enforcement model; the pass also kept the compatibility-only documents aggregate visible through the manifest consumer report. |
+| Lifecycle owner | PARTIAL -> completed for the targeted items: renderer page leases now protect PDF render ownership until settle, thumbnails use the lease API, deferred/browser search is fenced or cancellable, and DjVu/browser fallback paths avoid stale concurrent starts. |
+| Main-process lifecycle | PARTIAL -> completed for the targeted items: shutdown admission now has a typed barrier, critical working-copy writes are registered centrally, native PDF preview and DjVu optimized-PDF work are abort-aware, app-server shutdown awaits process-tree teardown, and tab transfer reports target-not-ready instead of racing. |
+| Revision CAS | REFUTED -> now enforced. Save, mutation, OCR, page-op, browser, and persistence paths now require expected document revision tokens unless explicitly in a bootstrap opt-out; missing and stale revision failures are typed document mutation errors. |
+| DocumentIdentity | REFUTED -> now built. `documentInstanceId` is minted per open, restore, and reload; command targets validate it, assistant scope fingerprints include provider/session key/instance/revision, and tab transfers carry and revalidate it. |
+
+### Corrections
+
+- The previously claimed typed missing-revision rejections did not exist before this pass; they now exist through `MISSING_REVISION` document mutation errors and mandatory expected-revision checks.
+- The previously claimed IPC-6 latest-state replay on subscribe did not exist before this pass; it now exists through per-feature progress subscribe IPC for OCR, DjVu, image export, and search with 30s terminal replay TTL.
+- The claimed `errors.file.changedReload` locale key never existed; the remediation added the OCR-specific `errors.ocr.staleRevision` key in all 9 app locale packages instead.
+- `tests/unit/app/plugins/rendererHygienePlugins.test.ts` was not deleted in reachable history; it existed and the code failed it. SAF-1 fixed the plugin cleanup/HMR behavior and strengthened that test.
+
+### Finding dispositions
+
+| ID | Disposition |
+|---|---|
+| REM-1 | Fixed. Revision CAS is mandatory on write/mutation paths, with typed missing-revision and stale-revision errors. |
+| REM-2 | Fixed. Shutdown admission is guarded by a typed shutting-down main-operation error. |
+| REM-3 | Fixed. DjVu dead-worker handling was repaired. |
+| REM-4 | Fixed. `documentInstanceId` is minted and enforced across open/restore/reload command targets. |
+| REM-5 | Fixed. Critical working-copy mutations register centrally through the mutation queue/commit signal. |
+| REM-6 | Fixed. Window tab transfer now carries/revalidates target identity and reports target-not-ready. |
+| RND-1 | Fixed. Renderer page-lease integrity is enforced. |
+| RND-2 | Fixed. PDF thumbnails render through the lease API. |
+| RND-3 | Fixed. Page-render coordinator ownership is retained until settle. |
+| RND-4 | Fixed. Deferred search is fenced by working-copy path and revision snapshot. |
+| MPX-1 | Fixed. Shutdown admission barrier prevents late main operations. |
+| MPX-2 | Fixed. Main operation shutdown exposes a typed shutting-down error. |
+| MPX-3 | Fixed. Progress replay is real per-feature subscribe IPC with terminal TTL. |
+| MPX-4 | Fixed. Critical write registration and commit marking are centralized without the prior import cycle. |
+| MPX-5 | Fixed. `codexAppServerClient` awaits process-tree shutdown. |
+| BGX-1 | Fixed. OCR applies its source revision token and surfaces OCR stale-revision locale text. |
+| BGX-2 | Fixed. Browser search probes cancellation after PDF.js awaits with bounded overshoot. |
+| BGX-3 | Fixed. DjVu print emits terminal progress only after handoff completion. |
+| BGX-4 | Fixed. Assistant scope fingerprints include provider, session key, document instance, and revision. |
+| BGX-5 | Fixed. DjVu browser fallback is serialized and skips stale requests before start. |
+| SAF-1 | Fixed. Renderer hygiene plugins use named listeners, unmount cleanup, and HMR-safe install guards. |
+| SAF-3 | Fixed. Progress subscribe/replay covers OCR, DjVu, image export, and search. |
+| SAF-4 | Fixed. PR CI now runs conditional native/build safety gates for `native/**` and build-script changes. |
+| SAF-5 | Deferred. No deterministic tracked DjVu fixture exists, and the large-PDF native-preview smoke depends on an untracked oversized fixture; promoting either to release verification now would make release gates host/local-state dependent. |
+| SAF-6 | Fixed. Coverage ratchet now requires OCR, DjVu feature, updater, and release-script areas with baselines measured from the current coverage run. |
+| SAF-7 | Fixed. `EVB_RELEASE_VERIFY_SKIP` now requires `EVB_RELEASE_VERIFY_SKIP_ACK=1` or `--allow-skip` and prints a high-visibility skipped-gates summary. |
+| HYG-2 | Fixed. Boundary check denies scripts importing app code except diagnostics allowlist. |
+| HYG-3 | Fixed. Package-layer architecture rules are enforced. |
+| HYG-4 | Fixed. Manifest documents aggregate is marked compatibility-only with no unapproved aggregate consumers. |
+| HYG-7 | Fixed. `tests/e2e/electron/prBlockingSmoke.e2e.test.ts` is registered in the blocking Electron E2E smoke project. |
+| HYG-10 | Fixed. `scripts/reportPlatformManifestConsumers.ts` is wired into lint as an informational manifest consumer report. |
+
+### Open
+
+- SAF-5 remains open by design. A release-blocking DjVu smoke needs a deterministic tracked `.djvu` fixture, and the native-preview large-PDF smoke needs a deterministic tracked or generated oversized PDF path. The current checkout has neither, so no release gate was added that would depend on local-only fixture state.

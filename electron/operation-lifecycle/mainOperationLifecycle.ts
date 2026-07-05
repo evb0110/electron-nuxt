@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { createMainOperationShuttingDownError } from '@contracts/mainOperationErrors';
 
 export type TMainOperationKind = 'critical-write' | 'abortable-work' | 'resource-cleanup';
 
@@ -38,6 +39,7 @@ interface IMainOperationRecord {
 }
 
 const operations = new Map<string, IMainOperationRecord>();
+let shutdownAdmissionMessage: string | null = null;
 
 function createTimeoutPromise(timeoutMs: number): Promise<'timeout'> {
     return new Promise<'timeout'>(resolve => {
@@ -49,6 +51,10 @@ function createTimeoutPromise(timeoutMs: number): Promise<'timeout'> {
 export function registerMainOperation(
     registration: IMainOperationRegistration,
 ): IRegisteredMainOperation {
+    if (shutdownAdmissionMessage !== null) {
+        throw createMainOperationShuttingDownError(shutdownAdmissionMessage);
+    }
+
     const id = randomUUID();
     const controller = new AbortController();
     let resolveDone: (() => void) | null = null;
@@ -84,6 +90,10 @@ export function registerMainOperation(
         },
         complete: record.complete,
     };
+}
+
+export function beginMainOperationShutdown(message = 'Main process is shutting down') {
+    shutdownAdmissionMessage ??= message;
 }
 
 export function cancelAllMainOperations(reason: string): void {
@@ -136,6 +146,7 @@ export function snapshotMainOperations(): IMainOperationSnapshot[] {
 }
 
 export function resetMainOperationLifecycleForTests(): void {
+    shutdownAdmissionMessage = null;
     for (const operation of operations.values()) {
         operation.complete();
     }

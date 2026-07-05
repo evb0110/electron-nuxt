@@ -1074,6 +1074,7 @@ export default {
             'start': 'No se pudo iniciar el trabajo de OCR',
             'noPdfData': 'No hay datos PDF ni ruta en la respuesta',
             'createSearchablePdf': 'No se pudo crear el PDF con búsqueda',
+            'changedReload': 'Los resultados de OCR no se aplicaron porque el documento cambió. Vuelve a cargar el archivo y ejecuta OCR de nuevo.',
             'noText': 'No se encontró texto OCR. Ejecute OCR primero.',
             'exportDocx': 'No se pudo exportar el DOCX',
             'cancel': 'Failed to cancel OCR',

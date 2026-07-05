@@ -2,9 +2,12 @@ import type { ComponentPublicInstance } from 'vue';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getIgnorableRuntimeErrorMessage } from '@app/utils/runtimeErrorFilter';
 
-const INSTALL_FLAG = '__evbRendererErrorGuardInstalled';
 const RENDERER_GUARD_WARN_THROTTLE_MS = 5000;
 const MAX_SERIALIZED_ERROR_LENGTH = 12_000;
+
+interface IRendererErrorGuardState { cleanup: () => void; }
+
+type TRendererErrorGuardWindow = Window & { __evbRendererErrorGuardState?: IRendererErrorGuardState };
 
 function truncateSerializedError(value: string) {
     return value.length > MAX_SERIALIZED_ERROR_LENGTH
@@ -107,16 +110,15 @@ function getComponentName(instance: ComponentPublicInstance | null) {
 }
 
 export default defineNuxtPlugin((nuxtApp) => {
-    if (!import.meta.client) {
+    if (typeof window === 'undefined') {
         return;
     }
 
     const { reportRuntimeError } = useRuntimeErrorReports();
-    const windowWithFlag = window as Window & {[INSTALL_FLAG]?: boolean};
-    if (windowWithFlag[INSTALL_FLAG]) {
+    const windowWithState = window as TRendererErrorGuardWindow;
+    if (windowWithState.__evbRendererErrorGuardState) {
         return;
     }
-    windowWithFlag[INSTALL_FLAG] = true;
 
     const report = (message: string, details: Record<string, unknown>) => {
         BrowserLogger.error('renderer-guard', message, details);
@@ -128,7 +130,7 @@ export default defineNuxtPlugin((nuxtApp) => {
     };
 
     const previousHandler = nuxtApp.vueApp.config.errorHandler;
-    nuxtApp.vueApp.config.errorHandler = (error, instance, info) => {
+    const errorHandler = (error: unknown, instance: ComponentPublicInstance | null, info: string) => {
         report('Unhandled Vue error', {
             info,
             component: getComponentName(instance),
@@ -139,8 +141,9 @@ export default defineNuxtPlugin((nuxtApp) => {
             previousHandler(error, instance, info);
         }
     };
+    nuxtApp.vueApp.config.errorHandler = errorHandler;
 
-    window.addEventListener('error', (event) => {
+    const onWindowError = (event: ErrorEvent) => {
         const ignorableMessage = getIgnorableRuntimeErrorMessage(event.error ?? event.message);
         if (ignorableMessage) {
             BrowserLogger.warnThrottled(
@@ -166,9 +169,9 @@ export default defineNuxtPlugin((nuxtApp) => {
             colno: event.colno,
             error: serializeError(event.error),
         });
-    });
+    };
 
-    window.addEventListener('unhandledrejection', (event) => {
+    const onUnhandledRejection = (event: PromiseRejectionEvent) => {
         const ignorableMessage = getIgnorableRuntimeErrorMessage(event.reason);
         if (ignorableMessage) {
             BrowserLogger.warnThrottled(
@@ -182,5 +185,43 @@ export default defineNuxtPlugin((nuxtApp) => {
         }
 
         report('Unhandled promise rejection in renderer', { reason: serializeError(event.reason) });
-    });
+    };
+
+    const originalUnmount = nuxtApp.vueApp.unmount.bind(nuxtApp.vueApp);
+    let cleanedUp = false;
+    function cleanup() {
+        if (cleanedUp) {
+            return;
+        }
+
+        cleanedUp = true;
+        window.removeEventListener('error', onWindowError);
+        window.removeEventListener('unhandledrejection', onUnhandledRejection);
+        if (nuxtApp.vueApp.config.errorHandler === errorHandler) {
+            if (typeof previousHandler === 'function') {
+                nuxtApp.vueApp.config.errorHandler = previousHandler;
+            } else {
+                delete nuxtApp.vueApp.config.errorHandler;
+            }
+        }
+        if (nuxtApp.vueApp.unmount === guardedUnmount) {
+            nuxtApp.vueApp.unmount = originalUnmount;
+        }
+        if (windowWithState.__evbRendererErrorGuardState?.cleanup === cleanup) {
+            delete windowWithState.__evbRendererErrorGuardState;
+        }
+    }
+    function guardedUnmount() {
+        cleanup();
+        originalUnmount();
+    }
+
+    windowWithState.__evbRendererErrorGuardState = {cleanup};
+    window.addEventListener('error', onWindowError);
+    window.addEventListener('unhandledrejection', onUnhandledRejection);
+    nuxtApp.vueApp.unmount = guardedUnmount;
+
+    if (import.meta.hot) {
+        import.meta.hot.dispose(cleanup);
+    }
 });

@@ -16,6 +16,7 @@ export function createWorkspaceSplitCacheSessionState(
         sessionRevision: snapshot.sessionRevision,
         documentRef: snapshot.identity.documentRef,
         ...(documentBackend === undefined ? {} : {documentBackend}),
+        documentInstanceId: snapshot.identity.documentInstanceId,
         ...(snapshot.identity.revisionInfo?.token === undefined
             ? {}
             : {documentRevisionToken: snapshot.identity.revisionInfo.token}),

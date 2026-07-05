@@ -122,16 +122,16 @@ function assertPdfSaveAsOptions(value: unknown, label: string): IPdfSaveAsOption
         : undefined;
 }
 
-function assertPdfSerializedSaveOptions(value: unknown, label: string): IPdfSerializedSaveOptions | undefined {
+function assertPdfSerializedSaveOptions(value: unknown, label: string): IPdfSerializedSaveOptions {
     if (value === undefined || value === null) {
-        return undefined;
+        throw new TypeError(`${label}.expectedDocumentRevisionToken must be a non-empty string`);
     }
     if (!isRecord(value)) {
         throw new TypeError(`${label} must be an object`);
     }
     const token = value.expectedDocumentRevisionToken;
     if (token === undefined || token === null) {
-        return undefined;
+        throw new TypeError(`${label}.expectedDocumentRevisionToken must be a non-empty string`);
     }
     if (typeof token !== 'string' || token.trim().length === 0) {
         throw new TypeError(`${label}.expectedDocumentRevisionToken must be a non-empty string`);
@@ -399,11 +399,12 @@ export function createDocumentsPreloadFileClient(
         openPdfDirect: openDocumentDirect,
         openDocumentDirectBatch,
         openPdfDirectBatch: openDocumentDirectBatch,
-        savePdfAs: (workingPath, options) =>
+        savePdfAs: (workingPath, options, revisionOptions) =>
             invoke(
                 DOCUMENTS_CHANNELS.savePdfAs,
                 assertAbsolutePath(workingPath, 'savePdfAs.workingPath'),
                 assertPdfSaveAsOptions(options, 'savePdfAs.options'),
+                assertPdfSerializedSaveOptions(revisionOptions, 'savePdfAs.revisionOptions'),
             ),
         savePdfDataAs: async (workingPath, data, options, serializedSaveOptions) => {
             const checkedWorkingPath = assertAbsolutePath(workingPath, 'savePdfDataAs.workingPath');
@@ -413,26 +414,13 @@ export function createDocumentsPreloadFileClient(
                 serializedSaveOptions,
                 'savePdfDataAs.serializedSaveOptions',
             );
-            const beginResult = checkedSerializedSaveOptions
-                ? await invoke(
-                    DOCUMENTS_CHANNELS.savePdfDataAsBegin,
-                    checkedWorkingPath,
-                    checkedData.byteLength,
-                    checkedOptions,
-                    checkedSerializedSaveOptions,
-                )
-                : checkedOptions
-                    ? await invoke(
-                        DOCUMENTS_CHANNELS.savePdfDataAsBegin,
-                        checkedWorkingPath,
-                        checkedData.byteLength,
-                        checkedOptions,
-                    )
-                    : await invoke(
-                        DOCUMENTS_CHANNELS.savePdfDataAsBegin,
-                        checkedWorkingPath,
-                        checkedData.byteLength,
-                    );
+            const beginResult = await invoke(
+                DOCUMENTS_CHANNELS.savePdfDataAsBegin,
+                checkedWorkingPath,
+                checkedData.byteLength,
+                checkedOptions,
+                checkedSerializedSaveOptions,
+            );
             if (!beginResult.sessionId) {
                 return {
                     path: null,
@@ -598,25 +586,28 @@ export function createDocumentsPreloadFileClient(
                 assertAbsolutePath(sourcePath, 'createWorkingCopyFromPath.sourcePath'),
                 assertOptionalAbsolutePath(originalPath, 'createWorkingCopyFromPath.originalPath'),
             ),
-        saveFileStructured: (path) =>
+        saveFileStructured: (path, options) =>
             invoke(
                 DOCUMENTS_CHANNELS.fileSaveStructured,
                 assertAbsolutePath(path, 'saveFileStructured.path'),
+                assertPdfSerializedSaveOptions(options, 'saveFileStructured.options'),
             ),
         resyncWorkingCopy: (path) =>
             invoke(
                 DOCUMENTS_CHANNELS.fileResyncWorkingCopy,
                 assertAbsolutePath(path, 'resyncWorkingCopy.path'),
             ),
-        repairPdf: (path) =>
+        repairPdf: (path, options) =>
             invoke(
                 DOCUMENTS_CHANNELS.fileRepairPdf,
                 assertAbsolutePath(path, 'repairPdf.path'),
+                assertPdfSerializedSaveOptions(options, 'repairPdf.options'),
             ),
-        optimizePdfForInteraction: (path) =>
+        optimizePdfForInteraction: (path, options) =>
             invoke(
                 DOCUMENTS_CHANNELS.fileOptimizePdfForInteraction,
                 assertAbsolutePath(path, 'optimizePdfForInteraction.path'),
+                assertPdfSerializedSaveOptions(options, 'optimizePdfForInteraction.options'),
             ),
         optimizePdfAsCopy: (path, options, requestId) =>
             invoke(
@@ -631,18 +622,12 @@ export function createDocumentsPreloadFileClient(
             const checkedPath = assertAbsolutePath(path, 'savePdfData.path');
             const checkedData = assertPersistenceData(data, 'savePdfData.data');
             const checkedOptions = assertPdfSerializedSaveOptions(options, 'savePdfData.options');
-            const beginResult = checkedOptions
-                ? await invoke(
-                    DOCUMENTS_CHANNELS.fileSavePdfDataBegin,
-                    checkedPath,
-                    checkedData.byteLength,
-                    checkedOptions,
-                )
-                : await invoke(
-                    DOCUMENTS_CHANNELS.fileSavePdfDataBegin,
-                    checkedPath,
-                    checkedData.byteLength,
-                );
+            const beginResult = await invoke(
+                DOCUMENTS_CHANNELS.fileSavePdfDataBegin,
+                checkedPath,
+                checkedData.byteLength,
+                checkedOptions,
+            );
             const result = await streamPdfBytesToPersistencePort(
                 ipcRenderer,
                 beginResult,
@@ -655,18 +640,12 @@ export function createDocumentsPreloadFileClient(
             const checkedPath = assertAbsolutePath(path, 'savePdfDataChunks.path');
             const checkedTotalBytes = assertPositiveSafeInteger(totalBytes, 'savePdfDataChunks.totalBytes');
             const checkedOptions = assertPdfSerializedSaveOptions(options, 'savePdfDataChunks.options');
-            const beginResult = checkedOptions
-                ? await invoke(
-                    DOCUMENTS_CHANNELS.fileSavePdfDataBegin,
-                    checkedPath,
-                    checkedTotalBytes,
-                    checkedOptions,
-                )
-                : await invoke(
-                    DOCUMENTS_CHANNELS.fileSavePdfDataBegin,
-                    checkedPath,
-                    checkedTotalBytes,
-                );
+            const beginResult = await invoke(
+                DOCUMENTS_CHANNELS.fileSavePdfDataBegin,
+                checkedPath,
+                checkedTotalBytes,
+                checkedOptions,
+            );
             const result = await streamPdfBytesToPersistencePort(ipcRenderer, beginResult, chunks, checkedTotalBytes);
             return result.validation;
         },

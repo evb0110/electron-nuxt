@@ -57,4 +57,5 @@ export interface IDjvuService {
         context: IDjvuOperationContext,
         ...args: Parameters<TDjvuApi['cleanupTemp']>
     ) => ReturnType<TDjvuApi['cleanupTemp']>;
+    subscribeProgress: (context: IDjvuOperationContext) => void;
 }

@@ -11,6 +11,11 @@ import { PassThrough } from 'node:stream';
 
 const mocks = vi.hoisted(() => ({
     spawn: vi.fn(),
+    createDetachedChildProcessSpawnOptions: vi.fn((options: Record<string, unknown>) => ({
+        ...options,
+        detached: true,
+    })),
+    terminateDetachedChildProcess: vi.fn(),
     logger: {
         info: vi.fn(),
         warn: vi.fn(),
@@ -39,6 +44,11 @@ class FakeCodexAppServerProcess extends EventEmitter {
 vi.mock('child_process', () => ({spawn: mocks.spawn}));
 vi.mock('electron', () => ({app: {getVersion: () => '0.0.0-test'}}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
+vi.mock('@electron/utils/nativeChildProcess', () => ({
+    createDetachedChildProcessSpawnOptions: (...args: [Record<string, unknown>]) =>
+        mocks.createDetachedChildProcessSpawnOptions(...args),
+    terminateDetachedChildProcess: (...args: unknown[]) => mocks.terminateDetachedChildProcess(...args),
+}));
 
 async function createClient(process: FakeCodexAppServerProcess) {
     mocks.spawn.mockReturnValue(process);
@@ -63,10 +73,19 @@ describe('CodexAppServerClient stdin handling', () => {
         vi.resetModules();
         vi.clearAllMocks();
         delete process.env.EVB_CODEX_APP_SERVER_MAX_STDERR_BYTES;
+        mocks.createDetachedChildProcessSpawnOptions.mockImplementation((options: Record<string, unknown>) => ({
+            ...options,
+            detached: true,
+        }));
+        mocks.terminateDetachedChildProcess.mockImplementation(async (process: FakeCodexAppServerProcess) => {
+            process.emit('close', 0);
+        });
     });
 
-    afterEach(() => {
+    afterEach(async () => {
         vi.useRealTimers();
+        const { resetMainOperationLifecycleForTests } = await import('@electron/operation-lifecycle/mainOperationLifecycle');
+        resetMainOperationLifecycleForTests();
     });
 
     it('fails pending requests when the app-server stdin stream errors', async () => {
@@ -150,5 +169,26 @@ describe('CodexAppServerClient stdin handling', () => {
         expect(message).toContain('[stderr truncated to 1024 bytes]');
         expect(message).toContain('recent-tail');
         expect(message.length).toBeLessThan(1400);
+    });
+
+    it('awaits detached process-tree termination during shutdown', async () => {
+        const fakeProcess = new FakeCodexAppServerProcess((_line, callback) => {
+            callback?.();
+            return true;
+        });
+        const { client } = await createClient(fakeProcess);
+        const { snapshotMainOperations } = await import('@electron/operation-lifecycle/mainOperationLifecycle');
+
+        expect(snapshotMainOperations()).toEqual([expect.objectContaining({kind: 'resource-cleanup'})]);
+
+        await client.shutdown();
+
+        expect(mocks.createDetachedChildProcessSpawnOptions).toHaveBeenCalledWith(expect.objectContaining({
+            cwd: '/tmp',
+            windowsHide: true,
+        }));
+        expect(mocks.spawn.mock.calls[0]?.[2]).toMatchObject({detached: true});
+        expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(fakeProcess, 1_000);
+        expect(snapshotMainOperations()).toEqual([]);
     });
 });

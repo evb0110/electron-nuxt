@@ -243,11 +243,13 @@ describe('BrowserDocumentStore', () => {
 
         vi.stubGlobal('indexedDB', undefined);
 
+        const revision = await store.getDocumentRevision(ref);
+
         await expect(store.write(ref, new Uint8Array([
             9,
             8,
             7,
-        ]))).rejects.toThrow('IndexedDB document write did not commit');
+        ]), {expectedDocumentRevisionToken: revision.token})).rejects.toThrow('IndexedDB document write did not commit');
         await expect(store.read(ref)).resolves.toEqual(new Uint8Array([
             1,
             2,
@@ -964,8 +966,9 @@ describe('BrowserDocumentStore', () => {
         const largeBytes = new Uint8Array((16 * 1024 * 1024) + 1);
         largeBytes[0] = 3;
         largeBytes[largeBytes.byteLength - 1] = 7;
+        const revision = await store.getDocumentRevision(ref);
 
-        await store.write(ref, largeBytes);
+        await store.write(ref, largeBytes, {expectedDocumentRevisionToken: revision.token});
 
         const entry = await store.requireEntry(ref);
         expect(entry.storageMode).toBe('chunked');
@@ -990,7 +993,8 @@ describe('BrowserDocumentStore', () => {
         const secondBytes = new Uint8Array((16 * 1024 * 1024) + 1);
         secondBytes[0] = 3;
         secondBytes[secondBytes.byteLength - 1] = 4;
-        await store.write(ref, secondBytes);
+        const revision = await store.getDocumentRevision(ref);
+        await store.write(ref, secondBytes, {expectedDocumentRevisionToken: revision.token});
 
         const secondChunkKeys = Array.from(database?.getStoreRecords('document-chunks').keys() ?? []);
         expect(secondChunkKeys).not.toEqual(firstChunkKeys);
@@ -1014,7 +1018,10 @@ describe('BrowserDocumentStore', () => {
         secondBytes[secondBytes.byteLength - 1] = 9;
 
         vi.stubGlobal('indexedDB', undefined);
-        await expect(store.write(ref, secondBytes)).rejects.toThrow('IndexedDB document chunk write did not commit');
+        const revision = await store.getDocumentRevision(ref);
+        await expect(store.write(ref, secondBytes, {expectedDocumentRevisionToken: revision.token}))
+            .rejects
+            .toThrow('IndexedDB document chunk write did not commit');
         vi.stubGlobal('indexedDB', indexedDbFactory);
 
         await expect(store.readRange(ref, 0, 1)).resolves.toEqual(new Uint8Array([1]));

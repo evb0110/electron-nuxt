@@ -30,10 +30,13 @@ const documentIdentity = {
 
 const binding = {
     sessionKey: 'codex:document:/tmp/a.pdf',
+    scopeKey: 'document:/tmp/a.pdf',
     provider: 'codex',
     turnGeneration: 4,
     windowId: 42,
     tabId: 'tab-a',
+    documentSessionKey: 'document:/tmp/a.pdf',
+    documentInstanceId: 'instance-a',
     documentRef: '/tmp/a.pdf',
     documentIdentity,
 } satisfies IAssistantSessionScopeBinding;
@@ -43,6 +46,7 @@ const commandTarget = {
     tabId: 'tab-a',
     sessionId: 'session-a',
     documentRef: '/tmp/a.pdf',
+    documentInstanceId: 'instance-a',
     sessionRevision: 7,
     documentRevisionToken: 'revision-token-a',
 } as const;
@@ -67,6 +71,8 @@ function createTab(patch: Partial<IAgentTabSnapshot> = {}): IAgentTabSnapshot {
             reasons: [],
             recommendations: [],
         },
+        documentSessionKey: 'document:/tmp/a.pdf',
+        documentInstanceId: 'instance-a',
         documentIdentity,
         commandTarget,
         ...patch,
@@ -87,6 +93,8 @@ function createSnapshot(tab: IAgentTabSnapshot = createTab()): IAgentWorkspaceSn
                 originalPath: tab.originalPath,
                 kind: tab.kind,
                 documentIdentity: tab.documentIdentity ?? null,
+                ...(tab.documentSessionKey === undefined ? {} : {documentSessionKey: tab.documentSessionKey}),
+                ...(tab.documentInstanceId === undefined ? {} : {documentInstanceId: tab.documentInstanceId}),
                 ...(tab.commandTarget === undefined ? {} : {commandTarget: tab.commandTarget}),
             },
             documentCount: 1,
@@ -157,6 +165,24 @@ describe('assistantMcpSessionScope', () => {
         )).toThrow('document changed');
     });
 
+    it('rejects a same-revision assistant snapshot when the document instance changed', () => {
+        const scopedBinding = {
+            ...binding,
+            commandTarget,
+        } satisfies IAssistantSessionScopeBinding;
+
+        expect(() => assertAssistantMcpSnapshotMatchesScope(
+            createSnapshot(createTab({
+                documentInstanceId: 'instance-b',
+                commandTarget: {
+                    ...commandTarget,
+                    documentInstanceId: 'instance-b',
+                },
+            })),
+            scopedBinding,
+        )).toThrow('document changed');
+    });
+
     it('syncs and clears active bindings by session key', () => {
         syncAssistantMcpSessionScope(binding.sessionKey, binding);
         expect(resolveAssistantMcpSessionScope().sessionKey).toBe(binding.sessionKey);
@@ -178,6 +204,7 @@ describe('assistantMcpSessionScope', () => {
             windowId: 42,
             tabId: 'tab-a',
             documentRef: '/tmp/a.pdf',
+            documentInstanceId: 'instance-a',
             documentIdentity,
             commandTarget,
         });

@@ -68,7 +68,10 @@ import type {
     TDocumentRevisionChangeReason,
     TDocumentRevisionToken,
 } from '@contracts/documentRevision';
-import { createStaleRevisionError } from '@contracts/documentMutationErrors';
+import {
+    createMissingRevisionError,
+    createStaleRevisionError,
+} from '@contracts/documentMutationErrors';
 
 export class BrowserDocumentStore {
     private readonly entries = new Map<string, IBrowserDocumentEntry>();
@@ -460,7 +463,11 @@ export class BrowserDocumentStore {
         ref: string,
         expectedRevision: TDocumentRevisionToken | null | undefined,
     ) {
+        const entry = await this.requireEntry(ref);
         if (!expectedRevision) {
+            if (entry.kind === 'working') {
+                throw createMissingRevisionError({documentRef: ref});
+            }
             return;
         }
         const actualRevision = await this.getDocumentRevision(ref);
@@ -488,12 +495,29 @@ export class BrowserDocumentStore {
         return this.runRefMutation(ref, async () => this.writeUnlocked(ref, data, options));
     }
 
+    public async writeForBootstrap(
+        ref: string,
+        data: Uint8Array | ArrayBuffer,
+        reason: string,
+        options: Omit<IWriteDocumentOptions, 'expectedDocumentRevisionToken' | 'skipDocumentRevisionCheckForBootstrap'> = {},
+    ) {
+        if (reason.trim().length === 0) {
+            throw new TypeError('bootstrap write reason must be a non-empty string');
+        }
+        return this.runRefMutation(ref, async () => this.writeUnlocked(ref, data, {
+            ...options,
+            skipDocumentRevisionCheckForBootstrap: true,
+        }));
+    }
+
     private async writeUnlocked(
         ref: string,
         data: Uint8Array | ArrayBuffer,
         options: IWriteDocumentOptions = {},
     ) {
-        await this.assertDocumentRevisionCurrent(ref, options.expectedDocumentRevisionToken);
+        if (options.skipDocumentRevisionCheckForBootstrap !== true) {
+            await this.assertDocumentRevisionCurrent(ref, options.expectedDocumentRevisionToken);
+        }
         const entry = await this.requireEntry(ref);
         const bytes = options.unloadAfterPersist
             ? normalizePersistedWriteBytes(data, false)

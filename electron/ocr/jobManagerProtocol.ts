@@ -100,13 +100,21 @@ function parseSuccessfulCompleteResult(
     const normalizedPdfPath = typeof result.pdfPath === 'string'
         ? result.pdfPath.trim()
         : '';
-    if (normalizedPdfPath.length === 0 || typeof result.requiresCleanupAck !== 'boolean') {
+    const sourceDocumentRevisionToken = typeof result.sourceDocumentRevisionToken === 'string'
+        ? result.sourceDocumentRevisionToken.trim()
+        : '';
+    if (
+        normalizedPdfPath.length === 0
+        || sourceDocumentRevisionToken.length === 0
+        || typeof result.requiresCleanupAck !== 'boolean'
+    ) {
         return null;
     }
 
     return {
         success: true as const,
         pdfPath: normalizedPdfPath,
+        sourceDocumentRevisionToken,
         requiresCleanupAck: result.requiresCleanupAck,
         errors,
     };

@@ -605,6 +605,10 @@ fn run_cli(mut args: impl Iterator<Item = String>) -> Result<(), Box<dyn Error>>
     };
 
     match command.as_str() {
+        "--protocol-version" => {
+            println!("{PROTOCOL_VERSION}");
+            Ok(())
+        }
         "--version" | "-V" => {
             println!("evb-pdf-search {VERSION}");
             Ok(())

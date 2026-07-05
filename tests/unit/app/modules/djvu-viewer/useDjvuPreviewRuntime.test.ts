@@ -309,6 +309,24 @@ describe('useDjvuPreviewRuntime', () => {
         runtime.dispose();
     });
 
+    it('terminates a preview worker when page-size initialization fails', async () => {
+        previewMocks.getPageSizes.mockRejectedValueOnce(new Error('sizes failed'));
+        const {
+            isLoading,
+            runtime,
+            viewerError,
+        } = createPreviewRuntimeHarness();
+
+        await vi.waitFor(() => expect(viewerError.value).toBe('sizes failed'));
+
+        expect(isLoading.value).toBe(false);
+        expect(previewMocks.terminate).toHaveBeenCalledTimes(1);
+
+        runtime.dispose();
+
+        expect(previewMocks.terminate).toHaveBeenCalledTimes(1);
+    });
+
     it('revokes loaded object URLs and terminates the preview worker when suspended', async () => {
         const {
             isActiveSource,

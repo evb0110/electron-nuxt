@@ -260,8 +260,11 @@ export function createDjvuPreloadClient(ipcRenderer: IpcRenderer): IDjvuCapabili
             invoke(DJVU_CHANNELS.renderPagePreview, djvuPath, pageNumber, normalizeDjvuPagePreviewOptions(options)),
         estimateSizes: (djvuPath: TDocumentRef) => invoke(DJVU_CHANNELS.estimateSizes, djvuPath),
         cleanupTemp: (tempPdfPath: TDocumentRef) => invoke(DJVU_CHANNELS.cleanupTemp, tempPdfPath),
-        onProgress: (callback: (progress: IDjvuProgress) => void): (() => void) =>
-            eventSubscriber.onDecodedPayload(DJVU_EVENT_CHANNELS.progress, decodeDjvuProgress, callback),
+        onProgress: (callback: (progress: IDjvuProgress) => void): (() => void) => {
+            const unsubscribe = eventSubscriber.onDecodedPayload(DJVU_EVENT_CHANNELS.progress, decodeDjvuProgress, callback);
+            void invoke(DJVU_CHANNELS.subscribeProgress);
+            return unsubscribe;
+        },
         onViewingReady: (callback: (data: IDjvuViewingReadyEvent) => void): (() => void) =>
             eventSubscriber.onDecodedPayload(DJVU_EVENT_CHANNELS.viewingReady, decodeDjvuViewingReady, callback),
         onViewingError: (callback: (data: IDjvuViewingErrorEvent) => void): (() => void) =>

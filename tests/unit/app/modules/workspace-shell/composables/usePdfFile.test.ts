@@ -1691,7 +1691,11 @@ describe('usePdfFile', () => {
 
             expect(mockDocumentFiles.saveFileStructured).not.toHaveBeenCalled();
             expect(mockDocumentWorkingCopy.createWorkingCopyFromData).toHaveBeenCalledWith('signed.pdf', pdfBytes);
-            expect(mockDocumentFiles.savePdfAs).toHaveBeenCalledWith('/tmp/staged-signed.pdf');
+            expect(mockDocumentFiles.savePdfAs).toHaveBeenCalledWith(
+                '/tmp/staged-signed.pdf',
+                undefined,
+                {expectedDocumentRevisionToken: 'revision-token'},
+            );
             expect(result).toEqual({
                 success: true,
                 outPath: '/exports/signed-copy.pdf',

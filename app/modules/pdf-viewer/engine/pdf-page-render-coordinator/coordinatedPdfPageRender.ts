@@ -209,7 +209,7 @@ export async function runCoordinatedPdfPageOperation<TResult>(
         settled,
     });
 
-    const abortWaiter = createAbortWaiter(signal, pageNumber, owner, releaseOperation);
+    const abortWaiter = createAbortWaiter(signal, pageNumber, owner);
     let operationPromise: Promise<TResult>;
     try {
         operationPromise = operation();
@@ -218,7 +218,9 @@ export async function runCoordinatedPdfPageOperation<TResult>(
         releaseOperation();
         throw error;
     }
-    void operationPromise.catch(() => {});
+    void operationPromise
+        .catch(() => {})
+        .then(releaseOperation);
     try {
         const result = await (abortWaiter
             ? Promise.race([
@@ -232,7 +234,6 @@ export async function runCoordinatedPdfPageOperation<TResult>(
         return result;
     } finally {
         abortWaiter?.remove();
-        releaseOperation();
     }
 }
 

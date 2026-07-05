@@ -118,6 +118,7 @@ export const useWorkspaceDocumentSessions = (
         const nextTab = {
             fileName: updates.fileName ?? current?.tab.fileName ?? tab?.fileName ?? null,
             originalPath: updates.originalPath ?? current?.tab.originalPath ?? tab?.originalPath ?? null,
+            documentInstanceId: updates.documentInstanceId ?? current?.tab.documentInstanceId ?? tab?.documentInstanceId ?? null,
             isDirty: updates.isDirty ?? current?.tab.isDirty ?? tab?.isDirty ?? false,
             isDjvu: updates.isDjvu ?? current?.tab.isDjvu ?? tab?.isDjvu ?? false,
         };

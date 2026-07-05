@@ -23,11 +23,14 @@ export function createAssistantSessionTurnCoordinator(options: IAssistantSession
     ): Omit<IAssistantSessionScopeBinding, 'turnGeneration'> {
         return {
             sessionKey: options.sessionStore.keyForSession(session),
+            scopeKey: session.scope.key,
             provider: session.provider,
             windowId: session.lastSenderWindowId ?? -1,
             tabId: session.scope.tabId ?? '',
+            documentSessionKey: session.scope.documentSessionKey ?? null,
             documentRef: session.scope.documentRef ?? null,
             ...(session.scope.documentBackend === undefined ? {} : {documentBackend: session.scope.documentBackend}),
+            documentInstanceId: session.scope.documentInstanceId ?? null,
             documentIdentity: session.scope.documentIdentity ?? null,
             ...(session.scope.commandTarget === undefined ? {} : {commandTarget: {...session.scope.commandTarget}}),
         };

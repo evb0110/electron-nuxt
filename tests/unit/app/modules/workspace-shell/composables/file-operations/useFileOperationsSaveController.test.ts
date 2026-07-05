@@ -849,6 +849,7 @@ describe('useFileOperationsSaveController', () => {
         expect(repairWorkingCopy).toHaveBeenCalledWith({
             saveMode: 'rewrite',
             expectedWorkingPath: '/tmp/work.pdf',
+            expectedDocumentRevisionToken: 'rev-1',
         });
         expect(deps.saveDocument).not.toHaveBeenCalled();
         expect(deps.validatePdfPath).not.toHaveBeenCalled();
@@ -877,6 +878,7 @@ describe('useFileOperationsSaveController', () => {
         expect(optimizeWorkingCopy).toHaveBeenCalledWith({
             saveMode: 'rewrite',
             expectedWorkingPath: '/tmp/work.pdf',
+            expectedDocumentRevisionToken: 'rev-1',
         });
         expect(deps.saveDocument).not.toHaveBeenCalled();
         expect(deps.validatePdfPath).not.toHaveBeenCalled();
@@ -943,6 +945,7 @@ describe('useFileOperationsSaveController', () => {
             saveMode: 'save_as_rewrite',
             expectedWorkingPath: '/tmp/work.pdf',
             optimizeLossless: false,
+            expectedDocumentRevisionToken: 'rev-1',
         });
         expectWorkspaceSaveMarked(deps);
     });

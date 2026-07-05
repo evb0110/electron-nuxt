@@ -1,5 +1,6 @@
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
+import type { TDocumentInstanceId } from '@contracts/documentInstanceId';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TSplitPayload } from '@contracts/windowTabs';
 import type { TWorkspaceCommandTarget } from '@app/modules/workspace-shell/document-sessions/workspaceCommandTarget';
@@ -192,8 +193,9 @@ export interface IWorkspaceUiPort {
 export interface IWorkspaceAgentCommandContext {
     signal: AbortSignal;
     documentIdentity: IDocumentRevisionInfo | null;
+    documentInstanceId: TDocumentInstanceId | null;
     commandTarget?: TWorkspaceCommandTarget;
-    assertCurrentDocument: () => void;
+    assertCurrentDocument: (options?: {allowRevisionChange?: boolean}) => void;
 }
 
 export interface IWorkspaceAgentPort {

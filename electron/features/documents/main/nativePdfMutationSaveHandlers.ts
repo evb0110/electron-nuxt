@@ -228,7 +228,7 @@ async function runNativeNoteCommand(
         throw new Error('Working copy path is not managed');
     }
 
-    return enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
+    return enqueueWorkingCopyMutation(normalizedWorkingPath, async (mutationOperation) => {
         const phaseTimings: INativeNotePhaseTiming[] = [];
         const operationStart = performance.now();
         await assertQueuedWorkingCopyMutationPreconditions(
@@ -264,6 +264,8 @@ async function runNativeNoteCommand(
                 ], {
                     timeoutMs: PDF_NATIVE_MUTATION_TIMEOUT_MS,
                     commandLabel: options.commandLabel,
+                    signal: mutationOperation.signal,
+                    cancelGroup: mutationOperation.cancelGroup,
                 }));
             await measureNativeNotePhase(phaseTimings, 'assert-output', () =>
                 assertNativeOutputReady(tempPath));
@@ -364,7 +366,7 @@ async function runNativeWorkingCopyCommand(
         throw new Error('Working copy path is not managed');
     }
 
-    return enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
+    return enqueueWorkingCopyMutation(normalizedWorkingPath, async (mutationOperation) => {
         const phaseTimings: INativeNotePhaseTiming[] = [];
         const operationStart = performance.now();
         await assertQueuedWorkingCopyMutationPreconditions(
@@ -405,6 +407,8 @@ async function runNativeWorkingCopyCommand(
                 ], {
                     timeoutMs: PDF_NATIVE_MUTATION_TIMEOUT_MS,
                     commandLabel: options.commandLabel,
+                    signal: mutationOperation.signal,
+                    cancelGroup: mutationOperation.cancelGroup,
                 }));
             await measureNativeNotePhase(phaseTimings, 'assert-output', () =>
                 assertNativeOutputReady(tempPath));

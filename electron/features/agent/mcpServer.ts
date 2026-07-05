@@ -176,6 +176,9 @@ function assertInternalInputTabMatchesBinding(
     ) {
         throw new Error('The active assistant document changed before the internal EVB MCP request completed.');
     }
+    if ((binding.documentInstanceId ?? null) !== (tab.documentInstanceId ?? null)) {
+        throw new Error('The active assistant document changed before the internal EVB MCP request completed.');
+    }
     if (binding.documentIdentity === null) {
         return;
     }
@@ -201,6 +204,7 @@ function commandTargetsMatch(
         || expected.sessionId !== actual.sessionId
         || expected.documentRef !== actual.documentRef
         || expected.documentBackend !== actual.documentBackend
+        || (expected.documentInstanceId ?? null) !== (actual.documentInstanceId ?? null)
         || expected.documentRevisionToken !== actual.documentRevisionToken
     ) {
         return false;

@@ -14,6 +14,10 @@ import {
     normalizeTranslationParams,
 } from '@i18n-core';
 
+interface IRuntimeErrorLogStreamState { cleanup: () => void; }
+
+type TRuntimeErrorLogStreamWindow = Window & { __evbRuntimeErrorLogStreamState?: IRuntimeErrorLogStreamState };
+
 function isUiReportableLog(entry: IDebugLogEntry) {
     return entry.message.startsWith('[ERROR]');
 }
@@ -35,7 +39,12 @@ function createPluginTranslate(getLocale: () => TLocale | null | undefined): TTr
 }
 
 export default defineNuxtPlugin((nuxtApp) => {
-    if (!import.meta.client) {
+    if (typeof window === 'undefined') {
+        return;
+    }
+
+    const windowWithState = window as TRuntimeErrorLogStreamWindow;
+    if (windowWithState.__evbRuntimeErrorLogStreamState) {
         return;
     }
 
@@ -43,14 +52,46 @@ export default defineNuxtPlugin((nuxtApp) => {
     const localeCookie = useCookie<TLocale>('i18n_redirected');
     const t = createPluginTranslate(() => localeCookie.value);
     let unsubscribeDebugLog: (() => void) | null = null;
+    let cleanedUp = false;
 
     const cleanupDebugLogSubscription = () => {
         unsubscribeDebugLog?.();
         unsubscribeDebugLog = null;
     };
 
-    nuxtApp.hook('app:mounted', () => {
+    const originalUnmount = nuxtApp.vueApp.unmount.bind(nuxtApp.vueApp);
+    function cleanup() {
+        if (cleanedUp) {
+            return;
+        }
+
+        cleanedUp = true;
         cleanupDebugLogSubscription();
+        window.removeEventListener('beforeunload', onBeforeUnload);
+        if (nuxtApp.vueApp.unmount === guardedUnmount) {
+            nuxtApp.vueApp.unmount = originalUnmount;
+        }
+        if (windowWithState.__evbRuntimeErrorLogStreamState?.cleanup === cleanup) {
+            delete windowWithState.__evbRuntimeErrorLogStreamState;
+        }
+    }
+    function guardedUnmount() {
+        cleanup();
+        originalUnmount();
+    }
+    function onBeforeUnload() {
+        cleanup();
+    }
+
+    windowWithState.__evbRuntimeErrorLogStreamState = {cleanup};
+    window.addEventListener('beforeunload', onBeforeUnload, { once: true });
+    nuxtApp.vueApp.unmount = guardedUnmount;
+
+    nuxtApp.hook('app:mounted', () => {
+        if (cleanedUp || unsubscribeDebugLog) {
+            return;
+        }
+
         unsubscribeDebugLog = getSettingsCapability().onDebugLog((entry) => {
             if (!isUiReportableLog(entry)) {
                 return;
@@ -65,8 +106,7 @@ export default defineNuxtPlugin((nuxtApp) => {
         });
     });
 
-    window.addEventListener('beforeunload', cleanupDebugLogSubscription, { once: true });
     if (import.meta.hot) {
-        import.meta.hot.dispose(cleanupDebugLogSubscription);
+        import.meta.hot.dispose(cleanup);
     }
 });

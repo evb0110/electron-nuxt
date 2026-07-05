@@ -332,13 +332,63 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
     }
 
     const worker = await createDjvuWorkerFromPath(djvuPath);
+    let terminated = false;
+    let nextPreviewRequestId = 0;
+    let fallbackRenderQueue = Promise.resolve();
+    const latestPreviewRequestIdsByPage = new Map<number, string>();
+
+    const createFallbackPreviewRequestId = (
+        pageNumber: number,
+        options: IDjvuPagePreviewOptions | undefined,
+    ) => {
+        const requestId = options?.previewRequestId?.trim();
+        if (requestId) {
+            return requestId;
+        }
+        nextPreviewRequestId += 1;
+        return `browser-preview:${pageNumber}:${nextPreviewRequestId}`;
+    };
+
+    const enqueueFallbackRender = async <T>(render: () => Promise<T>) => {
+        const previousRender = fallbackRenderQueue;
+        let releaseRender: () => void = () => undefined;
+        fallbackRenderQueue = new Promise<void>((resolve) => {
+            releaseRender = () => resolve();
+        });
+        await previousRender.catch(() => undefined);
+        try {
+            return await render();
+        } finally {
+            releaseRender();
+        }
+    };
+
+    const throwIfFallbackRenderCanceled = (pageNumber: number, previewRequestId: string) => {
+        if (
+            terminated
+            || latestPreviewRequestIdsByPage.get(pageNumber) !== previewRequestId
+        ) {
+            throw new Error('DjVu conversion canceled');
+        }
+    };
+
     return {
         getPageSizes: (): Promise<IDjvuPageSize[]> => worker.doc.getPagesSizes().run(),
         async renderPageObjectUrl(
             pageNumber: number,
             options?: IDjvuPagePreviewOptions,
         ): Promise<IDjvuRenderedPageObjectUrl> {
-            const pageObject = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
+            if (terminated) {
+                throw new Error('DjVu conversion canceled');
+            }
+            const previewRequestId = createFallbackPreviewRequestId(pageNumber, options);
+            latestPreviewRequestIdsByPage.set(pageNumber, previewRequestId);
+            const pageObject = await enqueueFallbackRender(async () => {
+                throwIfFallbackRenderCanceled(pageNumber, previewRequestId);
+                const renderedPageObject = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
+                throwIfFallbackRenderCanceled(pageNumber, previewRequestId);
+                return renderedPageObject;
+            });
             return scaleDjvuPageObjectUrl(
                 pageObject,
                 options?.subsample,
@@ -346,6 +396,10 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
             );
         },
         revokeObjectURL: (url: string) => worker.revokeObjectURL(url),
-        terminate: () => worker.terminate(),
+        terminate() {
+            terminated = true;
+            latestPreviewRequestIdsByPage.clear();
+            worker.terminate();
+        },
     };
 }

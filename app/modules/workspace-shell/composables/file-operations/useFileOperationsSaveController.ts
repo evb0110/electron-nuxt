@@ -2,6 +2,7 @@ import type {IAnnotationCommentSummary} from '@app/types/annotations';
 import type { TPdfSaveMode } from '@app/types/pdfContracts';
 import type { IPdfPersistResult } from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { IPdfOptimizeOptions } from '@contracts/electronApiDocuments';
 import {
     getDocumentMutationErrorPayload,
@@ -45,10 +46,12 @@ interface ISaveFlowConfig {
     persistUnserialized: (opts: {
         saveMode: TPdfSaveMode;
         expectedWorkingPath?: TDocumentRef | null;
+        expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
     }) => Promise<IPdfPersistResult>;
     persistNativeWorkingCopy?: (opts: {
         saveMode: TPdfSaveMode;
         expectedWorkingPath?: TDocumentRef | null;
+        expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
     }) => Promise<IPdfPersistResult>;
     shouldPreferWorkingCopy: boolean;
     forceSerialize?: boolean;

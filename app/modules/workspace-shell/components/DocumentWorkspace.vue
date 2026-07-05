@@ -1329,6 +1329,21 @@ function isDocumentReadyForSearch() {
     );
 }
 
+function readDeferredSearchDocumentIdentity() {
+    return {
+        documentRevisionToken: documentRevisionToken.value,
+        workingCopyPath: workingCopyPath.value,
+    };
+}
+
+function isDeferredSearchDocumentIdentityCurrent(
+    requestedIdentity: ReturnType<typeof readDeferredSearchDocumentIdentity>,
+) {
+    const currentIdentity = readDeferredSearchDocumentIdentity();
+    return currentIdentity.workingCopyPath === requestedIdentity.workingCopyPath
+        && currentIdentity.documentRevisionToken === requestedIdentity.documentRevisionToken;
+}
+
 async function waitForDocumentReadyForSearch() {
     if (isDocumentReadyForSearch()) {
         return true;
@@ -1384,10 +1399,14 @@ async function waitForDocumentReadyForSearch() {
 }
 
 async function handleSearchWhenDocumentReady() {
+    const requestedDocumentIdentity = readDeferredSearchDocumentIdentity();
     const requestedQuery = searchQuery.value;
     const requestedOptions = { ...searchOptions.value };
 
     if (!await waitForDocumentReadyForSearch()) {
+        return;
+    }
+    if (!isDeferredSearchDocumentIdentityCurrent(requestedDocumentIdentity)) {
         return;
     }
     if (!searchQuery.value && requestedQuery) {

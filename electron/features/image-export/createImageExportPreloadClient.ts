@@ -68,7 +68,10 @@ export function createImageExportPreloadClient(
             requestId?: string,
         ) =>
             invoke(IMAGE_EXPORT_CHANNELS.exportMultiPageTiff, workingPath, pageNumbers, requestId),
-        onProgress: (callback: (progress: IImageExportProgress) => void): (() => void) =>
-            eventSubscriber.onDecodedPayload(IMAGE_EXPORT_EVENT_CHANNELS.progress, decodeImageExportProgress, callback),
+        onProgress: (callback: (progress: IImageExportProgress) => void): (() => void) => {
+            const unsubscribe = eventSubscriber.onDecodedPayload(IMAGE_EXPORT_EVENT_CHANNELS.progress, decodeImageExportProgress, callback);
+            void invoke(IMAGE_EXPORT_CHANNELS.subscribeProgress);
+            return unsubscribe;
+        },
     };
 }

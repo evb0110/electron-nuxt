@@ -19,9 +19,12 @@ import {
 
 const scopeBinding = {
     sessionKey: 'codex:document:/tmp/a.pdf',
+    scopeKey: 'document:/tmp/a.pdf',
     provider: 'codex',
     windowId: 42,
     tabId: 'tab-a',
+    documentSessionKey: 'document:/tmp/a.pdf',
+    documentInstanceId: 'instance-a',
     documentRef: '/tmp/a.pdf',
     documentIdentity: null,
 } satisfies Omit<IAssistantSessionScopeBinding, 'turnGeneration'>;

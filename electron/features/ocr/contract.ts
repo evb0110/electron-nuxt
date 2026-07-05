@@ -17,6 +17,7 @@ export const OCR_CHANNELS = {
     validateTools: 'ocr:validateTools',
     preprocessingValidate: 'preprocessing:validate',
     preprocessingPreprocessPage: 'preprocessing:preprocessPage',
+    subscribeProgress: 'ocr:progress:subscribe',
 } as const;
 
 export const OCR_EVENT_CHANNELS = {
@@ -64,6 +65,10 @@ export interface IOcrInvokeMap {
     [OCR_CHANNELS.preprocessingPreprocessPage]: {
         args: [imageData: Uint8Array, usePreprocessing: boolean];
         result: Awaited<ReturnType<TOcrPreprocessing['preprocessPage']>>;
+    };
+    [OCR_CHANNELS.subscribeProgress]: {
+        args: [];
+        result: undefined;
     };
 }
 

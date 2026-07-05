@@ -7,10 +7,20 @@ import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { getCompactSearchIndexPath } from '@electron/search/searchIndexSidecar';
 import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
+import { cancelNativeCommandGroup } from '@electron/native-tools/runNativeCommand';
+import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
+import { runWithWorkingCopyMutationCommitSignal } from '@electron/file-access/workingCopyMutationCommitSignal';
 
 const log = createLogger('workingCopyMutationQueue');
 const workingCopyMutationQueue = new Map<string, Promise<void>>();
 const workingCopyMutationListeners = new Set<(workingCopyPath: string) => void>();
+
+export interface IWorkingCopyMutationOperation {
+    workingCopyPath: string;
+    signal: AbortSignal;
+    cancelGroup: string;
+    markCommitStarted: () => void;
+}
 
 export function onWorkingCopyMutationSettled(listener: (workingCopyPath: string) => void) {
     workingCopyMutationListeners.add(listener);
@@ -46,14 +56,39 @@ export async function drainWorkingCopyMutations(workingCopyPath?: string) {
 
 export function enqueueWorkingCopyMutation<T>(
     workingCopyPath: string,
-    operation: () => Promise<T>,
+    operation: (operation: IWorkingCopyMutationOperation) => Promise<T>,
 ) {
     const queueKey = getWorkingCopyQueueKey(workingCopyPath);
     const previousTail = workingCopyMutationQueue.get(queueKey) ?? Promise.resolve();
+    let cancelGroup = '';
+    const lifecycleOperation = registerMainOperation({
+        kind: 'critical-write',
+        workingCopyPath,
+        cancel: () => {
+            if (cancelGroup) {
+                cancelNativeCommandGroup(cancelGroup);
+            }
+        },
+    });
+    cancelGroup = `working-copy-mutation:${lifecycleOperation.id}`;
+    const mutationOperation: IWorkingCopyMutationOperation = {
+        workingCopyPath,
+        signal: lifecycleOperation.signal,
+        cancelGroup,
+        markCommitStarted: lifecycleOperation.markCommitStarted,
+    };
     const operationPromise = previousTail
-        .then(operation)
+        .then(() => {
+            if (mutationOperation.signal.aborted) {
+                throw mutationOperation.signal.reason instanceof Error
+                    ? mutationOperation.signal.reason
+                    : new Error('Working-copy mutation canceled');
+            }
+            return runWithWorkingCopyMutationCommitSignal(mutationOperation, () => operation(mutationOperation));
+        })
         .finally(() => {
             notifyWorkingCopyMutationSettled(workingCopyPath);
+            lifecycleOperation.complete();
         });
 
     const nextTail = operationPromise

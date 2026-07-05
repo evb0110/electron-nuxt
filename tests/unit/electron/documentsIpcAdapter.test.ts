@@ -222,9 +222,15 @@ describe('documents ipc adapter', () => {
             height: 1200,
         });
 
-        expect(service.getPdfNativePageSizes).toHaveBeenCalledWith({senderId: 49}, '/tmp/huge.pdf');
+        expect(service.getPdfNativePageSizes).toHaveBeenCalledWith({
+            sender,
+            senderId: 49,
+        }, '/tmp/huge.pdf');
         expect(service.renderPdfNativePagePreview).toHaveBeenCalledWith(
-            {senderId: 49},
+            {
+                sender,
+                senderId: 49,
+            },
             '/tmp/huge.pdf',
             7,
             {targetWidthPx: 900},
@@ -250,7 +256,10 @@ describe('documents ipc adapter', () => {
         await handlers.get(DOCUMENTS_CHANNELS.pdfOpenInDefaultAppPath)?.({sender}, '/tmp/owned.pdf', 'owned.pdf');
         await handlers.get(DOCUMENTS_CHANNELS.pdfPrintPath)?.({sender}, '/tmp/owned.pdf', 'owned.pdf', [1]);
 
-        expect(service.openPdfInDefaultAppPath).toHaveBeenCalledWith({senderId: 50}, '/tmp/owned.pdf', 'owned.pdf');
+        expect(service.openPdfInDefaultAppPath).toHaveBeenCalledWith({
+            sender,
+            senderId: 50,
+        }, '/tmp/owned.pdf', 'owned.pdf');
         expect(service.printPdfPath).toHaveBeenCalledWith({
             senderId: 50,
             window,
@@ -324,40 +333,58 @@ describe('documents ipc adapter', () => {
         );
 
         expect(service.writeFile).toHaveBeenCalledWith(
-            {senderId: 51},
+            {
+                sender,
+                senderId: 51,
+            },
             '/tmp/work.pdf',
             new Uint8Array([1]),
             expectedOptions,
         );
         expect(service.replaceWorkingCopyFromPath).toHaveBeenCalledWith(
-            {senderId: 51},
+            {
+                sender,
+                senderId: 51,
+            },
             '/tmp/work.pdf',
             '/tmp/ocr-output.pdf',
             expectedOptions,
         );
         expect(service.savePdfNoteTextUpdates).toHaveBeenCalledWith(
-            {senderId: 51},
+            {
+                sender,
+                senderId: 51,
+            },
             '/tmp/work.pdf',
             [],
             '2026-07-04T00:00:00.000Z',
             expectedOptions,
         );
         expect(service.savePdfNoteChanges).toHaveBeenCalledWith(
-            {senderId: 51},
+            {
+                sender,
+                senderId: 51,
+            },
             '/tmp/work.pdf',
             [],
             '2026-07-04T00:00:00.000Z',
             expectedOptions,
         );
         expect(service.savePdfNativeMutations).toHaveBeenCalledWith(
-            {senderId: 51},
+            {
+                sender,
+                senderId: 51,
+            },
             '/tmp/work.pdf',
             [],
             '2026-07-04T00:00:00.000Z',
             expectedOptions,
         );
         expect(service.applyPdfNativeMutationsToWorkingCopy).toHaveBeenCalledWith(
-            {senderId: 51},
+            {
+                sender,
+                senderId: 51,
+            },
             '/tmp/work.pdf',
             [],
             '2026-07-04T00:00:00.000Z',

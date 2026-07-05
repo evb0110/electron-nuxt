@@ -11,6 +11,8 @@ import { createDocumentSessionState } from '@app/modules/workspace-shell/composa
 import { toPageIndex } from '@contracts/pageNumbers';
 import type { TTranslateFn } from '@i18n-app';
 
+const TEST_DOCUMENT_REVISION_TOKEN = 'drt1:test:persistence-base';
+
 const mocks = vi.hoisted(() => {
     const createBroadFacadeTripwire = (method: string, capability = 'document files') => vi.fn(() => {
         throw new Error(`${method} should use the split ${capability} capability`);
@@ -62,6 +64,7 @@ function createPersistenceHarness() {
     const state = createDocumentSessionState({ isDesktopRuntime: ref(false) });
     state.workingCopyPath.value = '/tmp/old-working.pdf';
     state.originalPath.value = '/tmp/original.pdf';
+    state.documentRevisionToken.value = TEST_DOCUMENT_REVISION_TOKEN;
     state.isDirty.value = true;
 
     const deps = {
@@ -182,7 +185,7 @@ describe('createDocumentPersistence', () => {
             7,
             8,
             9,
-        ]), {expectedDocumentRevisionToken: null});
+        ]), {expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN});
         expect(mocks.documentFilesCapability.writeFile.mock.calls[0]?.[1]).not.toBe(data);
         expect(deps.pushHistorySnapshot).toHaveBeenCalledWith(new Uint8Array([
             7,
@@ -204,7 +207,10 @@ describe('createDocumentPersistence', () => {
         const result = await persistence.saveWorkingCopy();
 
         expect(result.success).toBe(true);
-        expect(mocks.documentFilesCapability.saveFileStructured).toHaveBeenCalledWith('/tmp/old-working.pdf');
+        expect(mocks.documentFilesCapability.saveFileStructured).toHaveBeenCalledWith(
+            '/tmp/old-working.pdf',
+            {expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN},
+        );
         expectBroadFilePersistenceFacadeNotUsed();
         expectBroadWorkingCopyFacadeNotUsed();
     });
@@ -227,7 +233,10 @@ describe('createDocumentPersistence', () => {
         expect(result.success).toBe(false);
         expect(state.isDirty.value).toBe(true);
         expect(deps.markCurrentHistoryEntryClean).not.toHaveBeenCalled();
-        expect(mocks.documentFilesCapability.saveFileStructured).toHaveBeenCalledWith('/tmp/old-working.pdf');
+        expect(mocks.documentFilesCapability.saveFileStructured).toHaveBeenCalledWith(
+            '/tmp/old-working.pdf',
+            {expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN},
+        );
         expectBroadFilePersistenceFacadeNotUsed();
         expectBroadWorkingCopyFacadeNotUsed();
     });
@@ -238,7 +247,10 @@ describe('createDocumentPersistence', () => {
         const result = await persistence.repairWorkingCopy();
 
         expect(result.success).toBe(true);
-        expect(mocks.documentFilesCapability.repairPdf).toHaveBeenCalledWith('/tmp/old-working.pdf');
+        expect(mocks.documentFilesCapability.repairPdf).toHaveBeenCalledWith(
+            '/tmp/old-working.pdf',
+            {expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN},
+        );
         expectBroadFilePersistenceFacadeNotUsed();
         expectBroadWorkingCopyFacadeNotUsed();
     });
@@ -249,7 +261,10 @@ describe('createDocumentPersistence', () => {
         const result = await persistence.optimizeWorkingCopy();
 
         expect(result.success).toBe(true);
-        expect(mocks.documentFilesCapability.optimizePdfForInteraction).toHaveBeenCalledWith('/tmp/old-working.pdf');
+        expect(mocks.documentFilesCapability.optimizePdfForInteraction).toHaveBeenCalledWith(
+            '/tmp/old-working.pdf',
+            {expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN},
+        );
         expectBroadFilePersistenceFacadeNotUsed();
         expectBroadWorkingCopyFacadeNotUsed();
     });
@@ -312,7 +327,11 @@ describe('createDocumentPersistence', () => {
         expect(result.outPath).toBe('/tmp/saved.pdf');
         expect(state.originalPath.value).toBe('/tmp/saved.pdf');
         expect(state.workingCopyPath.value).toBe('/tmp/new-working.pdf');
-        expect(mocks.documentFilesCapability.savePdfAs).toHaveBeenCalledWith('/tmp/old-working.pdf');
+        expect(mocks.documentFilesCapability.savePdfAs).toHaveBeenCalledWith(
+            '/tmp/old-working.pdf',
+            undefined,
+            {expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN},
+        );
         expect(mocks.documentWorkingCopyCapability.createWorkingCopyFromPath).toHaveBeenCalledWith('/tmp/saved.pdf');
         expect(mocks.documentWorkingCopyCapability.cleanupFile).toHaveBeenCalledWith('/tmp/old-working.pdf');
         expectBroadFilePersistenceFacadeNotUsed();
@@ -334,7 +353,11 @@ describe('createDocumentPersistence', () => {
         expect(result.success).toBe(false);
         expect(state.originalPath.value).toBe('/tmp/original.pdf');
         expect(state.workingCopyPath.value).toBe('/tmp/replaced-working.pdf');
-        expect(mocks.documentFilesCapability.savePdfAs).toHaveBeenCalledWith('/tmp/old-working.pdf');
+        expect(mocks.documentFilesCapability.savePdfAs).toHaveBeenCalledWith(
+            '/tmp/old-working.pdf',
+            undefined,
+            {expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN},
+        );
         expect(mocks.documentWorkingCopyCapability.createWorkingCopyFromPath).toHaveBeenCalledWith('/tmp/saved.pdf');
         expect(mocks.documentWorkingCopyCapability.cleanupFile).toHaveBeenCalledWith('/tmp/new-working.pdf');
         expect(mocks.documentWorkingCopyCapability.cleanupFile).toHaveBeenCalledTimes(1);
@@ -362,7 +385,7 @@ describe('createDocumentPersistence', () => {
             '/tmp/old-working.pdf',
             mutations,
             'D:20260628123456+03\'00\'',
-            {expectedDocumentRevisionToken: null},
+            {expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN},
         );
         expect(mocks.documentFilesCapability.savePdfNoteChanges).not.toHaveBeenCalled();
         expect(mocks.documentFilesCapability.savePdfNoteTextUpdates).not.toHaveBeenCalled();
@@ -396,7 +419,7 @@ describe('createDocumentPersistence', () => {
             '/tmp/old-working.pdf',
             mutations,
             'D:20260628123526+03\'00\'',
-            {expectedDocumentRevisionToken: null},
+            {expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN},
         );
         expect(mocks.documentFilesCapability.savePdfNoteChanges).not.toHaveBeenCalled();
         expect(mocks.documentFilesCapability.savePdfNoteTextUpdates).not.toHaveBeenCalled();
@@ -424,7 +447,7 @@ describe('createDocumentPersistence', () => {
             '/tmp/old-working.pdf',
             updates,
             'D:20260628123556+03\'00\'',
-            {expectedDocumentRevisionToken: null},
+            {expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN},
         );
         expect(mocks.documentFilesCapability.savePdfNoteChanges).not.toHaveBeenCalled();
         expectBroadFilePersistenceFacadeNotUsed();
@@ -468,7 +491,7 @@ describe('createDocumentPersistence', () => {
                 deletes,
             },
             'D:20260628123626+03\'00\'',
-            {expectedDocumentRevisionToken: null},
+            {expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN},
         );
         expect(mocks.documentFilesCapability.savePdfNoteTextUpdates).not.toHaveBeenCalled();
         expectBroadFilePersistenceFacadeNotUsed();

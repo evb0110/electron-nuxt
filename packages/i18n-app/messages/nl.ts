@@ -1074,6 +1074,7 @@ export default {
             'start': 'Kan OCR-taak niet starten',
             'noPdfData': 'Geen PDF-gegevens of -pad in antwoord',
             'createSearchablePdf': 'Kan doorzoekbare PDF niet maken',
+            'changedReload': 'OCR-resultaten zijn niet toegepast omdat het document is gewijzigd. Laad het bestand opnieuw en voer OCR opnieuw uit.',
             'noText': 'Geen OCR-tekst gevonden. Voer eerst OCR uit.',
             'exportDocx': 'Kan DOCX niet exporteren',
             'cancel': 'Failed to cancel OCR',

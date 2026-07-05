@@ -1,4 +1,5 @@
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
+import type { TDocumentInstanceId } from '@contracts/documentInstanceId';
 import type { TTabUpdate } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
@@ -38,6 +39,7 @@ interface ICreateWorkspaceDocumentSessionCoreOptions {
         nextDocumentSessionIndex: number;
         documentRef: string | null;
     }) => string;
+    createDocumentInstanceId?: () => TDocumentInstanceId;
     workspaceWaitTimeoutMs?: number;
 }
 
@@ -80,9 +82,14 @@ function createDefaultDocumentSessionKey(input: {
     ].join(':');
 }
 
+function createDefaultDocumentInstanceId() {
+    return crypto.randomUUID();
+}
+
 function createEmptyIdentity(): IWorkspaceDocumentIdentity {
     return {
         documentSessionKey: null,
+        documentInstanceId: null,
         documentRef: null,
         originalPath: null,
         workingCopyPath: null,
@@ -112,6 +119,8 @@ function normalizeIdentityFromRecord(
     record: IWorkspaceDocumentRecord,
     previous: IWorkspaceDocumentIdentity,
     createDocumentSessionKey: (documentRef: string | null) => string,
+    createDocumentInstanceId: () => TDocumentInstanceId,
+    activeTransactionKind: TWorkspaceDocumentTransactionKind | null = null,
 ): IWorkspaceDocumentIdentity {
     const revisionInfo = record.documentIdentity;
     const hasDocument = revisionInfo !== null
@@ -125,6 +134,7 @@ function normalizeIdentityFromRecord(
 
     const nextIdentity = {
         documentSessionKey: null,
+        documentInstanceId: null,
         documentRef: revisionInfo?.documentRef ?? record.tab.originalPath ?? previous.documentRef,
         originalPath: record.tab.originalPath ?? null,
         workingCopyPath: revisionInfo?.documentRef ?? previous.workingCopyPath,
@@ -134,11 +144,25 @@ function normalizeIdentityFromRecord(
     } satisfies IWorkspaceDocumentIdentity;
     const previousSignature = getLogicalDocumentSignature(previous);
     const nextSignature = getLogicalDocumentSignature(nextIdentity);
+    const shouldPreserveLogicalIdentity = previous.documentSessionKey && previousSignature === nextSignature;
+    const shouldMintDocumentInstance = (
+        activeTransactionKind === 'open'
+        || activeTransactionKind === 'restore'
+        || activeTransactionKind === 'reload'
+    )
+        && !record.toolbarSnapshot.isOpeningDocument
+        && !record.toolbarSnapshot.hasOpenError;
+    const explicitDocumentInstanceId = record.tab.documentInstanceId ?? null;
     return {
         ...nextIdentity,
-        documentSessionKey: previous.documentSessionKey && previousSignature === nextSignature
+        documentSessionKey: shouldPreserveLogicalIdentity
             ? previous.documentSessionKey
             : createDocumentSessionKey(nextIdentity.documentRef),
+        documentInstanceId: shouldMintDocumentInstance
+            ? createDocumentInstanceId()
+            : explicitDocumentInstanceId
+                ?? (shouldPreserveLogicalIdentity ? previous.documentInstanceId : null)
+                ?? createDocumentInstanceId(),
     };
 }
 
@@ -147,6 +171,7 @@ function areIdentitiesEqual(
     second: IWorkspaceDocumentIdentity,
 ) {
     return first.documentSessionKey === second.documentSessionKey
+        && first.documentInstanceId === second.documentInstanceId
         && first.documentRef === second.documentRef
         && first.originalPath === second.originalPath
         && first.workingCopyPath === second.workingCopyPath
@@ -223,11 +248,13 @@ function createSnapshotFromRecord(options: {
     record: IWorkspaceDocumentRecord;
     mounted: boolean;
     createDocumentSessionKey: (documentRef: string | null) => string;
+    createDocumentInstanceId: () => TDocumentInstanceId;
 }) {
     const identity = normalizeIdentityFromRecord(
         options.record,
         createEmptyIdentity(),
         options.createDocumentSessionKey,
+        options.createDocumentInstanceId,
     );
     return {
         tabId: options.tabId,
@@ -268,6 +295,10 @@ function getTargetDocumentRevisionToken(info: IDocumentRevisionInfo | null) {
     return info?.token === undefined ? {} : {documentRevisionToken: info.token};
 }
 
+function getTargetDocumentInstanceId(identity: IWorkspaceDocumentIdentity) {
+    return {documentInstanceId: identity.documentInstanceId};
+}
+
 function getTargetDocumentBackend(documentRef: string | null) {
     const documentBackend = resolveDocumentRefBackend(documentRef);
     return documentBackend === undefined ? {} : {documentBackend};
@@ -279,6 +310,7 @@ export function createWorkspaceDocumentSessionCore(
     const now = options.now ?? Date.now;
     const sessionId = options.sessionId ?? options.createSessionId?.(options.tabId) ?? createDefaultSessionId(options.tabId);
     const workspaceWaitTimeoutMs = options.workspaceWaitTimeoutMs ?? DEFAULT_WORKSPACE_WAIT_TIMEOUT_MS;
+    const createDocumentInstanceId = options.createDocumentInstanceId ?? createDefaultDocumentInstanceId;
     const mountedWorkspace = shallowRef<IWorkspaceExpose | null>(null);
     let nextDocumentSessionIndex = 0;
 
@@ -303,6 +335,7 @@ export function createWorkspaceDocumentSessionCore(
         record: initialRecord,
         mounted: false,
         createDocumentSessionKey,
+        createDocumentInstanceId,
     }));
     const waiters = new Set<IWorkspaceWaiter>();
     let nextTransactionIndex = 0;
@@ -396,6 +429,7 @@ export function createWorkspaceDocumentSessionCore(
                         sessionId,
                         documentRef: transaction.documentRef,
                         ...getTargetDocumentBackend(transaction.documentRef),
+                        ...getTargetDocumentInstanceId(current.identity),
                         transactionId: transaction.id,
                         ...getTargetDocumentRevisionToken(current.identity.revisionInfo),
                     },
@@ -416,6 +450,7 @@ export function createWorkspaceDocumentSessionCore(
                 tab: {
                     fileName: current.identity.fileName,
                     originalPath: current.identity.originalPath,
+                    documentInstanceId: current.identity.documentInstanceId,
                     isDirty: current.dirty,
                     isDjvu: current.identity.isDjvu,
                 },
@@ -462,6 +497,8 @@ export function createWorkspaceDocumentSessionCore(
             normalizedRecord,
             snapshot.value.identity,
             createDocumentSessionKey,
+            createDocumentInstanceId,
+            activeKind,
         );
         updateSnapshot((current) => {
             return {
@@ -491,6 +528,8 @@ export function createWorkspaceDocumentSessionCore(
                 ...current.identity,
                 documentSessionKey: current.identity.documentSessionKey
                     ?? (info ? createDocumentSessionKey(info.documentRef) : null),
+                documentInstanceId: current.identity.documentInstanceId
+                    ?? (info ? createDocumentInstanceId() : null),
                 documentRef: info?.documentRef ?? current.identity.originalPath,
                 workingCopyPath: info?.documentRef ?? null,
                 revisionInfo: info,
@@ -574,6 +613,7 @@ export function createWorkspaceDocumentSessionCore(
                 sessionId: current.sessionId,
                 documentRef: current.activeTransaction.documentRef,
                 ...getTargetDocumentBackend(current.activeTransaction.documentRef),
+                ...getTargetDocumentInstanceId(current.identity),
                 transactionId: current.activeTransaction.id,
                 ...getTargetDocumentRevisionToken(current.identity.revisionInfo),
             };
@@ -585,6 +625,7 @@ export function createWorkspaceDocumentSessionCore(
             sessionId: current.sessionId,
             documentRef: current.identity.documentRef,
             ...getTargetDocumentBackend(current.identity.documentRef),
+            ...getTargetDocumentInstanceId(current.identity),
             sessionRevision: current.sessionRevision,
             ...getTargetDocumentRevisionToken(current.identity.revisionInfo),
         };
@@ -606,6 +647,13 @@ export function createWorkspaceDocumentSessionCore(
             return {
                 ok: false,
                 reason: 'session-id-mismatch',
+            };
+        }
+
+        if ((target.documentInstanceId ?? null) !== current.identity.documentInstanceId) {
+            return {
+                ok: false,
+                reason: 'document-instance-id-mismatch',
             };
         }
 
@@ -657,6 +705,7 @@ export function createWorkspaceDocumentSessionCore(
             tab: {
                 fileName: current.identity.fileName,
                 originalPath: current.identity.originalPath,
+                documentInstanceId: current.identity.documentInstanceId,
                 isDirty: current.dirty,
                 isDjvu: current.identity.isDjvu,
             },

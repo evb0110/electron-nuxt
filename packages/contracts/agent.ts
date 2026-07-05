@@ -7,6 +7,7 @@ import type {
     IDocumentRevisionInfo,
     TDocumentRevisionToken,
 } from '@contracts/documentRevision';
+import type { TDocumentInstanceId } from '@contracts/documentInstanceId';
 
 export type TAgentDocumentKind = 'empty' | 'pdf' | 'djvu' | 'image' | 'unknown';
 export type TAgentDocumentReadinessStatus = 'ready' | 'needs-preparation' | 'unknown' | 'empty';
@@ -128,6 +129,7 @@ export interface IAgentTabSnapshot {
     originalPath: string | null;
     originalBackend?: TDocumentBackend;
     documentSessionKey?: string | null;
+    documentInstanceId?: TDocumentInstanceId | null;
     documentIdentity?: IDocumentRevisionInfo | null;
     commandTarget?: TAgentWorkspaceCommandTarget;
     isDirty: boolean;
@@ -149,6 +151,7 @@ export interface IAgentDocumentReference {
     originalPath: TDocumentRef | null;
     originalBackend?: TDocumentBackend;
     documentSessionKey?: string | null;
+    documentInstanceId?: TDocumentInstanceId | null;
     documentIdentity?: IDocumentRevisionInfo | null;
     commandTarget?: TAgentWorkspaceCommandTarget;
     kind: TAgentDocumentKind;
@@ -161,6 +164,7 @@ export type TAgentWorkspaceCommandTarget =
         sessionId: string;
         documentRef: TDocumentRef | null;
         documentBackend?: TDocumentBackend;
+        documentInstanceId?: TDocumentInstanceId | null;
         transactionId: string;
         documentRevisionToken?: TDocumentRevisionToken;
     }
@@ -170,6 +174,7 @@ export type TAgentWorkspaceCommandTarget =
         sessionId: string;
         documentRef: TDocumentRef | null;
         documentBackend?: TDocumentBackend;
+        documentInstanceId?: TDocumentInstanceId | null;
         sessionRevision: number;
         documentRevisionToken?: TDocumentRevisionToken;
     };
@@ -207,6 +212,7 @@ export interface IAgentCommandExecutionScope {
     tabId: string;
     documentRef: TDocumentRef | null;
     documentBackend?: TDocumentBackend;
+    documentInstanceId?: TDocumentInstanceId | null;
     documentIdentity: IDocumentRevisionInfo | null;
     commandTarget?: TAgentWorkspaceCommandTarget;
 }
@@ -395,10 +401,30 @@ export interface IAgentAssistantChatScope {
     key: string;
     title: string | null;
     tabId?: string | null;
+    documentSessionKey?: string | null;
+    documentInstanceId?: TDocumentInstanceId | null;
     documentRef?: TDocumentRef | null;
     documentBackend?: TDocumentBackend;
     documentIdentity?: IDocumentRevisionInfo | null;
     commandTarget?: TAgentWorkspaceCommandTarget;
+}
+
+export function getAgentAssistantScopeRevisionToken(scope: IAgentAssistantChatScope | null | undefined) {
+    return scope?.commandTarget?.documentRevisionToken
+        ?? scope?.documentIdentity?.token
+        ?? null;
+}
+
+export function buildAgentAssistantScopeFingerprint(
+    provider: TAgentAssistantProviderId,
+    scope: IAgentAssistantChatScope | null | undefined,
+) {
+    return JSON.stringify({
+        provider,
+        documentSessionKey: scope?.documentSessionKey ?? scope?.key ?? null,
+        documentInstanceId: scope?.documentInstanceId ?? scope?.commandTarget?.documentInstanceId ?? null,
+        documentRevisionToken: getAgentAssistantScopeRevisionToken(scope),
+    });
 }
 
 export interface IAgentAssistantStatus {

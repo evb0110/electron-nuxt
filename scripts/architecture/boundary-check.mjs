@@ -92,6 +92,12 @@ const ROOT_BOUNDARY_RULES = [
         message: 'scripts/** must not import electron runtime code.',
     },
     {
+        sourceRoot: 'scripts',
+        targetRoot: 'app',
+        rule: 'scripts-to-app',
+        message: 'scripts/** must not import app runtime code; diagnostic scripts may use only approved app trace/test types.',
+    },
+    {
         sourceRoot: 'server',
         targetRoot: 'electron',
         rule: 'server-to-electron',
@@ -129,6 +135,66 @@ const ROOT_BOUNDARY_RULES = [
     },
 ];
 
+const SCRIPTS_TO_APP_ALLOWED_EDGES = new Set(`
+scripts/diagnostics/pdfTraceEntryGuards.ts -> app/utils/logPdfNav.ts
+scripts/diagnostics/pdfTraceEntryGuards.ts -> app/utils/pdfRenderTrace.ts
+scripts/diagnostics/runPdfSkeletonNavigationDiagnostics.ts -> app/types/workspaceExpose.ts
+scripts/diagnostics/runPdfSkeletonNavigationDiagnostics.ts -> app/utils/logPdfNav.ts
+scripts/diagnostics/runPdfSkeletonNavigationDiagnostics.ts -> app/utils/pdfRenderTrace.ts
+scripts/diagnostics/pdfNavigationBlinkTrace.ts -> app/types/evbTestApi.ts
+`.trim().split('\n'));
+
+const PACKAGE_LAYER_RULES = [
+    {
+        sourceRoot: 'packages/contracts',
+        allowedTargetRoots: [
+            'packages/contracts',
+            'packages/i18n-core',
+        ],
+        rule: 'packages-contracts-layer',
+        message: 'packages/contracts may depend only on itself and i18n-core leaf utilities.',
+    },
+    {
+        sourceRoot: 'packages/pdf-core',
+        allowedTargetRoots: [
+            'packages/pdf-core',
+            'packages/contracts',
+        ],
+        rule: 'packages-pdf-core-layer',
+        message: 'packages/pdf-core may depend only on itself and contracts.',
+    },
+    {
+        sourceRoot: 'packages/i18n-core',
+        allowedTargetRoots: ['packages/i18n-core'],
+        rule: 'packages-i18n-core-layer',
+        message: 'packages/i18n-core must stay a leaf utility package with no other package dependencies.',
+    },
+    {
+        sourceRoot: 'packages/i18n-app',
+        allowedTargetRoots: [
+            'packages/i18n-app',
+            'packages/i18n-core',
+        ],
+        rule: 'packages-i18n-app-layer',
+        message: 'packages/i18n-app may depend only on itself and i18n-core.',
+    },
+    {
+        sourceRoot: 'packages/release-selection',
+        allowedTargetRoots: [
+            'packages/release-selection',
+            'packages/contracts',
+        ],
+        rule: 'packages-release-selection-layer',
+        message: 'packages/release-selection may depend only on itself and contracts.',
+    },
+    {
+        sourceRoot: 'packages/electron-worker-bundles',
+        allowedTargetRoots: ['packages/electron-worker-bundles'],
+        rule: 'packages-electron-worker-bundles-layer',
+        message: 'packages/electron-worker-bundles must not depend on other workspace packages.',
+    },
+];
+
 const PUBLIC_ONLY_INTERNAL_ENTRYPOINTS = [ {
     ownerRoot: 'app/platform/browser-api',
     publicEntry: 'public.ts',
@@ -149,6 +215,7 @@ packages/contracts/platformMethodManifest.ts
 app/types/electron.d.ts
 packages/contracts/electronApi.ts
 packages/contracts/index.ts
+packages/contracts/platformMethodManifest.ts
 `.trim().split('\n'));
 
 const PLATFORM_API_AGGREGATE_IMPORT_BOUNDARY_FILES = new Set([
@@ -961,15 +1028,71 @@ function checkRootBoundaryRule(edge, boundaryRule) {
         specifier,
     } = edge;
 
-    return matchesRoot(source, boundaryRule.sourceRoot) && matchesRoot(target, boundaryRule.targetRoot)
-        ? createViolation({
-            rule: boundaryRule.rule,
-            source,
-            target,
-            specifier,
-            message: boundaryRule.message,
-        })
-        : null;
+    if (!matchesRoot(source, boundaryRule.sourceRoot) || !matchesRoot(target, boundaryRule.targetRoot)) {
+        return null;
+    }
+    if (
+        boundaryRule.rule === 'scripts-to-app'
+        && SCRIPTS_TO_APP_ALLOWED_EDGES.has(`${source} -> ${target}`)
+    ) {
+        return null;
+    }
+
+    return createViolation({
+        rule: boundaryRule.rule,
+        source,
+        target,
+        specifier,
+        message: boundaryRule.message,
+    });
+}
+
+function checkPackageLayerRule(edge, layerRule) {
+    if (!matchesRoot(edge.source, layerRule.sourceRoot) || !matchesRoot(edge.target, 'packages')) {
+        return null;
+    }
+    if (layerRule.allowedTargetRoots.some(root => matchesRoot(edge.target, root))) {
+        return null;
+    }
+
+    return createViolation({
+        rule: layerRule.rule,
+        source: edge.source,
+        target: edge.target,
+        specifier: edge.specifier,
+        message: layerRule.message,
+    });
+}
+
+function checkPackageReverseEdge(edge) {
+    if (
+        !matchesRoot(edge.source, 'packages')
+        || matchesRoot(edge.source, 'packages/contracts')
+        || !matchesRoot(edge.target, 'packages/contracts')
+    ) {
+        return null;
+    }
+    if (
+        matchesRoot(edge.source, 'packages/pdf-core')
+        || matchesRoot(edge.source, 'packages/release-selection')
+    ) {
+        return null;
+    }
+
+    return createViolation({
+        rule: 'packages-contracts-reverse-edge',
+        source: edge.source,
+        target: edge.target,
+        specifier: edge.specifier,
+        message: 'Only approved leaf packages may depend on contracts; do not add reverse package edges into contracts.',
+    });
+}
+
+function checkPackageLayer(edge) {
+    return [
+        ...collectViolationsFromRules(edge, PACKAGE_LAYER_RULES, checkPackageLayerRule),
+        checkPackageReverseEdge(edge),
+    ].filter(Boolean);
 }
 
 function checkFeatureBoundaryRule(edge, featureRule) {
@@ -1002,6 +1125,7 @@ function collectViolationsFromRules(edge, rules, checkRule) {
 function checkEdge(edge) {
     return [
         ...collectViolationsFromRules(edge, ROOT_BOUNDARY_RULES, checkRootBoundaryRule),
+        ...checkPackageLayer(edge),
         ...collectViolationsFromRules(edge, FEATURE_BOUNDARY_RULES, checkFeatureBoundaryRule),
         ...collectViolationsFromRules(edge, PUBLIC_ONLY_INTERNAL_ENTRYPOINTS, checkPublicOnlyInternalEntrypoint),
         checkAppPagesModulePublicEntrypoint(edge),

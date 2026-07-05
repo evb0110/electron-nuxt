@@ -610,6 +610,48 @@ describe('useAgentWorkspaceSnapshot command guards', () => {
         harness.app.unmount();
     });
 
+    it('rejects a command when a same-revision reopen changes only the document instance', async () => {
+        let nextInstanceId = 0;
+        const session = createWorkspaceDocumentSessionCore({
+            tabId: 'tab-1',
+            sessionId: 'session-1',
+            createDocumentInstanceId: () => {
+                nextInstanceId += 1;
+                return `instance-${nextInstanceId}`;
+            },
+            initialRecord: createSessionRecord('/tmp/document.pdf'),
+        });
+        const harness = await mountAgentWorkspaceSnapshotHarness({
+            session,
+            activateTab: () => {
+                const reopen = session.beginTransaction({
+                    kind: 'open',
+                    documentRef: '/tmp/document.pdf',
+                });
+                session.applyWorkspaceRecord(createSessionRecord('/tmp/document.pdf'), 'workspace');
+                session.finishTransaction(reopen.id, 'committed');
+            },
+        });
+
+        const response = await harness.submitCommand({
+            requestId: 'command-session-instance-change',
+            command: {
+                name: 'go_to_page',
+                arguments: {
+                    tabId: 'tab-1',
+                    page: 2,
+                },
+            },
+        });
+
+        expect(response).toMatchObject({
+            ok: false,
+            error: 'stale-command-target',
+        });
+        expect(harness.workspace.handleGoToPage).not.toHaveBeenCalled();
+        harness.app.unmount();
+    });
+
     it('rejects a command when the target document identity changes after activation', async () => {
         const harnessRef: {current?: Awaited<ReturnType<typeof mountAgentWorkspaceSnapshotHarness>>;} = {};
         const harness = await mountAgentWorkspaceSnapshotHarness({ activateTab: () => {

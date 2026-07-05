@@ -17,6 +17,9 @@ const mocks = vi.hoisted(() => ({
     unload: vi.fn(),
     nativeGetPageSizes: vi.fn(),
     nativeRenderPagePreview: vi.fn(),
+    getPagesSizes: vi.fn(),
+    getPage: vi.fn(),
+    createPngObjectUrlRun: vi.fn(),
 }));
 
 vi.mock('@app/platform/browser-api/djvujsLoader', () => ({loadDjvuJs: mocks.loadDjvuJs}));
@@ -44,9 +47,23 @@ describe('createDjvuWorkerFromPath', () => {
         ]));
         mocks.loadDjvuJs.mockResolvedValue({Worker: class {
             public createDocument = mocks.createDocument;
+            public doc = {
+                getPage: mocks.getPage,
+                getPagesSizes: () => ({run: mocks.getPagesSizes}),
+            };
             public terminate = mocks.terminate;
         }});
         mocks.createDocument.mockResolvedValue(undefined);
+        mocks.getPagesSizes.mockResolvedValue([{
+            width: 100,
+            height: 200,
+        }]);
+        mocks.getPage.mockImplementation((pageNumber: number) => ({createPngObjectUrl: () => ({run: () => mocks.createPngObjectUrlRun(pageNumber)})}));
+        mocks.createPngObjectUrlRun.mockImplementation(async (pageNumber: number) => ({
+            height: 200,
+            url: `blob:fallback-page-${pageNumber}`,
+            width: 100,
+        }));
         mocks.nativeGetPageSizes.mockResolvedValue([{
             width: 100,
             height: 200,
@@ -213,5 +230,56 @@ describe('createDjvuWorkerFromPath', () => {
             previewRequestId: 'native-preview:1:1',
             subsample: 2,
         });
+    });
+
+    it('skips stale browser fallback preview renders before starting queued djvu.js work', async () => {
+        const firstRender = Promise.withResolvers<{
+            height: number;
+            url: string;
+            width: number;
+        }>();
+        mocks.createPngObjectUrlRun.mockImplementation((pageNumber: number) => {
+            if (pageNumber === 2) {
+                return firstRender.promise;
+            }
+            return Promise.resolve({
+                height: 200,
+                url: `blob:fallback-page-${pageNumber}`,
+                width: 100,
+            });
+        });
+        const { createDjvuPagePreviewSourceFromPath } =
+            await import('@app/platform/browser-api/createDjvuWorkerFromPath');
+        const source = await createDjvuPagePreviewSourceFromPath('browser://documents/source/book.djvu');
+
+        const blockingRender = source.renderPageObjectUrl(2, { previewRequestId: 'blocker' });
+        await vi.waitFor(() => expect(mocks.createPngObjectUrlRun).toHaveBeenCalledWith(2));
+        const staleRender = source.renderPageObjectUrl(1, { previewRequestId: 'page-1-stale' });
+        const freshRender = source.renderPageObjectUrl(1, { previewRequestId: 'page-1-fresh' });
+
+        firstRender.resolve({
+            height: 200,
+            url: 'blob:fallback-page-2',
+            width: 100,
+        });
+
+        await expect(blockingRender).resolves.toEqual({
+            objectUrl: 'blob:fallback-page-2',
+            renderedPx: 100,
+        });
+        await expect(staleRender).rejects.toThrow('DjVu conversion canceled');
+        await expect(freshRender).resolves.toEqual({
+            objectUrl: 'blob:fallback-page-1',
+            renderedPx: 100,
+        });
+
+        expect(mocks.getPage.mock.calls.map(([pageNumber]) => pageNumber)).toEqual([
+            2,
+            1,
+        ]);
+        expect(mocks.createPngObjectUrlRun.mock.calls.map(([pageNumber]) => pageNumber)).toEqual([
+            2,
+            1,
+        ]);
     });
 });

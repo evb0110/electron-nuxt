@@ -91,7 +91,7 @@ function toTransferableBuffer(data: Uint8Array) {
     return clone.buffer;
 }
 
-async function runTask(task: TDjvuPdfWorkerTask) {
+async function runTask(task: TDjvuPdfWorkerTask, signal: AbortSignal) {
     switch (task.type) {
         case 'buildPdf':
             return buildOptimizedPdf(task.imagePaths, task.dpi, (page, total) => {
@@ -101,9 +101,9 @@ async function runTask(task: TDjvuPdfWorkerTask) {
                     page,
                     total,
                 } satisfies TDjvuPdfWorkerMessage);
-            });
+            }, {signal});
         case 'estimatePdfSize': {
-            const pdfBytes = await buildOptimizedPdf([task.imagePath], task.dpi);
+            const pdfBytes = await buildOptimizedPdf([task.imagePath], task.dpi, undefined, {signal});
             return pdfBytes.length;
         }
         default:
@@ -133,7 +133,7 @@ async function run() {
         const task = getTask();
         const result = task.type === 'embedBookmarksInFile'
             ? await embedBookmarksIntoPdfFile(task.inputPdfPath, task.outputPdfPath, task.bookmarks, abortController.signal)
-            : await runTask(task);
+            : await runTask(task, abortController.signal);
         if (typeof result === 'number') {
             parentPort.postMessage({
                 type: 'result',

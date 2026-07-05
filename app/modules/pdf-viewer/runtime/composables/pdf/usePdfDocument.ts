@@ -42,8 +42,38 @@ interface IPdfCachedPageEntry {
     pendingEviction: boolean;
 }
 
+interface IDeferredPdfPageEviction {
+    entry: IPdfCachedPageEntry;
+    pageNumber: number;
+}
+
+interface IPdfDocumentPageLeaseOwner {
+    leasePage: (pageNumber: number) => Promise<PDFPageProxy>;
+    releasePage: (pageNumber: number, page: PDFPageProxy) => void;
+}
+
 const PDF_RANGE_SUBREAD_BYTES = 8 * 1024 * 1024;
 const MAX_AGGREGATE_PDF_RANGE_BYTES = 64 * 1024 * 1024;
+const pdfDocumentPageLeaseOwners = new WeakMap<PDFDocumentProxy, IPdfDocumentPageLeaseOwner>();
+
+export async function leasePdfDocumentPage(
+    document: PDFDocumentProxy,
+    pageNumber: number,
+) {
+    const owner = pdfDocumentPageLeaseOwners.get(document);
+    if (!owner) {
+        throw new Error('PDF document page lease owner is unavailable');
+    }
+    return owner.leasePage(pageNumber);
+}
+
+export function releasePdfDocumentPage(
+    document: PDFDocumentProxy,
+    pageNumber: number,
+    page: PDFPageProxy,
+) {
+    pdfDocumentPageLeaseOwners.get(document)?.releasePage(pageNumber, page);
+}
 
 function destroyPdfDocumentDeferred(
     document: PDFDocumentProxy,
@@ -93,6 +123,7 @@ export const usePdfDocument = () => {
     let objectUrl: string | null = null;
     let loadingTask: ReturnType<typeof pdfjsLib.getDocument> | null = null;
     let rangeTransport: PDFDataRangeTransport | null = null;
+    const deferredPageEvictions = new WeakMap<PDFPageProxy, IDeferredPdfPageEviction>();
 
     async function getPdfjsDocumentOptions() {
         await preparePdfjsBrowserRuntime(pdfjsLib);
@@ -289,6 +320,17 @@ export const usePdfDocument = () => {
         }
 
         pdfDocument.value = document;
+        pdfDocumentPageLeaseOwners.set(document, {
+            leasePage: (pageNumber: number) => {
+                if (pdfDocument.value !== document) {
+                    throw createStalePdfDocumentError(
+                        'Rendering cancelled: PDF page lease owner became stale',
+                    );
+                }
+                return leasePage(pageNumber);
+            },
+            releasePage,
+        });
         numPages.value = document.numPages;
         await primeInitialPageMetrics(document, version);
         if (version !== renderVersion || document !== pdfDocument.value) {
@@ -884,8 +926,23 @@ export const usePdfDocument = () => {
         entry.page.cleanup();
     }
 
+    function deferPageEntryEviction(pageNumber: number, entry: IPdfCachedPageEntry) {
+        entry.pendingEviction = true;
+        if (pdfPageCache.get(pageNumber) === entry) {
+            pdfPageCache.delete(pageNumber);
+        }
+        deferredPageEvictions.set(entry.page, {
+            entry,
+            pageNumber,
+        });
+    }
+
     function releasePage(pageNumber: number, page: PDFPageProxy) {
-        const entry = pdfPageCache.get(pageNumber);
+        const cachedEntry = pdfPageCache.get(pageNumber);
+        const deferredEviction = deferredPageEvictions.get(page);
+        const entry = cachedEntry?.page === page
+            ? cachedEntry
+            : deferredEviction?.entry;
         if (!entry || entry.page !== page) {
             return;
         }
@@ -898,7 +955,11 @@ export const usePdfDocument = () => {
             renderVersion,
         });
         if (entry.leases === 0 && entry.pendingEviction) {
-            evictPage(pageNumber);
+            cleanupPageEntry(deferredEviction?.pageNumber ?? pageNumber, entry);
+            deferredPageEvictions.delete(page);
+            if (pdfPageCache.get(pageNumber) === entry) {
+                pdfPageCache.delete(pageNumber);
+            }
         }
     }
 
@@ -914,7 +975,7 @@ export const usePdfDocument = () => {
             leases: entry.leases,
         });
         if (entry.leases > 0) {
-            entry.pendingEviction = true;
+            deferPageEntryEviction(pageNumber, entry);
             return;
         }
         cleanupPageEntry(pageNumber, entry);
@@ -930,9 +991,13 @@ export const usePdfDocument = () => {
             pageNumber,
             entry,
         ] of pdfPageCache) {
+            if (entry.leases > 0) {
+                deferPageEntryEviction(pageNumber, entry);
+                continue;
+            }
             cleanupPageEntry(pageNumber, entry);
+            pdfPageCache.delete(pageNumber);
         }
-        pdfPageCache.clear();
     }
 
     function cleanup() {

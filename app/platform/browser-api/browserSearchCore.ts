@@ -31,6 +31,12 @@ interface IExtractedBrowserSearchDocumentText {
 
 export interface IExtractedBrowserSearchPage extends IBrowserSearchPageData {pageNumber: number;}
 
+async function throwIfBrowserSearchCanceled(shouldContinue?: IExtractBrowserSearchDocumentTextOptions['shouldContinue']) {
+    if (await shouldContinue?.() === false) {
+        throw new Error('ERR_BROWSER_SEARCH_CANCELED');
+    }
+}
+
 async function loadBrowserSearchDocument(
     pdfPath: string,
 ): Promise<ILoadedBrowserSearchDocument> {
@@ -107,16 +113,21 @@ export async function iterateBrowserSearchDocumentPages(
     const document = await loadBrowserSearchDocument(pdfPath);
     try {
         for (let pageNumber = 1; pageNumber <= document.pageCount; pageNumber += 1) {
-            if (await options.shouldContinue?.() === false) {
-                throw new Error('ERR_BROWSER_SEARCH_CANCELED');
-            }
+            await throwIfBrowserSearchCanceled(options.shouldContinue);
             const page = await document.pdfDocument.getPage(pageNumber);
-            const pageData = await extractBrowserSearchPageData(page, document.pdfjsOps);
+            await throwIfBrowserSearchCanceled(options.shouldContinue);
+            const pageData = await extractBrowserSearchPageData(
+                page,
+                document.pdfjsOps,
+                options.shouldContinue ? { shouldContinue: options.shouldContinue } : {},
+            );
+            await throwIfBrowserSearchCanceled(options.shouldContinue);
             await onPage({
                 pageNumber,
                 ...pageData,
             }, document.pageCount);
             await yieldToBrowser();
+            await throwIfBrowserSearchCanceled(options.shouldContinue);
         }
 
         return document.pageCount;

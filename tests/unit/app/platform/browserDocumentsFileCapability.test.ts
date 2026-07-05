@@ -66,6 +66,14 @@ async function createPdfBytes() {
     return new Uint8Array(await document.save());
 }
 
+async function getRevisionOptions(
+    browserDocumentStore: { getDocumentRevision: (ref: string) => Promise<{ token: string }> },
+    ref: string,
+) {
+    const revision = await browserDocumentStore.getDocumentRevision(ref);
+    return { expectedDocumentRevisionToken: revision.token };
+}
+
 function createMockElement(tagName: string) {
     const listeners = new Map<string, () => void>();
     return {
@@ -122,6 +130,8 @@ interface IBrowserDocumentsTestCreateOptions {
     storageMode?: string;
 }
 
+interface IBrowserDocumentsTestRevisionOptions { expectedDocumentRevisionToken: string }
+
 interface IBrowserDocumentsTestStore {
     cloneAsWorkingCopy: (sourceRef: string) => Promise<string>;
     createStoredDocument: (
@@ -151,7 +161,8 @@ interface IBrowserDocumentsTestStore {
     stat: (ref: string) => Promise<{ size: number }>;
     touchRecentFile: (ref: string) => Promise<void>;
     unload: (ref: string) => void;
-    write: (ref: string, data: Uint8Array) => Promise<boolean>;
+    write: (ref: string, data: Uint8Array, options?: IBrowserDocumentsTestRevisionOptions) => Promise<boolean>;
+    writeForBootstrap: (ref: string, data: Uint8Array, reason: string) => Promise<boolean>;
     writeChunk: (ref: string, index: number, data: Uint8Array) => Promise<void>;
 }
 
@@ -175,13 +186,17 @@ interface IBrowserDocumentsTestCapability {
     openPdfDirect: (path: string) => Promise<IBrowserDocumentsTestOpenResult | null>;
     recentFiles: { get: () => Promise<IBrowserDocumentsRecentFile[]> };
     registerFilesForOpen: (files: File[]) => Promise<string[]>;
-    saveFileStructured: (workingPath: string) => Promise<unknown>;
+    saveFileStructured: (workingPath: string, options?: IBrowserDocumentsTestRevisionOptions) => Promise<unknown>;
     getDocumentRevision: (workingPath: string) => Promise<{
         token: string;
         contentRevision: number
     }>;
-    savePdfAs: (workingPath: string) => Promise<string | null>;
-    savePdfData: (workingPath: string, data: Uint8Array) => Promise<{
+    savePdfAs: (
+        workingPath: string,
+        options?: unknown,
+        revisionOptions?: IBrowserDocumentsTestRevisionOptions,
+    ) => Promise<string | null>;
+    savePdfData: (workingPath: string, data: Uint8Array, options?: IBrowserDocumentsTestRevisionOptions) => Promise<{
         isValid: boolean;
         errors: string[];
     }>;
@@ -189,12 +204,18 @@ interface IBrowserDocumentsTestCapability {
         workingPath: string,
         totalBytes: number,
         chunks: AsyncIterable<Uint8Array> | Iterable<Uint8Array>,
+        options?: IBrowserDocumentsTestRevisionOptions,
     ) => Promise<{
         isValid: boolean;
         errors: string[];
         warnings: string[];
     }>;
-    savePdfDataAs: (workingPath: string, data: Uint8Array) => Promise<{
+    savePdfDataAs: (
+        workingPath: string,
+        data: Uint8Array,
+        options?: unknown,
+        revisionOptions?: IBrowserDocumentsTestRevisionOptions,
+    ) => Promise<{
         path: string | null;
         validation: unknown;
     }>;
@@ -1145,7 +1166,7 @@ describe('createBrowserDocumentsFileCapability', () => {
         oversizedBytes[1] = 80;
         oversizedBytes[2] = 68;
         oversizedBytes[3] = 70;
-        await browserDocumentStore.write(workingRef, oversizedBytes);
+        await browserDocumentStore.writeForBootstrap(workingRef, oversizedBytes, 'test-setup');
 
         const snapshotRef = await capability.createWorkingCopyFromPath(
             workingRef,
@@ -1341,9 +1362,12 @@ describe('createBrowserDocumentsFileCapability', () => {
         oversizedBytes[1] = 80;
         oversizedBytes[2] = 68;
         oversizedBytes[3] = 70;
-        await browserDocumentStore.write(workingRef, oversizedBytes);
+        await browserDocumentStore.writeForBootstrap(workingRef, oversizedBytes, 'test-setup');
 
-        await expect(capability.saveFileStructured(workingRef)).resolves.toMatchObject({ ok: true });
+        await expect(capability.saveFileStructured(
+            workingRef,
+            await getRevisionOptions(browserDocumentStore, workingRef),
+        )).resolves.toMatchObject({ ok: true });
 
         expect(queryPermission).toHaveBeenCalledWith({ mode: 'readwrite' });
         expect(requestPermission).not.toHaveBeenCalled();
@@ -1390,18 +1414,89 @@ describe('createBrowserDocumentsFileCapability', () => {
             },
         );
         const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
-        await browserDocumentStore.write(workingRef, new Uint8Array([
+        await browserDocumentStore.writeForBootstrap(workingRef, new Uint8Array([
             37,
             80,
             68,
             70,
-        ]));
+        ]), 'test-setup');
 
-        await expect(capability.saveFileStructured(workingRef)).resolves.toMatchObject({ ok: true });
+        await expect(capability.saveFileStructured(
+            workingRef,
+            await getRevisionOptions(browserDocumentStore, workingRef),
+        )).resolves.toMatchObject({ ok: true });
 
         expect(queryPermission).toHaveBeenCalledWith({ mode: 'readwrite' });
         expect(requestPermission).toHaveBeenCalledWith({ mode: 'readwrite' });
         expect(createWritable).toHaveBeenCalledOnce();
+    });
+
+    it('rejects browser structured saves without a revision token', async () => {
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability();
+        const sourceRef = await browserDocumentStore.createStoredDocument(
+            'missing-revision.pdf',
+            new Uint8Array([
+                37,
+                80,
+                68,
+                70,
+            ]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+        const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
+
+        await expect(capability.saveFileStructured(workingRef)).resolves.toMatchObject({
+            ok: false,
+            reason: 'write-failed',
+            message: expect.stringContaining('Document revision token is required'),
+        });
+    });
+
+    it('rejects browser structured saves with a stale revision token', async () => {
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability();
+        const sourceRef = await browserDocumentStore.createStoredDocument(
+            'stale-revision.pdf',
+            new Uint8Array([
+                37,
+                80,
+                68,
+                70,
+            ]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+        const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
+        const staleRevisionOptions = await getRevisionOptions(browserDocumentStore, workingRef);
+        await browserDocumentStore.writeForBootstrap(
+            workingRef,
+            new Uint8Array([
+                37,
+                80,
+                68,
+                70,
+                10,
+            ]),
+            'test-advance-revision',
+        );
+
+        await expect(capability.saveFileStructured(workingRef, staleRevisionOptions)).resolves.toMatchObject({
+            ok: false,
+            reason: 'write-failed',
+            message: expect.stringContaining('Document changed while this edit was being prepared'),
+        });
     });
 
     it('propagates browser save cancellation without clearing search caches', async () => {
@@ -1432,7 +1527,10 @@ describe('createBrowserDocumentsFileCapability', () => {
         );
         const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
 
-        await expect(capability.saveFileStructured(workingRef)).resolves.toMatchObject({
+        await expect(capability.saveFileStructured(
+            workingRef,
+            await getRevisionOptions(browserDocumentStore, workingRef),
+        )).resolves.toMatchObject({
             ok: false,
             reason: 'user-canceled',
         });
@@ -1464,7 +1562,11 @@ describe('createBrowserDocumentsFileCapability', () => {
         const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
         const data = await createPdfBytes();
 
-        const result = await capability.savePdfData(workingRef, data);
+        const result = await capability.savePdfData(
+            workingRef,
+            data,
+            await getRevisionOptions(browserDocumentStore, workingRef),
+        );
 
         expect(result.isValid).toBe(false);
         expect(result.errors).toEqual([]);
@@ -1511,7 +1613,7 @@ describe('createBrowserDocumentsFileCapability', () => {
             data.subarray(0, 3),
             data.subarray(3, BROWSER_DOCUMENT_CHUNK_SIZE + 5),
             data.subarray(BROWSER_DOCUMENT_CHUNK_SIZE + 5),
-        ]);
+        ], await getRevisionOptions(browserDocumentStore, workingRef));
 
         expect(result).toMatchObject({
             isValid: true,
@@ -1661,6 +1763,7 @@ describe('createBrowserDocumentsFileCapability', () => {
             workingRef,
             BROWSER_MAX_FULL_READ_BYTES + 1,
             validOversizedChunks(),
+            await getRevisionOptions(browserDocumentStore, workingRef),
         );
 
         expect(result).toMatchObject({
@@ -1704,14 +1807,17 @@ describe('createBrowserDocumentsFileCapability', () => {
             },
         );
         const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
-        await browserDocumentStore.write(workingRef, new Uint8Array([
+        await browserDocumentStore.writeForBootstrap(workingRef, new Uint8Array([
             37,
             80,
             68,
             70,
-        ]));
+        ]), 'test-setup');
 
-        await expect(capability.saveFileStructured(workingRef)).resolves.toMatchObject({
+        await expect(capability.saveFileStructured(
+            workingRef,
+            await getRevisionOptions(browserDocumentStore, workingRef),
+        )).resolves.toMatchObject({
             ok: false,
             reason: 'write-failed',
             message: expect.stringContaining('Browser write permission was not granted for this file.'),
@@ -1752,7 +1858,11 @@ describe('createBrowserDocumentsFileCapability', () => {
             },
         );
 
-        const sourceRef = await capability.savePdfAs(workingRef);
+        const sourceRef = await capability.savePdfAs(
+            workingRef,
+            undefined,
+            await getRevisionOptions(browserDocumentStore, workingRef),
+        );
 
         expect(sourceRef).not.toBeNull();
         const sourceEntry = sourceRef
@@ -1794,7 +1904,11 @@ describe('createBrowserDocumentsFileCapability', () => {
         );
         const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
 
-        const savedRef = await capability.savePdfAs(workingRef);
+        const savedRef = await capability.savePdfAs(
+            workingRef,
+            undefined,
+            await getRevisionOptions(browserDocumentStore, workingRef),
+        );
 
         expect(savedRef).toBe(sourceRef);
         const sourceEntry = await browserDocumentStore.requireEntry(sourceRef);
@@ -1825,7 +1939,12 @@ describe('createBrowserDocumentsFileCapability', () => {
             },
         );
 
-        const result = await capability.savePdfDataAs(workingRef, updatedBytes);
+        const result = await capability.savePdfDataAs(
+            workingRef,
+            updatedBytes,
+            undefined,
+            await getRevisionOptions(browserDocumentStore, workingRef),
+        );
 
         expect(result.path).toBeNull();
         await expect(browserDocumentStore.read(workingRef)).resolves.toEqual(originalBytes);
@@ -1848,7 +1967,11 @@ describe('createBrowserDocumentsFileCapability', () => {
             },
         );
 
-        await expect(capability.savePdfAs(workingRef)).rejects.toThrow(
+        await expect(capability.savePdfAs(
+            workingRef,
+            undefined,
+            await getRevisionOptions(browserDocumentStore, workingRef),
+        )).rejects.toThrow(
             'Saving documents is unavailable in the browser for inputs larger than 64MB',
         );
     });
@@ -1869,12 +1992,17 @@ describe('createBrowserDocumentsFileCapability', () => {
             },
         );
         const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
-        await browserDocumentStore.write(
+        await browserDocumentStore.writeForBootstrap(
             workingRef,
             new Uint8Array(BROWSER_MAX_FULL_READ_BYTES + 1),
+            'test-setup',
         );
 
-        await expect(capability.savePdfAs(workingRef)).rejects.toThrow(
+        await expect(capability.savePdfAs(
+            workingRef,
+            undefined,
+            await getRevisionOptions(browserDocumentStore, workingRef),
+        )).rejects.toThrow(
             'Saving documents is unavailable in the browser for inputs larger than 64MB Use a browser with local file system access enabled to save large documents.',
         );
     });

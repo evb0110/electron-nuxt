@@ -729,6 +729,7 @@ describe('ocr job manager preparing-stage robustness', () => {
             result: {
                 success: true,
                 pdfPath: '/tmp/work-7-ocr.pdf',
+                sourceDocumentRevisionToken: 'source-revision-token',
                 requiresCleanupAck: true,
                 errors: [],
             },
@@ -745,6 +746,7 @@ describe('ocr job manager preparing-stage robustness', () => {
                 requestId: 'job-7',
                 success: true,
                 pdfPath: '/tmp/work-7-ocr.pdf',
+                sourceDocumentRevisionToken: 'source-revision-token',
                 requiresCleanupAck: true,
                 errors: [],
             }],
@@ -830,6 +832,7 @@ describe('ocr job manager preparing-stage robustness', () => {
             result: {
                 success: true,
                 pdfPath: '/tmp/work-177-ocr.pdf',
+                sourceDocumentRevisionToken: 'source-revision-token',
                 requiresCleanupAck: true,
                 errors: [],
             },
@@ -848,6 +851,7 @@ describe('ocr job manager preparing-stage robustness', () => {
                 requestId: 'job-177',
                 success: true,
                 pdfPath: '/tmp/work-177-ocr.pdf',
+                sourceDocumentRevisionToken: 'source-revision-token',
                 requiresCleanupAck: true,
                 errors: [],
             }],
@@ -885,6 +889,7 @@ describe('ocr job manager preparing-stage robustness', () => {
             result: {
                 success: true,
                 pdfPath: '/tmp/work-178-ocr.pdf',
+                sourceDocumentRevisionToken: 'source-revision-token',
                 requiresCleanupAck: true,
                 errors: [],
             },
@@ -931,6 +936,7 @@ describe('ocr job manager preparing-stage robustness', () => {
             result: {
                 success: true,
                 pdfPath: '/tmp/work-179-ocr.pdf',
+                sourceDocumentRevisionToken: 'source-revision-token',
                 requiresCleanupAck: true,
                 errors: [],
             },
@@ -978,6 +984,7 @@ describe('ocr job manager preparing-stage robustness', () => {
             result: {
                 success: true,
                 pdfPath: '/tmp/work-180-ocr.pdf',
+                sourceDocumentRevisionToken: 'source-revision-token',
                 requiresCleanupAck: true,
                 errors: [],
             },
@@ -1129,6 +1136,7 @@ describe('ocr job manager preparing-stage robustness', () => {
             result: {
                 success: true,
                 pdfPath: '/tmp/work-78-ocr.pdf',
+                sourceDocumentRevisionToken: 'source-revision-token',
                 requiresCleanupAck: true,
                 errors: [],
             },

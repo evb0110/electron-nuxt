@@ -110,6 +110,7 @@ export type {
 
 export type { TDocumentRef } from '@contracts/documentRef';
 export type * from '@contracts/documentRef';
+export type { TDocumentInstanceId } from '@contracts/documentInstanceId';
 export type * from '@contracts/platformUnsupported';
 export type {
     IDocumentRevisionChangedEvent,
@@ -123,11 +124,13 @@ export { isDocumentRevisionInfo } from '@contracts/documentRevision';
 export {
     DOCUMENT_MUTATION_ERROR_PREFIX,
     DocumentMutationError,
+    createMissingRevisionError,
     createStaleRevisionError,
     createWorkingCopySyncRequiredError,
     encodeDocumentMutationError,
     getDocumentMutationErrorPayload,
     isDocumentMutationErrorCode,
+    isMissingRevisionError,
     isStaleRevisionError,
     isWorkingCopySyncRequiredError,
 } from '@contracts/documentMutationErrors';

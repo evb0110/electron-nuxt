@@ -456,6 +456,11 @@ export class SearchWorkerService {
         };
     }
 
+    subscribeProgress(context: ISearchSenderContext) {
+        const operationContext = this.normalizeOperationContext(context);
+        this.progressPumpsBySenderId.get(operationContext.senderId)?.subscribe(operationContext.sender);
+    }
+
     dispatchSearchRequest(
         context: ISearchSenderContext,
         payload: IDispatchSearchRequestPayload,
@@ -634,10 +639,13 @@ export class SearchWorkerService {
             pump = createIpcProgressPump<ISearchProgressPayload>({
                 channel: SEARCH_EVENT_CHANNELS.progress,
                 getTarget: () => webContents.fromId(senderId),
-                getKey: payload => payload.requestId,
-                isTerminal: payload => payload.canceled === true || payload.processed >= payload.total,
-                onError: err => {
+                getKey: (payload: ISearchProgressPayload) => payload.requestId,
+                isTerminal: (payload: ISearchProgressPayload) => payload.canceled === true || payload.processed >= payload.total,
+                onError: (err: unknown) => {
                     log.debug(`Failed to send search progress: ${getErrorMessage(err)}`);
+                },
+                onIdle: () => {
+                    this.progressPumpsBySenderId.delete(senderId);
                 },
             });
             this.progressPumpsBySenderId.set(senderId, pump);
@@ -758,7 +766,6 @@ export class SearchWorkerService {
         log.info(`Search worker lifecycle: cleaning sender ${senderId} state (${options?.reason ?? 'Search worker stopped'})`);
         this.senderSearchStates.delete(senderId);
         this.progressPumpsBySenderId.get(senderId)?.clear();
-        this.progressPumpsBySenderId.delete(senderId);
         this.clearIdleCleanupTimer(state);
         for (const timeout of state.requestTimeouts.values()) {
             clearTimeout(timeout);

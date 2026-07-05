@@ -9,15 +9,19 @@ import type {
     TDocumentRef,
 } from '@contracts/documentRef';
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
+import type { TDocumentInstanceId } from '@contracts/documentInstanceId';
 
 export interface IAssistantSessionScopeBinding {
     sessionKey: string;
+    scopeKey: string;
     provider: TAgentAssistantProviderId;
     turnGeneration: number;
     windowId: number;
     tabId: string;
+    documentSessionKey?: string | null;
     documentRef: TDocumentRef | null;
     documentBackend?: TDocumentBackend;
+    documentInstanceId?: TDocumentInstanceId | null;
     documentIdentity: IDocumentRevisionInfo | null;
     commandTarget?: TAgentWorkspaceCommandTarget;
 }
@@ -234,4 +238,17 @@ export function getAssistantTurnPhase(owner: TAssistantTurnOwnerState): TAgentAs
 
 export function getAssistantTurnScope(owner: TAssistantTurnOwnerState) {
     return isAssistantTurnActive(owner) ? owner.scope : null;
+}
+
+export function buildAssistantSessionScopeBindingFingerprint(
+    binding: IAssistantSessionScopeBinding | null | undefined,
+) {
+    return JSON.stringify({
+        provider: binding?.provider ?? null,
+        documentSessionKey: binding?.documentSessionKey ?? binding?.scopeKey ?? null,
+        documentInstanceId: binding?.documentInstanceId ?? binding?.commandTarget?.documentInstanceId ?? null,
+        documentRevisionToken: binding?.commandTarget?.documentRevisionToken
+            ?? binding?.documentIdentity?.token
+            ?? null,
+    });
 }

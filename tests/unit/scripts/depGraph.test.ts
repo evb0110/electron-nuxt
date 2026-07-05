@@ -352,6 +352,7 @@ describe('dependency graph', () => {
             'app/utils/platform.ts',
             'packages/contracts/electronApi.ts',
             'packages/contracts/index.ts',
+            'packages/contracts/platformMethodManifest.ts',
         ]) {
             expect(checkArchitectureBoundaryEdge({
                 source,
@@ -359,6 +360,113 @@ describe('dependency graph', () => {
                 specifier: '@contracts/platformApi',
             })).toEqual([]);
         }
+    });
+
+    it('denies scripts to app imports except approved diagnostic trace type edges', () => {
+        expect(checkArchitectureBoundaryEdge({
+            source: 'scripts/checkSomething.ts',
+            target: 'app/modules/workspace-shell/public.ts',
+            specifier: '@app/modules/workspace-shell/public',
+        })).toEqual([{
+            rule: 'scripts-to-app',
+            source: 'scripts/checkSomething.ts',
+            target: 'app/modules/workspace-shell/public.ts',
+            specifier: '@app/modules/workspace-shell/public',
+            message: 'scripts/** must not import app runtime code; diagnostic scripts may use only approved app trace/test types.',
+        }]);
+
+        expect(checkArchitectureBoundaryEdge({
+            source: 'scripts/diagnostics/pdfTraceEntryGuards.ts',
+            target: 'app/utils/logPdfNav.ts',
+            specifier: '@app/utils/logPdfNav',
+        })).toEqual([]);
+
+        expect(checkArchitectureBoundaryEdge({
+            source: 'scripts/diagnostics/pdfTraceEntryGuards.ts',
+            target: 'app/modules/workspace-shell/public.ts',
+            specifier: '@app/modules/workspace-shell/public',
+        })).toEqual([{
+            rule: 'scripts-to-app',
+            source: 'scripts/diagnostics/pdfTraceEntryGuards.ts',
+            target: 'app/modules/workspace-shell/public.ts',
+            specifier: '@app/modules/workspace-shell/public',
+            message: 'scripts/** must not import app runtime code; diagnostic scripts may use only approved app trace/test types.',
+        }]);
+    });
+
+    it('enforces workspace package dependency layers', () => {
+        expect(checkArchitectureBoundaryEdge({
+            source: 'packages/contracts/settings.ts',
+            target: 'packages/i18n-core/index.ts',
+            specifier: '@i18n-core',
+        })).toEqual([]);
+
+        expect(checkArchitectureBoundaryEdge({
+            source: 'packages/contracts/settings.ts',
+            target: 'packages/pdf-core/index.ts',
+            specifier: '@pdf-core',
+        })).toEqual([{
+            rule: 'packages-contracts-layer',
+            source: 'packages/contracts/settings.ts',
+            target: 'packages/pdf-core/index.ts',
+            specifier: '@pdf-core',
+            message: 'packages/contracts may depend only on itself and i18n-core leaf utilities.',
+        }]);
+
+        expect(checkArchitectureBoundaryEdge({
+            source: 'packages/pdf-core/pdfSearchCore.ts',
+            target: 'packages/contracts/search.ts',
+            specifier: '@contracts/search',
+        })).toEqual([]);
+
+        expect(checkArchitectureBoundaryEdge({
+            source: 'packages/i18n-app/index.ts',
+            target: 'packages/contracts/index.ts',
+            specifier: '@contracts',
+        })).toEqual([
+            {
+                rule: 'packages-i18n-app-layer',
+                source: 'packages/i18n-app/index.ts',
+                target: 'packages/contracts/index.ts',
+                specifier: '@contracts',
+                message: 'packages/i18n-app may depend only on itself and i18n-core.',
+            },
+            {
+                rule: 'packages-contracts-reverse-edge',
+                source: 'packages/i18n-app/index.ts',
+                target: 'packages/contracts/index.ts',
+                specifier: '@contracts',
+                message: 'Only approved leaf packages may depend on contracts; do not add reverse package edges into contracts.',
+            },
+        ]);
+    });
+
+    it('keeps current workspace package layer imports clean', async () => {
+        const graph = await buildDependencyGraph({
+            projectRoot: process.cwd(),
+            roots: [
+                'packages/contracts',
+                'packages/pdf-core',
+                'packages/electron-worker-bundles',
+                'packages/i18n-core',
+                'packages/i18n-app',
+                'packages/release-selection',
+            ],
+        });
+        const packageLayerRules = new Set([
+            'packages-contracts-layer',
+            'packages-pdf-core-layer',
+            'packages-i18n-core-layer',
+            'packages-i18n-app-layer',
+            'packages-release-selection-layer',
+            'packages-electron-worker-bundles-layer',
+            'packages-contracts-reverse-edge',
+        ]);
+        const violations = graph.edges
+            .flatMap(checkArchitectureBoundaryEdge)
+            .filter((violation: { rule: string }) => packageLayerRules.has(violation.rule));
+
+        expect(violations).toEqual([]);
     });
 
     it('blocks app production calls to the aggregate platform runtime getter', () => {

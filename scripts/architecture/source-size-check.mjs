@@ -63,18 +63,23 @@ export const SOURCE_SIZE_ALLOWLIST = {
         reason: 'assistant panel entrypoint after controller ownership extraction',
         stage: 'Worker 2/Stage 2 - Assistant panel controller split',
     },
+    'app/modules/agent-panel/composables/useAgentAssistantPanelController.ts': {
+        maxLines: 1202,
+        reason: 'transitional assistant panel controller after renderer bridge startup and selection-state hardening',
+        stage: 'Second-pass assistant panel controller integration',
+    },
     'app/modules/pdf-viewer/components/PdfThumbnails.vue': {
         maxLines: 1105,
         reason: 'transitional PDF thumbnail UI/layout hotspot after render orchestration extraction',
         stage: 'Finding 9 Stage A - PDF thumbnail render orchestration extraction',
     },
     'electron/features/agent/codexAssistant.ts': {
-        maxLines: 1347,
+        maxLines: 1384,
         reason: 'transitional Electron assistant backend facade after session store and runtime lifecycle extraction',
         stage: 'Worker 2/Stage 1 - Assistant backend session/runtime split',
     },
     'app/modules/workspace-shell/composables/file-operations/useFileOperationsSaveController.ts': {
-        maxLines: 455,
+        maxLines: 458,
         reason: 'transitional workspace save orchestration hotspot',
         stage: 'Finding 4 Stage D - Save controller port alignment',
     },
@@ -94,7 +99,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Worker 6 - Diagnostic trace analysis extraction',
     },
     'app/modules/workspace-shell/components/DocumentWorkspace.vue': {
-        maxLines: 1606,
+        maxLines: 1625,
         reason: 'transitional workspace component hotspot after viewer adapter binding extraction',
         stage: 'Stage S - viewer adapter interface',
     },
@@ -109,7 +114,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Future PDF rendering extraction',
     },
     'app/platform/browser/browserDocumentRepository.ts': {
-        maxLines: 1212,
+        maxLines: 1236,
         reason: 'transitional browser document repository hotspot after persistence and mutation guard changes',
         stage: 'Future browser document repository extraction',
     },
@@ -119,17 +124,17 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Future PDF rendering extraction',
     },
     'electron/ocr/jobManager.ts': {
-        maxLines: 1148,
+        maxLines: 1175,
         reason: 'OCR job manager facade after worker lifecycle extraction',
         stage: 'Worker 2/Stage 3 - OCR job manager lifecycle split',
     },
     'app/modules/workspace-shell/components/AppShellRoot.vue': {
-        maxLines: 1041,
+        maxLines: 1045,
         reason: 'transitional app shell root hotspot',
         stage: 'Future workspace shell extraction',
     },
     'app/modules/workspace-shell/agent/useDocumentWorkspaceAgent.ts': {
-        maxLines: 1071,
+        maxLines: 1069,
         reason: 'transitional document workspace agent hotspot',
         stage: 'Future workspace agent extraction',
     },
@@ -142,6 +147,11 @@ export const SOURCE_SIZE_ALLOWLIST = {
         maxLines: 1062,
         reason: 'transitional agent MCP server core hotspot',
         stage: 'Future MCP server core extraction',
+    },
+    'scripts/architecture/boundary-check.mjs': {
+        maxLines: 1266,
+        reason: 'transitional architecture boundary checker after scripts-to-app diagnostics and package-layer policy expansion',
+        stage: 'Second-pass architecture boundary enforcement',
     },
 };
 

@@ -216,14 +216,16 @@ export async function tryBuildOptimizedPdfWithNativeImageCombiner(
     imagePaths: string[],
     dpi: number,
     onPageProcessed?: (pageNum: number, totalPages: number) => void,
+    options: Pick<INativePdfImageCombineOptions, 'signal'> = {},
 ): Promise<Uint8Array | null> {
     if (!Number.isFinite(dpi) || dpi <= 0 || !canUseNativePdfImageCombine(imagePaths, SUPPORTED_NATIVE_NETPBM_EXTENSIONS)) {
         return null;
     }
 
-    return createPdfWithNativeImageCombiner(imagePaths, onPageProcessed
-        ? {onProgress: progress => onPageProcessed(progress.processed, progress.total)}
-        : undefined, [
+    return createPdfWithNativeImageCombiner(imagePaths, {
+        ...(onPageProcessed ? {onProgress: progress => onPageProcessed(progress.processed, progress.total)} : {}),
+        ...(options.signal === undefined ? {} : {signal: options.signal}),
+    }, [
         '--dpi',
         String(Math.round(dpi)),
     ]);

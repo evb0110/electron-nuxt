@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import type { TRegisteredHandler } from '@tests/unit/electron/helpers/ipcRegistryHarness';
 
 const mocks = vi.hoisted(() => ({
     ensureWorkingCopyDirectory: vi.fn(async () => true),
@@ -45,6 +46,8 @@ const {
     handlePdfExportImages,
     handlePdfExportMultiPageTiff,
 } = await import('@electron/features/image-export/main/ipc');
+const { registerImageExportIpcAdapter } = await import('@electron/features/image-export/registerImageExportIpcAdapter');
+const { IMAGE_EXPORT_CHANNELS } = await import('@electron/features/image-export/contract');
 
 interface ITestSender {
     id: number;
@@ -84,6 +87,21 @@ function createContext(sender: ITestSender) {
         senderId: sender.id,
         parentWindow: null,
     };
+}
+
+function createDeferred<T>() {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    const promise = new Promise<T>((resolvePromise) => {
+        resolve = resolvePromise;
+    });
+    return {
+        promise,
+        resolve,
+    };
+}
+
+function createIpcEvent(sender: ITestSender) {
+    return {sender: sender as never};
 }
 
 function triggerRenderProcessGone(sender: ITestSender) {
@@ -396,6 +414,100 @@ describe('image export IPC lifecycle', () => {
             processed: 7,
             total: 10,
             percent: 63,
+        });
+    });
+
+    it('replays active image-export progress when the renderer subscribes after progress starts', async () => {
+        const handlers = new Map<string, TRegisteredHandler>();
+        registerImageExportIpcAdapter({handle: (channel, handler) => handlers.set(channel, handler as TRegisteredHandler)});
+        const sender = createSender();
+        const exportDeferred = createDeferred<string[]>();
+        mocks.showSaveDialog.mockResolvedValueOnce({
+            canceled: false,
+            filePath: '/tmp/export.tiff',
+        });
+        mocks.exportPdfAsMultiPageTiff.mockImplementationOnce(async (
+            _sourcePath: string,
+            outputPath: string,
+            options: ITestProgressOptions,
+        ) => {
+            options.onProgress?.({
+                phase: 'rendering',
+                processed: 3,
+                total: 10,
+                percent: 30,
+            });
+            return exportDeferred.promise.then(() => [outputPath]);
+        });
+
+        const exportPromise = handlers.get(IMAGE_EXPORT_CHANNELS.exportMultiPageTiff)!(
+            createIpcEvent(sender),
+            '/tmp/working.pdf',
+            undefined,
+            'export-subscribe-active',
+        );
+        await vi.waitFor(() => expect(sender.send).toHaveBeenCalledWith('pdfExport:progress', {
+            requestId: 'export-subscribe-active',
+            format: 'multipage-tiff',
+            phase: 'rendering',
+            processed: 3,
+            total: 10,
+            percent: 30,
+        }));
+
+        sender.send.mockClear();
+        handlers.get(IMAGE_EXPORT_CHANNELS.subscribeProgress)!(createIpcEvent(sender));
+
+        expect(sender.send).toHaveBeenCalledWith('pdfExport:progress', {
+            requestId: 'export-subscribe-active',
+            format: 'multipage-tiff',
+            phase: 'rendering',
+            processed: 3,
+            total: 10,
+            percent: 30,
+        });
+        exportDeferred.resolve(['/tmp/export.tiff']);
+        await exportPromise;
+    });
+
+    it('replays terminal image-export progress when the renderer subscribes shortly after completion', async () => {
+        const handlers = new Map<string, TRegisteredHandler>();
+        registerImageExportIpcAdapter({handle: (channel, handler) => handlers.set(channel, handler as TRegisteredHandler)});
+        const sender = createSender();
+        mocks.showSaveDialog.mockResolvedValueOnce({
+            canceled: false,
+            filePath: '/tmp/export.tiff',
+        });
+        mocks.exportPdfAsMultiPageTiff.mockImplementationOnce(async (
+            _sourcePath: string,
+            outputPath: string,
+            options: ITestProgressOptions,
+        ) => {
+            options.onProgress?.({
+                phase: 'combining',
+                processed: 10,
+                total: 10,
+                percent: 100,
+            });
+            return [outputPath];
+        });
+
+        await handlers.get(IMAGE_EXPORT_CHANNELS.exportMultiPageTiff)!(
+            createIpcEvent(sender),
+            '/tmp/working.pdf',
+            undefined,
+            'export-subscribe-terminal',
+        );
+        sender.send.mockClear();
+        handlers.get(IMAGE_EXPORT_CHANNELS.subscribeProgress)!(createIpcEvent(sender));
+
+        expect(sender.send).toHaveBeenCalledWith('pdfExport:progress', {
+            requestId: 'export-subscribe-terminal',
+            format: 'multipage-tiff',
+            phase: 'combining',
+            processed: 10,
+            total: 10,
+            percent: 100,
         });
     });
 

@@ -1,7 +1,9 @@
 import { uniq } from 'es-toolkit/array';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
+    IDocumentMutationRevisionOptions,
     IDocumentsFileIoCapability,
     IDocumentsWorkingCopyCapability,
 } from '@contracts/electronApiDocuments';
@@ -55,6 +57,15 @@ interface ICreateDocumentHistoryDeps {
 const MAX_HISTORY_ENTRIES = 20;
 const MAX_HISTORY_BYTES = 200 * 1024 * 1024;
 const MAX_IN_MEMORY_HISTORY_SNAPSHOT_BYTES = 8 * 1024 * 1024;
+
+function createDocumentMutationRevisionOptions(
+    expectedDocumentRevisionToken: TDocumentRevisionToken | null | undefined,
+): IDocumentMutationRevisionOptions | undefined {
+    if (expectedDocumentRevisionToken === null || expectedDocumentRevisionToken === undefined) {
+        return undefined;
+    }
+    return { expectedDocumentRevisionToken };
+}
 
 export function createDocumentHistory(
     state: IDocumentSessionState,
@@ -421,7 +432,11 @@ export function createDocumentHistory(
             }
             const workingPath = state.workingCopyPath.value;
             if (workingPath) {
-                await deps.documentFiles().writeFile(workingPath, entry.snapshot);
+                await deps.documentFiles().writeFile(
+                    workingPath,
+                    entry.snapshot,
+                    createDocumentMutationRevisionOptions(state.documentRevisionToken.value),
+                );
             }
             if (!canApplyRestore()) {
                 return false;

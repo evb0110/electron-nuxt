@@ -13,6 +13,7 @@ import {
 import { isErrnoException } from '@contracts/runtimeGuards';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import { markActiveWorkingCopyMutationCommitStarted } from '@electron/file-access/workingCopyMutationCommitSignal';
 
 const logger = createLogger('atomicReplace');
 
@@ -101,6 +102,7 @@ export function makeSiblingTempPath(targetPath: string) {
 
 export async function atomicReplace(srcTemp: string, dst: string) {
     await fsyncPath(srcTemp);
+    markActiveWorkingCopyMutationCommitStarted();
 
     if (process.platform !== 'win32') {
         await rename(srcTemp, dst);

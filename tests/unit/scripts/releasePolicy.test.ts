@@ -74,12 +74,22 @@ interface IReleasePolicyModule {
 }
 
 interface IReleaseChecksModule {
+    assertReleaseVerifySkipAcknowledged: (
+        skippedScripts: string[],
+        options?: { allowSkip?: boolean },
+    ) => void;
     getLocalReleaseCheckCommands: () => IReleaseCommand[];
+    isReleaseVerifySkipAcknowledged: (options?: {
+        argv?: string[];
+        env?: TReleaseEnv;
+    }) => boolean;
     parseReleaseVerifySkipList: (
         rawSkipList: string | undefined,
         options?: { knownScripts?: string[] },
     ) => string[];
     runLocalReleaseChecks: (options?: {
+        allowSkip?: boolean;
+        argv?: string[];
         env?: TReleaseEnv;
         runCommand?: TRunCommand;
         skipList?: string;
@@ -180,7 +190,9 @@ const {
     shouldVerifyPackagedStartup,
 } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/policy.mjs')).href) as IReleasePolicyModule;
 const {
+    assertReleaseVerifySkipAcknowledged,
     getLocalReleaseCheckCommands,
+    isReleaseVerifySkipAcknowledged,
     parseReleaseVerifySkipList,
     runLocalReleaseChecks,
 } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/verify-local-checks.mjs')).href) as IReleaseChecksModule;
@@ -639,6 +651,7 @@ describe('release policy', () => {
         const stderrLines: string[] = [];
 
         runLocalReleaseChecks({
+            allowSkip: true,
             runCommand: (_command: string, args: string[]) => {
                 calls.push(args);
             },
@@ -650,7 +663,30 @@ describe('release policy', () => {
         expect(scriptNames).not.toContain('test:coverage');
         expect(scriptNames).not.toContain('test:rust');
         expect(calls).toHaveLength(getLocalReleaseCheckCommands().length - 2);
-        expect(stderrLines.join('')).toContain('skipping test:coverage');
+        expect(stderrLines.join('')).toContain('release:verify is running with skipped local gates');
+        expect(stderrLines.join('')).toContain('skipped gates: test:coverage, test:rust');
+    });
+
+    it('requires explicit acknowledgement before release verification skips gates', () => {
+        expect(isReleaseVerifySkipAcknowledged({
+            argv: [],
+            env: {},
+        })).toBe(false);
+        expect(isReleaseVerifySkipAcknowledged({
+            argv: ['--allow-skip'],
+            env: {},
+        })).toBe(true);
+        expect(isReleaseVerifySkipAcknowledged({
+            argv: [],
+            env: {EVB_RELEASE_VERIFY_SKIP_ACK: '1'},
+        })).toBe(true);
+        expect(() => assertReleaseVerifySkipAcknowledged(['test:coverage'], {allowSkip: false}))
+            .toThrow(/without explicit acknowledgement/u);
+        expect(() => runLocalReleaseChecks({
+            runCommand: () => {},
+            skipList: 'test:coverage',
+            stderr: { write: () => {} },
+        })).toThrow(/EVB_RELEASE_VERIFY_SKIP was set without explicit acknowledgement/u);
     });
 
     it('rejects unknown gate names in the release verify skip list', () => {

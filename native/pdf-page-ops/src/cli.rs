@@ -1,5 +1,3 @@
-const PROTOCOL_VERSION: u32 = 1;
-
 fn main() {
     if let Err(error) = run() {
         eprintln!("{error}");

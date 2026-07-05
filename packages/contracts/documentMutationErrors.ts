@@ -6,6 +6,7 @@ import { isRecord } from '@contracts/runtimeGuards';
 export const DOCUMENT_MUTATION_ERROR_PREFIX = 'EVB_DOCUMENT_MUTATION_ERROR:';
 
 export type TDocumentMutationErrorCode =
+    | 'MISSING_REVISION'
     | 'STALE_REVISION'
     | 'WORKING_COPY_SYNC_REQUIRED';
 
@@ -49,12 +50,14 @@ function decodeDocumentMutationErrorMessage(message: string): IDocumentMutationE
         if (!isRecord(parsed)) {
             return null;
         }
-        if (parsed.code !== 'STALE_REVISION' && parsed.code !== 'WORKING_COPY_SYNC_REQUIRED') {
+        if (
+            parsed.code !== 'MISSING_REVISION'
+            && parsed.code !== 'STALE_REVISION'
+            && parsed.code !== 'WORKING_COPY_SYNC_REQUIRED'
+        ) {
             return null;
         }
-        const fallbackMessage = parsed.code === 'STALE_REVISION'
-            ? 'Document revision is stale'
-            : 'Working copy must be resynced before further edits';
+        const fallbackMessage = getDefaultDocumentMutationErrorMessage(parsed.code);
         return {
             code: parsed.code,
             message: typeof parsed.message === 'string' && parsed.message.length > 0
@@ -77,9 +80,7 @@ export function getDocumentMutationErrorPayload(error: unknown): IDocumentMutati
     if (error instanceof DocumentMutationError) {
         return decodeDocumentMutationErrorMessage(error.message) ?? {
             code: error.code,
-            message: error.code === 'STALE_REVISION'
-                ? 'Document revision is stale'
-                : 'Working copy must be resynced before further edits',
+            message: getDefaultDocumentMutationErrorMessage(error.code),
             ...(error.documentRef !== undefined ? {documentRef: error.documentRef} : {}),
             ...(error.expectedRevision !== undefined ? {expectedRevision: error.expectedRevision} : {}),
             ...(error.actualRevision !== undefined ? {actualRevision: error.actualRevision} : {}),
@@ -87,7 +88,11 @@ export function getDocumentMutationErrorPayload(error: unknown): IDocumentMutati
     }
     if (isRecord(error)) {
         if (
-            (error.code === 'STALE_REVISION' || error.code === 'WORKING_COPY_SYNC_REQUIRED')
+            (
+                error.code === 'MISSING_REVISION'
+                || error.code === 'STALE_REVISION'
+                || error.code === 'WORKING_COPY_SYNC_REQUIRED'
+            )
             && typeof error.message === 'string'
         ) {
             return {
@@ -114,6 +119,20 @@ export function isDocumentMutationErrorCode(error: unknown, code: TDocumentMutat
     return getDocumentMutationErrorPayload(error)?.code === code;
 }
 
+function getDefaultDocumentMutationErrorMessage(code: TDocumentMutationErrorCode) {
+    if (code === 'MISSING_REVISION') {
+        return 'Document revision token is required';
+    }
+    if (code === 'STALE_REVISION') {
+        return 'Document revision is stale';
+    }
+    return 'Working copy must be resynced before further edits';
+}
+
+export function isMissingRevisionError(error: unknown) {
+    return isDocumentMutationErrorCode(error, 'MISSING_REVISION');
+}
+
 export function isStaleRevisionError(error: unknown) {
     return isDocumentMutationErrorCode(error, 'STALE_REVISION');
 }
@@ -134,6 +153,17 @@ export function createStaleRevisionError(payload: {
         ...(payload.documentRef !== undefined ? {documentRef: payload.documentRef} : {}),
         ...(payload.expectedRevision !== undefined ? {expectedRevision: payload.expectedRevision} : {}),
         ...(payload.actualRevision !== undefined ? {actualRevision: payload.actualRevision} : {}),
+    });
+}
+
+export function createMissingRevisionError(payload: {
+    documentRef?: TDocumentRef;
+    message?: string;
+}) {
+    return new DocumentMutationError({
+        code: 'MISSING_REVISION',
+        message: payload.message ?? 'Document revision token is required',
+        ...(payload.documentRef !== undefined ? {documentRef: payload.documentRef} : {}),
     });
 }
 

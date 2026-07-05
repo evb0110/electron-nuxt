@@ -384,6 +384,11 @@ export const platformMethodManifest = {
         onPdfOptimizeProgress: eventPath('documentMenu', 'onPdfOptimizeProgress'),
         onOpenPdfDirectBatchProgress: eventPath('documentMenu', 'onOpenPdfDirectBatchProgress'),
     },
+    /**
+     * Compatibility-only aggregate for callers that have not migrated to the
+     * split document* capability groups above. New call sites should use the
+     * narrow documentPicker/documentOpen/documentFiles/documentMenu/etc. groups.
+     */
     documents: {
         openDocumentDialog: asyncPath('documents', 'openDocumentDialog'),
         openPdfDialog: asyncPath('documents', 'openPdfDialog'),

@@ -11,6 +11,7 @@ import {
     handleDjvuReleaseViewingPath,
     handleDjvuRenderPagePreview,
 } from '@electron/features/djvu/main/djvuOperations';
+import { subscribeDjvuProgress } from '@electron/features/djvu/main/pdfExport';
 import type { IDjvuService } from '@electron/features/djvu/ports';
 
 export function createDjvuService(): IDjvuService {
@@ -39,5 +40,6 @@ export function createDjvuService(): IDjvuService {
             handleDjvuEstimateSizes(context, djvuPath),
         cleanupTemp: (context, tempPdfPath) =>
             handleDjvuCleanupTemp(context, tempPdfPath),
+        subscribeProgress: context => subscribeDjvuProgress(context),
     };
 }

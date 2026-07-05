@@ -240,6 +240,39 @@ describe('usePdfRendererCanvasController', () => {
         expect(activeRenderTasks.get(928)?.task).toBe(nextTask);
     });
 
+    it('releases a leased page when the completed page load is stale', async () => {
+        let renderVersion = 1;
+        const pdfPage = {} as never;
+        const pageLoad = Promise.withResolvers<typeof pdfPage>();
+        const releasePage = vi.fn();
+        const controller = usePdfRendererCanvasController({
+            canvasRenderer: {
+                prepareCanvasRender: vi.fn(),
+                renderCanvas: vi.fn(),
+                cleanupCanvas: vi.fn(),
+                cleanupCanvasRenderResult: vi.fn(),
+                estimateRequestedPixels: vi.fn(),
+                applyContainerDimensions: vi.fn(),
+                mountCanvas: vi.fn(),
+            },
+            activeRenderTasks: new Map(),
+            pageCanvases: new Map(),
+            hiddenAnnotationIds: (_pageNumber: number) => undefined,
+            getRenderVersion: () => renderVersion,
+            getPage: vi.fn(() => pageLoad.promise),
+            releasePage,
+            cancelActiveRenderTask: vi.fn(),
+            cancelActiveRenderTaskIfCurrent: vi.fn(),
+        });
+
+        const loadPromise = controller.loadPageForRender(1, 1, () => true);
+        renderVersion = 2;
+        pageLoad.resolve(pdfPage);
+
+        await expect(loadPromise).resolves.toBeNull();
+        expect(releasePage).toHaveBeenCalledWith(1, pdfPage);
+    });
+
     it('does not start a canvas render after its stage timeout fires while waiting for the page coordinator', async () => {
         vi.useFakeTimers();
         const pdfPage = {} as never;

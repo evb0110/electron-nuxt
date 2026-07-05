@@ -116,7 +116,12 @@ vi.mock('@electron/file-access/documentRevisionStore', () => ({
     markWorkingCopyContentChanged: (...args: unknown[]) => mocks.markWorkingCopyContentChanged(...args),
 }));
 vi.mock('@electron/file-access/documentMutationGuards', () => ({
-    assertQueuedWorkingCopyMutationPreconditions: (...args: unknown[]) => mocks.assertWorkingCopyRevisionCurrent(...args),
+    assertQueuedWorkingCopyMutationPreconditions: (workingPath: string, expectedRevision?: string | null) => {
+        if (expectedRevision === undefined || expectedRevision === null) {
+            throw new Error('Document revision token is required');
+        }
+        return mocks.assertWorkingCopyRevisionCurrent(workingPath, expectedRevision);
+    },
     assertWorkingCopyMutationAllowed: (...args: unknown[]) => mocks.assertWorkingCopyRevisionCurrent(...args),
     normalizeExpectedDocumentRevisionToken: (options?: { expectedDocumentRevisionToken?: string | null; } | null) =>
         options?.expectedDocumentRevisionToken?.trim() ?? null,
@@ -139,6 +144,7 @@ function deferred<T>() {
 describe('handleSavePdfAs', () => {
     let tempRoot = '';
     const sender = {id: 42};
+    const revisionOptions = { expectedDocumentRevisionToken: 'revision-before-save' };
     const dialogContext = {
         parentWindow: null,
         sender,
@@ -189,7 +195,12 @@ describe('handleSavePdfAs', () => {
 
         const { handleSavePdfAs } = await import('@electron/features/documents/main/documentSaveDialogHandlers');
 
-        await expect(handleSavePdfAs(dialogContext, workingPath)).resolves.toBe(targetPath);
+        await expect(handleSavePdfAs(
+            dialogContext,
+            workingPath,
+            undefined,
+            revisionOptions,
+        )).resolves.toBe(targetPath);
 
         expect(mocks.makeSiblingTempPath).toHaveBeenCalledWith(targetPath);
         expect(mocks.validatePdfFile).toHaveBeenCalledWith(workingPath);
@@ -226,12 +237,67 @@ describe('handleSavePdfAs', () => {
             dialogContext,
             workingPath,
             { optimizeLossless: true },
+            revisionOptions,
         )).resolves.toBe(targetPath);
 
         expect(mocks.optimizePdfForSaveAs).toHaveBeenCalledWith(tempPath, { optimizeLossless: true });
         expect(
             mocks.optimizePdfForSaveAs.mock.invocationCallOrder[0]!,
         ).toBeLessThan(mocks.atomicReplace.mock.invocationCallOrder[0]!);
+    });
+
+    it('rejects Save As copies without a revision token before replacing the selected path', async () => {
+        const workingPath = join(tempRoot, 'missing-token-working.pdf');
+        const targetPath = join(tempRoot, 'missing-token-saved.pdf');
+        writeFileSync(workingPath, 'new-pdf');
+        writeFileSync(targetPath, 'old-pdf');
+        mocks.getWorkingCopyOriginalPath.mockReturnValue(null);
+        mocks.showSaveDialog.mockResolvedValue({
+            canceled: false,
+            filePath: targetPath,
+        });
+
+        const { handleSavePdfAs } = await import('@electron/features/documents/main/documentSaveDialogHandlers');
+
+        await expect(handleSavePdfAs(dialogContext, workingPath))
+            .rejects
+            .toThrow('Document revision token is required');
+
+        expect(readFileSyncUtf8(targetPath)).toBe('old-pdf');
+        expect(mocks.atomicReplace).not.toHaveBeenCalled();
+        expect(mocks.setWorkingCopyOriginalPath).not.toHaveBeenCalled();
+        expect(mocks.allowOpenPath).not.toHaveBeenCalled();
+    });
+
+    it('rejects Save As copies with a stale revision token before replacing the selected path', async () => {
+        const workingPath = join(tempRoot, 'stale-token-working.pdf');
+        const targetPath = join(tempRoot, 'stale-token-saved.pdf');
+        writeFileSync(workingPath, 'new-pdf');
+        writeFileSync(targetPath, 'old-pdf');
+        mocks.getWorkingCopyOriginalPath.mockReturnValue(null);
+        mocks.showSaveDialog.mockResolvedValue({
+            canceled: false,
+            filePath: targetPath,
+        });
+        mocks.assertWorkingCopyRevisionCurrent.mockRejectedValueOnce(createStaleRevisionError({
+            documentRef: workingPath,
+            expectedRevision: revisionOptions.expectedDocumentRevisionToken,
+            actualRevision: 'revision-after-edit',
+        }));
+
+        const { handleSavePdfAs } = await import('@electron/features/documents/main/documentSaveDialogHandlers');
+
+        await expect(handleSavePdfAs(
+            dialogContext,
+            workingPath,
+            undefined,
+            revisionOptions,
+        )).rejects.toMatchObject({code: 'STALE_REVISION'});
+
+        expect(readFileSyncUtf8(targetPath)).toBe('old-pdf');
+        expect(mocks.atomicReplace).not.toHaveBeenCalled();
+        expect(mocks.setWorkingCopyOriginalPath).not.toHaveBeenCalled();
+        expect(mocks.allowOpenPath).not.toHaveBeenCalled();
     });
 
     it('does not copy the working PDF when validation fails', async () => {
@@ -253,7 +319,12 @@ describe('handleSavePdfAs', () => {
 
         const { handleSavePdfAs } = await import('@electron/features/documents/main/documentSaveDialogHandlers');
 
-        await expect(handleSavePdfAs(dialogContext, workingPath))
+        await expect(handleSavePdfAs(
+            dialogContext,
+            workingPath,
+            undefined,
+            revisionOptions,
+        ))
             .rejects
             .toThrow('Working copy is not a valid PDF');
 
@@ -280,7 +351,12 @@ describe('handleSavePdfAs', () => {
 
         const { handleSavePdfAs } = await import('@electron/features/documents/main/documentSaveDialogHandlers');
 
-        await expect(handleSavePdfAs(dialogContext, workingPath))
+        await expect(handleSavePdfAs(
+            dialogContext,
+            workingPath,
+            undefined,
+            revisionOptions,
+        ))
             .rejects
             .toThrow('replace failed');
 
@@ -326,6 +402,8 @@ describe('handleSavePdfAs', () => {
             dialogContext,
             workingPath,
             new Uint8Array(Buffer.from('new-pdf')),
+            undefined,
+            revisionOptions,
         );
 
         await vi.waitFor(() => {

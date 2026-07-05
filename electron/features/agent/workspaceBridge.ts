@@ -272,6 +272,7 @@ function isAgentWorkspaceCommandTarget(value: unknown): value is TAgentWorkspace
         || value.sessionId.trim().length === 0
         || (value.documentRef !== null && typeof value.documentRef !== 'string')
         || !isOptionalDocumentBackend(value.documentBackend)
+        || (value.documentInstanceId !== undefined && value.documentInstanceId !== null && typeof value.documentInstanceId !== 'string')
         || (value.documentRevisionToken !== undefined && typeof value.documentRevisionToken !== 'string')
     ) {
         return false;
@@ -294,6 +295,8 @@ function isDocumentReference(value: unknown): value is IAgentDocumentReference {
         && isNullableString(value.fileName)
         && isNullableString(value.originalPath)
         && isOptionalDocumentBackend(value.originalBackend)
+        && (value.documentSessionKey === undefined || value.documentSessionKey === null || typeof value.documentSessionKey === 'string')
+        && (value.documentInstanceId === undefined || value.documentInstanceId === null || typeof value.documentInstanceId === 'string')
         && (value.commandTarget === undefined || isAgentWorkspaceCommandTarget(value.commandTarget))
         && isAgentDocumentKind(value.kind);
 }
@@ -350,6 +353,8 @@ function isAgentTabSnapshot(value: unknown): value is IAgentTabSnapshot {
         && isNullableString(value.fileName)
         && isNullableString(value.originalPath)
         && isOptionalDocumentBackend(value.originalBackend)
+        && (value.documentSessionKey === undefined || value.documentSessionKey === null || typeof value.documentSessionKey === 'string')
+        && (value.documentInstanceId === undefined || value.documentInstanceId === null || typeof value.documentInstanceId === 'string')
         && (value.commandTarget === undefined || isAgentWorkspaceCommandTarget(value.commandTarget))
         && typeof value.isDirty === 'boolean'
         && isAgentDocumentKind(value.kind)

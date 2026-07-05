@@ -126,10 +126,15 @@ function isNullableString(value: unknown): value is string | null {
     return value === null || typeof value === 'string';
 }
 
+function isOptionalNullableString(value: unknown): value is string | null | undefined {
+    return value === undefined || isNullableString(value);
+}
+
 function isTransferredTabState(value: unknown): value is IWindowTabIncomingTransfer['tab'] {
     return isRecord(value)
         && isNullableString(value.fileName)
         && isNullableString(value.originalPath)
+        && isOptionalNullableString(value.documentInstanceId)
         && typeof value.isDirty === 'boolean'
         && typeof value.isDjvu === 'boolean';
 }
@@ -164,6 +169,7 @@ function isTransferSession(value: unknown): value is IWindowTabIncomingTransfer[
             && value.sessionId.trim().length > 0
             && isNonNegativeInteger(value.sessionRevision)
             && isNullableString(value.documentRef)
+            && isOptionalNullableString(value.documentInstanceId)
             && (value.documentRevisionToken === undefined || typeof value.documentRevisionToken === 'string')
         );
 }

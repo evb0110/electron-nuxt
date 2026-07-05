@@ -1,4 +1,5 @@
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
     TOcrProgressPhase,
     TOcrPreprocessingMode,
@@ -28,6 +29,7 @@ export interface IOcrUiProgress {
 export interface IOcrSearchablePdfResult {
     requestId: string;
     pdfPath: TDocumentRef;
+    sourceDocumentRevisionToken: TDocumentRevisionToken;
     requiresCleanupAck: boolean;
 }
 

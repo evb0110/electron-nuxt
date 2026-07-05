@@ -65,6 +65,7 @@ export interface ICreateStoredDocumentOptions {
 export interface IWriteDocumentOptions {
     unloadAfterPersist?: boolean;
     expectedDocumentRevisionToken?: string | null;
+    skipDocumentRevisionCheckForBootstrap?: boolean;
 }
 
 export interface IBrowserDocumentChunkRecord {

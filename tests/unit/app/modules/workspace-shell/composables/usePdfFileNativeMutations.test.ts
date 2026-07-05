@@ -101,6 +101,7 @@ describe('usePdfFile native mutations', () => {
 
         pdfFile.workingCopyPath.value = '/tmp/work.pdf';
         pdfFile.originalPath.value = '/tmp/source.pdf';
+        pdfFile.documentRevisionToken.value = 'drt1:test:markup-base';
         pdfFile.pdfConformanceProfile.value = UNSIGNED_PROFILE;
 
         const result = await pdfFile.trySavePdfNativeMutations(mutations, {
@@ -115,7 +116,7 @@ describe('usePdfFile native mutations', () => {
             '/tmp/work.pdf',
             mutations,
             'D:20260609133855+03\'00\'',
-            {expectedDocumentRevisionToken: null},
+            {expectedDocumentRevisionToken: 'drt1:test:markup-base'},
         );
         expect(documentsMock.savePdfNoteChanges).not.toHaveBeenCalled();
         expect(documentsMock.savePdfNoteTextUpdates).not.toHaveBeenCalled();

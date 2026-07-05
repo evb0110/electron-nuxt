@@ -144,7 +144,22 @@ function decodeOcrCompleteResult(payload: unknown): IOcrCompleteResult | null {
     if (payload.pdfPath !== undefined && typeof payload.pdfPath !== 'string') {
         return buildMalformedCompleteResult(payload.requestId);
     }
+    if (payload.sourceDocumentRevisionToken !== undefined && typeof payload.sourceDocumentRevisionToken !== 'string') {
+        return buildMalformedCompleteResult(payload.requestId);
+    }
     if (payload.requiresCleanupAck !== undefined && typeof payload.requiresCleanupAck !== 'boolean') {
+        return buildMalformedCompleteResult(payload.requestId);
+    }
+    if (
+        payload.success
+        && (
+            typeof payload.pdfPath !== 'string'
+            || payload.pdfPath.trim().length === 0
+            || typeof payload.sourceDocumentRevisionToken !== 'string'
+            || payload.sourceDocumentRevisionToken.trim().length === 0
+            || typeof payload.requiresCleanupAck !== 'boolean'
+        )
+    ) {
         return buildMalformedCompleteResult(payload.requestId);
     }
     const errorEnvelope = payload.errorEnvelope === undefined
@@ -160,6 +175,7 @@ function decodeOcrCompleteResult(payload: unknown): IOcrCompleteResult | null {
         success: payload.success,
         errors,
         ...(payload.pdfPath === undefined ? {} : {pdfPath: payload.pdfPath}),
+        ...(payload.sourceDocumentRevisionToken === undefined ? {} : {sourceDocumentRevisionToken: payload.sourceDocumentRevisionToken.trim()}),
         ...(payload.requiresCleanupAck === undefined ? {} : {requiresCleanupAck: payload.requiresCleanupAck}),
         ...(errorEnvelope === null ? {} : {errorEnvelope}),
     };
@@ -227,8 +243,11 @@ export function createOcrPreloadClient(ipcRenderer: IpcRenderer): IOcrCapability
             renderDpiOrOptions,
         ),
 
-        onProgress: (callback: (progress: IOcrProgress) => void): (() => void) =>
-            eventSubscriber.onDecodedPayload(OCR_EVENT_CHANNELS.progress, decodeOcrProgress, callback),
+        onProgress: (callback: (progress: IOcrProgress) => void): (() => void) => {
+            const unsubscribe = eventSubscriber.onDecodedPayload(OCR_EVENT_CHANNELS.progress, decodeOcrProgress, callback);
+            void invoke(OCR_CHANNELS.subscribeProgress);
+            return unsubscribe;
+        },
 
         onComplete: (callback: (result: IOcrCompleteResult) => void): (() => void) =>
             eventSubscriber.onDecodedPayload(OCR_EVENT_CHANNELS.complete, decodeOcrCompleteResult, callback),

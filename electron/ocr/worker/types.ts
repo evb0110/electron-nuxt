@@ -4,7 +4,10 @@ import type {
     IOcrSearchablePdfOptions,
     TOcrProgressPhase,
 } from '@contracts/electronApiOcr';
-import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
+import type {
+    IDocumentRevisionInfo,
+    TDocumentRevisionToken,
+} from '@contracts/documentRevision';
 export type { IRunCommandResult } from '@electron/utils/runElectronCommand';
 
 export interface IWorkerPaths {
@@ -90,6 +93,7 @@ export type TOcrWorkerCompleteResult =
     | {
         success: true;
         pdfPath: string;
+        sourceDocumentRevisionToken: TDocumentRevisionToken;
         requiresCleanupAck: boolean;
         errors: string[];
     }

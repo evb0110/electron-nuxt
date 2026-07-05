@@ -4,6 +4,7 @@ import {
 } from 'fs/promises';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
 import type {
+    IDocumentMutationRevisionOptions,
     IPdfSerializedSaveOptions,
     TDocumentSaveFailureReason,
     TDocumentSaveResult,
@@ -28,7 +29,10 @@ import {
     markWorkingCopySyncRequired,
     markWorkingCopyContentChanged,
 } from '@electron/file-access/documentRevisionStore';
-import { assertQueuedWorkingCopyMutationPreconditions } from '@electron/file-access/documentMutationGuards';
+import {
+    assertQueuedWorkingCopyMutationPreconditions,
+    assertQueuedWorkingCopyMutationPreconditionsForBootstrap,
+} from '@electron/file-access/documentMutationGuards';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
 import { originalPathSaveBaseMatches } from '@electron/features/documents/main/originalPathSaveBaseMatches';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
@@ -178,6 +182,10 @@ async function replaceOriginalWithValidatedTemp(
 async function repairPdfWithQpdf(
     inputPath: string,
     outputPath: string,
+    operation?: {
+        signal: AbortSignal;
+        cancelGroup: string;
+    },
 ) {
     await runNativeToolCommand(getPdfNativeToolPaths().qpdf, [
         inputPath,
@@ -189,12 +197,17 @@ async function repairPdfWithQpdf(
         ],
         commandLabel: 'qpdf(repair-save)',
         timeoutMs: QPDF_REPAIR_SAVE_TIMEOUT_MS,
+        ...(operation === undefined ? {} : {
+            signal: operation.signal,
+            cancelGroup: operation.cancelGroup,
+        }),
     });
 }
 
 export async function handleFileSaveStructured(
     context: IDocumentsSenderIdContext,
     workingPath: string,
+    options?: IDocumentMutationRevisionOptions,
 ): Promise<TDocumentSaveResult> {
     try {
         const senderId = requireSenderId(context);
@@ -204,11 +217,12 @@ export async function handleFileSaveStructured(
 
         const normalizedWorkingPath = workingPath.trim();
         const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
+        const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
         const saveResult = await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
-            await assertQueuedWorkingCopyMutationPreconditions(normalizedWorkingPath);
             if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, senderId)) {
                 throw new WorkingCopyMissingError('Working copy path is not managed');
             }
+            await assertQueuedWorkingCopyMutationPreconditions(normalizedWorkingPath, expectedDocumentRevisionToken);
 
             const queuedValidation = await replaceOriginalWithValidatedTemp(
                 originalPath,
@@ -294,6 +308,10 @@ export async function handleResyncWorkingCopy(
         const normalizedWorkingPath = workingPath.trim();
         const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
         await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
+            assertQueuedWorkingCopyMutationPreconditionsForBootstrap(
+                normalizedWorkingPath,
+                'resync-after-external-change',
+            );
             if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, senderId)) {
                 throw new WorkingCopyMissingError('Working copy path is not managed');
             }
@@ -385,6 +403,7 @@ export async function handleSerializedPdfSave(
 export async function handleRepairPdfSave(
     context: IDocumentsSenderIdContext,
     workingPath: string,
+    options?: IDocumentMutationRevisionOptions,
 ): Promise<IPdfValidationResult> {
     const senderId = requireSenderId(context);
     if (!workingPath || workingPath.trim() === '') {
@@ -393,19 +412,20 @@ export async function handleRepairPdfSave(
 
     const normalizedWorkingPath = workingPath.trim();
     const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
+    const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
 
     try {
-        const validation = await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
+        const validation = await enqueueWorkingCopyMutation(normalizedWorkingPath, async (mutationOperation) => {
             if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, senderId)) {
                 throw new Error('Working copy path is not managed');
             }
-            await assertQueuedWorkingCopyMutationPreconditions(normalizedWorkingPath);
+            await assertQueuedWorkingCopyMutationPreconditions(normalizedWorkingPath, expectedDocumentRevisionToken);
 
             const queuedValidation = await replaceOriginalWithValidatedTemp(
                 originalPath,
                 normalizedWorkingPath,
                 senderId,
-                tempPath => repairPdfWithQpdf(normalizedWorkingPath, tempPath),
+                tempPath => repairPdfWithQpdf(normalizedWorkingPath, tempPath, mutationOperation),
                 { optimize: 'large' },
             );
             if (queuedValidation.isValid) {
@@ -440,6 +460,7 @@ export async function handleRepairPdfSave(
 export async function handleOptimizePdfForInteraction(
     context: IDocumentsSenderIdContext,
     workingPath: string,
+    options?: IDocumentMutationRevisionOptions,
 ): Promise<IPdfValidationResult> {
     const senderId = requireSenderId(context);
     if (!workingPath || workingPath.trim() === '') {
@@ -448,13 +469,14 @@ export async function handleOptimizePdfForInteraction(
 
     const normalizedWorkingPath = workingPath.trim();
     const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
+    const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
 
     try {
         const validation = await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
             if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, senderId)) {
                 throw new Error('Working copy path is not managed');
             }
-            await assertQueuedWorkingCopyMutationPreconditions(normalizedWorkingPath);
+            await assertQueuedWorkingCopyMutationPreconditions(normalizedWorkingPath, expectedDocumentRevisionToken);
 
             const queuedValidation = await replaceOriginalWithValidatedTemp(
                 originalPath,

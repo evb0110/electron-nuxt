@@ -1,4 +1,5 @@
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { IOcrLanguage } from '@contracts/shared';
 
 export type TOcrErrorCode =
@@ -113,6 +114,7 @@ export interface IOcrCompleteResult extends IOcrErrorEnvelopeCarrier {
     requestId: string;
     success: boolean;
     pdfPath?: TDocumentRef;
+    sourceDocumentRevisionToken?: TDocumentRevisionToken;
     requiresCleanupAck?: boolean;
     errors: string[];
 }

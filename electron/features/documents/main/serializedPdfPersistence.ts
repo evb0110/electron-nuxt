@@ -15,6 +15,7 @@ import type {
     IPdfSerializedSaveOptions,
 } from '@contracts/electronApiDocuments';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import { createMissingRevisionError } from '@contracts/documentMutationErrors';
 import type {
     IBeginSerializedPdfPersistenceResult,
     IBeginSerializedPdfSaveAsResult,
@@ -54,7 +55,6 @@ import { addRecentFile } from '@electron/recentFiles';
 import { updateRecentFilesMenu } from '@electron/menu';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
 import {
-    getWorkingCopyRevision,
     markWorkingCopySyncRequired,
     markWorkingCopyContentChanged,
 } from '@electron/file-access/documentRevisionStore';
@@ -118,7 +118,7 @@ interface ISerializedPdfPersistenceSession {
     workingPath: string;
     targetPath: string;
     saveAsOptions: IPdfSaveAsOptions | undefined;
-    expectedDocumentRevisionToken: TDocumentRevisionToken | null;
+    expectedDocumentRevisionToken: TDocumentRevisionToken;
     tempPath: string;
     totalBytes: number;
     receivedBytes: number;
@@ -153,10 +153,13 @@ function createOriginalChangedValidationResult() {
     return createEmptyPdfValidationResult('Original file changed on disk; save skipped to avoid overwriting external edits');
 }
 
-function normalizeExpectedDocumentRevisionToken(options?: IPdfSerializedSaveOptions | null) {
+function normalizeExpectedDocumentRevisionToken(
+    workingPath: string,
+    options?: IPdfSerializedSaveOptions | null,
+) {
     const token = options?.expectedDocumentRevisionToken;
     if (token === undefined || token === null) {
-        return null;
+        throw createMissingRevisionError({documentRef: workingPath});
     }
     if (typeof token !== 'string' || token.trim().length === 0) {
         throw new TypeError('expectedDocumentRevisionToken must be a non-empty string');
@@ -346,9 +349,10 @@ async function createSession(options: {
     serializedSaveOptions?: IPdfSerializedSaveOptions | undefined;
     totalBytes: number;
 }) {
-    const rendererExpectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options.serializedSaveOptions);
-    const mainBaseRevision = await getWorkingCopyRevision(options.workingPath, options.sender.id);
-    const expectedDocumentRevisionToken = rendererExpectedDocumentRevisionToken ?? mainBaseRevision.token;
+    const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(
+        options.workingPath,
+        options.serializedSaveOptions,
+    );
     const releaseSenderReservation = reserveSenderPersistenceCapacity(options.sender.id, options.totalBytes);
     const tempPath = makeSiblingTempPath(options.targetPath);
     let handle: FileHandle;

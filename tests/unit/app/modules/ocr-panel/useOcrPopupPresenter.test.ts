@@ -162,6 +162,7 @@ function setSearchableResult(
         searchablePdfResult: {
             requestId,
             pdfPath,
+            sourceDocumentRevisionToken: 'source-revision-token',
             requiresCleanupAck: true,
         },
     };
@@ -295,6 +296,7 @@ describe('useOcrPopupPresenter', () => {
             expect(harness.events.onOcrComplete).toHaveBeenCalledWith({
                 requestId: 'req-success',
                 pdfPath: resultPath,
+                sourceDocumentRevisionToken: 'source-revision-token',
                 requiresCleanupAck: true,
                 sourceWorkingCopyPath: '/tmp/source.pdf',
                 sourcePageToRestore: 5,

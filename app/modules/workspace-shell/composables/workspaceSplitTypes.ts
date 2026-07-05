@@ -4,12 +4,14 @@ import type {
     TDocumentRef,
 } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type { TDocumentInstanceId } from '@contracts/documentInstanceId';
 
 export interface IWorkspaceSplitCacheSessionState {
     sessionId: string;
     sessionRevision: number;
     documentRef: TDocumentRef | null;
     documentBackend?: TDocumentBackend;
+    documentInstanceId?: TDocumentInstanceId | null;
     documentRevisionToken?: TDocumentRevisionToken;
 }
 

@@ -86,6 +86,7 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
             sessionRevision: snapshot.sessionRevision,
             phase: snapshot.phase,
             documentSessionKey: snapshot.identity.documentSessionKey,
+            documentInstanceId: snapshot.identity.documentInstanceId,
             documentRef: snapshot.identity.documentRef,
             documentBackend: resolveDocumentRefBackend(snapshot.identity.documentRef),
             documentRevisionToken: snapshot.identity.revisionInfo?.token ?? null,
@@ -231,6 +232,11 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
             ?? null;
     }
 
+    function getTabDocumentInstanceId(tabId: string) {
+        const session = options.documentSessionsByTabId?.value[tabId] ?? null;
+        return session ? unref(session.snapshot).identity.documentInstanceId : null;
+    }
+
     function getTabDocumentRef(tabId: string) {
         const session = options.documentSessionsByTabId?.value[tabId] ?? null;
         const sessionRef = session ? unref(session.snapshot).identity.documentRef : null;
@@ -279,6 +285,10 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
 
         assertCommandTargetCurrent(scope.commandTarget, strictRevision);
 
+        if ((scope.documentInstanceId ?? null) !== getTabDocumentInstanceId(tabId)) {
+            throw new Error('Agent command target document changed.');
+        }
+
         const actualIdentity = getTabDocumentIdentity(tabId);
         if (scope.documentIdentity) {
             const matches = strictRevision
@@ -325,6 +335,7 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
             target.tabId !== snapshot.tabId
             || target.sessionId !== snapshot.sessionId
             || target.documentRef !== snapshot.identity.documentRef
+            || (target.documentInstanceId ?? null) !== snapshot.identity.documentInstanceId
             || (
                 target.documentBackend !== undefined
                 && target.documentBackend !== resolveDocumentRefBackend(snapshot.identity.documentRef)
@@ -408,9 +419,17 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
         return {
             signal,
             documentIdentity: request.scope?.documentIdentity ?? expectedIdentity,
+            documentInstanceId: request.scope?.documentInstanceId ?? getTabDocumentInstanceId(tabId),
             ...(commandTarget ? {commandTarget} : {}),
-            assertCurrentDocument: () => {
-                assertCommandCurrentDocument(request, tabId, signal, expectedIdentity, true, expectedCommandTarget);
+            assertCurrentDocument: (contextOptions = {}) => {
+                assertCommandCurrentDocument(
+                    request,
+                    tabId,
+                    signal,
+                    expectedIdentity,
+                    contextOptions.allowRevisionChange !== true,
+                    expectedCommandTarget,
+                );
             },
         };
     }

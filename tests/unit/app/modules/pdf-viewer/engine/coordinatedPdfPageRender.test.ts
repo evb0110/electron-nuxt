@@ -238,7 +238,7 @@ describe('runCoordinatedPdfPageRender', () => {
         expect((thumbnailError as Error).name).toBe('RenderingCancelledException');
     });
 
-    it('releases coordinated operation ownership when the operation signal aborts', async () => {
+    it('keeps coordinated operation ownership after abort until the operation settles', async () => {
         const page = cast<PDFPageProxy>({ pageNumber: 1 });
         const events: string[] = [];
         const operation = createDeferred<string>();
@@ -278,14 +278,16 @@ describe('runCoordinatedPdfPageRender', () => {
         });
         await flushAsync();
 
+        expect(events).toEqual(['start filter']);
+
+        operation.resolve('late');
+        await flushAsync();
         expect(events).toEqual([
             'start filter',
             'start viewer',
         ]);
-
         viewerTask.resolve();
         await renderRun;
-        operation.resolve('late');
         await flushAsync();
     });
 });

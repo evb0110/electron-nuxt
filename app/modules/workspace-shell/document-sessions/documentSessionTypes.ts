@@ -4,6 +4,7 @@ import type {
     ShallowRef,
 } from 'vue';
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
+import type { TDocumentInstanceId } from '@contracts/documentInstanceId';
 import type {
     IWorkspaceExpose,
     IWorkspaceToolbarSnapshot,
@@ -25,6 +26,7 @@ export type TWorkspaceDocumentTransactionKind = 'open' | 'restore' | 'reload' | 
 
 export interface IWorkspaceDocumentIdentity {
     documentSessionKey: string | null;
+    documentInstanceId: TDocumentInstanceId | null;
     documentRef: TDocumentRef | null;
     originalPath: TDocumentRef | null;
     workingCopyPath: TDocumentRef | null;

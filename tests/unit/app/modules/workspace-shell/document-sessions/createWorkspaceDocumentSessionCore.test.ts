@@ -50,6 +50,7 @@ describe('createWorkspaceDocumentSessionCore', () => {
 
         expect(session.snapshot.value.identity).toMatchObject({
             documentSessionKey: expect.any(String),
+            documentInstanceId: expect.any(String),
             documentRef: '/tmp/working.pdf',
             originalPath: '/tmp/original.pdf',
             workingCopyPath: '/tmp/working.pdf',
@@ -229,6 +230,45 @@ describe('createWorkspaceDocumentSessionCore', () => {
         expect(session.validateCommandTarget(target)).toEqual({
             ok: false,
             reason: 'document-revision-token-mismatch',
+        });
+    });
+
+    it('rejects stale command targets when a same-revision reopen mints a new document instance', () => {
+        let nextInstanceId = 0;
+        const session = createWorkspaceDocumentSessionCore({
+            tabId: 'tab-1',
+            sessionId: 'session-1',
+            createDocumentInstanceId: () => {
+                nextInstanceId += 1;
+                return `instance-${nextInstanceId}`;
+            },
+        });
+        const record = createWorkspaceDocumentRecord({
+            tab: {
+                fileName: 'Document.pdf',
+                originalPath: '/tmp/original.pdf',
+                isDirty: false,
+                isDjvu: false,
+            },
+            documentIdentity: createDocumentRevision('revision-1'),
+        });
+        session.applyWorkspaceRecord(record, 'workspace');
+        const initialKey = session.snapshot.value.identity.documentSessionKey;
+        const target = session.createCommandTarget();
+
+        const reopen = session.beginTransaction({
+            kind: 'open',
+            documentRef: '/tmp/working.pdf',
+        });
+        session.applyWorkspaceRecord(record, 'workspace');
+        session.finishTransaction(reopen.id, 'committed');
+
+        expect(session.snapshot.value.identity.documentSessionKey).toBe(initialKey);
+        expect(session.snapshot.value.identity.documentInstanceId).toBe('instance-2');
+        expect(session.snapshot.value.identity.revisionInfo?.token).toBe('revision-1');
+        expect(session.validateCommandTarget(target)).toEqual({
+            ok: false,
+            reason: 'document-instance-id-mismatch',
         });
     });
 

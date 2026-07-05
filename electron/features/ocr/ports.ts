@@ -51,4 +51,5 @@ export interface IOcrService {
         context: IOcrOperationContext,
         ...args: Parameters<TOcrPreprocessing['preprocessPage']>
     ) => TPromiseOrValue<Awaited<ReturnType<TOcrPreprocessing['preprocessPage']>>>;
+    subscribeProgress: (context: IOcrOperationContext) => void;
 }

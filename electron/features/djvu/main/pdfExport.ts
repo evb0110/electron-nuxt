@@ -451,8 +451,7 @@ async function replaceFileAtomically(sourcePath: string, targetPath: string) {
 type TDjvuTerminalProgressStatus = Exclude<NonNullable<IDjvuProgress['status']>, 'running'>;
 
 function isTerminalDjvuProgress(progress: IDjvuProgress) {
-    return progress.percent >= 100
-        || progress.status === 'success'
+    return progress.status === 'success'
         || progress.status === 'canceled'
         || progress.status === 'failed';
 }
@@ -480,6 +479,59 @@ function createDjvuTerminalProgress(
 
 function isDjvuCancellationError(error: unknown) {
     return getErrorMessage(error).toLowerCase().includes('djvu conversion canceled');
+}
+
+const progressPumpsBySenderId = new Map<number, ReturnType<typeof createIpcProgressPump<IDjvuProgress>>>();
+const progressPumpCleanupSenderIds = new Set<number>();
+
+function getDjvuProgressPump(context: IDjvuOperationContext) {
+    let pump = progressPumpsBySenderId.get(context.senderId);
+    if (pump) {
+        return pump;
+    }
+
+    pump = createIpcProgressPump<IDjvuProgress>({
+        channel: DJVU_EVENT_CHANNELS.progress,
+        getTarget: () => ({
+            isDestroyed: () => context.sender.isDestroyed?.() === true,
+            send: (channel: string, payload: IDjvuProgress) => safeSendToWindow(
+                context.parentWindow,
+                channel,
+                payload,
+            ),
+        }),
+        getKey: (progress: IDjvuProgress) => progress.jobId,
+        isTerminal: isTerminalDjvuProgress,
+        onError: (error: unknown) => {
+            logger.debug(`Failed to send DjVu progress: ${getErrorMessage(error)}`);
+        },
+        onIdle: () => {
+            progressPumpsBySenderId.delete(context.senderId);
+        },
+    });
+    progressPumpsBySenderId.set(context.senderId, pump);
+
+    if (!progressPumpCleanupSenderIds.has(context.senderId)) {
+        progressPumpCleanupSenderIds.add(context.senderId);
+        context.sender.once('destroyed', () => {
+            progressPumpsBySenderId.get(context.senderId)?.dispose();
+            progressPumpsBySenderId.delete(context.senderId);
+            progressPumpCleanupSenderIds.delete(context.senderId);
+        });
+    }
+
+    return pump;
+}
+
+export function subscribeDjvuProgress(context: IDjvuOperationContext) {
+    progressPumpsBySenderId.get(context.senderId)?.subscribe({
+        isDestroyed: () => context.sender.isDestroyed?.() === true,
+        send: (channel: string, payload: IDjvuProgress) => safeSendToWindow(
+            context.parentWindow,
+            channel,
+            payload,
+        ),
+    });
 }
 
 async function embedPdfBookmarks(
@@ -559,22 +611,7 @@ export async function handleDjvuPrintPath(
     registerSenderLifecycleCleanup(context.sender);
     const abortController = new AbortController();
     activeJobAbortControllerById.set(jobId, abortController);
-    const progressPump = createIpcProgressPump<IDjvuProgress>({
-        channel: DJVU_EVENT_CHANNELS.progress,
-        getTarget: () => ({
-            isDestroyed: () => context.sender.isDestroyed?.() === true,
-            send: (channel, payload) => safeSendToWindow(
-                context.parentWindow,
-                channel,
-                payload,
-            ),
-        }),
-        getKey: progress => progress.jobId,
-        isTerminal: isTerminalDjvuProgress,
-        onError: error => {
-            logger.debug(`Failed to send DjVu print progress: ${getErrorMessage(error)}`);
-        },
-    });
+    const progressPump = getDjvuProgressPump(context);
     let lastProgressPhase: IDjvuProgress['phase'] = 'converting';
     let hasTerminalProgress = false;
     const sendProgress = (progress: IDjvuProgress) => {
@@ -636,7 +673,7 @@ export async function handleDjvuPrintPath(
                     pageSizes,
                     signal: abortController.signal,
                     ...(selectedPages ? { pages: selectedPages } : {}),
-                    onProgress: (percent) => {
+                    onProgress: (percent: number) => {
                         sendProgress({
                             jobId,
                             phase: 'converting' as const,
@@ -664,7 +701,7 @@ export async function handleDjvuPrintPath(
                         ...(subsample > 1 ? { subsample } : {}),
                         ...(selectedPages ? { pages: formatDjvuPageSelection(selectedPages) } : {}),
                         pageCount,
-                        onProgress: (percent) => {
+                        onProgress: (percent: number) => {
                             sendProgress({
                                 jobId,
                                 phase: 'converting' as const,
@@ -714,15 +751,10 @@ export async function handleDjvuPrintPath(
             throwIfCanceled(jobId);
             sendProgress({
                 jobId,
-                phase: 'optimizing' as const,
-                percent: 100,
-                status: 'success',
-            });
-            progressPump.enqueue({
-                jobId,
                 phase: 'printing' as const,
                 percent: 100,
             });
+            progressPump.flush(jobId);
 
             const printResult = await printManagedTempPdfPath(
                 {window: context.parentWindow},
@@ -743,6 +775,9 @@ export async function handleDjvuPrintPath(
             }
             finalPdfHandedToPrint = printResult.success && printablePdfPath === finalPdfPath;
             logger.info(`[${jobId}] DjVu print handoff complete: success=${printResult.success} canceled=${printResult.canceled === true}`);
+            if (printResult.success) {
+                sendTerminalProgress('success');
+            }
             return {
                 ...printResult,
                 jobId,
@@ -780,7 +815,7 @@ export async function handleDjvuPrintPath(
         activeJobAbortControllerById.delete(jobId);
         activePdfWorkerByJobId.delete(jobId);
         mainOperation.complete();
-        progressPump.clear();
+        progressPump.clearKey(jobId);
         await rm(tempDir, {
             force: true,
             recursive: true,
@@ -841,22 +876,7 @@ export async function handleDjvuConvertToPdf(
     registerSenderLifecycleCleanup(context.sender);
     const abortController = new AbortController();
     activeJobAbortControllerById.set(jobId, abortController);
-    const progressPump = createIpcProgressPump<IDjvuProgress>({
-        channel: DJVU_EVENT_CHANNELS.progress,
-        getTarget: () => ({
-            isDestroyed: () => context.sender.isDestroyed?.() === true,
-            send: (channel, payload) => safeSendToWindow(
-                context.parentWindow,
-                channel,
-                payload,
-            ),
-        }),
-        getKey: progress => progress.jobId,
-        isTerminal: isTerminalDjvuProgress,
-        onError: error => {
-            logger.debug(`Failed to send DjVu progress: ${getErrorMessage(error)}`);
-        },
-    });
+    const progressPump = getDjvuProgressPump(context);
     let lastProgressPhase: IDjvuProgress['phase'] = 'converting';
     let hasTerminalProgress = false;
     const sendProgress = (progress: IDjvuProgress) => {
@@ -1018,7 +1038,7 @@ export async function handleDjvuConvertToPdf(
         activeJobAbortControllerById.delete(jobId);
         activePdfWorkerByJobId.delete(jobId);
         mainOperation.complete();
-        progressPump.clear();
+        progressPump.clearKey(jobId);
         try {
             await rm(tempDir, {
                 force: true,

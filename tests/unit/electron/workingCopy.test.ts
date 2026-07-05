@@ -131,7 +131,7 @@ describe('workingCopy', () => {
         setWorkingCopyOriginalPath(workingPath, originalPath);
 
         const context = {senderId: 1};
-        await expect(handleFileSaveStructured(context, workingPath)).resolves.toMatchObject({
+        await expect(handleFileSaveStructured(context, workingPath, {expectedDocumentRevisionToken: 'revision-before-missing-save'})).resolves.toMatchObject({
             ok: false,
             reason: 'working-copy-missing',
         });
@@ -352,6 +352,110 @@ describe('workingCopy', () => {
             'clear-done',
         ]);
         expect(existsSync(workingDir)).toBe(false);
+    });
+
+    it('registers queued mutations as critical writes and fail-closes aborted queued entries during shutdown', async () => {
+        const { enqueueWorkingCopyMutation } = await import('@electron/file-access/workingCopyMutationQueue');
+        const {
+            beginMainOperationShutdown,
+            cancelAllMainOperations,
+            drainCriticalMainOperations,
+            resetMainOperationLifecycleForTests,
+            snapshotMainOperations,
+        } = await import('@electron/operation-lifecycle/mainOperationLifecycle');
+        const workingPath = join(tempRoot, 'shutdown-queued.pdf');
+        const blockedMutation = deferred<undefined>();
+        const operations: string[] = [];
+        writeFileSync(workingPath, new Uint8Array([1]));
+
+        const firstMutation = enqueueWorkingCopyMutation(workingPath, async () => {
+            operations.push('first-start');
+            await blockedMutation.promise;
+            operations.push('first-end');
+        });
+        const secondMutation = enqueueWorkingCopyMutation(workingPath, async () => {
+            operations.push('second-start');
+        });
+        await waitForSettledQueueTurn();
+
+        expect(snapshotMainOperations()).toEqual([
+            expect.objectContaining({
+                kind: 'critical-write',
+                workingCopyPath: workingPath,
+            }),
+            expect.objectContaining({
+                kind: 'critical-write',
+                workingCopyPath: workingPath,
+            }),
+        ]);
+
+        beginMainOperationShutdown('Main process is shutting down');
+        cancelAllMainOperations('app shutdown');
+        const drainPromise = drainCriticalMainOperations({timeoutMs: 1_000});
+
+        blockedMutation.resolve(undefined);
+        await firstMutation;
+        await expect(secondMutation).rejects.toThrow('app shutdown');
+        await expect(drainPromise).resolves.toEqual({
+            completed: true,
+            pending: [],
+        });
+        expect(operations).toEqual([
+            'first-start',
+            'first-end',
+        ]);
+        resetMainOperationLifecycleForTests();
+    });
+
+    it('rejects new queued mutations with a typed shutdown envelope after admission closes', async () => {
+        const { getMainOperationErrorEnvelope } = await import('@contracts/mainOperationErrors');
+        const { enqueueWorkingCopyMutation } = await import('@electron/file-access/workingCopyMutationQueue');
+        const {
+            beginMainOperationShutdown,
+            resetMainOperationLifecycleForTests,
+        } = await import('@electron/operation-lifecycle/mainOperationLifecycle');
+        beginMainOperationShutdown('Main process is shutting down');
+
+        let caught: unknown;
+        try {
+            void enqueueWorkingCopyMutation(join(tempRoot, 'late.pdf'), async () => undefined);
+        } catch (error) {
+            caught = error;
+        }
+
+        expect(getMainOperationErrorEnvelope(caught)).toEqual({
+            code: 'shutting-down',
+            message: 'Main process is shutting down',
+        });
+        resetMainOperationLifecycleForTests();
+    });
+
+    it('marks queued mutation commit once an atomic replacement starts', async () => {
+        const { atomicReplace } = await import('@electron/utils/atomicReplace');
+        const { enqueueWorkingCopyMutation } = await import('@electron/file-access/workingCopyMutationQueue');
+        const {
+            resetMainOperationLifecycleForTests,
+            snapshotMainOperations,
+        } = await import('@electron/operation-lifecycle/mainOperationLifecycle');
+        const targetPath = join(tempRoot, 'commit-target.pdf');
+        const tempPath = join(tempRoot, 'commit-temp.pdf');
+        writeFileSync(targetPath, 'old');
+        writeFileSync(tempPath, 'new');
+
+        await enqueueWorkingCopyMutation(targetPath, async () => {
+            expect(snapshotMainOperations()).toEqual([expect.objectContaining({
+                commitStarted: false,
+                workingCopyPath: targetPath,
+            })]);
+            await atomicReplace(tempPath, targetPath);
+            expect(snapshotMainOperations()).toEqual([expect.objectContaining({
+                commitStarted: true,
+                workingCopyPath: targetPath,
+            })]);
+        });
+
+        expect(readFileSync(targetPath, 'utf8')).toBe('new');
+        resetMainOperationLifecycleForTests();
     });
 });
 

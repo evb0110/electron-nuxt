@@ -249,6 +249,7 @@ describe('useDocumentWorkspaceAgent', () => {
         await expect(agent.runAgentAction('ui.open_sidebar_tab', {tab: 'bookmarks'}, {}, {
             signal: abortController.signal,
             documentIdentity: null,
+            documentInstanceId: null,
             assertCurrentDocument,
         })).rejects.toThrow('Agent command was aborted.');
         expect(assertCurrentDocument).not.toHaveBeenCalled();
@@ -274,6 +275,7 @@ describe('useDocumentWorkspaceAgent', () => {
         }]}, {}, {
             signal: new AbortController().signal,
             documentIdentity: firstIdentity,
+            documentInstanceId: 'instance-a',
             assertCurrentDocument: vi.fn(),
         })).rejects.toThrow('Agent command target document changed.');
         expect(waitForDocumentOpenSettled).toHaveBeenCalledOnce();

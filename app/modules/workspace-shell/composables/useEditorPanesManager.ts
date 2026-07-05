@@ -22,7 +22,7 @@ import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocu
 
 interface ICreateTabOptions {
     paneId?: string | null;
-    initial?: Partial<Pick<ITab, 'fileName' | 'originalPath' | 'isDirty' | 'isDjvu'>>;
+    initial?: Partial<Pick<ITab, 'fileName' | 'originalPath' | 'documentInstanceId' | 'isDirty' | 'isDjvu'>>;
     activate?: boolean;
 }
 
@@ -152,6 +152,7 @@ export const useEditorPanesManager = () => {
             id: allocateEntityId('tab'),
             fileName: initial?.fileName ?? null,
             originalPath: initial?.originalPath ?? null,
+            ...(initial?.documentInstanceId === undefined ? {} : {documentInstanceId: initial.documentInstanceId}),
             isDirty: initial?.isDirty ?? false,
             isDjvu: initial?.isDjvu ?? false,
         };

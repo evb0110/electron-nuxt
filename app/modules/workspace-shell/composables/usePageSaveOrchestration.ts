@@ -12,6 +12,7 @@ import type {
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { IPdfOptimizeOptions } from '@contracts/electronApiDocuments';
+import { isStaleRevisionError } from '@contracts/documentMutationErrors';
 import {
     usePdfSerialization,
     capturePdfReloadSnapshot,
@@ -452,7 +453,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             await getDocumentFilesCapability().replaceWorkingCopyFromPath(
                 payload.sourceWorkingCopyPath,
                 payload.pdfPath,
-                {expectedDocumentRevisionToken: documentRevisionToken.value},
+                {expectedDocumentRevisionToken: payload.sourceDocumentRevisionToken},
             );
             didReplaceWorkingCopy = true;
             if (workingCopyPath.value !== payload.sourceWorkingCopyPath) {
@@ -553,6 +554,21 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         try {
             await applyOcrCompleteResult(payload);
         } catch (error) {
+            if (isStaleRevisionError(error)) {
+                BrowserLogger.warn('ocr', 'Skipped OCR apply because the document changed after OCR started', {
+                    requestId: payload.requestId,
+                    sourceWorkingCopyPath: payload.sourceWorkingCopyPath,
+                    sourceDocumentRevisionToken: payload.sourceDocumentRevisionToken,
+                    pdfPath: payload.pdfPath,
+                    error,
+                });
+                await acknowledgeOcrResultFile(payload);
+                toast.add({
+                    color: 'error',
+                    title: t('errors.ocr.changedReload'),
+                });
+                return;
+            }
             BrowserLogger.error('ocr', 'Failed to apply OCR result', {
                 requestId: payload.requestId,
                 sourceWorkingCopyPath: payload.sourceWorkingCopyPath,

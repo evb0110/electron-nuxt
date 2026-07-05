@@ -6,6 +6,7 @@ import {
     handleOcrRecognize,
     handleOcrRecognizeBatch,
     handleOcrValidateTools,
+    subscribePlainOcrProgress,
 } from '@electron/features/ocr/main/ocrOperations';
 import {
     handlePreprocessingValidate,
@@ -15,6 +16,8 @@ import type {
     IOcrOperationContext,
     IOcrService,
 } from '@electron/features/ocr/ports';
+import { subscribeManagedOcrProgress } from '@electron/ocr/jobManager';
+import { OCR_EVENT_CHANNELS } from '@electron/features/ocr/contract';
 
 type TPreprocessPageContext = Parameters<typeof handlePreprocessPage>[0];
 
@@ -62,5 +65,12 @@ export function createOcrService(): IOcrService {
             handlePreprocessingValidate(),
         preprocessPage: (context, imageData, usePreprocessing) =>
             handlePreprocessPage(createPreprocessPageContext(context), imageData, usePreprocessing),
+        subscribeProgress: (context) => {
+            subscribePlainOcrProgress(context);
+            subscribeManagedOcrProgress(context.senderId, {
+                isDestroyed: () => context.sender.isDestroyed(),
+                send: (_channel, payload) => context.sender.send(OCR_EVENT_CHANNELS.progress, payload),
+            });
+        },
     };
 }

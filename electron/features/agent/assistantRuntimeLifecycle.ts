@@ -151,7 +151,7 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
 
     async function shutdownCodexRuntime(shutdownOptions: { shutdownMcp?: boolean } = {}) {
         runtimeStartPromise = null;
-        runtime?.client.shutdown();
+        await runtime?.client.shutdown();
         runtime = null;
         options.providerRuntime.runtimeState = 'stopped';
         options.sessionStore.clearActiveSessionForProvider('codex');
@@ -297,7 +297,7 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
             options.publishCodexState();
             return nextRuntime;
         } catch (error) {
-            client.shutdown();
+            await client.shutdown();
             runtime = null;
             options.providerRuntime.runtimeState = 'error';
             options.providerRuntime.lastError = getErrorMessage(error);

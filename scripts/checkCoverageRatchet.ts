@@ -22,10 +22,14 @@ const BASELINE_VERSION = 1;
 export interface ICoverageAreaDefinition { include: string[] }
 
 export const DEFAULT_COVERAGE_AREAS = {
+    'electron-djvu-feature': {include: ['electron/features/djvu/']},
     'electron-core': {include: ['electron/']},
+    'electron-ocr': {include: ['electron/ocr/']},
+    'electron-updates': {include: ['electron/updates']},
     'pdf-viewer-engine': {include: ['app/modules/pdf-viewer/engine/']},
     'pdf-viewer-navigation': {include: ['app/modules/pdf-viewer/runtime/navigation/']},
     'pdf-viewer-rendering': {include: ['app/modules/pdf-viewer/runtime/rendering/']},
+    'release-scripts': {include: ['scripts/release/']},
     'workspace-shell-composables': {include: ['app/modules/workspace-shell/composables/']},
 } satisfies Record<string, ICoverageAreaDefinition>;
 

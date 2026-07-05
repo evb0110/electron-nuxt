@@ -56,6 +56,13 @@ export function registerSearchIpcAdapter(
         ),
     );
     registrar.handle(SEARCH_CHANNELS.resetCache, () => service.resetCache());
+    registrar.handle(SEARCH_CHANNELS.subscribeProgress, (event) => {
+        service.subscribeProgress({
+            sender: event.sender,
+            senderId: event.sender.id,
+        });
+        return undefined;
+    });
 
     if (!appCleanupRegistered) {
         appCleanupRegistered = true;

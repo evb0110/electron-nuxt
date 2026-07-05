@@ -51,6 +51,10 @@ export function registerDjvuIpcAdapter(
         service.estimateSizes(createDjvuOperationContext(event), djvuPath));
     registrar.handle(DJVU_CHANNELS.cleanupTemp, (event, tempPdfPath) =>
         service.cleanupTemp(createDjvuOperationContext(event), tempPdfPath));
+    registrar.handle(DJVU_CHANNELS.subscribeProgress, (event) => {
+        service.subscribeProgress(createDjvuOperationContext(event));
+        return undefined;
+    });
 
     if (process.env.EVB_DJVU_SWEEP_STALE_TEMP !== '0') {
         void sweepStaleDjvuTempPdfs().catch((error: unknown) => {

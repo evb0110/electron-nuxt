@@ -161,4 +161,29 @@ describe('DocumentWorkspace orchestration grouping', () => {
         expect([...violations]).toEqual([]);
         expect([...consumedGroups].sort()).toEqual([...expectedOrchestrationGroups].sort());
     });
+
+    it('fences deferred search replay to the document identity that requested it', () => {
+        const source = readWorkspaceFile(documentWorkspacePath);
+        const scriptSetup = readScriptSetup(source);
+        const handlerStart = scriptSetup.indexOf('async function handleSearchWhenDocumentReady()');
+        const handlerEnd = scriptSetup.indexOf('\nfunction handleAnnotationComments', handlerStart);
+        expect(handlerStart).toBeGreaterThanOrEqual(0);
+        expect(handlerEnd).toBeGreaterThan(handlerStart);
+        const handlerSource = scriptSetup.slice(handlerStart, handlerEnd);
+        const identityCaptureIndex = handlerSource.indexOf(
+            'const requestedDocumentIdentity = readDeferredSearchDocumentIdentity();',
+        );
+        const readinessWaitIndex = handlerSource.indexOf('await waitForDocumentReadyForSearch()');
+        const identityGuardIndex = handlerSource.indexOf(
+            'if (!isDeferredSearchDocumentIdentityCurrent(requestedDocumentIdentity))',
+        );
+        const searchRunIndex = handlerSource.indexOf('await handleSearch();');
+
+        expect(scriptSetup).toContain('function readDeferredSearchDocumentIdentity()');
+        expect(scriptSetup).toContain('function isDeferredSearchDocumentIdentityCurrent');
+        expect(identityCaptureIndex).toBeGreaterThanOrEqual(0);
+        expect(identityCaptureIndex).toBeLessThan(readinessWaitIndex);
+        expect(identityGuardIndex).toBeGreaterThan(readinessWaitIndex);
+        expect(identityGuardIndex).toBeLessThan(searchRunIndex);
+    });
 });

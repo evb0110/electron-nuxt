@@ -3,6 +3,7 @@ import type {
     TDocumentRef,
 } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type { TDocumentInstanceId } from '@contracts/documentInstanceId';
 
 export type TWorkspaceCommandTarget =
     | {
@@ -11,6 +12,7 @@ export type TWorkspaceCommandTarget =
         sessionId: string;
         documentRef: TDocumentRef | null;
         documentBackend?: TDocumentBackend;
+        documentInstanceId?: TDocumentInstanceId | null;
         transactionId: string;
         documentRevisionToken?: TDocumentRevisionToken;
     }
@@ -20,6 +22,7 @@ export type TWorkspaceCommandTarget =
         sessionId: string;
         documentRef: TDocumentRef | null;
         documentBackend?: TDocumentBackend;
+        documentInstanceId?: TDocumentInstanceId | null;
         sessionRevision: number;
         documentRevisionToken?: TDocumentRevisionToken;
     };

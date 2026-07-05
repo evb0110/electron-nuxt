@@ -83,6 +83,7 @@ import {
 import { resetSettingsCacheAfterUserDataPathChange } from '@electron/settings';
 import { configureMacKeychainAccess } from '@electron/security/macKeychainAccess';
 import {
+    beginMainOperationShutdown,
     cancelAllMainOperations,
     drainCriticalMainOperations,
 } from '@electron/operation-lifecycle/mainOperationLifecycle';
@@ -258,6 +259,7 @@ function maybePromptForDefaultViewer() {
 }
 
 async function performShutdownCleanup() {
+    beginMainOperationShutdown('Main process is shutting down');
     if (defaultViewerPromptTimer) {
         clearTimeout(defaultViewerPromptTimer);
         defaultViewerPromptTimer = null;

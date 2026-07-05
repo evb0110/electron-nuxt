@@ -105,6 +105,7 @@ describe('useOcr', () => {
             requestId: string;
             success: boolean;
             pdfPath?: string;
+            sourceDocumentRevisionToken?: string;
             requiresCleanupAck?: boolean;
             errors: string[];
         }
@@ -167,6 +168,7 @@ describe('useOcr', () => {
             requestId: string;
             success: boolean;
             pdfPath?: string;
+            sourceDocumentRevisionToken?: string;
             requiresCleanupAck?: boolean;
             errors: string[];
         }
@@ -288,6 +290,7 @@ describe('useOcr', () => {
             requestId: string;
             success: boolean;
             pdfPath?: string;
+            sourceDocumentRevisionToken?: string;
             requiresCleanupAck?: boolean;
             errors: string[];
         }
@@ -317,6 +320,7 @@ describe('useOcr', () => {
                 requestId: firstRequestId,
                 success: true,
                 pdfPath: '/tmp/ocr-result.pdf',
+                sourceDocumentRevisionToken: 'source-revision-token',
                 requiresCleanupAck: true,
                 errors: [],
             });
@@ -325,6 +329,7 @@ describe('useOcr', () => {
             expect(ocr.results.value.searchablePdfResult).toEqual({
                 requestId: firstRequestId,
                 pdfPath: '/tmp/ocr-result.pdf',
+                sourceDocumentRevisionToken: 'source-revision-token',
                 requiresCleanupAck: true,
             });
             expect(mockOcr.acknowledgeResultFile).not.toHaveBeenCalled();
@@ -352,6 +357,7 @@ describe('useOcr', () => {
             requestId: string;
             success: boolean;
             pdfPath?: string;
+            sourceDocumentRevisionToken?: string;
             requiresCleanupAck?: boolean;
             errors: string[];
         }
@@ -404,6 +410,7 @@ describe('useOcr', () => {
                 requestId: requestId as string,
                 success: true,
                 pdfPath: '/tmp/ocr-result.pdf',
+                sourceDocumentRevisionToken: 'source-revision-token',
                 requiresCleanupAck: true,
                 errors: [],
             });
@@ -425,6 +432,7 @@ describe('useOcr', () => {
                 requestId: 'ocr-00000000-0000-4000-8000-000000000001',
                 success: true,
                 pdfPath: '/tmp/ocr-result.pdf',
+                sourceDocumentRevisionToken: 'source-revision-token',
                 requiresCleanupAck: true,
                 errors: [],
             }));
@@ -485,6 +493,7 @@ describe('useOcr', () => {
             requestId: string;
             success: boolean;
             pdfPath?: string;
+            sourceDocumentRevisionToken?: string;
             requiresCleanupAck?: boolean;
             errors: string[];
         }
@@ -516,6 +525,7 @@ describe('useOcr', () => {
                 requestId,
                 success: true,
                 pdfPath: '/tmp/ocr-result.pdf',
+                sourceDocumentRevisionToken: 'source-revision-token',
                 requiresCleanupAck: true,
                 errors: [],
             });

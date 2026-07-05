@@ -19,12 +19,7 @@ export async function savePdfBytesAs(
 ) {
     const documentFiles = getDocumentFilesCapability();
     if (typeof documentFiles.savePdfDataAs === 'function') {
-        if (serializedSaveOptions) {
-            return documentFiles.savePdfDataAs(workingPath, data, options, serializedSaveOptions);
-        }
-        return options
-            ? documentFiles.savePdfDataAs(workingPath, data, options)
-            : documentFiles.savePdfDataAs(workingPath, data);
+        return documentFiles.savePdfDataAs(workingPath, data, options, serializedSaveOptions);
     }
 
     const validation = await getDocumentPdfCapability().validatePdfData(data);
@@ -41,10 +36,9 @@ export async function savePdfBytesAs(
         data,
     );
     try {
+        const stagedRevision = await documentFiles.getDocumentRevision(stagedWorkingPath);
         return {
-            path: options
-                ? await documentFiles.savePdfAs(stagedWorkingPath, options)
-                : await documentFiles.savePdfAs(stagedWorkingPath),
+            path: await documentFiles.savePdfAs(stagedWorkingPath, options, { expectedDocumentRevisionToken: stagedRevision.token }),
             validation,
         };
     } finally {

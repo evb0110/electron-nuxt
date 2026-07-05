@@ -31,4 +31,5 @@ export interface IImageExportService {
         outputPath?: string;
         outputPaths?: string[];
     }>;
+    subscribeProgress: (context: IImageExportOperationContext) => void;
 }

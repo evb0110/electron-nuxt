@@ -27,6 +27,46 @@ import { registerMainOperation } from '@electron/operation-lifecycle/mainOperati
 const logger = createLogger('image-export');
 
 type TImageExportProgressPayload = Omit<IImageExportProgress, 'format' | 'percent' | 'requestId'> & {percent?: number;};
+type TImageExportProgressPump = ReturnType<typeof createIpcProgressPump<IImageExportProgress>>;
+
+const progressPumpsBySenderId = new Map<number, TImageExportProgressPump>();
+const progressPumpSenderCleanupIds = new Set<number>();
+
+function getImageExportProgressPump(sender: Electron.WebContents) {
+    let pump = progressPumpsBySenderId.get(sender.id);
+    if (pump) {
+        return pump;
+    }
+
+    pump = createIpcProgressPump<IImageExportProgress>({
+        channel: IMAGE_EXPORT_EVENT_CHANNELS.progress,
+        getTarget: () => sender,
+        getKey: (progress: IImageExportProgress) => progress.requestId,
+        isTerminal: (progress: IImageExportProgress) => progress.processed >= progress.total || progress.percent >= 100,
+        onError: (error: unknown) => {
+            logger.debug(`Failed to send image export progress update: ${String(error)}`);
+        },
+        onIdle: () => {
+            progressPumpsBySenderId.delete(sender.id);
+        },
+    });
+    progressPumpsBySenderId.set(sender.id, pump);
+
+    if (!progressPumpSenderCleanupIds.has(sender.id)) {
+        progressPumpSenderCleanupIds.add(sender.id);
+        sender.once('destroyed', () => {
+            progressPumpsBySenderId.get(sender.id)?.dispose();
+            progressPumpsBySenderId.delete(sender.id);
+            progressPumpSenderCleanupIds.delete(sender.id);
+        });
+    }
+
+    return pump;
+}
+
+export function subscribeImageExportProgress(sender: Electron.WebContents) {
+    getImageExportProgressPump(sender).subscribe(sender);
+}
 
 async function validateWorkingPdfPath(path: unknown, senderWebContentsId: number) {
     if (!path || typeof path !== 'string' || path.trim() === '') {
@@ -219,15 +259,7 @@ function createImageExportProgressReporter(
     if (!normalizedRequestId) {
         return undefined;
     }
-    const progressPump = createIpcProgressPump<IImageExportProgress>({
-        channel: IMAGE_EXPORT_EVENT_CHANNELS.progress,
-        getTarget: () => sender,
-        getKey: progress => progress.requestId,
-        isTerminal: progress => progress.processed >= progress.total || progress.percent >= 100,
-        onError: error => {
-            logger.debug(`Failed to send image export progress update: ${String(error)}`);
-        },
-    });
+    const progressPump = getImageExportProgressPump(sender);
 
     return (progress: TImageExportProgressPayload) => {
         const total = Math.max(1, Math.trunc(progress.total));
@@ -241,6 +273,12 @@ function createImageExportProgressReporter(
             percent: clamp(progress.percent ?? ((processed / total) * 100), 0, 100),
         });
     };
+}
+
+function clearImageExportProgress(context: IImageExportOperationContext, requestId: string) {
+    if (requestId) {
+        progressPumpsBySenderId.get(context.sender.id)?.clearKey(requestId);
+    }
 }
 
 async function showExportImageDialog(parentWindow: BrowserWindow | null, defaultName: string) {
@@ -361,6 +399,7 @@ export async function handlePdfExportImages(
         }
         throw error;
     } finally {
+        clearImageExportProgress(context, normalizedRequestId);
         linkedAbort.cleanup();
         lifecycle.cleanup();
         mainOperation.complete();
@@ -442,6 +481,7 @@ export async function handlePdfExportMultiPageTiff(
         }
         throw error;
     } finally {
+        clearImageExportProgress(context, normalizedRequestId);
         linkedAbort.cleanup();
         lifecycle.cleanup();
         mainOperation.complete();

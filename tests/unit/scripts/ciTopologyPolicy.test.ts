@@ -137,9 +137,19 @@ describe('CI topology policy', () => {
         const testsTsconfig = await readTsConfigJsonWithGlobs('tests/tsconfig.json');
         const sharedVitestConfig = await readProjectFile('vitest.shared.config.ts');
 
-        expect(workflow).not.toContain('Detect Changed Areas');
         expect(workflow).not.toContain('github.event_name == \'push\'');
-        expect(workflow).not.toContain('needs.changes');
+        expect(workflow).toContain('name: Pull Request Changed Area Detection');
+        expect(workflowJob(workflow, 'pr_changed_areas')).toContain('uses: dorny/paths-filter@v3');
+        expect(workflowJob(workflow, 'pr_changed_areas')).toContain('native/**');
+        expect(workflowJob(workflow, 'pr_changed_areas')).toContain('scripts/build-*.mjs');
+        expect(workflowJob(workflow, 'pr_changed_areas')).toContain('scripts/release/**');
+        expect(workflowJob(workflow, 'pr_changed_areas')).toContain('electron-builder.yml');
+        expect(workflow).toContain('name: Pull Request Native And Build Safety');
+        expect(workflowJob(workflow, 'pr_native_build_safety')).toContain('needs: pr_changed_areas');
+        expect(workflowJob(workflow, 'pr_native_build_safety')).toContain('needs.pr_changed_areas.outputs.native_or_build == \'true\'');
+        expect(workflowJob(workflow, 'pr_native_build_safety')).toContain('run: pnpm run test:rust');
+        expect(workflowJob(workflow, 'pr_native_build_safety')).toContain('run: pnpm run build:strict');
+        expect(workflowJob(workflow, 'pr_native_build_safety')).not.toContain('run: pnpm run test:e2e');
         expect(workflow).toContain('name: Native Rust Tests');
         expect(workflowJob(workflow, 'manual_native')).toContain('if: ${{ github.event_name == \'workflow_dispatch\' }}');
         expect(workflowJob(workflow, 'manual_native')).toContain('run: pnpm run test:rust');

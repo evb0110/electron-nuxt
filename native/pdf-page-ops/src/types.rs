@@ -1,4 +1,5 @@
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+const PROTOCOL_VERSION: u32 = 1;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 

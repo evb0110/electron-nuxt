@@ -899,15 +899,19 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
             return;
         }
 
-        activeWorker = worker;
-        const sizes = await worker.getPageSizes();
-        if (!isCurrentLoadGeneration(generation) || worker !== activeWorker) {
-            if (worker === activeWorker && state.pageSizes.value.length === 0) {
-                discardStaleWorker(worker);
-            }
+        let sizes: IPreviewPageSize[];
+        try {
+            sizes = await worker.getPageSizes();
+        } catch (error) {
+            discardStaleWorker(worker);
+            throw error;
+        }
+        if (!isCurrentLoadGeneration(generation)) {
+            discardStaleWorker(worker);
             return;
         }
 
+        activeWorker = worker;
         state.pageSizes.value = sizes;
         state.pageStates.value = sizes.map(createIdlePageState);
     }

@@ -40,4 +40,16 @@ describe('DjVu PDF worker client', () => {
         const options = mocks.startStreamingWorkerTask.mock.calls[0]?.[0];
         expect(options.createCancelMessage('abort')).toEqual({ type: 'cancel' });
     });
+
+    it('passes estimate task signals into the worker cancel protocol', async () => {
+        const controller = new AbortController();
+        const { createDjvuPdfEstimateTask } = await import('@electron/features/djvu/main/pdfWorkerClient');
+
+        createDjvuPdfEstimateTask('/tmp/page.ppm', 300, {signal: controller.signal});
+
+        expect(mocks.startStreamingWorkerTask).toHaveBeenCalledWith(expect.objectContaining({
+            createCancelMessage: expect.any(Function),
+            signal: controller.signal,
+        }));
+    });
 });

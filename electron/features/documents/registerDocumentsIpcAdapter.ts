@@ -161,7 +161,10 @@ function createWebContentsContext(event: IpcMainInvokeEvent): IDocumentsWebConte
 }
 
 function createSenderIdContext(event: IpcMainInvokeEvent): IDocumentsSenderIdContext {
-    return {senderId: getSenderId(event)};
+    return {
+        sender: event.sender,
+        senderId: getSenderId(event),
+    };
 }
 
 function createDialogContext(event: IpcMainInvokeEvent): IDocumentsDialogContext {
@@ -391,9 +394,10 @@ export function registerDocumentsIpcAdapter(
         ...[
             workingPath,
             options,
+            revisionOptions,
         ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.savePdfAs>
     ) =>
-        service.savePdfAs(createDialogContext(event), workingPath, options));
+        service.savePdfAs(createDialogContext(event), workingPath, options, revisionOptions));
     register(DOCUMENTS_CHANNELS.savePdfDataAs, (
         event: IpcMainInvokeEvent,
         ...[
@@ -549,9 +553,12 @@ export function registerDocumentsIpcAdapter(
         service.writeDocxFile(createSenderIdContext(event), filePath, data));
     register(DOCUMENTS_CHANNELS.fileSaveStructured, (
         event: IpcMainInvokeEvent,
-        ...[workingPath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileSaveStructured>
+        ...[
+            workingPath,
+            options,
+        ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileSaveStructured>
     ) =>
-        service.saveFileStructured(createSenderIdContext(event), workingPath));
+        service.saveFileStructured(createSenderIdContext(event), workingPath, options));
     register(DOCUMENTS_CHANNELS.fileResyncWorkingCopy, (
         event: IpcMainInvokeEvent,
         ...[workingPath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileResyncWorkingCopy>
@@ -559,14 +566,20 @@ export function registerDocumentsIpcAdapter(
         service.resyncWorkingCopy(createSenderIdContext(event), workingPath));
     register(DOCUMENTS_CHANNELS.fileRepairPdf, (
         event: IpcMainInvokeEvent,
-        ...[workingPath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileRepairPdf>
+        ...[
+            workingPath,
+            options,
+        ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileRepairPdf>
     ) =>
-        service.repairPdf(createSenderIdContext(event), workingPath));
+        service.repairPdf(createSenderIdContext(event), workingPath, options));
     register(DOCUMENTS_CHANNELS.fileOptimizePdfForInteraction, (
         event: IpcMainInvokeEvent,
-        ...[workingPath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileOptimizePdfForInteraction>
+        ...[
+            workingPath,
+            options,
+        ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileOptimizePdfForInteraction>
     ) =>
-        service.optimizePdfForInteraction(createSenderIdContext(event), workingPath));
+        service.optimizePdfForInteraction(createSenderIdContext(event), workingPath, options));
     register(DOCUMENTS_CHANNELS.fileOptimizePdfAsCopy, (
         event: IpcMainInvokeEvent,
         ...[

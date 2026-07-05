@@ -33,12 +33,8 @@ export async function savePdfBytesToWorkingCopy(
 
     const validation = await getDocumentPdfCapability().validatePdfData(data);
     if (validation.isValid) {
-        if (options) {
-            await documentFiles.writeFile(workingPath, data, options);
-        } else {
-            await documentFiles.writeFile(workingPath, data);
-        }
-        const structuredSave = await documentFiles.saveFileStructured(workingPath);
+        await documentFiles.writeFile(workingPath, data, options);
+        const structuredSave = await documentFiles.saveFileStructured(workingPath, options);
         if (!structuredSave.ok) {
             return {
                 ...validation,

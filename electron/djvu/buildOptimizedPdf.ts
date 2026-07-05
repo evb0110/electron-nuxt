@@ -14,6 +14,17 @@ import {
 } from '@electron/djvu/netpbm';
 import { tryBuildOptimizedPdfWithNativeImageCombiner } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
 
+interface IBuildOptimizedPdfOptions { signal?: AbortSignal; }
+
+function throwIfAborted(signal: AbortSignal | undefined) {
+    if (!signal?.aborted) {
+        return;
+    }
+    throw signal.reason instanceof Error
+        ? signal.reason
+        : new DOMException('Operation aborted', 'AbortError');
+}
+
 function createImageXObject(
     context: PDFContext,
     width: number,
@@ -57,8 +68,16 @@ export async function buildOptimizedPdf(
     imagePaths: string[],
     dpi: number,
     onPageProcessed?: (pageNum: number, totalPages: number) => void,
+    options: IBuildOptimizedPdfOptions = {},
 ) {
-    const nativePdf = await tryBuildOptimizedPdfWithNativeImageCombiner(imagePaths, dpi, onPageProcessed);
+    throwIfAborted(options.signal);
+    const nativePdf = await tryBuildOptimizedPdfWithNativeImageCombiner(
+        imagePaths,
+        dpi,
+        onPageProcessed,
+        options.signal === undefined ? undefined : {signal: options.signal},
+    );
+    throwIfAborted(options.signal);
     if (nativePdf) {
         return nativePdf;
     }
@@ -67,7 +86,9 @@ export async function buildOptimizedPdf(
     const context = doc.context;
 
     for (let i = 0; i < imagePaths.length; i++) {
+        throwIfAborted(options.signal);
         const fileData = await readFile(imagePaths[i]!);
+        throwIfAborted(options.signal);
         const {
             width,
             height,
@@ -93,6 +114,7 @@ export async function buildOptimizedPdf(
             imagePixels = pixels;
         }
 
+        throwIfAborted(options.signal);
         const pageWidth = (width / dpi) * 72;
         const pageHeight = (height / dpi) * 72;
 
@@ -110,5 +132,6 @@ export async function buildOptimizedPdf(
         onPageProcessed?.(i + 1, imagePaths.length);
     }
 
+    throwIfAborted(options.signal);
     return new Uint8Array(await doc.save());
 }

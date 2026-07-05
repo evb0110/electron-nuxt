@@ -21,7 +21,7 @@ import {
 import {
     cloneAssistantScope,
     createSelectedAssistantStatus,
-    getStateScopeKey,
+    getStateScopeFingerprint,
     normalizeEffortValue,
     normalizeModelValue,
     normalizeProviderValue,
@@ -30,6 +30,7 @@ import {
     providerDefaultSpeedMode,
     speedModesForProviderStatus,
 } from '@app/modules/agent-panel/utils/assistantSelectionState';
+import { buildAgentAssistantScopeFingerprint } from '@contracts/agent';
 import { createEmptyAssistantState } from '@app/modules/agent-panel/utils/createEmptyAssistantState';
 import {
     ASSISTANT_PRESETS,
@@ -482,7 +483,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
 
         const shouldKeepMessages = keepMessages
             && baseState.status.provider === provider
-            && getStateScopeKey(baseState) === (chatScope.value?.key ?? null);
+            && getStateScopeFingerprint(baseState) === buildAgentAssistantScopeFingerprint(provider, chatScope.value);
         return {
             scope: chatScope.value ? cloneAssistantScope(chatScope.value) : null,
             status: createSelectedAssistantStatus(baseState.status, providerStatus, model, effort, speedMode),
@@ -566,8 +567,8 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     }
 
     function isCurrentScopeState(nextState: IAgentAssistantState) {
-        return nextState.status.provider === selectedProvider.value
-            && getStateScopeKey(nextState) === (chatScope.value?.key ?? null);
+        return getStateScopeFingerprint(nextState)
+            === buildAgentAssistantScopeFingerprint(selectedProvider.value, chatScope.value);
     }
 
     function isAssistantMessagesNearBottom() {
@@ -1071,7 +1072,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         return t('assistant.roleAssistant');
     }
 
-    watch(() => chatScope.value?.key ?? null, () => {
+    watch(() => buildAgentAssistantScopeFingerprint(selectedProvider.value, chatScope.value), () => {
         interruptAssistantStateBestEffort(state.value, 'Failed to interrupt assistant turn before switching scope');
         stateGeneration += 1;
         sendGeneration += 1;

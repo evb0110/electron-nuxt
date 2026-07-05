@@ -46,4 +46,8 @@ export function registerOcrIpcAdapter(
         service.preprocessingValidate(createOcrOperationContext(event)));
     registrar.handle(OCR_CHANNELS.preprocessingPreprocessPage, (event, imageData, usePreprocessing) =>
         service.preprocessPage(createOcrOperationContext(event), imageData, usePreprocessing));
+    registrar.handle(OCR_CHANNELS.subscribeProgress, (event) => {
+        service.subscribeProgress(createOcrOperationContext(event));
+        return undefined;
+    });
 }

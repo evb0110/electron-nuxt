@@ -70,6 +70,7 @@ function createDjvuPdfWorkerTask<T>(
         timeoutMs: DJVU_PDF_WORKER_TIMEOUT_MS,
         ...(options.signal ? { signal: options.signal } : {}),
         createCancelMessage: () => ({ type: 'cancel' }),
+        cooperativeCancelDelayMs: 5_000,
         onProgressMessage: (payload) => {
             const progress = parseProgressMessage(payload);
             if (!progress) {
@@ -87,30 +88,39 @@ function createDjvuPdfWorkerTask<T>(
     });
 }
 
+function normalizeWorkerTaskOptions(options: { signal?: AbortSignal } | AbortSignal = {}) {
+    return options instanceof AbortSignal ? {signal: options} : options;
+}
+
 export function createDjvuPdfEstimateTask(
     imagePath: string,
     dpi: number,
+    options: { signal?: AbortSignal } = {},
 ): IStreamingWorkerTaskHandle<number> {
     return createDjvuPdfWorkerTask({
         type: 'estimatePdfSize',
         imagePath,
         dpi,
-    }, {decodeResult: (data) => (typeof data === 'number' && Number.isFinite(data) ? data : null)});
+    }, {
+        ...(options.signal ? { signal: options.signal } : {}),
+        decodeResult: (data) => (typeof data === 'number' && Number.isFinite(data) ? data : null),
+    });
 }
 
 export function createDjvuPdfBookmarkTask(
     inputPdfPath: string,
     outputPdfPath: string,
     bookmarks: IPdfBookmarkEntry[],
-    options: { signal?: AbortSignal } = {},
+    options: { signal?: AbortSignal } | AbortSignal = {},
 ): IStreamingWorkerTaskHandle<void> {
+    const normalizedOptions = normalizeWorkerTaskOptions(options);
     return createDjvuPdfWorkerTask({
         type: 'embedBookmarksInFile',
         inputPdfPath,
         outputPdfPath,
         bookmarks,
     }, {
-        ...(options.signal ? { signal: options.signal } : {}),
+        ...(normalizedOptions.signal ? { signal: normalizedOptions.signal } : {}),
         decodeResult: (data) => (typeof data === 'number' && Number.isFinite(data) ? undefined : null),
     });
 }

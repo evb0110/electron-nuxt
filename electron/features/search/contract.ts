@@ -9,6 +9,7 @@ export const SEARCH_CHANNELS = {
     warmIndex: 'pdf:search:warmIndex',
     cancel: 'pdf:search:cancel',
     resetCache: 'pdf:search:resetCache',
+    subscribeProgress: 'pdf:search:progress:subscribe',
 } as const;
 
 export const SEARCH_EVENT_CHANNELS = {progress: 'pdf:search:progress'} as const;
@@ -36,6 +37,10 @@ export interface ISearchInvokeMap {
     [SEARCH_CHANNELS.resetCache]: {
         args: [];
         result: Awaited<ReturnType<ISearchPreloadClient['resetCache']>>;
+    };
+    [SEARCH_CHANNELS.subscribeProgress]: {
+        args: [];
+        result: undefined;
     };
 }
 

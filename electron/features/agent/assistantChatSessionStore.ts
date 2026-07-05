@@ -83,6 +83,8 @@ export function cloneAssistantScope(scope: IAgentAssistantChatScope): IAgentAssi
         key: scope.key,
         title: scope.title,
         ...(scope.tabId == null ? {} : { tabId: scope.tabId }),
+        ...(scope.documentSessionKey == null ? {} : { documentSessionKey: scope.documentSessionKey }),
+        ...(scope.documentInstanceId == null ? {} : { documentInstanceId: scope.documentInstanceId }),
         ...(scope.documentRef == null ? {} : { documentRef: scope.documentRef }),
         ...(scope.documentBackend === undefined ? {} : {documentBackend: scope.documentBackend}),
         ...(scope.documentIdentity == null ? {} : { documentIdentity: { ...scope.documentIdentity } }),
@@ -101,11 +103,15 @@ export function normalizeAssistantScope(scope: IAgentAssistantChatScope | null |
     }
 
     const title = scope.title?.trim();
+    const documentSessionKey = scope.documentSessionKey?.trim();
+    const documentInstanceId = scope.documentInstanceId?.trim();
     return {
         kind: 'document',
         key,
         title: title && title.length > 0 ? title : null,
         ...(scope.tabId?.trim() ? { tabId: scope.tabId.trim() } : {}),
+        ...(documentSessionKey ? { documentSessionKey } : {}),
+        ...(documentInstanceId ? { documentInstanceId } : {}),
         ...(scope.documentRef?.trim() ? { documentRef: scope.documentRef.trim() } : {}),
         ...(scope.documentBackend === 'browser' || scope.documentBackend === 'electron'
             ? {documentBackend: scope.documentBackend}

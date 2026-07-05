@@ -33,6 +33,8 @@ type TWorkingCopyMutationQueueModule = typeof WorkingCopyMutationQueueModule;
 
 interface IInvocationOrderMock { mock: { invocationCallOrder: number[] }; }
 
+const SERIALIZED_TEST_REVISION_OPTIONS = { expectedDocumentRevisionToken: 'drt1:test:base' };
+
 const mocks = vi.hoisted(() => ({
     atomicReplace: vi.fn(),
     makeSiblingTempPath: vi.fn((targetPath: string) => `${targetPath}.tmp`),
@@ -276,6 +278,8 @@ describe('serializedPdfPersistence', () => {
             workingPath,
             (512 * 1024 * 1024) + 1,
             targetPath,
+            undefined,
+            SERIALIZED_TEST_REVISION_OPTIONS,
         );
 
         expect(result).toMatchObject({
@@ -370,29 +374,22 @@ describe('serializedPdfPersistence', () => {
         expect(mocks.refreshWorkingCopyOriginalFileExpectation).not.toHaveBeenCalled();
     });
 
-    it('rejects streamed Save to original when the main-captured base revision goes stale', async () => {
+    it('rejects streamed Save to original when the caller-provided base revision goes stale', async () => {
         const workingPath = join(tempRoot, 'working-main-captured-stale.pdf');
         const originalPath = join(tempRoot, 'original-main-captured-stale.pdf');
         writeFileSync(workingPath, 'newer-working-copy');
         writeFileSync(originalPath, 'old-original');
         mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
-        mocks.getWorkingCopyRevision.mockResolvedValueOnce({
-            version: 1,
-            documentRef: workingPath,
-            authority: 'electron-working-copy',
-            token: 'drt1:test:main-captured',
-            contentRevision: 1,
-            mintedAt: 1,
-        });
         mocks.assertWorkingCopyRevisionCurrent.mockRejectedValueOnce(createStaleRevisionError({
             documentRef: workingPath,
-            expectedRevision: 'drt1:test:main-captured',
+            expectedRevision: 'drt1:test:caller-base',
             actualRevision: 'drt1:test:page-op',
         }));
 
         const result = await runSaveToOriginalSession({
             workingPath,
             bytes: Buffer.from('stale-serialized-pdf'),
+            serializedSaveOptions: { expectedDocumentRevisionToken: 'drt1:test:caller-base' },
         });
 
         expect(result).toMatchObject({
@@ -402,8 +399,8 @@ describe('serializedPdfPersistence', () => {
             retryable: true,
             expected: true,
         });
-        expect(mocks.getWorkingCopyRevision).toHaveBeenCalledWith(workingPath, 42);
-        expect(mocks.assertWorkingCopyRevisionCurrent).toHaveBeenCalledWith(workingPath, 'drt1:test:main-captured');
+        expect(mocks.getWorkingCopyRevision).not.toHaveBeenCalled();
+        expect(mocks.assertWorkingCopyRevisionCurrent).toHaveBeenCalledWith(workingPath, 'drt1:test:caller-base');
         expect(readFileSyncUtf8(originalPath)).toBe('old-original');
         expect(mocks.atomicReplace).not.toHaveBeenCalled();
     });
@@ -491,6 +488,8 @@ describe('serializedPdfPersistence', () => {
             workingPath,
             Buffer.byteLength('new-pdf'),
             targetPath,
+            undefined,
+            SERIALIZED_TEST_REVISION_OPTIONS,
         );
         const resultPromise = port.nextResult();
 
@@ -647,6 +646,8 @@ describe('serializedPdfPersistence', () => {
             workingPath,
             4,
             targetPath,
+            undefined,
+            SERIALIZED_TEST_REVISION_OPTIONS,
         );
         expect(beginResult).toMatchObject({
             sessionId: expect.any(String),
@@ -695,6 +696,8 @@ describe('serializedPdfPersistence', () => {
             workingPath,
             4,
             targetPath,
+            undefined,
+            SERIALIZED_TEST_REVISION_OPTIONS,
         );
         attachSerializedPdfPersistencePort(createPortEvent(sender, port), beginResult.sessionId);
         const resultPromise = port.nextResult();
@@ -740,6 +743,8 @@ describe('serializedPdfPersistence', () => {
             workingPath,
             4,
             targetPath,
+            undefined,
+            SERIALIZED_TEST_REVISION_OPTIONS,
         );
         attachSerializedPdfPersistencePort(createPortEvent(sender, port), beginResult.sessionId);
         const resultPromise = port.nextResult();
@@ -778,6 +783,8 @@ describe('serializedPdfPersistence', () => {
             join(tempRoot, 'working.pdf'),
             4,
             targetPath,
+            undefined,
+            SERIALIZED_TEST_REVISION_OPTIONS,
         );
         attachSerializedPdfPersistencePort(createPortEvent(sender, port), beginResult.sessionId);
         const messageEvent: {
@@ -816,6 +823,8 @@ describe('serializedPdfPersistence', () => {
             join(tempRoot, 'working.pdf'),
             128,
             targetPath,
+            undefined,
+            SERIALIZED_TEST_REVISION_OPTIONS,
         );
 
         expect(existsSync(tempPath)).toBe(true);
@@ -841,6 +850,8 @@ describe('serializedPdfPersistence', () => {
             join(tempRoot, 'working.pdf'),
             128,
             targetPath,
+            undefined,
+            SERIALIZED_TEST_REVISION_OPTIONS,
         );
 
         expect(existsSync(tempPath)).toBe(true);
@@ -866,6 +877,8 @@ describe('serializedPdfPersistence', () => {
             join(tempRoot, 'working.pdf'),
             128,
             targetPath,
+            undefined,
+            SERIALIZED_TEST_REVISION_OPTIONS,
         );
 
         expect(existsSync(tempPath)).toBe(true);
@@ -891,6 +904,8 @@ describe('serializedPdfPersistence', () => {
                 join(tempRoot, 'working.pdf'),
                 128,
                 targetPath,
+                undefined,
+                SERIALIZED_TEST_REVISION_OPTIONS,
             )).resolves.toMatchObject({sessionId: expect.any(String)});
         }
 
@@ -899,6 +914,8 @@ describe('serializedPdfPersistence', () => {
             join(tempRoot, 'working.pdf'),
             128,
             join(tempRoot, 'limited-overflow.pdf'),
+            undefined,
+            SERIALIZED_TEST_REVISION_OPTIONS,
         )).rejects.toThrow('Too many active PDF persistence streams');
 
         sender.emit('destroyed');
@@ -924,6 +941,8 @@ describe('serializedPdfPersistence', () => {
             join(tempRoot, 'working.pdf'),
             128,
             targetPath,
+            undefined,
+            SERIALIZED_TEST_REVISION_OPTIONS,
         );
         attachSerializedPdfPersistencePort(createPortEvent(sender, port), beginResult.sessionId);
 
@@ -953,6 +972,8 @@ describe('serializedPdfPersistence', () => {
             join(tempRoot, 'working.pdf'),
             (8 * 1024 * 1024) + 1,
             targetPath,
+            undefined,
+            SERIALIZED_TEST_REVISION_OPTIONS,
         );
         attachSerializedPdfPersistencePort(createPortEvent(sender, port), beginResult.sessionId);
 
@@ -977,12 +998,14 @@ describe('serializedPdfPersistence', () => {
     });
 });
 
+interface ISerializedPersistenceTestRevisionOptions { expectedDocumentRevisionToken: string }
+
 async function runSaveAsSession(options: {
     workingPath: string;
     targetPath: string;
     bytes: Uint8Array;
     options?: { optimizeLossless?: boolean };
-    serializedSaveOptions?: { expectedDocumentRevisionToken?: string | null };
+    serializedSaveOptions?: ISerializedPersistenceTestRevisionOptions;
 }) {
     const {
         attachSerializedPdfPersistencePort,
@@ -995,7 +1018,7 @@ async function runSaveAsSession(options: {
         options.bytes.byteLength,
         options.targetPath,
         options.options,
-        options.serializedSaveOptions,
+        options.serializedSaveOptions ?? SERIALIZED_TEST_REVISION_OPTIONS,
     );
     const port = new FakeMessagePort();
     const resultPromise = port.nextResult();
@@ -1015,7 +1038,7 @@ async function runSaveAsSession(options: {
 async function runSaveToOriginalSession(options: {
     workingPath: string;
     bytes: Uint8Array;
-    serializedSaveOptions?: { expectedDocumentRevisionToken?: string | null };
+    serializedSaveOptions?: ISerializedPersistenceTestRevisionOptions;
 }) {
     const {
         attachSerializedPdfPersistencePort,
@@ -1026,7 +1049,7 @@ async function runSaveToOriginalSession(options: {
         createInvokeEvent(sender),
         options.workingPath,
         options.bytes.byteLength,
-        options.serializedSaveOptions,
+        options.serializedSaveOptions ?? SERIALIZED_TEST_REVISION_OPTIONS,
     );
     const port = new FakeMessagePort();
     const resultPromise = port.nextResult();

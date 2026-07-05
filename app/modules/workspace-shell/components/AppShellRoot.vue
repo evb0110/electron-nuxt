@@ -666,7 +666,9 @@ const assistantChatScope = computed<IAgentAssistantChatScope | null>(() => {
     }
 
     const session = documentSessionsByTabId.value[tab.id] ?? null;
-    const documentSessionKey = session ? unref(session.snapshot).identity.documentSessionKey : null;
+    const identity = session ? unref(session.snapshot).identity : null;
+    const documentSessionKey = identity?.documentSessionKey ?? null;
+    const documentInstanceId = identity?.documentInstanceId ?? null;
     const documentRef = tab.originalPath;
     const documentBackend = resolveDocumentRefBackend(documentRef);
     const documentIdentity = activeDocumentRecord.value?.documentIdentity ?? null;
@@ -681,6 +683,8 @@ const assistantChatScope = computed<IAgentAssistantChatScope | null>(() => {
                 : `tab:${tab.id}`,
         title,
         tabId: tab.id,
+        ...(documentSessionKey ? { documentSessionKey } : {}),
+        ...(documentInstanceId ? { documentInstanceId } : {}),
         ...(documentRef ? { documentRef } : {}),
         ...(documentBackend === undefined ? {} : {documentBackend}),
         ...(documentIdentity ? { documentIdentity } : {}),

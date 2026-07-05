@@ -4,6 +4,7 @@ import {
     writeFile,
 } from 'fs/promises';
 import type {
+    IDocumentMutationRevisionOptions,
     IPdfSaveAsOptions,
     IPdfSerializedSaveOptions,
 } from '@contracts/electronApiDocuments';
@@ -66,6 +67,7 @@ export async function savePdfAs(
     workingPath: string,
     options: IPdfSaveAsOptions | undefined,
     showSaveDialogWithExtension: TShowSaveDialogWithExtension,
+    revisionOptions?: IDocumentMutationRevisionOptions,
 ) {
     const normalizedWorkingPath = typeof workingPath === 'string' ? workingPath.trim() : '';
     if (!normalizedWorkingPath) {
@@ -83,6 +85,7 @@ export async function savePdfAs(
     if (!existsSync(normalizedWorkingPath)) {
         throw new Error(`File not found: ${normalizedWorkingPath}`);
     }
+    const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(revisionOptions);
 
     const originalPath = getWorkingCopyOriginalPath(normalizedWorkingPath, context.senderId)?.originalPath;
     const suggestedName = originalPath
@@ -100,7 +103,7 @@ export async function savePdfAs(
     }
 
     await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
-        await assertQueuedWorkingCopyMutationPreconditions(normalizedWorkingPath);
+        await assertQueuedWorkingCopyMutationPreconditions(normalizedWorkingPath, expectedDocumentRevisionToken);
         if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, context.senderId)) {
             throw new Error('Working copy path is not managed');
         }
@@ -161,6 +164,7 @@ export async function savePdfDataAs(
     if (!existsSync(normalizedWorkingPath)) {
         throw new Error(`File not found: ${normalizedWorkingPath}`);
     }
+    const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(serializedSaveOptions);
 
     const originalPath = getWorkingCopyOriginalPath(normalizedWorkingPath, context.senderId)?.originalPath;
     const suggestedName = originalPath
@@ -181,7 +185,6 @@ export async function savePdfDataAs(
     }
 
     const tempPath = makeSiblingTempPath(targetPath);
-    const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(serializedSaveOptions);
     let replaced = false;
     try {
         await writeFile(tempPath, payload);

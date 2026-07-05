@@ -6,6 +6,7 @@ import type {
 export const IMAGE_EXPORT_CHANNELS = {
     exportImages: 'pdfExport:images',
     exportMultiPageTiff: 'pdfExport:multipage-tiff',
+    subscribeProgress: 'pdfExport:progress:subscribe',
 } as const;
 
 export const IMAGE_EXPORT_EVENT_CHANNELS = {progress: 'pdfExport:progress'} as const;
@@ -18,6 +19,10 @@ export interface IImageExportInvokeMap {
     [IMAGE_EXPORT_CHANNELS.exportMultiPageTiff]: {
         args: [workingCopyPath: string, pageNumbers?: number[], requestId?: string];
         result: Awaited<ReturnType<IImageExportCapability['exportPdfToMultiPageTiff']>>;
+    };
+    [IMAGE_EXPORT_CHANNELS.subscribeProgress]: {
+        args: [];
+        result: undefined;
     };
 }
 

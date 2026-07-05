@@ -80,6 +80,7 @@ describe('createOcrPreloadClient', () => {
             requestId: 'ocr-1',
             success: true,
             pdfPath: '/tmp/out.pdf',
+            sourceDocumentRevisionToken: 'source-revision-token',
             requiresCleanupAck: true,
             errors: [],
         });
@@ -110,16 +111,24 @@ describe('createOcrPreloadClient', () => {
                 timestamp: 123,
             },
         });
+        listeners.get(OCR_EVENT_CHANNELS.complete)?.({}, {
+            requestId: 'ocr-5',
+            success: true,
+            pdfPath: '/tmp/out-without-token.pdf',
+            requiresCleanupAck: true,
+            errors: [],
+        });
 
         expect(progressCallback).toHaveBeenCalledTimes(1);
         expect(progressCallback).toHaveBeenCalledWith(expect.objectContaining({
             requestId: 'ocr-1',
             currentPage: 1,
         }));
-        expect(completeCallback).toHaveBeenCalledTimes(4);
+        expect(completeCallback).toHaveBeenCalledTimes(5);
         expect(completeCallback).toHaveBeenCalledWith(expect.objectContaining({
             requestId: 'ocr-1',
             pdfPath: '/tmp/out.pdf',
+            sourceDocumentRevisionToken: 'source-revision-token',
         }));
         expect(completeCallback).toHaveBeenCalledWith(expect.objectContaining({
             requestId: 'ocr-3',
@@ -148,6 +157,16 @@ describe('createOcrPreloadClient', () => {
             errorEnvelope: expect.objectContaining({
                 code: 'OCR_INVALID_PAYLOAD',
                 message: 'Malformed OCR completion error envelope',
+                retryable: false,
+            }),
+        }));
+        expect(completeCallback).toHaveBeenCalledWith(expect.objectContaining({
+            requestId: 'ocr-5',
+            success: false,
+            errors: ['Malformed OCR completion payload'],
+            errorEnvelope: expect.objectContaining({
+                code: 'OCR_INVALID_PAYLOAD',
+                message: 'Malformed OCR completion payload',
                 retryable: false,
             }),
         }));

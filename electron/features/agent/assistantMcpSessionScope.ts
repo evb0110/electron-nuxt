@@ -78,6 +78,9 @@ export function assertAssistantMcpSnapshotMatchesScope(
     ) {
         throw new Error('The active assistant document changed before the internal EVB MCP request completed.');
     }
+    if ((binding.documentInstanceId ?? null) !== (tab.documentInstanceId ?? null)) {
+        throw new Error('The active assistant document changed before the internal EVB MCP request completed.');
+    }
     if (binding.documentIdentity === null) {
         return;
     }
@@ -97,6 +100,7 @@ export function createAssistantCommandExecutionScope(
         tabId: binding.tabId,
         documentRef: binding.documentRef,
         ...(binding.documentBackend === undefined ? {} : {documentBackend: binding.documentBackend}),
+        documentInstanceId: binding.documentInstanceId ?? null,
         documentIdentity: binding.documentIdentity,
         ...(binding.commandTarget === undefined ? {} : {commandTarget: {...binding.commandTarget}}),
     };
@@ -116,6 +120,7 @@ function commandTargetsMatch(
         || expected.sessionId !== actual.sessionId
         || expected.documentRef !== actual.documentRef
         || expected.documentBackend !== actual.documentBackend
+        || (expected.documentInstanceId ?? null) !== (actual.documentInstanceId ?? null)
         || expected.documentRevisionToken !== actual.documentRevisionToken
     ) {
         return false;

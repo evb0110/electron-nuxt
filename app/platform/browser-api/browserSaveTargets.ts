@@ -1,5 +1,8 @@
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { TDocumentSaveResult } from '@contracts/electronApiDocuments';
+import type {
+    IDocumentMutationRevisionOptions,
+    TDocumentSaveResult,
+} from '@contracts/electronApiDocuments';
 import {
     BROWSER_MAX_FULL_READ_BYTES,
     browserDocumentStore,
@@ -92,8 +95,13 @@ export async function saveWorkingBytesToSource(
 export async function saveWorkingBytesToSourceStructured(
     workingCopyPath: TDocumentRef,
     getBrowserLargeSaveHandleHint: () => string,
+    revisionOptions?: IDocumentMutationRevisionOptions,
 ): Promise<TDocumentSaveResult> {
     try {
+        await browserDocumentStore.assertDocumentRevisionCurrent(
+            workingCopyPath,
+            revisionOptions?.expectedDocumentRevisionToken,
+        );
         const saved = await saveWorkingBytesToSource(workingCopyPath, getBrowserLargeSaveHandleHint);
         if (!saved) {
             return {

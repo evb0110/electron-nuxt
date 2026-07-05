@@ -198,19 +198,32 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
         version: number,
         shouldContinue: () => boolean,
     ) {
+        let pageLoadTimedOut = false;
+        const pagePromise = getPage(pageNumber);
+        void pagePromise.then((pdfPage) => {
+            if (pageLoadTimedOut) {
+                releasePageResources(pageNumber, pdfPage);
+            }
+        }, () => {});
         const pdfPage = await withPageStageTimeout(
-            getPage(pageNumber),
+            pagePromise,
             {
                 pageNumber,
                 stage: 'page-load',
                 timeoutMs: PDF_PAGE_LOAD_TIMEOUT_MS,
             },
             () => getRenderVersion() === version && shouldContinue(),
-            undefined,
+            () => {
+                pageLoadTimedOut = true;
+            },
             onRenderStall,
             renderSupervisor,
         );
-        return getRenderVersion() === version && shouldContinue() ? pdfPage : null;
+        if (getRenderVersion() === version && shouldContinue()) {
+            return pdfPage;
+        }
+        releasePageResources(pageNumber, pdfPage);
+        return null;
     }
 
     async function prepareCanvasRenderForPage(

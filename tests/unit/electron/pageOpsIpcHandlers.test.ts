@@ -154,6 +154,7 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
 })}));
 
 const { registerPageOpsIpcAdapter } = await import('@electron/features/page-ops/registerPageOpsIpcAdapter');
+const REVISION_OPTIONS = {expectedDocumentRevisionToken: 'drt1:test:before-page-op'} as const;
 
 function getHandler(channel: string) {
     const handler = mocks.handlers.get(channel);
@@ -241,7 +242,7 @@ describe('registerPageOpsIpcAdapter', () => {
             1,
             2,
             3,
-        ]) as Promise<{
+        ], REVISION_OPTIONS) as Promise<{
             success: boolean;
             pageCount: number 
         }>;
@@ -249,7 +250,7 @@ describe('registerPageOpsIpcAdapter', () => {
             3,
             2,
             1,
-        ]) as Promise<{
+        ], REVISION_OPTIONS) as Promise<{
             success: boolean;
             pageCount: number 
         }>;
@@ -293,8 +294,8 @@ describe('registerPageOpsIpcAdapter', () => {
         });
 
         const handler = getHandler('page-ops:rotate');
-        const first = handler({sender: {id: 1}}, '/tmp/a.pdf', [1], 3, 90) as Promise<{ success: boolean }>;
-        const second = handler({sender: {id: 1}}, '/tmp/b.pdf', [1], 3, 90) as Promise<{ success: boolean }>;
+        const first = handler({sender: {id: 1}}, '/tmp/a.pdf', [1], 3, 90, REVISION_OPTIONS) as Promise<{ success: boolean }>;
+        const second = handler({sender: {id: 1}}, '/tmp/b.pdf', [1], 3, 90, REVISION_OPTIONS) as Promise<{ success: boolean }>;
 
         await flushQueuedMutationStart();
 
@@ -314,7 +315,7 @@ describe('registerPageOpsIpcAdapter', () => {
         await expect(handler({sender: {id: 1}}, '/tmp/stale-reorder.pdf', [
             1,
             2,
-        ])).rejects.toThrow('expected 3 page(s), received 2');
+        ], REVISION_OPTIONS)).rejects.toThrow('expected 3 page(s), received 2');
 
         expect(mocks.getPdfPageCount).toHaveBeenCalledWith('/tmp/stale-reorder.pdf');
         expect(mocks.reorderPages).not.toHaveBeenCalled();
@@ -324,7 +325,7 @@ describe('registerPageOpsIpcAdapter', () => {
         mocks.getPdfPageCount.mockResolvedValueOnce(2);
         const handler = getHandler('page-ops:rotate');
 
-        await expect(handler({sender: {id: 1}}, '/tmp/stale-rotate.pdf', [3], 3, 90))
+        await expect(handler({sender: {id: 1}}, '/tmp/stale-rotate.pdf', [3], 3, 90, REVISION_OPTIONS))
             .rejects.toThrow('Renderer page count is stale');
 
         expect(mocks.rotatePages).not.toHaveBeenCalled();
@@ -360,7 +361,7 @@ describe('registerPageOpsIpcAdapter', () => {
             bottom: 0,
             left: 0,
             right: 0,
-        })).rejects.toThrow('Renderer page count is stale');
+        }, REVISION_OPTIONS)).rejects.toThrow('Renderer page count is stale');
 
         expect(mocks.cropPages).not.toHaveBeenCalled();
     });
@@ -369,7 +370,7 @@ describe('registerPageOpsIpcAdapter', () => {
         mocks.getPdfPageCount.mockResolvedValueOnce(2);
         const handler = getHandler('page-ops:remove-crop');
 
-        await expect(handler({sender: {id: 1}}, '/tmp/stale-remove-crop.pdf', [3], 3))
+        await expect(handler({sender: {id: 1}}, '/tmp/stale-remove-crop.pdf', [3], 3, REVISION_OPTIONS))
             .rejects.toThrow('Renderer page count is stale');
 
         expect(mocks.removeCropFromPages).not.toHaveBeenCalled();
@@ -400,8 +401,8 @@ describe('registerPageOpsIpcAdapter', () => {
         });
 
         const handler = getHandler('page-ops:delete');
-        const first = handler({sender: {id: 1}}, '/tmp/fail.pdf', [1], 3);
-        const second = handler({sender: {id: 1}}, '/tmp/fail.pdf', [2], 3);
+        const first = handler({sender: {id: 1}}, '/tmp/fail.pdf', [1], 3, REVISION_OPTIONS);
+        const second = handler({sender: {id: 1}}, '/tmp/fail.pdf', [2], 3, REVISION_OPTIONS);
 
         await flushQueuedMutationStart();
 
@@ -631,7 +632,7 @@ describe('registerPageOpsIpcAdapter', () => {
 
         const handler = getHandler('page-ops:insert-file');
 
-        await expect(handler({sender: {id: 1}}, '/tmp/pdf-work-1/work.pdf', 3, 1, ['/tmp/source.png']))
+        await expect(handler({sender: {id: 1}}, '/tmp/pdf-work-1/work.pdf', 3, 1, ['/tmp/source.png'], undefined, REVISION_OPTIONS))
             .resolves.toMatchObject({success: true});
 
         expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith('/tmp/pdf-work-1/work.pdf', 1);
@@ -678,7 +679,7 @@ describe('registerPageOpsIpcAdapter', () => {
         await expect(handler({sender}, '/tmp/pdf-work-1/work.pdf', 3, 1, [
             '/tmp/source-a.png',
             '/tmp/source-b.png',
-        ], 'insert-request-1')).resolves.toMatchObject({success: true});
+        ], 'insert-request-1', REVISION_OPTIONS)).resolves.toMatchObject({success: true});
 
         expect(sender.send).toHaveBeenCalledWith('dialog:openPdfDirectBatch:progress', {
             operation: 'page-insert',
@@ -711,7 +712,7 @@ describe('registerPageOpsIpcAdapter', () => {
     it('marks stale derived artifacts after mutating the working copy', async () => {
         const handler = getHandler('page-ops:rotate');
 
-        await expect(handler({sender: {id: 1}}, '/tmp/a.pdf', [1], 3, 90)).resolves.toMatchObject({success: true});
+        await expect(handler({sender: {id: 1}}, '/tmp/a.pdf', [1], 3, 90, REVISION_OPTIONS)).resolves.toMatchObject({success: true});
 
         expect(mocks.markWorkingCopyContentChanged).toHaveBeenCalledWith('/tmp/a.pdf', 'page-ops', 1);
     });

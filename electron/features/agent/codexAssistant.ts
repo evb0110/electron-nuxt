@@ -18,6 +18,7 @@ import type {
     TAgentAssistantProviderId,
     TAgentAssistantSpeedMode,
 } from '@contracts/agent';
+import { buildAgentAssistantScopeFingerprint } from '@contracts/agent';
 import { isRecord } from '@contracts/runtimeGuards';
 import {
     ASSISTANT_DEFAULT_EFFORT,
@@ -85,8 +86,10 @@ import {
     ensureAssistantCwd,
 } from '@electron/features/agent/assistantRuntimeLifecycle';
 import {
+    buildAssistantSessionScopeBindingFingerprint,
     getAssistantTurnPhase,
     getAssistantTurnProviderTurnId,
+    getAssistantTurnScope,
     isAssistantTurnActive,
     matchesProviderTurn,
 } from '@electron/features/agent/assistantTurnLifecycle';
@@ -348,8 +351,9 @@ function currentStatus(
         speedMode: normalizeAssistantSpeedMode(codexAssistantModels, selection.provider, normalizedModel, selection.speedMode),
     } as const satisfies IAssistantSelection;
     const session = getSessionForStatus(scope, normalizedSelection);
-    const sessionTurnPhase = session ? getAssistantTurnPhase(session.turnOwner) : 'idle';
-    const sessionActiveTurnId = session ? getAssistantTurnProviderTurnId(session.turnOwner) : null;
+    const sessionTurnMatchesScope = session ? isAssistantTurnActiveForScope(session, scope) : false;
+    const sessionTurnPhase = session && sessionTurnMatchesScope ? getAssistantTurnPhase(session.turnOwner) : 'idle';
+    const sessionActiveTurnId = session && sessionTurnMatchesScope ? getAssistantTurnProviderTurnId(session.turnOwner) : null;
     const effortInput = session?.effort ?? normalizedSelection.effort;
     const speedModeInput = session?.speedMode ?? normalizedSelection.speedMode;
     const providerStatuses = buildAssistantProviderStatuses({
@@ -677,8 +681,27 @@ function markClaudeTurnError(session: IAssistantChatSession, message: string) {
     }, session.scope, session);
 }
 
+function isActiveTurnScopeCurrent(session: IAssistantChatSession) {
+    const turnScope = getAssistantTurnScope(session.turnOwner);
+    return !turnScope
+        || buildAssistantSessionScopeBindingFingerprint(turnScope)
+            === buildAgentAssistantScopeFingerprint(session.provider, session.scope);
+}
+
+function isAssistantTurnActiveForScope(
+    session: IAssistantChatSession,
+    scope: IAgentAssistantChatScope | null,
+) {
+    const turnScope = getAssistantTurnScope(session.turnOwner);
+    return Boolean(turnScope)
+        && buildAssistantSessionScopeBindingFingerprint(turnScope)
+            === buildAgentAssistantScopeFingerprint(session.provider, scope ?? session.scope);
+}
+
 function shouldDropClaudeCallback(session: IAssistantChatSession, turnId: string | null) {
-    return turnId === null || !matchesProviderTurn(session.turnOwner, turnId);
+    return turnId === null
+        || !matchesProviderTurn(session.turnOwner, turnId)
+        || !isActiveTurnScopeCurrent(session);
 }
 
 function createClaudeCallbacks(session: IAssistantChatSession) {
@@ -700,6 +723,9 @@ function createClaudeCallbacks(session: IAssistantChatSession) {
             publishState(session.scope, session);
         },
         onTurnStarted: (turnId: string) => {
+            if (!isActiveTurnScopeCurrent(session)) {
+                return;
+            }
             sessionStore.setActiveSession(session);
             markSessionTurnRunning(session, session.turnOwner.generation, turnId);
             claudeProviderRuntime.runtimeState = 'busy';
@@ -1010,12 +1036,16 @@ export async function sendAgentAssistantMessage(
         });
     }
     if (isAssistantTurnActive(session.turnOwner)) {
-        const error = getAssistantTurnBusyError();
-        return withAssistantErrorEnvelope({
-            ok: false,
-            state: currentState(session.scope, session),
-            error,
-        });
+        if (!isAssistantTurnActiveForScope(session, session.scope)) {
+            supersedeSessionTurn(session);
+        } else {
+            const error = getAssistantTurnBusyError();
+            return withAssistantErrorEnvelope({
+                ok: false,
+                state: currentState(session.scope, session),
+                error,
+            });
+        }
     }
 
     const sendInFlight = Promise.resolve();
@@ -1141,6 +1171,13 @@ export async function sendAgentAssistantMessage(
             if (isRecord(response.turn) && typeof response.turn.id === 'string') {
                 session.model = normalizeCodexAssistantModel(codexAssistantModels, selection.model);
                 if (session.providerThreadId !== currentThreadId) {
+                    return {
+                        ok: true,
+                        state: currentState(session.scope, session),
+                    };
+                }
+                if (!isActiveTurnScopeCurrent(session)) {
+                    supersedeSessionTurn(session);
                     return {
                         ok: true,
                         state: currentState(session.scope, session),

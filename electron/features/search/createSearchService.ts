@@ -11,6 +11,7 @@ export function createSearchService(): ISearchService {
         warmIndex: (context, request) => handlePdfSearchWarmIndex(context, request),
         cancel: (context, requestId) => searchWorkerService.cancel(context, requestId),
         resetCache: () => searchWorkerService.resetCache(),
+        subscribeProgress: context => searchWorkerService.subscribeProgress(context),
         cleanupAll: reason => searchWorkerService.cleanupAll(reason),
     };
 }

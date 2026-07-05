@@ -12,6 +12,7 @@ const browserDocumentStoreMock = vi.hoisted(() => ({
     stat: vi.fn(),
     read: vi.fn(),
     write: vi.fn(),
+    assertDocumentRevisionCurrent: vi.fn(),
     assignSaveTarget: vi.fn(),
     touchRecentFile: vi.fn(),
     replaceWithHandleBackedDocument: vi.fn(),
@@ -47,6 +48,7 @@ describe('browserSaveTargets', () => {
             2,
             3,
         ]));
+        browserDocumentStoreMock.assertDocumentRevisionCurrent.mockResolvedValue(undefined);
         browserDocumentStoreMock.write.mockResolvedValue(true);
         browserDocumentStoreMock.assignSaveTarget.mockResolvedValue(undefined);
         browserDocumentStoreMock.touchRecentFile.mockResolvedValue(undefined);

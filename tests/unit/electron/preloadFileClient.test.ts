@@ -130,6 +130,8 @@ function createNativePlacedImage() {
 }
 
 describe('createDocumentsPreloadFileClient', () => {
+    const revisionOptions = { expectedDocumentRevisionToken: 'revision-before-save' };
+
     afterEach(() => {
         vi.unstubAllGlobals();
     });
@@ -165,7 +167,7 @@ describe('createDocumentsPreloadFileClient', () => {
             1,
             2,
             3,
-        ]))).rejects.toThrow(
+        ]), undefined, revisionOptions)).rejects.toThrow(
             'chunk post failed',
         );
 
@@ -179,7 +181,7 @@ describe('createDocumentsPreloadFileClient', () => {
         } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
-        await expect(client.savePdfAs('/tmp/working.pdf', { optimizeLossless: true }))
+        await expect(client.savePdfAs('/tmp/working.pdf', { optimizeLossless: true }, revisionOptions))
             .resolves
             .toBe('/tmp/saved.pdf');
 
@@ -187,6 +189,7 @@ describe('createDocumentsPreloadFileClient', () => {
             DOCUMENTS_CHANNELS.savePdfAs,
             '/tmp/working.pdf',
             { optimizeLossless: true },
+            revisionOptions,
         );
     });
 
@@ -248,6 +251,7 @@ describe('createDocumentsPreloadFileClient', () => {
                 3,
             ]),
             { optimizeLossless: true },
+            revisionOptions,
         )).resolves.toMatchObject({
             path: '/tmp/saved.pdf',
             validation: { isValid: true },
@@ -258,6 +262,7 @@ describe('createDocumentsPreloadFileClient', () => {
             '/tmp/working.pdf',
             3,
             { optimizeLossless: true },
+            revisionOptions,
         );
     });
 
@@ -274,11 +279,12 @@ describe('createDocumentsPreloadFileClient', () => {
         } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
-        await expect(client.repairPdf?.('/tmp/working.pdf')).resolves.toBe(validation);
+        await expect(client.repairPdf?.('/tmp/working.pdf', revisionOptions)).resolves.toBe(validation);
 
         expect(ipcRenderer.invoke).toHaveBeenCalledWith(
             DOCUMENTS_CHANNELS.fileRepairPdf,
             '/tmp/working.pdf',
+            revisionOptions,
         );
     });
 
@@ -295,12 +301,25 @@ describe('createDocumentsPreloadFileClient', () => {
         } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
-        await expect(client.saveFileStructured('/tmp/working.pdf')).resolves.toBe(result);
+        await expect(client.saveFileStructured('/tmp/working.pdf', revisionOptions)).resolves.toBe(result);
 
         expect(ipcRenderer.invoke).toHaveBeenCalledWith(
             DOCUMENTS_CHANNELS.fileSaveStructured,
             '/tmp/working.pdf',
+            revisionOptions,
         );
+    });
+
+    it('rejects structured save calls without revision options before invoking IPC', () => {
+        const ipcRenderer = {
+            invoke: vi.fn(),
+            postMessage: vi.fn(),
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        const client = createDocumentsPreloadFileClient(ipcRenderer);
+
+        expect(() => client.saveFileStructured('/tmp/working.pdf'))
+            .toThrow('saveFileStructured.options.expectedDocumentRevisionToken must be a non-empty string');
+        expect(ipcRenderer.invoke).not.toHaveBeenCalled();
     });
 
     it('invokes optimize-as-copy with checked options and request id', async () => {
@@ -526,7 +545,9 @@ describe('createDocumentsPreloadFileClient', () => {
         };
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
-        await expect(client.savePdfData('/tmp/working.pdf', sourceBytes)).resolves.toMatchObject({isValid: true});
+        await expect(client.savePdfData('/tmp/working.pdf', sourceBytes, revisionOptions))
+            .resolves
+            .toMatchObject({isValid: true});
 
         const chunks = port1.postedMessages.filter(isChunkMessage);
         expect(chunks).toHaveLength(2);
@@ -568,7 +589,7 @@ describe('createDocumentsPreloadFileClient', () => {
         const client = createDocumentsPreloadFileClient(ipcRenderer);
         const sourceBytes = new Uint8Array((8 * 1024 * 1024) + 1);
 
-        const savePromise = client.savePdfData('/tmp/working.pdf', sourceBytes);
+        const savePromise = client.savePdfData('/tmp/working.pdf', sourceBytes, revisionOptions);
         await waitForPostedChunkCount(port1, 2);
 
         expect(port1.postedMessages.some(message => isPortMessage(message, 'complete'))).toBe(false);
@@ -656,7 +677,7 @@ describe('createDocumentsPreloadFileClient', () => {
                 4,
                 5,
             ]),
-        ])).resolves.toMatchObject({isValid: true});
+        ], revisionOptions)).resolves.toMatchObject({isValid: true});
 
         const chunks = port1.postedMessages.filter(isChunkMessage);
         expect(chunks).toHaveLength(2);
@@ -675,6 +696,7 @@ describe('createDocumentsPreloadFileClient', () => {
             DOCUMENTS_CHANNELS.fileSavePdfDataBegin,
             '/tmp/working.pdf',
             5,
+            revisionOptions,
         );
     });
 
@@ -697,7 +719,7 @@ describe('createDocumentsPreloadFileClient', () => {
             objectNumber: 42,
             generationNumber: 0,
             text: 'Updated note',
-        }], 'D:20260609133855+03\'00\'')).resolves.toMatchObject({applied: true});
+        }], 'D:20260609133855+03\'00\'', revisionOptions)).resolves.toMatchObject({applied: true});
 
         expect(ipcRenderer.invoke).toHaveBeenCalledWith(
             DOCUMENTS_CHANNELS.fileSavePdfNoteTextUpdates,
@@ -708,7 +730,7 @@ describe('createDocumentsPreloadFileClient', () => {
                 text: 'Updated note',
             }],
             'D:20260609133855+03\'00\'',
-            undefined,
+            revisionOptions,
         );
     });
 
@@ -774,6 +796,7 @@ describe('createDocumentsPreloadFileClient', () => {
                 ],
             },
             'D:20260609133855+03\'00\'',
+            revisionOptions,
         )).resolves.toMatchObject({applied: true});
 
         expect(ipcRenderer.invoke).toHaveBeenCalledWith(
@@ -798,7 +821,7 @@ describe('createDocumentsPreloadFileClient', () => {
                 ],
             },
             'D:20260609133855+03\'00\'',
-            undefined,
+            revisionOptions,
         );
     });
 
@@ -887,6 +910,7 @@ describe('createDocumentsPreloadFileClient', () => {
                 },
             },
             'D:20260609133855+03\'00\'',
+            revisionOptions,
         )).resolves.toMatchObject({applied: true});
 
         expect(ipcRenderer.invoke).toHaveBeenCalledWith(
@@ -939,7 +963,7 @@ describe('createDocumentsPreloadFileClient', () => {
                 },
             },
             'D:20260609133855+03\'00\'',
-            undefined,
+            revisionOptions,
         );
     });
 
@@ -989,6 +1013,7 @@ describe('createDocumentsPreloadFileClient', () => {
             }]},
             'D:20260609133855+03\'00\'',
             expectedBase,
+            revisionOptions,
         )).resolves.toMatchObject({applied: true});
 
         expect(ipcRenderer.invoke).toHaveBeenCalledWith(
@@ -1001,7 +1026,7 @@ describe('createDocumentsPreloadFileClient', () => {
             })]},
             'D:20260609133855+03\'00\'',
             expectedBase,
-            undefined,
+            revisionOptions,
         );
         const firstCall = invoke.mock.calls[0];
         expect(firstCall).toBeDefined();
