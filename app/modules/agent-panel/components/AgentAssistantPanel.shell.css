@@ -210,14 +210,14 @@
     align-items: center;
     gap: var(--app-space-sm);
     min-width: 0;
-    height: 1.85rem;
-    padding: 0 var(--app-space-3xl);
+    min-height: var(--app-control-height-sm);
+    padding: var(--app-space-sm) var(--app-space-3xl);
     border: 1px solid var(--app-toolbar-group-border);
     border-radius: var(--app-radius-md);
     background: var(--app-toolbar-group-bg);
     color: var(--ui-text);
     font-size: var(--app-text-size-body-sm);
-    line-height: var(--app-line-height-tight);
+    line-height: var(--app-line-height-control);
     cursor: pointer;
     user-select: none;
     transition:
