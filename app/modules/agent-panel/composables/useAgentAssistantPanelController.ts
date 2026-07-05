@@ -1085,6 +1085,10 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             category: 'user-visible-operation',
             scope: 'assistant',
             message: 'Failed to refresh assistant state for document',
+            onError: error => handleAssistantActionError(error, {
+                title: 'Failed to refresh assistant state for document',
+                log: false,
+            }),
         });
     });
 
@@ -1097,6 +1101,10 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             category: 'user-visible-operation',
             scope: 'assistant',
             message: 'Failed to load assistant state',
+            onError: error => handleAssistantActionError(error, {
+                title: 'Failed to load assistant state',
+                log: false,
+            }),
         });
     });
 

@@ -39,7 +39,7 @@ import {
 } from '@electron/features/agent/main/agentRendererEvents';
 import { getErrorMessage } from '@electron/utils/error';
 
-const DEFAULT_AGENT_REQUEST_TIMEOUT_MS = 2500;
+export const DEFAULT_AGENT_REQUEST_TIMEOUT_MS = 10_000;
 
 interface ICachedWorkspaceSnapshot {
     revision: number;

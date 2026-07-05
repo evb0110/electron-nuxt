@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({fromWebContents: vi.fn()}));
 vi.mock('electron', () => ({BrowserWindow: {fromWebContents: mocks.fromWebContents}}));
 
 const {
+    DEFAULT_AGENT_REQUEST_TIMEOUT_MS,
     requestAgentCommand,
     requestAgentWorkspaceSnapshot,
     submitAgentWorkspaceSnapshotResponse,
@@ -105,6 +106,28 @@ function createWorkspaceSnapshot(): IAgentWorkspaceSnapshot {
 describe('agent workspace bridge', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+    });
+
+    it('uses a renderer request timeout long enough for workspace settling', async () => {
+        vi.useFakeTimers();
+        try {
+            const window = createFakeWindow();
+            const pending = requestAgentWorkspaceSnapshot(toBrowserWindow(window))
+                .then(() => null)
+                .catch((error: unknown) => error);
+
+            await vi.advanceTimersByTimeAsync(DEFAULT_AGENT_REQUEST_TIMEOUT_MS - 1);
+            await expect(Promise.race([
+                pending,
+                Promise.resolve('pending'),
+            ])).resolves.toBe('pending');
+
+            await vi.advanceTimersByTimeAsync(1);
+            const expectedMessage = `Agent renderer request timed out after ${DEFAULT_AGENT_REQUEST_TIMEOUT_MS}ms`;
+            await expect(pending).resolves.toMatchObject({message: expectedMessage});
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('rejects pending snapshot requests when the target window closes', async () => {

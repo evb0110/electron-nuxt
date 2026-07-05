@@ -113,9 +113,28 @@ async function waitForCommandResponse(responses: IAgentCommandResponse[]) {
     throw new Error('Timed out waiting for agent command response.');
 }
 
+async function waitForAssertion(assertion: () => void, timeoutMs = 1000) {
+    const startedAt = Date.now();
+    let lastError: unknown;
+    while (Date.now() - startedAt < timeoutMs) {
+        try {
+            assertion();
+            return;
+        } catch (error) {
+            lastError = error;
+            await new Promise(resolve => setTimeout(resolve, 25));
+        }
+    }
+    throw lastError;
+}
+
 async function mountAgentWorkspaceSnapshotHarness(options: {
     activateTab?: () => void;
+    agent?: IAgentCapability;
+    getPaneByTabId?: (tabId: string) => IEditorPaneState | null;
+    installElectronApi?: boolean;
     session?: IWorkspaceDocumentSessionController;
+    shouldWaitForDesktopBridge?: () => boolean;
     waitForWorkspace?: () => Promise<IWorkspaceExpose | null>;
     workspace?: IWorkspaceExpose;
 } = {}) {
@@ -152,7 +171,7 @@ async function mountAgentWorkspaceSnapshotHarness(options: {
     const commandCallbacks: Array<(request: IAgentCommandRequest) => void> = [];
     const snapshotCallbacks: Array<(request: IAgentWorkspaceSnapshotRequest) => void> = [];
     const commandResponses: IAgentCommandResponse[] = [];
-    const agent = cast<IAgentCapability>({
+    const agent = options.agent ?? cast<IAgentCapability>({
         onWorkspaceSnapshotRequest: vi.fn((callback) => {
             snapshotCallbacks.push(callback);
             return vi.fn();
@@ -167,7 +186,9 @@ async function mountAgentWorkspaceSnapshotHarness(options: {
             return {accepted: true};
         }),
     });
-    (window as IWindowWithElectronApi).electronAPI = createElectronApiFixture(agent);
+    if (options.installElectronApi !== false) {
+        (window as IWindowWithElectronApi).electronAPI = createElectronApiFixture(agent);
+    }
 
     const app = createApp({ setup() {
         useAgentWorkspaceSnapshot({
@@ -184,8 +205,9 @@ async function mountAgentWorkspaceSnapshotHarness(options: {
             ...(options.session === undefined
                 ? {}
                 : {documentSessionsByTabId: shallowRef({'tab-1': options.session} satisfies Record<string, IWorkspaceDocumentSessionController>)}),
-            shouldWaitForDesktopBridge: () => false,
-            getPaneByTabId: tabId => panes.value.find(pane => pane.tabIds.includes(tabId)) ?? null,
+            shouldWaitForDesktopBridge: options.shouldWaitForDesktopBridge ?? (() => false),
+            getPaneByTabId: options.getPaneByTabId
+                ?? (tabId => panes.value.find(pane => pane.tabIds.includes(tabId)) ?? null),
             activateTab: (paneId, tabId) => {
                 activePaneId.value = paneId;
                 activeTabId.value = tabId;
@@ -201,6 +223,7 @@ async function mountAgentWorkspaceSnapshotHarness(options: {
     await flushAsyncWork();
 
     return {
+        agent,
         app,
         commandResponses,
         documentRecordsByTabId,
@@ -208,6 +231,10 @@ async function mountAgentWorkspaceSnapshotHarness(options: {
         async submitCommand(request: IAgentCommandRequest) {
             commandCallbacks[0]?.(request);
             return waitForCommandResponse(commandResponses);
+        },
+        async submitSnapshot(request: IAgentWorkspaceSnapshotRequest) {
+            snapshotCallbacks[0]?.(request);
+            await flushAsyncWork();
         },
         workspace,
     };
@@ -466,6 +493,48 @@ describe('buildAgentWorkspaceSnapshot', () => {
             openedAt: '2026-06-01T00:00:00.000Z',
             fileSize: 1234,
         }]);
+    });
+});
+
+describe('useAgentWorkspaceSnapshot bridge registration', () => {
+    it('waits for the Electron bridge instead of binding browser no-op agent listeners', async () => {
+        const harness = await mountAgentWorkspaceSnapshotHarness({
+            installElectronApi: false,
+            shouldWaitForDesktopBridge: () => true,
+        });
+
+        expect(harness.agent.onWorkspaceSnapshotRequest).not.toHaveBeenCalled();
+        expect(harness.agent.onCommandRequest).not.toHaveBeenCalled();
+
+        (window as IWindowWithElectronApi).electronAPI = createElectronApiFixture(harness.agent);
+
+        await waitForAssertion(() => {
+            expect(harness.agent.onWorkspaceSnapshotRequest).toHaveBeenCalledTimes(1);
+            expect(harness.agent.onCommandRequest).toHaveBeenCalledTimes(1);
+        });
+
+        harness.app.unmount();
+    });
+
+    it('submits an explicit snapshot error response when snapshot creation fails', async () => {
+        const explodeWhenResolvingPane = () => {
+            throw new Error('snapshot exploded');
+        };
+        const harness = await mountAgentWorkspaceSnapshotHarness({getPaneByTabId: explodeWhenResolvingPane});
+
+        await harness.submitSnapshot({
+            requestId: 'snapshot-error',
+            windowId: 42,
+        });
+
+        expect(harness.agent.submitWorkspaceSnapshot).toHaveBeenCalledWith({
+            requestId: 'snapshot-error',
+            windowId: 42,
+            ok: false,
+            error: 'snapshot exploded',
+        });
+
+        harness.app.unmount();
     });
 });
 

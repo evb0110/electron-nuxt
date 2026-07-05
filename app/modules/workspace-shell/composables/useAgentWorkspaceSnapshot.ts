@@ -24,10 +24,13 @@ import { getAgentCapability } from '@app/utils/getAgentCapability';
 import { waitForDesktopPlatformBridge } from '@app/utils/platform';
 import { guardAsync } from '@app/utils/asyncGuard';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { getErrorMessage } from '@app/utils/error';
 import { buildAgentWorkspaceSnapshot } from '@app/modules/workspace-shell/agent/buildAgentWorkspaceSnapshot';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import type { IWorkspaceDocumentSessionController } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
 import { resolveDocumentRefBackend } from '@app/utils/documentRef';
+
+const AGENT_BRIDGE_RETRY_DELAY_MS = 250;
 
 interface IUseAgentWorkspaceSnapshotOptions {
     panes: Ref<IEditorPaneState[]>;
@@ -524,7 +527,19 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
     }
 
     function submitSnapshot(request: IAgentWorkspaceSnapshotRequest) {
-        guardAsync(submitWorkspaceSnapshotWithAck(createSnapshotResponse(request)), {
+        let response: IAgentWorkspaceSnapshotResponse;
+        try {
+            response = createSnapshotResponse(request);
+        } catch (error) {
+            response = {
+                requestId: request.requestId,
+                ...(request.windowId === undefined ? {} : { windowId: request.windowId }),
+                ok: false,
+                error: getErrorMessage(error),
+            };
+        }
+
+        guardAsync(submitWorkspaceSnapshotWithAck(response), {
             category: 'background-diagnostic',
             scope: 'agent',
             message: 'Failed to submit agent workspace snapshot',
@@ -557,15 +572,40 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
         );
     }
 
+    function waitForRetryDelay() {
+        return new Promise<void>(resolve => setTimeout(resolve, AGENT_BRIDGE_RETRY_DELAY_MS));
+    }
+
+    async function waitForAgentCapability() {
+        let hasLoggedBridgeWait = false;
+        while (!isDisposed) {
+            const shouldWaitForDesktopBridge = options.shouldWaitForDesktopBridge();
+            const bridgeReady = await waitForDesktopPlatformBridge({ shouldWait: shouldWaitForDesktopBridge });
+            if (isDisposed) {
+                return null;
+            }
+            if (!shouldWaitForDesktopBridge || bridgeReady) {
+                return getAgentCapability();
+            }
+
+            if (!hasLoggedBridgeWait) {
+                hasLoggedBridgeWait = true;
+                BrowserLogger.warn('agent', 'Waiting for Electron platform bridge before attaching agent workspace listeners');
+            }
+            await waitForRetryDelay();
+        }
+
+        return null;
+    }
+
     onMounted(() => {
         isDisposed = false;
         guardAsync(
             (async () => {
-                await waitForDesktopPlatformBridge({ shouldWait: options.shouldWaitForDesktopBridge() });
-                if (isDisposed) {
+                const agent = await waitForAgentCapability();
+                if (isDisposed || !agent) {
                     return;
                 }
-                const agent = getAgentCapability();
                 const unsubscribeSnapshot = agent.onWorkspaceSnapshotRequest(submitSnapshot);
                 const unsubscribeCommand = agent.onCommandRequest(submitCommandResult);
                 if (isDisposed) {
