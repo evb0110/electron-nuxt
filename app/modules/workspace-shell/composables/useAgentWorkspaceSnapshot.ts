@@ -21,7 +21,10 @@ import type {
     IWorkspaceExpose,
 } from '@app/types/workspaceExpose';
 import { getAgentCapability } from '@app/utils/getAgentCapability';
-import { waitForDesktopPlatformBridge } from '@app/utils/platform';
+import {
+    isElectronUserAgent,
+    waitForDesktopPlatformBridge,
+} from '@app/utils/platform';
 import { guardAsync } from '@app/utils/asyncGuard';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getErrorMessage } from '@app/utils/error';
@@ -598,12 +601,12 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
     async function waitForAgentCapability() {
         let hasLoggedBridgeWait = false;
         while (!isDisposed) {
-            const shouldWaitForDesktopBridge = options.shouldWaitForDesktopBridge();
-            const bridgeReady = await waitForDesktopPlatformBridge({ shouldWait: shouldWaitForDesktopBridge });
+            const shouldWaitForAgentBridge = options.shouldWaitForDesktopBridge() || isElectronUserAgent();
+            const bridgeReady = await waitForDesktopPlatformBridge({ shouldWait: shouldWaitForAgentBridge });
             if (isDisposed) {
                 return null;
             }
-            if (!shouldWaitForDesktopBridge || bridgeReady) {
+            if (!shouldWaitForAgentBridge || bridgeReady) {
                 return getAgentCapability();
             }
 

@@ -64,7 +64,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Worker 2/Stage 2 - Assistant panel controller split',
     },
     'app/modules/agent-panel/composables/useAgentAssistantPanelController.ts': {
-        maxLines: 1202,
+        maxLines: 1201,
         reason: 'transitional assistant panel controller after renderer bridge startup and selection-state hardening',
         stage: 'Second-pass assistant panel controller integration',
     },
