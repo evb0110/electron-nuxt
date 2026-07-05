@@ -142,8 +142,14 @@ describe('CI topology policy', () => {
         expect(workflowJob(workflow, 'pr_changed_areas')).toContain('uses: dorny/paths-filter@v3');
         expect(workflowJob(workflow, 'pr_changed_areas')).toContain('native/**');
         expect(workflowJob(workflow, 'pr_changed_areas')).toContain('scripts/build-*.mjs');
+        expect(workflowJob(workflow, 'pr_changed_areas')).toContain('scripts/check-drizzle-schema.mjs');
+        expect(workflowJob(workflow, 'pr_changed_areas')).toContain('scripts/check-electron-builder-asar-unpack.mjs');
+        expect(workflowJob(workflow, 'pr_changed_areas')).toContain('scripts/check-generated-native-resources.mjs');
         expect(workflowJob(workflow, 'pr_changed_areas')).toContain('scripts/release/**');
+        expect(workflowJob(workflow, 'pr_changed_areas')).toContain('scripts/run-workspace-package-typecheck.mjs');
+        expect(workflowJob(workflow, 'pr_changed_areas')).toContain('scripts/workspace-roots.mjs');
         expect(workflowJob(workflow, 'pr_changed_areas')).toContain('electron-builder.yml');
+        expect(workflowJob(workflow, 'pr_changed_areas')).toContain('pnpm-workspace.yaml');
         expect(workflow).toContain('name: Pull Request Native And Build Safety');
         expect(workflowJob(workflow, 'pr_native_build_safety')).toContain('needs: pr_changed_areas');
         expect(workflowJob(workflow, 'pr_native_build_safety')).toContain('needs.pr_changed_areas.outputs.native_or_build == \'true\'');

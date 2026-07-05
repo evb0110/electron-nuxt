@@ -45,3 +45,12 @@ export function resolveTransactionDocumentRef(
 ) {
     return target?.originalPath ?? fallbackDocumentPath;
 }
+
+export function resolveDocumentOpenRunResult<T>(
+    result: T | false,
+    reachedTerminalState: boolean,
+) {
+    return result !== false && reachedTerminalState
+        ? result
+        : false;
+}

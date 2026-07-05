@@ -234,4 +234,20 @@ describe('assistant chat session store persistence', () => {
         expect(dirname(transcriptPath)).toBe(join(rootDir, 'sessions'));
         expect(transcriptPath.endsWith('.jsonl')).toBe(true);
     });
+
+    it('exposes a production persistence flush that drains queued snapshots', async () => {
+        const rootDir = createTempRoot();
+        const persistence = createPersistence(rootDir);
+        const store = createAssistantChatSessionStore({ persistence });
+        const session = store.getSession(scope, selection, { create: true });
+
+        store.addMessage(session, {
+            role: 'user',
+            text: 'flush me',
+        });
+        await store.flushPersistence();
+
+        const recoveredStore = createAssistantChatSessionStore({persistence: createPersistence(rootDir)});
+        expect(recoveredStore.getMessages(scope, selection).map(message => message.text)).toEqual(['flush me']);
+    });
 });

@@ -154,6 +154,7 @@ function createContext(route: TWorkspaceSavePersistenceRoute): IFileOperationsSa
             livePdfjsAnnotationSession: {canPreserve: true},
             rendererFullPdfSerialization: {requiresLargeFileGuard: false},
             staleTargetProtection: {
+                expectedDocumentRevisionToken: 'rev-1',
                 expectedOriginalPath: '/tmp/source.pdf',
                 expectedWorkingPath: '/tmp/work.pdf',
             },
@@ -204,6 +205,7 @@ describe('createFileOperationsSaveExecutor', () => {
         expect(config.persistUnserialized).toHaveBeenCalledWith({
             saveMode: 'rewrite',
             expectedWorkingPath: '/tmp/work.pdf',
+            expectedDocumentRevisionToken: 'rev-1',
         });
         expect(ports.pdf.source.runSaveTransaction).not.toHaveBeenCalled();
         expect(ports.pdf.serialization.serializePdfForSave).not.toHaveBeenCalled();
@@ -265,10 +267,43 @@ describe('createFileOperationsSaveExecutor', () => {
             saveMode: 'rewrite',
             preserveLoadedSource: true,
             expectedWorkingPath: '/tmp/work.pdf',
-            expectedDocumentRevisionToken: null,
+            expectedDocumentRevisionToken: 'rev-1',
         });
         expect(fixture.services.completion.primePersistedShapeStateForSave)
             .toHaveBeenCalledWith(serializedResult.finalBytes, false);
         expect(context.reloadWaiter.markFinalized).toHaveBeenCalledOnce();
+    });
+
+    it('threads revision CAS through optimize-as-copy persistence', async () => {
+        const fixture = createExecutorFixture();
+        const optimizeWorkingCopyAsCopy = vi.fn(async () => ({
+            success: true,
+            outPath: '/tmp/optimized.pdf',
+            saveMode: 'save_as_rewrite' as const,
+            didSaveAs: true,
+        }));
+        const nativeWorkingCopy = fixture.ports.persistence.nativeWorkingCopy;
+        if (!nativeWorkingCopy) {
+            throw new Error('Expected native working-copy persistence ports');
+        }
+        nativeWorkingCopy.optimizeWorkingCopyAsCopy = optimizeWorkingCopyAsCopy;
+
+        await expect(fixture.executor.executeOptimizeCopySave({
+            expectedWorkingPath: '/tmp/work.pdf',
+            expectedDocumentRevisionToken: 'rev-1',
+            options: {preset: 'lossless'},
+            requestId: 'optimize-1',
+            reloadWaiter: null,
+        })).resolves.toBe(true);
+
+        expect(optimizeWorkingCopyAsCopy).toHaveBeenCalledWith(
+            {preset: 'lossless'},
+            'optimize-1',
+            {
+                saveMode: 'save_as_rewrite',
+                expectedWorkingPath: '/tmp/work.pdf',
+                expectedDocumentRevisionToken: 'rev-1',
+            },
+        );
     });
 });

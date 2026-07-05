@@ -6,6 +6,7 @@ import {
     vi,
 } from 'vitest';
 import { createServer } from 'node:net';
+import { rm } from 'node:fs/promises';
 import type {
     IAgentWorkspaceSnapshot,
     TAgentCommand,
@@ -13,6 +14,8 @@ import type {
 import { ASSISTANT_MCP_TOKEN_ENV } from '@electron/features/agent/codexAssistantConfig';
 import {
     createLocalMcpServerIdentity,
+    getLocalMcpCodexRegistrationTransport,
+    getLocalMcpSetupSnippets,
     processMcpRequest,
     resolveDefaultLocalMcpPort,
     shutdownLocalMcpServer,
@@ -27,6 +30,7 @@ import type {
 vi.mock('electron', () => ({
     app: {
         getName: () => 'EVB Viewer Dev',
+        getAppPath: () => '/tmp/app-root',
         getPath: (name: string) => `/tmp/${name}`,
         getVersion: () => 'test',
         isPackaged: false,
@@ -229,6 +233,7 @@ function createOptions() {
 describe('processMcpRequest', () => {
     afterEach(async () => {
         await shutdownLocalMcpServer();
+        await rm('/tmp/userData/agent-mcp-token.txt', {force: true}).catch(() => {});
         vi.unstubAllEnvs();
     });
 
@@ -244,6 +249,57 @@ describe('processMcpRequest', () => {
         await startLocalMcpServer();
 
         expect(process.env[ASSISTANT_MCP_TOKEN_ENV]).toMatch(/^[\da-f]{64}$/u);
+    });
+
+    it('reuses the persisted local MCP token across server restarts', async () => {
+        vi.stubEnv('EVB_MCP_PORT', String(await findFreePort()));
+        vi.stubEnv(ASSISTANT_MCP_TOKEN_ENV, '');
+
+        await startLocalMcpServer();
+        const firstToken = process.env[ASSISTANT_MCP_TOKEN_ENV];
+
+        await shutdownLocalMcpServer();
+        expect(process.env[ASSISTANT_MCP_TOKEN_ENV]).toBeUndefined();
+
+        await startLocalMcpServer();
+
+        expect(process.env[ASSISTANT_MCP_TOKEN_ENV]).toBe(firstToken);
+    });
+
+    it('builds authenticated external MCP setup snippets through the stdio proxy transport', async () => {
+        vi.stubEnv(ASSISTANT_MCP_TOKEN_ENV, '');
+
+        const {
+            descriptor,
+            launchConfig,
+            token,
+        } = await getLocalMcpCodexRegistrationTransport();
+        const snippets = await getLocalMcpSetupSnippets();
+        const cursorConfig = JSON.parse(snippets.cursor) as {mcpServers: Record<string, {
+            command: string;
+            args: string[];
+            env: Record<string, string>;
+        }>;};
+
+        expect(launchConfig.command).toBe(process.execPath);
+        expect(launchConfig.args).toEqual(['/tmp/app-root/scripts/evb-mcp-proxy.mjs']);
+        expect(launchConfig.env).toMatchObject({
+            ELECTRON_RUN_AS_NODE: '1',
+            EVB_MCP_URL: descriptor.url,
+            EVB_MCP_TOKEN: token,
+        });
+        expect(snippets.codex).toContain('codex mcp add');
+        expect(snippets.codex).toContain('EVB_MCP_TOKEN=');
+        expect(snippets.claude).toContain('claude mcp add');
+        expect(cursorConfig.mcpServers[descriptor.name]).toEqual({
+            command: process.execPath,
+            args: ['/tmp/app-root/scripts/evb-mcp-proxy.mjs'],
+            env: {
+                ELECTRON_RUN_AS_NODE: '1',
+                EVB_MCP_URL: descriptor.url,
+                EVB_MCP_TOKEN: token,
+            },
+        });
     });
 
     it('builds dev MCP identity from the Electron app', () => {

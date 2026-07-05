@@ -7,7 +7,16 @@ import {
     type Server,
 } from 'http';
 import type { AddressInfo } from 'net';
+import {
+    mkdir,
+    readFile,
+    writeFile,
+} from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
+import {
+    dirname,
+    join,
+} from 'node:path';
 import type {
     IAgentTabSnapshot,
     TAgentWorkspaceCommandTarget,
@@ -50,6 +59,13 @@ const logger = createLogger('agent-mcp');
 const DEFAULT_MCP_HOST = '127.0.0.1';
 const DEFAULT_PROD_MCP_PORT = 38671;
 const DEFAULT_DEV_MCP_PORT = 38672;
+const LOCAL_MCP_TOKEN_FILE_NAME = 'agent-mcp-token.txt';
+const LOCAL_MCP_PROXY_SCRIPT_PATH = join('scripts', 'evb-mcp-proxy.mjs');
+const LOCAL_MCP_PROXY_ENV = {
+    runAsNode: 'ELECTRON_RUN_AS_NODE',
+    url: 'EVB_MCP_URL',
+    token: 'EVB_MCP_TOKEN',
+} as const;
 
 let localMcpServer: Server | null = null;
 let localMcpToken: string | null = null;
@@ -126,18 +142,148 @@ export function getLocalMcpServerDescriptor(): ILocalMcpServerDescriptor {
     };
 }
 
-function getLocalMcpServerBearerToken() {
+function getLocalMcpTokenStoragePath() {
+    return join(app.getPath('userData'), LOCAL_MCP_TOKEN_FILE_NAME);
+}
+
+async function readPersistedLocalMcpToken() {
+    try {
+        const token = (await readFile(getLocalMcpTokenStoragePath(), 'utf8')).trim();
+        return token.length > 0 ? token : null;
+    } catch {
+        return null;
+    }
+}
+
+async function persistLocalMcpToken(token: string) {
+    const tokenPath = getLocalMcpTokenStoragePath();
+    await mkdir(dirname(tokenPath), {recursive: true});
+    await writeFile(tokenPath, `${token}\n`, 'utf8');
+}
+
+async function ensureLocalMcpServerBearerToken() {
     const configuredToken = process.env[ASSISTANT_MCP_TOKEN_ENV]?.trim();
     if (!localMcpToken) {
         if (configuredToken && configuredToken.length > 0) {
             localMcpToken = configuredToken;
         } else {
-            localMcpToken = randomBytes(32).toString('hex');
+            localMcpToken = await readPersistedLocalMcpToken()
+                ?? randomBytes(32).toString('hex');
+            await persistLocalMcpToken(localMcpToken);
             localMcpTokenEnvOwned = true;
         }
     }
     process.env[ASSISTANT_MCP_TOKEN_ENV] = localMcpToken;
     return localMcpToken;
+}
+
+interface ILocalMcpProxyLaunchConfig {
+    command: string;
+    args: string[];
+    env: Record<string, string>;
+}
+
+function getAppRootPath() {
+    try {
+        return app.getAppPath();
+    } catch {
+        return process.cwd();
+    }
+}
+
+function resolveLocalMcpProxyScriptPath() {
+    return join(getAppRootPath(), LOCAL_MCP_PROXY_SCRIPT_PATH);
+}
+
+function createLocalMcpProxyLaunchConfig(
+    descriptor: ILocalMcpServerDescriptor,
+    token: string,
+): ILocalMcpProxyLaunchConfig {
+    return {
+        command: process.execPath,
+        args: [resolveLocalMcpProxyScriptPath()],
+        env: {
+            [LOCAL_MCP_PROXY_ENV.runAsNode]: '1',
+            [LOCAL_MCP_PROXY_ENV.url]: descriptor.url,
+            [LOCAL_MCP_PROXY_ENV.token]: token,
+        },
+    };
+}
+
+function shellQuote(value: string) {
+    if (process.platform === 'win32') {
+        return `"${value.replace(/"/gu, '\\"')}"`;
+    }
+    return `'${value.replace(/'/gu, '\'\\\'\'')}'`;
+}
+
+function createCodexSetupSnippet(
+    descriptor: ILocalMcpServerDescriptor,
+    launchConfig: ILocalMcpProxyLaunchConfig,
+) {
+    return [
+        'codex',
+        'mcp',
+        'add',
+        shellQuote(descriptor.name),
+        '--env',
+        shellQuote(`${LOCAL_MCP_PROXY_ENV.runAsNode}=1`),
+        '--env',
+        shellQuote(`${LOCAL_MCP_PROXY_ENV.url}=${launchConfig.env[LOCAL_MCP_PROXY_ENV.url]}`),
+        '--env',
+        shellQuote(`${LOCAL_MCP_PROXY_ENV.token}=${launchConfig.env[LOCAL_MCP_PROXY_ENV.token]}`),
+        '--',
+        shellQuote(launchConfig.command),
+        ...launchConfig.args.map(shellQuote),
+    ].join(' ');
+}
+
+function createClaudeSetupSnippet(
+    descriptor: ILocalMcpServerDescriptor,
+    launchConfig: ILocalMcpProxyLaunchConfig,
+) {
+    return [
+        'claude',
+        'mcp',
+        'add',
+        '--scope',
+        'user',
+        shellQuote(descriptor.name),
+        '-e',
+        shellQuote(`${LOCAL_MCP_PROXY_ENV.runAsNode}=1`),
+        '-e',
+        shellQuote(`${LOCAL_MCP_PROXY_ENV.url}=${launchConfig.env[LOCAL_MCP_PROXY_ENV.url]}`),
+        '-e',
+        shellQuote(`${LOCAL_MCP_PROXY_ENV.token}=${launchConfig.env[LOCAL_MCP_PROXY_ENV.token]}`),
+        '--',
+        shellQuote(launchConfig.command),
+        ...launchConfig.args.map(shellQuote),
+    ].join(' ');
+}
+
+export async function getLocalMcpSetupSnippets() {
+    const descriptor = getLocalMcpServerDescriptor();
+    const token = await ensureLocalMcpServerBearerToken();
+    const launchConfig = createLocalMcpProxyLaunchConfig(descriptor, token);
+    return {
+        codex: createCodexSetupSnippet(descriptor, launchConfig),
+        claude: createClaudeSetupSnippet(descriptor, launchConfig),
+        cursor: JSON.stringify({mcpServers: { [descriptor.name]: {
+            command: launchConfig.command,
+            args: launchConfig.args,
+            env: launchConfig.env,
+        } }}, null, 2),
+    };
+}
+
+export async function getLocalMcpCodexRegistrationTransport() {
+    const descriptor = getLocalMcpServerDescriptor();
+    const token = await ensureLocalMcpServerBearerToken();
+    return {
+        descriptor,
+        launchConfig: createLocalMcpProxyLaunchConfig(descriptor, token),
+        token,
+    };
 }
 
 function clearGeneratedLocalMcpTokenEnv() {
@@ -236,7 +382,7 @@ function createDefaultMcpRequestOptions(
                 assertAssistantMcpSnapshotMatchesScope(snapshot, binding);
                 return snapshot;
             },
-            runCommand: async (command, windowId) => {
+            runCommand: async (command, windowId, signal) => {
                 const {
                     binding,
                     window,
@@ -249,6 +395,7 @@ function createDefaultMcpRequestOptions(
                     command,
                     undefined,
                     scope,
+                    signal,
                 );
             },
             inspectDocumentText: async (input, windowId) => {
@@ -294,9 +441,9 @@ function createDefaultMcpRequestOptions(
             const window = resolveAgentWindow(windowId);
             return requestAgentWorkspaceSnapshot(window);
         },
-        runCommand: async (command, windowId) => {
+        runCommand: async (command, windowId, signal) => {
             const window = resolveAgentWindow(windowId);
-            return requestAgentCommand(window, command);
+            return requestAgentCommand(window, command, undefined, undefined, signal);
         },
         inspectDocumentText: async (input, windowId) => {
             const window = resolveAgentWindow(windowId);
@@ -323,54 +470,55 @@ function createDefaultMcpRequestOptions(
 }
 
 export function startLocalMcpServer() {
-    const bearerToken = getLocalMcpServerBearerToken();
     if (localMcpStartPromise) {
         return localMcpStartPromise;
     }
     if (localMcpServer) {
         return Promise.resolve();
     }
+    const startPromise = (async () => {
+        const bearerToken = await ensureLocalMcpServerBearerToken();
+        const port = resolveConfiguredLocalMcpPort();
+        const identity = createLocalMcpServerIdentity(port);
+        const options = {...createDefaultMcpRequestOptions(identity, 'external')};
 
-    const port = resolveConfiguredLocalMcpPort();
-    const identity = createLocalMcpServerIdentity(port);
-    const options = {...createDefaultMcpRequestOptions(identity, 'external')};
+        const server = createServer(createHttpHandler(options, { bearerToken }));
+        localMcpServer = server;
+        await new Promise<void>((resolve, reject) => {
+            let settled = false;
+            const failStartup = (error: Error) => {
+                logger.error(`Local MCP server failed: ${getErrorMessage(error)}`);
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                if (localMcpServer === server) {
+                    localMcpServer = null;
+                }
+                reject(error);
+            };
 
-    const server = createServer(createHttpHandler(options, { bearerToken }));
-    localMcpServer = server;
-    const startPromise = new Promise<void>((resolve, reject) => {
-        let settled = false;
-        const failStartup = (error: Error) => {
-            logger.error(`Local MCP server failed: ${getErrorMessage(error)}`);
-            if (settled) {
-                return;
-            }
-            settled = true;
-            if (localMcpServer === server) {
-                localMcpServer = null;
-            }
-            reject(error);
-        };
-
-        server.on('error', error => failStartup(error instanceof Error ? error : new Error(getErrorMessage(error))));
-        server.on('close', () => {
-            failStartup(new Error('Local MCP server was shut down during startup.'));
-        });
-        server.listen(port, DEFAULT_MCP_HOST, () => {
-            if (settled) {
-                return;
-            }
-            if (localMcpServer !== server) {
-                server.close();
+            server.on('error', error => failStartup(error instanceof Error ? error : new Error(getErrorMessage(error))));
+            server.on('close', () => {
                 failStartup(new Error('Local MCP server was shut down during startup.'));
-                return;
-            }
+            });
+            server.listen(port, DEFAULT_MCP_HOST, () => {
+                if (settled) {
+                    return;
+                }
+                if (localMcpServer !== server) {
+                    server.close();
+                    failStartup(new Error('Local MCP server was shut down during startup.'));
+                    return;
+                }
 
-            settled = true;
-            const address = server.address() as AddressInfo | null;
-            logger.info(`Local MCP server ${identity.name} listening on http://${DEFAULT_MCP_HOST}:${address?.port ?? port}`);
-            resolve();
+                settled = true;
+                const address = server.address() as AddressInfo | null;
+                logger.info(`Local MCP server ${identity.name} listening on http://${DEFAULT_MCP_HOST}:${address?.port ?? port}`);
+                resolve();
+            });
         });
-    }).finally(() => {
+    })().finally(() => {
         if (localMcpStartPromise === startPromise) {
             localMcpStartPromise = null;
         }

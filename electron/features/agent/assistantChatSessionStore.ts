@@ -440,6 +440,10 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
         return persistence?.flushForTests() ?? Promise.resolve([]);
     }
 
+    function flushPersistence() {
+        return persistence?.flush() ?? Promise.resolve([]);
+    }
+
     return {
         addMessage,
         appendAssistantDelta,
@@ -454,6 +458,7 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
         getSession,
         getSessionByThreadId,
         flushPersistenceForTests,
+        flushPersistence,
         keyForSession,
         listSessions,
         rememberStateScope,

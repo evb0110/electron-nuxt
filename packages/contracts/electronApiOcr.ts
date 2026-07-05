@@ -72,6 +72,7 @@ export const OCR_PROGRESS_PHASES = [
     'merging',
     'indexing',
 ] as const satisfies readonly TOcrProgressPhase[];
+export type TOcrProgressStatus = 'running' | 'success' | 'canceled' | 'failed';
 
 export interface IOcrProgress {
     requestId: string;
@@ -82,6 +83,8 @@ export interface IOcrProgress {
     phaseProgress?: number;
     activePages?: number[];
     languageCode?: string;
+    status?: TOcrProgressStatus;
+    error?: string;
 }
 
 export interface IOcrJobStartResult extends IOcrErrorEnvelopeCarrier {

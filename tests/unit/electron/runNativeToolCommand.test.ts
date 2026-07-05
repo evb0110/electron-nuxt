@@ -72,11 +72,21 @@ describe('runNativeToolCommand', () => {
         );
     });
 
-    it('caches unsupported Rust native tool protocol failures', async () => {
+    it('retries failed native tool handshakes instead of caching them forever', async () => {
         mocks.runNativeCommand.mockResolvedValueOnce({
             exitCode: 0,
             stderr: '',
             stdout: 'bogus\n',
+        });
+        mocks.runNativeCommand.mockResolvedValueOnce({
+            exitCode: 0,
+            stderr: '',
+            stdout: '1\n',
+        });
+        mocks.runNativeCommand.mockResolvedValueOnce({
+            exitCode: 0,
+            stderr: '',
+            stdout: 'ok\n',
         });
         const {runNativeToolCommand} = await loadModule();
 
@@ -87,9 +97,34 @@ describe('runNativeToolCommand', () => {
         await expect(runNativeToolCommand('/tools/evb-pdf-image-combine', [
             '--output',
             'out.pdf',
-        ])).rejects.toThrow('expected 1, got bogus');
+        ])).resolves.toMatchObject({
+            exitCode: 0,
+            stderr: '',
+            stdout: 'ok\n',
+        });
 
-        expect(mocks.runNativeCommand).toHaveBeenCalledTimes(1);
+        expect(mocks.runNativeCommand).toHaveBeenCalledTimes(3);
+        expect(mocks.runNativeCommand).toHaveBeenNthCalledWith(
+            1,
+            '/tools/evb-pdf-image-combine',
+            ['--protocol-version'],
+            expect.objectContaining({timeoutMs: 5_000}),
+        );
+        expect(mocks.runNativeCommand).toHaveBeenNthCalledWith(
+            2,
+            '/tools/evb-pdf-image-combine',
+            ['--protocol-version'],
+            expect.objectContaining({timeoutMs: 5_000}),
+        );
+        expect(mocks.runNativeCommand).toHaveBeenNthCalledWith(
+            3,
+            '/tools/evb-pdf-image-combine',
+            [
+                '--output',
+                'out.pdf',
+            ],
+            expect.any(Object),
+        );
     });
 
     it('does not handshake non-evb commands', async () => {

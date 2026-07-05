@@ -285,6 +285,7 @@ describe('createDocumentPersistence', () => {
             '/tmp/old-working.pdf',
             options,
             'optimize-1',
+            {expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN},
         );
         expect(mocks.documentWorkingCopyCapability.createWorkingCopyFromPath).toHaveBeenCalledWith('/tmp/optimized.pdf');
         expect(mocks.documentWorkingCopyCapability.cleanupFile).toHaveBeenCalledWith('/tmp/old-working.pdf');
@@ -307,6 +308,12 @@ describe('createDocumentPersistence', () => {
         expect(result.success).toBe(false);
         expect(state.originalPath.value).toBe('/tmp/original.pdf');
         expect(state.workingCopyPath.value).toBe('/tmp/replaced-working.pdf');
+        expect(mocks.documentFilesCapability.optimizePdfAsCopy).toHaveBeenCalledWith(
+            '/tmp/old-working.pdf',
+            { preset: 'lossless' },
+            'optimize-stale',
+            {expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN},
+        );
         expect(mocks.documentWorkingCopyCapability.createWorkingCopyFromPath).toHaveBeenCalledWith('/tmp/optimized.pdf');
         expect(mocks.documentWorkingCopyCapability.cleanupFile).toHaveBeenCalledWith('/tmp/new-working.pdf');
         expect(mocks.documentWorkingCopyCapability.cleanupFile).toHaveBeenCalledTimes(1);

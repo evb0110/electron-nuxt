@@ -13,8 +13,8 @@ import {
 } from '@app/platform/browser/browserDocumentRecords';
 import {
     deleteRecord,
-    loadAllRecordKeys,
-    loadRecord,
+    loadAllRecordKeysAvailability,
+    loadRecordAvailability,
 } from '@app/platform/browser/browserDocumentIdb';
 import {
     deleteChunkRecord,
@@ -31,12 +31,24 @@ import type {
     IBrowserDocumentEntry,
     IBrowserPersistedDocumentRecord,
 } from '@app/platform/browser/browserDocumentTypes';
+import type { IBrowserPersistedDocumentRecordsLoadResult } from '@app/platform/browser/browserPersistedDocumentRecordsLoadResult';
 import { yieldToBrowser } from '@app/utils/yieldToBrowser';
 
-export async function loadBrowserPersistedDocumentRecords(): Promise<IBrowserPersistedDocumentRecord[]> {
-    const rawKeys = await loadAllRecordKeys();
+export async function loadBrowserPersistedDocumentRecordsResult(): Promise<IBrowserPersistedDocumentRecordsLoadResult> {
+    const rawKeysResult = await loadAllRecordKeysAvailability();
+    if (!rawKeysResult.available) {
+        return {
+            available: false,
+            records: [],
+        };
+    }
+
+    const rawKeys = rawKeysResult.value;
     if (!Array.isArray(rawKeys)) {
-        return [];
+        return {
+            available: true,
+            records: [],
+        };
     }
 
     const records: IBrowserPersistedDocumentRecord[] = [];
@@ -44,7 +56,14 @@ export async function loadBrowserPersistedDocumentRecords(): Promise<IBrowserPer
         if (typeof key !== 'string') {
             continue;
         }
-        const record = toPersistedDocumentRecord(await loadRecord(key));
+        const recordResult = await loadRecordAvailability(key);
+        if (!recordResult.available) {
+            return {
+                available: false,
+                records: [],
+            };
+        }
+        const record = toPersistedDocumentRecord(recordResult.value);
         if (!record) {
             continue;
         }
@@ -57,7 +76,14 @@ export async function loadBrowserPersistedDocumentRecords(): Promise<IBrowserPer
         }
     }
 
-    return records;
+    return {
+        available: true,
+        records,
+    };
+}
+
+export async function loadBrowserPersistedDocumentRecords(): Promise<IBrowserPersistedDocumentRecord[]> {
+    return (await loadBrowserPersistedDocumentRecordsResult()).records;
 }
 
 function isBrokenChunkedRecord(
@@ -84,7 +110,13 @@ export function isBrowserRecentFileRef(ref: string) {
 export async function sweepBrowserDocumentMaintenance(
     entries: Map<string, IBrowserDocumentEntry>,
 ) {
-    const records = await loadBrowserPersistedDocumentRecords();
+    const {
+        available,
+        records,
+    } = await loadBrowserPersistedDocumentRecordsResult();
+    if (!available) {
+        return;
+    }
     if (records.length === 0) {
         return;
     }

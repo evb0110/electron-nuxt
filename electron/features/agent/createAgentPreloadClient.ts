@@ -8,6 +8,7 @@ import {
 } from '@electron/features/agent/contract';
 import {
     decodeAgentAssistantEvent,
+    decodeAgentCommandCancelRequest,
     decodeAgentCommandRequest,
     decodeAgentWorkspaceSnapshotRequest,
 } from '@electron/preload/agentIpcDecoders';
@@ -33,6 +34,12 @@ export function createAgentPreloadClient(ipcRenderer: IpcRenderer): IAgentCapabi
             eventSubscriber.onDecodedPayload(
                 AGENT_EVENT_CHANNELS.commandRequest,
                 decodeAgentCommandRequest,
+                callback,
+            ),
+        onCommandCancelRequest: callback =>
+            eventSubscriber.onDecodedPayload(
+                AGENT_EVENT_CHANNELS.commandCancelRequest,
+                decodeAgentCommandCancelRequest,
                 callback,
             ),
         submitCommandResponse: response =>

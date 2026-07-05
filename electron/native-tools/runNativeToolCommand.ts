@@ -59,7 +59,7 @@ export async function runNativeToolCommand(
     return runNativeCommand(command, args, createBaseRunCommandOptions(options));
 }
 
-async function verifyNativeToolProtocol(command: string, options: IRunNativeToolCommandOptions) {
+export async function verifyNativeToolProtocol(command: string, options: IRunNativeToolCommandOptions = {}) {
     const toolName = getNativeToolName(command);
     if (toolName === null) {
         return;
@@ -71,7 +71,13 @@ async function verifyNativeToolProtocol(command: string, options: IRunNativeTool
         return;
     }
 
-    const handshake = runNativeToolProtocolHandshake(command, toolName, options);
+    const handshake = runNativeToolProtocolHandshake(command, toolName, options)
+        .catch((error: unknown) => {
+            if (nativeToolProtocolHandshakeCache.get(command) === handshake) {
+                nativeToolProtocolHandshakeCache.delete(command);
+            }
+            throw error;
+        });
     nativeToolProtocolHandshakeCache.set(command, handshake);
     await handshake;
 }

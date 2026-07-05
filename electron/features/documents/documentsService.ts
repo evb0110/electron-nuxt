@@ -105,6 +105,10 @@ export interface IDocumentsService {
         context: IDocumentsSenderIdContext,
         filePath: string,
     ) => Promise<IPdfNativePageSize[]>;
+    cancelPdfNativePagePreview: (
+        context: IDocumentsSenderIdContext,
+        requestId: string,
+    ) => Promise<{ canceled: boolean }>;
     renderPdfNativePagePreview: (
         context: IDocumentsSenderIdContext,
         filePath: string,
@@ -169,6 +173,7 @@ export interface IDocumentsService {
         workingPath: string,
         options: IPdfOptimizeOptions,
         requestId?: string,
+        revisionOptions?: IDocumentMutationRevisionOptions,
     ) => Promise<IPdfOptimizeResult>;
     savePdfData: (
         context: IDocumentsSenderIdContext,

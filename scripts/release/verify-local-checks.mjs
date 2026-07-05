@@ -79,7 +79,35 @@ export function getLocalReleaseCheckCommands() {
         {
             args: [
                 'run',
+                'typecheck:coverage',
+            ],
+            command: 'pnpm',
+        },
+        {
+            args: [
+                'run',
+                'check:drizzle-schema',
+            ],
+            command: 'pnpm',
+        },
+        {
+            args: [
+                'run',
                 'check:electron:install',
+            ],
+            command: 'pnpm',
+        },
+        {
+            args: [
+                'run',
+                'check:electron-builder:asar-unpack',
+            ],
+            command: 'pnpm',
+        },
+        {
+            args: [
+                'run',
+                'check:generated-native-resources:host',
             ],
             command: 'pnpm',
         },
@@ -101,6 +129,13 @@ export function getLocalReleaseCheckCommands() {
             args: [
                 'run',
                 'check:architecture',
+            ],
+            command: 'pnpm',
+        },
+        {
+            args: [
+                'run',
+                'fallow:all',
             ],
             command: 'pnpm',
         },

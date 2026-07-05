@@ -4,20 +4,10 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-
-const INTERNAL_ROOTS = [
-    'app',
-    'electron',
-    'landing',
-    'scripts',
-    'server',
-    'packages/contracts',
-    'packages/pdf-core',
-    'packages/electron-worker-bundles',
-    'packages/i18n-core',
-    'packages/i18n-app',
-    'packages/release-selection',
-];
+import {
+    getAllArchitectureRoots,
+    getFocusedArchitectureRoots,
+} from '../workspace-roots.mjs';
 
 const SOURCE_EXTENSIONS = [
     '.ts',
@@ -408,10 +398,26 @@ async function resolveSpecifier({
     return resolveRootSpecifier(projectRoot, specifier);
 }
 
-function collectRootsFromArgv(argv) {
+function collectScopeFromArgv(argv) {
+    const scopeArg = argv.find(argument => argument.startsWith('--scope='));
+    if (!scopeArg) {
+        return 'all';
+    }
+
+    const scope = scopeArg.slice('--scope='.length).trim().toLowerCase();
+    if (scope === 'all' || scope === 'focused') {
+        return scope;
+    }
+
+    throw new Error(`Unsupported --scope value: ${scopeArg}`);
+}
+
+function collectRootsFromArgv(argv, {projectRoot}) {
     const rootArg = argv.find(argument => argument.startsWith('--roots='));
     if (!rootArg) {
-        return INTERNAL_ROOTS;
+        return collectScopeFromArgv(argv) === 'focused'
+            ? getFocusedArchitectureRoots({ projectRoot })
+            : getAllArchitectureRoots({ projectRoot });
     }
 
     const requestedRoots = rootArg
@@ -441,8 +447,8 @@ function parseFormatArg(argv) {
     return format === 'md' ? 'md' : 'json';
 }
 
-function isInternalPath(filePath) {
-    return INTERNAL_ROOTS.some(root => filePath === root || filePath.startsWith(`${root}/`));
+function isInternalPath(filePath, internalRoots) {
+    return internalRoots.some(root => filePath === root || filePath.startsWith(`${root}/`));
 }
 
 function toMarkdown(graph) {
@@ -537,9 +543,10 @@ export function findStronglyConnectedComponents(nodes, edges) {
 
 export async function buildDependencyGraph({
     projectRoot = process.cwd(),
-    roots = INTERNAL_ROOTS,
+    roots = getAllArchitectureRoots({ projectRoot }),
 } = {}) {
     const normalizedRoots = roots.map(root => toPosixPath(path.normalize(root)));
+    const internalRoots = getAllArchitectureRoots({ projectRoot });
     await assertRootsExist(projectRoot, normalizedRoots);
     const files = (
         await Promise.all(normalizedRoots.map(root => collectFiles(projectRoot, root)))
@@ -567,7 +574,9 @@ export async function buildDependencyGraph({
             };
         }));
 
-        const internalImports = resolvedImports.filter(entry => entry.target && isInternalPath(entry.target));
+        const internalImports = resolvedImports.filter(
+            entry => entry.target && isInternalPath(entry.target, internalRoots),
+        );
         nodes.push({
             file,
             imports: internalImports,
@@ -606,7 +615,7 @@ export async function buildDependencyGraph({
 async function runCli() {
     const argv = process.argv.slice(2);
     const projectRoot = process.cwd();
-    const roots = collectRootsFromArgv(argv);
+    const roots = collectRootsFromArgv(argv, { projectRoot });
     const output = parseOutputArg(argv);
     const format = parseFormatArg(argv);
 

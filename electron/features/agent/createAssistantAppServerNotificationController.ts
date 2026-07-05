@@ -138,9 +138,13 @@ export function createAssistantAppServerNotificationController(options: IAssista
         return options.getChatSessionByThreadId(getNotificationThreadId(params));
     }
 
-    function shouldDropNotificationForTurn(session: IAssistantChatSession, params: unknown) {
+    function shouldDropNotificationForTurn(
+        session: IAssistantChatSession,
+        params: unknown,
+        bindOptions: Parameters<typeof bindNotificationTurn>[2] = {},
+    ) {
         const turnId = getNotificationTurnId(params);
-        return !bindNotificationTurn(session, turnId);
+        return !bindNotificationTurn(session, turnId, bindOptions);
     }
 
     function isActiveTurnScopeCurrent(session: IAssistantChatSession) {
@@ -153,15 +157,20 @@ export function createAssistantAppServerNotificationController(options: IAssista
     function bindNotificationTurn(
         session: IAssistantChatSession,
         turnId: string | null,
-        optionsOverride: { emitStartedEvent?: boolean } = {},
+        optionsOverride: {
+            emitStartedEvent?: boolean;
+            allowStaleScope?: boolean;
+        } = {},
     ) {
+        const allowStaleScope = optionsOverride.allowStaleScope ?? false;
         if (turnId === null) {
-            return isAssistantTurnActive(session.turnOwner) && isActiveTurnScopeCurrent(session);
+            return isAssistantTurnActive(session.turnOwner)
+                && (allowStaleScope || isActiveTurnScopeCurrent(session));
         }
 
         const activeProviderTurnId = getAssistantTurnProviderTurnId(session.turnOwner);
         if (activeProviderTurnId === turnId) {
-            return isActiveTurnScopeCurrent(session);
+            return allowStaleScope || isActiveTurnScopeCurrent(session);
         }
         if (activeProviderTurnId !== null || !isAssistantTurnActive(session.turnOwner)) {
             return false;
@@ -249,7 +258,7 @@ export function createAssistantAppServerNotificationController(options: IAssista
                 return;
             }
             const turnId = getNotificationTurnId(params);
-            if (!bindNotificationTurn(session, turnId)) {
+            if (!bindNotificationTurn(session, turnId, {allowStaleScope: true})) {
                 options.logger.info('Ignoring stale assistant turn completion.');
                 return;
             }
@@ -318,7 +327,7 @@ export function createAssistantAppServerNotificationController(options: IAssista
                 : 'Codex assistant turn failed.';
             if (session) {
                 session.lastError = options.codexProviderRuntime.lastError;
-                if (shouldDropNotificationForTurn(session, params)) {
+                if (shouldDropNotificationForTurn(session, params, {allowStaleScope: true})) {
                     options.logger.info('Ignoring stale assistant error notification.');
                     return;
                 }

@@ -34,7 +34,15 @@ class FakeClaudeQuery {
     readonly supportedModels = vi.fn(async () => []);
     readonly setModel = vi.fn(async () => undefined);
     readonly interrupt = vi.fn(async () => undefined);
-    readonly close = vi.fn();
+    readonly close = vi.fn(() => {
+        while (this.resolvers.length > 0) {
+            const resolve = this.resolvers.shift();
+            resolve?.({
+                value: undefined,
+                done: true,
+            });
+        }
+    });
 
     push(message: unknown) {
         const resolver = this.resolvers.shift();
@@ -228,5 +236,34 @@ describe('claudeAgentSdkAssistant', () => {
         expect(callbacks.onAssistantDelta).toHaveBeenCalledWith(turnId, expect.any(String), 'Hi');
         expect(callbacks.onAssistantMessage).toHaveBeenCalledWith(turnId, expect.any(String), 'Hi there', true);
         expect(callbacks.onError).toHaveBeenCalledWith(turnId, 'Claude exploded politely.');
+    });
+
+    it('awaits the consume-stream task when closing a live Claude session', async () => {
+        const fakeQuery = new FakeClaudeQuery();
+        sdkMocks.query.mockReturnValue(fakeQuery);
+        const session = new ClaudeAgentAssistantSession({
+            cwd: '/tmp',
+            model: 'opus',
+            effort: 'low',
+            speedMode: 'standard',
+            mcpServerName: 'evb_viewer_embedded',
+            mcpServerUrl: 'http://127.0.0.1:3000',
+            mcpToken: 'token',
+            executablePath: '/usr/bin/claude',
+            callbacks: {
+                onInitialized: vi.fn(),
+                onTurnStarted: vi.fn(),
+                onAssistantDelta: vi.fn(),
+                onAssistantMessage: vi.fn(),
+                onTurnCompleted: vi.fn(),
+                onError: vi.fn(),
+            },
+        });
+
+        await session.sendMessage('Hello', [], 'opus');
+        const closePromise = session.close();
+        expect(fakeQuery.close).toHaveBeenCalledTimes(1);
+
+        await expect(closePromise).resolves.toBeUndefined();
     });
 });

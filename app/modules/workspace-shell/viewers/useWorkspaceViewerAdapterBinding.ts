@@ -104,7 +104,7 @@ export const useWorkspaceViewerAdapterBinding = (options: IWorkspaceViewerAdapte
                 dragMode: options.dragMode.value,
                 continuousScroll: options.continuousScroll.value,
                 isResizing: options.isResizingSidebar.value,
-                isActive: options.isRenderActive,
+                isActive: options.isRenderActive.value,
                 annotationTool: options.annotationTool.value,
                 annotationCursorMode: options.annotationCursorMode.value,
                 annotationKeepActive: options.annotationKeepActive.value,

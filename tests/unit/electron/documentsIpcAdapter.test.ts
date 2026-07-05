@@ -197,6 +197,7 @@ describe('documents ipc adapter', () => {
                 width: 612,
                 height: 792,
             }]),
+            cancelPdfNativePagePreview: vi.fn(async () => ({canceled: true})),
             renderPdfNativePagePreview: vi.fn(async () => ({
                 bytes: new Uint8Array([1]),
                 width: 900,
@@ -212,11 +213,18 @@ describe('documents ipc adapter', () => {
                 width: 612,
                 height: 792,
             }]);
+        await expect(handlers.get(DOCUMENTS_CHANNELS.pdfNativePagePreviewCancel)?.(
+            {sender},
+            'preview-1',
+        )).resolves.toEqual({canceled: true});
         await expect(handlers.get(DOCUMENTS_CHANNELS.pdfNativePagePreview)?.(
             {sender},
             '/tmp/huge.pdf',
             7,
-            {targetWidthPx: 900},
+            {
+                targetWidthPx: 900,
+                previewRequestId: 'preview-2',
+            },
         )).resolves.toMatchObject({
             width: 900,
             height: 1200,
@@ -226,6 +234,10 @@ describe('documents ipc adapter', () => {
             sender,
             senderId: 49,
         }, '/tmp/huge.pdf');
+        expect(service.cancelPdfNativePagePreview).toHaveBeenCalledWith({
+            sender,
+            senderId: 49,
+        }, 'preview-1');
         expect(service.renderPdfNativePagePreview).toHaveBeenCalledWith(
             {
                 sender,
@@ -233,7 +245,10 @@ describe('documents ipc adapter', () => {
             },
             '/tmp/huge.pdf',
             7,
-            {targetWidthPx: 900},
+            {
+                targetWidthPx: 900,
+                previewRequestId: 'preview-2',
+            },
         );
     });
 

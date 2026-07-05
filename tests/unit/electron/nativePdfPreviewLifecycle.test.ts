@@ -130,4 +130,42 @@ describe('native PDF preview lifecycle', () => {
         expect(mocks.cancelNativeCommandGroup).toHaveBeenCalledWith(expect.stringMatching(/^pdf-native-preview:/u));
         expect(snapshotMainOperations()).toEqual([]);
     });
+
+    it('cancels an in-flight native preview by request id', async () => {
+        const sender = new FakeSender();
+        const capturedOptions: Array<{
+            signal?: AbortSignal;
+            cancelGroup?: string;
+        }> = [];
+        mocks.runNativeToolCommand.mockImplementationOnce((_command: string, _args: string[], options: {
+            signal?: AbortSignal;
+            cancelGroup?: string;
+        }) => {
+            capturedOptions.push(options);
+            return new Promise((_resolve, reject) => {
+                options.signal?.addEventListener('abort', () => {
+                    reject(options.signal?.reason);
+                }, {once: true});
+            });
+        });
+        const {
+            handleCancelPdfNativePagePreview,
+            handlePdfNativePagePreview,
+        } = await import('@electron/features/documents/main/nativePdfPreview');
+
+        const previewPromise = handlePdfNativePagePreview({
+            sender: sender as never,
+            senderId: sender.id,
+        }, '/tmp/input.pdf', 1, {previewRequestId: 'preview-1'});
+        await vi.waitFor(() => {
+            expect(capturedOptions).toHaveLength(1);
+        });
+
+        await expect(handleCancelPdfNativePagePreview({
+            sender: sender as never,
+            senderId: sender.id,
+        }, 'preview-1')).resolves.toEqual({canceled: true});
+        await expect(previewPromise).rejects.toThrow('Native PDF preview canceled');
+        expect(mocks.cancelNativeCommandGroup).toHaveBeenCalledWith(expect.stringMatching(/^pdf-native-preview:/u));
+    });
 });

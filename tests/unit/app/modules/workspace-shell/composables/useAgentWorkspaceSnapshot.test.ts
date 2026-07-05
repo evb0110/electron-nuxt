@@ -12,6 +12,7 @@ import {
     shallowRef,
 } from 'vue';
 import type {
+    IAgentCommandCancelRequest,
     IAgentCommandRequest,
     IAgentCommandResponse,
     IAgentWorkspaceSnapshotRequest,
@@ -104,13 +105,10 @@ async function flushAsyncWork() {
 }
 
 async function waitForCommandResponse(responses: IAgentCommandResponse[]) {
-    for (let index = 0; index < 20; index += 1) {
-        if (responses[0]) {
-            return responses[0];
-        }
-        await new Promise(resolve => setTimeout(resolve, 0));
-    }
-    throw new Error('Timed out waiting for agent command response.');
+    await waitForAssertion(() => {
+        expect(responses[0]).toBeDefined();
+    });
+    return responses[0]!;
 }
 
 async function waitForAssertion(assertion: () => void, timeoutMs = 1000) {
@@ -168,6 +166,7 @@ async function mountAgentWorkspaceSnapshotHarness(options: {
         },
     });
     const documentRecordsByTabId = ref<TWorkspaceDocumentRecordMap>({'tab-1': initialRecord});
+    const commandCancelCallbacks: Array<(request: IAgentCommandCancelRequest) => void> = [];
     const commandCallbacks: Array<(request: IAgentCommandRequest) => void> = [];
     const snapshotCallbacks: Array<(request: IAgentWorkspaceSnapshotRequest) => void> = [];
     const commandResponses: IAgentCommandResponse[] = [];
@@ -179,6 +178,10 @@ async function mountAgentWorkspaceSnapshotHarness(options: {
         submitWorkspaceSnapshot: vi.fn(async () => ({accepted: true})),
         onCommandRequest: vi.fn((callback) => {
             commandCallbacks.push(callback);
+            return vi.fn();
+        }),
+        onCommandCancelRequest: vi.fn((callback) => {
+            commandCancelCallbacks.push(callback);
             return vi.fn();
         }),
         submitCommandResponse: vi.fn(async (response) => {
@@ -231,6 +234,9 @@ async function mountAgentWorkspaceSnapshotHarness(options: {
         async submitCommand(request: IAgentCommandRequest) {
             commandCallbacks[0]?.(request);
             return waitForCommandResponse(commandResponses);
+        },
+        submitCommandCancel(request: IAgentCommandCancelRequest) {
+            commandCancelCallbacks[0]?.(request);
         },
         async submitSnapshot(request: IAgentWorkspaceSnapshotRequest) {
             snapshotCallbacks[0]?.(request);
@@ -599,6 +605,54 @@ describe('useAgentWorkspaceSnapshot bridge registration', () => {
 });
 
 describe('useAgentWorkspaceSnapshot command guards', () => {
+    it('aborts an in-flight command when main requests cancellation', async () => {
+        let observedSignal: AbortSignal | null = null;
+        const runAgentActionImpl: IWorkspaceExpose['runAgentAction'] = async (_id, _input, _options, context) =>
+            new Promise<Record<string, unknown>>((_resolve, reject) => {
+                observedSignal = context?.signal ?? null;
+                context?.signal.addEventListener('abort', () => {
+                    reject(context.signal.reason ?? new Error('Agent command was aborted.'));
+                }, {once: true});
+            });
+        const runAgentAction = vi.fn(runAgentActionImpl);
+        const workspace = createWorkspace({
+            hasPdf: true,
+            currentPage: 1,
+            totalPages: 3,
+        }, {runAgentAction});
+        const session = createTestSession();
+        session.attachWorkspace(workspace);
+        const harness = await mountAgentWorkspaceSnapshotHarness({
+            session,
+            workspace,
+        });
+
+        const responsePromise = harness.submitCommand({
+            requestId: 'command-cancelled',
+            command: {
+                name: 'run_action',
+                arguments: {
+                    id: 'document.save',
+                    tabId: 'tab-1',
+                },
+            },
+        });
+        await waitForAssertion(() => {
+            expect(workspace.runAgentAction).toHaveBeenCalledTimes(1);
+        });
+
+        harness.submitCommandCancel({requestId: 'command-cancelled'});
+
+        await expect(responsePromise).resolves.toMatchObject({
+            ok: false,
+            error: 'Agent command was aborted.',
+        });
+        const signal = observedSignal as AbortSignal | null;
+        expect(signal).not.toBeNull();
+        expect(signal?.aborted).toBe(true);
+        harness.app.unmount();
+    });
+
     it('passes session command targets into workspace agent contexts', async () => {
         const readAgentResource = vi.fn(async (_uri, context) => ({
             ok: true,

@@ -16,6 +16,13 @@ import {
 } from '@app/platform/browser-api/browserFilePickerAdapter';
 import { getErrorMessage } from '@app/utils/error';
 
+class BrowserStructuredSaveSyncRequiredError extends Error {
+    public constructor(cause: unknown) {
+        super(`Saved the browser document externally, but failed to refresh local save bookkeeping: ${getErrorMessage(cause)}`);
+        this.name = 'BrowserStructuredSaveSyncRequiredError';
+    }
+}
+
 function buildBrowserLargeJobError(
     label: string,
     maxBytes: number,
@@ -46,50 +53,60 @@ export async function saveWorkingBytesToSource(
 ) {
     const sourceRef = await browserDocumentStore.getSourceRef(workingCopyPath);
     const saveTarget = await browserDocumentStore.getSaveTarget(sourceRef);
+    let externalWriteCommitted = false;
 
-    if (saveTarget.saveHandle) {
-        await writeDocumentRefToHandle(saveTarget.saveHandle, workingCopyPath);
-        const { size } = await browserDocumentStore.stat(workingCopyPath);
-        await browserDocumentStore.replaceWithHandleBackedDocument(sourceRef, {
-            fileSize: size,
-            saveHandle: saveTarget.saveHandle,
-            saveName: saveTarget.saveName,
-        });
-        await browserDocumentStore.assignSaveTarget(
-            sourceRef,
-            saveTarget.saveName,
-            saveTarget.saveKind,
-            saveTarget.saveHandle,
-        );
-    } else {
-        await assertBrowserPathWithinFullReadBudget(
-            workingCopyPath,
-            'Saving documents',
-            getBrowserLargeSaveHandleHint(),
-        );
-        const bytes = await browserDocumentStore.read(workingCopyPath);
-        const saveResult = await saveBytesToPickerOrDownload(bytes, {
-            suggestedName: ensurePdfExtension(saveTarget.saveName),
-            mimeType: 'application/pdf',
-            pickerTypes: buildPdfSaveTypes(),
-            downloadFallbackLabel: 'Saving documents',
-        });
+    try {
+        if (saveTarget.saveHandle) {
+            await writeDocumentRefToHandle(saveTarget.saveHandle, workingCopyPath);
+            externalWriteCommitted = true;
+            const { size } = await browserDocumentStore.stat(workingCopyPath);
+            await browserDocumentStore.replaceWithHandleBackedDocument(sourceRef, {
+                fileSize: size,
+                saveHandle: saveTarget.saveHandle,
+                saveName: saveTarget.saveName,
+            });
+            await browserDocumentStore.assignSaveTarget(
+                sourceRef,
+                saveTarget.saveName,
+                saveTarget.saveKind,
+                saveTarget.saveHandle,
+            );
+        } else {
+            await assertBrowserPathWithinFullReadBudget(
+                workingCopyPath,
+                'Saving documents',
+                getBrowserLargeSaveHandleHint(),
+            );
+            const bytes = await browserDocumentStore.read(workingCopyPath);
+            const saveResult = await saveBytesToPickerOrDownload(bytes, {
+                suggestedName: ensurePdfExtension(saveTarget.saveName),
+                mimeType: 'application/pdf',
+                pickerTypes: buildPdfSaveTypes(),
+                downloadFallbackLabel: 'Saving documents',
+            });
 
-        if (saveResult.canceled) {
-            return false;
+            if (saveResult.canceled) {
+                return false;
+            }
+
+            externalWriteCommitted = true;
+            await browserDocumentStore.write(sourceRef, bytes);
+            await browserDocumentStore.assignSaveTarget(
+                sourceRef,
+                ensurePdfExtension(saveResult.fileName),
+                'pdf',
+                saveResult.handle,
+            );
         }
 
-        await browserDocumentStore.write(sourceRef, bytes);
-        await browserDocumentStore.assignSaveTarget(
-            sourceRef,
-            ensurePdfExtension(saveResult.fileName),
-            'pdf',
-            saveResult.handle,
-        );
+        await browserDocumentStore.touchRecentFile(sourceRef);
+        return true;
+    } catch (error) {
+        if (externalWriteCommitted) {
+            throw new BrowserStructuredSaveSyncRequiredError(error);
+        }
+        throw error;
     }
-
-    await browserDocumentStore.touchRecentFile(sourceRef);
-    return true;
 }
 
 export async function saveWorkingBytesToSourceStructured(
@@ -118,6 +135,16 @@ export async function saveWorkingBytesToSourceStructured(
             validation: null,
         };
     } catch (error) {
+        if (error instanceof BrowserStructuredSaveSyncRequiredError) {
+            return {
+                ok: false,
+                reason: 'working-copy-sync-required',
+                message: error.message,
+                externalWriteCommitted: true,
+                workingCopySyncRequired: true,
+                validation: null,
+            };
+        }
         return {
             ok: false,
             reason: 'write-failed',

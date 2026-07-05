@@ -14,6 +14,7 @@ import { IMAGE_EXPORT_EVENT_CHANNELS } from '@electron/features/image-export/con
 import { te } from '@electron/te';
 import type {
     IImageExportProgress,
+    TImageExportProgressStatus,
     TImageExportProgressFormat,
 } from '@contracts/electronApiDocuments';
 import { clamp } from 'es-toolkit/math';
@@ -31,8 +32,11 @@ type TImageExportProgressPump = ReturnType<typeof createIpcProgressPump<IImageEx
 
 const progressPumpsBySenderId = new Map<number, TImageExportProgressPump>();
 const progressPumpSenderCleanupIds = new Set<number>();
+const latestProgressBySenderId = new Map<number, Map<string, IImageExportProgress>>();
+const progressSendersById = new Map<number, Electron.WebContents>();
 
 function getImageExportProgressPump(sender: Electron.WebContents) {
+    progressSendersById.set(sender.id, sender);
     let pump = progressPumpsBySenderId.get(sender.id);
     if (pump) {
         return pump;
@@ -40,14 +44,30 @@ function getImageExportProgressPump(sender: Electron.WebContents) {
 
     pump = createIpcProgressPump<IImageExportProgress>({
         channel: IMAGE_EXPORT_EVENT_CHANNELS.progress,
-        getTarget: () => sender,
+        getTarget: () => {
+            const currentSender = progressSendersById.get(sender.id);
+            if (!currentSender) {
+                return null;
+            }
+            return {
+                key: `web-contents:${sender.id}`,
+                isDestroyed: () => currentSender.isDestroyed(),
+                send: (channel: string, payload: IImageExportProgress) => currentSender.send(channel, payload),
+            };
+        },
         getKey: (progress: IImageExportProgress) => progress.requestId,
-        isTerminal: (progress: IImageExportProgress) => progress.processed >= progress.total || progress.percent >= 100,
+        isTerminal: (progress: IImageExportProgress) => progress.status === 'success'
+            || progress.status === 'canceled'
+            || progress.status === 'failed'
+            || progress.processed >= progress.total
+            || progress.percent >= 100,
         onError: (error: unknown) => {
             logger.debug(`Failed to send image export progress update: ${String(error)}`);
         },
         onIdle: () => {
             progressPumpsBySenderId.delete(sender.id);
+            latestProgressBySenderId.delete(sender.id);
+            progressSendersById.delete(sender.id);
         },
     });
     progressPumpsBySenderId.set(sender.id, pump);
@@ -58,6 +78,8 @@ function getImageExportProgressPump(sender: Electron.WebContents) {
             progressPumpsBySenderId.get(sender.id)?.dispose();
             progressPumpsBySenderId.delete(sender.id);
             progressPumpSenderCleanupIds.delete(sender.id);
+            progressSendersById.delete(sender.id);
+            latestProgressBySenderId.delete(sender.id);
         });
     }
 
@@ -65,7 +87,11 @@ function getImageExportProgressPump(sender: Electron.WebContents) {
 }
 
 export function subscribeImageExportProgress(sender: Electron.WebContents) {
-    getImageExportProgressPump(sender).subscribe(sender);
+    getImageExportProgressPump(sender).subscribe({
+        key: `web-contents:${sender.id}`,
+        isDestroyed: () => sender.isDestroyed(),
+        send: (channel: string, payload: IImageExportProgress) => sender.send(channel, payload),
+    });
 }
 
 async function validateWorkingPdfPath(path: unknown, senderWebContentsId: number) {
@@ -260,24 +286,59 @@ function createImageExportProgressReporter(
         return undefined;
     }
     const progressPump = getImageExportProgressPump(sender);
+    const latestProgressByRequestId = latestProgressBySenderId.get(sender.id) ?? new Map<string, IImageExportProgress>();
+    latestProgressBySenderId.set(sender.id, latestProgressByRequestId);
 
     return (progress: TImageExportProgressPayload) => {
         const total = Math.max(1, Math.trunc(progress.total));
         const processed = clamp(Math.trunc(progress.processed), 0, total);
-        progressPump.enqueue({
+        const payload = {
             requestId: normalizedRequestId,
             format,
             phase: progress.phase,
             processed,
             total,
             percent: clamp(progress.percent ?? ((processed / total) * 100), 0, 100),
-        });
+            status: 'running',
+        } satisfies IImageExportProgress;
+        latestProgressByRequestId.set(normalizedRequestId, payload);
+        progressPump.enqueue(payload);
     };
+}
+
+function enqueueTerminalImageExportProgress(
+    context: IImageExportOperationContext,
+    requestId: string,
+    format: TImageExportProgressFormat,
+    status: Exclude<TImageExportProgressStatus, 'running'>,
+    error?: string,
+) {
+    if (!requestId) {
+        return;
+    }
+    const latest = latestProgressBySenderId.get(context.senderId)?.get(requestId);
+    const payload = {
+        requestId,
+        format,
+        phase: latest?.phase ?? (format === 'images' ? 'rendering' : 'combining'),
+        processed: latest?.processed ?? 0,
+        total: latest?.total ?? 0,
+        percent: latest?.percent ?? 0,
+        status,
+        ...(error === undefined ? {} : {error}),
+    } satisfies IImageExportProgress;
+    latestProgressBySenderId.get(context.senderId)?.set(requestId, payload);
+    getImageExportProgressPump(context.sender).enqueue(payload);
 }
 
 function clearImageExportProgress(context: IImageExportOperationContext, requestId: string) {
     if (requestId) {
         progressPumpsBySenderId.get(context.sender.id)?.clearKey(requestId);
+        const latestByRequestId = latestProgressBySenderId.get(context.senderId);
+        latestByRequestId?.delete(requestId);
+        if (latestByRequestId && latestByRequestId.size === 0) {
+            latestProgressBySenderId.delete(context.senderId);
+        }
     }
 }
 
@@ -365,6 +426,7 @@ export async function handlePdfExportImages(
         });
         const result = await showExportImageDialog(context.parentWindow, buildImageSuggestedName(normalizedPageNumbers));
         if (result.canceled || !result.filePath || linkedAbort.signal.aborted) {
+            enqueueTerminalImageExportProgress(context, normalizedRequestId, 'images', 'canceled');
             return {
                 success: false,
                 canceled: true,
@@ -380,11 +442,14 @@ export async function handlePdfExportImages(
             ...(onProgress ? { onProgress } : {}),
         });
         if (linkedAbort.signal.aborted) {
+            enqueueTerminalImageExportProgress(context, normalizedRequestId, 'images', 'canceled');
             return {
                 success: false,
                 canceled: true,
             };
         }
+
+        enqueueTerminalImageExportProgress(context, normalizedRequestId, 'images', 'success');
 
         return {
             success: true,
@@ -392,11 +457,13 @@ export async function handlePdfExportImages(
         };
     } catch (error) {
         if (isExportAborted(error)) {
+            enqueueTerminalImageExportProgress(context, normalizedRequestId, 'images', 'canceled');
             return {
                 success: false,
                 canceled: true,
             };
         }
+        enqueueTerminalImageExportProgress(context, normalizedRequestId, 'images', 'failed', error instanceof Error ? error.message : String(error));
         throw error;
     } finally {
         clearImageExportProgress(context, normalizedRequestId);
@@ -442,6 +509,7 @@ export async function handlePdfExportMultiPageTiff(
         });
         const result = await showMultiPageTiffDialog(context.parentWindow, buildMultiPageTiffSuggestedName(normalizedPageNumbers));
         if (result.canceled || !result.filePath || linkedAbort.signal.aborted) {
+            enqueueTerminalImageExportProgress(context, normalizedRequestId, 'multipage-tiff', 'canceled');
             return {
                 success: false,
                 canceled: true,
@@ -456,6 +524,7 @@ export async function handlePdfExportMultiPageTiff(
             ...(onProgress ? { onProgress } : {}),
         });
         if (linkedAbort.signal.aborted) {
+            enqueueTerminalImageExportProgress(context, normalizedRequestId, 'multipage-tiff', 'canceled');
             return {
                 success: false,
                 canceled: true,
@@ -467,6 +536,8 @@ export async function handlePdfExportMultiPageTiff(
             throw new Error('Multi-page TIFF export did not produce an output file');
         }
 
+        enqueueTerminalImageExportProgress(context, normalizedRequestId, 'multipage-tiff', 'success');
+
         return {
             success: true,
             outputPath,
@@ -474,11 +545,19 @@ export async function handlePdfExportMultiPageTiff(
         };
     } catch (error) {
         if (isExportAborted(error)) {
+            enqueueTerminalImageExportProgress(context, normalizedRequestId, 'multipage-tiff', 'canceled');
             return {
                 success: false,
                 canceled: true,
             };
         }
+        enqueueTerminalImageExportProgress(
+            context,
+            normalizedRequestId,
+            'multipage-tiff',
+            'failed',
+            error instanceof Error ? error.message : String(error),
+        );
         throw error;
     } finally {
         clearImageExportProgress(context, normalizedRequestId);

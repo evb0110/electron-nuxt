@@ -1,5 +1,6 @@
 import type { Ref } from 'vue';
 import type {
+    IAgentCommandCancelRequest,
     IAgentCommandExecutionScope,
     IAgentCommandRequest,
     IAgentCommandResponse,
@@ -55,11 +56,12 @@ interface IUseAgentWorkspaceSnapshotOptions {
 export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOptions) => {
     let unsubscribeWorkspaceSnapshotRequest: (() => void) | null = null;
     let unsubscribeCommandRequest: (() => void) | null = null;
+    let unsubscribeCommandCancelRequest: (() => void) | null = null;
     let isDisposed = false;
     let cachedSnapshotRevision = 0;
     let cachedSnapshotSignature = '';
     let cachedSnapshot: IAgentWorkspaceSnapshot | null = null;
-    const activeCommandAbortControllers = new Set<AbortController>();
+    const activeCommandAbortControllers = new Map<string, AbortController>();
 
     function createToolbarSnapshotSignature(tabId: string) {
         const snapshot = options.documentRecordsByTabId.value[tabId]?.toolbarSnapshot;
@@ -570,7 +572,7 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
 
     function submitCommandResult(request: IAgentCommandRequest) {
         const abortController = new AbortController();
-        activeCommandAbortControllers.add(abortController);
+        activeCommandAbortControllers.set(request.requestId, abortController);
         guardAsync(
             runCommand(request, abortController.signal)
                 .then(result => submitCommandResponseWithAck({
@@ -584,7 +586,7 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
                 ))
                 .finally(() => {
                     abortController.abort();
-                    activeCommandAbortControllers.delete(abortController);
+                    activeCommandAbortControllers.delete(request.requestId);
                 }),
             {
                 category: 'background-diagnostic',
@@ -592,6 +594,10 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
                 message: 'Failed to submit agent command response',
             },
         );
+    }
+
+    function cancelCommandRequest(request: IAgentCommandCancelRequest) {
+        activeCommandAbortControllers.get(request.requestId)?.abort(createAgentCommandAbortError());
     }
 
     function waitForRetryDelay() {
@@ -630,13 +636,16 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
                 }
                 const unsubscribeSnapshot = agent.onWorkspaceSnapshotRequest(submitSnapshot);
                 const unsubscribeCommand = agent.onCommandRequest(submitCommandResult);
+                const unsubscribeCommandCancel = agent.onCommandCancelRequest(cancelCommandRequest);
                 if (isDisposed) {
                     unsubscribeSnapshot();
                     unsubscribeCommand();
+                    unsubscribeCommandCancel();
                     return;
                 }
                 unsubscribeWorkspaceSnapshotRequest = unsubscribeSnapshot;
                 unsubscribeCommandRequest = unsubscribeCommand;
+                unsubscribeCommandCancelRequest = unsubscribeCommandCancel;
             })(),
             {
                 category: 'background-diagnostic',
@@ -648,7 +657,7 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
 
     onUnmounted(() => {
         isDisposed = true;
-        for (const abortController of activeCommandAbortControllers) {
+        for (const abortController of activeCommandAbortControllers.values()) {
             abortController.abort();
         }
         activeCommandAbortControllers.clear();
@@ -656,6 +665,8 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
         unsubscribeWorkspaceSnapshotRequest = null;
         unsubscribeCommandRequest?.();
         unsubscribeCommandRequest = null;
+        unsubscribeCommandCancelRequest?.();
+        unsubscribeCommandCancelRequest = null;
     });
 
     return { buildSnapshot: () => buildAgentWorkspaceSnapshot(options) };

@@ -270,6 +270,9 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
         if (!pageState) {
             return;
         }
+        if (pageState.status === 'loading') {
+            activeWorker?.cancelPagePreview?.(pageNumber);
+        }
 
         pageState.token += 1;
         revokePageUrl(pageNumber);
@@ -316,6 +319,9 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
             const pageState = state.pageStates.value[pageNumber - 1];
             if (!pageState) {
                 continue;
+            }
+            if (pageState.status === 'loading') {
+                activeWorker?.cancelPagePreview?.(pageNumber);
             }
 
             pageState.token += 1;
@@ -832,15 +838,23 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
         }
 
         const desiredPageNumbers = getPreferredRenderedPageNumbers();
+        const desiredPages = new Set(desiredPageNumbers);
         const activePages = createActiveRenderPageSet(desiredPageNumbers);
         queueDesiredPages(desiredPageNumbers);
 
         for (const pageNumber of lastRenderedPageSet) {
+            const pageState = state.pageStates.value[pageNumber - 1];
+            if (
+                pageState?.status === 'loading'
+                && !desiredPages.has(pageNumber)
+            ) {
+                resetPageState(pageNumber);
+                continue;
+            }
             if (activePages.has(pageNumber)) {
                 continue;
             }
 
-            const pageState = state.pageStates.value[pageNumber - 1];
             if (pageState && pageState.status !== 'idle') {
                 resetPageState(pageNumber);
             }

@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import {
     describe,
     expect,
@@ -28,6 +29,20 @@ function formatConfig(entries: readonly string[]) {
 }
 
 describe('electron-builder asarUnpack check', () => {
+    it('accepts the checked-in electron-builder.yml config', async () => {
+        const source = await readFile(resolve(process.cwd(), 'electron-builder.yml'), 'utf8');
+
+        expect(() => {
+            assertAsarUnpackMatchesWorkerBundles(source);
+        }).not.toThrow();
+    });
+
+    it('ships the MCP stdio proxy script in packaged builds', async () => {
+        const source = await readFile(resolve(process.cwd(), 'electron-builder.yml'), 'utf8');
+
+        expect(source).toContain('scripts/evb-mcp-proxy.mjs');
+    });
+
     it('accepts the generated worker bundle unpack list', () => {
         expect(() => {
             assertAsarUnpackMatchesWorkerBundles(formatConfig(getExpectedAsarUnpackEntries()));

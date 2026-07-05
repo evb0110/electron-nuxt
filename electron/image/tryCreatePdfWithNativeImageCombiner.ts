@@ -1,6 +1,7 @@
 import { spawn } from 'child_process';
 import {
     mkdtemp,
+    open,
     readFile,
     rm,
     writeFile,
@@ -14,6 +15,8 @@ import {
 } from 'path';
 import { fileURLToPath } from 'url';
 import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
+import { verifyNativeToolProtocol } from '@electron/native-tools/runNativeToolCommand';
+import { createNativeFallbackTestError } from '@electron/native-tools/createNativeFallbackTestError';
 import { getErrorMessage } from '@electron/utils/error';
 import { createLogger } from '@electron/utils/createLogger';
 import { abortErrorFromSignal } from '@electron/utils/abort';
@@ -69,6 +72,7 @@ const NATIVE_PDF_IMAGE_COMBINE_TIMEOUT_MS = (() => {
     return parsed;
 })();
 const NATIVE_PDF_IMAGE_COMBINE_MAX_STDOUT_BUFFER_BYTES = 64 * 1024;
+const NATIVE_PDF_IMAGE_COMBINE_TEST_ENABLE_ENV = 'EVB_PDF_IMAGE_COMBINE_ENABLE';
 const PDF_HEADER_SCAN_BYTES = 1024;
 const PDF_EOF_SCAN_BYTES = 1024 * 1024;
 
@@ -80,7 +84,7 @@ function getBinaryName() {
 
 export function isNativePdfImageCombineDisabled() {
     return process.env.EVB_PDF_IMAGE_COMBINE_DISABLE === '1'
-        || (process.env.VITEST === 'true' && process.env.EVB_PDF_IMAGE_COMBINE_ENABLE !== '1');
+        || (process.env.VITEST === 'true' && process.env[NATIVE_PDF_IMAGE_COMBINE_TEST_ENABLE_ENV] !== '1');
 }
 
 export function resolveNativePdfImageCombinePath() {
@@ -164,29 +168,89 @@ function includesAsciiToken(data: Uint8Array, token: string, start: number, end:
     return false;
 }
 
-function isStructurallyPlausiblePdf(data: Uint8Array) {
-    if (data.byteLength === 0) {
-        return false;
+async function isStructurallyPlausiblePdfFile(outputPath: string) {
+    const handle = await open(outputPath, 'r');
+    try {
+        const fileStat = await handle.stat();
+        if (!fileStat.isFile() || fileStat.size <= 0) {
+            return false;
+        }
+
+        const headerLength = Math.min(fileStat.size, PDF_HEADER_SCAN_BYTES);
+        const eofLength = Math.min(fileStat.size, PDF_EOF_SCAN_BYTES);
+        const header = Buffer.alloc(headerLength);
+        const eof = Buffer.alloc(eofLength);
+
+        await handle.read(header, 0, headerLength, 0);
+        await handle.read(eof, 0, eofLength, Math.max(0, fileStat.size - eofLength));
+
+        return includesAsciiToken(header, '%PDF-', 0, header.byteLength)
+            && includesAsciiToken(eof, '%%EOF', 0, eof.byteLength);
+    } finally {
+        await handle.close();
     }
-    const headerEnd = Math.min(data.byteLength, PDF_HEADER_SCAN_BYTES);
-    const eofStart = Math.max(0, data.byteLength - PDF_EOF_SCAN_BYTES);
-    return includesAsciiToken(data, '%PDF-', 0, headerEnd)
-        && includesAsciiToken(data, '%%EOF', eofStart, data.byteLength);
 }
 
 async function readValidatedNativePdfOutput(outputPath: string) {
+    let fallbackDetail: string | null = null;
+    let fallbackCause: unknown;
+
     try {
-        const bytes = new Uint8Array(await readFile(outputPath));
-        if (isStructurallyPlausiblePdf(bytes)) {
-            return bytes;
+        if (await isStructurallyPlausiblePdfFile(outputPath)) {
+            return new Uint8Array(await readFile(outputPath));
         }
         logger.warn(`Native image PDF combine produced invalid PDF output at "${outputPath}"`);
+        fallbackDetail = `native output at "${outputPath}" is not a structurally valid PDF`;
     } catch (error) {
         logger.warn(`Native image PDF combine output is unavailable at "${outputPath}": ${getErrorMessage(error)}`);
+        fallbackDetail = `native output at "${outputPath}" could not be read`;
+        fallbackCause = error;
     }
 
     await rm(outputPath, { force: true }).catch(() => undefined);
+    const testFailure = fallbackDetail
+        ? createNativeFallbackTestError(
+            NATIVE_PDF_IMAGE_COMBINE_TEST_ENABLE_ENV,
+            'Native image PDF combine',
+            fallbackDetail,
+            fallbackCause,
+        )
+        : null;
+    if (testFailure) {
+        throw testFailure;
+    }
     return null;
+}
+
+async function validateNativePdfOutputFile(outputPath: string) {
+    let fallbackDetail: string | null = null;
+    let fallbackCause: unknown;
+
+    try {
+        if (await isStructurallyPlausiblePdfFile(outputPath)) {
+            return true;
+        }
+        logger.warn(`Native image PDF combine produced invalid PDF output at "${outputPath}"`);
+        fallbackDetail = `native output at "${outputPath}" is not a structurally valid PDF`;
+    } catch (error) {
+        logger.warn(`Native image PDF combine output is unavailable at "${outputPath}": ${getErrorMessage(error)}`);
+        fallbackDetail = `native output at "${outputPath}" could not be read`;
+        fallbackCause = error;
+    }
+
+    await rm(outputPath, { force: true }).catch(() => undefined);
+    const testFailure = fallbackDetail
+        ? createNativeFallbackTestError(
+            NATIVE_PDF_IMAGE_COMBINE_TEST_ENABLE_ENV,
+            'Native image PDF combine',
+            fallbackDetail,
+            fallbackCause,
+        )
+        : null;
+    if (testFailure) {
+        throw testFailure;
+    }
+    return false;
 }
 
 export async function tryCreatePdfWithNativeImageCombiner(
@@ -238,6 +302,14 @@ async function createPdfWithNativeImageCombiner(
 ) {
     const binaryPath = resolveNativePdfImageCombinePath();
     if (!binaryPath) {
+        const testFailure = createNativeFallbackTestError(
+            NATIVE_PDF_IMAGE_COMBINE_TEST_ENABLE_ENV,
+            'Native image PDF combine',
+            'native binary path could not be resolved',
+        );
+        if (testFailure) {
+            throw testFailure;
+        }
         return null;
     }
 
@@ -271,6 +343,14 @@ async function writePdfWithNativeImageCombiner(
 ) {
     const binaryPath = resolveNativePdfImageCombinePath();
     if (!binaryPath) {
+        const testFailure = createNativeFallbackTestError(
+            NATIVE_PDF_IMAGE_COMBINE_TEST_ENABLE_ENV,
+            'Native image PDF combine',
+            'native binary path could not be resolved',
+        );
+        if (testFailure) {
+            throw testFailure;
+        }
         return false;
     }
 
@@ -287,7 +367,15 @@ async function writePdfWithNativeImageCombiner(
             await rm(outputPath, { force: true }).catch(() => undefined);
             return false;
         }
-        return await readValidatedNativePdfOutput(outputPath) !== null;
+        return await validateNativePdfOutputFile(outputPath);
+    } catch (error) {
+        if (
+            error instanceof Error
+            && error.message.startsWith('Native image PDF combine fallback is not allowed in tests:')
+        ) {
+            await rm(outputPath, { force: true }).catch(() => undefined);
+        }
+        throw error;
     } finally {
         await rm(tempDir, {
             recursive: true,
@@ -296,35 +384,45 @@ async function writePdfWithNativeImageCombiner(
     }
 }
 
-function runNativePdfImageCombine(
+async function runNativePdfImageCombine(
     binaryPath: string,
     outputPath: string,
     inputPaths: string[],
     options?: INativePdfImageCombineOptions,
     extraArgs: string[] = [],
 ) {
+    if (options?.signal?.aborted) {
+        throw abortErrorFromSignal(options.signal);
+    }
+
+    const args = [
+        '--output',
+        outputPath,
+        '--json-progress',
+        ...extraArgs,
+    ];
+    if (inputPaths.length > 0) {
+        args.push('--', ...inputPaths);
+    }
+    const maxPages = normalizeMaxPagesForEnv(options?.maxPages);
+    const env = maxPages
+        ? {
+            ...process.env,
+            EVB_PDF_COMBINE_MAX_PAGES: maxPages,
+        }
+        : undefined;
+
+    await verifyNativeToolProtocol(binaryPath, {
+        ...(env ? { env } : {}),
+        ...(options?.signal ? { signal: options.signal } : {}),
+    });
+    if (options?.signal?.aborted) {
+        throw abortErrorFromSignal(options.signal);
+    }
+
     return new Promise<boolean>((resolve, reject) => {
-        if (options?.signal?.aborted) {
-            reject(abortErrorFromSignal(options.signal));
-            return;
-        }
-
-        const args = [
-            '--output',
-            outputPath,
-            '--json-progress',
-            ...extraArgs,
-        ];
-        if (inputPaths.length > 0) {
-            args.push('--', ...inputPaths);
-        }
-        const maxPages = normalizeMaxPagesForEnv(options?.maxPages);
-
         const proc = spawn(binaryPath, args, createDetachedChildProcessSpawnOptions({
-            ...(maxPages ? {env: {
-                ...process.env,
-                EVB_PDF_COMBINE_MAX_PAGES: maxPages,
-            }} : {}),
+            ...(env ? { env } : {}),
             shell: false,
             windowsHide: true,
             stdio: [
@@ -373,6 +471,35 @@ function runNativePdfImageCombine(
             settled = true;
             cleanup();
             reject(error);
+        };
+
+        const createFailure = (detail: string, cause?: unknown) => createNativeFallbackTestError(
+            NATIVE_PDF_IMAGE_COMBINE_TEST_ENABLE_ENV,
+            'Native image PDF combine',
+            detail,
+            cause,
+        );
+
+        const finishFailure = (detail: string, cause?: unknown) => {
+            const failure = createFailure(detail, cause);
+            if (failure) {
+                fail(failure);
+                return;
+            }
+            finish(false);
+        };
+
+        const requestFailureTermination = (detail: string, cause?: unknown) => {
+            const failure = createFailure(detail, cause);
+            requestTermination(failure
+                ? {
+                    kind: 'reject',
+                    error: failure,
+                }
+                : {
+                    kind: 'resolve',
+                    ok: false,
+                });
         };
 
         const settleAfterTermination = (completion: TNativePdfImageCombineTermination) => {
@@ -426,10 +553,7 @@ function runNativePdfImageCombine(
 
         timeoutHandle = setTimeout(() => {
             logger.warn(`Native image PDF combine timed out after ${NATIVE_PDF_IMAGE_COMBINE_TIMEOUT_MS}ms`);
-            requestTermination({
-                kind: 'resolve',
-                ok: false,
-            });
+            requestFailureTermination(`native process timed out after ${NATIVE_PDF_IMAGE_COMBINE_TIMEOUT_MS}ms`);
         }, NATIVE_PDF_IMAGE_COMBINE_TIMEOUT_MS);
         timeoutHandle.unref?.();
 
@@ -450,10 +574,9 @@ function runNativePdfImageCombine(
             stdoutBuffer += data.toString('utf8');
             if (Buffer.byteLength(stdoutBuffer, 'utf8') > NATIVE_PDF_IMAGE_COMBINE_MAX_STDOUT_BUFFER_BYTES) {
                 logger.warn(`Native image PDF combine stdout line exceeded ${NATIVE_PDF_IMAGE_COMBINE_MAX_STDOUT_BUFFER_BYTES} bytes`);
-                requestTermination({
-                    kind: 'resolve',
-                    ok: false,
-                });
+                requestFailureTermination(
+                    `native stdout line exceeded ${NATIVE_PDF_IMAGE_COMBINE_MAX_STDOUT_BUFFER_BYTES} bytes`,
+                );
                 return;
             }
             let lineBreak = stdoutBuffer.indexOf('\n');
@@ -471,7 +594,7 @@ function runNativePdfImageCombine(
 
         proc.on('error', (error) => {
             logger.warn(`Native image PDF combine failed to start: ${getErrorMessage(error)}`);
-            finish(false);
+            finishFailure('native process failed to start', error);
         });
 
         proc.on('close', (code) => {
@@ -489,7 +612,7 @@ function runNativePdfImageCombine(
             if (code !== 0) {
                 const detail = stderr.trim();
                 logger.debug(`Native image PDF combine exited with code ${code}${detail ? `: ${detail}` : ''}`);
-                finish(false);
+                finishFailure(`native process exited with code ${code}${detail ? `: ${detail}` : ''}`);
                 return;
             }
             finish(true);

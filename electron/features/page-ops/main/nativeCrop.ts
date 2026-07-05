@@ -11,6 +11,7 @@ import {
 } from 'path';
 import { fileURLToPath } from 'url';
 import type { ICropMargins } from '@contracts/shared';
+import { createNativeFallbackTestError } from '@electron/native-tools/createNativeFallbackTestError';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
 import { getErrorMessage } from '@electron/utils/error';
@@ -27,6 +28,7 @@ const log = createLogger('native-page-ops-crop');
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const isPackaged = __dirname.includes('app.asar');
 const NATIVE_PAGE_OPS_TIMEOUT_MS = 2 * 60 * 1000;
+const NATIVE_PAGE_OPS_TEST_ENABLE_ENV = 'EVB_PDF_PAGE_OPS_ENABLE';
 
 function getBinaryName() {
     return process.platform === 'win32'
@@ -36,7 +38,7 @@ function getBinaryName() {
 
 export function isNativePageOpsDisabled() {
     return process.env.EVB_PDF_PAGE_OPS_DISABLE === '1'
-        || (process.env.VITEST === 'true' && process.env.EVB_PDF_PAGE_OPS_ENABLE !== '1');
+        || (process.env.VITEST === 'true' && process.env[NATIVE_PAGE_OPS_TEST_ENABLE_ENV] !== '1');
 }
 
 export function resolveNativePageOpsPath() {
@@ -106,6 +108,14 @@ async function tryRunNativeCropOperation(
 
     const binaryPath = resolveNativePageOpsPath();
     if (!binaryPath) {
+        const testFailure = createNativeFallbackTestError(
+            NATIVE_PAGE_OPS_TEST_ENABLE_ENV,
+            'Native page ops',
+            `no binary path resolved for ${operation}`,
+        );
+        if (testFailure) {
+            throw testFailure;
+        }
         return false;
     }
 
@@ -131,6 +141,15 @@ async function tryRunNativeCropOperation(
         return true;
     } catch (error) {
         await cleanupTempOutput(tempPath, log, 'native page crop temp file');
+        const testFailure = createNativeFallbackTestError(
+            NATIVE_PAGE_OPS_TEST_ENABLE_ENV,
+            'Native page ops',
+            `${operation} failed`,
+            error,
+        );
+        if (testFailure) {
+            throw testFailure;
+        }
         log.debug(`Native page crop failed, falling back to pdf-lib: ${getErrorMessage(error)}`);
         return false;
     } finally {

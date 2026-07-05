@@ -321,6 +321,9 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         ...(baseDocuments.getPdfNativePageSizes
             ? {getPdfNativePageSizes: baseDocuments.getPdfNativePageSizes}
             : {}),
+        ...(baseDocuments.cancelPdfNativePagePreview
+            ? {cancelPdfNativePagePreview: baseDocuments.cancelPdfNativePagePreview}
+            : {}),
         ...(baseDocuments.renderPdfNativePagePreview
             ? {renderPdfNativePagePreview: baseDocuments.renderPdfNativePagePreview}
             : {}),

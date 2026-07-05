@@ -80,17 +80,23 @@ function deferred<T>() {
 }
 
 function createHarness(path: string | null = '/tmp/work.pdf', options: {
+    documentRevisionToken?: string | null;
+    ensureHistoryBaselineForExternalMutation?: () => Promise<boolean>;
     ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
     runWithDocumentOperationLease?: <T>(kind: TDocumentOperationKind, operation: () => Promise<T>) => Promise<T>;
 } = {}) {
     const workingCopyPath = ref<string | null>(path);
-    const ensureHistoryBaselineForExternalMutation = vi.fn(async () => true);
+    const documentRevisionToken = ref<string | null>(options.documentRevisionToken ?? null);
+    const ensureHistoryBaselineForExternalMutation = options.ensureHistoryBaselineForExternalMutation
+        ? vi.fn(options.ensureHistoryBaselineForExternalMutation)
+        : vi.fn(async () => true);
     const reloadWorkingCopyIntoHistory = vi.fn(async () => true);
     const clearOcrCache = vi.fn();
     const resetSearchCache = vi.fn();
     const onExtractedDocument = vi.fn(async () => {});
     const pageOps = usePageOperations({
         workingCopyPath,
+        documentRevisionToken,
         ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,
         clearOcrCache,
@@ -103,6 +109,7 @@ function createHarness(path: string | null = '/tmp/work.pdf', options: {
     return {
         pageOps,
         workingCopyPath,
+        documentRevisionToken,
         ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,
         clearOcrCache,
@@ -449,5 +456,156 @@ describe('usePageOperations', () => {
             expect.stringMatching(/^browser-page-op-insert-/u),
         );
         expect(pageOps.batchProgress.value).toBeNull();
+    });
+
+    it.each([
+        {
+            apiMethod: 'delete' as const,
+            expectedArgs: [
+                '/tmp/work.pdf',
+                [
+                    2,
+                    4,
+                ],
+                10,
+                { expectedDocumentRevisionToken: 'rev-intent' },
+            ],
+            invoke: (pageOps: ReturnType<typeof usePageOperations>) => pageOps.deletePages([
+                2,
+                4,
+            ], 10),
+            name: 'delete',
+        },
+        {
+            apiMethod: 'rotate' as const,
+            expectedArgs: [
+                '/tmp/work.pdf',
+                [
+                    2,
+                    4,
+                ],
+                10,
+                90,
+                { expectedDocumentRevisionToken: 'rev-intent' },
+            ],
+            invoke: (pageOps: ReturnType<typeof usePageOperations>) => pageOps.rotatePages([
+                2,
+                4,
+            ], 10, 90),
+            name: 'rotate',
+        },
+        {
+            apiMethod: 'insert' as const,
+            expectedArgs: [
+                '/tmp/work.pdf',
+                10,
+                4,
+                { expectedDocumentRevisionToken: 'rev-intent' },
+            ],
+            invoke: (pageOps: ReturnType<typeof usePageOperations>) => pageOps.insertPages(10, 4),
+            name: 'insert blank',
+        },
+        {
+            apiMethod: 'insertFile' as const,
+            expectedArgs: [
+                '/tmp/work.pdf',
+                10,
+                4,
+                ['browser://documents/source.pdf'],
+                undefined,
+                { expectedDocumentRevisionToken: 'rev-intent' },
+            ],
+            invoke: (pageOps: ReturnType<typeof usePageOperations>) => pageOps.insertFile(10, 4, ['browser://documents/source.pdf']),
+            name: 'insert file',
+        },
+        {
+            apiMethod: 'reorder' as const,
+            expectedArgs: [
+                '/tmp/work.pdf',
+                [
+                    3,
+                    1,
+                    2,
+                ],
+                { expectedDocumentRevisionToken: 'rev-intent' },
+            ],
+            invoke: (pageOps: ReturnType<typeof usePageOperations>) => pageOps.reorderPages([
+                3,
+                1,
+                2,
+            ]),
+            name: 'reorder',
+        },
+        {
+            apiMethod: 'crop' as const,
+            expectedArgs: [
+                '/tmp/work.pdf',
+                [
+                    2,
+                    4,
+                ],
+                10,
+                {
+                    top: 12,
+                    bottom: 8,
+                    left: 6,
+                    right: 4,
+                },
+                { expectedDocumentRevisionToken: 'rev-intent' },
+            ],
+            invoke: (pageOps: ReturnType<typeof usePageOperations>) => pageOps.cropPages([
+                2,
+                4,
+            ], 10, {
+                top: 12,
+                bottom: 8,
+                left: 6,
+                right: 4,
+            }),
+            name: 'crop',
+        },
+        {
+            apiMethod: 'removeCrop' as const,
+            expectedArgs: [
+                '/tmp/work.pdf',
+                [
+                    2,
+                    4,
+                ],
+                10,
+                { expectedDocumentRevisionToken: 'rev-intent' },
+            ],
+            invoke: (pageOps: ReturnType<typeof usePageOperations>) => pageOps.removeCrop([
+                2,
+                4,
+            ], 10),
+            name: 'remove crop',
+        },
+    ])('keeps the intent-time revision token for $name page ops', async ({
+        apiMethod,
+        expectedArgs,
+        invoke,
+    }) => {
+        const baselineGate = deferred<boolean>();
+        const {
+            pageOps,
+            documentRevisionToken,
+        } = createHarness('/tmp/work.pdf', {
+            documentRevisionToken: 'rev-intent',
+            ensureHistoryBaselineForExternalMutation: () => baselineGate.promise,
+        });
+        const pageOpSpy = pageOpsApi[apiMethod];
+        pageOpSpy.mockResolvedValueOnce({ success: true });
+
+        const operationPromise = invoke(pageOps);
+        await Promise.resolve();
+
+        expect(pageOpSpy).not.toHaveBeenCalled();
+
+        documentRevisionToken.value = 'rev-later';
+        baselineGate.resolve(true);
+
+        await expect(operationPromise).resolves.toBe(true);
+        expect(pageOpSpy).toHaveBeenCalledWith(...expectedArgs);
     });
 });

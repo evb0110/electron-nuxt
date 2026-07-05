@@ -414,6 +414,7 @@ describe('image export IPC lifecycle', () => {
             processed: 7,
             total: 10,
             percent: 63,
+            status: 'running',
         });
     });
 
@@ -453,6 +454,7 @@ describe('image export IPC lifecycle', () => {
             processed: 3,
             total: 10,
             percent: 30,
+            status: 'running',
         }));
 
         sender.send.mockClear();
@@ -465,6 +467,7 @@ describe('image export IPC lifecycle', () => {
             processed: 3,
             total: 10,
             percent: 30,
+            status: 'running',
         });
         exportDeferred.resolve(['/tmp/export.tiff']);
         await exportPromise;
@@ -508,6 +511,7 @@ describe('image export IPC lifecycle', () => {
             processed: 10,
             total: 10,
             percent: 100,
+            status: 'success',
         });
     });
 

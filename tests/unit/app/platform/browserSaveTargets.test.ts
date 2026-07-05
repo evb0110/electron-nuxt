@@ -100,4 +100,24 @@ describe('browserSaveTargets', () => {
                 validation: null,
             });
     });
+
+    it('reports sync-required when browser bookkeeping fails after the external save commits', async () => {
+        filePickerMock.saveBytesToPickerOrDownload.mockResolvedValue({
+            canceled: false,
+            fileName: 'saved.pdf',
+            handle: null,
+        });
+        browserDocumentStoreMock.assignSaveTarget.mockRejectedValue(new Error('state refresh failed'));
+        const { saveWorkingBytesToSourceStructured } = await import('@app/platform/browser-api/browserSaveTargets');
+
+        await expect(saveWorkingBytesToSourceStructured('browser://documents/working', () => 'hint'))
+            .resolves
+            .toMatchObject({
+                ok: false,
+                reason: 'working-copy-sync-required',
+                externalWriteCommitted: true,
+                workingCopySyncRequired: true,
+                validation: null,
+            });
+    });
 });

@@ -14,6 +14,7 @@ import type {
     IAgentWorkspaceSnapshot,
     IAgentWorkspaceSnapshotRequest,
 } from '@contracts/agent';
+import { AGENT_EVENT_CHANNELS } from '@electron/features/agent/contract';
 import { cast } from '@tests/helpers/cast';
 import type * as AgentWorkspaceBridgeModule from '@electron/features/agent/workspaceBridge';
 
@@ -149,6 +150,44 @@ describe('agent workspace bridge', () => {
         window.webContents.emit('render-process-gone');
 
         await expect(pending).rejects.toThrow('target window renderer exited');
+    });
+
+    it('sends a renderer cancel event when a command request times out', async () => {
+        vi.useFakeTimers();
+        try {
+            const window = createFakeWindow();
+
+            const pending = requestAgentCommand(toBrowserWindow(window), {
+                name: 'activate_tab',
+                arguments: {tabId: 'tab-1'},
+            }).catch((error: unknown) => error);
+
+            await vi.advanceTimersByTimeAsync(DEFAULT_AGENT_REQUEST_TIMEOUT_MS);
+
+            await expect(pending).resolves.toMatchObject({message: `Agent renderer request timed out after ${DEFAULT_AGENT_REQUEST_TIMEOUT_MS}ms`});
+            expect(window.webContents.send.mock.calls[0]?.[0]).toBe(AGENT_EVENT_CHANNELS.commandRequest);
+            expect(window.webContents.send.mock.calls[1]?.[0]).toBe(AGENT_EVENT_CHANNELS.commandCancelRequest);
+            expect(window.webContents.send.mock.calls[1]?.[1]).toMatchObject({
+                requestId: expect.any(String),
+                windowId: window.id,
+            });
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('sends a renderer cancel event when the caller aborts a command request', async () => {
+        const window = createFakeWindow();
+        const abortController = new AbortController();
+
+        const pending = requestAgentCommand(toBrowserWindow(window), {
+            name: 'activate_tab',
+            arguments: {tabId: 'tab-1'},
+        }, DEFAULT_AGENT_REQUEST_TIMEOUT_MS, undefined, abortController.signal);
+        abortController.abort();
+
+        await expect(pending).rejects.toThrow('aborted by the caller');
+        expect(window.webContents.send.mock.calls[1]?.[0]).toBe(AGENT_EVENT_CHANNELS.commandCancelRequest);
     });
 
     it('rejects pending snapshot requests on main-frame navigation only', async () => {

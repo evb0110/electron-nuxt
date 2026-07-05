@@ -175,4 +175,28 @@ describe('useAppUpdates', () => {
             version: '2.0.0',
         });
     });
+
+    it('retries initialization after an initial state fetch failure', async () => {
+        const unsupportedStatus: IAppUpdateStatus = {
+            phase: 'unsupported',
+            origin: 'auto',
+            version: null,
+            percent: null,
+            message: null,
+        };
+        const getState = vi.fn()
+            .mockRejectedValueOnce(new Error('first failure'))
+            .mockResolvedValueOnce(unsupportedStatus);
+        const updatesCapability = createUpdatesCapability({ getState });
+        getUpdatesCapabilityMock.mockReturnValue(updatesCapability);
+
+        const { useAppUpdates } = await import('@app/composables/useAppUpdates');
+        const updates = useAppUpdates();
+
+        await expect(updates.ensureInitialized()).resolves.toBe(false);
+        await expect(updates.ensureInitialized()).resolves.toBe(true);
+
+        expect(getState).toHaveBeenCalledTimes(2);
+        expect(updates.status.value.phase).toBe('unsupported');
+    });
 });

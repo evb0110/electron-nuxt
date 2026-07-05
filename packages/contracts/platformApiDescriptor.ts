@@ -96,6 +96,7 @@ const documentCapabilityMirrors = [
             ['statFile'],
             ['readFileRange'],
             ['getPdfNativePageSizes'],
+            ['cancelPdfNativePagePreview'],
             ['renderPdfNativePagePreview'],
             ['readFileChunks'],
             ['readTextFile'],
@@ -204,6 +205,7 @@ const documentCapabilityMirrors = [
 
 const optionalDocumentMethodNames = new Set<string>([
     'applyPdfNativeMutationsToWorkingCopy',
+    'cancelPdfNativePagePreview',
     'createCombinedPdfFromFiles',
     'getPdfNativePageSizes',
     'openFolderDialogStructured',
@@ -220,6 +222,7 @@ const optionalDocumentMethodNames = new Set<string>([
 
 const eventMethodNames = new Set<string>([
     'onAssistantEvent',
+    'onCommandCancelRequest',
     'onCommandRequest',
     'onComplete',
     'onDebugLog',
@@ -669,6 +672,10 @@ const otherMethodPaths = [
     [
         'agent',
         'onCommandRequest',
+    ],
+    [
+        'agent',
+        'onCommandCancelRequest',
     ],
     [
         'agent',

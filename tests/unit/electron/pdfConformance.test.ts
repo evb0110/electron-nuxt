@@ -374,4 +374,23 @@ describe('validatePdfFile', () => {
             warnings: [],
         });
     });
+
+    it('skips structural timeout fallback when the PDF exceeds the safe read limit', async () => {
+        mocks.runNativeToolCommand.mockRejectedValueOnce(new Error('qpdf(validate-pdf) timed out after 30000ms'));
+        mocks.stat.mockResolvedValueOnce({
+            isFile: () => true,
+            size: 65 * 1024 * 1024,
+        });
+
+        const result = await validatePdfFile('/tmp/oversized.pdf');
+
+        expect(result).toEqual({
+            isValid: false,
+            tool: 'qpdf',
+            errors: ['qpdf(validate-pdf) timed out after 30000ms; fallback PDF structure validation skipped because "/tmp/oversized.pdf" exceeds the safe read limit (64MB)'],
+            warnings: [],
+        });
+        expect(mocks.readFile).not.toHaveBeenCalled();
+        expect(mocks.load).not.toHaveBeenCalled();
+    });
 });

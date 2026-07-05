@@ -45,6 +45,8 @@ export interface IPdfSearchProgress {
     results?: IPdfSearchResult[];
     truncated?: boolean;
     canceled?: boolean;
+    status?: 'running' | 'success' | 'canceled' | 'failed';
+    error?: string;
 }
 
 export type TSearchErrorCode =

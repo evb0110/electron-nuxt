@@ -341,11 +341,13 @@ describe('createDocumentsPreloadFileClient', () => {
             postMessage: vi.fn(),
         } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
+        const revisionOptions = { expectedDocumentRevisionToken: 'revision-before-optimize-copy' };
 
         await expect(client.optimizePdfAsCopy?.(
             '/tmp/working.pdf',
             { preset: 'smallScanned' },
             'request-1',
+            revisionOptions,
         )).resolves.toBe(result);
 
         expect(ipcRenderer.invoke).toHaveBeenCalledWith(
@@ -353,6 +355,7 @@ describe('createDocumentsPreloadFileClient', () => {
             '/tmp/working.pdf',
             { preset: 'smallScanned' },
             'request-1',
+            revisionOptions,
         );
     });
 
@@ -367,6 +370,23 @@ describe('createDocumentsPreloadFileClient', () => {
             '/tmp/working.pdf',
             { preset: 'ultra' } as never,
         )).toThrow('optimizePdfAsCopy.options.preset is invalid');
+
+        expect(ipcRenderer.invoke).not.toHaveBeenCalled();
+    });
+
+    it('rejects invalid optimize-as-copy revision options before invoking IPC', async () => {
+        const ipcRenderer = {
+            invoke: vi.fn(),
+            postMessage: vi.fn(),
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        const client = createDocumentsPreloadFileClient(ipcRenderer);
+
+        expect(() => client.optimizePdfAsCopy?.(
+            '/tmp/working.pdf',
+            { preset: 'lossless' },
+            'request-1',
+            { expectedDocumentRevisionToken: '' },
+        )).toThrow('optimizePdfAsCopy.revisionOptions.expectedDocumentRevisionToken must be a non-empty string');
 
         expect(ipcRenderer.invoke).not.toHaveBeenCalled();
     });
@@ -429,11 +449,12 @@ describe('createDocumentsPreloadFileClient', () => {
         expect(ipcRenderer.invoke).toHaveBeenCalledWith(DOCUMENTS_CHANNELS.fileReadRange, '/tmp/working.pdf', 4, 1);
     });
 
-    it('invokes native PDF preview metadata and render channels with validated inputs', async () => {
+    it('invokes native PDF preview metadata, cancel, and render channels with validated inputs', async () => {
         const pageSizes = [{
             width: 612,
             height: 792,
         }];
+        const cancelResult = { canceled: true };
         const preview = {
             bytes: new Uint8Array([1]),
             width: 900,
@@ -443,6 +464,9 @@ describe('createDocumentsPreloadFileClient', () => {
             invoke: vi.fn(async (channel: string) => {
                 if (channel === DOCUMENTS_CHANNELS.pdfNativePageSizes) {
                     return pageSizes;
+                }
+                if (channel === DOCUMENTS_CHANNELS.pdfNativePagePreviewCancel) {
+                    return cancelResult;
                 }
                 if (channel === DOCUMENTS_CHANNELS.pdfNativePagePreview) {
                     return preview;
@@ -454,10 +478,14 @@ describe('createDocumentsPreloadFileClient', () => {
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
         await expect(client.getPdfNativePageSizes?.('/tmp/huge.pdf')).resolves.toBe(pageSizes);
+        await expect(client.cancelPdfNativePagePreview?.(' preview-1 ')).resolves.toEqual(cancelResult);
         await expect(client.renderPdfNativePagePreview?.(
             '/tmp/huge.pdf',
             3,
-            { targetWidthPx: 900.8 },
+            {
+                targetWidthPx: 900.8,
+                previewRequestId: ' preview-2 ',
+            },
         )).resolves.toBe(preview);
 
         expect(ipcRenderer.invoke).toHaveBeenCalledWith(
@@ -465,10 +493,17 @@ describe('createDocumentsPreloadFileClient', () => {
             '/tmp/huge.pdf',
         );
         expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+            DOCUMENTS_CHANNELS.pdfNativePagePreviewCancel,
+            'preview-1',
+        );
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
             DOCUMENTS_CHANNELS.pdfNativePagePreview,
             '/tmp/huge.pdf',
             3,
-            { targetWidthPx: 900 },
+            {
+                targetWidthPx: 900,
+                previewRequestId: 'preview-2',
+            },
         );
     });
 
@@ -488,6 +523,13 @@ describe('createDocumentsPreloadFileClient', () => {
             1,
             { targetWidthPx: Number.POSITIVE_INFINITY },
         )).toThrow('renderPdfNativePagePreview.options.targetWidthPx must be a positive finite number');
+        expect(() => client.renderPdfNativePagePreview?.(
+            '/tmp/huge.pdf',
+            1,
+            { previewRequestId: '   ' },
+        )).toThrow('renderPdfNativePagePreview.options.previewRequestId must be a non-empty string');
+        expect(() => client.cancelPdfNativePagePreview?.(''))
+            .toThrow('cancelPdfNativePagePreview.requestId must not be empty');
 
         expect(ipcRenderer.invoke).not.toHaveBeenCalled();
     });

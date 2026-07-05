@@ -32,6 +32,35 @@ const sourceFileNames = new Set([
     'Cargo.toml',
 ]);
 
+export function detectHostGeneratedNativeResourceTarget({
+    nodeArch = process.arch,
+    nodePlatform = process.platform,
+} = {}) {
+    let platform;
+    switch (nodePlatform) {
+        case 'darwin':
+            platform = 'mac';
+            break;
+        case 'linux':
+            platform = 'linux';
+            break;
+        case 'win32':
+            platform = 'win';
+            break;
+        default:
+            throw new Error(`Unsupported host platform for generated native resource checks: ${nodePlatform}`);
+    }
+
+    if (nodeArch !== 'arm64' && nodeArch !== 'x64') {
+        throw new Error(`Unsupported host arch for generated native resource checks: ${nodeArch}`);
+    }
+
+    return {
+        arch: nodeArch,
+        platform,
+    };
+}
+
 function normalizePlatform(platform) {
     if (platform === 'mac') {
         return 'darwin';
@@ -48,7 +77,7 @@ function getBinaryFileName(tool, platform) {
         : tool.binaryName;
 }
 
-function collectSourceMtimes(sourceRoot) {
+function collectSourceMtimes(sourceRoot, root = projectRoot) {
     const mtimes = [];
     const visit = (entryPath) => {
         const stat = statSync(entryPath);
@@ -69,7 +98,7 @@ function collectSourceMtimes(sourceRoot) {
     if (existsSync(sourceRoot)) {
         visit(sourceRoot);
     }
-    const workspaceLock = path.join(projectRoot, 'native', 'Cargo.lock');
+    const workspaceLock = path.join(root, 'native', 'Cargo.lock');
     if (existsSync(workspaceLock)) {
         mtimes.push(statSync(workspaceLock).mtimeMs);
     }
@@ -90,7 +119,7 @@ export function assertGeneratedNativeResourceFresh(target, options = {}) {
         }
 
         const sourceRoot = path.join(root, 'native', tool.crateName);
-        const sourceMtimes = collectSourceMtimes(sourceRoot);
+        const sourceMtimes = collectSourceMtimes(sourceRoot, root);
         if (sourceMtimes.length === 0) {
             throw new Error(`No Rust source inputs found for ${tool.crateName}`);
         }
@@ -121,21 +150,27 @@ const isDirectCliRun = process.argv[1]
     && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
 if (isDirectCliRun) {
-    const [
-        platform,
-        arch,
-    ] = process.argv.slice(2);
-    if (!platform || !arch) {
-        console.error('Usage: node scripts/check-generated-native-resources.mjs <mac|win|linux> <x64|arm64>');
+    const argv = process.argv.slice(2);
+    let target;
+
+    if (argv.length === 1 && argv[0] === '--host') {
+        target = detectHostGeneratedNativeResourceTarget();
+    } else if (argv.length === 2) {
+        target = {
+            arch: argv[1],
+            platform: argv[0],
+        };
+    } else {
+        console.error(
+            'Usage: node scripts/check-generated-native-resources.mjs --host '
+            + '| <mac|win|linux> <x64|arm64>',
+        );
         process.exit(1);
     }
 
     try {
-        assertGeneratedNativeResourceFresh({
-            arch,
-            platform,
-        });
-        console.log(`Generated native payloads are fresh for ${platform}-${arch}.`);
+        assertGeneratedNativeResourceFresh(target);
+        console.log(`Generated native payloads are fresh for ${target.platform}-${target.arch}.`);
     } catch (error) {
         console.error(error instanceof Error ? error.message : String(error));
         process.exit(1);

@@ -1111,6 +1111,38 @@ describe('useAnnotationSync helpers / loadPdfPageAnnotations', () => {
         expect(cleanup).toHaveBeenCalledTimes(1);
     });
 
+    it('releases leased PDF pages without calling cleanup directly', async () => {
+        const cleanup = vi.fn();
+        const releasePage = vi.fn();
+        const page = {
+            getAnnotations: vi.fn(async () => [{id: 'a-1'}]),
+            view: [
+                0,
+                0,
+                100,
+                200,
+            ],
+            rotate: 0,
+            cleanup,
+        };
+        const doc = {getPage: vi.fn(async () => page)};
+
+        const result = await __test__.loadPdfPageAnnotations(
+            doc as never,
+            1,
+            undefined,
+            {
+                leasePage: vi.fn(async () => page as never),
+                releasePage,
+            },
+        );
+
+        expect(result?.annotations).toEqual([{id: 'a-1'}]);
+        expect(releasePage).toHaveBeenCalledWith(doc, 1, page);
+        expect(cleanup).not.toHaveBeenCalled();
+        expect(doc.getPage).not.toHaveBeenCalled();
+    });
+
     it('attaches PDF annotation names by annotation id', async () => {
         const cleanup = vi.fn();
         const page = {

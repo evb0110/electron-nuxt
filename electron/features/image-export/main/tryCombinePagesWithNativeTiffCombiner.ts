@@ -8,6 +8,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import { createNativeFallbackTestError } from '@electron/native-tools/createNativeFallbackTestError';
 import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
 import {
     atomicReplace,
@@ -16,6 +17,7 @@ import {
 import { resolveNativePdfImageCombinePath } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
 
 const logger = createLogger('nativeTiffCombine');
+const NATIVE_TIFF_COMBINE_TEST_ENABLE_ENV = 'EVB_TIFF_COMBINE_NATIVE_ENABLE';
 const NATIVE_TIFF_COMBINE_TIMEOUT_MS = (() => {
     const parsed = Number.parseInt(process.env.EVB_TIFF_COMBINE_NATIVE_TIMEOUT_MS ?? `${10 * 60 * 1000}`, 10);
     if (!Number.isFinite(parsed) || parsed < 10_000) {
@@ -27,7 +29,7 @@ const NATIVE_TIFF_COMBINE_TIMEOUT_MS = (() => {
 function isNativeTiffCombineDisabled() {
     return process.env.EVB_TIFF_COMBINE_NATIVE_DISABLE === '1'
         || process.env.EVB_PDF_IMAGE_COMBINE_DISABLE === '1'
-        || (process.env.VITEST === 'true' && process.env.EVB_TIFF_COMBINE_NATIVE_ENABLE !== '1');
+        || (process.env.VITEST === 'true' && process.env[NATIVE_TIFF_COMBINE_TEST_ENABLE_ENV] !== '1');
 }
 
 export async function tryCombinePagesWithNativeTiffCombiner(pagePaths: string[], outputPath: string, signal?: AbortSignal) {
@@ -37,6 +39,14 @@ export async function tryCombinePagesWithNativeTiffCombiner(pagePaths: string[],
 
     const binaryPath = resolveNativePdfImageCombinePath();
     if (!binaryPath) {
+        const testFailure = createNativeFallbackTestError(
+            NATIVE_TIFF_COMBINE_TEST_ENABLE_ENV,
+            'Native TIFF combine',
+            'native binary path could not be resolved',
+        );
+        if (testFailure) {
+            throw testFailure;
+        }
         return false;
     }
 
@@ -49,6 +59,16 @@ export async function tryCombinePagesWithNativeTiffCombiner(pagePaths: string[],
         await writeFile(inputsPath, createNativeInputsFileContents(pagePaths), 'utf8');
         const ok = await runNativeTiffCombine(binaryPath, tempOutputPath, inputsPath, signal);
         if (!ok || !existsSync(tempOutputPath)) {
+            const testFailure = createNativeFallbackTestError(
+                NATIVE_TIFF_COMBINE_TEST_ENABLE_ENV,
+                'Native TIFF combine',
+                !ok
+                    ? 'native command reported failure'
+                    : `native output was not created at "${tempOutputPath}"`,
+            );
+            if (testFailure) {
+                throw testFailure;
+            }
             return false;
         }
 
@@ -99,6 +119,15 @@ async function runNativeTiffCombine(binaryPath: string, outputPath: string, inpu
         });
         return true;
     } catch (error) {
+        const testFailure = createNativeFallbackTestError(
+            NATIVE_TIFF_COMBINE_TEST_ENABLE_ENV,
+            'Native TIFF combine',
+            'native command failed',
+            error,
+        );
+        if (testFailure) {
+            throw testFailure;
+        }
         logger.debug(`Native TIFF combine failed: ${getErrorMessage(error)}`);
         return false;
     }

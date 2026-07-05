@@ -11,9 +11,10 @@ import type {
     IAgentMcpIntegrationUpdateResult,
     TAgentMcpCodexRegistrationState,
 } from '@contracts/agent';
-import { ASSISTANT_MCP_TOKEN_ENV } from '@electron/features/agent/codexAssistantConfig';
 import {
+    getLocalMcpCodexRegistrationTransport,
     getLocalMcpServerDescriptor,
+    getLocalMcpSetupSnippets,
     isLocalMcpServerRunning,
     shutdownLocalMcpServer,
     startLocalMcpServer,
@@ -38,11 +39,22 @@ interface ICodexServerConfig {
     transport?: {
         type?: unknown;
         url?: unknown;
+        command?: unknown;
+        args?: unknown;
+        env?: unknown;
     };
 }
 
-function createBaseStatus(): Omit<IAgentMcpIntegrationStatus, 'enabled'> {
+function getTransportEnv(config: ICodexServerConfig | null) {
+    const env = config?.transport?.env;
+    return typeof env === 'object' && env !== null && !Array.isArray(env)
+        ? env as Record<string, unknown>
+        : null;
+}
+
+async function createBaseStatus(): Promise<Omit<IAgentMcpIntegrationStatus, 'enabled'>> {
     const descriptor = getLocalMcpServerDescriptor();
+    const setupSnippets = await getLocalMcpSetupSnippets();
     return {
         serverName: descriptor.name,
         serverUrl: descriptor.url,
@@ -53,16 +65,17 @@ function createBaseStatus(): Omit<IAgentMcpIntegrationStatus, 'enabled'> {
         codexRegistrationState: 'unknown',
         installUrl: CODEX_APP_INSTALL_URL,
         lastCheckedAt: new Date().toISOString(),
+        setupSnippets,
     };
 }
 
-function createStatus(
+async function createStatus(
     enabled: boolean,
     patch: Partial<Omit<IAgentMcpIntegrationStatus, 'enabled'>> = {},
-): IAgentMcpIntegrationStatus {
+): Promise<IAgentMcpIntegrationStatus> {
     return {
         enabled,
-        ...createBaseStatus(),
+        ...await createBaseStatus(),
         ...patch,
     };
 }
@@ -80,6 +93,10 @@ function parseCodexServerConfig(stdout: string): ICodexServerConfig | null {
 
 async function getCodexRegistrationState(codexPath: string) {
     const descriptor = getLocalMcpServerDescriptor();
+    const {
+        launchConfig,
+        token,
+    } = await getLocalMcpCodexRegistrationTransport();
     const result = await runCodexCli(codexPath, [
         'mcp',
         'get',
@@ -94,9 +111,17 @@ async function getCodexRegistrationState(codexPath: string) {
     }
 
     const config = parseCodexServerConfig(result.stdout);
+    const transportEnv = getTransportEnv(config);
     const configured = config?.enabled === true
-        && config.transport?.type === 'streamable_http'
-        && config.transport.url === descriptor.url;
+        && config.transport?.type === 'stdio'
+        && config.transport.command === launchConfig.command
+        && Array.isArray(config.transport.args)
+        && config.transport.args.length === launchConfig.args.length
+        && config.transport.args.every((arg, index) => arg === launchConfig.args[index])
+        && transportEnv !== null
+        && transportEnv.ELECTRON_RUN_AS_NODE === '1'
+        && transportEnv.EVB_MCP_URL === descriptor.url
+        && transportEnv.EVB_MCP_TOKEN === token;
     return {
         state: configured
             ? 'configured' as const
@@ -114,19 +139,24 @@ async function removeCodexRegistration(codexPath: string) {
 }
 
 async function registerCodexMcp(codexPath: string) {
-    const descriptor = getLocalMcpServerDescriptor();
-    if (!process.env[ASSISTANT_MCP_TOKEN_ENV]?.trim()) {
-        throw new Error(`${ASSISTANT_MCP_TOKEN_ENV} must be set before enabling Codex MCP integration.`);
-    }
+    const {
+        descriptor,
+        launchConfig,
+    } = await getLocalMcpCodexRegistrationTransport();
     await removeCodexRegistration(codexPath);
     const result = await runCodexCli(codexPath, [
         'mcp',
         'add',
         descriptor.name,
-        '--url',
-        descriptor.url,
-        '--bearer-token-env-var',
-        ASSISTANT_MCP_TOKEN_ENV,
+        '--env',
+        'ELECTRON_RUN_AS_NODE=1',
+        '--env',
+        `EVB_MCP_URL=${launchConfig.env.EVB_MCP_URL}`,
+        '--env',
+        `EVB_MCP_TOKEN=${launchConfig.env.EVB_MCP_TOKEN}`,
+        '--',
+        launchConfig.command,
+        ...launchConfig.args,
     ]);
     if (!result.ok) {
         throw new Error(result.stderr.trim() || result.stdout.trim() || 'Codex MCP registration failed.');
@@ -196,7 +226,7 @@ export async function getAgentMcpIntegrationStatus(): Promise<IAgentMcpIntegrati
 
     try {
         const registration = await getCodexRegistrationState(codexPath);
-        return createStatus(settings.agentMcpEnabled, {
+        return await createStatus(settings.agentMcpEnabled, {
             codexInstalled: true,
             codexPath,
             codexConfigured: registration.configured,

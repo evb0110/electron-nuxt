@@ -506,6 +506,11 @@ export class AssistantChatPersistence {
         return Promise.all([...this.queues.values()]);
     }
 
+    // fallow-ignore-next-line unused-class-member
+    flush(): Promise<unknown[]> {
+        return Promise.all([...this.queues.values()]);
+    }
+
     private enqueue(key: string, task: () => Promise<void>): void {
         const previous = this.queues.get(key) ?? Promise.resolve();
         const next = previous.catch(() => undefined).then(task).catch((error: unknown) => {

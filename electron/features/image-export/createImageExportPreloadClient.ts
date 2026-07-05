@@ -38,6 +38,18 @@ function decodeImageExportProgress(payload: unknown): IImageExportProgress | nul
     ) {
         return null;
     }
+    if (
+        payload.status !== undefined
+        && payload.status !== 'running'
+        && payload.status !== 'success'
+        && payload.status !== 'canceled'
+        && payload.status !== 'failed'
+    ) {
+        return null;
+    }
+    if (payload.error !== undefined && typeof payload.error !== 'string') {
+        return null;
+    }
 
     return {
         requestId: payload.requestId,
@@ -46,6 +58,8 @@ function decodeImageExportProgress(payload: unknown): IImageExportProgress | nul
         processed: payload.processed,
         total: payload.total,
         percent: payload.percent,
+        ...(payload.status === undefined ? {} : {status: payload.status}),
+        ...(payload.error === undefined ? {} : {error: payload.error}),
     };
 }
 

@@ -281,6 +281,7 @@ export function createLazyBrowserPlatformApiGenerated({
     const agentOnWorkspaceSnapshotRequestMethod = lazyEvent(pathDescriptors.agent.onWorkspaceSnapshotRequest.path);
     const agentSubmitWorkspaceSnapshotMethod = lazyAsync(pathDescriptors.agent.submitWorkspaceSnapshot.path);
     const agentOnCommandRequestMethod = lazyEvent(pathDescriptors.agent.onCommandRequest.path);
+    const agentOnCommandCancelRequestMethod = lazyEvent(pathDescriptors.agent.onCommandCancelRequest.path);
     const agentSubmitCommandResponseMethod = lazyAsync(pathDescriptors.agent.submitCommandResponse.path);
     const agentGetMcpIntegrationStatusMethod = lazyAsync(pathDescriptors.agent.getMcpIntegrationStatus.path);
     const agentSetMcpIntegrationEnabledMethod = lazyAsync(pathDescriptors.agent.setMcpIntegrationEnabled.path);
@@ -594,6 +595,7 @@ export function createLazyBrowserPlatformApiGenerated({
         onWorkspaceSnapshotRequest: agentOnWorkspaceSnapshotRequestMethod,
         submitWorkspaceSnapshot: agentSubmitWorkspaceSnapshotMethod,
         onCommandRequest: agentOnCommandRequestMethod,
+        onCommandCancelRequest: agentOnCommandCancelRequestMethod,
         submitCommandResponse: agentSubmitCommandResponseMethod,
         getMcpIntegrationStatus: agentGetMcpIntegrationStatusMethod,
         setMcpIntegrationEnabled: agentSetMcpIntegrationEnabledMethod,

@@ -450,6 +450,11 @@ export function registerDocumentsIpcAdapter(
         ...[filePath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.pdfNativePageSizes>
     ) =>
         service.getPdfNativePageSizes(createSenderIdContext(event), filePath));
+    register(DOCUMENTS_CHANNELS.pdfNativePagePreviewCancel, (
+        event: IpcMainInvokeEvent,
+        ...[requestId]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.pdfNativePagePreviewCancel>
+    ) =>
+        service.cancelPdfNativePagePreview(createSenderIdContext(event), requestId));
     register(DOCUMENTS_CHANNELS.pdfNativePagePreview, (
         event: IpcMainInvokeEvent,
         ...[
@@ -586,9 +591,10 @@ export function registerDocumentsIpcAdapter(
             workingPath,
             options,
             requestId,
+            revisionOptions,
         ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileOptimizePdfAsCopy>
     ) =>
-        service.optimizePdfAsCopy(createDialogContext(event), workingPath, options, requestId));
+        service.optimizePdfAsCopy(createDialogContext(event), workingPath, options, requestId, revisionOptions));
     register(DOCUMENTS_CHANNELS.fileSavePdfData, (
         event: IpcMainInvokeEvent,
         ...[

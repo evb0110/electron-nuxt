@@ -117,4 +117,49 @@ describe('createIpcProgressPump replay', () => {
         expect(lateSend).not.toHaveBeenCalled();
         expect(onIdle).toHaveBeenCalled();
     });
+
+    it('does not double-deliver live progress when the primary target later subscribes for replay', () => {
+        const primarySend = vi.fn();
+        const replaySend = vi.fn();
+        const pump = createIpcProgressPump<ITestProgress>({
+            channel: 'test:progress',
+            getTarget: () => ({
+                key: 'sender:1',
+                send: primarySend,
+            }),
+            getKey: progress => progress.requestId,
+            isTerminal: progress => progress.phase === 'complete',
+            intervalMs: 100,
+        });
+
+        pump.enqueue({
+            requestId: 'operation-a',
+            phase: 'active',
+            value: 1,
+        });
+        expect(primarySend).toHaveBeenCalledTimes(1);
+
+        pump.subscribe({
+            key: 'sender:1',
+            send: replaySend,
+        });
+        expect(replaySend).toHaveBeenCalledTimes(1);
+
+        primarySend.mockClear();
+        replaySend.mockClear();
+
+        pump.enqueue({
+            requestId: 'operation-a',
+            phase: 'complete',
+            value: 100,
+        });
+
+        expect(primarySend).toHaveBeenCalledTimes(1);
+        expect(primarySend).toHaveBeenCalledWith('test:progress', {
+            requestId: 'operation-a',
+            phase: 'complete',
+            value: 100,
+        });
+        expect(replaySend).not.toHaveBeenCalled();
+    });
 });

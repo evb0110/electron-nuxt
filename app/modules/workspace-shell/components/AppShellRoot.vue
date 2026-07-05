@@ -897,7 +897,9 @@ useAppShellLifecycle({
     dirtyTabCloseDialogOpen,
     updatesDialogOpen: computed(() => updatesDialog.value.open),
     cleanupEmptyPanes,
-    ensureUpdatesInitialized,
+    ensureUpdatesInitialized: async () => {
+        await ensureUpdatesInitialized();
+    },
     handleIncomingTabTransfer,
     cleanupDirectionalTabs,
     cleanupExternalFileDrop,

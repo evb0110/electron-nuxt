@@ -88,7 +88,7 @@ export interface IProcessMcpRequestOptions {
     identity: ILocalMcpServerIdentity;
     callerKind?: TMcpCallerKind;
     getWorkspaceSnapshot(windowId?: number): Promise<IAgentWorkspaceSnapshot>;
-    runCommand(command: TAgentCommand, windowId?: number): Promise<Record<string, unknown>>;
+    runCommand(command: TAgentCommand, windowId?: number, signal?: AbortSignal): Promise<Record<string, unknown>>;
     inspectDocumentText?(
         input: IAgentDocumentTextOperationInput<Record<never, never>>,
         windowId?: number,

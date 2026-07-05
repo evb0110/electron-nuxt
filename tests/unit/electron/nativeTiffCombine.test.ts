@@ -104,19 +104,20 @@ describe('native TIFF combine wrapper', () => {
         expect(mocks.atomicReplace).toHaveBeenCalledWith(`${outputPath}.tmp`, outputPath);
     });
 
-    it('removes native temp output and skips replacement when the command fails', async () => {
+    it('rejects instead of silently falling back when the command fails in enabled test mode', async () => {
         const inputPaths = [join(tempDir, 'page-001.tif')];
         const outputPath = join(tempDir, 'combined.tiff');
         await writeFile(`${outputPath}.tmp`, 'stale');
         mocks.runNativeCommand.mockRejectedValueOnce(new Error('native failed'));
 
-        await expect(tryCombinePagesWithNativeTiffCombiner(inputPaths, outputPath)).resolves.toBe(false);
+        await expect(tryCombinePagesWithNativeTiffCombiner(inputPaths, outputPath))
+            .rejects.toThrow('Native TIFF combine fallback is not allowed in tests');
 
         await expect(readFile(`${outputPath}.tmp`, 'utf8')).rejects.toThrow();
         expect(mocks.atomicReplace).not.toHaveBeenCalled();
     });
 
-    it('skips replacement and cleans up when native output is missing', async () => {
+    it('rejects when native output is missing in enabled test mode', async () => {
         const inputPaths = [join(tempDir, 'page-001.tif')];
         const outputPath = join(tempDir, 'combined.tiff');
         mocks.runNativeCommand.mockResolvedValueOnce({
@@ -125,7 +126,8 @@ describe('native TIFF combine wrapper', () => {
             exitCode: 0,
         });
 
-        await expect(tryCombinePagesWithNativeTiffCombiner(inputPaths, outputPath)).resolves.toBe(false);
+        await expect(tryCombinePagesWithNativeTiffCombiner(inputPaths, outputPath))
+            .rejects.toThrow('Native TIFF combine fallback is not allowed in tests');
 
         await expect(readFile(`${outputPath}.tmp`, 'utf8')).rejects.toThrow();
         expect(mocks.atomicReplace).not.toHaveBeenCalled();

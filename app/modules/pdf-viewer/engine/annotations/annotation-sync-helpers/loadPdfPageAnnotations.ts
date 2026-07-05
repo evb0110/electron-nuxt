@@ -15,6 +15,18 @@ import type {
     IPdfPageAnnotationBundle,
 } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/annotationSyncHelpersTypes';
 
+interface IPdfPageAnnotationLeaseOptions {
+    leasePage?: (
+        doc: PDFDocumentProxy,
+        pageNumber: number,
+    ) => Promise<Awaited<ReturnType<PDFDocumentProxy['getPage']>>>;
+    releasePage?: (
+        doc: PDFDocumentProxy,
+        pageNumber: number,
+        page: Awaited<ReturnType<PDFDocumentProxy['getPage']>>,
+    ) => void;
+}
+
 function attachPdfAnnotationNames(
     annotations: IPdfAnnotationRecord[],
     annotationNamesById: ReadonlyMap<string, string> | null | undefined,
@@ -93,10 +105,13 @@ export async function loadPdfPageAnnotations(
     doc: PDFDocumentProxy,
     pageNumber: number,
     annotationNamesById?: ReadonlyMap<string, string> | null,
+    pageLeaseOptions?: IPdfPageAnnotationLeaseOptions,
 ): Promise<IPdfPageAnnotationBundle | null> {
     let page: Awaited<ReturnType<PDFDocumentProxy['getPage']>> | null = null;
     try {
-        page = await doc.getPage(pageNumber);
+        page = pageLeaseOptions?.leasePage
+            ? await pageLeaseOptions.leasePage(doc, pageNumber)
+            : await doc.getPage(pageNumber);
         const rawAnnotations: unknown = await page.getAnnotations();
         const annotations = attachPdfAnnotationNames(
             Array.isArray(rawAnnotations)
@@ -123,14 +138,18 @@ export async function loadPdfPageAnnotations(
         );
         return null;
     } finally {
-        try {
-            page?.cleanup();
-        } catch (cleanupError) {
-            BrowserLogger.debug(
-                'annotations',
-                `Failed to cleanup annotation page ${pageNumber}`,
-                cleanupError,
-            );
+        if (pageLeaseOptions?.releasePage && page) {
+            pageLeaseOptions.releasePage(doc, pageNumber, page);
+        } else {
+            try {
+                page?.cleanup();
+            } catch (cleanupError) {
+                BrowserLogger.debug(
+                    'annotations',
+                    `Failed to cleanup annotation page ${pageNumber}`,
+                    cleanupError,
+                );
+            }
         }
     }
 }

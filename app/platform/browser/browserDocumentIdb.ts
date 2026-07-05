@@ -8,6 +8,11 @@ import type { IBrowserPersistedDocumentRecord } from '@app/platform/browser/brow
 
 type TIndexedDbFactory = typeof indexedDB;
 
+interface IIndexedDbReadResult<T> {
+    available: boolean;
+    value: T | null;
+}
+
 function getIndexedDbFactory(): TIndexedDbFactory | null {
     if (typeof indexedDB === 'undefined') {
         return null;
@@ -51,6 +56,63 @@ function assertWriteCommitted(result: unknown, operation: string) {
     if (result === null) {
         throw new Error(`IndexedDB ${operation} did not commit.`);
     }
+}
+
+async function withObjectStoreReadResult<T>(
+    storeName: string,
+    run: (store: IDBObjectStore) => IDBRequest<T>,
+): Promise<IIndexedDbReadResult<T>> {
+    const database = await openDatabase();
+    if (!database) {
+        return {
+            available: false,
+            value: null,
+        };
+    }
+
+    return new Promise<IIndexedDbReadResult<T>>((resolve) => {
+        let requestResult: T | null = null;
+        let requestSucceeded = false;
+        let transactionCompleted = false;
+        let settled = false;
+
+        const cleanup = (available: boolean, value: T | null) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            database.close();
+            resolve({
+                available,
+                value,
+            });
+        };
+
+        try {
+            const transaction = database.transaction(storeName, 'readonly');
+            const store = transaction.objectStore(storeName);
+            const request = run(store);
+
+            request.onsuccess = () => {
+                requestResult = request.result;
+                requestSucceeded = true;
+                if (transactionCompleted) {
+                    cleanup(true, requestResult);
+                }
+            };
+            request.onerror = () => cleanup(false, null);
+            transaction.onabort = () => cleanup(false, null);
+            transaction.onerror = () => cleanup(false, null);
+            transaction.oncomplete = () => {
+                transactionCompleted = true;
+                if (requestSucceeded) {
+                    cleanup(true, requestResult);
+                }
+            };
+        } catch {
+            cleanup(false, null);
+        }
+    });
 }
 
 export async function withObjectStore<T>(
@@ -111,17 +173,23 @@ export async function persistRecord(record: IBrowserPersistedDocumentRecord) {
 }
 
 export async function loadRecord(ref: string) {
-    return withObjectStore<unknown>(
+    return (await loadRecordAvailability(ref)).value;
+}
+
+export async function loadRecordAvailability(ref: string) {
+    return withObjectStoreReadResult<unknown>(
         DOCUMENTS_STORE,
-        'readonly',
         (store) => store.get(ref) as IDBRequest<unknown>,
     );
 }
 
 export async function loadAllRecordKeys() {
-    return withObjectStore<IDBValidKey[]>(
+    return (await loadAllRecordKeysAvailability()).value;
+}
+
+export async function loadAllRecordKeysAvailability() {
+    return withObjectStoreReadResult<IDBValidKey[]>(
         DOCUMENTS_STORE,
-        'readonly',
         (store) => store.getAllKeys(),
     );
 }

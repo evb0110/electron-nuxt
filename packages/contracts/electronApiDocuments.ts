@@ -149,7 +149,10 @@ export interface IPdfNativePageSize {
     height: number;
 }
 
-export interface IPdfNativePagePreviewOptions {targetWidthPx?: number;}
+export interface IPdfNativePagePreviewOptions {
+    previewRequestId?: string;
+    targetWidthPx?: number;
+}
 
 export interface IPdfNativePagePreview {
     bytes: Uint8Array;
@@ -328,6 +331,7 @@ export type TDocumentSaveResult =
 
 export type TImageExportProgressFormat = 'images' | 'multipage-tiff';
 export type TImageExportProgressPhase = 'rendering' | 'combining';
+export type TImageExportProgressStatus = 'running' | 'success' | 'canceled' | 'failed';
 
 export interface IImageExportProgress {
     requestId: string;
@@ -336,6 +340,8 @@ export interface IImageExportProgress {
     processed: number;
     total: number;
     percent: number;
+    status?: TImageExportProgressStatus;
+    error?: string;
 }
 
 export interface IImageExportCapability {
@@ -420,6 +426,7 @@ export interface IDocumentsFileCapability {
     statFile: (path: TDocumentRef) => Promise<{ size: number }>;
     readFileRange: (path: TDocumentRef, offset: number, length: number) => Promise<Uint8Array>;
     getPdfNativePageSizes?: (path: TDocumentRef) => Promise<IPdfNativePageSize[]>;
+    cancelPdfNativePagePreview?: (requestId: string) => Promise<{ canceled: boolean }>;
     renderPdfNativePagePreview?: (
         path: TDocumentRef,
         pageNumber: number,
@@ -485,6 +492,7 @@ export interface IDocumentsFileCapability {
         path: TDocumentRef,
         options: IPdfOptimizeOptions,
         requestId?: string,
+        revisionOptions?: IDocumentMutationRevisionOptions,
     ) => Promise<IPdfOptimizeResult>;
     savePdfNoteTextUpdates?: (
         path: TDocumentRef,
@@ -591,6 +599,7 @@ export interface IDocumentsReadCapability extends Pick<
     | 'statFile'
     | 'readFileRange'
     | 'getPdfNativePageSizes'
+    | 'cancelPdfNativePagePreview'
     | 'renderPdfNativePagePreview'
     | 'readFileChunks'
     | 'readTextFile'

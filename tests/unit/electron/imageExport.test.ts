@@ -615,6 +615,21 @@ describe('image export', () => {
         expect(await readFile(outputPath, 'utf8')).toBe('native-png');
     });
 
+    it('rejects oversized rendered PPM fallback output before reading it into memory', async () => {
+        mocks.renderPageCount = 1;
+        mocks.pdfPageCount = 1;
+        mocks.stat.mockImplementation(async (path: string) => ({
+            isFile: () => true,
+            size: path.endsWith('.ppm') ? 193 * 1024 * 1024 : 1024,
+        }));
+
+        const outputPath = join(tempDir, 'oversized.png');
+
+        await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath))
+            .rejects
+            .toThrow('Rendered PPM output exceeds safe read limit (192MB)');
+    });
+
     it('keeps an existing image target when EXDEV atomic replacement fails', async () => {
         mocks.renderPageCount = 1;
         mocks.pdfPageCount = 1;

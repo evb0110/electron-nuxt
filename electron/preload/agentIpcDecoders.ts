@@ -494,6 +494,25 @@ export function decodeAgentCommandRequest(value: unknown): IAgentEventMap['agent
     };
 }
 
+export function decodeAgentCommandCancelRequest(
+    value: unknown,
+): IAgentEventMap['agent:commandCancelRequest'] | null {
+    if (!isRecord(value)) {
+        return null;
+    }
+
+    const requestId = normalizeNonEmptyString(value.requestId);
+    const windowId = normalizeOptionalWindowId(value.windowId);
+    if (requestId === null || windowId === null) {
+        return null;
+    }
+
+    return {
+        requestId,
+        ...(windowId === undefined ? {} : {windowId}),
+    };
+}
+
 export function decodeAgentAssistantEvent(value: unknown): IAgentEventMap['agent:assistantEvent'] | null {
     if (!isRecord(value) || !isAssistantEventType(value.type)) {
         return null;

@@ -278,6 +278,11 @@ export interface IAgentCommandRequest {
     command: TAgentCommand;
 }
 
+export interface IAgentCommandCancelRequest {
+    requestId: string;
+    windowId?: number;
+}
+
 export interface IAgentCommandResponse {
     requestId: string;
     windowId?: number;
@@ -296,6 +301,12 @@ export interface IAgentRendererAck {
     reason?: TAgentRendererAckReason;
 }
 
+export interface IAgentMcpSetupSnippets {
+    codex: string;
+    claude: string;
+    cursor: string;
+}
+
 export interface IAgentMcpIntegrationStatus {
     enabled: boolean;
     serverName: string;
@@ -307,6 +318,7 @@ export interface IAgentMcpIntegrationStatus {
     codexRegistrationState: TAgentMcpCodexRegistrationState;
     installUrl: string;
     lastCheckedAt: string;
+    setupSnippets?: IAgentMcpSetupSnippets;
     error?: string;
 }
 

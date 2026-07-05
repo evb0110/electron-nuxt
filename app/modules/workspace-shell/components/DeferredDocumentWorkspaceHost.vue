@@ -143,6 +143,7 @@ import { useDeferredWorkspaceChunkLoader } from '@app/modules/workspace-shell/co
 import {
     type IDocumentOpenIntent,
     type IDocumentOpenTransactionRun,
+    resolveDocumentOpenRunResult,
     resolveDocumentOpenTransactionKind,
     resolveTransactionDocumentRef,
     shouldSeedPendingTabHint as shouldSeedPendingTabHintForDocumentOpen,
@@ -661,12 +662,15 @@ async function runWithDocumentOpenInFlight<T>(
     let opened = false;
     try {
         const result = await run();
-        if (result === false) {
+        const settledResult = resolveDocumentOpenRunResult(
+            result,
+            await waitForDocumentOpenTerminalState(transaction, result !== false),
+        );
+        if (settledResult === false) {
             return false;
         }
         opened = true;
-        await waitForDocumentOpenTerminalState(transaction, true);
-        return result;
+        return settledResult;
     } finally {
         finishDocumentOpenTransaction(transaction, opened);
     }

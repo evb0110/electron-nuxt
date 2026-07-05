@@ -51,6 +51,7 @@ export interface IFileOperationsSaveExecutionConfig {
 
 interface IFileOperationsOptimizeCopyExecutionConfig {
     expectedWorkingPath: TDocumentRef | null;
+    expectedDocumentRevisionToken: TDocumentRevisionToken | null;
     options: IPdfOptimizeOptions;
     requestId?: string | undefined;
     reloadWaiter: IPostSaveReloadWaiter | null;
@@ -829,6 +830,7 @@ export function createFileOperationsSaveExecutor(
             'persist-optimize-copy-native-working-copy',
             () => persistOptimizeCopy(config.options, config.requestId, {
                 saveMode: saveResult.saveMode,
+                expectedDocumentRevisionToken: config.expectedDocumentRevisionToken,
                 expectedWorkingPath: config.expectedWorkingPath,
             }),
             result => ({

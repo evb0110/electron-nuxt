@@ -1,5 +1,6 @@
 import type {
     IAgentAssistantEvent,
+    IAgentCommandCancelRequest,
     IAgentCommandRequest,
     IAgentWorkspaceSnapshotRequest,
 } from '@contracts/agent';
@@ -22,6 +23,7 @@ export const AGENT_CHANNELS = {
 export const AGENT_EVENT_CHANNELS = {
     assistantEvent: 'agent:assistantEvent',
     workspaceSnapshotRequest: 'agent:workspaceSnapshotRequest',
+    commandCancelRequest: 'agent:commandCancelRequest',
     commandRequest: 'agent:commandRequest',
 } as const;
 
@@ -75,5 +77,6 @@ export interface IAgentInvokeMap {
 export interface IAgentEventMap {
     [AGENT_EVENT_CHANNELS.assistantEvent]: IAgentAssistantEvent;
     [AGENT_EVENT_CHANNELS.workspaceSnapshotRequest]: IAgentWorkspaceSnapshotRequest;
+    [AGENT_EVENT_CHANNELS.commandCancelRequest]: IAgentCommandCancelRequest;
     [AGENT_EVENT_CHANNELS.commandRequest]: IAgentCommandRequest;
 }

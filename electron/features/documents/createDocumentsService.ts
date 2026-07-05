@@ -29,6 +29,7 @@ import {
     handleFileStat,
 } from '@electron/features/documents/main/documentFileReadHandlers';
 import {
+    handleCancelPdfNativePagePreview,
     handlePdfNativePagePreview,
     handlePdfNativePageSizes,
 } from '@electron/features/documents/main/nativePdfPreview';
@@ -116,6 +117,8 @@ export function createDocumentsService(): IDocumentsService {
         readFileRange: (...args: TDocumentsServiceArgs<'readFileRange'>) => handleFileReadRange(...args),
         getPdfNativePageSizes: (...args: TDocumentsServiceArgs<'getPdfNativePageSizes'>) =>
             handlePdfNativePageSizes(...args),
+        cancelPdfNativePagePreview: (...args: TDocumentsServiceArgs<'cancelPdfNativePagePreview'>) =>
+            handleCancelPdfNativePagePreview(...args),
         renderPdfNativePagePreview: (...args: TDocumentsServiceArgs<'renderPdfNativePagePreview'>) =>
             handlePdfNativePagePreview(...args),
         readTextFile: (...args: TDocumentsServiceArgs<'readTextFile'>) => handleFileReadText(...args),

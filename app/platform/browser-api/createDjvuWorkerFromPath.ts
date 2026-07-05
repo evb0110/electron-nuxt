@@ -283,6 +283,15 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
             return `native-preview:${pageNumber}:${nextPreviewRequestId}`;
         };
         return {
+            cancelPagePreview(pageNumber: number) {
+                const requestId = activePreviewRequestIdsByPage.get(pageNumber);
+                if (!requestId) {
+                    return;
+                }
+                activePreviewRequestIdsByPage.delete(pageNumber);
+                activePreviewRequestIds.delete(requestId);
+                cancelPreviewRequest(requestId);
+            },
             getPageSizes: () => nativeDjvu.getPageSizes(djvuPath),
             async renderPageObjectUrl(
                 pageNumber: number,
@@ -373,6 +382,9 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
     };
 
     return {
+        cancelPagePreview(pageNumber: number) {
+            latestPreviewRequestIdsByPage.delete(pageNumber);
+        },
         getPageSizes: (): Promise<IDjvuPageSize[]> => worker.doc.getPagesSizes().run(),
         async renderPageObjectUrl(
             pageNumber: number,

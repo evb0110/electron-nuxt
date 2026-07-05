@@ -53,6 +53,11 @@ interface IOcrJobWorkerLifecycleControllerOptions {
     logger: ILogger;
     clearOcrProgressPump: (scopedJobId: string, requestId?: string) => void;
     dispatchQueuedJobs: () => void;
+    enqueueOcrProgress: (
+        job: Pick<IOcrQueuedJob | IOcrPreparingJob, 'scopedJobId' | 'requestId'>,
+        status: 'success' | 'canceled' | 'failed',
+        error?: string,
+    ) => void;
     getJobWindow: (webContentsId: number) => BrowserWindow | null | undefined;
     onFinalizeActiveJob?: (scopedJobId: string, job: IOcrActiveJob | null) => void;
     removeResultFile: (path: string) => Promise<boolean>;
@@ -99,6 +104,7 @@ export function createOcrJobWorkerLifecycleController(
         logger,
         clearOcrProgressPump,
         dispatchQueuedJobs,
+        enqueueOcrProgress,
         getJobWindow,
         onFinalizeActiveJob,
         removeResultFile,
@@ -143,6 +149,7 @@ export function createOcrJobWorkerLifecycleController(
         failureOptions: IOcrTerminalErrorEnvelopeOptions = {},
     ) {
         const window = getJobWindow(job.webContentsId);
+        enqueueOcrProgress(job, 'failed', error);
         clearOcrProgressPump(job.scopedJobId, job.requestId);
         safeSendToWindow(window, OCR_EVENT_CHANNELS.complete, {
             requestId: job.requestId,
@@ -158,6 +165,7 @@ export function createOcrJobWorkerLifecycleController(
     ) {
         const message = 'OCR job was cancelled';
         const window = getJobWindow(job.webContentsId);
+        enqueueOcrProgress(job, 'canceled', message);
         clearOcrProgressPump(job.scopedJobId, job.requestId);
         safeSendToWindow(window, OCR_EVENT_CHANNELS.complete, {
             requestId: job.requestId,

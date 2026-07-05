@@ -729,17 +729,25 @@ describe('search IPC worker resource limits', () => {
 
             if (mode === 'complete') {
                 emitWorkerComplete(0, requestId);
+                expect(sender.send).toHaveBeenCalledWith('pdf:search:progress', {
+                    requestId,
+                    processed: 2,
+                    total: 2,
+                    status: 'success',
+                });
                 await expect(searchPromise).resolves.toEqual({
                     results: [],
                     truncated: false,
                 });
+                sender.send.mockClear();
             } else if (mode === 'cancel') {
                 expect(cancelHandler(event, requestId)).toEqual({ canceled: true });
                 expect(sender.send).toHaveBeenCalledWith('pdf:search:progress', {
                     requestId,
                     processed: 0,
-                    total: 0,
+                    total: 2,
                     canceled: true,
+                    status: 'canceled',
                 });
                 await expect(searchPromise).resolves.toEqual({
                     results: [],
@@ -752,7 +760,15 @@ describe('search IPC worker resource limits', () => {
                     .rejects.toThrow('Search request timed out after 5000ms');
                 await vi.advanceTimersByTimeAsync(5_000);
                 await timeoutRejection;
+                expect(sender.send).toHaveBeenCalledWith('pdf:search:progress', {
+                    requestId,
+                    processed: 0,
+                    total: 2,
+                    status: 'failed',
+                    error: 'Search request timed out after 5000ms',
+                });
                 expect(mocks.workerRecords[0]?.terminate).toHaveBeenCalledTimes(1);
+                sender.send.mockClear();
             }
 
             emitWorkerProgressWithResults(0, requestId, [buildSearchMatch({pageNumber: 999})]);

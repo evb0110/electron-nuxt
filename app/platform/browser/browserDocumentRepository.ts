@@ -49,6 +49,7 @@ import {
     cleanupBrowserEvictedRecentRefs,
     isBrowserRecentFileRef,
     loadBrowserPersistedDocumentRecords,
+    loadBrowserPersistedDocumentRecordsResult,
     sweepBrowserDocumentMaintenance,
 } from '@app/platform/browser/browserDocumentMaintenance';
 import {
@@ -80,7 +81,7 @@ export class BrowserDocumentStore {
     private readonly revisionListeners = new Set<(event: IDocumentRevisionChangedEvent) => void>();
     private readonly recentFilesStore = new BrowserRecentFilesStore({
         requireEntry: (ref) => this.requireEntry(ref),
-        getAllPersistedRecords: () => loadBrowserPersistedDocumentRecords(),
+        getAllPersistedRecords: () => loadBrowserPersistedDocumentRecordsResult(),
         cleanupEvictedRecentRefs: (refs) => cleanupBrowserEvictedRecentRefs(
             refs,
             async (ref) => {

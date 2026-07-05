@@ -117,6 +117,18 @@ function decodeSearchProgress(payload: unknown): IPdfSearchProgress | null {
     if (payload.canceled !== undefined && typeof payload.canceled !== 'boolean') {
         return null;
     }
+    if (
+        payload.status !== undefined
+        && payload.status !== 'running'
+        && payload.status !== 'success'
+        && payload.status !== 'canceled'
+        && payload.status !== 'failed'
+    ) {
+        return null;
+    }
+    if (payload.error !== undefined && typeof payload.error !== 'string') {
+        return null;
+    }
     if (payload.results !== undefined) {
         if (!Array.isArray(payload.results)) {
             return null;
@@ -132,6 +144,8 @@ function decodeSearchProgress(payload: unknown): IPdfSearchProgress | null {
             results: results as IPdfSearchResult[],
             ...(payload.truncated === undefined ? {} : {truncated: payload.truncated}),
             ...(payload.canceled === undefined ? {} : {canceled: payload.canceled}),
+            ...(payload.status === undefined ? {} : {status: payload.status}),
+            ...(payload.error === undefined ? {} : {error: payload.error}),
         };
     }
     return {
@@ -140,6 +154,8 @@ function decodeSearchProgress(payload: unknown): IPdfSearchProgress | null {
         total: payload.total,
         ...(payload.truncated === undefined ? {} : {truncated: payload.truncated}),
         ...(payload.canceled === undefined ? {} : {canceled: payload.canceled}),
+        ...(payload.status === undefined ? {} : {status: payload.status}),
+        ...(payload.error === undefined ? {} : {error: payload.error}),
     };
 }
 

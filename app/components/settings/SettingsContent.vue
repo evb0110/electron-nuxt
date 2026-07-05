@@ -83,6 +83,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { getErrorMessage } from '@app/utils/error';
 import { getAgentCapability } from '@app/utils/getAgentCapability';
 import { getShellCapability } from '@app/utils/getShellCapability';
+import { runSettingsAssistantAction } from '@app/modules/workspace-shell/agent/runSettingsAssistantAction';
 import SettingsAgentPanel from '@app/components/settings/SettingsAgentPanel.vue';
 import SettingsGeneralPanel from '@app/components/settings/SettingsGeneralPanel.vue';
 import SettingsShortcutsPanel from '@app/components/settings/SettingsShortcutsPanel.vue';
@@ -405,16 +406,14 @@ async function runAssistantAction(
     action: 'refresh' | 'install' | 'login' | 'cancel',
     callback: () => Promise<void>,
 ) {
-    if (!isDesktopRuntime.value || assistantAction.value !== null) {
-        return;
-    }
-
-    assistantAction.value = action;
-    try {
-        await callback();
-    } finally {
-        assistantAction.value = null;
-    }
+    await runSettingsAssistantAction({
+        action,
+        activeAction: assistantAction,
+        isDesktopRuntime: isDesktopRuntime.value,
+        run: callback,
+        t,
+        toast,
+    });
 }
 
 async function refreshAssistantState() {

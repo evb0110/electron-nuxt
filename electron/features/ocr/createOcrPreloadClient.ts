@@ -90,6 +90,18 @@ function decodeOcrProgress(payload: unknown): IOcrProgress | null {
     if (payload.languageCode !== undefined && typeof payload.languageCode !== 'string') {
         return null;
     }
+    if (
+        payload.status !== undefined
+        && payload.status !== 'running'
+        && payload.status !== 'success'
+        && payload.status !== 'canceled'
+        && payload.status !== 'failed'
+    ) {
+        return null;
+    }
+    if (payload.error !== undefined && typeof payload.error !== 'string') {
+        return null;
+    }
 
     return {
         requestId: payload.requestId,
@@ -100,6 +112,8 @@ function decodeOcrProgress(payload: unknown): IOcrProgress | null {
         ...(payload.phaseProgress === undefined ? {} : {phaseProgress: payload.phaseProgress}),
         ...(payload.activePages === undefined ? {} : {activePages: payload.activePages as number[]}),
         ...(payload.languageCode === undefined ? {} : {languageCode: payload.languageCode}),
+        ...(payload.status === undefined ? {} : {status: payload.status}),
+        ...(payload.error === undefined ? {} : {error: payload.error}),
     };
 }
 

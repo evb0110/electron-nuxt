@@ -176,6 +176,7 @@ function getPlainOcrProgressPump(context: IOcrOperationContext) {
     pump = createIpcProgressPump<IOcrProgress>({
         channel: OCR_EVENT_CHANNELS.progress,
         getTarget: () => ({
+            key: `web-contents:${context.senderId}`,
             isDestroyed: () => context.sender.isDestroyed(),
             send: (channel: string, payload: IOcrProgress) => safeSendToWindow(
                 context.parentWindow,
@@ -184,7 +185,10 @@ function getPlainOcrProgressPump(context: IOcrOperationContext) {
             ),
         }),
         getKey: (progress: IOcrProgress) => progress.requestId,
-        isTerminal: (progress: IOcrProgress) => progress.totalPages > 0 && progress.processedCount >= progress.totalPages,
+        isTerminal: (progress: IOcrProgress) => progress.status === 'success'
+            || progress.status === 'canceled'
+            || progress.status === 'failed'
+            || (progress.totalPages > 0 && progress.processedCount >= progress.totalPages),
         onError: (error: unknown) => {
             log.debug(`Failed to send OCR batch progress: ${getErrorMessage(error)}`);
         },
@@ -208,6 +212,7 @@ function getPlainOcrProgressPump(context: IOcrOperationContext) {
 
 export function subscribePlainOcrProgress(context: IOcrOperationContext) {
     plainOcrProgressPumpsBySenderId.get(context.senderId)?.subscribe({
+        key: `web-contents:${context.senderId}`,
         isDestroyed: () => context.sender.isDestroyed(),
         send: (channel: string, payload: IOcrProgress) => safeSendToWindow(
             context.parentWindow,

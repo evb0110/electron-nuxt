@@ -493,6 +493,7 @@ function getDjvuProgressPump(context: IDjvuOperationContext) {
     pump = createIpcProgressPump<IDjvuProgress>({
         channel: DJVU_EVENT_CHANNELS.progress,
         getTarget: () => ({
+            key: `web-contents:${context.senderId}`,
             isDestroyed: () => context.sender.isDestroyed?.() === true,
             send: (channel: string, payload: IDjvuProgress) => safeSendToWindow(
                 context.parentWindow,
@@ -525,6 +526,7 @@ function getDjvuProgressPump(context: IDjvuOperationContext) {
 
 export function subscribeDjvuProgress(context: IDjvuOperationContext) {
     progressPumpsBySenderId.get(context.senderId)?.subscribe({
+        key: `web-contents:${context.senderId}`,
         isDestroyed: () => context.sender.isDestroyed?.() === true,
         send: (channel: string, payload: IDjvuProgress) => safeSendToWindow(
             context.parentWindow,
@@ -564,6 +566,11 @@ async function embedPdfBookmarks(
             if (!(error instanceof DjvuPdfWorkerStartupError)) {
                 throw error;
             }
+            if (signal.aborted || canceledJobIds.has(jobId)) {
+                throw signal.reason instanceof Error
+                    ? signal.reason
+                    : createAbortError('DjVu conversion canceled');
+            }
 
             const inputStats = await stat(inputPdfPath).catch(() => null);
             if (!inputStats || inputStats.size > DJVU_BOOKMARK_FALLBACK_MAX_BYTES) {
@@ -572,9 +579,14 @@ async function embedPdfBookmarks(
                     `DjVu bookmark embedding requires the PDF worker for files larger than ${maxMb}MB`,
                 );
             }
+            if (signal.aborted || canceledJobIds.has(jobId)) {
+                throw signal.reason instanceof Error
+                    ? signal.reason
+                    : createAbortError('DjVu conversion canceled');
+            }
 
             logger.warn(`[${jobId}] DjVu PDF worker unavailable, falling back to in-process bookmark embedding: ${error.message}`);
-            await embedBookmarksIntoPdfFile(inputPdfPath, outputPdfPath, bookmarks);
+            await embedBookmarksIntoPdfFile(inputPdfPath, outputPdfPath, bookmarks, signal);
         }
     }, {
         thresholdMs: 25,

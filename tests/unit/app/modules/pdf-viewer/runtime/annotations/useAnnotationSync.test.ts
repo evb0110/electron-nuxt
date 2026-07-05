@@ -19,6 +19,10 @@ import type { IPdfPageAnnotationBundle } from '@app/modules/pdf-viewer/engine/an
 const { loadPdfPageAnnotations } = vi.hoisted(() => ({loadPdfPageAnnotations: vi.fn<(_doc: unknown, _pageNumber: number) => Promise<IPdfPageAnnotationBundle | null>>()}));
 
 vi.mock('@app/services/pdfjs/runtimeLib', () => ({PDFDateString: {toDateObject: vi.fn(() => null)}}));
+vi.mock('@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument', () => ({
+    leasePdfDocumentPage: vi.fn(),
+    releasePdfDocumentPage: vi.fn(),
+}));
 
 vi.mock('@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/loadPdfPageAnnotations', async (importOriginal) => {
     const actual = await importOriginal<object>();

@@ -1184,7 +1184,7 @@ describe('ocr job manager preparing-stage robustness', () => {
             error: 'OCR job was cancelled before it started',
         });
 
-        expect(vi.getTimerCount()).toBe(0);
+        expect(vi.getTimerCount()).toBe(1);
         vi.useRealTimers();
     });
 

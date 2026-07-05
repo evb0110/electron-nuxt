@@ -25,11 +25,7 @@ import {
     ASSISTANT_DEFAULT_SPEED_MODE,
     CODEX_ASSISTANT_FALLBACK_MODELS,
 } from '@contracts/agentModels';
-import {
-    CODEX_APP_INSTALL_URL,
-    CODEX_STANDALONE_INSTALL_URL,
-    installManagedCodex,
-} from '@electron/features/agent/codexCli';
+import { installManagedCodex } from '@electron/features/agent/codexCli';
 import {
     CLAUDE_AGENT_MODELS,
     ClaudeAgentAssistantSession,
@@ -51,11 +47,7 @@ import {
 import type { TCodexAssistantModelOption } from '@electron/features/agent/assistantModelCatalog';
 import {
     codexDefaultModelId,
-    getProviderEfforts,
-    getProviderModelLabel,
-    getProviderSpeedModes,
     normalizeAssistantEffort,
-    normalizeAssistantModel,
     normalizeAssistantSpeedMode,
     normalizeCodexAssistantModel,
     resolveAssistantSelection,
@@ -64,18 +56,13 @@ import {
     type IClaudeAssistantProviderInfo,
 } from '@electron/features/agent/assistantProviderStatus';
 import {
-    buildAssistantProviderStatuses,
     createAssistantProviderRuntimeStates,
     getAssistantProviderRuntimeState,
 } from '@electron/features/agent/assistantProviderState';
 import { normalizeClaudeAssistantAccount } from '@electron/features/agent/assistantProviderAccounts';
-import {
-    createAssistantErrorEnvelope,
-    withAssistantErrorEnvelope,
-} from '@electron/features/agent/assistantErrorEnvelope';
+import { withAssistantErrorEnvelope } from '@electron/features/agent/assistantErrorEnvelope';
 import { normalizeOutgoingMessageRequest } from '@electron/features/agent/assistantOutgoingMessage';
 import {
-    cloneAssistantScope,
     createAssistantChatSessionStore,
     normalizeAssistantScope,
     type IAssistantChatSession,
@@ -87,13 +74,13 @@ import {
 } from '@electron/features/agent/assistantRuntimeLifecycle';
 import {
     buildAssistantSessionScopeBindingFingerprint,
-    getAssistantTurnPhase,
     getAssistantTurnProviderTurnId,
     getAssistantTurnScope,
     isAssistantTurnActive,
     matchesProviderTurn,
 } from '@electron/features/agent/assistantTurnLifecycle';
 import { getActiveAssistantMcpSessionScope } from '@electron/features/agent/assistantMcpSessionScope';
+import { buildAgentAssistantStateSnapshot } from '@electron/features/agent/buildAgentAssistantStateSnapshot';
 import { createAssistantSessionTurnCoordinator } from '@electron/features/agent/createAssistantSessionTurnCoordinator';
 import { createAssistantAppServerNotificationController } from '@electron/features/agent/createAssistantAppServerNotificationController';
 import { resolveAssistantPresetInstructions } from '@electron/features/agent/assistantPresetWorkflows';
@@ -335,95 +322,6 @@ function getSessionForStatus(scope: IAgentAssistantChatScope | null, selection: 
     return getChatSession(scope, selection);
 }
 
-function currentStatus(
-    scope: IAgentAssistantChatScope | null = sessionStore.getRememberedScope(),
-    selection: IAssistantSelection = sessionStore.getRememberedSelection(),
-): IAgentAssistantStatus {
-    const codexInfo = runtimeLifecycle.getCodexInfo();
-    const installed = codexInfo?.installed === true;
-    const versionSupported = codexInfo?.isVersionSupported === true;
-    const supported = process.platform === 'darwin' || process.platform === 'win32' || process.platform === 'linux';
-    const normalizedModel = normalizeAssistantModel(codexAssistantModels, selection.provider, selection.model);
-    const normalizedSelection = {
-        provider: selection.provider,
-        model: normalizedModel,
-        effort: normalizeAssistantEffort(codexAssistantModels, selection.provider, normalizedModel, selection.effort),
-        speedMode: normalizeAssistantSpeedMode(codexAssistantModels, selection.provider, normalizedModel, selection.speedMode),
-    } as const satisfies IAssistantSelection;
-    const session = getSessionForStatus(scope, normalizedSelection);
-    const sessionTurnMatchesScope = session ? isAssistantTurnActiveForScope(session, scope) : false;
-    const sessionTurnPhase = session && sessionTurnMatchesScope ? getAssistantTurnPhase(session.turnOwner) : 'idle';
-    const sessionActiveTurnId = session && sessionTurnMatchesScope ? getAssistantTurnProviderTurnId(session.turnOwner) : null;
-    const effortInput = session?.effort ?? normalizedSelection.effort;
-    const speedModeInput = session?.speedMode ?? normalizedSelection.speedMode;
-    const providerStatuses = buildAssistantProviderStatuses({
-        platform: process.platform,
-        states: providerRuntimeStates,
-        codexInfo,
-        claudeInfo: claudeInfoCache,
-        codexModels: codexAssistantModels,
-        claudeModels: claudeAssistantModels,
-        model: session?.model ?? normalizedSelection.model,
-        effort: effortInput,
-        speedMode: speedModeInput,
-    });
-    const fallbackProvider = providerStatuses[0];
-    if (!fallbackProvider) {
-        throw new Error('No assistant providers are available.');
-    }
-    const activeProvider = providerStatuses.find((
-        provider: IAgentAssistantStatus['providers'][number],
-    ) => provider.id === normalizedSelection.provider) ?? fallbackProvider;
-    const model = normalizeAssistantModel(
-        codexAssistantModels,
-        normalizedSelection.provider,
-        session?.model ?? normalizedSelection.model,
-    );
-    const models = activeProvider.models;
-    const effort = normalizeAssistantEffort(codexAssistantModels, normalizedSelection.provider, model, effortInput);
-    const speedMode = normalizeAssistantSpeedMode(codexAssistantModels, normalizedSelection.provider, model, speedModeInput);
-    const error = session?.lastError ?? activeProvider.error;
-    return {
-        supported,
-        platform: process.platform,
-        provider: activeProvider.id,
-        providerLabel: activeProvider.label,
-        providers: providerStatuses,
-        model,
-        modelLabel: getProviderModelLabel(codexAssistantModels, claudeAssistantModels, normalizedSelection.provider, model),
-        models,
-        modelSwitchMode: activeProvider.modelSwitchMode,
-        effort,
-        availableEfforts: getProviderEfforts(codexAssistantModels, normalizedSelection.provider, model),
-        speedMode,
-        availableSpeedModes: getProviderSpeedModes(codexAssistantModels, normalizedSelection.provider, model),
-        installState: activeProvider.installState,
-        codexInstalled: installed,
-        codexPath: codexInfo?.path ?? null,
-        codexVersion: codexInfo?.version ?? null,
-        minimumCodexVersion: codexInfo?.minimumVersion ?? '0.133.0',
-        codexVersionSupported: versionSupported,
-        installUrl: CODEX_APP_INSTALL_URL,
-        installScriptUrl: CODEX_STANDALONE_INSTALL_URL,
-        managedInstallDir: codexInfo?.managedInstallDir ?? '',
-        authState: activeProvider.authState,
-        account: activeProvider.account,
-        runtimeState: activeProvider.runtimeState,
-        mcp: createBaseMcpStatusWithToolCount(normalizedSelection.provider),
-        turn: {
-            id: sessionActiveTurnId,
-            phase: sessionTurnPhase,
-        },
-        lastCheckedAt: new Date().toISOString(),
-        ...(error
-            ? {
-                error,
-                errorEnvelope: createAssistantErrorEnvelope(error),
-            }
-            : {}),
-    };
-}
-
 function cloneMessages(
     scope: IAgentAssistantChatScope | null = sessionStore.getRememberedScope(),
     selection: IAssistantSelection = sessionStore.getRememberedSelection(),
@@ -435,11 +333,20 @@ function currentState(
     scope: IAgentAssistantChatScope | null = sessionStore.getRememberedScope(),
     selection: IAssistantSelection = sessionStore.getRememberedSelection(),
 ): IAgentAssistantState {
-    return {
-        scope: scope ? cloneAssistantScope(scope) : null,
-        status: currentStatus(scope, selection),
+    return buildAgentAssistantStateSnapshot({
+        claudeInfo: claudeInfoCache,
+        claudeModels: claudeAssistantModels,
+        codexInfo: runtimeLifecycle.getCodexInfo(),
+        codexModels: codexAssistantModels,
+        createMcpStatus: createBaseMcpStatusWithToolCount,
+        getSessionForStatus,
+        isAssistantTurnActiveForScope,
         messages: cloneMessages(scope, selection),
-    };
+        platform: process.platform,
+        providerRuntimeStates,
+        scope,
+        selection,
+    });
 }
 
 function shouldAttachStateToAssistantEvent(event: IAgentAssistantEvent) {
@@ -596,6 +503,34 @@ function requestBestEffortCodexTurnCleanup(
     }
     void currentRuntime.client.request('thread/archive', { threadId }).catch((error: unknown) => {
         logger.warn(`Failed to archive ${reason} assistant thread: ${getErrorMessage(error)}`);
+    });
+}
+
+async function interruptStaleSessionTurn(
+    session: IAssistantChatSession,
+    reason: string,
+) {
+    if (session.provider === 'claude') {
+        if (!session.claudeSession || !isAssistantTurnActive(session.turnOwner)) {
+            return;
+        }
+        await session.claudeSession.interrupt().catch((error: unknown) => {
+            logger.warn(`Failed to interrupt ${reason} Claude assistant turn: ${getErrorMessage(error)}`);
+        });
+        return;
+    }
+
+    const currentRuntime = runtimeLifecycle.getRuntime();
+    const activeTurnId = getAssistantTurnProviderTurnId(session.turnOwner);
+    if (!currentRuntime || !session.providerThreadId || !activeTurnId) {
+        return;
+    }
+
+    await currentRuntime.client.request('turn/interrupt', {
+        threadId: session.providerThreadId,
+        turnId: activeTurnId,
+    }).catch((error: unknown) => {
+        logger.warn(`Failed to interrupt ${reason} assistant turn: ${getErrorMessage(error)}`);
     });
 }
 
@@ -1037,7 +972,15 @@ export async function sendAgentAssistantMessage(
     }
     if (isAssistantTurnActive(session.turnOwner)) {
         if (!isAssistantTurnActiveForScope(session, session.scope)) {
-            supersedeSessionTurn(session);
+            interruptSessionTurn(session);
+            publishState(session.scope, session);
+            await interruptStaleSessionTurn(session, 'stale-scope');
+            const error = getAssistantTurnBusyError();
+            return withAssistantErrorEnvelope({
+                ok: false,
+                state: currentState(session.scope, session),
+                error,
+            });
         } else {
             const error = getAssistantTurnBusyError();
             return withAssistantErrorEnvelope({
@@ -1177,11 +1120,14 @@ export async function sendAgentAssistantMessage(
                     };
                 }
                 if (!isActiveTurnScopeCurrent(session)) {
-                    supersedeSessionTurn(session);
-                    return {
-                        ok: true,
+                    interruptSessionTurn(session);
+                    publishState(session.scope, session);
+                    await interruptStaleSessionTurn(session, 'stale-scope');
+                    return withAssistantErrorEnvelope({
+                        ok: false,
                         state: currentState(session.scope, session),
-                    };
+                        error: getAssistantTurnBusyError(),
+                    });
                 }
                 markSessionTurnRunning(session, turnGeneration, response.turn.id);
             }
@@ -1379,6 +1325,7 @@ export async function resetAgentAssistantChat(
 export async function shutdownAgentAssistant() {
     await shutdownCodexAssistantRuntime({ shutdownMcp: false });
     await shutdownClaudeAssistantRuntime({ shutdownMcp: false });
+    await sessionStore.flushPersistence();
     sessionStore.clearActiveSession();
     await shutdownEmbeddedMcpServer();
 }

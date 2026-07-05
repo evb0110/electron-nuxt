@@ -37,3 +37,10 @@ export function sendAgentCommandRequest(
 ) {
     sendAgentRendererEvent(targetWindow.webContents, AGENT_EVENT_CHANNELS.commandRequest, request);
 }
+
+export function sendAgentCommandCancelRequest(
+    targetWindow: BrowserWindow,
+    request: IAgentEventMap[typeof AGENT_EVENT_CHANNELS.commandCancelRequest],
+) {
+    sendAgentRendererEvent(targetWindow.webContents, AGENT_EVENT_CHANNELS.commandCancelRequest, request);
+}

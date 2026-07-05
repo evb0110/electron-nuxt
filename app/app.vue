@@ -310,14 +310,6 @@ onBeforeUnmount(() => {
     }
 });
 
-if (localeCookie.value !== settings.value.locale) {
-    localeCookie.value = settings.value.locale;
-}
-
-if (themeCookie.value !== settings.value.theme) {
-    themeCookie.value = settings.value.theme;
-}
-
 colorMode.preference = settings.value.theme;
 
 setPreferenceFromSettings(settings.value);

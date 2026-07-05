@@ -34,6 +34,7 @@ import {
 } from '@contracts/runtimeGuards';
 import type { TEditorLayoutNode } from '@contracts/editorPanes';
 import {
+    sendAgentCommandCancelRequest,
     sendAgentCommandRequest,
     sendAgentWorkspaceSnapshotRequest,
 } from '@electron/features/agent/main/agentRendererEvents';
@@ -47,6 +48,7 @@ interface ICachedWorkspaceSnapshot {
 }
 
 interface IPendingRequest<TResponse> {
+    cancelRenderer?: () => void;
     windowId: number;
     timeout: NodeJS.Timeout;
     cleanupLifecycle: () => void;
@@ -134,6 +136,10 @@ function createPendingRequest<TResponse>(
     requestId: string,
     window: BrowserWindow,
     timeoutMs: number,
+    options: {
+        cancelRenderer?: () => void;
+        signal?: AbortSignal;
+    } = {},
     onLifecycleReject?: () => void,
 ) {
     return new Promise<TResponse>((resolve, reject) => {
@@ -143,21 +149,49 @@ function createPendingRequest<TResponse>(
             window,
             onLifecycleReject,
         );
+        const cleanupAbortSignal = () => {
+            options.signal?.removeEventListener('abort', handleAbortSignal);
+        };
+        const cleanup = () => {
+            cleanupLifecycle();
+            cleanupAbortSignal();
+        };
         const timeout = setTimeout(() => {
+            options.cancelRenderer?.();
             rejectPendingRequest(
                 pendingMap,
                 requestId,
                 new Error(`Agent renderer request timed out after ${timeoutMs}ms`),
             );
         }, timeoutMs);
+        const handleAbortSignal = () => {
+            options.cancelRenderer?.();
+            rejectPendingRequest(
+                pendingMap,
+                requestId,
+                new Error('Agent renderer request was aborted by the caller.'),
+            );
+        };
+        options.signal?.addEventListener('abort', handleAbortSignal, { once: true });
 
         pendingMap.set(requestId, {
+            ...(options.cancelRenderer === undefined ? {} : {cancelRenderer: options.cancelRenderer}),
             windowId: window.id,
             timeout,
-            cleanupLifecycle,
+            cleanupLifecycle: cleanup,
             resolve,
             reject,
         });
+    });
+}
+
+function sendAgentCommandCancel(window: BrowserWindow, requestId: string) {
+    if (window.isDestroyed() || window.webContents.isDestroyed()) {
+        return;
+    }
+    sendAgentCommandCancelRequest(window, {
+        requestId,
+        windowId: window.id,
     });
 }
 
@@ -483,6 +517,7 @@ export function requestAgentWorkspaceSnapshot(
         requestId,
         window,
         timeoutMs,
+        {},
         () => snapshotCacheByWindowId.delete(window.id),
     );
 
@@ -504,6 +539,7 @@ export function requestAgentCommand(
     command: TAgentCommand,
     timeoutMs = DEFAULT_AGENT_REQUEST_TIMEOUT_MS,
     scope?: IAgentCommandExecutionScope,
+    signal?: AbortSignal,
 ) {
     const window = assertUsableTargetWindow(targetWindow);
     const requestId = randomUUID();
@@ -518,6 +554,11 @@ export function requestAgentCommand(
         requestId,
         window,
         timeoutMs,
+        {
+            cancelRenderer: () => sendAgentCommandCancel(window, requestId),
+            ...(signal === undefined ? {} : {signal}),
+        },
+        () => sendAgentCommandCancel(window, requestId),
     );
 
     try {

@@ -7,7 +7,9 @@ import {
 } from 'vitest';
 import {
     loadAllRecordKeys,
+    loadAllRecordKeysAvailability,
     loadRecord,
+    loadRecordAvailability,
 } from '@app/platform/browser/browserDocumentIdb';
 
 describe('browserDocumentIdb', () => {
@@ -22,5 +24,13 @@ describe('browserDocumentIdb', () => {
 
         await expect(loadRecord('browser://documents/example/file.pdf')).resolves.toBeNull();
         await expect(loadAllRecordKeys()).resolves.toBeNull();
+        await expect(loadRecordAvailability('browser://documents/example/file.pdf')).resolves.toEqual({
+            available: false,
+            value: null,
+        });
+        await expect(loadAllRecordKeysAvailability()).resolves.toEqual({
+            available: false,
+            value: null,
+        });
     });
 });

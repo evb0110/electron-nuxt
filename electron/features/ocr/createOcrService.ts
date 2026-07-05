@@ -68,6 +68,7 @@ export function createOcrService(): IOcrService {
         subscribeProgress: (context) => {
             subscribePlainOcrProgress(context);
             subscribeManagedOcrProgress(context.senderId, {
+                key: `web-contents:${context.senderId}`,
                 isDestroyed: () => context.sender.isDestroyed(),
                 send: (_channel, payload) => context.sender.send(OCR_EVENT_CHANNELS.progress, payload),
             });

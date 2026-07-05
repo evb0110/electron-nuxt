@@ -141,12 +141,13 @@ describe('native page crop helper', () => {
         await expect(readFile(pdfPath, 'utf8')).resolves.toBe('%PDF-1.7\nnative remove crop');
     });
 
-    it('falls back without replacing the working copy when the native helper fails', async () => {
+    it('rejects instead of silently falling back when the native helper fails in enabled test mode', async () => {
         runNativeToolCommandMock.mockRejectedValueOnce(new Error('native failed'));
 
         const { tryRemoveCropWithNativePageOps } = await import('@electron/features/page-ops/main/nativeCrop');
 
-        await expect(tryRemoveCropWithNativePageOps(pdfPath, [1])).resolves.toBe(false);
+        await expect(tryRemoveCropWithNativePageOps(pdfPath, [1]))
+            .rejects.toThrow('Native page ops fallback is not allowed in tests');
         await expect(readFile(pdfPath, 'utf8')).resolves.toBe('%PDF-1.7\noriginal');
     });
 });

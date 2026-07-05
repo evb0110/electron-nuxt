@@ -17,6 +17,7 @@ export interface IPagePreviewRenderedObjectUrl {
 }
 
 export interface IPagePreviewSource {
+    cancelPagePreview?(pageNumber: number): void;
     getPageSizes(): Promise<IPreviewPageSize[]>;
     renderPageObjectUrl(
         pageNumber: number,

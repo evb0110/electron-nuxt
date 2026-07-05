@@ -424,6 +424,7 @@ describe('useWindowTabTransfers', () => {
         });
         workspaceRefs.value.set('tab-existing', cast<IWorkspaceExpose>({ hasPdf: true }));
         let destinationMounted = false;
+        const removeTabFromState = vi.fn();
         const createTab = vi.fn(() => {
             const tab: ITab = {
                 id: 'tab-created',
@@ -479,7 +480,7 @@ describe('useWindowTabTransfers', () => {
                     pane.activeTabId = tabId;
                 }
             }),
-            removeTabFromState: vi.fn(),
+            removeTabFromState,
             updateTab: vi.fn(),
             cleanupEmptyPanes: vi.fn(),
             closeTabInState: vi.fn(),
@@ -520,10 +521,99 @@ describe('useWindowTabTransfers', () => {
         });
 
         expect(restoredWorkspace.restoreSplitPayload).toHaveBeenCalledWith(payload);
+        expect(removeTabFromState).toHaveBeenCalledWith('tab-created');
         expect(mocks.transferAck).toHaveBeenCalledWith({
             transferId: 'transfer-1',
             success: false,
             error: 'tabs.transferErrors.restoreFailed',
+        });
+    });
+
+    it('rolls back reused target tabs when the success ack is rejected', async () => {
+        const payload = createPayload();
+        const placeholderTab: ITab = {
+            id: 'tab-placeholder',
+            fileName: null,
+            originalPath: null,
+            isDirty: false,
+            isDjvu: false,
+        };
+        const pane = {
+            paneId: 'pane-1',
+            activeTabId: 'tab-placeholder',
+            tabIds: ['tab-placeholder'],
+        };
+        const restoredWorkspace = cast<IWorkspaceExpose>({
+            hasPdf: true,
+            restoreSplitPayload: vi.fn(async () => undefined),
+        });
+        const updateTab = vi.fn();
+        const activatePane = vi.fn();
+        const activateTab = vi.fn();
+        mocks.transferAck.mockResolvedValueOnce(false);
+
+        const transfers = useWindowTabTransfers({
+            activePaneId: ref('pane-1'),
+            panes: ref([pane]),
+            tabs: ref([placeholderTab]),
+            layout: ref(null),
+            createTab: vi.fn(),
+            getPaneById: vi.fn((paneId: string | null | undefined) => {
+                if (paneId === 'pane-1') {
+                    return pane;
+                }
+                return null;
+            }),
+            getTabById: vi.fn((tabId: string | null | undefined) => {
+                if (tabId === placeholderTab.id) {
+                    return placeholderTab;
+                }
+                return null;
+            }),
+            getPaneByTabId: vi.fn((tabId: string) => tabId === placeholderTab.id ? pane : null),
+            activatePane,
+            activateTab,
+            removeTabFromState: vi.fn(),
+            updateTab,
+            cleanupEmptyPanes: vi.fn(),
+            closeTabInState: vi.fn(),
+            workspaceRefs: ref(new Map<string, IWorkspaceExpose>()),
+            waitForWorkspace: vi.fn(async (tabId: string): Promise<IWorkspaceExpose | null> => (
+                tabId === placeholderTab.id ? restoredWorkspace : null
+            )),
+            workspaceRestoreTracker: {
+                start: vi.fn(),
+                finish: vi.fn(),
+            },
+            handleCloseTab: vi.fn(),
+            handoffActiveTabBeforeClose: vi.fn(),
+        });
+
+        await transfers.handleIncomingTabTransfer({
+            transferId: 'transfer-ack-failed',
+            sourceWindowId: 1,
+            targetWindowId: 2,
+            tab: {
+                fileName: 'sample.pdf',
+                originalPath: '/tmp/sample.pdf',
+                isDirty: true,
+                isDjvu: false,
+            },
+            payload,
+        });
+
+        expect(updateTab).toHaveBeenCalledWith('tab-placeholder', {
+            fileName: null,
+            originalPath: null,
+            documentInstanceId: null,
+            isDirty: false,
+            isDjvu: false,
+        });
+        expect(activateTab).toHaveBeenCalledWith('pane-1', 'tab-placeholder');
+        expect(mocks.cleanupSplitPayloadSnapshot).toHaveBeenCalledWith(payload, {
+            logSection: 'tabs',
+            context: 'rollback-incoming-transfer-tab',
+            metadata: { tabId: 'tab-placeholder' },
         });
     });
 });

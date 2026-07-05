@@ -2,10 +2,17 @@ import {
     basename,
     extname,
 } from 'path';
-import type { IPdfOptimizeOptions } from '@contracts/electronApiDocuments';
+import type {
+    IPdfOptimizeOptions,
+    IDocumentMutationRevisionOptions,
+} from '@contracts/electronApiDocuments';
 import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
 import { getWorkingCopyOriginalPath } from '@electron/file-access/workingCopyStore';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
+import {
+    assertQueuedWorkingCopyMutationPreconditions,
+    normalizeExpectedDocumentRevisionToken,
+} from '@electron/file-access/documentMutationGuards';
 import { allowOpenPath } from '@electron/file-access/openPathCapabilities';
 import { addRecentFile } from '@electron/recentFiles';
 import { updateRecentFilesMenu } from '@electron/menu';
@@ -61,6 +68,7 @@ export async function handleOptimizePdfAsCopy(
     workingPath: string,
     rawOptions: IPdfOptimizeOptions,
     rawRequestId?: string,
+    revisionOptions?: IDocumentMutationRevisionOptions,
 ) {
     const normalizedWorkingPath = typeof workingPath === 'string' ? workingPath.trim() : '';
     if (!normalizedWorkingPath) {
@@ -68,6 +76,7 @@ export async function handleOptimizePdfAsCopy(
     }
     const options = normalizePdfOptimizeOptions(rawOptions);
     const requestId = normalizeOptionalIpcRequestId(rawRequestId) ?? `pdf-optimize-${Date.now()}`;
+    const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(revisionOptions);
 
     if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, context.senderId)) {
         throw new Error('Working copy path is not managed');
@@ -91,6 +100,10 @@ export async function handleOptimizePdfAsCopy(
     }
 
     const result = await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
+        await assertQueuedWorkingCopyMutationPreconditions(
+            normalizedWorkingPath,
+            expectedDocumentRevisionToken,
+        );
         if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, context.senderId)) {
             throw new Error('Working copy path is not managed');
         }

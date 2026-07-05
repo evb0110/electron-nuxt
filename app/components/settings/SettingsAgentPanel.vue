@@ -368,13 +368,16 @@ const mcpServerName = computed(() => status?.serverName ?? t('settings.agentMcpU
 const mcpServerUrl = computed(() => status?.serverUrl?.length
     ? status.serverUrl
     : t('settings.agentMcpUnavailable'));
-const codexCommand = computed(() => `codex mcp add ${mcpServerName.value} --url ${mcpServerUrl.value}`);
-const claudeCommand = computed(() => `claude mcp add --transport http --scope user ${mcpServerName.value} ${mcpServerUrl.value}`);
-const cursorConfig = computed(() => JSON.stringify(
-    { mcpServers: { [mcpServerName.value]: { url: mcpServerUrl.value } } },
-    null,
-    2,
-));
+const codexCommand = computed(() => status?.setupSnippets?.codex
+    ?? `codex mcp add ${mcpServerName.value} --url ${mcpServerUrl.value}`);
+const claudeCommand = computed(() => status?.setupSnippets?.claude
+    ?? `claude mcp add --transport http --scope user ${mcpServerName.value} ${mcpServerUrl.value}`);
+const cursorConfig = computed(() => status?.setupSnippets?.cursor
+    ?? JSON.stringify(
+        { mcpServers: { [mcpServerName.value]: { url: mcpServerUrl.value } } },
+        null,
+        2,
+    ));
 
 const statusKind = computed(() => {
     const currentStatus = status;

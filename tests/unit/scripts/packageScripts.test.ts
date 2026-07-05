@@ -138,19 +138,37 @@ describe('package scripts', () => {
             'pnpm run fallow:all',
             'pnpm run check:architecture',
         ]);
+        expect(scriptRunTargets(packageJson, 'typecheck')).toEqual([
+            'typecheck:app',
+            'typecheck:electron',
+            'typecheck:tests',
+            'typecheck:scripts',
+            'typecheck:packages',
+            'typecheck:server',
+        ]);
+        expect(packageJson.scripts['typecheck:packages']).toBe('node scripts/run-workspace-package-typecheck.mjs');
         expect(packageJson.scripts['test:coverage']).toBe('pnpm run test:coverage:run && pnpm run check:coverage-ratchet');
         expect(packageJson.scripts['release:verify']).toBe('node scripts/release/verify-local.mjs');
         expect(packageJson.scripts.test).toBe('vitest run --project unit');
         expect(packageJson.scripts['test:unit']).toBe('vitest run --project unit');
         expect(packageJson.scripts['test:coverage:run']).toBe('vitest run --coverage --project unit');
         expect(packageJson.scripts['test:bundle-integrity']).toBe('pnpm run build:electron && vitest run --project bundle-integrity && node scripts/prune-build-artifacts.mjs && pnpm run check:build-artifacts:hygiene');
+        expect(packageJson.scripts['db:generate']).toBe('pnpm --dir landing exec drizzle-kit generate --config ../drizzle.config.ts');
+        expect(packageJson.scripts['db:migrate']).toBe('pnpm --dir landing exec drizzle-kit migrate --config ../drizzle.config.ts');
+        expect(packageJson.scripts['db:check']).toBe('pnpm --dir landing exec drizzle-kit check --config ../drizzle.config.ts');
         expect(packageJson.scripts['check:coverage-ratchet']).toBe('pnpm exec tsx scripts/checkCoverageRatchet.ts');
         expect(packageJson.scripts['check:coverage-ratchet:update']).toBe('pnpm exec tsx scripts/checkCoverageRatchet.ts --update-baseline');
+        expect(packageJson.scripts['check:drizzle-schema']).toBe('node scripts/check-drizzle-schema.mjs');
+        expect(packageJson.scripts['check:electron-builder:asar-unpack']).toBe('node scripts/check-electron-builder-asar-unpack.mjs');
+        expect(packageJson.scripts['check:generated-native-resources:host']).toBe('node scripts/check-generated-native-resources.mjs --host');
         expect(packageJson.scripts['check:pdfjs-viewer-css']).toBe('node scripts/sync-pdfjs-viewer-css.mjs --check');
         expect(packageJson.scripts['release:resume']).toBe('HUSKY=0 node scripts/release/cut-release.mjs --resume');
         expect(packageJson.scripts['test:python-page-processor']).toBe('python3 scripts/check-page-processor-smoke.py');
         expect(packageJson.scripts['check:wasm:freshness']).toBe('node scripts/check-wasm-freshness.mjs --mode=strict');
         expect(packageJson.scripts['check:wasm:portable']).toBe('node scripts/check-wasm-freshness.mjs --mode=portable');
+        expect(packageJson.scripts['check:architecture:dep-graph']).toBe('node scripts/architecture/dep-graph.mjs --scope=focused --output=.tmp/dep-graph.json');
+        expect(packageJson.scripts['check:architecture:boundaries']).toBe('node scripts/architecture/boundary-check.mjs --scope=focused');
+        expect(packageJson.scripts['check:architecture:source-size']).toBe('node scripts/architecture/source-size-check.mjs');
         expect(scriptCommands(packageJson, 'test:e2e:electron')).toEqual([
             'pnpm run build:electron',
             'pnpm run test:e2e:electron:smoke:no-build',

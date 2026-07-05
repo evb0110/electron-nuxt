@@ -17,6 +17,7 @@ import {
     isNativePageOpsDisabled,
     resolveNativePageOpsPath,
 } from '@electron/features/page-ops/public';
+import { isAbortError } from '@electron/utils/abort';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 
@@ -34,6 +35,14 @@ async function embedBookmarksIntoPdf(
     const doc = await PDFDocument.load(pdfData, { updateMetadata: false });
     writePdfBookmarkOutlines(doc, bookmarks);
     return new Uint8Array(await doc.save());
+}
+
+function throwIfAborted(signal?: AbortSignal) {
+    if (signal?.aborted) {
+        throw signal.reason instanceof Error
+            ? signal.reason
+            : new DOMException('Operation aborted', 'AbortError');
+    }
 }
 
 function createNativeBookmarkMutation(totalPages: number, bookmarks: IPdfBookmarkEntry[]) {
@@ -84,6 +93,7 @@ async function tryEmbedBookmarksWithNativePageOps(
 
     try {
         const totalPages = await getPdfPageCount(inputPdfPath);
+        throwIfAborted(signal);
         await copyFile(inputPdfPath, workingPath);
         await copyFile(inputPdfPath, outputPdfPath);
         await writeFile(
@@ -110,6 +120,9 @@ async function tryEmbedBookmarksWithNativePageOps(
         const outputStats = await stat(outputPdfPath);
         return outputStats.size;
     } catch (error) {
+        if (isAbortError(error)) {
+            throw error;
+        }
         log.debug(`Native DjVu bookmark embedding failed, falling back to pdf-lib: ${getErrorMessage(error)}`);
         return null;
     } finally {
@@ -131,8 +144,11 @@ export async function embedBookmarksIntoPdfFile(
         return nativeSize;
     }
 
+    throwIfAborted(signal);
     const pdfData = await readFile(inputPdfPath);
+    throwIfAborted(signal);
     const updatedPdfData = await embedBookmarksIntoPdf(pdfData, bookmarks);
+    throwIfAborted(signal);
     await writeFile(outputPdfPath, updatedPdfData);
     const outputStats = await stat(outputPdfPath);
     return outputStats.size;

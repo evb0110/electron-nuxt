@@ -48,6 +48,8 @@ interface ISearchProgressPayload {
     results?: TSearchMatch[];
     truncated?: boolean;
     canceled?: boolean;
+    status?: 'running' | 'success' | 'canceled' | 'failed';
+    error?: string;
 }
 
 interface ISenderSearchState {
@@ -458,7 +460,11 @@ export class SearchWorkerService {
 
     subscribeProgress(context: ISearchSenderContext) {
         const operationContext = this.normalizeOperationContext(context);
-        this.progressPumpsBySenderId.get(operationContext.senderId)?.subscribe(operationContext.sender);
+        this.progressPumpsBySenderId.get(operationContext.senderId)?.subscribe({
+            key: `web-contents:${operationContext.senderId}`,
+            isDestroyed: () => operationContext.sender.isDestroyed(),
+            send: (channel: string, payload: ISearchProgressPayload) => operationContext.sender.send(channel, payload),
+        });
     }
 
     dispatchSearchRequest(
@@ -521,6 +527,12 @@ export class SearchWorkerService {
                 if (state.activeRequestId === requestId) {
                     state.activeRequestId = null;
                 }
+                this.sendSearchTerminalProgress(
+                    state,
+                    requestId,
+                    'failed',
+                    {error: `Search request timed out after ${SEARCH_REQUEST_TIMEOUT_MS}ms`},
+                );
                 this.rejectPendingRequest(
                     state,
                     requestId,
@@ -638,9 +650,23 @@ export class SearchWorkerService {
         if (!pump) {
             pump = createIpcProgressPump<ISearchProgressPayload>({
                 channel: SEARCH_EVENT_CHANNELS.progress,
-                getTarget: () => webContents.fromId(senderId),
+                getTarget: () => {
+                    const sender = webContents.fromId(senderId);
+                    if (!sender) {
+                        return null;
+                    }
+                    return {
+                        key: `web-contents:${senderId}`,
+                        isDestroyed: () => sender.isDestroyed(),
+                        send: (channel: string, payload: ISearchProgressPayload) => sender.send(channel, payload),
+                    };
+                },
                 getKey: (payload: ISearchProgressPayload) => payload.requestId,
-                isTerminal: (payload: ISearchProgressPayload) => payload.canceled === true || payload.processed >= payload.total,
+                isTerminal: (payload: ISearchProgressPayload) => payload.status === 'success'
+                    || payload.status === 'canceled'
+                    || payload.status === 'failed'
+                    || payload.canceled === true
+                    || payload.processed >= payload.total,
                 onError: (err: unknown) => {
                     log.debug(`Failed to send search progress: ${getErrorMessage(err)}`);
                 },
@@ -651,6 +677,26 @@ export class SearchWorkerService {
             this.progressPumpsBySenderId.set(senderId, pump);
         }
         pump.enqueue(progress);
+    }
+
+    private sendSearchTerminalProgress(
+        state: ISenderSearchState,
+        requestId: string,
+        status: 'success' | 'canceled' | 'failed',
+        options: {
+            error?: string;
+            canceled?: boolean;
+        } = {},
+    ) {
+        const total = state.pageCountsByRequestId.get(requestId) ?? 0;
+        this.sendSearchProgress(state.senderId, {
+            requestId,
+            processed: status === 'success' ? total : 0,
+            total,
+            ...(options.canceled === true ? {canceled: true} : {}),
+            status,
+            ...(options.error === undefined ? {} : {error: options.error}),
+        });
     }
 
     private markStateActivity(state: ISenderSearchState) {
@@ -781,6 +827,10 @@ export class SearchWorkerService {
         }
 
         const reason = options?.reason ?? 'Search worker stopped';
+        const terminalError = options?.rejectionError ? getErrorMessage(options.rejectionError) : reason;
+        for (const requestId of state.pendingByRequestId.keys()) {
+            this.sendSearchTerminalProgress(state, requestId, 'failed', {error: terminalError});
+        }
         for (const pending of state.pendingByRequestId.values()) {
             pending.reject(options?.rejectionError ?? new Error(reason));
         }
@@ -832,12 +882,7 @@ export class SearchWorkerService {
             state.activeRequestId = null;
         }
 
-        this.sendSearchProgress(state.senderId, {
-            requestId,
-            processed: 0,
-            total: 0,
-            canceled: true,
-        });
+        this.sendSearchTerminalProgress(state, requestId, 'canceled', {canceled: true});
         this.resolvePendingRequest(state, requestId, {
             results: [],
             truncated: false,
@@ -924,18 +969,14 @@ export class SearchWorkerService {
                 if (state.activeRequestId === message.requestId) {
                     state.activeRequestId = null;
                 }
+                this.sendSearchTerminalProgress(state, message.requestId, 'success');
                 this.resolvePendingRequest(state, message.requestId, capSearchResponse(message.response));
                 return;
             case 'cancelled':
                 if (state.activeRequestId === message.requestId) {
                     state.activeRequestId = null;
                 }
-                this.sendSearchProgress(senderId, {
-                    requestId: message.requestId,
-                    processed: 0,
-                    total: 0,
-                    canceled: true,
-                });
+                this.sendSearchTerminalProgress(state, message.requestId, 'canceled', {canceled: true});
                 this.resolvePendingRequest(state, message.requestId, {
                     results: [],
                     truncated: false,
@@ -946,6 +987,7 @@ export class SearchWorkerService {
                 if (state.activeRequestId === message.requestId) {
                     state.activeRequestId = null;
                 }
+                this.sendSearchTerminalProgress(state, message.requestId, 'failed', {error: message.error});
                 this.rejectPendingRequest(
                     state,
                     message.requestId,
@@ -968,6 +1010,12 @@ export class SearchWorkerService {
         if (state.activeRequestId === requestId) {
             state.activeRequestId = null;
         }
+        this.sendSearchTerminalProgress(
+            state,
+            requestId,
+            'failed',
+            {error: `Search worker sent malformed message for request "${requestId}"`},
+        );
         this.rejectPendingRequest(
             state,
             requestId,

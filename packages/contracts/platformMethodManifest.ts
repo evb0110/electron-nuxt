@@ -269,6 +269,11 @@ export const platformMethodManifest = {
             backendSupport: {browser: 'unsupported'},
             stubSemantics: 'electron-native',
         }),
+        cancelPdfNativePagePreview: asyncPath('documentFiles', 'cancelPdfNativePagePreview', {
+            optional: true,
+            backendSupport: {browser: 'unsupported'},
+            stubSemantics: 'electron-native',
+        }),
         renderPdfNativePagePreview: asyncPath('documentFiles', 'renderPdfNativePagePreview', {
             optional: true,
             backendSupport: {browser: 'unsupported'},
@@ -431,6 +436,11 @@ export const platformMethodManifest = {
         getDocumentRevision: asyncPath('documents', 'getDocumentRevision'),
         onDocumentRevisionChanged: eventPath('documents', 'onDocumentRevisionChanged'),
         getPdfNativePageSizes: asyncPath('documents', 'getPdfNativePageSizes', {
+            optional: true,
+            backendSupport: {browser: 'unsupported'},
+            stubSemantics: 'electron-native',
+        }),
+        cancelPdfNativePagePreview: asyncPath('documents', 'cancelPdfNativePagePreview', {
             optional: true,
             backendSupport: {browser: 'unsupported'},
             stubSemantics: 'electron-native',
@@ -639,6 +649,7 @@ export const platformMethodManifest = {
         onWorkspaceSnapshotRequest: eventPath('agent', 'onWorkspaceSnapshotRequest'),
         submitWorkspaceSnapshot: asyncPath('agent', 'submitWorkspaceSnapshot'),
         onCommandRequest: eventPath('agent', 'onCommandRequest'),
+        onCommandCancelRequest: eventPath('agent', 'onCommandCancelRequest'),
         submitCommandResponse: asyncPath('agent', 'submitCommandResponse'),
         getMcpIntegrationStatus: asyncPath('agent', 'getMcpIntegrationStatus'),
         setMcpIntegrationEnabled: asyncPath('agent', 'setMcpIntegrationEnabled'),

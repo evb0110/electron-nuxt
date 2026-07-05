@@ -851,6 +851,7 @@ function toClaudeEffortLevel(effort: TAgentAssistantEffort): EffortLevel {
 export class ClaudeAgentAssistantSession {
     private readonly promptQueue = new ClaudePromptQueue();
     private query: Query | null = null;
+    private consumeStreamPromise: Promise<void> | null = null;
     private closing = false;
     private interrupting = false;
     private currentTurnId: string | null = null;
@@ -923,7 +924,6 @@ export class ClaudeAgentAssistantSession {
         }
     }
 
-    // fallow-ignore-next-line unused-class-member
     close(): Promise<void> {
         this.closing = true;
         this.promptQueue.close();
@@ -932,7 +932,7 @@ export class ClaudeAgentAssistantSession {
         } catch (error) {
             logger.warn(`Failed to close Claude assistant session: ${getErrorMessage(error)}`);
         }
-        return Promise.resolve();
+        return this.consumeStreamPromise ?? Promise.resolve();
     }
 
     private ensureStarted() {
@@ -986,7 +986,9 @@ export class ClaudeAgentAssistantSession {
                 stderr: message => logger.info(`[sdk] ${message.trim()}`),
             },
         });
-        void this.consumeStream();
+        this.consumeStreamPromise = this.consumeStream().finally(() => {
+            this.consumeStreamPromise = null;
+        });
         void this.refreshAccountInfo();
         void this.refreshModelInfo();
     }

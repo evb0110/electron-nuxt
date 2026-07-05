@@ -171,10 +171,25 @@ function assertPdfNativePagePreviewOptions(
     ) {
         throw new TypeError(`${label}.targetWidthPx must be a positive finite number`);
     }
+    if (
+        value.previewRequestId !== undefined
+        && (
+            typeof value.previewRequestId !== 'string'
+            || value.previewRequestId.trim().length === 0
+        )
+    ) {
+        throw new TypeError(`${label}.previewRequestId must be a non-empty string`);
+    }
 
-    return value.targetWidthPx === undefined
-        ? undefined
-        : { targetWidthPx: Math.trunc(value.targetWidthPx) };
+    const previewRequestId = typeof value.previewRequestId === 'string'
+        ? value.previewRequestId.trim()
+        : undefined;
+    const normalized = {
+        ...(value.targetWidthPx === undefined ? {} : {targetWidthPx: Math.trunc(value.targetWidthPx)}),
+        ...(previewRequestId === undefined ? {} : {previewRequestId}),
+    } satisfies IPdfNativePagePreviewOptions;
+
+    return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
 function assertPersistenceData(value: unknown, fieldName: string) {
@@ -450,6 +465,11 @@ export function createDocumentsPreloadFileClient(
                 DOCUMENTS_CHANNELS.pdfNativePageSizes,
                 assertAbsolutePath(path, 'getPdfNativePageSizes.path'),
             ),
+        cancelPdfNativePagePreview: (requestId) =>
+            invoke(
+                DOCUMENTS_CHANNELS.pdfNativePagePreviewCancel,
+                assertNonEmptyString(requestId, 'cancelPdfNativePagePreview.requestId'),
+            ),
         renderPdfNativePagePreview: (path, pageNumber, options) =>
             invoke(
                 DOCUMENTS_CHANNELS.pdfNativePagePreview,
@@ -609,7 +629,7 @@ export function createDocumentsPreloadFileClient(
                 assertAbsolutePath(path, 'optimizePdfForInteraction.path'),
                 assertPdfSerializedSaveOptions(options, 'optimizePdfForInteraction.options'),
             ),
-        optimizePdfAsCopy: (path, options, requestId) =>
+        optimizePdfAsCopy: (path, options, requestId, revisionOptions) =>
             invoke(
                 DOCUMENTS_CHANNELS.fileOptimizePdfAsCopy,
                 assertAbsolutePath(path, 'optimizePdfAsCopy.path'),
@@ -617,6 +637,9 @@ export function createDocumentsPreloadFileClient(
                 typeof requestId === 'string'
                     ? assertNonEmptyString(requestId, 'optimizePdfAsCopy.requestId', 128)
                     : undefined,
+                revisionOptions === undefined
+                    ? undefined
+                    : assertPdfSerializedSaveOptions(revisionOptions, 'optimizePdfAsCopy.revisionOptions'),
             ),
         savePdfData: async (path, data, options) => {
             const checkedPath = assertAbsolutePath(path, 'savePdfData.path');

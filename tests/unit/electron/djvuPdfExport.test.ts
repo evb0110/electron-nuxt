@@ -581,6 +581,40 @@ describe('handleDjvuConvertToPdf', () => {
         });
     });
 
+    it('does not enter the bookmark fallback path after canceling a worker-startup failure', async () => {
+        mocks.bookmarkTaskState.mode = 'startup-error';
+        mocks.stat.mockImplementation(async () => {
+            await delay(25);
+            return {size: 1024};
+        });
+
+        const convertPromise = handleDjvuConvertToPdf(
+            createOperationContext(7) as never,
+            trustedDjvuPath,
+            '/tmp/output.pdf',
+            {preserveBookmarks: true},
+        );
+
+        for (let attempt = 0; attempt < 50 && mocks.createDjvuPdfBookmarkTask.mock.calls.length === 0; attempt += 1) {
+            await delay(0);
+        }
+        expect(mocks.createDjvuPdfBookmarkTask).toHaveBeenCalledTimes(1);
+
+        const cancelResult = await handleDjvuCancel(
+            createOperationContext(7) as never,
+            'djvu-convert-convert-123',
+        );
+        const result = await convertPromise;
+
+        expect(cancelResult).toEqual({canceled: true});
+        expect(result).toEqual({
+            success: false,
+            jobId: 'djvu-convert-convert-123',
+            error: 'DjVu conversion canceled',
+        });
+        expect(mocks.embedBookmarksIntoPdfFile).not.toHaveBeenCalled();
+    });
+
     it('emits initial progress immediately after registering the active job', async () => {
         mocks.getDjvuPageCount.mockImplementationOnce((
             _filePath: string,

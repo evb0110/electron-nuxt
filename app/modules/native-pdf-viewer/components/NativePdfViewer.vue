@@ -425,6 +425,7 @@ function resetPageState(pageNumber: number) {
         return;
     }
 
+    activeSource?.cancelPagePreview?.(pageNumber);
     pageState.token += 1;
     revokePageUrl(pageNumber);
     pageState.failedRenderPx = 0;

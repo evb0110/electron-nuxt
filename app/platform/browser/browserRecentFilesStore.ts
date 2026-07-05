@@ -16,7 +16,7 @@ import {
     BROWSER_MAX_RECENT_FILES_PERSISTED_BYTES,
 } from '@app/platform/browser/browserDocumentConstants';
 import { buildRecentFilesFromPersistedRecords } from '@app/platform/browser/buildRecentFilesFromPersistedRecords';
-import type { IBrowserPersistedDocumentRecord } from '@app/platform/browser/browserDocumentTypes';
+import type { IBrowserPersistedDocumentRecordsLoadResult } from '@app/platform/browser/browserPersistedDocumentRecordsLoadResult';
 
 export function readRecentFilesFromStorage() {
     const raw = safeGetLocalStorageItem(BROWSER_RECENT_FILES_STORAGE_KEY);
@@ -99,7 +99,7 @@ export interface IBrowserRecentFilesRepository {
         fileName: string;
         fileSize: number;
     }>;
-    getAllPersistedRecords: () => Promise<IBrowserPersistedDocumentRecord[]>;
+    getAllPersistedRecords: () => Promise<IBrowserPersistedDocumentRecordsLoadResult>;
     cleanupEvictedRecentRefs: (refs: string[]) => Promise<void>;
 }
 
@@ -143,7 +143,13 @@ export class BrowserRecentFilesStore {
             return this.getRecentFiles();
         }
 
-        const records = await this.repository.getAllPersistedRecords();
+        const {
+            available,
+            records,
+        } = await this.repository.getAllPersistedRecords();
+        if (!available) {
+            return [];
+        }
         const { recentFiles } = pruneRecentFiles(buildRecentFilesFromPersistedRecords(records));
         writeRecentFilesToStorage(recentFiles);
         return recentFiles;

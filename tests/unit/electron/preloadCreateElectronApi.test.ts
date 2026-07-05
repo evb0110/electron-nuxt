@@ -35,6 +35,7 @@ const documentsClientMock = vi.hoisted(() => ({
     statFile: vi.fn(async () => ({size: 0})),
     readFileRange: vi.fn(async () => new Uint8Array()),
     getPdfNativePageSizes: vi.fn(async () => []),
+    cancelPdfNativePagePreview: vi.fn(async () => ({canceled: true})),
     renderPdfNativePagePreview: vi.fn(async () => ({
         bytes: new Uint8Array(),
         height: 0,

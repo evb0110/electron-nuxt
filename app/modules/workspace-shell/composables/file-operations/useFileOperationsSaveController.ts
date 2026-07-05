@@ -420,6 +420,7 @@ export const useFileOperationsSaveController = (ports: IFileOperationsSaveAdapte
             try {
                 const saveSucceeded = await saveExecutor.executeOptimizeCopySave({
                     expectedWorkingPath,
+                    expectedDocumentRevisionToken: documentIdentity.documentRevisionToken.value,
                     options,
                     requestId,
                     reloadWaiter,

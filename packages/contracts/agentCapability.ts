@@ -1,4 +1,5 @@
 import type {
+    IAgentCommandCancelRequest,
     IAgentCommandRequest,
     IAgentCommandResponse,
     IAgentRendererAck,
@@ -25,6 +26,9 @@ export interface IAgentCapability {
     submitWorkspaceSnapshot: (response: IAgentWorkspaceSnapshotResponse) => Promise<IAgentRendererAck>;
     onCommandRequest: (
         callback: (request: IAgentCommandRequest) => void,
+    ) => TMenuEventUnsubscribe;
+    onCommandCancelRequest: (
+        callback: (request: IAgentCommandCancelRequest) => void,
     ) => TMenuEventUnsubscribe;
     submitCommandResponse: (response: IAgentCommandResponse) => Promise<IAgentRendererAck>;
     getMcpIntegrationStatus: () => Promise<IAgentMcpIntegrationStatus>;

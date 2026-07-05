@@ -20,6 +20,10 @@ interface IGeneratedNativeResourcesModule {
         crateName: string;
         stagingName: string;
     }>;
+    detectHostGeneratedNativeResourceTarget: (options?: {
+        nodeArch?: string;
+        nodePlatform?: string;
+    }) => INativeResourceTarget;
     assertGeneratedNativeResourceFresh: (
         target: INativeResourceTarget,
         options?: INativeResourceOptions,
@@ -35,6 +39,7 @@ interface INativeResourceOptions { projectRoot?: string; }
 
 const {
     GENERATED_NATIVE_TOOLS,
+    detectHostGeneratedNativeResourceTarget,
     assertGeneratedNativeResourceFresh,
 } = await import(
     pathToFileURL(resolve(process.cwd(), 'scripts/check-generated-native-resources.mjs')).href
@@ -44,6 +49,9 @@ async function createNativeResourceFixture() {
     const root = await mkdtemp(path.join(tmpdir(), 'evb-native-resources-'));
     const oldDate = new Date('2026-01-01T00:00:00Z');
     const newDate = new Date('2026-01-02T00:00:00Z');
+
+    await mkdir(path.join(root, 'native'), {recursive: true});
+    await writeFile(path.join(root, 'native', 'Cargo.lock'), '# lock\n', 'utf8');
 
     for (const tool of GENERATED_NATIVE_TOOLS) {
         const sourceDir = path.join(root, 'native', tool.crateName, 'src');
@@ -63,6 +71,45 @@ async function createNativeResourceFixture() {
 }
 
 describe('generated native resource freshness', () => {
+    it('maps supported host targets into generated resource checks', () => {
+        expect(detectHostGeneratedNativeResourceTarget({
+            nodeArch: 'arm64',
+            nodePlatform: 'darwin',
+        })).toEqual({
+            arch: 'arm64',
+            platform: 'mac',
+        });
+        expect(detectHostGeneratedNativeResourceTarget({
+            nodeArch: 'x64',
+            nodePlatform: 'linux',
+        })).toEqual({
+            arch: 'x64',
+            platform: 'linux',
+        });
+        expect(detectHostGeneratedNativeResourceTarget({
+            nodeArch: 'x64',
+            nodePlatform: 'win32',
+        })).toEqual({
+            arch: 'x64',
+            platform: 'win',
+        });
+    });
+
+    it('rejects unsupported host targets', () => {
+        expect(() => {
+            detectHostGeneratedNativeResourceTarget({
+                nodeArch: 'ia32',
+                nodePlatform: 'linux',
+            });
+        }).toThrow('Unsupported host arch');
+        expect(() => {
+            detectHostGeneratedNativeResourceTarget({
+                nodeArch: 'x64',
+                nodePlatform: 'freebsd',
+            });
+        }).toThrow('Unsupported host platform');
+    });
+
     it('removes stale staged payloads and fails before packaging', async () => {
         const root = await createNativeResourceFixture();
         try {

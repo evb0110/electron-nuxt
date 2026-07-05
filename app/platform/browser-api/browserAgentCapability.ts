@@ -1,4 +1,5 @@
 import type {
+    IAgentCommandCancelRequest,
     IAgentAssistantScopedRequest,
     IAgentAssistantState,
     IAgentAssistantStateRequest,
@@ -29,6 +30,11 @@ export function createBrowserAgentMcpStatus(): IAgentMcpIntegrationStatus {
         codexRegistrationState: 'unknown',
         installUrl: 'https://developers.openai.com/codex/app',
         lastCheckedAt: new Date().toISOString(),
+        setupSnippets: {
+            codex: '',
+            claude: '',
+            cursor: '',
+        },
     };
 }
 
@@ -131,6 +137,7 @@ export const browserAgentCapability = {
         reason: 'unknown-request' as const,
     }),
     onCommandRequest: (_callback) => () => {},
+    onCommandCancelRequest: (_callback: (request: IAgentCommandCancelRequest) => void) => () => {},
     submitCommandResponse: (_response) => Promise.resolve({
         accepted: false,
         reason: 'unknown-request' as const,

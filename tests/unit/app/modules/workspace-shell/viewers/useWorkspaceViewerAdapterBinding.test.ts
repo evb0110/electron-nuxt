@@ -12,7 +12,7 @@ import { getWorkspaceViewerAdapter } from '@app/modules/workspace-shell/viewers/
 import { useWorkspaceViewerAdapterBinding } from '@app/modules/workspace-shell/viewers/useWorkspaceViewerAdapterBinding';
 
 function createBindingHarness() {
-    const activeViewerAdapter = ref(getWorkspaceViewerAdapter('djvu'));
+    const activeViewerAdapter = ref(getWorkspaceViewerAdapter('pdf'));
     const isRenderActive = ref(false);
     const binding = useWorkspaceViewerAdapterBinding({
         activeViewerAdapter: computed(() => activeViewerAdapter.value),
@@ -34,7 +34,11 @@ function createBindingHarness() {
         nativePdfSourcePath: ref(null),
         pageMatches: ref(new Map()),
         pdfReloadSrc: ref(null),
-        pdfSrc: ref(null),
+        pdfSrc: ref({
+            kind: 'path' as const,
+            path: '/tmp/source.pdf',
+            size: 1,
+        }),
         pdfViewerRef: ref(null),
         nativePdfViewerRef: ref(null),
         djvuViewerRef: ref(null),
@@ -77,7 +81,7 @@ function createBindingHarness() {
 }
 
 describe('useWorkspaceViewerAdapterBinding', () => {
-    it('keeps native viewer active state reactive across tab activation changes', () => {
+    it('keeps PDF viewer active state reactive across tab activation changes', () => {
         const {
             binding,
             isRenderActive,

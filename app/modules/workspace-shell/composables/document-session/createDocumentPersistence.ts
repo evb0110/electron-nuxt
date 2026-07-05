@@ -528,6 +528,7 @@ export function createDocumentPersistence(
         requestId?: string,
         opts?: {
             saveMode?: TPdfSaveMode;
+            expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
             expectedWorkingPath?: TDocumentRef | null;
         },
     ): Promise<IPdfPersistResult> {
@@ -539,7 +540,14 @@ export function createDocumentPersistence(
                 return createFailedPersistResult(requestedSaveMode, true);
             }
 
-            const optimizeResult = await optimizePdfAsCopy(workingPath, options, requestId);
+            const optimizeResult = await optimizePdfAsCopy(
+                workingPath,
+                options,
+                requestId,
+                createDocumentMutationRevisionOptions(
+                    opts?.expectedDocumentRevisionToken ?? state.documentRevisionToken.value,
+                ),
+            );
             if (optimizeResult.validation && !optimizeResult.validation.isValid) {
                 state.error.value = optimizeResult.validation.errors.join('\n') || deps.t('errors.file.save');
                 return createFailedPersistResult(requestedSaveMode, true);

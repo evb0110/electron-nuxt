@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
     readFile,
+    stat,
     unlink,
     writeFile,
 } from 'fs/promises';
@@ -37,6 +38,7 @@ const QPDF_VALIDATE_COMMAND_LABEL = 'qpdf(validate-pdf)';
 const QPDF_VALIDATE_TIMEOUT_PATTERN = /^qpdf\(validate-pdf\) timed out after \d+ms$/u;
 const QPDF_EXIT_CODE_OK = 0;
 const QPDF_EXIT_CODE_WARNINGS = 3;
+const PDF_STRUCTURAL_FALLBACK_MAX_BYTES = 64 * 1024 * 1024;
 const PDF_CONFORMANCE_WORKER_FILENAME = WORKER_BUNDLES_BY_ID['pdf-conformance'].fileName;
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -166,6 +168,19 @@ async function validatePdfFileWithStructuralFallback(
     timeoutError: unknown,
 ): Promise<IPdfValidationResult> {
     try {
+        const fileStat = await stat(filePath);
+        if (!fileStat.isFile()) {
+            throw new Error(`Fallback PDF structure validation requires a regular file: ${filePath}`);
+        }
+        if (fileStat.size > PDF_STRUCTURAL_FALLBACK_MAX_BYTES) {
+            const maxMb = Math.floor(PDF_STRUCTURAL_FALLBACK_MAX_BYTES / (1024 * 1024));
+            return {
+                isValid: false,
+                tool: 'qpdf',
+                errors: [`${getErrorMessage(timeoutError)}; fallback PDF structure validation skipped because "${filePath}" exceeds the safe read limit (${maxMb}MB)`],
+                warnings: [],
+            };
+        }
         const data = await readFile(filePath);
         await loadPdfStructure(new Uint8Array(data));
         logger.warn(

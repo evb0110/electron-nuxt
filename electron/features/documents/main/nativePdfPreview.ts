@@ -34,6 +34,8 @@ const PAGE_COUNT_RE = /^Pages:\s+(\d+)\s*$/imu;
 const DEFAULT_PAGE_SIZE_RE = /^Page size:\s+([0-9.]+)\s+x\s+([0-9.]+)\s+pts\b/imu;
 const PAGE_SIZE_RE = /^Page\s+(\d+)\s+size:\s+([0-9.]+)\s+x\s+([0-9.]+)\s+pts\b/gimu;
 
+const activePreviewAborters = new Map<string, (reason: string) => void>();
+
 function parsePositiveFiniteNumber(value: string | undefined) {
     const parsed = Number.parseFloat(value ?? '');
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
@@ -117,6 +119,19 @@ function normalizePreviewTargetWidth(options: IPdfNativePagePreviewOptions | und
     );
 }
 
+function normalizePreviewRequestId(options: IPdfNativePagePreviewOptions | undefined) {
+    const requestId = options?.previewRequestId?.trim();
+    return requestId && requestId.length > 0 ? requestId : null;
+}
+
+function getPreviewAborterKey(senderId: number, requestId: string) {
+    return `${senderId}:${requestId}`;
+}
+
+function getPreviewRequestOwnerId(context: IDocumentsSenderIdContext) {
+    return context.senderId ?? -1;
+}
+
 function readPngDimensions(bytes: Uint8Array) {
     if (
         bytes.byteLength < 24
@@ -150,6 +165,15 @@ function abortPreviewController(controller: AbortController, reason: string) {
     if (!controller.signal.aborted) {
         controller.abort(new Error(reason));
     }
+}
+
+function cancelActivePreviewRequest(senderId: number, requestId: string, reason: string) {
+    const abort = activePreviewAborters.get(getPreviewAborterKey(senderId, requestId));
+    if (!abort) {
+        return false;
+    }
+    abort(reason);
+    return true;
 }
 
 function registerPreviewSenderCleanup(sender: Electron.WebContents | undefined, abort: (reason: string) => void) {
@@ -233,6 +257,18 @@ export async function handlePdfNativePageSizes(
     );
 }
 
+export function handleCancelPdfNativePagePreview(
+    context: IDocumentsSenderIdContext,
+    requestId: string,
+): Promise<{ canceled: boolean }> {
+    const canceled = cancelActivePreviewRequest(
+        getPreviewRequestOwnerId(context),
+        requestId,
+        'Native PDF preview canceled',
+    );
+    return Promise.resolve({canceled});
+}
+
 export async function handlePdfNativePagePreview(
     context: IDocumentsSenderIdContext,
     filePath: unknown,
@@ -246,29 +282,38 @@ export async function handlePdfNativePagePreview(
     }
 
     const targetWidthPx = normalizePreviewTargetWidth(options);
+    const previewRequestId = normalizePreviewRequestId(options);
+    const ownerId = getPreviewRequestOwnerId(context);
     const tools = getPdfNativeToolPaths();
     const env = buildPopplerEnv(tools);
     const abortController = new AbortController();
     let cancelGroup = '';
+    const cancelPreview = (reason: string) => {
+        abortPreviewController(abortController, reason);
+        if (cancelGroup) {
+            cancelNativeCommandGroup(cancelGroup);
+        }
+    };
+    if (previewRequestId) {
+        activePreviewAborters.set(
+            getPreviewAborterKey(ownerId, previewRequestId),
+            cancelPreview,
+        );
+    }
     const mainOperation = registerMainOperation({
         kind: 'abortable-work',
         ownerWebContentsId: context.senderId,
         workingCopyPath: resolvedPath,
         cancel: (reason) => {
-            abortPreviewController(abortController, reason);
-            if (cancelGroup) {
-                cancelNativeCommandGroup(cancelGroup);
-            }
+            cancelPreview(reason);
         },
     });
     cancelGroup = `pdf-native-preview:${mainOperation.id}`;
     const handleMainAbort = () => {
-        abortPreviewController(abortController, 'Native PDF preview canceled');
-        cancelNativeCommandGroup(cancelGroup);
+        cancelPreview('Native PDF preview canceled');
     };
     const unregisterSenderCleanup = registerPreviewSenderCleanup(context.sender, (reason) => {
-        abortPreviewController(abortController, reason);
-        cancelNativeCommandGroup(cancelGroup);
+        cancelPreview(reason);
     });
     mainOperation.signal.addEventListener('abort', handleMainAbort, { once: true });
     let tempDir: string | null = null;
@@ -313,6 +358,9 @@ export async function handlePdfNativePagePreview(
             height,
         };
     } finally {
+        if (previewRequestId) {
+            activePreviewAborters.delete(getPreviewAborterKey(ownerId, previewRequestId));
+        }
         if (tempDir !== null) {
             await rm(tempDir, {
                 recursive: true,

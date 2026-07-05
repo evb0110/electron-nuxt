@@ -290,6 +290,7 @@ export const browserPlatformPathDescriptorsGenerated = {
         onWorkspaceSnapshotRequest: {kind: 'event', path: ["agent","onWorkspaceSnapshotRequest"]},
         submitWorkspaceSnapshot: {kind: 'async', path: ["agent","submitWorkspaceSnapshot"]},
         onCommandRequest: {kind: 'event', path: ["agent","onCommandRequest"]},
+        onCommandCancelRequest: {kind: 'event', path: ["agent","onCommandCancelRequest"]},
         submitCommandResponse: {kind: 'async', path: ["agent","submitCommandResponse"]},
         getMcpIntegrationStatus: {kind: 'async', path: ["agent","getMcpIntegrationStatus"]},
         setMcpIntegrationEnabled: {kind: 'async', path: ["agent","setMcpIntegrationEnabled"]},

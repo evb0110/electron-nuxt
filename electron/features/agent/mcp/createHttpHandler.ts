@@ -22,6 +22,30 @@ interface IHttpHandlerOptions {
     allowBrowserOrigins?: boolean;
 }
 
+function createRequestAbortController(request: IncomingMessage) {
+    const controller = new AbortController();
+    const abort = (reason: string) => {
+        if (!controller.signal.aborted) {
+            controller.abort(new Error(reason));
+        }
+    };
+    request.once('aborted', () => abort('MCP HTTP request aborted'));
+    request.once('close', () => abort('MCP HTTP request closed'));
+    request.once('error', (error) => abort(getErrorMessage(error)));
+    return controller;
+}
+
+function withRequestAbortSignal(
+    options: IProcessMcpRequestOptions,
+    signal: AbortSignal,
+): IProcessMcpRequestOptions {
+    return {
+        ...options,
+        getWorkspaceSnapshot: (windowId) => options.getWorkspaceSnapshot(windowId),
+        runCommand: (command, windowId) => options.runCommand(command, windowId, signal),
+    };
+}
+
 function readRequestBody(request: IncomingMessage) {
     return new Promise<string>((resolve, reject) => {
         let body = '';
@@ -73,6 +97,8 @@ export function createHttpHandler(
     httpOptions: IHttpHandlerOptions = {},
 ) {
     return async (request: IncomingMessage, response: ServerResponse) => {
+        const requestAbortController = createRequestAbortController(request);
+        const requestOptions = withRequestAbortSignal(options, requestAbortController.signal);
         if (httpOptions.allowBrowserOrigins !== true && isBrowserOriginMcpRequest(request)) {
             writeJson(response, 403, { error: 'Browser-origin MCP requests are not allowed.' });
             return;
@@ -107,7 +133,7 @@ export function createHttpHandler(
                 }
                 const processedResponses: Array<IJsonRpcResponse | null> = [];
                 for (const item of parsed) {
-                    processedResponses.push(await processMcpRequest(item, options));
+                    processedResponses.push(await processMcpRequest(item, requestOptions));
                 }
                 const responses: IJsonRpcResponse[] = [];
                 for (const item of processedResponses) {
@@ -124,7 +150,7 @@ export function createHttpHandler(
                 return;
             }
 
-            const result = await processMcpRequest(parsed, options);
+            const result = await processMcpRequest(parsed, requestOptions);
             if (!result) {
                 writeNoContent(response);
                 return;

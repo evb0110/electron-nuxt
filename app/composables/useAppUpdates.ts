@@ -27,17 +27,20 @@ const DEFAULT_STATUS: IAppUpdateStatus = {
     message: null,
 };
 
-const status = ref<IAppUpdateStatus>({ ...DEFAULT_STATUS });
-const dialog = ref<IUpdateDialogState>({
+const DEFAULT_DIALOG: IUpdateDialogState = {
     open: false,
     kind: 'status',
     phase: 'checking',
     version: null,
     percent: null,
     message: null,
-});
+};
+
+const status = ref<IAppUpdateStatus>({ ...DEFAULT_STATUS });
+const dialog = ref<IUpdateDialogState>({ ...DEFAULT_DIALOG });
 const initialized = ref(false);
 let statusUnsubscribe: (() => void) | null = null;
+let initializationPromise: Promise<boolean> | null = null;
 
 function toErrorMessage(error: unknown) {
     if (error instanceof Error && error.message.trim().length > 0) {
@@ -94,34 +97,60 @@ function applyStatus(nextStatus: IAppUpdateStatus) {
 
 async function ensureInitialized() {
     if (initialized.value) {
-        return;
+        return true;
+    }
+    if (initializationPromise) {
+        return initializationPromise;
     }
 
-    initialized.value = true;
     const updates = getUpdatesCapability();
     let receivedPushedStatus = false;
-
-    statusUnsubscribe = updates.onStatus((nextStatus) => {
+    const unsubscribe = updates.onStatus((nextStatus) => {
         receivedPushedStatus = true;
+        initialized.value = true;
         applyStatus(nextStatus);
     });
-
-    try {
-        const currentState = await updates.getState();
-        if (!receivedPushedStatus) {
-            applyStatus(currentState);
-        }
-    } catch (error) {
-        BrowserLogger.error('updates', 'Failed to load update status', error);
-        if (!receivedPushedStatus) {
-            status.value = { ...browserUnsupportedStatus() };
-        }
+    if (statusUnsubscribe && statusUnsubscribe !== unsubscribe) {
+        statusUnsubscribe();
     }
+    statusUnsubscribe = unsubscribe;
+
+    initializationPromise = (async () => {
+        try {
+            const currentState = await updates.getState();
+            if (!receivedPushedStatus) {
+                applyStatus(currentState);
+            }
+            initialized.value = true;
+            return true;
+        } catch (error) {
+            BrowserLogger.error('updates', 'Failed to load update status', error);
+            if (receivedPushedStatus) {
+                initialized.value = true;
+                return true;
+            }
+
+            if (statusUnsubscribe === unsubscribe) {
+                statusUnsubscribe();
+                statusUnsubscribe = null;
+            } else {
+                unsubscribe();
+            }
+            initialized.value = false;
+            return false;
+        } finally {
+            initializationPromise = null;
+        }
+    })();
+
+    return initializationPromise;
 }
 
 async function checkForUpdates() {
     try {
-        await ensureInitialized();
+        if (!await ensureInitialized()) {
+            throw new Error('Updates status initialization failed.');
+        }
         await getUpdatesCapability().check();
     } catch (error) {
         const message = toErrorMessage(error);
@@ -203,16 +232,6 @@ const isUpdateSupported = computed(() => {
 
 const dialogVersion = computed(() => dialog.value.version?.length ? dialog.value.version : status.value.version);
 
-function browserUnsupportedStatus(): IAppUpdateStatus {
-    return {
-        phase: 'unsupported',
-        origin: 'auto',
-        version: null,
-        percent: null,
-        message: null,
-    };
-}
-
 export const useAppUpdates = () => {
     return {
         status,
@@ -235,5 +254,9 @@ if (import.meta.hot) {
             statusUnsubscribe();
             statusUnsubscribe = null;
         }
+        initializationPromise = null;
+        initialized.value = false;
+        status.value = { ...DEFAULT_STATUS };
+        dialog.value = { ...DEFAULT_DIALOG };
     });
 }

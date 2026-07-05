@@ -33,6 +33,7 @@ files:
   - dist-electron/
   - nuxt-output/public/
   - package.json
+  - scripts/evb-mcp-proxy.mjs
   # Runtime needs nothing from node_modules (electron-updater is bundled into
   # main.cjs); production dependencies exist for the web/Nitro target only.
   - "!**/node_modules/**"

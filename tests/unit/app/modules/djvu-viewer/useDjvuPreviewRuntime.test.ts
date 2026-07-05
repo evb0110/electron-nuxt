@@ -19,6 +19,7 @@ import {
 } from '@app/modules/djvu-viewer/runtime/useDjvuPreviewRuntime';
 
 const previewMocks = vi.hoisted(() => ({
+    cancelPagePreview: vi.fn(),
     createDjvuPagePreviewSourceFromPath: vi.fn(),
     getPageSizes: vi.fn(),
     renderPageObjectUrl: vi.fn(),
@@ -179,6 +180,7 @@ describe('useDjvuPreviewRuntime', () => {
             renderedPx: 100,
         }));
         previewMocks.createDjvuPagePreviewSourceFromPath.mockResolvedValue({
+            cancelPagePreview: previewMocks.cancelPagePreview,
             getPageSizes: previewMocks.getPageSizes,
             renderPageObjectUrl: previewMocks.renderPageObjectUrl,
             revokeObjectURL: previewMocks.revokeObjectURL,
@@ -261,6 +263,56 @@ describe('useDjvuPreviewRuntime', () => {
             type: 'ready',
             pageNumber: 1,
         }));
+
+        runtime.dispose();
+    });
+
+    it('cancels no-longer-visible loading previews when reprioritizing the queue', async () => {
+        previewMocks.getPageSizes.mockResolvedValue(Array.from({ length: 8 }, () => ({
+            width: 100,
+            height: 200,
+        })));
+        const scrollWindow = ref({
+            start: 1,
+            end: 2,
+            mostVisiblePage: 1,
+            pageNumbers: [
+                1,
+                2,
+            ],
+        });
+        const firstPageRender = createDeferred<{
+            objectUrl: string;
+            renderedPx: number;
+        }>();
+        previewMocks.renderPageObjectUrl.mockImplementation((pageNumber: number) => (
+            pageNumber === 1
+                ? firstPageRender.promise
+                : Promise.resolve({
+                    objectUrl: `blob:page-${pageNumber}`,
+                    renderedPx: 100,
+                })
+        ));
+
+        const { runtime } = createPreviewRuntimeHarness({ scrollWindowRef: scrollWindow });
+
+        await vi.waitFor(() => {
+            expect(previewMocks.renderPageObjectUrl).toHaveBeenCalledWith(1, expect.any(Object));
+        });
+        runtime.syncLoadedPages();
+        await nextTick();
+
+        scrollWindow.value = {
+            start: 8,
+            end: 8,
+            mostVisiblePage: 8,
+            pageNumbers: [8],
+        };
+        runtime.syncLoadedPages();
+
+        await vi.waitFor(() => {
+            expect(previewMocks.cancelPagePreview).toHaveBeenCalledWith(1);
+        });
 
         runtime.dispose();
     });

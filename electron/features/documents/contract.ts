@@ -1,5 +1,6 @@
 import type {IDocumentRevisionChangedEvent} from '@contracts/documentRevision';
 import type {
+    IDocumentMutationRevisionOptions,
     IDocumentsFileCapability,
     IDocumentsMenuCapability,
     IPdfNativePagePreviewOptions,
@@ -41,6 +42,7 @@ export const DOCUMENTS_CHANNELS = {
     fileStat: 'file:stat',
     fileReadRange: 'file:readRange',
     pdfNativePageSizes: 'pdf:nativePageSizes',
+    pdfNativePagePreviewCancel: 'pdf:nativePagePreview:cancel',
     pdfNativePagePreview: 'pdf:nativePagePreview',
     fileReadText: 'file:readText',
     fileExists: 'file:exists',
@@ -224,6 +226,10 @@ export interface IDocumentsInvokeMap {
         args: [path: string];
         result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['getPdfNativePageSizes']>>>;
     };
+    [DOCUMENTS_CHANNELS.pdfNativePagePreviewCancel]: {
+        args: [requestId: string];
+        result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['cancelPdfNativePagePreview']>>>;
+    };
     [DOCUMENTS_CHANNELS.pdfNativePagePreview]: {
         args: [path: string, pageNumber: number, options?: IPdfNativePagePreviewOptions];
         result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['renderPdfNativePagePreview']>>>;
@@ -297,7 +303,12 @@ export interface IDocumentsInvokeMap {
         result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['optimizePdfForInteraction']>>>;
     };
     [DOCUMENTS_CHANNELS.fileOptimizePdfAsCopy]: {
-        args: [path: string, options: IPdfOptimizeOptions, requestId?: string];
+        args: [
+            path: string,
+            options: IPdfOptimizeOptions,
+            requestId?: string,
+            revisionOptions?: IDocumentMutationRevisionOptions,
+        ];
         result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['optimizePdfAsCopy']>>>;
     };
     [DOCUMENTS_CHANNELS.fileSavePdfData]: {

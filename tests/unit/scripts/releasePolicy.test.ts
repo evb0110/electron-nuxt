@@ -448,7 +448,23 @@ describe('release policy', () => {
             ],
             [
                 'run',
+                'typecheck:coverage',
+            ],
+            [
+                'run',
+                'check:drizzle-schema',
+            ],
+            [
+                'run',
                 'check:electron:install',
+            ],
+            [
+                'run',
+                'check:electron-builder:asar-unpack',
+            ],
+            [
+                'run',
+                'check:generated-native-resources:host',
             ],
             [
                 'run',
@@ -464,6 +480,10 @@ describe('release policy', () => {
             ],
             [
                 'run',
+                'fallow:all',
+            ],
+            [
+                'run',
                 'test:rust',
             ],
             [
@@ -476,11 +496,12 @@ describe('release policy', () => {
             ],
         ]);
         expect(scriptNames).not.toContain('validate');
-        expect(scriptNames).not.toContain('fallow:all');
-        expect(scriptNames).not.toContain('typecheck:coverage');
         expect(scriptNames).not.toContain('test:release');
         expect(scriptNames).not.toContain('test:python-page-processor');
         expect(scriptNames).not.toContain('check:architecture:all');
+        expect(scriptNames).not.toContain('db:generate');
+        expect(scriptNames).not.toContain('db:migrate');
+        expect(scriptNames).not.toContain('db:check');
         expect(commandArgs.flat()).not.toContain('landing');
     });
 

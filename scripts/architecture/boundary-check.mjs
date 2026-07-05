@@ -10,6 +10,7 @@ import {
     checkAnnotationDependencyEdge,
     checkAnnotationDependencyGraph,
 } from './annotation-dependency-graph.mjs';
+import { getFocusedArchitectureRoots } from '../workspace-roots.mjs';
 
 const APP_MODULE_PUBLIC_ENTRYPOINTS = new Set([
     'public',
@@ -1190,10 +1191,22 @@ function formatCycles(cycles) {
     }).join('\n');
 }
 
-function collectRootsFromArgv(argv) {
+function collectRootsFromArgv(argv, {projectRoot}) {
     const rootArg = argv.find(argument => argument.startsWith('--roots='));
-    if (!rootArg) {
+    const scopeArg = argv.find(argument => argument.startsWith('--scope='));
+    if (!rootArg && !scopeArg) {
         return null;
+    }
+
+    if (!rootArg) {
+        const scope = scopeArg?.slice('--scope='.length).trim().toLowerCase();
+        if (scope === 'focused') {
+            return getFocusedArchitectureRoots({ projectRoot });
+        }
+        if (scope === 'all') {
+            return null;
+        }
+        throw new Error(`Unsupported --scope value: ${scopeArg}`);
     }
 
     return rootArg
@@ -1206,9 +1219,10 @@ function collectRootsFromArgv(argv) {
 }
 
 async function run() {
-    const roots = collectRootsFromArgv(process.argv.slice(2));
+    const projectRoot = process.cwd();
+    const roots = collectRootsFromArgv(process.argv.slice(2), { projectRoot });
     const graph = await buildDependencyGraph({
-        projectRoot: process.cwd(),
+        projectRoot,
         ...(roots === null ? {} : {roots}),
     });
 

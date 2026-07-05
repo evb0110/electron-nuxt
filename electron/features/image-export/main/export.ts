@@ -99,6 +99,7 @@ const __dirname = dirnameFromPath(fileURLToPath(import.meta.url));
 const PDFIMAGES_DPI_PROBE_TIMEOUT_MS = 30 * 1000;
 const PDFTOPPM_TIMEOUT_MS = 3 * 60 * 1000;
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
+const IMAGE_EXPORT_MAX_NETPBM_READ_BYTES = 192 * 1024 * 1024;
 const PDF_EXPORT_MAX_PAGES = parseIntegerEnv('EVB_PDF_IMAGE_EXPORT_MAX_PAGES', 500, 1, 10_000);
 const PDF_EXPORT_RENDER_CHUNK_PAGES = parseIntegerEnv('EVB_PDF_IMAGE_EXPORT_RENDER_CHUNK_PAGES', 25, 1, 100);
 const PDF_EXPORT_PNG_RENDER_CHUNK_PAGES = parseIntegerEnv('EVB_PDF_IMAGE_EXPORT_PNG_RENDER_CHUNK_PAGES', 5, 1, 25);
@@ -343,6 +344,14 @@ async function convertRenderedPpmToPng(
     }
 
     throwIfAborted(signal);
+    const sourceStat = await stat(sourcePath);
+    if (!sourceStat.isFile()) {
+        throw new Error(`Rendered PPM output is not a regular file: ${sourcePath}`);
+    }
+    if (sourceStat.size > IMAGE_EXPORT_MAX_NETPBM_READ_BYTES) {
+        const maxMb = Math.floor(IMAGE_EXPORT_MAX_NETPBM_READ_BYTES / (1024 * 1024));
+        throw new Error(`Rendered PPM output exceeds safe read limit (${maxMb}MB): ${sourcePath}`);
+    }
     const sourceBytes = await readFile(sourcePath);
     throwIfAborted(signal);
     const image = parseRawPpm(sourceBytes);
