@@ -67,7 +67,6 @@ import {
 } from '@vueuse/core';
 import { useRuntimeErrorReports } from '@app/composables/useRuntimeErrorReports';
 import { useTypedI18n } from '@app/composables/useTypedI18n';
-
 export interface IAgentAssistantPanelControllerProps {
     activeDocumentName?: string | null;
     chatScope?: IAgentAssistantChatScope | null;
