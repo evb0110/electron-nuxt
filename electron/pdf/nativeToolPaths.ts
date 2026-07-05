@@ -4,8 +4,6 @@ import {
     join,
 } from 'path';
 import { fileURLToPath } from 'url';
-import type { App } from 'electron';
-import * as electron from 'electron';
 import type { IPopplerRuntimePaths } from '@electron/native-tools/buildPopplerEnv';
 import { getNativeToolBinaryPath } from '@electron/native-tools/getNativeToolBinaryPath';
 import { resolveNativeToolsBase } from '@electron/native-tools/resolveNativeToolsBase';
@@ -39,7 +37,7 @@ interface IPdfToolBinaryPathOptions {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 function isElectronAppPackaged() {
-    return (electron as {app?: Pick<App, 'isPackaged'>}).app?.isPackaged === true;
+    return __dirname.includes('app.asar');
 }
 
 function getPdfToolBinaryPath(options: IPdfToolBinaryPathOptions) {

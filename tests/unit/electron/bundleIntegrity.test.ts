@@ -83,6 +83,10 @@ const BUNDLE_CHECKS: IBundleCheck[] = [
 
 let latestSourceMtimeMs = 0;
 
+const SEARCH_WORKER_FILE = WORKER_BUNDLES.find(bundle => bundle.id === 'search')?.fileName ?? 'search-worker.js';
+const STATIC_ELECTRON_IMPORT_PATTERN = /\bimport\s*(?:\{[^}]*\}|\*\s*as\s+\w+|[\w$]+(?:\s*,\s*(?:\{[^}]*\}|\*\s*as\s+\w+))?)\s*from\s*["']electron["']|\bimport\s*["']electron["']/;
+const CJS_ELECTRON_REQUIRE_PATTERN = /\brequire\(\s*["']electron["']\s*\)/;
+
 function shouldTrackSourceFile(fileName: string) {
     return fileName.endsWith('.ts')
         || fileName.endsWith('.d.ts')
@@ -208,6 +212,20 @@ describe('electron bundle integrity', () => {
                         content.includes(symbol),
                         `${check.file} is missing "${symbol}" — rebuild with "pnpm run build:electron"`,
                     ).toBe(true);
+                });
+            }
+
+            if (check.file === SEARCH_WORKER_FILE) {
+                it('does not statically import Electron runtime APIs', async () => {
+                    if (!existsSync(bundlePath)) {
+                        throw new Error(`${check.file} not found — run "pnpm run build:electron"`);
+                    }
+                    const content = await readFile(bundlePath, 'utf-8');
+                    expect(
+                        STATIC_ELECTRON_IMPORT_PATTERN.test(content)
+                        || CJS_ELECTRON_REQUIRE_PATTERN.test(content),
+                        `${check.file} must not statically import "electron"; workers cannot rely on Electron main-process exports`,
+                    ).toBe(false);
                 });
             }
         });

@@ -353,7 +353,7 @@ function createNativeSearchArgs(indexPath: string, options: INativeSearchOptions
     return args;
 }
 
-function hasSearchIndexGeometry(index: IPdfSearchIndex | null) {
+function hasSearchIndexGeometry(index: IPdfSearchIndex | null): index is IPdfSearchIndex {
     if (!index || index.schemaVersion !== SEARCH_INDEX_SCHEMA_VERSION) {
         return false;
     }
@@ -422,9 +422,6 @@ export async function tryRunNativeSearch(options: INativeSearchOptions): Promise
     }
 
     const searchIndex = await loadSearchIndex(options.pdfPath, options.documentRevision);
-    if (!hasSearchIndexGeometry(searchIndex)) {
-        return null;
-    }
 
     const commandOptions: Parameters<typeof runNativeToolCommand>[2] = {
         timeoutMs: NATIVE_SEARCH_TIMEOUT_MS,
@@ -444,7 +441,7 @@ export async function tryRunNativeSearch(options: INativeSearchOptions): Promise
 
     const parsed: unknown = JSON.parse(result.stdout ?? '');
     const nativeResult = parseNativeSearchResponse(parsed);
-    return nativeResult && searchIndex
+    return nativeResult && hasSearchIndexGeometry(searchIndex)
         ? attachGeometryToNativeResponse(nativeResult, searchIndex)
         : nativeResult;
 }

@@ -17,13 +17,11 @@ import type {
     TDocumentRevisionChangeReason,
     TDocumentRevisionToken,
 } from '@contracts/documentRevision';
-import {
-    createStaleRevisionError,
-    createWorkingCopySyncRequiredError,
-} from '@contracts/documentMutationErrors';
+import { createWorkingCopySyncRequiredError } from '@contracts/documentMutationErrors';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import {
+    assertWorkingCopyRevisionCurrent as assertWorkingCopyRevisionSidecarCurrent,
     getWorkingCopyRevisionSidecarPath,
     readWorkingCopyRevisionSidecar,
     writeWorkingCopyRevisionSidecar,
@@ -216,14 +214,7 @@ export async function assertWorkingCopyRevisionCurrent(
     workingCopyPath: string,
     token: TDocumentRevisionToken,
 ): Promise<void> {
-    const sidecar = await readWorkingCopyRevisionSidecar(workingCopyPath);
-    if (sidecar?.token !== token) {
-        throw createStaleRevisionError({
-            documentRef: workingCopyPath,
-            expectedRevision: token,
-            actualRevision: sidecar?.token ?? null,
-        });
-    }
+    await assertWorkingCopyRevisionSidecarCurrent(workingCopyPath, token);
 }
 
 export function assertWorkingCopyMutationAllowed(workingCopyPath: string) {

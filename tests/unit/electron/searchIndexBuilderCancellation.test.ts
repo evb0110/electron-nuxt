@@ -54,7 +54,7 @@ vi.mock('@electron/search/searchIndexSidecar', () => ({
     persistCompactSearchIndex: mocks.persistCompactSearchIndex,
     persistCompactSearchIndexBestEffort: mocks.persistCompactSearchIndexBestEffort,
 }));
-vi.mock('@electron/file-access/documentRevisionStore', () => ({assertWorkingCopyRevisionCurrent: mocks.assertWorkingCopyRevisionCurrent}));
+vi.mock('@electron/file-access/documentRevisionSidecar', () => ({assertWorkingCopyRevisionCurrent: mocks.assertWorkingCopyRevisionCurrent}));
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
@@ -70,6 +70,15 @@ function createAbortError() {
 interface IPdfjsMockPageText {
     pageNumber: number;
     text: string;
+    words?: Array<{
+        text: string;
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+    }>;
+    pageWidth?: number;
+    pageHeight?: number;
 }
 
 interface IPdfjsMockOptions { onPageText?: (pageText: IPdfjsMockPageText) => void; }
@@ -374,6 +383,126 @@ describe('buildSearchIndex assembly', () => {
 
         expect(mocks.writeFile).not.toHaveBeenCalled();
         expect(mocks.atomicReplace).not.toHaveBeenCalled();
+    });
+
+    it('strips oversized word geometry from legacy JSON while returning the in-memory geometry index', async () => {
+        vi.resetModules();
+        vi.stubEnv('EVB_SEARCH_LEGACY_JSON_MAX_GEOMETRY_WORDS', '1000');
+
+        try {
+            const { buildSearchIndex } = await import('@electron/search/indexBuilder');
+            mocks.extractTextWithPdfjsWordBoxes.mockImplementation(async (_path: string, options: IPdfjsMockOptions) => {
+                options.onPageText?.({
+                    pageNumber: 1,
+                    text: 'alpha beta gamma \n',
+                    pageWidth: 100,
+                    pageHeight: 200,
+                    words: Array.from({length: 1001}, (_, index) => ({
+                        text: index === 0 ? 'alpha' : `word-${index}`,
+                        x: index,
+                        y: index,
+                        width: 3,
+                        height: 4,
+                    })),
+                });
+                return [];
+            });
+
+            const result = await buildSearchIndex('/tmp/file.pdf', [], {
+                documentRevision: DOCUMENT_REVISION,
+                pageCount: 1,
+            });
+
+            const legacyJsonPayload = mocks.writeFile.mock.calls.find(([path]) => path === '/tmp/file.pdf.index.json.tmp')?.[1];
+
+            expect(result.pages[0]).toEqual(expect.objectContaining({
+                pageNumber: 1,
+                text: 'alpha beta gamma \n',
+                pageWidth: 100,
+                pageHeight: 200,
+                words: expect.arrayContaining([expect.objectContaining({ text: 'alpha' })]),
+            }));
+            expect(JSON.parse(String(legacyJsonPayload)).pages).toEqual([{
+                pageNumber: 1,
+                text: 'alpha beta gamma \n',
+            }]);
+            expect(mocks.persistCompactSearchIndex).toHaveBeenCalledWith('/tmp/file.pdf', {
+                documentRevision: DOCUMENT_REVISION,
+                pageCount: 1,
+                pages: [expect.objectContaining({
+                    pageNumber: 1,
+                    text: 'alpha beta gamma \n',
+                })],
+            }, undefined);
+        } finally {
+            vi.unstubAllEnvs();
+            vi.resetModules();
+        }
+    });
+
+    it('retries legacy JSON persistence without geometry after an invalid string length error', async () => {
+        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
+        mocks.extractTextWithPdfjsWordBoxes.mockImplementation(async (_path: string, options: IPdfjsMockOptions) => {
+            options.onPageText?.({
+                pageNumber: 1,
+                text: 'alpha beta \n',
+                pageWidth: 100,
+                pageHeight: 200,
+                words: [{
+                    text: 'alpha',
+                    x: 1,
+                    y: 2,
+                    width: 3,
+                    height: 4,
+                }],
+            });
+            return [];
+        });
+
+        const originalStringify = JSON.stringify;
+        let failedFullGeometryStringify = false;
+        const stringifySpy = vi.spyOn(JSON, 'stringify').mockImplementation((
+            value: unknown,
+            replacer?: Parameters<typeof JSON.stringify>[1],
+            space?: Parameters<typeof JSON.stringify>[2],
+        ) => {
+            const pages = typeof value === 'object' && value !== null
+                ? (value as { pages?: unknown }).pages
+                : undefined;
+            const hasGeometry = Array.isArray(pages) && pages.some(page => (
+                typeof page === 'object'
+                && page !== null
+                && Array.isArray((page as { words?: unknown }).words)
+            ));
+            if (!failedFullGeometryStringify && hasGeometry) {
+                failedFullGeometryStringify = true;
+                throw new RangeError('Invalid string length');
+            }
+            return originalStringify(value, replacer, space);
+        });
+
+        try {
+            const result = await buildSearchIndex('/tmp/file.pdf', [], {
+                documentRevision: DOCUMENT_REVISION,
+                pageCount: 1,
+            });
+            const legacyJsonPayload = mocks.writeFile.mock.calls.find(([path]) => path === '/tmp/file.pdf.index.json.tmp')?.[1];
+
+            expect(failedFullGeometryStringify).toBe(true);
+            expect(result.pages[0]).toEqual(expect.objectContaining({
+                pageNumber: 1,
+                text: 'alpha beta \n',
+                pageWidth: 100,
+                pageHeight: 200,
+                words: [expect.objectContaining({ text: 'alpha' })],
+            }));
+            expect(JSON.parse(String(legacyJsonPayload)).pages).toEqual([{
+                pageNumber: 1,
+                text: 'alpha beta \n',
+            }]);
+        } finally {
+            stringifySpy.mockRestore();
+        }
     });
 
     it('uses OCR v3 words as text-layer-compatible search text and persists index best-effort', async () => {

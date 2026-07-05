@@ -161,4 +161,37 @@ describe('native search invocation', () => {
             },
         );
     });
+
+    it('runs native search when the legacy JSON index has text but no word geometry', async () => {
+        mocks.loadSearchIndex.mockResolvedValue({
+            schemaVersion: 7,
+            documentRevision: {token: DOCUMENT_REVISION},
+            pdfPath: '/tmp/doc.pdf',
+            createdAt: 1,
+            pageCount: 1,
+            pages: [{
+                pageNumber: 1,
+                text: 'needle',
+            }],
+        });
+        const { tryRunNativeSearch } = await import('@electron/search/nativeSearch');
+
+        await expect(tryRunNativeSearch({
+            pdfPath: '/tmp/doc.pdf',
+            documentRevision: DOCUMENT_REVISION,
+            query: 'needle',
+            matchCase: false,
+            wholeWord: false,
+            useRegex: false,
+            pageCount: 1,
+        })).resolves.toMatchObject({
+            response: {
+                results: [],
+                truncated: false,
+            },
+            totalPages: 1,
+        });
+
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledOnce();
+    });
 });

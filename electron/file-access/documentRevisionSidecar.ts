@@ -7,7 +7,11 @@ import {
     writeFile,
 } from 'fs/promises';
 import { dirname } from 'path';
-import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
+import type {
+    IDocumentRevisionInfo,
+    TDocumentRevisionToken,
+} from '@contracts/documentRevision';
+import { createStaleRevisionError } from '@contracts/documentMutationErrors';
 import { isRecord } from '@contracts/runtimeGuards';
 
 export interface IWorkingCopyRevisionSidecar extends IDocumentRevisionInfo {
@@ -74,6 +78,20 @@ export async function readWorkingCopyRevisionSidecar(workingCopyPath: string) {
         return normalizeWorkingCopyRevisionSidecar(JSON.parse(text));
     } catch {
         return null;
+    }
+}
+
+export async function assertWorkingCopyRevisionCurrent(
+    workingCopyPath: string,
+    token: TDocumentRevisionToken,
+): Promise<void> {
+    const sidecar = await readWorkingCopyRevisionSidecar(workingCopyPath);
+    if (sidecar?.token !== token) {
+        throw createStaleRevisionError({
+            documentRef: workingCopyPath,
+            expectedRevision: token,
+            actualRevision: sidecar?.token ?? null,
+        });
     }
 }
 
