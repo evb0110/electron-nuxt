@@ -62,6 +62,8 @@ export type TAssistantTurnOwnerState =
         error: string;
     };
 
+export interface ICompleteAssistantTurnOptions { allowStartingWithoutProviderTurn?: boolean; }
+
 export function createInitialAssistantTurnOwner(): TAssistantTurnOwnerState {
     return {
         phase: 'idle',
@@ -150,6 +152,7 @@ export function completeAssistantTurn(
     owner: TAssistantTurnOwnerState,
     generation: number,
     providerTurnId?: string | null,
+    options: ICompleteAssistantTurnOptions = {},
 ): TAssistantTurnOwnerState {
     if (!matchesSessionGeneration(owner, generation) || !matchesProviderTurn(owner, providerTurnId)) {
         return owner;
@@ -159,7 +162,11 @@ export function completeAssistantTurn(
         return owner;
     }
 
-    if (providerTurnId == null && owner.phase === 'starting') {
+    if (
+        providerTurnId == null
+        && owner.phase === 'starting'
+        && options.allowStartingWithoutProviderTurn !== true
+    ) {
         return owner;
     }
 

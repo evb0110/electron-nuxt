@@ -426,6 +426,19 @@ function normalizeBookmarkItems(
         if (namedDest !== null && typeof namedDest !== 'string') {
             fail(`${label}[${index}].namedDest must be a string or null`, options);
         }
+        const pageYRatio = item.pageYRatio;
+        if (
+            pageYRatio !== undefined
+            && pageYRatio !== null
+            && (
+                typeof pageYRatio !== 'number'
+                || !Number.isFinite(pageYRatio)
+                || pageYRatio < 0
+                || pageYRatio > 1
+            )
+        ) {
+            fail(`${label}[${index}].pageYRatio must be a finite number from 0 to 1 or null`, options);
+        }
         const previousDepth = state.depth;
         state.depth = previousDepth + 1;
         let items: IPdfBookmarkEntry[];
@@ -440,6 +453,7 @@ function normalizeBookmarkItems(
         return {
             title,
             pageIndex: pageIndex,
+            pageYRatio: typeof pageYRatio === 'number' ? pageYRatio : null,
             namedDest: namedDest,
             bold: item.bold === true,
             italic: item.italic === true,

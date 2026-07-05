@@ -20,6 +20,14 @@ interface IBookmarkOutlineNode {
     visibleCount: number;
 }
 
+function resolveDestinationTop(pageTop: number, pageBottom: number, pageYRatio: number | null | undefined) {
+    if (typeof pageYRatio !== 'number' || !Number.isFinite(pageYRatio)) {
+        return pageTop;
+    }
+    const normalizedRatio = Math.min(1, Math.max(0, pageYRatio));
+    return pageTop - normalizedRatio * Math.max(0, pageTop - pageBottom);
+}
+
 function setNodeDestination(
     document: PDFDocument,
     dict: PDFDict,
@@ -32,12 +40,15 @@ function setNodeDestination(
     ) {
         const page = document.getPage(item.pageIndex);
         const pageRef = page.ref;
-        const pageTop = tryResolvePdfLibPageView(page)?.[3] ?? page.getHeight();
+        const pageView = tryResolvePdfLibPageView(page);
+        const pageBottom = pageView?.[1] ?? 0;
+        const pageTop = pageView?.[3] ?? page.getHeight();
+        const destinationTop = resolveDestinationTop(pageTop, pageBottom, item.pageYRatio);
         dict.set(PDFName.of('Dest'), document.context.obj([
             pageRef,
             PDFName.of('XYZ'),
             document.context.obj(null),
-            PDFNumber.of(pageTop),
+            PDFNumber.of(destinationTop),
             document.context.obj(null),
         ]));
         return;

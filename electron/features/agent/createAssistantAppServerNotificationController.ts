@@ -14,8 +14,10 @@ import type { IAssistantSelection } from '@electron/features/agent/assistantProv
 import {
     canCompleteAssistantTurnWithoutProviderTurn,
     buildAssistantSessionScopeBindingFingerprint,
+    getAssistantTurnPhase,
     getAssistantTurnProviderTurnId,
     getAssistantTurnScope,
+    type ICompleteAssistantTurnOptions,
     isAssistantTurnActive,
 } from '@electron/features/agent/assistantTurnLifecycle';
 import type { ICodexAppServerNotification } from '@electron/features/agent/codexAppServerClient';
@@ -39,6 +41,7 @@ interface IAssistantAppServerNotificationsOptions {
         session: IAssistantChatSession,
         generation: number,
         providerTurnId?: string | null,
+        completeOptions?: ICompleteAssistantTurnOptions,
     ) => boolean;
     currentCodexSelection: () => IAssistantSelection;
     errorSessionTurn: (
@@ -262,11 +265,23 @@ export function createAssistantAppServerNotificationController(options: IAssista
                 options.logger.info('Ignoring stale assistant turn completion.');
                 return;
             }
-            if (turnId === null && !canCompleteAssistantTurnWithoutProviderTurn(session.turnOwner)) {
+            const allowStartingWithoutProviderTurn = turnId === null
+                && getAssistantTurnProviderTurnId(session.turnOwner) === null
+                && getAssistantTurnPhase(session.turnOwner) === 'starting';
+            if (
+                turnId === null
+                && !allowStartingWithoutProviderTurn
+                && !canCompleteAssistantTurnWithoutProviderTurn(session.turnOwner)
+            ) {
                 options.logger.info('Ignoring assistant turn completion without active running turn.');
                 return;
             }
-            if (!options.completeSessionTurn(session, session.turnOwner.generation, turnId)) {
+            if (!options.completeSessionTurn(
+                session,
+                session.turnOwner.generation,
+                turnId,
+                {allowStartingWithoutProviderTurn},
+            )) {
                 options.logger.info('Ignoring stale assistant turn completion.');
                 return;
             }
@@ -314,7 +329,7 @@ export function createAssistantAppServerNotificationController(options: IAssista
             if (item?.type === 'agentMessage' && typeof item.id === 'string' && typeof item.text === 'string') {
                 options.upsertAssistantMessage(session, item.id, {
                     text: item.text,
-                    pending: options.codexProviderRuntime.runtimeState === 'busy',
+                    pending: false,
                 });
             }
             return;

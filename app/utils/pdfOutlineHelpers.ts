@@ -44,7 +44,7 @@ export interface IBookmarkDestinationTarget {
  * first move to the known page and then refine once the exact destination resolves.
  */
 export function resolveImmediateBookmarkDestinationTarget(
-    item: Pick<IBookmarkItem, 'pageIndex'>,
+    item: Pick<IBookmarkItem, 'pageIndex' | 'pageYRatio'>,
 ): IBookmarkDestinationTarget | null {
     if (typeof item.pageIndex !== 'number' || !Number.isFinite(item.pageIndex)) {
         return null;
@@ -52,7 +52,9 @@ export function resolveImmediateBookmarkDestinationTarget(
 
     return {
         page: Math.max(0, Math.trunc(item.pageIndex)) + 1,
-        pageYRatio: 0,
+        pageYRatio: typeof item.pageYRatio === 'number' && Number.isFinite(item.pageYRatio)
+            ? clamp(item.pageYRatio, 0, 1)
+            : 0,
     };
 }
 
@@ -421,6 +423,33 @@ export async function resolvePageIndex(
     return resolvePageIndexFromDestinationArray(pdfDocument, destinationArray, refIndexCache);
 }
 
+async function resolveDestinationTarget(
+    pdfDocument: PDFDocumentProxy,
+    dest: IOutlineItemRaw['dest'],
+    destinationCache: Map<string, unknown[] | null>,
+    refIndexCache: Map<string, number | null>,
+) {
+    if (!dest) {
+        return null;
+    }
+
+    const destinationArray = await resolveDestinationArray(pdfDocument, dest, destinationCache);
+    if (!destinationArray || destinationArray.length === 0) {
+        return null;
+    }
+
+    const pageIndex = await resolvePageIndexFromDestinationArray(pdfDocument, destinationArray, refIndexCache);
+    if (pageIndex === null) {
+        return null;
+    }
+
+    const pageYRatio = await resolveDestinationPageYRatio(pdfDocument, pageIndex + 1, destinationArray);
+    return {
+        pageIndex,
+        pageYRatio,
+    };
+}
+
 export async function buildResolvedOutline(
     items: IOutlineItemRaw[],
     pdfDocument: PDFDocumentProxy,
@@ -459,7 +488,7 @@ export async function buildResolvedOutline(
         }
 
         acceptedCount += 1;
-        const pageIndex = await resolvePageIndex(
+        const destinationTarget = await resolveDestinationTarget(
             pdfDocument,
             frame.item.dest,
             destinationCache,
@@ -470,7 +499,10 @@ export async function buildResolvedOutline(
             title: frame.item.title,
             dest: frame.item.dest,
             id: createId(),
-            pageIndex,
+            pageIndex: destinationTarget?.pageIndex ?? null,
+            ...(destinationTarget?.pageYRatio === null || destinationTarget?.pageYRatio === undefined
+                ? {}
+                : {pageYRatio: destinationTarget.pageYRatio}),
             bold: frame.item.bold === true,
             italic: frame.item.italic === true,
             color: convertOutlineColorToHex(frame.item.color),
@@ -550,6 +582,9 @@ export function buildOutlineFromBookmarkEntries(
             pageIndex: typeof frame.entry.pageIndex === 'number' && Number.isFinite(frame.entry.pageIndex)
                 ? Math.max(0, Math.trunc(frame.entry.pageIndex))
                 : null,
+            ...(typeof frame.entry.pageYRatio === 'number' && Number.isFinite(frame.entry.pageYRatio)
+                ? {pageYRatio: clamp(frame.entry.pageYRatio, 0, 1)}
+                : {}),
             bold: frame.entry.bold === true,
             italic: frame.entry.italic === true,
             color: normalizeBookmarkColor(frame.entry.color),

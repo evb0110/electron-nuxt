@@ -37,6 +37,7 @@ describe('StreamingImagePdfWriter', () => {
             bookmarks: [{
                 title: 'Chapter 1',
                 pageIndex: 0,
+                pageYRatio: 0.5,
                 namedDest: null,
                 bold: false,
                 italic: false,
@@ -70,7 +71,7 @@ describe('StreamingImagePdfWriter', () => {
         expect(pdfText).toContain('/Type /Outlines');
         expect(pdfText).toContain('/PageMode /UseOutlines');
         expect(pdfText).toContain('/Title <FEFF004300680061007000740065007200200031>');
-        expect(pdfText).toContain('/Dest [2 0 R /XYZ null 1 null]');
+        expect(pdfText).toContain('/Dest [2 0 R /XYZ null 0.5 null]');
         expect(pdfText).not.toContain('/XYZ null null null');
     });
 });

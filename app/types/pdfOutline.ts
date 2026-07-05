@@ -7,6 +7,7 @@ type TBookmarkContractCore = Pick<
     IPdfBookmarkEntry,
     | 'title'
     | 'pageIndex'
+    | 'pageYRatio'
     | 'bold'
     | 'italic'
     | 'color'

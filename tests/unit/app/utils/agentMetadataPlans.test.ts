@@ -221,6 +221,93 @@ describe('agentMetadataPlans', () => {
         })]);
     });
 
+    it('preserves pageYRatio anchors in bookmark plans and snapshots', () => {
+        const plan = createAgentBookmarkPlan({
+            input: {bookmarks: [{
+                title: 'Lesson 5',
+                page: 12,
+                pageYRatio: 0.375,
+            }]},
+            currentBookmarks: [],
+            totalPages: 20,
+            dirty: false,
+            untitledTitle: 'Untitled',
+            actionId: 'bookmarks.preview_tree',
+        });
+
+        expect(plan.bookmarks[0]).toMatchObject({
+            pageIndex: 11,
+            pageYRatio: 0.375,
+        });
+        expect(plan.proposed.flat[0]).toMatchObject({
+            pageNumber: 12,
+            pageYRatio: 0.375,
+        });
+        expect(plan.proposed.bookmarks[0]).toMatchObject({
+            pageNumber: 12,
+            pageYRatio: 0.375,
+        });
+        expect(plan.proposed.summary.anchoredPageDestinationCount).toBe(1);
+    });
+
+    it('flags child bookmark clusters that reuse the exact parent destination', () => {
+        const plan = createAgentBookmarkPlan({
+            input: {bookmarks: [{
+                title: 'Lesson 5',
+                page: 10,
+                children: [
+                    {
+                        title: '10 Paragraph',
+                        page: 10,
+                    },
+                    {
+                        title: '11 Paragraph',
+                        page: 10,
+                    },
+                ],
+            }]},
+            currentBookmarks: [],
+            totalPages: 20,
+            dirty: false,
+            untitledTitle: 'Untitled',
+            actionId: 'bookmarks.preview_tree',
+        });
+
+        expect(plan.issues).toEqual(expect.arrayContaining([expect.objectContaining({
+            severity: 'error',
+            code: 'bookmark_children_share_parent_destination',
+            path: [0],
+        })]));
+    });
+
+    it('allows same-page children when their pageYRatio anchors differ from the parent', () => {
+        const plan = createAgentBookmarkPlan({
+            input: {bookmarks: [{
+                title: 'Lesson 5',
+                page: 10,
+                children: [
+                    {
+                        title: '10 Paragraph',
+                        page: 10,
+                        pageYRatio: 0.2,
+                    },
+                    {
+                        title: '11 Paragraph',
+                        page: 10,
+                        pageYRatio: 0.6,
+                    },
+                ],
+            }]},
+            currentBookmarks: [],
+            totalPages: 20,
+            dirty: false,
+            untitledTitle: 'Untitled',
+            actionId: 'bookmarks.preview_tree',
+        });
+
+        expect(plan.issues).not.toEqual(expect.arrayContaining([expect.objectContaining({code: 'bookmark_children_share_parent_destination'})]));
+    });
+
     it('reports bookmark validation hints for awkward assistant plans', () => {
         const plan = createAgentBookmarkPlan({
             input: {entries: [

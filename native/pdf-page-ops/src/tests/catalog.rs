@@ -30,6 +30,7 @@
                     items: vec![BookmarkEntry {
                         title: "Chapter 1".to_string(),
                         page_index: Some(0),
+                        page_y_ratio: Some(0.5),
                         named_dest: None,
                         bold: true,
                         italic: false,
@@ -82,6 +83,9 @@
             "Chapter 1"
         );
         assert!(first.get(b"Dest").is_ok());
+        let dest = first.get(b"Dest").unwrap().as_array().unwrap();
+        assert_eq!(dest.get(1).unwrap().as_name().unwrap(), b"XYZ");
+        assert_eq!(dest.get(3).unwrap(), &Object::Integer(50));
         assert_eq!(first.get(b"F").unwrap().as_i64().unwrap(), 2);
 
         let _ = remove_file(input_path);
@@ -112,6 +116,7 @@
                 items: vec![BookmarkEntry {
                     title: "Old".to_string(),
                     page_index: Some(0),
+                    page_y_ratio: None,
                     named_dest: None,
                     bold: false,
                     italic: false,

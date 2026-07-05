@@ -153,6 +153,7 @@ describe('pdfOutlineHelpers', () => {
             items: [{
                 title: 'Chapter',
                 pageIndex: 10.8,
+                pageYRatio: 0.42,
                 namedDest: null,
                 bold: false,
                 italic: true,
@@ -178,12 +179,50 @@ describe('pdfOutlineHelpers', () => {
                 title: 'Chapter',
                 dest: null,
                 pageIndex: 10,
+                pageYRatio: 0.42,
                 bold: false,
                 italic: true,
                 color: '#123456',
                 items: [],
             }],
         }]);
+    });
+
+    it('preserves resolved pageYRatio anchors from PDF outline destinations', async () => {
+        const getPage = vi.fn(async (_pageNumber: number) => createPdfPageStub([
+            0,
+            0,
+            612,
+            800,
+        ]));
+        const pdfDoc = createPdfDocumentStub({
+            numPages: 2,
+            getPage,
+        });
+        const rawItems = parseOutlineItems([{
+            title: 'Mid-page section',
+            dest: [
+                0,
+                { name: 'XYZ' },
+                null,
+                600,
+                null,
+            ],
+        }]);
+
+        const resolved = await buildResolvedOutline(
+            rawItems,
+            pdfDoc,
+            new Map(),
+            new Map(),
+            () => 'bookmark-id',
+        );
+
+        expect(resolved[0]).toMatchObject({
+            title: 'Mid-page section',
+            pageIndex: 0,
+            pageYRatio: 0.25,
+        });
     });
 
     it('resolves named destination and caches destination + ref index', async () => {

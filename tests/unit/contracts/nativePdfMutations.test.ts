@@ -66,6 +66,7 @@ const validImage = {
 interface INativeBookmarkTestItem {
     title: string;
     pageIndex: number | null;
+    pageYRatio?: number | null;
     namedDest: string | null;
     bold: boolean;
     italic: boolean;
@@ -108,7 +109,10 @@ describe('native PDF mutation contracts', () => {
             bookmarks: {
                 totalPages: 3,
                 untitledLabel: 'Untitled',
-                items: [createBookmark()],
+                items: [{
+                    ...createBookmark(),
+                    pageYRatio: 0.25,
+                }],
             },
             shapes: {
                 totalPages: 3,
@@ -141,6 +145,10 @@ describe('native PDF mutation contracts', () => {
         const nativeToolPayload = normalizePdfNativeMutationSet(rawMutations, 'mutations', {placedImageBytes: 'numberArray'});
 
         expect(preloadPayload.placedImages?.[0]?.bytes).toBeInstanceOf(Uint8Array);
+        expect(preloadPayload.bookmarks?.items[0]).toMatchObject({
+            pageIndex: 0,
+            pageYRatio: 0.25,
+        });
         expect(nativeToolPayload.placedImages?.[0]?.bytes).toEqual([
             0xFF,
             0xD8,
@@ -173,6 +181,15 @@ describe('native PDF mutation contracts', () => {
             untitledLabel: 'Untitled',
             items: createDeepBookmarkItems(PDF_NATIVE_MUTATION_LIMITS.bookmarkDepth + 1),
         }}, 'mutations')).toThrow('maximum bookmark depth');
+
+        expect(() => normalizePdfNativeMutationSet({bookmarks: {
+            totalPages: 3,
+            untitledLabel: 'Untitled',
+            items: [{
+                ...createBookmark(),
+                pageYRatio: 1.5,
+            }],
+        }}, 'mutations')).toThrow('pageYRatio must be a finite number from 0 to 1 or null');
 
         expect(() => normalizePdfNativeMutationSet({shapes: {
             totalPages: 3,

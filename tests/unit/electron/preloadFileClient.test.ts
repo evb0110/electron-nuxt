@@ -900,6 +900,7 @@ describe('createDocumentsPreloadFileClient', () => {
                     items: [{
                         title: 'Chapter 1',
                         pageIndex: 0,
+                        pageYRatio: null,
                         namedDest: null,
                         bold: true,
                         italic: false,
@@ -974,6 +975,7 @@ describe('createDocumentsPreloadFileClient', () => {
                     items: [{
                         title: 'Chapter 1',
                         pageIndex: 0,
+                        pageYRatio: null,
                         namedDest: null,
                         bold: true,
                         italic: false,

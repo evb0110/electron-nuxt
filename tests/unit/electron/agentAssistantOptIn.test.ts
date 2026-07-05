@@ -150,6 +150,23 @@ class FakeCodexAppServerProcess extends EventEmitter {
                     return;
                 }
                 const finishTurnStart = () => {
+                    if (text.includes('completed-before-turn-response')) {
+                        this.notify('item/completed', {
+                            threadId: request.params?.threadId,
+                            item: {
+                                type: 'agentMessage',
+                                id: assistantId,
+                                text: 'Done before turn response',
+                            },
+                        });
+                        this.notify('turn/completed', {threadId: request.params?.threadId});
+                        this.respond(request.id!, { turn: { id: turnId } });
+                        this.notify('turn/started', {
+                            threadId: request.params?.threadId,
+                            turn: { id: turnId },
+                        });
+                        return;
+                    }
                     if (text.includes('early-delta')) {
                         this.notify('item/agentMessage/delta', {
                             threadId: request.params?.threadId,
@@ -783,6 +800,49 @@ describe('agent assistant opt-in gating', () => {
         expect(result.ok).toBe(true);
         expect(result.state.status.turn.phase).toBe('idle');
         expect(result.state.messages.map(message => message.text)).toContain('Early answer');
+    });
+
+    it('settles thread-scoped providerless completion before turn-start responds', async () => {
+        const documentScope = {
+            kind: 'document',
+            key: 'document:/tmp/providerless-completion.pdf',
+            title: 'providerless-completion.pdf',
+            documentRef: '/tmp/providerless-completion.pdf',
+        } as const satisfies IAgentAssistantChatScope;
+        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
+        mocks.getCodexCliInfo.mockResolvedValue({
+            installed: true,
+            path: '/Applications/Codex.app/Contents/Resources/codex',
+            version: '0.133.0',
+            minimumVersion: '0.133.0',
+            isVersionSupported: true,
+            managedInstallDir: '/tmp/codex',
+        });
+        mocks.startEmbeddedMcpServer.mockResolvedValue({
+            descriptor: {
+                name: 'evb_viewer_embedded',
+                url: 'http://127.0.0.1:9876',
+            },
+            token: 'test-mcp-token',
+        });
+        const process = new FakeCodexAppServerProcess();
+        mocks.spawn.mockImplementation(() => process);
+
+        const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+
+        const result = await sendAgentAssistantMessage({
+            text: 'completed-before-turn-response',
+            scope: documentScope,
+        });
+
+        expect(result.ok).toBe(true);
+        expect(result.state.status.runtimeState).toBe('ready');
+        expect(result.state.status.turn.phase).toBe('idle');
+        expect(result.state.messages).toContainEqual(expect.objectContaining({
+            role: 'assistant',
+            text: 'Done before turn response',
+            pending: false,
+        }));
     });
 
     it('keeps interrupted Codex turns busy until a terminal provider event arrives', async () => {

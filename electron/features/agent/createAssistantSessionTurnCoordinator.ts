@@ -11,6 +11,7 @@ import {
     markAssistantTurnInterrupting,
     markAssistantTurnRunning,
     supersedeAssistantTurn,
+    type ICompleteAssistantTurnOptions,
     type IAssistantSessionScopeBinding,
 } from '@electron/features/agent/assistantTurnLifecycle';
 import { syncAssistantMcpSessionScope } from '@electron/features/agent/assistantMcpSessionScope';
@@ -66,9 +67,10 @@ export function createAssistantSessionTurnCoordinator(options: IAssistantSession
         session: IAssistantChatSession,
         generation: number,
         providerTurnId?: string | null,
+        completeOptions?: ICompleteAssistantTurnOptions,
     ) {
         const previousOwner = session.turnOwner;
-        session.turnOwner = completeAssistantTurn(session.turnOwner, generation, providerTurnId);
+        session.turnOwner = completeAssistantTurn(session.turnOwner, generation, providerTurnId, completeOptions);
         syncSessionTurnScope(session);
         if (session.turnOwner !== previousOwner) {
             options.sessionStore.recordTurnBoundary(session);

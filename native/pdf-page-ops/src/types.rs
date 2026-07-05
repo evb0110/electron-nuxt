@@ -154,6 +154,7 @@ struct BookmarksMutation {
 struct BookmarkEntry {
     title: String,
     page_index: Option<u32>,
+    page_y_ratio: Option<f64>,
     named_dest: Option<String>,
     #[serde(default)]
     bold: bool,

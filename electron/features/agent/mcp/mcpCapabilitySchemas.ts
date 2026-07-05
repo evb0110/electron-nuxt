@@ -592,6 +592,15 @@ const BOOKMARK_ENTRY_SCHEMA = {
             type: 'number',
             description: 'Zero-based destination page index.',
         },
+        pageYRatio: {
+            type: [
+                'number',
+                'null',
+            ],
+            minimum: 0,
+            maximum: 1,
+            description: 'Optional vertical destination within the page, where 0 is the top and 1 is the bottom. Use this for subsection anchors that start mid-page.',
+        },
         namedDest: {type: 'string'},
         dest: {
             type: 'string',

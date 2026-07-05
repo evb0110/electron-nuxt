@@ -65,6 +65,13 @@ function imageObjectNumber(pageIndex: number) {
     return pageObjectNumber(pageIndex) + 2;
 }
 
+function resolveBookmarkDestinationTop(pageHeight: number, pageYRatio: number | null | undefined) {
+    const normalizedRatio = typeof pageYRatio === 'number' && Number.isFinite(pageYRatio)
+        ? Math.min(1, Math.max(0, pageYRatio))
+        : 0;
+    return pageHeight - normalizedRatio * Math.max(0, pageHeight);
+}
+
 function createBookmarkNodes(items: IPdfBookmarkEntry[], parentRef: number) {
     return items.map((item) => ({
         ref: 0,
@@ -311,8 +318,9 @@ export class StreamingImagePdfWriter {
             && node.item.pageIndex < this.pageCount
         ) {
             const pageHeight = this.pageHeights.get(node.item.pageIndex) ?? 0;
+            const destinationTop = resolveBookmarkDestinationTop(pageHeight, node.item.pageYRatio);
             lines.push(
-                `/Dest [${pageObjectNumber(node.item.pageIndex)} 0 R /XYZ null ${formatPdfNumber(pageHeight)} null]`,
+                `/Dest [${pageObjectNumber(node.item.pageIndex)} 0 R /XYZ null ${formatPdfNumber(destinationTop)} null]`,
             );
         }
 

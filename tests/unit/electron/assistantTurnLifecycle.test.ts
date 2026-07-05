@@ -83,6 +83,16 @@ describe('assistant turn lifecycle', () => {
         expect(runningCompletion.phase).toBe('idle');
     });
 
+    it('allows explicitly trusted providerless completion while a turn is starting', () => {
+        const claimed = claimAssistantTurn(createInitialAssistantTurnOwner(), scopeBinding, 'local-1');
+        const completed = completeAssistantTurn(claimed, claimed.generation, null, {allowStartingWithoutProviderTurn: true});
+
+        expect(completed).toMatchObject({
+            phase: 'idle',
+            generation: claimed.generation,
+        });
+    });
+
     it('supersedes interrupted turns so stale completions cannot clear the next generation', () => {
         const claimed = claimAssistantTurn(createInitialAssistantTurnOwner(), scopeBinding, 'local-1');
         const running = markAssistantTurnRunning(claimed, claimed.generation, 'turn-1');

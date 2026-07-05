@@ -166,6 +166,10 @@ fn normalize_bookmark_entries(
                 page_index: item
                     .page_index
                     .map(|page_index| page_index.min(max_page_index)),
+                page_y_ratio: item
+                    .page_y_ratio
+                    .filter(|value| value.is_finite())
+                    .map(|value| value.clamp(0.0, 1.0)),
                 named_dest,
                 bold: item.bold,
                 italic: item.italic,
@@ -174,6 +178,13 @@ fn normalize_bookmark_entries(
             }
         })
         .collect()
+}
+
+fn resolve_bookmark_destination_top(page_view: &PdfRect, page_y_ratio: Option<f64>) -> f64 {
+    let Some(page_y_ratio) = page_y_ratio else {
+        return page_view.y2;
+    };
+    page_view.y2 - page_y_ratio.clamp(0.0, 1.0) * page_view.height().max(0.0)
 }
 
 struct OutlineBuildResult {
@@ -200,13 +211,14 @@ fn set_bookmark_destination(
             .ok_or("Invalid bookmark page index")?;
         let page_id = resolve_page_id(page_map, page_number)?;
         let page_view = resolve_page_view(base_document, page_id)?;
+        let destination_top = resolve_bookmark_destination_top(&page_view, item.page_y_ratio);
         dict.set(
             "Dest",
             Object::Array(vec![
                 Object::Reference(page_id),
                 Object::Name(b"XYZ".to_vec()),
                 Object::Null,
-                number_object(page_view.y2),
+                number_object(destination_top),
                 Object::Null,
             ]),
         );

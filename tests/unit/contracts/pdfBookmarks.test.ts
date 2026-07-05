@@ -29,11 +29,17 @@ describe('writePdfBookmarkOutlines', () => {
             612,
             792,
         ]);
-        document.addPage();
+        document.addPage([
+            612,
+            792,
+        ]);
 
         const result = writePdfBookmarkOutlines(document, [{
             ...createBookmark('Chapter 1', 0),
-            items: [createBookmark('Section 1.1', 1)],
+            items: [{
+                ...createBookmark('Section 1.1', 1),
+                pageYRatio: 0.5,
+            }],
         }]);
 
         expect(result).toBe(true);
@@ -42,6 +48,7 @@ describe('writePdfBookmarkOutlines', () => {
         const serialized = await document.save({ useObjectStreams: false });
         const pdfText = new TextDecoder('latin1').decode(serialized);
         expect(pdfText).toContain('/XYZ null 792 null');
+        expect(pdfText).toContain('/XYZ null 396 null');
         expect(pdfText).not.toContain('/XYZ null null null');
 
         const reloadedDocument = await PDFDocument.load(serialized, { updateMetadata: false });

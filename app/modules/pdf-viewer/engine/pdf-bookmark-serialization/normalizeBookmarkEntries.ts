@@ -18,6 +18,11 @@ export function normalizeBookmarkEntries(
         const pageIndex = typeof item.pageIndex === 'number'
             ? clamp(Math.trunc(item.pageIndex), 0, maxPageIndex)
             : null;
+        const pageYRatio = pageIndex !== null
+            && typeof item.pageYRatio === 'number'
+            && Number.isFinite(item.pageYRatio)
+            ? clamp(item.pageYRatio, 0, 1)
+            : null;
         const namedDest = typeof item.namedDest === 'string' && item.namedDest.trim().length > 0
             ? item.namedDest
             : null;
@@ -28,6 +33,7 @@ export function normalizeBookmarkEntries(
         return {
             title: title.length > 0 ? title : untitledLabel,
             pageIndex,
+            pageYRatio,
             namedDest,
             bold,
             italic,

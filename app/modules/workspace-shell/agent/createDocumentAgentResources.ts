@@ -16,6 +16,9 @@ interface ICreateDocumentAgentResourcesOptions {
         bookmarks: unknown;
         count: number;
         dirty: boolean;
+        flat: unknown;
+        issues: unknown;
+        summary: unknown;
     };
     createAgentPageLabelSnapshot: () => object;
     currentPage: Ref<number>;
@@ -153,10 +156,8 @@ export function createDocumentAgentResources(options: ICreateDocumentAgentResour
                 uri,
                 tabId,
                 status: 'ready',
-                count: snapshot.count,
-                dirty: snapshot.dirty,
+                ...snapshot,
                 toc: snapshot.bookmarks,
-                bookmarks: snapshot.bookmarks,
             };
         }
 

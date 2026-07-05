@@ -21,6 +21,9 @@ import {
 } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentPages';
 import type { TWorkspaceAgentTranslate } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
 
+type TAgentBookmarkSnapshot = ReturnType<typeof createAgentBookmarkPlanSnapshot>;
+type TAgentBookmarkIssue = TAgentBookmarkSnapshot['issues'][number];
+
 interface ICreateDocumentAgentBookmarksOptions {
     bookmarkItems: Ref<IPdfBookmarkEntry[]>;
     bookmarksDirty: Ref<boolean>;
@@ -53,6 +56,42 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
             throw new Error(`${actionId} pageIndex ${normalizedPageIndex} is outside the document.`);
         }
         return normalizedPageIndex;
+    }
+
+    function getRawAgentBookmarkPageYRatioInput(input: Record<string, unknown>) {
+        if (hasAgentInputKey(input, 'pageYRatio')) {
+            return input.pageYRatio;
+        }
+        if (hasAgentInputKey(input, 'yRatio')) {
+            return input.yRatio;
+        }
+        if (hasAgentInputKey(input, 'pageAnchorRatio')) {
+            return input.pageAnchorRatio;
+        }
+        return undefined;
+    }
+
+    function hasAgentBookmarkPageYRatioInput(input: Record<string, unknown>) {
+        return getRawAgentBookmarkPageYRatioInput(input) !== undefined;
+    }
+
+    function normalizeAgentBookmarkPageYRatioInput(
+        input: Record<string, unknown>,
+        pageIndex: number | null,
+        actionId: string,
+    ) {
+        if (pageIndex === null) {
+            return null;
+        }
+
+        const value = getRawAgentBookmarkPageYRatioInput(input);
+        if (value === undefined || value === null) {
+            return null;
+        }
+        if (typeof value !== 'number' || !Number.isFinite(value)) {
+            throw new Error(`${actionId} pageYRatio must be a finite number from 0 to 1 or null.`);
+        }
+        return Math.min(1, Math.max(0, value));
     }
 
     function cloneAgentBookmarkEntry(bookmark: IPdfBookmarkEntry): IPdfBookmarkEntry {
@@ -224,18 +263,21 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
     function normalizeAgentBookmarkEntry(input: Record<string, unknown>, actionId: string): IPdfBookmarkEntry {
         const rawTitle = getAgentRawStringInput(input, 'title')?.trim();
         const title = rawTitle && rawTitle.length > 0 ? rawTitle : t('bookmarks.untitled');
+        const pageIndex = normalizeAgentBookmarkPageIndex(input, actionId);
         const namedDest = getAgentRawStringInput(input, 'namedDest')
             ?? getAgentRawStringInput(input, 'dest')
             ?? null;
-        const items = Array.isArray(input.items)
-            ? input.items
+        const rawItems = Array.isArray(input.items) ? input.items : input.children;
+        const items = Array.isArray(rawItems)
+            ? rawItems
                 .filter(isAgentRecord)
                 .map(item => normalizeAgentBookmarkEntry(item, actionId))
             : [];
         const color = getAgentNullableStringInput(input, 'color');
         return {
             title,
-            pageIndex: normalizeAgentBookmarkPageIndex(input, actionId),
+            pageIndex,
+            pageYRatio: normalizeAgentBookmarkPageYRatioInput(input, pageIndex, actionId),
             namedDest: namedDest && namedDest.trim().length > 0 ? namedDest.trim() : null,
             bold: getAgentBooleanInput(input, 'bold') ?? false,
             italic: getAgentBooleanInput(input, 'italic') ?? false,
@@ -256,6 +298,37 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
         return createAgentBookmarkPlanSnapshot(bookmarkItems.value, {dirty: bookmarksDirty.value});
     }
 
+    function getBlockingBookmarkIssues(snapshot: TAgentBookmarkSnapshot) {
+        return snapshot.issues.filter(issue => issue.severity === 'error');
+    }
+
+    function getBookmarkIssueKey(issue: TAgentBookmarkIssue) {
+        return [
+            issue.code,
+            issue.path?.join('.') ?? '',
+            issue.page ?? '',
+        ].join('|');
+    }
+
+    function getNewBlockingBookmarkIssues(proposedBookmarks: IPdfBookmarkEntry[]) {
+        const currentIssueKeys = new Set(getBlockingBookmarkIssues(createAgentBookmarkSnapshot()).map(getBookmarkIssueKey));
+        const proposedSnapshot = createAgentBookmarkPlanSnapshot(proposedBookmarks, {dirty: bookmarksDirty.value});
+        return getBlockingBookmarkIssues(proposedSnapshot)
+            .filter(issue => !currentIssueKeys.has(getBookmarkIssueKey(issue)));
+    }
+
+    function assertAgentBookmarkChangeIsAllowed(
+        proposedBookmarks: IPdfBookmarkEntry[],
+        actionId: string,
+    ) {
+        const newBlockingIssues = getNewBlockingBookmarkIssues(proposedBookmarks);
+        if (newBlockingIssues.length === 0) {
+            return;
+        }
+
+        throw new Error(`${actionId} refused to apply unsafe bookmark destinations: ${newBlockingIssues[0]!.message}`);
+    }
+
     function updateAgentBookmarks(bookmarks: IPdfBookmarkEntry[]) {
         handleBookmarksChange({
             bookmarks,
@@ -267,6 +340,7 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
 
     function setAgentBookmarkTree(input: Record<string, unknown>, actionId: string) {
         const plan = previewAgentBookmarkPlan(input, actionId);
+        assertAgentBookmarkChangeIsAllowed(plan.bookmarks, actionId);
         return {
             ...updateAgentBookmarks(plan.bookmarks),
             plan,
@@ -286,6 +360,7 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
 
     function applyAgentBookmarkPlan(input: Record<string, unknown>, actionId: string) {
         const plan = previewAgentBookmarkPlan(input, actionId);
+        assertAgentBookmarkChangeIsAllowed(plan.bookmarks, actionId);
         return {
             ...updateAgentBookmarks(plan.bookmarks),
             plan,
@@ -302,6 +377,7 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
             ? list.length
             : Math.min(list.length, Math.max(0, Math.trunc(index)));
         list.splice(insertIndex, 0, bookmark);
+        assertAgentBookmarkChangeIsAllowed(bookmarks, actionId);
         return updateAgentBookmarks(bookmarks);
     }
 
@@ -326,6 +402,7 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
                     bookmark,
                 );
             });
+        assertAgentBookmarkChangeIsAllowed(bookmarks, actionId);
         return updateAgentBookmarks(bookmarks);
     }
 
@@ -344,6 +421,10 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
             || hasAgentInputKey(bookmarkUpdates, 'pageIndex')
         ) {
             updated.pageIndex = normalizeAgentBookmarkPageIndex(bookmarkUpdates, actionId);
+            updated.pageYRatio = normalizeAgentBookmarkPageYRatioInput(bookmarkUpdates, updated.pageIndex, actionId);
+        }
+        if (hasAgentBookmarkPageYRatioInput(bookmarkUpdates)) {
+            updated.pageYRatio = normalizeAgentBookmarkPageYRatioInput(bookmarkUpdates, updated.pageIndex, actionId);
         }
         if (hasAgentInputKey(bookmarkUpdates, 'namedDest') || hasAgentInputKey(bookmarkUpdates, 'dest')) {
             const namedDest = getAgentRawStringInput(bookmarkUpdates, 'namedDest')
@@ -361,12 +442,14 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
             const color = getAgentNullableStringInput(bookmarkUpdates, 'color');
             updated.color = color === null ? null : normalizeBookmarkColor(color);
         }
-        if (Array.isArray(bookmarkUpdates.items)) {
-            updated.items = bookmarkUpdates.items
+        const rawUpdatedItems = Array.isArray(bookmarkUpdates.items) ? bookmarkUpdates.items : bookmarkUpdates.children;
+        if (Array.isArray(rawUpdatedItems)) {
+            updated.items = rawUpdatedItems
                 .filter(isAgentRecord)
                 .map(item => normalizeAgentBookmarkEntry(item, actionId));
         }
         location.list.splice(location.index, 1, updated);
+        assertAgentBookmarkChangeIsAllowed(bookmarks, actionId);
         return updateAgentBookmarks(bookmarks);
     }
 

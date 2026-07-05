@@ -41,6 +41,7 @@ describe('normalizeBookmarkEntries', () => {
         expect(entries).toEqual([{
             title: 'Untitled',
             pageIndex: 4,
+            pageYRatio: null,
             namedDest: null,
             bold: true,
             italic: false,
@@ -48,6 +49,7 @@ describe('normalizeBookmarkEntries', () => {
             items: [{
                 title: 'Child',
                 pageIndex: 0,
+                pageYRatio: null,
                 namedDest: 'DestA',
                 bold: false,
                 italic: true,

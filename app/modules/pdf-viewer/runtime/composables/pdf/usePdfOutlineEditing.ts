@@ -3,6 +3,7 @@ import type {
     TBookmarkDisplayMode,
 } from '@app/types/pdfOutline';
 import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
+import { clamp } from 'es-toolkit/math';
 import {
     collectBookmarkIds,
     findBookmarkById,
@@ -39,6 +40,7 @@ export const usePdfOutlineEditing = (
             title: t('bookmarks.newBookmark'),
             dest: null,
             pageIndex: Math.max(0, (currentPage.value || 1) - 1),
+            pageYRatio: 0,
             bold: false,
             italic: false,
             color: null,
@@ -434,6 +436,9 @@ export const usePdfOutlineEditing = (
             return {
                 title: title.length > 0 ? title : t('bookmarks.untitled'),
                 pageIndex: typeof item.pageIndex === 'number' ? item.pageIndex : null,
+                pageYRatio: typeof item.pageYRatio === 'number' && Number.isFinite(item.pageYRatio)
+                    ? clamp(item.pageYRatio, 0, 1)
+                    : null,
                 namedDest: typeof item.dest === 'string' && item.dest.trim().length > 0 ? item.dest : null,
                 bold: item.bold,
                 italic: item.italic,

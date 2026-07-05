@@ -34,6 +34,7 @@ interface IAgentBookmarkFlatEntry {
     title: string;
     pageIndex: number | null;
     pageNumber: number | null;
+    pageYRatio: number | null;
     namedDest: string | null;
     bold: boolean;
     italic: boolean;
@@ -50,6 +51,7 @@ interface IAgentBookmarkSnapshot {
         maxDepth: number;
         destinationlessCount: number;
         namedDestinationCount: number;
+        anchoredPageDestinationCount: number;
         firstPageNumber: number | null;
         lastPageNumber: number | null;
     };
@@ -143,6 +145,7 @@ const AGENT_PAGE_LABEL_STYLES = [
 const MAX_ISSUE_COUNT = 50;
 const MAX_DIFF_SAMPLE_COUNT = 50;
 const MAX_LABEL_SAMPLE_COUNT = 40;
+const MIN_CHILDREN_SHARING_PARENT_DESTINATION_FOR_ANCHOR_WARNING = 2;
 
 
 function hasInputKey(input: Record<string, unknown>, key: string) {
@@ -684,6 +687,77 @@ function normalizeBookmarkPageIndex(
     return normalizedPageIndex;
 }
 
+function getRawBookmarkPageYRatioInput(input: Record<string, unknown>) {
+    if (hasInputKey(input, 'pageYRatio')) {
+        return input.pageYRatio;
+    }
+    if (hasInputKey(input, 'yRatio')) {
+        return input.yRatio;
+    }
+    if (hasInputKey(input, 'pageAnchorRatio')) {
+        return input.pageAnchorRatio;
+    }
+    return undefined;
+}
+
+function clampBookmarkPageYRatio(value: number) {
+    return Math.min(1, Math.max(0, value));
+}
+
+function normalizeBookmarkPageYRatioInput(
+    input: Record<string, unknown>,
+    pageIndex: number | null,
+    actionId: string,
+) {
+    if (pageIndex === null) {
+        return null;
+    }
+
+    const value = getRawBookmarkPageYRatioInput(input);
+    if (value === undefined || value === null) {
+        return null;
+    }
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+        throw new Error(`${actionId} pageYRatio must be a finite number from 0 to 1 or null.`);
+    }
+    return clampBookmarkPageYRatio(value);
+}
+
+function normalizeBookmarkPageYRatioValue(
+    pageIndex: number | null,
+    value: number | null | undefined,
+) {
+    return pageIndex !== null && typeof value === 'number' && Number.isFinite(value)
+        ? clampBookmarkPageYRatio(value)
+        : null;
+}
+
+function normalizeBookmarkPageYRatioForComparison(
+    pageIndex: number | null,
+    value: number | null | undefined,
+) {
+    if (pageIndex === null) {
+        return null;
+    }
+    const normalized = typeof value === 'number' && Number.isFinite(value)
+        ? clampBookmarkPageYRatio(value)
+        : 0;
+    return Number(normalized.toFixed(6));
+}
+
+function getBookmarkDestinationKey(bookmark: Pick<IPdfBookmarkEntry, 'pageIndex' | 'pageYRatio' | 'namedDest'>) {
+    if (bookmark.namedDest) {
+        return `named:${bookmark.namedDest}`;
+    }
+    if (bookmark.pageIndex === null) {
+        return null;
+    }
+    return `page:${bookmark.pageIndex}:${normalizeBookmarkPageYRatioForComparison(
+        bookmark.pageIndex,
+        bookmark.pageYRatio,
+    )}`;
+}
+
 function normalizeBookmarkEntry(
     input: Record<string, unknown>,
     totalPages: number,
@@ -692,6 +766,7 @@ function normalizeBookmarkEntry(
 ): IPdfBookmarkEntry {
     const rawTitle = getRawStringInput(input, 'title')?.trim();
     const title = rawTitle && rawTitle.length > 0 ? rawTitle : untitledTitle;
+    const pageIndex = normalizeBookmarkPageIndex(input, totalPages, actionId);
     const namedDest = getRawStringInput(input, 'namedDest')
         ?? getRawStringInput(input, 'dest')
         ?? null;
@@ -699,7 +774,8 @@ function normalizeBookmarkEntry(
     const rawItems = Array.isArray(input.items) ? input.items : input.children;
     return {
         title,
-        pageIndex: normalizeBookmarkPageIndex(input, totalPages, actionId),
+        pageIndex,
+        pageYRatio: normalizeBookmarkPageYRatioInput(input, pageIndex, actionId),
         namedDest: namedDest && namedDest.trim().length > 0 ? namedDest.trim() : null,
         bold: getBooleanInput(input, 'bold') ?? false,
         italic: getBooleanInput(input, 'italic') ?? false,
@@ -815,6 +891,7 @@ function normalizeBookmarkForAgent(
         title: bookmark.title,
         pageIndex: bookmark.pageIndex,
         pageNumber: bookmark.pageIndex === null ? null : bookmark.pageIndex + 1,
+        pageYRatio: normalizeBookmarkPageYRatioValue(bookmark.pageIndex, bookmark.pageYRatio),
         namedDest: bookmark.namedDest,
         bold: bookmark.bold,
         italic: bookmark.italic,
@@ -840,6 +917,7 @@ function flattenBookmarks(bookmarks: IPdfBookmarkEntry[]) {
                 title: bookmark.title,
                 pageIndex: bookmark.pageIndex,
                 pageNumber: bookmark.pageIndex === null ? null : bookmark.pageIndex + 1,
+                pageYRatio: normalizeBookmarkPageYRatioValue(bookmark.pageIndex, bookmark.pageYRatio),
                 namedDest: bookmark.namedDest,
                 bold: bookmark.bold,
                 italic: bookmark.italic,
@@ -857,6 +935,7 @@ function getBookmarkComparable(entry: IAgentBookmarkFlatEntry) {
     return {
         title: entry.title,
         pageIndex: entry.pageIndex,
+        pageYRatio: entry.pageYRatio,
         namedDest: entry.namedDest,
         bold: entry.bold,
         italic: entry.italic,
@@ -923,6 +1002,32 @@ function createBookmarkIssues(bookmarks: IPdfBookmarkEntry[]) {
     };
     visitSiblings(bookmarks, []);
 
+    const visitChildrenSharingParentDestination = (items: IPdfBookmarkEntry[], path: number[]) => {
+        items.forEach((parent, index) => {
+            const parentPath = [
+                ...path,
+                index,
+            ];
+            const parentDestinationKey = getBookmarkDestinationKey(parent);
+            if (parentDestinationKey !== null) {
+                const childrenAtParentDestination = parent.items.filter(child => (
+                    getBookmarkDestinationKey(child) === parentDestinationKey
+                ));
+                if (childrenAtParentDestination.length >= MIN_CHILDREN_SHARING_PARENT_DESTINATION_FOR_ANCHOR_WARNING) {
+                    pushIssue(issues, {
+                        severity: 'error',
+                        code: 'bookmark_children_share_parent_destination',
+                        message: `${childrenAtParentDestination.length} child bookmarks under "${parent.title}" point to the same destination as their parent. Locate each child heading with document.search/read_pages/capture_page_image and provide a distinct page or pageYRatio anchor, or omit those child bookmarks.`,
+                        page: parent.pageIndex === null ? null : parent.pageIndex + 1,
+                        path: parentPath,
+                    });
+                }
+            }
+            visitChildrenSharingParentDestination(parent.items, parentPath);
+        });
+    };
+    visitChildrenSharingParentDestination(bookmarks, []);
+
     return issues;
 }
 
@@ -939,6 +1044,11 @@ function createBookmarkSummary(bookmarks: IPdfBookmarkEntry[], flat: IAgentBookm
         maxDepth: flat.reduce((maxDepth, entry) => Math.max(maxDepth, entry.depth), 0),
         destinationlessCount: flat.filter(entry => entry.pageIndex === null && !entry.namedDest).length,
         namedDestinationCount: flat.filter(entry => Boolean(entry.namedDest)).length,
+        anchoredPageDestinationCount: flat.filter(entry => (
+            entry.pageIndex !== null
+            && typeof entry.pageYRatio === 'number'
+            && entry.pageYRatio > 0
+        )).length,
         firstPageNumber: pageNumbers.length > 0 ? Math.min(...pageNumbers) : null,
         lastPageNumber: pageNumbers.length > 0 ? Math.max(...pageNumbers) : null,
     };

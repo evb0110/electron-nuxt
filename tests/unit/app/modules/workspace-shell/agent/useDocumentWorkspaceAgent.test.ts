@@ -337,6 +337,123 @@ describe('useDocumentWorkspaceAgent', () => {
         }));
     });
 
+    it('adds nested bookmarks with children aliases and pageYRatio anchors', async () => {
+        const bookmarkItems = ref<IPdfBookmarkEntry[]>([createBookmark('Lesson 5')]);
+        const handleBookmarksChange = vi.fn(({bookmarks}) => {
+            bookmarkItems.value = bookmarks;
+        });
+        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+            bookmarkItems,
+            handleBookmarksChange,
+            totalPages: ref(20),
+        }));
+
+        await expect(agent.runAgentAction('bookmarks.add', {
+            parentPath: [0],
+            title: '10 Adjectival Pattern',
+            page: 12,
+            pageYRatio: 0.4,
+            children: [{
+                title: '10a Note',
+                page: 12,
+                pageYRatio: 0.7,
+            }],
+        })).resolves.toMatchObject({
+            ok: true,
+            actionId: 'bookmarks.add',
+        });
+
+        expect(bookmarkItems.value[0]?.items[0]).toMatchObject({
+            title: '10 Adjectival Pattern',
+            pageIndex: 11,
+            pageYRatio: 0.4,
+            items: [expect.objectContaining({
+                title: '10a Note',
+                pageIndex: 11,
+                pageYRatio: 0.7,
+            })],
+        });
+    });
+
+    it('adds child bookmarks on the parent page when pageYRatio anchors distinguish them', async () => {
+        const bookmarkItems = ref<IPdfBookmarkEntry[]>([{
+            ...createBookmark('Lesson 5'),
+            pageIndex: 9,
+        }]);
+        const handleBookmarksChange = vi.fn(({bookmarks}) => {
+            bookmarkItems.value = bookmarks;
+        });
+        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+            bookmarkItems,
+            handleBookmarksChange,
+            totalPages: ref(20),
+        }));
+
+        await expect(agent.runAgentAction('bookmarks.add_batch', {
+            parentPath: [0],
+            bookmarks: [
+                {
+                    title: '10 Paragraph',
+                    page: 10,
+                    pageYRatio: 0.2,
+                },
+                {
+                    title: '11 Paragraph',
+                    page: 10,
+                    pageYRatio: 0.6,
+                },
+            ],
+        })).resolves.toMatchObject({
+            ok: true,
+            actionId: 'bookmarks.add_batch',
+        });
+
+        expect(bookmarkItems.value[0]?.items).toEqual([
+            expect.objectContaining({
+                title: '10 Paragraph',
+                pageIndex: 9,
+                pageYRatio: 0.2,
+            }),
+            expect.objectContaining({
+                title: '11 Paragraph',
+                pageIndex: 9,
+                pageYRatio: 0.6,
+            }),
+        ]);
+    });
+
+    it('refuses newly unsafe child bookmarks that all reuse the parent destination', async () => {
+        const bookmarkItems = ref<IPdfBookmarkEntry[]>([{
+            ...createBookmark('Lesson 5'),
+            pageIndex: 9,
+        }]);
+        const handleBookmarksChange = vi.fn(({bookmarks}) => {
+            bookmarkItems.value = bookmarks;
+        });
+        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+            bookmarkItems,
+            handleBookmarksChange,
+            totalPages: ref(20),
+        }));
+
+        await expect(agent.runAgentAction('bookmarks.add_batch', {
+            parentPath: [0],
+            allowSamePageChildDestinations: true,
+            bookmarks: [
+                {
+                    title: '10 Paragraph',
+                    page: 10,
+                },
+                {
+                    title: '11 Paragraph',
+                    page: 10,
+                },
+            ],
+        })).rejects.toThrow('refused to apply unsafe bookmark destinations');
+
+        expect(handleBookmarksChange).not.toHaveBeenCalled();
+    });
+
     it('deletes multiple bookmarks through the batch agent action', async () => {
         const bookmarkItems = ref<IPdfBookmarkEntry[]>([
             createBookmark('Chapter 1', [createBookmark('Section 1.1')]),

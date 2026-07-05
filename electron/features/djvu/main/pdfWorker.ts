@@ -25,6 +25,15 @@ function isPdfBookmarkEntry(value: unknown): value is IPdfBookmarkEntry {
     return isRecord(value)
         && typeof value.title === 'string'
         && (typeof value.pageIndex === 'number' || value.pageIndex === null)
+        && (
+            value.pageYRatio === undefined
+            || value.pageYRatio === null
+            || (
+                isFiniteNumber(value.pageYRatio)
+                && value.pageYRatio >= 0
+                && value.pageYRatio <= 1
+            )
+        )
         && (typeof value.namedDest === 'string' || value.namedDest === null)
         && typeof value.bold === 'boolean'
         && typeof value.italic === 'boolean'
