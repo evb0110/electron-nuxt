@@ -1,25 +1,10 @@
+import type { IPdfSearchIndex } from '@electron/search/searchIndexTypes';
 import { abortErrorFromSignal } from '@electron/utils/abort';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 
 const log = createLogger('indexBuilder');
-
-interface ILegacyJsonSearchWord { text?: string; }
-
-interface ILegacyJsonSearchPage {
-    pageNumber: number;
-    text: string;
-    words?: readonly ILegacyJsonSearchWord[];
-    pageWidth?: number;
-    pageHeight?: number;
-}
-
-interface ILegacyJsonSearchIndex {
-    documentRevision: { token: string };
-    pdfPath: string;
-    pages: readonly ILegacyJsonSearchPage[];
-}
 
 const SEARCH_LEGACY_JSON_INDEX_MAX_BYTES = parseIntegerEnv(
     'EVB_SEARCH_LEGACY_JSON_MAX_BYTES',
@@ -41,14 +26,14 @@ function throwIfAborted(signal?: AbortSignal) {
     }
 }
 
-function pageHasSearchGeometry(page: ILegacyJsonSearchPage) {
+function pageHasSearchGeometry(page: IPdfSearchIndex['pages'][number]) {
     return Array.isArray(page.words)
         && page.words.length > 0
         && typeof page.pageWidth === 'number'
         && typeof page.pageHeight === 'number';
 }
 
-function stripSearchIndexGeometry(index: ILegacyJsonSearchIndex): ILegacyJsonSearchIndex {
+function stripSearchIndexGeometry(index: IPdfSearchIndex): IPdfSearchIndex {
     return {
         ...index,
         pages: index.pages.map(page => ({
@@ -59,7 +44,7 @@ function stripSearchIndexGeometry(index: ILegacyJsonSearchIndex): ILegacyJsonSea
 }
 
 function estimateLegacyJsonIndexFootprint(
-    index: ILegacyJsonSearchIndex,
+    index: IPdfSearchIndex,
     signal?: AbortSignal,
 ) {
     let estimatedBytes = 1024
@@ -93,7 +78,7 @@ function estimateLegacyJsonIndexFootprint(
 }
 
 function shouldStripLegacyJsonGeometry(
-    index: ILegacyJsonSearchIndex,
+    index: IPdfSearchIndex,
     signal?: AbortSignal,
 ) {
     const footprint = estimateLegacyJsonIndexFootprint(index, signal);
@@ -110,7 +95,7 @@ function isInvalidStringLengthError(error: unknown) {
 }
 
 export function stringifyLegacyJsonSearchIndex(
-    index: ILegacyJsonSearchIndex,
+    index: IPdfSearchIndex,
     signal?: AbortSignal,
 ) {
     throwIfAborted(signal);

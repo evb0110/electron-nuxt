@@ -22,10 +22,7 @@ import type {
     IOcrIndexV3Page,
     TOcrIndexRotation,
 } from '@contracts/ocrIndex';
-import type {
-    IDocumentRevisionStamp,
-    TDocumentRevisionToken,
-} from '@contracts/documentRevision';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import {
     OCR_TEXT_LAYER_INDEX_SOURCE,
     OCR_TEXT_LAYER_INDEX_VERSION,
@@ -52,30 +49,17 @@ import {
 } from '@electron/search/searchIndexSidecar';
 import { ensureNativeSearchIndexBestEffort } from '@electron/search/nativeSearchIndex';
 import { stringifyLegacyJsonSearchIndex } from '@electron/search/stringifyLegacyJsonSearchIndex';
+import type {
+    IPageIndex,
+    IPdfSearchIndex,
+} from '@electron/search/searchIndexTypes';
 import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
 import { assertWorkingCopyRevisionCurrent } from '@electron/file-access/documentRevisionSidecar';
 
-export interface IPageIndex {
-    pageNumber: number;
-    text: string;
-    words?: IOcrWord[];
-    pageWidth?: number;
-    pageHeight?: number;
-    rotation?: TOcrIndexRotation;
-}
-
-export interface IPdfSearchIndex {
-    schemaVersion?: number;
-    documentRevision: IDocumentRevisionStamp;
-    pdfPath: string;
-    createdAt: number;
-    pages: IPageIndex[];
-    pageCount?: number;
-    textSource?: {
-        kind: string;
-        version: number;
-    };
-}
+export type {
+    IPageIndex,
+    IPdfSearchIndex,
+} from '@electron/search/searchIndexTypes';
 
 const log = createLogger('indexBuilder');
 

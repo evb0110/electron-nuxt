@@ -8,6 +8,7 @@ import {
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { parseArchitectureRootsArg } from './architectureCliArgs.mjs';
 import { getFocusedArchitectureRoots } from '../workspace-roots.mjs';
 
 export const DEFAULT_SOURCE_SIZE_THRESHOLD = 1200;
@@ -139,7 +140,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Future MCP server core extraction',
     },
     'scripts/architecture/boundary-check.mjs': {
-        maxLines: 1280,
+        maxLines: 1267,
         reason: 'transitional architecture boundary checker after scripts-to-app diagnostics and package-layer policy expansion',
         stage: 'Second-pass architecture boundary enforcement',
     },
@@ -309,17 +310,8 @@ export async function checkSourceFileSizes({
 }
 
 function collectRootsFromArgv(argv, {projectRoot}) {
-    const rootArg = argv.find(argument => argument.startsWith('--roots='));
-    if (!rootArg) {
-        return getFocusedArchitectureRoots({ projectRoot });
-    }
-
-    return rootArg
-        .slice('--roots='.length)
-        .split(',')
-        .map(value => normalizePath(value.trim()))
-        .filter(Boolean)
-        .filter(root => !path.isAbsolute(root));
+    return parseArchitectureRootsArg(argv)
+        ?? getFocusedArchitectureRoots({ projectRoot });
 }
 
 function collectThresholdFromArgv(argv) {

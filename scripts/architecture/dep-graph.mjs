@@ -8,6 +8,10 @@ import {
     getAllArchitectureRoots,
     getFocusedArchitectureRoots,
 } from '../workspace-roots.mjs';
+import {
+    parseArchitectureRootsArg,
+    parseArchitectureScopeArg,
+} from './architectureCliArgs.mjs';
 
 const SOURCE_EXTENSIONS = [
     '.ts',
@@ -398,38 +402,15 @@ async function resolveSpecifier({
     return resolveRootSpecifier(projectRoot, specifier);
 }
 
-function collectScopeFromArgv(argv) {
-    const scopeArg = argv.find(argument => argument.startsWith('--scope='));
-    if (!scopeArg) {
-        return 'all';
-    }
-
-    const scope = scopeArg.slice('--scope='.length).trim().toLowerCase();
-    if (scope === 'all' || scope === 'focused') {
-        return scope;
-    }
-
-    throw new Error(`Unsupported --scope value: ${scopeArg}`);
-}
-
 function collectRootsFromArgv(argv, {projectRoot}) {
-    const rootArg = argv.find(argument => argument.startsWith('--roots='));
-    if (!rootArg) {
-        return collectScopeFromArgv(argv) === 'focused'
+    const roots = parseArchitectureRootsArg(argv);
+    if (!roots) {
+        return parseArchitectureScopeArg(argv) === 'focused'
             ? getFocusedArchitectureRoots({ projectRoot })
             : getAllArchitectureRoots({ projectRoot });
     }
 
-    const requestedRoots = rootArg
-        .slice('--roots='.length)
-        .split(',')
-        .map(value => value.trim())
-        .filter(Boolean);
-
-    return requestedRoots
-        .map(root => toPosixPath(path.normalize(root)))
-        .filter(root => !path.isAbsolute(root))
-        .filter(Boolean);
+    return roots;
 }
 
 function parseOutputArg(argv) {
