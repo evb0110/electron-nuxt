@@ -182,3 +182,83 @@ patch order:
   lane to blocking), BLD-3/4.
 - **P2 (robustness/hygiene):** remaining M/L items (SRV-1..3, WEB-2..4, NAT-1..3,
   UPD-2, RGAP-2/5/6/7/8/9, NEW-6/7, BG and IPC patch items carried from 2026-07-03).
+
+## Remediation status — 2026-07-05 (same-day program)
+
+Implemented via orchestrated Codex (gpt-5.5) writers, one workstream per writer, with
+per-finding re-verification at HEAD before each change. Every enforced invariant has a
+violation test (stale save rejected, double turn refused, abort keeps ownership, etc.).
+Gates at completion: `pnpm validate` green end-to-end (lint, typecheck, 4085 unit tests,
+type coverage, strict build, fallow, architecture), `pnpm run test:rust` green.
+
+### Overhauls
+1. **Revision CAS (PDFED-1)** — DONE. `expectedRevisionToken` (`drt1:`) required and
+   validated inside the working-copy mutation queue on every write path (streamed
+   save begin/commit, native mutations both variants, structured save/repair/optimize,
+   writeFile/OCR apply, page ops, silent persistence); typed `stale-revision` /
+   `missing-revision` rejections; legacy `savePdfDataAs` IPC deleted (MAIN-3).
+   Renderer honors `workingCopyRefreshed:false` (PDFED-2/NEW-2); page ops persist
+   pending edits first (PDFED-3); NEW-3/4/5, SHELL-2, PDFED-4 closed. Stale-save UX:
+   `errors.file.changedReload` notification (en+ru).
+2. **Contracts + blocking lane** — DONE. Single hand-written manifest
+   (`packages/contracts/platformMethodManifest.ts`) drives the lazy proxy, exhaustive
+   runtime validation, generated test fixture, and preload/browser parity tests
+   (ARCH-1/2, IPC-2/3, TEST-1). PR-blocking Electron lane `e2e-blocking-smoke`
+   (save roundtrip) in CI without continue-on-error; per-run session names/ports and
+   event-driven readiness (TEST-2/3/4). IPC-4 decode-failure envelope; IPC-6
+   latest-state replay on subscribe.
+3. **Lifecycle owner** — DONE. Transaction controller wired with real
+   loadToken/documentVersion (PDFRT-1); page-cache render leases (PDFRT-3);
+   preview queue through the render coordinator with cancelling reset (PDFRT-5);
+   fenced `getAnnotations()` (PDFRT-6); generation-switched preserved reload
+   (PDFRT-2); coordinated ops keep page ownership until PDF.js settles (NEW-1).
+4. **DocumentIdentity** — DONE. `documentInstanceId` minted per open, carried through
+   records/sessions/command targets/transfers/assistant scope (SHELL-4, AGENT-4);
+   serialized open/close/switch transactions (SHELL-1); unified closeability predicate
+   (SHELL-5); real persist intent, dead `closed` phase removed (SHELL-6).
+5. **Main-process operation lifecycle** — DONE (integrated as
+   `electron/operation-lifecycle/mainOperationLifecycle.ts`). Critical writes drain
+   at shutdown/update-install instead of timeout-abandon (MAIN-1/2/5, PDFED-6);
+   abortable DjVu/native-PDF preview requests reach the native process (RGAP-1/3,
+   BG-5); DjVu PDF worker uses its cancel protocol (BG-6). RGAP-4: capabilities
+   narrowed; shared-runtime fold-in deferred.
+
+### Patch program
+- Assistant: AGENT-1 (turn ownership guards sends), AGENT-2 (pre-start buffering),
+  AGENT-3 (cancelling phase), AGENT-5 (scope fingerprint incl. revision/instance),
+  AGENT-7 (typed unsupported browser capability). AGENT-6 excluded (product decision).
+- OCR/search/DjVu: BG-1 terminal cancel events; BG-2 path+revision singleflight;
+  BG-3 rendered-cost admission; BG-4 index-build singleflight; BG-7/NEW-6 explicit
+  terminal progress kinds; NEW-7 configurable print retention; BG-8 registry import
+  instead of regex scraping; RGAP-6 label fallback; RGAP-9 mid-page search abort.
+- Build/release: BLD-1 native payload freshness gate; BLD-2 fail-closed macOS
+  bundling; BLD-3 asarUnpack parity check; BLD-4 strict WASM freshness in release
+  gates; NAT-1 bounded WASM allocations (+Rust tests); NAT-3 versioned Python
+  protocol; UPD-1 install revalidation; UPD-2 feed/metadata coherence.
+- Web/server: WEB-1 generated vendor manifest; WEB-2 PR landing build; WEB-3 extended
+  deploy asset manifest; WEB-4 output parity check; SRV-1 5xx on persistence failure
+  with client retry; SRV-2 occurredAt clamping; SRV-3 drizzle scripts + drift check.
+- Renderer hygiene: ARCH-3 handled grant rejections; ARCH-4/RGAP-7 subscription
+  cleanup/duplicate guards; RGAP-2 bounded preview failure; RGAP-5 hydration dirty
+  fence; RGAP-8 verified fixed (+regression test); IPC-7 chunked large reads;
+  TEST-6 risk-weighted coverage areas.
+
+### Open / deferred
+- **PDFED-5**: RESOLVED — operation-aware post-save structural validator
+  (`validatePdfSerializationStructure.ts`) now runs alongside the 50%-size guard at
+  the same commit point: page count, page-tree walkability, annotation-ref
+  preservation modulo the operation's explicit deletes, new-annotation presence,
+  and FreeText note-marker invariants (/Contents, AP stream, rect size class).
+  Serialization semantics unchanged. Residual risk narrowed to semantic content
+  changes within surviving objects.
+- **AGENT-6** durable chat history: RESOLVED — persistence shipped during
+  integration (`assistantChatPersistence.ts`, wired into the session store, tested).
+- **NAT-2**: RESOLVED — re-landed: Rust CLIs answer `--protocol-version`; the JS
+  spawner performs a cached handshake for `evb-*` tools and rejects version
+  mismatches with a typed error before running the real command.
+- Stale-save rejection UX approved as shipped (notification with reload guidance).
+- **NAT-4**: hash-pinned `requirements-lock.txt` added; bundler (dormant devkit tool)
+  still installs from `requirements.txt` by design.
+- **TEST-5** (e2e bypasses UX), **IPC-1** (registrar-level validation invariant):
+  not addressed this pass.
+- RGAP-4 fold-in of `NativePdfViewer` into the shared viewport runtime: deferred.
