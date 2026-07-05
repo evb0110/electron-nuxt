@@ -25,7 +25,7 @@
 }
 
 .pdfViewer .annotation-focus-pulse {
-    animation: annotation-focus-pulse 0.9s ease-out;
+    animation: annotation-focus-pulse 1s ease-out;
     outline: 2px solid color-mix(in oklab, var(--ui-primary, #3b82f6) 80%, white 20%);
     outline-offset: 2px;
 }

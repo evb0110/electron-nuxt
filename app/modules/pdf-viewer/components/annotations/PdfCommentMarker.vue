@@ -512,6 +512,6 @@ onBeforeUnmount(() => {
 }
 
 .pdf-comment-marker-button:global(.pdf-comment-focus-pulse) {
-    animation: inline-comment-focus-pulse 0.9s ease-out;
+    animation: inline-comment-focus-pulse 1s ease-out;
 }
 </style>

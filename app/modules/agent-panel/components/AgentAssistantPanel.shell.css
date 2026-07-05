@@ -158,7 +158,7 @@
 }
 
 .is-spinning {
-    animation: agent-assistant-spin 0.9s linear infinite;
+    animation: agent-assistant-spin 1s linear infinite;
 }
 
 .agent-assistant-placeholder h2 {

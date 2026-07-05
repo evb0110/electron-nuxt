@@ -49,7 +49,7 @@ body {
   );
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 0);
   mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 0);
-  animation: spin 0.9s linear infinite;
+  animation: spin 1s linear infinite;
   will-change: transform;
   transform: translateZ(0);
 }

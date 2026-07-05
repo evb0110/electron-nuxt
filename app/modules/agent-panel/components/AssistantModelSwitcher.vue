@@ -407,7 +407,7 @@ function onSelectModel(model: string) {
 }
 
 .is-spinning {
-    animation: assistant-model-switcher-spin 0.9s linear infinite;
+    animation: assistant-model-switcher-spin 1s linear infinite;
 }
 
 @keyframes assistant-model-switcher-spin {

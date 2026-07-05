@@ -140,7 +140,7 @@ const repeatParagraphs = computed(() => {
     height: 100%;
     padding: 0;
     box-sizing: border-box;
-    animation: pdf-page-skeleton-pulse 0.9s ease-in-out infinite;
+    animation: pdf-page-skeleton-pulse 1s ease-in-out infinite;
 }
 
 .inner > * {
