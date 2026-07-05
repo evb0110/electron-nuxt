@@ -19,6 +19,7 @@ import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/pdf-seri
 import { deleteEmbeddedAnnotationOffThread } from '@app/modules/pdf-viewer/engine/pdf-serialization-worker-client/deleteEmbeddedAnnotationOffThread';
 import { serializePdfEditsOffThread } from '@app/modules/pdf-viewer/engine/pdf-serialization-worker-client/serializePdfEditsOffThread';
 import { updateEmbeddedAnnotationTextOffThread } from '@app/modules/pdf-viewer/engine/pdf-serialization-worker-client/updateEmbeddedAnnotationTextOffThread';
+import { validatePdfSerializationStructure } from '@app/modules/pdf-viewer/engine/pdf-serialization-operations/validatePdfSerializationStructure';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     decodeBrowserImageBlob,
@@ -384,6 +385,25 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         );
     }
 
+    async function assertPdfLibResultIsStructurallySound(
+        operation: string,
+        data: Uint8Array,
+        result: Uint8Array,
+        payload: IPdfSerializationSavePayload,
+    ) {
+        const validation = await validatePdfSerializationStructure(data, result, payload);
+        if (validation.ok) {
+            return;
+        }
+
+        BrowserLogger.error(
+            PDF_SERIALIZATION_LOG_SECTION,
+            `${operation}: pdf-lib re-save failed post-save structural validation; refusing to persist`,
+            {failures: validation.failures},
+        );
+        throw new Error('PDF serialization produced a structurally invalid result; refusing to overwrite original');
+    }
+
     async function runSerializedEdit(
         data: Uint8Array,
         payload: IPdfSerializationSavePayload,
@@ -395,6 +415,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
             }
 
             assertPdfLibResultDidNotShrinkCatastrophically('serializePdfEdits', data, result);
+            await assertPdfLibResultIsStructurallySound('serializePdfEdits', data, result, payload);
 
             return result;
         }, {

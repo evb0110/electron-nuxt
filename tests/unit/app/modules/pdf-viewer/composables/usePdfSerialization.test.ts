@@ -25,7 +25,7 @@ import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { importEmbeddedShapeAnnotations } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
 import { useAnnotationShapes } from '@app/modules/pdf-viewer/tools/useAnnotationShapes';
 import { usePdfSerialization } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization';
-import { serializePdfEdits } from '@app/modules/pdf-viewer/engine/pdf-serialization-operations/serializePdfEdits';
+import { validatePdfSerializationStructure } from '@app/modules/pdf-viewer/engine/pdf-serialization-operations/validatePdfSerializationStructure';
 import type { IPdfSerializationSavePayload } from '@app/modules/pdf-viewer/engine/pdf-serialization-operations/pdfSerializationSavePayload';
 import { readDocumentBytes } from '@app/utils/documentBytes';
 
@@ -333,9 +333,10 @@ describe('usePdfSerialization FreeText note comments', () => {
         payload.freeTextComments = [missingComment];
         payload.annotationComments = [missingComment];
 
-        await expect(serializePdfEdits(source, payload))
-            .rejects
-            .toThrow('PDF serialization failed semantic annotation validation');
+        const validation = await validatePdfSerializationStructure(source, source, payload);
+
+        expect(validation.ok).toBe(false);
+        expect(validation.failures).toEqual(expect.arrayContaining([expect.objectContaining({ check: 'freetext-note' })]));
     });
 });
 
