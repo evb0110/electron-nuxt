@@ -89,7 +89,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Worker 6 - Diagnostic trace analysis extraction',
     },
     'app/modules/workspace-shell/components/DocumentWorkspace.vue': {
-        maxLines: 1625,
+        maxLines: 1623,
         reason: 'transitional workspace component hotspot after viewer adapter binding extraction',
         stage: 'Stage S - viewer adapter interface',
     },
