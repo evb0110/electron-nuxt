@@ -497,7 +497,6 @@ describe('release policy', () => {
             'check:generated-native-resources:host',
             'check:resources:matrix',
             'check:wasm:portable',
-            'check:architecture:source-size',
             'fallow:all',
         ]);
         expect(releaseCriticalTestGate?.owner).toBe('release');

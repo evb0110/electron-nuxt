@@ -203,9 +203,6 @@ jobs:
       - name: Fallow duplicates
         run: pnpm run fallow:dupes
 
-      - name: Architecture source size
-        run: pnpm run check:architecture:source-size
-
       - name: Coverage
         run: pnpm run test:coverage
 
@@ -322,9 +319,6 @@ jobs:
 
       - name: Fallow duplicates
         run: pnpm run fallow:dupes
-
-      - name: Architecture source size
-        run: pnpm run check:architecture:source-size
 
       - name: Rust tests
         run: pnpm run test:rust

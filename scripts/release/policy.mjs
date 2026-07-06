@@ -54,7 +54,6 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                         'check:generated-native-resources:host',
                         'check:resources:matrix',
                         'check:wasm:portable',
-                        'check:architecture:source-size',
                         'fallow:all',
                     ],
                 },

@@ -41,12 +41,11 @@
 
 ## Broader Gates
 
-- `pnpm run check:architecture` validates app/module boundaries and source-size policy. Normal `lint` runs the focused import/boundary subset through `check:architecture:imports`.
+- `pnpm run check:architecture` validates app/module boundaries. Normal `lint` runs the focused import/boundary subset through `check:architecture:imports`.
 - `pnpm run check:dependency-lockstep` keeps Vue runtime/compiler pins,
   intlify runtime pins, `vue-i18n`, and pnpm overrides aligned.
 - `pnpm validate` is the broad local gate: lint, split static report/assets
-  checks, typecheck, unit tests, type coverage, strict build, fallow checks,
-  and source-size policy.
+  checks, typecheck, unit tests, type coverage, strict build, and fallow checks.
 - Changed or fast loops are for iteration only: `pnpm run validate:changed`
   runs cached ESLint, changed Vitest tests, and changed fallow checks;
   `pnpm exec vitest run --project unit-policy tests/unit/scripts/releasePolicy.test.ts`

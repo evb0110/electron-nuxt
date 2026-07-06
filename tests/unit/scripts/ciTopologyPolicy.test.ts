@@ -68,7 +68,6 @@ const splitQualityCommands = [
     'pnpm run build:strict:no-wasm-check',
     'pnpm run fallow',
     'pnpm run fallow:dupes',
-    'pnpm run check:architecture:source-size',
 ];
 
 function escapeRegExp(source: string) {

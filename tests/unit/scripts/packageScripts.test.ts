@@ -253,7 +253,6 @@ describe('package scripts', () => {
             'pnpm run typecheck:coverage',
             'pnpm run build:strict',
             'pnpm run fallow:all',
-            'pnpm run check:architecture:source-size',
         ]);
         expect(scriptRunTargets(packageJson, 'typecheck')).toEqual([
             'typecheck:app',
