@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { uniq } from 'es-toolkit/array';
 import { delay } from 'es-toolkit/promise';
 import { buildNuxtDevServerEnv } from '@scripts/electron-run/electronRunLaunchConfig';
+import { getActiveDevServerOutputTee } from '@scripts/electron-run/devServerOutputTee';
 import { isReusableNuxtResponse } from '@scripts/electron-run/isReusableNuxtResponse';
 import {
     DEFAULT_NUXT_PORT,
@@ -551,9 +552,12 @@ function spawnNuxtStartupAttempt(attemptIndex: number, logTiming: (message: stri
         attempt.exitSignal = signal;
     });
 
-    const checkOutput = (data: Buffer) => updateNuxtStartupMarkers(attempt, data.toString(), logTiming);
-    attempt.nuxt.stdout?.on('data', checkOutput);
-    attempt.nuxt.stderr?.on('data', checkOutput);
+    const checkOutput = (stream: 'stdout' | 'stderr', data: Buffer) => {
+        getActiveDevServerOutputTee()?.write('nuxt-dev-server', stream, data);
+        updateNuxtStartupMarkers(attempt, data.toString(), logTiming);
+    };
+    attempt.nuxt.stdout?.on('data', (data: Buffer) => checkOutput('stdout', data));
+    attempt.nuxt.stderr?.on('data', (data: Buffer) => checkOutput('stderr', data));
     return attempt;
 }
 

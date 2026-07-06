@@ -37,6 +37,11 @@ import { getNuxtPort } from '@scripts/electron-run/electronRunPortConfig';
 import { applyE2ESharedRendererPort } from '@scripts/electron-run/electronRunE2ESharedRenderer';
 import { E2E_RUN_ID_ENV } from '@scripts/electron-run/electronRunRunId';
 import {
+    closeActiveDevServerOutputTee,
+    getActiveDevServerOutputTee,
+    installDevServerOutputTee,
+} from '@scripts/electron-run/devServerOutputTee';
+import {
     ELECTRON_SERVER_PATH,
     cleanupOrphanedProjectNuxtRoots,
     hasOtherAliveSessionUsingNuxt,
@@ -342,6 +347,7 @@ function spawnElectronProcess(
     });
 
     const onElectronOutput = (stream: 'stdout' | 'stderr', data: Buffer) => {
+        getActiveDevServerOutputTee()?.write('electron-main-process', stream, data);
         const text = data.toString();
         startupLog.push(stream, text);
         if (text.includes('DevTools listening')) {
@@ -844,6 +850,7 @@ async function cleanupSessionAndExit(exitCode: number, httpServer: ReturnType<ty
     await stopSessionElectronProcess(sessionState);
     await stopSessionNuxtProcess(sessionState, keepNuxtOnStop);
     sessionState = null;
+    closeActiveDevServerOutputTee();
     process.exit(exitCode);
 }
 
@@ -957,8 +964,14 @@ function listenForSessionCommands(options: {
 }
 
 export async function startSession(forceClean = false, options: IStartSessionOptions = {}) {
+    const outputTee = installDevServerOutputTee();
+    if (outputTee) {
+        console.log(`[DevOutput] Tee logs: ${outputTee.relativeRunDir}`);
+    }
+
     const logTiming = createStartupLogger();
     if (!await ensureSessionCanStart()) {
+        closeActiveDevServerOutputTee();
         return;
     }
 
@@ -1083,6 +1096,7 @@ export async function startSession(forceClean = false, options: IStartSessionOpt
         startupSignalCleanup.disarm();
         await cleanupSessionStartingAttempt();
         clearSessionStarting();
+        closeActiveDevServerOutputTee();
         throw error;
     }
 }

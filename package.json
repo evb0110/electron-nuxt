@@ -17,7 +17,7 @@
   "main": "dist-electron/main.cjs",
   "scripts": {
     "start": "pnpm run build:electron && tsx scripts/electronRun.ts start",
-    "dev": "pnpm electron:run stop --session=default --keep-nuxt && pnpm run build:electron && tsx scripts/electronRun.ts start",
+    "dev": "tsx scripts/runDevWithOutputTee.ts",
     "dev:headless": "pnpm run electron:run:headless -- stop --session=default --keep-nuxt && pnpm run build:electron && pnpm run electron:run:headless -- start",
     "dev:nuxt": "pnpm exec nuxi dev --host 127.0.0.1",
     "dev:nuxt:vm": "pnpm exec nuxi dev --host 0.0.0.0 --port 3235",
