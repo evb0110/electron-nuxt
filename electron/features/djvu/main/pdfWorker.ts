@@ -3,7 +3,7 @@ import {
     workerData,
 } from 'worker_threads';
 import { buildOptimizedPdf } from '@electron/djvu/buildOptimizedPdf';
-import { embedBookmarksIntoPdfFile } from '@electron/djvu/embedBookmarksIntoPdfFile';
+import { embedBookmarksIntoPdfFileWithPdfLib } from '@electron/djvu/embedBookmarksWithPdfLib';
 import type {
     TDjvuPdfWorkerMessage,
     TDjvuPdfWorkerTask,
@@ -141,7 +141,12 @@ async function run() {
     try {
         const task = getTask();
         const result = task.type === 'embedBookmarksInFile'
-            ? await embedBookmarksIntoPdfFile(task.inputPdfPath, task.outputPdfPath, task.bookmarks, abortController.signal)
+            ? await embedBookmarksIntoPdfFileWithPdfLib(
+                task.inputPdfPath,
+                task.outputPdfPath,
+                task.bookmarks,
+                abortController.signal,
+            )
             : await runTask(task, abortController.signal);
         if (typeof result === 'number') {
             parentPort.postMessage({

@@ -35,7 +35,7 @@ interface IBundleCheck {
 const REQUIRED_SYMBOLS_BY_WORKER: Partial<Record<TWorkerBundleId, string[]>> = {
     'djvu-pdf': [
         'buildOptimizedPdf',
-        'embedBookmarksIntoPdfFile',
+        'embedBookmarksIntoPdfFileWithPdfLib',
     ],
     'image-export-tiff': ['combinePagesIntoMultiPageTiffLocal'],
     ocr: ['detectSourceDpiDetails'],
@@ -83,7 +83,9 @@ const BUNDLE_CHECKS: IBundleCheck[] = [
 
 let latestSourceMtimeMs = 0;
 
-const SEARCH_WORKER_FILE = WORKER_BUNDLES.find(bundle => bundle.id === 'search')?.fileName ?? 'search-worker.js';
+const ELECTRON_FREE_WORKER_BUNDLE_FILES = new Set(WORKER_BUNDLES
+    .filter(bundle => bundle.id === 'search' || bundle.id === 'djvu-pdf')
+    .map(bundle => bundle.fileName));
 const STATIC_ELECTRON_IMPORT_PATTERN = /\bimport\s*(?:\{[^}]*\}|\*\s*as\s+\w+|[\w$]+(?:\s*,\s*(?:\{[^}]*\}|\*\s*as\s+\w+))?)\s*from\s*["']electron["']|\bimport\s*["']electron["']/;
 const CJS_ELECTRON_REQUIRE_PATTERN = /\brequire\(\s*["']electron["']\s*\)/;
 
@@ -215,7 +217,7 @@ describe('electron bundle integrity', () => {
                 });
             }
 
-            if (check.file === SEARCH_WORKER_FILE) {
+            if (ELECTRON_FREE_WORKER_BUNDLE_FILES.has(check.file)) {
                 it('does not statically import Electron runtime APIs', async () => {
                     if (!existsSync(bundlePath)) {
                         throw new Error(`${check.file} not found — run "pnpm run build:electron"`);

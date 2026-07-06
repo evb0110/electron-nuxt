@@ -1,41 +1,26 @@
 import {
     copyFile,
     mkdtemp,
-    readFile,
     rm,
     stat,
     writeFile,
 } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { PDFDocument } from 'pdf-lib';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
-import { writePdfBookmarkOutlines } from '@pdf-core';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import {
     getPdfPageCount,
     isNativePageOpsDisabled,
     resolveNativePageOpsPath,
 } from '@electron/features/page-ops/public';
+import { embedBookmarksIntoPdfFileWithPdfLib } from '@electron/djvu/embedBookmarksWithPdfLib';
 import { isAbortError } from '@electron/utils/abort';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 
 const log = createLogger('djvu-bookmarks-native');
 const NATIVE_DJVU_BOOKMARK_TIMEOUT_MS = 2 * 60 * 1000;
-
-async function embedBookmarksIntoPdf(
-    pdfData: Uint8Array,
-    bookmarks: IPdfBookmarkEntry[],
-) {
-    if (bookmarks.length === 0) {
-        return pdfData;
-    }
-
-    const doc = await PDFDocument.load(pdfData, { updateMetadata: false });
-    writePdfBookmarkOutlines(doc, bookmarks);
-    return new Uint8Array(await doc.save());
-}
 
 function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) {
@@ -144,12 +129,5 @@ export async function embedBookmarksIntoPdfFile(
         return nativeSize;
     }
 
-    throwIfAborted(signal);
-    const pdfData = await readFile(inputPdfPath);
-    throwIfAborted(signal);
-    const updatedPdfData = await embedBookmarksIntoPdf(pdfData, bookmarks);
-    throwIfAborted(signal);
-    await writeFile(outputPdfPath, updatedPdfData);
-    const outputStats = await stat(outputPdfPath);
-    return outputStats.size;
+    return embedBookmarksIntoPdfFileWithPdfLib(inputPdfPath, outputPdfPath, bookmarks, signal);
 }
