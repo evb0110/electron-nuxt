@@ -7,8 +7,8 @@ use std::{
 
 use evb_pdf_image_combine::{
     combine_tiff_paths, encode_netpbm_path_as_png, write_mixed_pdf_from_page_specs_with_progress,
-    write_pdf_from_image_paths_with_progress, MixedPdfPageSpec, PdfBuildOptions, PdfPageSize,
-    Result,
+    write_pdf_from_image_paths_with_progress, MixedPdfImageCompression, MixedPdfPageSpec,
+    PdfBuildOptions, PdfPageSize, Result,
 };
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -229,13 +229,34 @@ fn parse_compact_manifest_line(line: &str, line_number: usize) -> Result<MixedPd
         "image" if parts.len() == 4 => Ok(MixedPdfPageSpec::FullImage {
             page_size,
             image_path: parse_manifest_path(parts[3], line_number)?,
+            compression: MixedPdfImageCompression::Auto,
+        }),
+        "image-jpeg" if parts.len() == 5 => Ok(MixedPdfPageSpec::FullImage {
+            page_size,
+            compression: MixedPdfImageCompression::Jpeg {
+                quality: parse_jpeg_quality(parts.get(3).copied(), line_number)?,
+            },
+            image_path: parse_manifest_path(parts[4], line_number)?,
         }),
         "layered" if parts.len() == 5 => Ok(MixedPdfPageSpec::Layered {
             page_size,
             background_path: parse_manifest_path(parts[3], line_number)?,
             foreground_mask_path: parse_manifest_path(parts[4], line_number)?,
+            background_compression: MixedPdfImageCompression::Auto,
         }),
-        "image" | "layered" => {
+        "layered-jpeg" if parts.len() == 6 => Ok(MixedPdfPageSpec::Layered {
+            page_size,
+            background_compression: MixedPdfImageCompression::Jpeg {
+                quality: parse_jpeg_quality(parts.get(3).copied(), line_number)?,
+            },
+            background_path: parse_manifest_path(parts[4], line_number)?,
+            foreground_mask_path: parse_manifest_path(parts[5], line_number)?,
+        }),
+        "mask" if parts.len() == 4 => Ok(MixedPdfPageSpec::MaskOnly {
+            page_size,
+            foreground_mask_path: parse_manifest_path(parts[3], line_number)?,
+        }),
+        "image" | "image-jpeg" | "layered" | "layered-jpeg" | "mask" => {
             Err(format!("Invalid compact manifest field count on line {line_number}").into())
         }
         _ => {
@@ -250,6 +271,16 @@ fn parse_positive_f64(value: Option<&str>, label: &str, line_number: usize) -> R
         .parse::<f64>()?;
     if !parsed.is_finite() || parsed <= 0.0 {
         return Err(format!("Invalid {label} on compact manifest line {line_number}").into());
+    }
+    Ok(parsed)
+}
+
+fn parse_jpeg_quality(value: Option<&str>, line_number: usize) -> Result<u8> {
+    let parsed = value
+        .ok_or_else(|| format!("Missing JPEG quality on compact manifest line {line_number}"))?
+        .parse::<u8>()?;
+    if !(1..=100).contains(&parsed) {
+        return Err(format!("Invalid JPEG quality on compact manifest line {line_number}").into());
     }
     Ok(parsed)
 }
@@ -307,13 +338,16 @@ mod tests {
                 page_size,
                 background_path,
                 foreground_mask_path,
+                ..
             } => {
                 assert_eq!(page_size.width_points, 72.0);
                 assert_eq!(page_size.height_points, 144.0);
                 assert_eq!(background_path, PathBuf::from("/tmp/background.ppm"));
                 assert_eq!(foreground_mask_path, PathBuf::from("/tmp/mask.pbm"));
             }
-            MixedPdfPageSpec::FullImage { .. } => panic!("expected layered page"),
+            MixedPdfPageSpec::FullImage { .. } | MixedPdfPageSpec::MaskOnly { .. } => {
+                panic!("expected layered page")
+            }
         }
 
         let image = parse_compact_manifest_line("image\t72\t144\t/tmp/page.ppm", 2).unwrap();
@@ -321,12 +355,46 @@ mod tests {
             MixedPdfPageSpec::FullImage {
                 page_size,
                 image_path,
+                ..
             } => {
                 assert_eq!(page_size.width_points, 72.0);
                 assert_eq!(page_size.height_points, 144.0);
                 assert_eq!(image_path, PathBuf::from("/tmp/page.ppm"));
             }
-            MixedPdfPageSpec::Layered { .. } => panic!("expected image page"),
+            MixedPdfPageSpec::Layered { .. } | MixedPdfPageSpec::MaskOnly { .. } => {
+                panic!("expected image page")
+            }
+        }
+
+        let mask = parse_compact_manifest_line("mask\t72\t144\t/tmp/mask.pbm", 3).unwrap();
+        match mask {
+            MixedPdfPageSpec::MaskOnly {
+                page_size,
+                foreground_mask_path,
+            } => {
+                assert_eq!(page_size.width_points, 72.0);
+                assert_eq!(page_size.height_points, 144.0);
+                assert_eq!(foreground_mask_path, PathBuf::from("/tmp/mask.pbm"));
+            }
+            MixedPdfPageSpec::FullImage { .. } | MixedPdfPageSpec::Layered { .. } => {
+                panic!("expected mask page")
+            }
+        }
+
+        let jpeg =
+            parse_compact_manifest_line("layered-jpeg\t72\t144\t82\t/tmp/bg.ppm\t/tmp/mask.pbm", 4)
+                .unwrap();
+        match jpeg {
+            MixedPdfPageSpec::Layered {
+                background_compression,
+                ..
+            } => match background_compression {
+                MixedPdfImageCompression::Jpeg { quality } => assert_eq!(quality, 82),
+                MixedPdfImageCompression::Auto => panic!("expected jpeg compression"),
+            },
+            MixedPdfPageSpec::FullImage { .. } | MixedPdfPageSpec::MaskOnly { .. } => {
+                panic!("expected layered jpeg page")
+            }
         }
     }
 
@@ -340,6 +408,8 @@ mod tests {
             2,
         )
         .is_err());
-        assert!(parse_compact_manifest_line("unknown\t72\t144\t/tmp/page.ppm", 3).is_err());
+        assert!(parse_compact_manifest_line("mask\t72\t144", 3).is_err());
+        assert!(parse_compact_manifest_line("image-jpeg\t72\t144\t0\t/tmp/page.ppm", 4).is_err());
+        assert!(parse_compact_manifest_line("unknown\t72\t144\t/tmp/page.ppm", 5).is_err());
     }
 }

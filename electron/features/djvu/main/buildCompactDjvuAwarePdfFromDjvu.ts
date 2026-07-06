@@ -37,7 +37,7 @@ interface ICompactDjvuPdfExportOptions {
 interface ICompactPageSpec {
     pageNumber: number;
     manifestLine: string;
-    kind: 'fallback' | 'layered';
+    kind: 'fallback' | 'layered' | 'mask';
     reason: string;
 }
 
@@ -53,6 +53,13 @@ interface INetpbmStats extends INetpbmInfo {
     darkRatio: number;
     colorRatio: number;
     maxDarkRunRatio: number;
+    minChannel: number;
+    maxChannel: number;
+}
+
+interface IPbmMaskStats extends INetpbmInfo {
+    blackRatio: number;
+    maxBlackRunRatio: number;
 }
 
 const logger = createLogger('djvu-compact-pdf');
@@ -66,6 +73,13 @@ const FOREGROUND_DARK_RATIO_FALLBACK = 0.18;
 const FOREGROUND_NON_WHITE_RATIO_FALLBACK = 0.48;
 const FOREGROUND_DARK_RUN_RATIO_FALLBACK = 0.55;
 const FOREGROUND_DARK_RUN_MIN_DARK_RATIO = 0.04;
+const MASK_MIN_BLACK_RATIO = 0.00005;
+const MASK_MAX_BLACK_RATIO = 0.45;
+const MASK_MAX_BLACK_RUN_RATIO = 0.75;
+const BACKGROUND_FLAT_NON_WHITE_RATIO = 0.002;
+const BACKGROUND_FLAT_MIN_CHANNEL = 220;
+const BACKGROUND_FLAT_CHANNEL_RANGE = 20;
+const BACKGROUND_FLAT_COLOR_RATIO = 0.02;
 const DJVU_COMPACT_MAX_PAGE_WORKERS = readBoundedIntegerEnv(
     'EVB_DJVU_COMPACT_MAX_PAGE_WORKERS',
     2,
@@ -80,15 +94,33 @@ const DJVU_COMPACT_PROBE_SUBSAMPLE = readBoundedIntegerEnv(
 );
 const DJVU_COMPACT_BACKGROUND_SUBSAMPLE = readBoundedIntegerEnv(
     'EVB_DJVU_COMPACT_BACKGROUND_SUBSAMPLE',
-    6,
+    3,
     2,
     32,
 );
 const DJVU_COMPACT_FALLBACK_SUBSAMPLE = readBoundedIntegerEnv(
     'EVB_DJVU_COMPACT_FALLBACK_SUBSAMPLE',
-    4,
+    3,
     2,
     32,
+);
+const DJVU_COMPACT_BACKGROUND_JPEG_QUALITY = readBoundedIntegerEnv(
+    'EVB_DJVU_COMPACT_BACKGROUND_JPEG_QUALITY',
+    75,
+    0,
+    100,
+);
+const DJVU_COMPACT_FALLBACK_JPEG_QUALITY = readBoundedIntegerEnv(
+    'EVB_DJVU_COMPACT_FALLBACK_JPEG_QUALITY',
+    75,
+    0,
+    100,
+);
+const DJVU_COMPACT_FRONT_MATTER_FALLBACK_PAGES = readBoundedIntegerEnv(
+    'EVB_DJVU_COMPACT_FRONT_MATTER_FALLBACK_PAGES',
+    2,
+    0,
+    20,
 );
 const DJVU_COMPACT_NETPBM_MAX_INPUT_BYTES = readBoundedIntegerEnv(
     'EVB_DJVU_COMPACT_NETPBM_MAX_MB',
@@ -137,9 +169,10 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
     throwIfAborted(options.signal);
 
     const layeredCount = pageSpecs.filter(spec => spec.kind === 'layered').length;
-    const fallbackCount = pageSpecs.length - layeredCount;
+    const maskCount = pageSpecs.filter(spec => spec.kind === 'mask').length;
+    const fallbackCount = pageSpecs.length - layeredCount - maskCount;
     logger.info(
-        `[${options.jobId}] Compact DjVu PDF manifest ready: ${layeredCount} layered, ${fallbackCount} fallback page(s)`,
+        `[${options.jobId}] Compact DjVu PDF manifest ready: ${layeredCount} layered, ${maskCount} mask-only, ${fallbackCount} fallback page(s)`,
     );
 
     const binaryPath = resolveNativePdfImageCombinePath();
@@ -227,8 +260,47 @@ async function buildCompactPageSpec(
         return buildFallbackPageSpec(options, pagePrefix, pageNumber, classification.reason);
     }
 
-    const backgroundPath = `${pagePrefix}-background.ppm`;
     const maskPath = `${pagePrefix}-mask.pbm`;
+    throwIfAborted(options.signal);
+    const maskResult = await renderDjvuPageToImage(
+        options.djvuPath,
+        maskPath,
+        pageNumber,
+        `${options.jobId}-compact-page-${pageNumber}-mask`,
+        {
+            format: 'pbm',
+            mode: 'mask',
+        },
+    );
+    throwIfCanceledRenderResult(maskResult, options.signal);
+    if (!maskResult.success) {
+        return buildFallbackPageSpec(options, pagePrefix, pageNumber, `mask extraction failed: ${maskResult.error}`);
+    }
+
+    let maskStats: IPbmMaskStats;
+    try {
+        maskStats = await readPbmMaskStats(maskPath);
+    } catch (error) {
+        return buildFallbackPageSpec(options, pagePrefix, pageNumber, `foreground mask unreadable: ${getErrorMessage(error)}`);
+    }
+    if (maskStats.blackRatio <= MASK_MIN_BLACK_RATIO) {
+        return buildFallbackPageSpec(options, pagePrefix, pageNumber, 'blank foreground mask');
+    }
+    if (
+        maskStats.blackRatio > MASK_MAX_BLACK_RATIO
+        || maskStats.maxBlackRunRatio > MASK_MAX_BLACK_RUN_RATIO
+    ) {
+        return buildFallbackPageSpec(options, pagePrefix, pageNumber, 'dense foreground mask');
+    }
+
+    const pageSize = resolvePageSizePoints(
+        options.pageSizes?.[pageNumber - 1] ?? null,
+        options.sourceDpi,
+        maskStats,
+        1,
+    );
+
+    const backgroundPath = `${pagePrefix}-background.ppm`;
     throwIfAborted(options.signal);
     const backgroundResult = await renderDjvuPageToImage(
         options.djvuPath,
@@ -246,37 +318,32 @@ async function buildCompactPageSpec(
         return buildFallbackPageSpec(options, pagePrefix, pageNumber, `background extraction failed: ${backgroundResult.error}`);
     }
 
-    throwIfAborted(options.signal);
-    const maskResult = await renderDjvuPageToImage(
-        options.djvuPath,
-        maskPath,
-        pageNumber,
-        `${options.jobId}-compact-page-${pageNumber}-mask`,
-        {
-            format: 'pbm',
-            mode: 'mask',
-        },
-    );
-    throwIfCanceledRenderResult(maskResult, options.signal);
-    if (!maskResult.success) {
-        return buildFallbackPageSpec(options, pagePrefix, pageNumber, `mask extraction failed: ${maskResult.error}`);
+    let backgroundStats: INetpbmStats;
+    try {
+        backgroundStats = await readNetpbmStats(backgroundPath);
+    } catch (error) {
+        return buildFallbackPageSpec(options, pagePrefix, pageNumber, `background probe unreadable: ${getErrorMessage(error)}`);
+    }
+    if (isFlatBackground(backgroundStats)) {
+        return {
+            pageNumber,
+            kind: 'mask',
+            reason: 'foreground mask over flat background',
+            manifestLine: createManifestLine('mask', pageSize, maskPath),
+        };
     }
 
-    const maskInfo = await readNetpbmInfo(maskPath);
-    const pageSize = resolvePageSizePoints(
-        options.pageSizes?.[pageNumber - 1] ?? null,
-        options.sourceDpi,
-        maskInfo,
-        1,
-    );
     return {
         pageNumber,
         kind: 'layered',
-        reason: 'foreground is monochrome text-like content',
-        manifestLine: createManifestLine('layered', pageSize, [
+        reason: classification.reason,
+        manifestLine: createManifestLine(
+            DJVU_COMPACT_BACKGROUND_JPEG_QUALITY > 0 ? 'layered-jpeg' : 'layered',
+            pageSize,
             backgroundPath,
             maskPath,
-        ]),
+            DJVU_COMPACT_BACKGROUND_JPEG_QUALITY,
+        ),
     };
 }
 
@@ -314,12 +381,18 @@ async function buildFallbackPageSpec(
         pageNumber,
         kind: 'fallback',
         reason,
-        manifestLine: createManifestLine('image', pageSize, [fallbackPath]),
+        manifestLine: createManifestLine(
+            DJVU_COMPACT_FALLBACK_JPEG_QUALITY > 0 ? 'image-jpeg' : 'image',
+            pageSize,
+            fallbackPath,
+            undefined,
+            DJVU_COMPACT_FALLBACK_JPEG_QUALITY,
+        ),
     };
 }
 
 async function classifyPageForLayering(probePath: string, pageNumber: number) {
-    if (pageNumber <= 2) {
+    if (pageNumber <= DJVU_COMPACT_FRONT_MATTER_FALLBACK_PAGES) {
         return {
             useLayering: false,
             reason: 'front-matter page rendered as full-page fallback',
@@ -358,7 +431,7 @@ async function classifyPageForLayering(probePath: string, pageNumber: number) {
         }
         return {
             useLayering: true,
-            reason: 'foreground is monochrome text-like content',
+            reason: 'foreground mask is sparse bitonal content',
         };
     } catch (error) {
         return {
@@ -413,24 +486,36 @@ function positiveNumber(value: number | undefined) {
 }
 
 function createManifestLine(
-    kind: 'image' | 'layered',
+    kind: 'image' | 'image-jpeg' | 'layered' | 'layered-jpeg' | 'mask',
     pageSize: {
         widthPoints: number;
         heightPoints: number;
     },
-    paths: string[],
+    firstPath: string,
+    secondPath?: string,
+    jpegQuality?: number,
 ) {
+    const paths = typeof secondPath === 'string'
+        ? [
+            firstPath,
+            secondPath,
+        ]
+        : [firstPath];
     for (const path of paths) {
         if (!canRepresentManifestPath(path)) {
             throw new Error(`Compact PDF manifest path is not representable: ${path}`);
         }
     }
-    return [
+    const fields = [
         kind,
         pageSize.widthPoints.toFixed(4),
         pageSize.heightPoints.toFixed(4),
-        ...paths,
-    ].join('\t');
+    ];
+    if (kind === 'image-jpeg' || kind === 'layered-jpeg') {
+        fields.push(String(jpegQuality));
+    }
+    fields.push(...paths);
+    return fields.join('\t');
 }
 
 function canRepresentManifestPath(path: string) {
@@ -458,12 +543,16 @@ async function readNetpbmStats(path: string) {
     let darkPixels = 0;
     let colorPixels = 0;
     let maxDarkRun = 0;
+    let minChannel = 255;
+    let maxChannel = 0;
 
     if (info.magic === 'P5') {
         for (let y = 0; y < info.height; y += 1) {
             let darkRun = 0;
             for (let x = 0; x < info.width; x += 1) {
                 const value = payload[y * info.width + x] ?? 255;
+                minChannel = Math.min(minChannel, value);
+                maxChannel = Math.max(maxChannel, value);
                 const isNonWhite = value < 245;
                 const isDark = value < 80;
                 if (isNonWhite) {
@@ -488,6 +577,8 @@ async function readNetpbmStats(path: string) {
                 const blue = payload[offset + 2] ?? 255;
                 const min = Math.min(red, green, blue);
                 const max = Math.max(red, green, blue);
+                minChannel = Math.min(minChannel, min);
+                maxChannel = Math.max(maxChannel, max);
                 const isNonWhite = red < 245 || green < 245 || blue < 245;
                 const isDark = red < 80 && green < 80 && blue < 80;
                 if (isNonWhite) {
@@ -513,7 +604,62 @@ async function readNetpbmStats(path: string) {
         darkRatio: darkPixels / totalPixels,
         colorRatio: colorPixels / Math.max(1, nonWhitePixels),
         maxDarkRunRatio: maxDarkRun / Math.max(1, info.width),
+        minChannel,
+        maxChannel,
     } satisfies INetpbmStats;
+}
+
+async function readPbmMaskStats(path: string) {
+    await assertNetpbmReadSafe(path);
+    const data = await readFile(path);
+    const info = parseNetpbmInfo(data);
+    if (info.magic !== 'P4') {
+        throw new Error(`Unsupported foreground mask magic: ${info.magic}`);
+    }
+
+    const rowStride = Math.ceil(info.width / 8);
+    const payload = data.subarray(info.dataOffset);
+    const expectedBytes = rowStride * info.height;
+    if (payload.byteLength < expectedBytes) {
+        throw new Error('Truncated PBM foreground mask payload');
+    }
+
+    let blackPixels = 0;
+    let maxBlackRun = 0;
+    for (let y = 0; y < info.height; y += 1) {
+        let blackRun = 0;
+        const rowOffset = y * rowStride;
+        for (let x = 0; x < info.width; x += 1) {
+            const byte = payload[rowOffset + Math.floor(x / 8)] ?? 0;
+            const bit = (byte & (0x80 >> (x % 8))) !== 0;
+            if (bit) {
+                blackPixels += 1;
+                blackRun += 1;
+                maxBlackRun = Math.max(maxBlackRun, blackRun);
+            } else {
+                blackRun = 0;
+            }
+        }
+    }
+
+    const totalPixels = info.width * info.height;
+    return {
+        ...info,
+        blackRatio: blackPixels / totalPixels,
+        maxBlackRunRatio: maxBlackRun / Math.max(1, info.width),
+    } satisfies IPbmMaskStats;
+}
+
+function isFlatBackground(stats: INetpbmStats) {
+    if (stats.nonWhiteRatio <= BACKGROUND_FLAT_NON_WHITE_RATIO) {
+        return true;
+    }
+
+    const colorTotalRatio = stats.colorRatio * stats.nonWhiteRatio;
+    return stats.darkRatio === 0
+        && stats.minChannel >= BACKGROUND_FLAT_MIN_CHANNEL
+        && stats.maxChannel - stats.minChannel <= BACKGROUND_FLAT_CHANNEL_RANGE
+        && colorTotalRatio <= BACKGROUND_FLAT_COLOR_RATIO;
 }
 
 async function assertNetpbmReadSafe(path: string) {

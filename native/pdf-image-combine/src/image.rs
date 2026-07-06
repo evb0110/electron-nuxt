@@ -1,4 +1,6 @@
+use jpeg_encoder::{ColorType, Encoder as JpegEncoder};
 use std::{
+    borrow::Cow,
     fs::{self, File},
     io::{BufReader, Cursor},
     path::Path,
@@ -13,6 +15,12 @@ use crate::{
     tiff_io::{read_tiff_pdf_pages_from_bytes, visit_tiff_pdf_pages},
     Result, DEFAULT_DPI,
 };
+
+#[derive(Clone, Copy)]
+pub(crate) enum PdfImageCompression {
+    Auto,
+    Jpeg { quality: u8 },
+}
 
 fn image_extension(path: &Path) -> String {
     path.extension()
@@ -64,6 +72,31 @@ pub(crate) fn visit_image_pages(
 
     on_page(page)?;
     Ok(1)
+}
+
+pub(crate) fn read_image_page(
+    path: &Path,
+    max_pixels: u64,
+    default_dpi: Option<u32>,
+    compression: PdfImageCompression,
+) -> Result<ImagePage> {
+    let extension = image_extension(path);
+    match (extension.as_str(), compression) {
+        ("pgm" | "ppm", PdfImageCompression::Jpeg { quality }) => read_netpbm_jpeg_page(
+            &fs::read(path)?,
+            max_pixels,
+            default_dpi.unwrap_or(DEFAULT_DPI),
+            quality,
+        ),
+        ("jpg" | "jpeg", _) => read_jpeg_page(fs::read(path)?, max_pixels, default_dpi),
+        ("pgm" | "ppm", _) => read_netpbm_page(
+            &fs::read(path)?,
+            max_pixels,
+            default_dpi.unwrap_or(DEFAULT_DPI),
+        ),
+        ("png", _) => read_png_page(path, max_pixels, default_dpi),
+        _ => Err(format!("Unsupported image extension: {}", path.display()).into()),
+    }
 }
 
 pub(crate) fn read_image_pages_from_bytes(
@@ -195,6 +228,45 @@ fn read_netpbm_page(bytes: &[u8], max_pixels: u64, dpi: u32) -> Result<ImagePage
     })
 }
 
+fn read_netpbm_jpeg_page(
+    bytes: &[u8],
+    max_pixels: u64,
+    dpi: u32,
+    quality: u8,
+) -> Result<ImagePage> {
+    let netpbm = parse_netpbm(bytes)?;
+    assert_pixel_limit(netpbm.width, netpbm.height, max_pixels)?;
+    let width = u16::try_from(netpbm.width)
+        .map_err(|_| format!("JPEG width is too large to encode: {}", netpbm.width))?;
+    let height = u16::try_from(netpbm.height)
+        .map_err(|_| format!("JPEG height is too large to encode: {}", netpbm.height))?;
+
+    let total_pixels = netpbm.width as usize * netpbm.height as usize;
+    let (pixels, color_type, color_space) = if netpbm.channels == 1 {
+        (Cow::Borrowed(netpbm.pixels), ColorType::Luma, "DeviceGray")
+    } else if is_rgb_data_grayscale(netpbm.pixels, total_pixels) {
+        let mut grayscale = Vec::with_capacity(total_pixels);
+        for pixel in netpbm.pixels.chunks_exact(3).take(total_pixels) {
+            grayscale.push(pixel[0]);
+        }
+        (Cow::Owned(grayscale), ColorType::Luma, "DeviceGray")
+    } else {
+        (Cow::Borrowed(netpbm.pixels), ColorType::Rgb, "DeviceRGB")
+    };
+
+    let mut data = Vec::new();
+    let encoder = JpegEncoder::new(&mut data, quality);
+    encoder.encode(&pixels, width, height, color_type)?;
+
+    Ok(ImagePage {
+        width: netpbm.width,
+        height: netpbm.height,
+        dpi,
+        color_space,
+        payload: ImagePayload::Jpeg { data },
+    })
+}
+
 pub(crate) fn assert_pixel_limit(width: u32, height: u32, max_pixels: u64) -> Result<()> {
     let pixels = width as u64 * height as u64;
     if width == 0 || height == 0 || pixels > max_pixels {
@@ -247,6 +319,22 @@ mod tests {
                 assert!(decode_params.contains("/Colors 3"));
             }
             ImagePayload::Jpeg { .. } => panic!("expected flate payload"),
+        }
+    }
+
+    #[test]
+    fn encodes_grayscale_netpbm_as_jpeg_payload() {
+        let data = b"P6\n2 1\n255\n\x07\x07\x07\x09\x09\x09";
+        let page = read_netpbm_jpeg_page(data, 1_000_000, 300, 75).unwrap();
+
+        assert_eq!(page.width, 2);
+        assert_eq!(page.height, 1);
+        assert_eq!(page.color_space, "DeviceGray");
+        match page.payload {
+            ImagePayload::Jpeg { data } => {
+                assert!(data.starts_with(&[0xff, 0xd8]));
+            }
+            ImagePayload::RawFlate { .. } => panic!("expected jpeg payload"),
         }
     }
 }

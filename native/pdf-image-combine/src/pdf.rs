@@ -1,3 +1,4 @@
+use fax::{encoder::Encoder as FaxEncoder, slice_bits, Color, VecWriter};
 use flate2::{write::ZlibEncoder, Compression};
 use std::{fmt::Write as FmtWrite, io::Write as IoWrite};
 
@@ -49,6 +50,11 @@ pub struct LayeredPdfPage {
     pub foreground_mask: PbmP4Image,
 }
 
+pub struct MaskPdfPage {
+    pub page_size: PdfPageSize,
+    pub foreground_mask: PbmP4Image,
+}
+
 pub(crate) fn build_pdf(pages: &[ImagePage]) -> Result<Vec<u8>> {
     let mut writer = PdfWriter::new(Vec::new())?;
     for page in pages {
@@ -60,6 +66,12 @@ pub(crate) fn build_pdf(pages: &[ImagePage]) -> Result<Vec<u8>> {
 pub fn build_layered_pdf_page(page: &LayeredPdfPage) -> Result<Vec<u8>> {
     let mut writer = PdfWriter::new(Vec::new())?;
     writer.add_layered_page(page)?;
+    writer.finish()
+}
+
+pub fn build_mask_pdf_page(page: &MaskPdfPage) -> Result<Vec<u8>> {
+    let mut writer = PdfWriter::new(Vec::new())?;
+    writer.add_mask_page(page)?;
     writer.finish()
 }
 
@@ -185,6 +197,38 @@ impl<W: IoWrite> PdfWriter<W> {
         Ok(())
     }
 
+    pub(crate) fn add_mask_page(&mut self, page: &MaskPdfPage) -> Result<()> {
+        validate_page_size(&page.page_size)?;
+        let page_object = self.next_object;
+        let mask_object = page_object + 1;
+        let content_object = page_object + 2;
+        self.next_object += 3;
+        self.page_objects.push(page_object);
+
+        let page_index = self.page_objects.len();
+        let mask_name = format!("FgMask{page_index}");
+        let page_width = page.page_size.width_points;
+        let page_height = page.page_size.height_points;
+        let page_body = format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {:.4} {:.4}] /Resources << /XObject << /{} {} 0 R >> >> /Contents {} 0 R >>",
+            page_width, page_height, mask_name, mask_object, content_object
+        );
+        self.push_object(page_object, page_body.as_bytes())?;
+        self.push_image_mask_object(mask_object, &page.foreground_mask)?;
+
+        let content_stream = format!(
+            "1 g\n0 0 {:.4} {:.4} re f\n0 g\nq {:.4} 0 0 {:.4} 0 0 cm /{} Do Q\n",
+            page_width, page_height, page_width, page_height, mask_name
+        );
+        let content_dict = format!("<< /Length {} >>", content_stream.len());
+        self.push_stream_object(
+            content_object,
+            content_dict.as_bytes(),
+            content_stream.as_bytes(),
+        )?;
+        Ok(())
+    }
+
     fn finish(mut self) -> Result<W> {
         let mut kids = String::new();
         for page_object in &self.page_objects {
@@ -283,14 +327,29 @@ impl<W: IoWrite> PdfWriter<W> {
 
     fn push_image_mask_object(&mut self, object_number: usize, mask: &PbmP4Image) -> Result<()> {
         validate_image_mask(mask)?;
-        let compressed_mask = deflate_bytes(&mask.bitmap)?;
-        let dict = format!(
-            "<< /Type /XObject /Subtype /Image /Width {} /Height {} /ImageMask true /BitsPerComponent 1 /Decode [1 0] /Filter /FlateDecode /Length {} >>",
-            mask.width,
-            mask.height,
-            compressed_mask.len()
-        );
-        self.push_stream_object(object_number, dict.as_bytes(), &compressed_mask)
+        let payload = encode_mask_payload(mask)?;
+        match payload {
+            ImageMaskPayload::Flate(data) => {
+                let dict = format!(
+                    "<< /Type /XObject /Subtype /Image /Width {} /Height {} /ImageMask true /BitsPerComponent 1 /Decode [1 0] /Filter /FlateDecode /Length {} >>",
+                    mask.width,
+                    mask.height,
+                    data.len()
+                );
+                self.push_stream_object(object_number, dict.as_bytes(), &data)
+            }
+            ImageMaskPayload::CcittG4(data) => {
+                let dict = format!(
+                    "<< /Type /XObject /Subtype /Image /Width {} /Height {} /ImageMask true /BitsPerComponent 1 /Decode [1 0] /Filter /CCITTFaxDecode /DecodeParms << /K -1 /Columns {} /Rows {} /BlackIs1 true >> /Length {} >>",
+                    mask.width,
+                    mask.height,
+                    mask.width,
+                    mask.height,
+                    data.len()
+                );
+                self.push_stream_object(object_number, dict.as_bytes(), &data)
+            }
+        }
     }
 
     fn push_object(&mut self, object_number: usize, body: &[u8]) -> Result<()> {
@@ -380,9 +439,54 @@ fn validate_image_mask(mask: &PbmP4Image) -> Result<()> {
 }
 
 fn deflate_bytes(data: &[u8]) -> Result<Vec<u8>> {
-    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::best());
     encoder.write_all(data)?;
     Ok(encoder.finish()?)
+}
+
+enum ImageMaskPayload {
+    Flate(Vec<u8>),
+    CcittG4(Vec<u8>),
+}
+
+fn encode_mask_payload(mask: &PbmP4Image) -> Result<ImageMaskPayload> {
+    let flate = deflate_bytes(&mask.bitmap)?;
+    let Some(ccitt) = encode_mask_ccitt_g4(mask)? else {
+        return Ok(ImageMaskPayload::Flate(flate));
+    };
+    if ccitt.len() < flate.len() {
+        Ok(ImageMaskPayload::CcittG4(ccitt))
+    } else {
+        Ok(ImageMaskPayload::Flate(flate))
+    }
+}
+
+fn encode_mask_ccitt_g4(mask: &PbmP4Image) -> Result<Option<Vec<u8>>> {
+    let Ok(width) = u16::try_from(mask.width) else {
+        return Ok(None);
+    };
+    let writer = VecWriter::with_capacity(mask.bitmap.len() * 8);
+    let mut encoder = FaxEncoder::new(writer);
+    for row in mask
+        .bitmap
+        .chunks(mask.row_stride)
+        .take(mask.height as usize)
+    {
+        let colors = slice_bits(row).take(mask.width as usize).map(|bit| {
+            if bit {
+                Color::Black
+            } else {
+                Color::White
+            }
+        });
+        encoder
+            .encode_line(colors, width)
+            .map_err(|_| "Failed to encode CCITT Group 4 mask line")?;
+    }
+    let writer = encoder
+        .finish()
+        .map_err(|_| "Failed to finish CCITT Group 4 mask")?;
+    Ok(Some(writer.finish()))
 }
 
 enum ColorImagePayloadRef<'a> {
@@ -482,9 +586,36 @@ mod tests {
         assert!(text.contains("/ImageMask true"));
         assert!(text.contains("/BitsPerComponent 1"));
         assert!(text.contains("/Decode [1 0]"));
-        assert!(text.contains("/Filter /FlateDecode"));
+        assert!(text.contains("/Filter /FlateDecode") || text.contains("/Filter /CCITTFaxDecode"));
         assert!(!text.contains("/JBIG2Decode"));
         assert!(!mask_object_dictionary(&text).contains("/ColorSpace"));
+    }
+
+    #[test]
+    fn writes_mask_only_page_on_explicit_white_canvas() {
+        let page = MaskPdfPage {
+            page_size: PdfPageSize {
+                width_points: 144.0,
+                height_points: 72.0,
+            },
+            foreground_mask: PbmP4Image {
+                width: 8,
+                height: 2,
+                row_stride: 1,
+                bitmap: vec![0b1000_0000, 0b0100_0000],
+            },
+        };
+
+        let pdf = build_mask_pdf_page(&page).unwrap();
+        let text = String::from_utf8_lossy(&pdf);
+
+        assert!(text.contains("/MediaBox [0 0 144.0000 72.0000]"));
+        assert!(text.contains("/FgMask1"));
+        assert!(!text.contains("/Bg1"));
+        assert!(text.contains("/ImageMask true"));
+        assert!(!text.contains("/DCTDecode"));
+        assert!(!mask_object_dictionary(&text).contains("/ColorSpace"));
+        assert!(text.contains("1 g\n0 0 144.0000 72.0000 re f\n0 g\n"));
     }
 
     #[test]

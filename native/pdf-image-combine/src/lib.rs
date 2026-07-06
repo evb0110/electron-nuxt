@@ -19,16 +19,22 @@ use std::{
 };
 
 use crate::{
-    image::{assert_pixel_limit, read_image_pages, read_image_pages_from_bytes, visit_image_pages},
+    image::{
+        assert_pixel_limit, read_image_page, read_image_pages, read_image_pages_from_bytes,
+        visit_image_pages, PdfImageCompression,
+    },
     netpbm::parse_pbm_p4,
-    pdf::{build_layered_pdf_page, build_pdf, write_pdf_to_writer, ImagePage, ImagePayload},
+    pdf::{
+        build_layered_pdf_page, build_mask_pdf_page, build_pdf, write_pdf_to_writer, ImagePage,
+        ImagePayload,
+    },
     png_encode::encode_netpbm_file_as_png,
     tiff_io::combine_tiff_pages,
 };
 
 pub use crate::{
     netpbm::PbmP4Image,
-    pdf::{LayeredImagePayload, LayeredPdfImage, LayeredPdfPage, PdfPageSize},
+    pdf::{LayeredImagePayload, LayeredPdfImage, LayeredPdfPage, MaskPdfPage, PdfPageSize},
 };
 
 pub const DEFAULT_DPI: u32 = 72;
@@ -64,12 +70,24 @@ pub enum MixedPdfPageSpec {
     FullImage {
         page_size: PdfPageSize,
         image_path: PathBuf,
+        compression: MixedPdfImageCompression,
     },
     Layered {
         page_size: PdfPageSize,
         background_path: PathBuf,
         foreground_mask_path: PathBuf,
+        background_compression: MixedPdfImageCompression,
     },
+    MaskOnly {
+        page_size: PdfPageSize,
+        foreground_mask_path: PathBuf,
+    },
+}
+
+#[derive(Clone, Copy)]
+pub enum MixedPdfImageCompression {
+    Auto,
+    Jpeg { quality: u8 },
 }
 
 pub fn build_pdf_from_image_paths(
@@ -173,6 +191,10 @@ pub fn build_layered_pdf_from_page(page: &LayeredPdfPage) -> Result<Vec<u8>> {
     build_layered_pdf_page(page)
 }
 
+pub fn build_mask_pdf_from_page(page: &MaskPdfPage) -> Result<Vec<u8>> {
+    build_mask_pdf_page(page)
+}
+
 pub fn write_mixed_pdf_from_page_specs_with_progress(
     page_specs: &[MixedPdfPageSpec],
     output_path: &Path,
@@ -193,16 +215,26 @@ pub fn write_mixed_pdf_from_page_specs_with_progress(
                 MixedPdfPageSpec::FullImage {
                     page_size,
                     image_path,
+                    compression,
                 } => {
-                    let page = read_single_image_page(image_path, options)?;
+                    let page = read_single_image_page(
+                        image_path,
+                        options,
+                        image_compression_to_reader(*compression),
+                    )?;
                     pdf.add_page_with_size(&page, page_size)?;
                 }
                 MixedPdfPageSpec::Layered {
                     page_size,
                     background_path,
                     foreground_mask_path,
+                    background_compression,
                 } => {
-                    let background = read_single_image_page(background_path, options)?;
+                    let background = read_single_image_page(
+                        background_path,
+                        options,
+                        image_compression_to_reader(*background_compression),
+                    )?;
                     let foreground_mask = parse_pbm_p4(&fs::read(foreground_mask_path)?)?;
                     assert_pixel_limit(
                         foreground_mask.width,
@@ -215,6 +247,24 @@ pub fn write_mixed_pdf_from_page_specs_with_progress(
                             height_points: page_size.height_points,
                         },
                         background: image_page_to_layered_image(background),
+                        foreground_mask,
+                    })?;
+                }
+                MixedPdfPageSpec::MaskOnly {
+                    page_size,
+                    foreground_mask_path,
+                } => {
+                    let foreground_mask = parse_pbm_p4(&fs::read(foreground_mask_path)?)?;
+                    assert_pixel_limit(
+                        foreground_mask.width,
+                        foreground_mask.height,
+                        options.max_pixels,
+                    )?;
+                    pdf.add_mask_page(&MaskPdfPage {
+                        page_size: PdfPageSize {
+                            width_points: page_size.width_points,
+                            height_points: page_size.height_points,
+                        },
                         foreground_mask,
                     })?;
                 }
@@ -264,7 +314,20 @@ fn next_page_count_with_limit(
     Ok(next_pages)
 }
 
-fn read_single_image_page(input_path: &Path, options: &PdfBuildOptions) -> Result<ImagePage> {
+fn read_single_image_page(
+    input_path: &Path,
+    options: &PdfBuildOptions,
+    compression: PdfImageCompression,
+) -> Result<ImagePage> {
+    if !matches!(compression, PdfImageCompression::Auto) {
+        return read_image_page(
+            input_path,
+            options.max_pixels,
+            options.default_dpi,
+            compression,
+        );
+    }
+
     let pages = read_image_pages(
         input_path,
         options.max_pixels,
@@ -282,6 +345,13 @@ fn read_single_image_page(input_path: &Path, options: &PdfBuildOptions) -> Resul
             input_path.display()
         )
         .into()),
+    }
+}
+
+fn image_compression_to_reader(compression: MixedPdfImageCompression) -> PdfImageCompression {
+    match compression {
+        MixedPdfImageCompression::Auto => PdfImageCompression::Auto,
+        MixedPdfImageCompression::Jpeg { quality } => PdfImageCompression::Jpeg { quality },
     }
 }
 
@@ -465,6 +535,7 @@ mod tests {
                     },
                     background_path: background_path.clone(),
                     foreground_mask_path: mask_path.clone(),
+                    background_compression: MixedPdfImageCompression::Auto,
                 },
                 MixedPdfPageSpec::FullImage {
                     page_size: PdfPageSize {
@@ -472,6 +543,7 @@ mod tests {
                         height_points: 72.0,
                     },
                     image_path: fallback_path.clone(),
+                    compression: MixedPdfImageCompression::Auto,
                 },
             ],
             &output_path,
@@ -493,6 +565,57 @@ mod tests {
         assert_eq!(progress, vec![1, 2]);
 
         let _ = fs::remove_file(background_path);
+        let _ = fs::remove_file(mask_path);
+        let _ = fs::remove_file(fallback_path);
+        let _ = fs::remove_file(output_path);
+    }
+
+    #[test]
+    fn writes_mixed_mask_only_and_jpeg_pdf_pages() {
+        let mask_path = temp_path("mixed-mask-only").with_extension("pbm");
+        let fallback_path = temp_path("mixed-jpeg-fallback").with_extension("jpg");
+        let output_path = temp_path("mixed-mask-jpeg-output").with_extension("pdf");
+
+        fs::write(&mask_path, b"P4\n8 1\n\x80").unwrap();
+        fs::write(&fallback_path, minimal_jpeg()).unwrap();
+
+        let mut progress = Vec::new();
+        write_mixed_pdf_from_page_specs_with_progress(
+            &[
+                MixedPdfPageSpec::MaskOnly {
+                    page_size: PdfPageSize {
+                        width_points: 72.0,
+                        height_points: 72.0,
+                    },
+                    foreground_mask_path: mask_path.clone(),
+                },
+                MixedPdfPageSpec::FullImage {
+                    page_size: PdfPageSize {
+                        width_points: 144.0,
+                        height_points: 72.0,
+                    },
+                    image_path: fallback_path.clone(),
+                    compression: MixedPdfImageCompression::Auto,
+                },
+            ],
+            &output_path,
+            &PdfBuildOptions {
+                default_dpi: Some(72),
+                max_pages: 10,
+                ..PdfBuildOptions::default()
+            },
+            |processed| progress.push(processed),
+        )
+        .unwrap();
+
+        let pdf = fs::read(&output_path).unwrap();
+        let text = String::from_utf8_lossy(&pdf);
+        assert!(text.contains("/Count 2"));
+        assert!(text.contains("/ImageMask true"));
+        assert!(text.contains("/Filter /DCTDecode"));
+        assert!(text.contains("1 g\n0 0 72.0000 72.0000 re f\n0 g\n"));
+        assert_eq!(progress, vec![1, 2]);
+
         let _ = fs::remove_file(mask_path);
         let _ = fs::remove_file(fallback_path);
         let _ = fs::remove_file(output_path);
@@ -533,5 +656,12 @@ mod tests {
         let mut second = encoder.new_image::<colortype::RGB8>(1, 1).unwrap();
         second.resolution(ResolutionUnit::Inch, Rational { n: 72, d: 1 });
         second.write_data(&[0, 255, 0]).unwrap();
+    }
+
+    fn minimal_jpeg() -> Vec<u8> {
+        vec![
+            0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, b'J', b'F', b'I', b'F', 0, 1, 1, 1, 0, 72, 0, 72,
+            0, 0, 0xff, 0xc0, 0x00, 0x0b, 8, 0, 1, 0, 1, 1, 1, 0x11, 0, 0xff, 0xd9,
+        ]
     }
 }
