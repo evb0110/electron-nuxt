@@ -111,6 +111,16 @@ win:
     - from: .tmp/pdf-search/win32-${arch}
       to: pdf-search/win32-${arch}
 
+appx:
+  artifactName: "EVB-Viewer-${version}-${arch}-store.${ext}"
+  applicationId: EVBViewer
+  identityName: EugeneBarsky.EVBViewer
+  publisher: CN=06251AF5-66AF-420F-B896-574B507600B9
+  publisherDisplayName: Eugene Barsky
+  displayName: EVB Viewer
+  capabilities:
+    - runFullTrust
+
 linux:
   icon: resources/icon.png
   maintainer: Eugene Barsky <34789976+evb0110@users.noreply.github.com>

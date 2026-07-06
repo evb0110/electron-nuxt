@@ -1,0 +1,163 @@
+name: Microsoft Store Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref or commit SHA to package. Defaults to the selected branch.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  # Match the release build matrix so Store packages are built with the same
+  # runtime as direct-download Windows installers.
+  NODE_VERSION: '24.11.1'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build:
+    name: appx (${{ matrix.arch }})
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - x64
+          - arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      # Windows: pnpm postinstall uses Unix commands (mkdir -p, cp) that
+      # require bash. Configure pnpm to use Git Bash for lifecycle scripts.
+      - name: Configure pnpm script shell
+        shell: pwsh
+        run: pnpm config set script-shell "C:\Program Files\Git\bin\bash.exe"
+
+      - name: Cache Windows native tool archives
+        # Optional accelerator only: the bundling script downloads on cache miss.
+        continue-on-error: true
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/win-bundle-cache
+          key: store-win-native-tools-${{ matrix.arch }}-${{ hashFiles('scripts/bundle-tools-windows.sh') }}
+
+      - name: Install dependencies
+        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+
+      - name: Verify Electron install
+        run: pnpm run check:electron:install
+
+      - name: Bundle native tools
+        shell: bash
+        env:
+          WIN_BUNDLE_CACHE_DIR: ${{ runner.temp }}/win-bundle-cache
+        run: TARGET_ARCH=${{ matrix.arch }} bash scripts/bundle-tools-windows.sh
+
+      - name: Install Rust target (arm64)
+        if: matrix.arch == 'arm64'
+        run: rustup target add aarch64-pc-windows-msvc
+
+      - name: Install Rust WASM target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Build (Nuxt + Electron)
+        env:
+          EVB_NATIVE_TARGET_ARCH: ${{ matrix.arch }}
+          EVB_NATIVE_TARGET_PLATFORM: win
+        run: pnpm run build:strict
+
+      - name: Upload strict build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: store-build-log-win-${{ matrix.arch }}
+          path: .tmp/build.log
+          if-no-files-found: ignore
+
+      - name: Package Microsoft Store AppX
+        shell: bash
+        run: |
+          bash scripts/release/run-with-retries.sh 3 20 "Microsoft Store AppX packaging" \
+            pnpm exec electron-builder --publish never --win appx --${{ matrix.arch }}
+
+      - name: Verify Microsoft Store AppX
+        shell: pwsh
+        run: |
+          $packages = @(Get-ChildItem -Path release -Filter "*-store.appx")
+          if ($packages.Count -ne 1) {
+            Write-Error "Expected exactly one Store .appx package, found $($packages.Count)."
+            exit 1
+          }
+
+          $extractDir = Join-Path $env:RUNNER_TEMP "store-appx-${{ matrix.arch }}"
+          Remove-Item -Recurse -Force $extractDir -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $extractDir | Out-Null
+          tar.exe -xf $packages[0].FullName -C $extractDir
+
+          $manifestPath = Join-Path $extractDir "AppxManifest.xml"
+          if (-not (Test-Path $manifestPath)) {
+            Write-Error "AppxManifest.xml is missing from the Store package."
+            exit 1
+          }
+
+          $manifest = Get-Content -Raw $manifestPath
+          $expectedManifestSnippets = @(
+            'Name="EugeneBarsky.EVBViewer"',
+            "Publisher='CN=06251AF5-66AF-420F-B896-574B507600B9'",
+            '<DisplayName>EVB Viewer</DisplayName>',
+            '<PublisherDisplayName>Eugene Barsky</PublisherDisplayName>',
+            'Id="EVBViewer"',
+            'Executable="app\EVB Viewer.exe"',
+            'EntryPoint="Windows.FullTrustApplication"',
+            'Name="runFullTrust"'
+          )
+
+          foreach ($snippet in $expectedManifestSnippets) {
+            if (-not $manifest.Contains($snippet)) {
+              Write-Error "AppX manifest is missing expected snippet: $snippet"
+              exit 1
+            }
+          }
+
+          $expectedAssets = @(
+            "StoreLogo.png",
+            "Square44x44Logo.png",
+            "Square150x150Logo.png",
+            "Wide310x150Logo.png",
+            "SmallTile.png",
+            "LargeTile.png",
+            "SplashScreen.png"
+          )
+
+          foreach ($asset in $expectedAssets) {
+            $assetPath = Join-Path $extractDir "assets\$asset"
+            if (-not (Test-Path $assetPath)) {
+              Write-Error "Store package is missing asset: $asset"
+              exit 1
+            }
+          }
+
+          Write-Host "Verified Store package: $($packages[0].Name)"
+
+      - name: Upload Microsoft Store AppX
+        uses: actions/upload-artifact@v7
+        with:
+          name: store-appx-win-${{ matrix.arch }}
+          path: release/*-store.appx
+          if-no-files-found: error

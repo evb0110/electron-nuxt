@@ -105,6 +105,7 @@
     "dist": "pnpm run build:desktop && electron-builder",
     "dist:mac": "pnpm run build:desktop && electron-builder --mac",
     "dist:win": "pnpm run build:desktop && electron-builder --win",
+    "dist:win:store": "pnpm run build:desktop && electron-builder --win appx",
     "dist:linux": "pnpm run build:desktop && electron-builder --linux",
     "release:verify:checks": "node scripts/release/verify-local-checks.mjs",
     "release:verify:package:local": "node scripts/release/verify-local-package.mjs",
