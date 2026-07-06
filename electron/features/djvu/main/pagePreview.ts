@@ -73,6 +73,21 @@ function normalizePreviewSubsample(options: IDjvuPagePreviewOptions | undefined)
     return subsample;
 }
 
+function normalizePreviewTargetWidth(options: IDjvuPagePreviewOptions | undefined) {
+    const targetWidthPx = options?.targetWidthPx;
+    if (targetWidthPx === undefined) {
+        return undefined;
+    }
+    if (
+        !Number.isFinite(targetWidthPx)
+        || !Number.isInteger(targetWidthPx)
+        || targetWidthPx < 1
+    ) {
+        throw new Error('Invalid DjVu preview target width value (expected a positive integer)');
+    }
+    return targetWidthPx;
+}
+
 function getMinimumPreviewSubsample(pageSize: Omit<IDjvuPageSize, 'dpi'> | null) {
     if (!pageSize) {
         return 1;
@@ -90,15 +105,51 @@ function getMinimumPreviewSubsample(pageSize: Omit<IDjvuPageSize, 'dpi'> | null)
     );
 }
 
-async function resolvePreviewSubsample(
+interface IDjvuPreviewRenderPlan {
+    subsample: number;
+    targetHeightPx?: number;
+    targetWidthPx?: number;
+}
+
+function clampPreviewTargetWidth(
+    requestedTargetWidth: number,
+    pageSize: Omit<IDjvuPageSize, 'dpi'>,
+    subsample: number,
+) {
+    const renderedNativeWidth = Math.max(1, Math.round(pageSize.width / subsample));
+    if (requestedTargetWidth <= renderedNativeWidth) {
+        return undefined;
+    }
+
+    // ddjvu's over-native `-size` path softens text on low-resolution scans.
+    // Keep the native raster at source resolution and let the viewer scale it.
+    return undefined;
+}
+
+async function resolvePreviewRenderPlan(
     djvuPath: string,
     pageNumber: number,
     options: IDjvuPagePreviewOptions | undefined,
     lifecycleOptions: IDjvuPagePreviewLifecycleOptions,
-) {
+): Promise<IDjvuPreviewRenderPlan> {
     const requestedSubsample = normalizePreviewSubsample(options) ?? 1;
+    const requestedTargetWidth = normalizePreviewTargetWidth(options);
     const pageSize = await readDjvuPageSizeForPreview(djvuPath, pageNumber, lifecycleOptions).catch(() => null);
-    return Math.max(requestedSubsample, getMinimumPreviewSubsample(pageSize));
+    const subsample = Math.max(requestedSubsample, getMinimumPreviewSubsample(pageSize));
+    if (!pageSize || requestedTargetWidth === undefined) {
+        return { subsample };
+    }
+
+    const targetWidthPx = clampPreviewTargetWidth(requestedTargetWidth, pageSize, subsample);
+    if (targetWidthPx === undefined) {
+        return { subsample };
+    }
+
+    return {
+        subsample,
+        targetHeightPx: Math.max(1, Math.round(targetWidthPx * pageSize.height / pageSize.width)),
+        targetWidthPx,
+    };
 }
 
 async function assertPreviewNetpbmReadSafe(ppmPath: string) {
@@ -214,7 +265,7 @@ export async function renderDjvuPagePreview(
     if (!Number.isInteger(pageNumber) || pageNumber < 1) {
         throw new Error(`Invalid DjVu page number: ${pageNumber}`);
     }
-    const subsample = await resolvePreviewSubsample(djvuPath, pageNumber, options, lifecycleOptions);
+    const renderPlan = await resolvePreviewRenderPlan(djvuPath, pageNumber, options, lifecycleOptions);
 
     const tempDir = await mkdtemp(join(tmpdir(), 'djvu-preview-'));
     const ppmPath = join(tempDir, `page-${pageNumber}-${randomUUID()}.ppm`);
@@ -229,7 +280,13 @@ export async function renderDjvuPagePreview(
             processId,
             {
                 format: 'ppm',
-                ...(subsample && subsample > 1 ? { subsample } : {}),
+                ...(renderPlan.subsample > 1 ? { subsample: renderPlan.subsample } : {}),
+                ...(renderPlan.targetWidthPx && renderPlan.targetHeightPx
+                    ? {
+                        targetHeightPx: renderPlan.targetHeightPx,
+                        targetWidthPx: renderPlan.targetWidthPx,
+                    }
+                    : {}),
             },
         );
         throwIfAborted(lifecycleOptions.signal);

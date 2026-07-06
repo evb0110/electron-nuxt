@@ -10,6 +10,7 @@ import { resolvePlatformArchTag } from '@electron/utils/platformArch';
 
 export interface IDjvuNativeToolPaths {
     ddjvu: string;
+    djvudump: string;
     djvused: string;
 }
 
@@ -109,6 +110,7 @@ export function resolveDjvuNativeToolPaths(options: IResolveDjvuNativeToolPathsO
 
     return {
         ddjvu: getDjvuToolBinaryPath(djvuDir, 'ddjvu', options.isPackaged, binaryPathOptions),
+        djvudump: getDjvuToolBinaryPath(djvuDir, 'djvudump', options.isPackaged, binaryPathOptions),
         djvused: getDjvuToolBinaryPath(djvuDir, 'djvused', options.isPackaged, binaryPathOptions),
     };
 }

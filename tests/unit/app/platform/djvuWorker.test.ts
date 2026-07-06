@@ -191,7 +191,47 @@ describe('createDjvuWorkerFromPath', () => {
         expect(mocks.unload).toHaveBeenCalledWith(ref);
     });
 
-    it('uses native desktop page previews without reading the full DjVu into djvu.js', async () => {
+    it('uses djvu.js previews for ordinary desktop DjVu files to match web rendering quality', async () => {
+        const bytes = new Uint8Array([
+            4,
+            5,
+            6,
+        ]);
+        const documentFiles = {
+            statFile: vi.fn(async () => ({size: bytes.byteLength})),
+            readFile: vi.fn(async () => bytes),
+            readFileRange: vi.fn(async () => {
+                throw new Error('split readFileRange should not be used for small files');
+            }),
+        };
+        vi.stubGlobal('window', { electronAPI: createElectronPlatformApiFixture({
+            documentFiles,
+            djvu: {
+                getPageSizes: mocks.nativeGetPageSizes,
+                renderPagePreview: mocks.nativeRenderPagePreview,
+            },
+        }) });
+        const { createDjvuPagePreviewSourceFromPath } =
+            await import('@app/platform/browser-api/createDjvuWorkerFromPath');
+
+        const source = await createDjvuPagePreviewSourceFromPath('/Users/test/book.djvu');
+        await expect(source.getPageSizes()).resolves.toEqual([{
+            width: 100,
+            height: 200,
+        }]);
+        await expect(source.renderPageObjectUrl(1, { subsample: 2 })).resolves.toEqual({
+            objectUrl: 'blob:fallback-page-1',
+            renderedPx: 100,
+        });
+
+        expect(mocks.loadDjvuJs).toHaveBeenCalledTimes(1);
+        expect(documentFiles.statFile).toHaveBeenCalledWith('/Users/test/book.djvu');
+        expect(documentFiles.readFile).toHaveBeenCalledWith('/Users/test/book.djvu');
+        expect(mocks.nativeGetPageSizes).not.toHaveBeenCalled();
+        expect(mocks.nativeRenderPagePreview).not.toHaveBeenCalled();
+    });
+
+    it('uses native desktop page previews when reading the full DjVu into djvu.js is unavailable', async () => {
         vi.stubGlobal('window', { electronAPI: createElectronPlatformApiFixture({ djvu: {
             getPageSizes: mocks.nativeGetPageSizes,
             renderPagePreview: mocks.nativeRenderPagePreview,
@@ -230,6 +270,47 @@ describe('createDjvuWorkerFromPath', () => {
             previewRequestId: 'native-preview:1:1',
             subsample: 2,
         });
+    });
+
+    it('uses native desktop page previews for huge desktop DjVu files', async () => {
+        const documentFiles = {
+            statFile: vi.fn(async () => ({size: 100 * 1024 * 1024})),
+            readFile: vi.fn(async () => new Uint8Array([1])),
+            readFileRange: vi.fn(async () => new Uint8Array([1])),
+        };
+        vi.stubGlobal('window', { electronAPI: createElectronPlatformApiFixture({
+            documentFiles,
+            djvu: {
+                getPageSizes: mocks.nativeGetPageSizes,
+                renderPagePreview: mocks.nativeRenderPagePreview,
+            },
+        }) });
+        vi.stubGlobal('URL', {
+            createObjectURL: vi.fn(() => 'blob:native-preview'),
+            revokeObjectURL: vi.fn(),
+        });
+        vi.stubGlobal('Blob', class {
+            public readonly parts: unknown[];
+            public readonly options: unknown;
+
+            constructor(parts: unknown[], options: unknown) {
+                this.parts = parts;
+                this.options = options;
+            }
+        });
+        const { createDjvuPagePreviewSourceFromPath } =
+            await import('@app/platform/browser-api/createDjvuWorkerFromPath');
+
+        const source = await createDjvuPagePreviewSourceFromPath('/Users/test/huge.djvu');
+        await expect(source.renderPageObjectUrl(1, { subsample: 2 })).resolves.toEqual({
+            objectUrl: 'blob:native-preview',
+            renderedPx: 100,
+        });
+
+        expect(mocks.loadDjvuJs).not.toHaveBeenCalled();
+        expect(documentFiles.readFile).not.toHaveBeenCalled();
+        expect(documentFiles.readFileRange).not.toHaveBeenCalled();
+        expect(mocks.nativeRenderPagePreview).toHaveBeenCalled();
     });
 
     it('skips stale browser fallback preview renders before starting queued djvu.js work', async () => {

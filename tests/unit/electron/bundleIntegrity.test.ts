@@ -35,7 +35,8 @@ interface IBundleCheck {
 const REQUIRED_SYMBOLS_BY_WORKER: Partial<Record<TWorkerBundleId, string[]>> = {
     'djvu-pdf': [
         'buildOptimizedPdf',
-        'embedBookmarksIntoPdfFileWithPdfLib',
+        'embedBookmarksIntoPdfFile',
+        'evb-pdf-page-ops(djvu-bookmarks)',
     ],
     'image-export-tiff': ['combinePagesIntoMultiPageTiffLocal'],
     ocr: ['detectSourceDpiDetails'],

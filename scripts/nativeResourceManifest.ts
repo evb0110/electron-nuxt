@@ -322,6 +322,18 @@ export const NATIVE_SOURCE_MATRIX_ENTRIES = [
         ],
         type: 'file',
     },
+    {
+        kind: 'required',
+        label: 'djvudump',
+        pathSegments: [
+            'resources',
+            'djvulibre',
+            '{tag}',
+            'bin',
+            'djvudump{exeSuffix}',
+        ],
+        type: 'file',
+    },
 ] as const satisfies readonly TNativeSourceMatrixEntryDefinition[];
 
 export function isNativeResourcePlatform(value: string): value is TNativeResourcePlatform {

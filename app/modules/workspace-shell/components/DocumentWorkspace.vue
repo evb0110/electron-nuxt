@@ -167,7 +167,7 @@
             <!-- The overlay prop is lease-only once a viewer is mounted; the transition slot also serves the pre-viewer fallback path. -->
             <WorkspaceViewerHost
                 :has-document="showWorkspaceViewerDocument"
-                :show-transition-overlay="showDocumentTransitionSkeleton"
+                :show-transition-overlay="showWorkspaceTransitionSkeleton"
                 :suppress-empty-state="suppressEmptyState || isDocumentOpenPlaceholderVisible"
             >
                 <template #document>
@@ -981,14 +981,29 @@ const showWorkspaceViewerDocument = computed(() => (
     || showNativePdfViewer.value
     || showNativeDjvuViewer.value
 ));
+const activeViewerMounted = computed(() => Boolean(documentViewerRef.value));
+const hasPendingViewerSource = computed(() => (
+    Boolean(pdfSrc.value)
+    || Boolean(nativePdfSourcePath.value)
+    || Boolean(djvuSourcePath.value)
+));
+const showPendingViewerMountSkeleton = computed(() => (
+    Boolean(activeViewerAdapter.value)
+    && hasPendingViewerSource.value
+    && !activeViewerMounted.value
+));
 const showPendingDocumentOpenSkeleton = computed(() => (
-    isDocumentOpenPlaceholderVisible.value
+    (
+        isDocumentOpenPlaceholderVisible.value
+        || showPendingViewerMountSkeleton.value
+    )
     && !showWorkspaceViewerDocument.value
     && !pdfError.value
     && !djvuError.value
 ));
 const showWorkspaceTransitionSkeleton = computed(() => (
     showDocumentTransitionSkeleton.value
+    || showPendingViewerMountSkeleton.value
     || showPendingDocumentOpenSkeleton.value
 ));
 const hasDjvuBannerOpeningContext = computed(() => (

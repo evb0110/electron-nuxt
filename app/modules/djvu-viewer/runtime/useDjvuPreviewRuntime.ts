@@ -91,7 +91,9 @@ const DJVU_CONTINUOUS_SCROLLING_PREFETCH_BEHIND_PAGES = 1;
 const DJVU_CONTINUOUS_RETAINED_PAGE_EPOCHS = 3;
 const DJVU_CONTINUOUS_RETAINED_PAGE_LIMIT = 24;
 const DJVU_CONTINUOUS_RETAINED_PIXEL_LIMIT = 24_000_000;
-const DJVU_CONTINUOUS_PREVIEW_MAX_TARGET_PX = 1_024;
+const DJVU_SETTLED_PREVIEW_MAX_TARGET_PX = 3_072;
+const DJVU_CONTINUOUS_PREVIEW_MAX_TARGET_PX = DJVU_SETTLED_PREVIEW_MAX_TARGET_PX;
+const DJVU_PREVIEW_OVERSIZED_RERENDER_RATIO = 1.5;
 const DJVU_PAGE_FLIP_PREFETCH_PAGES = 2;
 const DJVU_SCROLLING_PREVIEW_HEADROOM = 1;
 const DJVU_SCROLLING_PREVIEW_MAX_TARGET_PX = 768;
@@ -235,14 +237,35 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
             ? DJVU_SCROLLING_PREVIEW_MAX_TARGET_PX
             : source.isContinuousScroll.value
                 ? DJVU_CONTINUOUS_PREVIEW_MAX_TARGET_PX
-                : undefined;
+                : DJVU_SETTLED_PREVIEW_MAX_TARGET_PX;
 
         return resolveDjvuPreviewResolutionPlan({
             ...(isScrollingPreviewMode.value ? { headroom: DJVU_SCROLLING_PREVIEW_HEADROOM } : {}),
-            ...(maxTargetPx === undefined ? {} : { maxTargetPx }),
+            maxTargetPx,
             nativeWidth: pageSize?.width ?? 1,
             neededDevicePx,
         });
+    }
+
+    function getExpectedRenderedWidth(pageNumber: number, plan: IPagePreviewRenderPlan) {
+        const pageSize = state.pageSizes.value[pageNumber - 1];
+        const renderedNativeWidth = pageSize?.width
+            ? Math.max(1, Math.round(pageSize.width / plan.subsample))
+            : 1;
+
+        return Math.max(renderedNativeWidth, plan.targetPx);
+    }
+
+    function getDefaultPagePreviewRenderOptions(pageNumber: number, plan: IPagePreviewRenderPlan) {
+        const pageSize = state.pageSizes.value[pageNumber - 1];
+        const renderedNativeWidth = pageSize?.width
+            ? Math.max(1, Math.round(pageSize.width / plan.subsample))
+            : 1;
+
+        return {
+            subsample: plan.subsample,
+            ...(plan.targetPx > renderedNativeWidth ? { targetWidthPx: plan.targetPx } : {}),
+        };
     }
 
     function revokePageUrl(pageNumber: number) {
@@ -381,11 +404,27 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
         );
     }
 
+    function isPagePreviewOversized(pageNumber: number, pageState: IDjvuPageState | undefined) {
+        const expectedRenderedWidth = getExpectedRenderedWidth(pageNumber, getPreviewResolutionPlan(pageNumber));
+
+        return Boolean(
+            pageState
+            && pageState.status === 'loaded'
+            && pageState.objectUrl
+            && pageState.renderedPx > 0
+            && pageState.renderedPx > expectedRenderedWidth * DJVU_PREVIEW_OVERSIZED_RERENDER_RATIO,
+        );
+    }
+
+    function isPagePreviewMismatched(pageNumber: number, pageState: IDjvuPageState | undefined) {
+        return isPagePreviewUndersized(pageNumber, pageState) || isPagePreviewOversized(pageNumber, pageState);
+    }
+
     function canLoadPagePreview(pageNumber: number, pageState: IDjvuPageState | undefined): pageState is IDjvuPageState {
         return Boolean(
             pageState
             && pageState.status !== 'loading'
-            && (pageState.status !== 'loaded' || isPagePreviewUndersized(pageNumber, pageState)),
+            && (pageState.status !== 'loaded' || isPagePreviewMismatched(pageNumber, pageState)),
         );
     }
 
@@ -394,7 +433,7 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
             pageState
             && (
                 pageState.status === 'idle'
-                || isPagePreviewUndersized(pageNumber, pageState)
+                || isPagePreviewMismatched(pageNumber, pageState)
             ),
         );
     }
@@ -648,7 +687,7 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
         try {
             const renderOptions = options.getPagePreviewRenderOptions
                 ? options.getPagePreviewRenderOptions(pageNumber, previewPlan)
-                : { subsample: previewPlan.subsample };
+                : getDefaultPagePreviewRenderOptions(pageNumber, previewPlan);
             const {
                 objectUrl,
                 renderedPx,

@@ -49,7 +49,7 @@ echo ""
 echo ""
 
 # Step 4: Bundle DjVuLibre tools
-echo "Step 4/$TOTAL_STEPS: Bundling DjVuLibre (ddjvu, djvused)..."
+echo "Step 4/$TOTAL_STEPS: Bundling DjVuLibre (ddjvu, djvused, djvudump)..."
 echo ""
 "$SCRIPT_DIR/bundle-djvu-macos.sh"
 echo ""

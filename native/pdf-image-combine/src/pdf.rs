@@ -22,6 +22,7 @@ pub(crate) struct ImagePage {
     pub(crate) payload: ImagePayload,
 }
 
+#[derive(Clone, Copy)]
 pub struct PdfPageSize {
     pub width_points: f64,
     pub height_points: f64,
@@ -48,6 +49,7 @@ pub struct LayeredPdfPage {
     pub page_size: PdfPageSize,
     pub background: LayeredPdfImage,
     pub foreground_mask: PbmP4Image,
+    pub foreground_color: Option<[u8; 3]>,
 }
 
 pub struct MaskPdfPage {
@@ -162,7 +164,7 @@ impl<W: IoWrite> PdfWriter<W> {
         let background_object = page_object + 1;
         let mask_object = page_object + 2;
         let content_object = page_object + 3;
-        self.next_object += 4;
+        self.next_object = content_object + 1;
         self.page_objects.push(page_object);
 
         let page_index = self.page_objects.len();
@@ -170,23 +172,37 @@ impl<W: IoWrite> PdfWriter<W> {
         let mask_name = format!("FgMask{page_index}");
         let page_width = page.page_size.width_points;
         let page_height = page.page_size.height_points;
+        let xobjects = format!(
+            "/{} {} 0 R /{} {} 0 R",
+            background_name, background_object, mask_name, mask_object
+        );
         let page_body = format!(
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {:.4} {:.4}] /Resources << /XObject << /{} {} 0 R /{} {} 0 R >> >> /Contents {} 0 R >>",
-            page_width,
-            page_height,
-            background_name,
-            background_object,
-            mask_name,
-            mask_object,
-            content_object
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {:.4} {:.4}] /Resources << /XObject << {} >> >> /Contents {} 0 R >>",
+            page_width, page_height, xobjects, content_object
         );
         self.push_object(page_object, page_body.as_bytes())?;
         self.push_layered_image_object(background_object, &page.background)?;
         self.push_image_mask_object(mask_object, &page.foreground_mask)?;
 
+        let foreground_fill = if let Some([red, green, blue]) = page.foreground_color {
+            format!(
+                "{:.4} {:.4} {:.4} rg\n",
+                f64::from(red) / 255.0,
+                f64::from(green) / 255.0,
+                f64::from(blue) / 255.0
+            )
+        } else {
+            "0 g\n".to_string()
+        };
         let content_stream = format!(
-            "q {:.4} 0 0 {:.4} 0 0 cm /{} Do Q\n0 g\nq {:.4} 0 0 {:.4} 0 0 cm /{} Do Q\n",
-            page_width, page_height, background_name, page_width, page_height, mask_name
+            "q {:.4} 0 0 {:.4} 0 0 cm /{} Do Q\n{}q {:.4} 0 0 {:.4} 0 0 cm /{} Do Q\n",
+            page_width,
+            page_height,
+            background_name,
+            foreground_fill,
+            page_width,
+            page_height,
+            mask_name
         );
         let content_dict = format!("<< /Length {} >>", content_stream.len());
         self.push_stream_object(
@@ -632,6 +648,27 @@ mod tests {
     }
 
     #[test]
+    fn writes_layered_color_page_with_rgb_fill_and_image_mask() {
+        let mut page = sample_layered_page(LayeredImagePayload::Jpeg {
+            data: vec![0xff, 0xd8, 0xff, 0xd9],
+        });
+        page.foreground_color = Some([128, 16, 16]);
+
+        let pdf = build_layered_pdf_page(&page).unwrap();
+        let text = String::from_utf8_lossy(&pdf);
+
+        assert!(text.contains("/Bg1"));
+        assert!(text.contains("/FgMask1"));
+        assert!(!text.contains("/Fg1"));
+        assert!(!text.contains("/Mask "));
+        assert_eq!(text.matches("/ImageMask true").count(), 1);
+        assert_eq!(text.matches("/Filter /DCTDecode").count(), 1);
+        assert!(text.contains(
+            "q 144.0000 0 0 72.0000 0 0 cm /Bg1 Do Q\n0.5020 0.0627 0.0627 rg\nq 144.0000 0 0 72.0000 0 0 cm /FgMask1 Do Q\n"
+        ));
+    }
+
+    #[test]
     fn maps_different_background_and_mask_dimensions_to_same_page_rect() {
         let page = LayeredPdfPage {
             page_size: PdfPageSize {
@@ -652,6 +689,7 @@ mod tests {
                 row_stride: 319,
                 bitmap: vec![0; 319 * 3300],
             },
+            foreground_color: None,
         };
 
         let pdf = build_layered_pdf_page(&page).unwrap();
@@ -709,6 +747,7 @@ mod tests {
                 row_stride: 1,
                 bitmap: vec![0b1000_0000, 0b0100_0000],
             },
+            foreground_color: None,
         }
     }
 

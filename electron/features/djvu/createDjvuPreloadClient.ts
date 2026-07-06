@@ -125,6 +125,13 @@ function normalizeDjvuPagePreviewOptions(options: IDjvuPagePreviewOptions | unde
         }
         normalizedOptions.subsample = subsample;
     }
+    const targetWidthPx = options.targetWidthPx;
+    if (targetWidthPx !== undefined) {
+        if (typeof targetWidthPx !== 'number' || !Number.isInteger(targetWidthPx) || targetWidthPx < 1) {
+            throw new TypeError('renderPagePreview.options.targetWidthPx must be a positive integer');
+        }
+        normalizedOptions.targetWidthPx = targetWidthPx;
+    }
     const previewRequestId = options.previewRequestId;
     if (previewRequestId !== undefined) {
         if (typeof previewRequestId !== 'string' || previewRequestId.trim() === '') {

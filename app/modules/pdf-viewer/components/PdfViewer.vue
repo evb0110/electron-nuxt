@@ -34,6 +34,7 @@
             @finalize-placed-image="requestPendingImagePlacementFinalize"
             @cancel-placed-image="clearPendingImagePlacement"
         />
+        <PdfInitialSurfacePlaceholder v-if="showInitialSurfacePlaceholder" />
         <PdfRegionSnipOverlay
             :active="regionSnip.isActive.value"
             :selection-rect="regionSnip.selectionRect.value"
@@ -72,6 +73,7 @@ import PdfViewerPortalLayers from '@app/modules/pdf-viewer/components/PdfViewerP
 import PdfViewerViewport from '@app/modules/pdf-viewer/components/PdfViewerViewport.vue';
 import PdfRegionSnipOverlay from '@app/modules/pdf-viewer/components/PdfRegionSnipOverlay.vue';
 import PdfCropOverlay from '@app/modules/pdf-viewer/components/PdfCropOverlay.vue';
+import { PdfInitialSurfacePlaceholder } from '@app/modules/pdf-viewer/public/component-exports/pdfInitialSurfacePlaceholder';
 import type {
     IPdfViewerProps,
     IPdfViewerEmit,
@@ -81,7 +83,21 @@ import { usePdfViewerFeatureController } from '@app/modules/pdf-viewer/runtime/u
 import '@app/assets/css/vendor/pdfjs-viewer-sanitized.css';
 
 const props = defineProps<IPdfViewerProps>();
-const emit = defineEmits<IPdfViewerEmit>();
+const emitBase = defineEmits<IPdfViewerEmit>();
+const initialSurfacePlaceholderPending = ref(Boolean(props.src));
+const showInitialSurfacePlaceholder = computed(() => (
+    initialSurfacePlaceholderPending.value
+    && props.isActive !== false
+));
+const emit = ((event: string, ...args: unknown[]) => {
+    if (event === 'initial-visual-pending') {
+        initialSurfacePlaceholderPending.value = true;
+    }
+    if (event === 'initial-visual-ready' || event === 'load-error') {
+        initialSurfacePlaceholderPending.value = false;
+    }
+    (emitBase as (event: string, ...args: unknown[]) => void)(event, ...args);
+}) as IPdfViewerEmit;
 const controller = usePdfViewerFeatureController(props, emit);
 const {
     t,
@@ -128,6 +144,10 @@ const {
 } = controller;
 
 void annotationUiManager;
+
+watch(() => props.src, (nextSrc) => {
+    initialSurfacePlaceholderPending.value = Boolean(nextSrc);
+});
 
 defineExpose(pdfViewerPublicApi);
 </script>

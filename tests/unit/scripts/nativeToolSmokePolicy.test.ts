@@ -36,6 +36,14 @@ describe('native tool smoke policy', () => {
                 ]),
             ],
             [
+                'djvudump',
+                new Set([
+                    0,
+                    1,
+                    10,
+                ]),
+            ],
+            [
                 'evb-pdf-image-combine',
                 new Set([0]),
             ],
@@ -101,6 +109,7 @@ describe('native tool smoke policy', () => {
         expect(() => assertMacPackagedToolSmoke('evb-pdf-image-combine-compact-manifest', 1, 'Missing --compact-manifest value')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('page-processor', 0, 'page-processor 2.0.0')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('ddjvu', 1, 'ddjvu usage')).not.toThrow();
+        expect(() => assertMacPackagedToolSmoke('djvudump', 1, 'djvudump usage')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('unpaper', 0, 'Usage: unpaper [options]')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('qpdf', 2, 'qpdf version 12.0.0')).toThrow(
             'Packaged tool smoke test failed (qpdf) with exit code 2',

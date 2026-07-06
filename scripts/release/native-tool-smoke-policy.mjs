@@ -36,6 +36,17 @@ const MAC_PACKAGED_TOOL_SMOKE_POLICY = {
             'djvu',
         ],
     },
+    djvudump: {
+        allowedExitCodes: new Set([
+            0,
+            1,
+            10,
+        ]),
+        expectedOutputTokens: [
+            'djvudump',
+            'djvu',
+        ],
+    },
     'page-processor': {
         allowedExitCodes: new Set([0]),
         expectedOutputTokens: ['page-processor'],

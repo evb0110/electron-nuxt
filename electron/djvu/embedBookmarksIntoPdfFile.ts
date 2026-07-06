@@ -10,17 +10,22 @@ import { join } from 'path';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import {
-    getPdfPageCount,
     isNativePageOpsDisabled,
     resolveNativePageOpsPath,
-} from '@electron/features/page-ops/public';
-import { embedBookmarksIntoPdfFileWithPdfLib } from '@electron/djvu/embedBookmarksWithPdfLib';
+} from '@electron/features/page-ops/publicNative';
+import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
+import { embedBookmarksIntoPdfFileWithPdfLib } from '@electron/djvu/embedBookmarksIntoPdfFileWithPdfLib';
 import { isAbortError } from '@electron/utils/abort';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 
 const log = createLogger('djvu-bookmarks-native');
 const NATIVE_DJVU_BOOKMARK_TIMEOUT_MS = 2 * 60 * 1000;
+const QPDF_DJVU_BOOKMARK_PAGE_COUNT_TIMEOUT_MS = 2 * 60 * 1000;
+const QPDF_OUTPUT_SUCCESS_EXIT_CODES = [
+    0,
+    3,
+];
 
 function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) {
@@ -57,6 +62,23 @@ function createNativeModifiedAt() {
     ].join('');
 }
 
+async function getBookmarkInputPdfPageCount(inputPdfPath: string) {
+    const result = await runNativeToolCommand(getPdfNativeToolPaths().qpdf, [
+        '--show-npages',
+        inputPdfPath,
+    ], {
+        timeoutMs: QPDF_DJVU_BOOKMARK_PAGE_COUNT_TIMEOUT_MS,
+        allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
+        commandLabel: 'qpdf(djvu-bookmark-page-count)',
+    });
+    const pageCount = Number.parseInt(result.stdout.trim(), 10);
+    if (!Number.isSafeInteger(pageCount) || pageCount < 1) {
+        throw new Error('Failed to read PDF page count for DjVu bookmarks');
+    }
+
+    return pageCount;
+}
+
 async function tryEmbedBookmarksWithNativePageOps(
     inputPdfPath: string,
     outputPdfPath: string,
@@ -77,7 +99,7 @@ async function tryEmbedBookmarksWithNativePageOps(
     const mutationsPath = join(tempDir, 'bookmarks.json');
 
     try {
-        const totalPages = await getPdfPageCount(inputPdfPath);
+        const totalPages = await getBookmarkInputPdfPageCount(inputPdfPath);
         throwIfAborted(signal);
         await copyFile(inputPdfPath, workingPath);
         await copyFile(inputPdfPath, outputPdfPath);

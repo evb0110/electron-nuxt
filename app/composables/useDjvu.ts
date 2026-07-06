@@ -43,6 +43,7 @@ function ensurePdfSuggestedName(name: string) {
 
 export const useDjvu = () => {
     const { t } = useTypedI18n();
+    const toast = useToast();
 
     const {
         isDjvuMode,
@@ -102,6 +103,14 @@ export const useDjvu = () => {
 
     function clearViewingError() {
         viewingError.value = null;
+    }
+
+    function showConversionError(message: string) {
+        toast.add({
+            color: 'error',
+            title: t('errors.djvu.convert'),
+            description: message,
+        });
     }
 
     function trackViewingLoadingProgress(progress: {
@@ -430,7 +439,7 @@ export const useDjvu = () => {
 
             if (!result.success || !result.pdfPath) {
                 BrowserLogger.error('djvu', 'Conversion failed', result.error);
-                viewingError.value = result.error ?? t('errors.djvu.convert');
+                showConversionError(result.error ?? t('errors.djvu.convert'));
                 return;
             }
             shouldCleanupSavePath = false;
@@ -454,7 +463,7 @@ export const useDjvu = () => {
                 path: sourcePath,
                 error,
             });
-            viewingError.value = message;
+            showConversionError(message);
         } finally {
             activeConvertJobId.value = null;
             pendingConvertCancel.value = false;

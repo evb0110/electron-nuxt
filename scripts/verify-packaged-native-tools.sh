@@ -201,6 +201,7 @@ fi
 check_file "$native_tool_root/qpdf/$platform_arch/bin/qpdf$exe_suffix" "qpdf binary"
 check_file "$native_tool_root/djvulibre/$platform_arch/bin/ddjvu$exe_suffix" "ddjvu binary"
 check_file "$native_tool_root/djvulibre/$platform_arch/bin/djvused$exe_suffix" "djvused binary"
+check_file "$native_tool_root/djvulibre/$platform_arch/bin/djvudump$exe_suffix" "djvudump binary"
 check_file "$native_tool_root/pdf-image-combine/$platform_arch/bin/evb-pdf-image-combine$exe_suffix" "pdf image combine binary"
 check_file "$native_tool_root/pdf-page-ops/$platform_arch/bin/evb-pdf-page-ops$exe_suffix" "pdf page ops binary"
 check_file "$native_tool_root/pdf-search/$platform_arch/bin/evb-pdf-search$exe_suffix" "pdf search binary"
@@ -493,6 +494,7 @@ if [ "$platform" = "mac" ]; then
   fi
 
   run_macos_packaged_tool_smoke "djvused" "$native_tool_root/djvulibre/$platform_arch/bin/djvused" --help
+  run_macos_packaged_tool_smoke "djvudump" "$native_tool_root/djvulibre/$platform_arch/bin/djvudump" --help
   # ddjvu prints usage to stdout and exits 1 for --help on healthy builds.
   run_macos_packaged_tool_smoke "ddjvu" "$native_tool_root/djvulibre/$platform_arch/bin/ddjvu" --help
   run_macos_packaged_tool_smoke "qpdf" "$native_tool_root/qpdf/$platform_arch/bin/qpdf" --version

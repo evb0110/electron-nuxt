@@ -175,9 +175,12 @@ describe('useDjvuPreviewRuntime', () => {
             width: 100,
             height: 200,
         }]);
-        previewMocks.renderPageObjectUrl.mockImplementation(async (pageNumber: number) => ({
+        previewMocks.renderPageObjectUrl.mockImplementation(async (pageNumber: number, options?: {
+            subsample?: number;
+            targetWidthPx?: number;
+        }) => ({
             objectUrl: `blob:page-${pageNumber}`,
-            renderedPx: 100,
+            renderedPx: options?.targetWidthPx ?? Math.round(100 / Math.max(1, options?.subsample ?? 1)),
         }));
         previewMocks.createDjvuPagePreviewSourceFromPath.mockResolvedValue({
             cancelPagePreview: previewMocks.cancelPagePreview,
@@ -640,8 +643,8 @@ describe('useDjvuPreviewRuntime', () => {
             scrollWindowRef,
         });
 
-        await vi.waitFor(() => expect(pageStates.value[0]?.objectUrl).toBe('blob:page-1-2'));
-        expect(previewMocks.renderPageObjectUrl).toHaveBeenCalledWith(1, expect.objectContaining({ subsample: 2 }));
+        await vi.waitFor(() => expect(pageStates.value[0]?.objectUrl).toBe('blob:page-1-1'));
+        expect(previewMocks.renderPageObjectUrl).toHaveBeenCalledWith(1, expect.objectContaining({ subsample: 1 }));
 
         scrollWindowRef.value = {
             start: 10,
@@ -657,7 +660,68 @@ describe('useDjvuPreviewRuntime', () => {
 
         await new Promise(resolve => setTimeout(resolve, 220));
 
-        await vi.waitFor(() => expect(previewMocks.renderPageObjectUrl).toHaveBeenCalledWith(10, expect.objectContaining({ subsample: 2 })));
+        await vi.waitFor(() => expect(previewMocks.renderPageObjectUrl).toHaveBeenCalledWith(10, expect.objectContaining({ subsample: 1 })));
+
+        runtime.dispose();
+    });
+
+    it('keeps low-resolution pages at native preview width when painted above source pixels', async () => {
+        previewMocks.getPageSizes.mockResolvedValue([{
+            width: 1_293,
+            height: 1_966,
+        }]);
+        previewMocks.renderPageObjectUrl.mockImplementation(async (pageNumber: number, options?: {
+            subsample?: number;
+            targetWidthPx?: number;
+        }) => ({
+            objectUrl: `blob:page-${pageNumber}-${options?.targetWidthPx ?? 'native'}`,
+            renderedPx: options?.targetWidthPx ?? 1_293,
+        }));
+        const {
+            pageStates,
+            runtime,
+        } = createPreviewRuntimeHarness({ neededDeviceWidth: 2_484 });
+
+        await vi.waitFor(() => expect(pageStates.value[0]?.objectUrl).toBe('blob:page-1-native'));
+        expect(previewMocks.renderPageObjectUrl).toHaveBeenCalledWith(1, expect.objectContaining({ subsample: 1 }));
+        expect(previewMocks.renderPageObjectUrl.mock.calls[0]?.[1]).not.toHaveProperty('targetWidthPx');
+
+        runtime.dispose();
+    });
+
+    it('refreshes stale heavily oversized previews after native-width planning', async () => {
+        const neededDeviceWidth = ref(1_398);
+        previewMocks.getPageSizes.mockResolvedValue([{
+            width: 1_293,
+            height: 1_966,
+        }]);
+        previewMocks.renderPageObjectUrl.mockImplementation(async (pageNumber: number, options?: {
+            subsample?: number;
+            targetWidthPx?: number;
+        }) => ({
+            objectUrl: `blob:page-${pageNumber}-${options?.targetWidthPx ?? 'native'}`,
+            renderedPx: options?.targetWidthPx ?? 1_293,
+        }));
+        const {
+            pageStates,
+            runtime,
+        } = createPreviewRuntimeHarness({ neededDeviceWidth: () => neededDeviceWidth.value });
+
+        await vi.waitFor(() => expect(pageStates.value[0]?.objectUrl).toBe('blob:page-1-native'));
+
+        pageStates.value[0] = {
+            ...pageStates.value[0]!,
+            objectUrl: 'blob:stale-oversized',
+            renderedPx: 2_484,
+            status: 'loaded',
+        };
+        previewMocks.renderPageObjectUrl.mockClear();
+        runtime.syncLoadedPages();
+
+        await vi.waitFor(() => expect(pageStates.value[0]?.objectUrl).toBe('blob:page-1-native'));
+        expect(pageStates.value[0]?.renderedPx).toBe(1_293);
+        expect(previewMocks.renderPageObjectUrl).toHaveBeenCalledWith(1, expect.objectContaining({ subsample: 1 }));
+        expect(previewMocks.renderPageObjectUrl.mock.calls[0]?.[1]).not.toHaveProperty('targetWidthPx');
 
         runtime.dispose();
     });
@@ -674,7 +738,7 @@ describe('useDjvuPreviewRuntime', () => {
         }]);
         previewMocks.renderPageObjectUrl.mockImplementation((pageNumber: number, options?: {subsample?: number}) => {
             const subsample = options?.subsample ?? 1;
-            if (subsample === 2) {
+            if (subsample === 1) {
                 return highResolutionRender.promise;
             }
 
@@ -693,15 +757,15 @@ describe('useDjvuPreviewRuntime', () => {
 
         neededDeviceWidth.value = 2_000;
         runtime.syncLoadedPages();
-        await vi.waitFor(() => expect(previewMocks.renderPageObjectUrl).toHaveBeenCalledWith(1, expect.objectContaining({ subsample: 2 })));
+        await vi.waitFor(() => expect(previewMocks.renderPageObjectUrl).toHaveBeenCalledWith(1, expect.objectContaining({ subsample: 1 })));
 
         runtime.scheduleScrollSettledPreviewRerender();
         highResolutionRender.resolve({
-            objectUrl: 'blob:page-1-2',
-            renderedPx: 1_200,
+            objectUrl: 'blob:page-1-1',
+            renderedPx: 2_400,
         });
 
-        await vi.waitFor(() => expect(previewMocks.revokeObjectURL).toHaveBeenCalledWith('blob:page-1-2'));
+        await vi.waitFor(() => expect(previewMocks.revokeObjectURL).toHaveBeenCalledWith('blob:page-1-1'));
         expect(pageStates.value[0]).toMatchObject({
             objectUrl: 'blob:page-1-3',
             renderedPx: 800,

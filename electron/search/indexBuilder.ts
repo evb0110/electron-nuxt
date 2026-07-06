@@ -54,7 +54,7 @@ import type {
     IPdfSearchIndex,
 } from '@electron/search/searchIndexTypes';
 import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
-import { assertWorkingCopyRevisionCurrent } from '@electron/file-access/documentRevisionSidecar';
+import { assertWorkingCopyRevisionSidecarCurrent } from '@electron/file-access/documentRevisionSidecar';
 
 export type {
     IPageIndex,
@@ -502,10 +502,10 @@ async function persistIndex(
     try {
         await writeFile(tempPath, stringifyLegacyJsonSearchIndex(index, signal), 'utf-8');
         throwIfAborted(signal);
-        await assertWorkingCopyRevisionCurrent(pdfPath, index.documentRevision.token);
+        await assertWorkingCopyRevisionSidecarCurrent(pdfPath, index.documentRevision.token);
         await atomicReplace(tempPath, indexPath);
         try {
-            await assertWorkingCopyRevisionCurrent(pdfPath, index.documentRevision.token);
+            await assertWorkingCopyRevisionSidecarCurrent(pdfPath, index.documentRevision.token);
         } catch (error) {
             await rm(indexPath, { force: true }).catch(() => undefined);
             throw error;

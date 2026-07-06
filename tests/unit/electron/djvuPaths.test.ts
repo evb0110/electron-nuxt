@@ -11,10 +11,11 @@ import {
 } from '@electron/djvu/nativeToolPaths';
 
 describe('DjVu native tool path boundary', () => {
-    it('resolves ddjvu and djvused from the DjVuLibre resource root', () => {
+    it('resolves ddjvu, djvudump, and djvused from the DjVuLibre resource root', () => {
         const djvuBase = path.join('/repo/resources/djvulibre/darwin-arm64');
         const existingPaths = new Set([
             path.join(djvuBase, 'bin', 'ddjvu'),
+            path.join(djvuBase, 'bin', 'djvudump'),
             path.join(djvuBase, 'bin', 'djvused'),
         ]);
 
@@ -26,6 +27,7 @@ describe('DjVu native tool path boundary', () => {
             platformArch: 'darwin-arm64',
         })).toEqual({
             ddjvu: path.join(djvuBase, 'bin', 'ddjvu'),
+            djvudump: path.join(djvuBase, 'bin', 'djvudump'),
             djvused: path.join(djvuBase, 'bin', 'djvused'),
         });
     });
@@ -39,6 +41,7 @@ describe('DjVu native tool path boundary', () => {
             platformArch: 'linux-x64',
         })).toEqual({
             ddjvu: 'ddjvu',
+            djvudump: 'djvudump',
             djvused: 'djvused',
         });
     });

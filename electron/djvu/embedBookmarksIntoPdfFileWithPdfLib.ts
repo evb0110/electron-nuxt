@@ -15,7 +15,7 @@ function throwIfAborted(signal?: AbortSignal) {
     }
 }
 
-export async function embedBookmarksIntoPdfDataWithPdfLib(
+async function embedBookmarksIntoPdfDataWithPdfLib(
     pdfData: Uint8Array,
     bookmarks: IPdfBookmarkEntry[],
 ) {

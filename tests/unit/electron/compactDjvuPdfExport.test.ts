@@ -20,16 +20,21 @@ import {
 } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+    getDjvuNativeToolPaths: vi.fn(),
     renderDjvuPageToImage: vi.fn(),
+    runNativeCommand: vi.fn(),
     runRegisteredDjvuProcess: vi.fn(),
     resolveNativeToolPath: vi.fn(),
 }));
 
 vi.mock('electron', () => ({app: {isPackaged: false}}));
+vi.mock('@electron/djvu/nativeToolPaths', () => ({getDjvuNativeToolPaths: mocks.getDjvuNativeToolPaths}));
+vi.mock('@electron/djvu/paths', () => ({buildDjvuRuntimeEnv: () => ({})}));
 vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({
     renderDjvuPageToImage: mocks.renderDjvuPageToImage,
     runRegisteredDjvuProcess: mocks.runRegisteredDjvuProcess,
 }));
+vi.mock('@electron/native-tools/runNativeCommand', () => ({runNativeCommand: mocks.runNativeCommand}));
 vi.mock('@electron/native-tools/resolveNativeToolPath', () => ({resolveNativeToolPath: mocks.resolveNativeToolPath}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
@@ -40,12 +45,37 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
 
 const { buildCompactDjvuAwarePdfFromDjvu } = await import('@electron/features/djvu/main/buildCompactDjvuAwarePdfFromDjvu');
 
+interface ITestDumpPage {
+    pageNumber: number;
+    pageBytes?: number;
+    maskBytes?: number | null;
+    background?: boolean;
+    foreground?: boolean;
+}
+
 describe('buildCompactDjvuAwarePdfFromDjvu', () => {
     let tempDir: string;
+    let detailedBackgroundPages: Set<number>;
+    let coloredForegroundPages: Set<number>;
+    let denseMaskPages: Set<number>;
 
     beforeEach(async () => {
         vi.clearAllMocks();
+        detailedBackgroundPages = new Set();
+        coloredForegroundPages = new Set();
+        denseMaskPages = new Set();
         tempDir = await mkdtemp(join(tmpdir(), 'compact-djvu-export-test-'));
+        mocks.getDjvuNativeToolPaths.mockReturnValue({
+            ddjvu: '/tools/ddjvu',
+            djvudump: '/tools/djvudump',
+            djvused: '/tools/djvused',
+        });
+        setDjvuDump(Array.from({length: 44}, (_value, index) => ({
+            pageNumber: index + 1,
+            pageBytes: 32_705,
+            maskBytes: 512,
+            background: true,
+        })));
         mocks.resolveNativeToolPath.mockReturnValue('/native/evb-pdf-image-combine');
         mocks.runRegisteredDjvuProcess.mockImplementation(async (
             _processId: string,
@@ -65,20 +95,26 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
             _jobId: string,
             options: {
                 mode?: string;
-                format?: string 
+                format?: string;
             } = {},
         ) => {
             await mkdir(dirname(outputPath), {recursive: true});
             if (options.mode === 'foreground') {
-                await writeFile(outputPath, pageNumber === 3 ? coloredForegroundProbe() : monochromeForegroundProbe());
+                await writeFile(outputPath, coloredForegroundPages.has(pageNumber)
+                    ? coloredForegroundProbe()
+                    : monochromeForegroundProbe());
             } else if (options.mode === 'background') {
-                await writeFile(outputPath, ppm(2, 2, [
-                    248,
-                    248,
-                    248,
-                ]));
+                await writeFile(outputPath, detailedBackgroundPages.has(pageNumber)
+                    ? detailedBackgroundProbe()
+                    : ppm(2, 2, [
+                        248,
+                        248,
+                        248,
+                    ]));
             } else if (options.mode === 'mask') {
-                await writeFile(outputPath, pbm(20, 20));
+                await writeFile(outputPath, denseMaskPages.has(pageNumber)
+                    ? pbm(20, 20, x => x < 16)
+                    : pbm(20, 20));
             } else {
                 await writeFile(outputPath, ppm(5, 5, [
                     220,
@@ -102,11 +138,11 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
         });
     });
 
-    it('writes a mixed manifest with front-matter fallback and body-page mask-only output', async () => {
+    it('uses bitonal mask output for native masks over a flat background', async () => {
         const progress = vi.fn();
 
         const result = await buildCompactDjvuAwarePdfFromDjvu({
-            jobId: 'job-1',
+            jobId: 'job-flat',
             djvuPath: '/input.djvu',
             outputPath: join(tempDir, 'output.pdf'),
             tempDir,
@@ -121,87 +157,24 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
         });
 
         expect(result.success).toBe(true);
-        expect(mocks.runRegisteredDjvuProcess).toHaveBeenCalledWith(
-            'job-1-compact-combine',
-            '/native/evb-pdf-image-combine',
-            expect.arrayContaining([
-                '--compact-manifest',
-                join(tempDir, 'compact-manifest.tsv'),
-            ]),
-            expect.objectContaining({
-                env: expect.objectContaining({EVB_PDF_COMBINE_MAX_PAGES: '2'}),
-                onStdout: expect.any(Function),
-            }),
-        );
         const manifest = await readFile(join(tempDir, 'compact-manifest.tsv'), 'utf8');
         const lines = manifest.trim().split('\n');
-        expect(lines[0]).toMatch(/^image-jpeg\t288\.0000\t384\.0000\t75\t/u);
+        expect(lines[0]).toMatch(/^mask\t288\.0000\t384\.0000\t/u);
+        expect(lines[0]).toContain('-mask.pbm');
         expect(lines[1]).toMatch(/^mask\t288\.0000\t384\.0000\t/u);
-        expect(lines[1]).toContain('-mask.pbm');
         expect(renderModesForPage(1)).toEqual([
-            'foreground',
-            'full',
+            'mask',
+            'background',
         ]);
         expect(renderModesForPage(44)).toEqual([
-            'foreground',
             'mask',
             'background',
         ]);
         expect(progress).toHaveBeenCalled();
     });
 
-    it('falls back when the foreground probe contains color', async () => {
-        const result = await buildCompactDjvuAwarePdfFromDjvu({
-            jobId: 'job-2',
-            djvuPath: '/input.djvu',
-            outputPath: join(tempDir, 'colored.pdf'),
-            tempDir,
-            pageCount: 3,
-            sourceDpi: 300,
-            pageSizes: pageSizes(3),
-            pages: [3],
-        });
-
-        const manifest = await readFile(join(tempDir, 'compact-manifest.tsv'), 'utf8');
-        expect(manifest).toMatch(/^image-jpeg\t288\.0000\t384\.0000\t75\t/u);
-        expect(result.pageSpecs?.[0]?.reason).toBe('colored foreground probe');
-        expect(renderModesForPage(3)).toEqual([
-            'foreground',
-            'full',
-        ]);
-    });
-
-    it('uses layered JPEG output when a sparse mask has a detailed background', async () => {
-        mocks.renderDjvuPageToImage.mockImplementation(async (
-            _inputPath: string,
-            outputPath: string,
-            _pageNumber: number,
-            _jobId: string,
-            options: {
-                mode?: string;
-                format?: string
-            } = {},
-        ) => {
-            await mkdir(dirname(outputPath), {recursive: true});
-            if (options.mode === 'foreground') {
-                await writeFile(outputPath, monochromeForegroundProbe());
-            } else if (options.mode === 'mask') {
-                await writeFile(outputPath, pbm(20, 20));
-            } else if (options.mode === 'background') {
-                await writeFile(outputPath, detailedBackgroundProbe());
-            } else {
-                await writeFile(outputPath, ppm(5, 5, [
-                    220,
-                    221,
-                    222,
-                ]));
-            }
-            return {
-                success: true,
-                outputPath,
-                fileSize: 12,
-            };
-        });
+    it('uses layered JPEG output at the native background subsample', async () => {
+        detailedBackgroundPages.add(44);
 
         await buildCompactDjvuAwarePdfFromDjvu({
             jobId: 'job-layered',
@@ -215,52 +188,67 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
         });
 
         const manifest = await readFile(join(tempDir, 'compact-manifest.tsv'), 'utf8');
-        expect(manifest).toMatch(/^layered-jpeg\t288\.0000\t384\.0000\t75\t/u);
+        expect(manifest).toMatch(/^layered-jpeg\t288\.0000\t384\.0000\t80\t/u);
         expect(manifest).toContain('-background.ppm\t');
         expect(manifest).toContain('-mask.pbm');
         expect(renderModesForPage(44)).toEqual([
-            'foreground',
             'mask',
             'background',
         ]);
+        expect(renderOptionsForPage(44)[1]).toEqual(expect.objectContaining({
+            mode: 'background',
+            subsample: 3,
+        }));
     });
 
-    it('falls back before background rendering when the foreground mask is blank', async () => {
-        mocks.renderDjvuPageToImage.mockImplementation(async (
-            _inputPath: string,
-            outputPath: string,
-            _pageNumber: number,
-            _jobId: string,
-            options: {
-                mode?: string;
-                format?: string
-            } = {},
-        ) => {
-            await mkdir(dirname(outputPath), {recursive: true});
-            if (options.mode === 'foreground') {
-                await writeFile(outputPath, monochromeForegroundProbe());
-            } else if (options.mode === 'mask') {
-                await writeFile(outputPath, pbm(20, 20, () => false));
-            } else if (options.mode === 'background') {
-                throw new Error('Background should not be rendered for a blank mask');
-            } else {
-                await writeFile(outputPath, ppm(5, 5, [
-                    220,
-                    221,
-                    222,
-                ]));
-            }
-            return {
-                success: true,
-                outputPath,
-                fileSize: 12,
-            };
-        });
+    it('uses layered-color output when the native foreground layer has real color', async () => {
+        setDjvuDump([{
+            pageNumber: 3,
+            pageBytes: 65_000,
+            maskBytes: 512,
+            background: true,
+            foreground: true,
+        }]);
+        detailedBackgroundPages.add(3);
+        coloredForegroundPages.add(3);
 
         const result = await buildCompactDjvuAwarePdfFromDjvu({
-            jobId: 'job-blank-mask',
+            jobId: 'job-color',
             djvuPath: '/input.djvu',
-            outputPath: join(tempDir, 'blank-mask.pdf'),
+            outputPath: join(tempDir, 'colored.pdf'),
+            tempDir,
+            pageCount: 3,
+            sourceDpi: 300,
+            pageSizes: pageSizes(3),
+            pages: [3],
+        });
+
+        const manifest = await readFile(join(tempDir, 'compact-manifest.tsv'), 'utf8');
+        expect(manifest).toMatch(/^layered-color-jpeg\t288\.0000\t384\.0000\t80\t/u);
+        expect(manifest).toContain('-background.ppm\t');
+        expect(manifest).toMatch(/-mask\.pbm\t220\t20\t20\n$/u);
+        expect(manifest).not.toContain('-foreground.ppm');
+        expect(result.pageSpecs?.[0]?.kind).toBe('layered-color');
+        expect(renderModesForPage(3)).toEqual([
+            'mask',
+            'background',
+            'foreground',
+        ]);
+    });
+
+    it('uses capped photo output for tiny-mask continuous-tone pages', async () => {
+        setDjvuDump([{
+            pageNumber: 44,
+            pageBytes: 32_705,
+            maskBytes: 6,
+            background: true,
+            foreground: true,
+        }]);
+
+        const result = await buildCompactDjvuAwarePdfFromDjvu({
+            jobId: 'job-photo',
+            djvuPath: '/input.djvu',
+            outputPath: join(tempDir, 'photo.pdf'),
             tempDir,
             pageCount: 44,
             sourceDpi: 300,
@@ -269,46 +257,43 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
         });
 
         const manifest = await readFile(join(tempDir, 'compact-manifest.tsv'), 'utf8');
-        expect(manifest).toMatch(/^image-jpeg\t288\.0000\t384\.0000\t75\t/u);
-        expect(result.pageSpecs?.[0]?.reason).toBe('blank foreground mask');
-        expect(renderModesForPage(44)).toEqual([
-            'foreground',
-            'mask',
-            'full',
-        ]);
+        expect(manifest).toMatch(/^photo-jpeg\t288\.0000\t384\.0000\t85\t300\t/u);
+        expect(result.pageSpecs?.[0]?.kind).toBe('photo');
+        expect(result.pageSpecs?.[0]?.reason).toBe('DjVu page has continuous-tone background with tiny foreground mask (6 bytes); rendering capped photo page');
+        expect(renderModesForPage(44)).toEqual(['full']);
+        expect(renderOptionsForPage(44)[0]).toEqual(expect.objectContaining({
+            targetHeightPx: 1600,
+            targetWidthPx: 1200,
+        }));
     });
 
-    it('falls back before background rendering when the foreground mask is dense', async () => {
-        mocks.renderDjvuPageToImage.mockImplementation(async (
-            _inputPath: string,
-            outputPath: string,
-            _pageNumber: number,
-            _jobId: string,
-            options: {
-                mode?: string;
-                format?: string
-            } = {},
-        ) => {
-            await mkdir(dirname(outputPath), {recursive: true});
-            if (options.mode === 'foreground') {
-                await writeFile(outputPath, monochromeForegroundProbe());
-            } else if (options.mode === 'mask') {
-                await writeFile(outputPath, pbm(20, 20, x => x < 10));
-            } else if (options.mode === 'background') {
-                throw new Error('Background should not be rendered for a dense mask');
-            } else {
-                await writeFile(outputPath, ppm(5, 5, [
-                    220,
-                    221,
-                    222,
-                ]));
-            }
-            return {
-                success: true,
-                outputPath,
-                fileSize: 12,
-            };
+    it('uses capped photo output when djvudump structure is unavailable', async () => {
+        setDjvuDump([]);
+
+        const result = await buildCompactDjvuAwarePdfFromDjvu({
+            jobId: 'job-no-structure',
+            djvuPath: '/input.djvu',
+            outputPath: join(tempDir, 'no-structure.pdf'),
+            tempDir,
+            pageCount: 2,
+            sourceDpi: 300,
+            pageSizes: pageSizes(2),
+            pages: [2],
         });
+
+        const manifest = await readFile(join(tempDir, 'compact-manifest.tsv'), 'utf8');
+        expect(manifest).toMatch(/^photo-jpeg\t288\.0000\t384\.0000\t85\t300\t/u);
+        expect(result.pageSpecs?.[0]?.reason).toBe('DjVu layer structure unavailable; rendering capped photo page');
+        expect(renderModesForPage(2)).toEqual(['full']);
+        expect(renderOptionsForPage(2)[0]).toEqual(expect.objectContaining({
+            targetHeightPx: 1600,
+            targetWidthPx: 1200,
+        }));
+    });
+
+    it('does not force dense real masks into photo fallback', async () => {
+        detailedBackgroundPages.add(44);
+        denseMaskPages.add(44);
 
         const result = await buildCompactDjvuAwarePdfFromDjvu({
             jobId: 'job-dense-mask',
@@ -321,16 +306,18 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
             pages: [44],
         });
 
-        expect(result.pageSpecs?.[0]?.reason).toBe('dense foreground mask');
+        const manifest = await readFile(join(tempDir, 'compact-manifest.tsv'), 'utf8');
+        expect(manifest).toMatch(/^layered-jpeg\t288\.0000\t384\.0000\t80\t/u);
+        expect(result.pageSpecs?.[0]?.kind).toBe('layered');
         expect(renderModesForPage(44)).toEqual([
-            'foreground',
             'mask',
-            'full',
+            'background',
         ]);
     });
 
-    it('does not retry with a fallback render after a canceled layered render', async () => {
+    it('does not retry with photo rendering after a canceled layered render', async () => {
         const abortController = new AbortController();
+        detailedBackgroundPages.add(44);
         mocks.renderDjvuPageToImage.mockImplementation(async (
             _inputPath: string,
             outputPath: string,
@@ -338,18 +325,10 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
             _jobId: string,
             options: {
                 mode?: string;
-                format?: string
+                format?: string;
             } = {},
         ) => {
             await mkdir(dirname(outputPath), {recursive: true});
-            if (options.mode === 'foreground') {
-                await writeFile(outputPath, monochromeForegroundProbe());
-                return {
-                    success: true,
-                    outputPath,
-                    fileSize: 12,
-                };
-            }
             if (options.mode === 'mask') {
                 await writeFile(outputPath, pbm(20, 20));
                 return {
@@ -371,7 +350,7 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
         });
 
         await expect(buildCompactDjvuAwarePdfFromDjvu({
-            jobId: 'job-3',
+            jobId: 'job-canceled',
             djvuPath: '/input.djvu',
             outputPath: join(tempDir, 'canceled.pdf'),
             tempDir,
@@ -383,74 +362,53 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
         })).rejects.toThrow('DjVu conversion canceled');
 
         expect(renderModesForPage(44)).toEqual([
-            'foreground',
             'mask',
             'background',
         ]);
         expect(mocks.runRegisteredDjvuProcess).not.toHaveBeenCalled();
     });
-
-    it('does not read oversized foreground probes during compact classification', async () => {
-        vi.stubEnv('EVB_DJVU_COMPACT_NETPBM_MAX_MB', '1');
-        vi.resetModules();
-        const { buildCompactDjvuAwarePdfFromDjvu: buildCompactWithSmallNetpbmCap } = await import(
-            '@electron/features/djvu/main/buildCompactDjvuAwarePdfFromDjvu'
-        );
-        mocks.renderDjvuPageToImage.mockImplementation(async (
-            _inputPath: string,
-            outputPath: string,
-            _pageNumber: number,
-            _jobId: string,
-            options: {
-                mode?: string;
-                format?: string
-            } = {},
-        ) => {
-            await mkdir(dirname(outputPath), {recursive: true});
-            if (options.mode === 'foreground') {
-                await writeFile(outputPath, Buffer.alloc(1024 * 1024 + 1));
-            } else {
-                await writeFile(outputPath, ppm(5, 5, [
-                    220,
-                    221,
-                    222,
-                ]));
-            }
-            return {
-                success: true,
-                outputPath,
-                fileSize: 12,
-            };
-        });
-
-        const result = await buildCompactWithSmallNetpbmCap({
-            jobId: 'job-4',
-            djvuPath: '/input.djvu',
-            outputPath: join(tempDir, 'oversized-probe.pdf'),
-            tempDir,
-            pageCount: 44,
-            sourceDpi: 300,
-            pageSizes: pageSizes(44),
-            pages: [44],
-        });
-
-        expect(result.success).toBe(true);
-        if (!result.success) {
-            throw new Error('Expected compact export to succeed through fallback');
-        }
-        const pageSpecs = result.pageSpecs ?? [];
-        expect(pageSpecs[0]?.reason).toContain('Netpbm input exceeds safe read limit (1MB)');
-        expect(renderModesForPage(44)).toEqual([
-            'foreground',
-            'full',
-        ]);
-    });
 });
+
+function setDjvuDump(pages: ITestDumpPage[]) {
+    mocks.runNativeCommand.mockResolvedValue({
+        stdout: djvuDump(pages),
+        stderr: '',
+        exitCode: 0,
+    });
+}
+
+function djvuDump(pages: ITestDumpPage[]) {
+    return [
+        '  FORM:DJVM [14712301]',
+        ...pages.flatMap(page => {
+            const lines = [
+                `    FORM:DJVU [${page.pageBytes ?? 32705}] {p${String(page.pageNumber).padStart(4, '0')}.djvu} [P${page.pageNumber}] (${page.pageNumber})`,
+                '      INFO [10]         DjVu 1200x1600, v24, 300 dpi, gamma=2.2',
+            ];
+            if (page.maskBytes !== null) {
+                lines.push(`      Sjbz [${page.maskBytes ?? 512}]          JB2 bilevel data`);
+            }
+            if (page.foreground) {
+                lines.push('      FG44 [420]        IW4 data #1, 12 slices, v1.2 (color), 100x133');
+            }
+            if (page.background) {
+                lines.push('      BG44 [8674]       IW4 data #1, 72 slices, v1.2 (color), 400x533');
+            }
+            return lines;
+        }),
+    ].join('\n');
+}
 
 function renderModesForPage(pageNumber: number) {
     return mocks.renderDjvuPageToImage.mock.calls
         .filter(call => call[2] === pageNumber)
         .map(call => (call[4] as { mode?: string }).mode ?? 'full');
+}
+
+function renderOptionsForPage(pageNumber: number) {
+    return mocks.renderDjvuPageToImage.mock.calls
+        .filter(call => call[2] === pageNumber)
+        .map(call => call[4] as Record<string, unknown>);
 }
 
 function pageSizes(count: number) {
@@ -482,7 +440,7 @@ function coloredForegroundProbe() {
     const width = 20;
     const height = 20;
     const pixels = Array.from({length: width * height}, (_value, index) => (
-        index % 89 === 0 ? [
+        index % 10 === 0 ? [
             220,
             20,
             20,

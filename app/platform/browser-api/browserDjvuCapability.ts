@@ -2,18 +2,24 @@ import { uniq } from 'es-toolkit/array';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import type {
     IDjvuCapability,
+    IDjvuConvertOptions,
     IDjvuInfo,
     IDjvuProgress,
     IDjvuSizeEstimate,
     IDjvuViewingErrorEvent,
     IDjvuViewingReadyEvent,
 } from '@contracts/electronApiDjvu';
+import {
+    normalizeDjvuPdfSubsample,
+    resolveDjvuPdfExportStrategy,
+} from '@contracts/djvuConversionPolicy';
 import type { TDocumentRef } from '@contracts/documentRef';
 import {
     BROWSER_DOCUMENT_CHUNK_SIZE,
     browserDocumentStore,
     isBrowserDocumentRef,
 } from '@app/platform/browserDocumentStore';
+import type { IBrowserPdfCombineWasmPageSpec } from '@app/platform/browser-api/browserPdfCombineWorker.types';
 import type {
     IDjvuContentsItem,
     IDjvuImageData,
@@ -26,13 +32,19 @@ import { StreamingImagePdfWriter } from '@app/platform/browser-api/streamingImag
 import type { IStreamingPdfSink } from '@app/platform/browser-api/streamingImagePdfWriter';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { tryCombineImageInputsWithWasm } from '@app/platform/browser-api/tryCombineImageInputsWithWasm';
 
 const DJVU_ESTIMATE_PRESETS = [
     1,
     2,
     4,
 ] as const;
-const DJVU_BROWSER_PDF_JPEG_QUALITY = 0.92;
+const DJVU_BROWSER_DIRECT_PDF_JPEG_QUALITY = 0.92;
+const DJVU_BROWSER_COMPACT_PHOTO_PDF_JPEG_QUALITY = 85;
+const DJVU_BROWSER_COMPACT_PHOTO_PPI_CAP = 300;
+const DJVU_BROWSER_PDF_RENDER_WORKER_LIMIT = 3;
+const DJVU_BROWSER_PDF_MEDIUM_PAGE_PIXEL_COUNT = 16_000_000;
+const DJVU_BROWSER_PDF_LARGE_PAGE_PIXEL_COUNT = 32_000_000;
 const DJVU_INFO_TEXT_SAMPLE_PAGES = 3;
 const DJVU_ESTIMATE_SAMPLE_PAGES = 3;
 
@@ -44,7 +56,7 @@ class DjvuCanceledError extends Error {
 }
 
 interface IDjvuJobRecord {
-    worker: IDjvuWorker | null;
+    workers: Set<IDjvuWorker>;
     abortController: AbortController;
 }
 
@@ -53,6 +65,39 @@ interface IRenderedDjvuPage {
     width: number;
     height: number;
     dpi: number;
+}
+
+interface IDjvuPageMetrics {
+    width?: number;
+    height?: number;
+    dpi: number;
+}
+
+export interface IBrowserDjvuPdfRenderSettings {
+    strategy: 'direct' | 'compact-djvu-aware';
+    subsample: number;
+    jpegQuality: number;
+}
+
+interface IBrowserDjvuRenderTaskSuccess {
+    pageNumber: number;
+    pageData: IRenderedDjvuPage;
+    worker: IDjvuWorker;
+}
+
+interface IBrowserDjvuRenderTaskFailure {
+    pageNumber: number;
+    error: unknown;
+    worker: IDjvuWorker;
+}
+
+type TBrowserDjvuRenderTaskResult =
+    | IBrowserDjvuRenderTaskSuccess
+    | IBrowserDjvuRenderTaskFailure;
+
+interface IBrowserDjvuRenderTask {
+    pageNumber: number;
+    promise: Promise<TBrowserDjvuRenderTaskResult>;
 }
 
 const progressListeners = new Set<(progress: IDjvuProgress) => void>();
@@ -72,7 +117,7 @@ function emitProgress(progress: IDjvuProgress) {
 function createDjvuJob(jobId: string, worker: IDjvuWorker | null = null) {
     const abortController = new AbortController();
     activeJobs.set(jobId, {
-        worker,
+        workers: worker ? new Set([worker]) : new Set(),
         abortController,
     });
     return abortController;
@@ -88,7 +133,7 @@ function attachDjvuJobWorker(jobId: string, worker: IDjvuWorker) {
         worker.terminate();
         throw new DjvuCanceledError();
     }
-    job.worker = worker;
+    job.workers.add(worker);
 }
 
 function cleanupDjvuJob(jobId: string) {
@@ -98,9 +143,9 @@ function cleanupDjvuJob(jobId: string) {
     }
 
     activeJobs.delete(jobId);
-    if (job.worker) {
+    for (const worker of job.workers) {
         try {
-            job.worker.terminate();
+            worker.terminate();
         } catch (error) {
             BrowserLogger.warn('djvu-browser', 'Failed to terminate DjVu worker', {
                 jobId,
@@ -224,11 +269,73 @@ function releaseCanvas(canvas: TDjvuCanvas) {
     canvas.height = 0;
 }
 
+export function resolveBrowserDjvuPdfRenderSettings(
+    options: Pick<IDjvuConvertOptions, 'pdfStrategy' | 'subsample'>,
+): IBrowserDjvuPdfRenderSettings {
+    const strategy = resolveDjvuPdfExportStrategy(options.pdfStrategy);
+    const requestedSubsample = normalizeDjvuPdfSubsample(options.subsample);
+
+    if (strategy === 'compact-djvu-aware') {
+        return {
+            strategy,
+            subsample: requestedSubsample,
+            jpegQuality: DJVU_BROWSER_COMPACT_PHOTO_PDF_JPEG_QUALITY,
+        };
+    }
+
+    return {
+        strategy,
+        subsample: requestedSubsample,
+        jpegQuality: DJVU_BROWSER_DIRECT_PDF_JPEG_QUALITY,
+    };
+}
+
+export function resolveBrowserDjvuPdfRenderConcurrency(
+    pageSizes: ReadonlyArray<Pick<IDjvuPageMetrics, 'width' | 'height'>>,
+    hardwareConcurrency = typeof navigator === 'undefined'
+        ? undefined
+        : navigator.hardwareConcurrency,
+) {
+    const pageCount = Math.max(1, pageSizes.length);
+    const normalizedHardwareConcurrency =
+        typeof hardwareConcurrency === 'number'
+        && Number.isFinite(hardwareConcurrency)
+        && hardwareConcurrency > 0
+            ? Math.trunc(hardwareConcurrency)
+            : 2;
+    const hardwareWorkerCount = Math.max(
+        1,
+        Math.floor(normalizedHardwareConcurrency / 2),
+    );
+    const maxPagePixels = pageSizes.reduce((maxPixels, size) => {
+        const width = typeof size.width === 'number' && Number.isFinite(size.width)
+            ? Math.max(0, Math.trunc(size.width))
+            : 0;
+        const height = typeof size.height === 'number' && Number.isFinite(size.height)
+            ? Math.max(0, Math.trunc(size.height))
+            : 0;
+        return Math.max(maxPixels, width * height);
+    }, 0);
+    const pixelWorkerLimit = maxPagePixels >= DJVU_BROWSER_PDF_LARGE_PAGE_PIXEL_COUNT
+        ? 1
+        : maxPagePixels >= DJVU_BROWSER_PDF_MEDIUM_PAGE_PIXEL_COUNT
+            ? 2
+            : DJVU_BROWSER_PDF_RENDER_WORKER_LIMIT;
+
+    return Math.min(
+        pageCount,
+        DJVU_BROWSER_PDF_RENDER_WORKER_LIMIT,
+        pixelWorkerLimit,
+        hardwareWorkerCount,
+    );
+}
+
 async function renderDjvuPageFromImageData(
     worker: IDjvuWorker,
     pageNumber: number,
     pageDpi: number,
     subsample: number,
+    jpegQuality: number,
     signal?: AbortSignal,
 ): Promise<IRenderedDjvuPage> {
     throwIfCanceled(signal);
@@ -269,7 +376,7 @@ async function renderDjvuPageFromImageData(
         const bytes = await canvasToImageBytes(
             targetCanvas,
             'image/jpeg',
-            DJVU_BROWSER_PDF_JPEG_QUALITY,
+            jpegQuality,
         );
         throwIfCanceled(signal);
 
@@ -292,6 +399,7 @@ async function renderDjvuPageFromPngObject(
     pageNumber: number,
     pageDpi: number,
     subsample: number,
+    jpegQuality: number,
     signal?: AbortSignal,
 ): Promise<IRenderedDjvuPage> {
     throwIfCanceled(signal);
@@ -324,7 +432,7 @@ async function renderDjvuPageFromPngObject(
         const bytes = await canvasToImageBytes(
             canvas,
             'image/jpeg',
-            DJVU_BROWSER_PDF_JPEG_QUALITY,
+            jpegQuality,
         );
         throwIfCanceled(signal);
 
@@ -345,6 +453,7 @@ async function renderDjvuPage(
     pageNumber: number,
     pageDpi: number,
     subsample: number,
+    jpegQuality: number,
     signal?: AbortSignal,
 ): Promise<IRenderedDjvuPage> {
     try {
@@ -353,6 +462,7 @@ async function renderDjvuPage(
             pageNumber,
             pageDpi,
             subsample,
+            jpegQuality,
             signal,
         );
     } catch (error) {
@@ -369,9 +479,194 @@ async function renderDjvuPage(
             pageNumber,
             pageDpi,
             subsample,
+            jpegQuality,
             signal,
         );
     }
+}
+
+interface IRenderedDjvuPpmPage {
+    input: {
+        fileName: string;
+        data: Uint8Array;
+    };
+    pageSize: {
+        widthPoints: number;
+        heightPoints: number;
+    };
+}
+
+function pointsFromPixels(pixels: number, dpi: number) {
+    return Math.max(1, pixels / Math.max(1, dpi) * 72);
+}
+
+function compactPhotoTargetSize(pageSize: IDjvuPageMetrics) {
+    const width = positiveInteger(pageSize.width) ?? 1;
+    const height = positiveInteger(pageSize.height) ?? 1;
+    const dpi = positiveInteger(pageSize.dpi) ?? DJVU_BROWSER_COMPACT_PHOTO_PPI_CAP;
+    const scale = Math.max(1, dpi / DJVU_BROWSER_COMPACT_PHOTO_PPI_CAP);
+    return {
+        height: Math.max(1, Math.round(height / scale)),
+        width: Math.max(1, Math.round(width / scale)),
+    };
+}
+
+function positiveInteger(value: unknown) {
+    return typeof value === 'number' && Number.isFinite(value) && value > 0
+        ? Math.trunc(value)
+        : null;
+}
+
+function rgbaToPpmBytes(width: number, height: number, rgba: Uint8ClampedArray | Uint8Array) {
+    const header = new TextEncoder().encode(`P6\n${width} ${height}\n255\n`);
+    const pixels = new Uint8Array(width * height * 3);
+    for (let sourceOffset = 0, targetOffset = 0; targetOffset < pixels.byteLength; sourceOffset += 4, targetOffset += 3) {
+        const alpha = (rgba[sourceOffset + 3] ?? 255) / 255;
+        pixels[targetOffset] = Math.round((rgba[sourceOffset] ?? 255) * alpha + 255 * (1 - alpha));
+        pixels[targetOffset + 1] = Math.round((rgba[sourceOffset + 1] ?? 255) * alpha + 255 * (1 - alpha));
+        pixels[targetOffset + 2] = Math.round((rgba[sourceOffset + 2] ?? 255) * alpha + 255 * (1 - alpha));
+    }
+    const output = new Uint8Array(header.byteLength + pixels.byteLength);
+    output.set(header, 0);
+    output.set(pixels, header.byteLength);
+    return output;
+}
+
+function canvasImageDataToPpm(canvas: TDjvuCanvas, width: number, height: number) {
+    const context = getCanvas2dContext(canvas);
+    if (!context) {
+        throw new Error('Canvas 2D context is unavailable');
+    }
+    return rgbaToPpmBytes(width, height, context.getImageData(0, 0, width, height).data);
+}
+
+async function renderDjvuPageAsPpmFromImageData(
+    worker: IDjvuWorker,
+    pageNumber: number,
+    targetWidth: number,
+    targetHeight: number,
+    signal?: AbortSignal,
+) {
+    throwIfCanceled(signal);
+    const imageData = await worker.doc.getPage(pageNumber).getImageData().run();
+    throwIfCanceled(signal);
+    if (imageData.width === targetWidth && imageData.height === targetHeight) {
+        return rgbaToPpmBytes(
+            imageData.width,
+            imageData.height,
+            new Uint8Array(imageData.buffer),
+        );
+    }
+
+    const sourceCanvas = createCanvas(imageData.width, imageData.height);
+    const targetCanvas = createCanvas(targetWidth, targetHeight);
+    try {
+        const sourceContext = getCanvas2dContext(sourceCanvas);
+        const targetContext = getCanvas2dContext(targetCanvas);
+        if (!sourceContext || !targetContext) {
+            throw new Error('Canvas 2D context is unavailable');
+        }
+        sourceContext.putImageData(createImageDataFromTransfer(imageData), 0, 0);
+        targetContext.fillStyle = '#ffffff';
+        targetContext.fillRect(0, 0, targetWidth, targetHeight);
+        targetContext.drawImage(
+            sourceCanvas,
+            0,
+            0,
+            targetWidth,
+            targetHeight,
+        );
+        throwIfCanceled(signal);
+        return canvasImageDataToPpm(targetCanvas, targetWidth, targetHeight);
+    } finally {
+        releaseCanvas(targetCanvas);
+        releaseCanvas(sourceCanvas);
+    }
+}
+
+async function renderDjvuPageAsPpmFromPngObject(
+    worker: IDjvuWorker,
+    pageNumber: number,
+    targetWidth: number,
+    targetHeight: number,
+    signal?: AbortSignal,
+) {
+    throwIfCanceled(signal);
+    const pngObject = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
+    throwIfCanceled(signal);
+    const canvas = createCanvas(targetWidth, targetHeight);
+
+    try {
+        const context = getCanvas2dContext(canvas);
+        if (!context) {
+            throw new Error('Canvas 2D context is unavailable');
+        }
+        const pngBytes = await fetchObjectUrlBytes(pngObject.url);
+        throwIfCanceled(signal);
+        const bitmap = await loadBitmapFromBytes(pngBytes);
+        throwIfCanceled(signal);
+        try {
+            context.fillStyle = '#ffffff';
+            context.fillRect(0, 0, targetWidth, targetHeight);
+            context.drawImage(bitmap, 0, 0, targetWidth, targetHeight);
+        } finally {
+            if ('close' in bitmap && typeof bitmap.close === 'function') {
+                bitmap.close();
+            }
+        }
+        return canvasImageDataToPpm(canvas, targetWidth, targetHeight);
+    } finally {
+        worker.revokeObjectURL(pngObject.url);
+        releaseCanvas(canvas);
+    }
+}
+
+async function renderDjvuPageAsPpm(
+    worker: IDjvuWorker,
+    pageNumber: number,
+    pageSize: IDjvuPageMetrics,
+    signal?: AbortSignal,
+): Promise<IRenderedDjvuPpmPage> {
+    const targetSize = compactPhotoTargetSize(pageSize);
+    let data: Uint8Array;
+    try {
+        data = await renderDjvuPageAsPpmFromImageData(
+            worker,
+            pageNumber,
+            targetSize.width,
+            targetSize.height,
+            signal,
+        );
+    } catch (error) {
+        if (error instanceof DjvuCanceledError) {
+            throw error;
+        }
+        BrowserLogger.debug('djvu-browser', 'Falling back to PNG DjVu page rendering for compact WASM path', {
+            pageNumber,
+            error,
+        });
+        data = await renderDjvuPageAsPpmFromPngObject(
+            worker,
+            pageNumber,
+            targetSize.width,
+            targetSize.height,
+            signal,
+        );
+    }
+
+    const dpi = positiveInteger(pageSize.dpi) ?? DJVU_BROWSER_COMPACT_PHOTO_PPI_CAP;
+    const sourceWidth = positiveInteger(pageSize.width) ?? targetSize.width;
+    const sourceHeight = positiveInteger(pageSize.height) ?? targetSize.height;
+    return {
+        input: {
+            data,
+            fileName: `page-${String(pageNumber).padStart(5, '0')}.ppm`,
+        },
+        pageSize: {
+            widthPoints: pointsFromPixels(sourceWidth, dpi),
+            heightPoints: pointsFromPixels(sourceHeight, dpi),
+        },
+    };
 }
 
 async function mapDjvuContentsToPdfBookmarks(
@@ -573,10 +868,113 @@ async function createPdfOutputSink(outputPath: TDocumentRef) {
     return sink;
 }
 
+async function createPdfRenderWorkers(options: {
+    worker: IDjvuWorker;
+    renderConcurrency: number;
+    createRenderWorker?: (() => Promise<IDjvuWorker>) | undefined;
+    signal?: AbortSignal | undefined;
+}) {
+    const workers = [options.worker];
+    const additionalWorkerCount = Math.max(
+        0,
+        Math.trunc(options.renderConcurrency) - 1,
+    );
+
+    for (let index = 0; index < additionalWorkerCount; index += 1) {
+        throwIfCanceled(options.signal);
+        if (!options.createRenderWorker) {
+            break;
+        }
+        workers.push(await options.createRenderWorker());
+    }
+
+    return workers;
+}
+
+async function renderDjvuPagesIntoWriter(options: {
+    writer: StreamingImagePdfWriter;
+    workers: IDjvuWorker[];
+    pageSizes: IDjvuPageMetrics[];
+    subsample: number;
+    jpegQuality: number;
+    signal?: AbortSignal | undefined;
+    onPageProcessed?: ((processed: number, total: number) => void) | undefined;
+}) {
+    const total = options.pageSizes.length;
+    const activeTasks = new Map<number, IBrowserDjvuRenderTask>();
+    let nextPageNumber = 1;
+
+    const startTask = (worker: IDjvuWorker): IBrowserDjvuRenderTask | null => {
+        if (nextPageNumber > total) {
+            return null;
+        }
+
+        const pageNumber = nextPageNumber;
+        nextPageNumber += 1;
+        const promise = renderDjvuPage(
+            worker,
+            pageNumber,
+            options.pageSizes[pageNumber - 1]?.dpi ?? 300,
+            options.subsample,
+            options.jpegQuality,
+            options.signal,
+        ).then(
+            pageData => ({
+                pageNumber,
+                pageData,
+                worker,
+            } satisfies TBrowserDjvuRenderTaskResult),
+            error => ({
+                pageNumber,
+                error,
+                worker,
+            } satisfies TBrowserDjvuRenderTaskResult),
+        );
+
+        return {
+            pageNumber,
+            promise,
+        };
+    };
+
+    for (const worker of options.workers) {
+        const task = startTask(worker);
+        if (!task) {
+            break;
+        }
+        activeTasks.set(task.pageNumber, task);
+    }
+
+    for (let pageNumber = 1; pageNumber <= total; pageNumber += 1) {
+        throwIfCanceled(options.signal);
+        const task = activeTasks.get(pageNumber);
+        if (!task) {
+            throw new Error(`DjVu PDF render task for page ${pageNumber} was not scheduled`);
+        }
+
+        const result = await task.promise;
+        activeTasks.delete(pageNumber);
+        if ('error' in result) {
+            throw result.error;
+        }
+
+        await options.writer.addPage(result.pageData);
+        options.onPageProcessed?.(pageNumber, total);
+        const nextTask = startTask(result.worker);
+        if (nextTask) {
+            activeTasks.set(nextTask.pageNumber, nextTask);
+        }
+        await yieldToBrowser();
+    }
+}
+
 async function buildPdfWithOptionalBookmarks(options: {
     worker: IDjvuWorker;
-    pageSizes: Array<{ dpi: number; }>;
+    pageSizes: IDjvuPageMetrics[];
     subsample: number;
+    jpegQuality: number;
+    renderConcurrency: number;
+    createRenderWorker?: () => Promise<IDjvuWorker>;
     preserveBookmarks: boolean;
     outputPath: TDocumentRef;
     signal?: AbortSignal;
@@ -606,19 +1004,21 @@ async function buildPdfWithOptionalBookmarks(options: {
         });
         await writer.start();
 
-        for (let pageNumber = 1; pageNumber <= options.pageSizes.length; pageNumber += 1) {
-            throwIfCanceled(options.signal);
-            const pageData = await renderDjvuPage(
-                options.worker,
-                pageNumber,
-                options.pageSizes[pageNumber - 1]?.dpi ?? 300,
-                options.subsample,
-                options.signal,
-            );
-            await writer.addPage(pageData);
-            options.onPageProcessed?.(pageNumber, options.pageSizes.length);
-            await yieldToBrowser();
-        }
+        const renderWorkers = await createPdfRenderWorkers({
+            worker: options.worker,
+            renderConcurrency: options.renderConcurrency,
+            createRenderWorker: options.createRenderWorker,
+            signal: options.signal,
+        });
+        await renderDjvuPagesIntoWriter({
+            writer,
+            workers: renderWorkers,
+            pageSizes: options.pageSizes,
+            subsample: options.subsample,
+            jpegQuality: options.jpegQuality,
+            signal: options.signal,
+            onPageProcessed: options.onPageProcessed,
+        });
 
         throwIfCanceled(options.signal);
         if (options.preserveBookmarks) {
@@ -632,6 +1032,66 @@ async function buildPdfWithOptionalBookmarks(options: {
         });
         throw error;
     }
+}
+
+async function writePdfBytesToOutput(
+    outputPath: TDocumentRef,
+    bytes: Uint8Array,
+) {
+    const sink = await createPdfOutputSink(outputPath);
+    try {
+        await sink.write(bytes);
+        return await sink.finish();
+    } catch (error) {
+        await sink.abort().catch((abortError: unknown) => {
+            BrowserLogger.warn('djvu-browser', 'Failed to abort browser compact PDF sink', abortError);
+        });
+        throw error;
+    }
+}
+
+async function buildCompactPhotoPdfWithWasm(options: {
+    worker: IDjvuWorker;
+    pageSizes: IDjvuPageMetrics[];
+    outputPath: TDocumentRef;
+    signal?: AbortSignal;
+    onPageProcessed?: (processed: number, total: number) => void;
+}) {
+    // The bundled djvu.js wrapper does not expose stable raw Sjbz/BG44/FG44 layer buffers.
+    // Keep web compact export bounded by rendering capped photo-style PPM pages and letting
+    // the Rust WASM encoder own JPEG quality, grayscale detection, and PDF image embedding.
+    const pageSpecs: IBrowserPdfCombineWasmPageSpec[] = [];
+    const pageCount = options.pageSizes.length;
+
+    for (const [
+        index,
+        pageSize,
+    ] of options.pageSizes.entries()) {
+        throwIfCanceled(options.signal);
+        const pageNumber = index + 1;
+        const renderedPage = await renderDjvuPageAsPpm(
+            options.worker,
+            pageNumber,
+            pageSize,
+            options.signal,
+        );
+        pageSpecs.push({
+            kind: 'image',
+            pageSize: renderedPage.pageSize,
+            jpegQuality: DJVU_BROWSER_COMPACT_PHOTO_PDF_JPEG_QUALITY,
+            ppiCap: DJVU_BROWSER_COMPACT_PHOTO_PPI_CAP,
+            image: renderedPage.input,
+        });
+        options.onPageProcessed?.(pageNumber, pageCount);
+        await yieldToBrowser();
+    }
+
+    throwIfCanceled(options.signal);
+    const pdfBytes = await tryCombineImageInputsWithWasm([], {pageSpecs});
+    if (!pdfBytes) {
+        throw new Error('ERR_BROWSER_DJVU_COMPACT_WASM_UNAVAILABLE');
+    }
+    return writePdfBytesToOutput(options.outputPath, pdfBytes);
 }
 
 function pickSamplePageNumbers(pageCount: number, maxSamples: number) {
@@ -701,6 +1161,7 @@ async function estimateDjvuSizes(
                             pageNumber,
                             pageSizes[pageNumber - 1]?.dpi ?? sourceDpi,
                             subsample,
+                            DJVU_BROWSER_DIRECT_PDF_JPEG_QUALITY,
                         );
                         sampleBytes += renderedPage.bytes.byteLength;
                         await yieldToBrowser();
@@ -790,29 +1251,60 @@ export const browserDjvuCapability: IDjvuCapability = {
                 phase: 'converting',
                 percent: 0,
             });
-
-            const pdfPath = await buildPdfWithOptionalBookmarks({
-                worker,
-                pageSizes,
-                subsample: Math.max(1, Math.round(options.subsample ?? 1)),
-                preserveBookmarks: options.preserveBookmarks !== false,
-                outputPath,
-                signal: abortController.signal,
-                onPageProcessed: (processed, total) => {
-                    emitProgress({
-                        jobId,
-                        phase: 'converting',
-                        percent: Math.round((processed / total) * 90),
-                    });
-                },
-                onBookmarksStart: () => {
-                    emitProgress({
-                        jobId,
-                        phase: 'bookmarks',
-                        percent: 95,
-                    });
-                },
+            const renderSettings = resolveBrowserDjvuPdfRenderSettings(options);
+            const renderConcurrency = resolveBrowserDjvuPdfRenderConcurrency(pageSizes);
+            BrowserLogger.info('djvu-browser', 'Starting browser DjVu PDF conversion', {
+                jobId,
+                pageCount,
+                strategy: renderSettings.strategy,
+                subsample: renderSettings.subsample,
+                jpegQuality: renderSettings.jpegQuality,
+                renderConcurrency,
             });
+
+            const pdfPath = renderSettings.strategy === 'compact-djvu-aware'
+                ? await buildCompactPhotoPdfWithWasm({
+                    worker,
+                    pageSizes,
+                    outputPath,
+                    signal: abortController.signal,
+                    onPageProcessed: (processed, total) => {
+                        emitProgress({
+                            jobId,
+                            phase: 'converting',
+                            percent: Math.round((processed / total) * 90),
+                        });
+                    },
+                })
+                : await buildPdfWithOptionalBookmarks({
+                    worker,
+                    pageSizes,
+                    subsample: renderSettings.subsample,
+                    jpegQuality: renderSettings.jpegQuality,
+                    renderConcurrency,
+                    createRenderWorker: async () => {
+                        const renderWorker = await createDjvuWorkerFromPath(djvuPath, { signal: abortController.signal });
+                        attachDjvuJobWorker(jobId, renderWorker);
+                        return renderWorker;
+                    },
+                    preserveBookmarks: options.preserveBookmarks !== false,
+                    outputPath,
+                    signal: abortController.signal,
+                    onPageProcessed: (processed, total) => {
+                        emitProgress({
+                            jobId,
+                            phase: 'converting',
+                            percent: Math.round((processed / total) * 90),
+                        });
+                    },
+                    onBookmarksStart: () => {
+                        emitProgress({
+                            jobId,
+                            phase: 'bookmarks',
+                            percent: 95,
+                        });
+                    },
+                });
 
             emitProgress({
                 jobId,

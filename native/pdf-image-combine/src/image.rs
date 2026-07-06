@@ -1,4 +1,4 @@
-use jpeg_encoder::{ColorType, Encoder as JpegEncoder};
+use jpeg_encoder::{ColorType, Encoder as JpegEncoder, SamplingFactor};
 use std::{
     borrow::Cow,
     fs::{self, File},
@@ -13,8 +13,19 @@ use crate::{
     pdf::{ImagePage, ImagePayload},
     png::parse_png_reader,
     tiff_io::{read_tiff_pdf_pages_from_bytes, visit_tiff_pdf_pages},
-    Result, DEFAULT_DPI,
+    MixedPdfImageProcessing, PdfPageSize, Result, DEFAULT_DPI,
 };
+
+const JPEG_GUARDRAIL_QUALITY_FLOOR: u8 = 75;
+const JPEG_GUARDRAIL_PPI_CAP: f64 = 300.0;
+const JPEG_GUARDRAIL_GRAYSCALE_BPP: f64 = 1.5;
+const JPEG_GUARDRAIL_COLOR_BPP: f64 = 2.25;
+
+#[derive(Clone, Copy)]
+pub struct JpegSizeGuardrail {
+    pub page: usize,
+    pub log_json_progress: bool,
+}
 
 #[derive(Clone, Copy)]
 pub(crate) enum PdfImageCompression {
@@ -79,6 +90,9 @@ pub(crate) fn read_image_page(
     max_pixels: u64,
     default_dpi: Option<u32>,
     compression: PdfImageCompression,
+    processing: MixedPdfImageProcessing,
+    page_size: Option<PdfPageSize>,
+    size_guardrail: Option<JpegSizeGuardrail>,
 ) -> Result<ImagePage> {
     let extension = image_extension(path);
     match (extension.as_str(), compression) {
@@ -87,6 +101,9 @@ pub(crate) fn read_image_page(
             max_pixels,
             default_dpi.unwrap_or(DEFAULT_DPI),
             quality,
+            processing,
+            page_size,
+            size_guardrail,
         ),
         ("jpg" | "jpeg", _) => read_jpeg_page(fs::read(path)?, max_pixels, default_dpi),
         ("pgm" | "ppm", _) => read_netpbm_page(
@@ -123,6 +140,48 @@ pub(crate) fn read_image_pages_from_bytes(
     };
 
     Ok(vec![page])
+}
+
+pub(crate) fn read_image_page_from_bytes(
+    file_name: &str,
+    bytes: &[u8],
+    max_pixels: u64,
+    default_dpi: Option<u32>,
+    compression: PdfImageCompression,
+    processing: MixedPdfImageProcessing,
+    page_size: Option<PdfPageSize>,
+    size_guardrail: Option<JpegSizeGuardrail>,
+) -> Result<ImagePage> {
+    let extension = file_name
+        .rsplit_once('.')
+        .map(|(_, extension)| extension)
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    match (extension.as_str(), compression) {
+        ("pgm" | "ppm", PdfImageCompression::Jpeg { quality }) => read_netpbm_jpeg_page(
+            bytes,
+            max_pixels,
+            default_dpi.unwrap_or(DEFAULT_DPI),
+            quality,
+            processing,
+            page_size,
+            size_guardrail,
+        ),
+        ("pgm" | "ppm", PdfImageCompression::Auto)
+            if matches!(processing, MixedPdfImageProcessing::None) =>
+        {
+            read_netpbm_page(bytes, max_pixels, default_dpi.unwrap_or(DEFAULT_DPI))
+        }
+        ("pgm" | "ppm", PdfImageCompression::Auto) => {
+            Err("Netpbm byte-input processing requires JPEG compression".into())
+        }
+        (_, _) if !matches!(processing, MixedPdfImageProcessing::None) => {
+            Err("WASM byte-input processing currently supports PGM/PPM Netpbm inputs only".into())
+        }
+        ("png", _) => read_png_page_from_reader(Cursor::new(bytes), max_pixels, default_dpi),
+        ("jpg" | "jpeg", _) => read_jpeg_page(bytes.to_vec(), max_pixels, default_dpi),
+        _ => Err(format!("Unsupported image extension: {file_name}").into()),
+    }
 }
 
 fn read_png_page(path: &Path, max_pixels: u64, default_dpi: Option<u32>) -> Result<ImagePage> {
@@ -233,38 +292,371 @@ fn read_netpbm_jpeg_page(
     max_pixels: u64,
     dpi: u32,
     quality: u8,
+    processing: MixedPdfImageProcessing,
+    page_size: Option<PdfPageSize>,
+    size_guardrail: Option<JpegSizeGuardrail>,
 ) -> Result<ImagePage> {
     let netpbm = parse_netpbm(bytes)?;
     assert_pixel_limit(netpbm.width, netpbm.height, max_pixels)?;
-    let width = u16::try_from(netpbm.width)
-        .map_err(|_| format!("JPEG width is too large to encode: {}", netpbm.width))?;
-    let height = u16::try_from(netpbm.height)
-        .map_err(|_| format!("JPEG height is too large to encode: {}", netpbm.height))?;
+    let prepared = prepare_netpbm_for_jpeg(&netpbm, max_pixels, processing, page_size)?;
+    let (prepared, quality) =
+        encode_with_size_guardrail(prepared, max_pixels, quality, page_size, size_guardrail)?;
 
-    let total_pixels = netpbm.width as usize * netpbm.height as usize;
-    let (pixels, color_type, color_space) = if netpbm.channels == 1 {
-        (Cow::Borrowed(netpbm.pixels), ColorType::Luma, "DeviceGray")
-    } else if is_rgb_data_grayscale(netpbm.pixels, total_pixels) {
-        let mut grayscale = Vec::with_capacity(total_pixels);
-        for pixel in netpbm.pixels.chunks_exact(3).take(total_pixels) {
-            grayscale.push(pixel[0]);
-        }
-        (Cow::Owned(grayscale), ColorType::Luma, "DeviceGray")
-    } else {
-        (Cow::Borrowed(netpbm.pixels), ColorType::Rgb, "DeviceRGB")
-    };
-
-    let mut data = Vec::new();
-    let encoder = JpegEncoder::new(&mut data, quality);
-    encoder.encode(&pixels, width, height, color_type)?;
-
+    let (data, color_space) = encode_prepared_netpbm_as_jpeg(&prepared, quality)?;
     Ok(ImagePage {
-        width: netpbm.width,
-        height: netpbm.height,
+        width: prepared.width,
+        height: prepared.height,
         dpi,
         color_space,
         payload: ImagePayload::Jpeg { data },
     })
+}
+
+fn encode_prepared_netpbm_as_jpeg(
+    prepared: &PreparedNetpbmPixels<'_>,
+    quality: u8,
+) -> Result<(Vec<u8>, &'static str)> {
+    let width = u16::try_from(prepared.width)
+        .map_err(|_| format!("JPEG width is too large to encode: {}", prepared.width))?;
+    let height = u16::try_from(prepared.height)
+        .map_err(|_| format!("JPEG height is too large to encode: {}", prepared.height))?;
+    let total_pixels = prepared.width as usize * prepared.height as usize;
+    let (pixels, color_type, color_space): (Cow<'_, [u8]>, ColorType, &'static str) =
+        if prepared.channels == 1 {
+            (
+                Cow::Borrowed(prepared.pixels.as_ref()),
+                ColorType::Luma,
+                "DeviceGray",
+            )
+        } else if is_rgb_data_grayscale(&prepared.pixels, total_pixels) {
+            let mut grayscale = Vec::with_capacity(total_pixels);
+            for pixel in prepared.pixels.chunks_exact(3).take(total_pixels) {
+                grayscale.push(pixel[0]);
+            }
+            (Cow::Owned(grayscale), ColorType::Luma, "DeviceGray")
+        } else {
+            (
+                Cow::Borrowed(prepared.pixels.as_ref()),
+                ColorType::Rgb,
+                "DeviceRGB",
+            )
+        };
+
+    let mut data = Vec::new();
+    let mut encoder = JpegEncoder::new(&mut data, quality);
+    if matches!(color_type, ColorType::Rgb) {
+        encoder.set_sampling_factor(SamplingFactor::R_4_2_0);
+    }
+    encoder.encode(&pixels, width, height, color_type)?;
+    Ok((data, color_space))
+}
+
+fn encode_with_size_guardrail<'a>(
+    prepared: PreparedNetpbmPixels<'a>,
+    max_pixels: u64,
+    quality: u8,
+    page_size: Option<PdfPageSize>,
+    guardrail: Option<JpegSizeGuardrail>,
+) -> Result<(PreparedNetpbmPixels<'a>, u8)> {
+    let Some(guardrail) = guardrail else {
+        return Ok((prepared, quality));
+    };
+    let (data, color_space) = encode_prepared_netpbm_as_jpeg(&prepared, quality)?;
+    let size_ceiling = jpeg_size_ceiling_bytes(&prepared, color_space, page_size);
+    if data.len() <= size_ceiling {
+        return Ok((prepared, quality));
+    }
+
+    let mut current_prepared = prepared;
+    let mut current_quality = quality;
+    let mut current_bytes = data.len();
+
+    let lower_quality = quality.saturating_sub(10).max(JPEG_GUARDRAIL_QUALITY_FLOOR);
+    if lower_quality < quality {
+        let (quality_data, _) = encode_prepared_netpbm_as_jpeg(&current_prepared, lower_quality)?;
+        emit_guardrail_action(
+            guardrail,
+            "quality",
+            &quality.to_string(),
+            &lower_quality.to_string(),
+            current_bytes,
+            quality_data.len(),
+        );
+        current_quality = lower_quality;
+        current_bytes = quality_data.len();
+    }
+
+    if current_bytes > size_ceiling {
+        if let Some((next_width, next_height)) = downscale_dimensions_to_effective_ppi(
+            &current_prepared,
+            page_size,
+            JPEG_GUARDRAIL_PPI_CAP,
+        ) {
+            let from = format!("{}x{}", current_prepared.width, current_prepared.height);
+            current_prepared =
+                resize_prepared_netpbm(current_prepared, next_width, next_height, max_pixels)?;
+            let (downscaled_data, _) =
+                encode_prepared_netpbm_as_jpeg(&current_prepared, current_quality)?;
+            emit_guardrail_action(
+                guardrail,
+                "downscale",
+                &from,
+                &format!("{}x{}", current_prepared.width, current_prepared.height),
+                current_bytes,
+                downscaled_data.len(),
+            );
+        }
+    }
+
+    Ok((current_prepared, current_quality))
+}
+
+struct PreparedNetpbmPixels<'a> {
+    width: u32,
+    height: u32,
+    channels: u8,
+    pixels: Cow<'a, [u8]>,
+}
+
+fn prepare_netpbm_for_jpeg<'a>(
+    netpbm: &crate::netpbm::NetpbmData<'a>,
+    max_pixels: u64,
+    processing: MixedPdfImageProcessing,
+    page_size: Option<PdfPageSize>,
+) -> Result<PreparedNetpbmPixels<'a>> {
+    let prepared = PreparedNetpbmPixels {
+        width: netpbm.width,
+        height: netpbm.height,
+        channels: netpbm.channels,
+        pixels: Cow::Borrowed(netpbm.pixels),
+    };
+
+    match processing {
+        MixedPdfImageProcessing::None => Ok(prepared),
+        MixedPdfImageProcessing::DownscaleToPpi { ppi_cap } => {
+            downscale_prepared_netpbm_to_ppi_cap(prepared, max_pixels, page_size, ppi_cap)
+        }
+    }
+}
+
+fn downscale_prepared_netpbm_to_ppi_cap<'a>(
+    prepared: PreparedNetpbmPixels<'a>,
+    max_pixels: u64,
+    page_size: Option<PdfPageSize>,
+    ppi_cap: u16,
+) -> Result<PreparedNetpbmPixels<'a>> {
+    if ppi_cap == 0 {
+        return Ok(prepared);
+    }
+    let Some(page_size) = page_size else {
+        return Ok(prepared);
+    };
+    let width_inches = page_size.width_points / 72.0;
+    let height_inches = page_size.height_points / 72.0;
+    if width_inches <= 0.0 || height_inches <= 0.0 {
+        return Ok(prepared);
+    }
+    let max_width = (width_inches * f64::from(ppi_cap)).ceil().max(1.0) as u32;
+    let max_height = (height_inches * f64::from(ppi_cap)).ceil().max(1.0) as u32;
+    if prepared.width <= max_width && prepared.height <= max_height {
+        return Ok(prepared);
+    }
+    let scale =
+        (prepared.width as f64 / max_width as f64).max(prepared.height as f64 / max_height as f64);
+    let next_width = ((prepared.width as f64) / scale).round().max(1.0) as u32;
+    let next_height = ((prepared.height as f64) / scale).round().max(1.0) as u32;
+    resize_prepared_netpbm(prepared, next_width, next_height, max_pixels)
+}
+
+fn resize_prepared_netpbm<'a>(
+    prepared: PreparedNetpbmPixels<'a>,
+    next_width: u32,
+    next_height: u32,
+    max_pixels: u64,
+) -> Result<PreparedNetpbmPixels<'a>> {
+    if prepared.width == next_width && prepared.height == next_height {
+        return Ok(prepared);
+    }
+    assert_pixel_limit(next_width, next_height, max_pixels)?;
+    let source_width = prepared.width as usize;
+    let source_height = prepared.height as usize;
+    let next_width_usize = next_width as usize;
+    let next_height_usize = next_height as usize;
+    let channels = prepared.channels as usize;
+    let output_len = next_width_usize
+        .checked_mul(next_height_usize)
+        .and_then(|value| value.checked_mul(channels))
+        .ok_or("Resized Netpbm payload size overflow")?;
+    let mut output = vec![0u8; output_len];
+    if next_width < prepared.width || next_height < prepared.height {
+        resize_prepared_netpbm_area_average(
+            &prepared,
+            &mut output,
+            source_width,
+            source_height,
+            next_width_usize,
+            next_height_usize,
+            channels,
+        );
+    } else {
+        resize_prepared_netpbm_point_sample(
+            &prepared,
+            &mut output,
+            source_width,
+            source_height,
+            next_width_usize,
+            next_height_usize,
+            channels,
+        );
+    }
+    Ok(PreparedNetpbmPixels {
+        width: next_width,
+        height: next_height,
+        channels: prepared.channels,
+        pixels: Cow::Owned(output),
+    })
+}
+
+fn resize_prepared_netpbm_point_sample(
+    prepared: &PreparedNetpbmPixels<'_>,
+    output: &mut [u8],
+    source_width: usize,
+    source_height: usize,
+    next_width: usize,
+    next_height: usize,
+    channels: usize,
+) {
+    for y in 0..next_height {
+        let source_y = ((y as f64 + 0.5) * source_height as f64 / next_height as f64)
+            .floor()
+            .min((source_height - 1) as f64) as usize;
+        for x in 0..next_width {
+            let source_x = ((x as f64 + 0.5) * source_width as f64 / next_width as f64)
+                .floor()
+                .min((source_width - 1) as f64) as usize;
+            let source_offset = (source_y * source_width + source_x) * channels;
+            let output_offset = (y * next_width + x) * channels;
+            for channel in 0..channels {
+                output[output_offset + channel] = prepared.pixels[source_offset + channel];
+            }
+        }
+    }
+}
+
+fn resize_prepared_netpbm_area_average(
+    prepared: &PreparedNetpbmPixels<'_>,
+    output: &mut [u8],
+    source_width: usize,
+    source_height: usize,
+    next_width: usize,
+    next_height: usize,
+    channels: usize,
+) {
+    let scale_x = source_width as f64 / next_width as f64;
+    let scale_y = source_height as f64 / next_height as f64;
+    for y in 0..next_height {
+        let y0 = y as f64 * scale_y;
+        let y1 = (y + 1) as f64 * scale_y;
+        let source_y_start = y0.floor() as usize;
+        let source_y_end = y1.ceil().min(source_height as f64) as usize;
+        for x in 0..next_width {
+            let x0 = x as f64 * scale_x;
+            let x1 = (x + 1) as f64 * scale_x;
+            let source_x_start = x0.floor() as usize;
+            let source_x_end = x1.ceil().min(source_width as f64) as usize;
+            let output_offset = (y * next_width + x) * channels;
+            let area = (x1 - x0) * (y1 - y0);
+            for channel in 0..channels {
+                let mut weighted_sum = 0.0;
+                for source_y in source_y_start..source_y_end {
+                    let overlap_y = ((source_y + 1) as f64).min(y1) - (source_y as f64).max(y0);
+                    if overlap_y <= 0.0 {
+                        continue;
+                    }
+                    for source_x in source_x_start..source_x_end {
+                        let overlap_x = ((source_x + 1) as f64).min(x1) - (source_x as f64).max(x0);
+                        if overlap_x <= 0.0 {
+                            continue;
+                        }
+                        let source_offset = (source_y * source_width + source_x) * channels;
+                        weighted_sum += f64::from(prepared.pixels[source_offset + channel])
+                            * overlap_x
+                            * overlap_y;
+                    }
+                }
+                output[output_offset + channel] =
+                    (weighted_sum / area).round().clamp(0.0, 255.0) as u8;
+            }
+        }
+    }
+}
+
+fn jpeg_size_ceiling_bytes(
+    prepared: &PreparedNetpbmPixels<'_>,
+    color_space: &str,
+    page_size: Option<PdfPageSize>,
+) -> usize {
+    let base_bpp = if color_space == "DeviceGray" {
+        JPEG_GUARDRAIL_GRAYSCALE_BPP
+    } else {
+        JPEG_GUARDRAIL_COLOR_BPP
+    };
+    let ppi_multiplier = effective_ppi(prepared, page_size)
+        .map(|ppi| (JPEG_GUARDRAIL_PPI_CAP / ppi).clamp(1.0, 3.0))
+        .unwrap_or(1.0);
+    let bpp = base_bpp * ppi_multiplier;
+    ((prepared.width as f64 * prepared.height as f64 * bpp) / 8.0).ceil() as usize
+}
+
+fn effective_ppi(
+    prepared: &PreparedNetpbmPixels<'_>,
+    page_size: Option<PdfPageSize>,
+) -> Option<f64> {
+    let page_size = page_size?;
+    let width_inches = page_size.width_points / 72.0;
+    let height_inches = page_size.height_points / 72.0;
+    if width_inches <= 0.0 || height_inches <= 0.0 {
+        return None;
+    }
+    Some((prepared.width as f64 / width_inches).max(prepared.height as f64 / height_inches))
+}
+
+fn downscale_dimensions_to_effective_ppi(
+    prepared: &PreparedNetpbmPixels<'_>,
+    page_size: Option<PdfPageSize>,
+    ppi_cap: f64,
+) -> Option<(u32, u32)> {
+    let page_size = page_size?;
+    if effective_ppi(prepared, Some(page_size))? <= ppi_cap {
+        return None;
+    }
+    let width_inches = page_size.width_points / 72.0;
+    let height_inches = page_size.height_points / 72.0;
+    let next_width = (width_inches * ppi_cap).round().max(1.0) as u32;
+    let next_height = (height_inches * ppi_cap).round().max(1.0) as u32;
+    if next_width >= prepared.width && next_height >= prepared.height {
+        return None;
+    }
+    Some((
+        next_width.min(prepared.width),
+        next_height.min(prepared.height),
+    ))
+}
+
+fn emit_guardrail_action(
+    guardrail: JpegSizeGuardrail,
+    action: &str,
+    from: &str,
+    to: &str,
+    bytes_before: usize,
+    bytes_after: usize,
+) {
+    if guardrail.log_json_progress {
+        println!(
+            "{{\"page\":{},\"action\":\"{}\",\"from\":\"{}\",\"to\":\"{}\",\"bytesBefore\":{},\"bytesAfter\":{}}}",
+            guardrail.page, action, from, to, bytes_before, bytes_after
+        );
+    }
 }
 
 pub(crate) fn assert_pixel_limit(width: u32, height: u32, max_pixels: u64) -> Result<()> {
@@ -325,7 +717,16 @@ mod tests {
     #[test]
     fn encodes_grayscale_netpbm_as_jpeg_payload() {
         let data = b"P6\n2 1\n255\n\x07\x07\x07\x09\x09\x09";
-        let page = read_netpbm_jpeg_page(data, 1_000_000, 300, 75).unwrap();
+        let page = read_netpbm_jpeg_page(
+            data,
+            1_000_000,
+            300,
+            75,
+            MixedPdfImageProcessing::None,
+            None,
+            None,
+        )
+        .unwrap();
 
         assert_eq!(page.width, 2);
         assert_eq!(page.height, 1);
@@ -335,6 +736,189 @@ mod tests {
                 assert!(data.starts_with(&[0xff, 0xd8]));
             }
             ImagePayload::RawFlate { .. } => panic!("expected jpeg payload"),
+        }
+    }
+
+    #[test]
+    fn netpbm_jpeg_downscales_to_ppi_cap() {
+        let data =
+            b"P5\n4 4\n255\n\x20\xf0\xf0\xf0\x20\xf0\xf0\xf0\x20\xf0\xf0\xf0\x20\xf0\xf0\xf0";
+        let page = read_netpbm_jpeg_page(
+            data,
+            1_000_000,
+            300,
+            75,
+            MixedPdfImageProcessing::DownscaleToPpi { ppi_cap: 2 },
+            Some(PdfPageSize {
+                width_points: 72.0,
+                height_points: 72.0,
+            }),
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(page.width, 2);
+        assert_eq!(page.height, 2);
+        assert_eq!(page.color_space, "DeviceGray");
+        match page.payload {
+            ImagePayload::Jpeg { data } => {
+                let metadata = parse_jpeg_metadata(&data).unwrap();
+                assert_eq!(metadata.width, 2);
+                assert_eq!(metadata.height, 2);
+            }
+            ImagePayload::RawFlate { .. } => panic!("expected jpeg payload"),
+        }
+    }
+
+    #[test]
+    fn netpbm_jpeg_size_guardrail_keeps_300_ppi_grayscale_page_at_safe_quality() {
+        let prepared = PreparedNetpbmPixels {
+            width: 300,
+            height: 300,
+            channels: 1,
+            pixels: std::borrow::Cow::Owned(
+                (0..90_000)
+                    .map(|index| if index % 37 == 0 { 0u8 } else { 255u8 })
+                    .collect(),
+            ),
+        };
+
+        let (prepared, quality) = encode_with_size_guardrail(
+            prepared,
+            1_000_000,
+            85,
+            Some(PdfPageSize {
+                width_points: 72.0,
+                height_points: 72.0,
+            }),
+            Some(JpegSizeGuardrail {
+                page: 1,
+                log_json_progress: false,
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(prepared.width, 300);
+        assert_eq!(prepared.height, 300);
+        assert!(quality >= 75);
+    }
+
+    #[test]
+    fn jpeg_size_guardrail_scales_grayscale_budget_for_100_ppi_pages() {
+        let page_size = Some(PdfPageSize {
+            width_points: 72.0,
+            height_points: 72.0,
+        });
+        let prepared_100_ppi = dense_gray_guardrail_fixture(100, 100);
+        let (q85_data, color_space) =
+            encode_prepared_netpbm_as_jpeg(&prepared_100_ppi, 85).unwrap();
+        let q85_bpp =
+            q85_data.len() as f64 * 8.0 / (prepared_100_ppi.width * prepared_100_ppi.height) as f64;
+
+        assert!(
+            (2.0..=3.2).contains(&q85_bpp),
+            "expected a dense ~2.5 bpp fixture, got {q85_bpp:.2} bpp"
+        );
+        assert_eq!(color_space, "DeviceGray");
+        assert_eq!(
+            jpeg_size_ceiling_bytes(&prepared_100_ppi, color_space, page_size),
+            5_625
+        );
+
+        let (prepared, quality) = encode_with_size_guardrail(
+            prepared_100_ppi,
+            1_000_000,
+            85,
+            page_size,
+            Some(JpegSizeGuardrail {
+                page: 1,
+                log_json_progress: false,
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(prepared.width, 100);
+        assert_eq!(prepared.height, 100);
+        assert_eq!(quality, 85);
+    }
+
+    #[test]
+    fn jpeg_size_guardrail_keeps_300_ppi_grayscale_budget_unchanged() {
+        let prepared_300_ppi = PreparedNetpbmPixels {
+            width: 300,
+            height: 300,
+            channels: 1,
+            pixels: std::borrow::Cow::Owned(vec![255; 90_000]),
+        };
+
+        assert_eq!(
+            jpeg_size_ceiling_bytes(
+                &prepared_300_ppi,
+                "DeviceGray",
+                Some(PdfPageSize {
+                    width_points: 72.0,
+                    height_points: 72.0,
+                }),
+            ),
+            16_875
+        );
+    }
+
+    #[test]
+    fn netpbm_jpeg_size_guardrail_downscales_to_300_ppi_with_area_average() {
+        let prepared = PreparedNetpbmPixels {
+            width: 4,
+            height: 4,
+            channels: 1,
+            pixels: std::borrow::Cow::Borrowed(&[
+                0, 255, 0, 255, 255, 0, 255, 0, 0, 255, 0, 255, 255, 0, 255, 0,
+            ]),
+        };
+
+        let (prepared, quality) = encode_with_size_guardrail(
+            prepared,
+            1_000_000,
+            85,
+            Some(PdfPageSize {
+                width_points: 0.48,
+                height_points: 0.48,
+            }),
+            Some(JpegSizeGuardrail {
+                page: 1,
+                log_json_progress: false,
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(prepared.width, 2);
+        assert_eq!(prepared.height, 2);
+        assert!(quality >= 75);
+        assert!(prepared
+            .pixels
+            .iter()
+            .all(|value| (126..=129).contains(value)));
+    }
+
+    fn dense_gray_guardrail_fixture(width: u32, height: u32) -> PreparedNetpbmPixels<'static> {
+        let mut pixels = Vec::with_capacity((width * height) as usize);
+        for y in 0..height {
+            for x in 0..width {
+                let stroke = x % 12 == 0 || y % 29 == 0;
+                let soft_edge = x % 12 == 1 || y % 29 == 1;
+                pixels.push(if stroke {
+                    0
+                } else if soft_edge {
+                    192
+                } else {
+                    255
+                });
+            }
+        }
+        PreparedNetpbmPixels {
+            width,
+            height,
+            channels: 1,
+            pixels: std::borrow::Cow::Owned(pixels),
         }
     }
 }

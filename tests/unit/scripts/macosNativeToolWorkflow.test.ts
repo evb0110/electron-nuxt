@@ -263,7 +263,9 @@ describe('macOS native tool workflow', () => {
         expect(afterSign).toContain('const nativeToolsDir = path.join(appPath, \'Contents\', \'MacOS\', \'native-tools\');');
         expect(verifier).toContain('find "$release_dir" -path "*/Contents/MacOS/native-tools"');
         expect(verifier).toContain('check_file "$native_tool_root/djvulibre/$platform_arch/bin/djvused$exe_suffix"');
+        expect(verifier).toContain('check_file "$native_tool_root/djvulibre/$platform_arch/bin/djvudump$exe_suffix"');
         expect(verifier).toContain('run_macos_packaged_tool_smoke "djvused" "$native_tool_root/djvulibre/$platform_arch/bin/djvused" --help');
+        expect(verifier).toContain('run_macos_packaged_tool_smoke "djvudump" "$native_tool_root/djvulibre/$platform_arch/bin/djvudump" --help');
         expect(verifier).not.toContain('run_macos_packaged_tool_smoke "djvused" "$resource_root');
         expect(verifier).toContain('run_macos_packaged_tool_smoke "evb-pdf-image-combine-compact-manifest" "$native_tool_root/pdf-image-combine/$platform_arch/bin/evb-pdf-image-combine" --compact-manifest');
     });

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Bundle DjVuLibre tools (ddjvu, djvused) for macOS
+# Bundle DjVuLibre tools (ddjvu, djvused, djvudump) for macOS
 # Copies from Homebrew, fixes dylib paths, ad-hoc codesigns
 set -euo pipefail
 
@@ -46,7 +46,7 @@ rm -f "$DEST/bin/"* "$DEST/lib/"*
 echo ""
 echo "Copying binaries..."
 
-for tool in ddjvu djvused; do
+for tool in ddjvu djvused djvudump; do
   if [ -f "$BREW_PREFIX/bin/$tool" ]; then
     cp "$BREW_PREFIX/bin/$tool" "$DEST/bin/"
     echo "  Copied $tool"
@@ -162,6 +162,10 @@ otool -L "$DEST/bin/ddjvu"
 echo ""
 echo "djvused dependencies:"
 otool -L "$DEST/bin/djvused"
+
+echo ""
+echo "djvudump dependencies:"
+otool -L "$DEST/bin/djvudump"
 
 echo ""
 echo "libdjvulibre dependencies:"

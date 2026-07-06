@@ -32,6 +32,39 @@ describe('resolveDjvuPreviewResolutionPlan', () => {
         });
     });
 
+    it('keeps low-resolution pages at native width instead of requesting over-native pixels', () => {
+        expect(resolveDjvuPreviewResolutionPlan({
+            nativeWidth: 1_293,
+            neededDevicePx: 2_484,
+            maxTargetPx: 3_072,
+        })).toEqual({
+            targetPx: 1_293,
+            subsample: 1,
+        });
+    });
+
+    it('caps extreme over-native low-resolution preview requests at native width', () => {
+        expect(resolveDjvuPreviewResolutionPlan({
+            nativeWidth: 1_293,
+            neededDevicePx: 5_000,
+            maxTargetPx: 2_048,
+        })).toEqual({
+            targetPx: 1_293,
+            subsample: 1,
+        });
+    });
+
+    it('keeps native pixels for tiny over-native paint gaps', () => {
+        expect(resolveDjvuPreviewResolutionPlan({
+            nativeWidth: 1_293,
+            neededDevicePx: 1_398,
+            maxTargetPx: 3_072,
+        })).toEqual({
+            targetPx: 1_293,
+            subsample: 1,
+        });
+    });
+
     it('caps the target width before choosing a subsample', () => {
         expect(resolveDjvuPreviewResolutionPlan({
             nativeWidth: 2_400,

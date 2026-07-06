@@ -210,7 +210,7 @@ bundle_dependency_closure() {
   local dest_bin="$2"
   local expected_arch="$3"
 
-  local pending=("$dest_bin/ddjvu.exe" "$dest_bin/djvused.exe")
+  local pending=("$dest_bin/ddjvu.exe" "$dest_bin/djvused.exe" "$dest_bin/djvudump.exe")
   local pending_index=0
   declare -A seen_deps=()
 
@@ -368,8 +368,10 @@ PACMAN_CONF
   clean_dir "$DJVU_DIR/lib"
   require_file "$arm64_bin/ddjvu.exe" "ddjvu.exe (arm64)"
   require_file "$arm64_bin/djvused.exe" "djvused.exe (arm64)"
+  require_file "$arm64_bin/djvudump.exe" "djvudump.exe (arm64)"
   cp "$arm64_bin/ddjvu.exe" "$DJVU_DIR/bin/"
   cp "$arm64_bin/djvused.exe" "$DJVU_DIR/bin/"
+  cp "$arm64_bin/djvudump.exe" "$DJVU_DIR/bin/"
   copy_msys2_runtime_dlls "$arm64_bin" "$DJVU_DIR/bin"
   echo "  DjVuLibre: $(ls "$DJVU_DIR/bin/"*.exe 2>/dev/null | wc -l) exe, $(ls "$DJVU_DIR/bin/"*.dll 2>/dev/null | wc -l) dlls"
 
@@ -530,6 +532,7 @@ DJVU_EXTRACTED="$(dirname "$DJVU_DDJVU_EXE")"
 echo "  Copying binaries and DLLs..."
 copy_required_tool "$DJVU_EXTRACTED/ddjvu.exe" "$DJVU_DIR/bin" "ddjvu.exe"
 copy_required_tool "$DJVU_EXTRACTED/djvused.exe" "$DJVU_DIR/bin" "djvused.exe"
+copy_required_tool "$DJVU_EXTRACTED/djvudump.exe" "$DJVU_DIR/bin" "djvudump.exe"
 
 DJVU_ARCH="$(pe_arch "$DJVU_DIR/bin/ddjvu.exe")"
 if [ -z "$DJVU_ARCH" ]; then
@@ -596,6 +599,7 @@ verify_dir "$POPPLER_DIR/share/poppler" "poppler data directory"
 verify_tool "$QPDF_DIR/bin/qpdf.exe" "qpdf"
 verify_tool "$DJVU_DIR/bin/ddjvu.exe" "ddjvu"
 verify_tool "$DJVU_DIR/bin/djvused.exe" "djvused"
+verify_tool "$DJVU_DIR/bin/djvudump.exe" "djvudump"
 
 if [ "$missing_count" -gt 0 ]; then
   echo ""

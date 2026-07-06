@@ -121,6 +121,24 @@ describe('DjVu native page preview helpers', () => {
         );
     });
 
+    it('ignores over-native target size for native ddjvu previews', async () => {
+        mocks.runNativeCommand.mockResolvedValueOnce({
+            stdout: '1293 1966',
+            stderr: '',
+            exitCode: 0,
+        });
+
+        await renderDjvuPagePreview('/tmp/book.djvu', 1, { targetWidthPx: 2484 });
+
+        expect(mocks.convertDjvuPageToImage).toHaveBeenCalledWith(
+            '/tmp/book.djvu',
+            expect.stringMatching(/^\/tmp\/djvu-preview-test\/page-1-.+\.ppm$/u),
+            1,
+            expect.stringMatching(/^djvu-preview-page-1-/u),
+            {format: 'ppm'},
+        );
+    });
+
     it('rejects oversized PPM output before reading it into memory', async () => {
         mocks.stat.mockResolvedValueOnce({
             isFile: () => true,

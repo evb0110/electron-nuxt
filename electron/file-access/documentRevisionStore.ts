@@ -21,7 +21,7 @@ import { createWorkingCopySyncRequiredError } from '@contracts/documentMutationE
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import {
-    assertWorkingCopyRevisionCurrent as assertWorkingCopyRevisionSidecarCurrent,
+    assertWorkingCopyRevisionSidecarCurrent,
     getWorkingCopyRevisionSidecarPath,
     readWorkingCopyRevisionSidecar,
     writeWorkingCopyRevisionSidecar,

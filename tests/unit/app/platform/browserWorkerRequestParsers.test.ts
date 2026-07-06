@@ -45,17 +45,69 @@ describe('browser worker request parsers', () => {
         expect(parseBrowserPdfCombineWorkerRequest({
             id: 4,
             type: 'combinePdfs',
-            payload: {inputs: [{
-                fileName: 'a.pdf',
-                data,
-            }]},
+            payload: {
+                inputs: [{
+                    fileName: 'a.pdf',
+                    data,
+                }],
+                wasmImagePreprocessing: {
+                    jpegQuality: 75,
+                    ppiCap: 300,
+                    pageSpecs: [{
+                        kind: 'layered-color',
+                        pageSize: {
+                            widthPoints: 310.32,
+                            heightPoints: 471.84,
+                        },
+                        background: {
+                            fileName: 'background.ppm',
+                            data,
+                        },
+                        mask: {
+                            fileName: 'mask.pbm',
+                            data,
+                        },
+                        foregroundColor: [
+                            128,
+                            16,
+                            16,
+                        ],
+                    }],
+                },
+            },
         })).toEqual({
             id: 4,
             type: 'combinePdfs',
-            payload: {inputs: [{
-                fileName: 'a.pdf',
-                data,
-            }]},
+            payload: {
+                inputs: [{
+                    fileName: 'a.pdf',
+                    data,
+                }],
+                wasmImagePreprocessing: {
+                    jpegQuality: 75,
+                    ppiCap: 300,
+                    pageSpecs: [{
+                        kind: 'layered-color',
+                        pageSize: {
+                            widthPoints: 310.32,
+                            heightPoints: 471.84,
+                        },
+                        background: {
+                            fileName: 'background.ppm',
+                            data,
+                        },
+                        mask: {
+                            fileName: 'mask.pbm',
+                            data,
+                        },
+                        foregroundColor: [
+                            128,
+                            16,
+                            16,
+                        ],
+                    }],
+                },
+            },
         });
 
         expect(parseBrowserPdfCombineWorkerRequest({
@@ -69,6 +121,32 @@ describe('browser worker request parsers', () => {
                     3,
                 ],
             }]},
+        })).toBeNull();
+
+        expect(parseBrowserPdfCombineWorkerRequest({
+            id: 6,
+            type: 'combinePdfs',
+            payload: {
+                inputs: [{
+                    fileName: 'a.pdf',
+                    data,
+                }],
+                wasmImagePreprocessing: {pageSpecs: [{
+                    kind: 'layered-color',
+                    pageSize: {
+                        widthPoints: 72,
+                        heightPoints: 72,
+                    },
+                    background: {
+                        fileName: 'background.ppm',
+                        data,
+                    },
+                    mask: {
+                        fileName: 'mask.pbm',
+                        data,
+                    },
+                }]},
+            },
         })).toBeNull();
     });
 

@@ -28,7 +28,7 @@ const PDFINFO_BASE_STDOUT_BYTES = 256 * 1024;
 const PDFINFO_PER_PAGE_STDOUT_BYTES = 512;
 const PDF_RENDER_DEFAULT_TARGET_WIDTH_PX = 1_200;
 const PDF_RENDER_MIN_TARGET_WIDTH_PX = 64;
-const PDF_RENDER_MAX_TARGET_WIDTH_PX = 2_400;
+const PDF_RENDER_MAX_TARGET_WIDTH_PX = 4_096;
 
 const PAGE_COUNT_RE = /^Pages:\s+(\d+)\s*$/imu;
 const DEFAULT_PAGE_SIZE_RE = /^Page size:\s+([0-9.]+)\s+x\s+([0-9.]+)\s+pts\b/imu;

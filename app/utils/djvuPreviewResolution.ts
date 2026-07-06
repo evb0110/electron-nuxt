@@ -41,7 +41,8 @@ export function resolveDjvuPreviewResolutionPlan(
         ? Math.max(1, Math.round(request.maxTargetPx))
         : nativeWidth;
     const targetPx = Math.min(nativeWidth, maxTargetPx, Math.ceil(neededDevicePx * headroom));
-    const subsample = Math.max(1, Math.min(maxSubsample, Math.floor(nativeWidth / targetPx)));
+    const subsampleTargetPx = Math.min(nativeWidth, targetPx);
+    const subsample = Math.max(1, Math.min(maxSubsample, Math.floor(nativeWidth / subsampleTargetPx)));
 
     return {
         targetPx,

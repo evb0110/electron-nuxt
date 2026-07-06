@@ -53,6 +53,7 @@ export interface IDjvuPagePreviewOptions {
     previewPriority?: number;
     previewRequestId?: string;
     subsample?: number;
+    targetWidthPx?: number;
 }
 
 export interface IDjvuConvertOptions {

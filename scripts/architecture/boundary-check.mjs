@@ -24,6 +24,7 @@ const APP_MODULE_PUBLIC_ENTRYPOINTS = new Set([
     'index.mjs',
     'public.ts',
     'public.tsx',
+    'publicNative.ts',
     'public.js',
     'public.mjs',
     'public/index.ts',

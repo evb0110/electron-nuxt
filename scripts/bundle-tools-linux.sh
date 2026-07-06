@@ -205,7 +205,7 @@ bundle_lib_deps "$QPDF_DIR/lib"
 fix_lib_rpaths "$QPDF_DIR/lib"
 
 # ==========================================
-# 4. DjVuLibre (ddjvu, djvused)
+# 4. DjVuLibre (ddjvu, djvused, djvudump)
 # ==========================================
 echo ""
 echo "=========================================="
@@ -213,7 +213,7 @@ echo "4. Bundling DjVuLibre..."
 echo "=========================================="
 
 DJVU_DIR="$RESOURCES_DIR/djvulibre/$PLATFORM_ARCH"
-for tool in ddjvu djvused; do
+for tool in ddjvu djvused djvudump; do
   bundle_tool "$tool" "$DJVU_DIR"
 done
 bundle_lib_deps "$DJVU_DIR/lib"
@@ -277,6 +277,7 @@ verify_dir "$POPPLER_DIR/etc/fonts" "fontconfig directory"
 verify_tool "$QPDF_DIR/bin/qpdf" "qpdf"
 verify_tool "$DJVU_DIR/bin/ddjvu" "ddjvu"
 verify_tool "$DJVU_DIR/bin/djvused" "djvused"
+verify_tool "$DJVU_DIR/bin/djvudump" "djvudump"
 
 if [ "$missing_count" -gt 0 ]; then
   echo ""

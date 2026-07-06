@@ -20,8 +20,8 @@ use std::{
 
 use crate::{
     image::{
-        assert_pixel_limit, read_image_page, read_image_pages, read_image_pages_from_bytes,
-        visit_image_pages, PdfImageCompression,
+        assert_pixel_limit, read_image_page, read_image_page_from_bytes, read_image_pages,
+        read_image_pages_from_bytes, visit_image_pages, PdfImageCompression,
     },
     netpbm::parse_pbm_p4,
     pdf::{
@@ -33,6 +33,7 @@ use crate::{
 };
 
 pub use crate::{
+    image::JpegSizeGuardrail,
     netpbm::PbmP4Image,
     pdf::{LayeredImagePayload, LayeredPdfImage, LayeredPdfPage, MaskPdfPage, PdfPageSize},
 };
@@ -46,6 +47,15 @@ pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
 pub struct ImageBytesInput<'a> {
     pub file_name: &'a str,
     pub data: &'a [u8],
+}
+
+pub struct ImageBytesPageInput<'a> {
+    pub file_name: &'a str,
+    pub data: &'a [u8],
+    pub page_size: Option<PdfPageSize>,
+    pub compression: MixedPdfImageCompression,
+    pub image_processing: MixedPdfImageProcessing,
+    pub size_guardrail: Option<JpegSizeGuardrail>,
 }
 
 pub struct PdfBuildOptions {
@@ -71,12 +81,17 @@ pub enum MixedPdfPageSpec {
         page_size: PdfPageSize,
         image_path: PathBuf,
         compression: MixedPdfImageCompression,
+        image_processing: MixedPdfImageProcessing,
+        size_guardrail: bool,
     },
     Layered {
         page_size: PdfPageSize,
         background_path: PathBuf,
         foreground_mask_path: PathBuf,
+        foreground_color: Option<[u8; 3]>,
         background_compression: MixedPdfImageCompression,
+        background_processing: MixedPdfImageProcessing,
+        size_guardrail: bool,
     },
     MaskOnly {
         page_size: PdfPageSize,
@@ -84,10 +99,48 @@ pub enum MixedPdfPageSpec {
     },
 }
 
+pub enum MixedPdfBytesPageSpec<'a> {
+    FullImage {
+        page_size: PdfPageSize,
+        image: ImageBytesInput<'a>,
+        compression: MixedPdfImageCompression,
+        image_processing: MixedPdfImageProcessing,
+        size_guardrail: bool,
+    },
+    Layered {
+        page_size: PdfPageSize,
+        background: ImageBytesInput<'a>,
+        foreground_mask: ImageBytesInput<'a>,
+        foreground_color: Option<[u8; 3]>,
+        background_compression: MixedPdfImageCompression,
+        background_processing: MixedPdfImageProcessing,
+        size_guardrail: bool,
+    },
+    MaskOnly {
+        page_size: PdfPageSize,
+        foreground_mask: ImageBytesInput<'a>,
+    },
+}
+
 #[derive(Clone, Copy)]
 pub enum MixedPdfImageCompression {
     Auto,
     Jpeg { quality: u8 },
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum MixedPdfImageProcessing {
+    #[default]
+    None,
+    DownscaleToPpi {
+        ppi_cap: u16,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum MixedPdfMaskProcessing {
+    #[default]
+    None,
 }
 
 pub fn build_pdf_from_image_paths(
@@ -183,6 +236,153 @@ pub fn build_pdf_from_image_bytes_inputs_with_progress(
     build_pdf(&pages)
 }
 
+pub fn build_pdf_from_image_bytes_page_inputs(
+    inputs: &[ImageBytesPageInput<'_>],
+    options: &PdfBuildOptions,
+) -> Result<Vec<u8>> {
+    build_pdf_from_image_bytes_page_inputs_with_progress(inputs, options, |_| {})
+}
+
+pub fn build_pdf_from_image_bytes_page_inputs_with_progress(
+    inputs: &[ImageBytesPageInput<'_>],
+    options: &PdfBuildOptions,
+    mut on_processed: impl FnMut(usize),
+) -> Result<Vec<u8>> {
+    if inputs.is_empty() {
+        return Err("At least one image input is required".into());
+    }
+
+    let mut page_count = 0usize;
+    let output = Vec::new();
+    let output = write_pdf_to_writer(output, |pdf| {
+        for (index, input) in inputs.iter().enumerate() {
+            if input.page_size.is_none()
+                && matches!(input.compression, MixedPdfImageCompression::Auto)
+                && matches!(input.image_processing, MixedPdfImageProcessing::None)
+            {
+                let pages = read_image_pages_from_bytes(
+                    input.file_name,
+                    input.data,
+                    options.max_pixels,
+                    options.default_dpi,
+                    options.max_tiff_frames,
+                )?;
+                page_count =
+                    next_page_count_with_limit(page_count, pages.len(), options.max_pages)?;
+                for page in pages {
+                    pdf.add_page(&page)?;
+                }
+                on_processed(index + 1);
+                continue;
+            }
+
+            page_count = next_page_count_with_limit(page_count, 1, options.max_pages)?;
+            let page = read_image_page_from_bytes(
+                input.file_name,
+                input.data,
+                options.max_pixels,
+                options.default_dpi,
+                image_compression_to_reader(input.compression),
+                input.image_processing,
+                input.page_size,
+                input.size_guardrail,
+            )?;
+            if let Some(page_size) = input.page_size.as_ref() {
+                pdf.add_page_with_size(&page, page_size)?;
+            } else {
+                pdf.add_page(&page)?;
+            }
+            on_processed(index + 1);
+        }
+        Ok(())
+    })?;
+
+    Ok(output)
+}
+
+pub fn build_mixed_pdf_from_bytes_page_specs(
+    page_specs: &[MixedPdfBytesPageSpec<'_>],
+    options: &PdfBuildOptions,
+) -> Result<Vec<u8>> {
+    if page_specs.is_empty() {
+        return Err("Mixed PDF byte request must contain at least one page".into());
+    }
+    next_page_count_with_limit(0, page_specs.len(), options.max_pages)?;
+
+    let output = Vec::new();
+    let output = write_pdf_to_writer(output, |pdf| {
+        for (index, spec) in page_specs.iter().enumerate() {
+            match spec {
+                MixedPdfBytesPageSpec::FullImage {
+                    page_size,
+                    image,
+                    compression,
+                    image_processing,
+                    size_guardrail,
+                } => {
+                    let page = read_single_image_page_from_bytes(
+                        image,
+                        options,
+                        image_compression_to_reader(*compression),
+                        *image_processing,
+                        Some(*page_size),
+                        guardrail_for_page(*size_guardrail, index + 1, false),
+                    )?;
+                    pdf.add_page_with_size(&page, page_size)?;
+                }
+                MixedPdfBytesPageSpec::Layered {
+                    page_size,
+                    background,
+                    foreground_mask,
+                    foreground_color,
+                    background_compression,
+                    background_processing,
+                    size_guardrail,
+                } => {
+                    let background_page = read_single_image_page_from_bytes(
+                        background,
+                        options,
+                        image_compression_to_reader(*background_compression),
+                        *background_processing,
+                        Some(*page_size),
+                        guardrail_for_page(*size_guardrail, index + 1, false),
+                    )?;
+                    let foreground_mask = parse_pbm_p4(foreground_mask.data)?;
+                    assert_pixel_limit(
+                        foreground_mask.width,
+                        foreground_mask.height,
+                        options.max_pixels,
+                    )?;
+                    pdf.add_layered_page(&LayeredPdfPage {
+                        page_size: *page_size,
+                        background: image_page_to_layered_image(background_page),
+                        foreground_mask,
+                        foreground_color: *foreground_color,
+                    })?;
+                }
+                MixedPdfBytesPageSpec::MaskOnly {
+                    page_size,
+                    foreground_mask,
+                } => {
+                    let foreground_mask = parse_pbm_p4(foreground_mask.data)?;
+                    assert_pixel_limit(
+                        foreground_mask.width,
+                        foreground_mask.height,
+                        options.max_pixels,
+                    )?;
+                    pdf.add_mask_page(&MaskPdfPage {
+                        page_size: *page_size,
+                        foreground_mask,
+                    })?;
+                }
+            }
+        }
+        Ok(())
+    })?;
+
+    Ok(output)
+}
+
 pub fn parse_pbm_p4_mask(data: &[u8]) -> Result<PbmP4Image> {
     parse_pbm_p4(data)
 }
@@ -216,11 +416,16 @@ pub fn write_mixed_pdf_from_page_specs_with_progress(
                     page_size,
                     image_path,
                     compression,
+                    image_processing,
+                    size_guardrail,
                 } => {
                     let page = read_single_image_page(
                         image_path,
                         options,
                         image_compression_to_reader(*compression),
+                        *image_processing,
+                        Some(*page_size),
+                        guardrail_for_page(*size_guardrail, index + 1, true),
                     )?;
                     pdf.add_page_with_size(&page, page_size)?;
                 }
@@ -228,14 +433,21 @@ pub fn write_mixed_pdf_from_page_specs_with_progress(
                     page_size,
                     background_path,
                     foreground_mask_path,
+                    foreground_color,
                     background_compression,
+                    background_processing,
+                    size_guardrail,
                 } => {
                     let background = read_single_image_page(
                         background_path,
                         options,
                         image_compression_to_reader(*background_compression),
+                        *background_processing,
+                        Some(*page_size),
+                        guardrail_for_page(*size_guardrail, index + 1, true),
                     )?;
-                    let foreground_mask = parse_pbm_p4(&fs::read(foreground_mask_path)?)?;
+                    let foreground_mask =
+                        parse_processed_pbm_mask(foreground_mask_path, options.max_pixels)?;
                     assert_pixel_limit(
                         foreground_mask.width,
                         foreground_mask.height,
@@ -248,13 +460,15 @@ pub fn write_mixed_pdf_from_page_specs_with_progress(
                         },
                         background: image_page_to_layered_image(background),
                         foreground_mask,
+                        foreground_color: *foreground_color,
                     })?;
                 }
                 MixedPdfPageSpec::MaskOnly {
                     page_size,
                     foreground_mask_path,
                 } => {
-                    let foreground_mask = parse_pbm_p4(&fs::read(foreground_mask_path)?)?;
+                    let foreground_mask =
+                        parse_processed_pbm_mask(foreground_mask_path, options.max_pixels)?;
                     assert_pixel_limit(
                         foreground_mask.width,
                         foreground_mask.height,
@@ -314,10 +528,24 @@ fn next_page_count_with_limit(
     Ok(next_pages)
 }
 
+fn guardrail_for_page(
+    enabled: bool,
+    page: usize,
+    log_json_progress: bool,
+) -> Option<JpegSizeGuardrail> {
+    enabled.then_some(JpegSizeGuardrail {
+        page,
+        log_json_progress,
+    })
+}
+
 fn read_single_image_page(
     input_path: &Path,
     options: &PdfBuildOptions,
     compression: PdfImageCompression,
+    processing: MixedPdfImageProcessing,
+    page_size: Option<PdfPageSize>,
+    size_guardrail: Option<JpegSizeGuardrail>,
 ) -> Result<ImagePage> {
     if !matches!(compression, PdfImageCompression::Auto) {
         return read_image_page(
@@ -325,6 +553,9 @@ fn read_single_image_page(
             options.max_pixels,
             options.default_dpi,
             compression,
+            processing,
+            page_size,
+            size_guardrail,
         );
     }
 
@@ -346,6 +577,56 @@ fn read_single_image_page(
         )
         .into()),
     }
+}
+
+fn read_single_image_page_from_bytes(
+    input: &ImageBytesInput<'_>,
+    options: &PdfBuildOptions,
+    compression: PdfImageCompression,
+    processing: MixedPdfImageProcessing,
+    page_size: Option<PdfPageSize>,
+    size_guardrail: Option<JpegSizeGuardrail>,
+) -> Result<ImagePage> {
+    if !matches!(compression, PdfImageCompression::Auto)
+        || !matches!(processing, MixedPdfImageProcessing::None)
+    {
+        return read_image_page_from_bytes(
+            input.file_name,
+            input.data,
+            options.max_pixels,
+            options.default_dpi,
+            compression,
+            processing,
+            page_size,
+            size_guardrail,
+        );
+    }
+
+    let pages = read_image_pages_from_bytes(
+        input.file_name,
+        input.data,
+        options.max_pixels,
+        options.default_dpi,
+        options.max_tiff_frames,
+    )?;
+    match pages.len() {
+        1 => pages
+            .into_iter()
+            .next()
+            .ok_or_else(|| format!("No image pages found: {}", input.file_name).into()),
+        0 => Err(format!("No image pages found: {}", input.file_name).into()),
+        page_count => Err(format!(
+            "Mixed PDF page images must contain exactly one page: {} has {page_count}",
+            input.file_name
+        )
+        .into()),
+    }
+}
+
+fn parse_processed_pbm_mask(input_path: &Path, max_pixels: u64) -> Result<PbmP4Image> {
+    let foreground_mask = parse_pbm_p4(&fs::read(input_path)?)?;
+    assert_pixel_limit(foreground_mask.width, foreground_mask.height, max_pixels)?;
+    Ok(foreground_mask)
 }
 
 fn image_compression_to_reader(compression: MixedPdfImageCompression) -> PdfImageCompression {
@@ -505,6 +786,7 @@ mod tests {
                 },
             },
             foreground_mask: mask,
+            foreground_color: None,
         })
         .unwrap();
 
@@ -535,7 +817,10 @@ mod tests {
                     },
                     background_path: background_path.clone(),
                     foreground_mask_path: mask_path.clone(),
+                    foreground_color: None,
                     background_compression: MixedPdfImageCompression::Auto,
+                    background_processing: MixedPdfImageProcessing::None,
+                    size_guardrail: false,
                 },
                 MixedPdfPageSpec::FullImage {
                     page_size: PdfPageSize {
@@ -544,6 +829,8 @@ mod tests {
                     },
                     image_path: fallback_path.clone(),
                     compression: MixedPdfImageCompression::Auto,
+                    image_processing: MixedPdfImageProcessing::None,
+                    size_guardrail: false,
                 },
             ],
             &output_path,
@@ -596,6 +883,8 @@ mod tests {
                     },
                     image_path: fallback_path.clone(),
                     compression: MixedPdfImageCompression::Auto,
+                    image_processing: MixedPdfImageProcessing::None,
+                    size_guardrail: false,
                 },
             ],
             &output_path,
@@ -619,6 +908,79 @@ mod tests {
         let _ = fs::remove_file(mask_path);
         let _ = fs::remove_file(fallback_path);
         let _ = fs::remove_file(output_path);
+    }
+
+    #[test]
+    fn writes_mixed_layered_color_page_with_foreground_mask() {
+        let background_path = temp_path("mixed-layered-color-background").with_extension("ppm");
+        let mask_path = temp_path("mixed-layered-color-mask").with_extension("pbm");
+        let output_path = temp_path("mixed-layered-color-output").with_extension("pdf");
+
+        fs::write(&background_path, b"P6\n1 1\n255\n\xf0\xf0\xf0").unwrap();
+        fs::write(&mask_path, b"P4\n8 1\n\xc0").unwrap();
+
+        write_mixed_pdf_from_page_specs_with_progress(
+            &[MixedPdfPageSpec::Layered {
+                page_size: PdfPageSize {
+                    width_points: 72.0,
+                    height_points: 72.0,
+                },
+                background_path: background_path.clone(),
+                foreground_mask_path: mask_path.clone(),
+                foreground_color: Some([128, 16, 16]),
+                background_compression: MixedPdfImageCompression::Jpeg { quality: 75 },
+                background_processing: MixedPdfImageProcessing::None,
+                size_guardrail: false,
+            }],
+            &output_path,
+            &PdfBuildOptions {
+                default_dpi: Some(72),
+                max_pages: 10,
+                ..PdfBuildOptions::default()
+            },
+            |_| {},
+        )
+        .unwrap();
+
+        let pdf = fs::read(&output_path).unwrap();
+        let text = String::from_utf8_lossy(&pdf);
+        assert_eq!(text.matches("/Filter /DCTDecode").count(), 1);
+        assert!(text.contains("/ImageMask true"));
+        assert!(text.contains("0.5020 0.0627 0.0627 rg"));
+        assert!(!text.contains("/Mask "));
+
+        let _ = fs::remove_file(background_path);
+        let _ = fs::remove_file(mask_path);
+        let _ = fs::remove_file(output_path);
+    }
+
+    #[test]
+    fn builds_pdf_from_downscaled_netpbm_byte_input_with_page_size() {
+        let pdf = build_pdf_from_image_bytes_page_inputs(
+            &[ImageBytesPageInput {
+                file_name: "scan.pgm",
+                data: b"P5\n4 4\n255\n\x20\xf0\xf0\xf0\x20\xf0\xf0\xf0\x20\xf0\xf0\xf0\x20\xf0\xf0\xf0",
+                page_size: Some(PdfPageSize {
+                    width_points: 72.0,
+                    height_points: 72.0,
+                }),
+                compression: MixedPdfImageCompression::Jpeg { quality: 75 },
+                image_processing: MixedPdfImageProcessing::DownscaleToPpi { ppi_cap: 2 },
+                size_guardrail: None,
+            }],
+            &PdfBuildOptions {
+                default_dpi: Some(72),
+                max_pages: 10,
+                ..PdfBuildOptions::default()
+            },
+        )
+        .unwrap();
+
+        let text = String::from_utf8_lossy(&pdf);
+        assert!(text.contains("/MediaBox [0 0 72.0000 72.0000]"));
+        assert!(text.contains("/Filter /DCTDecode"));
+        assert!(text.contains("/Width 2"));
+        assert!(text.contains("/Height 2"));
     }
 
     fn png_chunk(kind: &[u8; 4], data: &[u8]) -> Vec<u8> {

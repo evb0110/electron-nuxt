@@ -136,9 +136,15 @@ async function appendInputToPdfDocument(
 async function handleCombinePdfsRequest(
     request: IBrowserPdfCombineWorkerRequest,
 ) {
-    const wasmResult = await tryCombineImageInputsWithWasm(request.payload.inputs);
+    const wasmResult = await tryCombineImageInputsWithWasm(
+        request.payload.inputs,
+        request.payload.wasmImagePreprocessing,
+    );
     if (wasmResult) {
         return {data: wasmResult};
+    }
+    if (request.payload.wasmImagePreprocessing) {
+        throw new Error('ERR_BROWSER_PDF_COMBINE_WORKER_WASM_PREPROCESSING_UNAVAILABLE');
     }
 
     const pdfDocument = await PDFDocument.create();

@@ -40,9 +40,19 @@ describe('DocumentWorkspace native initial visual contract', () => {
 
         expect(workspaceSource).not.toContain(':show-opening-surface');
         expect(workspaceSource).not.toContain('showOpeningSurface');
-        expect(workspaceSource).toContain(':show-transition-overlay="showDocumentTransitionSkeleton"');
+        expect(workspaceSource).toContain(':show-transition-overlay="showWorkspaceTransitionSkeleton"');
         expect(workspaceSource).toContain('useDocumentTransitionSkeletonLease');
         expect(workspaceSource).toContain('pendingDocumentStatusPath');
+        expect(workspaceSource).toContain('showPendingViewerMountSkeleton');
+        expect(workspaceSource).toContain('activeViewerMounted');
+        expect(workspaceSource).toContain('hasPendingViewerSource');
+        expect(workspaceSource).toContain('Boolean(activeViewerAdapter.value)');
+        expect(workspaceSource).toContain('Boolean(pdfSrc.value)');
+        expect(workspaceSource).toContain('Boolean(nativePdfSourcePath.value)');
+        expect(workspaceSource).toContain('Boolean(djvuSourcePath.value)');
+        expect(workspaceSource).toContain('&& hasPendingViewerSource.value');
+        expect(workspaceSource).toContain('isDocumentOpenPlaceholderVisible.value');
+        expect(workspaceSource).toContain('|| showPendingViewerMountSkeleton.value');
         expect(workspaceSource).toContain('showPendingDocumentOpenSkeleton');
         expect(workspaceSource).toContain('<WorkspaceDocumentTransitionSkeleton v-if="showWorkspaceTransitionSkeleton" />');
         expect(viewerHostSource).not.toContain('WorkspaceDocumentOpeningSurface');

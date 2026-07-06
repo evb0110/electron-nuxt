@@ -3,7 +3,7 @@ import {
     workerData,
 } from 'worker_threads';
 import { buildOptimizedPdf } from '@electron/djvu/buildOptimizedPdf';
-import { embedBookmarksIntoPdfFileWithPdfLib } from '@electron/djvu/embedBookmarksWithPdfLib';
+import { embedBookmarksIntoPdfFile } from '@electron/djvu/embedBookmarksIntoPdfFile';
 import type {
     TDjvuPdfWorkerMessage,
     TDjvuPdfWorkerTask,
@@ -141,7 +141,7 @@ async function run() {
     try {
         const task = getTask();
         const result = task.type === 'embedBookmarksInFile'
-            ? await embedBookmarksIntoPdfFileWithPdfLib(
+            ? await embedBookmarksIntoPdfFile(
                 task.inputPdfPath,
                 task.outputPdfPath,
                 task.bookmarks,

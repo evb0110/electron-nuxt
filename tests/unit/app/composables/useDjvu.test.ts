@@ -45,6 +45,7 @@ const mockElectronAPI = {
 };
 const mockDocumentFilesCapability = vi.hoisted(() => ({savePdfDialog: vi.fn()}));
 const mockDocumentWorkingCopyCapability = vi.hoisted(() => ({cleanupFile: vi.fn()}));
+const toastAddMock = vi.hoisted(() => vi.fn());
 
 const mockDjvuModeState = {
     isDjvuMode: ref(false),
@@ -60,6 +61,7 @@ vi.mock('@app/utils/platformDocuments', () => ({
     getDocumentFilesCapability: () => mockDocumentFilesCapability,
     getDocumentWorkingCopyCapability: () => mockDocumentWorkingCopyCapability,
 }));
+vi.stubGlobal('useToast', () => ({add: toastAddMock}));
 
 vi.mock('@app/composables/useDjvuMode', () => {
     const enterDjvuMode = vi.fn((source: string, temp: string | null = null) => {
@@ -100,6 +102,7 @@ describe('useDjvu', () => {
         mockElectronAPI.djvu.onProgress.mockReturnValue(vi.fn());
         mockElectronAPI.djvu.onViewingReady.mockReturnValue(vi.fn());
         mockDocumentWorkingCopyCapability.cleanupFile.mockResolvedValue(undefined);
+        toastAddMock.mockClear();
         viewingErrorCallback = null;
         mockElectronAPI.djvu.onViewingError.mockImplementation((callback: (data: IViewingErrorData) => void) => {
             viewingErrorCallback = callback;
@@ -275,7 +278,7 @@ describe('useDjvu', () => {
             expect(mockElectronAPI.documents.savePdfDialog).not.toHaveBeenCalled();
         });
 
-        it('shows a conversion error without cleaning filesystem save paths', async () => {
+        it('shows a conversion toast without poisoning the DjVu viewing error', async () => {
             mockElectronAPI.djvu.openForViewing.mockResolvedValue({
                 success: true,
                 pageCount: 1,
@@ -291,7 +294,11 @@ describe('useDjvu', () => {
             await djvu.openDjvuFile('/tmp/input.djvu', vi.fn(async () => {}));
             await djvu.convertToPdf(1, true, 'direct', createUnusedConvertedPdfOpen());
 
-            expect(djvu.viewingError.value).toBe('Windows converter failed');
+            expect(djvu.viewingError.value).toBeNull();
+            expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
+                color: 'error',
+                description: 'Windows converter failed',
+            }));
             expect(djvu.conversionState.value.isConverting).toBe(false);
             expect(mockDocumentWorkingCopyCapability.cleanupFile).not.toHaveBeenCalled();
             expect(mockElectronAPI.documents.cleanupFile).not.toHaveBeenCalled();
@@ -313,7 +320,11 @@ describe('useDjvu', () => {
             await djvu.openDjvuFile('/tmp/input.djvu', vi.fn(async () => {}));
             await djvu.convertToPdf(1, true, 'direct', createUnusedConvertedPdfOpen());
 
-            expect(djvu.viewingError.value).toBe('Browser converter failed');
+            expect(djvu.viewingError.value).toBeNull();
+            expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
+                color: 'error',
+                description: 'Browser converter failed',
+            }));
             expect(mockDocumentWorkingCopyCapability.cleanupFile)
                 .toHaveBeenCalledWith('browser://documents/output/out.pdf');
             expect(mockElectronAPI.documents.cleanupFile).not.toHaveBeenCalled();

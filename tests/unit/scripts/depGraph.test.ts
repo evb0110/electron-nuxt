@@ -651,6 +651,26 @@ describe('dependency graph', () => {
         }]);
     });
 
+    it('allows worker-safe Electron feature publicNative entrypoints but still blocks main internals', () => {
+        expect(checkArchitectureBoundaryEdge({
+            source: 'electron/djvu/embedBookmarksIntoPdfFile.ts',
+            target: 'electron/features/page-ops/publicNative.ts',
+            specifier: '@electron/features/page-ops/publicNative',
+        })).toEqual([]);
+
+        expect(checkArchitectureBoundaryEdge({
+            source: 'electron/djvu/embedBookmarksIntoPdfFile.ts',
+            target: 'electron/features/page-ops/main/nativeCrop.ts',
+            specifier: '@electron/features/page-ops/main/nativeCrop',
+        })).toEqual([{
+            rule: 'electron-feature-main-private',
+            source: 'electron/djvu/embedBookmarksIntoPdfFile.ts',
+            target: 'electron/features/page-ops/main/nativeCrop.ts',
+            specifier: '@electron/features/page-ops/main/nativeCrop',
+            message: 'Electron feature main internals must be consumed through feature public or service entrypoints.',
+        }]);
+    });
+
     it('locks Finding 7 native-tool ownership boundaries', () => {
         expect(checkArchitectureBoundaryEdge({
             source: 'electron/native-tools/resolveNativeToolsBase.ts',

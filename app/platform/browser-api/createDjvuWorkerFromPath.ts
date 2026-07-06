@@ -12,6 +12,7 @@ import {
 import { getValidatedElectronPlatformApi } from '@app/utils/electronPlatformBridge';
 
 const DJVU_READ_CHUNK_BYTES = 4 * 1024 * 1024;
+const DJVU_DESKTOP_DJVUJS_PREVIEW_MAX_BYTES = 96 * 1024 * 1024;
 
 interface IDjvuWorkerReadOptions {signal?: AbortSignal;}
 
@@ -95,6 +96,25 @@ function getDesktopDjvuPreviewCapability(path: TDocumentRef) {
         return null;
     }
     return djvu;
+}
+
+async function shouldUseNativeDesktopDjvuPreview(path: TDocumentRef) {
+    const nativeDjvu = getDesktopDjvuPreviewCapability(path);
+    if (!nativeDjvu) {
+        return null;
+    }
+
+    try {
+        const documents = getDesktopDocumentsCapability(path);
+        if (!documents) {
+            return nativeDjvu;
+        }
+
+        const { size } = await documents.statFile(path);
+        return size > DJVU_DESKTOP_DJVUJS_PREVIEW_MAX_BYTES ? nativeDjvu : null;
+    } catch {
+        return nativeDjvu;
+    }
 }
 
 async function readDesktopDocumentBytes(
@@ -207,6 +227,18 @@ function canvasToPngBlob(canvas: HTMLCanvasElement) {
     });
 }
 
+function resolveScaledDjvuTargetWidth(
+    pageObject: {width: number;},
+    subsample: number | undefined,
+    targetWidthPx: number | undefined,
+) {
+    if (Number.isFinite(targetWidthPx) && targetWidthPx !== undefined && targetWidthPx > 0) {
+        return Math.max(1, Math.round(targetWidthPx));
+    }
+    const normalizedSubsample = Math.max(1, Math.trunc(subsample ?? 1));
+    return Math.max(1, Math.round(pageObject.width / normalizedSubsample));
+}
+
 async function scaleDjvuPageObjectUrl(
     pageObject: {
         url: string;
@@ -214,11 +246,13 @@ async function scaleDjvuPageObjectUrl(
         height: number;
     },
     subsample: number | undefined,
+    targetWidthPx: number | undefined,
     revokeSourceUrl: (url: string) => void,
 ): Promise<IDjvuRenderedPageObjectUrl> {
-    const normalizedSubsample = Math.max(1, Math.trunc(subsample ?? 1));
+    const targetWidth = resolveScaledDjvuTargetWidth(pageObject, subsample, targetWidthPx);
+    const targetHeight = Math.max(1, Math.round(targetWidth * pageObject.height / pageObject.width));
     if (
-        normalizedSubsample <= 1
+        targetWidth === pageObject.width
         || typeof document === 'undefined'
         || typeof Image === 'undefined'
         || typeof URL === 'undefined'
@@ -231,8 +265,6 @@ async function scaleDjvuPageObjectUrl(
     }
 
     try {
-        const targetWidth = Math.max(1, Math.round(pageObject.width / normalizedSubsample));
-        const targetHeight = Math.max(1, Math.round(pageObject.height / normalizedSubsample));
         const image = await loadImageElement(pageObject.url);
         const canvas = document.createElement('canvas');
         canvas.width = targetWidth;
@@ -245,6 +277,8 @@ async function scaleDjvuPageObjectUrl(
             };
         }
 
+        context.imageSmoothingEnabled = true;
+        context.imageSmoothingQuality = 'high';
         context.drawImage(image, 0, 0, targetWidth, targetHeight);
         const blob = await canvasToPngBlob(canvas);
         const scaledUrl = URL.createObjectURL(blob);
@@ -262,7 +296,7 @@ async function scaleDjvuPageObjectUrl(
 }
 
 export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef) {
-    const nativeDjvu = getDesktopDjvuPreviewCapability(djvuPath);
+    const nativeDjvu = await shouldUseNativeDesktopDjvuPreview(djvuPath);
     if (nativeDjvu) {
         let terminated = false;
         let nextPreviewRequestId = 0;
@@ -404,6 +438,7 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
             return scaleDjvuPageObjectUrl(
                 pageObject,
                 options?.subsample,
+                options?.targetWidthPx,
                 url => worker.revokeObjectURL(url),
             );
         },

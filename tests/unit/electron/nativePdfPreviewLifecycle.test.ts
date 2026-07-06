@@ -168,4 +168,23 @@ describe('native PDF preview lifecycle', () => {
         await expect(previewPromise).rejects.toThrow('Native PDF preview canceled');
         expect(mocks.cancelNativeCommandGroup).toHaveBeenCalledWith(expect.stringMatching(/^pdf-native-preview:/u));
     });
+
+    it('caps requested native preview width at a high-DPI friendly limit', async () => {
+        const sender = new FakeSender();
+        const { handlePdfNativePagePreview } = await import('@electron/features/documents/main/nativePdfPreview');
+
+        await expect(handlePdfNativePagePreview({
+            sender: sender as never,
+            senderId: sender.id,
+        }, '/tmp/input.pdf', 1, {targetWidthPx: 8_000})).resolves.toMatchObject({
+            width: 640,
+            height: 480,
+        });
+
+        const args = mocks.runNativeToolCommand.mock.calls[0]?.[1] as string[] | undefined;
+        expect(args).toBeDefined();
+        const scaleToXIndex = args?.indexOf('-scale-to-x') ?? -1;
+        expect(scaleToXIndex).toBeGreaterThanOrEqual(0);
+        expect(args?.[scaleToXIndex + 1]).toBe('4096');
+    });
 });

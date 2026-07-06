@@ -81,7 +81,7 @@ export async function readWorkingCopyRevisionSidecar(workingCopyPath: string) {
     }
 }
 
-export async function assertWorkingCopyRevisionCurrent(
+export async function assertWorkingCopyRevisionSidecarCurrent(
     workingCopyPath: string,
     token: TDocumentRevisionToken,
 ): Promise<void> {

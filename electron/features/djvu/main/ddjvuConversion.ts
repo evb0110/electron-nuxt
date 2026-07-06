@@ -473,6 +473,8 @@ export async function convertDjvuPageToImage(
     options: {
         subsample?: number;
         format?: TImageFormat;
+        targetHeightPx?: number;
+        targetWidthPx?: number;
     } = {},
 ): Promise<IDjvuConversionResult> {
     return renderDjvuPageToImage(inputPath, outputPath, pageNum, jobId, options);
@@ -487,6 +489,8 @@ export async function renderDjvuPageToImage(
         subsample?: number;
         format?: TImageFormat;
         mode?: TDjvuRenderMode;
+        targetHeightPx?: number;
+        targetWidthPx?: number;
     } = {},
 ): Promise<IDjvuConversionResult> {
     const { ddjvu } = getDjvuNativeToolPaths();
@@ -501,7 +505,9 @@ export async function renderDjvuPageToImage(
         args.push(`-mode=${options.mode}`);
     }
 
-    if (options.subsample && options.subsample > 1) {
+    if (options.targetWidthPx && options.targetHeightPx) {
+        args.push(`-size=${options.targetWidthPx}x${options.targetHeightPx}`);
+    } else if (options.subsample && options.subsample > 1) {
         args.push(`-subsample=${options.subsample}`);
     }
 

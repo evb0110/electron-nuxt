@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
     rm: vi.fn(),
     stat: vi.fn(),
     writeFile: vi.fn(),
-    getPdfPageCount: vi.fn(),
+    getPdfNativeToolPaths: vi.fn(),
     isNativePageOpsDisabled: vi.fn(),
     resolveNativePageOpsPath: vi.fn(),
     runNativeToolCommand: vi.fn(),
@@ -29,11 +29,12 @@ vi.mock('fs/promises', () => ({
     writeFile: (...args: unknown[]) => mocks.writeFile(...args),
 }));
 vi.mock('pdf-lib', () => ({PDFDocument: {load: vi.fn()}}));
-vi.mock('@electron/features/page-ops/public', () => ({
-    getPdfPageCount: (...args: unknown[]) => mocks.getPdfPageCount(...args),
+vi.mock('@pdf-core', () => ({writePdfBookmarkOutlines: vi.fn()}));
+vi.mock('@electron/features/page-ops/publicNative', () => ({
     isNativePageOpsDisabled: (...args: unknown[]) => mocks.isNativePageOpsDisabled(...args),
     resolveNativePageOpsPath: (...args: unknown[]) => mocks.resolveNativePageOpsPath(...args),
 }));
+vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: (...args: unknown[]) => mocks.getPdfNativeToolPaths(...args)}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({debug: vi.fn()})}));
 
@@ -46,7 +47,7 @@ describe('embedBookmarksIntoPdfFile', () => {
         mocks.rm.mockResolvedValue(undefined);
         mocks.stat.mockResolvedValue({size: 123});
         mocks.writeFile.mockResolvedValue(undefined);
-        mocks.getPdfPageCount.mockResolvedValue(2);
+        mocks.getPdfNativeToolPaths.mockReturnValue({qpdf: '/tmp/qpdf'});
         mocks.isNativePageOpsDisabled.mockReturnValue(false);
         mocks.resolveNativePageOpsPath.mockReturnValue('/tmp/evb-pdf-page-ops');
     });
@@ -58,7 +59,14 @@ describe('embedBookmarksIntoPdfFile', () => {
     it('rethrows native aborts instead of falling back to pdf-lib', async () => {
         const abortError = new Error('Native bookmark embedding canceled');
         abortError.name = 'AbortError';
-        mocks.runNativeToolCommand.mockRejectedValue(abortError);
+        mocks.runNativeToolCommand
+            .mockResolvedValueOnce({
+                stdout: '2\n',
+                stderr: '',
+                success: true,
+                exitCode: 0,
+            })
+            .mockRejectedValueOnce(abortError);
 
         const { embedBookmarksIntoPdfFile } = await import('@electron/djvu/embedBookmarksIntoPdfFile');
 

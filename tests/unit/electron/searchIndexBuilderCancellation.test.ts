@@ -54,7 +54,7 @@ vi.mock('@electron/search/searchIndexSidecar', () => ({
     persistCompactSearchIndex: mocks.persistCompactSearchIndex,
     persistCompactSearchIndexBestEffort: mocks.persistCompactSearchIndexBestEffort,
 }));
-vi.mock('@electron/file-access/documentRevisionSidecar', () => ({assertWorkingCopyRevisionCurrent: mocks.assertWorkingCopyRevisionCurrent}));
+vi.mock('@electron/file-access/documentRevisionSidecar', () => ({assertWorkingCopyRevisionSidecarCurrent: mocks.assertWorkingCopyRevisionCurrent}));
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),

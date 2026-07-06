@@ -21,7 +21,7 @@ interface IUseDjvuViewerLayoutOptions {
 }
 
 const DJVU_BASE_MARGIN = 16;
-const DJVU_PREVIEW_DEVICE_PIXEL_RATIO_CAP = 1;
+const DJVU_PREVIEW_DEVICE_PIXEL_RATIO_CAP = 2;
 const DJVU_BASE_UNITS_PER_INCH = 72;
 const DJVU_FALLBACK_DPI = 300;
 

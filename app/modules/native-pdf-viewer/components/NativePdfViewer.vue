@@ -16,12 +16,17 @@
             </div>
         </div>
 
+        <PdfInitialSurfacePlaceholder
+            v-if="showInitialSurfacePlaceholder"
+        />
+
         <div
             ref="viewerContainer"
             class="native-pdf-viewer-container h-full w-full overflow-auto app-scrollbar"
             :class="{
                 'cursor-grab': dragMode,
                 'cursor-default': !dragMode,
+                'native-pdf-viewer-container--initial-visual-pending': showInitialSurfacePlaceholder,
             }"
             @scroll="handleViewerScroll"
         >
@@ -56,6 +61,7 @@ import type { TPdfViewMode } from '@contracts/shared';
 import type { IPdfNativePageSize } from '@contracts/electronApiDocuments';
 import type { IScrollSnapshot } from '@app/types/pdfUi';
 import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
+import { PdfInitialSurfacePlaceholder } from '@app/modules/pdf-viewer/public/component-exports/pdfInitialSurfacePlaceholder';
 import NativePdfPageContent from '@app/modules/native-pdf-viewer/components/NativePdfPageContent.vue';
 import { createNativePdfPreviewSourceFromPath } from '@app/platform/browser-api/public';
 import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
@@ -109,7 +115,7 @@ const NATIVE_PDF_BASE_MARGIN = 16;
 const NATIVE_PDF_RENDER_OVERSCAN_VIEWPORTS = 2;
 const NATIVE_PDF_RENDER_MARGIN_PAGES = 3;
 const NATIVE_PDF_RENDER_CONCURRENCY = 2;
-const NATIVE_PDF_DEVICE_PIXEL_RATIO_CAP = 1;
+const NATIVE_PDF_DEVICE_PIXEL_RATIO_CAP = 2;
 const NATIVE_PDF_INITIAL_PREVIEW_MAX_TARGET_PX = 1_024;
 const NATIVE_PDF_PAGE_SNAPSHOT_SELECTOR = '[data-page-number]';
 
@@ -123,6 +129,7 @@ const scrollTop = ref(0);
 const viewerError = ref<string | null>(null);
 const isLoading = ref(Boolean(src));
 const isActive = computed(() => isActiveProp);
+const showInitialSurfacePlaceholder = computed(() => isActive.value && isLoading.value && !viewerError.value);
 const dragMode = computed(() => dragModeProp ?? false);
 const totalPages = computed(() => pageSizes.value.length);
 let activeSource: IPagePreviewSource | null = null;
@@ -983,6 +990,15 @@ defineExpose<IDocumentViewerExpose>({
 
 .native-pdf-continuous-surface {
     position: relative;
+}
+
+.native-pdf-viewer-container--initial-visual-pending {
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.native-pdf-viewer-container--initial-visual-pending > div {
+    visibility: hidden;
 }
 
 .native-pdf-page-shell {

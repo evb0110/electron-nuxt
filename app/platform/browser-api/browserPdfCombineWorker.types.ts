@@ -8,7 +8,38 @@ interface IBrowserPdfCombineInput {
     data: Uint8Array;
 }
 
-interface IBrowserPdfCombineWorkerRequestMap {combinePdfs: {inputs: IBrowserPdfCombineInput[];};}
+interface IBrowserPdfCombinePageSize {
+    widthPoints: number;
+    heightPoints: number;
+}
+
+type TBrowserPdfCombineWasmPageKind = 'image' | 'mask' | 'layered' | 'layered-color';
+type TBrowserPdfCombineRgb = [number, number, number];
+
+interface IBrowserPdfCombineWasmPageSpec {
+    kind: TBrowserPdfCombineWasmPageKind;
+    pageSize: IBrowserPdfCombinePageSize;
+    jpegQuality?: number;
+    ppiCap?: number;
+    foregroundColor?: TBrowserPdfCombineRgb;
+    image?: IBrowserPdfCombineInput;
+    background?: IBrowserPdfCombineInput;
+    mask?: IBrowserPdfCombineInput;
+}
+
+interface IBrowserPdfCombineWasmImagePreprocessing {
+    jpegQuality?: number;
+    ppiCap?: number;
+    pageSizes?: IBrowserPdfCombinePageSize[];
+    pageSpecs?: IBrowserPdfCombineWasmPageSpec[];
+}
+
+interface IBrowserPdfCombinePayload {
+    inputs: IBrowserPdfCombineInput[];
+    wasmImagePreprocessing?: IBrowserPdfCombineWasmImagePreprocessing;
+}
+
+interface IBrowserPdfCombineWorkerRequestMap {combinePdfs: IBrowserPdfCombinePayload;}
 
 interface IBrowserPdfCombineWorkerResultMap {combinePdfs: {data: Uint8Array;};}
 
@@ -55,6 +86,209 @@ function parseBrowserPdfCombineInput(value: unknown): IBrowserPdfCombineInput | 
     };
 }
 
+function parsePositiveFiniteNumber(value: unknown) {
+    return typeof value === 'number' && Number.isFinite(value) && value > 0
+        ? value
+        : null;
+}
+
+function parseOptionalBoundedInteger(
+    value: unknown,
+    minValue: number,
+    maxValue: number,
+): number | null | undefined {
+    if (value === undefined) {
+        return undefined;
+    }
+    if (
+        typeof value !== 'number'
+        || !Number.isInteger(value)
+        || value < minValue
+        || value > maxValue
+    ) {
+        return null;
+    }
+    return value;
+}
+
+function parseBrowserPdfCombinePageSize(value: unknown): IBrowserPdfCombinePageSize | null {
+    if (!isRecord(value)) {
+        return null;
+    }
+    const widthPoints = parsePositiveFiniteNumber(value.widthPoints);
+    const heightPoints = parsePositiveFiniteNumber(value.heightPoints);
+    if (widthPoints === null || heightPoints === null) {
+        return null;
+    }
+    return {
+        widthPoints,
+        heightPoints,
+    };
+}
+
+function parseBrowserPdfCombineWasmPageKind(value: unknown): TBrowserPdfCombineWasmPageKind | null {
+    return value === 'image'
+        || value === 'mask'
+        || value === 'layered'
+        || value === 'layered-color'
+        ? value
+        : null;
+}
+
+function parseOptionalWasmInput(value: unknown): IBrowserPdfCombineInput | null | undefined {
+    if (value === undefined) {
+        return undefined;
+    }
+    return parseBrowserPdfCombineInput(value);
+}
+
+function parseOptionalRgb(value: unknown): TBrowserPdfCombineRgb | null | undefined {
+    if (value === undefined) {
+        return undefined;
+    }
+    if (!Array.isArray(value) || value.length !== 3) {
+        return null;
+    }
+    const red = parseOptionalBoundedInteger(value[0], 0, 255);
+    const green = parseOptionalBoundedInteger(value[1], 0, 255);
+    const blue = parseOptionalBoundedInteger(value[2], 0, 255);
+    if (
+        typeof red !== 'number'
+        || typeof green !== 'number'
+        || typeof blue !== 'number'
+    ) {
+        return null;
+    }
+    return [
+        red,
+        green,
+        blue,
+    ];
+}
+
+function parseBrowserPdfCombineWasmPageSpec(value: unknown): IBrowserPdfCombineWasmPageSpec | null {
+    if (!isRecord(value)) {
+        return null;
+    }
+    const kind = parseBrowserPdfCombineWasmPageKind(value.kind);
+    const pageSize = parseBrowserPdfCombinePageSize(value.pageSize);
+    const jpegQuality = parseOptionalBoundedInteger(value.jpegQuality, 1, 100);
+    const ppiCap = parseOptionalBoundedInteger(value.ppiCap, 0, 1200);
+    const foregroundColor = parseOptionalRgb(value.foregroundColor);
+    const image = parseOptionalWasmInput(value.image);
+    const background = parseOptionalWasmInput(value.background);
+    const mask = parseOptionalWasmInput(value.mask);
+    if (
+        kind === null
+        || pageSize === null
+        || jpegQuality === null
+        || ppiCap === null
+        || foregroundColor === null
+        || image === null
+        || background === null
+        || mask === null
+    ) {
+        return null;
+    }
+
+    if (
+        (kind === 'image' && image === undefined)
+        || (kind === 'mask' && mask === undefined)
+        || (kind === 'layered' && (background === undefined || mask === undefined))
+        || (kind === 'layered-color' && (background === undefined || mask === undefined || foregroundColor === undefined))
+    ) {
+        return null;
+    }
+
+    const parsed: IBrowserPdfCombineWasmPageSpec = {
+        kind,
+        pageSize,
+    };
+    if (jpegQuality !== undefined) {
+        parsed.jpegQuality = jpegQuality;
+    }
+    if (ppiCap !== undefined) {
+        parsed.ppiCap = ppiCap;
+    }
+    if (foregroundColor !== undefined) {
+        parsed.foregroundColor = foregroundColor;
+    }
+    if (image !== undefined) {
+        parsed.image = image;
+    }
+    if (background !== undefined) {
+        parsed.background = background;
+    }
+    if (mask !== undefined) {
+        parsed.mask = mask;
+    }
+    return parsed;
+}
+
+function parseBrowserPdfCombineWasmImagePreprocessing(
+    value: unknown,
+): IBrowserPdfCombineWasmImagePreprocessing | null | undefined {
+    if (value === undefined) {
+        return undefined;
+    }
+    if (!isRecord(value)) {
+        return null;
+    }
+    const jpegQuality = parseOptionalBoundedInteger(value.jpegQuality, 1, 100);
+    const ppiCap = parseOptionalBoundedInteger(value.ppiCap, 0, 1200);
+    if (
+        jpegQuality === null
+        || ppiCap === null
+    ) {
+        return null;
+    }
+
+    let pageSizes: IBrowserPdfCombinePageSize[] | undefined;
+    if (value.pageSizes !== undefined) {
+        if (!Array.isArray(value.pageSizes)) {
+            return null;
+        }
+        pageSizes = [];
+        for (const pageSize of value.pageSizes) {
+            const parsedPageSize = parseBrowserPdfCombinePageSize(pageSize);
+            if (parsedPageSize === null) {
+                return null;
+            }
+            pageSizes.push(parsedPageSize);
+        }
+    }
+
+    let pageSpecs: IBrowserPdfCombineWasmPageSpec[] | undefined;
+    if (value.pageSpecs !== undefined) {
+        if (!Array.isArray(value.pageSpecs) || value.pageSpecs.length === 0) {
+            return null;
+        }
+        pageSpecs = [];
+        for (const pageSpec of value.pageSpecs) {
+            const parsedPageSpec = parseBrowserPdfCombineWasmPageSpec(pageSpec);
+            if (parsedPageSpec === null) {
+                return null;
+            }
+            pageSpecs.push(parsedPageSpec);
+        }
+    }
+
+    const parsed: IBrowserPdfCombineWasmImagePreprocessing = {};
+    if (jpegQuality !== undefined) {
+        parsed.jpegQuality = jpegQuality;
+    }
+    if (ppiCap !== undefined) {
+        parsed.ppiCap = ppiCap;
+    }
+    if (pageSizes !== undefined) {
+        parsed.pageSizes = pageSizes;
+    }
+    if (pageSpecs !== undefined) {
+        parsed.pageSpecs = pageSpecs;
+    }
+    return parsed;
+}
+
 export function getBrowserPdfCombineWorkerRequestId(value: unknown) {
     return isRecord(value) && isSafeWorkerRequestId(value.id)
         ? value.id
@@ -79,18 +313,33 @@ export function parseBrowserPdfCombineWorkerRequest(value: unknown): TBrowserPdf
         }
         inputs.push(parsedInput);
     }
+    const wasmImagePreprocessing = parseBrowserPdfCombineWasmImagePreprocessing(
+        value.payload.wasmImagePreprocessing,
+    );
+    if (wasmImagePreprocessing === null) {
+        return null;
+    }
     return {
         id: value.id,
         type: value.type,
-        payload: {inputs},
+        payload: {
+            inputs,
+            ...(wasmImagePreprocessing === undefined ? {} : {wasmImagePreprocessing}),
+        },
     };
 }
 
 export type {
     IBrowserPdfCombineInput,
+    IBrowserPdfCombinePageSize,
+    IBrowserPdfCombinePayload,
+    IBrowserPdfCombineWasmImagePreprocessing,
+    IBrowserPdfCombineWasmPageSpec,
     IBrowserPdfCombineWorkerRequestMap,
     IBrowserPdfCombineWorkerResultMap,
     IBrowserPdfCombineWorkerRequest,
+    TBrowserPdfCombineRgb,
+    TBrowserPdfCombineWasmPageKind,
     TBrowserPdfCombineWorkerRequest,
     TBrowserPdfCombineWorkerRequestType,
     TBrowserPdfCombineWorkerResponse,

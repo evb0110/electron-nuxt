@@ -59,7 +59,8 @@ const formattedPercent = computed(() => `${clamp(Math.round(value), 0, 100)}%`);
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--ui-bg-elevated);
+    background: transparent;
+    background: color-mix(in oklab, var(--ui-bg-elevated) 42%, transparent);
 }
 
 .app-progress-overlay-card {

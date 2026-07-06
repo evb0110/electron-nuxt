@@ -35,6 +35,62 @@ function decodeRequestNameAndData(request: Uint8Array) {
     };
 }
 
+function decodeInputAt(request: Uint8Array, offset: number) {
+    const view = new DataView(request.buffer, request.byteOffset, request.byteLength);
+    const nameLength = view.getUint32(offset, true);
+    offset += 4;
+    const dataLength = view.getUint32(offset, true);
+    offset += 4;
+    const name = new TextDecoder().decode(request.slice(offset, offset + nameLength));
+    offset += nameLength;
+    const data = request.slice(offset, offset + dataLength);
+    offset += dataLength;
+    return {
+        data,
+        name,
+        offset,
+    };
+}
+
+function decodeV4FirstPageSpec(request: Uint8Array) {
+    const view = new DataView(request.buffer, request.byteOffset, request.byteLength);
+    let offset = 4 + (6 * 4);
+    const kind = view.getUint32(offset, true);
+    offset += 4;
+    const widthPoints = view.getFloat64(offset, true);
+    offset += 8;
+    const heightPoints = view.getFloat64(offset, true);
+    offset += 8;
+    const jpegQuality = view.getUint32(offset, true);
+    offset += 4;
+    const ppiCap = view.getUint32(offset, true);
+    offset += 4;
+    const background = decodeInputAt(request, offset);
+    const mask = decodeInputAt(request, background.offset);
+    offset = mask.offset;
+    const foregroundColor = [
+        view.getUint32(offset, true),
+        view.getUint32(offset + 4, true),
+        view.getUint32(offset + 8, true),
+    ];
+    return {
+        background: {
+            data: background.data,
+            name: background.name,
+        },
+        foregroundColor,
+        heightPoints,
+        jpegQuality,
+        kind,
+        mask: {
+            data: mask.data,
+            name: mask.name,
+        },
+        ppiCap,
+        widthPoints,
+    };
+}
+
 function createWasmExportsMock(options: {
     allocThrows?: boolean;
     buildResultCode?: number;
@@ -143,6 +199,82 @@ describe('tryCombineImageInputsWithWasm', () => {
                 3,
             ]),
             name: 'scan.png',
+        });
+    });
+
+    it('encodes layered page specs as a version 4 WASM request', async () => {
+        const wasmMock = createWasmExportsMock({output: new Uint8Array([
+            4,
+            5,
+            6,
+        ])});
+        vi.stubGlobal('fetch', createFetchMock());
+        vi.stubGlobal('WebAssembly', {
+            ...wasmGlobalMockBase,
+            instantiate: vi.fn(async () => ({instance: {exports: wasmMock.exports}})),
+        });
+        const { tryCombineImageInputsWithWasm } = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
+
+        const background = new Uint8Array([
+            0x50,
+            0x36,
+        ]);
+        const mask = new Uint8Array([
+            0x50,
+            0x34,
+        ]);
+        const result = await tryCombineImageInputsWithWasm([], {pageSpecs: [{
+            kind: 'layered-color',
+            pageSize: {
+                widthPoints: 310.32,
+                heightPoints: 471.84,
+            },
+            jpegQuality: 80,
+            ppiCap: 300,
+            foregroundColor: [
+                128,
+                16,
+                16,
+            ],
+            background: {
+                fileName: 'background.ppm',
+                data: background,
+            },
+            mask: {
+                fileName: 'mask.pbm',
+                data: mask,
+            },
+        }]});
+
+        expect(result).toEqual(new Uint8Array([
+            4,
+            5,
+            6,
+        ]));
+        const request = wasmMock.capturedRequest();
+        const view = new DataView(request.buffer, request.byteOffset, request.byteLength);
+        expect(new TextDecoder().decode(request.slice(0, 4))).toBe('EPIC');
+        expect(view.getUint32(4, true)).toBe(4);
+        expect(view.getUint32(4 + (5 * 4), true)).toBe(1);
+        expect(decodeV4FirstPageSpec(request)).toEqual({
+            background: {
+                data: background,
+                name: 'background.ppm',
+            },
+            foregroundColor: [
+                128,
+                16,
+                16,
+            ],
+            heightPoints: 471.84,
+            jpegQuality: 80,
+            kind: 4,
+            mask: {
+                data: mask,
+                name: 'mask.pbm',
+            },
+            ppiCap: 300,
+            widthPoints: 310.32,
         });
     });
 
