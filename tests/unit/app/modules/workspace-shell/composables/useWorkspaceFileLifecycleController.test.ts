@@ -16,6 +16,7 @@ vi.mock('@app/modules/workspace-shell/composables/usePdfFile', () => ({usePdfFil
     pdfSrc: ref(null),
     pdfReloadSrc: ref(null),
     pdfData: ref(null),
+    pdfRasterDisplayProfile: ref(null),
     workingCopyPath: ref(null),
     originalPath: ref(null),
     fileName: ref(null),

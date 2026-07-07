@@ -19,11 +19,13 @@ import type {
     TPdfSource,
 } from '@app/types/pdfUi';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type { TPdfRasterDisplayProfile } from '@app/types/pdfRasterDisplayProfile';
 
 export interface IPdfViewerProps {
     src: TPdfSource | null;
     reloadSrc?: TPdfSource | null | undefined;
     sourcePdfData?: Uint8Array | null | undefined;
+    rasterDisplayProfile?: TPdfRasterDisplayProfile | null | undefined;
     suppressLoadingOverlay?: boolean | undefined;
     bufferPages?: number | undefined;
     isAnySaving?: boolean | undefined;

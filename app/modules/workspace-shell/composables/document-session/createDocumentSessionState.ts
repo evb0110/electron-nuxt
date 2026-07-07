@@ -8,6 +8,7 @@ import type {
     TPdfSaveMode,
 } from '@app/types/pdfContracts';
 import type { TPdfSource } from '@app/types/pdfUi';
+import type { TPdfRasterDisplayProfile } from '@app/types/pdfRasterDisplayProfile';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type {
     IDocumentRevisionInfo,
@@ -28,6 +29,7 @@ export interface IDocumentSessionState {
     originalPath: Ref<TDocumentRef | null>;
     pdfConformanceProfile: Ref<IPdfConformanceProfile | null>;
     pdfData: ShallowRef<Uint8Array | null>;
+    pdfRasterDisplayProfile: Ref<TPdfRasterDisplayProfile | null>;
     pdfReloadSrc: Ref<TPdfSource | null>;
     pdfSrc: Ref<TPdfSource | null>;
     pendingDjvu: Ref<TDocumentRef | null>;
@@ -45,6 +47,7 @@ export function createDocumentSessionState(
     const pdfSrc = ref<TPdfSource | null>(null);
     const pdfReloadSrc = ref<TPdfSource | null>(null);
     const pdfData = shallowRef<Uint8Array | null>(null);
+    const pdfRasterDisplayProfile = ref<TPdfRasterDisplayProfile | null>(null);
     const workingCopyPath = ref<TDocumentRef | null>(null);
     const documentRevisionInfo = ref<IDocumentRevisionInfo | null>(null);
     const documentRevisionToken = ref<TDocumentRevisionToken | null>(null);
@@ -72,6 +75,7 @@ export function createDocumentSessionState(
         pdfSrc.value = null;
         pdfReloadSrc.value = null;
         pdfData.value = null;
+        pdfRasterDisplayProfile.value = null;
         workingCopyPath.value = null;
         documentRevisionInfo.value = null;
         documentRevisionToken.value = null;
@@ -95,6 +99,7 @@ export function createDocumentSessionState(
         originalPath,
         pdfConformanceProfile,
         pdfData,
+        pdfRasterDisplayProfile,
         pdfReloadSrc,
         pdfSrc,
         pendingDjvu,

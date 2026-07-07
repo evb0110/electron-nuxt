@@ -2,6 +2,7 @@ import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
+import type { TDocumentDirectOpenOptions } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
 import type { IWorkspaceViewerLifecycleHooks } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
 
 interface IWorkspaceFileSwitchDeps {
@@ -9,7 +10,7 @@ interface IWorkspaceFileSwitchDeps {
     viewerLifecycleHooks: IWorkspaceViewerLifecycleHooks[];
     pickFileToOpen: () => Promise<TOpenFileResult | null>;
     openFile: (preSelected?: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
-    openFileDirect: (path: TDocumentRef) => Promise<TDocumentOpenOutcome>;
+    openFileDirect: (path: TDocumentRef, options?: TDocumentDirectOpenOptions) => Promise<TDocumentOpenOutcome>;
     openFileDirectBatch: (paths: TDocumentRef[]) => Promise<TDocumentOpenOutcome>;
     closeFile: () => void;
 }
@@ -43,8 +44,8 @@ export const useWorkspaceFileSwitch = (deps: IWorkspaceFileSwitchDeps) => {
         return openWithViewerLifecycle(() => openFile(preSelected));
     }
 
-    async function openFileDirectWithViewerLifecycle(path: TDocumentRef) {
-        return openWithViewerLifecycle(() => openFileDirect(path));
+    async function openFileDirectWithViewerLifecycle(path: TDocumentRef, options?: TDocumentDirectOpenOptions) {
+        return openWithViewerLifecycle(() => openFileDirect(path, options));
     }
 
     async function openFileDirectBatchWithViewerLifecycle(paths: TDocumentRef[]) {

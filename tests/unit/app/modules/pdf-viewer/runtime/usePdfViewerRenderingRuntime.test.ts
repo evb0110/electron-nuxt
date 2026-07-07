@@ -28,6 +28,7 @@ function createRuntime() {
         isActive: computed(() => true),
         effectiveScale: computed(() => 1),
         outputScale: ref(1),
+        rasterDisplayProfile: computed(() => null),
         bufferPages: computed(() => 2),
         showAnnotations: computed(() => true),
         hiddenAnnotationIds: ref(new Set<string>()),

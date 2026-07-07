@@ -11,6 +11,11 @@ import type {
     TOpenFileResult,
 } from '@contracts/electronApiDocuments';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
+import type { IPdfRasterDisplayProfileOpenOptions } from '@app/types/pdfRasterDisplayProfile';
+import {
+    registerPdfRasterDisplayProfile,
+    resolveRegisteredPdfRasterDisplayProfile,
+} from '@app/types/pdfRasterDisplayProfile';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { IDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/createDocumentSessionState';
 import type { IPdfLoadedState } from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
@@ -34,6 +39,7 @@ import {
 
 type TAnalytics = ReturnType<typeof useAnalytics>;
 type TEpochGuard = ReturnType<typeof createEpochGuard>;
+export type TDocumentDirectOpenOptions = IPdfRasterDisplayProfileOpenOptions;
 
 interface ICreateDocumentOpenFlowDeps {
     analytics: TAnalytics;
@@ -248,6 +254,7 @@ export function createDocumentOpenFlow(
         openRequestId: number,
         result: Extract<TOpenFileResult, { kind: 'pdf' }>,
         openMethod: 'picker' | 'preselected' | 'direct' | 'batch',
+        options: IPdfRasterDisplayProfileOpenOptions = {},
     ) {
         try {
             await loadPdfFromPath(result.workingPath, {
@@ -276,13 +283,20 @@ export function createDocumentOpenFlow(
         }
         state.originalPath.value = result.originalPath;
         state.requiresSaveAsOnFirstSave.value = !!result.isGenerated;
+        const rasterDisplayProfile = options.rasterDisplayProfile
+            ?? resolveRegisteredPdfRasterDisplayProfile(result.originalPath, result.workingPath);
+        if (rasterDisplayProfile) {
+            registerPdfRasterDisplayProfile(result.originalPath, rasterDisplayProfile);
+            registerPdfRasterDisplayProfile(result.workingPath, rasterDisplayProfile);
+        }
+        state.pdfRasterDisplayProfile.value = rasterDisplayProfile;
         return {
             status: 'opened',
             result,
         } satisfies TDocumentOpenOutcome;
     }
 
-    async function openFileDirect(path: TDocumentRef) {
+    async function openFileDirect(path: TDocumentRef, options: TDocumentDirectOpenOptions = {}) {
         const openRequestId = beginOpenRequest();
         state.error.value = null;
         state.pendingDjvu.value = null;
@@ -353,7 +367,7 @@ export function createDocumentOpenFlow(
                     workingPath: result.workingPath,
                 },
             );
-            const outcome = await finishPdfOpenResult(openRequestId, result, 'direct');
+            const outcome = await finishPdfOpenResult(openRequestId, result, 'direct', options);
             if (outcome.status === 'stale') {
                 BrowserLogger.debug(
                     RECENT_OPEN_LOG_SECTION,

@@ -28,6 +28,7 @@ interface IPreparedCanvasRender extends ICanvasRenderResult { startRender: () =>
 
 interface IRenderCanvasOptions {
     maxCanvasPixels?: number;
+    sourceMaxPixels?: number;
     onRenderTask?: (task: ICancelableRenderTask) => void;
     hiddenAnnotationIds?: Set<string>;
     pageRenderCoordination?: {
@@ -98,8 +99,15 @@ export const usePdfCanvasRenderer = (deps: {
     }
 
     function getMaxCanvasPixels(options?: IRenderCanvasOptions) {
-        return normalizeMaxCanvasPixels(options?.maxCanvasPixels)
+        const renderMaxPixels = normalizeMaxCanvasPixels(options?.maxCanvasPixels)
             ?? normalizeMaxCanvasPixels(defaultMaxCanvasPixels);
+        const sourceMaxPixels = normalizeMaxCanvasPixels(options?.sourceMaxPixels);
+        if (sourceMaxPixels === null) {
+            return renderMaxPixels;
+        }
+        return renderMaxPixels === null
+            ? sourceMaxPixels
+            : Math.min(renderMaxPixels, sourceMaxPixels);
     }
 
     function calculateCanvasPixelSize(

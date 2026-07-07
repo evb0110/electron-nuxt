@@ -145,6 +145,95 @@ describe('usePdfCanvasRenderer', () => {
         expect(result?.wasClamped).toBe(true);
     });
 
+    it('keeps trusted raster source renders at or below source pixels', async () => {
+        const canvas = {
+            width: 0,
+            height: 0,
+            style: {} as CSSStyleDeclaration,
+            getContext: vi.fn(() => ({})),
+            remove: vi.fn(),
+        };
+        (globalThis as Record<string, unknown>).document = { createElement: vi.fn(() => canvas) };
+
+        const renderTask = {
+            cancel: vi.fn(),
+            promise: Promise.resolve(),
+        };
+        const pdfPage = {
+            pageNumber: 1,
+            getViewport: vi.fn(() => ({
+                width: 200,
+                height: 100,
+                userUnit: 1,
+                rawDims: {
+                    pageWidth: 200,
+                    pageHeight: 100,
+                },
+            })),
+            render: vi.fn(() => renderTask),
+        } as const;
+
+        const renderer = usePdfCanvasRenderer({
+            outputScale: 2,
+            defaultMaxCanvasPixels: 80_000,
+        });
+        const result = await renderer.renderCanvas(pdfPage as never, 1, {
+            maxCanvasPixels: 50_000,
+            sourceMaxPixels: 5_000,
+        });
+
+        expect(canvas.width).toBe(100);
+        expect(canvas.height).toBe(50);
+        expect(result).toMatchObject({
+            requestedPixels: 80_000,
+            grantedPixels: 5_000,
+            wasClamped: true,
+        });
+    });
+
+    it('caps the Georgievsky raster page at native pixels under high zoom and DPR', async () => {
+        const canvas = {
+            width: 0,
+            height: 0,
+            style: {} as CSSStyleDeclaration,
+            getContext: vi.fn(() => ({})),
+            remove: vi.fn(),
+        };
+        (globalThis as Record<string, unknown>).document = { createElement: vi.fn(() => canvas) };
+
+        const renderTask = {
+            cancel: vi.fn(),
+            promise: Promise.resolve(),
+        };
+        const pdfPage = {
+            pageNumber: 1,
+            getViewport: vi.fn(() => ({
+                width: 1861.92,
+                height: 2831.04,
+                userUnit: 1,
+                rawDims: {
+                    pageWidth: 310.32,
+                    pageHeight: 471.84,
+                },
+            })),
+            render: vi.fn(() => renderTask),
+        } as const;
+
+        const renderer = usePdfCanvasRenderer({
+            outputScale: 2,
+            defaultMaxCanvasPixels: 64_000_000,
+        });
+        const result = await renderer.renderCanvas(pdfPage as never, 6, {sourceMaxPixels: 1293 * 1966});
+
+        expect(canvas.width).toBe(1293);
+        expect(canvas.height).toBe(1966);
+        expect(result).toMatchObject({
+            requestedPixels: 21_085_288,
+            grantedPixels: 2_542_038,
+            wasClamped: true,
+        });
+    });
+
     it('uses the latest reactive output scale for future canvas sizing', async () => {
         const canvas = {
             width: 0,

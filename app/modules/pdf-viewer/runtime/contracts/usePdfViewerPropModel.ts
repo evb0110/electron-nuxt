@@ -30,6 +30,7 @@ export const usePdfViewerPropModel = (props: Readonly<IPdfViewerProps>) => {
         src: computed(() => props.src),
         reloadSrc: computed(() => props.reloadSrc ?? null),
         sourcePdfData: computed(() => props.sourcePdfData ?? null),
+        rasterDisplayProfile: computed(() => props.rasterDisplayProfile ?? null),
         suppressLoadingOverlay: computed(() => props.suppressLoadingOverlay === true),
         bufferPages: computed(() => props.bufferPages ?? performanceProfile.pdfBufferPages),
         isAnySaving: computed(() => props.isAnySaving ?? false),

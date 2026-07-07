@@ -10,10 +10,12 @@ import {
 } from 'vitest';
 import { getWorkspaceViewerAdapter } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import { useWorkspaceViewerAdapterBinding } from '@app/modules/workspace-shell/viewers/useWorkspaceViewerAdapterBinding';
+import type { TPdfRasterDisplayProfile } from '@app/types/pdfRasterDisplayProfile';
 
 function createBindingHarness() {
     const activeViewerAdapter = ref(getWorkspaceViewerAdapter('pdf'));
     const isRenderActive = ref(false);
+    const pdfRasterDisplayProfile = ref<TPdfRasterDisplayProfile | null>(null);
     const binding = useWorkspaceViewerAdapterBinding({
         activeViewerAdapter: computed(() => activeViewerAdapter.value),
         annotationCursorMode: ref(null),
@@ -33,6 +35,7 @@ function createBindingHarness() {
         isResizingSidebar: ref(false),
         nativePdfSourcePath: ref(null),
         pageMatches: ref(new Map()),
+        pdfRasterDisplayProfile,
         pdfReloadSrc: ref(null),
         pdfSrc: ref({
             kind: 'path' as const,
@@ -77,6 +80,7 @@ function createBindingHarness() {
     return {
         binding,
         isRenderActive,
+        pdfRasterDisplayProfile,
     };
 }
 
@@ -92,5 +96,23 @@ describe('useWorkspaceViewerAdapterBinding', () => {
         isRenderActive.value = true;
 
         expect(binding.activeViewerProps.value.isActive).toBe(true);
+    });
+
+    it('passes raster display profiles only to the standard PDF viewer', () => {
+        const {
+            binding,
+            pdfRasterDisplayProfile,
+        } = createBindingHarness();
+        const profile = {
+            kind: 'trusted-raster-djvu' as const,
+            sourcePagePixels: [{
+                width: 1293,
+                height: 1966,
+            }],
+        };
+
+        pdfRasterDisplayProfile.value = profile;
+
+        expect(binding.activeViewerProps.value.rasterDisplayProfile).toStrictEqual(profile);
     });
 });

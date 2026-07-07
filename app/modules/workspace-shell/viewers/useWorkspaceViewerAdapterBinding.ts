@@ -9,6 +9,7 @@ import type {
     IDocumentViewerExpose,
     IPdfViewerExpose,
 } from '@app/modules/pdf-viewer/public';
+import type { TPdfRasterDisplayProfile } from '@app/types/pdfRasterDisplayProfile';
 import type { IWorkspaceViewerAdapter } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
 
 type TReadableRef<T> = ComputedRef<T> | Ref<T>;
@@ -32,6 +33,7 @@ interface IWorkspaceViewerAdapterBindingOptions {
     isResizingSidebar: Ref<boolean>;
     nativePdfSourcePath: Ref<TDocumentRef | null> | ComputedRef<TDocumentRef | null>;
     pageMatches: Ref<unknown> | ComputedRef<unknown>;
+    pdfRasterDisplayProfile: Ref<TPdfRasterDisplayProfile | null> | ComputedRef<TPdfRasterDisplayProfile | null>;
     pdfReloadSrc: Ref<TPdfSource | null>;
     pdfSrc: Ref<TPdfSource | null>;
     pdfViewerRef: Ref<IPdfViewerExpose | null>;
@@ -94,6 +96,7 @@ export const useWorkspaceViewerAdapterBinding = (options: IWorkspaceViewerAdapte
             return {
                 src: options.pdfSrc.value,
                 reloadSrc: options.pdfReloadSrc.value,
+                rasterDisplayProfile: options.pdfRasterDisplayProfile.value,
                 sourcePdfData: options.sourcePdfData.value,
                 isAnySaving: options.isAnySaving.value,
                 zoom: options.zoom.value,

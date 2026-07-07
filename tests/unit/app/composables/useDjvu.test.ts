@@ -7,6 +7,10 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import type * as TVueModule from 'vue';
+import {
+    clearRegisteredPdfRasterDisplayProfilesForTests,
+    resolveRegisteredPdfRasterDisplayProfile,
+} from '@app/types/pdfRasterDisplayProfile';
 
 vi.mock('vue', async (importOriginal) => {
     const actual = await importOriginal<typeof TVueModule>();
@@ -29,6 +33,7 @@ const mockElectronAPI = {
         openForViewing: vi.fn(),
         releaseViewingPath: vi.fn(),
         convertToPdf: vi.fn(),
+        getPageSizes: vi.fn(),
         cancel: vi.fn(),
         cleanupTemp: vi.fn(),
     },
@@ -96,11 +101,13 @@ describe('useDjvu', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        clearRegisteredPdfRasterDisplayProfilesForTests();
         mockDjvuModeState.isDjvuMode.value = false;
         mockDjvuModeState.djvuSourcePath.value = null;
         mockDjvuModeState.djvuTempPdfPath.value = null;
         mockElectronAPI.djvu.onProgress.mockReturnValue(vi.fn());
         mockElectronAPI.djvu.onViewingReady.mockReturnValue(vi.fn());
+        mockElectronAPI.djvu.getPageSizes.mockResolvedValue([]);
         mockDocumentWorkingCopyCapability.cleanupFile.mockResolvedValue(undefined);
         toastAddMock.mockClear();
         viewingErrorCallback = null;
@@ -357,6 +364,52 @@ describe('useDjvu', () => {
 
             expect(openConvertedPdf).toHaveBeenCalledWith('/tmp/out.pdf');
             expect(djvu.conversionState.value.isConverting).toBe(false);
+        });
+
+        it('opens trusted raster DjVu PDFs with source page pixel caps', async () => {
+            mockElectronAPI.djvu.openForViewing.mockResolvedValue({
+                success: true,
+                pageCount: 1,
+                jobId: 'view-1',
+            });
+            mockDocumentFilesCapability.savePdfDialog.mockResolvedValue('/tmp/out.pdf');
+            mockElectronAPI.djvu.convertToPdf.mockResolvedValue({
+                success: true,
+                pdfPath: '/tmp/out.pdf',
+                jobId: 'convert-1',
+            });
+            mockElectronAPI.djvu.getPageSizes.mockResolvedValue([{
+                width: 1293,
+                height: 1966,
+                dpi: 300,
+            }]);
+            const openConvertedPdf = vi.fn(async () => ({
+                status: 'opened' as const,
+                result: {
+                    kind: 'pdf' as const,
+                    originalPath: '/tmp/out.pdf',
+                    workingPath: '/tmp/out-working.pdf',
+                },
+            }));
+
+            const djvu = useDjvu();
+            await djvu.openDjvuFile('/tmp/input.djvu', vi.fn(async () => {}));
+            await djvu.convertToPdf(1, true, 'direct', openConvertedPdf);
+
+            expect(openConvertedPdf).toHaveBeenCalledWith('/tmp/out.pdf', {rasterDisplayProfile: {
+                kind: 'trusted-raster-djvu',
+                sourcePagePixels: [{
+                    width: 1293,
+                    height: 1966,
+                }],
+            }});
+            expect(resolveRegisteredPdfRasterDisplayProfile('/tmp/out.pdf')).toStrictEqual({
+                kind: 'trusted-raster-djvu',
+                sourcePagePixels: [{
+                    width: 1293,
+                    height: 1966,
+                }],
+            });
         });
 
         it('passes the selected PDF strategy through to the DjVu capability', async () => {

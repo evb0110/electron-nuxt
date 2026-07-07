@@ -8,6 +8,10 @@ import {
 import { ref } from 'vue';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TTranslateFn } from '@i18n-app';
+import {
+    clearRegisteredPdfRasterDisplayProfilesForTests,
+    registerPdfRasterDisplayProfile,
+} from '@app/types/pdfRasterDisplayProfile';
 import { createEpochGuard } from '@app/modules/workspace-shell/composables/document-session/createEpochGuard';
 import { createDocumentOpenFlow } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
 import { createDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/createDocumentSessionState';
@@ -101,6 +105,7 @@ function createOpenFlowHarness() {
 describe('createDocumentOpenFlow', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        clearRegisteredPdfRasterDisplayProfilesForTests();
         mocks.documentFiles.statFile.mockResolvedValue({ size: PDF_BYTES.byteLength });
         mocks.documentFiles.readFile.mockResolvedValue(PDF_BYTES);
         mocks.documentFiles.readFileRange.mockResolvedValue(new Uint8Array());
@@ -215,6 +220,57 @@ describe('createDocumentOpenFlow', () => {
         expect(state.workingCopyPath.value).toBe('/tmp/fresh-working.pdf');
         expect(deps.cleanupAbandonedWorkingCopy).toHaveBeenCalledWith('/tmp/stale-working.pdf');
         expect(deps.cleanupAbandonedWorkingCopy).not.toHaveBeenCalledWith('/tmp/fresh-working.pdf');
+    });
+
+    it('adopts direct-open raster display profiles for the opened PDF only', async () => {
+        const {
+            openFlow,
+            state,
+        } = createOpenFlowHarness();
+        const profile = {
+            kind: 'trusted-raster-djvu' as const,
+            sourcePagePixels: [{
+                width: 1293,
+                height: 1966,
+            }],
+        };
+        mocks.documentOpen.openDocumentDirect.mockImplementation(async (path: string) => ({
+            kind: 'pdf',
+            originalPath: path,
+            workingPath: `/tmp/${path.replaceAll('/', '')}`,
+        }));
+
+        await expect(openFlow.openFileDirect('/scan.pdf', {rasterDisplayProfile: profile})).resolves.toMatchObject({status: 'opened'});
+
+        expect(state.pdfRasterDisplayProfile.value).toStrictEqual(profile);
+
+        await expect(openFlow.openFileDirect('/ordinary.pdf')).resolves.toMatchObject({status: 'opened'});
+
+        expect(state.pdfRasterDisplayProfile.value).toBeNull();
+    });
+
+    it('adopts registered raster display profiles when reopening a generated PDF path', async () => {
+        const {
+            openFlow,
+            state,
+        } = createOpenFlowHarness();
+        const profile = {
+            kind: 'trusted-raster-djvu' as const,
+            sourcePagePixels: [{
+                width: 1293,
+                height: 1966,
+            }],
+        };
+        registerPdfRasterDisplayProfile('/tmp/generated.pdf', profile);
+        mocks.documentOpen.openDocumentDirect.mockResolvedValue({
+            kind: 'pdf',
+            originalPath: '/tmp/generated.pdf',
+            workingPath: '/tmp/generated-working.pdf',
+        });
+
+        await expect(openFlow.openFileDirect('/tmp/generated.pdf')).resolves.toMatchObject({status: 'opened'});
+
+        expect(state.pdfRasterDisplayProfile.value).toStrictEqual(profile);
     });
 
     it('does not let a stale PDF open clobber dirty state or conformance after history reset', async () => {

@@ -16,6 +16,7 @@ import type {
     IPdfPageMatches,
     IPdfSearchMatch,
 } from '@app/types/pdfUi';
+import type { TPdfRasterDisplayProfile } from '@app/types/pdfRasterDisplayProfile';
 
 interface IUsePdfViewerRenderingRuntimeOptions {
     viewerContainer: Ref<HTMLElement | null>;
@@ -24,6 +25,7 @@ interface IUsePdfViewerRenderingRuntimeOptions {
     isActive: ComputedRef<boolean>;
     effectiveScale: ComputedRef<number>;
     outputScale: Ref<number>;
+    rasterDisplayProfile: ComputedRef<TPdfRasterDisplayProfile | null>;
     bufferPages: ComputedRef<number>;
     showAnnotations: ComputedRef<boolean>;
     hiddenAnnotationIds: Ref<Set<string>> | ComputedRef<Set<string>>;
@@ -68,6 +70,7 @@ export const usePdfViewerRenderingRuntime = (options: IUsePdfViewerRenderingRunt
         isActive: options.isActive,
         effectiveScale: options.effectiveScale,
         outputScale: options.outputScale,
+        rasterDisplayProfile: options.rasterDisplayProfile,
         bufferPages: options.bufferPages,
         showAnnotations: options.showAnnotations,
         hiddenAnnotationIds: options.hiddenAnnotationIds,

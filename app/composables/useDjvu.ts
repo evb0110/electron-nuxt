@@ -1,6 +1,21 @@
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { TDjvuPdfExportStrategy } from '@contracts/electronApiDjvu';
+import type {
+    IDjvuPageSize,
+    TDjvuPdfExportStrategy,
+} from '@contracts/electronApiDjvu';
+import {
+    normalizeDjvuPdfSubsample,
+    resolveDjvuPdfExportStrategy,
+} from '@contracts/djvuConversionPolicy';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
+import type {
+    IPdfRasterDisplayProfileOpenOptions,
+    TPdfRasterDisplayProfile,
+} from '@app/types/pdfRasterDisplayProfile';
+import {
+    normalizePdfRasterSourcePagePixels,
+    registerPdfRasterDisplayProfile,
+} from '@app/types/pdfRasterDisplayProfile';
 import { useDjvuMode } from '@app/composables/useDjvuMode';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
@@ -33,12 +48,38 @@ export type TOpenDjvuFile = (
     closeFile?: () => void | Promise<void>,
 ) => Promise<void>;
 
-type TOpenConvertedPdf = (path: TDocumentRef) => Promise<TDocumentOpenOutcome>;
+type TOpenConvertedPdf = (
+    path: TDocumentRef,
+    options?: IPdfRasterDisplayProfileOpenOptions,
+) => Promise<TDocumentOpenOutcome>;
 
 function ensurePdfSuggestedName(name: string) {
     const trimmedName = name.trim();
     const safeName = trimmedName.length > 0 ? trimmedName : 'document';
     return /\.pdf$/i.test(safeName) ? safeName : `${safeName}.pdf`;
+}
+
+function createTrustedRasterDjvuPdfDisplayProfile(
+    pageSizes: readonly IDjvuPageSize[],
+    options: {
+        pdfStrategy: TDjvuPdfExportStrategy;
+        subsample: number;
+    },
+): TPdfRasterDisplayProfile | null {
+    const resolvedStrategy = resolveDjvuPdfExportStrategy(options.pdfStrategy);
+    const sourcePixelScale = resolvedStrategy === 'direct'
+        ? normalizeDjvuPdfSubsample(options.subsample)
+        : 1;
+    const sourcePagePixels = pageSizes.map(size => normalizePdfRasterSourcePagePixels({
+        width: size.width / sourcePixelScale,
+        height: size.height / sourcePixelScale,
+    }));
+    return sourcePagePixels.some(Boolean)
+        ? {
+            kind: 'trusted-raster-djvu',
+            sourcePagePixels,
+        }
+        : null;
 }
 
 export const useDjvu = () => {
@@ -448,7 +489,31 @@ export const useDjvu = () => {
                 pdfPath: result.pdfPath, 
             });
 
-            const openResult = await openConvertedPdf(result.pdfPath);
+            let rasterDisplayProfile: TPdfRasterDisplayProfile | null = null;
+            try {
+                rasterDisplayProfile = createTrustedRasterDjvuPdfDisplayProfile(
+                    await djvu.getPageSizes(sourcePath),
+                    {
+                        pdfStrategy,
+                        subsample,
+                    },
+                );
+            } catch (profileError) {
+                BrowserLogger.warn('djvu', 'Failed to resolve trusted raster PDF display profile', {
+                    path: sourcePath,
+                    error: profileError,
+                });
+            }
+
+            if (generation !== conversionGeneration || djvuSourcePath.value !== sourcePath) {
+                return;
+            }
+
+            registerPdfRasterDisplayProfile(savePath, rasterDisplayProfile);
+            registerPdfRasterDisplayProfile(result.pdfPath, rasterDisplayProfile);
+            const openResult = rasterDisplayProfile
+                ? await openConvertedPdf(result.pdfPath, {rasterDisplayProfile})
+                : await openConvertedPdf(result.pdfPath);
             if (generation !== conversionGeneration) {
                 return;
             }

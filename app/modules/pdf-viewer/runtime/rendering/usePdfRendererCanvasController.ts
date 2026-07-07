@@ -20,6 +20,7 @@ interface IUsePdfRendererCanvasControllerOptions {
     activeRenderTasks: Map<number, IActivePdfRenderTask>;
     pageCanvases: Map<number, HTMLCanvasElement>;
     hiddenAnnotationIds: (pageNumber: number) => Set<string> | undefined;
+    sourceMaxPixels?: ((pageNumber: number) => number | null | undefined) | undefined;
     getRenderVersion: () => number;
     getPage: (pageNumber: number) => Promise<PDFPageProxy>;
     releasePage: (pageNumber: number, pdfPage: PDFPageProxy) => void;
@@ -35,6 +36,7 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
         activeRenderTasks,
         pageCanvases,
         hiddenAnnotationIds,
+        sourceMaxPixels,
         getRenderVersion,
         getPage,
         releasePage,
@@ -262,6 +264,10 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
         });
         if (renderOptions?.maxCanvasPixelsOverride !== undefined) {
             canvasRenderOptions.maxCanvasPixels = renderOptions.maxCanvasPixelsOverride;
+        }
+        const sourceMaxPixelBudget = sourceMaxPixels?.(pageNumber);
+        if (sourceMaxPixelBudget !== null && sourceMaxPixelBudget !== undefined) {
+            canvasRenderOptions.sourceMaxPixels = sourceMaxPixelBudget;
         }
         let prepareStageTimedOut = false;
         const prepareCanvasRenderPromise = canvasRenderer.prepareCanvasRender(

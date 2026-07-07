@@ -36,6 +36,8 @@ import { usePdfRendererRerenderController } from '@app/modules/pdf-viewer/runtim
 import { usePdfRendererVisibleRenderController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererVisibleRenderController';
 import { usePdfRendererSinglePageController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererSinglePageController';
 import { resolveHiddenEmbeddedAnnotationIdsForPageContainer } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/syncHiddenEmbeddedAnnotationDom';
+import type { TPdfRasterDisplayProfile } from '@app/types/pdfRasterDisplayProfile';
+import { resolvePdfRasterSourceMaxPixels } from '@app/types/pdfRasterDisplayProfile';
 import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 import type { IPdfViewerTransactionRenderRequest } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
 import {
@@ -81,6 +83,7 @@ export interface IUsePdfPageRendererOptions {
     settleSearchTransaction?: (transactionId: number) => void;
     cancelSearchTransaction?: (transactionId: number) => void;
     outputScale?: MaybeRefOrGetter<number>;
+    rasterDisplayProfile?: MaybeRefOrGetter<TPdfRasterDisplayProfile | null>;
 
     annotationUiManager?: MaybeRefOrGetter<AnnotationEditorUIManager | null>;
     annotationL10n?: MaybeRefOrGetter<IPdfjsL10n | null>;
@@ -617,6 +620,10 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         activeRenderTasks,
         pageCanvases,
         hiddenAnnotationIds: pageNumber => resolveCanvasHiddenAnnotationIds(pageNumber),
+        sourceMaxPixels: pageNumber => resolvePdfRasterSourceMaxPixels(
+            toValue(options.rasterDisplayProfile) ?? null,
+            pageNumber,
+        ),
         getRenderVersion: () => renderVersion,
         getPage: leasePage,
         releasePage,
