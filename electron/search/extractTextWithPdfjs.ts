@@ -18,6 +18,7 @@ import {
     getDocument,
     GlobalWorkerOptions,
     OPS,
+    VerbosityLevel,
 } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { abortErrorFromSignal } from '@electron/utils/abort';
 import { createLogger } from '@electron/utils/createLogger';
@@ -30,6 +31,7 @@ import {
     extractPdfjsWordBoxesFromOperatorList,
     getPdfjsPageViewBox,
 } from '@pdf-core';
+import { createPdfjsNodeDocumentOptions } from '@electron/search/createPdfjsNodeDocumentOptions';
 
 function resolvePdfjsFakeWorkerSrc() {
     // pdfjs's Node fallback dynamically imports workerSrc; the default
@@ -135,7 +137,10 @@ export async function extractTextWithPdfjsWordBoxes(
 
     const data = new Uint8Array(await readFile(pdfPath, signal ? {signal} : undefined));
     throwIfAborted(signal);
-    const loadingTask = getDocument({data});
+    const loadingTask = getDocument({
+        data,
+        ...createPdfjsNodeDocumentOptions({VerbosityLevel}),
+    });
     const doc = await withAbortSignal(loadingTask.promise, signal, () => {
         void loadingTask.destroy();
     });
@@ -203,7 +208,10 @@ export async function extractTextWithPdfjs(
 
     const data = new Uint8Array(await readFile(pdfPath, signal ? {signal} : undefined));
     throwIfAborted(signal);
-    const loadingTask = getDocument({data});
+    const loadingTask = getDocument({
+        data,
+        ...createPdfjsNodeDocumentOptions({VerbosityLevel}),
+    });
     const doc = await withAbortSignal(loadingTask.promise, signal, () => {
         void loadingTask.destroy();
     });

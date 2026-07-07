@@ -25,6 +25,7 @@ import {
     assembleSearchablePdf,
     stripTesseractImageLayer,
 } from '@electron/ocr/worker/pdfAssembler';
+import { createPdfjsNodeDocumentOptions } from '@electron/search/createPdfjsNodeDocumentOptions';
 
 async function addHiddenTextLayer(
     pdf: PDFDocument,
@@ -120,7 +121,7 @@ async function getPdfPageSizes(filePath: string) {
 async function extractPdfText(filePath: string) {
     const pdf = await getDocument({
         data: new Uint8Array(await readFile(filePath)),
-        useWorkerFetch: false,
+        ...createPdfjsNodeDocumentOptions(),
     }).promise;
 
     try {

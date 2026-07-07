@@ -47,6 +47,7 @@ vi.mock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
     getDocument: mocks.getDocument,
     GlobalWorkerOptions: { workerSrc: '' },
     OPS: mocks.OPS,
+    VerbosityLevel: { ERRORS: 0 },
 }));
 
 describe('extractTextWithPdfjs cancellation', () => {

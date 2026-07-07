@@ -6,6 +6,7 @@ import {
 import { readFileSync } from 'node:fs';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
+import { createPdfjsNodeDocumentOptions } from '@electron/search/createPdfjsNodeDocumentOptions';
 import { createMultiPageTextFixturePdf } from '@tests/e2e/electron/helpers/fixtures';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
@@ -21,10 +22,6 @@ import {
 
 const ASSISTANT_BOOKMARK_E2E_TIMEOUT_MS = 90_000;
 const ASSISTANT_BOOKMARK_STEP_TIMEOUT_MS = 30_000;
-const PDFJS_ERRORS_VERBOSITY = (
-    pdfjs as typeof pdfjs & {VerbosityLevel?: {ERRORS?: number;};}
-).VerbosityLevel?.ERRORS;
-
 interface IAgentActionResult extends Record<string, unknown> {
     bookmarks?: IPdfBookmarkEntry[];
     canSave?: boolean;
@@ -60,7 +57,7 @@ async function withStepTimeout<T>(label: string, operation: Promise<T>) {
 async function readPdfOutlineTitles(filePath: string) {
     const document = await pdfjs.getDocument({
         data: new Uint8Array(readFileSync(filePath)),
-        ...(typeof PDFJS_ERRORS_VERBOSITY === 'number' ? {verbosity: PDFJS_ERRORS_VERBOSITY} : {}),
+        ...createPdfjsNodeDocumentOptions(pdfjs),
     }).promise;
     try {
         const outline = await document.getOutline();

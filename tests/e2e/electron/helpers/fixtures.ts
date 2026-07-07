@@ -26,6 +26,7 @@ import {
 } from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { getCurrentSessionName } from '@scripts/electron-run/electronRunSessionPaths';
+import { createPdfjsNodeDocumentOptions } from '@electron/search/createPdfjsNodeDocumentOptions';
 
 const FIXTURE_ROOT_DIR = resolve(process.cwd(), '.devkit', 'tmp', 'e2e-fixtures');
 const TRACKED_PROJECT_FIXTURE_DIR = resolve(process.cwd(), 'tests', 'fixtures', 'electron');
@@ -47,10 +48,6 @@ const GENERATED_DJVU_FIXTURE_FILENAME = [
     `${GENERATED_DJVU_FIXTURE_WIDTH}x${GENERATED_DJVU_FIXTURE_HEIGHT}`,
     `${GENERATED_DJVU_FIXTURE_DPI}dpi.djvu`,
 ].join('-');
-const PDFJS_ERRORS_VERBOSITY = (
-    pdfjs as typeof pdfjs & {VerbosityLevel?: {ERRORS?: number;};}
-).VerbosityLevel?.ERRORS;
-
 export interface IPdfAnnotationSummary {
     total: number;
     bySubtype: Record<string, number>;
@@ -624,11 +621,8 @@ function hasDjvuExtension(path: string) {
 
 async function openPdfWithLowVerbosity(filePath: string) {
     const data = new Uint8Array(readFileSync(filePath));
-    if (typeof PDFJS_ERRORS_VERBOSITY === 'number') {
-        return pdfjs.getDocument({
-            data,
-            verbosity: PDFJS_ERRORS_VERBOSITY,
-        }).promise;
-    }
-    return pdfjs.getDocument({ data }).promise;
+    return pdfjs.getDocument({
+        data,
+        ...createPdfjsNodeDocumentOptions(pdfjs),
+    }).promise;
 }

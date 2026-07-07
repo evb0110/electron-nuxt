@@ -613,10 +613,6 @@ fn run_cli(mut args: impl Iterator<Item = String>) -> Result<(), Box<dyn Error>>
             println!("evb-pdf-search {VERSION}");
             Ok(())
         }
-        "--protocol-version" => {
-            println!("{PROTOCOL_VERSION}");
-            Ok(())
-        }
         "search" => {
             let options = parse_search_options(args)?;
             let index = load_index(&options.index_path, &options.document_revision)?;

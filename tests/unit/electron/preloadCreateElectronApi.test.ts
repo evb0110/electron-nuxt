@@ -1,4 +1,5 @@
 import {
+    afterEach,
     beforeEach,
     describe,
     expect,
@@ -154,6 +155,14 @@ const splitDocumentCapabilityRoots = [...new Set(
 
 const expectedLegacyDocumentFunctionPaths = splitDocumentCapabilityMirrors.map(mirror => mirror.legacyPath);
 
+let expectedDecodedEventWarningSpy: ReturnType<typeof vi.spyOn> | null = null;
+
+function silenceExpectedDecodedEventWarnings() {
+    expectedDecodedEventWarningSpy?.mockRestore();
+    expectedDecodedEventWarningSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    return expectedDecodedEventWarningSpy;
+}
+
 function readPropertyPath(root: unknown, path: readonly string[]) {
     let value = root;
     for (const key of path) {
@@ -173,6 +182,11 @@ describe('createElectronApi', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.unstubAllGlobals();
+    });
+
+    afterEach(() => {
+        expectedDecodedEventWarningSpy?.mockRestore();
+        expectedDecodedEventWarningSpy = null;
     });
 
     it('keeps page operations and image export out of the documents capability', async () => {
@@ -286,6 +300,7 @@ describe('createElectronApi', () => {
     });
 
     it('decodes settings debug-log events before invoking callbacks', async () => {
+        const warningSpy = silenceExpectedDecodedEventWarnings();
         const listeners = new Map<string, (_event: unknown, payload: unknown) => void>();
         const ipcRenderer = {
             invoke: vi.fn(async () => undefined),
@@ -328,9 +343,14 @@ describe('createElectronApi', () => {
             timestamp: '2026-03-21T00:00:00.000Z',
             level: 'INFO',
         });
+        expect(warningSpy).toHaveBeenCalledWith(
+            `Dropped invalid decoded IPC event payload for ${CORE_IPC_EVENT_CHANNELS.debugLog}`,
+            expect.objectContaining({ level: 'TRACE' }),
+        );
     });
 
     it('decodes agent renderer request events before invoking callbacks', async () => {
+        const warningSpy = silenceExpectedDecodedEventWarnings();
         const listeners = new Map<string, (_event: unknown, payload: unknown) => void>();
         const ipcRenderer = {
             invoke: vi.fn(async () => undefined),
@@ -407,9 +427,18 @@ describe('createElectronApi', () => {
                 },
             },
         });
+        expect(warningSpy).toHaveBeenCalledWith(
+            `Dropped invalid decoded IPC event payload for ${AGENT_EVENT_CHANNELS.workspaceSnapshotRequest}`,
+            expect.objectContaining({ requestId: '' }),
+        );
+        expect(warningSpy).toHaveBeenCalledWith(
+            `Dropped invalid decoded IPC event payload for ${AGENT_EVENT_CHANNELS.commandRequest}`,
+            expect.objectContaining({ requestId: 'command-bad' }),
+        );
     });
 
     it('decodes assistant events before invoking callbacks', async () => {
+        const warningSpy = silenceExpectedDecodedEventWarnings();
         const listeners = new Map<string, (_event: unknown, payload: unknown) => void>();
         const ipcRenderer = {
             invoke: vi.fn(async () => undefined),
@@ -451,9 +480,14 @@ describe('createElectronApi', () => {
             messageId: 'message-1',
             delta: 'hello',
         });
+        expect(warningSpy).toHaveBeenCalledWith(
+            `Dropped invalid decoded IPC event payload for ${AGENT_EVENT_CHANNELS.assistantEvent}`,
+            expect.objectContaining({ type: 'state' }),
+        );
     });
 
     it('decodes incoming tab transfers before invoking callbacks', async () => {
+        const warningSpy = silenceExpectedDecodedEventWarnings();
         const listeners = new Map<string, (_event: unknown, payload: unknown) => void>();
         const ipcRenderer = {
             invoke: vi.fn(async () => undefined),
@@ -532,6 +566,10 @@ describe('createElectronApi', () => {
         expect(ipcRenderer.removeListener).toHaveBeenCalledWith(
             CORE_IPC_EVENT_CHANNELS.tabsIncomingTransfer,
             listener,
+        );
+        expect(warningSpy).toHaveBeenCalledWith(
+            `Dropped invalid decoded IPC event payload for ${CORE_IPC_EVENT_CHANNELS.tabsIncomingTransfer}`,
+            expect.objectContaining({ transferId: 'transfer-bad' }),
         );
     });
 
