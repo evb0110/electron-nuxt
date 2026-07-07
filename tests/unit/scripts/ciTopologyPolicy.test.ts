@@ -259,7 +259,7 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('github.event_name == \'schedule\'');
         expect(workflow).toContain('name: Nightly Maintenance Gates');
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: rustup target add wasm32-unknown-unknown');
-        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm run check:wasm:freshness');
+        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm run check:wasm:portable');
         expectSplitQualitySteps(workflowJob(workflow, 'nightly_maintenance'));
         expect(workflow).toContain('run: pnpm run test:rust');
         expect(workflow).toContain('run: pnpm run test:coverage');
