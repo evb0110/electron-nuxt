@@ -133,6 +133,16 @@ function decodeSearchProgress(payload: unknown): IPdfSearchProgress | null {
         if (!Array.isArray(payload.results)) {
             return null;
         }
+        const rawResultsStartIndex = payload.resultsStartIndex;
+        if (
+            rawResultsStartIndex !== undefined
+            && (!isFiniteNumber(rawResultsStartIndex) || !Number.isSafeInteger(rawResultsStartIndex) || rawResultsStartIndex < 0)
+        ) {
+            return null;
+        }
+        const resultsStartIndex = typeof rawResultsStartIndex === 'number'
+            ? rawResultsStartIndex
+            : undefined;
         const results = payload.results.map(decodeSearchResult);
         if (results.some(result => result === null)) {
             return null;
@@ -142,6 +152,7 @@ function decodeSearchProgress(payload: unknown): IPdfSearchProgress | null {
             processed: payload.processed,
             total: payload.total,
             results: results as IPdfSearchResult[],
+            ...(resultsStartIndex === undefined ? {} : {resultsStartIndex}),
             ...(payload.truncated === undefined ? {} : {truncated: payload.truncated}),
             ...(payload.canceled === undefined ? {} : {canceled: payload.canceled}),
             ...(payload.status === undefined ? {} : {status: payload.status}),

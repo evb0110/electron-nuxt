@@ -2,11 +2,9 @@ import {
     resolve,
     win32,
 } from 'path';
-import {
-    realpathSync,
-    statSync,
-} from 'fs';
-import { createOriginalFileContentFingerprintSync } from '@electron/file-access/workingCopyOriginalFileExpectation';
+import { realpathSync } from 'fs';
+import { stat } from 'fs/promises';
+import { createOriginalFileContentFingerprint } from '@electron/file-access/workingCopyOriginalFileExpectation';
 
 export type TWorkingCopyRole = 'current' | 'snapshot';
 
@@ -88,15 +86,15 @@ export function normalizePathForLookup(filePath: string) {
     }
 }
 
-function createOriginalFileExpectation(originalPath: string): IWorkingCopyOriginalFileExpectation | undefined {
+async function createOriginalFileExpectation(originalPath: string): Promise<IWorkingCopyOriginalFileExpectation | undefined> {
     try {
-        const originalStat = statSync(originalPath);
+        const originalStat = await stat(originalPath);
         if (!originalStat.isFile()) {
             return undefined;
         }
         let contentFingerprint: string | undefined;
         try {
-            contentFingerprint = createOriginalFileContentFingerprintSync(originalPath, originalStat.size);
+            contentFingerprint = await createOriginalFileContentFingerprint(originalPath, originalStat.size);
         } catch {
             contentFingerprint = undefined;
         }
@@ -242,7 +240,22 @@ export function getWorkingCopyOriginalPath(workingPath: string, senderWebContent
     };
 }
 
-export function setWorkingCopyOriginalPath(
+function isSameWorkingCopyEntry(
+    entry: IWorkingCopyOriginalEntry,
+    expected: {
+        originalPath: string;
+        ownerWebContentsId?: number;
+        registrationId: number;
+    },
+) {
+    return (
+        entry.registrationId === expected.registrationId
+        && entry.originalPath === expected.originalPath
+        && isSameOwner(entry.ownerWebContentsId, expected.ownerWebContentsId)
+    );
+}
+
+export async function setWorkingCopyOriginalPath(
     workingPath: string,
     originalPath: string,
     ownerWebContentsId?: number,
@@ -255,11 +268,9 @@ export function setWorkingCopyOriginalPath(
     }
 
     const role = options.role ?? 'current';
-    const originalFileExpectation = createOriginalFileExpectation(originalPath);
     const entry: IWorkingCopyOriginalEntry = {
         originalPath,
         ...(typeof ownerWebContentsId === 'number' ? {ownerWebContentsId} : {}),
-        ...(originalFileExpectation ? {originalFileExpectation} : {}),
         registeredAtMs: Date.now(),
         registrationId: nextWorkingCopyRegistrationId += 1,
         role,
@@ -267,6 +278,17 @@ export function setWorkingCopyOriginalPath(
     workingCopyMap.set(workingPath, entry);
     retiredWorkingCopyOriginalMap.delete(workingPath);
     setCurrentWorkingCopyForOriginal(workingPath, entry);
+
+    const originalFileExpectation = await createOriginalFileExpectation(originalPath);
+    const activeEntry = workingCopyMap.get(workingPath);
+    if (!activeEntry || activeEntry !== entry || !isSameWorkingCopyEntry(activeEntry, entry)) {
+        return;
+    }
+    if (originalFileExpectation) {
+        activeEntry.originalFileExpectation = originalFileExpectation;
+    } else {
+        delete activeEntry.originalFileExpectation;
+    }
 }
 
 export function rememberRetiredWorkingCopyOriginal(
@@ -415,7 +437,7 @@ export function getWorkingCopyOriginalFileExpectation(
     return copyOriginalFileExpectation(activeEntry.originalFileExpectation) ?? null;
 }
 
-export function refreshWorkingCopyOriginalFileExpectation(
+export async function refreshWorkingCopyOriginalFileExpectation(
     workingPath: string,
     senderWebContentsId?: number,
 ) {
@@ -424,11 +446,20 @@ export function refreshWorkingCopyOriginalFileExpectation(
         return false;
     }
 
-    const expectation = createOriginalFileExpectation(activeEntry.originalPath);
+    const expectation = await createOriginalFileExpectation(activeEntry.originalPath);
+    const currentEntry = workingCopyMap.get(workingPath);
+    if (
+        !currentEntry
+        || currentEntry !== activeEntry
+        || !canUseWorkingCopyEntry(currentEntry, senderWebContentsId)
+        || !isSameWorkingCopyEntry(currentEntry, activeEntry)
+    ) {
+        return false;
+    }
     if (expectation) {
-        activeEntry.originalFileExpectation = expectation;
+        currentEntry.originalFileExpectation = expectation;
     } else {
-        delete activeEntry.originalFileExpectation;
+        delete currentEntry.originalFileExpectation;
     }
     return true;
 }

@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => {
     return {
         StartupError: MockDjvuPdfWorkerStartupError,
         getDjvuResolution: vi.fn(),
+        cancelConversion: vi.fn(),
         convertDjvuPageToImage: vi.fn(),
         createDjvuPdfEstimateTask: vi.fn(),
         buildOptimizedPdf: vi.fn(),
@@ -38,7 +39,10 @@ vi.mock('fs/promises', () => ({
 
 vi.mock('node:crypto', () => ({randomUUID: mocks.randomUUID}));
 
-vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({convertDjvuPageToImage: mocks.convertDjvuPageToImage}));
+vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({
+    cancelConversion: mocks.cancelConversion,
+    convertDjvuPageToImage: mocks.convertDjvuPageToImage,
+}));
 
 vi.mock('@electron/features/djvu/main/pdfWorkerClient', () => ({
     createDjvuPdfEstimateTask: mocks.createDjvuPdfEstimateTask,
@@ -56,6 +60,21 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
 })}));
 
 const { estimateSizes } = await import('@electron/djvu/estimateSizes');
+
+function createDeferred<T>() {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+        resolve = resolvePromise;
+        reject = rejectPromise;
+    });
+
+    return {
+        promise,
+        reject,
+        resolve,
+    };
+}
 
 describe('estimateSizes', () => {
     beforeEach(() => {
@@ -106,5 +125,34 @@ describe('estimateSizes', () => {
         ]);
         expect(mocks.buildOptimizedPdf).toHaveBeenCalledTimes(3);
         expect(mocks.loggerWarn).toHaveBeenCalledTimes(3);
+    });
+
+    it('keeps a coalesced estimate running when one waiter aborts', async () => {
+        const firstImageConversion = createDeferred<{ success: true }>();
+        let imageConversionCount = 0;
+        mocks.convertDjvuPageToImage.mockImplementation(() => {
+            imageConversionCount += 1;
+            return imageConversionCount === 1
+                ? firstImageConversion.promise
+                : Promise.resolve({success: true});
+        });
+        const firstController = new AbortController();
+        const secondController = new AbortController();
+
+        const firstEstimate = estimateSizes('/tmp/coalesced-waiters.djvu', 10, {signal: firstController.signal});
+        const secondEstimate = estimateSizes('/tmp/coalesced-waiters.djvu', 10, {signal: secondController.signal});
+
+        await vi.waitFor(() => expect(mocks.convertDjvuPageToImage).toHaveBeenCalledTimes(1));
+
+        const firstRejection = expect(firstEstimate).rejects.toThrow('first waiter canceled');
+        firstController.abort(new Error('first waiter canceled'));
+        await firstRejection;
+        expect(mocks.cancelConversion).not.toHaveBeenCalled();
+
+        firstImageConversion.resolve({success: true});
+        await expect(secondEstimate).resolves.toHaveLength(3);
+        expect(mocks.getDjvuResolution).toHaveBeenCalledTimes(1);
+        expect(mocks.convertDjvuPageToImage).toHaveBeenCalledTimes(3);
+        expect(mocks.createDjvuPdfEstimateTask).toHaveBeenCalledTimes(3);
     });
 });

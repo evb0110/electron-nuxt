@@ -192,7 +192,9 @@ async function syncNativeOutputToRequestingWorkingCopy(
     const currentWorkingPath = findWorkingCopyPathByOriginalPath(originalPath, senderWebContentsId);
     await ensureWorkingCopyDirectory(requestedWorkingPath, senderWebContentsId);
     await copyFileCopyOnWrite(originalPath, requestedWorkingPath);
-    refreshWorkingCopyOriginalFileExpectation(requestedWorkingPath, senderWebContentsId);
+    if (!await refreshWorkingCopyOriginalFileExpectation(requestedWorkingPath, senderWebContentsId)) {
+        throw new Error('Working copy registration changed before original expectation refresh completed');
+    }
 
     if (currentWorkingPath && currentWorkingPath !== requestedWorkingPath) {
         log.debug(`Skipped native output sync to distinct current working copy: ${JSON.stringify({

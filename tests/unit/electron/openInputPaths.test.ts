@@ -95,7 +95,7 @@ describe('openInputPaths', () => {
                 '/tmp/b.jpg',
             ],
             '/tmp/pdf-combine-open-test/combined.pdf',
-            {},
+            { signal: expect.any(AbortSignal) },
         );
         expect(mocks.allowOpenPaths).toHaveBeenCalledWith([
             '/tmp/a.png',

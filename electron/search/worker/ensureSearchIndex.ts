@@ -41,8 +41,16 @@ interface IEnsureSearchIndexOptions {
 
 interface IInFlightSearchIndexBuild {
     controller: AbortController;
-    promise: Promise<ICachedIndex>;
+    promise: Promise<ICachedIndex> | null;
     waiterCount: number;
+    indexedPages: IPdfSearchIndex['pages'];
+    waiters: Set<IInFlightSearchIndexWaiter>;
+}
+
+interface IInFlightSearchIndexWaiter {
+    nextPageIndex: number;
+    onPageIndexed?: (page: IPdfSearchIndex['pages'][number]) => void;
+    streamFailed: boolean;
 }
 
 class SearchIndexTextBudgetError extends Error {
@@ -301,6 +309,7 @@ async function ensureNativeSearchSidecar(
 function waitForInFlightIndexBuild(
     build: IInFlightSearchIndexBuild,
     signal?: AbortSignal,
+    onPageIndexed?: (page: IPdfSearchIndex['pages'][number]) => void,
 ) {
     if (signal?.aborted) {
         return Promise.reject(abortErrorFromSignal(signal));
@@ -308,6 +317,12 @@ function waitForInFlightIndexBuild(
 
     build.waiterCount += 1;
     let released = false;
+    const waiter: IInFlightSearchIndexWaiter = {
+        nextPageIndex: 0,
+        ...(onPageIndexed !== undefined ? {onPageIndexed} : {}),
+        streamFailed: false,
+    };
+    build.waiters.add(waiter);
 
     return new Promise<ICachedIndex>((resolve, reject) => {
         const release = (abortIfOrphaned: boolean) => {
@@ -315,6 +330,7 @@ function waitForInFlightIndexBuild(
                 return;
             }
             released = true;
+            build.waiters.delete(waiter);
             if (signal) {
                 signal.removeEventListener('abort', handleAbort);
             }
@@ -333,7 +349,16 @@ function waitForInFlightIndexBuild(
             signal.addEventListener('abort', handleAbort, {once: true});
         }
 
-        build.promise.then(
+        notifyIndexBuildWaiter(build, waiter);
+
+        const buildPromise = build.promise;
+        if (!buildPromise) {
+            release(false);
+            reject(new Error('Search index build was not initialized'));
+            return;
+        }
+
+        buildPromise.then(
             entry => {
                 release(false);
                 resolve(entry);
@@ -346,12 +371,47 @@ function waitForInFlightIndexBuild(
     });
 }
 
+function notifyIndexBuildWaiter(
+    build: IInFlightSearchIndexBuild,
+    waiter: IInFlightSearchIndexWaiter,
+) {
+    if (waiter.streamFailed || waiter.onPageIndexed === undefined) {
+        waiter.nextPageIndex = build.indexedPages.length;
+        return;
+    }
+
+    while (waiter.nextPageIndex < build.indexedPages.length) {
+        const page = build.indexedPages[waiter.nextPageIndex];
+        waiter.nextPageIndex += 1;
+        if (page === undefined) {
+            continue;
+        }
+        try {
+            waiter.onPageIndexed(page);
+        } catch {
+            waiter.streamFailed = true;
+            delete waiter.onPageIndexed;
+            waiter.nextPageIndex = build.indexedPages.length;
+            return;
+        }
+    }
+}
+
+function publishIndexedPageToWaiters(
+    build: IInFlightSearchIndexBuild,
+    page: IPdfSearchIndex['pages'][number],
+) {
+    build.indexedPages.push(page);
+    for (const waiter of build.waiters) {
+        notifyIndexBuildWaiter(build, waiter);
+    }
+}
+
 function createInFlightIndexBuild(
     indexCache: Map<string, ICachedIndex>,
     pdfPath: string,
     documentRevision: TDocumentRevisionToken,
     cacheOptions: ISearchIndexCacheOptions,
-    ensureOptions: IEnsureSearchIndexOptions,
 ) {
     const buildKey = getIndexBuildKey(pdfPath, documentRevision);
     const existing = inFlightIndexBuilds.get(buildKey);
@@ -360,32 +420,34 @@ function createInFlightIndexBuild(
     }
 
     const controller = new AbortController();
+    const build: IInFlightSearchIndexBuild = {
+        controller,
+        waiterCount: 0,
+        indexedPages: [],
+        waiters: new Set(),
+        promise: null,
+    };
+
     const buildOptions: Parameters<typeof buildSearchIndex>[2] = {
         documentRevision,
         signal: controller.signal,
     };
-    if (ensureOptions.onPageIndexed !== undefined) {
-        buildOptions.onPageIndexed = ensureOptions.onPageIndexed;
-    }
+    buildOptions.onPageIndexed = page => publishIndexedPageToWaiters(build, page);
     buildOptions.validateBeforePersist = index => validateIndexTextBudget(index, cacheOptions);
 
-    const build: IInFlightSearchIndexBuild = {
-        controller,
-        waiterCount: 0,
-        promise: (async () => {
-            const entry = await cacheBuiltIndex(
-                indexCache,
-                pdfPath,
-                documentRevision,
-                await buildSearchIndex(pdfPath, [], buildOptions),
-                cacheOptions,
-            );
-            await ensureNativeSearchSidecar(pdfPath, entry, documentRevision, controller.signal);
-            return entry;
-        })().finally(() => {
-            inFlightIndexBuilds.delete(buildKey);
-        }),
-    };
+    build.promise = (async () => {
+        const entry = await cacheBuiltIndex(
+            indexCache,
+            pdfPath,
+            documentRevision,
+            await buildSearchIndex(pdfPath, [], buildOptions),
+            cacheOptions,
+        );
+        await ensureNativeSearchSidecar(pdfPath, entry, documentRevision, controller.signal);
+        return entry;
+    })().finally(() => {
+        inFlightIndexBuilds.delete(buildKey);
+    });
     inFlightIndexBuilds.set(buildKey, build);
     return build;
 }
@@ -411,8 +473,7 @@ export async function ensureSearchIndex(
             pdfPath,
             documentRevision,
             cacheOptions,
-            ensureOptions,
-        ), signal);
+        ), signal, ensureOptions.onPageIndexed);
         ensureOptions.throwIfCancelled(signal);
     }
 

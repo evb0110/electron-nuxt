@@ -12,6 +12,7 @@ import {
 import { useMenuSync } from '@app/modules/workspace-shell/composables/useMenuSync';
 import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHasPdf';
 import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
+import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
 
 const mocks = vi.hoisted(() => ({
     setMenuDocumentState: vi.fn(async () => {}),
@@ -57,6 +58,7 @@ describe('useMenuSync', () => {
         expect(mocks.setMenuDocumentState).toHaveBeenCalledWith({
             hasDocument: false,
             canSave: false,
+            canSaveAs: false,
             canRepairSave: false,
             canOptimizePdf: false,
             canPrint: false,
@@ -76,6 +78,7 @@ describe('useMenuSync', () => {
         expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith({
             hasDocument: true,
             canSave: false,
+            canSaveAs: false,
             canRepairSave: false,
             canOptimizePdf: false,
             canPrint: false,
@@ -109,6 +112,7 @@ describe('useMenuSync', () => {
         expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith({
             hasDocument: true,
             canSave: false,
+            canSaveAs: false,
             canRepairSave: true,
             canOptimizePdf: true,
             canPrint: false,
@@ -126,8 +130,63 @@ describe('useMenuSync', () => {
         expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith({
             hasDocument: true,
             canSave: true,
+            canSaveAs: false,
             canRepairSave: true,
             canOptimizePdf: true,
+            canPrint: false,
+        });
+    });
+
+    it('syncs save-as availability from viewer capabilities', async () => {
+        const activeDocumentRecord = ref(createWorkspaceDocumentRecord({toolbarSnapshot: {
+            hasPdf: true,
+            canSave: false,
+            viewerCapabilities: {
+                ...createDefaultWorkspaceViewerCapabilities(),
+                saveAs: true,
+            },
+        }}));
+
+        useMenuSync({
+            activeDocumentRecord,
+            activeTabId: ref<string | null>('tab-1'),
+            tabs: ref([{
+                id: 'tab-1',
+                fileName: 'example.pdf',
+                originalPath: null,
+                isDirty: false,
+                isDjvu: false,
+            }]),
+        });
+        await nextTick();
+
+        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith({
+            hasDocument: true,
+            canSave: false,
+            canSaveAs: true,
+            canRepairSave: false,
+            canOptimizePdf: false,
+            canPrint: false,
+        });
+
+        activeDocumentRecord.value = createWorkspaceDocumentRecord({
+            ...activeDocumentRecord.value,
+            toolbarSnapshot: {
+                ...activeDocumentRecord.value.toolbarSnapshot,
+                viewerCapabilities: {
+                    ...activeDocumentRecord.value.toolbarSnapshot.viewerCapabilities,
+                    saveAs: false,
+                },
+            },
+        });
+        await nextTick();
+
+        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith({
+            hasDocument: true,
+            canSave: false,
+            canSaveAs: false,
+            canRepairSave: false,
+            canOptimizePdf: false,
             canPrint: false,
         });
     });
@@ -156,6 +215,7 @@ describe('useMenuSync', () => {
         expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith({
             hasDocument: true,
             canSave: true,
+            canSaveAs: false,
             canRepairSave: true,
             canOptimizePdf: false,
             canPrint: false,
@@ -173,6 +233,7 @@ describe('useMenuSync', () => {
         expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith({
             hasDocument: true,
             canSave: true,
+            canSaveAs: false,
             canRepairSave: true,
             canOptimizePdf: true,
             canPrint: false,

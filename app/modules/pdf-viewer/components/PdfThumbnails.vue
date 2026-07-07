@@ -10,6 +10,8 @@
     @scroll.passive="handleContainerScroll"
     @wheel.passive="handleContainerWheel"
     @pointerdown="handleContainerPointerDown"
+    @pointercancel="handleDragPointerCancel"
+    @lostpointercapture="handleDragPointerCancel"
     @dragenter="handleExternalDragEnter"
     @dragover="handleExternalDragOver"
     @dragleave="handleExternalDragLeave"
@@ -299,6 +301,7 @@ const {
     draggedPages,
     dropInsertIndex,
     handleMouseDown: handleDragMouseDown,
+    handlePointerCancel: handleDragPointerCancel,
     consumeClickSkip,
     handleDragEnter: handleExternalDragEnter,
     handleDragOver: handleExternalDragOver,

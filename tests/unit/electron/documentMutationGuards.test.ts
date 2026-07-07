@@ -12,11 +12,13 @@ import {
 
 const mocks = vi.hoisted(() => ({
     assertWorkingCopyMutationAllowed: vi.fn(),
+    assertWorkingCopyResyncAllowed: vi.fn(),
     assertWorkingCopyRevisionCurrent: vi.fn(),
 }));
 
 vi.mock('@electron/file-access/documentRevisionStore', () => ({
     assertWorkingCopyMutationAllowed: (...args: unknown[]) => mocks.assertWorkingCopyMutationAllowed(...args),
+    assertWorkingCopyResyncAllowed: (...args: unknown[]) => mocks.assertWorkingCopyResyncAllowed(...args),
     assertWorkingCopyRevisionCurrent: (...args: unknown[]) => mocks.assertWorkingCopyRevisionCurrent(...args),
 }));
 
@@ -24,6 +26,7 @@ describe('documentMutationGuards', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.assertWorkingCopyMutationAllowed.mockReturnValue(undefined);
+        mocks.assertWorkingCopyResyncAllowed.mockReturnValue(undefined);
         mocks.assertWorkingCopyRevisionCurrent.mockResolvedValue(undefined);
     });
 
@@ -85,5 +88,32 @@ describe('documentMutationGuards', () => {
             '/tmp/evb/bootstrap.pdf',
             ' ',
         )).toThrow('bootstrap mutation precondition reason must be a non-empty string');
+    });
+
+    it('allows resync preconditions to bypass the sync-required mutation block while checking ownership', async () => {
+        const { assertQueuedWorkingCopyMutationPreconditionsForResync } =
+            await import('@electron/file-access/documentMutationGuards');
+        const workingPath = '/tmp/evb/resync.pdf';
+
+        expect(() => assertQueuedWorkingCopyMutationPreconditionsForResync(
+            workingPath,
+            42,
+            'resync-after-external-change',
+        )).not.toThrow();
+
+        expect(mocks.assertWorkingCopyMutationAllowed).not.toHaveBeenCalled();
+        expect(mocks.assertWorkingCopyResyncAllowed).toHaveBeenCalledWith(workingPath, 42);
+        expect(mocks.assertWorkingCopyRevisionCurrent).not.toHaveBeenCalled();
+    });
+
+    it('requires a greppable resync reason', async () => {
+        const { assertQueuedWorkingCopyMutationPreconditionsForResync } =
+            await import('@electron/file-access/documentMutationGuards');
+
+        expect(() => assertQueuedWorkingCopyMutationPreconditionsForResync(
+            '/tmp/evb/resync.pdf',
+            42,
+            ' ',
+        )).toThrow('resync mutation precondition reason must be a non-empty string');
     });
 });

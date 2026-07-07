@@ -188,4 +188,52 @@ describe('page-ops insert service', () => {
             });
         }
     });
+
+    it('passes cancellation options to source combine and qpdf insertion commands', async () => {
+        const workDir = await mkdtemp(join(tmpdir(), 'page-ops-insert-'));
+        const workingCopyPath = join(workDir, 'work.pdf');
+        const sourcePath = join(workDir, 'source.png');
+        const tempOutputPath = join(workDir, 'tmp-fixed-output-id.pdf');
+        const controller = new AbortController();
+        const options = {
+            signal: controller.signal,
+            cancelGroup: 'working-copy-mutation:test',
+        };
+
+        try {
+            await writeFile(workingCopyPath, '%PDF-1.7\noriginal');
+            await writeFile(sourcePath, 'png-bytes');
+            runNativeToolCommandMock.mockResolvedValueOnce({
+                exitCode: 0,
+                stdout: '2\n',
+                stderr: '',
+            });
+            runNativeToolCommandMock.mockImplementationOnce(async (_qpdf, args: string[]) => {
+                const qpdfArgs = await readQpdfArgFile(args);
+                expect(qpdfArgs.at(-1)).toBe(tempOutputPath);
+                await writeFile(tempOutputPath, '%PDF-1.7\ninserted');
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            });
+
+            const { insertPagesFromSourcePaths } = await import('@electron/features/page-ops/main/insertPagesFromSourcePaths.service');
+
+            await insertPagesFromSourcePaths(workingCopyPath, 2, [sourcePath as TOpenPath], 1, 12, undefined, options);
+
+            expect(createPdfFromInputPathsMock).toHaveBeenCalledWith(
+                [sourcePath],
+                expect.objectContaining({signal: controller.signal}),
+            );
+            expect(runNativeToolCommandMock.mock.calls[0]?.[2]).toEqual(expect.objectContaining(options));
+            expect(runNativeToolCommandMock.mock.calls[1]?.[2]).toEqual(expect.objectContaining(options));
+        } finally {
+            await rm(workDir, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
 });

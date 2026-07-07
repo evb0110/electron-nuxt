@@ -3,6 +3,7 @@ export {
     renderDjvuPagePreview,
 } from '@electron/features/djvu/main/pagePreview';
 export {
+    cancelConversion,
     convertDjvuPageToImage,
     convertDjvuToPdfFile,
 } from '@electron/features/djvu/main/ddjvuConversion';

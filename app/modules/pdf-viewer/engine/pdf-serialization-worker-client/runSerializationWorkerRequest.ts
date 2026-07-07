@@ -264,7 +264,7 @@ export async function runSerializationWorkerRequest<K extends TSerializationWork
             if (serializationWorkerClient.isActiveWorker(worker)) {
                 serializationWorkerClient.resetWorker(error);
             }
-            return runDirectWithYield(typedRequest);
+            throw error;
         }
 
         if (serializationWorkerClient.isActiveWorker(worker)) {

@@ -206,6 +206,7 @@ export const usePdfViewerAnnotationRuntime = (options: IUsePdfViewerAnnotationRu
 
     const annotations = useAnnotationOrchestrator({
         viewerContainer: options.viewerContainer,
+        sourcePdf: options.src,
         pdfDocument: options.pdfDocument,
         numPages: options.numPages,
         currentPage: options.currentPage,

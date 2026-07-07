@@ -191,6 +191,7 @@ describe('extractTextWithPdfjs cancellation', () => {
                 424,
                 640.4,
             ],
+            rotate: 90,
             getOperatorList: vi.fn().mockResolvedValue({
                 fnArray: [
                     mocks.OPS.beginText,
@@ -245,5 +246,6 @@ describe('extractTextWithPdfjs cancellation', () => {
         expect(result[0]?.words[0]?.x).toBeCloseTo(74.6, 4);
         expect(result[0]?.words[0]?.y).toBeCloseTo(371, 4);
         expect(result[0]?.words[0]?.width).toBeCloseTo(38.6001, 4);
+        expect(result[0]?.rotation).toBe(90);
     });
 });

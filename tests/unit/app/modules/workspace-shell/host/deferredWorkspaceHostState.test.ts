@@ -12,6 +12,7 @@ import { createWorkspaceDocumentSessionCore } from '@app/modules/workspace-shell
 import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import {
     createWorkspaceRestoreAttemptState,
+    finishWorkspaceRestoreAttempt,
     tryClaimWorkspaceRestoreAttempt,
     workspaceHasOpenedDocument,
 } from '@app/modules/workspace-shell/host/deferredWorkspaceHostState';
@@ -66,5 +67,45 @@ describe('deferredWorkspaceHostState', () => {
         }
 
         expect(restoredPaths).toEqual(['/tmp/first.pdf']);
+    });
+
+    it('allows a failed cold restore claim to retry and keeps completed restores one-shot', () => {
+        const session = createColdDocumentSession('tab-1', '/tmp/first.pdf');
+        const restoreAttempts = createWorkspaceRestoreAttemptState();
+
+        expect(tryClaimWorkspaceRestoreAttempt(
+            restoreAttempts,
+            session.snapshot.value,
+            '/tmp/first.pdf',
+        )).toBe(true);
+        expect(tryClaimWorkspaceRestoreAttempt(
+            restoreAttempts,
+            session.snapshot.value,
+            '/tmp/first.pdf',
+        )).toBe(false);
+
+        finishWorkspaceRestoreAttempt(
+            restoreAttempts,
+            session.snapshot.value,
+            '/tmp/first.pdf',
+            false,
+        );
+        expect(tryClaimWorkspaceRestoreAttempt(
+            restoreAttempts,
+            session.snapshot.value,
+            '/tmp/first.pdf',
+        )).toBe(true);
+
+        finishWorkspaceRestoreAttempt(
+            restoreAttempts,
+            session.snapshot.value,
+            '/tmp/first.pdf',
+            true,
+        );
+        expect(tryClaimWorkspaceRestoreAttempt(
+            restoreAttempts,
+            session.snapshot.value,
+            '/tmp/first.pdf',
+        )).toBe(false);
     });
 });

@@ -14,7 +14,12 @@ export type TPdfAnnotationNamesByPage = Map<number, Map<string, string>>;
 
 export async function collectPdfAnnotationNamesByPage(
     doc: PDFDocumentProxy,
+    options?: { allowFullRead?: boolean | undefined },
 ): Promise<TPdfAnnotationNamesByPage> {
+    if (options?.allowFullRead === false) {
+        return new Map();
+    }
+
     const data = await doc.getData();
     const pdfDocument = await PDFDocument.load(data, { updateMetadata: false });
     const namesByPage: TPdfAnnotationNamesByPage = new Map();

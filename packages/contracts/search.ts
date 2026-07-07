@@ -43,6 +43,7 @@ export interface IPdfSearchProgress {
     processed: number;
     total: number;
     results?: IPdfSearchResult[];
+    resultsStartIndex?: number;
     truncated?: boolean;
     canceled?: boolean;
     status?: 'running' | 'success' | 'canceled' | 'failed';

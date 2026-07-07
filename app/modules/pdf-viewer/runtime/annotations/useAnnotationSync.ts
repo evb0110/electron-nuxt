@@ -81,6 +81,7 @@ interface IUseAnnotationSyncOptions {
     getStore: () => ISyncStore;
     syncInlineCommentIndicators: () => void;
     debounceMs?: number;
+    shouldCollectPdfAnnotationNames?: (() => boolean) | undefined;
 }
 
 interface IPdfAnnotationSnapshot {
@@ -105,6 +106,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         getStore,
         syncInlineCommentIndicators,
         debounceMs = 140,
+        shouldCollectPdfAnnotationNames,
     } = options;
 
     let syncToken = 0;
@@ -416,7 +418,10 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         const { collectPdfAnnotationNamesByPage } = await import(
             '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/collectPdfAnnotationNamesByPage'
         );
-        const annotationNamesByPage = await collectPdfAnnotationNamesByPage(doc).catch((error: unknown) => {
+        const annotationNamesByPage = await collectPdfAnnotationNamesByPage(
+            doc,
+            { allowFullRead: shouldCollectPdfAnnotationNames?.() ?? true },
+        ).catch((error: unknown) => {
             BrowserLogger.debug(
                 'annotations',
                 'Failed to collect PDF annotation names',

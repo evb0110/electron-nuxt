@@ -29,6 +29,7 @@ import {
     atomicReplace,
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
+import { getErrorMessage } from '@electron/utils/error';
 import { normalizeIpcWritePayload } from '@electron/features/documents/main/documentFileWriteAtomic';
 import { validatePdfFile } from '@electron/features/documents/main/pdfConformance';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
@@ -60,6 +61,29 @@ function normalizeExpectedDocumentRevisionToken(options?: IPdfSerializedSaveOpti
         throw new TypeError('expectedDocumentRevisionToken must be a non-empty string');
     }
     return token.trim();
+}
+
+function withWorkingCopySyncWarning(validation: IPdfValidationResult, error: unknown): IPdfValidationResult {
+    const message = `Saved target file, but failed to refresh the working copy: ${getErrorMessage(error)}`;
+    return {
+        ...validation,
+        isValid: false,
+        errors: [
+            ...validation.errors,
+            message,
+        ],
+        warnings: [
+            ...validation.warnings,
+            message,
+        ],
+    };
+}
+
+function markSaveAsWorkingCopySyncRequired(workingPath: string, error: unknown) {
+    markWorkingCopySyncRequired(
+        workingPath,
+        `Target file was saved, but the working copy refresh failed: ${getErrorMessage(error)}`,
+    );
 }
 
 export async function savePdfAs(
@@ -120,9 +144,19 @@ export async function savePdfAs(
             }
 
             await copyFileCopyOnWrite(normalizedWorkingPath, tempPath);
-            await optimizePdfForSaveAs(tempPath, options);
+            const optimizedValidation = await optimizePdfForSaveAs(tempPath, options);
             await atomicReplace(tempPath, targetPath);
             replaced = true;
+            try {
+                await setWorkingCopyOriginalPath(normalizedWorkingPath, targetPath, context.senderId);
+                if (optimizedValidation) {
+                    await copyFileCopyOnWrite(targetPath, normalizedWorkingPath);
+                    await markWorkingCopyContentChanged(normalizedWorkingPath, 'save-sync', context.senderId);
+                }
+            } catch (syncError) {
+                markSaveAsWorkingCopySyncRequired(normalizedWorkingPath, syncError);
+                throw new Error(`Target file was saved, but the working copy refresh failed: ${getErrorMessage(syncError)}`);
+            }
         } finally {
             if (!replaced) {
                 await rm(tempPath, { force: true }).catch(() => undefined);
@@ -130,7 +164,6 @@ export async function savePdfAs(
         }
     });
 
-    setWorkingCopyOriginalPath(normalizedWorkingPath, targetPath, context.senderId);
     allowOpenPath(targetPath, context.sender);
     await addRecentFile(targetPath);
     updateRecentFilesMenu();
@@ -215,23 +248,21 @@ export async function savePdfDataAs(
             }
             await atomicReplace(tempPath, targetPath);
             replaced = true;
+            let resultValidation = committedValidation;
             try {
+                await setWorkingCopyOriginalPath(normalizedWorkingPath, targetPath, context.senderId);
                 await copyFileCopyOnWrite(targetPath, normalizedWorkingPath);
+                await markWorkingCopyContentChanged(normalizedWorkingPath, 'save-sync', context.senderId);
             } catch (syncError) {
-                markWorkingCopySyncRequired(
-                    normalizedWorkingPath,
-                    `Target file was saved, but the working copy refresh failed: ${syncError instanceof Error ? syncError.message : String(syncError)}`,
-                );
-                throw syncError;
+                markSaveAsWorkingCopySyncRequired(normalizedWorkingPath, syncError);
+                resultValidation = withWorkingCopySyncWarning(committedValidation, syncError);
             }
-            await markWorkingCopyContentChanged(normalizedWorkingPath, 'save-sync', context.senderId);
-            setWorkingCopyOriginalPath(normalizedWorkingPath, targetPath, context.senderId);
             allowOpenPath(targetPath, context.sender);
             await addRecentFile(targetPath);
             updateRecentFilesMenu();
             resultRef.current = {
                 path: targetPath,
-                validation: committedValidation,
+                validation: resultValidation,
             };
         });
 

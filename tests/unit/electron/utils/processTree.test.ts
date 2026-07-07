@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import {
     afterEach,
     describe,
@@ -81,5 +82,56 @@ describePosix('terminateProcessTree (posix)', () => {
 
         expect(killCalls.some(call => call.pid === pid && call.signal === 'SIGTERM')).toBe(true);
         expect(killCalls.some(call => call.signal === 'SIGKILL')).toBe(false);
+    });
+});
+
+describe('terminateProcessTree (win32 taskkill)', () => {
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.restoreAllMocks();
+    });
+
+    it('bounds stuck taskkill helper processes', async () => {
+        vi.useFakeTimers();
+        const pid = makeTestPid(5151);
+        const helpers: Array<EventEmitter & {kill: ReturnType<typeof vi.fn>}> = [];
+        const spawnSpy = vi.spyOn(processTreeRuntime, 'spawn').mockImplementation((command, args) => {
+            const child = new EventEmitter() as EventEmitter & {kill: ReturnType<typeof vi.fn>};
+            child.kill = vi.fn();
+            helpers.push(child);
+            expect(command).toBe('taskkill');
+            expect(args).toEqual(expect.arrayContaining([
+                '/PID',
+                String(pid),
+                '/T',
+            ]));
+            return child as never;
+        });
+        vi.spyOn(processTreeRuntime, 'kill').mockImplementation(((targetPid, signal?: NodeJS.Signals | 0) => {
+            if (targetPid === pid && signal === 0) {
+                if (helpers.filter(helper => helper.kill.mock.calls.length > 0).length >= 2) {
+                    throw new Error('ESRCH');
+                }
+                return true;
+            }
+            return true;
+        }) as typeof processTreeRuntime.kill);
+
+        const terminatePromise = terminateProcessTree(pid, {
+            graceMs: 0,
+            platform: 'win32',
+            taskkillTimeoutMs: 50,
+        });
+
+        await vi.advanceTimersByTimeAsync(50);
+        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(50);
+        await terminatePromise;
+
+        expect(spawnSpy).toHaveBeenCalledTimes(2);
+        expect(spawnSpy.mock.calls[0]?.[1]).not.toContain('/F');
+        expect(spawnSpy.mock.calls[1]?.[1]).toContain('/F');
+        expect(helpers[0]?.kill).toHaveBeenCalledTimes(1);
+        expect(helpers[1]?.kill).toHaveBeenCalledTimes(1);
     });
 });

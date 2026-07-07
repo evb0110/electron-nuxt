@@ -12,6 +12,7 @@ import type {
     ILinkAnnotation,
     TAnnotationTool,
 } from '@app/types/annotations';
+import type { TPdfSource } from '@app/types/pdfUi';
 import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import type { PDFDocumentProxy } from '@app/types/pdfContracts';
@@ -27,6 +28,7 @@ import { useAnnotationMarkerViewModel } from '@app/modules/pdf-viewer/runtime/an
 
 interface IUseAnnotationOrchestratorOptions {
     viewerContainer: Ref<HTMLElement | null>;
+    sourcePdf: ComputedRef<TPdfSource | null>;
     pdfDocument: ShallowRef<PDFDocumentProxy | null>;
     numPages: Ref<number>;
     currentPage: Ref<number>;
@@ -86,6 +88,7 @@ export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOpt
 
     const {
         viewerContainer,
+        sourcePdf,
         pdfDocument,
         numPages,
         currentPage,
@@ -188,6 +191,7 @@ export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOpt
             },
         }),
         syncInlineCommentIndicators: inlineIndicators.syncInlineCommentIndicators,
+        shouldCollectPdfAnnotationNames: () => typeof Blob !== 'undefined' && sourcePdf.value instanceof Blob,
     });
 
     const bridge = useAnnotationEditorBridge({

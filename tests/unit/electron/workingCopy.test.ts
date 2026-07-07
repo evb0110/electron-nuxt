@@ -121,6 +121,142 @@ describe('workingCopy', () => {
         await clearAllWorkingCopies();
     });
 
+    it('resyncs a working copy after it was marked sync-required', async () => {
+        const { createWorkingCopyFromPath } = await import('@electron/file-access/workingCopyCreation');
+        const { clearAllWorkingCopies } = await import('@electron/file-access/workingCopyCleanup');
+        const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
+        const {
+            assertWorkingCopyMutationAllowed,
+            getWorkingCopyRevision,
+            markWorkingCopySyncRequired,
+        } = await import('@electron/file-access/documentRevisionStore');
+        const { handleResyncWorkingCopy } = await import('@electron/features/documents/main/workingCopySave');
+        const originalPath = join(tempRoot, 'resync-original.pdf');
+        writeFileSync(originalPath, new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+        const trustedOriginalPath = allowOpenPath(originalPath);
+        expect(trustedOriginalPath).not.toBeNull();
+        const workingPath = await createWorkingCopyFromPath(trustedOriginalPath!, undefined, 7);
+        const beforeRevision = await getWorkingCopyRevision(workingPath, 7);
+        writeFileSync(originalPath, new Uint8Array([
+            9,
+            8,
+            7,
+        ]));
+        markWorkingCopySyncRequired(workingPath, 'copy-back failed');
+
+        await expect(handleResyncWorkingCopy({senderId: 7}, workingPath)).resolves.toMatchObject({
+            ok: true,
+            externalWriteCommitted: false,
+            workingCopyRefreshed: true,
+        });
+
+        expect(readFileSync(workingPath)).toEqual(Buffer.from([
+            9,
+            8,
+            7,
+        ]));
+        expect(() => assertWorkingCopyMutationAllowed(workingPath)).not.toThrow();
+        const afterRevision = await getWorkingCopyRevision(workingPath, 7);
+        expect(afterRevision.contentRevision).toBe(beforeRevision.contentRevision + 1);
+        expect(afterRevision.token).not.toBe(beforeRevision.token);
+
+        await clearAllWorkingCopies();
+    });
+
+    it('resyncs a journaled sync-required working copy after module reload', async () => {
+        const { createWorkingCopyFromPath } = await import('@electron/file-access/workingCopyCreation');
+        const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
+        const {
+            getWorkingCopyRevision,
+            markWorkingCopySyncRequired,
+        } = await import('@electron/file-access/documentRevisionStore');
+        const originalPath = join(tempRoot, 'resync-reload-original.pdf');
+        writeFileSync(originalPath, new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+        const trustedOriginalPath = allowOpenPath(originalPath);
+        expect(trustedOriginalPath).not.toBeNull();
+        const workingPath = await createWorkingCopyFromPath(trustedOriginalPath!, undefined, 7);
+        const beforeRevision = await getWorkingCopyRevision(workingPath, 7);
+        writeFileSync(originalPath, new Uint8Array([
+            6,
+            5,
+            4,
+        ]));
+        markWorkingCopySyncRequired(workingPath, 'copy-back failed before restart');
+
+        vi.resetModules();
+        const { clearAllWorkingCopies } = await import('@electron/file-access/workingCopyCleanup');
+        const {
+            assertWorkingCopyMutationAllowed,
+            getWorkingCopyRevision: getReloadedWorkingCopyRevision,
+        } = await import('@electron/file-access/documentRevisionStore');
+        const { readWorkingCopyRevisionJournalEntries } = await import('@electron/file-access/documentRevisionSidecar');
+        const { handleResyncWorkingCopy } = await import('@electron/features/documents/main/workingCopySave');
+
+        expect(() => assertWorkingCopyMutationAllowed(workingPath))
+            .toThrow('copy-back failed before restart');
+        await expect(handleResyncWorkingCopy({senderId: 7}, workingPath)).resolves.toMatchObject({
+            ok: true,
+            externalWriteCommitted: false,
+            workingCopyRefreshed: true,
+        });
+
+        expect(readFileSync(workingPath)).toEqual(Buffer.from([
+            6,
+            5,
+            4,
+        ]));
+        expect(() => assertWorkingCopyMutationAllowed(workingPath)).not.toThrow();
+        expect(readWorkingCopyRevisionJournalEntries(workingPath)
+            .some(entry => entry.kind === 'working-copy-sync-required')).toBe(false);
+        const afterRevision = await getReloadedWorkingCopyRevision(workingPath, 7);
+        expect(afterRevision.contentRevision).toBe(beforeRevision.contentRevision + 1);
+        expect(afterRevision.token).not.toBe(beforeRevision.token);
+
+        await clearAllWorkingCopies();
+    });
+
+    it('preserves sync-required working copies during shutdown cleanup without renderer reporting', async () => {
+        const { clearAllWorkingCopies } = await import('@electron/file-access/workingCopyCleanup');
+        const {
+            clearWorkingCopySyncRequired,
+            markWorkingCopySyncRequired,
+        } = await import('@electron/file-access/documentRevisionStore');
+        const {
+            getWorkingCopyOriginalPath,
+            setWorkingCopyOriginalPath,
+        } = await import('@electron/file-access/workingCopyStore');
+        const originalPath = join(tempRoot, 'sync-required-shutdown-original.pdf');
+        const workingDir = join(tempRoot, 'evb-viewer', 'pdf-work-sync-required-shutdown');
+        const workingPath = join(workingDir, 'sync-required-shutdown-original.pdf');
+
+        mkdirSync(workingDir, {recursive: true});
+        writeFileSync(originalPath, new Uint8Array([1]));
+        writeFileSync(workingPath, new Uint8Array([2]));
+        await setWorkingCopyOriginalPath(workingPath, originalPath, 7);
+        markWorkingCopySyncRequired(workingPath, 'renderer did not acknowledge committed save');
+
+        try {
+            await clearAllWorkingCopies();
+
+            expect(existsSync(workingDir)).toBe(true);
+            expect(getWorkingCopyOriginalPath(workingPath, 7)).toMatchObject({
+                originalPath,
+                retired: false,
+            });
+        } finally {
+            clearWorkingCopySyncRequired(workingPath);
+            await clearAllWorkingCopies();
+        }
+    });
+
     it('preserves WORKING_COPY_MISSING when both working copy and original are gone', async () => {
         const { handleFileSaveStructured } = await import('@electron/features/documents/main/workingCopySave');
         const { setWorkingCopyOriginalPath } = await import('@electron/file-access/workingCopyStore');
@@ -128,7 +264,7 @@ describe('workingCopy', () => {
         const originalPath = join(tempRoot, 'missing-original.pdf');
         const workingDir = join(tempRoot, 'pdf-work-missing');
         const workingPath = join(workingDir, 'missing-original.pdf');
-        setWorkingCopyOriginalPath(workingPath, originalPath);
+        await setWorkingCopyOriginalPath(workingPath, originalPath);
 
         const context = {senderId: 1};
         await expect(handleFileSaveStructured(context, workingPath, {expectedDocumentRevisionToken: 'revision-before-missing-save'})).resolves.toMatchObject({
@@ -164,7 +300,7 @@ describe('workingCopy', () => {
         const { clearAllWorkingCopies } = await import('@electron/file-access/workingCopyCleanup');
         const workingPath = 'C:\\Users\\Alice\\AppData\\Local\\Temp\\pdf-work-1\\Book.pdf';
         const originalPath = 'C:\\Users\\Alice\\Documents\\Book.pdf';
-        setWorkingCopyOriginalPath(workingPath, originalPath);
+        await setWorkingCopyOriginalPath(workingPath, originalPath);
 
         expect(findWorkingCopyPathByOriginalPath('c:/users/alice/documents/book.pdf')).toBe(workingPath);
         expect(isKnownWorkingCopyOriginalPath('\\\\?\\C:\\Users\\Alice\\Documents\\Book.pdf')).toBe(true);
@@ -181,7 +317,7 @@ describe('workingCopy', () => {
         const { clearAllWorkingCopies } = await import('@electron/file-access/workingCopyCleanup');
         const workingPath = join(tempRoot, 'pdf-work-owned', 'Book.pdf');
         const originalPath = join(tempRoot, 'Book.pdf');
-        setWorkingCopyOriginalPath(workingPath, originalPath, 10);
+        await setWorkingCopyOriginalPath(workingPath, originalPath, 10);
 
         expect(findWorkingCopyPathByOriginalPath(originalPath, 10)).toBe(workingPath);
         expect(isKnownWorkingCopyOriginalPath(originalPath, 10)).toBe(true);
@@ -251,8 +387,8 @@ describe('workingCopy', () => {
         writeFileSync(firstWorkingPath, new Uint8Array([1]));
         writeFileSync(secondWorkingPath, new Uint8Array([1]));
 
-        setWorkingCopyOriginalPath(firstWorkingPath, originalPath);
-        setWorkingCopyOriginalPath(secondWorkingPath, originalPath);
+        await setWorkingCopyOriginalPath(firstWorkingPath, originalPath);
+        await setWorkingCopyOriginalPath(secondWorkingPath, originalPath);
 
         expect(findWorkingCopyPathByOriginalPath(originalPath)).toBe(secondWorkingPath);
         cleanupWorkingCopy(secondWorkingPath);
@@ -260,6 +396,120 @@ describe('workingCopy', () => {
         expect(findWorkingCopyPathByOriginalPath(originalPath)).toBe(firstWorkingPath);
 
         await clearAllWorkingCopies();
+    });
+
+    it('does not let a delayed original expectation update overwrite a newer registration', async () => {
+        const firstFingerprint = deferred<string | undefined>();
+        let fingerprintCalls = 0;
+        vi.doMock('@electron/file-access/workingCopyOriginalFileExpectation', () => ({
+            createOriginalFileContentFingerprint: vi.fn(async () => {
+                fingerprintCalls += 1;
+                if (fingerprintCalls === 1) {
+                    return firstFingerprint.promise;
+                }
+                return `fingerprint-${fingerprintCalls}`;
+            }),
+            createOriginalFileContentFingerprintSync: vi.fn(() => 'sync-fingerprint'),
+        }));
+
+        try {
+            const {
+                getWorkingCopyOriginalFileExpectation,
+                getWorkingCopyOriginalPath,
+                setWorkingCopyOriginalPath,
+            } = await import('@electron/file-access/workingCopyStore');
+            const { clearAllWorkingCopies } = await import('@electron/file-access/workingCopyCleanup');
+            const firstOriginalPath = join(tempRoot, 'first-original.pdf');
+            const secondOriginalPath = join(tempRoot, 'second-original.pdf');
+            const workingPath = join(tempRoot, 'pdf-work-async-registration', 'working.pdf');
+            mkdirSync(dirname(workingPath), {recursive: true});
+            writeFileSync(firstOriginalPath, new Uint8Array([1]));
+            writeFileSync(secondOriginalPath, new Uint8Array([2]));
+            writeFileSync(workingPath, new Uint8Array([3]));
+
+            const firstRegistration = setWorkingCopyOriginalPath(workingPath, firstOriginalPath, 10);
+            await vi.waitFor(() => {
+                expect(fingerprintCalls).toBe(1);
+            });
+            await setWorkingCopyOriginalPath(workingPath, secondOriginalPath, 10);
+
+            expect(getWorkingCopyOriginalPath(workingPath, 10)).toMatchObject({
+                originalPath: secondOriginalPath,
+                retired: false,
+            });
+            expect(getWorkingCopyOriginalFileExpectation(workingPath, 10)).toMatchObject({
+                contentFingerprint: 'fingerprint-2',
+                size: 1,
+            });
+
+            firstFingerprint.resolve('fingerprint-stale-first');
+            await firstRegistration;
+
+            expect(getWorkingCopyOriginalPath(workingPath, 10)).toMatchObject({
+                originalPath: secondOriginalPath,
+                retired: false,
+            });
+            expect(getWorkingCopyOriginalFileExpectation(workingPath, 10)).toMatchObject({
+                contentFingerprint: 'fingerprint-2',
+                size: 1,
+            });
+
+            await clearAllWorkingCopies();
+        } finally {
+            vi.doUnmock('@electron/file-access/workingCopyOriginalFileExpectation');
+        }
+    });
+
+    it('does not let a delayed expectation refresh overwrite a newer registration', async () => {
+        const refreshFingerprint = deferred<string | undefined>();
+        let fingerprintCalls = 0;
+        let slowNextFingerprint = false;
+        vi.doMock('@electron/file-access/workingCopyOriginalFileExpectation', () => ({
+            createOriginalFileContentFingerprint: vi.fn(async () => {
+                fingerprintCalls += 1;
+                if (slowNextFingerprint) {
+                    slowNextFingerprint = false;
+                    return refreshFingerprint.promise;
+                }
+                return `fingerprint-${fingerprintCalls}`;
+            }),
+            createOriginalFileContentFingerprintSync: vi.fn(() => 'sync-fingerprint'),
+        }));
+
+        try {
+            const {
+                getWorkingCopyOriginalFileExpectation,
+                refreshWorkingCopyOriginalFileExpectation,
+                setWorkingCopyOriginalPath,
+            } = await import('@electron/file-access/workingCopyStore');
+            const { clearAllWorkingCopies } = await import('@electron/file-access/workingCopyCleanup');
+            const firstOriginalPath = join(tempRoot, 'refresh-first-original.pdf');
+            const secondOriginalPath = join(tempRoot, 'refresh-second-original.pdf');
+            const workingPath = join(tempRoot, 'pdf-work-async-refresh', 'working.pdf');
+            mkdirSync(dirname(workingPath), {recursive: true});
+            writeFileSync(firstOriginalPath, new Uint8Array([1]));
+            writeFileSync(secondOriginalPath, new Uint8Array([2]));
+            writeFileSync(workingPath, new Uint8Array([3]));
+
+            await setWorkingCopyOriginalPath(workingPath, firstOriginalPath, 10);
+            slowNextFingerprint = true;
+            const refreshPromise = refreshWorkingCopyOriginalFileExpectation(workingPath, 10);
+            await vi.waitFor(() => {
+                expect(fingerprintCalls).toBe(2);
+            });
+            await setWorkingCopyOriginalPath(workingPath, secondOriginalPath, 10);
+
+            refreshFingerprint.resolve('fingerprint-stale-refresh');
+            await expect(refreshPromise).resolves.toBe(false);
+            expect(getWorkingCopyOriginalFileExpectation(workingPath, 10)).toMatchObject({
+                contentFingerprint: 'fingerprint-3',
+                size: 1,
+            });
+
+            await clearAllWorkingCopies();
+        } finally {
+            vi.doUnmock('@electron/file-access/workingCopyOriginalFileExpectation');
+        }
     });
 
     it('removes stale OCR sidecar directories with stale working-copy directories', async () => {
@@ -325,7 +575,7 @@ describe('workingCopy', () => {
         mkdirSync(workingDir, {recursive: true});
         writeFileSync(originalPath, new Uint8Array([1]));
         writeFileSync(workingPath, new Uint8Array([2]));
-        setWorkingCopyOriginalPath(workingPath, originalPath);
+        await setWorkingCopyOriginalPath(workingPath, originalPath);
 
         const mutation = enqueueWorkingCopyMutation(workingPath, async () => {
             operations.push('mutation-start');

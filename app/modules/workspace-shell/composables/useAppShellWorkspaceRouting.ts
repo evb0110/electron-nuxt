@@ -50,6 +50,11 @@ interface IOpenInExistingTabOptions {
     reuseAlreadyReserved?: boolean;
 }
 
+interface ISeededTabDocumentHint {
+    pending: Partial<ITab>;
+    previous: Pick<ITab, 'fileName' | 'originalPath' | 'isDjvu'>;
+}
+
 const DOCUMENT_OPEN_RECOVERY_TIMEOUT_MS = 800;
 const DOCUMENT_OPEN_RECOVERY_POLL_INTERVAL_MS = 50;
 
@@ -183,17 +188,46 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         return workspaceRefs.value.get(tabId) ?? waitForWorkspace(tabId);
     }
 
-    function seedTabDocumentHint(tabId: string | null | undefined, pathOrResult: TWorkspaceOpenDocumentTarget) {
+    function seedTabDocumentHint(tabId: string | null | undefined, pathOrResult: TWorkspaceOpenDocumentTarget): ISeededTabDocumentHint | null {
         if (!tabId) {
-            return;
+            return null;
         }
 
         const tab = getTabById(tabId);
         if (!tab || tabHasDocumentHint(tab)) {
+            return null;
+        }
+
+        const pending = buildPendingTabDocumentHint(pathOrResult);
+        const previous = {
+            fileName: tab.fileName,
+            originalPath: tab.originalPath,
+            isDjvu: tab.isDjvu,
+        };
+        updateTab(tab.id, pending);
+        return {
+            pending,
+            previous,
+        };
+    }
+
+    function tabStillShowsSeededDocumentHint(tab: ITab, hint: Partial<ITab>) {
+        return tab.fileName === (hint.fileName ?? null)
+            && tab.originalPath === (hint.originalPath ?? null)
+            && tab.isDjvu === (hint.isDjvu ?? false);
+    }
+
+    function rollbackSeededTabDocumentHint(tabId: string, seededHint: ISeededTabDocumentHint | null) {
+        if (!seededHint) {
             return;
         }
 
-        updateTab(tab.id, buildPendingTabDocumentHint(pathOrResult));
+        const tab = getTabById(tabId);
+        if (!tab || !tabStillShowsSeededDocumentHint(tab, seededHint.pending)) {
+            return;
+        }
+
+        updateTab(tabId, seededHint.previous);
     }
 
     async function openDocumentInWorkspace(
@@ -223,10 +257,21 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
             return false;
         }
 
-        if (!openOptions.documentHintAlreadySeeded) {
-            seedTabDocumentHint(tabId, pathOrResult);
+        const seededHint = openOptions.documentHintAlreadySeeded
+            ? null
+            : seedTabDocumentHint(tabId, pathOrResult);
+        const opened = await openDocumentInWorkspace(workspace, pathOrResult);
+        if (opened) {
+            return true;
         }
-        return openDocumentInWorkspace(workspace, pathOrResult);
+
+        if (await waitForSettledDocumentEvidence(tabId, workspace)) {
+            BrowserLogger.warn('workspace-routing', 'Keeping existing tab after open returned false because document state settled', {tabId});
+            return true;
+        }
+
+        rollbackSeededTabDocumentHint(tabId, seededHint);
+        return false;
     }
 
     async function handleFallbackToolbarOpenFile() {
@@ -359,13 +404,9 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
             path,
         ] of normalizedPaths.entries()) {
             if (canReuseActiveTab && initialActiveTab) {
-                seedTabDocumentHint(initialActiveTab.id, path);
                 canReuseActiveTab = false;
                 startupOpenTasks.push((async () => {
-                    const opened = await openInExistingTab(initialActiveTab.id, path, {
-                        documentHintAlreadySeeded: true,
-                        reuseAlreadyReserved: true,
-                    });
+                    const opened = await openInExistingTab(initialActiveTab.id, path, {reuseAlreadyReserved: true});
                     if (!opened) {
                         throw new Error('Startup active tab was not available for external open');
                     }

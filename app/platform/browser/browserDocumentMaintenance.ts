@@ -18,7 +18,7 @@ import {
 } from '@app/platform/browser/browserDocumentIdb';
 import {
     deleteChunkRecord,
-    loadAllChunkKeys,
+    loadAllChunkKeysAvailability,
     parseChunkKey,
 } from '@app/platform/browser/browserDocumentChunks';
 import {
@@ -121,6 +121,24 @@ export async function sweepBrowserDocumentMaintenance(
         return;
     }
 
+    const pendingRefs = new Set(Array.from(entries.values())
+        .filter((entry) => Boolean(entry.pendingLoad))
+        .map((entry) => entry.ref));
+    const recordsByRef = new Map(records.map((record) => [
+        record.ref,
+        record,
+    ]));
+    const rawChunkKeysResult = await loadAllChunkKeysAvailability();
+    if (!rawChunkKeysResult.available) {
+        return;
+    }
+    const rawChunkKeys = rawChunkKeysResult.value;
+    const chunkKeys = Array.isArray(rawChunkKeys)
+        ? rawChunkKeys.flatMap((key) => {
+            const parsedKey = typeof key === 'string' ? parseChunkKey(key) : null;
+            return parsedKey ? [parsedKey] : [];
+        })
+        : [];
     const currentRecentFiles = hasRecentFilesStorageSnapshot()
         ? readRecentFilesFromStorage()
         : buildRecentFilesFromPersistedRecords(records);
@@ -136,9 +154,6 @@ export async function sweepBrowserDocumentMaintenance(
     }
     const recentRefs = new Set<string>(recentFiles.map((file) => file.originalPath));
     const nonWorkingDependentCounts = countNonWorkingDependents(records);
-    const pendingRefs = new Set(Array.from(entries.values())
-        .filter((entry) => Boolean(entry.pendingLoad))
-        .map((entry) => entry.ref));
     const refsToRemove = records
         .filter((record) => shouldRemovePersistedRecord(
             record,
@@ -147,18 +162,6 @@ export async function sweepBrowserDocumentMaintenance(
         ))
         .filter((record) => !pendingRefs.has(record.ref))
         .map(record => record.ref);
-
-    const recordsByRef = new Map(records.map((record) => [
-        record.ref,
-        record,
-    ]));
-    const rawChunkKeys = await loadAllChunkKeys();
-    const chunkKeys = Array.isArray(rawChunkKeys)
-        ? rawChunkKeys.flatMap((key) => {
-            const parsedKey = typeof key === 'string' ? parseChunkKey(key) : null;
-            return parsedKey ? [parsedKey] : [];
-        })
-        : [];
     const chunkIndicesByRef = collectChunkIndicesByRef(chunkKeys);
     const brokenChunkRefs = records
         .filter((record) => isBrokenChunkedRecord(record, chunkIndicesByRef))

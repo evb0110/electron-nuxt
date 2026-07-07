@@ -91,7 +91,7 @@ async function runNativeToolProtocolHandshake(
         throw new NativeToolProtocolVersionError(toolName, -1, 'unknown tool');
     }
 
-    const commandOptions = createBaseRunCommandOptions(options);
+    const commandOptions = createProtocolHandshakeCommandOptions(options);
     commandOptions.timeoutMs = NATIVE_TOOL_PROTOCOL_VERSION_TIMEOUT_MS;
     commandOptions.commandLabel = `${toolName}(protocol-version)`;
     commandOptions.maxStdoutBytes = 128;
@@ -103,6 +103,20 @@ async function runNativeToolProtocolHandshake(
     if (!Number.isSafeInteger(actualVersion) || actualVersion.toString() !== actualVersionText || actualVersion !== expectedVersion) {
         throw new NativeToolProtocolVersionError(toolName, expectedVersion, actualVersionText || '<empty>');
     }
+}
+
+function createProtocolHandshakeCommandOptions(options: IRunNativeToolCommandOptions): IRunCommandOptions {
+    const handshakeOptions: IRunNativeToolCommandOptions = {};
+    if (options.cwd !== undefined) {
+        handshakeOptions.cwd = options.cwd;
+    }
+    if (options.env !== undefined) {
+        handshakeOptions.env = options.env;
+    }
+    if (options.log !== undefined) {
+        handshakeOptions.log = options.log;
+    }
+    return createBaseRunCommandOptions(handshakeOptions);
 }
 
 function createBaseRunCommandOptions(options: IRunNativeToolCommandOptions): IRunCommandOptions {

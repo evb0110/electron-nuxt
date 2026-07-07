@@ -4,10 +4,13 @@ import { delay } from 'es-toolkit/promise';
 
 interface ITerminateProcessTreeOptions {
     graceMs?: number;
+    platform?: NodeJS.Platform;
     preferProcessGroup?: boolean;
+    taskkillTimeoutMs?: number;
 }
 
 const DEFAULT_GRACE_MS = 2_500;
+const DEFAULT_TASKKILL_TIMEOUT_MS = 2_000;
 
 interface IProcessTreeRuntime {
     delay: typeof delay;
@@ -95,8 +98,29 @@ function sendPosixSignal(
     }
 }
 
-async function runTaskkill(pid: number, force: boolean) {
+function killTaskkillHelper(child: ReturnType<typeof spawn>) {
+    try {
+        child.kill();
+    } catch {
+        // taskkill may have already exited.
+    }
+}
+
+async function runTaskkill(pid: number, force: boolean, timeoutMs: number) {
     await new Promise<void>((resolve) => {
+        let settled = false;
+        let timeoutHandle: NodeJS.Timeout | null = null;
+        const settle = () => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            if (timeoutHandle) {
+                clearTimeout(timeoutHandle);
+                timeoutHandle = null;
+            }
+            resolve();
+        };
         const args = [
             '/PID',
             String(pid),
@@ -112,8 +136,14 @@ async function runTaskkill(pid: number, force: boolean) {
             stdio: 'ignore',
         });
 
-        child.once('error', () => resolve());
-        child.once('close', () => resolve());
+        timeoutHandle = setTimeout(() => {
+            killTaskkillHelper(child);
+            settle();
+        }, Math.max(0, timeoutMs));
+        timeoutHandle.unref?.();
+
+        child.once('error', settle);
+        child.once('close', settle);
     });
 }
 
@@ -122,17 +152,19 @@ export async function terminateProcessTree(
     options: ITerminateProcessTreeOptions = {},
 ) {
     const graceMs = options.graceMs ?? DEFAULT_GRACE_MS;
+    const platform = options.platform ?? process.platform;
     const preferProcessGroup = options.preferProcessGroup ?? false;
+    const taskkillTimeoutMs = options.taskkillTimeoutMs ?? DEFAULT_TASKKILL_TIMEOUT_MS;
 
     if (!isPidAlive(pid)) {
         return;
     }
 
-    if (process.platform === 'win32') {
-        await runTaskkill(pid, false);
+    if (platform === 'win32') {
+        await runTaskkill(pid, false, taskkillTimeoutMs);
         const exitedGracefully = await waitForExit(pid, graceMs);
         if (!exitedGracefully && isPidAlive(pid)) {
-            await runTaskkill(pid, true);
+            await runTaskkill(pid, true, taskkillTimeoutMs);
             const forceKillWaitMs = clamp(Math.floor(graceMs / 2), 250, 2_000);
             await waitForExit(pid, forceKillWaitMs);
         }

@@ -454,6 +454,15 @@ export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVi
             visibleRange,
             pageRenderOptions,
         );
+        if (!shouldContinue()) {
+            logPdfRenderTrace('renderer-visible-render-skip-stale-mark-stale', {
+                pageNumber,
+                version,
+                requestId,
+                currentRenderVersion: getRenderVersion(),
+            });
+            return;
+        }
         /**
          * A clamped canvas is below full quality on purpose; marking the page
          * stale makes the next render pass that promotes it into the visible

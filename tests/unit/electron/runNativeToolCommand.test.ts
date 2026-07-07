@@ -52,6 +52,39 @@ describe('runNativeToolCommand', () => {
         );
     });
 
+    it('runs shared protocol handshakes without caller cancellation controls', async () => {
+        const {runNativeToolCommand} = await loadModule();
+        const controller = new AbortController();
+        const log = vi.fn();
+
+        await runNativeToolCommand('/tools/evb-pdf-search', ['search'], {
+            cancelGroup: 'search-request-1',
+            cwd: '/work',
+            env: {EVB_TEST: '1'},
+            log,
+            signal: controller.signal,
+        });
+
+        expect(mocks.runNativeCommand).toHaveBeenCalledTimes(2);
+        const handshakeOptions = mocks.runNativeCommand.mock.calls[0]?.[2];
+        const commandOptions = mocks.runNativeCommand.mock.calls[1]?.[2];
+        expect(handshakeOptions).toMatchObject({
+            cwd: '/work',
+            env: {EVB_TEST: '1'},
+            log,
+            timeoutMs: 5_000,
+        });
+        expect(handshakeOptions).not.toHaveProperty('cancelGroup');
+        expect(handshakeOptions).not.toHaveProperty('signal');
+        expect(commandOptions).toMatchObject({
+            cancelGroup: 'search-request-1',
+            cwd: '/work',
+            env: {EVB_TEST: '1'},
+            log,
+            signal: controller.signal,
+        });
+    });
+
     it('rejects unsupported Rust native tool protocols before running the real command', async () => {
         mocks.runNativeCommand.mockResolvedValueOnce({
             exitCode: 0,

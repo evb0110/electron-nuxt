@@ -13,6 +13,7 @@ import {
 } from '@app/modules/pdf-viewer/public';
 import { usePageAnnotationActions } from '@app/modules/workspace-shell/composables/usePageAnnotationActions';
 import { usePageSaveOrchestration } from '@app/modules/workspace-shell/composables/usePageSaveOrchestration';
+import { useShutdownSaveFlushReporting } from '@app/modules/workspace-shell/composables/useShutdownSaveFlushReporting';
 import { useWorkspaceDocumentControls } from '@app/modules/workspace-shell/composables/useWorkspaceDocumentControls';
 import { useWorkspaceDocumentLifecycleEffects } from '@app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycleEffects';
 import { useWorkspaceExport } from '@app/modules/workspace-shell/composables/useWorkspaceExport';
@@ -550,6 +551,11 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         serializePdfForSave,
         saveForExternalRead,
     } = pageSaveOrchestration;
+    useShutdownSaveFlushReporting({
+        workingCopyPath,
+        hasPendingUnsavedChanges,
+        saveForExternalRead,
+    });
 
     async function ensureWorkingCopyFreshForRead() {
         if (!hasPendingUnsavedChanges.value) {
@@ -877,10 +883,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         ]).sort((left, right) => left - right);
 
         for (const pageNumber of samplePages) {
-            const ensured = await viewer.ensurePageMetricsInRange?.(pageNumber, pageNumber);
-            if (ensured === false) {
-                return null;
-            }
+            await viewer.ensurePageMetricsInRange?.(pageNumber, pageNumber);
         }
 
         const metrics = viewer.getPageMetricsSnapshot?.() ?? [];
@@ -900,7 +903,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             return [];
         });
 
-        return sampledMetrics.length > 0 ? sampledMetrics : null;
+        return sampledMetrics.length === samplePages.length ? sampledMetrics : null;
     }
 
     async function renderLoadedPdfPagesForBrowserPrint(

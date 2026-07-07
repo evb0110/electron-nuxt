@@ -186,7 +186,7 @@ describe('pdfSerializationWorkerClient', () => {
         expect(terminateSpy).toHaveBeenCalledTimes(1);
     });
 
-    it('falls back to direct serialization when the worker never replies', async () => {
+    it('rejects and resets the worker when the worker never replies', async () => {
         vi.useFakeTimers();
         const terminateSpy = vi.spyOn(FakeWorker.prototype, 'terminate');
         // Override postMessage so the worker silently swallows the request
@@ -232,19 +232,20 @@ describe('pdfSerializationWorkerClient', () => {
             };
 
             const pending = serializePdfEditsOffThread(data, payload);
+            const rejection = expect(pending).rejects.toThrow('PDF serialization worker did not reply');
 
             await vi.advanceTimersByTimeAsync(30_000);
 
-            await expect(pending).resolves.toEqual(data);
-            expect(serializePdfEditsMock).toHaveBeenCalledWith(data, payload);
-            expect(yieldToBrowserMock).toHaveBeenCalledTimes(2);
+            await rejection;
+            expect(serializePdfEditsMock).not.toHaveBeenCalled();
+            expect(yieldToBrowserMock).not.toHaveBeenCalled();
             expect(terminateSpy).toHaveBeenCalled();
         } finally {
             FakeWorker.prototype.postMessage = originalPostMessage;
         }
     });
 
-    it('falls back sibling serialization requests when one request times out', async () => {
+    it('rejects sibling serialization requests when the active worker times out', async () => {
         vi.useFakeTimers();
         const terminateSpy = vi.spyOn(FakeWorker.prototype, 'terminate');
         const originalPostMessage = FakeWorker.prototype.postMessage;
@@ -285,13 +286,15 @@ describe('pdfSerializationWorkerClient', () => {
             const first = serializePdfEditsOffThread(firstData, payload);
             await vi.advanceTimersByTimeAsync(1_000);
             const second = serializePdfEditsOffThread(secondData, payload);
+            const firstRejection = expect(first).rejects.toThrow('PDF serialization worker did not reply');
+            const secondRejection = expect(second).rejects.toThrow('PDF serialization worker did not reply');
 
             await vi.advanceTimersByTimeAsync(29_000);
 
-            await expect(first).resolves.toEqual(firstData);
-            await expect(second).resolves.toEqual(secondData);
-            expect(serializePdfEditsMock).toHaveBeenCalled();
-            expect(yieldToBrowserMock).toHaveBeenCalled();
+            await firstRejection;
+            await secondRejection;
+            expect(serializePdfEditsMock).not.toHaveBeenCalled();
+            expect(yieldToBrowserMock).not.toHaveBeenCalled();
             expect(terminateSpy).toHaveBeenCalled();
         } finally {
             FakeWorker.prototype.postMessage = originalPostMessage;

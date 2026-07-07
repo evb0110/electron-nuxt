@@ -198,6 +198,22 @@ describe('browser platform path descriptors', () => {
         expect(browserPlatformApi.system.getMemoryInfo()).toBeNull();
     });
 
+    it('treats shutdown save-flush subscription as an event descriptor', () => {
+        const descriptor = readPath(browserPlatformPathDescriptors, [
+            'system',
+            'onShutdownSaveFlushRequest',
+        ]);
+
+        expect(isDescriptorLike(descriptor)).toBe(true);
+        if (isDescriptorLike(descriptor)) {
+            expect(descriptor.kind).toBe('event');
+        }
+
+        const unsubscribe = lazyBrowserPlatformApi.system.onShutdownSaveFlushRequest(() => ({}));
+        expect(unsubscribe).toEqual(expect.any(Function));
+        unsubscribe();
+    });
+
     it('keeps split document descriptor kinds aligned with legacy documents descriptors', () => {
         const mirroredDescriptors = collectSplitDocumentDescriptorMirrors();
 

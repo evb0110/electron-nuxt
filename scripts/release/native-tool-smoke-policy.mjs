@@ -3,6 +3,10 @@ const MAC_PACKAGED_TOOL_SMOKE_POLICY = {
         allowedExitCodes: new Set([0]),
         expectedOutputTokens: ['evb-pdf-image-combine'],
     },
+    'evb-pdf-image-combine-protocol': {
+        allowedExitCodes: new Set([0]),
+        expectedOutputTokens: ['3'],
+    },
     'evb-pdf-image-combine-compact-manifest': {
         allowedExitCodes: new Set([1]),
         expectedOutputTokens: ['missing --compact-manifest value'],

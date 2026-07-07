@@ -42,7 +42,7 @@
                         :save-shortcut="shortcutLabels.save"
                         :save-as-shortcut="shortcutLabels.saveAs"
                         :save-disabled="!hasInteractiveDocument || !canSave || isAnySaving || isHistoryBusy || isDjvuMode"
-                        :save-as-disabled="!hasInteractiveDocument || isAnySaving || isHistoryBusy || isDjvuMode"
+                        :save-as-disabled="!hasInteractiveDocument || !canSaveAs || isAnySaving || isHistoryBusy || isDjvuMode"
                         :is-saving="isSaving"
                         :is-saving-as="isSavingAs"
                         @save="handleToolbarCommand('save')"
@@ -152,7 +152,7 @@
                         :icon="getReaderCommandToolbarIcon('continuous-scroll')"
                         :active="continuousScroll"
                         :tooltip="t('zoom.continuousScroll')"
-                        :disabled="!hasInteractiveDocument"
+                        :disabled="!hasInteractiveDocument || !canToggleContinuousScroll"
                         grouped
                         @click="handleToolbarCommand('toggle-continuous-scroll')"
                     />
@@ -300,6 +300,8 @@ const {
     isFullscreen = false,
     fullscreenSupported = true,
     canPrint = true,
+    canSaveAs = true,
+    canToggleContinuousScroll = true,
 } = defineProps<{
     hasPdf: boolean;
     variant?: 'editor' | 'reader';
@@ -309,6 +311,8 @@ const {
     hasOcrAction?: boolean;
     canToggleSidebar?: boolean;
     canPrint?: boolean;
+    canSaveAs?: boolean;
+    canToggleContinuousScroll?: boolean;
     canSave: boolean;
     canUndo: boolean;
     canRedo: boolean;

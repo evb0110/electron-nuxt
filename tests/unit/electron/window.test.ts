@@ -97,6 +97,17 @@ const mocks = vi.hoisted(() => {
             return this;
         }
 
+        once(event: string, handler: (...args: unknown[]) => void) {
+            const wrapped = (...args: unknown[]) => {
+                this.removeListener(event, wrapped);
+                handler(...args);
+            };
+            const existing = this.handlers.get(event) ?? [];
+            existing.push(wrapped);
+            this.handlers.set(event, existing);
+            return this;
+        }
+
         emit(event: string, ...args: unknown[]) {
             const handlers = [...(this.handlers.get(event) ?? [])];
             for (const handler of handlers) {

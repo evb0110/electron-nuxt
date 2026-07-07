@@ -1277,6 +1277,38 @@ describe('createBrowserDocumentsFileCapability', () => {
         })]);
     });
 
+    it('keeps recent entries when IndexedDB is unavailable during validation', async () => {
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability();
+        const sourceRef = await browserDocumentStore.createStoredDocument(
+            'recent.pdf',
+            await createPdfBytes(),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+        await browserDocumentStore.touchRecentFile(sourceRef);
+        browserDocumentStore.unload(sourceRef);
+        const indexedDbFactory = globalThis.indexedDB;
+
+        vi.stubGlobal('indexedDB', undefined);
+
+        const recentFiles = await capability.recentFiles.get();
+
+        expect(recentFiles).toEqual([expect.objectContaining({
+            originalPath: sourceRef,
+            fileName: 'recent.pdf',
+        })]);
+
+        vi.stubGlobal('indexedDB', indexedDbFactory);
+
+        await expect(browserDocumentStore.exists(sourceRef)).resolves.toBe(true);
+    });
+
     it('keeps oversized handle-backed sources lazy during direct open', async () => {
         const {
             BROWSER_MAX_FULL_READ_BYTES,

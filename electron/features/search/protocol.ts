@@ -33,6 +33,7 @@ interface ISearchWorkerOutboundByType {
         processed: number;
         total: number;
         results?: ISearchMatch[];
+        resultsStartIndex?: number;
         truncated?: boolean;
         canceled?: boolean;
     };

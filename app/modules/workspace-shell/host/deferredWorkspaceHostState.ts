@@ -3,10 +3,16 @@ import type { TDocumentRef } from '@contracts/documentRef';
 import type { IWorkspaceDocumentSessionSnapshot } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
 import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 
-export interface IWorkspaceRestoreAttemptState {attemptedRestoreKeys: Set<string>;}
+export interface IWorkspaceRestoreAttemptState {
+    completedRestoreKeys: Set<string>;
+    inFlightRestoreKeys: Set<string>;
+}
 
 export function createWorkspaceRestoreAttemptState(): IWorkspaceRestoreAttemptState {
-    return { attemptedRestoreKeys: new Set() };
+    return {
+        completedRestoreKeys: new Set(),
+        inFlightRestoreKeys: new Set(),
+    };
 }
 
 export function workspaceSessionHasOpenedDocument(snapshot: IWorkspaceDocumentSessionSnapshot | null | undefined) {
@@ -34,12 +40,25 @@ export function tryClaimWorkspaceRestoreAttempt(
     path: TDocumentRef,
 ) {
     const key = createWorkspaceRestoreAttemptKey(snapshot, path);
-    if (state.attemptedRestoreKeys.has(key)) {
+    if (state.completedRestoreKeys.has(key) || state.inFlightRestoreKeys.has(key)) {
         return false;
     }
 
-    state.attemptedRestoreKeys.add(key);
+    state.inFlightRestoreKeys.add(key);
     return true;
+}
+
+export function finishWorkspaceRestoreAttempt(
+    state: IWorkspaceRestoreAttemptState,
+    snapshot: IWorkspaceDocumentSessionSnapshot,
+    path: TDocumentRef,
+    completed: boolean,
+) {
+    const key = createWorkspaceRestoreAttemptKey(snapshot, path);
+    state.inFlightRestoreKeys.delete(key);
+    if (completed) {
+        state.completedRestoreKeys.add(key);
+    }
 }
 
 export function workspaceHasDocumentOrOpenError(

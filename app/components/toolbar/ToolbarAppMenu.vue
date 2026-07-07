@@ -66,6 +66,7 @@ interface IProps {
     hasPdf: boolean
     canPrint?: boolean
     canSave: boolean
+    canSaveAs?: boolean
     canRepairSave: boolean
     canOptimizePdf: boolean
     canUndo: boolean
@@ -87,6 +88,7 @@ const {
     canOptimizePdf,
     canRepairSave,
     canSave,
+    canSaveAs = true,
     canPrint = true,
     canUndo,
     canUseDjvu,
@@ -188,7 +190,7 @@ const appMenuItems = computed(() => {
         createCommandItem('repair-save', t('menu.repairAndSave'), 'i-ph-magic-wand', {disabled: !hasInteractiveDocument.value || !canRepairSave || isAnySaving || isHistoryBusy || isDjvuMode}),
         createCommandItem('optimize-pdf-for-interaction', t('menu.optimizePdfForInteraction'), 'i-ph-gauge', {disabled: !hasInteractiveDocument.value || !canOptimizePdf || isAnySaving || isHistoryBusy || isDjvuMode}),
         createCommandItem('save-as', t('menu.saveAs'), getReaderCommandMenuIcon('save-as'), {
-            disabled: !hasInteractiveDocument.value || isAnySaving || isHistoryBusy || isDjvuMode,
+            disabled: !hasInteractiveDocument.value || !canSaveAs || isAnySaving || isHistoryBusy || isDjvuMode,
             shortcut: shortcutLabels.value.saveAs,
         }),
         createCommandItem(

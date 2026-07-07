@@ -7,6 +7,7 @@ import {
 } from 'fs/promises';
 import { sortBy } from 'es-toolkit/array';
 import {
+    cancelConversion,
     convertDjvuPageToImage,
     createDjvuPdfEstimateTask,
     DjvuPdfWorkerStartupError,
@@ -17,6 +18,7 @@ import { te } from '@electron/te';
 import { createLogger } from '@electron/utils/createLogger';
 import { measureElectronPerfAsync } from '@electron/utils/measureElectronPerfAsync';
 import type { IDjvuSizeEstimate } from '@contracts/electronApiDjvu';
+import { abortErrorFromSignal } from '@electron/utils/abort';
 
 const logger = createLogger('djvu-estimate');
 const DJVU_ESTIMATE_CACHE_MAX_ENTRIES = (() => {
@@ -40,23 +42,36 @@ interface IDjvuEstimateCacheEntry {
     accessedAt: number;
 }
 
+interface IDjvuEstimateInFlightEntry {
+    controller: AbortController;
+    promise: Promise<IDjvuSizeEstimate[]>;
+    settled: boolean;
+    waiterCount: number;
+}
+
+interface IDjvuEstimateOptions { signal?: AbortSignal; }
+
 const estimateCache = new Map<string, IDjvuEstimateCacheEntry>();
+const inFlightEstimates = new Map<string, IDjvuEstimateInFlightEntry>();
 
 async function estimatePdfSizeBytes(
     imagePath: string,
     dpi: number,
+    signal: AbortSignal,
 ) {
     return measureElectronPerfAsync('djvu:estimate-pdf-size', async () => {
+        throwIfAborted(signal);
         try {
-            const task = createDjvuPdfEstimateTask(imagePath, dpi);
+            const task = createDjvuPdfEstimateTask(imagePath, dpi, { signal });
             return await task.promise;
         } catch (error) {
             if (!(error instanceof DjvuPdfWorkerStartupError)) {
                 throw error;
             }
+            throwIfAborted(signal);
 
             logger.warn(`DjVu PDF worker unavailable, falling back to in-process estimate build: ${error.message}`);
-            const pdfBytes = await buildOptimizedPdf([imagePath], dpi);
+            const pdfBytes = await buildOptimizedPdf([imagePath], dpi, undefined, { signal });
             return pdfBytes.length;
         }
     }, {
@@ -93,23 +108,74 @@ function pruneEstimateCache(now = Date.now()) {
     }
 }
 
-export async function estimateSizes(
+function createEstimateCacheKey(djvuPath: string, pageCount: number) {
+    return `${djvuPath}\u0000${pageCount}`;
+}
+
+function throwIfAborted(signal?: AbortSignal) {
+    if (signal?.aborted) {
+        throw abortErrorFromSignal(signal);
+    }
+}
+
+function waitForInFlightEstimate(
+    entry: IDjvuEstimateInFlightEntry,
+    signal?: AbortSignal,
+): Promise<IDjvuSizeEstimate[]> {
+    if (signal?.aborted) {
+        return Promise.reject(abortErrorFromSignal(signal));
+    }
+
+    entry.waiterCount += 1;
+    return new Promise((resolve, reject) => {
+        let released = false;
+        let handleAbort: (() => void) | null = null;
+
+        const release = (abortReason?: Error) => {
+            if (released) {
+                return;
+            }
+            released = true;
+            if (signal && handleAbort) {
+                signal.removeEventListener('abort', handleAbort);
+            }
+            entry.waiterCount = Math.max(0, entry.waiterCount - 1);
+            if (entry.waiterCount === 0 && abortReason && !entry.settled && !entry.controller.signal.aborted) {
+                entry.controller.abort(abortReason);
+            }
+        };
+
+        handleAbort = () => {
+            const abortReason = signal ? abortErrorFromSignal(signal) : new Error('DjVu estimate canceled');
+            release(abortReason);
+            reject(abortReason);
+        };
+
+        if (signal) {
+            signal.addEventListener('abort', handleAbort, { once: true });
+        }
+
+        entry.promise.then(
+            (estimates) => {
+                release();
+                resolve(estimates);
+            },
+            (error: unknown) => {
+                release();
+                reject(error);
+            },
+        );
+    });
+}
+
+async function computeEstimateSizes(
     djvuPath: string,
     pageCount: number,
+    signal: AbortSignal,
 ): Promise<IDjvuSizeEstimate[]> {
-    const now = Date.now();
-    pruneEstimateCache(now);
-
-    const cached = estimateCache.get(djvuPath);
-    if (cached && now - cached.cachedAt <= DJVU_ESTIMATE_CACHE_TTL_MS) {
-        cached.accessedAt = now;
-        return cached.estimates;
-    }
-    if (cached) {
-        estimateCache.delete(djvuPath);
-    }
-
-    const sourceDpi = await getDjvuResolution(djvuPath);
+    throwIfAborted(signal);
+    const sourceDpi = await getDjvuResolution(djvuPath, { signal });
+    throwIfAborted(signal);
 
     // Sample a page from the middle third of the document for accurate estimation.
     // First/last pages (covers, end matter) are typically much smaller than content pages.
@@ -137,23 +203,36 @@ export async function estimateSizes(
 
     const estimates: IDjvuSizeEstimate[] = [];
     const estimateJobIdPrefix = `estimate-${randomUUID()}`;
+    const activeEstimateJobIds = new Set<string>();
+    const cancelActiveEstimateJobs = () => {
+        for (const jobId of activeEstimateJobIds) {
+            void cancelConversion(jobId);
+        }
+    };
 
     try {
+        signal.addEventListener('abort', cancelActiveEstimateJobs, { once: true });
         for (const preset of presets) {
+            throwIfAborted(signal);
             const imagePath = join(tempDir, `sample-s${preset.subsample}.ppm`);
             const effectiveDpi = Math.round(sourceDpi / preset.subsample);
+            const estimateJobId = `${estimateJobIdPrefix}-${preset.subsample}`;
 
             try {
+                activeEstimateJobIds.add(estimateJobId);
                 const result = await convertDjvuPageToImage(
                     djvuPath,
                     imagePath,
                     samplePage,
-                    `${estimateJobIdPrefix}-${preset.subsample}`,
+                    estimateJobId,
                     {
                         ...(preset.subsample > 1 ? { subsample: preset.subsample } : {}),
                         format: 'ppm',
+                        signal,
                     },
                 );
+                activeEstimateJobIds.delete(estimateJobId);
+                throwIfAborted(signal);
 
                 if (result.success) {
                     estimates.push({
@@ -161,7 +240,7 @@ export async function estimateSizes(
                         label: preset.label,
                         description: preset.description,
                         resultingDpi: effectiveDpi,
-                        estimatedBytes: Math.round((await estimatePdfSizeBytes(imagePath, effectiveDpi)) * pageCount),
+                        estimatedBytes: Math.round((await estimatePdfSizeBytes(imagePath, effectiveDpi, signal)) * pageCount),
                     });
                 } else {
                     estimates.push({
@@ -173,6 +252,10 @@ export async function estimateSizes(
                     });
                 }
             } catch (error) {
+                activeEstimateJobIds.delete(estimateJobId);
+                if (signal.aborted) {
+                    throw abortErrorFromSignal(signal);
+                }
                 logger.debug(`Failed to estimate DjVu size (subsample=${preset.subsample}) for ${djvuPath}: ${String(error)}`);
                 estimates.push({
                     subsample: preset.subsample,
@@ -184,6 +267,8 @@ export async function estimateSizes(
             }
         }
     } finally {
+        signal.removeEventListener('abort', cancelActiveEstimateJobs);
+        cancelActiveEstimateJobs();
         try {
             await rm(tempDir, {
                 recursive: true,
@@ -195,11 +280,53 @@ export async function estimateSizes(
     }
 
     const cacheTimestamp = Date.now();
-    estimateCache.set(djvuPath, {
+    estimateCache.set(createEstimateCacheKey(djvuPath, pageCount), {
         estimates,
         cachedAt: cacheTimestamp,
         accessedAt: cacheTimestamp,
     });
     pruneEstimateCache(cacheTimestamp);
     return estimates;
+}
+
+export async function estimateSizes(
+    djvuPath: string,
+    pageCount: number,
+    options: IDjvuEstimateOptions = {},
+): Promise<IDjvuSizeEstimate[]> {
+    throwIfAborted(options.signal);
+    const now = Date.now();
+    pruneEstimateCache(now);
+
+    const cacheKey = createEstimateCacheKey(djvuPath, pageCount);
+    const cached = estimateCache.get(cacheKey);
+    if (cached && now - cached.cachedAt <= DJVU_ESTIMATE_CACHE_TTL_MS) {
+        cached.accessedAt = now;
+        return cached.estimates;
+    }
+    if (cached) {
+        estimateCache.delete(cacheKey);
+    }
+
+    const existing = inFlightEstimates.get(cacheKey);
+    if (existing) {
+        return waitForInFlightEstimate(existing, options.signal);
+    }
+
+    const controller = new AbortController();
+    const entry: IDjvuEstimateInFlightEntry = {
+        controller,
+        promise: Promise.resolve([]),
+        settled: false,
+        waiterCount: 0,
+    };
+    entry.promise = computeEstimateSizes(djvuPath, pageCount, controller.signal)
+        .finally(() => {
+            entry.settled = true;
+            if (inFlightEstimates.get(cacheKey) === entry) {
+                inFlightEstimates.delete(cacheKey);
+            }
+        });
+    inFlightEstimates.set(cacheKey, entry);
+    return waitForInFlightEstimate(entry, options.signal);
 }

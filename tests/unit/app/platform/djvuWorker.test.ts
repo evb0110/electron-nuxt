@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
     getPagesSizes: vi.fn(),
     getPage: vi.fn(),
     createPngObjectUrlRun: vi.fn(),
+    revokeObjectURL: vi.fn(),
 }));
 
 vi.mock('@app/platform/browser-api/djvujsLoader', () => ({loadDjvuJs: mocks.loadDjvuJs}));
@@ -34,6 +35,45 @@ vi.mock('@app/platform/browserDocumentStore', () => ({
     },
     isBrowserDocumentRef: (ref: string) => ref.startsWith('browser://documents/'),
 }));
+
+interface IDjvuPreviewSourceForTest {
+    cancelPagePreview(pageNumber: number): void;
+    renderPageObjectUrl(pageNumber: number, options?: { targetWidthPx?: number }): Promise<{
+        objectUrl: string;
+        renderedPx: number;
+    }>;
+    revokeObjectURL(url: string): void;
+}
+
+function stubScaledPreviewDom() {
+    vi.stubGlobal('Image', class {
+        public onload: (() => void) | null = null;
+        public onerror: (() => void) | null = null;
+
+        set src(_url: string) {
+            queueMicrotask(() => this.onload?.());
+        }
+    });
+    vi.stubGlobal('document', {createElement: createScaledPreviewElement});
+}
+
+function createScaledPreviewElement(tagName: string) {
+    if (tagName !== 'canvas') {
+        return {};
+    }
+    return {
+        width: 0,
+        height: 0,
+        getContext: () => ({
+            drawImage: vi.fn(),
+            imageSmoothingEnabled: false,
+            imageSmoothingQuality: 'low',
+        }),
+        toBlob: (callback: (blob: Blob | null) => void) => {
+            callback(new Blob([new Uint8Array([1])], { type: 'image/png' }));
+        },
+    };
+}
 
 describe('createDjvuWorkerFromPath', () => {
     beforeEach(() => {
@@ -51,6 +91,7 @@ describe('createDjvuWorkerFromPath', () => {
                 getPage: mocks.getPage,
                 getPagesSizes: () => ({run: mocks.getPagesSizes}),
             };
+            public revokeObjectURL = mocks.revokeObjectURL;
             public terminate = mocks.terminate;
         }});
         mocks.createDocument.mockResolvedValue(undefined);
@@ -362,5 +403,73 @@ describe('createDjvuWorkerFromPath', () => {
             2,
             1,
         ]);
+    });
+
+    it('revokes stale browser fallback preview URLs created after cancellation', async () => {
+        const { createDjvuPagePreviewSourceFromPath } =
+            await import('@app/platform/browser-api/createDjvuWorkerFromPath');
+        const source = await createDjvuPagePreviewSourceFromPath('browser://documents/source/book.djvu');
+        mocks.createPngObjectUrlRun.mockImplementation(async () => {
+            source.cancelPagePreview(1);
+            return {
+                height: 200,
+                url: 'blob:fallback-page-1',
+                width: 100,
+            };
+        });
+
+        const staleRender = source.renderPageObjectUrl(1, { previewRequestId: 'stale' });
+
+        await expect(staleRender).rejects.toThrow('DjVu conversion canceled');
+
+        expect(mocks.revokeObjectURL).toHaveBeenCalledWith('blob:fallback-page-1');
+    });
+
+    it('tracks scaled browser fallback preview URLs as window-owned', async () => {
+        const revokeWindowObjectURL = vi.fn();
+        vi.stubGlobal('URL', {
+            createObjectURL: vi.fn(() => 'blob:scaled-preview'),
+            revokeObjectURL: revokeWindowObjectURL,
+        });
+        stubScaledPreviewDom();
+        const { createDjvuPagePreviewSourceFromPath } =
+            await import('@app/platform/browser-api/createDjvuWorkerFromPath');
+
+        const source = await createDjvuPagePreviewSourceFromPath('browser://documents/source/book.djvu');
+        await expect(source.renderPageObjectUrl(1, { targetWidthPx: 50 })).resolves.toEqual({
+            objectUrl: 'blob:scaled-preview',
+            renderedPx: 50,
+        });
+
+        expect(mocks.revokeObjectURL).toHaveBeenCalledWith('blob:fallback-page-1');
+
+        source.revokeObjectURL('blob:scaled-preview');
+
+        expect(revokeWindowObjectURL).toHaveBeenCalledWith('blob:scaled-preview');
+        expect(mocks.revokeObjectURL).not.toHaveBeenCalledWith('blob:scaled-preview');
+    });
+
+    it('revokes scaled browser fallback preview URLs when they become stale before return', async () => {
+        const revokeWindowObjectURL = vi.fn();
+        let source: IDjvuPreviewSourceForTest | null = null;
+        vi.stubGlobal('URL', {
+            createObjectURL: vi.fn(() => {
+                source?.cancelPagePreview(1);
+                return 'blob:scaled-stale-preview';
+            }),
+            revokeObjectURL: revokeWindowObjectURL,
+        });
+        stubScaledPreviewDom();
+        const { createDjvuPagePreviewSourceFromPath } =
+            await import('@app/platform/browser-api/createDjvuWorkerFromPath');
+
+        source = await createDjvuPagePreviewSourceFromPath('browser://documents/source/book.djvu');
+
+        await expect(source.renderPageObjectUrl(1, { targetWidthPx: 50 }))
+            .rejects
+            .toThrow('DjVu conversion canceled');
+
+        expect(mocks.revokeObjectURL).toHaveBeenCalledWith('blob:fallback-page-1');
+        expect(revokeWindowObjectURL).toHaveBeenCalledWith('blob:scaled-stale-preview');
     });
 });

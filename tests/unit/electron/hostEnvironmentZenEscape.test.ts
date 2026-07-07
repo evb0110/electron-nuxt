@@ -29,10 +29,17 @@ interface IHostZenEscapeTestWindow {
     setSimpleFullScreen: ReturnType<typeof vi.fn>;
 }
 
+interface IBeforeInputTestEvent { preventDefault: () => void; }
+
+interface IBeforeInputTestInput {
+    type: string;
+    key: string;
+}
+
 const mocks = vi.hoisted(() => ({
     focusedWindow: null as IHostZenEscapeTestWindow | null,
-    shortcutHandler: null as (() => void) | null,
-    registeredAccelerator: '',
+    globalShortcutRegister: vi.fn(),
+    globalShortcutUnregister: vi.fn(),
     createWindow: ((_id: number): IHostZenEscapeTestWindow => {
         throw new Error('createWindow mock not initialized');
     }),
@@ -83,12 +90,8 @@ vi.mock('electron', () => {
     return {
         BrowserWindow: MockBrowserWindow,
         globalShortcut: {
-            register: vi.fn((accelerator: string, handler: () => void) => {
-                mocks.registeredAccelerator = accelerator;
-                mocks.shortcutHandler = handler;
-                return true;
-            }),
-            unregister: vi.fn(),
+            register: mocks.globalShortcutRegister,
+            unregister: mocks.globalShortcutUnregister,
         },
         screen: {
             getDisplayMatching: vi.fn(() => {
@@ -110,28 +113,74 @@ vi.mock('@electron/window/registry', () => ({getAllRegisteredAppWindows: vi.fn((
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({warn: vi.fn()})}));
 vi.mock('@electron/utils/error', () => ({getErrorMessage: (error: unknown) => String(error)}));
 
+function getBeforeInputHandler(window: IHostZenEscapeTestWindow) {
+    return window.webContents.on.mock.calls
+        .find(call => call[0] === 'before-input-event')?.[1] as
+        | ((event: IBeforeInputTestEvent, input: IBeforeInputTestInput) => void)
+        | undefined;
+}
+
 describe('host environment zen Escape handling', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
         mocks.focusedWindow = null;
-        mocks.shortcutHandler = null;
-        mocks.registeredAccelerator = '';
     });
 
-    it('exits the focused zen window when multiple windows are in zen mode', async () => {
-        const { setHostZenModeForWindow } = await import('@electron/hostEnvironment');
+    it('exits only the focused zen window through window-scoped Escape handling', async () => {
+        const {
+            attachHostEnvironmentToWindow,
+            setHostZenModeForWindow,
+        } = await import('@electron/hostEnvironment');
         const firstWindow = mocks.createWindow(1);
         const secondWindow = mocks.createWindow(2);
+
+        attachHostEnvironmentToWindow(firstWindow as never);
+        attachHostEnvironmentToWindow(secondWindow as never);
 
         await setHostZenModeForWindow(firstWindow as never, true);
         await setHostZenModeForWindow(secondWindow as never, true);
 
-        mocks.focusedWindow = secondWindow;
-        mocks.shortcutHandler?.();
+        expect(mocks.globalShortcutRegister).not.toHaveBeenCalled();
+        expect(mocks.globalShortcutUnregister).not.toHaveBeenCalled();
+
+        const secondBeforeInput = getBeforeInputHandler(secondWindow);
+        expect(secondBeforeInput).toBeTypeOf('function');
+
+        const unfocusedEscapeEvent = {preventDefault: vi.fn()};
+        mocks.focusedWindow = null;
+        secondBeforeInput?.(unfocusedEscapeEvent, {
+            type: 'keyDown',
+            key: 'Escape',
+        });
         await Promise.resolve();
 
-        expect(mocks.registeredAccelerator).toBe('Esc');
+        expect(unfocusedEscapeEvent.preventDefault).not.toHaveBeenCalled();
+
+        const keyUpEscapeEvent = {preventDefault: vi.fn()};
+        mocks.focusedWindow = secondWindow;
+        secondBeforeInput?.(keyUpEscapeEvent, {
+            type: 'keyUp',
+            key: 'Escape',
+        });
+        await Promise.resolve();
+
+        expect(keyUpEscapeEvent.preventDefault).not.toHaveBeenCalled();
+
+        if (process.platform === 'darwin') {
+            expect(secondWindow.setSimpleFullScreen).not.toHaveBeenCalledWith(false);
+        } else {
+            expect(secondWindow.setFullScreen).not.toHaveBeenCalledWith(false);
+        }
+
+        const focusedEscapeEvent = {preventDefault: vi.fn()};
+        secondBeforeInput?.(focusedEscapeEvent, {
+            type: 'keyDown',
+            key: 'Escape',
+        });
+        await Promise.resolve();
+
+        expect(focusedEscapeEvent.preventDefault).toHaveBeenCalledOnce();
         if (process.platform === 'darwin') {
             expect(firstWindow.setSimpleFullScreen).toHaveBeenCalledWith(true);
             expect(firstWindow.setSimpleFullScreen).not.toHaveBeenCalledWith(false);

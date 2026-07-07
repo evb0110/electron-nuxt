@@ -1,5 +1,6 @@
 import type { TDocumentRef } from '@contracts/documentRef';
 import type {
+    IDjvuProgress,
     IDjvuPageSize,
     TDjvuPdfExportStrategy,
 } from '@contracts/electronApiDjvu';
@@ -113,12 +114,15 @@ export const useDjvu = () => {
     const openingPath = ref<TDocumentRef | null>(null);
     const activeViewingJobId = ref<string | null>(null);
     const activeConvertJobId = ref<string | null>(null);
+    const activeConvertRequestId = ref<string | null>(null);
+    const activeConvertDocumentRef = ref<TDocumentRef | null>(null);
     const pendingConvertCancel = ref(false);
 
     let unsubProgress: (() => void) | null = null;
     let unsubViewingError: (() => void) | null = null;
     let openDjvuGeneration = 0;
     let conversionGeneration = 0;
+    let conversionRequestSequence = 0;
     let isUnmounted = false;
     let pendingConvertCancelUntilJobId = false;
     const cancelRequestedConvertJobIds = new Set<string>();
@@ -182,14 +186,30 @@ export const useDjvu = () => {
         }
     }
 
-    function isProgressForCurrentConversion(progressJobId: string) {
+    function createConversionRequestId() {
+        conversionRequestSequence += 1;
+        return `djvu-convert:${conversionGeneration}:${conversionRequestSequence}`;
+    }
+
+    function isProgressForCurrentConversion(progress: IDjvuProgress) {
+        if (activeConvertRequestId.value) {
+            return progress.requestId === activeConvertRequestId.value;
+        }
+        if (
+            activeConvertDocumentRef.value
+            && progress.documentRef
+            && progress.documentRef !== activeConvertDocumentRef.value
+        ) {
+            return false;
+        }
+
         return (
             conversionState.value.isConverting
             || pendingConvertCancel.value
             || pendingConvertCancelUntilJobId
             || (
                 activeConvertJobId.value !== null
-                && progressJobId === activeConvertJobId.value
+                && progress.jobId === activeConvertJobId.value
             )
         );
     }
@@ -245,7 +265,7 @@ export const useDjvu = () => {
 
         try {
             unsubProgress = getDjvuCapability().onProgress((progress) => {
-                if (!isProgressForCurrentConversion(progress.jobId)) {
+                if (!isProgressForCurrentConversion(progress)) {
                     if (progress.phase === 'loading') {
                         trackViewingLoadingProgress(progress);
                     }
@@ -330,6 +350,8 @@ export const useDjvu = () => {
         resetViewingProgressState();
         if (!shouldPreservePendingConvertCancel) {
             activeConvertJobId.value = null;
+            activeConvertRequestId.value = null;
+            activeConvertDocumentRef.value = null;
             pendingConvertCancel.value = false;
             pendingConvertCancelUntilJobId = false;
             cancelRequestedConvertJobIds.clear();
@@ -428,6 +450,7 @@ export const useDjvu = () => {
         const djvu = getDjvuCapability();
         const documentFiles = getDocumentFilesCapability();
         const documentWorkingCopy = getDocumentWorkingCopyCapability();
+        const requestId = createConversionRequestId();
 
         const sourceBaseName = getDocumentRefBaseName(sourcePath)?.trim();
         const suggestedName = sourceBaseName
@@ -444,6 +467,8 @@ export const useDjvu = () => {
             percent: 0,
         };
         activeConvertJobId.value = null;
+        activeConvertRequestId.value = requestId;
+        activeConvertDocumentRef.value = sourcePath;
         pendingConvertCancel.value = false;
         pendingConvertCancelUntilJobId = false;
         cancelRequestedConvertJobIds.clear();
@@ -464,9 +489,17 @@ export const useDjvu = () => {
                     subsample,
                     preserveBookmarks,
                     pdfStrategy,
+                    requestId,
+                    documentRef: sourcePath,
                 },
             );
 
+            if (
+                result.requestId
+                && result.requestId !== requestId
+            ) {
+                return;
+            }
             if (result.jobId) {
                 activeConvertJobId.value = result.jobId;
                 if (consumePendingConvertCancel(result.jobId)) {
@@ -531,6 +564,8 @@ export const useDjvu = () => {
             showConversionError(message);
         } finally {
             activeConvertJobId.value = null;
+            activeConvertRequestId.value = null;
+            activeConvertDocumentRef.value = null;
             pendingConvertCancel.value = false;
             pendingConvertCancelUntilJobId = false;
             cancelRequestedConvertJobIds.clear();
@@ -594,6 +629,8 @@ export const useDjvu = () => {
 
         activeViewingJobId.value = null;
         activeConvertJobId.value = null;
+        activeConvertRequestId.value = null;
+        activeConvertDocumentRef.value = null;
         pendingConvertCancel.value = false;
         pendingConvertCancelUntilJobId = false;
         isLoadingPages.value = false;

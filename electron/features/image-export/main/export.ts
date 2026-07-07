@@ -2,7 +2,6 @@ import {existsSync} from 'fs';
 import {
     copyFile,
     mkdir,
-    mkdtemp,
     readFile,
     readdir,
     stat,
@@ -11,7 +10,6 @@ import {
     unlink,
     writeFile,
 } from 'fs/promises';
-import { tmpdir } from 'os';
 import {
     basename,
     dirname as dirnameFromPath,
@@ -61,6 +59,7 @@ import {
     resolveNativePdfImageCombinePath,
 } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
 import { getErrorMessage } from '@electron/utils/error';
+import { createManagedScratchTempDir } from '@electron/utils/managedScratchTemp';
 
 type TImageExportFormat = 'png' | 'jpeg' | 'tiff';
 type TPageRenderFormat = TImageExportFormat | 'ppm';
@@ -559,7 +558,7 @@ async function renderPdfToTempPages(
     signal?: AbortSignal,
     cancelGroup?: string,
 ): Promise<IRenderedPageFile[]> {
-    const tempDir = await mkdtemp(join(tmpdir(), 'pdfExport-'));
+    const tempDir = await createManagedScratchTempDir('pdfExport-');
     const prefix = join(tempDir, 'page');
     const paths = getPdfNativeToolPaths();
     throwIfAborted(signal);
@@ -667,6 +666,50 @@ function getRenderedPageTempDir(pageFiles: IRenderedPageFile[]) {
     return dirname(firstPageFile.path);
 }
 
+function buildImageExportOutputPaths(
+    normalizedPath: string,
+    pageCount: number,
+    outputStem: string,
+    outputExtension: string,
+) {
+    if (pageCount === 1) {
+        return [normalizedPath];
+    }
+
+    const outputDirectory = dirname(normalizedPath);
+    return range(1, pageCount + 1).map(outputIndex =>
+        join(
+            outputDirectory,
+            `${outputStem}-${String(outputIndex).padStart(3, '0')}${outputExtension}`,
+        ),
+    );
+}
+
+function buildNonConflictingOutputPath(targetPath: string, reservedPaths: Set<string>) {
+    const outputDirectory = dirname(targetPath);
+    const outputExtension = extname(targetPath);
+    const outputStem = basename(targetPath, outputExtension);
+    let candidatePath = targetPath;
+    let suffix = 1;
+
+    while (reservedPaths.has(candidatePath) || existsSync(candidatePath)) {
+        candidatePath = join(outputDirectory, `${outputStem}-${suffix}${outputExtension}`);
+        suffix += 1;
+    }
+
+    reservedPaths.add(candidatePath);
+    return candidatePath;
+}
+
+function resolveOutputPathConflicts(targetPaths: string[], allowSingleOverwrite = true) {
+    if (targetPaths.length === 1 && allowSingleOverwrite) {
+        return targetPaths;
+    }
+
+    const reservedPaths = new Set<string>();
+    return targetPaths.map(targetPath => buildNonConflictingOutputPath(targetPath, reservedPaths));
+}
+
 function formatPageList(pageNumbers: number[]) {
     const ranges: string[] = [];
     let rangeStart: number | null = null;
@@ -697,7 +740,7 @@ function formatPageList(pageNumbers: number[]) {
 }
 
 async function writeQpdfArgsFile(args: string[]) {
-    const tempDir = await mkdtemp(join(tmpdir(), 'qpdfArgs-'));
+    const tempDir = await createManagedScratchTempDir('qpdfArgs-');
     const argsPath = join(tempDir, 'args.txt');
     await writeFile(argsPath, args.map(arg => arg.replace(/\r?\n/g, ' ')).join('\n'));
     return {
@@ -721,7 +764,7 @@ async function prepareSourcePdfForExport(pdfPath: string, options: IExportPdfOpt
         };
     }
 
-    const tempDir = await mkdtemp(join(tmpdir(), 'pdfExport-scope-'));
+    const tempDir = await createManagedScratchTempDir('pdfExport-scope-');
     const subsetPdfPath = join(tempDir, 'subset.pdf');
     const qpdf = getPdfNativeToolPaths().qpdf;
 
@@ -795,14 +838,18 @@ export async function exportPdfPagesAsImages(
         const requestedPageCount = getRequestedPageCount(options);
         const pageCount = requestedPageCount ?? await getPdfPageCount(preparedSourcePdf.pdfPath);
         assertExportPageCountWithinLimit(pageCount);
+        const exportedPaths = resolveOutputPathConflicts(buildImageExportOutputPaths(
+            normalizedPath,
+            pageCount,
+            outputStem,
+            outputExtension,
+        ));
 
         const stagedFiles: Array<{
             stagedPath: string;
             targetPath: string;
             targetExisted: boolean;
         }> = [];
-        const exportedPaths: string[] = [];
-        const isSinglePageExport = pageCount === 1;
         let processedPages = 0;
         emitExportProgress(options, {
             phase: 'rendering',
@@ -826,13 +873,10 @@ export async function exportPdfPagesAsImages(
 
                 try {
                     for (const source of pageFiles) {
-                        const outputIndex = exportedPaths.length + 1;
-                        const targetPath = isSinglePageExport
-                            ? normalizedPath
-                            : join(
-                                outputDirectory,
-                                `${outputStem}-${String(outputIndex).padStart(3, '0')}${outputExtension}`,
-                            );
+                        const targetPath = exportedPaths[processedPages];
+                        if (!targetPath) {
+                            throw new Error('Image export target path is missing');
+                        }
                         const stagedPath = makeSiblingTempPath(targetPath);
 
                         throwIfAborted(options.signal);
@@ -842,7 +886,6 @@ export async function exportPdfPagesAsImages(
                             targetPath,
                             targetExisted: existsSync(targetPath),
                         });
-                        exportedPaths.push(targetPath);
                         processedPages += 1;
                         emitExportProgress(options, {
                             phase: 'rendering',
@@ -930,9 +973,17 @@ function buildMultiPageTiffOutputPaths(targetPath: string, partCount: number) {
     );
 }
 
-async function runLocalTiffCombine(pagePaths: string[], outputPath: string, signal?: AbortSignal) {
+async function runLocalTiffCombine(
+    pagePaths: string[],
+    outputPath: string,
+    signal?: AbortSignal,
+    deleteSourcePages = false,
+) {
     throwIfAborted(signal);
-    await measureElectronPerfAsync('image-export:tiffCombineLocal', () => combinePagesIntoMultiPageTiffLocal(pagePaths, outputPath, signal), {
+    await measureElectronPerfAsync('image-export:tiffCombineLocal', () => combinePagesIntoMultiPageTiffLocal(pagePaths, outputPath, {
+        deleteSourcePages,
+        ...(signal ? { signal } : {}),
+    }), {
         thresholdMs: 25,
         details: {
             pageCount: pagePaths.length,
@@ -942,7 +993,12 @@ async function runLocalTiffCombine(pagePaths: string[], outputPath: string, sign
     throwIfAborted(signal);
 }
 
-async function combinePagesIntoMultiPageTiff(pagePaths: string[], outputPath: string, signal?: AbortSignal) {
+async function combinePagesIntoMultiPageTiff(
+    pagePaths: string[],
+    outputPath: string,
+    signal?: AbortSignal,
+    deleteSourcePages = false,
+) {
     throwIfAborted(signal);
     const tempOutputPath = makeSiblingTempPath(outputPath);
     let replacedOutput = false;
@@ -957,7 +1013,7 @@ async function combinePagesIntoMultiPageTiff(pagePaths: string[], outputPath: st
             }
 
             logger.warn(`TIFF combine worker unavailable, falling back to local combine: missing worker at ${workerPath}`);
-            await runLocalTiffCombine(pagePaths, tempOutputPath, signal);
+            await runLocalTiffCombine(pagePaths, tempOutputPath, signal, deleteSourcePages);
             throwIfAborted(signal);
             await atomicReplace(tempOutputPath, outputPath);
             replacedOutput = true;
@@ -968,6 +1024,7 @@ async function combinePagesIntoMultiPageTiff(pagePaths: string[], outputPath: st
             await measureElectronPerfAsync('image-export:tiffCombineWorker', () => runResultWorkerTask<undefined>({
                 workerPath,
                 workerData: {
+                    deleteSourcePages,
                     pagePaths,
                     outputPath: tempOutputPath,
                 },
@@ -1007,7 +1064,7 @@ async function combinePagesIntoMultiPageTiff(pagePaths: string[], outputPath: st
             }
 
             logger.warn(`TIFF combine worker unavailable, falling back to local combine: ${error.message}`);
-            await runLocalTiffCombine(pagePaths, tempOutputPath, signal);
+            await runLocalTiffCombine(pagePaths, tempOutputPath, signal, deleteSourcePages);
         }
 
         throwIfAborted(signal);
@@ -1067,7 +1124,7 @@ export async function exportPdfAsMultiPageTiff(
             const tiffPageDescriptors = await readTiffPageDescriptors(orderedPagePaths);
             const tiffPageGroups = splitTiffPageDescriptorsForClassicLimit(tiffPageDescriptors)
                 .map(group => group.map(page => page.path));
-            const outputPaths = buildMultiPageTiffOutputPaths(targetPath, tiffPageGroups.length);
+            const outputPaths = resolveOutputPathConflicts(buildMultiPageTiffOutputPaths(targetPath, tiffPageGroups.length));
             emitExportProgress(options, {
                 phase: 'combining',
                 processed: 0,
@@ -1091,7 +1148,7 @@ export async function exportPdfAsMultiPageTiff(
                         throw new Error('Multi-page TIFF export target path is missing');
                     }
                     const stagedPath = makeSiblingTempPath(targetOutputPath);
-                    await combinePagesIntoMultiPageTiff(tiffPageGroup, stagedPath, options.signal);
+                    await combinePagesIntoMultiPageTiff(tiffPageGroup, stagedPath, options.signal, true);
                     stagedFiles.push({
                         stagedPath,
                         targetPath: targetOutputPath,

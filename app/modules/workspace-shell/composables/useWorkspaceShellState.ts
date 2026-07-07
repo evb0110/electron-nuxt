@@ -11,6 +11,7 @@ export interface IWorkspaceShellState {
     activeWorkspaceHasDocument: ComputedRef<boolean>;
     activeWorkspaceCanPrint: ComputedRef<boolean>;
     activeWorkspaceCanSave: ComputedRef<boolean>;
+    activeWorkspaceCanSaveAs: ComputedRef<boolean>;
     activeWorkspaceCanRepairSave: ComputedRef<boolean>;
     activeWorkspaceCanOptimizePdf: ComputedRef<boolean>;
     activeTabHasDocumentHint: ComputedRef<boolean>;
@@ -43,6 +44,10 @@ export const useWorkspaceShellState = (options: IUseWorkspaceShellStateOptions):
         && activeToolbarSnapshot.value?.viewerCapabilities.print === true
     ));
     const activeWorkspaceCanSave = computed(() => activeToolbarSnapshot.value?.canSave === true);
+    const activeWorkspaceCanSaveAs = computed(() => (
+        activeWorkspaceHasDocument.value
+        && activeToolbarSnapshot.value?.viewerCapabilities.saveAs === true
+    ));
     const activeWorkspaceCanRepairSave = computed(() => activeToolbarSnapshot.value?.canRepairSave === true);
     const activeWorkspaceCanOptimizePdf = computed(() => activeToolbarSnapshot.value?.canOptimizePdf === true);
     const activeTabHasDocumentHint = computed(() => {
@@ -61,6 +66,7 @@ export const useWorkspaceShellState = (options: IUseWorkspaceShellStateOptions):
         activeWorkspaceHasDocument,
         activeWorkspaceCanPrint,
         activeWorkspaceCanSave,
+        activeWorkspaceCanSaveAs,
         activeWorkspaceCanRepairSave,
         activeWorkspaceCanOptimizePdf,
         activeTabHasDocumentHint,

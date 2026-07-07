@@ -42,6 +42,7 @@ const mocks = vi.hoisted(() => ({
     optimizePdfForSave: vi.fn(),
     copyFileCopyOnWrite: vi.fn(),
     assertWorkingCopyMutationAllowed: vi.fn(),
+    assertWorkingCopyResyncAllowed: vi.fn(),
     assertWorkingCopyRevisionCurrent: vi.fn(),
     markWorkingCopySyncRequired: vi.fn(),
     clearWorkingCopySyncRequired: vi.fn(),
@@ -66,6 +67,7 @@ vi.mock('@electron/file-access/workingCopyStore', () => ({
 }));
 vi.mock('@electron/file-access/documentRevisionStore', () => ({
     assertWorkingCopyMutationAllowed: (...args: unknown[]) => mocks.assertWorkingCopyMutationAllowed(...args),
+    assertWorkingCopyResyncAllowed: (...args: unknown[]) => mocks.assertWorkingCopyResyncAllowed(...args),
     assertWorkingCopyRevisionCurrent: (...args: unknown[]) => mocks.assertWorkingCopyRevisionCurrent(...args),
     clearWorkingCopySyncRequired: (...args: unknown[]) => mocks.clearWorkingCopySyncRequired(...args),
     markWorkingCopyContentChanged: (...args: unknown[]) => mocks.markWorkingCopyContentChanged(...args),
@@ -123,7 +125,9 @@ describe('workingCopySave', () => {
             warnings: [],
         });
         mocks.assertWorkingCopyMutationAllowed.mockResolvedValue(undefined);
+        mocks.assertWorkingCopyResyncAllowed.mockReturnValue(undefined);
         mocks.assertWorkingCopyRevisionCurrent.mockResolvedValue(undefined);
+        mocks.refreshWorkingCopyOriginalFileExpectation.mockResolvedValue(true);
         mocks.markWorkingCopyContentChanged.mockResolvedValue({});
         mocks.copyFileCopyOnWrite.mockImplementation(async (sourcePath: string, targetPath: string) => {
             await writeFile(targetPath, await readFile(sourcePath));
@@ -187,6 +191,41 @@ describe('workingCopySave', () => {
                 validation: {isValid: true},
             });
         expect(readFileSyncUtf8(originalPath)).toBe('new-working');
+    });
+
+    it('copies optimized structured save bytes back to the working copy after the original write commits', async () => {
+        const workingPath = join(tempRoot, 'structured-optimized-working.pdf');
+        const originalPath = join(tempRoot, 'structured-optimized-original.pdf');
+        writeFileSync(workingPath, 'unoptimized-working');
+        writeFileSync(originalPath, 'old-original');
+        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
+        mocks.optimizeLargePdfForSave.mockImplementationOnce(async (tempPath: string) => {
+            writeFileSync(tempPath, 'optimized-pdf');
+            return {
+                isValid: true,
+                tool: 'qpdf',
+                errors: [],
+                warnings: [],
+            };
+        });
+        const { handleFileSaveStructured } = await import('@electron/features/documents/main/workingCopySave');
+
+        await expect(handleFileSaveStructured(context, workingPath, revisionOptions))
+            .resolves
+            .toMatchObject({
+                ok: true,
+                externalWriteCommitted: true,
+                workingCopyRefreshed: true,
+            });
+
+        expect(readFileSyncUtf8(originalPath)).toBe('optimized-pdf');
+        expect(readFileSyncUtf8(workingPath)).toBe('optimized-pdf');
+        expect(mocks.copyFileCopyOnWrite).toHaveBeenCalledWith(originalPath, workingPath);
+        expect(mocks.atomicReplace.mock.invocationCallOrder[0]!)
+            .toBeLessThan(mocks.copyFileCopyOnWrite.mock.invocationCallOrder[1]!);
+        expect(mocks.copyFileCopyOnWrite.mock.invocationCallOrder[1]!)
+            .toBeLessThan(mocks.refreshWorkingCopyOriginalFileExpectation.mock.invocationCallOrder[0]!);
+        expect(mocks.markWorkingCopyContentChanged).toHaveBeenCalledWith(workingPath, 'save-sync', 42);
     });
 
     it('rejects structured saves without a revision token before replacing files', async () => {
@@ -340,6 +379,42 @@ describe('workingCopySave', () => {
         expect(readFileSyncUtf8(workingPath)).toBe('old-working');
         expect(mocks.refreshWorkingCopyOriginalFileExpectation).not.toHaveBeenCalled();
         expect(mocks.markWorkingCopyContentChanged).not.toHaveBeenCalled();
+    });
+
+    it('resyncs from the latest original mapping even when normal mutations are sync-blocked', async () => {
+        const workingPath = join(tempRoot, 'resync-working.pdf');
+        const firstOriginalPath = join(tempRoot, 'resync-first-original.pdf');
+        const secondOriginalPath = join(tempRoot, 'resync-second-original.pdf');
+        writeFileSync(workingPath, 'stale-working');
+        writeFileSync(firstOriginalPath, 'first-original');
+        writeFileSync(secondOriginalPath, 'second-original');
+        let currentOriginalPath = firstOriginalPath;
+        mocks.getWorkingCopyOriginalPath.mockImplementation(() => ({originalPath: currentOriginalPath}));
+        mocks.assertWorkingCopyMutationAllowed.mockImplementation(() => {
+            throw new Error('working copy sync required');
+        });
+        const queuedMutation = deferred<undefined>();
+        const { enqueueWorkingCopyMutation } = await import('@electron/file-access/workingCopyMutationQueue');
+        const blockingMutation = enqueueWorkingCopyMutation(workingPath, () => queuedMutation.promise);
+        const { handleResyncWorkingCopy } = await import('@electron/features/documents/main/workingCopySave');
+
+        const resyncPromise = handleResyncWorkingCopy(context, workingPath);
+        await waitForSettledQueueTurn();
+        currentOriginalPath = secondOriginalPath;
+        queuedMutation.resolve(undefined);
+        await blockingMutation;
+
+        await expect(resyncPromise).resolves.toMatchObject({
+            ok: true,
+            externalWriteCommitted: false,
+            workingCopyRefreshed: true,
+        });
+        expect(readFileSyncUtf8(workingPath)).toBe('second-original');
+        expect(mocks.assertWorkingCopyMutationAllowed).not.toHaveBeenCalled();
+        expect(mocks.assertWorkingCopyResyncAllowed).toHaveBeenCalledWith(workingPath, 42);
+        expect(mocks.refreshWorkingCopyOriginalFileExpectation).toHaveBeenCalledWith(workingPath, 42);
+        expect(mocks.clearWorkingCopySyncRequired).toHaveBeenCalledWith(workingPath);
+        expect(mocks.markWorkingCopyContentChanged).toHaveBeenCalledWith(workingPath, 'save-sync', 42);
     });
 
     it('repairs through qpdf before atomically replacing the original and working copy', async () => {

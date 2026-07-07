@@ -10,6 +10,7 @@ import {
 
 interface ISearchResourceLimitMockWorkerRecord {
     onHandlers: Map<string, Array<(arg: unknown) => void>>;
+    onceHandlers: Map<string, Array<(arg: unknown) => void>>;
     postMessageCalls: Array<Record<string, unknown>>;
     terminate: ReturnType<typeof vi.fn<() => Promise<number>>>;
 }
@@ -46,8 +47,12 @@ function emitWorkerEvent(
         throw new Error(`Worker record ${workerIndex} not found`);
     }
 
-    const handlers = record.onHandlers.get(event) ?? [];
-    for (const handler of handlers) {
+    for (const handler of record.onHandlers.get(event) ?? []) {
+        handler(payload);
+    }
+    const onceHandlers = record.onceHandlers.get(event) ?? [];
+    record.onceHandlers.delete(event);
+    for (const handler of onceHandlers) {
         handler(payload);
     }
 }
@@ -120,6 +125,7 @@ vi.mock('worker_threads', () => ({Worker: class {
     constructor(workerPath: string) {
         this.record = {
             onHandlers: new Map(),
+            onceHandlers: new Map(),
             postMessageCalls: [],
             terminate: vi.fn(async () => 0),
         };
@@ -131,6 +137,19 @@ vi.mock('worker_threads', () => ({Worker: class {
         const handlers = this.record.onHandlers.get(event) ?? [];
         handlers.push(handler);
         this.record.onHandlers.set(event, handlers);
+        return this;
+    }
+
+    once(event: string, handler: (arg: unknown) => void) {
+        const handlers = this.record.onceHandlers.get(event) ?? [];
+        handlers.push(handler);
+        this.record.onceHandlers.set(event, handlers);
+        return this;
+    }
+
+    removeListener(event: string, handler: (arg: unknown) => void) {
+        this.record.onHandlers.set(event, (this.record.onHandlers.get(event) ?? []).filter(item => item !== handler));
+        this.record.onceHandlers.set(event, (this.record.onceHandlers.get(event) ?? []).filter(item => item !== handler));
         return this;
     }
 
@@ -233,7 +252,9 @@ describe('search IPC worker resource limits', () => {
 
         delete process.env.EVB_SEARCH_WORKER_MAX_ACTIVE;
         delete process.env.EVB_SEARCH_WORKER_IDLE_TTL_MS;
+        delete process.env.EVB_SEARCH_WORKER_TERMINATE_TIMEOUT_MS;
         delete process.env.EVB_SEARCH_REQUEST_TIMEOUT_MS;
+        delete process.env.EVB_SEARCH_CANCEL_ACK_TIMEOUT_MS;
 
         mocks.resolveAllowedReadPath.mockResolvedValue('/tmp/allowed.pdf');
         mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(null);
@@ -631,33 +652,45 @@ describe('search IPC worker resource limits', () => {
     });
 
     it('cancels pending search work when the renderer main frame navigates', async () => {
+        vi.useFakeTimers();
+        process.env.EVB_SEARCH_WORKER_TERMINATE_TIMEOUT_MS = '1000';
         mocks.autoCompleteSearch = false;
 
-        const { registerSearchIpcAdapter } = await import('@electron/features/search/registerSearchIpcAdapter');
-        registerSearchIpcAdapter();
-        const searchHandler = getSearchHandler();
-        const event = createInvokeEvent(174);
-        const searchPromise = searchHandler(
-            event,
-            {
-                pdfPath: '/tmp/one.pdf',
-                query: 'needle',
+        try {
+            const { registerSearchIpcAdapter } = await import('@electron/features/search/registerSearchIpcAdapter');
+            registerSearchIpcAdapter();
+            const searchHandler = getSearchHandler();
+            const event = createInvokeEvent(174);
+            const searchPromise = searchHandler(
+                event,
+                {
+                    pdfPath: '/tmp/one.pdf',
+                    query: 'needle',
+                    requestId: 'nav-cancel',
+                },
+            ) as Promise<{
+                results: unknown[];
+                truncated: boolean
+            }>;
+
+            await vi.waitFor(() => {
+                expect(mocks.workerRecords).toHaveLength(1);
+            });
+
+            triggerMainFrameNavigation(event);
+
+            await expect(searchPromise).rejects.toThrow('Renderer navigated');
+            expect(mocks.workerRecords[0]?.postMessageCalls).toContainEqual({
+                type: 'cancel',
                 requestId: 'nav-cancel',
-            },
-        ) as Promise<{
-            results: unknown[];
-            truncated: boolean
-        }>;
-
-        await vi.waitFor(() => {
-            expect(mocks.workerRecords).toHaveLength(1);
-        });
-
-        triggerMainFrameNavigation(event);
-
-        await expect(searchPromise).rejects.toThrow('Renderer navigated');
-        expect(mocks.workerRecords[0]?.terminate).toHaveBeenCalledOnce();
-        expect(event.sender.removeListener).toHaveBeenCalledWith('did-start-navigation', expect.any(Function));
+            });
+            expect(mocks.workerRecords[0]?.terminate).not.toHaveBeenCalled();
+            await vi.advanceTimersByTimeAsync(1_000);
+            expect(mocks.workerRecords[0]?.terminate).toHaveBeenCalledOnce();
+            expect(event.sender.removeListener).toHaveBeenCalledWith('did-start-navigation', expect.any(Function));
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it.each([
@@ -742,6 +775,11 @@ describe('search IPC worker resource limits', () => {
                 sender.send.mockClear();
             } else if (mode === 'cancel') {
                 expect(cancelHandler(event, requestId)).toEqual({ canceled: true });
+                expect(sender.send).not.toHaveBeenCalled();
+                emitWorkerEvent(0, 'message', {
+                    type: 'cancelled',
+                    requestId,
+                });
                 expect(sender.send).toHaveBeenCalledWith('pdf:search:progress', {
                     requestId,
                     processed: 0,
@@ -924,6 +962,10 @@ describe('search IPC worker resource limits', () => {
             });
 
             expect(cancelHandler(event, 'req-cancel')).toEqual({ canceled: true });
+            emitWorkerEvent(0, 'message', {
+                type: 'cancelled',
+                requestId: 'req-cancel',
+            });
             await expect(searchPromise).resolves.toEqual({
                 results: [],
                 truncated: false,

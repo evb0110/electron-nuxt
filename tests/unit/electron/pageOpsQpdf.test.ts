@@ -265,6 +265,30 @@ describe('page-ops qpdf working-copy mutations', () => {
         }));
     });
 
+    it('passes cancellation options to qpdf page count commands', async () => {
+        const controller = new AbortController();
+        runNativeToolCommandMock.mockResolvedValueOnce({
+            exitCode: 0,
+            stdout: '4\n',
+            stderr: '',
+        });
+
+        const { getPdfPageCount } = await import('@electron/features/page-ops/main/qpdf');
+
+        await expect(getPdfPageCount('/tmp/cancelable.pdf', {
+            signal: controller.signal,
+            cancelGroup: 'working-copy-mutation:test',
+        })).resolves.toBe(4);
+
+        expect(runNativeToolCommandMock).toHaveBeenCalledWith('/mock/qpdf', [
+            '--show-npages',
+            '/tmp/cancelable.pdf',
+        ], expect.objectContaining({
+            signal: controller.signal,
+            cancelGroup: 'working-copy-mutation:test',
+        }));
+    });
+
     it('formats delete complements as compact qpdf ranges without prebuilding every page index', async () => {
         const workDir = await mkdtemp(join(tmpdir(), 'page-ops-qpdf-'));
         const workingCopyPath = join(workDir, 'work.pdf');
@@ -304,6 +328,48 @@ describe('page-ops qpdf working-copy mutations', () => {
             ], 7, 12)).resolves.toEqual({ pageCount: 4 });
 
             await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('%PDF-1.7\ndeleted');
+        } finally {
+            await rm(workDir, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
+    it('passes cancellation options through page-count and mutation qpdf commands', async () => {
+        const workDir = await mkdtemp(join(tmpdir(), 'page-ops-qpdf-'));
+        const workingCopyPath = join(workDir, 'work.pdf');
+        const tempOutputPath = join(workDir, 'tmp-fixed-output-id.pdf');
+        const controller = new AbortController();
+        const options = {
+            signal: controller.signal,
+            cancelGroup: 'working-copy-mutation:test',
+        };
+
+        try {
+            await writeFile(workingCopyPath, '%PDF-1.7\n');
+            runNativeToolCommandMock.mockResolvedValueOnce({
+                exitCode: 0,
+                stdout: '3\n',
+                stderr: '',
+            });
+            runNativeToolCommandMock.mockImplementationOnce(async (_qpdf, args: string[]) => {
+                const qpdfArgs = await readQpdfArgFile(args);
+                expect(qpdfArgs.at(-1)).toBe(tempOutputPath);
+                await writeFile(tempOutputPath, '%PDF-1.7\ndeleted');
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            });
+
+            const { deletePages } = await import('@electron/features/page-ops/main/qpdf');
+
+            await expect(deletePages(workingCopyPath, [2], 3, 12, options)).resolves.toEqual({ pageCount: 2 });
+
+            expect(runNativeToolCommandMock.mock.calls[0]?.[2]).toEqual(expect.objectContaining(options));
+            expect(runNativeToolCommandMock.mock.calls[1]?.[2]).toEqual(expect.objectContaining(options));
         } finally {
             await rm(workDir, {
                 recursive: true,

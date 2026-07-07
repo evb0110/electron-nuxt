@@ -64,7 +64,10 @@ export interface IWorkspaceViewerCapabilities {
     regionCapture: boolean;
     repairSave: boolean;
     save: boolean;
+    saveAs: boolean;
     sidebar: boolean;
+    continuousScroll: boolean;
+    viewMode: boolean;
 }
 
 export function createDefaultWorkspaceViewerCapabilities(): IWorkspaceViewerCapabilities {
@@ -80,7 +83,10 @@ export function createDefaultWorkspaceViewerCapabilities(): IWorkspaceViewerCapa
         regionCapture: false,
         repairSave: false,
         save: false,
+        saveAs: false,
         sidebar: false,
+        continuousScroll: false,
+        viewMode: false,
     };
 }
 

@@ -13,6 +13,10 @@ import {
     getNestedTranslationLeaf,
     normalizeTranslationParams,
 } from '@i18n-core';
+import {
+    isElectronUserAgent,
+    waitForPreferredDesktopPlatformBridge,
+} from '@app/utils/platform';
 
 interface IRuntimeErrorLogStreamState { cleanup: () => void; }
 
@@ -36,6 +40,16 @@ function createPluginTranslate(getLocale: () => TLocale | null | undefined): TTr
     };
 
     return t;
+}
+
+async function waitForRuntimeErrorLogBridge() {
+    const routePath = typeof window === 'undefined'
+        ? null
+        : window.location?.pathname ?? null;
+    const bridgeResolution = await waitForPreferredDesktopPlatformBridge({ routePath });
+    return !bridgeResolution.shouldWait
+        || bridgeResolution.bridgeReady
+        || !isElectronUserAgent();
 }
 
 export default defineNuxtPlugin((nuxtApp) => {
@@ -92,18 +106,24 @@ export default defineNuxtPlugin((nuxtApp) => {
             return;
         }
 
-        unsubscribeDebugLog = getSettingsCapability().onDebugLog((entry) => {
-            if (!isUiReportableLog(entry)) {
+        void (async () => {
+            if (!await waitForRuntimeErrorLogBridge() || cleanedUp || unsubscribeDebugLog) {
                 return;
             }
 
-            reportRuntimeError({
-                title: t('errors.runtime.streamError'),
-                source: entry.source,
-                error: `${entry.timestamp}\n${entry.message}`,
-                dedupeKey: `${entry.source}\n${entry.message}`,
+            unsubscribeDebugLog = getSettingsCapability().onDebugLog((entry) => {
+                if (!isUiReportableLog(entry)) {
+                    return;
+                }
+
+                reportRuntimeError({
+                    title: t('errors.runtime.streamError'),
+                    source: entry.source,
+                    error: `${entry.timestamp}\n${entry.message}`,
+                    dedupeKey: `${entry.source}\n${entry.message}`,
+                });
             });
-        });
+        })();
     });
 
     if (import.meta.hot) {

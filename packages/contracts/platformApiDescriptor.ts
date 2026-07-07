@@ -273,6 +273,7 @@ const eventMethodNames = new Set<string>([
     'onOpenPdfDirectBatchProgress',
     'onPdfOptimizeProgress',
     'onProgress',
+    'onShutdownSaveFlushRequest',
     'onStatus',
     'onViewingError',
     'onViewingReady',

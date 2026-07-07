@@ -49,6 +49,7 @@ const mocks = vi.hoisted(() => ({
     updateRecentFilesMenu: vi.fn(),
     assertWorkingCopyRevisionCurrent: vi.fn(),
     assertWorkingCopyMutationAllowed: vi.fn(),
+    assertWorkingCopyResyncAllowed: vi.fn(),
     getWorkingCopyRevision: vi.fn(),
     markWorkingCopySyncRequired: vi.fn(),
     markWorkingCopyContentChanged: vi.fn(),
@@ -76,6 +77,7 @@ vi.mock('@electron/file-access/workingCopyStore', () => ({
 }));
 vi.mock('@electron/file-access/documentRevisionStore', () => ({
     assertWorkingCopyMutationAllowed: (...args: unknown[]) => mocks.assertWorkingCopyMutationAllowed(...args),
+    assertWorkingCopyResyncAllowed: (...args: unknown[]) => mocks.assertWorkingCopyResyncAllowed(...args),
     assertWorkingCopyRevisionCurrent: (...args: unknown[]) => mocks.assertWorkingCopyRevisionCurrent(...args),
     getWorkingCopyRevision: (...args: unknown[]) => mocks.getWorkingCopyRevision(...args),
     markWorkingCopyContentChanged: (...args: unknown[]) => mocks.markWorkingCopyContentChanged(...args),
@@ -156,6 +158,7 @@ describe('serializedPdfPersistence', () => {
         mocks.optimizeLargePdfForSave.mockResolvedValue(null);
         mocks.assertWorkingCopyMutationAllowed.mockResolvedValue(undefined);
         mocks.assertWorkingCopyRevisionCurrent.mockResolvedValue(undefined);
+        mocks.refreshWorkingCopyOriginalFileExpectation.mockResolvedValue(true);
         mocks.getWorkingCopyRevision.mockImplementation(async (workingPath: string) => ({
             version: 1,
             documentRef: workingPath,
@@ -452,7 +455,7 @@ describe('serializedPdfPersistence', () => {
 
         expect(result).toMatchObject({
             type: 'result',
-            path: null,
+            path: originalPath,
             validation: {
                 isValid: false,
                 errors: [expect.stringContaining('copy-back failed')],
@@ -554,6 +557,37 @@ describe('serializedPdfPersistence', () => {
             .toBeLessThan(firstInvocationOrder(mocks.refreshWorkingCopyOriginalFileExpectation));
     });
 
+    it('returns the committed streamed Save to original path when expectation refresh fails', async () => {
+        const workingPath = join(tempRoot, 'refresh-fail-working.pdf');
+        const originalPath = join(tempRoot, 'refresh-fail-original.pdf');
+        writeFileSync(workingPath, 'old-working');
+        writeFileSync(originalPath, 'old-original');
+        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
+        mocks.refreshWorkingCopyOriginalFileExpectation.mockResolvedValueOnce(false);
+
+        const result = await runSaveToOriginalSession({
+            workingPath,
+            bytes: Buffer.from('new-pdf'),
+        });
+
+        expect(result).toMatchObject({
+            type: 'result',
+            path: originalPath,
+            validation: {
+                isValid: false,
+                errors: [expect.stringContaining('expectation refresh completed')],
+                warnings: [expect.stringContaining('expectation refresh completed')],
+            },
+        });
+        expect(readFileSyncUtf8(originalPath)).toBe('new-pdf');
+        expect(readFileSyncUtf8(workingPath)).toBe('new-pdf');
+        expect(mocks.markWorkingCopySyncRequired).toHaveBeenCalledWith(
+            workingPath,
+            expect.stringContaining('expectation refresh completed'),
+        );
+        expect(mocks.markWorkingCopyContentChanged).not.toHaveBeenCalled();
+    });
+
     it('rejects Save As before opening a temp stream when the sender does not own the working copy', async () => {
         const workingPath = join(tempRoot, 'foreign-working.pdf');
         const targetPath = join(tempRoot, 'saved.pdf');
@@ -602,6 +636,38 @@ describe('serializedPdfPersistence', () => {
         });
         expect(readFileSyncUtf8(workingPath)).toBe('new-pdf');
         expect(readFileSyncUtf8(targetPath)).toBe('new-pdf');
+    });
+
+    it('returns the committed streamed Save As path when working-copy copy-back fails', async () => {
+        const workingPath = join(tempRoot, 'save-as-copyback-working.pdf');
+        const targetPath = join(tempRoot, 'save-as-copyback-target.pdf');
+        writeFileSync(workingPath, 'old-working');
+        writeFileSync(targetPath, 'old-target');
+        mocks.copyFileCopyOnWrite.mockRejectedValueOnce(new Error('copy-back failed'));
+
+        const result = await runSaveAsSession({
+            workingPath,
+            targetPath,
+            bytes: Buffer.from('new-pdf'),
+        });
+
+        expect(result).toMatchObject({
+            type: 'result',
+            path: targetPath,
+            validation: {
+                isValid: false,
+                errors: [expect.stringContaining('copy-back failed')],
+                warnings: [expect.stringContaining('copy-back failed')],
+            },
+        });
+        expect(readFileSyncUtf8(targetPath)).toBe('new-pdf');
+        expect(readFileSyncUtf8(workingPath)).toBe('old-working');
+        expect(mocks.setWorkingCopyOriginalPath).toHaveBeenCalledWith(workingPath, targetPath, 42);
+        expect(mocks.markWorkingCopySyncRequired).toHaveBeenCalledWith(
+            workingPath,
+            expect.stringContaining('copy-back failed'),
+        );
+        expect(mocks.markWorkingCopyContentChanged).not.toHaveBeenCalled();
     });
 
     it('preserves the Save As target when working-copy setup fails before streaming starts', async () => {

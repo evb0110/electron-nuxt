@@ -43,6 +43,7 @@ import {
 import { insertPagesFromSourcePaths } from '@electron/features/page-ops/main/insertPagesFromSourcePaths.service';
 import { assertOpenInputPathCount } from '@electron/features/documents/public';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
+import type { IWorkingCopyMutationOperation } from '@electron/file-access/workingCopyMutationQueue';
 import { markWorkingCopyContentChanged } from '@electron/file-access/documentRevisionStore';
 import {
     assertQueuedWorkingCopyMutationPreconditions,
@@ -70,6 +71,13 @@ function createOpenBatchProgressReporter(
             requestId,
             ...progress,
         });
+    };
+}
+
+function createNativeOperationOptions(operation: IWorkingCopyMutationOperation) {
+    return {
+        signal: operation.signal,
+        cancelGroup: operation.cancelGroup,
     };
 }
 
@@ -156,10 +164,11 @@ export async function handlePageOpsDelete(
     const expectedTotalPages = validateExpectedTotalPages(totalPages);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
 
-    const result = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
+    const result = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async (operation) => {
+        const nativeOptions = createNativeOperationOptions(operation);
         const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, context.senderId);
         await assertQueuedWorkingCopyMutationPreconditions(queuedWorkingCopyPath, expectedDocumentRevisionToken);
-        const mainTotalPages = await getPdfPageCount(queuedWorkingCopyPath);
+        const mainTotalPages = await getPdfPageCount(queuedWorkingCopyPath, nativeOptions);
         if (mainTotalPages !== expectedTotalPages) {
             throw new Error('Renderer page count is stale');
         }
@@ -167,7 +176,13 @@ export async function handlePageOpsDelete(
             totalPages: mainTotalPages,
             requireUnique: true,
         });
-        const operationResult = await deletePages(queuedWorkingCopyPath, pages, expectedTotalPages, context.senderId);
+        const operationResult = await deletePages(
+            queuedWorkingCopyPath,
+            pages,
+            expectedTotalPages,
+            context.senderId,
+            nativeOptions,
+        );
         const documentRevision = await markWorkingCopyContentChanged(queuedWorkingCopyPath, 'page-ops', context.senderId);
         return {
             ...operationResult,
@@ -216,9 +231,9 @@ export async function handlePageOpsExtract(
         destPath += '.pdf';
     }
 
-    await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
+    await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async (operation) => {
         const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, context.senderId);
-        await extractPages(queuedWorkingCopyPath, destPath, pages);
+        await extractPages(queuedWorkingCopyPath, destPath, pages, createNativeOperationOptions(operation));
     });
     allowOpenPath(destPath, context.sender);
     return {
@@ -238,16 +253,17 @@ export async function handlePageOpsReorder(
     validateReorderPermutation(newOrder);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
 
-    const result = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
+    const result = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async (operation) => {
+        const nativeOptions = createNativeOperationOptions(operation);
         const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, context.senderId);
         await assertQueuedWorkingCopyMutationPreconditions(queuedWorkingCopyPath, expectedDocumentRevisionToken);
-        const actualPageCount = await getPdfPageCount(queuedWorkingCopyPath);
+        const actualPageCount = await getPdfPageCount(queuedWorkingCopyPath, nativeOptions);
         validatePageNumbers(newOrder, 'reorderPages', {
             requireUnique: true,
             totalPages: actualPageCount,
         });
         validateReorderPermutation(newOrder, actualPageCount);
-        const operationResult = await reorderPages(queuedWorkingCopyPath, newOrder, context.senderId);
+        const operationResult = await reorderPages(queuedWorkingCopyPath, newOrder, context.senderId, nativeOptions);
         const documentRevision = await markWorkingCopyContentChanged(queuedWorkingCopyPath, 'page-ops', context.senderId);
         return {
             ...operationResult,
@@ -301,7 +317,8 @@ export async function handlePageOpsInsert(
     const trustedSourcePaths = normalizeNonEmptyStringPaths(result.filePaths)
         .map(path => requireOpenPath(path, context.sender));
 
-    const documentRevision = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
+    const documentRevision = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async (operation) => {
+        const nativeOptions = createNativeOperationOptions(operation);
         const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, context.senderId);
         await assertQueuedWorkingCopyMutationPreconditions(queuedWorkingCopyPath, expectedDocumentRevisionToken);
         await insertPagesFromSourcePaths(
@@ -310,6 +327,8 @@ export async function handlePageOpsInsert(
             trustedSourcePaths,
             insertArgs.afterPage,
             context.senderId,
+            undefined,
+            nativeOptions,
         );
         return markWorkingCopyContentChanged(queuedWorkingCopyPath, 'page-ops', context.senderId);
     });
@@ -340,10 +359,11 @@ export async function handlePageOpsRotate(
         throw new Error(`Invalid rotation angle: ${angle}`);
     }
 
-    const documentRevision = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
+    const documentRevision = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async (operation) => {
+        const nativeOptions = createNativeOperationOptions(operation);
         const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, context.senderId);
         await assertQueuedWorkingCopyMutationPreconditions(queuedWorkingCopyPath, expectedDocumentRevisionToken);
-        const mainTotalPages = await getPdfPageCount(queuedWorkingCopyPath);
+        const mainTotalPages = await getPdfPageCount(queuedWorkingCopyPath, nativeOptions);
         if (mainTotalPages !== expectedTotalPages) {
             throw new Error('Renderer page count is stale');
         }
@@ -351,7 +371,7 @@ export async function handlePageOpsRotate(
             totalPages: mainTotalPages,
             requireUnique: true,
         });
-        await rotatePages(queuedWorkingCopyPath, pages, angle, context.senderId);
+        await rotatePages(queuedWorkingCopyPath, pages, angle, context.senderId, nativeOptions);
         return markWorkingCopyContentChanged(queuedWorkingCopyPath, 'page-ops', context.senderId);
     });
     return {
@@ -380,7 +400,8 @@ export async function handlePageOpsInsertFile(
     const normalizedRequestId = normalizeOptionalIpcRequestId(requestId) ?? '';
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
 
-    const documentRevision = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
+    const documentRevision = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async (operation) => {
+        const nativeOptions = createNativeOperationOptions(operation);
         const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, context.senderId);
         await assertQueuedWorkingCopyMutationPreconditions(queuedWorkingCopyPath, expectedDocumentRevisionToken);
         await insertPagesFromSourcePaths(
@@ -392,6 +413,7 @@ export async function handlePageOpsInsertFile(
             normalizedRequestId
                 ? createOpenBatchProgressReporter(context, normalizedRequestId, 'page-insert')
                 : undefined,
+            nativeOptions,
         );
         return markWorkingCopyContentChanged(queuedWorkingCopyPath, 'page-ops', context.senderId);
     });
@@ -427,10 +449,11 @@ export async function handlePageOpsCrop(
         throw new Error('Invalid crop margins');
     }
 
-    const documentRevision = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
+    const documentRevision = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async (operation) => {
+        const nativeOptions = createNativeOperationOptions(operation);
         const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, context.senderId);
         await assertQueuedWorkingCopyMutationPreconditions(queuedWorkingCopyPath, expectedDocumentRevisionToken);
-        const mainTotalPages = await getPdfPageCount(queuedWorkingCopyPath);
+        const mainTotalPages = await getPdfPageCount(queuedWorkingCopyPath, nativeOptions);
         if (mainTotalPages !== expectedTotalPages) {
             throw new Error('Renderer page count is stale');
         }
@@ -438,7 +461,7 @@ export async function handlePageOpsCrop(
             totalPages: mainTotalPages,
             requireUnique: true,
         });
-        await cropPages(queuedWorkingCopyPath, pages, margins, context.senderId);
+        await cropPages(queuedWorkingCopyPath, pages, margins, context.senderId, operation.signal);
         return markWorkingCopyContentChanged(queuedWorkingCopyPath, 'page-ops', context.senderId);
     });
     return {
@@ -459,10 +482,11 @@ export async function handlePageOpsRemoveCrop(
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
     validatePageNumbers(pages, 'removeCrop', {requireUnique: true});
 
-    const documentRevision = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
+    const documentRevision = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async (operation) => {
+        const nativeOptions = createNativeOperationOptions(operation);
         const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, context.senderId);
         await assertQueuedWorkingCopyMutationPreconditions(queuedWorkingCopyPath, expectedDocumentRevisionToken);
-        const mainTotalPages = await getPdfPageCount(queuedWorkingCopyPath);
+        const mainTotalPages = await getPdfPageCount(queuedWorkingCopyPath, nativeOptions);
         if (mainTotalPages !== expectedTotalPages) {
             throw new Error('Renderer page count is stale');
         }
@@ -470,7 +494,7 @@ export async function handlePageOpsRemoveCrop(
             totalPages: mainTotalPages,
             requireUnique: true,
         });
-        await removeCropFromPages(queuedWorkingCopyPath, pages, context.senderId);
+        await removeCropFromPages(queuedWorkingCopyPath, pages, context.senderId, operation.signal);
         return markWorkingCopyContentChanged(queuedWorkingCopyPath, 'page-ops', context.senderId);
     });
     return {

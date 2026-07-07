@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import { ref } from 'vue';
 import {
     describe,
@@ -363,6 +365,61 @@ describe('usePdfRendererVisibleRenderController', () => {
 
         expect(ensurePageMetricsInRange).not.toHaveBeenCalled();
         expect(renderSingleVisiblePage).not.toHaveBeenCalled();
+    });
+
+    it('does not mark a page stale after the render request becomes stale', async () => {
+        document.body.replaceChildren();
+        const page = document.createElement('div');
+        page.className = 'page_container';
+        page.dataset.page = '10';
+        const canvasHost = document.createElement('div');
+        canvasHost.className = 'page_canvas';
+        page.append(canvasHost);
+        const containerRoot = document.createElement('div');
+        containerRoot.append(page);
+        document.body.append(containerRoot);
+
+        const renderedPages = new Set<number>();
+        const staleRenderedPages = new Set<number>();
+        let visibleRenderRequestId = 1;
+        const renderVisiblePages = usePdfRendererVisibleRenderController({
+            container: ref(containerRoot),
+            currentPage: ref(10),
+            numPages: ref(10),
+            isActive: true,
+            bufferPages: 0,
+            renderConcurrency: 1,
+            effectiveScale: 1,
+            renderedPages,
+            staleRenderedPages,
+            renderingPages: new Map<number, number>(),
+            renderingPageRequestIds: new Map<number, number>(),
+            getRenderVersion: () => 3,
+            getRenderDocumentToken: () => 'doc-1',
+            getVisibleRenderRequestId: () => visibleRenderRequestId,
+            nextVisibleRenderRequestId: () => {
+                visibleRenderRequestId += 1;
+                return visibleRenderRequestId;
+            },
+            ensurePageMetricsInRange: vi.fn(async () => true),
+            setupPagePlaceholders: vi.fn(),
+            cleanupPage: vi.fn(),
+            cancelObsoleteInFlightRenders: vi.fn(),
+            renderSingleVisiblePage: vi.fn(async (_containerRoot, pageNumber) => {
+                renderedPages.add(pageNumber);
+                visibleRenderRequestId += 1;
+            }),
+            scheduleMissingRenderTargetRetry: vi.fn(),
+            throttleMs: 0,
+        });
+
+        await renderVisiblePages({
+            start: 10,
+            end: 10,
+        }, { markRenderedPageStale: true });
+
+        expect(renderedPages.has(10)).toBe(true);
+        expect(staleRenderedPages.has(10)).toBe(false);
     });
 
     it('fences legacy visible render requests when the document version changes mid-render', async () => {

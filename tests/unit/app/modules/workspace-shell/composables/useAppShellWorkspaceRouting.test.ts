@@ -780,4 +780,76 @@ describe('useAppShellWorkspaceRouting', () => {
 
         expect(beginSettled).toBe(true);
     });
+
+    it('does not seed a startup active-tab hint when the workspace is unavailable', async () => {
+        const activePaneId = ref('pane-1');
+        const activeTabId = ref('tab-1');
+        const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
+        const activeTab = createTabStub('tab-1');
+
+        const routingOptions = createRoutingOptions({
+            activePaneId,
+            activeTabId,
+            workspaceRefs,
+            createTab: () => {
+                throw new Error('should not create a fallback tab for a single failed startup claim');
+            },
+        });
+        routingOptions.getTabById = vi.fn((tabId: string | null | undefined) => (
+            tabId === 'tab-1' ? activeTab : null
+        ));
+        const routing = useAppShellWorkspaceRouting(routingOptions);
+
+        await expect(routing.beginOpenPathsInAppropriateTab(['/docs/unavailable.pdf'])).resolves.toEqual(['/docs/unavailable.pdf']);
+
+        expect(routingOptions.updateTab).not.toHaveBeenCalled();
+        expect(activeTab.originalPath).toBeNull();
+    });
+
+    it('rolls back a seeded startup active-tab hint when the open never settles', async () => {
+        vi.useFakeTimers();
+        try {
+            const activePaneId = ref('pane-1');
+            const activeTabId = ref('tab-1');
+            const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
+            const initialWorkspace = createWorkspace(false);
+            initialWorkspace.openPath.mockResolvedValueOnce(false);
+            workspaceRefs.value.set('tab-1', initialWorkspace.workspace);
+            const activeTab = createTabStub('tab-1');
+
+            const routingOptions = createRoutingOptions({
+                activePaneId,
+                activeTabId,
+                workspaceRefs,
+                createTab: () => {
+                    throw new Error('should not create a fallback tab for a single failed startup claim');
+                },
+            });
+            routingOptions.getTabById = vi.fn((tabId: string | null | undefined) => (
+                tabId === 'tab-1' ? activeTab : null
+            ));
+            routingOptions.updateTab = vi.fn((tabId: string, updates: Partial<ITab>) => {
+                if (tabId === 'tab-1') {
+                    Object.assign(activeTab, updates);
+                }
+            });
+            const routing = useAppShellWorkspaceRouting(routingOptions);
+
+            const openPromise = routing.beginOpenPathsInAppropriateTab(['/docs/failed-startup.pdf']);
+            await Promise.resolve();
+
+            expect(activeTab.originalPath).toBe('/docs/failed-startup.pdf');
+
+            await vi.advanceTimersByTimeAsync(1_000);
+            await expect(openPromise).resolves.toEqual(['/docs/failed-startup.pdf']);
+
+            expect(activeTab).toEqual(expect.objectContaining({
+                fileName: null,
+                originalPath: null,
+                isDjvu: false,
+            }));
+        } finally {
+            vi.useRealTimers();
+        }
+    });
 });

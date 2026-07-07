@@ -18,6 +18,13 @@ interface IMockNativeWriteProgress {
 interface IMockNativeWriteOptions {
     maxPages?: number;
     onProgress?: (progress: IMockNativeWriteProgress) => void;
+    signal?: AbortSignal;
+}
+
+interface IMockDjvuConvertSuccess {
+    success: true;
+    outputPath: string;
+    fileSize: number;
 }
 
 const mocks = vi.hoisted(() => {
@@ -56,11 +63,17 @@ const mocks = vi.hoisted(() => {
         });
         return true;
     });
-    const convertDjvuToPdfFile = vi.fn(async () => ({
+    const convertDjvuToPdfFile = vi.fn(async (
+        _inputPath: string,
+        _outputPath: string,
+        _jobId: string,
+        _options?: unknown,
+    ): Promise<IMockDjvuConvertSuccess> => ({
         success: true,
         outputPath: '/tmp/native-assembler/djvu-chunk.pdf',
         fileSize: 1024,
     }));
+    const cancelConversion = vi.fn(async () => true);
     const warn = vi.fn();
 
     return {
@@ -77,6 +90,7 @@ const mocks = vi.hoisted(() => {
         getDjvuPageCount,
         nativeWrite,
         convertDjvuToPdfFile,
+        cancelConversion,
         warn,
     };
 });
@@ -105,7 +119,10 @@ vi.mock('@electron/features/page-ops/public', () => ({
     runQpdfCommand: mocks.runQpdfCommand,
 }));
 
-vi.mock('@electron/features/djvu/public', () => ({convertDjvuToPdfFile: mocks.convertDjvuToPdfFile}));
+vi.mock('@electron/features/djvu/public', () => ({
+    cancelConversion: mocks.cancelConversion,
+    convertDjvuToPdfFile: mocks.convertDjvuToPdfFile,
+}));
 vi.mock('@electron/djvu/metadata', () => ({getDjvuPageCount: mocks.getDjvuPageCount}));
 
 vi.mock('@electron/image/tryCreatePdfWithNativeImageCombiner', () => ({
@@ -134,6 +151,7 @@ describe('tryCreatePdfFromInputPathsNative', () => {
         vi.clearAllMocks();
         vi.stubEnv('VITEST', 'true');
         mocks.getDjvuPageCount.mockResolvedValue(2);
+        mocks.cancelConversion.mockResolvedValue(true);
     });
 
     afterEach(() => {
@@ -197,6 +215,8 @@ describe('tryCreatePdfFromInputPathsNative', () => {
             commandLabel: 'qpdf(native-pdf-assembler)',
             timeoutMs: 120_000,
         }));
+        expect(mocks.getPdfPageCount).toHaveBeenCalledWith('/tmp/a.pdf', expect.any(Object));
+        expect(mocks.getPdfPageCount).toHaveBeenCalledWith(expect.stringMatching(/^\/tmp\/native-assembler\/djvu-chunk-.+\.pdf$/u), expect.any(Object));
         expect(mocks.readFile).toHaveBeenCalledWith(expect.stringMatching(/^\/tmp\/native-assembler\/.+\.pdf$/u));
         expect(mocks.rm).toHaveBeenCalledWith('/tmp/native-assembler', {
             recursive: true,
@@ -281,6 +301,33 @@ describe('tryCreatePdfFromInputPathsNative', () => {
         expect(mocks.runQpdfCommand).not.toHaveBeenCalled();
         expect(mocks.readFile).not.toHaveBeenCalled();
         expect(mocks.warn).toHaveBeenCalledWith(expect.stringContaining('Combined PDF is capped at 500 pages'));
+    });
+
+    it('cancels the generated DjVu chunk job when native assembly aborts', async () => {
+        vi.stubEnv('EVB_PDF_NATIVE_ASSEMBLER_ENABLE', '1');
+        const controller = new AbortController();
+        let resolveConversion: (value: IMockDjvuConvertSuccess) => void = () => {};
+        mocks.convertDjvuToPdfFile.mockImplementationOnce(async () => new Promise<IMockDjvuConvertSuccess>((resolve) => {
+            resolveConversion = resolve;
+        }));
+
+        const assemblePromise = tryCreatePdfFromInputPathsNative(['/tmp/scan.djvu'], {signal: controller.signal});
+        for (let attempt = 0; attempt < 20 && mocks.convertDjvuToPdfFile.mock.calls.length === 0; attempt += 1) {
+            await new Promise(resolve => setImmediate(resolve));
+        }
+        const jobId = mocks.convertDjvuToPdfFile.mock.calls[0]?.[2];
+        expect(jobId).toEqual(expect.stringMatching(/^pdf-native-assembler-djvu-/u));
+
+        controller.abort(new Error('native combine canceled'));
+        expect(mocks.cancelConversion).toHaveBeenCalledWith(jobId);
+        resolveConversion({
+            success: true,
+            outputPath: '/tmp/native-assembler/djvu-chunk.pdf',
+            fileSize: 1024,
+        });
+
+        await expect(assemblePromise).rejects.toThrow('native combine canceled');
+        expect(mocks.readFile).not.toHaveBeenCalled();
     });
 
     it('copies a single native output chunk to the requested output path', async () => {

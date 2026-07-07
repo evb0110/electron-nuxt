@@ -129,6 +129,7 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
         },
         ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,
+        ...(documentRevisionToken !== undefined ? { documentRevisionToken } : {}),
         ...(ensureWorkingCopyFreshForRead !== undefined ? { ensureWorkingCopyFreshForRead } : {}),
         preparePdfReloadWaiter,
         clearOcrCache,

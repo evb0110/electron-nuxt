@@ -6,6 +6,7 @@ import {
     type IProcessResult,
     type TProcessLog,
 } from '@electron/native-tools/processResult';
+import { abortErrorFromSignal } from '@electron/utils/abort';
 import {
     getCommandDirectory,
     prependDirectoryToPath,
@@ -182,7 +183,7 @@ export async function runNativeCommand(
 
     return new Promise((resolve, reject) => {
         if (signal?.aborted) {
-            reject(createAbortError());
+            reject(abortErrorFromSignal(signal));
             return;
         }
 
@@ -312,7 +313,7 @@ export async function runNativeCommand(
 
         if (signal) {
             abortHandler = () => {
-                requestTermination(createAbortError());
+                requestTermination(abortErrorFromSignal(signal));
             };
             signal.addEventListener('abort', abortHandler, { once: true });
         }
@@ -357,7 +358,7 @@ export async function runNativeCommand(
             }, timeoutMs);
         }
         if (signal?.aborted) {
-            requestTermination(createAbortError());
+            requestTermination(abortErrorFromSignal(signal));
         }
 
         processErrorHandler = (error) => {

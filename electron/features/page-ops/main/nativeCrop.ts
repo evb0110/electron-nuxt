@@ -1,19 +1,12 @@
 import {
-    mkdtemp,
     rm,
     stat,
     writeFile,
 } from 'fs/promises';
-import { tmpdir } from 'os';
-import {
-    dirname,
-    join,
-} from 'path';
-import { fileURLToPath } from 'url';
+import { join } from 'path';
 import type { ICropMargins } from '@contracts/shared';
 import { createNativeFallbackTestError } from '@electron/native-tools/createNativeFallbackTestError';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
-import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
 import { getErrorMessage } from '@electron/utils/error';
 import { createLogger } from '@electron/utils/createLogger';
 import {
@@ -21,35 +14,17 @@ import {
     makeTempPdfOutputPath,
     replaceTempOutput,
 } from '@electron/features/page-ops/main/tempOutput';
+import { createManagedScratchTempDir } from '@electron/utils/managedScratchTemp';
+import {
+    isNativePageOpsDisabled,
+    NATIVE_PAGE_OPS_TEST_ENABLE_ENV,
+    resolveNativePageOpsPath,
+} from '@electron/features/page-ops/main/nativePageOpsPath';
 
 type TCropOperation = 'crop' | 'remove-crop';
 
 const log = createLogger('native-page-ops-crop');
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const isPackaged = __dirname.includes('app.asar');
 const NATIVE_PAGE_OPS_TIMEOUT_MS = 2 * 60 * 1000;
-const NATIVE_PAGE_OPS_TEST_ENABLE_ENV = 'EVB_PDF_PAGE_OPS_ENABLE';
-
-function getBinaryName() {
-    return process.platform === 'win32'
-        ? 'evb-pdf-page-ops.exe'
-        : 'evb-pdf-page-ops';
-}
-
-export function isNativePageOpsDisabled() {
-    return process.env.EVB_PDF_PAGE_OPS_DISABLE === '1'
-        || (process.env.VITEST === 'true' && process.env[NATIVE_PAGE_OPS_TEST_ENABLE_ENV] !== '1');
-}
-
-export function resolveNativePageOpsPath() {
-    return resolveNativeToolPath({
-        binaryName: getBinaryName(),
-        crateName: 'pdf-page-ops',
-        currentDir: __dirname,
-        envOverridePath: process.env.EVB_PDF_PAGE_OPS_PATH,
-        isPackaged,
-    });
-}
 
 function createPageFileContents(pages: number[]) {
     return `${pages.map(page => String(page)).join('\n')}\n`;
@@ -120,7 +95,7 @@ async function tryRunNativeCropOperation(
     }
 
     const tempPath = makeTempPdfOutputPath(workingCopyPath);
-    const tempDir = await mkdtemp(join(tmpdir(), 'pdf-page-ops-'));
+    const tempDir = await createManagedScratchTempDir('pdf-page-ops-');
     const pagesFilePath = join(tempDir, 'pages.txt');
 
     try {

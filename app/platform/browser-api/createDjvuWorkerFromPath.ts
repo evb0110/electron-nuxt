@@ -248,6 +248,7 @@ async function scaleDjvuPageObjectUrl(
     subsample: number | undefined,
     targetWidthPx: number | undefined,
     revokeSourceUrl: (url: string) => void,
+    registerWindowObjectUrl?: (url: string) => void,
 ): Promise<IDjvuRenderedPageObjectUrl> {
     const targetWidth = resolveScaledDjvuTargetWidth(pageObject, subsample, targetWidthPx);
     const targetHeight = Math.max(1, Math.round(targetWidth * pageObject.height / pageObject.width));
@@ -282,6 +283,7 @@ async function scaleDjvuPageObjectUrl(
         context.drawImage(image, 0, 0, targetWidth, targetHeight);
         const blob = await canvasToPngBlob(canvas);
         const scaledUrl = URL.createObjectURL(blob);
+        registerWindowObjectUrl?.(scaledUrl);
         revokeSourceUrl(pageObject.url);
         return {
             objectUrl: scaledUrl,
@@ -379,6 +381,22 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
     let nextPreviewRequestId = 0;
     let fallbackRenderQueue = Promise.resolve();
     const latestPreviewRequestIdsByPage = new Map<number, string>();
+    const fallbackWindowObjectUrls = new Set<string>();
+
+    const registerFallbackWindowObjectUrl = (url: string) => {
+        fallbackWindowObjectUrls.add(url);
+    };
+
+    const revokeFallbackObjectUrl = (url: string) => {
+        if (fallbackWindowObjectUrls.delete(url)) {
+            if (typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
+                URL.revokeObjectURL(url);
+            }
+            return;
+        }
+
+        worker.revokeObjectURL(url);
+    };
 
     const createFallbackPreviewRequestId = (
         pageNumber: number,
@@ -432,20 +450,41 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
             const pageObject = await enqueueFallbackRender(async () => {
                 throwIfFallbackRenderCanceled(pageNumber, previewRequestId);
                 const renderedPageObject = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
-                throwIfFallbackRenderCanceled(pageNumber, previewRequestId);
-                return renderedPageObject;
+                try {
+                    throwIfFallbackRenderCanceled(pageNumber, previewRequestId);
+                    return renderedPageObject;
+                } catch (error) {
+                    revokeFallbackObjectUrl(renderedPageObject.url);
+                    throw error;
+                }
             });
-            return scaleDjvuPageObjectUrl(
-                pageObject,
-                options?.subsample,
-                options?.targetWidthPx,
-                url => worker.revokeObjectURL(url),
-            );
+            let renderedPageObjectUrl: IDjvuRenderedPageObjectUrl | null = null;
+
+            try {
+                renderedPageObjectUrl = await scaleDjvuPageObjectUrl(
+                    pageObject,
+                    options?.subsample,
+                    options?.targetWidthPx,
+                    revokeFallbackObjectUrl,
+                    registerFallbackWindowObjectUrl,
+                );
+                throwIfFallbackRenderCanceled(pageNumber, previewRequestId);
+                return renderedPageObjectUrl;
+            } catch (error) {
+                revokeFallbackObjectUrl(renderedPageObjectUrl?.objectUrl ?? pageObject.url);
+                throw error;
+            }
         },
-        revokeObjectURL: (url: string) => worker.revokeObjectURL(url),
+        revokeObjectURL: revokeFallbackObjectUrl,
         terminate() {
             terminated = true;
             latestPreviewRequestIdsByPage.clear();
+            for (const url of fallbackWindowObjectUrls) {
+                if (typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
+                    URL.revokeObjectURL(url);
+                }
+            }
+            fallbackWindowObjectUrls.clear();
             worker.terminate();
         },
     };

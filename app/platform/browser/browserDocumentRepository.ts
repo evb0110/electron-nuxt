@@ -30,7 +30,7 @@ import type {
 } from '@app/platform/browser/browserDocumentTypes';
 import {
     deleteRecord,
-    loadRecord,
+    loadRecordAvailability,
     persistRecord,
 } from '@app/platform/browser/browserDocumentIdb';
 import {
@@ -363,26 +363,49 @@ export class BrowserDocumentStore {
         });
     }
 
-    public async ensureEntry(ref: string): Promise<IBrowserDocumentEntry | null> {
+    public async ensureEntryAvailability(ref: string): Promise<{
+        available: boolean;
+        entry: IBrowserDocumentEntry | null;
+    }> {
         await this.ensureMaintenance();
         const inMemory = this.entries.get(ref);
         if (inMemory) {
             if (inMemory.pendingLoad) {
                 await inMemory.pendingLoad;
             }
-            return inMemory;
+            return {
+                available: true,
+                entry: inMemory,
+            };
         }
 
-        const persisted = await loadRecord(ref);
-        const normalizedRecord = toPersistedDocumentRecord(persisted);
+        const persistedResult = await loadRecordAvailability(ref);
+        if (!persistedResult.available) {
+            return {
+                available: false,
+                entry: null,
+            };
+        }
+
+        const normalizedRecord = toPersistedDocumentRecord(persistedResult.value);
         if (!normalizedRecord) {
-            return null;
+            return {
+                available: true,
+                entry: null,
+            };
         }
 
         const entry = createEntryFromPersistedRecord(normalizedRecord);
 
         this.entries.set(ref, entry);
-        return entry;
+        return {
+            available: true,
+            entry,
+        };
+    }
+
+    public async ensureEntry(ref: string): Promise<IBrowserDocumentEntry | null> {
+        return (await this.ensureEntryAvailability(ref)).entry;
     }
 
     public async requireEntry(ref: string): Promise<IBrowserDocumentEntry> {

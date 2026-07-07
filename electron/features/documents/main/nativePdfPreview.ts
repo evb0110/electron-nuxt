@@ -20,6 +20,7 @@ import {
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { cancelNativeCommandGroup } from '@electron/native-tools/runNativeCommand';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
+import { abortErrorFromSignal } from '@electron/utils/abort';
 
 const PDFINFO_TIMEOUT_MS = 20_000;
 const PDF_RENDER_TIMEOUT_MS = 30_000;
@@ -167,6 +168,12 @@ function abortPreviewController(controller: AbortController, reason: string) {
     }
 }
 
+function throwIfAborted(signal: AbortSignal) {
+    if (signal.aborted) {
+        throw abortErrorFromSignal(signal);
+    }
+}
+
 function cancelActivePreviewRequest(senderId: number, requestId: string, reason: string) {
     const abort = activePreviewAborters.get(getPreviewAborterKey(senderId, requestId));
     if (!abort) {
@@ -176,7 +183,11 @@ function cancelActivePreviewRequest(senderId: number, requestId: string, reason:
     return true;
 }
 
-function registerPreviewSenderCleanup(sender: Electron.WebContents | undefined, abort: (reason: string) => void) {
+function registerNativePdfSenderCleanup(
+    sender: Electron.WebContents | undefined,
+    abort: (reason: string) => void,
+    navigationReason = 'Renderer navigation canceled native PDF preview',
+) {
     if (!sender) {
         return () => undefined;
     }
@@ -194,7 +205,7 @@ function registerPreviewSenderCleanup(sender: Electron.WebContents | undefined, 
         isMainFrame: boolean,
     ) => {
         if (isMainFrame && !isInPlace) {
-            abort('Renderer navigation canceled native PDF preview');
+            abort(navigationReason);
         }
     };
 
@@ -216,45 +227,82 @@ export async function handlePdfNativePageSizes(
     const resolvedPath = await resolvePdfPath(context, filePath);
     const tools = getPdfNativeToolPaths();
     const env = buildPopplerEnv(tools);
-    const overview = await runNativeToolCommand(
-        tools.pdfinfo,
-        [resolvedPath],
-        withPopplerEnv(env, {
-            timeoutMs: PDFINFO_TIMEOUT_MS,
-            maxStdoutBytes: PDFINFO_BASE_STDOUT_BYTES,
-            commandLabel: 'pdfinfo',
-        }),
+    const abortController = new AbortController();
+    let cancelGroup = '';
+    const cancelPageSizes = (reason: string) => {
+        abortPreviewController(abortController, reason);
+        if (cancelGroup) {
+            cancelNativeCommandGroup(cancelGroup);
+        }
+    };
+    const mainOperation = registerMainOperation({
+        kind: 'abortable-work',
+        ownerWebContentsId: context.senderId,
+        workingCopyPath: resolvedPath,
+        cancel: cancelPageSizes,
+    });
+    cancelGroup = `pdf-native-page-sizes:${mainOperation.id}`;
+    const handleMainAbort = () => {
+        cancelPageSizes('Native PDF page-size discovery canceled');
+    };
+    const unregisterSenderCleanup = registerNativePdfSenderCleanup(
+        context.sender,
+        cancelPageSizes,
+        'Renderer navigation canceled native PDF page-size discovery',
     );
-    const pageCount = normalizePageCount(overview.stdout);
-    const fallbackPageSize = parseDefaultPageSize(overview.stdout);
+    mainOperation.signal.addEventListener('abort', handleMainAbort, { once: true });
 
-    if (pageCount > PDFINFO_DETAILED_PAGE_LIMIT) {
-        return parsePdfInfoPageSizes(overview.stdout, pageCount, fallbackPageSize);
+    try {
+        const overview = await runNativeToolCommand(
+            tools.pdfinfo,
+            [resolvedPath],
+            withPopplerEnv(env, {
+                timeoutMs: PDFINFO_TIMEOUT_MS,
+                maxStdoutBytes: PDFINFO_BASE_STDOUT_BYTES,
+                commandLabel: 'pdfinfo',
+                signal: abortController.signal,
+                cancelGroup,
+            }),
+        );
+        throwIfAborted(abortController.signal);
+        const pageCount = normalizePageCount(overview.stdout);
+        const fallbackPageSize = parseDefaultPageSize(overview.stdout);
+
+        if (pageCount > PDFINFO_DETAILED_PAGE_LIMIT) {
+            return parsePdfInfoPageSizes(overview.stdout, pageCount, fallbackPageSize);
+        }
+
+        const detailed = await runNativeToolCommand(
+            tools.pdfinfo,
+            [
+                '-box',
+                '-f',
+                '1',
+                '-l',
+                String(pageCount),
+                resolvedPath,
+            ],
+            withPopplerEnv(env, {
+                timeoutMs: PDFINFO_TIMEOUT_MS,
+                maxStdoutBytes: Math.max(PDFINFO_BASE_STDOUT_BYTES, pageCount * PDFINFO_PER_PAGE_STDOUT_BYTES),
+                rejectOnStdoutTruncation: true,
+                commandLabel: 'pdfinfo',
+                signal: abortController.signal,
+                cancelGroup,
+            }),
+        );
+        throwIfAborted(abortController.signal);
+
+        return parsePdfInfoPageSizes(
+            detailed.stdout,
+            pageCount,
+            parseDefaultPageSize(detailed.stdout) ?? fallbackPageSize,
+        );
+    } finally {
+        mainOperation.signal.removeEventListener('abort', handleMainAbort);
+        unregisterSenderCleanup();
+        mainOperation.complete();
     }
-
-    const detailed = await runNativeToolCommand(
-        tools.pdfinfo,
-        [
-            '-box',
-            '-f',
-            '1',
-            '-l',
-            String(pageCount),
-            resolvedPath,
-        ],
-        withPopplerEnv(env, {
-            timeoutMs: PDFINFO_TIMEOUT_MS,
-            maxStdoutBytes: Math.max(PDFINFO_BASE_STDOUT_BYTES, pageCount * PDFINFO_PER_PAGE_STDOUT_BYTES),
-            rejectOnStdoutTruncation: true,
-            commandLabel: 'pdfinfo',
-        }),
-    );
-
-    return parsePdfInfoPageSizes(
-        detailed.stdout,
-        pageCount,
-        parseDefaultPageSize(detailed.stdout) ?? fallbackPageSize,
-    );
 }
 
 export function handleCancelPdfNativePagePreview(
@@ -312,7 +360,7 @@ export async function handlePdfNativePagePreview(
     const handleMainAbort = () => {
         cancelPreview('Native PDF preview canceled');
     };
-    const unregisterSenderCleanup = registerPreviewSenderCleanup(context.sender, (reason) => {
+    const unregisterSenderCleanup = registerNativePdfSenderCleanup(context.sender, (reason) => {
         cancelPreview(reason);
     });
     mainOperation.signal.addEventListener('abort', handleMainAbort, { once: true });

@@ -9,6 +9,7 @@ import {
     isElectronUserAgent,
     shouldPreferDesktopPlatform,
     waitForDesktopPlatformBridge,
+    waitForPreferredDesktopPlatformBridge,
 } from '@app/utils/platform';
 
 describe('platform runtime detection', () => {
@@ -22,6 +23,23 @@ describe('platform runtime detection', () => {
 
     it('short-circuits bridge waiting when desktop is not required', async () => {
         await expect(waitForDesktopPlatformBridge({shouldWait: false})).resolves.toBe(false);
+    });
+
+    it('reports whether the preferred desktop bridge was required', async () => {
+        await expect(waitForPreferredDesktopPlatformBridge({
+            routePath: '/electron',
+            attempts: 0,
+        })).resolves.toEqual({
+            shouldWait: true,
+            bridgeReady: false,
+        });
+        await expect(waitForPreferredDesktopPlatformBridge({
+            routePath: '/',
+            attempts: 0,
+        })).resolves.toEqual({
+            shouldWait: false,
+            bridgeReady: false,
+        });
     });
 
     it('detects Electron user agents without treating browsers as Electron', () => {

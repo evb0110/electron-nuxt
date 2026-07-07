@@ -113,6 +113,7 @@ describe('createSearchPreloadClient', () => {
                     after: ' two',
                 },
             }],
+            resultsStartIndex: 5,
             truncated: false,
             canceled: false,
         });
@@ -151,6 +152,7 @@ describe('createSearchPreloadClient', () => {
         expect(callback).toHaveBeenCalledWith(expect.objectContaining({
             requestId: 'search-1',
             processed: 1,
+            resultsStartIndex: 5,
             results: [expect.objectContaining({pageNumber: 1})],
         }));
         expect(callback).toHaveBeenCalledWith({

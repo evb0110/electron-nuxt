@@ -1,6 +1,9 @@
 import type { PDFDocument } from 'pdf-lib';
 import { clamp } from 'es-toolkit/math';
-import { iterateDecodedTiffFrames } from '@pdf-core';
+import {
+    DEFAULT_TIFF_DECODE_LIMITS,
+    iterateDecodedTiffFrames,
+} from '@pdf-core';
 import {
     ensurePdfExtension,
     getExtension,
@@ -300,7 +303,10 @@ async function embedTiffPages(
         width,
         height,
         rgba,
-    } of iterateDecodedTiffFrames(bytes)) {
+    } of iterateDecodedTiffFrames(bytes, {
+            ...DEFAULT_TIFF_DECODE_LIMITS,
+            sourceLabel: fileName,
+        })) {
         const pngBytes = await encodeRgbaToPngBytes(width, height, rgba);
         const image = await pdfDocument.embedPng(pngBytes);
         appendPdfImagePage(pdfDocument, image);

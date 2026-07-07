@@ -13,8 +13,8 @@ vi.mock('@electron/config', () => ({config: {
 }}));
 
 interface IRegisteredExternalOpenIpcHandlers {
-    claimPendingExternalOpenPaths?: (event: { sender: object; }) => Promise<string[]>;
-    acknowledgePendingExternalOpenPaths?: (event: { sender: object; }, failedPaths: string[]) => void;
+    claimPendingExternalOpenPaths?: (event: { sender: EventEmitter; }) => Promise<string[]>;
+    acknowledgePendingExternalOpenPaths?: (event: { sender: EventEmitter; }, failedPaths: string[]) => void;
 }
 
 describe('runInitSequence external open IPC', () => {
@@ -57,6 +57,7 @@ describe('runInitSequence external open IPC', () => {
             markBootstrapReady: vi.fn(),
         };
         const allowOpenPaths = vi.fn();
+        const sweepStaleManagedScratchTempDirs = vi.fn(async () => {});
 
         await runInitSequence({
             app: app as never,
@@ -109,15 +110,24 @@ describe('runInitSequence external open IPC', () => {
             shouldResetRendererReadyOnNavigation: vi.fn(() => true),
             shutdownCoordinator: null,
             sweepStaleDefaultAppTempPdfs: vi.fn(async () => {}),
+            sweepStaleManagedScratchTempDirs,
         });
 
         return {
+            app,
             allowOpenPaths,
             capturedHandlers,
             externalOpenManager,
             mainWindow,
             otherWindow,
+            sweepStaleManagedScratchTempDirs,
         };
+    }
+
+    async function claimStartupPath(harness: Awaited<ReturnType<typeof createHarness>>) {
+        await expect(harness.capturedHandlers.claimPendingExternalOpenPaths?.(
+            {sender: harness.mainWindow.webContents},
+        )).resolves.toEqual(['/docs/startup.pdf']);
     }
 
     it('acknowledges failed startup opens only from the claiming WebContents and claimed paths', async () => {
@@ -169,6 +179,48 @@ describe('runInitSequence external open IPC', () => {
             if (platformDescriptor) {
                 Object.defineProperty(process, 'platform', platformDescriptor);
             }
+        }
+    });
+
+    it('starts managed scratch temp cleanup during boot cleanup', async () => {
+        const harness = await createHarness();
+
+        expect(harness.sweepStaleManagedScratchTempDirs).toHaveBeenCalledTimes(1);
+    });
+
+    it('requeues an unacknowledged startup claim when the main renderer navigates', async () => {
+        const harness = await createHarness();
+        harness.app.emit('browser-window-created', {}, harness.mainWindow);
+
+        await claimStartupPath(harness);
+        expect(harness.externalOpenManager.acknowledgeClaimedOpenPaths).not.toHaveBeenCalled();
+
+        harness.mainWindow.webContents.emit('did-start-navigation', {}, 'app://renderer/reload', false, true);
+
+        expect(harness.externalOpenManager.acknowledgeClaimedOpenPaths).toHaveBeenCalledWith(['/docs/startup.pdf']);
+    });
+
+    it('requeues an unacknowledged startup claim when the renderer process is gone', async () => {
+        const harness = await createHarness();
+        harness.app.emit('browser-window-created', {}, harness.mainWindow);
+
+        await claimStartupPath(harness);
+        harness.mainWindow.webContents.emit('render-process-gone');
+
+        expect(harness.externalOpenManager.acknowledgeClaimedOpenPaths).toHaveBeenCalledWith(['/docs/startup.pdf']);
+    });
+
+    it('requeues an unacknowledged startup claim after the claim timeout', async () => {
+        vi.useFakeTimers();
+        try {
+            const harness = await createHarness();
+
+            await claimStartupPath(harness);
+            await vi.advanceTimersByTimeAsync(30_000);
+
+            expect(harness.externalOpenManager.acknowledgeClaimedOpenPaths).toHaveBeenCalledWith(['/docs/startup.pdf']);
+        } finally {
+            vi.useRealTimers();
         }
     });
 });

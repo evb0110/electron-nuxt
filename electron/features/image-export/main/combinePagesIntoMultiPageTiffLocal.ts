@@ -27,6 +27,11 @@ interface ITiffPageRgba {
 
 interface ILocalTiffPageDescriptor extends ITiffImageDescriptor { path: string }
 
+interface ICombinePagesIntoMultiPageTiffLocalOptions {
+    deleteSourcePages?: boolean;
+    signal?: AbortSignal;
+}
+
 const CLASSIC_TIFF_MAX_BYTE_LENGTH = 0xFFFFFFFF;
 
 interface IIndexedArrayBufferView extends ArrayBufferView {
@@ -294,7 +299,13 @@ async function closeWriteStream(stream: WriteStream) {
     });
 }
 
-export async function combinePagesIntoMultiPageTiffLocal(pagePaths: string[], outputPath: string, signal?: AbortSignal) {
+export async function combinePagesIntoMultiPageTiffLocal(
+    pagePaths: string[],
+    outputPath: string,
+    options: ICombinePagesIntoMultiPageTiffLocalOptions | AbortSignal = {},
+) {
+    const signal = options instanceof AbortSignal ? options : options.signal;
+    const deleteSourcePages = !(options instanceof AbortSignal) && options.deleteSourcePages === true;
     if (pagePaths.length === 0) {
         throw new Error('No pages available for TIFF export');
     }
@@ -337,6 +348,9 @@ export async function combinePagesIntoMultiPageTiffLocal(pagePaths: string[], ou
             }
 
             await writeChunkToStream(stream, decoded.rgba);
+            if (deleteSourcePages) {
+                await rm(page.path, { force: true }).catch(() => undefined);
+            }
         }
 
         await closeWriteStream(stream);

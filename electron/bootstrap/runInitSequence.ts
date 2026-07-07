@@ -50,6 +50,19 @@ function shouldWaitForInitialRendererReady() {
     return process.env.EVB_WAIT_RENDERER_READY === '1';
 }
 
+const STARTUP_EXTERNAL_OPEN_CLAIM_TIMEOUT_MS = 30_000;
+
+interface IStartupExternalOpenClaim {
+    paths: Set<string>;
+    timeout: ReturnType<typeof setTimeout> | null;
+}
+
+interface IStartupExternalOpenClaimTracker {
+    acknowledge(sender: WebContents, failedPaths: string[]): boolean;
+    requeue(sender: WebContents, reason: string): void;
+    track(sender: WebContents, paths: string[]): void;
+}
+
 export interface IRunInitSequenceOptions {
     app: App;
     aboutIconPath: string;
@@ -92,7 +105,76 @@ export interface IRunInitSequenceOptions {
     }): boolean;
     shutdownCoordinator: IShutdownCoordinator | null;
     sweepStaleDefaultAppTempPdfs(): Promise<unknown>;
+    sweepStaleManagedScratchTempDirs?: () => Promise<unknown>;
     sweepStaleOcrTempArtifacts?: () => Promise<unknown>;
+}
+
+function createStartupExternalOpenClaimTracker(options: Pick<IRunInitSequenceOptions, 'externalOpenManager' | 'logger'>): IStartupExternalOpenClaimTracker {
+    const claimsBySender = new Map<WebContents, IStartupExternalOpenClaim>();
+
+    function clearClaim(sender: WebContents) {
+        const claim = claimsBySender.get(sender);
+        if (!claim) {
+            return null;
+        }
+
+        if (claim.timeout) {
+            clearTimeout(claim.timeout);
+            claim.timeout = null;
+        }
+        claimsBySender.delete(sender);
+        return claim;
+    }
+
+    function requeue(sender: WebContents, reason: string) {
+        const claim = clearClaim(sender);
+        if (!claim) {
+            return;
+        }
+
+        const paths = Array.from(claim.paths);
+        options.externalOpenManager.acknowledgeClaimedOpenPaths(paths);
+        options.logger.warn(`Requeued ${paths.length} unacknowledged startup external open path(s) after ${reason}`);
+    }
+
+    function track(sender: WebContents, paths: string[]) {
+        requeue(sender, 'replacement startup claim');
+
+        const claim: IStartupExternalOpenClaim = {
+            paths: new Set(paths),
+            timeout: null,
+        };
+        claim.timeout = setTimeout(() => {
+            requeue(sender, 'claim timeout');
+        }, STARTUP_EXTERNAL_OPEN_CLAIM_TIMEOUT_MS);
+        claim.timeout.unref?.();
+        claimsBySender.set(sender, claim);
+    }
+
+    function acknowledge(sender: WebContents, failedPaths: string[]) {
+        const claim = claimsBySender.get(sender);
+        if (!claim) {
+            return false;
+        }
+
+        const normalizedFailedPaths = normalizeAcknowledgedExternalOpenPaths(failedPaths);
+        if (
+            normalizedFailedPaths.length > claim.paths.size
+            || normalizedFailedPaths.some(path => !claim.paths.has(path))
+        ) {
+            return false;
+        }
+
+        clearClaim(sender);
+        options.externalOpenManager.acknowledgeClaimedOpenPaths(normalizedFailedPaths);
+        return true;
+    }
+
+    return {
+        acknowledge,
+        requeue,
+        track,
+    };
 }
 
 function bootSingleInstance(options: IRunInitSequenceOptions) {
@@ -173,7 +255,10 @@ function bootAboutPanel(options: IRunInitSequenceOptions) {
     });
 }
 
-function bootIpc(options: IRunInitSequenceOptions) {
+function bootIpc(
+    options: IRunInitSequenceOptions,
+    startupExternalOpenClaims: IStartupExternalOpenClaimTracker,
+) {
     const {
         allowOpenPaths,
         externalOpenManager,
@@ -186,8 +271,6 @@ function bootIpc(options: IRunInitSequenceOptions) {
         readyWindowIds,
         registerIpcHandlers,
     } = options;
-    const outstandingExternalOpenClaims = new WeakMap<WebContents, Set<string>>();
-
     registerIpcHandlers({
         onRendererReady: (event) => {
             const window = getWindowFromWebContents(event.sender);
@@ -213,10 +296,9 @@ function bootIpc(options: IRunInitSequenceOptions) {
 
             const paths = await externalOpenManager.claimPendingOpenPaths();
             if (paths.length === 0) {
-                outstandingExternalOpenClaims.delete(event.sender);
                 return [];
             }
-            outstandingExternalOpenClaims.set(event.sender, new Set(paths));
+            startupExternalOpenClaims.track(event.sender, paths);
             allowOpenPaths(paths, event.sender);
             return paths;
         },
@@ -226,21 +308,7 @@ function bootIpc(options: IRunInitSequenceOptions) {
                 return;
             }
 
-            const claimedPaths = outstandingExternalOpenClaims.get(event.sender);
-            if (!claimedPaths) {
-                return;
-            }
-
-            const normalizedFailedPaths = normalizeAcknowledgedExternalOpenPaths(failedPaths);
-            if (
-                normalizedFailedPaths.length > claimedPaths.size
-                || normalizedFailedPaths.some(path => !claimedPaths.has(path))
-            ) {
-                return;
-            }
-
-            outstandingExternalOpenClaims.delete(event.sender);
-            externalOpenManager.acknowledgeClaimedOpenPaths(normalizedFailedPaths);
+            startupExternalOpenClaims.acknowledge(event.sender, failedPaths);
         },
     });
     logStartupPhase('IPC handlers registered');
@@ -251,6 +319,7 @@ function bootCleanup(options: IRunInitSequenceOptions) {
         cleanupStaleWorkingCopyDirectories,
         logger,
         sweepStaleDefaultAppTempPdfs,
+        sweepStaleManagedScratchTempDirs,
         sweepStaleOcrTempArtifacts,
     } = options;
 
@@ -260,6 +329,10 @@ function bootCleanup(options: IRunInitSequenceOptions) {
 
     void sweepStaleOcrTempArtifacts?.().catch((error: unknown) => {
         logger.warn(`Failed to sweep stale OCR temp artifacts: ${getErrorMessage(error)}`);
+    });
+
+    void sweepStaleManagedScratchTempDirs?.().catch((error: unknown) => {
+        logger.warn(`Failed to sweep stale managed scratch temp directories: ${getErrorMessage(error)}`);
     });
 
     void cleanupStaleWorkingCopyDirectories()
@@ -275,7 +348,10 @@ function bootCleanup(options: IRunInitSequenceOptions) {
         });
 }
 
-function bootWindowLifecycle(options: IRunInitSequenceOptions) {
+function bootWindowLifecycle(
+    options: IRunInitSequenceOptions,
+    startupExternalOpenClaims: IStartupExternalOpenClaimTracker,
+) {
     const {
         app,
         attachHostEnvironmentToWindow,
@@ -294,9 +370,10 @@ function bootWindowLifecycle(options: IRunInitSequenceOptions) {
     app.on('browser-window-created', (_event, window) => {
         attachHostEnvironmentToWindow(window);
 
-        const markNotReady = () => {
+        const markNotReady = (reason: string) => {
             readyWindowIds.delete(window.id);
             markWindowTabTransferNotReady(window.id);
+            startupExternalOpenClaims.requeue(window.webContents, reason);
         };
 
         window.webContents.on('did-start-navigation', (_navEvent, _url, isInPlace, isMainFrame) => {
@@ -306,12 +383,12 @@ function bootWindowLifecycle(options: IRunInitSequenceOptions) {
             })) {
                 return;
             }
-            markNotReady();
+            markNotReady('main-frame navigation');
         });
-        window.webContents.on('render-process-gone', markNotReady);
+        window.webContents.on('render-process-gone', () => markNotReady('renderer process gone'));
 
         window.on('closed', () => {
-            markNotReady();
+            markNotReady('window closed');
             markWindowTabTransferWindowClosed(window.id);
         });
     });
@@ -406,14 +483,15 @@ function bootMenu(options: IRunInitSequenceOptions) {
 }
 
 export async function runInitSequence(options: IRunInitSequenceOptions) {
+    const startupExternalOpenClaims = createStartupExternalOpenClaimTracker(options);
     bootSingleInstance(options);
     await bootProtocol(options);
     await bootDevDockIcon(options);
     bootAboutPanel(options);
-    bootIpc(options);
+    bootIpc(options, startupExternalOpenClaims);
     options.installHostEnvironmentDisplayWatcher();
     bootCleanup(options);
-    bootWindowLifecycle(options);
+    bootWindowLifecycle(options, startupExternalOpenClaims);
     await bootMainWindow(options);
 
     void (async () => {

@@ -1,5 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import {
+    existsSync,
+    mkdirSync,
+    readFileSync,
+    renameSync,
+    unlinkSync,
+    writeFileSync,
+} from 'fs';
+import {
     mkdir,
     readFile,
     rename,
@@ -9,6 +17,7 @@ import {
 import { dirname } from 'path';
 import type {
     IDocumentRevisionInfo,
+    TDocumentRevisionChangeReason,
     TDocumentRevisionToken,
 } from '@contracts/documentRevision';
 import { createStaleRevisionError } from '@contracts/documentMutationErrors';
@@ -19,8 +28,46 @@ export interface IWorkingCopyRevisionSidecar extends IDocumentRevisionInfo {
     updatedAt: number;
 }
 
+export interface IWorkingCopySyncRequiredJournalEntry {
+    kind: 'working-copy-sync-required';
+    id: string;
+    reason: string;
+    targetWriteCommitted: true;
+    createdAt: number;
+    updatedAt: number;
+    originalPath?: string;
+    ownerWebContentsId?: number;
+}
+
+interface IWorkingCopyRevisionCommitJournalEntry {
+    kind: 'revision-sidecar-commit';
+    id: string;
+    reason: TDocumentRevisionChangeReason;
+    sidecar: IWorkingCopyRevisionSidecar;
+    createdAt: number;
+    updatedAt: number;
+}
+
+type TWorkingCopyRevisionJournalEntry =
+    | IWorkingCopySyncRequiredJournalEntry
+    | IWorkingCopyRevisionCommitJournalEntry;
+
+interface IWorkingCopyRevisionJournal {
+    journalVersion: 1;
+    updatedAt: number;
+    entries: TWorkingCopyRevisionJournalEntry[];
+}
+
+const WORKING_COPY_REVISION_JOURNAL_MAX_ENTRIES = 8;
+const WORKING_COPY_REVISION_JOURNAL_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const WORKING_COPY_REVISION_JOURNAL_MAX_REASON_LENGTH = 2048;
+
 export function getWorkingCopyRevisionSidecarPath(workingCopyPath: string) {
     return `${workingCopyPath}.evb-revision.json`;
+}
+
+function getWorkingCopyRevisionJournalPath(workingCopyPath: string) {
+    return `${workingCopyPath}.evb-revision-journal.json`;
 }
 
 function isPositiveTimestamp(value: unknown): value is number {
@@ -72,13 +119,310 @@ function normalizeWorkingCopyRevisionSidecar(value: unknown): IWorkingCopyRevisi
     };
 }
 
-export async function readWorkingCopyRevisionSidecar(workingCopyPath: string) {
+function normalizeJournalReason(value: unknown) {
+    if (typeof value !== 'string') {
+        return null;
+    }
+    const trimmed = value.trim();
+    if (!trimmed) {
+        return null;
+    }
+    return trimmed.length > WORKING_COPY_REVISION_JOURNAL_MAX_REASON_LENGTH
+        ? trimmed.slice(0, WORKING_COPY_REVISION_JOURNAL_MAX_REASON_LENGTH)
+        : trimmed;
+}
+
+function normalizeOptionalPath(value: unknown) {
+    return typeof value === 'string' && value.trim().length > 0
+        ? value.trim()
+        : undefined;
+}
+
+function normalizeOwnerWebContentsId(value: unknown) {
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+        ? value
+        : undefined;
+}
+
+function isJournalEntryFresh(updatedAt: number, now: number) {
+    return now - updatedAt <= WORKING_COPY_REVISION_JOURNAL_TTL_MS;
+}
+
+function normalizeRevisionJournalEntry(
+    value: unknown,
+    now: number,
+): TWorkingCopyRevisionJournalEntry | null {
+    if (!isRecord(value)) {
+        return null;
+    }
+    if (value.kind === 'working-copy-sync-required') {
+        const reason = normalizeJournalReason(value.reason);
+        if (
+            typeof value.id !== 'string'
+            || value.id.length === 0
+            || reason === null
+            || value.targetWriteCommitted !== true
+            || !isPositiveTimestamp(value.createdAt)
+            || !isPositiveTimestamp(value.updatedAt)
+            || !isJournalEntryFresh(value.updatedAt, now)
+        ) {
+            return null;
+        }
+
+        const originalPath = normalizeOptionalPath(value.originalPath);
+        const ownerWebContentsId = normalizeOwnerWebContentsId(value.ownerWebContentsId);
+        return {
+            kind: 'working-copy-sync-required',
+            id: value.id,
+            reason,
+            targetWriteCommitted: true,
+            createdAt: value.createdAt,
+            updatedAt: value.updatedAt,
+            ...(originalPath === undefined ? {} : {originalPath}),
+            ...(ownerWebContentsId === undefined ? {} : {ownerWebContentsId}),
+        };
+    }
+
+    if (value.kind === 'revision-sidecar-commit') {
+        const sidecar = normalizeWorkingCopyRevisionSidecar(value.sidecar);
+        if (
+            typeof value.id !== 'string'
+            || value.id.length === 0
+            || typeof value.reason !== 'string'
+            || value.reason.trim().length === 0
+            || sidecar === null
+            || !isPositiveTimestamp(value.createdAt)
+            || !isPositiveTimestamp(value.updatedAt)
+            || !isJournalEntryFresh(value.updatedAt, now)
+        ) {
+            return null;
+        }
+
+        return {
+            kind: 'revision-sidecar-commit',
+            id: value.id,
+            reason: value.reason as TDocumentRevisionChangeReason,
+            sidecar,
+            createdAt: value.createdAt,
+            updatedAt: value.updatedAt,
+        };
+    }
+
+    return null;
+}
+
+function normalizeWorkingCopyRevisionJournal(value: unknown): IWorkingCopyRevisionJournal {
+    const now = Date.now();
+    if (!isRecord(value) || value.journalVersion !== 1 || !Array.isArray(value.entries)) {
+        return {
+            journalVersion: 1,
+            updatedAt: now,
+            entries: [],
+        };
+    }
+
+    const entries = value.entries
+        .map(entry => normalizeRevisionJournalEntry(entry, now))
+        .filter((entry): entry is TWorkingCopyRevisionJournalEntry => entry !== null)
+        .sort((left, right) => right.updatedAt - left.updatedAt)
+        .slice(0, WORKING_COPY_REVISION_JOURNAL_MAX_ENTRIES);
+    return {
+        journalVersion: 1,
+        updatedAt: typeof value.updatedAt === 'number' && Number.isFinite(value.updatedAt)
+            ? value.updatedAt
+            : now,
+        entries,
+    };
+}
+
+function readWorkingCopyRevisionJournalFile(workingCopyPath: string): IWorkingCopyRevisionJournal {
+    try {
+        const text = readFileSync(getWorkingCopyRevisionJournalPath(workingCopyPath), 'utf8');
+        return normalizeWorkingCopyRevisionJournal(JSON.parse(text));
+    } catch {
+        return normalizeWorkingCopyRevisionJournal(null);
+    }
+}
+
+function writeWorkingCopyRevisionJournalFile(
+    workingCopyPath: string,
+    entries: TWorkingCopyRevisionJournalEntry[],
+) {
+    const normalized = normalizeWorkingCopyRevisionJournal({
+        journalVersion: 1,
+        updatedAt: Date.now(),
+        entries,
+    });
+    const journalPath = getWorkingCopyRevisionJournalPath(workingCopyPath);
+    if (normalized.entries.length === 0) {
+        if (existsSync(journalPath)) {
+            unlinkSync(journalPath);
+        }
+        return;
+    }
+
+    const tempPath = `${journalPath}.${process.pid}.${randomUUID()}.tmp`;
+    mkdirSync(dirname(journalPath), { recursive: true });
+    try {
+        writeFileSync(tempPath, `${JSON.stringify(normalized)}\n`, 'utf8');
+        renameSync(tempPath, journalPath);
+    } catch (error) {
+        if (existsSync(tempPath)) {
+            unlinkSync(tempPath);
+        }
+        throw error;
+    }
+}
+
+function updateWorkingCopyRevisionJournalEntries(
+    workingCopyPath: string,
+    update: (entries: TWorkingCopyRevisionJournalEntry[]) => TWorkingCopyRevisionJournalEntry[],
+) {
+    const journal = readWorkingCopyRevisionJournalFile(workingCopyPath);
+    writeWorkingCopyRevisionJournalFile(workingCopyPath, update(journal.entries));
+}
+
+export function readWorkingCopyRevisionJournalEntries(workingCopyPath: string) {
+    return readWorkingCopyRevisionJournalFile(workingCopyPath).entries;
+}
+
+export function writeWorkingCopySyncRequiredJournalEntry(
+    workingCopyPath: string,
+    options: {
+        reason: string;
+        originalPath?: string;
+        ownerWebContentsId?: number;
+    },
+) {
+    const now = Date.now();
+    const existing = readWorkingCopyRevisionJournalFile(workingCopyPath)
+        .entries
+        .find(entry => entry.kind === 'working-copy-sync-required');
+    const reason = normalizeJournalReason(options.reason) ?? 'Working copy must be resynced before further edits';
+    const originalPath = normalizeOptionalPath(options.originalPath);
+    const ownerWebContentsId = normalizeOwnerWebContentsId(options.ownerWebContentsId);
+    const nextEntry: IWorkingCopySyncRequiredJournalEntry = {
+        kind: 'working-copy-sync-required',
+        id: existing?.id ?? `sync-required:${randomUUID()}`,
+        reason,
+        targetWriteCommitted: true,
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+        ...(originalPath === undefined ? {} : {originalPath}),
+        ...(ownerWebContentsId === undefined ? {} : {ownerWebContentsId}),
+    };
+    updateWorkingCopyRevisionJournalEntries(workingCopyPath, entries => [
+        nextEntry,
+        ...entries.filter(entry => entry.kind !== 'working-copy-sync-required'),
+    ]);
+}
+
+export function readWorkingCopySyncRequiredJournalEntry(
+    workingCopyPath: string,
+): IWorkingCopySyncRequiredJournalEntry | null {
+    return readWorkingCopyRevisionJournalFile(workingCopyPath)
+        .entries
+        .find((entry): entry is IWorkingCopySyncRequiredJournalEntry => entry.kind === 'working-copy-sync-required')
+        ?? null;
+}
+
+export function clearWorkingCopySyncRequiredJournalEntry(workingCopyPath: string) {
+    updateWorkingCopyRevisionJournalEntries(
+        workingCopyPath,
+        entries => entries.filter(entry => entry.kind !== 'working-copy-sync-required'),
+    );
+}
+
+export function stageWorkingCopyRevisionSidecarCommit(
+    workingCopyPath: string,
+    sidecar: IWorkingCopyRevisionSidecar,
+    reason: TDocumentRevisionChangeReason,
+) {
+    const now = Date.now();
+    const nextEntry: IWorkingCopyRevisionCommitJournalEntry = {
+        kind: 'revision-sidecar-commit',
+        id: `revision:${sidecar.token}`,
+        reason,
+        sidecar,
+        createdAt: now,
+        updatedAt: now,
+    };
+    updateWorkingCopyRevisionJournalEntries(workingCopyPath, entries => [
+        nextEntry,
+        ...entries.filter(entry => entry.id !== nextEntry.id),
+    ]);
+}
+
+export function clearWorkingCopyRevisionSidecarCommit(
+    workingCopyPath: string,
+    token: TDocumentRevisionToken,
+) {
+    updateWorkingCopyRevisionJournalEntries(
+        workingCopyPath,
+        entries => entries.filter(entry => (
+            entry.kind !== 'revision-sidecar-commit'
+            || entry.sidecar.token !== token
+        )),
+    );
+}
+
+function clearWorkingCopyRevisionSidecarCommitsThrough(
+    workingCopyPath: string,
+    contentRevision: number,
+) {
+    updateWorkingCopyRevisionJournalEntries(
+        workingCopyPath,
+        entries => entries.filter(entry => (
+            entry.kind !== 'revision-sidecar-commit'
+            || entry.sidecar.contentRevision > contentRevision
+        )),
+    );
+}
+
+function tryClearWorkingCopyRevisionSidecarCommitsThrough(
+    workingCopyPath: string,
+    contentRevision: number,
+) {
+    try {
+        clearWorkingCopyRevisionSidecarCommitsThrough(workingCopyPath, contentRevision);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+async function readWorkingCopyRevisionSidecarFile(workingCopyPath: string) {
     try {
         const text = await readFile(getWorkingCopyRevisionSidecarPath(workingCopyPath), 'utf8');
         return normalizeWorkingCopyRevisionSidecar(JSON.parse(text));
     } catch {
         return null;
     }
+}
+
+export async function reconcileWorkingCopyRevisionSidecarJournal(workingCopyPath: string) {
+    const pendingRevisions = readWorkingCopyRevisionJournalFile(workingCopyPath)
+        .entries
+        .filter((entry): entry is IWorkingCopyRevisionCommitJournalEntry => entry.kind === 'revision-sidecar-commit')
+        .sort((left, right) => right.sidecar.contentRevision - left.sidecar.contentRevision || right.updatedAt - left.updatedAt);
+    const current = await readWorkingCopyRevisionSidecarFile(workingCopyPath);
+    if (current) {
+        tryClearWorkingCopyRevisionSidecarCommitsThrough(workingCopyPath, current.contentRevision);
+    }
+    const pendingRevision = pendingRevisions
+        .find(entry => !current || entry.sidecar.contentRevision > current.contentRevision);
+    if (!pendingRevision) {
+        return null;
+    }
+
+    await writeWorkingCopyRevisionSidecar(workingCopyPath, pendingRevision.sidecar);
+    tryClearWorkingCopyRevisionSidecarCommitsThrough(workingCopyPath, pendingRevision.sidecar.contentRevision);
+    return pendingRevision.sidecar;
+}
+
+export async function readWorkingCopyRevisionSidecar(workingCopyPath: string) {
+    await reconcileWorkingCopyRevisionSidecarJournal(workingCopyPath).catch(() => undefined);
+    return readWorkingCopyRevisionSidecarFile(workingCopyPath);
 }
 
 export async function assertWorkingCopyRevisionSidecarCurrent(

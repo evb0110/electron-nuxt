@@ -20,7 +20,11 @@ const mocks = vi.hoisted(() => {
     const writeFile = vi.fn(async () => undefined);
     const load = vi.fn(async () => ({save: vi.fn(async () => new Uint8Array([9]))}));
     const writePdfBookmarkOutlines = vi.fn();
-    const runNativeToolCommand = vi.fn(async (_command: string, _args: string[], options?: { commandLabel?: string }) => ({
+    const runNativeToolCommand = vi.fn(async (_command: string, _args: string[], options?: {
+        cancelGroup?: string;
+        commandLabel?: string;
+        signal?: AbortSignal;
+    }) => ({
         stdout: options?.commandLabel === 'qpdf(djvu-bookmark-page-count)' ? '3\n' : '',
         stderr: '',
         success: true,
@@ -95,7 +99,11 @@ describe('embedBookmarksIntoPdfFile native path', () => {
         mocks.isNativePageOpsDisabled.mockReturnValue(false);
         mocks.resolveNativePageOpsPath.mockReturnValue('/native/evb-pdf-page-ops');
         mocks.getPdfNativeToolPaths.mockReturnValue({qpdf: '/native/qpdf'});
-        mocks.runNativeToolCommand.mockImplementation(async (_command: string, _args: string[], options?: { commandLabel?: string }) => ({
+        mocks.runNativeToolCommand.mockImplementation(async (_command: string, _args: string[], options?: {
+            cancelGroup?: string;
+            commandLabel?: string;
+            signal?: AbortSignal;
+        }) => ({
             stdout: options?.commandLabel === 'qpdf(djvu-bookmark-page-count)' ? '3\n' : '',
             stderr: '',
             success: true,
@@ -168,6 +176,25 @@ describe('embedBookmarksIntoPdfFile native path', () => {
             recursive: true,
             force: true,
         });
+    });
+
+    it('threads one cancellation scope through native page-count and bookmark mutation commands', async () => {
+        const controller = new AbortController();
+
+        await embedBookmarksIntoPdfFile('/tmp/input.pdf', '/tmp/output.pdf', bookmarks, controller.signal);
+
+        const qpdfOptions = mocks.runNativeToolCommand.mock.calls[0]?.[2];
+        const pageOpsOptions = mocks.runNativeToolCommand.mock.calls[1]?.[2];
+        expect(qpdfOptions).toMatchObject({
+            commandLabel: 'qpdf(djvu-bookmark-page-count)',
+            signal: controller.signal,
+        });
+        expect(pageOpsOptions).toMatchObject({
+            commandLabel: 'evb-pdf-page-ops(djvu-bookmarks)',
+            signal: controller.signal,
+        });
+        expect(qpdfOptions?.cancelGroup).toMatch(/^djvu-bookmarks:/u);
+        expect(pageOpsOptions?.cancelGroup).toBe(qpdfOptions?.cancelGroup);
     });
 
     it('falls back to pdf-lib when the native command fails', async () => {

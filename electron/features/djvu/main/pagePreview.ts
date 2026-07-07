@@ -207,7 +207,7 @@ async function readDjvuPageSizeForPreview(
     options: IDjvuPagePreviewLifecycleOptions = {},
 ) {
     throwIfAborted(options.signal);
-    const dpi = await getDjvuResolution(djvuPath);
+    const dpi = await getDjvuResolution(djvuPath, options.signal ? { signal: options.signal } : {});
     throwIfAborted(options.signal);
     const { djvused } = getDjvuNativeToolPaths();
     const result = await runNativeCommand(djvused, [
@@ -231,8 +231,14 @@ async function readDjvuPageSizeForPreview(
     return parseDjvuPageSizeOutput(result.stdout, dpi)[0] ?? null;
 }
 
-export async function getDjvuPageSizesForViewing(djvuPath: string, expectedPageCount: number): Promise<IDjvuPageSize[]> {
-    const dpi = await getDjvuResolution(djvuPath);
+export async function getDjvuPageSizesForViewing(
+    djvuPath: string,
+    expectedPageCount: number,
+    options: IDjvuPagePreviewLifecycleOptions = {},
+): Promise<IDjvuPageSize[]> {
+    throwIfAborted(options.signal);
+    const dpi = await getDjvuResolution(djvuPath, options.signal ? { signal: options.signal } : {});
+    throwIfAborted(options.signal);
     const { djvused } = getDjvuNativeToolPaths();
     const result = await runNativeCommand(djvused, [
         djvuPath,
@@ -248,7 +254,10 @@ export async function getDjvuPageSizesForViewing(djvuPath: string, expectedPageC
         includeProcessEnv: true,
         windowsHide: true,
         rejectOnStdoutTruncation: true,
+        ...(options.signal ? { signal: options.signal } : {}),
+        ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
     });
+    throwIfAborted(options.signal);
     const sizes = parseDjvuPageSizeOutput(result.stdout, dpi);
     if (sizes.length !== expectedPageCount) {
         throw new Error(`DjVu page size probe returned ${sizes.length} page(s), expected ${expectedPageCount}`);
@@ -287,6 +296,7 @@ export async function renderDjvuPagePreview(
                         targetWidthPx: renderPlan.targetWidthPx,
                     }
                     : {}),
+                ...(lifecycleOptions.signal ? { signal: lifecycleOptions.signal } : {}),
             },
         );
         throwIfAborted(lifecycleOptions.signal);

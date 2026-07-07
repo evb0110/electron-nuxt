@@ -27,6 +27,12 @@ vi.mock('@electron/search/indexBuilder', () => ({
 const PDF_PATH = '/tmp/poisoned.pdf';
 const DOCUMENT_REVISION = 'revision-token';
 
+function createAbortError() {
+    const error = new Error('The operation was aborted');
+    error.name = 'AbortError';
+    return error;
+}
+
 interface IIndexPageForTest {
     pageNumber: number;
     text: string;
@@ -34,7 +40,11 @@ interface IIndexPageForTest {
 
 interface IIndexForTest { pages: IIndexPageForTest[]; }
 
-interface IBuildSearchIndexOptionsForTest { validateBeforePersist?: (index: IIndexForTest) => void; }
+interface IBuildSearchIndexOptionsForTest {
+    signal?: AbortSignal;
+    onPageIndexed?: (page: IIndexPageForTest) => void;
+    validateBeforePersist?: (index: IIndexForTest) => void;
+}
 
 describe('ensureSearchIndex text budget handling', () => {
     beforeEach(() => {
@@ -131,5 +141,102 @@ describe('ensureSearchIndex text budget handling', () => {
             pageCount: 1,
             throwIfCancelled: () => undefined,
         })).rejects.toThrow('Search index page 1 is too large');
+    });
+
+    it('keeps a shared index build alive when one waiter stream callback aborts', async () => {
+        const { ensureSearchIndex } = await import('@electron/search/worker/ensureSearchIndex');
+        mocks.stat.mockImplementation(async (path: string) => {
+            if (path === PDF_PATH) {
+                return { mtimeMs: 1 };
+            }
+            throw new Error(`Missing ${path}`);
+        });
+        mocks.loadSearchIndex.mockResolvedValue(null);
+
+        let emitIndexedPage: () => void = () => {
+            throw new Error('Build has not started');
+        };
+        let resolveBuild: () => void = () => {
+            throw new Error('Build has not started');
+        };
+        mocks.buildSearchIndex.mockImplementation(async (
+            _pdfPath: string,
+            _pageData: unknown[],
+            options: IBuildSearchIndexOptionsForTest,
+        ) => new Promise((resolve, reject) => {
+            options.signal?.addEventListener('abort', () => reject(createAbortError()), { once: true });
+            emitIndexedPage = () => {
+                options.onPageIndexed?.({
+                    pageNumber: 1,
+                    text: 'needle',
+                });
+            };
+            resolveBuild = () => resolve({
+                schemaVersion: 7,
+                documentRevision: {token: DOCUMENT_REVISION},
+                pdfPath: PDF_PATH,
+                createdAt: 2,
+                pageCount: 1,
+                pages: [{
+                    pageNumber: 1,
+                    text: 'needle',
+                }],
+            });
+        }));
+
+        const firstController = new AbortController();
+        const firstStream = vi.fn(() => {
+            throw createAbortError();
+        });
+        const secondStream = vi.fn();
+
+        const firstWaiter = ensureSearchIndex(new Map(), PDF_PATH, {
+            maxEntries: 4,
+            ttlMs: 60_000,
+            maxPageTextBytes: 1024,
+            maxTotalTextBytes: 1024,
+        }, {
+            documentRevision: DOCUMENT_REVISION,
+            pageCount: 1,
+            signal: firstController.signal,
+            throwIfCancelled: signal => {
+                if (signal?.aborted) {
+                    throw createAbortError();
+                }
+            },
+            onPageIndexed: firstStream,
+        });
+        const secondWaiter = ensureSearchIndex(new Map(), PDF_PATH, {
+            maxEntries: 4,
+            ttlMs: 60_000,
+            maxPageTextBytes: 1024,
+            maxTotalTextBytes: 1024,
+        }, {
+            documentRevision: DOCUMENT_REVISION,
+            pageCount: 1,
+            throwIfCancelled: () => undefined,
+            onPageIndexed: secondStream,
+        });
+
+        await vi.waitFor(() => {
+            expect(mocks.buildSearchIndex).toHaveBeenCalledOnce();
+        });
+
+        emitIndexedPage();
+        firstController.abort(createAbortError());
+        resolveBuild();
+
+        await expect(firstWaiter).rejects.toMatchObject({ name: 'AbortError' });
+        const secondEntry = await secondWaiter;
+        expect(secondEntry.index.pages).toEqual([expect.objectContaining({
+            pageNumber: 1,
+            text: 'needle',
+        })]);
+        expect(firstStream).toHaveBeenCalledOnce();
+        expect(secondStream).toHaveBeenCalledWith(expect.objectContaining({
+            pageNumber: 1,
+            text: 'needle',
+        }));
+        expect(mocks.buildSearchIndex).toHaveBeenCalledOnce();
     });
 });

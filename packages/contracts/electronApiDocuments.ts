@@ -364,6 +364,7 @@ export interface IDocumentsMenuCapability {
         hasDocument: boolean;
         canPrint?: boolean;
         canSave: boolean;
+        canSaveAs?: boolean;
         canRepairSave?: boolean;
         canOptimizePdf?: boolean;
     }) => Promise<void>;

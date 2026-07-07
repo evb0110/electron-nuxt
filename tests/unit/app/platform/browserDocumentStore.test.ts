@@ -148,6 +148,28 @@ describe('BrowserDocumentStore', () => {
         ]));
     });
 
+    it('reports unavailable storage separately from a missing persisted record', async () => {
+        const store = new BrowserDocumentStore();
+        const ref = await store.createStoredDocument(
+            'unavailable.pdf',
+            new Uint8Array([1]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+
+        store.unload(ref);
+        vi.stubGlobal('indexedDB', undefined);
+
+        await expect(store.ensureEntryAvailability(ref)).resolves.toEqual({
+            available: false,
+            entry: null,
+        });
+        await expect(store.ensureEntry(ref)).resolves.toBeNull();
+    });
+
     it('rehydrates persisted bytes after write with unloadAfterPersist', async () => {
         const store = new BrowserDocumentStore();
         const ref = await store.createStoredDocument(

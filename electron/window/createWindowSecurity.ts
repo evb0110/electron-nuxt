@@ -11,15 +11,34 @@ interface ICreateWindowSecurityOptions {
 }
 
 const EXTERNAL_OPEN_MIN_INTERVAL_MS = 1_000;
+type TExternalOpenSource = 'window-open' | 'navigation';
+type TExternalOpenThrottleState = Partial<Record<TExternalOpenSource, number>>;
 
 export function createWindowSecurity(options: ICreateWindowSecurityOptions) {
-    const lastExternalOpenBySource = new Map<string, number>();
+    const lastExternalOpenByWindow = new WeakMap<BrowserWindow, TExternalOpenThrottleState>();
 
     function isTrustedRendererUrl(value: string) {
         return matchesTrustedRendererUrl(value, options.getTrustedRendererUrl());
     }
 
-    function openExternalSafely(url: string, source: 'window-open' | 'navigation') {
+    function shouldThrottleExternalOpen(window: BrowserWindow, source: TExternalOpenSource) {
+        let throttleState = lastExternalOpenByWindow.get(window);
+        if (!throttleState) {
+            throttleState = {};
+            lastExternalOpenByWindow.set(window, throttleState);
+        }
+
+        const now = Date.now();
+        const lastOpenedAt = throttleState[source];
+        if (lastOpenedAt !== undefined && now - lastOpenedAt < EXTERNAL_OPEN_MIN_INTERVAL_MS) {
+            return true;
+        }
+
+        throttleState[source] = now;
+        return false;
+    }
+
+    function openExternalSafely(window: BrowserWindow, url: string, source: TExternalOpenSource) {
         const decision = inspectAllowedExternalUrl(url);
         if (!decision.ok) {
             if (decision.reason === 'unsupported-protocol') {
@@ -30,14 +49,10 @@ export function createWindowSecurity(options: ICreateWindowSecurityOptions) {
             options.logger.warn(`Blocked ${source} URL with invalid value: ${url}`);
             return;
         }
-        const rateLimitKey = `${source}:${decision.normalizedUrl}`;
-        const now = Date.now();
-        const lastOpenedAt = lastExternalOpenBySource.get(rateLimitKey) ?? 0;
-        if (now - lastOpenedAt < EXTERNAL_OPEN_MIN_INTERVAL_MS) {
+        if (shouldThrottleExternalOpen(window, source)) {
             options.logger.warn(`Blocked repeated ${source} URL open: ${decision.normalizedUrl}`);
             return;
         }
-        lastExternalOpenBySource.set(rateLimitKey, now);
         void shell.openExternal(decision.normalizedUrl).catch((error) => {
             options.logger.warn(`Failed to open external URL (${source}): ${getErrorMessage(error)}`);
         });
@@ -45,7 +60,7 @@ export function createWindowSecurity(options: ICreateWindowSecurityOptions) {
 
     function hardenWindowWebContents(window: BrowserWindow) {
         window.webContents.setWindowOpenHandler(({ url }) => {
-            openExternalSafely(url, 'window-open');
+            openExternalSafely(window, url, 'window-open');
             return { action: 'deny' };
         });
 
@@ -55,7 +70,10 @@ export function createWindowSecurity(options: ICreateWindowSecurityOptions) {
             }
 
             event.preventDefault();
-            openExternalSafely(url, 'navigation');
+            openExternalSafely(window, url, 'navigation');
+        });
+        window.once('closed', () => {
+            lastExternalOpenByWindow.delete(window);
         });
     }
 

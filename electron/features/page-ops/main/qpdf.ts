@@ -1,11 +1,9 @@
 import {
-    mkdtemp,
     rm,
     stat,
     unlink,
     writeFile,
 } from 'fs/promises';
-import { tmpdir } from 'os';
 import { join } from 'path';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
@@ -18,6 +16,7 @@ import {
     replaceTempOutput,
 } from '@electron/features/page-ops/main/tempOutput';
 import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
+import { createManagedScratchTempDir } from '@electron/utils/managedScratchTemp';
 
 const log = createLogger('page-ops-qpdf');
 export const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
@@ -26,6 +25,11 @@ export const QPDF_OUTPUT_SUCCESS_EXIT_CODES = [
     0,
     3,
 ];
+
+export interface IQpdfOperationOptions {
+    signal?: AbortSignal;
+    cancelGroup?: string;
+}
 
 function getQpdfBinary() {
     return getPdfNativeToolPaths().qpdf;
@@ -93,7 +97,7 @@ function formatComplementPageList(pagesToRemove: number[], totalPages: number) {
 }
 
 async function writeQpdfArgsFile(args: string[]) {
-    const tempDir = await mkdtemp(join(tmpdir(), 'qpdfArgs-'));
+    const tempDir = await createManagedScratchTempDir('qpdfArgs-');
     const argsPath = join(tempDir, 'args.txt');
     await writeFile(argsPath, args.map(arg => arg.replace(/\r?\n/g, ' ')).join('\n'));
     return {
@@ -116,7 +120,7 @@ export async function runQpdfCommand(args: string[], options: Parameters<typeof 
     }
 }
 
-export async function getPdfPageCount(pdfPath: string) {
+export async function getPdfPageCount(pdfPath: string, options: IQpdfOperationOptions = {}) {
     const result = await runNativeToolCommand(getQpdfBinary(), [
         '--show-npages',
         pdfPath,
@@ -124,6 +128,8 @@ export async function getPdfPageCount(pdfPath: string) {
         timeoutMs: QPDF_TIMEOUT_MS,
         allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
         commandLabel: 'qpdf(page-count)',
+        ...(options.signal ? { signal: options.signal } : {}),
+        ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
     });
     const pageCount = Number.parseInt(result.stdout.trim(), 10);
     if (!Number.isSafeInteger(pageCount) || pageCount < 1) {
@@ -175,6 +181,7 @@ export async function extractPages(
     srcPath: string,
     destPath: string,
     pages: number[],
+    options: IQpdfOperationOptions = {},
 ) {
     const tempPath = makeTempPdfOutputPath(destPath);
     try {
@@ -189,6 +196,8 @@ export async function extractPages(
             timeoutMs: QPDF_TIMEOUT_MS,
             allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
             commandLabel: 'qpdf(extract-pages)',
+            ...(options.signal ? { signal: options.signal } : {}),
+            ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
         });
         await assertNonEmptyPdfOutput(tempPath, 'Extracting pages');
         await replaceQpdfOutput(tempPath, destPath);
@@ -204,11 +213,12 @@ export async function deletePages(
     pagesToDelete: number[],
     expectedTotalPages?: number,
     senderWebContentsId?: number,
+    options: IQpdfOperationOptions = {},
 ) {
     if (!await ensureWorkingCopyDirectory(workingCopyPath, senderWebContentsId)) {
         throw new Error('Working copy path is not managed');
     }
-    const totalPages = await getPdfPageCount(workingCopyPath);
+    const totalPages = await getPdfPageCount(workingCopyPath, options);
     if (expectedTotalPages !== undefined && expectedTotalPages !== totalPages) {
         throw new Error('Renderer page count is stale');
     }
@@ -235,6 +245,8 @@ export async function deletePages(
             timeoutMs: QPDF_TIMEOUT_MS,
             allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
             commandLabel: 'qpdf(delete-pages)',
+            ...(options.signal ? { signal: options.signal } : {}),
+            ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
         });
         await assertNonEmptyPdfOutput(tempPath, 'Deleting pages');
         await replaceQpdfOutput(tempPath, workingCopyPath);
@@ -250,6 +262,7 @@ export async function reorderPages(
     workingCopyPath: string,
     newOrder: number[],
     senderWebContentsId?: number,
+    options: IQpdfOperationOptions = {},
 ) {
     if (!await ensureWorkingCopyDirectory(workingCopyPath, senderWebContentsId)) {
         throw new Error('Working copy path is not managed');
@@ -268,6 +281,8 @@ export async function reorderPages(
             timeoutMs: QPDF_TIMEOUT_MS,
             allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
             commandLabel: 'qpdf(reorder-pages)',
+            ...(options.signal ? { signal: options.signal } : {}),
+            ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
         });
         await assertNonEmptyPdfOutput(tempPath, 'Reordering pages');
         await replaceQpdfOutput(tempPath, workingCopyPath);
@@ -286,6 +301,7 @@ export async function rotatePages(
     pages: number[],
     angle: TRotationAngle,
     senderWebContentsId?: number,
+    options: IQpdfOperationOptions = {},
 ) {
     if (!await ensureWorkingCopyDirectory(workingCopyPath, senderWebContentsId)) {
         throw new Error('Working copy path is not managed');
@@ -301,6 +317,8 @@ export async function rotatePages(
             timeoutMs: QPDF_TIMEOUT_MS,
             allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
             commandLabel: 'qpdf(rotate-pages)',
+            ...(options.signal ? { signal: options.signal } : {}),
+            ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
         });
         await assertNonEmptyPdfOutput(tempPath, 'Rotating pages');
         await replaceQpdfOutput(tempPath, workingCopyPath);

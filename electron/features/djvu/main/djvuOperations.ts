@@ -72,7 +72,23 @@ const activePreviewOperationsByRequestId = new Map<string, {
     ownerWebContentsId: number;
     request: IDjvuPreviewRequest;
 }>();
+const activeEstimateOperationsById = new Map<string, {
+    abortController: AbortController;
+    documentKey: string;
+    ownerWebContentsId: number;
+}>();
 const previewSenderCleanupById = new Map<number, {
+    handleDestroyed: () => void;
+    handleNavigation: (
+        event: Electron.Event,
+        url: string,
+        isInPlace: boolean,
+        isMainFrame: boolean,
+    ) => void;
+    handleRenderProcessGone: () => void;
+    sender: WebContents;
+}>();
+const estimateSenderCleanupById = new Map<number, {
     handleDestroyed: () => void;
     handleNavigation: (
         event: Electron.Event,
@@ -152,11 +168,32 @@ function cancelPreviewOperationsForSender(ownerWebContentsId: number, reason: st
     }
 }
 
+function rejectQueuedPreviewWaitersForSender(ownerWebContentsId: number, reason: string) {
+    const queue = previewQueuesBySender.get(ownerWebContentsId);
+    if (!queue) {
+        return;
+    }
+
+    for (const waiter of queue.waiters) {
+        waiter.reject(new Error(reason));
+    }
+    queue.waiters = [];
+    queue.latestGenerationsByDocument.clear();
+    queue.latestRequestIds.clear();
+    if (queue.inFlight === 0) {
+        previewQueuesBySender.delete(ownerWebContentsId);
+    }
+}
+
 function unregisterPreviewSenderCleanupIfIdle(ownerWebContentsId: number) {
     for (const active of activePreviewOperationsByRequestId.values()) {
         if (active.ownerWebContentsId === ownerWebContentsId) {
             return;
         }
+    }
+    const queue = previewQueuesBySender.get(ownerWebContentsId);
+    if (queue && (queue.inFlight > 0 || queue.waiters.length > 0)) {
+        return;
     }
     const cleanup = previewSenderCleanupById.get(ownerWebContentsId);
     if (!cleanup) {
@@ -174,6 +211,7 @@ function registerPreviewSenderCleanup(sender: WebContents) {
         return;
     }
     const cancel = (reason: string) => {
+        rejectQueuedPreviewWaitersForSender(ownerWebContentsId, reason);
         cancelPreviewOperationsForSender(ownerWebContentsId, reason);
         unregisterPreviewSenderCleanupIfIdle(ownerWebContentsId);
     };
@@ -193,6 +231,76 @@ function registerPreviewSenderCleanup(sender: WebContents) {
     sender.once('render-process-gone', handleRenderProcessGone);
     sender.on('did-start-navigation', handleNavigation);
     previewSenderCleanupById.set(ownerWebContentsId, {
+        handleDestroyed,
+        handleNavigation,
+        handleRenderProcessGone,
+        sender,
+    });
+}
+
+function cancelEstimateOperationsForSender(
+    ownerWebContentsId: number,
+    reason: string,
+    exceptDocumentKey?: string,
+) {
+    for (const [
+        operationId,
+        active,
+    ] of activeEstimateOperationsById.entries()) {
+        if (active.ownerWebContentsId !== ownerWebContentsId) {
+            continue;
+        }
+        if (exceptDocumentKey !== undefined && active.documentKey === exceptDocumentKey) {
+            continue;
+        }
+        if (!active.abortController.signal.aborted) {
+            active.abortController.abort(new Error(reason));
+        }
+        activeEstimateOperationsById.delete(operationId);
+    }
+}
+
+function unregisterEstimateSenderCleanupIfIdle(ownerWebContentsId: number) {
+    for (const active of activeEstimateOperationsById.values()) {
+        if (active.ownerWebContentsId === ownerWebContentsId) {
+            return;
+        }
+    }
+    const cleanup = estimateSenderCleanupById.get(ownerWebContentsId);
+    if (!cleanup) {
+        return;
+    }
+    cleanup.sender.removeListener('destroyed', cleanup.handleDestroyed);
+    cleanup.sender.removeListener('render-process-gone', cleanup.handleRenderProcessGone);
+    cleanup.sender.removeListener('did-start-navigation', cleanup.handleNavigation);
+    estimateSenderCleanupById.delete(ownerWebContentsId);
+}
+
+function registerEstimateSenderCleanup(sender: WebContents) {
+    const ownerWebContentsId = sender.id;
+    if (estimateSenderCleanupById.has(ownerWebContentsId)) {
+        return;
+    }
+    const cancel = (reason: string) => {
+        cancelEstimateOperationsForSender(ownerWebContentsId, reason);
+        unregisterEstimateSenderCleanupIfIdle(ownerWebContentsId);
+    };
+    const handleDestroyed = () => cancel('Renderer lifecycle ended');
+    const handleRenderProcessGone = () => cancel('Renderer lifecycle ended');
+    const handleNavigation = (
+        _event: Electron.Event,
+        _url: string,
+        isInPlace: boolean,
+        isMainFrame: boolean,
+    ) => {
+        if (isMainFrame && !isInPlace) {
+            cancel('Renderer navigation canceled DjVu estimate operations');
+        }
+    };
+    sender.once('destroyed', handleDestroyed);
+    sender.once('render-process-gone', handleRenderProcessGone);
+    sender.on('did-start-navigation', handleNavigation);
+    estimateSenderCleanupById.set(ownerWebContentsId, {
         handleDestroyed,
         handleNavigation,
         handleRenderProcessGone,
@@ -347,6 +455,9 @@ async function runCoalescedPreviewRequest<TResult>(
         await acquiredSlot;
     }
     try {
+        if (sender.isDestroyed?.() === true) {
+            throw new Error('DjVu preview operation canceled');
+        }
         if (isPreviewRequestSuperseded(queue, request)) {
             throw new Error('DjVu preview request superseded');
         }
@@ -383,7 +494,6 @@ async function runCoalescedPreviewRequest<TResult>(
         } finally {
             mainOperation.signal.removeEventListener('abort', abortMainOperation);
             activePreviewOperationsByRequestId.delete(request.requestId);
-            unregisterPreviewSenderCleanupIfIdle(senderId);
             mainOperation.complete();
         }
     } finally {
@@ -391,6 +501,7 @@ async function runCoalescedPreviewRequest<TResult>(
             queue.latestRequestIds.delete(requestKey);
         }
         releasePreviewSlot(senderId, queue);
+        unregisterPreviewSenderCleanupIfIdle(senderId);
     }
 }
 
@@ -549,8 +660,46 @@ export async function handleDjvuEstimateSizes(
     djvuPath: string,
 ) {
     const normalizedDjvuPath = requireDjvuOpenPath(djvuPath, context.sender);
-    const pageCount = await getDjvuPageCount(normalizedDjvuPath);
-    return estimateSizes(normalizedDjvuPath, pageCount);
+    cancelEstimateOperationsForSender(
+        context.senderId,
+        'DjVu estimate request superseded',
+        normalizedDjvuPath,
+    );
+
+    const abortController = new AbortController();
+    const operationId = `djvu-estimate-${randomUUID()}`;
+    const mainOperation = registerMainOperation({
+        kind: 'abortable-work',
+        ownerWebContentsId: context.senderId,
+        workingCopyPath: normalizedDjvuPath,
+        cancel: (reason) => {
+            if (!abortController.signal.aborted) {
+                abortController.abort(new Error(reason));
+            }
+        },
+    });
+    const abortMainOperation = () => {
+        if (!abortController.signal.aborted) {
+            abortController.abort(new Error('DjVu estimate operation canceled'));
+        }
+    };
+
+    activeEstimateOperationsById.set(operationId, {
+        abortController,
+        documentKey: normalizedDjvuPath,
+        ownerWebContentsId: context.senderId,
+    });
+    registerEstimateSenderCleanup(context.sender);
+    mainOperation.signal.addEventListener('abort', abortMainOperation, { once: true });
+    try {
+        const pageCount = await getDjvuPageCount(normalizedDjvuPath, { signal: abortController.signal });
+        return await estimateSizes(normalizedDjvuPath, pageCount, { signal: abortController.signal });
+    } finally {
+        mainOperation.signal.removeEventListener('abort', abortMainOperation);
+        activeEstimateOperationsById.delete(operationId);
+        unregisterEstimateSenderCleanupIfIdle(context.senderId);
+        mainOperation.complete();
+    }
 }
 
 export async function handleDjvuGetPageSizes(

@@ -42,6 +42,8 @@ const DJVU_ESTIMATE_PRESETS = [
 const DJVU_BROWSER_DIRECT_PDF_JPEG_QUALITY = 0.92;
 const DJVU_BROWSER_COMPACT_PHOTO_PDF_JPEG_QUALITY = 85;
 const DJVU_BROWSER_COMPACT_PHOTO_PPI_CAP = 300;
+const DJVU_BROWSER_COMPACT_PHOTO_PAGE_SPEC_MAX_BYTES = 192 * 1024 * 1024;
+const DJVU_BROWSER_COMPACT_PHOTO_PAGE_SPEC_OVERHEAD_BYTES = 256;
 const DJVU_BROWSER_PDF_RENDER_WORKER_LIMIT = 3;
 const DJVU_BROWSER_PDF_MEDIUM_PAGE_PIXEL_COUNT = 16_000_000;
 const DJVU_BROWSER_PDF_LARGE_PAGE_PIXEL_COUNT = 32_000_000;
@@ -77,6 +79,12 @@ export interface IBrowserDjvuPdfRenderSettings {
     strategy: 'direct' | 'compact-djvu-aware';
     subsample: number;
     jpegQuality: number;
+}
+
+export interface IBrowserDjvuCompactExportPlan {
+    strategy: 'compact-djvu-aware' | 'direct-fallback';
+    estimatedPageSpecBytes: number;
+    maxPageSpecBytes: number;
 }
 
 interface IBrowserDjvuRenderTaskSuccess {
@@ -328,6 +336,31 @@ export function resolveBrowserDjvuPdfRenderConcurrency(
         pixelWorkerLimit,
         hardwareWorkerCount,
     );
+}
+
+function estimateBrowserDjvuCompactPageSpecBytes(
+    pageSizes: readonly IDjvuPageMetrics[],
+) {
+    return pageSizes.reduce((totalBytes, pageSize) => {
+        const targetSize = compactPhotoTargetSize(pageSize);
+        return totalBytes
+            + DJVU_BROWSER_COMPACT_PHOTO_PAGE_SPEC_OVERHEAD_BYTES
+            + (targetSize.width * targetSize.height * 3);
+    }, 0);
+}
+
+export function resolveBrowserDjvuCompactExportPlan(
+    pageSizes: readonly IDjvuPageMetrics[],
+    maxPageSpecBytes = DJVU_BROWSER_COMPACT_PHOTO_PAGE_SPEC_MAX_BYTES,
+): IBrowserDjvuCompactExportPlan {
+    const estimatedPageSpecBytes = estimateBrowserDjvuCompactPageSpecBytes(pageSizes);
+    return {
+        strategy: estimatedPageSpecBytes <= maxPageSpecBytes
+            ? 'compact-djvu-aware'
+            : 'direct-fallback',
+        estimatedPageSpecBytes,
+        maxPageSpecBytes,
+    };
 }
 
 async function renderDjvuPageFromImageData(
@@ -1261,8 +1294,26 @@ export const browserDjvuCapability: IDjvuCapability = {
                 jpegQuality: renderSettings.jpegQuality,
                 renderConcurrency,
             });
+            const compactExportPlan = renderSettings.strategy === 'compact-djvu-aware'
+                ? resolveBrowserDjvuCompactExportPlan(pageSizes)
+                : null;
+            if (compactExportPlan?.strategy === 'direct-fallback') {
+                BrowserLogger.info('djvu-browser', 'Browser compact DjVu export exceeds in-memory WASM budget; using streaming direct export', {
+                    jobId,
+                    estimatedPageSpecBytes: compactExportPlan.estimatedPageSpecBytes,
+                    maxPageSpecBytes: compactExportPlan.maxPageSpecBytes,
+                });
+            }
+            const useCompactWasm = compactExportPlan?.strategy === 'compact-djvu-aware';
+            const streamingRenderSettings = useCompactWasm
+                ? renderSettings
+                : {
+                    strategy: 'direct' as const,
+                    subsample: renderSettings.subsample,
+                    jpegQuality: DJVU_BROWSER_DIRECT_PDF_JPEG_QUALITY,
+                };
 
-            const pdfPath = renderSettings.strategy === 'compact-djvu-aware'
+            const pdfPath = useCompactWasm
                 ? await buildCompactPhotoPdfWithWasm({
                     worker,
                     pageSizes,
@@ -1279,8 +1330,8 @@ export const browserDjvuCapability: IDjvuCapability = {
                 : await buildPdfWithOptionalBookmarks({
                     worker,
                     pageSizes,
-                    subsample: renderSettings.subsample,
-                    jpegQuality: renderSettings.jpegQuality,
+                    subsample: streamingRenderSettings.subsample,
+                    jpegQuality: streamingRenderSettings.jpegQuality,
                     renderConcurrency,
                     createRenderWorker: async () => {
                         const renderWorker = await createDjvuWorkerFromPath(djvuPath, { signal: abortController.signal });

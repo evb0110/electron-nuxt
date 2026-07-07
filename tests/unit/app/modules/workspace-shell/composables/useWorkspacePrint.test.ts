@@ -365,6 +365,36 @@ describe('useWorkspacePrint', () => {
         }
     });
 
+    it('does not use the direct metrics policy when quick-print metrics are unavailable', async () => {
+        const appFrame = stubDocumentWithFrame();
+        const {
+            getQuickPrintPageMetrics,
+            scope,
+            state,
+        } = createState({ getQuickPrintPageMetrics: vi.fn(async () => null) });
+        shouldPrintPageMetricsDirectlyMock.mockReturnValue(true);
+
+        try {
+            const printPromise = state.handleQuickPrint();
+            await flushMicrotasks(12);
+
+            expect(getQuickPrintPageMetrics).toHaveBeenCalledTimes(1);
+            expect(shouldPrintPageMetricsDirectlyMock).not.toHaveBeenCalled();
+            expect(buildPrintablePdfDataMock).toHaveBeenCalledWith(
+                Uint8Array.of(9, 8, 7),
+                {
+                    viewMode: 'single',
+                    orientation: 'auto',
+                },
+            );
+
+            appFrame.frame.trigger('load');
+            await printPromise;
+        } finally {
+            scope.stop();
+        }
+    });
+
     it('prints DjVu through the DjVu print source without serializing PDF data', async () => {
         const printDjvuSource = vi.fn(async () => {});
         const {

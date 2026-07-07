@@ -80,12 +80,47 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
 const { registerDjvuIpcAdapter } = await import('@electron/features/djvu/registerDjvuIpcAdapter');
 
 function createIpcEvent(senderId: number) {
-    return {sender: {
+    type TListener = (...args: unknown[]) => void;
+    const listeners = new Map<string, TListener[]>();
+    let isDestroyed = false;
+    const sender = {
         id: senderId,
         on: vi.fn(),
+        emit: (event: string, ...args: unknown[]) => {
+            if (event === 'destroyed') {
+                isDestroyed = true;
+            }
+            const eventListeners = listeners.get(event) ?? [];
+            listeners.delete(event);
+            for (const listener of eventListeners) {
+                listener(...args);
+            }
+            return eventListeners.length > 0;
+        },
+        isDestroyed: vi.fn(() => isDestroyed),
         once: vi.fn(),
         removeListener: vi.fn(),
-    }};
+    };
+    sender.on.mockImplementation((event: string, listener: TListener) => {
+        listeners.set(event, [
+            ...(listeners.get(event) ?? []),
+            listener,
+        ]);
+        return sender;
+    });
+    sender.once.mockImplementation((event: string, listener: TListener) => {
+        listeners.set(event, [
+            ...(listeners.get(event) ?? []),
+            listener,
+        ]);
+        return sender;
+    });
+    sender.removeListener.mockImplementation((event: string, listener: TListener) => {
+        listeners.set(event, (listeners.get(event) ?? []).filter(candidate => candidate !== listener));
+        return sender;
+    });
+
+    return {sender};
 }
 
 function getHandler(channel: string) {
@@ -406,6 +441,116 @@ describe('registerDjvuIpcAdapter', () => {
             await expect(firstRun).resolves.toMatchObject({width: 100});
             await expect(secondRun).resolves.toMatchObject({width: 100});
             await expect(fourthRun).resolves.toMatchObject({width: 100});
+        } finally {
+            rmSync(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('rejects queued native preview requests when their sender is destroyed', async () => {
+        const tempRoot = mkdtempSync(join(tmpdir(), 'evb-djvu-preview-destroy-test-'));
+        try {
+            const realPath = join(tempRoot, 'real.djvu');
+            writeFileSync(realPath, new Uint8Array([1]));
+            const firstPreview = createDeferred<{
+                bytes: Uint8Array;
+                width: number;
+                height: number;
+            }>();
+            const secondPreview = createDeferred<{
+                bytes: Uint8Array;
+                width: number;
+                height: number;
+            }>();
+            mocks.renderDjvuPagePreview
+                .mockReturnValueOnce(firstPreview.promise)
+                .mockReturnValueOnce(secondPreview.promise);
+
+            const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
+            const event = createIpcEvent(12);
+            allowOpenPath(realPath, event.sender as never);
+            registerDjvuIpcAdapter();
+            const handler = getHandler('djvu:renderPagePreview');
+
+            const firstRun = handler(event, realPath, 1, {
+                previewRequestId: 'destroy-preview-1',
+                subsample: 3,
+            });
+            const secondRun = handler(event, realPath, 2, {
+                previewRequestId: 'destroy-preview-2',
+                subsample: 3,
+            });
+            const queuedRun = handler(event, realPath, 3, {
+                previewRequestId: 'destroy-preview-3',
+                subsample: 3,
+            });
+
+            await Promise.resolve();
+            expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(2);
+            const firstSignal = mocks.renderDjvuPagePreview.mock.calls[0]?.[3]?.signal as AbortSignal | undefined;
+            const secondSignal = mocks.renderDjvuPagePreview.mock.calls[1]?.[3]?.signal as AbortSignal | undefined;
+
+            const queuedRejection = expect(queuedRun).rejects.toThrow('Renderer lifecycle ended');
+            event.sender.emit('destroyed');
+
+            await queuedRejection;
+            expect(firstSignal?.aborted).toBe(true);
+            expect(secondSignal?.aborted).toBe(true);
+            expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(2);
+
+            firstPreview.resolve({
+                bytes: new Uint8Array([1]),
+                width: 100,
+                height: 200,
+            });
+            secondPreview.resolve({
+                bytes: new Uint8Array([2]),
+                width: 100,
+                height: 200,
+            });
+            await expect(firstRun).resolves.toMatchObject({width: 100});
+            await expect(secondRun).resolves.toMatchObject({width: 100});
+        } finally {
+            rmSync(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('aborts active estimate size requests when their sender is destroyed', async () => {
+        const tempRoot = mkdtempSync(join(tmpdir(), 'evb-djvu-estimate-destroy-test-'));
+        try {
+            const realPath = join(tempRoot, 'real.djvu');
+            writeFileSync(realPath, new Uint8Array([1]));
+            const estimateState: {signal: AbortSignal | undefined} = {signal: undefined};
+            mocks.estimateSizes.mockImplementation((
+                _djvuPath: string,
+                _pageCount: number,
+                options?: {signal?: AbortSignal},
+            ) => new Promise((_resolve, reject) => {
+                const signal = options?.signal;
+                estimateState.signal = signal;
+                signal?.addEventListener('abort', () => {
+                    reject(signal.reason);
+                }, {once: true});
+            }));
+
+            const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
+            const event = createIpcEvent(13);
+            allowOpenPath(realPath, event.sender as never);
+            registerDjvuIpcAdapter();
+            const handler = getHandler('djvu:estimateSizes');
+
+            const estimateRun = handler(event, realPath);
+
+            await vi.waitFor(() => expect(mocks.estimateSizes).toHaveBeenCalledTimes(1));
+            event.sender.emit('destroyed');
+
+            expect(estimateState.signal?.aborted).toBe(true);
+            await expect(estimateRun).rejects.toThrow('Renderer lifecycle ended');
         } finally {
             rmSync(tempRoot, {
                 force: true,

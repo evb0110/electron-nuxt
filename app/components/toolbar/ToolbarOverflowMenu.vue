@@ -107,6 +107,8 @@ interface IProps {
     canPrint?: boolean
     canPrintCurrentPage?: boolean
     canConvertToPdf?: boolean
+    canToggleContinuousScroll?: boolean
+    canUseViewModes?: boolean
     isPreparingPrint?: boolean
     isPreparingCurrentPagePrint?: boolean
 }
@@ -120,6 +122,8 @@ const {
     canPrintCurrentPage,
     canQuickNote,
     canToggleSidebar,
+    canToggleContinuousScroll = true,
+    canUseViewModes = true,
     canUseOcr,
     collapseTier,
     continuousScroll,
@@ -339,7 +343,7 @@ function buildViewItems() {
         }));
     }
 
-    if (shouldShowMenuCommand('view-mode', 2)) {
+    if (canUseViewModes && shouldShowMenuCommand('view-mode', 2)) {
         items.push(
             createViewModeItem('single', t('zoom.singlePage'), 'i-ph-file'),
             createViewModeItem('facing', t('zoom.facingPages'), 'i-ph-book-open'),
@@ -361,7 +365,7 @@ function buildViewItems() {
         }));
     }
 
-    if (shouldShowMenuCommand('continuous-scroll', 2)) {
+    if (canToggleContinuousScroll && shouldShowMenuCommand('continuous-scroll', 2)) {
         items.push(createReaderCommandItem('continuous-scroll', 'toggle-continuous-scroll', t('zoom.continuousScroll'), {
             checked: continuousScroll,
             disabled: !hasInteractiveDocument.value,

@@ -119,6 +119,7 @@ import { shouldShowWorkspacePlaceholder } from '@app/modules/workspace-shell/hos
 import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
 import {
     createWorkspaceRestoreAttemptState,
+    finishWorkspaceRestoreAttempt,
     tryClaimWorkspaceRestoreAttempt,
     workspaceHasDocumentOrOpenError as getWorkspaceHasDocumentOrOpenError,
     workspaceHasOpenedDocument as getWorkspaceHasOpenedDocument,
@@ -138,7 +139,10 @@ import {
 } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { createWorkspaceDocumentSessionCore } from '@app/modules/workspace-shell/document-sessions/createWorkspaceDocumentSessionCore';
 import { createWorkspaceSplitCacheSessionState } from '@app/modules/workspace-shell/document-sessions/createWorkspaceSplitCacheSessionState';
-import type { IWorkspaceDocumentSessionController } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
+import type {
+    IWorkspaceDocumentSessionController,
+    IWorkspaceDocumentSessionSnapshot,
+} from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
 import { useDeferredWorkspaceChunkLoader } from '@app/modules/workspace-shell/composables/useDeferredWorkspaceChunkLoader';
 import {
     type IDocumentOpenIntent,
@@ -401,6 +405,13 @@ const workspaceHasOpenedDocument = () => getWorkspaceHasOpenedDocument(
     activeDocumentSession.value.snapshot.value,
 );
 const workspaceSessionHasOpenedDocument = () => getWorkspaceSessionHasOpenedDocument(activeDocumentSession.value.snapshot.value);
+function markWorkspaceRestoreAttemptFinished(
+    snapshot: IWorkspaceDocumentSessionSnapshot,
+    path: TDocumentRef,
+    result: unknown,
+) {
+    finishWorkspaceRestoreAttempt(restoreAttemptState, snapshot, path, result !== false);
+}
 
 watch(
     [
@@ -470,13 +481,14 @@ watch(
         path,
         opening,
     ]) => {
+        const snapshot = activeDocumentSession.value.snapshot.value;
         if (
             !(active || renderActive)
             || !path
             || hasDocumentHint !== true
             || workspaceHasOpenedDocument()
             || opening
-            || !tryClaimWorkspaceRestoreAttempt(restoreAttemptState, activeDocumentSession.value.snapshot.value, path)
+            || !tryClaimWorkspaceRestoreAttempt(restoreAttemptState, snapshot, path)
         ) {
             return;
         }
@@ -486,31 +498,43 @@ watch(
             target: null,
         }, async () => {
             return openPath(path, 'restoreTabDocument');
-        });
+        })
+            .then(result => markWorkspaceRestoreAttemptFinished(snapshot, path, result))
+            .catch(() => markWorkspaceRestoreAttemptFinished(snapshot, path, false));
     },
     { immediate: true },
 );
 
-watch(hasMountedWorkspace, (mounted) => {
+watch([
+    hasMountedWorkspace,
+    isDocumentOpenInFlight,
+], ([
+    mounted,
+    opening,
+]) => {
+    const snapshot = activeDocumentSession.value.snapshot.value;
+    const restorePath = documentPath;
     if (
         !mounted
+        || opening
         || !(isActive || isRenderActive)
         || !initialViewState
-        || !documentPath
-        || activeDocumentOpenTransaction.value
+        || !restorePath
         || workspaceHasOpenedDocument()
-        || !tryClaimWorkspaceRestoreAttempt(restoreAttemptState, activeDocumentSession.value.snapshot.value, documentPath)
+        || !tryClaimWorkspaceRestoreAttempt(restoreAttemptState, snapshot, restorePath)
     ) {
         return;
     }
 
     void enqueueDocumentOpen({
         action: 'restoreColdDocument',
-        target: buildPendingTabDocumentHint(documentPath),
+        target: buildPendingTabDocumentHint(restorePath),
     }, async () => withWorkspace(
         'restoreColdDocument',
-        workspace => workspace.handleOpenFileDirectWithPersist(documentPath),
-    ));
+        workspace => workspace.handleOpenFileDirectWithPersist(restorePath),
+    ))
+        .then(result => markWorkspaceRestoreAttemptFinished(snapshot, restorePath, result))
+        .catch(() => markWorkspaceRestoreAttemptFinished(snapshot, restorePath, false));
 });
 
 function handleRetryWorkspaceMount() {

@@ -163,6 +163,13 @@ function isSaveEnabled(template: IMenuItemLike[]) {
     return Boolean(saveItem?.enabled);
 }
 
+function isSaveAsEnabled(template: IMenuItemLike[]) {
+    const fileMenu = template.find(item => item.label === 'menu.file');
+    const submenu = Array.isArray(fileMenu?.submenu) ? fileMenu.submenu : [];
+    const saveAsItem = submenu.find(item => item.label === 'menu.saveAs');
+    return Boolean(saveAsItem?.enabled);
+}
+
 function isRepairSaveEnabled(template: IMenuItemLike[]) {
     const fileMenu = template.find(item => item.label === 'menu.file');
     const submenu = Array.isArray(fileMenu?.submenu) ? fileMenu.submenu : [];
@@ -251,10 +258,37 @@ describe('menu per-window document state', () => {
         const fileSubmenu = getFileMenuSubmenu(template);
 
         expect(isSaveEnabled(template)).toBe(false);
+        expect(isSaveAsEnabled(template)).toBe(true);
         expect(isRepairSaveEnabled(template)).toBe(true);
         expect(isOptimizePdfEnabled(template)).toBe(true);
-        expect(fileSubmenu.find(item => item.label === 'menu.saveAs')?.enabled).toBe(true);
         expect(fileSubmenu.find(item => item.label === 'menu.print')?.enabled).toBe(true);
+    });
+
+    it('tracks save-as availability separately from document and save state', () => {
+        const firstWindow = mocks.createWindow(1, 'First Window');
+        mocks.windows.push(firstWindow);
+        mocks.focusWindow(firstWindow);
+
+        setupMenu();
+        setMenuDocumentState(1, {
+            hasDocument: true,
+            canSave: true,
+            canSaveAs: false,
+        });
+
+        let template = getLastMenuTemplate();
+        expect(isSaveEnabled(template)).toBe(true);
+        expect(isSaveAsEnabled(template)).toBe(false);
+
+        setMenuDocumentState(1, {
+            hasDocument: true,
+            canSave: false,
+            canSaveAs: true,
+        });
+
+        template = getLastMenuTemplate();
+        expect(isSaveEnabled(template)).toBe(false);
+        expect(isSaveAsEnabled(template)).toBe(true);
     });
 
     it('tracks optimize availability separately from repair availability', () => {

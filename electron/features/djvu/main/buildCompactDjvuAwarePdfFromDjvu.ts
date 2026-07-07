@@ -10,7 +10,6 @@ import {
     join,
 } from 'path';
 import { fileURLToPath } from 'url';
-import { app } from 'electron';
 import { limitAsync } from 'es-toolkit/array';
 import type { IDjvuConversionPageMetrics } from '@contracts/djvuConversionPolicy';
 import { buildDjvuRuntimeEnv } from '@electron/djvu/paths';
@@ -99,8 +98,9 @@ interface IMutableDjvuPageStructure extends IDjvuPageStructure { hasPageChunk: b
 
 const logger = createLogger('djvu-compact-pdf');
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const PROGRESS_EXTRACTION_CAP = 88;
-const PROGRESS_COMBINE_CAP = 90;
+const PROGRESS_EXTRACTION_CAP = 86;
+const PROGRESS_COMBINE_START = 88;
+const PROGRESS_COMBINE_CAP = 94;
 const DEFAULT_DPI = 300;
 const FOREGROUND_COLOR_RATIO_MIN = 0.05;
 const FOREGROUND_COLOR_SATURATION_MIN = 24;
@@ -201,6 +201,7 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
         `${pageSpecs.map(spec => spec.manifestLine).join('\n')}\n`,
         'utf8',
     );
+    emitProgress(PROGRESS_COMBINE_START);
     throwIfAborted(options.signal);
 
     const layeredCount = pageSpecs.filter(spec => spec.kind === 'layered').length;
@@ -733,7 +734,7 @@ function hasRealForegroundColor(analysis: IForegroundColorAnalysis) {
 }
 
 function resolveNativePdfImageCombinePath() {
-    const isPackaged = app.isPackaged || __dirname.includes('app.asar');
+    const isPackaged = __dirname.includes('app.asar');
     const binaryName = process.platform === 'win32'
         ? 'evb-pdf-image-combine.exe'
         : 'evb-pdf-image-combine';
@@ -1133,8 +1134,8 @@ function createNativeProgressHandler(totalPages: number, emitProgress: (percent:
                 const total = typeof payload.total === 'number' && payload.total > 0
                     ? payload.total
                     : totalPages;
-                emitProgress(PROGRESS_EXTRACTION_CAP + Math.round(
-                    (processed / Math.max(1, total)) * (PROGRESS_COMBINE_CAP - PROGRESS_EXTRACTION_CAP),
+                emitProgress(PROGRESS_COMBINE_START + Math.round(
+                    (processed / Math.max(1, total)) * (PROGRESS_COMBINE_CAP - PROGRESS_COMBINE_START),
                 ));
             } catch {
                 logger.debug(`Ignoring malformed native compact PDF progress: ${line}`);

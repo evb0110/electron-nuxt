@@ -848,6 +848,32 @@ async function seedPagesFromPdfText(
     onPageIndexed?: (page: IPageIndex) => void,
     preservePageNumbers: ReadonlySet<number> = new Set(),
 ): Promise<Map<number, IPageIndex>> {
+    if (await shouldPreferPdftotextFirst(pdfPath)) {
+        const seeded = await seedFromPdftotext(pdfPath, pagesByNumber, expectedCount, signal, onPageIndexed, preservePageNumbers);
+        if (seeded.hasText) {
+            return seeded.pagesByNumber;
+        }
+        const seededWithWordBoxes = await seedFromPdfjsWordBoxes(
+            pdfPath,
+            seeded.pagesByNumber,
+            expectedCount,
+            signal,
+            onPageIndexed,
+            preservePageNumbers,
+        );
+        if (seededWithWordBoxes.hasText) {
+            return seededWithWordBoxes.pagesByNumber;
+        }
+        return (await seedFromPdfjs(
+            pdfPath,
+            seededWithWordBoxes.pagesByNumber,
+            expectedCount,
+            signal,
+            onPageIndexed,
+            preservePageNumbers,
+        )).pagesByNumber;
+    }
+
     const seededWithWordBoxes = await seedFromPdfjsWordBoxes(
         pdfPath,
         pagesByNumber,
@@ -858,21 +884,6 @@ async function seedPagesFromPdfText(
     );
     if (seededWithWordBoxes.hasText) {
         return seededWithWordBoxes.pagesByNumber;
-    }
-
-    if (await shouldPreferPdftotextFirst(pdfPath)) {
-        const seeded = await seedFromPdftotext(pdfPath, seededWithWordBoxes.pagesByNumber, expectedCount, signal, onPageIndexed, preservePageNumbers);
-        if (seeded.hasText) {
-            return seeded.pagesByNumber;
-        }
-        return (await seedFromPdfjs(
-            pdfPath,
-            seeded.pagesByNumber,
-            expectedCount,
-            signal,
-            onPageIndexed,
-            preservePageNumbers,
-        )).pagesByNumber;
     }
 
     const seeded = await seedFromPdfjs(pdfPath, seededWithWordBoxes.pagesByNumber, expectedCount, signal, onPageIndexed, preservePageNumbers);

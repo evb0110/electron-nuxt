@@ -1,4 +1,5 @@
 import type { IOcrWord } from '@contracts/shared';
+import type { TOcrIndexRotation } from '@contracts/ocrIndex';
 
 export type TPdfjsTextOps = Partial<Record<
     | 'save'
@@ -66,6 +67,7 @@ export interface IPdfjsPageViewBox {
     yMax: number;
     pageWidth: number;
     pageHeight: number;
+    rotation: TOcrIndexRotation;
 }
 
 export interface IPdfjsOperatorListLike {
@@ -94,6 +96,14 @@ function finiteNumber(value: unknown, fallback = 0) {
     return typeof value === 'number' && Number.isFinite(value)
         ? value
         : fallback;
+}
+
+function normalizePageRotation(value: unknown): TOcrIndexRotation {
+    const finiteValue = finiteNumber(value, 0);
+    const normalized = ((finiteValue % 360) + 360) % 360;
+    return normalized === 90 || normalized === 180 || normalized === 270
+        ? normalized
+        : 0;
 }
 
 function isUnknownArray(value: unknown): value is readonly unknown[] {
@@ -201,7 +211,10 @@ function createInitialTextState(): ITextState {
     };
 }
 
-export function getPdfjsPageViewBox(page: { view?: unknown }): IPdfjsPageViewBox {
+export function getPdfjsPageViewBox(page: {
+    view?: unknown;
+    rotate?: unknown;
+}): IPdfjsPageViewBox {
     const view = Array.isArray(page.view) || ArrayBuffer.isView(page.view)
         ? Array.from(page.view as ArrayLike<unknown>)
         : [];
@@ -219,6 +232,7 @@ export function getPdfjsPageViewBox(page: { view?: unknown }): IPdfjsPageViewBox
         yMax,
         pageWidth,
         pageHeight,
+        rotation: normalizePageRotation(page.rotate),
     };
 }
 

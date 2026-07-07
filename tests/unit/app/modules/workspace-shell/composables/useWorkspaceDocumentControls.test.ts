@@ -10,12 +10,14 @@ import {
     ref,
 } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 
 const mocks = vi.hoisted(() => ({ pageOpsDeps: null as null | {
     onExtractedDocument?: (path: TDocumentRef) => Promise<void> | void;
     ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
     canMutatePages?: unknown;
+    documentRevisionToken?: unknown;
 } }));
 
 vi.mock('@app/modules/workspace-shell/composables/usePageStatusBar', () => ({ usePageStatusBar: () => ({}) }));
@@ -25,6 +27,7 @@ vi.mock('@app/modules/workspace-shell/composables/usePageOpsHandlers', () => ({ 
         onExtractedDocument?: (path: TDocumentRef) => Promise<void> | void;
         ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
         canMutatePages?: unknown;
+        documentRevisionToken?: unknown;
     };
     return {};
 } }));
@@ -49,6 +52,7 @@ function createOptions() {
         pdfData: ref(null),
         originalPath: ref<TDocumentRef | null>(null),
         workingCopyPath: ref<TDocumentRef | null>(null),
+        documentRevisionToken: ref<TDocumentRevisionToken | null>(null),
         currentPage: ref(1),
         effectiveZoom: ref(1),
         canSave: ref(false),
@@ -130,5 +134,14 @@ describe('useWorkspaceDocumentControls', () => {
         useWorkspaceDocumentControls(options);
 
         expect(mocks.pageOpsDeps?.canMutatePages).toBe(options.canMutatePages);
+    });
+
+    it('forwards the current document revision token to page operations', () => {
+        const options = createOptions();
+        options.documentRevisionToken.value = 'drt1:test:current';
+
+        useWorkspaceDocumentControls(options);
+
+        expect(mocks.pageOpsDeps?.documentRevisionToken).toBe(options.documentRevisionToken);
     });
 });

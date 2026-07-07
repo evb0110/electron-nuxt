@@ -25,7 +25,10 @@ import {
     createCombinedPdf,
     isImagePath,
 } from '@electron/image/pdfCombineShared';
-import { convertDjvuToPdfFile } from '@electron/features/djvu/public';
+import {
+    cancelConversion,
+    convertDjvuToPdfFile,
+} from '@electron/features/djvu/public';
 import { getDjvuPageCount } from '@electron/djvu/metadata';
 import { getErrorMessage } from '@electron/utils/error';
 import {
@@ -42,6 +45,7 @@ import {
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
+import { abortErrorFromSignal } from '@electron/utils/abort';
 
 export interface ICreatePdfFromInputPathsProgress {
     processed: number;
@@ -51,7 +55,10 @@ export interface ICreatePdfFromInputPathsProgress {
     estimatedRemainingMs: number | null;
 }
 
-interface ICreatePdfFromInputPathsOptions {onProgress?: (progress: ICreatePdfFromInputPathsProgress) => void;}
+interface ICreatePdfFromInputPathsOptions {
+    onProgress?: (progress: ICreatePdfFromInputPathsProgress) => void;
+    signal?: AbortSignal;
+}
 
 interface ICombineInputResourceUsage {
     files: Array<{
@@ -237,29 +244,52 @@ async function createPdfFromInputPathsLocal(
     inputPaths: string[],
     options?: ICreatePdfFromInputPathsOptions,
 ): Promise<Uint8Array> {
+    if (options?.signal?.aborted) {
+        throw abortErrorFromSignal(options.signal);
+    }
+
     return createCombinedPdf(inputPaths, {
         ...(options?.onProgress ? { onProgress: options.onProgress } : {}),
         unsupportedFileError: (sourcePath) => `Unsupported file type: ${sourcePath}`,
         appendDjvuPages: async (targetPdf, sourcePath) => {
             const tempDir = await mkdtemp(join(tmpdir(), 'pdf-combine-djvu-'));
             const tempPdfPath = join(tempDir, `${randomUUID()}.pdf`);
+            const jobId = `pdf-combine-djvu-${randomUUID()}`;
+            const abortHandler = options?.signal
+                ? () => {
+                    void cancelConversion(jobId);
+                }
+                : null;
 
             try {
-                const pageCount = await getOptionalDjvuPageCount(sourcePath);
+                if (options?.signal?.aborted) {
+                    throw abortErrorFromSignal(options.signal);
+                }
+                if (options?.signal && abortHandler) {
+                    options.signal.addEventListener('abort', abortHandler, { once: true });
+                }
+                const pageCount = await getOptionalDjvuPageCount(sourcePath, options?.signal);
                 const result = await convertDjvuToPdfFile(
                     sourcePath,
                     tempPdfPath,
-                    `pdf-combine-djvu-${randomUUID()}`,
+                    jobId,
                     {
                         subsample: 1,
                         ...(pageCount > 0 ? { pageCount } : {}),
+                        ...(options?.signal ? { signal: options.signal } : {}),
                     },
                 );
 
+                if (options?.signal?.aborted) {
+                    throw abortErrorFromSignal(options.signal);
+                }
                 if (!result.success) {
                     throw new Error(result.error ?? `Failed to convert DjVu file: ${sourcePath}`);
                 }
 
+                if (options?.signal?.aborted) {
+                    throw abortErrorFromSignal(options.signal);
+                }
                 await assertLocalPdfReadLimit(tempPdfPath);
                 const sourceBytes = await readFile(tempPdfPath);
                 const sourcePdf = await PDFDocument.load(sourceBytes);
@@ -269,6 +299,9 @@ async function createPdfFromInputPathsLocal(
                 }
                 return copiedPages.length;
             } finally {
+                if (options?.signal && abortHandler) {
+                    options.signal.removeEventListener('abort', abortHandler);
+                }
                 await rm(tempDir, {
                     recursive: true,
                     force: true,
@@ -278,10 +311,13 @@ async function createPdfFromInputPathsLocal(
     });
 }
 
-async function getOptionalDjvuPageCount(sourcePath: string) {
+async function getOptionalDjvuPageCount(sourcePath: string, signal?: AbortSignal) {
     try {
-        return await getDjvuPageCount(sourcePath);
+        return await getDjvuPageCount(sourcePath, signal ? { signal } : {});
     } catch (error) {
+        if (signal?.aborted) {
+            throw abortErrorFromSignal(signal);
+        }
         logger.debug(`Failed to read DjVu page count before combine conversion: ${getErrorMessage(error)}`);
         return 0;
     }
@@ -378,6 +414,11 @@ function createPdfFromInputPathsWorker(
     options?: ICreatePdfFromInputPathsOptions,
 ): Promise<Uint8Array> {
     return new Promise((resolve, reject) => {
+        if (options?.signal?.aborted) {
+            reject(abortErrorFromSignal(options.signal));
+            return;
+        }
+
         let worker: Worker;
         try {
             worker = new Worker(getCombineWorkerPath(), {
@@ -396,6 +437,7 @@ function createPdfFromInputPathsWorker(
         let timeoutHandle: NodeJS.Timeout | null = null;
         let workerOnline = false;
         let ignoreLateWorkerError: (() => undefined) | null = null;
+        let abortHandler: (() => void) | null = null;
 
         const cleanupWorker = () => {
             if (cleanedUp) {
@@ -408,6 +450,10 @@ function createPdfFromInputPathsWorker(
             if (timeoutHandle) {
                 clearTimeout(timeoutHandle);
                 timeoutHandle = null;
+            }
+            if (options?.signal && abortHandler) {
+                options.signal.removeEventListener('abort', abortHandler);
+                abortHandler = null;
             }
         };
 
@@ -426,6 +472,18 @@ function createPdfFromInputPathsWorker(
         worker.once('online', () => {
             workerOnline = true;
         });
+
+        if (options?.signal) {
+            abortHandler = () => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                terminateWorker();
+                reject(abortErrorFromSignal(options.signal!));
+            };
+            options.signal.addEventListener('abort', abortHandler, { once: true });
+        }
 
         worker.on('message', (message: unknown) => {
             const payload = parseCombineWorkerPayload(message);

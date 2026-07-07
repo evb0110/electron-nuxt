@@ -170,6 +170,10 @@ import {
     shouldPreloadWorkspaceDuringStartup,
     warmupDesktopViewerChunks,
 } from '@app/modules/workspace-shell/public';
+import {
+    isElectronUserAgent,
+    waitForPreferredDesktopPlatformBridge,
+} from '@app/utils/platform';
 
 const {
     load: loadSettings,
@@ -451,6 +455,14 @@ installViteReloadDiagnostics();
 onMounted(async () => {
     const mountTime = Date.now();
     try {
+        const bridgeResolution = await waitForPreferredDesktopPlatformBridge({
+            routePath: route.path,
+            desktopRuntime: isDesktopRuntime.value,
+        });
+        if (bridgeResolution.shouldWait && !bridgeResolution.bridgeReady && isElectronUserAgent()) {
+            throw new Error('Electron preload bridge is unavailable during app bootstrap.');
+        }
+
         applyUiScaleToDocument(uiEffectiveScale.value, uiHostSnapshot.value);
         const unsubscribeHostEnvironment = attachHostEnvironmentListener();
         hostEnvironmentUnsubscribers.push(unsubscribeHostEnvironment);

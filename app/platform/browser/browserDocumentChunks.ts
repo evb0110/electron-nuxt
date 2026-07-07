@@ -5,7 +5,10 @@ import type {
     IBrowserDocumentChunkRecord,
     IChunkKeyRecord,
 } from '@app/platform/browser/browserDocumentTypes';
-import { withObjectStore } from '@app/platform/browser/browserDocumentIdb';
+import {
+    withObjectStore,
+    withObjectStoreReadResult,
+} from '@app/platform/browser/browserDocumentIdb';
 
 export function createChunkKey(ref: string, index: number, generation?: string) {
     return generation
@@ -98,9 +101,12 @@ export async function deleteChunkRecord(ref: string, index: number, generation?:
 }
 
 export async function loadAllChunkKeys() {
-    return withObjectStore<IDBValidKey[]>(
+    return (await loadAllChunkKeysAvailability()).value;
+}
+
+export async function loadAllChunkKeysAvailability() {
+    return withObjectStoreReadResult<IDBValidKey[]>(
         DOCUMENT_CHUNKS_STORE,
-        'readonly',
         (store) => store.getAllKeys(),
     );
 }

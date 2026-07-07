@@ -11,6 +11,7 @@ import {
     clearRegisteredPdfRasterDisplayProfilesForTests,
     resolveRegisteredPdfRasterDisplayProfile,
 } from '@app/types/pdfRasterDisplayProfile';
+import type { IDjvuProgress } from '@contracts/electronApiDjvu';
 
 vi.mock('vue', async (importOriginal) => {
     const actual = await importOriginal<typeof TVueModule>();
@@ -27,7 +28,7 @@ interface IViewingErrorData {
 
 const mockElectronAPI = {
     djvu: {
-        onProgress: vi.fn(() => vi.fn()),
+        onProgress: vi.fn((_callback: (progress: IDjvuProgress) => void) => vi.fn()),
         onViewingReady: vi.fn(() => vi.fn()),
         onViewingError: vi.fn((_callback: (data: IViewingErrorData) => void) => vi.fn()),
         openForViewing: vi.fn(),
@@ -439,12 +440,77 @@ describe('useDjvu', () => {
             expect(mockElectronAPI.djvu.convertToPdf).toHaveBeenCalledWith(
                 '/tmp/input.djvu',
                 '/tmp/out.pdf',
-                {
+                expect.objectContaining({
                     subsample: 4,
                     preserveBookmarks: false,
                     pdfStrategy: 'compact-djvu-aware',
-                },
+                    requestId: expect.any(String),
+                    documentRef: '/tmp/input.djvu',
+                }),
             );
+        });
+
+        it('ignores conversion progress from another request before claiming the job id', async () => {
+            let progressCallback: ((progress: IDjvuProgress) => void) | null = null;
+            mockElectronAPI.djvu.onProgress.mockImplementation((callback) => {
+                progressCallback = callback;
+                return vi.fn();
+            });
+            mockElectronAPI.djvu.openForViewing.mockResolvedValue({
+                success: true,
+                pageCount: 1,
+                jobId: 'view-1',
+            });
+            mockDocumentFilesCapability.savePdfDialog.mockResolvedValue('/tmp/out.pdf');
+            let resolveConversion: ((value: {
+                success: boolean;
+                pdfPath: string;
+                jobId: string;
+                requestId?: string;
+            }) => void) | null = null;
+            mockElectronAPI.djvu.convertToPdf.mockImplementation((_source, _output, options) => new Promise((resolve) => {
+                resolveConversion = resolve;
+                progressCallback?.({
+                    jobId: 'foreign-job',
+                    requestId: 'foreign-request',
+                    documentRef: '/tmp/input.djvu',
+                    phase: 'converting',
+                    percent: 80,
+                });
+                progressCallback?.({
+                    jobId: 'convert-1',
+                    requestId: options.requestId,
+                    documentRef: '/tmp/input.djvu',
+                    phase: 'converting',
+                    percent: 25,
+                });
+            }));
+
+            const djvu = useDjvu();
+            await djvu.openDjvuFile('/tmp/input.djvu', vi.fn(async () => {}));
+            const convertPromise = djvu.convertToPdf(1, true, 'direct', vi.fn(async () => ({
+                status: 'opened' as const,
+                result: {
+                    kind: 'pdf' as const,
+                    originalPath: '/tmp/out.pdf',
+                    workingPath: '/tmp/out-working.pdf',
+                },
+            })));
+
+            for (let attempt = 0; attempt < 5 && mockElectronAPI.djvu.convertToPdf.mock.calls.length === 0; attempt += 1) {
+                await Promise.resolve();
+            }
+            expect(mockElectronAPI.djvu.convertToPdf).toHaveBeenCalledTimes(1);
+            expect(djvu.conversionState.value.percent).toBe(25);
+            expect(resolveConversion).not.toBeNull();
+            const requestId = mockElectronAPI.djvu.convertToPdf.mock.calls[0]?.[2]?.requestId;
+            resolveConversion!({
+                success: true,
+                pdfPath: '/tmp/out.pdf',
+                jobId: 'convert-1',
+                requestId,
+            });
+            await convertPromise;
         });
 
         it('shows the direct-open error when a converted PDF cannot be opened', async () => {

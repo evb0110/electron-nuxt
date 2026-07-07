@@ -139,6 +139,7 @@ let readyInitialVisualGeneration: number | null = null;
 let initialVisualSettlePromise: Promise<void> | null = null;
 let resolveInitialVisualSettlePromise: (() => void) | null = null;
 const activeRenderPageNumbers = new Set<number>();
+const retainedPageNumbers = new Set<number>();
 const paintedPageObjectUrls = new Map<number, string>();
 const queuedPageObjectUrlsForRevoke = new Map<number, string[]>();
 
@@ -218,6 +219,38 @@ const pageLayouts = computed<IPageLayout[]>(() => {
     });
 });
 
+function findFirstLayoutIndexEndingAtOrAfter(layouts: IPageLayout[], offset: number) {
+    let low = 0;
+    let high = layouts.length;
+    while (low < high) {
+        const mid = Math.floor((low + high) / 2);
+        const layout = layouts[mid];
+        if (!layout || layout.top + layout.height >= offset) {
+            high = mid;
+        } else {
+            low = mid + 1;
+        }
+    }
+    return low;
+}
+
+function getPageNumbersIntersectingViewport(
+    layouts: IPageLayout[],
+    viewportStart: number,
+    viewportEnd: number,
+) {
+    const pages: number[] = [];
+    const firstIndex = findFirstLayoutIndexEndingAtOrAfter(layouts, viewportStart);
+    for (let index = firstIndex; index < layouts.length; index += 1) {
+        const layout = layouts[index];
+        if (!layout || layout.top > viewportEnd) {
+            break;
+        }
+        pages.push(index + 1);
+    }
+    return pages;
+}
+
 const continuousSurfaceWidth = computed(() => {
     const maxPageWidth = pageLayouts.value.reduce((maxWidth, layout) => Math.max(maxWidth, layout.width), 0);
     return Math.max(containerWidth.value, maxPageWidth + NATIVE_PDF_BASE_MARGIN * 2, 1);
@@ -238,16 +271,7 @@ const renderedPageNumbers = computed(() => {
 
     const viewportStart = Math.max(0, scrollTop.value - containerHeight.value * NATIVE_PDF_RENDER_OVERSCAN_VIEWPORTS);
     const viewportEnd = scrollTop.value + containerHeight.value * (1 + NATIVE_PDF_RENDER_OVERSCAN_VIEWPORTS);
-    const pages: number[] = [];
-    for (const [
-        index,
-        layout,
-    ] of pageLayouts.value.entries()) {
-        if (layout.top + layout.height < viewportStart || layout.top > viewportEnd) {
-            continue;
-        }
-        pages.push(index + 1);
-    }
+    const pages = getPageNumbersIntersectingViewport(pageLayouts.value, viewportStart, viewportEnd);
 
     return pages.length > 0 ? pages : [currentPage.value];
 });
@@ -444,6 +468,7 @@ function cleanupRenderedPages() {
     for (let pageNumber = 1; pageNumber <= pageStates.value.length; pageNumber += 1) {
         revokePageUrl(pageNumber);
     }
+    retainedPageNumbers.clear();
     queuedPageObjectUrlsForRevoke.clear();
     paintedPageObjectUrls.clear();
 }
@@ -478,10 +503,13 @@ function getVisiblePageNumber() {
     const viewportEnd = viewportStart + container.clientHeight;
     let bestPage = currentPage.value;
     let bestVisiblePx = 0;
-    for (const [
-        index,
-        layout,
-    ] of pageLayouts.value.entries()) {
+    const layouts = pageLayouts.value;
+    const firstIndex = findFirstLayoutIndexEndingAtOrAfter(layouts, viewportStart);
+    for (let index = firstIndex; index < layouts.length; index += 1) {
+        const layout = layouts[index];
+        if (!layout || layout.top > viewportEnd) {
+            break;
+        }
         const visiblePx = Math.max(
             0,
             Math.min(viewportEnd, layout.top + layout.height) - Math.max(viewportStart, layout.top),
@@ -521,7 +549,7 @@ function getActivePageSet() {
 }
 
 function releaseInactivePages(activePages: Set<number>) {
-    for (let pageNumber = 1; pageNumber <= pageStates.value.length; pageNumber += 1) {
+    for (const pageNumber of retainedPageNumbers) {
         if (activePages.has(pageNumber)) {
             continue;
         }
@@ -529,6 +557,10 @@ function releaseInactivePages(activePages: Set<number>) {
         if (pageState && pageState.status !== 'idle') {
             resetPageState(pageNumber);
         }
+    }
+    retainedPageNumbers.clear();
+    for (const pageNumber of activePages) {
+        retainedPageNumbers.add(pageNumber);
     }
 }
 
@@ -728,6 +760,16 @@ async function loadSource(nextSrc: TDocumentRef, generation: number) {
     pageStates.value = sizes.map(createIdlePageState);
 }
 
+function clearFailedLoadSource(generation: number) {
+    if (!isCurrentLoadGeneration(generation)) {
+        return;
+    }
+    stopSource();
+    pageSizes.value = [];
+    pageStates.value = [];
+    emit('update:totalPages', 0);
+}
+
 function handleViewerScroll() {
     const container = viewerContainer.value;
     if (!container) {
@@ -875,6 +917,7 @@ watch(
                 return;
             }
 
+            clearFailedLoadSource(generation);
             viewerError.value = error instanceof Error ? error.message : 'Failed to open PDF preview';
             BrowserLogger.error('native-pdf-viewer', 'Failed to initialize native PDF viewer', {
                 src: nextSrc,
@@ -922,6 +965,7 @@ watch(isActive, async (active) => {
             if (!isCurrentLoadGeneration(generation)) {
                 return;
             }
+            clearFailedLoadSource(generation);
             viewerError.value = error instanceof Error ? error.message : 'Failed to open PDF preview';
             BrowserLogger.error('native-pdf-viewer', 'Failed to resume native PDF viewer', {
                 src,

@@ -31,7 +31,7 @@ import {
 } from '@electron/file-access/documentRevisionStore';
 import {
     assertQueuedWorkingCopyMutationPreconditions,
-    assertQueuedWorkingCopyMutationPreconditionsForBootstrap,
+    assertQueuedWorkingCopyMutationPreconditionsForResync,
 } from '@electron/file-access/documentMutationGuards';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
 import { originalPathSaveBaseMatches } from '@electron/features/documents/main/originalPathSaveBaseMatches';
@@ -55,6 +55,11 @@ function requireSenderId(context: IDocumentsSenderIdContext): number {
         throw new Error('Missing sender identity');
     }
     return context.senderId;
+}
+
+interface IReplaceOriginalWithValidatedTempResult {
+    validation: IPdfValidationResult;
+    optimized: boolean;
 }
 
 function createOriginalChangedValidationResult(): IPdfValidationResult {
@@ -128,6 +133,13 @@ function withWorkingCopySyncWarning(validation: IPdfValidationResult, error: unk
     };
 }
 
+async function refreshWorkingCopyOriginalFileExpectationForSave(workingPath: string, senderWebContentsId: number) {
+    const refreshed = await refreshWorkingCopyOriginalFileExpectation(workingPath, senderWebContentsId);
+    if (!refreshed) {
+        throw new Error('Working copy registration changed before original expectation refresh completed');
+    }
+}
+
 function getValidatedOriginalPath(workingPath: string, senderWebContentsId: number) {
     const originalPath = getWorkingCopyOriginalPath(workingPath, senderWebContentsId)?.originalPath;
 
@@ -147,7 +159,7 @@ async function replaceOriginalWithValidatedTemp(
     senderWebContentsId: number,
     writeTemp: (tempPath: string) => Promise<void>,
     options: { optimize?: 'large' | 'force' } = {},
-) {
+): Promise<IReplaceOriginalWithValidatedTempResult> {
     const tempPath = makeSiblingTempPath(originalPath);
     let replaced = false;
     try {
@@ -162,16 +174,25 @@ async function replaceOriginalWithValidatedTemp(
                 : null;
         const validation = optimizedValidation ?? await validatePdfFile(tempPath);
         if (!validation.isValid) {
-            return validation;
+            return {
+                validation,
+                optimized: false,
+            };
         }
 
         if (!await originalPathSaveBaseMatches(workingPath, originalPath, senderWebContentsId)) {
-            return createOriginalChangedValidationResult();
+            return {
+                validation: createOriginalChangedValidationResult(),
+                optimized: false,
+            };
         }
 
         await atomicReplace(tempPath, originalPath);
         replaced = true;
-        return validation;
+        return {
+            validation,
+            optimized: optimizedValidation !== null,
+        };
     } finally {
         if (!replaced) {
             await rm(tempPath, { force: true }).catch(() => undefined);
@@ -224,18 +245,24 @@ export async function handleFileSaveStructured(
             }
             await assertQueuedWorkingCopyMutationPreconditions(normalizedWorkingPath, expectedDocumentRevisionToken);
 
-            const queuedValidation = await replaceOriginalWithValidatedTemp(
+            const queuedSave = await replaceOriginalWithValidatedTemp(
                 originalPath,
                 normalizedWorkingPath,
                 senderId,
                 tempPath => copyFileCopyOnWrite(normalizedWorkingPath, tempPath),
                 { optimize: 'large' },
             );
-            if (queuedValidation.isValid) {
+            if (queuedSave.validation.isValid) {
                 try {
-                    refreshWorkingCopyOriginalFileExpectation(normalizedWorkingPath, senderId);
+                    if (queuedSave.optimized) {
+                        await copyFileCopyOnWrite(originalPath, normalizedWorkingPath);
+                    }
+                    await refreshWorkingCopyOriginalFileExpectationForSave(normalizedWorkingPath, senderId);
+                    if (queuedSave.optimized) {
+                        await markWorkingCopyContentChanged(normalizedWorkingPath, 'save-sync', senderId);
+                    }
                     return {
-                        validation: queuedValidation,
+                        validation: queuedSave.validation,
                         workingCopyRefreshed: true,
                     };
                 } catch (refreshError) {
@@ -244,7 +271,7 @@ export async function handleFileSaveStructured(
                         `Original file was saved, but the working copy refresh failed: ${getErrorMessage(refreshError)}`,
                     );
                     return {
-                        validation: queuedValidation,
+                        validation: queuedSave.validation,
                         workingCopyRefreshed: false,
                         refreshError,
                     };
@@ -252,7 +279,7 @@ export async function handleFileSaveStructured(
             }
 
             return {
-                validation: queuedValidation,
+                validation: queuedSave.validation,
                 workingCopyRefreshed: false,
             };
         });
@@ -306,17 +333,18 @@ export async function handleResyncWorkingCopy(
         }
 
         const normalizedWorkingPath = workingPath.trim();
-        const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
         await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
-            assertQueuedWorkingCopyMutationPreconditionsForBootstrap(
+            assertQueuedWorkingCopyMutationPreconditionsForResync(
                 normalizedWorkingPath,
+                senderId,
                 'resync-after-external-change',
             );
             if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, senderId)) {
                 throw new WorkingCopyMissingError('Working copy path is not managed');
             }
+            const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
             await copyFileCopyOnWrite(originalPath, normalizedWorkingPath);
-            refreshWorkingCopyOriginalFileExpectation(normalizedWorkingPath, senderId);
+            await refreshWorkingCopyOriginalFileExpectationForSave(normalizedWorkingPath, senderId);
             clearWorkingCopySyncRequired(normalizedWorkingPath);
             await markWorkingCopyContentChanged(normalizedWorkingPath, 'save-sync', senderId);
         });
@@ -364,28 +392,28 @@ export async function handleSerializedPdfSave(
             }
             await assertQueuedWorkingCopyMutationPreconditions(normalizedWorkingPath, expectedDocumentRevisionToken);
 
-            const queuedValidation = await replaceOriginalWithValidatedTemp(
+            const queuedSave = await replaceOriginalWithValidatedTemp(
                 originalPath,
                 normalizedWorkingPath,
                 senderId,
                 tempPath => writeFile(tempPath, payload),
                 { optimize: 'large' },
             );
-            if (queuedValidation.isValid) {
+            if (queuedSave.validation.isValid) {
                 try {
                     await copyFileCopyOnWrite(originalPath, normalizedWorkingPath);
-                    refreshWorkingCopyOriginalFileExpectation(normalizedWorkingPath, senderId);
+                    await refreshWorkingCopyOriginalFileExpectationForSave(normalizedWorkingPath, senderId);
                     await markWorkingCopyContentChanged(normalizedWorkingPath, 'save-sync', senderId);
                 } catch (syncError) {
                     markWorkingCopySyncRequired(
                         normalizedWorkingPath,
                         `Original file was saved, but the working copy refresh failed: ${getErrorMessage(syncError)}`,
                     );
-                    return withWorkingCopySyncWarning(queuedValidation, syncError);
+                    return withWorkingCopySyncWarning(queuedSave.validation, syncError);
                 }
             }
 
-            return queuedValidation;
+            return queuedSave.validation;
         });
         if (!validation.isValid) {
             return validation;
@@ -421,28 +449,28 @@ export async function handleRepairPdfSave(
             }
             await assertQueuedWorkingCopyMutationPreconditions(normalizedWorkingPath, expectedDocumentRevisionToken);
 
-            const queuedValidation = await replaceOriginalWithValidatedTemp(
+            const queuedSave = await replaceOriginalWithValidatedTemp(
                 originalPath,
                 normalizedWorkingPath,
                 senderId,
                 tempPath => repairPdfWithQpdf(normalizedWorkingPath, tempPath, mutationOperation),
                 { optimize: 'large' },
             );
-            if (queuedValidation.isValid) {
+            if (queuedSave.validation.isValid) {
                 try {
                     await copyFileCopyOnWrite(originalPath, normalizedWorkingPath);
-                    refreshWorkingCopyOriginalFileExpectation(normalizedWorkingPath, senderId);
+                    await refreshWorkingCopyOriginalFileExpectationForSave(normalizedWorkingPath, senderId);
                     await markWorkingCopyContentChanged(normalizedWorkingPath, 'save-sync', senderId);
                 } catch (syncError) {
                     markWorkingCopySyncRequired(
                         normalizedWorkingPath,
                         `Original file was saved, but the working copy refresh failed: ${getErrorMessage(syncError)}`,
                     );
-                    return withWorkingCopySyncWarning(queuedValidation, syncError);
+                    return withWorkingCopySyncWarning(queuedSave.validation, syncError);
                 }
             }
 
-            return queuedValidation;
+            return queuedSave.validation;
         });
         if (!validation.isValid) {
             return validation;
@@ -478,28 +506,28 @@ export async function handleOptimizePdfForInteraction(
             }
             await assertQueuedWorkingCopyMutationPreconditions(normalizedWorkingPath, expectedDocumentRevisionToken);
 
-            const queuedValidation = await replaceOriginalWithValidatedTemp(
+            const queuedSave = await replaceOriginalWithValidatedTemp(
                 originalPath,
                 normalizedWorkingPath,
                 senderId,
                 tempPath => copyFileCopyOnWrite(normalizedWorkingPath, tempPath),
                 { optimize: 'force' },
             );
-            if (queuedValidation.isValid) {
+            if (queuedSave.validation.isValid) {
                 try {
                     await copyFileCopyOnWrite(originalPath, normalizedWorkingPath);
-                    refreshWorkingCopyOriginalFileExpectation(normalizedWorkingPath, senderId);
+                    await refreshWorkingCopyOriginalFileExpectationForSave(normalizedWorkingPath, senderId);
                     await markWorkingCopyContentChanged(normalizedWorkingPath, 'save-sync', senderId);
                 } catch (syncError) {
                     markWorkingCopySyncRequired(
                         normalizedWorkingPath,
                         `Original file was saved, but the working copy refresh failed: ${getErrorMessage(syncError)}`,
                     );
-                    return withWorkingCopySyncWarning(queuedValidation, syncError);
+                    return withWorkingCopySyncWarning(queuedSave.validation, syncError);
                 }
             }
 
-            return queuedValidation;
+            return queuedSave.validation;
         });
         return validation;
     } catch (err) {

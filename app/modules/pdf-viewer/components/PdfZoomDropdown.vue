@@ -73,9 +73,9 @@
                             </button>
                         </div>
 
-                        <div class="zoom-divider" />
+                        <div v-if="canUseViewModes" class="zoom-divider" />
 
-                        <div class="zoom-toggle-group">
+                        <div v-if="canUseViewModes" class="zoom-toggle-group">
                             <button
                                 :class="['zoom-toggle-btn', { 'is-active': isViewModeActive('single') }]"
                                 :aria-label="t('zoom.singlePage')"
@@ -146,6 +146,7 @@ interface IProps {
     viewMode: TPdfViewMode;
     open: boolean;
     disabled?: boolean;
+    canUseViewModes?: boolean;
     compactLevel?: number;
 }
 
@@ -155,6 +156,7 @@ const {
     zoomMode,
     viewMode,
     open,
+    canUseViewModes = true,
     disabled = false,
     compactLevel = 0,
 } = defineProps<IProps>();

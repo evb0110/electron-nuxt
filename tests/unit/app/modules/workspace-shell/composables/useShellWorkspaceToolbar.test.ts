@@ -174,6 +174,7 @@ describe('createDefaultWorkspaceToolbarSnapshot', () => {
             totalPages: 0,
             viewerCapabilities: {
                 closeableDocument: false,
+                continuousScroll: false,
                 conversionBanner: false,
                 conversionDialog: false,
                 crop: false,
@@ -184,7 +185,9 @@ describe('createDefaultWorkspaceToolbarSnapshot', () => {
                 regionCapture: false,
                 repairSave: false,
                 save: false,
+                saveAs: false,
                 sidebar: false,
+                viewMode: false,
             },
         });
     });

@@ -13,10 +13,13 @@ const mocks = vi.hoisted(() => ({openExternal: vi.fn(async () => {})}));
 vi.mock('electron', () => ({shell: {openExternal: mocks.openExternal}}));
 
 function createWindowMock() {
-    return {webContents: {
-        on: vi.fn(),
-        setWindowOpenHandler: vi.fn(),
-    }};
+    return {
+        once: vi.fn(),
+        webContents: {
+            on: vi.fn(),
+            setWindowOpenHandler: vi.fn(),
+        },
+    };
 }
 
 function createLoggerMock() {
@@ -85,6 +88,75 @@ describe('createWindowSecurity', () => {
         expect(logger.warn).toHaveBeenCalledWith(
             'Blocked window-open URL with unsupported protocol: javascript:alert(1)',
         );
+    });
+
+    it('throttles repeated window-open attempts by source and window instead of full URL', () => {
+        vi.useFakeTimers();
+        const logger = createLoggerMock();
+        const security = createWindowSecurity({
+            getTrustedRendererUrl: () => 'evb-viewer://app/electron',
+            logger,
+        });
+        const window = createWindowMock();
+
+        security.hardenWindowWebContents(window as never);
+
+        const openHandler = window.webContents.setWindowOpenHandler.mock.calls[0]?.[0] as
+            | ((details: {url: string;}) => {action: 'deny';})
+            | undefined;
+        expect(openHandler).toBeTypeOf('function');
+
+        openHandler?.({url: 'https://example.com/docs?nonce=1'});
+        openHandler?.({url: 'https://example.com/other?nonce=2'});
+        openHandler?.({url: 'https://other.example.test/path?nonce=3'});
+
+        expect(mocks.openExternal).toHaveBeenCalledOnce();
+        expect(mocks.openExternal).toHaveBeenCalledWith('https://example.com/docs?nonce=1');
+        expect(logger.warn).toHaveBeenCalledWith(
+            'Blocked repeated window-open URL open: https://example.com/other?nonce=2',
+        );
+        expect(logger.warn).toHaveBeenCalledWith(
+            'Blocked repeated window-open URL open: https://other.example.test/path?nonce=3',
+        );
+
+        vi.advanceTimersByTime(1_000);
+        openHandler?.({url: 'https://example.com/after'});
+
+        expect(mocks.openExternal).toHaveBeenCalledTimes(2);
+        expect(mocks.openExternal).toHaveBeenLastCalledWith('https://example.com/after');
+    });
+
+    it('keeps external-open throttles scoped to each window and source', () => {
+        vi.useFakeTimers();
+        const security = createWindowSecurity({
+            getTrustedRendererUrl: () => 'evb-viewer://app/electron',
+            logger: createLoggerMock(),
+        });
+        const firstWindow = createWindowMock();
+        const secondWindow = createWindowMock();
+
+        security.hardenWindowWebContents(firstWindow as never);
+        security.hardenWindowWebContents(secondWindow as never);
+
+        const firstOpenHandler = firstWindow.webContents.setWindowOpenHandler.mock.calls[0]?.[0] as
+            | ((details: {url: string;}) => {action: 'deny';})
+            | undefined;
+        const secondOpenHandler = secondWindow.webContents.setWindowOpenHandler.mock.calls[0]?.[0] as
+            | ((details: {url: string;}) => {action: 'deny';})
+            | undefined;
+        const firstWillNavigate = firstWindow.webContents.on.mock.calls
+            .find(([event]) => event === 'will-navigate')?.[1] as
+            | ((event: {preventDefault: () => void;}, url: string) => void)
+            | undefined;
+
+        firstOpenHandler?.({url: 'https://example.com/from-first-window'});
+        secondOpenHandler?.({url: 'https://example.com/from-second-window'});
+        firstWillNavigate?.({preventDefault: vi.fn()}, 'https://example.com/from-navigation');
+
+        expect(mocks.openExternal).toHaveBeenCalledTimes(3);
+        expect(mocks.openExternal).toHaveBeenNthCalledWith(1, 'https://example.com/from-first-window');
+        expect(mocks.openExternal).toHaveBeenNthCalledWith(2, 'https://example.com/from-second-window');
+        expect(mocks.openExternal).toHaveBeenNthCalledWith(3, 'https://example.com/from-navigation');
     });
 
     it('hardens top-level navigation without blocking trusted renderer routes', async () => {

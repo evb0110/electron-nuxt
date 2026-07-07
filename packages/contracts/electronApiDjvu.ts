@@ -13,6 +13,8 @@ export type { TDjvuPdfExportStrategy } from '@contracts/djvuConversionPolicy';
 
 export interface IDjvuProgress {
     jobId: string;
+    requestId?: string;
+    documentRef?: TDocumentRef;
     phase: 'converting' | 'bookmarks' | 'optimizing' | 'loading' | 'printing';
     status?: 'running' | 'success' | 'canceled' | 'failed';
     current?: number;
@@ -60,6 +62,8 @@ export interface IDjvuConvertOptions {
     subsample?: number;
     preserveBookmarks?: boolean;
     pdfStrategy?: TDjvuPdfExportStrategy;
+    requestId?: string;
+    documentRef?: TDocumentRef;
 }
 
 export interface IDjvuPrintOptions {
@@ -84,6 +88,8 @@ export interface IDjvuConvertResult {
     success: boolean;
     pdfPath?: TDocumentRef;
     jobId?: string;
+    requestId?: string;
+    documentRef?: TDocumentRef;
     error?: string;
 }
 

@@ -779,7 +779,13 @@ export function createBrowserDocumentsFileCapability(
                 let shouldBackfillStorage = false;
 
                 for (const file of recentFiles) {
-                    const entry = await browserDocumentStore.ensureEntry(file.originalPath);
+                    const {
+                        available,
+                        entry,
+                    } = await browserDocumentStore.ensureEntryAvailability(file.originalPath);
+                    if (!available) {
+                        return recentFiles;
+                    }
                     if (entry && entry.retention !== 'transient') {
                         const fileSize = typeof file.fileSize === 'number'
                             ? file.fileSize

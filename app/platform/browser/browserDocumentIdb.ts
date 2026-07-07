@@ -58,7 +58,7 @@ function assertWriteCommitted(result: unknown, operation: string) {
     }
 }
 
-async function withObjectStoreReadResult<T>(
+export async function withObjectStoreReadResult<T>(
     storeName: string,
     run: (store: IDBObjectStore) => IDBRequest<T>,
 ): Promise<IIndexedDbReadResult<T>> {

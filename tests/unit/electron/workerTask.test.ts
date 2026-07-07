@@ -9,11 +9,16 @@ import {
 const mocks = vi.hoisted<{
     existsSync: ReturnType<typeof vi.fn<() => boolean>>;
     workerCtor: ReturnType<typeof vi.fn<(workerPath: string, options: unknown) => void>>;
+    workerRecords: Array<{
+        emit: (event: string, payload: unknown) => void;
+        postMessageCalls: unknown[];
+    }>;
     throwConstructorError: boolean;
     nextMessage: unknown | null;
 }>(() => ({
     existsSync: vi.fn(() => true),
     workerCtor: vi.fn(),
+    workerRecords: [],
     throwConstructorError: true,
     nextMessage: null,
 }));
@@ -22,12 +27,19 @@ vi.mock('fs', () => ({existsSync: mocks.existsSync}));
 vi.mock('worker_threads', () => ({Worker: class {
     private readonly onceHandlers = new Map<string, Array<(payload: unknown) => void>>();
     private readonly onHandlers = new Map<string, Array<(payload: unknown) => void>>();
+    private readonly postMessageCalls: unknown[] = [];
 
     constructor(workerPath: string, options: unknown) {
         mocks.workerCtor(workerPath, options);
         if (mocks.throwConstructorError) {
             throw new Error('constructor failed');
         }
+        mocks.workerRecords.push({
+            emit: (event: string, payload: unknown) => {
+                this.emit(event, payload);
+            },
+            postMessageCalls: this.postMessageCalls,
+        });
         void Promise.resolve().then(() => {
             this.emit('online', undefined);
             if (mocks.nextMessage !== null) {
@@ -62,7 +74,8 @@ vi.mock('worker_threads', () => ({Worker: class {
         return this;
     }
 
-    postMessage() {
+    postMessage(message: unknown) {
+        this.postMessageCalls.push(message);
         return undefined;
     }
 
@@ -90,6 +103,7 @@ describe('workerTask', () => {
         mocks.existsSync.mockReturnValue(true);
         mocks.throwConstructorError = true;
         mocks.nextMessage = null;
+        mocks.workerRecords.length = 0;
     });
 
     it('normalizes streaming worker constructor errors as startup errors', async () => {
@@ -204,5 +218,61 @@ describe('workerTask', () => {
                 stackSizeMb: 8,
             },
         });
+    });
+
+    it('preserves the pending abort reason when a cooperatively canceled worker errors', async () => {
+        mocks.throwConstructorError = false;
+        const abortController = new AbortController();
+        const abortReason = new Error('user canceled task');
+        const { runResultWorkerTask } = await import('@electron/utils/workerTask');
+
+        const taskPromise = runResultWorkerTask({
+            workerPath: '/tmp/worker.js',
+            workerData: { ok: true },
+            invalidPayloadMessage: 'invalid payload',
+            createWorkerExitError: code => new Error(`exit: ${code}`),
+            signal: abortController.signal,
+            createCancelMessage: reason => ({
+                type: 'cancel',
+                reason,
+            }),
+        });
+
+        await Promise.resolve();
+        abortController.abort(abortReason);
+        expect(mocks.workerRecords[0]?.postMessageCalls).toContainEqual({
+            type: 'cancel',
+            reason: 'abort',
+        });
+
+        mocks.workerRecords[0]?.emit('error', new Error('generic worker failure'));
+
+        await expect(taskPromise).rejects.toBe(abortReason);
+    });
+
+    it('preserves the pending abort reason when a cooperatively canceled worker exits', async () => {
+        mocks.throwConstructorError = false;
+        const abortController = new AbortController();
+        const abortReason = new Error('navigation canceled task');
+        const { runResultWorkerTask } = await import('@electron/utils/workerTask');
+
+        const taskPromise = runResultWorkerTask({
+            workerPath: '/tmp/worker.js',
+            workerData: { ok: true },
+            invalidPayloadMessage: 'invalid payload',
+            createWorkerExitError: code => new Error(`exit: ${code}`),
+            signal: abortController.signal,
+            createCancelMessage: reason => ({
+                type: 'cancel',
+                reason,
+            }),
+        });
+
+        await Promise.resolve();
+        abortController.abort(abortReason);
+
+        mocks.workerRecords[0]?.emit('exit', 1);
+
+        await expect(taskPromise).rejects.toBe(abortReason);
     });
 });

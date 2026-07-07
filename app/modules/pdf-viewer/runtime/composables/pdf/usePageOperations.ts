@@ -370,7 +370,6 @@ export const usePageOperations = (deps: {
     }
 
     async function deletePagesDetailed(pages: number[], totalPages: number) {
-        const mutationOptions = capturePageMutationOptions();
         if (pages.length === 0) {
             return recordOutcome({
                 status: 'blocked',
@@ -390,7 +389,7 @@ export const usePageOperations = (deps: {
             operationName: 'deletePages',
             errorKey: 'errors.pageOps.delete',
             shouldReload: true,
-            run: (path) => runDeletePageOp(path, [...pages], totalPages, mutationOptions),
+            run: (path) => runDeletePageOp(path, [...pages], totalPages, capturePageMutationOptions()),
         });
         if (didPageOperationSucceed(outcome)) {
             analytics.track('page_operation_completed', {
@@ -443,7 +442,6 @@ export const usePageOperations = (deps: {
     }
 
     async function rotatePagesDetailed(pages: number[], totalPages: number, angle: TPageOpsRotation) {
-        const mutationOptions = capturePageMutationOptions();
         if (pages.length === 0) {
             return recordOutcome({
                 status: 'blocked',
@@ -456,7 +454,7 @@ export const usePageOperations = (deps: {
             operationName: 'rotatePages',
             errorKey: 'errors.pageOps.rotate',
             shouldReload: true,
-            run: (path) => runRotatePageOp(path, [...pages], totalPages, angle, mutationOptions),
+            run: (path) => runRotatePageOp(path, [...pages], totalPages, angle, capturePageMutationOptions()),
         });
         if (didPageOperationSucceed(outcome)) {
             analytics.track('page_operation_completed', {
@@ -474,13 +472,12 @@ export const usePageOperations = (deps: {
     }
 
     async function insertPagesDetailed(totalPages: number, afterPage: number) {
-        const mutationOptions = capturePageMutationOptions();
         const startedAt = Date.now();
         const outcome = await runOperationDetailed({
             operationName: 'insertPages',
             errorKey: 'errors.pageOps.insert',
             shouldReload: true,
-            run: (path) => runInsertPageOp(path, totalPages, afterPage, mutationOptions),
+            run: (path) => runInsertPageOp(path, totalPages, afterPage, capturePageMutationOptions()),
         });
         if (didPageOperationSucceed(outcome)) {
             analytics.track('page_operation_completed', {
@@ -497,7 +494,6 @@ export const usePageOperations = (deps: {
     }
 
     async function insertFileDetailed(totalPages: number, afterPage: number, sourcePaths: TDocumentRef[]) {
-        const mutationOptions = capturePageMutationOptions();
         const startedAt = Date.now();
         const requestId = sourcePaths.length > 1
             ? `browser-page-op-insert-${crypto.randomUUID()}`
@@ -545,7 +541,7 @@ export const usePageOperations = (deps: {
                     afterPage,
                     sourcePaths,
                     requestId,
-                    mutationOptions,
+                    capturePageMutationOptions(),
                 ),
             });
             if (didPageOperationSucceed(outcome)) {
@@ -568,7 +564,6 @@ export const usePageOperations = (deps: {
     }
 
     async function reorderPagesDetailed(newOrder: number[]) {
-        const mutationOptions = capturePageMutationOptions();
         if (newOrder.length === 0) {
             return recordOutcome({
                 status: 'blocked',
@@ -581,7 +576,7 @@ export const usePageOperations = (deps: {
             operationName: 'reorderPages',
             errorKey: 'errors.pageOps.reorder',
             shouldReload: true,
-            run: (path) => runReorderPageOp(path, [...newOrder], mutationOptions),
+            run: (path) => runReorderPageOp(path, [...newOrder], capturePageMutationOptions()),
         });
         if (didPageOperationSucceed(outcome)) {
             analytics.track('page_operation_completed', {
@@ -598,7 +593,6 @@ export const usePageOperations = (deps: {
     }
 
     async function cropPagesDetailed(pages: number[], totalPages: number, margins: ICropMargins) {
-        const mutationOptions = capturePageMutationOptions();
         if (pages.length === 0) {
             return recordOutcome({
                 status: 'blocked',
@@ -610,7 +604,7 @@ export const usePageOperations = (deps: {
             operationName: 'cropPages',
             errorKey: 'errors.pageOps.crop',
             shouldReload: true,
-            run: (path) => runCropPageOp(path, [...pages], totalPages, margins, mutationOptions),
+            run: (path) => runCropPageOp(path, [...pages], totalPages, margins, capturePageMutationOptions()),
         });
         if (didPageOperationSucceed(outcome)) {
             analytics.track('page_operation_completed', {
@@ -627,7 +621,6 @@ export const usePageOperations = (deps: {
     }
 
     async function removeCropDetailed(pages: number[], totalPages: number) {
-        const mutationOptions = capturePageMutationOptions();
         if (pages.length === 0) {
             return recordOutcome({
                 status: 'blocked',
@@ -639,7 +632,7 @@ export const usePageOperations = (deps: {
             operationName: 'removeCrop',
             errorKey: 'errors.pageOps.removeCrop',
             shouldReload: true,
-            run: (path) => runRemoveCropPageOp(path, [...pages], totalPages, mutationOptions),
+            run: (path) => runRemoveCropPageOp(path, [...pages], totalPages, capturePageMutationOptions()),
         });
         if (didPageOperationSucceed(outcome)) {
             analytics.track('page_operation_completed', {

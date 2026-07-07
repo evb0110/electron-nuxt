@@ -11,6 +11,10 @@ import {
     loadRecord,
     loadRecordAvailability,
 } from '@app/platform/browser/browserDocumentIdb';
+import {
+    loadAllChunkKeys,
+    loadAllChunkKeysAvailability,
+} from '@app/platform/browser/browserDocumentChunks';
 
 describe('browserDocumentIdb', () => {
     beforeEach(() => {
@@ -29,6 +33,11 @@ describe('browserDocumentIdb', () => {
             value: null,
         });
         await expect(loadAllRecordKeysAvailability()).resolves.toEqual({
+            available: false,
+            value: null,
+        });
+        await expect(loadAllChunkKeys()).resolves.toBeNull();
+        await expect(loadAllChunkKeysAvailability()).resolves.toEqual({
             available: false,
             value: null,
         });

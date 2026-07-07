@@ -15,6 +15,7 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
         hasDocument: boolean;
         canPrint: boolean;
         canSave: boolean;
+        canSaveAs: boolean;
         canRepairSave: boolean;
         canOptimizePdf: boolean;
     } | null = null;
@@ -24,12 +25,14 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
         const hasDocument = shellState.hasDocument.value;
         const canPrint = shellState.activeWorkspaceCanPrint.value;
         const canSave = shellState.activeWorkspaceCanSave.value;
+        const canSaveAs = shellState.activeWorkspaceCanSaveAs.value;
         const canRepairSave = shellState.activeWorkspaceCanRepairSave.value;
         const canOptimizePdf = shellState.activeWorkspaceCanOptimizePdf.value;
         if (
             lastSyncedMenuDocumentState?.hasDocument === hasDocument
             && lastSyncedMenuDocumentState.canPrint === canPrint
             && lastSyncedMenuDocumentState.canSave === canSave
+            && lastSyncedMenuDocumentState.canSaveAs === canSaveAs
             && lastSyncedMenuDocumentState.canRepairSave === canRepairSave
             && lastSyncedMenuDocumentState.canOptimizePdf === canOptimizePdf
         ) {
@@ -39,6 +42,7 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
             hasDocument,
             canPrint,
             canSave,
+            canSaveAs,
             canRepairSave,
             canOptimizePdf,
         };
@@ -50,6 +54,7 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
             hasDocument,
             canPrint,
             canSave,
+            canSaveAs,
             canRepairSave,
             canOptimizePdf,
         }), {

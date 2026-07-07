@@ -26,12 +26,14 @@ import {
     runNativeCommand,
 } from '@electron/native-tools/runNativeCommand';
 import type { IRunCommandOptions } from '@electron/native-tools/runNativeCommand';
+import { abortErrorFromSignal } from '@electron/utils/abort';
 
 interface IDjvuConversionOptions {
     subsample?: number;
     pages?: string;
     pageCount?: number;
     onProgress?: (percent: number) => void;
+    signal?: AbortSignal;
 }
 
 export interface IRegisteredDjvuProcessOptions {
@@ -118,6 +120,12 @@ async function cleanupPartialOutput(outputPath: string) {
     }
 }
 
+function throwIfAborted(signal?: AbortSignal) {
+    if (signal?.aborted) {
+        throw abortErrorFromSignal(signal);
+    }
+}
+
 async function _convertDjvuToPdfWithRanges(
     inputPath: string,
     outputPath: string,
@@ -143,6 +151,7 @@ async function _convertDjvuToPdfWithRanges(
 
     try {
         const convertChunkWithLimit = limitAsync(async (chunk: IDjvuPageRangeChunk) => {
+            throwIfAborted(options.signal);
             if (firstError) {
                 return firstError;
             }
@@ -154,6 +163,7 @@ async function _convertDjvuToPdfWithRanges(
                 chunk.startPage,
                 chunk.endPage,
                 options.subsample,
+                options.signal,
             );
 
             if (!pageResult.success) {
@@ -195,7 +205,14 @@ async function _convertDjvuToPdfWithRanges(
             };
         }
 
-        const mergeResult = await mergePdfChunks(chunkPaths, outputPath, `${jobId}-merge`, totalPages);
+        throwIfAborted(options.signal);
+        const mergeResult = await mergePdfChunks(
+            chunkPaths,
+            outputPath,
+            `${jobId}-merge`,
+            totalPages,
+            options.signal,
+        );
         if (!mergeResult.success) {
             await cleanupPartialOutput(outputPath);
             return {
@@ -247,6 +264,7 @@ async function _convertDjvuToPdfSingleProcess(
         args,
         {
             env: buildDjvuRuntimeEnv(),
+            ...(options.signal ? { signal: options.signal } : {}),
             onStderr: (chunk) => {
                 if (!options.onProgress || totalPages <= 0) {
                     return;
@@ -339,6 +357,7 @@ async function convertPageRangeToPdf(
     startPage: number,
     endPage: number,
     subsample: number | undefined,
+    signal?: AbortSignal,
 ) {
     const pages = startPage === endPage
         ? String(startPage)
@@ -353,7 +372,10 @@ async function convertPageRangeToPdf(
         pageJobId,
         getDjvuNativeToolPaths().ddjvu,
         args,
-        { env: buildDjvuRuntimeEnv() },
+        {
+            env: buildDjvuRuntimeEnv(),
+            ...(signal ? { signal } : {}),
+        },
     );
 
     if (!result.success) {
@@ -371,6 +393,7 @@ async function mergePdfChunks(
     outputPath: string,
     mergeJobId: string,
     totalPages: number,
+    signal?: AbortSignal,
 ) {
     const { qpdf } = getPdfNativeToolPaths();
     const qpdfResult = await runProcess(
@@ -383,6 +406,7 @@ async function mergePdfChunks(
             '--',
             outputPath,
         ],
+        signal ? { signal } : {},
     );
     if (qpdfResult.success) {
         return { success: true };
@@ -473,6 +497,7 @@ export async function convertDjvuPageToImage(
     options: {
         subsample?: number;
         format?: TImageFormat;
+        signal?: AbortSignal;
         targetHeightPx?: number;
         targetWidthPx?: number;
     } = {},
@@ -489,6 +514,7 @@ export async function renderDjvuPageToImage(
         subsample?: number;
         format?: TImageFormat;
         mode?: TDjvuRenderMode;
+        signal?: AbortSignal;
         targetHeightPx?: number;
         targetWidthPx?: number;
     } = {},
@@ -515,6 +541,7 @@ export async function renderDjvuPageToImage(
 
     const result = await runProcess(jobId, ddjvu, args, {
         env: buildDjvuRuntimeEnv(),
+        ...(options.signal ? { signal: options.signal } : {}),
         timeoutMs: DJVU_IMAGE_PROCESS_TIMEOUT_MS,
     });
     if (!result.success) {
@@ -579,6 +606,7 @@ interface IRunProcessOptions {
     onStdout?: (chunk: string) => void;
     timeoutMs?: number;
     maxStderrBytes?: number;
+    signal?: AbortSignal;
 }
 
 async function runProcess(
@@ -601,6 +629,9 @@ async function runProcess(
         };
         if (options.env !== undefined) {
             commandOptions.env = options.env;
+        }
+        if (options.signal !== undefined) {
+            commandOptions.signal = options.signal;
         }
         if (options.onStderr !== undefined) {
             commandOptions.onStderr = options.onStderr;

@@ -39,7 +39,10 @@ const PDF_VIEWER_CAPABILITIES: IWorkspaceViewerCapabilities = {
     regionCapture: true,
     repairSave: true,
     save: true,
+    saveAs: true,
     sidebar: true,
+    continuousScroll: true,
+    viewMode: true,
 };
 
 const NATIVE_PDF_VIEWER_CAPABILITIES: IWorkspaceViewerCapabilities = {
@@ -55,6 +58,8 @@ const DJVU_VIEWER_CAPABILITIES: IWorkspaceViewerCapabilities = {
     conversionBanner: true,
     conversionDialog: true,
     print: true,
+    continuousScroll: true,
+    viewMode: true,
 };
 
 function createDjvuLifecycleHooks(context: IWorkspaceViewerLifecycleContext): IWorkspaceViewerLifecycleHooks {

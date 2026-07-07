@@ -4,6 +4,7 @@ import {
     it,
 } from 'vitest';
 import {
+    resolveBrowserDjvuCompactExportPlan,
     resolveBrowserDjvuPdfRenderConcurrency,
     resolveBrowserDjvuPdfRenderSettings,
 } from '@app/platform/browser-api/browserDjvuCapability';
@@ -78,5 +79,27 @@ describe('browserDjvuCapability', () => {
                 height: 6_000,
             },
         ], 8)).toBe(1);
+    });
+
+    it('falls compact web export back to streaming direct export when page specs exceed the memory budget', () => {
+        expect(resolveBrowserDjvuCompactExportPlan([{
+            width: 100,
+            height: 100,
+            dpi: 300,
+        }], 40_000)).toEqual({
+            strategy: 'compact-djvu-aware',
+            estimatedPageSpecBytes: 30_256,
+            maxPageSpecBytes: 40_000,
+        });
+
+        expect(resolveBrowserDjvuCompactExportPlan([{
+            width: 1_000,
+            height: 1_000,
+            dpi: 300,
+        }], 1_000_000)).toEqual({
+            strategy: 'direct-fallback',
+            estimatedPageSpecBytes: 3_000_256,
+            maxPageSpecBytes: 1_000_000,
+        });
     });
 });

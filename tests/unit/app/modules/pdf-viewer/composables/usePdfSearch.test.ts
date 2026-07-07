@@ -31,6 +31,7 @@ interface IPdfSearchTestProgress {
     processed: number;
     requestId: string;
     results?: IPdfSearchBackendMatch[];
+    resultsStartIndex?: number;
     total: number;
     canceled?: boolean;
     truncated?: boolean;
@@ -422,6 +423,94 @@ describe('usePdfSearch', () => {
         await promise;
 
         expect(search.currentResultNavigationId.value).toBe(1);
+    });
+
+    it('accumulates streamed result deltas by start index', async () => {
+        let requestId = '';
+        let progressListener: (progress: IPdfSearchTestProgress) => void = () => {
+            throw new Error('Progress listener was not registered');
+        };
+        let resolveSearch: (value: {
+            results: IPdfSearchBackendMatch[];
+            truncated: boolean;
+        }) => void = () => {};
+        const firstResult: IPdfSearchBackendMatch = {
+            pageNumber: 2,
+            pageMatchIndex: 0,
+            matchIndex: 0,
+            startOffset: 10,
+            endOffset: 15,
+        };
+        const secondResult: IPdfSearchBackendMatch = {
+            pageNumber: 5,
+            pageMatchIndex: 0,
+            matchIndex: 1,
+            startOffset: 30,
+            endOffset: 35,
+        };
+
+        mockSearch.onProgress.mockImplementation((listener) => {
+            progressListener = listener;
+            return vi.fn();
+        });
+        mockSearch.run.mockImplementation(async (_pdfPath, _query, options) => {
+            requestId = options.requestId;
+            return new Promise((resolve) => {
+                resolveSearch = resolve;
+            });
+        });
+        const search = await createPdfSearch();
+
+        const promise = search.search('alpha', '/tmp/work.pdf', 928);
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+
+        progressListener({
+            requestId,
+            processed: 2,
+            total: 928,
+            results: [firstResult],
+            resultsStartIndex: 0,
+            truncated: false,
+        });
+        progressListener({
+            requestId,
+            processed: 5,
+            total: 928,
+            results: [secondResult],
+            resultsStartIndex: 1,
+            truncated: false,
+        });
+
+        expect(search.totalMatches.value).toBe(2);
+        expect(search.results.value).toEqual([
+            expect.objectContaining({
+                pageIndex: 1,
+                matchIndex: 0,
+            }),
+            expect.objectContaining({
+                pageIndex: 4,
+                matchIndex: 1,
+            }),
+        ]);
+        expect(search.getMatchesForPage(1)?.matches).toEqual([{
+            matchIndex: 0,
+            start: 10,
+            end: 15,
+        }]);
+        expect(search.getMatchesForPage(4)?.matches).toEqual([{
+            matchIndex: 1,
+            start: 30,
+            end: 35,
+        }]);
+
+        resolveSearch({
+            results: [
+                firstResult,
+                secondResult,
+            ],
+            truncated: false,
+        });
+        await promise;
     });
 
     it('preserves the active match target when streamed batches insert earlier results', async () => {

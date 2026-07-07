@@ -46,6 +46,7 @@ interface ISearchProgressPayload {
     processed: number;
     total: number;
     results?: TSearchMatch[];
+    resultsStartIndex?: number;
     truncated?: boolean;
     canceled?: boolean;
     status?: 'running' | 'success' | 'canceled' | 'failed';
@@ -60,6 +61,8 @@ interface ISenderSearchState {
     pdfPathsByRequestId: Map<string, string>;
     pageCountsByRequestId: Map<string, number>;
     requestTimeouts: Map<string, NodeJS.Timeout>;
+    cancellationFallbackTimeouts: Map<string, NodeJS.Timeout>;
+    cancelPendingRequestIds: Set<string>;
     idleCleanupTimer: NodeJS.Timeout | null;
     lastActivityAtMs: number;
 }
@@ -120,6 +123,8 @@ const DEFAULT_SEARCH_WORKER_IDLE_TTL_MS = 30 * 1000;
 const MIN_SEARCH_WORKER_IDLE_TTL_MS = 10_000;
 const DEFAULT_SEARCH_WORKER_TERMINATE_TIMEOUT_MS = 10_000;
 const MIN_SEARCH_WORKER_TERMINATE_TIMEOUT_MS = 1_000;
+const DEFAULT_SEARCH_CANCEL_ACK_TIMEOUT_MS = 5_000;
+const MIN_SEARCH_CANCEL_ACK_TIMEOUT_MS = 100;
 const SEARCH_OUTBOUND_RESULT_LIMIT = Math.max(1, SEARCH_RESULT_LIMIT);
 const SEARCH_OUTBOUND_EXCERPT_TEXT_MAX_CHARS = 4_096;
 const SEARCH_OUTBOUND_WORD_LIMIT = 2_048;
@@ -153,6 +158,16 @@ const SEARCH_WORKER_TERMINATE_TIMEOUT_MS = (() => {
     );
     if (!Number.isFinite(parsed) || parsed < MIN_SEARCH_WORKER_TERMINATE_TIMEOUT_MS) {
         return DEFAULT_SEARCH_WORKER_TERMINATE_TIMEOUT_MS;
+    }
+    return parsed;
+})();
+const SEARCH_CANCEL_ACK_TIMEOUT_MS = (() => {
+    const parsed = Number.parseInt(
+        process.env.EVB_SEARCH_CANCEL_ACK_TIMEOUT_MS ?? `${DEFAULT_SEARCH_CANCEL_ACK_TIMEOUT_MS}`,
+        10,
+    );
+    if (!Number.isFinite(parsed) || parsed < MIN_SEARCH_CANCEL_ACK_TIMEOUT_MS) {
+        return DEFAULT_SEARCH_CANCEL_ACK_TIMEOUT_MS;
     }
     return parsed;
 })();
@@ -349,7 +364,7 @@ function parseWorkerOutboundMessage(
     }
     const pageCount = resolvePageCount(value.requestId);
     switch (value.type) {
-        case 'progress':
+        case 'progress': {
             if (
                 !isFiniteWorkerMessageNumber(value.processed)
                 || !isFiniteWorkerMessageNumber(value.total)
@@ -361,6 +376,13 @@ function parseWorkerOutboundMessage(
             if (value.results !== undefined && !Array.isArray(value.results)) {
                 return null;
             }
+            const resultsStartIndex = value.resultsStartIndex === undefined
+                ? undefined
+                : parseNonNegativeWorkerInteger(value.resultsStartIndex);
+            if (value.resultsStartIndex !== undefined && resultsStartIndex === null) {
+                return null;
+            }
+            const resultDeltaStartIndex = resultsStartIndex ?? undefined;
             if (value.truncated !== undefined && typeof value.truncated !== 'boolean') {
                 return null;
             }
@@ -376,17 +398,21 @@ function parseWorkerOutboundMessage(
                     }
                     results.push(parsedResult);
                 }
+                const maxResults = resultDeltaStartIndex === undefined
+                    ? SEARCH_OUTBOUND_RESULT_LIMIT
+                    : Math.max(0, SEARCH_OUTBOUND_RESULT_LIMIT - resultDeltaStartIndex);
                 const cappedResponse = capSearchResponse({
                     results,
                     truncated: Boolean(value.truncated),
                     ...(value.canceled === undefined ? {} : {canceled: value.canceled}),
-                });
+                }, maxResults);
                 return {
                     type: 'progress',
                     requestId: value.requestId,
                     processed: value.processed,
                     total: value.total,
                     results: cappedResponse.results,
+                    ...(resultDeltaStartIndex === undefined ? {} : {resultsStartIndex: resultDeltaStartIndex}),
                     truncated: cappedResponse.truncated,
                     ...(value.canceled === undefined ? {} : {canceled: value.canceled}),
                 };
@@ -398,6 +424,7 @@ function parseWorkerOutboundMessage(
                 total: value.total,
                 ...(value.canceled === undefined ? {} : {canceled: value.canceled}),
             };
+        }
         case 'complete': {
             const response = parseSearchResponse(value.response, pageCount);
             if (!response) {
@@ -444,8 +471,8 @@ export function getSearchWorkerServiceConfig() {
 
 export class SearchWorkerService {
     private readonly senderSearchStates = new Map<number, ISenderSearchState>();
-    private readonly registeredSenderCleanup = new Set<number>();
-    private readonly workerTerminationPromises = new Map<number, Promise<void>>();
+    private readonly senderCleanupDisposers = new Map<number, () => void>();
+    private readonly workerTerminationPromises = new Map<Worker, Promise<void>>();
     private readonly progressPumpsBySenderId = new Map<number, ReturnType<typeof createIpcProgressPump<ISearchProgressPayload>>>();
     private readonly warmupSingleflightsByDocument = new Map<string, IWarmupSingleflight>();
 
@@ -473,10 +500,18 @@ export class SearchWorkerService {
     ): Promise<ISearchResponse> {
         const operationContext = this.normalizeOperationContext(context);
         const senderId = operationContext.senderId;
-        const state = this.ensureSenderState(operationContext);
         const requestId = payload.requestId && payload.requestId.length > 0
             ? payload.requestId
             : `${payload.requestIdPrefix}-${randomUUID()}`;
+        const documentBuildKey = getSearchDocumentBuildKey(payload.resolvedPdfPath, payload.documentRevision);
+        if (payload.warmup) {
+            const existingWarmup = this.warmupSingleflightsByDocument.get(documentBuildKey);
+            if (existingWarmup && existingWarmup.requestId !== requestId) {
+                return existingWarmup.promise;
+            }
+        }
+
+        const state = this.ensureSenderState(operationContext);
         if (state.pendingByRequestId.has(requestId)) {
             throw new SearchIpcError(buildSearchErrorEnvelope(
                 'SEARCH_INVALID_PAYLOAD',
@@ -486,16 +521,6 @@ export class SearchWorkerService {
 
         if (!payload.warmup && state.activeRequestId && state.activeRequestId !== requestId) {
             this.cancelRequest(state, state.activeRequestId);
-        }
-
-        const documentBuildKey = getSearchDocumentBuildKey(payload.resolvedPdfPath, payload.documentRevision);
-        if (payload.warmup) {
-            const existingWarmup = this.warmupSingleflightsByDocument.get(documentBuildKey);
-            if (existingWarmup && existingWarmup.requestId !== requestId) {
-                this.markStateActivity(state);
-                this.clearIdleCleanupTimer(state);
-                return existingWarmup.promise;
-            }
         }
 
         if (!payload.warmup) {
@@ -545,6 +570,7 @@ export class SearchWorkerService {
                 this.cleanupSenderState(senderId, {
                     terminateWorker: true,
                     reason: `Search request ${requestId} timed out`,
+                    expectedState: state,
                 });
             }, SEARCH_REQUEST_TIMEOUT_MS);
             requestTimeout.unref?.();
@@ -569,12 +595,13 @@ export class SearchWorkerService {
                 requestId,
                 promise: requestPromise,
             });
-            void requestPromise.finally(() => {
+            const cleanupWarmupSingleflight = () => {
                 const current = this.warmupSingleflightsByDocument.get(documentBuildKey);
                 if (current?.requestId === requestId) {
                     this.warmupSingleflightsByDocument.delete(documentBuildKey);
                 }
-            });
+            };
+            void requestPromise.then(cleanupWarmupSingleflight, cleanupWarmupSingleflight);
         }
         return requestPromise;
     }
@@ -592,8 +619,7 @@ export class SearchWorkerService {
             return { canceled: false };
         }
 
-        this.cancelRequest(state, targetRequestId);
-        return { canceled: true };
+        return { canceled: this.cancelRequest(state, targetRequestId) };
     }
 
     cancelRequestsForPdfPath(pdfPath: string, reason: string) {
@@ -611,8 +637,9 @@ export class SearchWorkerService {
                 if (!state.pendingByRequestId.has(requestId)) {
                     continue;
                 }
-                this.cancelRequest(state, requestId);
-                canceledCount += 1;
+                if (this.cancelRequest(state, requestId)) {
+                    canceledCount += 1;
+                }
             }
         }
 
@@ -734,6 +761,19 @@ export class SearchWorkerService {
         state.requestTimeouts.delete(requestId);
     }
 
+    private clearCancellationFallbackTimeout(
+        state: ISenderSearchState,
+        requestId: string,
+    ) {
+        const timeout = state.cancellationFallbackTimeouts.get(requestId);
+        if (!timeout) {
+            return;
+        }
+
+        clearTimeout(timeout);
+        state.cancellationFallbackTimeouts.delete(requestId);
+    }
+
     private scheduleIdleCleanup(
         state: ISenderSearchState,
     ) {
@@ -788,12 +828,131 @@ export class SearchWorkerService {
         }
 
         this.clearRequestTimeout(state, requestId);
+        this.clearCancellationFallbackTimeout(state, requestId);
         this.markStateActivity(state);
         state.pendingByRequestId.delete(requestId);
         state.pdfPathsByRequestId.delete(requestId);
         state.pageCountsByRequestId.delete(requestId);
+        state.cancelPendingRequestIds.delete(requestId);
         settle(pending);
         this.scheduleIdleCleanup(state);
+    }
+
+    private settleCancelledRequest(
+        state: ISenderSearchState,
+        requestId: string,
+    ) {
+        if (state.activeRequestId === requestId) {
+            state.activeRequestId = null;
+        }
+        this.sendSearchTerminalProgress(state, requestId, 'canceled', {canceled: true});
+        this.resolvePendingRequest(state, requestId, {
+            results: [],
+            truncated: false,
+            canceled: true,
+        });
+    }
+
+    private postCancelMessage(
+        state: ISenderSearchState,
+        requestId: string,
+    ) {
+        try {
+            state.worker.postMessage({
+                type: 'cancel',
+                requestId,
+            } satisfies TSearchWorkerInboundMessage);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    private postCancelMessagesForPendingRequests(state: ISenderSearchState) {
+        let sentAny = false;
+        for (const requestId of state.pendingByRequestId.keys()) {
+            sentAny = this.postCancelMessage(state, requestId) || sentAny;
+        }
+        return sentAny;
+    }
+
+    private clearProgressPump(senderId: number) {
+        const pump = this.progressPumpsBySenderId.get(senderId);
+        if (!pump) {
+            return;
+        }
+
+        pump.clear();
+        this.progressPumpsBySenderId.delete(senderId);
+    }
+
+    private disposeSenderCleanup(senderId: number) {
+        const dispose = this.senderCleanupDisposers.get(senderId);
+        if (!dispose) {
+            return;
+        }
+
+        this.senderCleanupDisposers.delete(senderId);
+        dispose();
+    }
+
+    private waitForWorkerExit(worker: Worker, timeoutMs: number) {
+        return new Promise<boolean>((resolve) => {
+            const cleanup = {
+                timeout: null as NodeJS.Timeout | null,
+                handleExit: () => {
+                    if (cleanup.timeout) {
+                        clearTimeout(cleanup.timeout);
+                    }
+                    resolve(true);
+                },
+            };
+
+            cleanup.timeout = setTimeout(() => {
+                worker.removeListener('exit', cleanup.handleExit);
+                resolve(false);
+            }, timeoutMs);
+            cleanup.timeout.unref?.();
+
+            worker.once('exit', cleanup.handleExit);
+        });
+    }
+
+    private terminateWorkerAfterCooperativeStop(
+        senderId: number,
+        state: ISenderSearchState,
+        reason: string,
+        cooperativeStopRequested: boolean,
+    ) {
+        const existingTermination = this.workerTerminationPromises.get(state.worker);
+        if (existingTermination) {
+            return;
+        }
+
+        const terminationPromise = (async () => {
+            if (cooperativeStopRequested && await this.waitForWorkerExit(state.worker, SEARCH_WORKER_TERMINATE_TIMEOUT_MS)) {
+                log.debug(`Search worker lifecycle: sender ${senderId} worker exited after cooperative stop`);
+                return;
+            }
+
+            await withTimeout(
+                () => state.worker.terminate(),
+                SEARCH_WORKER_TERMINATE_TIMEOUT_MS,
+            );
+            log.debug(`Search worker lifecycle: sender ${senderId} worker terminated`);
+        })()
+            .catch((error) => {
+                log.warn(
+                    `Search worker lifecycle: sender ${senderId} worker terminate failed (${reason}): ${
+                        getErrorMessage(error)
+                    }`,
+                );
+            })
+            .finally(() => {
+                this.workerTerminationPromises.delete(state.worker);
+            });
+        this.workerTerminationPromises.set(state.worker, terminationPromise);
+        void terminationPromise;
     }
 
     private cleanupSenderState(
@@ -802,21 +961,30 @@ export class SearchWorkerService {
             terminateWorker?: boolean;
             reason?: string;
             rejectionError?: Error;
+            expectedState?: ISenderSearchState;
         },
     ) {
         const state = this.senderSearchStates.get(senderId);
         if (!state) {
             return;
         }
+        if (options?.expectedState && state !== options.expectedState) {
+            return;
+        }
 
         log.info(`Search worker lifecycle: cleaning sender ${senderId} state (${options?.reason ?? 'Search worker stopped'})`);
         this.senderSearchStates.delete(senderId);
-        this.progressPumpsBySenderId.get(senderId)?.clear();
+        this.clearProgressPump(senderId);
+        this.disposeSenderCleanup(senderId);
         this.clearIdleCleanupTimer(state);
         for (const timeout of state.requestTimeouts.values()) {
             clearTimeout(timeout);
         }
         state.requestTimeouts.clear();
+        for (const timeout of state.cancellationFallbackTimeouts.values()) {
+            clearTimeout(timeout);
+        }
+        state.cancellationFallbackTimeouts.clear();
         for (const [
             documentBuildKey,
             warmup,
@@ -828,40 +996,33 @@ export class SearchWorkerService {
 
         const reason = options?.reason ?? 'Search worker stopped';
         const terminalError = options?.rejectionError ? getErrorMessage(options.rejectionError) : reason;
-        for (const requestId of state.pendingByRequestId.keys()) {
+        const cooperativeStopRequested = options?.terminateWorker !== false
+            && this.postCancelMessagesForPendingRequests(state);
+        for (const [
+            requestId,
+            pending,
+        ] of state.pendingByRequestId.entries()) {
+            if (state.cancelPendingRequestIds.has(requestId)) {
+                this.sendSearchTerminalProgress(state, requestId, 'canceled', {canceled: true});
+                pending.resolve({
+                    results: [],
+                    truncated: false,
+                    canceled: true,
+                });
+                continue;
+            }
+
             this.sendSearchTerminalProgress(state, requestId, 'failed', {error: terminalError});
-        }
-        for (const pending of state.pendingByRequestId.values()) {
             pending.reject(options?.rejectionError ?? new Error(reason));
         }
         state.pendingByRequestId.clear();
         state.pdfPathsByRequestId.clear();
         state.pageCountsByRequestId.clear();
+        state.cancelPendingRequestIds.clear();
         state.activeRequestId = null;
 
         if (options?.terminateWorker !== false) {
-            const existingTermination = this.workerTerminationPromises.get(senderId);
-            if (!existingTermination) {
-                const terminationPromise = withTimeout(
-                    () => state.worker.terminate(),
-                    SEARCH_WORKER_TERMINATE_TIMEOUT_MS,
-                )
-                    .then(() => {
-                        log.debug(`Search worker lifecycle: sender ${senderId} worker terminated`);
-                    })
-                    .catch((error) => {
-                        log.warn(
-                            `Search worker lifecycle: sender ${senderId} worker terminate failed (${options?.reason ?? 'cleanup'}): ${
-                                getErrorMessage(error)
-                            }`,
-                        );
-                    })
-                    .finally(() => {
-                        this.workerTerminationPromises.delete(senderId);
-                    });
-                this.workerTerminationPromises.set(senderId, terminationPromise);
-                void terminationPromise;
-            }
+            this.terminateWorkerAfterCooperativeStop(senderId, state, reason, cooperativeStopRequested);
         }
     }
 
@@ -869,25 +1030,40 @@ export class SearchWorkerService {
         state: ISenderSearchState,
         requestId: string,
     ) {
-        try {
-            state.worker.postMessage({
-                type: 'cancel',
-                requestId,
-            } satisfies TSearchWorkerInboundMessage);
-        } catch {
-            // Ignore send errors while cancelling
+        if (!state.pendingByRequestId.has(requestId)) {
+            return false;
+        }
+        if (state.cancelPendingRequestIds.has(requestId)) {
+            return true;
         }
 
+        state.cancelPendingRequestIds.add(requestId);
+        this.clearRequestTimeout(state, requestId);
+        this.postCancelMessage(state, requestId);
         if (state.activeRequestId === requestId) {
             state.activeRequestId = null;
         }
 
-        this.sendSearchTerminalProgress(state, requestId, 'canceled', {canceled: true});
-        this.resolvePendingRequest(state, requestId, {
-            results: [],
-            truncated: false,
-            canceled: true,
-        });
+        const fallbackTimeout = setTimeout(() => {
+            if (this.senderSearchStates.get(state.senderId) !== state || !state.pendingByRequestId.has(requestId)) {
+                return;
+            }
+
+            log.warn(
+                `Search worker lifecycle: cancellation for request ${requestId} was not acknowledged within ${
+                    SEARCH_CANCEL_ACK_TIMEOUT_MS
+                }ms; forcing worker cleanup`,
+            );
+            this.settleCancelledRequest(state, requestId);
+            this.cleanupSenderState(state.senderId, {
+                terminateWorker: true,
+                reason: `Search worker did not acknowledge cancellation for request ${requestId}`,
+                expectedState: state,
+            });
+        }, SEARCH_CANCEL_ACK_TIMEOUT_MS);
+        fallbackTimeout.unref?.();
+        state.cancellationFallbackTimeouts.set(requestId, fallbackTimeout);
+        return true;
     }
 
     private registerSenderCleanup(context: ISearchOperationContext) {
@@ -895,20 +1071,16 @@ export class SearchWorkerService {
             sender,
             senderId,
         } = context;
-        if (this.registeredSenderCleanup.has(senderId)) {
+        if (this.senderCleanupDisposers.has(senderId)) {
             return;
         }
 
-        this.registeredSenderCleanup.add(senderId);
         const cleanup = (reason: string) => {
             this.cleanupSenderState(senderId, {
                 terminateWorker: true,
                 reason,
             });
-            this.registeredSenderCleanup.delete(senderId);
-            sender.removeListener('destroyed', handleDestroyed);
-            sender.removeListener('render-process-gone', handleRenderProcessGone);
-            sender.removeListener('did-start-navigation', handleNavigation);
+            this.disposeSenderCleanup(senderId);
         };
         const handleDestroyed = () => {
             cleanup('Renderer destroyed');
@@ -930,6 +1102,11 @@ export class SearchWorkerService {
         sender.once('destroyed', handleDestroyed);
         sender.once('render-process-gone', handleRenderProcessGone);
         sender.on('did-start-navigation', handleNavigation);
+        this.senderCleanupDisposers.set(senderId, () => {
+            sender.removeListener('destroyed', handleDestroyed);
+            sender.removeListener('render-process-gone', handleRenderProcessGone);
+            sender.removeListener('did-start-navigation', handleNavigation);
+        });
     }
 
     private handleWorkerMessage(
@@ -949,6 +1126,7 @@ export class SearchWorkerService {
                     processed: number;
                     total: number;
                     results?: TSearchMatch[];
+                    resultsStartIndex?: number;
                     truncated?: boolean;
                     canceled?: boolean;
                 } = {
@@ -958,6 +1136,9 @@ export class SearchWorkerService {
                 };
                 if (message.results !== undefined) {
                     progress.results = message.results;
+                }
+                if (message.resultsStartIndex !== undefined) {
+                    progress.resultsStartIndex = message.resultsStartIndex;
                 }
                 if (message.truncated !== undefined) {
                     progress.truncated = message.truncated;
@@ -1027,6 +1208,7 @@ export class SearchWorkerService {
         this.cleanupSenderState(senderId, {
             terminateWorker: true,
             reason: `Search worker protocol error for request ${requestId}`,
+            expectedState: state,
         });
     }
 
@@ -1041,6 +1223,8 @@ export class SearchWorkerService {
             pdfPathsByRequestId: new Map(),
             pageCountsByRequestId: new Map(),
             requestTimeouts: new Map(),
+            cancellationFallbackTimeouts: new Map(),
+            cancelPendingRequestIds: new Set(),
             idleCleanupTimer: null,
             lastActivityAtMs: Date.now(),
         };
@@ -1070,6 +1254,7 @@ export class SearchWorkerService {
                 terminateWorker: true,
                 reason: `Search worker error: ${error.message}`,
                 rejectionError: toSearchIpcError(error, 'SEARCH_WORKER_ERROR', true),
+                expectedState: state,
             });
         });
 
@@ -1084,6 +1269,7 @@ export class SearchWorkerService {
                 ...(code === 0
                     ? {}
                     : {rejectionError: new SearchIpcError(buildSearchErrorEnvelope('SEARCH_WORKER_ERROR', reason, {retryable: true}))}),
+                expectedState: state,
             });
         });
 
@@ -1114,6 +1300,8 @@ export class SearchWorkerService {
                 const previousSenderId = reusableState.senderId;
                 reusableState.worker.postMessage({type: 'reset-state'} satisfies TSearchWorkerInboundMessage);
                 this.senderSearchStates.delete(previousSenderId);
+                this.clearProgressPump(previousSenderId);
+                this.disposeSenderCleanup(previousSenderId);
                 reusableState.senderId = senderId;
                 this.markStateActivity(reusableState);
                 this.clearIdleCleanupTimer(reusableState);

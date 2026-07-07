@@ -1,5 +1,8 @@
 import { PDFDocument } from 'pdf-lib';
-import { iterateDecodedTiffFrames } from '@pdf-core';
+import {
+    DEFAULT_TIFF_DECODE_LIMITS,
+    iterateDecodedTiffFrames,
+} from '@pdf-core';
 import type {
     IBrowserPdfCombineWorkerRequest,
     TBrowserPdfCombineWorkerResponse,
@@ -84,7 +87,10 @@ async function appendWorkerTiffPages(
         width,
         height,
         rgba,
-    } of iterateDecodedTiffFrames(input.data)) {
+    } of iterateDecodedTiffFrames(input.data, {
+            ...DEFAULT_TIFF_DECODE_LIMITS,
+            sourceLabel: input.fileName,
+        })) {
         const pngBytes = await convertWorkerRgbaToPng(width, height, rgba);
         const image = await pdfDocument.embedPng(pngBytes);
         appendPdfImagePage(pdfDocument, image);

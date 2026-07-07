@@ -35,6 +35,11 @@ interface IRenderPageContext<TRenderResult> {
     annotationLayerInstance: unknown;
 }
 
+interface IPdfPageRenderLease {
+    pdfPage: PDFPageProxy;
+    release: () => void;
+}
+
 interface IUsePdfRendererSinglePageControllerOptions<TRenderResult> {
     isActive: MaybeRefOrGetter<boolean>;
     effectiveScale: MaybeRefOrGetter<number>;
@@ -195,16 +200,33 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
         pageNumber: number,
         version: number,
         requestId: number,
-        pdfPage: PDFPageProxy,
+        pageLease: IPdfPageRenderLease,
     ) {
         cleanupPageIfCurrentRender(pageNumber, version, requestId);
-        releasePageResources(pageNumber, pdfPage);
+        pageLease.release();
+    }
+
+    function createPageRenderLease(
+        pageNumber: number,
+        pdfPage: PDFPageProxy,
+    ): IPdfPageRenderLease {
+        let released = false;
+        return {
+            pdfPage,
+            release: () => {
+                if (released) {
+                    return;
+                }
+                released = true;
+                releasePageResources(pageNumber, pdfPage);
+            },
+        };
     }
 
     function finalizePageRender(
         pageNumber: number,
         version: number,
-        pdfPage: PDFPageProxy,
+        pageLease: IPdfPageRenderLease,
         pageContainer: HTMLElement,
         shouldContinue: () => boolean,
     ) {
@@ -218,7 +240,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
             return false;
         }
 
-        releasePageResources(pageNumber, pdfPage);
+        pageLease.release();
         renderedPages.add(pageNumber);
         staleRenderedPages.delete(pageNumber);
         pageContainer.classList.add(pdfViewerDomClasses.renderedPageContainer);
@@ -287,23 +309,24 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
         version: number,
         scale: number,
         target: ISinglePageRenderTarget,
-        pdfPage: PDFPageProxy,
+        pageLease: IPdfPageRenderLease,
         renderResult: TRenderResult | null,
         requestId: number,
         shouldContinue: () => boolean,
     ) {
+        const { pdfPage } = pageLease;
         if (!renderResult) {
             return;
         }
 
         if (getRenderVersion() !== version || !shouldContinue()) {
             cleanupCanvasRenderResult(renderResult);
-            releasePageResources(pageNumber, pdfPage);
+            pageLease.release();
             return;
         }
         if (!isCurrentMountedRenderTarget(pageNumber, version, target, shouldContinue)) {
             cleanupCanvasRenderResult(renderResult);
-            releasePageResources(pageNumber, pdfPage);
+            pageLease.release();
             clearSinglePageRenderTracking(pageNumber, version, requestId);
             return;
         }
@@ -335,11 +358,11 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
             shouldContinue,
         );
         if (!shouldContinueAfterTextLayer) {
-            cleanupStaleMountedPageRender(pageNumber, version, requestId, pdfPage);
+            cleanupStaleMountedPageRender(pageNumber, version, requestId, pageLease);
             return;
         }
         if (!shouldContinue()) {
-            cleanupStaleMountedPageRender(pageNumber, version, requestId, pdfPage);
+            cleanupStaleMountedPageRender(pageNumber, version, requestId, pageLease);
             return;
         }
 
@@ -351,18 +374,18 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
             shouldContinue,
         );
         if (!annotationRenderResult.shouldContinue) {
-            cleanupStaleMountedPageRender(pageNumber, version, requestId, pdfPage);
+            cleanupStaleMountedPageRender(pageNumber, version, requestId, pageLease);
             return;
         }
         if (!shouldContinue()) {
-            cleanupStaleMountedPageRender(pageNumber, version, requestId, pdfPage);
+            cleanupStaleMountedPageRender(pageNumber, version, requestId, pageLease);
             return;
         }
 
         renderContext.annotationLayerInstance =
             annotationRenderResult.annotationLayerInstance;
         scheduleOcrDebugForPage(pageNumber, renderContext);
-        finalizePageRender(pageNumber, version, pdfPage, target.container, shouldContinue);
+        finalizePageRender(pageNumber, version, pageLease, target.container, shouldContinue);
     }
 
     async function yieldForSearchNavigation(
@@ -389,15 +412,16 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
         version: number,
         scale: number,
         target: ISinglePageRenderTarget,
-        pdfPage: PDFPageProxy,
+        pageLease: IPdfPageRenderLease,
         preparedCanvasRender: TRenderResult & { startRender: () => ICancelableRenderTask },
         requestId: number,
         documentToken: string,
         shouldContinue: () => boolean,
     ) {
+        const { pdfPage } = pageLease;
         if (getRenderVersion() !== version || !shouldContinue()) {
             cleanupCanvasRenderResult(preparedCanvasRender);
-            releasePageResources(pageNumber, pdfPage);
+            pageLease.release();
             return;
         }
 
@@ -443,30 +467,30 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
             );
             if (!shouldContinueAfterTextLayer) {
                 await cancelPreparedCanvasRender();
-                releasePageResources(pageNumber, pdfPage);
+                pageLease.release();
                 return;
             }
         } catch (error) {
             await cancelPreparedCanvasRender();
-            releasePageResources(pageNumber, pdfPage);
+            pageLease.release();
             throw error;
         }
 
         await yieldForSearchNavigation(pageNumber, version, requestId, documentToken);
         if (getRenderVersion() !== version || getRenderDocumentToken() !== documentToken || !shouldContinue()) {
             await cancelPreparedCanvasRender();
-            cleanupStaleMountedPageRender(pageNumber, version, requestId, pdfPage);
+            cleanupStaleMountedPageRender(pageNumber, version, requestId, pageLease);
             return;
         }
 
         const renderResult = await canvasRenderPromise;
         if (!renderResult) {
-            releasePageResources(pageNumber, pdfPage);
+            pageLease.release();
             return;
         }
         if (getRenderVersion() !== version || getRenderDocumentToken() !== documentToken || !shouldContinue()) {
             cleanupCanvasRenderResult(renderResult);
-            cleanupStaleMountedPageRender(pageNumber, version, requestId, pdfPage);
+            cleanupStaleMountedPageRender(pageNumber, version, requestId, pageLease);
             return;
         }
 
@@ -489,18 +513,18 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
             shouldContinue,
         );
         if (!annotationRenderResult.shouldContinue) {
-            cleanupStaleMountedPageRender(pageNumber, version, requestId, pdfPage);
+            cleanupStaleMountedPageRender(pageNumber, version, requestId, pageLease);
             return;
         }
         if (!shouldContinue()) {
-            cleanupStaleMountedPageRender(pageNumber, version, requestId, pdfPage);
+            cleanupStaleMountedPageRender(pageNumber, version, requestId, pageLease);
             return;
         }
 
         renderContext.annotationLayerInstance =
             annotationRenderResult.annotationLayerInstance;
         scheduleOcrDebugForPage(pageNumber, renderContext);
-        finalizePageRender(pageNumber, version, pdfPage, target.container, shouldContinue);
+        finalizePageRender(pageNumber, version, pageLease, target.container, shouldContinue);
     }
 
     function scheduleCancelledPageRenderRetry(
@@ -722,6 +746,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
         renderingPages.set(pageNumber, version);
         renderingPageRequestIds.set(pageNumber, requestId);
         clearSelectionBeforePageLayerTeardown(pageNumber);
+        let pageLease: IPdfPageRenderLease | null = null;
         try {
             logPdfRenderTrace('renderer-page-load-begin', {
                 pageNumber,
@@ -738,6 +763,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
                 });
                 return;
             }
+            pageLease = createPageRenderLease(pageNumber, pdfPage);
             logPdfRenderTrace('renderer-page-load-end', {
                 pageNumber,
                 version,
@@ -750,7 +776,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
                     requestId,
                     renderVersion: getRenderVersion(),
                 });
-                releasePageResources(pageNumber, pdfPage);
+                pageLease.release();
                 return;
             }
             if (
@@ -779,7 +805,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
                         requestId,
                         renderVersion: getRenderVersion(),
                     });
-                    releasePageResources(pageNumber, pdfPage);
+                    pageLease.release();
                     return;
                 }
                 await mountTextLayerBeforeCanvas(
@@ -787,7 +813,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
                     version,
                     scale,
                     target,
-                    pdfPage,
+                    pageLease,
                     preparedCanvasRender,
                     requestId,
                     documentToken,
@@ -817,7 +843,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
                     requestId,
                     renderVersion: getRenderVersion(),
                 });
-                releasePageResources(pageNumber, pdfPage);
+                pageLease.release();
                 return;
             }
             logPdfRenderTrace('renderer-canvas-prepare-end', {
@@ -830,7 +856,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
                 version,
                 scale,
                 target,
-                pdfPage,
+                pageLease,
                 renderResult,
                 requestId,
                 shouldContinuePage,
@@ -851,6 +877,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
                 transactionRequest,
             );
         } finally {
+            pageLease?.release();
             clearSinglePageRenderTracking(pageNumber, version, requestId);
             logPdfRenderTrace('renderer-single-page-end', {
                 pageNumber,
@@ -886,6 +913,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
             if (!pdfPage) {
                 return false;
             }
+            const pageLease = createPageRenderLease(pageNumber, pdfPage);
             try {
                 const shouldContinueEditorLayerRender = () => (
                     getRenderVersion() === version
@@ -925,7 +953,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
                 );
                 return false;
             } finally {
-                releasePageResources(pageNumber, pdfPage);
+                pageLease.release();
             }
         },
     };

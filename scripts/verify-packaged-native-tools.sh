@@ -502,6 +502,7 @@ if [ "$platform" = "mac" ]; then
   run_macos_packaged_tool_smoke "pdftoppm" "$native_tool_root/poppler/$platform_arch/bin/pdftoppm" -v
   run_macos_packaged_tool_smoke "pdftotext" "$native_tool_root/poppler/$platform_arch/bin/pdftotext" -v
   run_macos_packaged_tool_smoke "evb-pdf-image-combine" "$native_tool_root/pdf-image-combine/$platform_arch/bin/evb-pdf-image-combine" --version
+  run_macos_packaged_tool_smoke "evb-pdf-image-combine-protocol" "$native_tool_root/pdf-image-combine/$platform_arch/bin/evb-pdf-image-combine" --protocol-version
   run_macos_packaged_tool_smoke "evb-pdf-image-combine-compact-manifest" "$native_tool_root/pdf-image-combine/$platform_arch/bin/evb-pdf-image-combine" --compact-manifest
   run_macos_packaged_tool_smoke "evb-pdf-page-ops" "$native_tool_root/pdf-page-ops/$platform_arch/bin/evb-pdf-page-ops" --version
   run_macos_packaged_tool_smoke "evb-pdf-search" "$native_tool_root/pdf-search/$platform_arch/bin/evb-pdf-search" --version

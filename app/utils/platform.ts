@@ -54,6 +54,16 @@ interface IWaitForDesktopPlatformBridgeOptions {
     attempts?: number;
 }
 
+interface IPreferredDesktopPlatformBridgeOptions extends Omit<IWaitForDesktopPlatformBridgeOptions, 'shouldWait'> {
+    routePath?: string | null | undefined;
+    desktopRuntime?: boolean | undefined;
+}
+
+export interface IPreferredDesktopPlatformBridgeResolution {
+    bridgeReady: boolean;
+    shouldWait: boolean;
+}
+
 export async function waitForDesktopPlatformBridge({
     shouldWait = true,
     retryDelayMs = 25,
@@ -72,6 +82,23 @@ export async function waitForDesktopPlatformBridge({
     }
 
     return hasElectronPlatformBridge();
+}
+
+export async function waitForPreferredDesktopPlatformBridge({
+    routePath,
+    desktopRuntime = false,
+    retryDelayMs,
+    attempts,
+}: IPreferredDesktopPlatformBridgeOptions = {}): Promise<IPreferredDesktopPlatformBridgeResolution> {
+    const shouldWait = shouldPreferDesktopPlatform(routePath, desktopRuntime);
+    return {
+        shouldWait,
+        bridgeReady: await waitForDesktopPlatformBridge({
+            shouldWait,
+            ...(retryDelayMs === undefined ? {} : { retryDelayMs }),
+            ...(attempts === undefined ? {} : { attempts }),
+        }),
+    };
 }
 
 export function getPlatformManifest(): IPlatformRuntimeManifest {

@@ -29,6 +29,7 @@ import {
 } from '@electron/file-access/workingCopyDirectory';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import { drainWorkingCopyMutations } from '@electron/file-access/workingCopyMutationQueue';
+import { hasWorkingCopySyncRequired } from '@electron/file-access/documentRevisionStore';
 
 const logger = createLogger('working-copy');
 const STALE_WORK_DIR_MAX_AGE_MS = (() => {
@@ -196,6 +197,11 @@ export async function clearAllWorkingCopies(options: {skipPaths?: Iterable<strin
     const skipPaths = new Set(Array.from(options.skipPaths ?? [])
         .map(path => typeof path === 'string' ? path.trim() : '')
         .filter(Boolean));
+    for (const workingPath of paths) {
+        if (hasWorkingCopySyncRequired(workingPath)) {
+            skipPaths.add(workingPath);
+        }
+    }
     const pathsToDelete = skipPaths.size === 0
         ? paths
         : paths.filter(path => !skipPaths.has(path));
@@ -209,7 +215,7 @@ export async function clearAllWorkingCopies(options: {skipPaths?: Iterable<strin
             forgetRetiredWorkingCopyOriginal(workingPath);
         }
         logger.error(
-            `Skipped shutdown deletion for ${skipPaths.size} working copy path(s) with pending writes: ${
+            `Skipped shutdown deletion for ${skipPaths.size} working copy path(s) with pending writes or dirty sync state: ${
                 Array.from(skipPaths).join(', ')
             }`,
         );

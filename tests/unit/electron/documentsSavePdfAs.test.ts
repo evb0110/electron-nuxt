@@ -36,7 +36,9 @@ const mocks = vi.hoisted(() => ({
     validatePdfFile: vi.fn(),
     optimizePdfForSaveAs: vi.fn(),
     assertWorkingCopyRevisionCurrent: vi.fn(),
+    copyFileCopyOnWrite: vi.fn(),
     markWorkingCopyContentChanged: vi.fn(),
+    markWorkingCopySyncRequired: vi.fn(),
 }));
 
 vi.mock('electron', () => ({
@@ -114,7 +116,9 @@ vi.mock('@electron/features/documents/main/pdfSaveAsOptimization', () => ({
 vi.mock('@electron/file-access/documentRevisionStore', () => ({
     assertWorkingCopyRevisionCurrent: (...args: unknown[]) => mocks.assertWorkingCopyRevisionCurrent(...args),
     markWorkingCopyContentChanged: (...args: unknown[]) => mocks.markWorkingCopyContentChanged(...args),
+    markWorkingCopySyncRequired: (...args: unknown[]) => mocks.markWorkingCopySyncRequired(...args),
 }));
+vi.mock('@electron/file-access/workingCopyDirectory', () => ({copyFileCopyOnWrite: (...args: [string, string]) => mocks.copyFileCopyOnWrite(...args)}));
 vi.mock('@electron/file-access/documentMutationGuards', () => ({
     assertQueuedWorkingCopyMutationPreconditions: (workingPath: string, expectedRevision?: string | null) => {
         if (expectedRevision === undefined || expectedRevision === null) {
@@ -165,12 +169,16 @@ describe('handleSavePdfAs', () => {
         });
         mocks.validatePdfFile.mockResolvedValue({
             isValid: true,
-            issues: [],
-            metadata: null,
+            tool: 'qpdf',
+            errors: [],
+            warnings: [],
         });
         mocks.optimizePdfForSaveAs.mockResolvedValue(null);
         mocks.assertWorkingCopyRevisionCurrent.mockResolvedValue(undefined);
         mocks.markWorkingCopyContentChanged.mockResolvedValue(undefined);
+        mocks.copyFileCopyOnWrite.mockImplementation(async (sourcePath: string, targetPath: string) => {
+            await writeFile(targetPath, await readFile(sourcePath));
+        });
     });
 
     afterEach(() => {
@@ -244,6 +252,125 @@ describe('handleSavePdfAs', () => {
         expect(
             mocks.optimizePdfForSaveAs.mock.invocationCallOrder[0]!,
         ).toBeLessThan(mocks.atomicReplace.mock.invocationCallOrder[0]!);
+    });
+
+    it('copies optimized Save As target bytes back to the managed working copy after replacement', async () => {
+        const workingPath = join(tempRoot, 'optimized-working.pdf');
+        const targetPath = join(tempRoot, 'optimized-saved.pdf');
+        const tempPath = `${targetPath}.tmp`;
+        writeFileSync(workingPath, 'unoptimized-pdf');
+        writeFileSync(targetPath, 'old-pdf');
+        mocks.getWorkingCopyOriginalPath.mockReturnValue(null);
+        mocks.showSaveDialog.mockResolvedValue({
+            canceled: false,
+            filePath: targetPath,
+        });
+        mocks.optimizePdfForSaveAs.mockImplementationOnce(async (optimizedTempPath: string) => {
+            writeFileSync(optimizedTempPath, 'optimized-pdf');
+            return {
+                isValid: true,
+                tool: 'qpdf',
+                errors: [],
+                warnings: [],
+            };
+        });
+
+        const { handleSavePdfAs } = await import('@electron/features/documents/main/documentSaveDialogHandlers');
+
+        await expect(handleSavePdfAs(
+            dialogContext,
+            workingPath,
+            { optimizeLossless: true },
+            revisionOptions,
+        )).resolves.toBe(targetPath);
+
+        expect(readFileSyncUtf8(targetPath)).toBe('optimized-pdf');
+        expect(readFileSyncUtf8(workingPath)).toBe('optimized-pdf');
+        expect(mocks.copyFileCopyOnWrite).toHaveBeenCalledWith(workingPath, tempPath);
+        expect(mocks.copyFileCopyOnWrite).toHaveBeenCalledWith(targetPath, workingPath);
+        expect(mocks.atomicReplace.mock.invocationCallOrder[0]!)
+            .toBeLessThan(mocks.copyFileCopyOnWrite.mock.invocationCallOrder[1]!);
+        expect(mocks.markWorkingCopyContentChanged).toHaveBeenCalledWith(workingPath, 'save-sync', 42);
+    });
+
+    it('rejects optimized Save As copyback failure after committing the target path', async () => {
+        const workingPath = join(tempRoot, 'copyback-fail-working.pdf');
+        const targetPath = join(tempRoot, 'copyback-fail-saved.pdf');
+        writeFileSync(workingPath, 'unoptimized-pdf');
+        writeFileSync(targetPath, 'old-pdf');
+        mocks.getWorkingCopyOriginalPath.mockReturnValue(null);
+        mocks.showSaveDialog.mockResolvedValue({
+            canceled: false,
+            filePath: targetPath,
+        });
+        mocks.optimizePdfForSaveAs.mockImplementationOnce(async (tempPath: string) => {
+            writeFileSync(tempPath, 'optimized-pdf');
+            return {
+                isValid: true,
+                tool: 'qpdf',
+                errors: [],
+                warnings: [],
+            };
+        });
+        mocks.copyFileCopyOnWrite.mockImplementationOnce(async (sourcePath: string, copyTargetPath: string) => {
+            await writeFile(copyTargetPath, await readFile(sourcePath));
+        });
+        mocks.copyFileCopyOnWrite.mockRejectedValueOnce(new Error('copy-back failed'));
+
+        const { handleSavePdfAs } = await import('@electron/features/documents/main/documentSaveDialogHandlers');
+
+        await expect(handleSavePdfAs(
+            dialogContext,
+            workingPath,
+            { optimizeLossless: true },
+            revisionOptions,
+        ))
+            .rejects
+            .toThrow('Target file was saved, but the working copy refresh failed: copy-back failed');
+
+        expect(readFileSyncUtf8(targetPath)).toBe('optimized-pdf');
+        expect(readFileSyncUtf8(workingPath)).toBe('unoptimized-pdf');
+        expect(mocks.setWorkingCopyOriginalPath).toHaveBeenCalledWith(workingPath, targetPath, 42);
+        expect(mocks.markWorkingCopySyncRequired).toHaveBeenCalledWith(
+            workingPath,
+            expect.stringContaining('copy-back failed'),
+        );
+        expect(mocks.markWorkingCopyContentChanged).not.toHaveBeenCalled();
+        expect(mocks.allowOpenPath).not.toHaveBeenCalled();
+    });
+
+    it('rejects Save As remap failure after committing the target path', async () => {
+        const workingPath = join(tempRoot, 'remap-fail-working.pdf');
+        const targetPath = join(tempRoot, 'remap-fail-saved.pdf');
+        writeFileSync(workingPath, 'new-pdf');
+        writeFileSync(targetPath, 'old-pdf');
+        mocks.getWorkingCopyOriginalPath.mockReturnValue(null);
+        mocks.showSaveDialog.mockResolvedValue({
+            canceled: false,
+            filePath: targetPath,
+        });
+        mocks.setWorkingCopyOriginalPath.mockRejectedValueOnce(new Error('remap failed'));
+
+        const { handleSavePdfAs } = await import('@electron/features/documents/main/documentSaveDialogHandlers');
+
+        await expect(handleSavePdfAs(
+            dialogContext,
+            workingPath,
+            undefined,
+            revisionOptions,
+        ))
+            .rejects
+            .toThrow('Target file was saved, but the working copy refresh failed: remap failed');
+
+        expect(readFileSyncUtf8(targetPath)).toBe('new-pdf');
+        expect(readFileSyncUtf8(workingPath)).toBe('new-pdf');
+        expect(mocks.setWorkingCopyOriginalPath).toHaveBeenCalledWith(workingPath, targetPath, 42);
+        expect(mocks.markWorkingCopySyncRequired).toHaveBeenCalledWith(
+            workingPath,
+            expect.stringContaining('remap failed'),
+        );
+        expect(mocks.markWorkingCopyContentChanged).not.toHaveBeenCalled();
+        expect(mocks.allowOpenPath).not.toHaveBeenCalled();
     });
 
     it('rejects Save As copies without a revision token before replacing the selected path', async () => {
@@ -424,6 +551,46 @@ describe('handleSavePdfAs', () => {
         expect(readFileSyncUtf8(workingPath)).toBe('new-pdf');
         expect(readFileSyncUtf8(targetPath)).toBe('new-pdf');
         expect(mocks.markWorkingCopyContentChanged).toHaveBeenCalledWith(workingPath, 'save-sync', 42);
+    });
+
+    it('returns the committed legacy Save As path when working-copy copyback fails', async () => {
+        const workingPath = join(tempRoot, 'data-copyback-working.pdf');
+        const targetPath = join(tempRoot, 'data-copyback-saved.pdf');
+        writeFileSync(workingPath, 'old-working');
+        writeFileSync(targetPath, 'old-target');
+        mocks.getWorkingCopyOriginalPath.mockReturnValue(null);
+        mocks.showSaveDialog.mockResolvedValue({
+            canceled: false,
+            filePath: targetPath,
+        });
+        mocks.copyFileCopyOnWrite.mockRejectedValueOnce(new Error('copy-back failed'));
+
+        const { handleSavePdfDataAs } = await import('@electron/features/documents/main/documentSaveDialogHandlers');
+
+        await expect(handleSavePdfDataAs(
+            dialogContext,
+            workingPath,
+            new Uint8Array(Buffer.from('new-pdf')),
+            undefined,
+            revisionOptions,
+        )).resolves.toMatchObject({
+            path: targetPath,
+            validation: {
+                isValid: false,
+                errors: [expect.stringContaining('copy-back failed')],
+                warnings: [expect.stringContaining('copy-back failed')],
+            },
+        });
+
+        expect(readFileSyncUtf8(targetPath)).toBe('new-pdf');
+        expect(readFileSyncUtf8(workingPath)).toBe('old-working');
+        expect(mocks.setWorkingCopyOriginalPath).toHaveBeenCalledWith(workingPath, targetPath, 42);
+        expect(mocks.markWorkingCopySyncRequired).toHaveBeenCalledWith(
+            workingPath,
+            expect.stringContaining('copy-back failed'),
+        );
+        expect(mocks.markWorkingCopyContentChanged).not.toHaveBeenCalled();
+        expect(mocks.allowOpenPath).toHaveBeenCalledWith(targetPath, {id: 42});
     });
 
     it('rejects stale legacy serialized Save As payloads inside the mutation queue', async () => {

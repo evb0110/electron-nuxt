@@ -42,4 +42,27 @@ describe('Native PDF viewer visual loading policy', () => {
         expect(pageContentSource).not.toContain('suppressInitialPlaceholder');
         expect(pageContentSource).not.toContain('native-pdf-page-skeleton');
     });
+
+    it('keeps large-document scroll work bounded to the viewport window', async () => {
+        const viewerSource = await readFile(
+            join(process.cwd(), 'app/modules/native-pdf-viewer/components/NativePdfViewer.vue'),
+            'utf8',
+        );
+
+        expect(viewerSource).toContain('function findFirstLayoutIndexEndingAtOrAfter');
+        expect(viewerSource).toContain('getPageNumbersIntersectingViewport(pageLayouts.value, viewportStart, viewportEnd)');
+        expect(viewerSource).toContain('for (const pageNumber of retainedPageNumbers)');
+        expect(viewerSource).not.toContain('for (const [\n        index,\n        layout,\n    ] of pageLayouts.value.entries())');
+    });
+
+    it('clears the active native source when page-size loading fails', async () => {
+        const viewerSource = await readFile(
+            join(process.cwd(), 'app/modules/native-pdf-viewer/components/NativePdfViewer.vue'),
+            'utf8',
+        );
+
+        expect(viewerSource).toContain('function clearFailedLoadSource(generation: number)');
+        expect(viewerSource.match(/clearFailedLoadSource\(generation\);/gu)).toHaveLength(2);
+        expect(viewerSource).toContain('stopSource();\n    pageSizes.value = [];\n    pageStates.value = [];');
+    });
 });

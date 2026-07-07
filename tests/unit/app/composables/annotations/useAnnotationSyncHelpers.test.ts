@@ -1087,6 +1087,15 @@ describe('useAnnotationSync helpers / collectPdfAnnotationNamesByPage', () => {
 
         expect(result.size).toBe(0);
     });
+
+    it('skips the full document read when name enrichment is disabled', async () => {
+        const doc = { getData: vi.fn(async () => Uint8Array.of()) };
+
+        const result = await __test__.collectPdfAnnotationNamesByPage(doc as never, { allowFullRead: false });
+
+        expect(result.size).toBe(0);
+        expect(doc.getData).not.toHaveBeenCalled();
+    });
 });
 
 describe('useAnnotationSync helpers / loadPdfPageAnnotations', () => {

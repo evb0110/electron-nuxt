@@ -39,6 +39,7 @@ const mocks = vi.hoisted(() => ({
     atomicReplace: vi.fn(),
     copyFileCopyOnWrite: vi.fn(),
     assertWorkingCopyMutationAllowed: vi.fn(),
+    assertWorkingCopyResyncAllowed: vi.fn(),
     assertWorkingCopyRevisionCurrent: vi.fn(),
     markWorkingCopyContentChanged: vi.fn(),
     markWorkingCopySyncRequired: vi.fn(),
@@ -60,6 +61,7 @@ vi.mock('@electron/file-access/isAllowedOriginalSavePath', () => ({isAllowedOrig
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: (...args: unknown[]) => mocks.ensureWorkingCopyDirectory(...args)}));
 vi.mock('@electron/file-access/documentRevisionStore', () => ({
     assertWorkingCopyMutationAllowed: (...args: unknown[]) => mocks.assertWorkingCopyMutationAllowed(...args),
+    assertWorkingCopyResyncAllowed: (...args: unknown[]) => mocks.assertWorkingCopyResyncAllowed(...args),
     assertWorkingCopyRevisionCurrent: (...args: unknown[]) => mocks.assertWorkingCopyRevisionCurrent(...args),
     markWorkingCopyContentChanged: (...args: unknown[]) => mocks.markWorkingCopyContentChanged(...args),
     markWorkingCopySyncRequired: (...args: unknown[]) => mocks.markWorkingCopySyncRequired(...args),

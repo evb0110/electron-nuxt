@@ -6,6 +6,7 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import { createWorkspaceExpose } from '@app/modules/workspace-shell/expose/createWorkspaceExpose';
+import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
 import type { IWorkspaceDocumentViewerNavigationPort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import { cast } from '@tests/helpers/cast';
 
@@ -231,6 +232,26 @@ describe('createWorkspaceExpose', () => {
 
         expect(deps.handleFitMode).toHaveBeenNthCalledWith(1, 'width');
         expect(deps.handleFitMode).toHaveBeenNthCalledWith(2, 'height');
+    });
+
+    it('ignores view controls that the active viewer cannot honor', () => {
+        const deps = createDeps({
+            hasPdf: ref(true),
+            viewerCapabilities: ref({
+                ...createDefaultWorkspaceViewerCapabilities(),
+                closeableDocument: true,
+                pdfDocument: true,
+                print: true,
+            }),
+        });
+        const exposed = createWorkspaceExpose(deps);
+
+        exposed.handleToggleContinuousScroll();
+        exposed.handleViewModeFacing();
+        exposed.handleViewModeFacingFirstSingle();
+
+        expect(deps.handleToggleContinuousScroll).not.toHaveBeenCalled();
+        expect(deps.viewMode.value).toBe('single');
     });
 
     it('runs page actions only when pages are selected', async () => {

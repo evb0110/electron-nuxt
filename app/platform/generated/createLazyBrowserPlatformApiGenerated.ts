@@ -254,7 +254,7 @@ export function createLazyBrowserPlatformApiGenerated({
     const settingsRendererLogMethod = lazyVoid(pathDescriptors.settings.rendererLog.path);
     const settingsOnMenuOpenSettingsMethod = lazyEvent(pathDescriptors.settings.onMenuOpenSettings.path);
     const systemGetMemoryInfoMethod = getMemoryInfo;
-    const systemOnShutdownSaveFlushRequestMethod = lazyAsync(pathDescriptors.system.onShutdownSaveFlushRequest.path);
+    const systemOnShutdownSaveFlushRequestMethod = lazyEvent(pathDescriptors.system.onShutdownSaveFlushRequest.path);
     const updatesGetStateMethod = lazyAsync(pathDescriptors.updates.getState.path);
     const updatesCheckMethod = lazyAsync(pathDescriptors.updates.check.path);
     const updatesInstallMethod = lazyAsync(pathDescriptors.updates.install.path);

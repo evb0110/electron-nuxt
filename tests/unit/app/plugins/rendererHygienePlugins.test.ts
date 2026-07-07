@@ -9,9 +9,18 @@ import {
 const mocks = vi.hoisted(() => ({
     reportRuntimeError: vi.fn(),
     onDebugLog: vi.fn(),
+    isElectronUserAgent: vi.fn(() => false),
+    waitForPreferredDesktopPlatformBridge: vi.fn(async () => ({
+        bridgeReady: false,
+        shouldWait: false,
+    })),
 }));
 
 vi.mock('@app/utils/getSettingsCapability', () => ({getSettingsCapability: () => ({onDebugLog: mocks.onDebugLog})}));
+vi.mock('@app/utils/platform', () => ({
+    isElectronUserAgent: mocks.isElectronUserAgent,
+    waitForPreferredDesktopPlatformBridge: mocks.waitForPreferredDesktopPlatformBridge,
+}));
 
 vi.mock('@app/composables/useRuntimeErrorReports', () => (
     {useRuntimeErrorReports: () => ({reportRuntimeError: mocks.reportRuntimeError})}
@@ -50,6 +59,11 @@ function createNuxtApp() {
     };
 }
 
+async function flushPluginTasks() {
+    await Promise.resolve();
+    await Promise.resolve();
+}
+
 describe('renderer hygiene plugins', () => {
     beforeEach(() => {
         vi.resetModules();
@@ -57,6 +71,10 @@ describe('renderer hygiene plugins', () => {
         vi.unstubAllGlobals();
         installAutoImportStubs();
         vi.stubGlobal('window', new EventTarget());
+        Object.defineProperty(window, 'location', {
+            configurable: true,
+            value: { pathname: '/' },
+        });
     });
 
     it('unsubscribes the runtime error log stream on app unmount and guards duplicate installs', async () => {
@@ -69,12 +87,47 @@ describe('renderer hygiene plugins', () => {
         plugin(harness.nuxtApp);
         harness.hooks.get('app:mounted')?.();
         harness.hooks.get('app:mounted')?.();
+        await flushPluginTasks();
         harness.nuxtApp.vueApp.unmount();
 
         expect(harness.nuxtApp.hook).toHaveBeenCalledTimes(1);
+        expect(mocks.waitForPreferredDesktopPlatformBridge).toHaveBeenCalledWith({ routePath: '/' });
         expect(mocks.onDebugLog).toHaveBeenCalledTimes(1);
         expect(unsubscribe).toHaveBeenCalledTimes(1);
         expect(harness.originalUnmount).toHaveBeenCalledTimes(1);
+    });
+
+    it('waits for an Electron bridge before subscribing to runtime debug logs', async () => {
+        const unsubscribe = vi.fn();
+        let resolveBridge!: () => void;
+        mocks.onDebugLog.mockReturnValue(unsubscribe);
+        mocks.isElectronUserAgent.mockReturnValue(true);
+        mocks.waitForPreferredDesktopPlatformBridge.mockReturnValue(new Promise((resolve) => {
+            resolveBridge = () => resolve({
+                bridgeReady: true,
+                shouldWait: true,
+            });
+        }));
+        Object.defineProperty(window, 'location', {
+            configurable: true,
+            value: { pathname: '/electron' },
+        });
+        const plugin = (await import('@app/plugins/runtimeErrorLogStream.client')).default as (app: unknown) => void;
+        const harness = createNuxtApp();
+
+        plugin(harness.nuxtApp);
+        harness.hooks.get('app:mounted')?.();
+        await flushPluginTasks();
+
+        expect(mocks.onDebugLog).not.toHaveBeenCalled();
+
+        resolveBridge();
+        await flushPluginTasks();
+
+        expect(mocks.waitForPreferredDesktopPlatformBridge).toHaveBeenCalledWith({ routePath: '/electron' });
+        expect(mocks.onDebugLog).toHaveBeenCalledTimes(1);
+        harness.nuxtApp.vueApp.unmount();
+        expect(unsubscribe).toHaveBeenCalledTimes(1);
     });
 
     it('removes renderer guard listeners and restores the previous Vue error handler on unmount', async () => {

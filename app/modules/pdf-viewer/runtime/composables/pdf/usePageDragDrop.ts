@@ -237,7 +237,35 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         isWindowDragListenerActive.value = false;
     }
 
+    function clearBodyDragStyles() {
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+    }
+
+    function resetInternalDragState() {
+        clearBodyDragStyles();
+        isDragging.value = false;
+        draggedPages.value = [];
+        dropInsertIndex.value = null;
+        dragReorderContext = null;
+    }
+
+    function cancelInternalDrag() {
+        const wasDragging = isDragging.value;
+        cleanupWindowDragListeners();
+        clearAutoScroll();
+        resetInternalDragState();
+        if (wasDragging) {
+            clickSkip = true;
+        }
+    }
+
     function onMove(e: MouseEvent) {
+        if (e.buttons === 0) {
+            cancelInternalDrag();
+            return;
+        }
+
         if (!isDragging.value) {
             const dx = e.clientX - startX;
             const dy = e.clientY - startY;
@@ -263,22 +291,19 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         clearAutoScroll();
 
         if (!isDragging.value) {
+            resetInternalDragState();
             return;
         }
 
-        document.body.style.cursor = '';
-        document.body.style.userSelect = '';
+        const insertAt = dropInsertIndex.value;
+        const reorderContext = dragReorderContext;
+        resetInternalDragState();
         clickSkip = true;
 
-        if (dropInsertIndex.value !== null) {
-            const order = buildNewOrder(dropInsertIndex.value, dragReorderContext);
+        if (insertAt !== null) {
+            const order = buildNewOrder(insertAt, reorderContext);
             if (order) onReorder(order);
         }
-
-        isDragging.value = false;
-        draggedPages.value = [];
-        dropInsertIndex.value = null;
-        dragReorderContext = null;
     }
 
     function handleMouseDown(e: MouseEvent, page: number) {
@@ -307,6 +332,9 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
     ));
     useEventListener(windowDragTarget, 'mousemove', onMove);
     useEventListener(windowDragTarget, 'mouseup', onUp);
+    useEventListener(windowDragTarget, 'blur', cancelInternalDrag);
+    useEventListener(windowDragTarget, 'pointercancel', cancelInternalDrag);
+    useEventListener(windowDragTarget, 'lostpointercapture', cancelInternalDrag);
 
     function consumeClickSkip() {
         if (clickSkip) {
@@ -421,10 +449,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
     }
 
     onUnmounted(() => {
-        cleanupWindowDragListeners();
-        clearAutoScroll();
-        document.body.style.cursor = '';
-        document.body.style.userSelect = '';
+        cancelInternalDrag();
     });
 
     return {
@@ -433,6 +458,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         draggedPages,
         dropInsertIndex,
         handleMouseDown,
+        handlePointerCancel: cancelInternalDrag,
         consumeClickSkip,
         handleDragEnter,
         handleDragOver,

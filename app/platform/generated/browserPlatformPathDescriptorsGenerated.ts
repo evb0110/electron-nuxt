@@ -257,7 +257,7 @@ export const browserPlatformPathDescriptorsGenerated = {
         onMenuOpenSettings: {kind: 'event', path: ["settings","onMenuOpenSettings"]},
     },
     system: {
-        onShutdownSaveFlushRequest: {kind: 'async', path: ["system","onShutdownSaveFlushRequest"]},
+        onShutdownSaveFlushRequest: {kind: 'event', path: ["system","onShutdownSaveFlushRequest"]},
     },
     updates: {
         getState: {kind: 'async', path: ["updates","getState"]},

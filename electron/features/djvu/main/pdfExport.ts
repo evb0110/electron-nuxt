@@ -21,6 +21,7 @@ import {
 } from 'path';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import type {
+    IDjvuConvertOptions,
     IDjvuPrintOptions,
     IDjvuPrintResult,
     IDjvuProgress,
@@ -129,6 +130,19 @@ const DJVU_BOOKMARK_FALLBACK_MAX_BYTES = (() => {
     }
     return parsed * 1024 * 1024;
 })();
+const DJVU_CONVERT_PROGRESS_CAP = 94;
+const DJVU_BOOKMARK_PROGRESS_PERCENT = 95;
+const DJVU_OPTIMIZE_PROGRESS_PERCENT = 98;
+
+function scaleDjvuConversionProgress(percent: number) {
+    if (!Number.isFinite(percent)) {
+        return 0;
+    }
+    return Math.max(0, Math.min(
+        DJVU_CONVERT_PROGRESS_CAP,
+        Math.round((percent / 100) * DJVU_CONVERT_PROGRESS_CAP),
+    ));
+}
 
 function resolveSubsample(rawSubsample: number | undefined) {
     if (rawSubsample === undefined) {
@@ -424,11 +438,21 @@ function resolveDjvuPrintDocumentTitle(
     return `${title} p${formatDjvuPageSelection(selectedPages)}`;
 }
 
-async function getDjvuConversionPageSizes(jobId: string, djvuPath: string, pageCount: number) {
+async function getDjvuConversionPageSizes(
+    jobId: string,
+    djvuPath: string,
+    pageCount: number,
+    signal: AbortSignal,
+) {
     try {
-        const pageSizes: IDjvuConversionPageMetrics[] = await getDjvuPageSizesForViewing(djvuPath, pageCount);
+        const pageSizes: IDjvuConversionPageMetrics[] = await getDjvuPageSizesForViewing(djvuPath, pageCount, { signal });
         return pageSizes;
     } catch (error) {
+        if (signal.aborted) {
+            throw signal.reason instanceof Error
+                ? signal.reason
+                : createAbortError('DjVu conversion canceled');
+        }
         logger.debug(`[${jobId}] Failed to read DjVu page sizes before conversion policy check: ${getErrorMessage(error)}`);
         return null;
     }
@@ -449,6 +473,7 @@ async function replaceFileAtomically(sourcePath: string, targetPath: string) {
 }
 
 type TDjvuTerminalProgressStatus = Exclude<NonNullable<IDjvuProgress['status']>, 'running'>;
+type TDjvuProgressScope = Pick<IDjvuProgress, 'documentRef' | 'requestId'>;
 
 function isTerminalDjvuProgress(progress: IDjvuProgress) {
     return progress.status === 'success'
@@ -479,6 +504,24 @@ function createDjvuTerminalProgress(
 
 function isDjvuCancellationError(error: unknown) {
     return getErrorMessage(error).toLowerCase().includes('djvu conversion canceled');
+}
+
+function getOptionalResultError(value: unknown) {
+    if (typeof value !== 'object' || value === null || !('error' in value)) {
+        return undefined;
+    }
+    const errorValue = (value as { error?: unknown }).error;
+    return typeof errorValue === 'string' ? errorValue : undefined;
+}
+
+function createDjvuProgressScope(requestId: unknown, documentRef: unknown): TDjvuProgressScope {
+    const normalizedRequestId = normalizeOptionalIpcRequestId(requestId);
+    return {
+        ...(normalizedRequestId ? { requestId: normalizedRequestId } : {}),
+        ...(typeof documentRef === 'string' && documentRef.trim().length > 0
+            ? { documentRef: documentRef.trim() }
+            : {}),
+    };
 }
 
 const progressPumpsBySenderId = new Map<number, ReturnType<typeof createIpcProgressPump<IDjvuProgress>>>();
@@ -602,7 +645,8 @@ export async function handleDjvuPrintPath(
     djvuPath: TOpenPath,
     options: IDjvuPrintOptions,
 ): Promise<IDjvuPrintResult> {
-    const jobId = resolveDjvuPrintJobId(options.requestId);
+    const progressScope = createDjvuProgressScope(options.requestId, djvuPath);
+    const jobId = resolveDjvuPrintJobId(progressScope.requestId);
     const tempDir = await mkdtemp(join(getAppTempDir(), 'djvu-print-work-'));
     const sourcePdfPath = join(tempDir, `${jobId}.source.pdf`);
     const finalPdfPath = join(getAppTempDir(), `${PRINT_DJVU_TEMP_PREFIX}${jobId}.pdf`);
@@ -627,11 +671,15 @@ export async function handleDjvuPrintPath(
     let lastProgressPhase: IDjvuProgress['phase'] = 'converting';
     let hasTerminalProgress = false;
     const sendProgress = (progress: IDjvuProgress) => {
-        lastProgressPhase = progress.phase;
-        if (hasDjvuTerminalProgressStatus(progress)) {
+        const scopedProgress = {
+            ...progress,
+            ...progressScope,
+        };
+        lastProgressPhase = scopedProgress.phase;
+        if (hasDjvuTerminalProgressStatus(scopedProgress)) {
             hasTerminalProgress = true;
         }
-        progressPump.enqueue(progress);
+        progressPump.enqueue(scopedProgress);
     };
     const sendTerminalProgress = (status: TDjvuTerminalProgressStatus, error?: string) => {
         if (hasTerminalProgress) {
@@ -656,7 +704,7 @@ export async function handleDjvuPrintPath(
             ]);
             throwIfCanceled(jobId);
 
-            const pageSizes = await getDjvuConversionPageSizes(jobId, djvuPath, pageCount);
+            const pageSizes = await getDjvuConversionPageSizes(jobId, djvuPath, pageCount, abortController.signal);
             throwIfCanceled(jobId);
 
             const selectedPages = resolveDjvuPrintPages(options.pageNumbers, pageCount);
@@ -713,11 +761,12 @@ export async function handleDjvuPrintPath(
                         ...(subsample > 1 ? { subsample } : {}),
                         ...(selectedPages ? { pages: formatDjvuPageSelection(selectedPages) } : {}),
                         pageCount,
+                        signal: abortController.signal,
                         onProgress: (percent: number) => {
                             sendProgress({
                                 jobId,
                                 phase: 'converting' as const,
-                                percent,
+                                percent: scaleDjvuConversionProgress(percent),
                             });
                         },
                     });
@@ -757,9 +806,9 @@ export async function handleDjvuPrintPath(
             sendProgress({
                 jobId,
                 phase: 'optimizing' as const,
-                percent: 96,
+                percent: DJVU_OPTIMIZE_PROGRESS_PERCENT,
             });
-            await optimizeGeneratedPdfForInteraction(printablePdfPath);
+            await optimizeGeneratedPdfForInteraction(printablePdfPath, { signal: abortController.signal });
             throwIfCanceled(jobId);
             sendProgress({
                 jobId,
@@ -796,7 +845,11 @@ export async function handleDjvuPrintPath(
             };
         });
         if (!result.success) {
-            sendTerminalProgress(result.canceled ? 'canceled' : 'failed', result.error);
+            const canceled = result.canceled === true
+                || abortController.signal.aborted
+                || canceledJobIds.has(jobId)
+                || isDjvuCancellationError(result.error);
+            sendTerminalProgress(canceled ? 'canceled' : 'failed', result.error);
         }
         return result;
     } catch (error) {
@@ -842,15 +895,13 @@ export async function handleDjvuConvertToPdf(
     context: IDjvuOperationContext,
     djvuPath: TOpenPath,
     outputPath: string,
-    options: {
-        subsample?: number;
-        preserveBookmarks?: boolean;
-        pdfStrategy?: TDjvuPdfExportStrategy;
-    },
+    options: IDjvuConvertOptions,
 ): Promise<{
     success: boolean;
     pdfPath?: string;
     jobId?: string;
+    requestId?: string;
+    documentRef?: string;
     error?: string;
 }> {
     let normalizedOutputPath: string | null = null;
@@ -873,6 +924,7 @@ export async function handleDjvuConvertToPdf(
     const tempDir = await mkdtemp(join(app.getPath('temp'), 'djvu-export-'));
     const tempPdfPath = join(tempDir, `${conversionId}.convert.pdf`);
     const tempBookmarkedPdfPath = join(tempDir, `${conversionId}.bookmarks.pdf`);
+    const progressScope = createDjvuProgressScope(options.requestId, options.documentRef ?? djvuPath);
     logger.info(`[${jobId}] Converting DjVu to PDF: ${djvuPath} -> ${normalizedOutputPath}`);
     const mainOperation = registerMainOperation({
         kind: 'abortable-work',
@@ -892,11 +944,15 @@ export async function handleDjvuConvertToPdf(
     let lastProgressPhase: IDjvuProgress['phase'] = 'converting';
     let hasTerminalProgress = false;
     const sendProgress = (progress: IDjvuProgress) => {
-        lastProgressPhase = progress.phase;
-        if (hasDjvuTerminalProgressStatus(progress)) {
+        const scopedProgress = {
+            ...progress,
+            ...progressScope,
+        };
+        lastProgressPhase = scopedProgress.phase;
+        if (hasDjvuTerminalProgressStatus(scopedProgress)) {
             hasTerminalProgress = true;
         }
-        progressPump.enqueue(progress);
+        progressPump.enqueue(scopedProgress);
     };
     const sendTerminalProgress = (status: TDjvuTerminalProgressStatus, error?: string) => {
         if (hasTerminalProgress) {
@@ -922,7 +978,7 @@ export async function handleDjvuConvertToPdf(
             ]);
 
             throwIfCanceled(jobId);
-            const pageSizes = await getDjvuConversionPageSizes(jobId, djvuPath, pageCount);
+            const pageSizes = await getDjvuConversionPageSizes(jobId, djvuPath, pageCount, abortController.signal);
             throwIfCanceled(jobId);
 
             const convertResult = strategy === 'compact-djvu-aware'
@@ -962,11 +1018,12 @@ export async function handleDjvuConvertToPdf(
                     return convertDjvuToPdfFile(djvuPath, tempPdfPath, jobId, {
                         ...(subsample > 1 ? { subsample } : {}),
                         pageCount,
+                        signal: abortController.signal,
                         onProgress: (percent) => {
                             sendProgress({
                                 jobId,
                                 phase: 'converting' as const,
-                                percent,
+                                percent: scaleDjvuConversionProgress(percent),
                             });
                         },
                     });
@@ -976,6 +1033,7 @@ export async function handleDjvuConvertToPdf(
                 return {
                     success: false,
                     jobId,
+                    ...progressScope,
                     error: convertResult.error ?? 'DjVu conversion failed',
                 };
             }
@@ -991,7 +1049,7 @@ export async function handleDjvuConvertToPdf(
                 sendProgress({
                     jobId,
                     phase: 'bookmarks' as const,
-                    percent: 92,
+                    percent: DJVU_BOOKMARK_PROGRESS_PERCENT,
                 });
                 await embedPdfBookmarks(
                     jobId,
@@ -1007,9 +1065,9 @@ export async function handleDjvuConvertToPdf(
             sendProgress({
                 jobId,
                 phase: 'optimizing' as const,
-                percent: 96,
+                percent: DJVU_OPTIMIZE_PROGRESS_PERCENT,
             });
-            await optimizeGeneratedPdfForInteraction(finalTempPdfPath);
+            await optimizeGeneratedPdfForInteraction(finalTempPdfPath, { signal: abortController.signal });
             throwIfCanceled(jobId);
             await replaceFileAtomically(finalTempPdfPath, normalizedOutputPath);
 
@@ -1026,18 +1084,28 @@ export async function handleDjvuConvertToPdf(
                 success: true,
                 pdfPath: normalizedOutputPath,
                 jobId,
+                ...progressScope,
             };
         });
         if (!result.success) {
-            sendTerminalProgress('failed', result.error);
+            const error = getOptionalResultError(result);
+            const canceled = abortController.signal.aborted
+                || canceledJobIds.has(jobId)
+                || isDjvuCancellationError(error);
+            sendTerminalProgress(canceled ? 'canceled' : 'failed', error);
         }
         return result;
     } catch (error) {
-        logger.error(`[${jobId}] Conversion failed: ${getErrorMessage(error)}`);
-        const canceled = canceledJobIds.has(jobId) || isDjvuCancellationError(error);
+        const canceled = abortController.signal.aborted || canceledJobIds.has(jobId) || isDjvuCancellationError(error);
+        if (canceled) {
+            logger.info(`[${jobId}] Conversion canceled`);
+        } else {
+            logger.error(`[${jobId}] Conversion failed: ${getErrorMessage(error)}`);
+        }
         const result = {
             success: false,
             jobId,
+            ...progressScope,
             error: canceled ? 'DjVu conversion canceled' : getErrorMessage(error),
         };
         sendTerminalProgress(canceled ? 'canceled' : 'failed', result.error);

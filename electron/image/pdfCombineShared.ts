@@ -523,7 +523,11 @@ async function appendTiffPages(
         width,
         height,
         rgba,
-    } of iterateDecodedTiffFrames(tiffBytes)) {
+    } of iterateDecodedTiffFrames(tiffBytes, {
+            maxFrames: limits.maxTiffFrames,
+            maxPixels: limits.maxImagePixels,
+            sourceLabel: sourcePath,
+        })) {
         assertPageLimit(currentPageCount + addedPages + 1, limits);
         if (addedPages >= limits.maxTiffFrames) {
             throw new Error(`TIFF frame count is capped at ${limits.maxTiffFrames}: ${sourcePath}`);

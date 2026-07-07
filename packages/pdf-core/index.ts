@@ -37,7 +37,13 @@ export {
     safePdfPageInheritableDict,
 } from '@pdf-core/safePdfLookup';
 export { writePdfBookmarkOutlines } from '@pdf-core/writePdfBookmarkOutlines';
-export { iterateDecodedTiffFrames } from '@pdf-core/iterateDecodedTiffFrames';
+export {
+    DEFAULT_TIFF_DECODE_LIMITS,
+    DEFAULT_TIFF_DECODE_MAX_FRAMES,
+    DEFAULT_TIFF_DECODE_MAX_PIXELS,
+    iterateDecodedTiffFrames,
+} from '@pdf-core/iterateDecodedTiffFrames';
+export type { IIterateDecodedTiffFramesOptions } from '@pdf-core/iterateDecodedTiffFrames';
 export {
     extractPdfjsWordBoxesFromOperatorList,
     getPdfjsPageViewBox,

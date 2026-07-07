@@ -11,7 +11,10 @@ import {
     extname,
     join,
 } from 'path';
-import { convertDjvuToPdfFile } from '@electron/features/djvu/public';
+import {
+    cancelConversion,
+    convertDjvuToPdfFile,
+} from '@electron/features/djvu/public';
 import { getDjvuPageCount } from '@electron/djvu/metadata';
 import {
     assertNonEmptyPdfOutput,
@@ -187,7 +190,7 @@ async function flushImageChunk(
 
     await assertNonEmptyPdfOutput(chunkPath, 'Combining image pages');
     const chunkPageCount = countGeneratedPages
-        ? await getPdfPageCount(chunkPath)
+        ? await getPdfPageCount(chunkPath, options?.signal ? { signal: options.signal } : {})
         : 0;
     if (countGeneratedPages) {
         assertPageLimit(currentPageCount + chunkPageCount, limits);
@@ -202,30 +205,53 @@ async function flushImageChunk(
 async function convertDjvuChunk(
     inputPath: string,
     tempDir: string,
+    options?: INativePdfAssemblerOptions,
 ) {
+    throwIfAborted(options?.signal);
     const outputPath = join(tempDir, `djvu-chunk-${randomUUID()}.pdf`);
-    const pageCount = await getOptionalDjvuPageCount(inputPath);
-    const result = await convertDjvuToPdfFile(
-        inputPath,
-        outputPath,
-        `pdf-native-assembler-djvu-${randomUUID()}`,
-        {
-            subsample: 1,
-            ...(pageCount > 0 ? {pageCount} : {}),
-        },
-    );
-    if (!result.success) {
-        throw new Error(result.error ?? `Failed to convert DjVu file: ${inputPath}`);
+    const jobId = `pdf-native-assembler-djvu-${randomUUID()}`;
+    const abortHandler = options?.signal
+        ? () => {
+            void cancelConversion(jobId);
+        }
+        : null;
+    if (options?.signal && abortHandler) {
+        options.signal.addEventListener('abort', abortHandler, { once: true });
+    }
+    try {
+        const pageCount = await getOptionalDjvuPageCount(inputPath, options?.signal);
+        throwIfAborted(options?.signal);
+        const result = await convertDjvuToPdfFile(
+            inputPath,
+            outputPath,
+            jobId,
+            {
+                subsample: 1,
+                ...(pageCount > 0 ? { pageCount } : {}),
+                ...(options?.signal ? { signal: options.signal } : {}),
+            },
+        );
+        throwIfAborted(options?.signal);
+        if (!result.success) {
+            throw new Error(result.error ?? `Failed to convert DjVu file: ${inputPath}`);
+        }
+    } finally {
+        if (options?.signal && abortHandler) {
+            options.signal.removeEventListener('abort', abortHandler);
+        }
     }
 
     await assertNonEmptyPdfOutput(outputPath, 'Converting DjVu input');
     return outputPath;
 }
 
-async function getOptionalDjvuPageCount(inputPath: string) {
+async function getOptionalDjvuPageCount(inputPath: string, signal?: AbortSignal) {
     try {
-        return await getDjvuPageCount(inputPath);
+        return await getDjvuPageCount(inputPath, signal ? { signal } : {});
     } catch (error) {
+        if (signal?.aborted || isAbortError(error)) {
+            throw error;
+        }
         log.debug(`Failed to read DjVu page count before native assemble conversion: ${getErrorMessage(error)}`);
         return 0;
     }
@@ -289,13 +315,13 @@ async function writePdfFromInputPathsNativeWithTempDir(
             pageCount += addedImagePages;
 
             if (isPdfPath(inputPath)) {
-                const sourcePageCount = await getPdfPageCount(inputPath);
+                const sourcePageCount = await getPdfPageCount(inputPath, options?.signal ? { signal: options.signal } : {});
                 assertPageLimit(pageCount + sourcePageCount, limits);
                 chunkPaths.push(inputPath);
                 pageCount += sourcePageCount;
             } else if (isDjvuPath(inputPath)) {
-                const convertedPath = await convertDjvuChunk(inputPath, tempDir);
-                const sourcePageCount = await getPdfPageCount(convertedPath);
+                const convertedPath = await convertDjvuChunk(inputPath, tempDir, options);
+                const sourcePageCount = await getPdfPageCount(convertedPath, options?.signal ? { signal: options.signal } : {});
                 assertPageLimit(pageCount + sourcePageCount, limits);
                 chunkPaths.push(convertedPath);
                 pageCount += sourcePageCount;
@@ -339,7 +365,7 @@ async function writePdfFromInputPathsNativeWithTempDir(
         emitProgress(progress, options, progress.total);
         return true;
     } catch (error) {
-        if (isAbortError(error)) {
+        if (options?.signal?.aborted || isAbortError(error)) {
             throw error;
         }
         log.warn(`Native PDF assembler failed, falling back to JS combine: ${getErrorMessage(error)}`);
@@ -413,7 +439,7 @@ export async function tryCreatePdfFromInputPathsNative(
         }
         return await readLimitedPdfOutput(outputPath, limits);
     } catch (error) {
-        if (isAbortError(error)) {
+        if (options?.signal?.aborted || isAbortError(error)) {
             throw error;
         }
         log.warn(`Native PDF assembler failed, falling back to JS combine: ${getErrorMessage(error)}`);

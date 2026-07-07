@@ -31,11 +31,21 @@ import { addRecentInputs } from '@electron/features/documents/main/addRecentInpu
 import { normalizePossiblyEncodedExistingPath } from '@electron/utils/normalizePossiblyEncodedExistingPath';
 import type { TOpenFileResult } from '@electron/features/documents/contract';
 import type { TOpenPathOwner } from '@electron/features/documents/main/openPathOwner';
+import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
+import { abortErrorFromSignal } from '@electron/utils/abort';
 
 const logger = createLogger('documents-open-service');
 const MAX_OPEN_INPUT_PATHS = 512;
 
-interface IOpenInputPathsOptions {onCombineProgress?: (progress: ICreatePdfFromInputPathsProgress) => void;}
+interface IOpenInputPathsOptions {
+    onCombineProgress?: (progress: ICreatePdfFromInputPathsProgress) => void;
+    signal?: AbortSignal;
+}
+
+interface IOpenInputPathsAbortLifecycle {
+    signal: AbortSignal;
+    cleanup: () => void;
+}
 
 export function assertOpenInputPathCount(paths: readonly unknown[]) {
     if (paths.length > MAX_OPEN_INPUT_PATHS) {
@@ -56,6 +66,102 @@ function getOwnerWebContentsId(owner?: TOpenPathOwner) {
         return owner;
     }
     return owner?.id;
+}
+
+function isWebContentsOwner(owner?: TOpenPathOwner): owner is Electron.WebContents {
+    return typeof owner === 'object'
+        && owner !== null
+        && typeof owner.id === 'number'
+        && typeof owner.once === 'function'
+        && typeof owner.removeListener === 'function';
+}
+
+function throwIfAborted(signal: AbortSignal) {
+    if (signal.aborted) {
+        throw abortErrorFromSignal(signal);
+    }
+}
+
+function createOpenInputPathsAbortLifecycle(
+    owner: TOpenPathOwner | undefined,
+    operationPath: string,
+    externalSignal?: AbortSignal,
+): IOpenInputPathsAbortLifecycle {
+    const ownerWebContentsId = getOwnerWebContentsId(owner);
+    const abortController = new AbortController();
+    const abort = (reason: string | Error) => {
+        if (!abortController.signal.aborted) {
+            abortController.abort(reason instanceof Error ? reason : new Error(reason));
+        }
+    };
+    const mainOperation = registerMainOperation({
+        kind: 'abortable-work',
+        ownerWebContentsId,
+        workingCopyPath: operationPath,
+        cancel: abort,
+    });
+    const abortFromMainOperation = () => {
+        abort(mainOperation.signal.reason instanceof Error
+            ? mainOperation.signal.reason
+            : 'Open input paths operation canceled');
+    };
+    const abortFromExternalSignal = () => {
+        abort(externalSignal?.reason instanceof Error
+            ? externalSignal.reason
+            : 'Open input paths operation canceled');
+    };
+    mainOperation.signal.addEventListener('abort', abortFromMainOperation, { once: true });
+    externalSignal?.addEventListener('abort', abortFromExternalSignal, { once: true });
+    if (externalSignal?.aborted) {
+        abortFromExternalSignal();
+    }
+
+    let handleDestroyed: (() => void) | null = null;
+    let handleRenderProcessGone: (() => void) | null = null;
+    let handleNavigation: ((
+        event: Electron.Event,
+        url: string,
+        isInPlace: boolean,
+        isMainFrame: boolean,
+    ) => void) | null = null;
+
+    if (isWebContentsOwner(owner)) {
+        handleDestroyed = () => abort('Renderer lifecycle ended');
+        handleRenderProcessGone = () => abort('Renderer lifecycle ended');
+        handleNavigation = (
+            _event: Electron.Event,
+            _url: string,
+            isInPlace: boolean,
+            isMainFrame: boolean,
+        ) => {
+            if (isMainFrame && !isInPlace) {
+                abort('Renderer navigation canceled open input paths operation');
+            }
+        };
+        owner.once('destroyed', handleDestroyed);
+        owner.once('render-process-gone', handleRenderProcessGone);
+        owner.on('did-start-navigation', handleNavigation);
+    }
+
+    return {
+        signal: abortController.signal,
+        cleanup: () => {
+            mainOperation.signal.removeEventListener('abort', abortFromMainOperation);
+            externalSignal?.removeEventListener('abort', abortFromExternalSignal);
+            if (isWebContentsOwner(owner)) {
+                if (handleDestroyed) {
+                    owner.removeListener('destroyed', handleDestroyed);
+                }
+                if (handleRenderProcessGone) {
+                    owner.removeListener('render-process-gone', handleRenderProcessGone);
+                }
+                if (handleNavigation) {
+                    owner.removeListener('did-start-navigation', handleNavigation);
+                }
+            }
+            mainOperation.complete();
+        },
+    };
 }
 
 export async function openInputPaths(
@@ -108,14 +214,26 @@ export async function openInputPaths(
 
     const outputPath = buildCombinedPdfOutputPath(normalizedPaths);
     const tempDir = await mkdtemp(join(tmpdir(), 'pdf-combine-open-'));
+    let lifecycle: IOpenInputPathsAbortLifecycle | null = null;
     let workingPath: string;
     try {
+        lifecycle = createOpenInputPathsAbortLifecycle(
+            owner,
+            outputPath,
+            options.signal,
+        );
+        const { signal } = lifecycle;
         const tempOutputPath = join(tempDir, basename(outputPath));
+        throwIfAborted(signal);
         await createPdfFileFromInputPaths(
             normalizedPaths,
             tempOutputPath,
-            {...(options.onCombineProgress ? { onProgress: options.onCombineProgress } : {})},
+            {
+                ...(options.onCombineProgress ? { onProgress: options.onCombineProgress } : {}),
+                signal,
+            },
         );
+        throwIfAborted(signal);
         logger.info(`openInputPaths created combined PDF for batch; output: ${outputPath}`);
         allowOpenPaths([tempOutputPath], owner);
         const trustedTempOutputPath = requireOpenPath(tempOutputPath, owner);
@@ -129,6 +247,7 @@ export async function openInputPaths(
             recursive: true,
             force: true,
         }).catch(() => undefined);
+        lifecycle?.cleanup();
     }
 
     return {

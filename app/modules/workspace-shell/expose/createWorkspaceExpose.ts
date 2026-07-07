@@ -151,10 +151,13 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
                 closeableDocument: true,
                 conversionBanner: true,
                 conversionDialog: true,
+                continuousScroll: true,
+                viewMode: true,
             }
             : {
                 ...createDefaultWorkspaceViewerCapabilities(),
                 closeableDocument: deps.hasPdf.value,
+                continuousScroll: deps.hasPdf.value,
                 crop: true,
                 optimizePdf: deps.hasPdf.value,
                 pdfDocument: deps.hasPdf.value,
@@ -162,7 +165,9 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
                 regionCapture: true,
                 repairSave: deps.hasPdf.value,
                 save: deps.hasPdf.value,
+                saveAs: deps.hasPdf.value,
                 sidebar: deps.hasPdf.value,
+                viewMode: deps.hasPdf.value,
             }
     );
     const canRepairSave = () => deps.canRepairSave?.value ?? (
@@ -340,13 +345,28 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
             }
             deps.handleCrop();
         },
+        handleToggleContinuousScroll: () => {
+            if (!viewerCapabilities().continuousScroll) {
+                return;
+            }
+            deps.handleToggleContinuousScroll();
+        },
         handleViewModeSingle: () => {
+            if (!viewerCapabilities().viewMode) {
+                return;
+            }
             deps.viewMode.value = 'single';
         },
         handleViewModeFacing: () => {
+            if (!viewerCapabilities().viewMode) {
+                return;
+            }
             deps.viewMode.value = 'facing';
         },
         handleViewModeFacingFirstSingle: () => {
+            if (!viewerCapabilities().viewMode) {
+                return;
+            }
             deps.viewMode.value = 'facing-first-single';
         },
         handleDeletePages: () => {
@@ -399,13 +419,17 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
 
     const depsHandlers: Partial<TWorkspaceExposeCommandHandlerMap> = deps;
     const commandHandlers = createWorkspaceExposeCommandHandlers((descriptor) => {
+        const customHandler = customHandlers[descriptor.name];
+        if (customHandler) {
+            return createWorkspaceExposeCommandRunner(customHandler);
+        }
+
         if (descriptor.real === 'passthrough') {
             const handler = depsHandlers[descriptor.name];
             return handler ? createWorkspaceExposeCommandRunner(handler) : null;
         }
 
-        const handler = customHandlers[descriptor.name];
-        return handler ? createWorkspaceExposeCommandRunner(handler) : null;
+        return null;
     });
 
     return createWorkspaceExposeFromCommandHandlers(deps.hasPdf, commandHandlers);

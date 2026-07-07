@@ -226,7 +226,9 @@ export interface IDocumentsService {
             hasDocument: boolean;
             canPrint?: boolean;
             canSave: boolean;
+            canSaveAs?: boolean;
             canRepairSave?: boolean;
+            canOptimizePdf?: boolean;
         },
     ) => void;
     setMenuTabCount: (context: IDocumentsWindowContext, tabCount: number) => void;

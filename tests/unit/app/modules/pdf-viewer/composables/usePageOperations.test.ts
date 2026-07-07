@@ -468,7 +468,7 @@ describe('usePageOperations', () => {
                     4,
                 ],
                 10,
-                { expectedDocumentRevisionToken: 'rev-intent' },
+                { expectedDocumentRevisionToken: 'rev-after-baseline' },
             ],
             invoke: (pageOps: ReturnType<typeof usePageOperations>) => pageOps.deletePages([
                 2,
@@ -486,7 +486,7 @@ describe('usePageOperations', () => {
                 ],
                 10,
                 90,
-                { expectedDocumentRevisionToken: 'rev-intent' },
+                { expectedDocumentRevisionToken: 'rev-after-baseline' },
             ],
             invoke: (pageOps: ReturnType<typeof usePageOperations>) => pageOps.rotatePages([
                 2,
@@ -500,7 +500,7 @@ describe('usePageOperations', () => {
                 '/tmp/work.pdf',
                 10,
                 4,
-                { expectedDocumentRevisionToken: 'rev-intent' },
+                { expectedDocumentRevisionToken: 'rev-after-baseline' },
             ],
             invoke: (pageOps: ReturnType<typeof usePageOperations>) => pageOps.insertPages(10, 4),
             name: 'insert blank',
@@ -513,7 +513,7 @@ describe('usePageOperations', () => {
                 4,
                 ['browser://documents/source.pdf'],
                 undefined,
-                { expectedDocumentRevisionToken: 'rev-intent' },
+                { expectedDocumentRevisionToken: 'rev-after-baseline' },
             ],
             invoke: (pageOps: ReturnType<typeof usePageOperations>) => pageOps.insertFile(10, 4, ['browser://documents/source.pdf']),
             name: 'insert file',
@@ -527,7 +527,7 @@ describe('usePageOperations', () => {
                     1,
                     2,
                 ],
-                { expectedDocumentRevisionToken: 'rev-intent' },
+                { expectedDocumentRevisionToken: 'rev-after-baseline' },
             ],
             invoke: (pageOps: ReturnType<typeof usePageOperations>) => pageOps.reorderPages([
                 3,
@@ -551,7 +551,7 @@ describe('usePageOperations', () => {
                     left: 6,
                     right: 4,
                 },
-                { expectedDocumentRevisionToken: 'rev-intent' },
+                { expectedDocumentRevisionToken: 'rev-after-baseline' },
             ],
             invoke: (pageOps: ReturnType<typeof usePageOperations>) => pageOps.cropPages([
                 2,
@@ -573,7 +573,7 @@ describe('usePageOperations', () => {
                     4,
                 ],
                 10,
-                { expectedDocumentRevisionToken: 'rev-intent' },
+                { expectedDocumentRevisionToken: 'rev-after-baseline' },
             ],
             invoke: (pageOps: ReturnType<typeof usePageOperations>) => pageOps.removeCrop([
                 2,
@@ -581,19 +581,28 @@ describe('usePageOperations', () => {
             ], 10),
             name: 'remove crop',
         },
-    ])('keeps the intent-time revision token for $name page ops', async ({
+    ])('captures the post-preflight revision token for $name page ops', async ({
         apiMethod,
         expectedArgs,
         invoke,
     }) => {
         const baselineGate = deferred<boolean>();
+        let updateRevisionToken: ((value: string) => void) | null = null;
+        const ensureWorkingCopyFreshForRead = vi.fn(async () => {
+            updateRevisionToken?.('rev-after-save');
+            return true;
+        });
         const {
             pageOps,
             documentRevisionToken,
         } = createHarness('/tmp/work.pdf', {
-            documentRevisionToken: 'rev-intent',
+            documentRevisionToken: 'rev-before-save',
+            ensureWorkingCopyFreshForRead,
             ensureHistoryBaselineForExternalMutation: () => baselineGate.promise,
         });
+        updateRevisionToken = (value) => {
+            documentRevisionToken.value = value;
+        };
         const pageOpSpy = pageOpsApi[apiMethod];
         pageOpSpy.mockResolvedValueOnce({ success: true });
 
@@ -602,10 +611,11 @@ describe('usePageOperations', () => {
 
         expect(pageOpSpy).not.toHaveBeenCalled();
 
-        documentRevisionToken.value = 'rev-later';
+        documentRevisionToken.value = 'rev-after-baseline';
         baselineGate.resolve(true);
 
         await expect(operationPromise).resolves.toBe(true);
+        expect(ensureWorkingCopyFreshForRead).toHaveBeenCalledOnce();
         expect(pageOpSpy).toHaveBeenCalledWith(...expectedArgs);
     });
 });

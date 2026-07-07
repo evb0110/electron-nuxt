@@ -10,6 +10,7 @@ import {
 import type {
     IPdfSearchRequestOptions,
     IPdfSearchResponse,
+    IPdfSearchResult,
     IResolvedSearchMatchOptions,
     ISearchMatchOptions,
 } from '@contracts/search';
@@ -302,6 +303,23 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         }
     }
 
+    function applySearchProgressResults(
+        currentResults: IPdfSearchResult[],
+        incomingResults: IPdfSearchResult[],
+        resultsStartIndex: number | undefined,
+    ) {
+        if (resultsStartIndex === undefined) {
+            return [...incomingResults];
+        }
+        if (resultsStartIndex > currentResults.length) {
+            return currentResults;
+        }
+
+        const nextResults = currentResults.slice(0, resultsStartIndex);
+        nextResults.push(...incomingResults);
+        return nextResults;
+    }
+
     const debouncedPerformSearch = useDebounceFn(async (payload: {
         runId: number;
         query: string;
@@ -399,6 +417,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
             // Call backend search API
             const api = getSearchCapability();
             const searchId = requestId;
+            let streamedResults: IPdfSearchResult[] = [];
             activeRequestId = requestId;
 
             progressCleanup = api.onProgress((progress) => {
@@ -418,8 +437,13 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
                     return;
                 }
                 if (progress.results) {
+                    streamedResults = applySearchProgressResults(
+                        streamedResults,
+                        progress.results,
+                        progress.resultsStartIndex,
+                    );
                     applySearchResponse({
-                        results: progress.results,
+                        results: streamedResults,
                         truncated: Boolean(progress.truncated),
                     }, query, options, searchId);
                 }

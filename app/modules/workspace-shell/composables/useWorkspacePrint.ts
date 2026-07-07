@@ -237,10 +237,12 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         }
 
         const { shouldPrintPageMetricsDirectly } = await import('@app/utils/pdfPrint');
-        const printSourceDirectly = shouldPrintPageMetricsDirectly(
-            await deps.getQuickPrintPageMetrics() ?? [],
-            defaultPayload,
-        ) === true;
+        const quickPrintPageMetrics = await deps.getQuickPrintPageMetrics();
+        const printSourceDirectly = quickPrintPageMetrics !== null
+            && shouldPrintPageMetricsDirectly(
+                quickPrintPageMetrics,
+                defaultPayload,
+            ) === true;
 
         await handlePrintDialogSubmit(defaultPayload, {
             action: 'default',

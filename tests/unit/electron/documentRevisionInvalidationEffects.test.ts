@@ -60,7 +60,7 @@ describe('registerDocumentRevisionInvalidationEffects', () => {
         } = await import('@electron/file-access/documentRevisionStore');
         const { registerDocumentRevisionInvalidationEffects } =
             await import('@electron/features/documents/main/registerDocumentRevisionInvalidationEffects');
-        setWorkingCopyOriginalPath(workingPath, originalPath, 9);
+        await setWorkingCopyOriginalPath(workingPath, originalPath, 9);
 
         registerDocumentRevisionInvalidationEffects();
         registerDocumentRevisionInvalidationEffects();

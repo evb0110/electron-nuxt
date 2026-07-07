@@ -44,6 +44,8 @@ interface ISearchExecutionResult {
     truncated: boolean;
 }
 
+interface ISearchProgressResultBatch extends ISearchExecutionResult { resultsStartIndex?: number; }
+
 const PROGRESS_THROTTLE_MS = 60;
 const SEARCH_INDEX_CACHE_MAX_ENTRIES = (() => {
     const parsed = Number.parseInt(process.env.EVB_SEARCH_INDEX_CACHE_MAX_ENTRIES ?? '2', 10);
@@ -250,7 +252,7 @@ function sendProgress(
     processed: number,
     total: number,
     force = false,
-    partialResult?: ISearchExecutionResult,
+    partialResult?: ISearchProgressResultBatch,
 ) {
     const now = Date.now();
     const lastSentAt = progressSentAt.get(requestId) ?? 0;
@@ -272,6 +274,9 @@ function sendProgress(
     };
     if (partialResult !== undefined) {
         progress.results = partialResult.results;
+        if (partialResult.resultsStartIndex !== undefined) {
+            progress.resultsStartIndex = partialResult.resultsStartIndex;
+        }
         progress.truncated = partialResult.truncated;
     }
     postMessage(progress);
@@ -554,8 +559,10 @@ function createIndexedPageResultStreamer(context: ISearchRequestContext) {
             truncated = pageResult.truncated;
 
             if (results.length !== previousResultCount || truncated) {
+                const resultDelta = results.slice(previousResultCount);
                 sendProgress(context.requestId, processedCount, total, true, {
-                    results: [...results],
+                    results: resultDelta,
+                    resultsStartIndex: previousResultCount,
                     truncated,
                 });
                 return;

@@ -54,6 +54,8 @@ function decodeDjvuProgress(payload: unknown): IDjvuProgress | null {
         )
         || (payload.current !== undefined && !isFiniteNumber(payload.current))
         || (payload.total !== undefined && !isFiniteNumber(payload.total))
+        || (payload.requestId !== undefined && typeof payload.requestId !== 'string')
+        || (payload.documentRef !== undefined && typeof payload.documentRef !== 'string')
         || (
             payload.status !== undefined
             && payload.status !== 'running'
@@ -68,6 +70,8 @@ function decodeDjvuProgress(payload: unknown): IDjvuProgress | null {
 
     return {
         jobId: payload.jobId,
+        ...(payload.requestId === undefined ? {} : { requestId: payload.requestId }),
+        ...(payload.documentRef === undefined ? {} : { documentRef: payload.documentRef }),
         phase: payload.phase,
         percent: payload.percent,
         ...(payload.status === undefined ? {} : { status: payload.status }),
@@ -161,6 +165,50 @@ function normalizePrintPageNumbers(pageNumbers: unknown) {
     });
 }
 
+function normalizeDjvuConvertOptions(options: IDjvuConvertOptions) {
+    if (!isRecord(options)) {
+        throw new TypeError('convertToPdf.options must be an object');
+    }
+
+    const normalizedOptions: IDjvuConvertOptions = {};
+    if (options.subsample !== undefined) {
+        if (typeof options.subsample !== 'number' || !Number.isInteger(options.subsample) || options.subsample < 1) {
+            throw new TypeError('convertToPdf.options.subsample must be a positive integer');
+        }
+        normalizedOptions.subsample = options.subsample;
+    }
+    if (options.preserveBookmarks !== undefined) {
+        if (typeof options.preserveBookmarks !== 'boolean') {
+            throw new TypeError('convertToPdf.options.preserveBookmarks must be a boolean');
+        }
+        normalizedOptions.preserveBookmarks = options.preserveBookmarks;
+    }
+    if (
+        options.pdfStrategy !== undefined
+        && options.pdfStrategy !== 'direct'
+        && options.pdfStrategy !== 'compact-djvu-aware'
+        && options.pdfStrategy !== 'auto'
+    ) {
+        throw new TypeError('convertToPdf.options.pdfStrategy is invalid');
+    }
+    if (options.pdfStrategy !== undefined) {
+        normalizedOptions.pdfStrategy = options.pdfStrategy;
+    }
+    if (options.requestId !== undefined) {
+        if (typeof options.requestId !== 'string' || options.requestId.trim() === '') {
+            throw new TypeError('convertToPdf.options.requestId must be a non-empty string');
+        }
+        normalizedOptions.requestId = options.requestId.trim();
+    }
+    if (options.documentRef !== undefined) {
+        if (typeof options.documentRef !== 'string' || options.documentRef.trim() === '') {
+            throw new TypeError('convertToPdf.options.documentRef must be a non-empty string');
+        }
+        normalizedOptions.documentRef = options.documentRef.trim();
+    }
+    return normalizedOptions;
+}
+
 function normalizeDjvuPrintOptions(options: IDjvuPrintOptions) {
     if (!isRecord(options)) {
         throw new TypeError('printDjvuPath.options must be an object');
@@ -245,7 +293,7 @@ export function createDjvuPreloadClient(ipcRenderer: IpcRenderer): IDjvuCapabili
             DJVU_CHANNELS.convertToPdf,
             djvuPath,
             outputPath,
-            options,
+            normalizeDjvuConvertOptions(options),
         ),
         printDjvuPath: (
             djvuPath: TDocumentRef,

@@ -6,7 +6,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import { ref } from 'vue';
+import {
+    nextTick,
+    ref,
+} from 'vue';
 import { usePageDragDrop } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageDragDrop';
 import { cast } from '@tests/helpers/cast';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
@@ -28,6 +31,56 @@ function createDropEvent(paths: string[]) {
         dataTransfer: { files },
         preventDefault: vi.fn(),
     });
+}
+
+function createDragEventTarget() {
+    const windowTarget = new EventTarget();
+    const body = {style: {
+        cursor: '',
+        userSelect: '',
+    }};
+    class MockHTMLElement {
+        public scrollHeight = 0;
+        public clientHeight = 0;
+        public scrollTop = 0;
+
+        public closest() {
+            return null;
+        }
+    }
+    const container = new MockHTMLElement();
+    vi.stubGlobal('window', windowTarget);
+    vi.stubGlobal('document', {
+        body,
+        createElement: () => container,
+    });
+    vi.stubGlobal('HTMLElement', MockHTMLElement);
+    vi.stubGlobal('MouseEvent', class extends Event {
+        public readonly button: number;
+        public readonly buttons: number;
+        public readonly clientX: number;
+        public readonly clientY: number;
+        public readonly shiftKey: boolean;
+        public readonly metaKey: boolean;
+        public readonly ctrlKey: boolean;
+
+        public constructor(type: string, init: MouseEventInit = {}) {
+            super(type);
+            this.button = init.button ?? 0;
+            this.buttons = init.buttons ?? 0;
+            this.clientX = init.clientX ?? 0;
+            this.clientY = init.clientY ?? 0;
+            this.shiftKey = init.shiftKey ?? false;
+            this.metaKey = init.metaKey ?? false;
+            this.ctrlKey = init.ctrlKey ?? false;
+        }
+    });
+
+    return {
+        body,
+        container: document.createElement('div'),
+        windowTarget,
+    };
 }
 
 describe('usePageDragDrop', () => {
@@ -115,5 +168,83 @@ describe('usePageDragDrop', () => {
             description: 'page ingestion failed',
         });
         expect(onExternalFileDrop).toHaveBeenCalledWith(3, ['/docs/b.png']);
+    });
+
+    it('clears active thumbnail drag state when the window loses the drag', async () => {
+        const {
+            body,
+            container,
+            windowTarget,
+        } = createDragEventTarget();
+        const onReorder = vi.fn();
+        const dragDrop = usePageDragDrop({
+            containerRef: ref(container),
+            totalPages: ref(3),
+            selectedPages: ref([]),
+            resolveDropIndex: () => 1,
+            onReorder,
+        });
+
+        dragDrop.handleMouseDown(new MouseEvent('mousedown', {
+            button: 0,
+            clientX: 0,
+            clientY: 0,
+        }), 1);
+        await nextTick();
+        window.dispatchEvent(new MouseEvent('mousemove', {
+            buttons: 1,
+            clientX: 20,
+            clientY: 0,
+        }));
+
+        expect(dragDrop.isDragging.value).toBe(true);
+        expect(body.style.cursor).toBe('grabbing');
+
+        windowTarget.dispatchEvent(new Event('blur'));
+
+        expect(dragDrop.isDragging.value).toBe(false);
+        expect(dragDrop.draggedPages.value).toEqual([]);
+        expect(dragDrop.dropInsertIndex.value).toBeNull();
+        expect(body.style.cursor).toBe('');
+        expect(body.style.userSelect).toBe('');
+        expect(dragDrop.consumeClickSkip()).toBe(true);
+        expect(onReorder).not.toHaveBeenCalled();
+    });
+
+    it('cancels active thumbnail drag when mousemove reports no pressed button', async () => {
+        const {
+            container,
+            windowTarget,
+        } = createDragEventTarget();
+        const dragDrop = usePageDragDrop({
+            containerRef: ref(container),
+            totalPages: ref(3),
+            selectedPages: ref([]),
+            resolveDropIndex: () => 1,
+            onReorder: vi.fn(),
+        });
+
+        dragDrop.handleMouseDown(new MouseEvent('mousedown', {
+            button: 0,
+            clientX: 0,
+            clientY: 0,
+        }), 1);
+        await nextTick();
+        windowTarget.dispatchEvent(new MouseEvent('mousemove', {
+            buttons: 1,
+            clientX: 20,
+            clientY: 0,
+        }));
+        expect(dragDrop.isDragging.value).toBe(true);
+
+        windowTarget.dispatchEvent(new MouseEvent('mousemove', {
+            buttons: 0,
+            clientX: 20,
+            clientY: 0,
+        }));
+
+        expect(dragDrop.isDragging.value).toBe(false);
+        expect(dragDrop.draggedPages.value).toEqual([]);
+        expect(dragDrop.dropInsertIndex.value).toBeNull();
     });
 });

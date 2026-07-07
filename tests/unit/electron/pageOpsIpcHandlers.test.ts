@@ -63,6 +63,7 @@ const mocks = vi.hoisted(() => ({
     ensureWorkingCopyDirectory: vi.fn(),
     findWorkingCopyPathByOriginalPath: vi.fn(),
     assertWorkingCopyMutationAllowed: vi.fn(),
+    assertWorkingCopyResyncAllowed: vi.fn(),
     assertWorkingCopyRevisionCurrent: vi.fn(),
     markWorkingCopyContentChanged: vi.fn(),
     allowOpenPath: vi.fn(),
@@ -109,6 +110,7 @@ vi.mock('@electron/file-access/workingCopyStore', () => ({
 }));
 vi.mock('@electron/file-access/documentRevisionStore', () => ({
     assertWorkingCopyMutationAllowed: (...args: unknown[]) => mocks.assertWorkingCopyMutationAllowed(...args),
+    assertWorkingCopyResyncAllowed: (...args: unknown[]) => mocks.assertWorkingCopyResyncAllowed(...args),
     assertWorkingCopyRevisionCurrent: (...args: unknown[]) => mocks.assertWorkingCopyRevisionCurrent(...args),
     markWorkingCopyContentChanged: (...args: unknown[]) => mocks.markWorkingCopyContentChanged(...args),
 }));
@@ -154,7 +156,18 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
 })}));
 
 const { registerPageOpsIpcAdapter } = await import('@electron/features/page-ops/registerPageOpsIpcAdapter');
+const {
+    cancelAllMainOperations,
+    resetMainOperationLifecycleForTests,
+} = await import('@electron/operation-lifecycle/mainOperationLifecycle');
 const REVISION_OPTIONS = {expectedDocumentRevisionToken: 'drt1:test:before-page-op'} as const;
+
+function expectNativeMutationOptions() {
+    return expect.objectContaining({
+        signal: expect.any(AbortSignal),
+        cancelGroup: expect.stringMatching(/^working-copy-mutation:/u),
+    });
+}
 
 function getHandler(channel: string) {
     const handler = mocks.handlers.get(channel);
@@ -166,6 +179,7 @@ function getHandler(channel: string) {
 
 describe('registerPageOpsIpcAdapter', () => {
     beforeEach(() => {
+        resetMainOperationLifecycleForTests();
         mocks.handlers.clear();
         vi.clearAllMocks();
 
@@ -317,7 +331,10 @@ describe('registerPageOpsIpcAdapter', () => {
             2,
         ], REVISION_OPTIONS)).rejects.toThrow('expected 3 page(s), received 2');
 
-        expect(mocks.getPdfPageCount).toHaveBeenCalledWith('/tmp/stale-reorder.pdf');
+        expect(mocks.getPdfPageCount).toHaveBeenCalledWith(
+            '/tmp/stale-reorder.pdf',
+            expectNativeMutationOptions(),
+        );
         expect(mocks.reorderPages).not.toHaveBeenCalled();
     });
 
@@ -350,6 +367,118 @@ describe('registerPageOpsIpcAdapter', () => {
         );
         expect(mocks.assertWorkingCopyRevisionCurrent.mock.invocationCallOrder[0])
             .toBeLessThan(mocks.rotatePages.mock.invocationCallOrder[0]!);
+    });
+
+    it('passes mutation cancellation to qpdf page-count and rotate helpers', async () => {
+        const handler = getHandler('page-ops:rotate');
+
+        await expect(handler({sender: {id: 1}}, '/tmp/native-rotate.pdf', [1], 3, 90, REVISION_OPTIONS))
+            .resolves.toMatchObject({success: true});
+
+        expect(mocks.getPdfPageCount).toHaveBeenCalledWith(
+            '/tmp/native-rotate.pdf',
+            expectNativeMutationOptions(),
+        );
+        expect(mocks.rotatePages).toHaveBeenCalledWith(
+            '/tmp/native-rotate.pdf',
+            [1],
+            90,
+            1,
+            expectNativeMutationOptions(),
+        );
+    });
+
+    it('passes the mutation abort signal to crop helpers', async () => {
+        const handler = getHandler('page-ops:crop');
+        const margins = {
+            top: 1,
+            bottom: 2,
+            left: 3,
+            right: 4,
+        };
+
+        await expect(handler({sender: {id: 1}}, '/tmp/native-crop.pdf', [1], 3, margins, REVISION_OPTIONS))
+            .resolves.toMatchObject({success: true});
+
+        const nativeOptions = mocks.getPdfPageCount.mock.calls[0]?.[1] as {
+            signal?: AbortSignal;
+            cancelGroup?: string;
+        };
+        expect(nativeOptions).toEqual(expectNativeMutationOptions());
+        expect(mocks.cropPages).toHaveBeenCalledWith(
+            '/tmp/native-crop.pdf',
+            [1],
+            margins,
+            1,
+            nativeOptions.signal,
+        );
+    });
+
+    it('passes mutation cancellation to insert-source combine and qpdf helpers', async () => {
+        const handler = getHandler('page-ops:insert-file');
+
+        await expect(handler(
+            {sender: {id: 1}},
+            '/tmp/pdf-work-1/work.pdf',
+            3,
+            1,
+            ['/tmp/source.png'],
+            undefined,
+            REVISION_OPTIONS,
+        )).resolves.toMatchObject({success: true});
+
+        const nativeOptions = mocks.getPdfPageCount.mock.calls[0]?.[1] as {
+            signal?: AbortSignal;
+            cancelGroup?: string;
+        };
+        expect(nativeOptions).toEqual(expectNativeMutationOptions());
+        expect(mocks.createPdfFromInputPaths).toHaveBeenCalledWith(
+            ['/tmp/source.png'],
+            expect.objectContaining({signal: nativeOptions.signal}),
+        );
+        expect(mocks.runCommand).toHaveBeenCalledWith(
+            expect.any(Array),
+            expect.objectContaining({
+                signal: nativeOptions.signal,
+                cancelGroup: nativeOptions.cancelGroup,
+            }),
+        );
+    });
+
+    it('rejects a running page-op helper when the mutation operation is canceled', async () => {
+        const handler = getHandler('page-ops:rotate');
+        let helperSignal: AbortSignal | undefined;
+        mocks.rotatePages.mockImplementationOnce((
+            _workingCopyPath: string,
+            _pages: number[],
+            _angle: number,
+            _senderWebContentsId: number,
+            nativeOptions?: {signal?: AbortSignal},
+        ) => new Promise((_resolve, reject) => {
+            helperSignal = nativeOptions?.signal;
+            helperSignal?.addEventListener('abort', () => {
+                reject(helperSignal?.reason);
+            }, {once: true});
+        }));
+
+        const operationPromise = handler(
+            {sender: {id: 1}},
+            '/tmp/cancel-rotate.pdf',
+            [1],
+            3,
+            90,
+            REVISION_OPTIONS,
+        ) as Promise<unknown>;
+
+        for (let attempt = 0; attempt < 5 && !helperSignal; attempt += 1) {
+            await flushQueuedMutationStart();
+        }
+        expect(helperSignal).toBeInstanceOf(AbortSignal);
+
+        cancelAllMainOperations('tab closed during page operation');
+
+        await expect(operationPromise).rejects.toThrow('tab closed during page operation');
+        expect(helperSignal?.aborted).toBe(true);
     });
 
     it('rejects stale crop page selections inside the mutation queue', async () => {
@@ -441,6 +570,7 @@ describe('registerPageOpsIpcAdapter', () => {
                 1,
                 2,
             ],
+            expectNativeMutationOptions(),
         );
         expect(mocks.allowOpenPath).toHaveBeenCalledWith('/tmp/extracted-pages.pdf', {id: 1});
         expect(mocks.extractPages.mock.invocationCallOrder[0]).toBeLessThan(
@@ -492,6 +622,7 @@ describe('registerPageOpsIpcAdapter', () => {
             '/tmp/pdf-work-1/work.pdf',
             '/tmp/extracted-pages.pdf',
             [1],
+            expectNativeMutationOptions(),
         );
     });
 
@@ -515,6 +646,7 @@ describe('registerPageOpsIpcAdapter', () => {
             workingCopyPath,
             'C:\\Users\\Alice\\Desktop\\extracted-pages.pdf',
             [1],
+            expectNativeMutationOptions(),
         );
     });
 
@@ -538,6 +670,7 @@ describe('registerPageOpsIpcAdapter', () => {
             workingCopyPath,
             'C:\\Users\\Alice\\Desktop\\extracted-pages.pdf',
             [1],
+            expectNativeMutationOptions(),
         );
     });
 

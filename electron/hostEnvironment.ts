@@ -1,9 +1,6 @@
-import {
-    BrowserWindow,
-    globalShortcut,
-    screen,
-} from 'electron';
+import { screen } from 'electron';
 import type {
+    BrowserWindow,
     Event,
     Input,
     Rectangle,
@@ -21,7 +18,6 @@ const logger = createLogger('host-env');
 
 const HOST_ENV_CHANGE_CHANNEL = 'host:environmentChanged';
 const HOST_ZEN_MODE_CHANGE_CHANNEL = 'host:zenModeChanged';
-const ZEN_ESCAPE_ACCELERATOR = 'Esc';
 const ZEN_EXIT_SETTLE_MS = 140;
 const ZEN_STATE_EVENT_TIMEOUT_MS = 220;
 
@@ -32,8 +28,6 @@ interface IZenWindowPlacement {
 
 const zenWindowPlacementByWindow = new WeakMap<BrowserWindow, IZenWindowPlacement>();
 const zenExitInProgressByWindow = new WeakSet<BrowserWindow>();
-const zenEscapeShortcutWindows = new Set<BrowserWindow>();
-let zenEscapeShortcutRegistered = false;
 interface IHostEnvironmentBroadcastState {
     timeout: ReturnType<typeof setTimeout> | null;
     lastSentSnapshot: IHostEnvironmentSnapshot | null;
@@ -102,71 +96,6 @@ function focusZenWindowContents(window: BrowserWindow) {
         window.webContents.focus();
     } catch (error) {
         logger.warn(`Failed to focus zen window contents: ${getErrorMessage(error)}`);
-    }
-}
-
-function handleZenEscapeShortcut() {
-    for (const window of zenEscapeShortcutWindows) {
-        if (window.isDestroyed() || !isWindowInHostZenMode(window)) {
-            unregisterZenEscapeShortcut(window);
-        }
-    }
-
-    const focusedWindow = BrowserWindow.getFocusedWindow();
-    const window = focusedWindow && zenEscapeShortcutWindows.has(focusedWindow)
-        ? focusedWindow
-        : null;
-    if (!window || window.isDestroyed() || !isWindowInHostZenMode(window) || !window.isFocused()) {
-        return;
-    }
-
-    void setHostZenModeForWindow(window, false).catch((error: unknown) => {
-        logger.warn(`Failed to exit zen mode from Escape shortcut: ${getErrorMessage(error)}`);
-    });
-}
-
-function registerZenEscapeShortcut(window: BrowserWindow) {
-    zenEscapeShortcutWindows.add(window);
-    if (zenEscapeShortcutRegistered) {
-        return;
-    }
-
-    try {
-        zenEscapeShortcutRegistered = globalShortcut.register(
-            ZEN_ESCAPE_ACCELERATOR,
-            handleZenEscapeShortcut,
-        );
-    } catch (error) {
-        logger.warn(`Failed to register zen Escape shortcut: ${getErrorMessage(error)}`);
-        zenEscapeShortcutRegistered = false;
-    }
-
-    if (!zenEscapeShortcutRegistered) {
-        logger.warn('Zen Escape shortcut was not registered');
-    }
-}
-
-function unregisterZenEscapeShortcut(window: BrowserWindow | null) {
-    if (window) {
-        zenEscapeShortcutWindows.delete(window);
-    } else {
-        zenEscapeShortcutWindows.clear();
-    }
-
-    if (zenEscapeShortcutWindows.size > 0) {
-        return;
-    }
-
-    if (!zenEscapeShortcutRegistered) {
-        return;
-    }
-
-    try {
-        globalShortcut.unregister(ZEN_ESCAPE_ACCELERATOR);
-    } catch (error) {
-        logger.warn(`Failed to unregister zen Escape shortcut: ${getErrorMessage(error)}`);
-    } finally {
-        zenEscapeShortcutRegistered = false;
     }
 }
 
@@ -289,7 +218,6 @@ export async function setHostZenModeForWindow(
         } else {
             window.setFullScreen(true);
         }
-        registerZenEscapeShortcut(window);
         focusZenWindowContents(window);
 
         const snapshot = {
@@ -319,7 +247,6 @@ export async function setHostZenModeForWindow(
             restoreZenWindowPlacement(window);
         } finally {
             zenExitInProgressByWindow.delete(window);
-            unregisterZenEscapeShortcut(window);
         }
     }
 
@@ -429,10 +356,7 @@ export function attachHostEnvironmentToWindow(window: BrowserWindow) {
     const handleZenModeChange = () => {
         const isManagedExit = zenExitInProgressByWindow.has(window);
         restoreZenWindowPlacement(window, {preservePlacement: isManagedExit});
-        if (!isWindowInHostZenMode(window)) {
-            unregisterZenEscapeShortcut(window);
-        } else {
-            registerZenEscapeShortcut(window);
+        if (isWindowInHostZenMode(window)) {
             focusZenWindowContents(window);
         }
 
@@ -441,12 +365,19 @@ export function attachHostEnvironmentToWindow(window: BrowserWindow) {
         }
     };
     const handleBeforeInputEvent = (event: Event, input: Input) => {
-        if (input.type !== 'keyDown' || input.key !== 'Escape' || !isWindowInHostZenMode(window)) {
+        if (
+            input.type !== 'keyDown'
+            || input.key !== 'Escape'
+            || !window.isFocused()
+            || !isWindowInHostZenMode(window)
+        ) {
             return;
         }
 
         event.preventDefault();
-        void setHostZenModeForWindow(window, false);
+        void setHostZenModeForWindow(window, false).catch((error: unknown) => {
+            logger.warn(`Failed to exit zen mode from Escape key: ${getErrorMessage(error)}`);
+        });
     };
 
     window.on('move', handleMove);
@@ -469,6 +400,5 @@ export function attachHostEnvironmentToWindow(window: BrowserWindow) {
         }
         zenWindowPlacementByWindow.delete(window);
         zenExitInProgressByWindow.delete(window);
-        unregisterZenEscapeShortcut(window);
     });
 }

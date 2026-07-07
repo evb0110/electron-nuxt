@@ -131,6 +131,129 @@ describe('native PDF preview lifecycle', () => {
         expect(snapshotMainOperations()).toEqual([]);
     });
 
+    it('aborts native page-size discovery when the requesting renderer is destroyed', async () => {
+        const sender = new FakeSender();
+        const capturedOptions: Array<{
+            signal?: AbortSignal;
+            cancelGroup?: string;
+        }> = [];
+        mocks.runNativeToolCommand.mockImplementationOnce((_command: string, _args: string[], options: {
+            signal?: AbortSignal;
+            cancelGroup?: string;
+        }) => {
+            capturedOptions.push(options);
+            return new Promise((_resolve, reject) => {
+                options.signal?.addEventListener('abort', () => {
+                    reject(options.signal?.reason);
+                }, {once: true});
+            });
+        });
+        const { handlePdfNativePageSizes } = await import('@electron/features/documents/main/nativePdfPreview');
+        const { snapshotMainOperations } = await import('@electron/operation-lifecycle/mainOperationLifecycle');
+
+        const pageSizesPromise = handlePdfNativePageSizes({
+            sender: sender as never,
+            senderId: sender.id,
+        }, '/tmp/input.pdf');
+        await vi.waitFor(() => {
+            expect(capturedOptions).toHaveLength(1);
+        });
+        const [options] = capturedOptions;
+        if (!options) {
+            throw new Error('Expected pdfinfo options to be captured.');
+        }
+
+        expect(snapshotMainOperations()).toEqual([expect.objectContaining({
+            kind: 'abortable-work',
+            ownerWebContentsId: sender.id,
+            workingCopyPath: '/tmp/input.pdf',
+        })]);
+        expect(options.signal).toBeInstanceOf(AbortSignal);
+        expect(options.cancelGroup).toMatch(/^pdf-native-page-sizes:/u);
+
+        sender.destroyed = true;
+        sender.emit('destroyed');
+
+        await expect(pageSizesPromise).rejects.toThrow('Renderer lifecycle ended');
+        expect(options.signal?.aborted).toBe(true);
+        expect(mocks.cancelNativeCommandGroup).toHaveBeenCalledWith(expect.stringMatching(/^pdf-native-page-sizes:/u));
+        expect(snapshotMainOperations()).toEqual([]);
+    });
+
+    it('uses one abort scope for both native page-size discovery commands', async () => {
+        const sender = new FakeSender();
+        const capturedOptions: Array<{
+            signal?: AbortSignal;
+            cancelGroup?: string;
+        }> = [];
+        mocks.runNativeToolCommand
+            .mockImplementationOnce((_command: string, _args: string[], options: {
+                signal?: AbortSignal;
+                cancelGroup?: string;
+            }) => {
+                capturedOptions.push(options);
+                return Promise.resolve({
+                    exitCode: 0,
+                    stderr: '',
+                    stdout: 'Pages: 2\nPage size: 612 x 792 pts\n',
+                });
+            })
+            .mockImplementationOnce((_command: string, _args: string[], options: {
+                signal?: AbortSignal;
+                cancelGroup?: string;
+            }) => {
+                capturedOptions.push(options);
+                return Promise.resolve({
+                    exitCode: 0,
+                    stderr: '',
+                    stdout: [
+                        'Pages: 2',
+                        'Page 1 size: 612 x 792 pts',
+                        'Page 2 size: 300 x 400 pts',
+                        '',
+                    ].join('\n'),
+                });
+            });
+        const { handlePdfNativePageSizes } = await import('@electron/features/documents/main/nativePdfPreview');
+
+        await expect(handlePdfNativePageSizes({
+            sender: sender as never,
+            senderId: sender.id,
+        }, '/tmp/input.pdf')).resolves.toEqual([
+            {
+                width: 612,
+                height: 792,
+            },
+            {
+                width: 300,
+                height: 400,
+            },
+        ]);
+
+        expect(capturedOptions).toHaveLength(2);
+        expect(capturedOptions[0]?.signal).toBeInstanceOf(AbortSignal);
+        expect(capturedOptions[1]?.signal).toBe(capturedOptions[0]?.signal);
+        expect(capturedOptions[0]?.cancelGroup).toMatch(/^pdf-native-page-sizes:/u);
+        expect(capturedOptions[1]?.cancelGroup).toBe(capturedOptions[0]?.cancelGroup);
+        expect(mocks.runNativeToolCommand).toHaveBeenNthCalledWith(
+            2,
+            '/mock/pdfinfo',
+            [
+                '-box',
+                '-f',
+                '1',
+                '-l',
+                '2',
+                '/tmp/input.pdf',
+            ],
+            expect.objectContaining({
+                commandLabel: 'pdfinfo',
+                env: {POPPLER: '1'},
+                rejectOnStdoutTruncation: true,
+            }),
+        );
+    });
+
     it('cancels an in-flight native preview by request id', async () => {
         const sender = new FakeSender();
         const capturedOptions: Array<{

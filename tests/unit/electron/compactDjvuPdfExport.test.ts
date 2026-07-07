@@ -173,6 +173,51 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
         expect(progress).toHaveBeenCalled();
     });
 
+    it('keeps progress moving during native PDF assembly', async () => {
+        const progress: number[] = [];
+        mocks.runRegisteredDjvuProcess.mockImplementationOnce(async (
+            _processId: string,
+            _command: string,
+            args: string[],
+            options?: { onStdout?: (chunk: string) => void },
+        ) => {
+            for (let processed = 1; processed <= 4; processed += 1) {
+                options?.onStdout?.(`{"processed":${processed},"total":4}\n`);
+            }
+            const outputPath = args[args.indexOf('--output') + 1]!;
+            await writeFile(outputPath, '%PDF-1.4\n%%EOF\n', 'utf8');
+            return {success: true};
+        });
+
+        const result = await buildCompactDjvuAwarePdfFromDjvu({
+            jobId: 'job-progress',
+            djvuPath: '/input.djvu',
+            outputPath: join(tempDir, 'progress.pdf'),
+            tempDir,
+            pageCount: 44,
+            sourceDpi: 300,
+            pageSizes: pageSizes(44),
+            pages: [
+                1,
+                2,
+                3,
+                4,
+            ],
+            onProgress: percent => progress.push(percent),
+        });
+
+        expect(result.success).toBe(true);
+        expect(progress).toEqual(expect.arrayContaining([
+            86,
+            88,
+            90,
+            91,
+            93,
+            94,
+        ]));
+        expect(Math.max(...progress)).toBe(94);
+    });
+
     it('uses layered JPEG output at the native background subsample', async () => {
         detailedBackgroundPages.add(44);
 

@@ -154,7 +154,9 @@ export async function handleReplaceWorkingCopyFromPath(
             await copyFileAtomic(resolvedSourcePath, resolvedWorkingCopyPath);
         }
         if (shouldRefreshOriginalSaveBase) {
-            refreshWorkingCopyOriginalFileExpectation(resolvedWorkingCopyPath, senderId);
+            if (!await refreshWorkingCopyOriginalFileExpectation(resolvedWorkingCopyPath, senderId)) {
+                throw new Error('Working copy registration changed before original expectation refresh completed');
+            }
         }
         await markWorkingCopyContentChanged(resolvedWorkingCopyPath, 'ocr-apply', senderId);
         return true;

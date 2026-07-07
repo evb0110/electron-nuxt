@@ -260,7 +260,8 @@ function attachWorkerHandlers<T>({
     let online = false;
     let timeout: NodeJS.Timeout | null = null;
     let cooperativeCancelTimer: NodeJS.Timeout | null = null;
-    let pendingCancelError: unknown = null;
+    let hasPendingCancelError = false;
+    let pendingCancelError: unknown;
 
     const cleanup = () => {
         if (timeout) {
@@ -285,7 +286,7 @@ function attachWorkerHandlers<T>({
     };
 
     const requestCancel = (reason: 'abort' | 'timeout', error: unknown) => {
-        if (settled || pendingCancelError !== null) {
+        if (settled || hasPendingCancelError) {
             return;
         }
         const cancelMessage = options.createCancelMessage?.(reason);
@@ -297,6 +298,7 @@ function attachWorkerHandlers<T>({
         }
 
         pendingCancelError = error;
+        hasPendingCancelError = true;
         cleanup();
         postWorkerCancelMessage(worker, cancelMessage);
         cooperativeCancelTimer = setTimeout(() => {
@@ -328,7 +330,7 @@ function attachWorkerHandlers<T>({
             return;
         }
         finalize(() => {
-            if (pendingCancelError !== null) {
+            if (hasPendingCancelError) {
                 reject(pendingCancelError);
                 return;
             }
@@ -362,6 +364,10 @@ function attachWorkerHandlers<T>({
 
     worker.once('error', (error) => {
         finalize(() => {
+            if (hasPendingCancelError) {
+                reject(pendingCancelError);
+                return;
+            }
             if (!online && createStartupError) {
                 reject(createStartupError(getErrorMessage(error)));
                 return;
@@ -375,6 +381,10 @@ function attachWorkerHandlers<T>({
             return;
         }
         finalize(() => {
+            if (hasPendingCancelError) {
+                reject(pendingCancelError);
+                return;
+            }
             if (code === 0) {
                 reject(new Error(invalidResultMessage ?? invalidPayloadMessage));
                 return;

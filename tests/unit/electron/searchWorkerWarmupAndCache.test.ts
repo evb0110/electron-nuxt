@@ -52,6 +52,16 @@ const PAGE_TEXT = 'XxUniquePageTextxX';
 interface IIndexedSearchPageForTest {
     pageNumber: number;
     text: string;
+    pageWidth?: number;
+    pageHeight?: number;
+    rotation?: 0 | 90 | 180 | 270;
+    words?: Array<{
+        text: string;
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+    }>;
 }
 
 interface IBuildSearchIndexOptionsForTest {onPageIndexed?: (page: IIndexedSearchPageForTest) => void;}
@@ -249,6 +259,98 @@ describe('search worker warmup and cache behavior', () => {
             });
         });
         expect(mocks.buildSearchIndex).toHaveBeenCalledTimes(1);
+    });
+
+    it('streams newly discovered search results as deltas while carrying page rotation', async () => {
+        const firstPage: IIndexedSearchPageForTest = {
+            pageNumber: 1,
+            text: 'needle \n',
+            pageWidth: 200,
+            pageHeight: 100,
+            rotation: 90,
+            words: [{
+                text: 'needle',
+                x: 10,
+                y: 20,
+                width: 30,
+                height: 40,
+            }],
+        };
+        const secondPage: IIndexedSearchPageForTest = {
+            pageNumber: 2,
+            text: 'needle \n',
+        };
+        mocks.buildSearchIndex.mockImplementation(async (
+            _pdfPath: string,
+            _pageData: unknown[],
+            options: IBuildSearchIndexOptionsForTest,
+        ) => {
+            options.onPageIndexed?.(firstPage);
+            options.onPageIndexed?.(secondPage);
+            return {
+                schemaVersion: 7,
+                documentRevision: {token: DOCUMENT_REVISION},
+                pdfPath: TEST_PDF_PATH,
+                createdAt: Date.now(),
+                pageCount: 2,
+                pages: [
+                    firstPage,
+                    secondPage,
+                ],
+            };
+        });
+
+        await import('@electron/search/worker');
+        const handleMessage = mocks.messageHandlers.get('message');
+        expect(handleMessage).toBeTypeOf('function');
+
+        handleMessage?.({
+            type: 'search',
+            payload: {
+                requestId: 'stream-delta-1',
+                pdfPath: TEST_PDF_PATH,
+                documentRevision: DOCUMENT_REVISION,
+                query: 'needle',
+                pageCount: 2,
+            },
+        });
+
+        await vi.waitFor(() => {
+            expect(mocks.postedMessages).toContainEqual(expect.objectContaining({
+                type: 'complete',
+                requestId: 'stream-delta-1',
+            }));
+        });
+
+        const resultProgressMessages = mocks.postedMessages.filter(message => (
+            message.type === 'progress'
+            && message.requestId === 'stream-delta-1'
+            && Array.isArray(message.results)
+        ));
+
+        expect(resultProgressMessages).toEqual([
+            expect.objectContaining({
+                resultsStartIndex: 0,
+                results: [expect.objectContaining({
+                    pageNumber: 1,
+                    matchIndex: 0,
+                    pageWidth: 200,
+                    pageHeight: 100,
+                    rotation: 90,
+                    words: [expect.objectContaining({ text: 'needle' })],
+                })],
+                truncated: false,
+            }),
+            expect.objectContaining({
+                resultsStartIndex: 1,
+                results: [expect.objectContaining({
+                    pageNumber: 2,
+                    matchIndex: 1,
+                })],
+                truncated: false,
+            }),
+        ]);
+        expect(resultProgressMessages[1]?.results).toHaveLength(1);
     });
 
     it('evicts the oldest cached index once the default cache budget is exceeded', async () => {

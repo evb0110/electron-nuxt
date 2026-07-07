@@ -6,9 +6,16 @@ import {
     vi,
 } from 'vitest';
 
+interface IMockDjvuConvertSuccess {
+    success: true;
+    outputPath: string;
+    fileSize: number;
+}
+
 const mocks = vi.hoisted(() => {
-    const workerState: { mode: 'runtime-error' | 'startup-error' | 'success' } = { mode: 'startup-error' };
+    const workerState: { mode: 'hang' | 'runtime-error' | 'startup-error' | 'success' } = { mode: 'startup-error' };
     const workerCtor = vi.fn();
+    const workerTerminate = vi.fn();
     const loggerWarn = vi.fn();
     const atomicReplace = vi.fn(async () => undefined);
     const makeSiblingTempPath = vi.fn(() => '/tmp/.staged-output.tmp');
@@ -34,11 +41,17 @@ const mocks = vi.hoisted(() => {
         _options?: unknown,
     ) => false);
     const getDjvuPageCount = vi.fn(async () => 2);
-    const convertDjvuToPdfFile = vi.fn(async () => ({
+    const convertDjvuToPdfFile = vi.fn(async (
+        _inputPath: string,
+        _outputPath: string,
+        _jobId: string,
+        _options?: unknown,
+    ): Promise<IMockDjvuConvertSuccess> => ({
         success: true,
         outputPath: '/tmp/pdf-combine-djvu-test/output.pdf',
         fileSize: 1024,
     }));
+    const cancelConversion = vi.fn(async () => true);
 
     const addPage = vi.fn();
     const copyPages = vi.fn(async () => [{}]);
@@ -59,6 +72,7 @@ const mocks = vi.hoisted(() => {
     return {
         workerState,
         workerCtor,
+        workerTerminate,
         loggerWarn,
         atomicReplace,
         makeSiblingTempPath,
@@ -71,6 +85,7 @@ const mocks = vi.hoisted(() => {
         nativeFileAssembler,
         getDjvuPageCount,
         convertDjvuToPdfFile,
+        cancelConversion,
         create,
         load,
     };
@@ -102,6 +117,9 @@ vi.mock('worker_threads', () => ({Worker: class {
                             7,
                         ]),
                     });
+                    return;
+                case 'hang':
+                    this.emit('online', undefined);
                     return;
                 default:
                     return;
@@ -142,6 +160,7 @@ vi.mock('worker_threads', () => ({Worker: class {
     }
 
     terminate() {
+        mocks.workerTerminate();
         return Promise.resolve(0);
     }
 
@@ -192,7 +211,10 @@ vi.mock('@electron/utils/atomicReplace', () => ({
     makeSiblingTempPath: mocks.makeSiblingTempPath,
 }));
 
-vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({convertDjvuToPdfFile: mocks.convertDjvuToPdfFile}));
+vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({
+    cancelConversion: mocks.cancelConversion,
+    convertDjvuToPdfFile: mocks.convertDjvuToPdfFile,
+}));
 vi.mock('@electron/djvu/metadata', () => ({getDjvuPageCount: mocks.getDjvuPageCount}));
 
 vi.mock('@electron/image/tryCreatePdfFromInputPathsNative', () => ({
@@ -233,6 +255,7 @@ describe('createPdfFromInputPaths worker fallback', () => {
         });
         mocks.nativeAssembler.mockResolvedValue(null);
         mocks.nativeFileAssembler.mockResolvedValue(false);
+        mocks.cancelConversion.mockResolvedValue(true);
     });
 
     it('uses the native assembler before spawning the pdf-lib worker for mixed PDF and image inputs', async () => {
@@ -382,6 +405,22 @@ describe('createPdfFromInputPaths worker fallback', () => {
         expect(mocks.loggerWarn).not.toHaveBeenCalled();
     });
 
+    it('terminates the worker combine path when the supplied signal aborts', async () => {
+        mocks.workerState.mode = 'hang';
+        const controller = new AbortController();
+
+        const combinePromise = createPdfFromInputPaths(['/tmp/input.pdf'], {signal: controller.signal});
+        for (let attempt = 0; attempt < 5 && mocks.workerCtor.mock.calls.length === 0; attempt += 1) {
+            await Promise.resolve();
+        }
+        expect(mocks.workerCtor).toHaveBeenCalledOnce();
+
+        controller.abort(new Error('page insert canceled'));
+
+        await expect(combinePromise).rejects.toThrow('page insert canceled');
+        expect(mocks.workerTerminate).toHaveBeenCalledOnce();
+    });
+
     it('rejects large inputs instead of falling back to in-process conversion after worker startup failures', async () => {
         mocks.stat.mockResolvedValue({
             isFile: () => true,
@@ -444,6 +483,32 @@ describe('createPdfFromInputPaths worker fallback', () => {
             force: true,
         });
         expect(mocks.load).toHaveBeenCalledTimes(2);
+    });
+
+    it('cancels the generated DjVu local combine job when the supplied signal aborts', async () => {
+        const controller = new AbortController();
+        let resolveConversion: (value: IMockDjvuConvertSuccess) => void = () => {};
+        mocks.convertDjvuToPdfFile.mockImplementationOnce(async () => new Promise<IMockDjvuConvertSuccess>((resolve) => {
+            resolveConversion = resolve;
+        }));
+
+        const combinePromise = createPdfFromInputPaths(['/tmp/scan.djvu'], {signal: controller.signal});
+        for (let attempt = 0; attempt < 20 && mocks.convertDjvuToPdfFile.mock.calls.length === 0; attempt += 1) {
+            await new Promise(resolve => setImmediate(resolve));
+        }
+        const jobId = mocks.convertDjvuToPdfFile.mock.calls[0]?.[2];
+        expect(jobId).toEqual(expect.stringMatching(/^pdf-combine-djvu-/u));
+
+        controller.abort(new Error('combine canceled'));
+        expect(mocks.cancelConversion).toHaveBeenCalledWith(jobId);
+        resolveConversion({
+            success: true,
+            outputPath: '/tmp/pdf-combine-djvu-test/output.pdf',
+            fileSize: 1024,
+        });
+
+        await expect(combinePromise).rejects.toThrow('combine canceled');
+        expect(mocks.readFile).not.toHaveBeenCalled();
     });
 
     it('rejects oversized converted DjVu temp PDFs before reading them into pdf-lib', async () => {

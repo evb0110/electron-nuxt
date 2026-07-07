@@ -134,6 +134,12 @@ interface ISerializedPdfPersistenceSession {
     lifecycleOperation: IRegisteredMainOperation;
 }
 
+interface ISerializedPdfPersistenceFinishResult {
+    validation: IPdfValidationResult;
+    targetWriteCommitted: boolean;
+    workingCopyRefreshed: boolean;
+}
+
 const sessions = new Map<string, ISerializedPdfPersistenceSession>();
 const senderReservations = new Map<number, {
     sessionCount: number;
@@ -466,18 +472,26 @@ export async function beginSerializedPdfSaveAs(
     };
 }
 
-async function finishSession(session: ISerializedPdfPersistenceSession) {
+async function finishSession(session: ISerializedPdfPersistenceSession): Promise<ISerializedPdfPersistenceFinishResult> {
     if (session.receivedBytes !== session.totalBytes) {
-        return createEmptyPdfValidationResult(
-            `PDF persistence stream ended after ${session.receivedBytes} of ${session.totalBytes} bytes`,
-        );
+        return {
+            validation: createEmptyPdfValidationResult(
+                `PDF persistence stream ended after ${session.receivedBytes} of ${session.totalBytes} bytes`,
+            ),
+            targetWriteCommitted: false,
+            workingCopyRefreshed: false,
+        };
     }
 
     await session.handle.sync();
     await session.handle.close();
     const validation = await validatePdfFile(session.tempPath);
     if (!validation.isValid) {
-        return validation;
+        return {
+            validation,
+            targetWriteCommitted: false,
+            workingCopyRefreshed: false,
+        };
     }
     const optimizedValidation = session.mode === 'save_as'
         ? await optimizePdfForSaveAs(session.tempPath, session.saveAsOptions)
@@ -486,6 +500,8 @@ async function finishSession(session: ISerializedPdfPersistenceSession) {
 
     let conflictValidation: IPdfValidationResult | null = null;
     let syncWarningValidation: IPdfValidationResult | null = null;
+    let targetWriteCommitted = false;
+    let workingCopyRefreshed = false;
     await enqueueWorkingCopyMutation(session.workingPath, async () => {
         if (!await ensureWorkingCopyDirectory(session.workingPath, session.senderId)) {
             throw new Error('Working copy path is not managed');
@@ -497,18 +513,18 @@ async function finishSession(session: ISerializedPdfPersistenceSession) {
 
         if (session.mode === 'save_as') {
             await atomicReplace(session.tempPath, session.targetPath);
+            targetWriteCommitted = true;
             try {
+                await setWorkingCopyOriginalPath(session.workingPath, session.targetPath, session.senderId);
                 await copyFileCopyOnWrite(session.targetPath, session.workingPath);
+                await markWorkingCopyContentChanged(session.workingPath, 'save-sync', session.senderId);
+                workingCopyRefreshed = true;
             } catch (syncError) {
                 markWorkingCopySyncRequired(
                     session.workingPath,
                     `Target file was saved, but the working copy refresh failed: ${getErrorMessage(syncError)}`,
                 );
                 syncWarningValidation = withWorkingCopySyncWarning(committedValidation, syncError);
-            }
-            setWorkingCopyOriginalPath(session.workingPath, session.targetPath, session.senderId);
-            if (!syncWarningValidation) {
-                await markWorkingCopyContentChanged(session.workingPath, 'save-sync', session.senderId);
             }
             allowOpenPath(session.targetPath, session.sender);
             await addRecentFile(session.targetPath);
@@ -519,10 +535,14 @@ async function finishSession(session: ISerializedPdfPersistenceSession) {
                 return;
             }
             await atomicReplace(session.tempPath, session.targetPath);
+            targetWriteCommitted = true;
             try {
                 await copyFileCopyOnWrite(session.targetPath, session.workingPath);
-                refreshWorkingCopyOriginalFileExpectation(session.workingPath, session.senderId);
+                if (!await refreshWorkingCopyOriginalFileExpectation(session.workingPath, session.senderId)) {
+                    throw new Error('Working copy registration changed before original expectation refresh completed');
+                }
                 await markWorkingCopyContentChanged(session.workingPath, 'save-sync', session.senderId);
+                workingCopyRefreshed = true;
             } catch (syncError) {
                 markWorkingCopySyncRequired(
                     session.workingPath,
@@ -533,7 +553,11 @@ async function finishSession(session: ISerializedPdfPersistenceSession) {
         }
     });
 
-    return conflictValidation ?? syncWarningValidation ?? committedValidation;
+    return {
+        validation: conflictValidation ?? syncWarningValidation ?? committedValidation,
+        targetWriteCommitted,
+        workingCopyRefreshed,
+    };
 }
 
 function getSessionForPortEvent(event: IpcMainEvent, rawSessionId: unknown) {
@@ -628,13 +652,13 @@ async function handlePortMessage(
             session.isCommitting = true;
             session.lifecycleOperation.markCommitStarted();
             clearSessionTimeout(session);
-            const validation = await finishSession(session);
-            const path = validation.isValid ? session.targetPath : null;
+            const finishResult = await finishSession(session);
+            const path = finishResult.targetWriteCommitted ? session.targetPath : null;
             finishSessionLifecycle(session);
-            if (!validation.isValid) {
+            if (!finishResult.validation.isValid && !finishResult.targetWriteCommitted) {
                 await cleanupSession(session);
             }
-            port.postMessage(createPdfPersistenceResultFrame(path, validation));
+            port.postMessage(createPdfPersistenceResultFrame(path, finishResult.validation));
             port.close();
             return;
         }

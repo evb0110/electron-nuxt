@@ -48,6 +48,10 @@ describe('native tool smoke policy', () => {
                 new Set([0]),
             ],
             [
+                'evb-pdf-image-combine-protocol',
+                new Set([0]),
+            ],
+            [
                 'evb-pdf-image-combine-compact-manifest',
                 new Set([1]),
             ],
@@ -104,6 +108,7 @@ describe('native tool smoke policy', () => {
         expect(() => assertMacPackagedToolSmoke('pdftoppm', 0, 'pdftoppm version 25.0.0')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('pdftotext', 0, 'pdftotext version 25.0.0')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('tesseract', 0, 'tesseract 5.5.0')).not.toThrow();
+        expect(() => assertMacPackagedToolSmoke('evb-pdf-image-combine-protocol', 0, '3')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('evb-pdf-page-ops', 0, 'evb-pdf-page-ops 0.1.0')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('evb-pdf-search', 0, 'evb-pdf-search 0.1.0')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('evb-pdf-image-combine-compact-manifest', 1, 'Missing --compact-manifest value')).not.toThrow();

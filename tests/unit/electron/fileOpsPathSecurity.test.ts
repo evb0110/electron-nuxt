@@ -122,6 +122,7 @@ describe('fileOps path security', () => {
         mocks.consumeAllowedDocxWritePath.mockReturnValue(true);
         mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(null);
         mocks.getWorkingCopyOriginalPath.mockReturnValue(null);
+        mocks.refreshWorkingCopyOriginalFileExpectation.mockResolvedValue(true);
         mocks.originalPathSaveBaseMatches.mockResolvedValue(true);
         mocks.markWorkingCopyContentChanged.mockResolvedValue({});
         mocks.ensureWorkingCopyDirectory.mockResolvedValue(true);

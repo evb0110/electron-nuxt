@@ -26,6 +26,7 @@ import { resolveUnpackedWorkerPath } from '@electron/utils/workerTask';
 import { buildOcrTextLayerIndexText } from '@contracts/ocrText';
 import type { IPageText } from '@electron/search/pageText';
 import type { IOcrWord } from '@contracts/shared';
+import type { TOcrIndexRotation } from '@contracts/ocrIndex';
 import {
     collapseRepeatedPdfSearchPageText,
     extractPdfjsWordBoxesFromOperatorList,
@@ -70,6 +71,7 @@ export interface IPageTextWithWordBoxes extends IPageText {
     words: IOcrWord[];
     pageWidth: number;
     pageHeight: number;
+    rotation: TOcrIndexRotation;
 }
 
 interface IExtractPdfjsWordBoxOptions {
@@ -173,6 +175,7 @@ export async function extractTextWithPdfjsWordBoxes(
                 words,
                 pageWidth: pageBox.pageWidth,
                 pageHeight: pageBox.pageHeight,
+                rotation: pageBox.rotation,
             };
 
             extractedPageCount += 1;

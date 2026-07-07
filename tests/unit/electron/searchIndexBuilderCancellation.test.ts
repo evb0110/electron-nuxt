@@ -79,6 +79,7 @@ interface IPdfjsMockPageText {
     }>;
     pageWidth?: number;
     pageHeight?: number;
+    rotation?: 0 | 90 | 180 | 270;
 }
 
 interface IPdfjsMockOptions { onPageText?: (pageText: IPdfjsMockPageText) => void; }
@@ -292,10 +293,46 @@ describe('buildSearchIndex assembly', () => {
         });
 
         expect(mocks.extractTextFromPdf).toHaveBeenCalledWith('/tmp/file.pdf', {pageCount: 1});
+        expect(mocks.extractTextWithPdfjsWordBoxes).not.toHaveBeenCalled();
         expect(mocks.extractTextWithPdfjs).not.toHaveBeenCalled();
         expect(result.pages).toEqual([expect.objectContaining({
             pageNumber: 1,
             text: 'from-pdftotext',
+        })]);
+    });
+
+    it('carries pdfjs word-box rotation into the search index', async () => {
+        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
+        mocks.extractTextWithPdfjsWordBoxes.mockImplementation(async (_path: string, options: IPdfjsMockOptions) => {
+            options.onPageText?.({
+                pageNumber: 1,
+                text: 'rotated \n',
+                pageWidth: 200,
+                pageHeight: 100,
+                rotation: 90,
+                words: [{
+                    text: 'rotated',
+                    x: 10,
+                    y: 20,
+                    width: 30,
+                    height: 40,
+                }],
+            });
+            return [];
+        });
+
+        const result = await buildSearchIndex('/tmp/file.pdf', [], {
+            documentRevision: DOCUMENT_REVISION,
+            pageCount: 1,
+        });
+
+        expect(result.pages).toEqual([expect.objectContaining({
+            pageNumber: 1,
+            text: 'rotated \n',
+            pageWidth: 200,
+            pageHeight: 100,
+            rotation: 90,
+            words: [expect.objectContaining({ text: 'rotated' })],
         })]);
     });
 

@@ -36,6 +36,7 @@ import {
     ensureWorkingCopyRevision,
     markWorkingCopyContentChanged,
 } from '@electron/file-access/documentRevisionStore';
+import { readWorkingCopySyncRequiredJournalEntry } from '@electron/file-access/documentRevisionSidecar';
 
 const logger = createLogger('working-copy');
 
@@ -56,7 +57,7 @@ export async function createWorkingCopy(originalPath: TOpenPath, ownerWebContent
             await decryptPdfFileIfNeeded(workingPath);
         }
 
-        setWorkingCopyOriginalPath(workingPath, originalPath, ownerWebContentsId);
+        await setWorkingCopyOriginalPath(workingPath, originalPath, ownerWebContentsId);
         await ensureWorkingCopyRevision(workingPath, ownerWebContentsId);
 
         return workingPath;
@@ -90,7 +91,7 @@ export async function createWorkingCopyFromPath(
         await decryptPdfFileIfNeeded(workingPath);
 
         const role = resolveWorkingCopyRoleForPathClone(sourcePath, ownerWebContentsId);
-        setWorkingCopyOriginalPath(workingPath, mappedOriginalPath, ownerWebContentsId, {role});
+        await setWorkingCopyOriginalPath(workingPath, mappedOriginalPath, ownerWebContentsId, {role});
         await ensureWorkingCopyRevision(workingPath, ownerWebContentsId);
 
         return workingPath;
@@ -126,7 +127,7 @@ export async function createWorkingCopyFromData(
 
         if (normalizedOriginalPath) {
             const role = isKnownWorkingCopyOriginalPath(normalizedOriginalPath, ownerWebContentsId) ? 'snapshot' : 'current';
-            setWorkingCopyOriginalPath(workingPath, normalizedOriginalPath, ownerWebContentsId, {role});
+            await setWorkingCopyOriginalPath(workingPath, normalizedOriginalPath, ownerWebContentsId, {role});
         }
         await ensureWorkingCopyRevision(workingPath, ownerWebContentsId);
 
@@ -142,7 +143,24 @@ export async function ensureWorkingCopyDirectory(workingPath: string, senderWebC
     if (!normalizedWorkingPath) {
         throw new Error('Invalid file path');
     }
-    const mapping = getWorkingCopyOriginalPath(normalizedWorkingPath, senderWebContentsId);
+    let mapping = getWorkingCopyOriginalPath(normalizedWorkingPath, senderWebContentsId);
+    if (!mapping) {
+        const pendingSync = readWorkingCopySyncRequiredJournalEntry(normalizedWorkingPath);
+        if (
+            pendingSync?.originalPath
+            && (
+                pendingSync.ownerWebContentsId === undefined
+                || pendingSync.ownerWebContentsId === senderWebContentsId
+            )
+        ) {
+            await setWorkingCopyOriginalPath(
+                normalizedWorkingPath,
+                pendingSync.originalPath,
+                pendingSync.ownerWebContentsId,
+            );
+            mapping = getWorkingCopyOriginalPath(normalizedWorkingPath, senderWebContentsId);
+        }
+    }
     if (!mapping) {
         return false;
     }
@@ -174,7 +192,7 @@ export async function ensureWorkingCopyDirectory(workingPath: string, senderWebC
     }
     if (mapping.retired) {
         const role = getWorkingCopyRole(normalizedWorkingPath, senderWebContentsId) ?? 'current';
-        setWorkingCopyOriginalPath(normalizedWorkingPath, originalPath, mapping.ownerWebContentsId, {role});
+        await setWorkingCopyOriginalPath(normalizedWorkingPath, originalPath, mapping.ownerWebContentsId, {role});
         forgetRetiredWorkingCopyOriginal(normalizedWorkingPath);
     }
     await markWorkingCopyContentChanged(normalizedWorkingPath, 'replace-working-copy', senderWebContentsId);

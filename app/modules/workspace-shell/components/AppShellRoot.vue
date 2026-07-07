@@ -181,6 +181,7 @@ import { useWindowTabTransfers } from '@app/modules/workspace-shell/composables/
 import { useBrowserInstallHint } from '@app/modules/workspace-shell/composables/useBrowserInstallHint';
 import { useDirectOpenAutomationDispatcherShell } from '@app/modules/workspace-shell/automation/directOpenAutomationDispatcher';
 import { resolveTabLifecycleStates } from '@app/modules/workspace-shell/tabs/resolveTabLifecycleStates';
+import { pruneStartSectionByTabId } from '@app/modules/workspace-shell/tabs/pruneStartSectionByTabId';
 import type {
     TPdfViewMode,
     TTabMemoryPolicy,
@@ -278,6 +279,10 @@ watch(activeTabId, (tabId) => {
 watch(tabs, (nextTabs) => {
     const tabIds = new Set(nextTabs.map(tab => tab.id));
     tabActivationOrder.value = tabActivationOrder.value.filter(tabId => tabIds.has(tabId));
+    const nextStartSectionByTabId = pruneStartSectionByTabId(startSectionByTabId.value, nextTabs);
+    if (nextStartSectionByTabId !== startSectionByTabId.value) {
+        startSectionByTabId.value = nextStartSectionByTabId;
+    }
 });
 const tabLifecycleById = computed(() => Object.fromEntries(
     resolveTabLifecycleStates({

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
     copyFile,
     mkdtemp,
@@ -27,6 +28,11 @@ const QPDF_OUTPUT_SUCCESS_EXIT_CODES = [
     3,
 ];
 
+interface IBookmarkNativeCommandOptions {
+    signal?: AbortSignal | undefined;
+    cancelGroup?: string | undefined;
+}
+
 function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) {
         throw signal.reason instanceof Error
@@ -42,6 +48,13 @@ function createNativeBookmarkMutation(totalPages: number, bookmarks: IPdfBookmar
         items: bookmarks,
     };
     return {bookmarks: bookmarkMutation};
+}
+
+function createNativeCommandCancellationOptions(options: IBookmarkNativeCommandOptions) {
+    return {
+        ...(options.signal ? { signal: options.signal } : {}),
+        ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
+    };
 }
 
 function padPdfDatePart(value: number, length = 2) {
@@ -62,7 +75,10 @@ function createNativeModifiedAt() {
     ].join('');
 }
 
-async function getBookmarkInputPdfPageCount(inputPdfPath: string) {
+async function getBookmarkInputPdfPageCount(
+    inputPdfPath: string,
+    options: IBookmarkNativeCommandOptions = {},
+) {
     const result = await runNativeToolCommand(getPdfNativeToolPaths().qpdf, [
         '--show-npages',
         inputPdfPath,
@@ -70,6 +86,7 @@ async function getBookmarkInputPdfPageCount(inputPdfPath: string) {
         timeoutMs: QPDF_DJVU_BOOKMARK_PAGE_COUNT_TIMEOUT_MS,
         allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
         commandLabel: 'qpdf(djvu-bookmark-page-count)',
+        ...createNativeCommandCancellationOptions(options),
     });
     const pageCount = Number.parseInt(result.stdout.trim(), 10);
     if (!Number.isSafeInteger(pageCount) || pageCount < 1) {
@@ -94,12 +111,17 @@ async function tryEmbedBookmarksWithNativePageOps(
         return null;
     }
 
+    throwIfAborted(signal);
+    const cancelGroup = `djvu-bookmarks:${randomUUID()}`;
     const tempDir = await mkdtemp(join(tmpdir(), 'djvu-bookmarks-'));
     const workingPath = join(tempDir, 'input.pdf');
     const mutationsPath = join(tempDir, 'bookmarks.json');
 
     try {
-        const totalPages = await getBookmarkInputPdfPageCount(inputPdfPath);
+        const totalPages = await getBookmarkInputPdfPageCount(inputPdfPath, {
+            signal,
+            cancelGroup,
+        });
         throwIfAborted(signal);
         await copyFile(inputPdfPath, workingPath);
         await copyFile(inputPdfPath, outputPdfPath);
@@ -122,7 +144,10 @@ async function tryEmbedBookmarksWithNativePageOps(
         ], {
             timeoutMs: NATIVE_DJVU_BOOKMARK_TIMEOUT_MS,
             commandLabel: 'evb-pdf-page-ops(djvu-bookmarks)',
-            ...(signal ? { signal } : {}),
+            ...createNativeCommandCancellationOptions({
+                signal,
+                cancelGroup,
+            }),
         });
         const outputStats = await stat(outputPdfPath);
         return outputStats.size;

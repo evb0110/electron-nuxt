@@ -8,6 +8,7 @@ import { createWorkerTaskErrorFrame } from '@electron/utils/workerTask';
 import { getErrorMessage } from '@electron/utils/error';
 
 interface ITiffCombineWorkerData {
+    deleteSourcePages?: unknown;
     pagePaths?: unknown;
     outputPath?: unknown;
 }
@@ -45,6 +46,7 @@ function getWorkerInput() {
         throw new Error('TIFF combine worker requires at least one page path');
     }
     return {
+        deleteSourcePages: input.deleteSourcePages === true,
         pagePaths,
         outputPath: input.outputPath,
     };
@@ -70,7 +72,10 @@ async function run() {
 
     try {
         const input = getWorkerInput();
-        await combinePagesIntoMultiPageTiffLocal(input.pagePaths, input.outputPath, abortController.signal);
+        await combinePagesIntoMultiPageTiffLocal(input.pagePaths, input.outputPath, {
+            deleteSourcePages: input.deleteSourcePages,
+            signal: abortController.signal,
+        });
         parentPort.postMessage({
             type: 'result',
             ok: true,

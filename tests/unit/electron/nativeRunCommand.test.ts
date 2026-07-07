@@ -45,7 +45,7 @@ describe('runNativeCommand', () => {
         const { runNativeCommand } = await import('@electron/native-tools/runNativeCommand');
 
         await expect(runNativeCommand('/bin/tool', [], {signal: controller.signal}))
-            .rejects.toThrow('The operation was aborted');
+            .rejects.toThrow(/(?:This|The) operation was aborted/u);
 
         expect(mocks.spawn).not.toHaveBeenCalled();
     });

@@ -22,8 +22,14 @@ import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import {
     assertWorkingCopyRevisionSidecarCurrent,
+    clearWorkingCopyRevisionSidecarCommit,
+    clearWorkingCopySyncRequiredJournalEntry,
     getWorkingCopyRevisionSidecarPath,
     readWorkingCopyRevisionSidecar,
+    readWorkingCopySyncRequiredJournalEntry,
+    reconcileWorkingCopyRevisionSidecarJournal,
+    stageWorkingCopyRevisionSidecarCommit,
+    writeWorkingCopySyncRequiredJournalEntry,
     writeWorkingCopyRevisionSidecar,
     type IWorkingCopyRevisionSidecar,
 } from '@electron/file-access/documentRevisionSidecar';
@@ -143,6 +149,20 @@ function notifyRevisionChanged(event: IDocumentRevisionChangedEvent) {
     }
 }
 
+function hydrateWorkingCopySyncRequiredFromJournal(workingCopyPath: string) {
+    const queueKey = getRevisionQueueKey(workingCopyPath);
+    if (workingCopySyncRequired.has(queueKey)) {
+        return workingCopySyncRequired.get(queueKey);
+    }
+
+    const pendingSync = readWorkingCopySyncRequiredJournalEntry(workingCopyPath);
+    if (!pendingSync) {
+        return undefined;
+    }
+    workingCopySyncRequired.set(queueKey, pendingSync.reason);
+    return pendingSync.reason;
+}
+
 export async function ensureWorkingCopyRevision(
     workingCopyPath: string,
     senderId?: number,
@@ -152,6 +172,7 @@ export async function ensureWorkingCopyRevision(
         throw new Error('Invalid file path');
     }
     assertCanUseWorkingCopyRevision(normalizedWorkingPath, senderId);
+    hydrateWorkingCopySyncRequiredFromJournal(normalizedWorkingPath);
 
     const existing = await readWorkingCopyRevisionSidecar(normalizedWorkingPath);
     if (existing) {
@@ -181,7 +202,13 @@ export async function markWorkingCopyRevisionChanged(
     const previous = await readWorkingCopyRevisionSidecar(normalizedWorkingPath);
     const contentRevision = (previous?.contentRevision ?? 0) + 1;
     const sidecar = createRevisionSidecar(normalizedWorkingPath, contentRevision, senderId);
+    stageWorkingCopyRevisionSidecarCommit(normalizedWorkingPath, sidecar, reason);
     await writeWorkingCopyRevisionSidecar(normalizedWorkingPath, sidecar);
+    try {
+        clearWorkingCopyRevisionSidecarCommit(normalizedWorkingPath, sidecar.token);
+    } catch (error) {
+        log.debug(`Failed to clear document revision journal entry: ${getErrorMessage(error)}`);
+    }
 
     const event: IDocumentRevisionChangedEvent = {
         ...toRevisionInfo(sidecar),
@@ -206,7 +233,9 @@ export function isWorkingCopyRevisionCurrent(
     workingCopyPath: string,
     token: TDocumentRevisionToken,
 ): Promise<boolean> {
-    return readWorkingCopyRevisionSidecar(workingCopyPath)
+    return reconcileWorkingCopyRevisionSidecarJournal(workingCopyPath)
+        .catch(() => null)
+        .then(() => readWorkingCopyRevisionSidecar(workingCopyPath))
         .then(sidecar => sidecar?.token === token);
 }
 
@@ -214,11 +243,12 @@ export async function assertWorkingCopyRevisionCurrent(
     workingCopyPath: string,
     token: TDocumentRevisionToken,
 ): Promise<void> {
+    await reconcileWorkingCopyRevisionSidecarJournal(workingCopyPath);
     await assertWorkingCopyRevisionSidecarCurrent(workingCopyPath, token);
 }
 
 export function assertWorkingCopyMutationAllowed(workingCopyPath: string) {
-    const reason = workingCopySyncRequired.get(getRevisionQueueKey(workingCopyPath));
+    const reason = hydrateWorkingCopySyncRequiredFromJournal(workingCopyPath);
     if (reason !== undefined) {
         throw createWorkingCopySyncRequiredError({
             documentRef: workingCopyPath,
@@ -227,15 +257,42 @@ export function assertWorkingCopyMutationAllowed(workingCopyPath: string) {
     }
 }
 
+export function hasWorkingCopySyncRequired(workingCopyPath: string) {
+    return hydrateWorkingCopySyncRequiredFromJournal(workingCopyPath) !== undefined;
+}
+
+export function assertWorkingCopyResyncAllowed(workingCopyPath: string, senderId?: number) {
+    assertCanUseWorkingCopyRevision(workingCopyPath, senderId);
+}
+
 export function markWorkingCopySyncRequired(workingCopyPath: string, reason: string) {
+    const normalizedWorkingPath = typeof workingCopyPath === 'string' ? workingCopyPath.trim() : '';
+    const activeEntry = normalizedWorkingPath ? workingCopyMap.get(normalizedWorkingPath) : undefined;
     workingCopySyncRequired.set(
         getRevisionQueueKey(workingCopyPath),
         reason,
     );
+    if (!normalizedWorkingPath) {
+        return;
+    }
+    try {
+        writeWorkingCopySyncRequiredJournalEntry(normalizedWorkingPath, {
+            reason,
+            ...(activeEntry?.originalPath === undefined ? {} : {originalPath: activeEntry.originalPath}),
+            ...(activeEntry?.ownerWebContentsId === undefined ? {} : {ownerWebContentsId: activeEntry.ownerWebContentsId}),
+        });
+    } catch (error) {
+        log.debug(`Failed to persist working-copy sync-required journal entry: ${getErrorMessage(error)}`);
+    }
 }
 
 export function clearWorkingCopySyncRequired(workingCopyPath: string) {
     workingCopySyncRequired.delete(getRevisionQueueKey(workingCopyPath));
+    try {
+        clearWorkingCopySyncRequiredJournalEntry(workingCopyPath);
+    } catch (error) {
+        log.debug(`Failed to clear working-copy sync-required journal entry: ${getErrorMessage(error)}`);
+    }
 }
 
 export function onWorkingCopyRevisionChanged(listener: (event: IDocumentRevisionChangedEvent) => void) {

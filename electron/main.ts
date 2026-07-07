@@ -87,6 +87,7 @@ import {
     cancelAllMainOperations,
     drainCriticalMainOperations,
 } from '@electron/operation-lifecycle/mainOperationLifecycle';
+import { sweepStaleManagedScratchTempDirs } from '@electron/utils/managedScratchTemp';
 
 app.setName(app.isPackaged ? 'EVB Viewer' : 'EVB Viewer Dev');
 configureMacKeychainAccess(app);
@@ -259,7 +260,6 @@ function maybePromptForDefaultViewer() {
 }
 
 async function performShutdownCleanup() {
-    beginMainOperationShutdown('Main process is shutting down');
     if (defaultViewerPromptTimer) {
         clearTimeout(defaultViewerPromptTimer);
         defaultViewerPromptTimer = null;
@@ -285,6 +285,12 @@ async function performShutdownCleanup() {
                 if (result.flushedWorkingCopyPaths.length > 0) {
                     logger.info(`Renderer flushed ${result.flushedWorkingCopyPaths.length} working copy path(s) before shutdown`);
                 }
+            },
+        },
+        {
+            label: 'main-operation-shutdown',
+            run: () => {
+                beginMainOperationShutdown('Main process is shutting down');
             },
         },
         {
@@ -402,6 +408,7 @@ void runInitSequence({
     shouldResetRendererReadyOnNavigation,
     shutdownCoordinator,
     sweepStaleDefaultAppTempPdfs,
+    sweepStaleManagedScratchTempDirs,
     sweepStaleOcrTempArtifacts,
 })
     .then(() => syncAgentMcpServerWithSettings())

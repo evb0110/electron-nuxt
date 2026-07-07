@@ -19,12 +19,24 @@ import {
     vi,
 } from 'vitest';
 
+interface IManagedScratchDir {
+    path: string;
+    prefix: string;
+}
+
+interface IImageExportProgressForTest {
+    phase: string;
+    processed: number;
+}
+
 const mocks = vi.hoisted(() => ({
     runCommand: vi.fn(),
     stat: vi.fn(),
     rename: vi.fn(),
     atomicReplace: vi.fn(),
     makeSiblingTempPath: vi.fn((targetPath: string) => `${targetPath}.tmp`),
+    createManagedScratchTempDir: vi.fn(async (_prefix: string) => ''),
+    managedScratchDirs: [] as IManagedScratchDir[],
     renderPageCount: 2,
     pdfPageCount: 2,
     nativeImageCombinePath: null as string | null,
@@ -74,6 +86,7 @@ vi.mock('@electron/utils/atomicReplace', () => ({
     atomicReplace: (...args: unknown[]) => mocks.atomicReplace(...args),
     makeSiblingTempPath: (...args: [string]) => mocks.makeSiblingTempPath(...args),
 }));
+vi.mock('@electron/utils/managedScratchTemp', () => ({createManagedScratchTempDir: (...args: [string]) => mocks.createManagedScratchTempDir(...args)}));
 
 const {
     exportPdfAsMultiPageTiff,
@@ -124,6 +137,15 @@ describe('image export', () => {
         mocks.rename.mockReset();
         mocks.atomicReplace.mockReset();
         mocks.makeSiblingTempPath.mockClear();
+        mocks.managedScratchDirs.length = 0;
+        mocks.createManagedScratchTempDir.mockImplementation(async (prefix: string) => {
+            const path = await mkdtemp(join(tempDir, prefix));
+            mocks.managedScratchDirs.push({
+                path,
+                prefix,
+            });
+            return path;
+        });
         mocks.renderPageCount = 2;
         mocks.pdfPageCount = 2;
         mocks.nativeImageCombinePath = null;
@@ -553,6 +575,23 @@ describe('image export', () => {
         expect(await readFile(secondOutputPath, 'utf8')).toBe('page-2-jpg');
     });
 
+    it('chooses non-conflicting derived image paths before rendering multi-file exports', async () => {
+        const outputPath = join(tempDir, 'exported.png');
+        const firstExistingPath = join(tempDir, 'exported-001.png');
+        const firstOutputPath = join(tempDir, 'exported-001-1.png');
+        const secondOutputPath = join(tempDir, 'exported-002.png');
+        await writeFile(firstExistingPath, 'existing-page');
+
+        await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath)).resolves.toEqual([
+            firstOutputPath,
+            secondOutputPath,
+        ]);
+
+        expect(await readFile(firstExistingPath, 'utf8')).toBe('existing-page');
+        expect(existsSync(firstOutputPath)).toBe(true);
+        expect(existsSync(secondOutputPath)).toBe(true);
+    });
+
     it('exports TIFF page images when the target extension is TIF', async () => {
         mocks.renderPageCount = 1;
         mocks.pdfPageCount = 1;
@@ -648,16 +687,13 @@ describe('image export', () => {
         expect(existsSync(tempPath)).toBe(false);
     });
 
-    it('restores promoted multi-page image targets when a later promotion fails', async () => {
+    it('removes promoted multi-page image targets when a later promotion fails', async () => {
         mocks.renderPageCount = 2;
         mocks.pdfPageCount = 2;
 
-        const outputPath = join(tempDir, 'existing.png');
-        const firstTargetPath = join(tempDir, 'existing-001.png');
-        const secondTargetPath = join(tempDir, 'existing-002.png');
-
-        await writeFile(firstTargetPath, 'old-page-1');
-        await writeFile(secondTargetPath, 'old-page-2');
+        const outputPath = join(tempDir, 'new-export.png');
+        const firstTargetPath = join(tempDir, 'new-export-001.png');
+        const secondTargetPath = join(tempDir, 'new-export-002.png');
 
         mocks.atomicReplace.mockImplementation(async (sourcePath: string, targetPath: string) => {
             if (targetPath === secondTargetPath) {
@@ -672,8 +708,8 @@ describe('image export', () => {
             .rejects
             .toThrow('second promotion failed');
 
-        expect(await readFile(firstTargetPath, 'utf8')).toBe('old-page-1');
-        expect(await readFile(secondTargetPath, 'utf8')).toBe('old-page-2');
+        expect(existsSync(firstTargetPath)).toBe(false);
+        expect(existsSync(secondTargetPath)).toBe(false);
     });
 
     it('removes staged image outputs when export is canceled before promotion', async () => {
@@ -713,5 +749,33 @@ describe('image export', () => {
 
         expect(existsSync(outputPath)).toBe(false);
         expect(existsSync(`${outputPath}.tmp`)).toBe(false);
+    });
+
+    it('removes rendered TIFF page temps during multi-page TIFF combine before promotion', async () => {
+        mocks.renderPageCount = 2;
+        mocks.pdfPageCount = 2;
+        const outputPath = join(tempDir, 'cleanup.tiff');
+        let firstRenderedPagePath = '';
+
+        mocks.atomicReplace.mockImplementation(async (sourcePath: string, targetPath: string) => {
+            if (targetPath === `${outputPath}.tmp`) {
+                expect(firstRenderedPagePath).not.toBe('');
+                expect(existsSync(firstRenderedPagePath)).toBe(false);
+            }
+
+            await writeFile(targetPath, await readFile(sourcePath));
+            await rm(sourcePath, { force: true });
+        });
+
+        const recordRenderedPageTemp = (progress: IImageExportProgressForTest) => {
+            if (progress.phase === 'rendering' && progress.processed === 2) {
+                const renderDir = mocks.managedScratchDirs.find(dir => dir.prefix === 'pdfExport-')?.path;
+                firstRenderedPagePath = renderDir ? join(renderDir, 'page-1.tif') : '';
+            }
+        };
+
+        await expect(exportPdfAsMultiPageTiff('/tmp/input.pdf', outputPath, {onProgress: recordRenderedPageTemp})).resolves.toEqual([outputPath]);
+
+        expect(existsSync(outputPath)).toBe(true);
     });
 });
