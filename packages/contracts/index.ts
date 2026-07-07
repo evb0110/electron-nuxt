@@ -254,6 +254,9 @@ export type {
     TPdfNativeMutationSetNativeToolPayload,
 } from '@contracts/nativePdfMutations';
 
+export { GENERATED_RUST_NATIVE_TOOL_PROTOCOLS } from '@contracts/nativeToolProtocols';
+export type { IGeneratedRustNativeToolProtocol } from '@contracts/nativeToolProtocols';
+
 export type {
     ILatestReleaseResponse,
     IReleaseInstaller,

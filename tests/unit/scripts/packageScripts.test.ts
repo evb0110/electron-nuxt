@@ -196,9 +196,11 @@ describe('package scripts', () => {
             'check:icons:bundle',
             'check:commonjs-imports',
             'check:dependency-lockstep',
+            'check:native-tool-protocols',
             'check:naming',
             'check:architecture:imports',
         ]));
+        expect(scripts['check:native-tool-protocols']).toBe('pnpm exec tsx scripts/checkNativeToolProtocols.ts');
         expect(scriptRunTargets(packageJson, 'check:static:assets')).toEqual([
             'check:web-deploy-source',
             'check:ocr-language-model-registry',

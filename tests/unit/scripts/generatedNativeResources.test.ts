@@ -14,6 +14,7 @@ import {
     expect,
     it,
 } from 'vitest';
+import { GENERATED_RUST_NATIVE_TOOL_PROTOCOLS } from '@contracts/nativeToolProtocols';
 
 interface IGeneratedNativeResourcesModule {
     GENERATED_NATIVE_TOOLS: Array<{
@@ -75,6 +76,14 @@ async function createNativeResourceFixture() {
 }
 
 describe('generated native resource freshness', () => {
+    it('keeps generated resource freshness checks aligned with native protocol contracts', () => {
+        expect(GENERATED_NATIVE_TOOLS).toEqual(GENERATED_RUST_NATIVE_TOOL_PROTOCOLS.map(tool => ({
+            binaryName: tool.binaryName,
+            crateName: tool.crateName,
+            stagingName: tool.stagingName,
+        })));
+    });
+
     it('maps supported host targets into generated resource checks', () => {
         expect(detectHostGeneratedNativeResourceTarget({
             nodeArch: 'arm64',

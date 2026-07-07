@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { GENERATED_RUST_NATIVE_TOOL_PROTOCOLS } from '@contracts/nativeToolProtocols';
 
 export const NATIVE_RESOURCE_PLATFORMS = [
     'darwin',
@@ -168,26 +169,12 @@ export const NATIVE_TOOL_RESOURCE_FAMILIES = [
     },
 ] as const satisfies readonly INativeToolResourceFamily[];
 
-export const GENERATED_NATIVE_TOOL_RESOURCES = [
-    {
-        binaryName: 'evb-pdf-image-combine',
-        crateName: 'pdf-image-combine',
-        familyId: 'pdf-image-combine',
-        stagingName: 'pdf-image-combine',
-    },
-    {
-        binaryName: 'evb-pdf-page-ops',
-        crateName: 'pdf-page-ops',
-        familyId: 'pdf-page-ops',
-        stagingName: 'pdf-page-ops',
-    },
-    {
-        binaryName: 'evb-pdf-search',
-        crateName: 'pdf-search',
-        familyId: 'pdf-search',
-        stagingName: 'pdf-search',
-    },
-] as const satisfies readonly IGeneratedNativeToolResource[];
+export const GENERATED_NATIVE_TOOL_RESOURCES = GENERATED_RUST_NATIVE_TOOL_PROTOCOLS.map(tool => ({
+    binaryName: tool.binaryName,
+    crateName: tool.crateName,
+    familyId: tool.resourceFamilyId,
+    stagingName: tool.stagingName,
+})) satisfies readonly IGeneratedNativeToolResource[];
 
 export const NATIVE_SOURCE_MATRIX_ENTRIES = [
     {

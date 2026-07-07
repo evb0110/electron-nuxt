@@ -4,6 +4,7 @@ import {
     type IRunCommandOptions,
 } from '@electron/native-tools/runNativeCommand';
 import type { IProcessResult } from '@electron/native-tools/processResult';
+import { GENERATED_RUST_NATIVE_TOOL_PROTOCOLS } from '@contracts/nativeToolProtocols';
 
 export interface IRunNativeToolCommandOptions {
     cwd?: string;
@@ -34,20 +35,12 @@ class NativeToolProtocolVersionError extends Error {
 }
 
 const NATIVE_TOOL_PROTOCOL_VERSION_TIMEOUT_MS = 5_000;
-const expectedNativeToolProtocolVersions = new Map<string, number>([
-    [
-        'evb-pdf-image-combine',
-        1,
-    ],
-    [
-        'evb-pdf-page-ops',
-        1,
-    ],
-    [
-        'evb-pdf-search',
-        1,
-    ],
-]);
+const expectedNativeToolProtocolVersions = new Map<string, number>(
+    GENERATED_RUST_NATIVE_TOOL_PROTOCOLS.map(tool => [
+        tool.binaryName,
+        tool.protocolVersion,
+    ]),
+);
 const nativeToolProtocolHandshakeCache = new Map<string, Promise<void>>();
 
 export async function runNativeToolCommand(

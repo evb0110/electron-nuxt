@@ -81,7 +81,7 @@ describe('runNativeToolCommand', () => {
         mocks.runNativeCommand.mockResolvedValueOnce({
             exitCode: 0,
             stderr: '',
-            stdout: '1\n',
+            stdout: '3\n',
         });
         mocks.runNativeCommand.mockResolvedValueOnce({
             exitCode: 0,
@@ -93,7 +93,7 @@ describe('runNativeToolCommand', () => {
         await expect(runNativeToolCommand('/tools/evb-pdf-image-combine', [
             '--output',
             'out.pdf',
-        ])).rejects.toThrow('expected 1, got bogus');
+        ])).rejects.toThrow('expected 3, got bogus');
         await expect(runNativeToolCommand('/tools/evb-pdf-image-combine', [
             '--output',
             'out.pdf',
