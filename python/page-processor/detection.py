@@ -68,7 +68,11 @@ def _detect_skew_hough_details(
     lengths: list[float] = []
 
     for line in lines:
-        x1, y1, x2, y2 = line[0]
+        segment = np.asarray(line).reshape(-1)
+        if segment.size < 4:
+            continue
+
+        x1, y1, x2, y2 = segment[:4]
         dx = float(x2 - x1)
         dy = float(y2 - y1)
         if abs(dx) < 1.0:
