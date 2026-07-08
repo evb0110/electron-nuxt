@@ -206,9 +206,14 @@ describe('CI topology policy', () => {
     it('verifies release build artifacts before upload', async () => {
         const workflow = await readProjectFile('.github/workflows/build.yml');
         const macSigningScript = await readProjectFile('scripts/release/configure-macos-signing.sh');
+        const macCertificateImportScript = await readProjectFile('scripts/release/import-macos-codesign-certificate.sh');
         const verifyStep = workflow.slice(
             workflow.indexOf('- name: Verify release artifacts'),
             workflow.indexOf('- name: Upload artifacts'),
+        );
+        const dmgNotarizationStep = workflow.slice(
+            workflow.indexOf('- name: Notarize and staple macOS disk images'),
+            workflow.indexOf('- name: Verify macOS signature'),
         );
 
         expect(verifyStep).toContain('node scripts/release/assert-build-artifacts.mjs release "${{ matrix.platform }}" "${{ matrix.arch }}"');
@@ -216,11 +221,17 @@ describe('CI topology policy', () => {
         expect(verifyStep).toContain('EVB_RELEASE_HAS_WINDOWS_SIGNING');
         expect(verifyStep).not.toContain('CSC_LINK');
         expect(verifyStep).not.toContain('WIN_CSC_LINK');
+        expect(dmgNotarizationStep).toContain('bash scripts/release/import-macos-codesign-certificate.sh');
+        expect(dmgNotarizationStep).toContain('node scripts/release/notarize-macos-dmgs.mjs release');
         expect(workflow).toContain('::error::Partial WIN_CSC_* secrets detected; set both WIN_CSC_LINK and WIN_CSC_KEY_PASSWORD or neither');
         expect(macSigningScript).toContain('if [ "${CI:-}" = "true" ]; then');
         expect(macSigningScript).toContain('::error::$message');
         expect(macSigningScript).toContain('Partial macOS signing credentials detected; set both CSC_LINK and CSC_KEY_PASSWORD or neither');
         expect(macSigningScript).toContain('Partial APPLE_API_* secrets detected; set APPLE_API_KEY, APPLE_API_KEY_ID, and APPLE_API_ISSUER or none of them');
+        expect(macCertificateImportScript).toContain('security create-keychain');
+        expect(macCertificateImportScript).toContain('security import "$certificate_path"');
+        expect(macCertificateImportScript).toContain('security set-key-partition-list');
+        expect(macCertificateImportScript).toContain('Developer ID Application');
     });
 
     it('keeps release quality gates from requiring pre-bundle host Linux resources', async () => {
