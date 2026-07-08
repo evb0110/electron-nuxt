@@ -82,7 +82,10 @@
 
     span,
     br {
-        color: transparent;
+        /* stylelint-disable declaration-no-important -- css-important-allow: PDF.js/TextLayer runtime styles must never make searchable OCR glyphs visible over scanned pages. */
+        color: transparent !important;
+        text-shadow: none !important;
+        /* stylelint-enable declaration-no-important */
         position: absolute;
         white-space: pre;
         cursor: text;

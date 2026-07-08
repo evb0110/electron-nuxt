@@ -35,20 +35,8 @@ export const usePdfViewerInitialRenderRecovery = (options: IUsePdfViewerInitialR
         );
     }
 
-    function hasRenderedTextLayerContent() {
-        const container = options.viewerContainer.value;
-        if (!container) {
-            return false;
-        }
-        return Boolean(
-            container.querySelector(
-                '.page_container .text-layer span, .page_container .textLayer span',
-            ),
-        );
-    }
-
     function hasRenderedInitialContent() {
-        return hasRenderedPageCanvas() || hasRenderedTextLayerContent();
+        return hasRenderedPageCanvas();
     }
 
     function refreshVisibleRangeForRecovery() {
