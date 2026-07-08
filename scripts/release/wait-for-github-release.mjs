@@ -3,21 +3,15 @@ import {
     run,
     sleep,
 } from './shared.mjs';
+import {
+    briefErrorMessage,
+    findWorkflowRun,
+    isTransientGitHubCliError,
+} from './github-workflow-run.mjs';
 import { pathToFileURL } from 'node:url';
 
 const DEFAULT_TIMEOUT_MS = 45 * 60 * 1000;
 const POLL_INTERVAL_MS = 10 * 1000;
-const TRANSIENT_GITHUB_CLI_ERROR_PATTERNS = [
-    /TLS handshake timeout/i,
-    /context deadline exceeded/i,
-    /connection reset/i,
-    /ECONNRESET/i,
-    /ETIMEDOUT/i,
-    /EAI_AGAIN/i,
-    /502 Bad Gateway/i,
-    /503 Service Unavailable/i,
-    /504 Gateway Timeout/i,
-];
 
 function readTag() {
     const tag = process.argv[2]?.trim();
@@ -52,50 +46,7 @@ function readWaitTimeoutMs() {
     return parsed;
 }
 
-export function isTransientGitHubCliError(error) {
-    const message = errorMessage(error);
-
-    return TRANSIENT_GITHUB_CLI_ERROR_PATTERNS.some(pattern => pattern.test(message));
-}
-
-function briefErrorMessage(error) {
-    return errorMessage(error).split('\n')[0] ?? String(error);
-}
-
-function listReleaseRuns() {
-    const payload = run('gh', [
-        'run',
-        'list',
-        '--workflow',
-        'Release',
-        '--limit',
-        '20',
-        '--json',
-        'createdAt,databaseId,displayTitle,headBranch,headSha,status,conclusion,url',
-    ]);
-    const parsed = JSON.parse(payload);
-    if (!Array.isArray(parsed)) {
-        throw new Error('Unexpected GitHub CLI response while listing release runs');
-    }
-
-    return parsed;
-}
-
-function isAtOrAfterCreatedAfter(runInfo, createdAfter) {
-    if (!createdAfter) {
-        return true;
-    }
-
-    const createdAtMs = Date.parse(String(runInfo.createdAt ?? ''));
-    const createdAfterMs = Date.parse(createdAfter);
-
-    if (!Number.isFinite(createdAtMs) || !Number.isFinite(createdAfterMs)) {
-        return true;
-    }
-
-    // Allow a little clock skew between the local machine and GitHub's event timestamp.
-    return createdAtMs >= createdAfterMs - 60_000;
-}
+export { isTransientGitHubCliError };
 
 function findReleaseRun(tag, targetSha = '', createdAfter = '') {
     const targetTitles = new Set([
@@ -103,21 +54,12 @@ function findReleaseRun(tag, targetSha = '', createdAfter = '') {
         `Release (${tag})`,
     ]);
 
-    return listReleaseRuns().find(runInfo => {
-        if (!runInfo || typeof runInfo !== 'object') {
-            return false;
-        }
-
-        const matchesRelease = runInfo.headBranch === tag
-            || targetTitles.has(runInfo.displayTitle);
-        const matchesTarget = !targetSha
-            || !runInfo.headSha
-            || runInfo.headSha === targetSha;
-
-        return matchesRelease
-            && matchesTarget
-            && isAtOrAfterCreatedAfter(runInfo, createdAfter);
-    }) ?? null;
+    return findWorkflowRun({
+        createdAfter,
+        displayTitles: Array.from(targetTitles),
+        targetSha,
+        workflow: 'Release',
+    });
 }
 
 function readFailedJobSummary(runId) {

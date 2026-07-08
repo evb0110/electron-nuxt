@@ -9,6 +9,14 @@ Releases are cut locally and published by dispatching the GitHub Release workflo
 2. The script bumps `package.json`, then runs the local release gate against that exact would-be tagged tree. The gate is split into the CI-mode lint/static/test phase (`release:verify:checks`) and the current-platform build/package phase (`release:verify:package:local`): strict build, packaging, updater metadata checks when applicable, packaged native-tool verification, packaged startup verification on macOS, and host native-resource verification.
 3. If that local release gate passes, the script verifies that only `package.json` changed, commits the release version, pushes the branch update, and dispatches the GitHub [`Release`](../.github/workflows/release.yml) workflow with the intended tag and target ref.
 4. The release workflow reruns the focused release checks, packages the main artifacts, creates the matching `v*` tag, and publishes the release in one run.
+5. The local command exits after the GitHub Actions run is visible. It prints the run URL, the future artifact section URL, the future release URL, and the expected artifact group names.
+
+## Artifact-only flow
+
+- Run `pnpm run release:artifacts` from a clean worktree when you want GitHub to build the release artifacts without cutting a release.
+- The command uses the same Node/GitHub CLI preflight, clean-worktree check, named-branch/upstream check, and branch push handoff as the release cutter, then dispatches [`Build Release Artifacts`](../.github/workflows/release-artifacts.yml) for the exact pushed commit.
+- The artifact-only workflow reruns the focused release checks, packages the same core release matrix, runs the supplemental macOS Intel and Windows 7 legacy lanes, and builds Store AppX packages with `submit: false`.
+- It never creates a tag, creates or updates a GitHub Release, uploads release assets, or submits Store packages. Downloads live as GitHub Actions artifacts on the workflow run.
 
 ## Local guardrails
 
@@ -46,8 +54,8 @@ Releases are cut locally and published by dispatching the GitHub Release workflo
 
 ## Release command behavior
 
-- The release command now waits for the dispatched GitHub `Release` workflow by default and exits non-zero if that workflow fails, so you do not need to check Actions manually after every cut.
-- This wait uses `gh auth status` / `gh run ...` under the hood. If you intentionally want fire-and-forget behavior, set `EVB_RELEASE_SKIP_GITHUB_WAIT=1`.
+- The release and artifact-only commands stop after the dispatched GitHub workflow run is visible, because GitHub owns the remote matrix from that point onward.
+- The handoff poll uses `gh auth status` / `gh run ...` under the hood. If GitHub takes longer than usual to surface a just-dispatched run, set `EVB_GITHUB_WORKFLOW_START_TIMEOUT_MS` to a larger positive integer.
 
 ## Why this is less brittle
 

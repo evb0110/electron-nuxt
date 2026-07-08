@@ -237,6 +237,27 @@ describe('CI topology policy', () => {
         expect(workflowJob(releaseWorkflow, 'publish')).toContain('gh release create "$RELEASE_TAG" artifacts/* --generate-notes --target "$TARGET_SHA"');
     });
 
+    it('keeps artifact-only release builds reusable and non-publishing', async () => {
+        const workflow = await readProjectFile('.github/workflows/release-artifacts.yml');
+        const qualityJob = workflowJob(workflow, 'quality');
+
+        expect(workflow).toContain('name: Build Release Artifacts');
+        expect(workflow).toContain('workflow_dispatch:');
+        expect(workflow).toContain('target_ref:');
+        expect(workflow).toContain('permissions:\n  contents: read');
+        expect(workflow).not.toContain('contents: write');
+        expect(qualityJob).toContain('run: pnpm run release:verify:checks');
+        expect(workflowJob(workflow, 'build_artifacts')).toContain('uses: ./.github/workflows/build.yml');
+        expect(workflowJob(workflow, 'build_mac_intel')).toContain('uses: ./.github/workflows/build-mac-intel.yml');
+        expect(workflowJob(workflow, 'build_win7_legacy')).toContain('uses: ./.github/workflows/build-win7-legacy.yml');
+        expect(workflowJob(workflow, 'build_store')).toContain('uses: ./.github/workflows/store-appx.yml');
+        expect(workflowJob(workflow, 'build_store')).toContain('submit: false');
+        expect(workflow).not.toContain('gh release create');
+        expect(workflow).not.toContain('gh release upload');
+        expect(workflow).not.toContain('Package and Submit Microsoft Store AppX');
+        expect(workflowJob(workflow, 'summarize')).toContain('#artifacts');
+    });
+
     it('keeps release cutting dispatch-based instead of tag-push based', async () => {
         const releaseScript = await readProjectFile('scripts/release/cut-release.mjs');
 
@@ -245,6 +266,8 @@ describe('CI topology policy', () => {
         expect(releaseScript).toContain('\'run\'');
         expect(releaseScript).toContain('\'release.yml\'');
         expect(releaseScript).toContain('`target_ref=${targetSha}`');
+        expect(releaseScript).toContain('waitForWorkflowRunStart');
+        expect(releaseScript).not.toContain('wait-for-github-release.mjs');
         expect(releaseScript).not.toContain('refs/tags/${tag}');
         expect(releaseScript).not.toContain('\'tag\',\n            tag');
         expect(releaseScript).not.toContain('\'--atomic\'');

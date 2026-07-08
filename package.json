@@ -110,6 +110,7 @@
     "release:verify:checks": "node scripts/release/verify-local-checks.mjs",
     "release:verify:package:local": "node scripts/release/verify-local-package.mjs",
     "release:verify": "node scripts/release/verify-local.mjs",
+    "release:artifacts": "HUSKY=0 node scripts/release/build-artifacts.mjs",
     "release:patch": "HUSKY=0 node scripts/release/cut-release.mjs patch",
     "release:minor": "HUSKY=0 node scripts/release/cut-release.mjs minor",
     "release:major": "HUSKY=0 node scripts/release/cut-release.mjs major",

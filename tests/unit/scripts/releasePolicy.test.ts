@@ -256,6 +256,13 @@ interface ICutReleaseModule {
     parseCutReleaseArgs: (argv: string[]) => ICutReleaseArgs;
 }
 
+interface IReleaseArtifactsDispatchOptions {
+    branch: string;
+    targetSha: string;
+}
+
+interface IReleaseArtifactsModule { getReleaseArtifactsWorkflowDispatchArgs: (options: IReleaseArtifactsDispatchOptions) => string[]; }
+
 function getPackageScripts(): Record<string, string> {
     const packageJson = JSON.parse(
         readFileSync(resolve(process.cwd(), 'package.json'), 'utf8'),
@@ -313,6 +320,7 @@ const {
     getReleaseWorkflowDispatchArgs,
     parseCutReleaseArgs,
 } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/cut-release.mjs')).href) as ICutReleaseModule;
+const { getReleaseArtifactsWorkflowDispatchArgs } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/build-artifacts.mjs')).href) as IReleaseArtifactsModule;
 
 function writeExecutable(filePath: string, lines: string[]): void {
     writeFileSync(filePath, `${lines.join('\n')}\n`);
@@ -867,6 +875,18 @@ describe('release policy', () => {
             'main',
             '--field',
             'tag=v1.2.3',
+            '--field',
+            'target_ref=abc123',
+        ]);
+        expect(getReleaseArtifactsWorkflowDispatchArgs({
+            branch: 'main',
+            targetSha: 'abc123',
+        })).toEqual([
+            'workflow',
+            'run',
+            'release-artifacts.yml',
+            '--ref',
+            'main',
             '--field',
             'target_ref=abc123',
         ]);
