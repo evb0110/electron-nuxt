@@ -1,12 +1,28 @@
 name: Microsoft Store Package
 
 on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref or commit SHA to package.
+        required: false
+        type: string
+      submit:
+        description: Submit the built AppX packages to Partner Center when Store API secrets are present.
+        required: false
+        default: false
+        type: boolean
   workflow_dispatch:
     inputs:
       ref:
         description: Git ref or commit SHA to package. Defaults to the selected branch.
         required: false
         type: string
+      submit:
+        description: Submit the built AppX packages to Partner Center when Store API secrets are present.
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -16,6 +32,7 @@ env:
   # runtime as direct-download Windows installers.
   NODE_VERSION: '24.11.1'
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  STORE_PRODUCT_ID: '9N3MB1WJGX1L'
 
 jobs:
   build:
@@ -161,3 +178,69 @@ jobs:
           name: store-appx-win-${{ matrix.arch }}
           path: release/*-store.appx
           if-no-files-found: error
+
+  submit:
+    name: submit to Microsoft Store
+    needs: build
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Download Microsoft Store AppX artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: store-appx-win-*
+          path: store-artifacts
+          merge-multiple: true
+
+      - name: Configure optional Store submission
+        id: store_submission
+        shell: bash
+        env:
+          STORE_SUBMIT_REQUESTED: ${{ inputs.submit }}
+          PARTNER_TENANT_ID: ${{ secrets.PARTNER_TENANT_ID }}
+          PARTNER_CLIENT_ID: ${{ secrets.PARTNER_CLIENT_ID }}
+          PARTNER_CLIENT_SECRET: ${{ secrets.PARTNER_CLIENT_SECRET }}
+        run: |
+          echo "ready=false" >> "$GITHUB_OUTPUT"
+
+          if [ "$STORE_SUBMIT_REQUESTED" != "true" ]; then
+            echo "::notice::Microsoft Store submission was not requested; AppX artifacts were built only."
+            exit 0
+          fi
+
+          missing=()
+          [ -n "$PARTNER_TENANT_ID" ] || missing+=("PARTNER_TENANT_ID")
+          [ -n "$PARTNER_CLIENT_ID" ] || missing+=("PARTNER_CLIENT_ID")
+          [ -n "$PARTNER_CLIENT_SECRET" ] || missing+=("PARTNER_CLIENT_SECRET")
+
+          if [ "${#missing[@]}" -eq 3 ]; then
+            echo "::notice::Microsoft Store submission secrets are not configured; AppX artifacts were built only."
+            exit 0
+          fi
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::Partial Microsoft Store submission secrets detected; missing: ${missing[*]}"
+            exit 1
+          fi
+
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Submit Microsoft Store AppX packages
+        if: steps.store_submission.outputs.ready == 'true'
+        shell: pwsh
+        env:
+          PARTNER_TENANT_ID: ${{ secrets.PARTNER_TENANT_ID }}
+          PARTNER_CLIENT_ID: ${{ secrets.PARTNER_CLIENT_ID }}
+          PARTNER_CLIENT_SECRET: ${{ secrets.PARTNER_CLIENT_SECRET }}
+        run: |
+          .\scripts\release\submit-store-appx.ps1 `
+            -TenantId $env:PARTNER_TENANT_ID `
+            -ClientId $env:PARTNER_CLIENT_ID `
+            -ClientSecret $env:PARTNER_CLIENT_SECRET `
+            -ProductId $env:STORE_PRODUCT_ID `
+            -AppPackagesDirectory "${{ github.workspace }}\store-artifacts"

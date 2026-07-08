@@ -269,3 +269,14 @@ jobs:
         run: |
           set -euo pipefail
           gh release upload "$RELEASE_TAG" artifacts/* --clobber
+
+  publish_store:
+    name: Package and Submit Microsoft Store AppX
+    needs:
+      - prepare
+      - publish
+    uses: ./.github/workflows/store-appx.yml
+    with:
+      ref: ${{ needs.prepare.outputs.target_sha }}
+      submit: true
+    secrets: inherit
