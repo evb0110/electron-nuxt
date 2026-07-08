@@ -161,10 +161,38 @@ interface IAssertBuildArtifactsOptions {
     artifactNames: string[];
     env?: TReleaseEnv;
     platform: TReleasePlatform;
+    readArtifactInfo?: (artifactName: string) => IMacUpdaterFileInfo;
     readMetadataText: (fileName: string) => string;
 }
 
 interface IAssertBuildArtifactsModule { assertBuildArtifacts: (options: IAssertBuildArtifactsOptions) => boolean; }
+
+interface IMacUpdaterFileInfo {
+    sha512: string;
+    size: number;
+}
+
+interface IMacDmgNotarizationModule {
+    assertMacUpdaterMetadataHashes: (options: {
+        artifactNames: string[];
+        readArtifactInfo: (artifactName: string) => IMacUpdaterFileInfo;
+        readMetadataText: (fileName: string) => string;
+    }) => boolean;
+    parseMacUpdaterFileEntries: (
+        metadataFileName: string,
+        metadataText: string,
+    ) => Array<{
+        sha512: string;
+        size: number;
+        url: string;
+    }>;
+    updateMacUpdaterMetadataArtifactInfo: (
+        metadataFileName: string,
+        metadataText: string,
+        artifactName: string,
+        fileInfo: IMacUpdaterFileInfo,
+    ) => string;
+}
 
 interface IReleaseSharedModule {
     assertGitHubCliReady: (
@@ -244,6 +272,11 @@ const {
     prepareGeneratedNativeResources,
 } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/verify-local-package.mjs')).href) as IReleasePackageModule;
 const { assertBuildArtifacts } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/assert-build-artifacts.mjs')).href) as IAssertBuildArtifactsModule;
+const {
+    assertMacUpdaterMetadataHashes,
+    parseMacUpdaterFileEntries,
+    updateMacUpdaterMetadataArtifactInfo,
+} = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/notarize-macos-dmgs.mjs')).href) as IMacDmgNotarizationModule;
 const {
     assertGitHubCliReady,
     assertTagAbsent,
@@ -463,6 +496,120 @@ describe('release policy', () => {
 
         it('rejects unsafe url entries', () => {
             expect(() => parseUpdaterMetadataFileUrls('latest-mac.yml', 'files:\n  - url: ../evil.zip\n')).toThrow(/Unsafe path entry/u);
+        });
+
+        it('updates the DMG file info without changing the ZIP update path', () => {
+            const updatedText = updateMacUpdaterMetadataArtifactInfo(
+                'latest-mac.yml',
+                [
+                    'version: 0.1.0',
+                    'files:',
+                    '  - url: EVB-Viewer-0.1.0-arm64.zip',
+                    '    sha512: zip-hash',
+                    '    size: 100',
+                    '  - url: EVB-Viewer-0.1.0-arm64.dmg',
+                    '    sha512: stale-dmg-hash',
+                    '    size: 200',
+                    'path: EVB-Viewer-0.1.0-arm64.zip',
+                    'sha512: zip-hash',
+                ].join('\n'),
+                'EVB-Viewer-0.1.0-arm64.dmg',
+                {
+                    sha512: 'fresh-dmg-hash',
+                    size: 250,
+                },
+            );
+
+            expect(parseMacUpdaterFileEntries('latest-mac.yml', updatedText)).toEqual([
+                {
+                    sha512: 'zip-hash',
+                    size: 100,
+                    url: 'EVB-Viewer-0.1.0-arm64.zip',
+                },
+                {
+                    sha512: 'fresh-dmg-hash',
+                    size: 250,
+                    url: 'EVB-Viewer-0.1.0-arm64.dmg',
+                },
+            ]);
+            expect(updatedText).toContain('path: EVB-Viewer-0.1.0-arm64.zip');
+            expect(updatedText).toContain('sha512: zip-hash');
+        });
+
+        it('rejects stale macOS updater metadata hashes and sizes', () => {
+            const macMetadata = [
+                'version: 0.1.0',
+                'files:',
+                '  - url: EVB-Viewer-0.1.0-arm64.zip',
+                '    sha512: zip-hash',
+                '    size: 100',
+                '  - url: EVB-Viewer-0.1.0-arm64.dmg',
+                '    sha512: dmg-hash',
+                '    size: 250',
+                'path: EVB-Viewer-0.1.0-arm64.zip',
+                'sha512: zip-hash',
+            ].join('\n');
+            const artifactInfo = new Map([
+                [
+                    'EVB-Viewer-0.1.0-arm64.zip',
+                    {
+                        sha512: 'zip-hash',
+                        size: 100,
+                    },
+                ],
+                [
+                    'EVB-Viewer-0.1.0-arm64.dmg',
+                    {
+                        sha512: 'dmg-hash',
+                        size: 250,
+                    },
+                ],
+            ]);
+            const readArtifactInfo = (artifactName: string) => {
+                const info = artifactInfo.get(artifactName);
+                if (!info) {
+                    throw new Error(`Missing test artifact info: ${artifactName}`);
+                }
+                return info;
+            };
+
+            expect(assertMacUpdaterMetadataHashes({
+                artifactNames: [
+                    'EVB-Viewer-0.1.0-arm64.zip',
+                    'EVB-Viewer-0.1.0-arm64.dmg',
+                    'latest-mac.yml',
+                ],
+                readArtifactInfo,
+                readMetadataText: () => macMetadata,
+            })).toBe(true);
+
+            artifactInfo.set('EVB-Viewer-0.1.0-arm64.dmg', {
+                sha512: 'new-dmg-hash',
+                size: 250,
+            });
+            expect(() => assertMacUpdaterMetadataHashes({
+                artifactNames: [
+                    'EVB-Viewer-0.1.0-arm64.zip',
+                    'EVB-Viewer-0.1.0-arm64.dmg',
+                    'latest-mac.yml',
+                ],
+                readArtifactInfo,
+                readMetadataText: () => macMetadata,
+            })).toThrow(/hash mismatch/u);
+
+            artifactInfo.set('EVB-Viewer-0.1.0-arm64.dmg', {
+                sha512: 'dmg-hash',
+                size: 251,
+            });
+            expect(() => assertMacUpdaterMetadataHashes({
+                artifactNames: [
+                    'EVB-Viewer-0.1.0-arm64.zip',
+                    'EVB-Viewer-0.1.0-arm64.dmg',
+                    'latest-mac.yml',
+                ],
+                readArtifactInfo,
+                readMetadataText: () => macMetadata,
+            })).toThrow(/size mismatch/u);
         });
     });
 

@@ -20,6 +20,7 @@ import {
     parseUpdaterMetadataPath,
     shouldVerifyPackagedStartup,
 } from './policy.mjs';
+import { notarizeMacDmgArtifacts } from './notarize-macos-dmgs.mjs';
 
 const RELEASE_DIR = 'release';
 
@@ -233,6 +234,13 @@ function main() {
             env,
             stdio: 'inherit',
         });
+
+        if (target.platform === 'mac') {
+            notarizeMacDmgArtifacts({
+                artifactsDir: distDir,
+                env,
+            });
+        }
 
         pruneUpdaterMetadataForLocalParity(target);
         assertReleaseArtifactsExist(target, env);

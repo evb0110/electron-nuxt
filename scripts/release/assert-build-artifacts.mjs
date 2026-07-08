@@ -13,6 +13,7 @@ import {
     getRequiredArtifactPatterns,
     getUpdaterMetadataFileNames,
 } from './policy.mjs';
+import { assertMacUpdaterMetadataHashes } from './notarize-macos-dmgs.mjs';
 
 function createBuildTarget(platform, arch) {
     if (![
@@ -46,6 +47,7 @@ export function assertBuildArtifacts({
     env = process.env,
     platform,
     readMetadataText,
+    readArtifactInfo,
     artifactNames,
 } = {}) {
     if (!platform || !arch) {
@@ -71,6 +73,19 @@ export function assertBuildArtifacts({
 
     if (shouldPublishUpdaterMetadata && !hasUpdaterMetadata) {
         throw new Error(`Missing updater metadata for ${platform}-${arch}`);
+    }
+    if (
+        platform === 'mac'
+        && shouldPublishUpdaterMetadata
+        && hasUpdaterMetadata
+        && (readArtifactInfo || artifactNames == null)
+    ) {
+        assertMacUpdaterMetadataHashes({
+            artifactNames: files,
+            artifactsDir,
+            readArtifactInfo,
+            readMetadataText: readMetadataText ?? (metadataFileName => readFileSync(resolve(process.cwd(), artifactsDir, metadataFileName), 'utf8')),
+        });
     }
     if (!shouldPublishUpdaterMetadata) {
         const updaterMetadata = getUpdaterMetadataFileNames(files);

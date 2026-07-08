@@ -26,3 +26,10 @@ if [ "${MAC_EXPECT_DEVELOPER_ID:-false}" = "true" ] && ! spctl --assess --type e
   echo "::error::App bundle is not accepted by macOS Gatekeeper"
   exit 1
 fi
+
+if [ "${MAC_EXPECT_DEVELOPER_ID:-false}" = "true" ]; then
+  while IFS= read -r -d '' dmg_path; do
+    codesign --verify --verbose=2 "$dmg_path"
+    xcrun stapler validate "$dmg_path"
+  done < <(find "$release_dir" -maxdepth 1 -type f -name '*.dmg' -print0)
+fi

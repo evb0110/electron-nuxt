@@ -167,6 +167,27 @@ jobs:
           bash scripts/release/run-with-retries.sh 3 20 "macOS packaging" \
             pnpm exec electron-builder --publish never --mac --${{ matrix.arch }}
 
+      - name: Notarize and staple macOS disk images
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          if [ -n "${MAC_CSC_LINK:-}" ] && [ -n "${MAC_CSC_KEY_PASSWORD:-}" ]; then
+            export CSC_LINK="$MAC_CSC_LINK"
+            export CSC_KEY_PASSWORD="$MAC_CSC_KEY_PASSWORD"
+          else
+            unset CSC_LINK CSC_KEY_PASSWORD
+          fi
+
+          if [ -n "${APPLE_API_KEY_PATH:-}" ] && [ -n "${APPLE_API_KEY_ID_ENV:-}" ] && [ -n "${APPLE_API_ISSUER_ENV:-}" ]; then
+            export APPLE_API_KEY="$APPLE_API_KEY_PATH"
+            export APPLE_API_KEY_ID="$APPLE_API_KEY_ID_ENV"
+            export APPLE_API_ISSUER="$APPLE_API_ISSUER_ENV"
+          else
+            unset APPLE_API_KEY APPLE_API_KEY_ID APPLE_API_ISSUER
+          fi
+
+          node scripts/release/notarize-macos-dmgs.mjs release
+
       - name: Verify macOS signature
         if: runner.os == 'macOS'
         shell: bash
