@@ -407,6 +407,7 @@ const {
     fullscreenSupported,
     isActive,
     isFullscreen,
+    isWorkspaceLayoutResizing: isExternalWorkspaceLayoutResizing = false,
     isRenderActive = isActive,
     isTabTransitionBusy,
     documentSession = null,
@@ -423,6 +424,7 @@ const {
     isTabTransitionBusy: boolean;
     isFullscreen: boolean;
     fullscreenSupported: boolean;
+    isWorkspaceLayoutResizing?: boolean | undefined;
     documentSession?: IWorkspaceDocumentSessionController | null | undefined;
     initialViewState?: ITabViewSessionState | null | undefined;
     pendingDocumentOpen?: boolean | undefined;
@@ -623,6 +625,10 @@ const {
     startSidebarResize,
     cleanupSidebarResizeListeners,
 } = viewerShell;
+const isExternalWorkspaceLayoutResizingRef = toRef(() => isExternalWorkspaceLayoutResizing === true);
+const isActiveViewerLayoutResizing = computed(() => (
+    isResizingSidebar.value || isExternalWorkspaceLayoutResizingRef.value
+));
 
 const { appSettings } = workspaceSettings;
 
@@ -911,7 +917,7 @@ const {
     fitMode,
     isAnySaving,
     isRenderActive: computed(() => isRenderActive),
-    isResizingSidebar,
+    isWorkspaceLayoutResizing: isActiveViewerLayoutResizing,
     nativePdfSourcePath,
     pageMatches: viewerSearchPageMatches,
     pdfReloadSrc,

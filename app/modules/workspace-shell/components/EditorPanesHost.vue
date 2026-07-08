@@ -18,6 +18,7 @@
             :zen-active-tab-id="zenActiveTabId"
             :is-fullscreen="isFullscreen"
             :fullscreen-supported="fullscreenSupported"
+            :is-workspace-layout-resizing="isWorkspaceLayoutResizing"
             @activate-pane="handleActivatePane"
             @activate-tab="handleActivateTab"
             @close-tab="handleCloseTab"
@@ -78,6 +79,7 @@ defineProps<{
     zenActiveTabId: string | null;
     isFullscreen: boolean;
     fullscreenSupported: boolean;
+    isWorkspaceLayoutResizing?: boolean | undefined;
 }>();
 
 const emit = defineEmits<{

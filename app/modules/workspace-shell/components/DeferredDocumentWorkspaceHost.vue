@@ -20,6 +20,7 @@
                 :start-section="startSection"
                 :is-fullscreen="isFullscreen"
                 :fullscreen-supported="fullscreenSupported"
+                :is-workspace-layout-resizing="isWorkspaceLayoutResizing"
                 @update-document-record="handleDocumentRecordUpdate"
                 @update:start-section="handleStartSectionUpdate"
                 @open-in-new-tab="handleOpenInNewTab"
@@ -163,6 +164,7 @@ const {
     isRenderActive = isActive,
     isStartupOpenClaimPending = false,
     isTabTransitionBusy,
+    isWorkspaceLayoutResizing = false,
     fullscreenSupported,
     initialViewState = null,
     startSection = undefined,
@@ -181,6 +183,7 @@ const {
     startSection?: TStartSection | undefined;
     isFullscreen: boolean;
     fullscreenSupported: boolean;
+    isWorkspaceLayoutResizing?: boolean | undefined;
 }>();
 const { t } = useTypedI18n();
 

@@ -57,7 +57,6 @@
           </button>
         </AppTooltip>
         <canvas
-          :key="getThumbnailRenderKey(page)"
           class="pdf-thumbnail-canvas"
           :style="getThumbnailCanvasStyle(page)"
           :data-thumbnail-render-key="getThumbnailRenderKey(page)"

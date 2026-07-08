@@ -82,6 +82,7 @@
                 :zen-active-tab-id="activeTabId"
                 :is-fullscreen="isFullscreen"
                 :fullscreen-supported="fullscreenSupported"
+                :is-workspace-layout-resizing="isAssistantPanelResizing"
                 @activate-pane="activatePane"
                 @activate-tab="activateTab"
                 @close-tab="handleCloseTab"

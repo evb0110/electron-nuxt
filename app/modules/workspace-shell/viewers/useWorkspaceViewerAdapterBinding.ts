@@ -30,7 +30,7 @@ interface IWorkspaceViewerAdapterBindingOptions {
     fitMode: Ref<unknown>;
     isAnySaving: Ref<boolean>;
     isRenderActive: TReadableRef<boolean>;
-    isResizingSidebar: Ref<boolean>;
+    isWorkspaceLayoutResizing: TReadableRef<boolean>;
     nativePdfSourcePath: Ref<TDocumentRef | null> | ComputedRef<TDocumentRef | null>;
     pageMatches: Ref<unknown> | ComputedRef<unknown>;
     pdfRasterDisplayProfile: Ref<TPdfRasterDisplayProfile | null> | ComputedRef<TPdfRasterDisplayProfile | null>;
@@ -106,7 +106,7 @@ export const useWorkspaceViewerAdapterBinding = (options: IWorkspaceViewerAdapte
                 currentPage: options.currentPage.value,
                 dragMode: options.dragMode.value,
                 continuousScroll: options.continuousScroll.value,
-                isResizing: options.isResizingSidebar.value,
+                isResizing: options.isWorkspaceLayoutResizing.value,
                 isActive: options.isRenderActive.value,
                 annotationTool: options.annotationTool.value,
                 annotationCursorMode: options.annotationCursorMode.value,

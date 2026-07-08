@@ -38,6 +38,7 @@
                         :is-tab-transition-busy="isTabTransitionBusy"
                         :is-fullscreen="isFullscreen"
                         :fullscreen-supported="fullscreenSupported"
+                        :is-workspace-layout-resizing="isWorkspaceLayoutResizing"
                         :start-section="startSectionByTabId[tab.id] ?? 'recent'"
                         @update-document-record="handleWorkspaceDocumentRecordUpdate(tab.id, $event)"
                         @update-session-state="handleWorkspaceSessionStateUpdate(tab.id, $event)"
@@ -84,6 +85,7 @@
                 :zen-active-tab-id="zenActiveTabId"
                 :is-fullscreen="isFullscreen"
                 :fullscreen-supported="fullscreenSupported"
+                :is-workspace-layout-resizing="isWorkspaceLayoutResizing"
                 @activate-pane="handleActivatePane"
                 @activate-tab="handleActivateTab"
                 @close-tab="handleCloseTab"
@@ -134,6 +136,7 @@
                 :zen-active-tab-id="zenActiveTabId"
                 :is-fullscreen="isFullscreen"
                 :fullscreen-supported="fullscreenSupported"
+                :is-workspace-layout-resizing="isWorkspaceLayoutResizing"
                 @activate-pane="handleActivatePane"
                 @activate-tab="handleActivateTab"
                 @close-tab="handleCloseTab"
@@ -195,6 +198,7 @@ const {
     tabLifecycleById,
     tabs,
     viewStateByTabId,
+    isWorkspaceLayoutResizing = false,
     zenActiveTabId,
     zenMode,
 } = defineProps<{
@@ -214,6 +218,7 @@ const {
     zenActiveTabId: string | null;
     isFullscreen: boolean;
     fullscreenSupported: boolean;
+    isWorkspaceLayoutResizing?: boolean | undefined;
 }>();
 
 const emit = defineEmits<{

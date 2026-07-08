@@ -15,6 +15,7 @@ import type { TPdfRasterDisplayProfile } from '@app/types/pdfRasterDisplayProfil
 function createBindingHarness() {
     const activeViewerAdapter = ref(getWorkspaceViewerAdapter('pdf'));
     const isRenderActive = ref(false);
+    const isWorkspaceLayoutResizing = ref(false);
     const pdfRasterDisplayProfile = ref<TPdfRasterDisplayProfile | null>(null);
     const binding = useWorkspaceViewerAdapterBinding({
         activeViewerAdapter: computed(() => activeViewerAdapter.value),
@@ -32,7 +33,7 @@ function createBindingHarness() {
         fitMode: ref('width'),
         isAnySaving: ref(false),
         isRenderActive,
-        isResizingSidebar: ref(false),
+        isWorkspaceLayoutResizing,
         nativePdfSourcePath: ref(null),
         pageMatches: ref(new Map()),
         pdfRasterDisplayProfile,
@@ -78,8 +79,10 @@ function createBindingHarness() {
     });
 
     return {
+        activeViewerAdapter,
         binding,
         isRenderActive,
+        isWorkspaceLayoutResizing,
         pdfRasterDisplayProfile,
     };
 }
@@ -114,5 +117,27 @@ describe('useWorkspaceViewerAdapterBinding', () => {
         pdfRasterDisplayProfile.value = profile;
 
         expect(binding.activeViewerProps.value.rasterDisplayProfile).toStrictEqual(profile);
+    });
+
+    it('passes workspace layout resize state only to the standard PDF viewer', () => {
+        const {
+            activeViewerAdapter,
+            binding,
+            isWorkspaceLayoutResizing,
+        } = createBindingHarness();
+
+        expect(binding.activeViewerProps.value.isResizing).toBe(false);
+
+        isWorkspaceLayoutResizing.value = true;
+
+        expect(binding.activeViewerProps.value.isResizing).toBe(true);
+
+        activeViewerAdapter.value = getWorkspaceViewerAdapter('native-pdf');
+
+        expect(binding.activeViewerProps.value).not.toHaveProperty('isResizing');
+
+        activeViewerAdapter.value = getWorkspaceViewerAdapter('djvu');
+
+        expect(binding.activeViewerProps.value).not.toHaveProperty('isResizing');
     });
 });
