@@ -98,6 +98,7 @@ interface IPageSaveOrchestrationDeps {
     clearAnnotationHistory?: () => void;
     loadRecentFiles: () => void;
     clearOcrCache: (path: TDocumentRef) => void;
+    ensureHistoryBaselineForExternalMutation: () => Promise<boolean>;
     reloadWorkingCopyIntoHistory: (opts?: { markDirty?: boolean }) => Promise<boolean>;
     currentPage: Ref<number>;
     waitForPdfReload: (page: number) => Promise<void>;
@@ -164,6 +165,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         clearAnnotationHistory,
         loadRecentFiles,
         clearOcrCache,
+        ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,
         currentPage,
         waitForPdfReload,
@@ -450,6 +452,20 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
 
         let didReplaceWorkingCopy = false;
         try {
+            const didPrimeHistory = await ensureHistoryBaselineForExternalMutation();
+            if (!didPrimeHistory) {
+                await acknowledgeOcrResultFile(payload);
+                throw new Error('Failed to prime OCR history before applying searchable PDF result');
+            }
+            if (workingCopyPath.value !== payload.sourceWorkingCopyPath) {
+                BrowserLogger.debug('ocr', 'Skipped stale OCR apply after history baseline setup', {
+                    sourceWorkingCopyPath: payload.sourceWorkingCopyPath,
+                    currentWorkingCopyPath: workingCopyPath.value,
+                });
+                await acknowledgeOcrResultFile(payload);
+                return null;
+            }
+
             await getDocumentFilesCapability().replaceWorkingCopyFromPath(
                 payload.sourceWorkingCopyPath,
                 payload.pdfPath,

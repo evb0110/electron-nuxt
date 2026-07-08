@@ -134,4 +134,86 @@ describe('createDocumentHistory', () => {
             { expectedDocumentRevisionToken: 'revision-before-restore' },
         );
     });
+
+    it('restores path-backed external mutations to the clean baseline on undo', async () => {
+        const state = createDocumentSessionState({ isDesktopRuntime: ref(true) });
+        state.workingCopyPath.value = '/tmp/work.pdf';
+        state.originalPath.value = '/tmp/original.pdf';
+        state.documentRevisionToken.value = 'revision-before-restore';
+
+        const createWorkingCopyFromPath = vi.fn()
+            .mockResolvedValueOnce('/tmp/history-baseline.pdf')
+            .mockResolvedValueOnce('/tmp/history-ocr.pdf')
+            .mockResolvedValueOnce('/tmp/restored-work.pdf');
+        const readPdfStateFromPath = vi.fn(async (path: string): Promise<IPdfLoadedState> => ({
+            pdfData: null,
+            pdfSrc: {
+                kind: 'path',
+                path,
+                size: 64 * 1024 * 1024,
+            },
+        }));
+        const applyLoadedPdfState = vi.fn(async () => true);
+        const history = createDocumentHistory(state, {
+            applyLoadedPdfState,
+            clearPdfConformanceProfile: vi.fn(),
+            clearOcrCache: vi.fn(),
+            deferPdfConformanceProfile: vi.fn(),
+            documentFiles: () => ({writeFile: vi.fn(async () => true)}),
+            documentWorkingCopy: () => ({
+                cleanupFile: vi.fn(async () => undefined),
+                createWorkingCopyFromData: vi.fn(async () => '/tmp/unused-data-history.pdf'),
+                createWorkingCopyFromPath,
+            }),
+            getOpenEpoch: () => 1,
+            isCurrentOpenEpoch: () => true,
+            readPdfStateFromPath,
+            toPdfBlob: vi.fn(() => new Blob()),
+        });
+
+        await expect(history.ensureHistoryBaselineForExternalMutation()).resolves.toBe(true);
+        await expect(history.reloadWorkingCopyIntoHistory({markDirty: true})).resolves.toBe(true);
+
+        expect(history.canUndo.value).toBe(true);
+        expect(state.isDirty.value).toBe(true);
+        expect(history.getHistoryDebugState()).toMatchObject({
+            historyLength: 2,
+            historyIndex: 1,
+            historyCleanIndex: 0,
+        });
+
+        await expect(history.undo()).resolves.toBe(true);
+
+        expect(state.isDirty.value).toBe(false);
+        expect(history.getHistoryDebugState()).toMatchObject({
+            historyLength: 2,
+            historyIndex: 0,
+            historyCleanIndex: 0,
+        });
+        expect(createWorkingCopyFromPath).toHaveBeenNthCalledWith(
+            1,
+            '/tmp/work.pdf',
+            '/tmp/original.pdf',
+        );
+        expect(createWorkingCopyFromPath).toHaveBeenNthCalledWith(
+            3,
+            '/tmp/history-baseline.pdf',
+            '/tmp/original.pdf',
+        );
+        expect(applyLoadedPdfState).toHaveBeenCalledWith(
+            '/tmp/restored-work.pdf',
+            {
+                pdfData: null,
+                pdfSrc: {
+                    kind: 'path',
+                    path: '/tmp/restored-work.pdf',
+                    size: 64 * 1024 * 1024,
+                },
+            },
+            {
+                preserveHistory: true,
+                previousPath: '/tmp/work.pdf',
+            },
+        );
+    });
 });

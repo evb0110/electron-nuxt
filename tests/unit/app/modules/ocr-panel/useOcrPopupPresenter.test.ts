@@ -339,7 +339,7 @@ describe('useOcrPopupPresenter', () => {
         }
     });
 
-    it('cancels and clears on source changes, then clears applied results on document replacement', async () => {
+    it('cancels and clears on source changes, then preserves applied results across document reload', async () => {
         const harness = createPresenterHarness();
 
         try {
@@ -372,8 +372,9 @@ describe('useOcrPopupPresenter', () => {
             harness.pdfDocument.value = {} as PDFDocumentProxy;
             await nextTick();
 
-            expect(harness.ocr.clearResults).toHaveBeenCalledTimes(2);
-            expect(harness.ocr.clearRunSettingsHistory).toHaveBeenCalledTimes(2);
+            expect(harness.presenter.viewState.value).toBe('results');
+            expect(harness.ocr.clearResults).toHaveBeenCalledTimes(1);
+            expect(harness.ocr.clearRunSettingsHistory).toHaveBeenCalledTimes(1);
         } finally {
             stopHarness(harness.scope);
         }

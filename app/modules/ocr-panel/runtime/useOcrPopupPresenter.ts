@@ -480,7 +480,7 @@ export const useOcrPopupPresenter = ({
             return;
         }
 
-        resetCompletedOcrState();
+        pendingAppliedOcrRequestId.value = null;
     });
 
     watch(() => results.value.searchablePdfResult, (searchablePdfResult) => {

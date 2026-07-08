@@ -243,6 +243,7 @@ describe('usePageSaveOrchestration', () => {
             consumePendingEmbeddedAnnotationDeletes: vi.fn(() => null),
             loadRecentFiles: vi.fn(),
             clearOcrCache: vi.fn(),
+            ensureHistoryBaselineForExternalMutation: vi.fn(async () => true),
             reloadWorkingCopyIntoHistory: vi.fn(async () => true),
             currentPage: ref(1),
             waitForPdfReload: vi.fn(async () => {}),
@@ -321,6 +322,7 @@ describe('usePageSaveOrchestration', () => {
             consumePendingEmbeddedAnnotationDeletes: vi.fn(() => null),
             loadRecentFiles: vi.fn(),
             clearOcrCache: vi.fn(),
+            ensureHistoryBaselineForExternalMutation: vi.fn(async () => true),
             reloadWorkingCopyIntoHistory: vi.fn(async () => true),
             currentPage: ref(1),
             waitForPdfReload: vi.fn(async () => {}),
@@ -393,6 +395,7 @@ describe('usePageSaveOrchestration', () => {
             consumePendingEmbeddedAnnotationDeletes: vi.fn(() => null),
             loadRecentFiles: vi.fn(),
             clearOcrCache: vi.fn(),
+            ensureHistoryBaselineForExternalMutation: vi.fn(async () => true),
             reloadWorkingCopyIntoHistory: vi.fn(async () => true),
             currentPage: ref(1),
             waitForPdfReload: vi.fn(async () => {}),
@@ -434,6 +437,7 @@ describe('usePageSaveOrchestration', () => {
     it('applies OCR results by replacing the working copy from the temp PDF path', async () => {
         const clearOcrCache = vi.fn();
         const resetSearchCache = vi.fn();
+        const ensureHistoryBaselineForExternalMutation = vi.fn(async () => true);
         const reloadWorkingCopyIntoHistory = vi.fn(async () => true);
         const waitForPdfReload = vi.fn(async () => {});
         const runWithDocumentOperationLease = vi.fn(async (_kind: string, operation: () => Promise<unknown>) => operation());
@@ -473,6 +477,7 @@ describe('usePageSaveOrchestration', () => {
             consumePendingEmbeddedAnnotationDeletes: vi.fn(() => null),
             loadRecentFiles: vi.fn(),
             clearOcrCache,
+            ensureHistoryBaselineForExternalMutation,
             reloadWorkingCopyIntoHistory,
             currentPage: ref(7),
             waitForPdfReload,
@@ -515,6 +520,12 @@ describe('usePageSaveOrchestration', () => {
         expect(runWithDocumentOperationLease).toHaveBeenCalledWith('ocr-apply', expect.any(Function));
         expect(clearOcrCache).toHaveBeenCalledWith('/tmp/work.pdf');
         expect(resetSearchCache).toHaveBeenCalledTimes(1);
+        expect(ensureHistoryBaselineForExternalMutation).toHaveBeenCalledTimes(1);
+        expect(
+            ensureHistoryBaselineForExternalMutation.mock.invocationCallOrder[0],
+        ).toBeLessThan(
+            platformMocks.replaceWorkingCopyFromPath.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+        );
         expect(waitForPdfReload).toHaveBeenCalledWith(7);
         expect(platformMocks.replaceWorkingCopyFromPath).toHaveBeenCalledWith(
             '/tmp/work.pdf',
@@ -533,6 +544,7 @@ describe('usePageSaveOrchestration', () => {
     it('releases the OCR apply document lease before waiting for the viewer reload to settle', async () => {
         const clearOcrCache = vi.fn();
         const resetSearchCache = vi.fn();
+        const ensureHistoryBaselineForExternalMutation = vi.fn(async () => true);
         const reloadWorkingCopyIntoHistory = vi.fn(async () => true);
         let resolveReload!: () => void;
         const waitForPdfReload = vi.fn(() => new Promise<void>((resolve) => {
@@ -580,6 +592,7 @@ describe('usePageSaveOrchestration', () => {
             consumePendingEmbeddedAnnotationDeletes: vi.fn(() => null),
             loadRecentFiles: vi.fn(),
             clearOcrCache,
+            ensureHistoryBaselineForExternalMutation,
             reloadWorkingCopyIntoHistory,
             currentPage: ref(7),
             waitForPdfReload,
@@ -669,6 +682,7 @@ describe('usePageSaveOrchestration', () => {
             consumePendingEmbeddedAnnotationDeletes: vi.fn(() => null),
             loadRecentFiles: vi.fn(),
             clearOcrCache: vi.fn(),
+            ensureHistoryBaselineForExternalMutation: vi.fn(async () => true),
             reloadWorkingCopyIntoHistory: vi.fn(async () => true),
             currentPage: ref(7),
             waitForPdfReload: vi.fn(async () => {}),
@@ -757,6 +771,7 @@ describe('usePageSaveOrchestration', () => {
             consumePendingEmbeddedAnnotationDeletes: vi.fn(() => null),
             loadRecentFiles: vi.fn(),
             clearOcrCache: vi.fn(),
+            ensureHistoryBaselineForExternalMutation: vi.fn(async () => true),
             reloadWorkingCopyIntoHistory: vi.fn(async () => true),
             currentPage: ref(7),
             waitForPdfReload: vi.fn(async () => {}),
@@ -812,6 +827,7 @@ describe('usePageSaveOrchestration', () => {
     });
 
     it('does not fall back to legacy OCR cleanup when cleanup acknowledgement is not required', async () => {
+        const ensureHistoryBaselineForExternalMutation = vi.fn(async () => true);
         const orchestration = usePageSaveOrchestration(cast({
             pdfData: ref(null),
             pdfDocument: shallowRef({ numPages: 12 } as PDFDocumentProxy),
@@ -848,6 +864,7 @@ describe('usePageSaveOrchestration', () => {
             consumePendingEmbeddedAnnotationDeletes: vi.fn(() => null),
             loadRecentFiles: vi.fn(),
             clearOcrCache: vi.fn(),
+            ensureHistoryBaselineForExternalMutation,
             reloadWorkingCopyIntoHistory: vi.fn(async () => true),
             currentPage: ref(7),
             waitForPdfReload: vi.fn(async () => {}),

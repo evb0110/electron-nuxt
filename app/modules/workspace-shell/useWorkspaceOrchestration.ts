@@ -536,6 +536,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             void loadRecentFiles();
         },
         clearOcrCache: (path) => clearOcrCache(path),
+        ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,
         currentPage,
         waitForPdfReload: (page) => waitForPdfReload(page),
