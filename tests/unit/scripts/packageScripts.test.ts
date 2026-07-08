@@ -280,6 +280,7 @@ describe('package scripts', () => {
             'pnpm run check:build-artifacts:hygiene',
         ]);
         expect(scripts['test:bundle-integrity:no-build']).toBe('vitest run --project bundle-integrity');
+        expect(scripts['release:artifacts']).toBe('HUSKY=0 node scripts/release/build-artifacts.mjs');
         expect(scripts['db:generate']).toBe('pnpm --dir landing exec drizzle-kit generate --config ../drizzle.config.ts');
         expect(scripts['db:migrate']).toBe('pnpm --dir landing exec drizzle-kit migrate --config ../drizzle.config.ts');
         expect(scripts['db:check']).toBe('pnpm --dir landing exec drizzle-kit check --config ../drizzle.config.ts');

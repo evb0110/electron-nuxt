@@ -1,0 +1,186 @@
+name: Build Release Artifacts
+run-name: Build Release Artifacts ${{ inputs.target_ref }}
+
+concurrency:
+  group: release-artifacts-${{ github.workflow }}-${{ inputs.target_ref || github.run_id }}
+  cancel-in-progress: false
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_ref:
+        description: Exact commit SHA or ref to validate and package without publishing a release.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  # Pin exact Node 24 patch level so artifact builds match release builds.
+  NODE_VERSION: '24.11.1'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  prepare:
+    name: Resolve Target
+    runs-on: ubuntu-latest
+    outputs:
+      target_sha: ${{ steps.validate.outputs.target_sha }}
+      version: ${{ steps.validate.outputs.version }}
+
+    steps:
+      - name: Resolve requested artifact build
+        id: target
+        shell: bash
+        env:
+          DISPATCH_TARGET_REF: ${{ inputs.target_ref }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$DISPATCH_TARGET_REF" ]; then
+            echo "::error::A target commit SHA or ref is required."
+            exit 1
+          fi
+
+          echo "target_ref=$DISPATCH_TARGET_REF" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout target
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.target.outputs.target_ref }}
+          fetch-depth: 0
+
+      - name: Validate target
+        id: validate
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          target_sha="$(git rev-parse HEAD)"
+          version="$(node -p "require('./package.json').version")"
+
+          echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  quality:
+    name: Shared Quality Gates
+    needs: prepare
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout target
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.target_sha }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+
+      - name: Install Rust WASM target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Release checks
+        env:
+          EVB_NATIVE_TOOLS_ALLOW_HOST_CI_GEN: '1'
+        run: pnpm run release:verify:checks
+
+  build_artifacts:
+    name: Package Release Artifacts
+    needs:
+      - prepare
+      - quality
+    uses: ./.github/workflows/build.yml
+    with:
+      ref: ${{ needs.prepare.outputs.target_sha }}
+    secrets: inherit
+
+  build_mac_intel:
+    name: Package Release Artifacts / build (macos-15-intel, mac, x64)
+    needs:
+      - prepare
+      - quality
+    uses: ./.github/workflows/build-mac-intel.yml
+    with:
+      ref: ${{ needs.prepare.outputs.target_sha }}
+    secrets: inherit
+
+  build_win7_legacy:
+    name: Package Release Artifacts / build (windows-2022, win7 legacy, x64)
+    needs:
+      - prepare
+      - quality
+    uses: ./.github/workflows/build-win7-legacy.yml
+    with:
+      ref: ${{ needs.prepare.outputs.target_sha }}
+    secrets: inherit
+
+  build_store:
+    name: Package Microsoft Store AppX
+    needs:
+      - prepare
+      - quality
+    uses: ./.github/workflows/store-appx.yml
+    with:
+      ref: ${{ needs.prepare.outputs.target_sha }}
+      submit: false
+    secrets: inherit
+
+  summarize:
+    name: Summarize Artifact Downloads
+    needs:
+      - prepare
+      - build_artifacts
+      - build_mac_intel
+      - build_win7_legacy
+      - build_store
+    if: ${{ always() && needs.prepare.result == 'success' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Write artifact summary
+        shell: bash
+        env:
+          ARTIFACTS_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts
+          BUILD_ARTIFACTS_RESULT: ${{ needs.build_artifacts.result }}
+          BUILD_MAC_INTEL_RESULT: ${{ needs.build_mac_intel.result }}
+          BUILD_WIN7_LEGACY_RESULT: ${{ needs.build_win7_legacy.result }}
+          BUILD_STORE_RESULT: ${{ needs.build_store.result }}
+          TARGET_SHA: ${{ needs.prepare.outputs.target_sha }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          WIN7_READY: ${{ needs.build_win7_legacy.outputs.artifact_ready }}
+        run: |
+          set -euo pipefail
+
+          {
+            echo "## Release artifact build"
+            echo
+            echo "- Version: \`$VERSION\`"
+            echo "- Commit: \`$TARGET_SHA\`"
+            echo "- Artifacts: $ARTIFACTS_URL"
+            echo
+            echo "### Expected artifact groups"
+            echo
+            echo "- \`dist-mac-arm64\` ($BUILD_ARTIFACTS_RESULT)"
+            echo "- \`dist-linux-x64\` ($BUILD_ARTIFACTS_RESULT)"
+            echo "- \`dist-linux-arm64\` ($BUILD_ARTIFACTS_RESULT)"
+            echo "- \`dist-win-x64\` ($BUILD_ARTIFACTS_RESULT)"
+            echo "- \`dist-win-arm64\` ($BUILD_ARTIFACTS_RESULT)"
+            echo "- \`supplemental-mac-x64\` ($BUILD_MAC_INTEL_RESULT)"
+            if [ "$WIN7_READY" = "true" ]; then
+              echo "- \`legacy-win7-x64\` ($BUILD_WIN7_LEGACY_RESULT)"
+            else
+              echo "- \`legacy-win7-x64\` ($BUILD_WIN7_LEGACY_RESULT, optional artifact not produced)"
+            fi
+            echo "- \`store-appx-win-x64\` ($BUILD_STORE_RESULT)"
+            echo "- \`store-appx-win-arm64\` ($BUILD_STORE_RESULT)"
+          } >> "$GITHUB_STEP_SUMMARY"

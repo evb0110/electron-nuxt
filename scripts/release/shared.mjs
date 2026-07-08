@@ -18,6 +18,8 @@ export const VALID_RELEASE_LEVELS = new Set([
     'major',
 ]);
 
+export const MAIN_APP_RELEASE_IGNORED_PATH_PREFIXES = Object.freeze(['landing']);
+
 export function parsePinnedNodeMajor(versionRange, context = 'Release') {
     const match = String(versionRange ?? '').trim().match(/^(\d+)\.x$/);
 
@@ -51,10 +53,6 @@ export function assertNodeProjectBaseline(context = 'Release') {
     const expectedMajor = parsePinnedNodeMajor(packageJson.engines?.node, context);
 
     assertNodeMajor(expectedMajor, context);
-}
-
-export function shouldSkipGitHubReleaseWait(env = process.env) {
-    return env.EVB_RELEASE_SKIP_GITHUB_WAIT === '1';
 }
 
 const TRANSIENT_GITHUB_AUTH_ERROR_PATTERNS = [
@@ -102,10 +100,9 @@ export async function assertGitHubCliReady(context = 'Release', {
             }
 
             throw new Error(
-                `${context} requires an authenticated GitHub CLI session so the release command `
-                + 'can dispatch the Release workflow. '
-                + 'Run `gh auth status` / `gh auth login`. '
-                + 'EVB_RELEASE_SKIP_GITHUB_WAIT=1 only skips polling after dispatch.',
+                `${context} requires an authenticated GitHub CLI session so this command `
+                + 'can dispatch the GitHub workflow. '
+                + 'Run `gh auth status` / `gh auth login`.',
             );
         }
     }
@@ -259,7 +256,7 @@ export function getHeadSha(ref = 'HEAD') {
     ]);
 }
 
-export function getUpstream() {
+export function getUpstream(context = 'Release') {
     try {
         const upstream = run('git', [
             'rev-parse',
@@ -279,7 +276,7 @@ export function getUpstream() {
         };
     } catch (error) {
         throw new Error(
-            `Release requires the current branch to track a remote branch (${errorMessage(error)})`,
+            `${context} requires the current branch to track a remote branch (${errorMessage(error)})`,
         );
     }
 }

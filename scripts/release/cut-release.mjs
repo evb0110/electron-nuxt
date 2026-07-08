@@ -1,5 +1,11 @@
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
+import { formatArtifactGroupList } from './artifact-groups.mjs';
+import {
+    getRepositoryUrlFromRunUrl,
+    getRunArtifactsUrl,
+    waitForWorkflowRunStart,
+} from './github-workflow-run.mjs';
 import {
     assertCleanWorktree,
     assertChangedFilesMatch,
@@ -9,17 +15,15 @@ import {
     bumpVersion,
     getHeadSha,
     getUpstream,
+    MAIN_APP_RELEASE_IGNORED_PATH_PREFIXES,
     readVersion,
     requireNamedBranch,
     restoreVersionIfChanged,
     run,
-    shouldSkipGitHubReleaseWait,
     stageFiles,
     VALID_RELEASE_LEVELS,
     writeVersion,
 } from './shared.mjs';
-
-const MAIN_APP_RELEASE_IGNORED_PATH_PREFIXES = ['landing'];
 
 export function parseCutReleaseArgs(argv) {
     const unknownFlags = argv.filter(arg => arg.startsWith('--') && arg !== '--resume');
@@ -62,6 +66,13 @@ export function parseCutReleaseArgs(argv) {
     };
 }
 
+function getReleaseWorkflowDisplayTitles(tag) {
+    return [
+        `Release ${tag}`,
+        `Release (${tag})`,
+    ];
+}
+
 export function getReleaseWorkflowDispatchArgs({
     branch,
     tag,
@@ -95,24 +106,43 @@ function dispatchReleaseWorkflow({
     }
 }
 
-function maybeWaitForRelease({
+function getReleaseUrl({
+    runUrl,
+    tag,
+}) {
+    const repositoryUrl = getRepositoryUrlFromRunUrl(runUrl);
+
+    if (!repositoryUrl) {
+        return '';
+    }
+
+    return `${repositoryUrl}/releases/tag/${encodeURIComponent(tag)}`;
+}
+
+async function printReleaseWorkflowHandoff({
     dispatchStartedAt,
     tag,
     targetSha,
 }) {
-    if (shouldSkipGitHubReleaseWait()) {
-        process.stdout.write(
-            `Release ${tag} queued for commit ${targetSha}. GitHub will rerun release checks, build, and publish it from the dispatched Release workflow.\n`,
-        );
-        return;
-    }
-
-    run('node', [
-        'scripts/release/wait-for-github-release.mjs',
-        tag,
+    const runInfo = await waitForWorkflowRunStart({
+        createdAfter: dispatchStartedAt,
+        displayTitles: getReleaseWorkflowDisplayTitles(tag),
+        label: `Release workflow for ${tag}`,
         targetSha,
-        dispatchStartedAt,
-    ], {stdio: 'inherit'});
+        workflow: 'Release',
+    });
+    const releaseUrl = getReleaseUrl({
+        runUrl: runInfo.url,
+        tag,
+    });
+
+    process.stdout.write(`Release ${tag} queued for commit ${targetSha}.\n`);
+    process.stdout.write(`GitHub Actions run: ${runInfo.url}\n`);
+    process.stdout.write(`Actions artifacts, as they upload: ${getRunArtifactsUrl(runInfo.url)}\n`);
+    if (releaseUrl) {
+        process.stdout.write(`GitHub Release, after publish: ${releaseUrl}\n`);
+    }
+    process.stdout.write(`Expected artifact groups: ${formatArtifactGroupList()}\n`);
 }
 
 async function resumeRelease() {
@@ -137,7 +167,7 @@ async function resumeRelease() {
         tag,
         targetSha,
     });
-    maybeWaitForRelease({
+    await printReleaseWorkflowHandoff({
         dispatchStartedAt,
         tag,
         targetSha,
@@ -197,7 +227,7 @@ async function cutRelease(level) {
             tag,
             targetSha,
         });
-        maybeWaitForRelease({
+        await printReleaseWorkflowHandoff({
             dispatchStartedAt,
             tag,
             targetSha,
