@@ -89,10 +89,9 @@ export async function tryPreprocessOcrImage(
         await runOcrCommand(unpaperBinary, [
             '--layout',
             'single',
-            '--deskew',
-            '--cleanup',
+            '--deskew-scan-direction',
+            'left,right',
             '--no-mask-center',
-            '--despeckle',
             inputPath,
             outputPath,
         ], {

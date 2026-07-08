@@ -53,10 +53,9 @@ describe('tryPreprocessOcrImage', () => {
             [
                 '--layout',
                 'single',
-                '--deskew',
-                '--cleanup',
+                '--deskew-scan-direction',
+                'left,right',
                 '--no-mask-center',
-                '--despeckle',
                 '/tmp/raw.png',
                 '/tmp/clean.png',
             ],

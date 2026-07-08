@@ -276,6 +276,52 @@ describe('ocr job manager preparing-stage robustness', () => {
         expect(mocks.ensureTessdataLanguages).not.toHaveBeenCalled();
     });
 
+    it('admits all-page OCR jobs using bounded resident work accounting', async () => {
+        const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
+        const pages = Array.from({length: 2_136}, (_value, index) => ({
+            pageNumber: index + 1,
+            languages: [
+                'kmr',
+                'tur',
+            ],
+        }));
+
+        const result = await handleOcrCreateSearchablePdfAsync(
+            createContext(24),
+            '/tmp/work-dictionary.pdf',
+            pages,
+            'job-dictionary',
+            {
+                qualityProfile: 'accurate',
+                preprocessingMode: 'clean',
+            },
+        );
+
+        expect(result).toMatchObject({
+            started: true,
+            jobId: 'job-dictionary',
+        });
+        expect(mocks.ensureTessdataLanguages).toHaveBeenCalledWith(
+            [
+                'kmr',
+                'tur',
+            ],
+            expect.any(Object),
+        );
+        expect(mocks.workerInstances).toHaveLength(1);
+        expect(mocks.workerInstances[0]?.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+            type: 'start',
+            jobId: 'job-dictionary',
+            data: expect.objectContaining({
+                pages,
+                options: {
+                    qualityProfile: 'accurate',
+                    preprocessingMode: 'clean',
+                },
+            }),
+        }));
+    });
+
     it('aborts preparing jobs on cancel and frees the slot for a later job', async () => {
         const firstContext = createContext(33);
 

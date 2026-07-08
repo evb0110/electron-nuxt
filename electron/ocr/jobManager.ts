@@ -67,6 +67,7 @@ import { OCR_EVENT_CHANNELS } from '@electron/features/ocr/contract';
 import { getErrorMessage } from '@electron/utils/error';
 import { getWorkingCopyRevision } from '@electron/file-access/documentRevisionStore';
 import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
+import { getOcrConcurrency } from '@electron/utils/concurrency';
 
 const log = createLogger('ocr-ipc');
 
@@ -282,10 +283,16 @@ function estimateRequestWork(
     const renderDpi = options.renderDpi ?? 300;
     const perPageBytes = estimateRenderedBytesForPage(renderDpi);
     const baselinePageBytes = estimateRenderedBytesForPage(300);
-    const pageWork = pages.length * Math.max(1, Math.ceil(perPageBytes / baselinePageBytes));
+    const pageWeight = Math.max(1, Math.ceil(perPageBytes / baselinePageBytes));
+    const peakRenderedPageCount = getOcrConcurrency(pages.length);
+    const totalPageWork = pages.length * pageWeight;
     return {
-        bytes: pages.length * perPageBytes,
-        pageWork,
+        bytes: peakRenderedPageCount * perPageBytes,
+        pageWork: Math.min(
+            totalPageWork,
+            OCR_QUEUE_MAX_DOCUMENT_PAGE_WORK,
+            OCR_QUEUE_MAX_GLOBAL_PAGE_WORK,
+        ),
     };
 }
 
