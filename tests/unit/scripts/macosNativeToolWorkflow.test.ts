@@ -288,11 +288,15 @@ describe('macOS native tool workflow', () => {
         expect(afterPack).toContain('Optional page-processing resources not found');
         expect(afterPack).toContain('verbatimSymlinks: true');
         expect(afterSign).toContain('path.join(nativeToolsDir, \'page-processing\')');
-        expect(afterSign).toContain('const PYINSTALLER_ENTITLEMENTS');
+        expect(afterSign).toContain('const HARDENED_RUNTIME_ENTITLEMENTS');
         expect(afterSign).toContain('filePath.endsWith(\'.so\')');
-        expect(afterSign).toContain('function isPageProcessorExecutable(filePath)');
+        // Every re-signed Mach-O executable (native tools + Electron/Squirrel helpers)
+        // must get the hardened runtime, or notarization rejects the bundle. Shared
+        // libraries are excluded via isMacSharedLibrary.
+        expect(afterSign).toContain('function signOptionsForCodeFile(filePath, identity)');
+        expect(afterSign).toContain('signTarget(filePath, identity, signOptionsForCodeFile(filePath, identity))');
         expect(afterSign).toContain('directoryPath.endsWith(\'.framework\')');
-        expect(afterSign).toContain('entitlements: PYINSTALLER_ENTITLEMENTS');
+        expect(afterSign).toContain('entitlements: HARDENED_RUNTIME_ENTITLEMENTS');
         expect(afterSign).toContain('runtime: true');
         expect(sourceMatrix).not.toContain('page_processor_required_for_tag()');
         expect(sourceMatrix).not.toContain('&& [ -f "scripts/bundle-page-processor-macos.sh" ]');
