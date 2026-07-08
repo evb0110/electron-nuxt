@@ -176,7 +176,7 @@ function buildTextStatus(tab: IAgentTabSnapshot, index: Awaited<ReturnType<typeo
 }
 
 function createTextRecommendations(textStatus: ReturnType<typeof buildTextStatus>) {
-    if (textStatus.status === 'complete') {
+    if (textStatus.status === 'complete' || textStatus.status === 'unknown') {
         return [];
     }
 
@@ -191,12 +191,7 @@ function createTextRecommendations(textStatus: ReturnType<typeof buildTextStatus
         }];
     }
 
-    return [{
-        id: 'ocr_all_pages',
-        title: 'OCR all pages',
-        reason: 'If important pages have no searchable text, OCR all pages before deeper agent analysis.',
-        toolName: 'ocr.start',
-    }];
+    return [];
 }
 
 export async function inspectAgentDocumentText(
@@ -375,7 +370,7 @@ function buildRequestedPagesTextStatus(
         coverageScope: 'requested-pages',
         inspectedPages: pages.map(page => page.pageNumber),
         globalCoverageKnown: false,
-        recommendation: 'This is a bounded page probe. Use document.inspect_text only when full-document coverage is worth the cost.',
+        recommendation: 'This is a bounded page probe. Treat it as local evidence, not full-document OCR coverage.',
         tabTotalPages: tab.totalPages ?? null,
     };
 }
@@ -408,9 +403,12 @@ export async function readAgentDocumentPages(
         page.pageNumber,
         page.text,
     ]));
-    const pagesMissingFromIndex = uniquePages.filter(pageNumber => !indexedPageTextByNumber.has(pageNumber));
-    const directPageProbe = pagesMissingFromIndex.length > 0
-        ? await extractSelectedPdfPageTextWithFallback(resolvedPdfPath, pagesMissingFromIndex, pageCount)
+    const pagesNeedingDirectProbe = uniquePages.filter((pageNumber) => {
+        const cachedText = indexedPageTextByNumber.get(pageNumber);
+        return cachedText === undefined || cachedText.trim().length === 0;
+    });
+    const directPageProbe = pagesNeedingDirectProbe.length > 0
+        ? await extractSelectedPdfPageTextWithFallback(resolvedPdfPath, pagesNeedingDirectProbe, pageCount)
         : null;
     const directPageTextByNumber = new Map((directPageProbe?.pages ?? []).map(page => [
         page.pageNumber,
@@ -418,15 +416,19 @@ export async function readAgentDocumentPages(
     ]));
     const sourceByPageNumber = new Map<number, TAgentPageTextSource>();
     for (const pageNumber of uniquePages) {
-        if (indexedPageTextByNumber.has(pageNumber)) {
-            sourceByPageNumber.set(pageNumber, 'search-index');
-        } else if (directPageTextByNumber.has(pageNumber) && directPageProbe) {
+        const indexedText = indexedPageTextByNumber.get(pageNumber);
+        const directText = directPageTextByNumber.get(pageNumber);
+        if (directPageProbe && directText !== undefined && (indexedText === undefined || indexedText.trim().length === 0)) {
             sourceByPageNumber.set(pageNumber, directPageProbe.source);
+        } else if (indexedText !== undefined) {
+            sourceByPageNumber.set(pageNumber, 'search-index');
         }
     }
     const pageTexts = uniquePages.map(pageNumber => ({
         pageNumber,
-        text: indexedPageTextByNumber.get(pageNumber) ?? directPageTextByNumber.get(pageNumber) ?? '',
+        text: directPageTextByNumber.get(pageNumber)?.trim().length
+            ? directPageTextByNumber.get(pageNumber) ?? ''
+            : indexedPageTextByNumber.get(pageNumber) ?? directPageTextByNumber.get(pageNumber) ?? '',
     }));
     const pages = pageTexts.map(page => buildPageTextResponse(
         page.pageNumber,
@@ -445,8 +447,7 @@ export async function readAgentDocumentPages(
         source: directPageProbe === null ? 'search-index' : directPageProbe.source,
         usedCachedSearchIndex: index !== null,
         pages,
-        textStatus: index
-            ? buildTextStatus(input.tab, index)
-            : buildRequestedPagesTextStatus(input.tab, pageCount, pageTexts),
+        textStatus: buildRequestedPagesTextStatus(input.tab, pageCount, pageTexts),
+        ...(index === null ? {} : {globalTextStatus: buildTextStatus(input.tab, index)}),
     };
 }

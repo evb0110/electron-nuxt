@@ -6,6 +6,7 @@ import {
 } from 'fs';
 import { tmpdir } from 'os';
 import {
+    basename,
     dirname,
     join,
 } from 'path';
@@ -165,6 +166,7 @@ describe('assistant chat session store persistence', () => {
             persistence,
             maxEntries: 10,
         });
+        const now = Date.now();
 
         for (const index of [
             1,
@@ -176,11 +178,11 @@ describe('assistant chat session store persistence', () => {
                 key: `document:/tmp/${index}.pdf`,
                 title: `${index}.pdf`,
             }, selection, { create: true });
-            session.lastAccessedAtMs = index;
             store.addMessage(session, {
                 role: 'user',
                 text: `message-${index}`,
             });
+            session.lastAccessedAtMs = now + index;
             store.recordSessionSnapshot(session);
         }
         await store.flushPersistenceForTests();
@@ -233,6 +235,32 @@ describe('assistant chat session store persistence', () => {
         const transcriptPath = persistence.sessionPath(store.keyForSession(session));
         expect(dirname(transcriptPath)).toBe(join(rootDir, 'sessions'));
         expect(transcriptPath.endsWith('.jsonl')).toBe(true);
+    });
+
+    it('keeps transcript filenames bounded for long document session keys', async () => {
+        const rootDir = createTempRoot();
+        const persistence = createPersistence(rootDir);
+        const store = createAssistantChatSessionStore({ persistence });
+        const longScope = {
+            ...scope,
+            key: `document:/tmp/${'deep-path-segment/'.repeat(80)}large.pdf`,
+            title: 'large.pdf',
+            documentRef: `/tmp/${'deep-path-segment/'.repeat(80)}large.pdf`,
+        } satisfies IAgentAssistantChatScope;
+        const session = store.getSession(longScope, selection, { create: true });
+
+        store.addMessage(session, {
+            role: 'user',
+            text: 'long key',
+        });
+        await store.flushPersistenceForTests();
+
+        const transcriptPath = persistence.sessionPath(store.keyForSession(session));
+        expect(basename(transcriptPath)).toMatch(/^v2-[a-f0-9]{64}\.jsonl$/u);
+        expect(basename(transcriptPath).length).toBeLessThan(80);
+
+        const recoveredStore = createAssistantChatSessionStore({persistence: createPersistence(rootDir)});
+        expect(recoveredStore.getMessages(longScope, selection).map(message => message.text)).toEqual(['long key']);
     });
 
     it('exposes a production persistence flush that drains queued snapshots', async () => {

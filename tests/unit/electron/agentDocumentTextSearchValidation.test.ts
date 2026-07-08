@@ -184,4 +184,126 @@ describe('agent document search validation', () => {
             },
         });
     });
+
+    it('direct-probes cached blank pages and reports requested-page coverage', async () => {
+        const { readAgentDocumentPages } = await import('@electron/features/agent/documentText');
+        mocks.loadSearchIndex.mockResolvedValue({
+            pageCount: 2136,
+            pages: [
+                {
+                    pageNumber: 1,
+                    text: '',
+                },
+                {
+                    pageNumber: 3,
+                    text: '',
+                },
+                {
+                    pageNumber: 5,
+                    text: '',
+                },
+                {
+                    pageNumber: 25,
+                    text: 'cached dictionary text',
+                },
+            ],
+        });
+        mocks.extractTextWithPdfjs.mockResolvedValue([
+            {
+                pageNumber: 1,
+                text: '',
+            },
+            {
+                pageNumber: 3,
+                text: 'title page text',
+            },
+            {
+                pageNumber: 5,
+                text: 'front matter text',
+            },
+        ]);
+
+        const result = await readAgentDocumentPages(
+            createWindow() as never,
+            {
+                tab: {
+                    ...pdfTab,
+                    totalPages: 2136,
+                },
+                options: {pages: [
+                    1,
+                    3,
+                    5,
+                    25,
+                ]},
+            },
+        );
+
+        expect(mocks.extractTextWithPdfjs).toHaveBeenCalledWith('/tmp/Grammar.pdf', {pages: [
+            1,
+            3,
+            5,
+        ]});
+        expect(result).toMatchObject({
+            usedCachedSearchIndex: true,
+            pages: [
+                {
+                    page: 1,
+                    source: 'direct-pdfjs',
+                    hasText: false,
+                },
+                {
+                    page: 3,
+                    source: 'direct-pdfjs',
+                    hasText: true,
+                    text: 'title page text',
+                },
+                {
+                    page: 5,
+                    source: 'direct-pdfjs',
+                    hasText: true,
+                    text: 'front matter text',
+                },
+                {
+                    page: 25,
+                    source: 'search-index',
+                    hasText: true,
+                    text: 'cached dictionary text',
+                },
+            ],
+            textStatus: {
+                status: 'partial',
+                coverageScope: 'requested-pages',
+                globalCoverageKnown: false,
+                inspectedPages: [
+                    1,
+                    3,
+                    5,
+                    25,
+                ],
+                coverage: 0.75,
+                missingTextPages: [1],
+            },
+            globalTextStatus: {
+                status: 'partial',
+                pageCount: 2136,
+            },
+        });
+    });
+
+    it('does not recommend OCR from unknown text coverage alone', async () => {
+        const { inspectAgentDocumentText } = await import('@electron/features/agent/documentText');
+        mocks.loadSearchIndex.mockResolvedValue(null);
+
+        const result = await inspectAgentDocumentText(
+            createWindow() as never,
+            {
+                tab: pdfTab,
+                options: {},
+            },
+        );
+
+        expect(result.textStatus.status).toBe('unknown');
+        expect(result.recommendations).toEqual([]);
+    });
 });

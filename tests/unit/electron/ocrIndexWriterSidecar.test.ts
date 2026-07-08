@@ -25,7 +25,7 @@ const DOCUMENT_REVISION = 'revision-token';
 
 const mocks = vi.hoisted(() => ({assertWorkingCopyRevisionCurrent: vi.fn()}));
 
-vi.mock('@electron/file-access/documentRevisionStore', () => ({assertWorkingCopyRevisionCurrent: mocks.assertWorkingCopyRevisionCurrent}));
+vi.mock('@electron/file-access/documentRevisionSidecar', () => ({assertWorkingCopyRevisionSidecarCurrent: mocks.assertWorkingCopyRevisionCurrent}));
 
 function makeDocumentRevision(documentRef: string) {
     return {

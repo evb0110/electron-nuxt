@@ -39,7 +39,7 @@ vi.mock('@electron/search/searchIndexSidecar', () => ({
     loadCompactSearchIndex: mocks.loadCompactSearchIndex,
     persistCompactSearchIndex: mocks.persistCompactSearchIndex,
 }));
-vi.mock('@electron/file-access/documentRevisionStore', () => ({assertWorkingCopyRevisionCurrent: mocks.assertWorkingCopyRevisionCurrent}));
+vi.mock('@electron/file-access/documentRevisionSidecar', () => ({assertWorkingCopyRevisionSidecarCurrent: mocks.assertWorkingCopyRevisionCurrent}));
 
 const {
     resolveSafeOcrIndexBasePath,

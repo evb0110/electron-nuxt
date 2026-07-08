@@ -142,6 +142,12 @@ function isEvictableChatSession(session: IAssistantChatSession) {
     return !isAssistantTurnActive(session.turnOwner);
 }
 
+function normalizeRecoveredLastAccessedAt(value: number, now = Date.now()) {
+    return Number.isFinite(value)
+        ? Math.min(value, now)
+        : now;
+}
+
 export function createAssistantChatSessionStore(options: IAssistantChatSessionStoreOptions = {}) {
     const maxEntries = options.maxEntries ?? readAssistantChatSessionMaxEntries();
     const ttlMs = options.ttlMs ?? readAssistantChatSessionTtlMs();
@@ -166,7 +172,7 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
             sendInFlight: null,
             scopeBinding: recovered.session.scopeBinding,
             messages: recovered.session.messages,
-            lastAccessedAtMs: recovered.session.lastAccessedAtMs,
+            lastAccessedAtMs: normalizeRecoveredLastAccessedAt(recovered.session.lastAccessedAtMs),
             claudeSession: undefined,
             ...(recovered.session.lastError === undefined ? {} : { lastError: recovered.session.lastError }),
         });
@@ -263,7 +269,7 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
 
         const evictableSessions = [...chatSessions.entries()]
             .filter((entry) => isEvictableChatSession(entry[1]))
-            .sort((left, right) => left[1].lastAccessedAtMs - right[1].lastAccessedAtMs);
+            .sort((left, right) => Math.min(left[1].lastAccessedAtMs, now) - Math.min(right[1].lastAccessedAtMs, now));
         const overflowCount = chatSessions.size - maxEntries;
         for (let index = 0; index < overflowCount; index += 1) {
             const entry = evictableSessions[index];

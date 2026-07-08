@@ -42,7 +42,7 @@ import {
     abortErrorFromSignal,
     isAbortError,
 } from '@electron/utils/abort';
-import { assertWorkingCopyRevisionCurrent } from '@electron/file-access/documentRevisionStore';
+import { assertWorkingCopyRevisionSidecarCurrent as assertWorkingCopyRevisionCurrent } from '@electron/file-access/documentRevisionSidecar';
 
 function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) {

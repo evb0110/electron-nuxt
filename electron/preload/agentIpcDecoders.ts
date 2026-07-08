@@ -23,6 +23,7 @@ const AGENT_ASSISTANT_EVENT_TYPES = [
     'message',
     'message-delta',
     'turn-started',
+    'turn-progress',
     'turn-completed',
     'install-progress',
     'error',

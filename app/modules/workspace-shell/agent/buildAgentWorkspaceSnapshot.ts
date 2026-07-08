@@ -148,17 +148,12 @@ function buildDocumentReadiness(
         const pageCount = Math.max(0, Math.floor(toolbarSnapshot?.totalPages ?? 0));
         return {
             status: 'unknown',
-            reasons: ['Page-level OCR coverage is not exposed to agents yet.'],
+            reasons: ['Searchable text coverage has not been inspected yet.'],
             ocr: {
                 status: 'unknown',
                 pageCount,
             },
-            recommendations: [{
-                id: 'ocr_all_pages',
-                title: 'OCR all pages',
-                reason: 'If any pages lack a searchable text layer, OCRing all pages gives the agent consistent text access.',
-                toolName: 'ocr.start',
-            }],
+            recommendations: [],
         };
     }
 

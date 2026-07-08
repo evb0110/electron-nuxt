@@ -1,4 +1,7 @@
-import { randomBytes } from 'node:crypto';
+import {
+    createHash,
+    randomBytes,
+} from 'node:crypto';
 import {
     closeSync,
     constants as fsConstants,
@@ -49,6 +52,7 @@ const ASSISTANT_CHAT_PERSISTENCE_SCHEMA_VERSION = 1;
 const ASSISTANT_CHAT_STORAGE_DIR = 'assistant-chat';
 const ASSISTANT_CHAT_SESSION_DIR = 'sessions';
 const ASSISTANT_CHAT_ARCHIVE_DIR = 'archive';
+const ASSISTANT_CHAT_SESSION_FILE_PREFIX = 'v2-';
 const DEFAULT_ASSISTANT_CHAT_MAX_SESSION_BYTES = 2 * 1024 * 1024;
 const DEFAULT_ASSISTANT_CHAT_MAX_SESSIONS = 64;
 const ASSISTANT_CHAT_INTERRUPTED_ERROR = 'Assistant turn interrupted because EVB Viewer closed before it completed.';
@@ -107,6 +111,11 @@ export interface IRecoveredAssistantChatSession {
     sizeBytes: number;
 }
 
+interface IRecoveredAssistantChatSessionFile {
+    key: string;
+    session: IPersistedAssistantChatSession;
+}
+
 export interface IAssistantChatPersistenceOptions {
     rootDir?: string;
     maxSessionBytes?: number;
@@ -146,11 +155,15 @@ function getDefaultAssistantChatPersistenceRoot() {
 }
 
 function createPersistenceSessionFileName(sessionKey: string) {
-    return `${Buffer.from(sessionKey, 'utf8').toString('base64url')}.jsonl`;
+    const digest = createHash('sha256').update(sessionKey).digest('hex');
+    return `${ASSISTANT_CHAT_SESSION_FILE_PREFIX}${digest}.jsonl`;
 }
 
 function decodePersistenceSessionFileName(fileName: string) {
     if (!fileName.endsWith('.jsonl')) {
+        return null;
+    }
+    if (fileName.startsWith(ASSISTANT_CHAT_SESSION_FILE_PREFIX)) {
         return null;
     }
 
@@ -387,6 +400,8 @@ export class AssistantChatPersistence {
     private readonly now: () => number;
     private readonly onError: (message: string, error: unknown) => void;
     private readonly queues = new Map<string, Promise<void>>();
+    private writeQueue: Promise<void> = Promise.resolve();
+    private maintenanceQueue: Promise<void> = Promise.resolve();
 
     constructor(options: IAssistantChatPersistenceOptions = {}) {
         this.rootDir = options.rootDir ?? getDefaultAssistantChatPersistenceRoot();
@@ -419,41 +434,23 @@ export class AssistantChatPersistence {
                 continue;
             }
             const key = decodePersistenceSessionFileName(entry.name);
-            if (!key) {
+            if (key === null && !entry.name.endsWith('.jsonl')) {
                 continue;
             }
             const filePath = join(this.sessionsDir, entry.name);
-            let lastSession: IPersistedAssistantChatSession | null = null;
-            let resetAfterSnapshot = false;
             try {
-                for (const rawLine of readFileSync(filePath, 'utf8').split(/\r?\n/u)) {
-                    const line = rawLine.trim();
-                    if (!line) {
-                        continue;
-                    }
-                    const record = parsePersistedRecord(line);
-                    if (!record || record.key !== key) {
-                        continue;
-                    }
-                    if (record.type === 'session-reset') {
-                        lastSession = null;
-                        resetAfterSnapshot = true;
-                        continue;
-                    }
-                    lastSession = record.session;
-                    resetAfterSnapshot = false;
-                }
-                if (!lastSession || resetAfterSnapshot) {
+                const recoveredFile = this.recoverSessionFile(filePath, key ?? undefined);
+                if (!recoveredFile) {
                     continue;
                 }
                 recovered.push({
-                    key,
-                    session: interruptRecoveredSession(lastSession),
+                    key: recoveredFile.key,
+                    session: interruptRecoveredSession(recoveredFile.session),
                     filePath,
                     sizeBytes: statSync(filePath).size,
                 });
             } catch (error) {
-                this.onError(`Failed to recover assistant chat session "${key}"`, error);
+                this.onError(`Failed to recover assistant chat session "${key ?? entry.name}"`, error);
             }
         }
         this.pruneRecoveredSessionsSync(recovered);
@@ -464,9 +461,11 @@ export class AssistantChatPersistence {
         const record = createSnapshotRecord(key, session);
         this.enqueue(key, async () => {
             await this.appendRecord(key, record);
-            await this.writeIndex();
-            await this.compactOversizedSession(key);
-            await this.pruneSessions();
+            await this.runMaintenance(async () => {
+                await this.compactOversizedSession(key);
+                await this.pruneSessions();
+                await this.writeIndex();
+            });
         });
     }
 
@@ -489,7 +488,7 @@ export class AssistantChatPersistence {
             );
             await rename(sourcePath, archivedPath);
             await fsyncParentDirectory(sourcePath);
-            await this.writeIndex();
+            await this.runMaintenance(() => this.writeIndex());
         });
     }
 
@@ -497,31 +496,59 @@ export class AssistantChatPersistence {
     removeSession(key: string): void {
         this.enqueue(key, async () => {
             await rm(this.sessionPath(key), { force: true });
-            await this.writeIndex();
+            await this.runMaintenance(() => this.writeIndex());
         });
     }
 
     // fallow-ignore-next-line unused-class-member
     flushForTests(): Promise<unknown[]> {
-        return Promise.all([...this.queues.values()]);
+        return this.flushUntilIdle();
     }
 
     // fallow-ignore-next-line unused-class-member
     flush(): Promise<unknown[]> {
-        return Promise.all([...this.queues.values()]);
+        return this.flushUntilIdle();
     }
 
     private enqueue(key: string, task: () => Promise<void>): void {
-        const previous = this.queues.get(key) ?? Promise.resolve();
+        const previous = this.writeQueue;
         const next = previous.catch(() => undefined).then(task).catch((error: unknown) => {
             this.onError(`Failed to persist assistant chat session "${key}"`, error);
         });
+        this.writeQueue = next.catch(() => undefined);
         this.queues.set(key, next);
         void next.finally(() => {
             if (this.queues.get(key) === next) {
                 this.queues.delete(key);
             }
         });
+    }
+
+    private async runMaintenance(task: () => Promise<void>) {
+        const next = this.maintenanceQueue.catch(() => undefined).then(task);
+        this.maintenanceQueue = next.catch(() => undefined);
+        await next;
+    }
+
+    private async flushUntilIdle() {
+        const results: unknown[] = [];
+        for (;;) {
+            const pending = [
+                ...this.queues.values(),
+                this.writeQueue,
+                this.maintenanceQueue,
+            ];
+            await Promise.all(pending).then(values => {
+                results.push(...values);
+            });
+            if (this.queues.size === 0) {
+                await this.writeQueue;
+                await this.maintenanceQueue;
+                if (this.queues.size === 0) {
+                    return results;
+                }
+            }
+        }
     }
 
     private async appendRecord(key: string, record: TPersistedAssistantChatRecord) {
@@ -548,15 +575,16 @@ export class AssistantChatPersistence {
             return;
         }
 
-        const recovered = this.recoverSessionFile(key, filePath);
+        const recovered = this.recoverSessionFile(filePath, key);
         if (!recovered) {
             await rm(filePath, { force: true });
             return;
         }
-        await atomicWriteJsonLineFile(filePath, createPersistedSnapshotRecord(key, recovered));
+        await atomicWriteJsonLineFile(filePath, createPersistedSnapshotRecord(key, recovered.session));
     }
 
-    private recoverSessionFile(key: string, filePath: string) {
+    private recoverSessionFile(filePath: string, expectedKey?: string): IRecoveredAssistantChatSessionFile | null {
+        let key: string | null = null;
         let lastSession: IPersistedAssistantChatSession | null = null;
         for (const rawLine of readFileSync(filePath, 'utf8').split(/\r?\n/u)) {
             const line = rawLine.trim();
@@ -564,14 +592,23 @@ export class AssistantChatPersistence {
                 continue;
             }
             const record = parsePersistedRecord(line);
-            if (record?.type === 'session-snapshot' && record.key === key) {
+            if (!record || expectedKey !== undefined && record.key !== expectedKey) {
+                continue;
+            }
+            key = record.key;
+            if (record.type === 'session-snapshot') {
                 lastSession = record.session;
             }
-            if (record?.type === 'session-reset' && record.key === key) {
+            if (record.type === 'session-reset') {
                 lastSession = null;
             }
         }
-        return lastSession;
+        return key && lastSession
+            ? {
+                key,
+                session: lastSession,
+            }
+            : null;
     }
 
     private async pruneSessions() {
@@ -615,19 +652,19 @@ export class AssistantChatPersistence {
                 continue;
             }
             const key = decodePersistenceSessionFileName(entry.name);
-            if (!key) {
+            if (key === null && !entry.name.endsWith('.jsonl')) {
                 continue;
             }
             const filePath = join(this.sessionsDir, entry.name);
-            const recovered = this.recoverSessionFile(key, filePath);
+            const recovered = this.recoverSessionFile(filePath, key ?? undefined);
             const fileStat = await stat(filePath).catch(() => null);
             if (!recovered || !fileStat) {
                 continue;
             }
             entries.push({
                 filePath,
-                key,
-                lastAccessedAtMs: recovered.lastAccessedAtMs,
+                key: recovered.key,
+                lastAccessedAtMs: recovered.session.lastAccessedAtMs,
                 sizeBytes: fileStat.size,
             });
         }
@@ -658,18 +695,18 @@ export class AssistantChatPersistence {
                 continue;
             }
             const key = decodePersistenceSessionFileName(entry.name);
-            if (!key) {
+            if (key === null && !entry.name.endsWith('.jsonl')) {
                 continue;
             }
             const filePath = join(this.sessionsDir, entry.name);
-            const recovered = this.recoverSessionFile(key, filePath);
+            const recovered = this.recoverSessionFile(filePath, key ?? undefined);
             if (!recovered) {
                 continue;
             }
             sessions.push({
-                key,
+                key: recovered.key,
                 file: entry.name,
-                lastAccessedAtMs: recovered.lastAccessedAtMs,
+                lastAccessedAtMs: recovered.session.lastAccessedAtMs,
                 sizeBytes: statSync(filePath).size,
             });
         }

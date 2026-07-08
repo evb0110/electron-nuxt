@@ -429,7 +429,7 @@ describe('buildAgentWorkspaceSnapshot', () => {
         expect(pdfTab?.documentSessionKey).toBe('document-session-key-pdf');
         expect(pdfTab?.currentPage).toBe(12);
         expect(pdfTab?.readiness.ocr?.status).toBe('unknown');
-        expect(pdfTab?.readiness.recommendations.map(item => item.id)).toEqual(['ocr_all_pages']);
+        expect(pdfTab?.readiness.recommendations.map(item => item.id)).toEqual([]);
 
         const djvuTab = snapshot.tabs.find(tab => tab.tabId === 'tab-djvu');
         expect(djvuTab?.kind).toBe('djvu');

@@ -473,12 +473,20 @@ describe('createElectronApi', () => {
             messageId: ' message-1 ',
             delta: 'hello',
         });
+        listener({}, {
+            type: 'turn-progress',
+            progress: 'Still working',
+        });
 
-        expect(callback).toHaveBeenCalledOnce();
-        expect(callback).toHaveBeenCalledWith({
+        expect(callback).toHaveBeenCalledTimes(2);
+        expect(callback).toHaveBeenNthCalledWith(1, {
             type: 'message-delta',
             messageId: 'message-1',
             delta: 'hello',
+        });
+        expect(callback).toHaveBeenNthCalledWith(2, {
+            type: 'turn-progress',
+            progress: 'Still working',
         });
         expect(warningSpy).toHaveBeenCalledWith(
             `Dropped invalid decoded IPC event payload for ${AGENT_EVENT_CHANNELS.assistantEvent}`,

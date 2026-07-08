@@ -85,7 +85,7 @@ const BUNDLE_CHECKS: IBundleCheck[] = [
 let latestSourceMtimeMs = 0;
 
 const ELECTRON_FREE_WORKER_BUNDLE_FILES = new Set(WORKER_BUNDLES
-    .filter(bundle => bundle.id === 'search' || bundle.id === 'djvu-pdf')
+    .filter(bundle => bundle.id === 'search' || bundle.id === 'djvu-pdf' || bundle.id === 'ocr')
     .map(bundle => bundle.fileName));
 const STATIC_ELECTRON_IMPORT_PATTERN = /\bimport\s*(?:\{[^}]*\}|\*\s*as\s+\w+|[\w$]+(?:\s*,\s*(?:\{[^}]*\}|\*\s*as\s+\w+))?)\s*from\s*["']electron["']|\bimport\s*["']electron["']/;
 const CJS_ELECTRON_REQUIRE_PATTERN = /\brequire\(\s*["']electron["']\s*\)/;
