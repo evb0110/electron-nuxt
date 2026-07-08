@@ -140,6 +140,60 @@ describe('extractTextWithPdfjs cancellation', () => {
         expect(mocks.docDestroy).toHaveBeenCalledOnce();
     });
 
+    it('extracts only requested pdfjs pages', async () => {
+        const { extractTextWithPdfjs } = await import('@electron/search/extractTextWithPdfjs');
+        const pageTwo = {getTextContent: vi.fn().mockResolvedValue({items: [{
+            str: 'Second',
+            hasEOL: false,
+        }]})};
+        const pageFour = {getTextContent: vi.fn().mockResolvedValue({items: [{
+            str: 'Fourth',
+            hasEOL: false,
+        }]})};
+        const doc = {
+            numPages: 5,
+            getPage: vi.fn(async (pageNumber: number) => {
+                if (pageNumber === 2) {
+                    return pageTwo;
+                }
+                if (pageNumber === 4) {
+                    return pageFour;
+                }
+                throw new Error(`Unexpected page ${pageNumber}`);
+            }),
+            destroy: mocks.docDestroy,
+        };
+
+        mocks.getDocument.mockReturnValue({
+            promise: Promise.resolve(doc),
+            destroy: mocks.loadingDestroy,
+        });
+
+        const result = await extractTextWithPdfjs('/tmp/file.pdf', {
+            collectPages: true,
+            pages: [
+                4,
+                2,
+                2,
+                9,
+            ],
+        });
+
+        expect(doc.getPage).toHaveBeenCalledTimes(2);
+        expect(doc.getPage).toHaveBeenNthCalledWith(1, 2);
+        expect(doc.getPage).toHaveBeenNthCalledWith(2, 4);
+        expect(result).toEqual([
+            {
+                pageNumber: 2,
+                text: 'Second',
+            },
+            {
+                pageNumber: 4,
+                text: 'Fourth',
+            },
+        ]);
+    });
+
     it('collapses exact repeated hidden text streams before emitting page text', async () => {
         const { extractTextWithPdfjs } = await import('@electron/search/extractTextWithPdfjs');
         const repeatedText = 'СЛОВАРЬ\nАРАБСКОЙ ХРЕСТОМАТИИ И КОРАНУ. СОСТАВИЛЪ ПРОФ. В. ГИРГАСЪ.\n';

@@ -64,6 +64,7 @@ import {
     defaultWindow,
     useClipboard,
     useEventListener,
+    useIntervalFn,
     useTimeoutFn,
 } from '@vueuse/core';
 import { useRuntimeErrorReports } from '@app/composables/useRuntimeErrorReports';
@@ -90,6 +91,8 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     const { copy: copyClipboardText } = useClipboard();
     const ASSISTANT_AUTO_REFRESH_MIN_INTERVAL_MS = 2500;
     const ASSISTANT_SCROLL_STICKY_THRESHOLD_PX = 96;
+    const ASSISTANT_STATUS_HEARTBEAT_MS = 1000;
+    const ASSISTANT_STATUS_TEXT_LIMIT = 140;
     const EMPTY_ASSISTANT_MESSAGE_BLOCKS: ReturnType<typeof formatAssistantMessage> = [];
 
     const assistantSelectionStorage = defaultWindow?.localStorage;
@@ -103,6 +106,10 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     const isLoggingIn = ref(false);
     const loginMode = ref<TAgentAssistantLoginMode | null>(null);
     const isSending = ref(false);
+    const turnStartedAtMs = ref<number | null>(null);
+    const turnActivityAtMs = ref<number | null>(null);
+    const turnActivityText = ref('');
+    const turnClockNowMs = ref(Date.now());
     const isResetting = ref(false);
     const hasLoadedState = ref(false);
     const installProgress = ref('');
@@ -148,7 +155,14 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         blocks: ReturnType<typeof formatAssistantMessage>;
     }
 
+    interface IAssistantSubmitPayload {
+        text: string;
+        attachments?: IAgentAssistantImageAttachment[];
+        presetId?: TAgentAssistantPresetId;
+    }
+
     const assistantMarkdownCache = new Map<string, IAssistantMarkdownCacheEntry>();
+    const queuedSteer = ref<IAssistantSubmitPayload | null>(null);
 
     const emptyState = computed<IAgentAssistantState>(() => createEmptyAssistantState({
         chatScope: chatScope.value,
@@ -186,13 +200,25 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     const panelView = computed(() => getAgentAssistantPanelView(status.value, hasLoadedState.value));
     const hasComposer = computed(() => panelView.value === 'ready' && Boolean(chatScope.value));
     const hasPendingComposer = computed(() => panelView.value === 'checking' && Boolean(chatScope.value));
-    const canFocusComposerInput = computed(() => hasComposer.value && !isSending.value);
+    const canFocusComposerInput = computed(() => hasComposer.value);
     const hasMessages = computed(() => messages.value.length > 0 || isTurnActive.value);
+    const trimmedDraft = computed(() => draft.value.trim());
+    const isBtwDraft = computed(() => isAssistantBtwCommand(trimmedDraft.value));
+    const hasComposerPayload = computed(() => trimmedDraft.value.length > 0 || composerImages.value.length > 0);
+    const canQueueSteer = computed(() => (
+        isTurnActive.value
+        && trimmedDraft.value.length > 0
+        && composerImages.value.length === 0
+    ));
     const canSend = computed(() => (
         Boolean(chatScope.value)
         &&
-        (draft.value.trim().length > 0 || composerImages.value.length > 0)
-        && !isSending.value
+        hasComposerPayload.value
+        && (
+            !isSending.value
+            || isBtwDraft.value
+            || canQueueSteer.value
+        )
     ));
     const canResetChat = computed(() => (
         hasLoadedState.value
@@ -248,14 +274,48 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         turn: status.value.turn,
     }));
     const turnStatusText = computed(() => {
+        const ageReference = turnActivityAtMs.value ?? turnStartedAtMs.value;
+        const activity = turnActivityText.value.trim();
+        if (queuedSteer.value && status.value.turn.phase === 'interrupting') {
+            return t('assistant.steerQueued');
+        }
         if (status.value.turn.phase === 'interrupting') {
-            return t('assistant.interrupting');
+            return ageReference === null
+                ? t('assistant.interrupting')
+                : t('assistant.workingWithActivity', {
+                    activity: t('assistant.interrupting'),
+                    age: formatAssistantElapsed(turnClockNowMs.value - ageReference),
+                });
         }
         if (status.value.turn.phase === 'starting') {
-            return t('assistant.startingTurn');
+            return ageReference === null
+                ? t('assistant.startingTurn')
+                : t('assistant.workingWithActivity', {
+                    activity: activity || t('assistant.startingTurn'),
+                    age: formatAssistantElapsed(turnClockNowMs.value - ageReference),
+                });
+        }
+        if (activity && ageReference !== null) {
+            return t('assistant.workingWithActivity', {
+                activity,
+                age: formatAssistantElapsed(turnClockNowMs.value - ageReference),
+            });
+        }
+        if (turnStartedAtMs.value !== null) {
+            return t('assistant.workingElapsed', {age: formatAssistantElapsed(turnClockNowMs.value - turnStartedAtMs.value)});
         }
         return t('assistant.working');
     });
+    const sendButtonAriaLabel = computed(() => (
+        isTurnActive.value && !isBtwDraft.value
+            ? t('assistant.sendSteer')
+            : t('assistant.send')
+    ));
+    useIntervalFn(() => {
+        if (isTurnActive.value) {
+            turnClockNowMs.value = Date.now();
+        }
+    }, ASSISTANT_STATUS_HEARTBEAT_MS);
     const expandedImage = ref<IExpandedImagePreview | null>(null);
     const expandedImageItem = computed(() => {
         const preview = expandedImage.value;
@@ -301,6 +361,109 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
                 assistantMarkdownCache.delete(messageId);
             }
         });
+    }
+
+    function isAssistantBtwCommand(value: string) {
+        return value.trim().toLowerCase() === '/btw';
+    }
+
+    function truncateAssistantStatusText(value: string, limit = ASSISTANT_STATUS_TEXT_LIMIT) {
+        const normalized = value.replace(/\s+/gu, ' ').trim();
+        if (normalized.length <= limit) {
+            return normalized;
+        }
+        return `${normalized.slice(0, Math.max(0, limit - 3)).trimEnd()}...`;
+    }
+
+    function formatAssistantElapsed(elapsedMs: number) {
+        const seconds = Math.max(0, Math.floor(elapsedMs / 1000));
+        if (seconds < 60) {
+            return `${seconds}s`;
+        }
+        const minutes = Math.floor(seconds / 60);
+        if (minutes < 60) {
+            return `${minutes}m`;
+        }
+        const hours = Math.floor(minutes / 60);
+        const remainingMinutes = minutes % 60;
+        return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+    }
+
+    function setTurnActivity(activity: string) {
+        const normalized = truncateAssistantStatusText(activity);
+        if (!normalized) {
+            return;
+        }
+        const now = Date.now();
+        turnActivityText.value = normalized;
+        turnActivityAtMs.value = now;
+        turnClockNowMs.value = now;
+    }
+
+    function syncTurnActivityWithPhase(phase: IAgentAssistantState['status']['turn']['phase']) {
+        if (phase === 'starting' || phase === 'running' || phase === 'interrupting') {
+            turnStartedAtMs.value ??= Date.now();
+            if (!turnActivityText.value) {
+                setTurnActivity(phase === 'starting'
+                    ? t('assistant.startingTurn')
+                    : t('assistant.working'));
+            }
+            return;
+        }
+
+        turnStartedAtMs.value = null;
+        turnActivityAtMs.value = null;
+        turnActivityText.value = '';
+    }
+
+    function addLocalAssistantStatusMessage(text: string) {
+        const baseState = state.value ?? emptyState.value;
+        state.value = {
+            ...baseState,
+            messages: [
+                ...baseState.messages,
+                {
+                    id: `local-assistant-status-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                    role: 'assistant',
+                    text,
+                    createdAt: new Date().toISOString(),
+                },
+            ],
+        };
+        hasLoadedState.value = true;
+        void nextTick(scrollAssistantMessagesToBottom);
+    }
+
+    function buildAssistantBtwMessage() {
+        if (!isTurnActive.value && !queuedSteer.value) {
+            return t('assistant.btwIdle');
+        }
+
+        const now = Date.now();
+        const elapsed = turnStartedAtMs.value === null
+            ? '0s'
+            : formatAssistantElapsed(now - turnStartedAtMs.value);
+        const activity = turnActivityText.value || t('assistant.working');
+        const lastActivityAge = turnActivityAtMs.value === null
+            ? elapsed
+            : formatAssistantElapsed(now - turnActivityAtMs.value);
+        const lines = [
+            t('assistant.btwAlive', {
+                phase: status.value.turn.phase,
+                elapsed,
+            }),
+            t('assistant.btwLastActivity', {
+                activity,
+                age: lastActivityAge,
+            }),
+        ];
+        if (queuedSteer.value) {
+            lines.push(t('assistant.btwQueued', {text: truncateAssistantStatusText(queuedSteer.value.text, 80)}));
+        }
+        if (isTurnActive.value) {
+            lines.push(t('assistant.btwSteerHint'));
+        }
+        return lines.join('\n\n');
     }
 
     function getAssistantActionErrorMessage(error: unknown) {
@@ -618,6 +781,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         state.value = adjustedState;
         hasLoadedState.value = true;
         isSending.value = adjustedState.status.runtimeState === 'busy';
+        syncTurnActivityWithPhase(adjustedState.status.turn.phase);
         if (shouldScrollToBottom) {
             void nextTick(scrollAssistantMessagesToBottom);
         }
@@ -641,7 +805,14 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         if (event.state) {
             applyState(event.state);
         }
+        if (event.type === 'turn-started') {
+            setTurnActivity(t('assistant.activityStarted'));
+        }
+        if (event.type === 'turn-progress' && event.progress) {
+            setTurnActivity(event.progress);
+        }
         if (event.type === 'message-delta' && event.messageId && event.delta && state.value) {
+            setTurnActivity(t('assistant.activityReceivingResponse'));
             const messageIndex = state.value.messages.findIndex((
                 message: IAgentAssistantChatMessage,
             ) => message.id === event.messageId);
@@ -665,6 +836,9 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         }
         if (event.type === 'install-progress' && event.progress) {
             installProgress.value = event.progress;
+        }
+        if (event.type === 'turn-completed') {
+            setTurnActivity(t('assistant.activityCompleted'));
         }
         if (event.type === 'error') {
             isInstalling.value = false;
@@ -709,6 +883,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         draft.value = '';
         composerImages.value = [];
         composerError.value = '';
+        queuedSteer.value = null;
         isSending.value = false;
         isSwitchingAssistant.value = true;
         guardAsync(refreshState().finally(() => {
@@ -873,6 +1048,10 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         }
 
         event.preventDefault();
+        if (isTurnActive.value) {
+            composerError.value = t('assistant.imagePasteBusy');
+            return;
+        }
         void addComposerImages(imageFiles);
     }
 
@@ -923,12 +1102,6 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             event.stopPropagation();
             navigateExpandedImage(1);
         }
-    }
-
-    interface IAssistantSubmitPayload {
-        text: string;
-        attachments?: IAgentAssistantImageAttachment[];
-        presetId?: TAgentAssistantPresetId;
     }
 
     async function submitAssistantPayload(
@@ -997,6 +1170,35 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         );
     }
 
+    function queueSteer(payload: IAssistantSubmitPayload) {
+        queuedSteer.value = payload;
+        draft.value = '';
+        composerImages.value = [];
+        composerError.value = '';
+        setTurnActivity(t('assistant.steerQueued'));
+        if (status.value.turn.phase !== 'interrupting') {
+            handleInterrupt();
+        }
+    }
+
+    function flushQueuedSteerIfReady() {
+        if (!queuedSteer.value || isTurnActive.value || isSending.value || !chatScope.value) {
+            return;
+        }
+
+        const payload = queuedSteer.value;
+        queuedSteer.value = null;
+        setTurnActivity(t('assistant.steerSending'));
+        void submitAssistantPayload(
+            payload,
+            'Failed to send queued assistant steer',
+            () => {
+                draft.value = payload.text;
+                composerImages.value = payload.attachments ?? [];
+            },
+        );
+    }
+
     async function sendMessage() {
         if (!canSend.value) {
             return;
@@ -1004,10 +1206,24 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         if (!chatScope.value) {
             return;
         }
-        const text = draft.value.trim();
+        const text = trimmedDraft.value;
+        if (isAssistantBtwCommand(text)) {
+            draft.value = '';
+            composerError.value = '';
+            addLocalAssistantStatusMessage(buildAssistantBtwMessage());
+            return;
+        }
         const attachments = composerImages.value.map((
             image: IAgentAssistantImageAttachment,
         ) => ({ ...image }));
+        if (isTurnActive.value) {
+            if (attachments.length > 0) {
+                composerError.value = t('assistant.steerImagesUnsupported');
+                return;
+            }
+            queueSteer({text});
+            return;
+        }
         draft.value = '';
         composerImages.value = [];
         composerError.value = '';
@@ -1048,6 +1264,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         draft.value = '';
         composerImages.value = [];
         composerError.value = '';
+        queuedSteer.value = null;
         isResetting.value = true;
         try {
             applyState(await getAgentCapability().resetAssistantChat(createAssistantStateRequest()));
@@ -1080,6 +1297,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         draft.value = '';
         composerImages.value = [];
         composerError.value = '';
+        queuedSteer.value = null;
         isSending.value = false;
         guardAsync(refreshState(), {
             category: 'user-visible-operation',
@@ -1094,6 +1312,13 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
 
     let unsubscribe: (() => void) | null = null;
     useAssistantComposerAutofocus(composerInputRef, canFocusComposerInput);
+
+    watch([
+        isTurnActive,
+        isSending,
+    ], () => {
+        flushQueuedSteerIfReady();
+    }, { flush: 'post' });
 
     onMounted(() => {
         unsubscribe = getAgentCapability().onAssistantEvent(handleAssistantEvent);
@@ -1186,6 +1411,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         selectedModel,
         selectedProvider,
         selectedSpeedMode,
+        sendButtonAriaLabel,
         sendPreset,
         signInDescription,
         signInTitle,

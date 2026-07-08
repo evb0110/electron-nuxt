@@ -45,7 +45,7 @@ export type TAgentAssistantRuntimeState = 'stopped' | 'starting' | 'ready' | 'bu
 export type TAgentAssistantTurnPhase = 'idle' | 'starting' | 'running' | 'interrupting' | 'error';
 export type TAgentAssistantLoginMode = 'chatgpt' | 'device-code';
 export type TAgentAssistantMessageRole = 'user' | 'assistant' | 'system';
-export type TAgentAssistantEventType = 'state' | 'message' | 'message-delta' | 'turn-started' | 'turn-completed' | 'install-progress' | 'error';
+export type TAgentAssistantEventType = 'state' | 'message' | 'message-delta' | 'turn-started' | 'turn-progress' | 'turn-completed' | 'install-progress' | 'error';
 export type TAgentAssistantChatScopeKind = 'document';
 export const ASSISTANT_PROVIDER_IDS = [
     'codex',

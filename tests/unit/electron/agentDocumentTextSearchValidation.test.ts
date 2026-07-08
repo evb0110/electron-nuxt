@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
     resolveSearchablePdfPath: vi.fn(),
     resolveSearchWorkerPath: vi.fn(() => '/tmp/search-worker.js'),
     loadSearchIndex: vi.fn(),
+    extractTextWithPdfjs: vi.fn(),
+    extractTextFromPdf: vi.fn(),
     loggerDebug: vi.fn(),
 }));
 
@@ -32,6 +34,15 @@ vi.mock('@electron/features/search/public', async () => {
 });
 
 vi.mock('@electron/search/indexBuilder', () => ({ loadSearchIndex: mocks.loadSearchIndex }));
+
+vi.mock('@electron/search/extractTextWithPdfjs', () => ({ extractTextWithPdfjs: mocks.extractTextWithPdfjs }));
+
+vi.mock('@electron/search/extractTextFromPdf', () => ({ extractTextFromPdf: mocks.extractTextFromPdf }));
+
+vi.mock('@electron/file-access/documentRevisionStore', () => ({getWorkingCopyRevision: vi.fn(async () => ({
+    token: 'revision-token',
+    contentRevision: 1,
+}))}));
 
 vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => ({debug: mocks.loggerDebug}) }));
 
@@ -73,6 +84,8 @@ describe('agent document search validation', () => {
             pageCount: 10,
             pages: [],
         });
+        mocks.extractTextWithPdfjs.mockResolvedValue([]);
+        mocks.extractTextFromPdf.mockResolvedValue([]);
     });
 
     it('rejects unsafe regex before resolving paths or dispatching worker search', async () => {
@@ -106,5 +119,69 @@ describe('agent document search validation', () => {
 
         expect(mocks.resolveSearchablePdfPath).not.toHaveBeenCalled();
         expect(mocks.dispatchSearchRequest).not.toHaveBeenCalled();
+    });
+
+    it('uses a bounded direct page probe when no cached search index is available', async () => {
+        const { readAgentDocumentPages } = await import('@electron/features/agent/documentText');
+        mocks.loadSearchIndex.mockRejectedValue(new Error('missing index'));
+        mocks.extractTextWithPdfjs.mockResolvedValue([
+            {
+                pageNumber: 2,
+                text: 'Second page text',
+            },
+            {
+                pageNumber: 4,
+                text: '',
+            },
+        ]);
+
+        const result = await readAgentDocumentPages(
+            createWindow() as never,
+            {
+                tab: pdfTab,
+                options: {
+                    pages: [
+                        4,
+                        2,
+                    ],
+                    maxCharsPerPage: 20,
+                },
+            },
+        );
+
+        expect(mocks.dispatchSearchRequest).not.toHaveBeenCalled();
+        expect(mocks.extractTextWithPdfjs).toHaveBeenCalledWith('/tmp/Grammar.pdf', {pages: [
+            2,
+            4,
+        ]});
+        expect(mocks.extractTextFromPdf).not.toHaveBeenCalled();
+        expect(result).toMatchObject({
+            source: 'direct-pdfjs',
+            usedCachedSearchIndex: false,
+            pages: [
+                {
+                    page: 2,
+                    source: 'direct-pdfjs',
+                    hasText: true,
+                    text: 'Second page text',
+                },
+                {
+                    page: 4,
+                    source: 'direct-pdfjs',
+                    hasText: false,
+                    text: '',
+                },
+            ],
+            textStatus: {
+                status: 'partial',
+                coverageScope: 'requested-pages',
+                globalCoverageKnown: false,
+                inspectedPages: [
+                    2,
+                    4,
+                ],
+                missingTextPages: [4],
+            },
+        });
     });
 });

@@ -65,6 +65,7 @@ interface IExtractPdfjsTextOptions {
     signal?: AbortSignal;
     onPageText?: (page: IPageText) => void;
     collectPages?: boolean;
+    pages?: readonly number[];
 }
 
 export interface IPageTextWithWordBoxes extends IPageText {
@@ -84,6 +85,18 @@ function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) {
         throw abortErrorFromSignal(signal);
     }
+}
+
+function getPdfjsTextExtractionPages(requestedPages: readonly number[] | undefined, pageCount: number) {
+    if (!requestedPages || requestedPages.length === 0) {
+        return Array.from({length: pageCount}, (_value, index) => index + 1);
+    }
+
+    return Array.from(new Set(
+        requestedPages
+            .map(page => Math.trunc(page))
+            .filter(page => page >= 1 && page <= pageCount),
+    )).sort((left, right) => left - right);
 }
 
 async function withAbortSignal<T>(
@@ -200,6 +213,7 @@ export async function extractTextWithPdfjs(
         signal,
         onPageText,
         collectPages = !onPageText,
+        pages: requestedPages,
     } = options;
     log.debug(`Extracting text with pdfjs-dist: ${pdfPath}`);
     throwIfAborted(signal);
@@ -222,10 +236,11 @@ export async function extractTextWithPdfjs(
     try {
         const pages: IPageText[] = [];
         let extractedPageCount = 0;
+        const pagesToExtract = getPdfjsTextExtractionPages(requestedPages, doc.numPages);
 
-        for (let i = 1; i <= doc.numPages; i++) {
+        for (const pageNumber of pagesToExtract) {
             throwIfAborted(signal);
-            const page = await withAbortSignal(doc.getPage(i), signal, () => {
+            const page = await withAbortSignal(doc.getPage(pageNumber), signal, () => {
                 void doc.destroy();
             });
             const content = await withAbortSignal(
@@ -253,7 +268,7 @@ export async function extractTextWithPdfjs(
             }
 
             const pageText = {
-                pageNumber: i,
+                pageNumber,
                 text: collapseRepeatedPdfSearchPageText(parts.join('')),
             };
             extractedPageCount += 1;

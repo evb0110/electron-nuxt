@@ -1232,4 +1232,64 @@ describe('agent assistant opt-in gating', () => {
         expect(deltaEvents.every(event => event.state === undefined)).toBe(true);
         expect(events.find(event => event.type === 'turn-completed')?.state).toBeDefined();
     });
+
+    it('publishes safe assistant turn progress for non-message item notifications', async () => {
+        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
+        mocks.getCodexCliInfo.mockResolvedValue({
+            installed: true,
+            path: '/Applications/Codex.app/Contents/Resources/codex',
+            version: '0.133.0',
+            minimumVersion: '0.133.0',
+            isVersionSupported: true,
+            managedInstallDir: '/tmp/codex',
+        });
+        mocks.startEmbeddedMcpServer.mockResolvedValue({
+            descriptor: {
+                name: 'evb_viewer_embedded',
+                url: 'http://127.0.0.1:9876',
+            },
+            token: 'test-mcp-token',
+        });
+        const process = new FakeCodexAppServerProcess();
+        mocks.spawn.mockImplementation(() => process);
+        const send = vi.fn<(channel: string, event: IAgentAssistantEvent) => void>();
+        vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([cast<BrowserWindow>({
+            isDestroyed: () => false,
+            webContents: {
+                isDestroyed: () => false,
+                send,
+            },
+        })]);
+        const documentScope = {
+            kind: 'document',
+            key: 'document:/tmp/progress.pdf',
+            title: 'progress.pdf',
+            documentRef: '/tmp/progress.pdf',
+        } as const satisfies IAgentAssistantChatScope;
+
+        const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        await expect(sendAgentAssistantMessage({
+            text: 'hold-active',
+            scope: documentScope,
+        })).resolves.toMatchObject({ok: true});
+
+        process.notifyAppServer('item/created', {
+            threadId: 'thread-1',
+            turnId: 'turn-1',
+            item: {
+                type: 'toolCall',
+                name: 'evb_read_action',
+                arguments: {hidden: 'not forwarded'},
+            },
+        });
+
+        const progressEvent = send.mock.calls
+            .map((call) => call[1])
+            .find(event => event.type === 'turn-progress');
+        expect(progressEvent).toMatchObject({
+            type: 'turn-progress',
+            progress: 'Tool evb_read_action running',
+        });
+        expect(progressEvent?.state).toBeUndefined();
+    });
 });

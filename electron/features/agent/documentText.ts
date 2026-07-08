@@ -15,6 +15,7 @@ import {
 } from '@electron/features/search/public';
 import { loadSearchIndex } from '@electron/search/indexBuilder';
 import { getWorkingCopyRevision } from '@electron/file-access/documentRevisionStore';
+import type { IPageText } from '@electron/search/pageText';
 
 export interface IAgentDocumentSearchOptions extends ISearchMatchOptions {
     query: string;
@@ -38,6 +39,11 @@ const MAX_SEARCH_RESULT_LIMIT = 100;
 const DEFAULT_PAGE_TEXT_CHARS = 6000;
 const MAX_PAGE_TEXT_CHARS = 30000;
 const MAX_MISSING_PAGE_SAMPLE = 80;
+
+type TAgentPageTextSource =
+    | 'search-index'
+    | 'direct-pdfjs'
+    | 'direct-pdftotext';
 
 function createSearchEvent(window: BrowserWindow) {
     return {sender: window.webContents} as IpcMainInvokeEvent;
@@ -285,6 +291,7 @@ function buildPageTextResponse(
     pageNumber: number,
     text: string,
     maxCharsPerPage: number,
+    source?: TAgentPageTextSource,
 ) {
     const normalizedText = text.replace(/\r\n?/g, '\n').trim();
     const truncated = normalizedText.length > maxCharsPerPage;
@@ -293,7 +300,83 @@ function buildPageTextResponse(
         hasText: normalizedText.length > 0,
         textLength: normalizedText.length,
         truncated,
+        ...(source === undefined ? {} : {source}),
         text: truncated ? normalizedText.slice(0, maxCharsPerPage) : normalizedText,
+    };
+}
+
+function normalizeRequestedReadPages(pages: readonly number[], pageCount: number) {
+    return Array.from(new Set(
+        pages
+            .map(page => Math.trunc(page))
+            .filter(page => page >= 1 && page <= pageCount),
+    )).sort((left, right) => left - right);
+}
+
+function completeRequestedPageTexts(pageTexts: readonly IPageText[], pages: readonly number[]) {
+    const pageTextByNumber = new Map(pageTexts.map(page => [
+        page.pageNumber,
+        page.text,
+    ]));
+    return pages.map(pageNumber => ({
+        pageNumber,
+        text: pageTextByNumber.get(pageNumber) ?? '',
+    }));
+}
+
+async function extractSelectedPdfPageTextWithFallback(
+    pdfPath: string,
+    pages: readonly number[],
+    pageCount: number,
+) {
+    try {
+        const { extractTextWithPdfjs } = await import('@electron/search/extractTextWithPdfjs');
+        return {
+            source: 'direct-pdfjs' as const,
+            pages: completeRequestedPageTexts(await extractTextWithPdfjs(pdfPath, {pages}), pages),
+        };
+    } catch (pdfjsError) {
+        logger.debug(`Direct PDF.js page text probe failed; falling back to pdftotext: ${pdfjsError instanceof Error ? pdfjsError.message : String(pdfjsError)}`);
+        const { extractTextFromPdf } = await import('@electron/search/extractTextFromPdf');
+        return {
+            source: 'direct-pdftotext' as const,
+            pages: completeRequestedPageTexts(await extractTextFromPdf(pdfPath, {
+                pageCount,
+                pages,
+            }), pages),
+        };
+    }
+}
+
+function buildRequestedPagesTextStatus(
+    tab: IAgentTabSnapshot,
+    pageCount: number,
+    pages: readonly IPageText[],
+) {
+    const textPageCount = pages.filter(page => page.text.trim().length > 0).length;
+    const missingTextPages = pages
+        .filter(page => page.text.trim().length === 0)
+        .map(page => page.pageNumber);
+    const status = pages.length === 0
+        ? 'unknown' as const
+        : textPageCount === pages.length
+            ? 'complete' as const
+            : textPageCount === 0
+                ? 'none' as const
+                : 'partial' as const;
+
+    return {
+        status,
+        pageCount,
+        textPageCount,
+        missingTextPages,
+        missingTextPageSample: missingTextPages.slice(0, MAX_MISSING_PAGE_SAMPLE),
+        coverage: pages.length > 0 ? textPageCount / pages.length : 0,
+        coverageScope: 'requested-pages',
+        inspectedPages: pages.map(page => page.pageNumber),
+        globalCoverageKnown: false,
+        recommendation: 'This is a bounded page probe. Use document.inspect_text only when full-document coverage is worth the cost.',
+        tabTotalPages: tab.totalPages ?? null,
     };
 }
 
@@ -304,35 +387,52 @@ export async function readAgentDocumentPages(
     const {
         requestedPath,
         resolvedPdfPath,
-        index,
-    } = await warmAgentSearchIndex(window, input.tab);
-    if (!index) {
-        throw new Error('Search index was not available after warmup.');
-    }
-
-    const pageCount = resolvePageCount(input.tab, index.pageCount, index.pages.length);
+        documentRevision,
+    } = await resolveAgentSearchPath(window, input.tab);
+    const index = await loadSearchIndex(resolvedPdfPath, documentRevision).catch((error) => {
+        logger.debug(`No cached search index available for agent page read; using direct page probe: ${error instanceof Error ? error.message : String(error)}`);
+        return null;
+    });
+    const pageCount = resolvePageCount(input.tab, index?.pageCount, index?.pages.length ?? 0);
     const maxCharsPerPage = normalizePositiveInteger(
         input.options.maxCharsPerPage,
         DEFAULT_PAGE_TEXT_CHARS,
         MAX_PAGE_TEXT_CHARS,
     );
-    const uniquePages = Array.from(new Set(
-        input.options.pages
-            .map(page => Math.trunc(page))
-            .filter(page => page >= 1 && page <= pageCount),
-    )).sort((left, right) => left - right);
+    const uniquePages = normalizeRequestedReadPages(input.options.pages, pageCount);
     if (uniquePages.length === 0) {
         throw new Error(`No requested pages are within the document's 1-${pageCount} page range.`);
     }
 
-    const pageTextByNumber = new Map(index.pages.map(page => [
+    const indexedPageTextByNumber = new Map((index?.pages ?? []).map(page => [
         page.pageNumber,
         page.text,
     ]));
-    const pages = uniquePages.map(pageNumber => buildPageTextResponse(
+    const pagesMissingFromIndex = uniquePages.filter(pageNumber => !indexedPageTextByNumber.has(pageNumber));
+    const directPageProbe = pagesMissingFromIndex.length > 0
+        ? await extractSelectedPdfPageTextWithFallback(resolvedPdfPath, pagesMissingFromIndex, pageCount)
+        : null;
+    const directPageTextByNumber = new Map((directPageProbe?.pages ?? []).map(page => [
+        page.pageNumber,
+        page.text,
+    ]));
+    const sourceByPageNumber = new Map<number, TAgentPageTextSource>();
+    for (const pageNumber of uniquePages) {
+        if (indexedPageTextByNumber.has(pageNumber)) {
+            sourceByPageNumber.set(pageNumber, 'search-index');
+        } else if (directPageTextByNumber.has(pageNumber) && directPageProbe) {
+            sourceByPageNumber.set(pageNumber, directPageProbe.source);
+        }
+    }
+    const pageTexts = uniquePages.map(pageNumber => ({
         pageNumber,
-        pageTextByNumber.get(pageNumber) ?? '',
+        text: indexedPageTextByNumber.get(pageNumber) ?? directPageTextByNumber.get(pageNumber) ?? '',
+    }));
+    const pages = pageTexts.map(page => buildPageTextResponse(
+        page.pageNumber,
+        page.text,
         maxCharsPerPage,
+        sourceByPageNumber.get(page.pageNumber),
     ));
 
     return {
@@ -342,7 +442,11 @@ export async function readAgentDocumentPages(
         requestedPath,
         resolvedPdfPath,
         pageCount,
+        source: directPageProbe === null ? 'search-index' : directPageProbe.source,
+        usedCachedSearchIndex: index !== null,
         pages,
-        textStatus: buildTextStatus(input.tab, index),
+        textStatus: index
+            ? buildTextStatus(input.tab, index)
+            : buildRequestedPagesTextStatus(input.tab, pageCount, pageTexts),
     };
 }

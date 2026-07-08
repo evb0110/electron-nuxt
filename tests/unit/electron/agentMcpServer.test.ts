@@ -1431,6 +1431,12 @@ describe('processMcpRequest', () => {
             method: 'prompts/get',
             params: {name: 'evb_rebuild_verified_bookmarks'},
         }, options);
+        const largeDocumentPrompt = await processMcpRequest({
+            jsonrpc: '2.0',
+            id: 'large-document-prompt',
+            method: 'prompts/get',
+            params: {name: 'evb_large_document_strategy'},
+        }, options);
 
         expect(JSON.stringify(resources?.result)).toContain('evb://workspace/current');
         expect(JSON.stringify(resources?.result)).toContain('evb://document/tab-1/bookmarks');
@@ -1449,6 +1455,9 @@ describe('processMcpRequest', () => {
         expect(JSON.stringify(bookmarkPrompt?.result)).toContain('bookmarks.preview_tree');
         expect(JSON.stringify(bookmarkPrompt?.result)).toContain('bookmarks.apply_plan');
         expect(JSON.stringify(bookmarkPrompt?.result)).toContain('file.save');
+        expect(JSON.stringify(largeDocumentPrompt?.result)).toContain('bounded probes');
+        expect(JSON.stringify(largeDocumentPrompt?.result)).toContain('document.read_pages');
+        expect(JSON.stringify(largeDocumentPrompt?.result)).toContain('requested-pages');
     });
 
     it('dispatches go-to-page commands with normalized page numbers', async () => {

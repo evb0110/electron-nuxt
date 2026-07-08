@@ -557,7 +557,7 @@
                                 class="agent-assistant-input"
                                 :placeholder="placeholderText"
                                 rows="3"
-                                :disabled="isSending"
+                                :disabled="!hasComposer"
                                 @keydown.enter.exact.prevent="handleSendMessage"
                                 @paste="handleComposerPaste"
                             />
@@ -591,25 +591,27 @@
                                         @select-mode="updateSpeedMode"
                                     />
                                 </div>
-                                <UButton
-                                    v-if="isSending"
-                                    :aria-label="t('assistant.stop')"
-                                    icon="i-ph-stop-circle"
-                                    color="neutral"
-                                    variant="outline"
-                                    size="sm"
-                                    @click="handleInterrupt"
-                                />
-                                <UButton
-                                    v-else
-                                    :aria-label="t('assistant.send')"
-                                    icon="i-ph-arrow-up"
-                                    :color="canSend ? 'primary' : 'neutral'"
-                                    :variant="canSend ? 'solid' : 'soft'"
-                                    size="sm"
-                                    type="submit"
-                                    :disabled="!canSend"
-                                />
+                                <div class="agent-assistant-composer-submit-actions">
+                                    <UButton
+                                        v-if="isSending"
+                                        :aria-label="t('assistant.stop')"
+                                        icon="i-ph-stop-circle"
+                                        color="neutral"
+                                        variant="outline"
+                                        size="sm"
+                                        type="button"
+                                        @click="handleInterrupt"
+                                    />
+                                    <UButton
+                                        :aria-label="sendButtonAriaLabel"
+                                        icon="i-ph-arrow-up"
+                                        :color="canSend ? 'primary' : 'neutral'"
+                                        :variant="canSend ? 'solid' : 'soft'"
+                                        size="sm"
+                                        type="submit"
+                                        :disabled="!canSend"
+                                    />
+                                </div>
                             </div>
                         </div>
                     </form>
@@ -900,6 +902,7 @@ const {
     selectedModel,
     selectedProvider,
     selectedSpeedMode,
+    sendButtonAriaLabel,
     sendPreset,
     signInDescription,
     signInTitle,

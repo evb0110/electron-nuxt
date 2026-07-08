@@ -209,7 +209,7 @@ export const MCP_TOOLS = [
     {
         name: 'evb_inspect_document_text',
         title: 'EVB Viewer inspect PDF text coverage',
-        description: 'Build or reuse EVB Viewer\'s PDF search index and report searchable text coverage by page. Use this when deciding whether OCR is needed or when search/read tools return empty text.',
+        description: 'Build or reuse EVB Viewer\'s PDF search index and report searchable text coverage by page. On very large PDFs this can be expensive; prefer evb_read_document_pages or document.read_pages for bounded probes unless global OCR/text coverage is required.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -296,7 +296,7 @@ export const MCP_TOOLS = [
     {
         name: 'evb_read_document_pages',
         title: 'EVB Viewer read PDF page text',
-        description: 'Read extracted text for specific one-based PDF pages from EVB Viewer\'s search index. Use after evb_search_document to inspect candidate pages before navigating.',
+        description: 'Read extracted text for specific one-based PDF pages. Uses cached search text when available and otherwise performs a bounded direct page probe, so use this for huge/slow PDFs before attempting full text coverage.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -394,14 +394,14 @@ export const MCP_RESOURCE_TEMPLATES = [
         name: 'evb_document_page_text',
         title: 'EVB PDF page text',
         uriTemplate: 'evb://document/{tabId}/page/{page}',
-        description: 'Read extracted searchable text for one PDF page in an open EVB Viewer tab.',
+        description: 'Read extracted text for one PDF page in an open EVB Viewer tab using cached text or a bounded direct page probe.',
         mimeType: 'text/plain',
     },
     {
         name: 'evb_document_text_status',
         title: 'EVB PDF text status',
         uriTemplate: 'evb://document/{tabId}/text-status',
-        description: 'Read searchable text coverage and OCR recommendations for an open PDF tab.',
+        description: 'Read searchable text coverage and OCR recommendations for an open PDF tab. This may inspect the full document; use page text resources for bounded large-document probes.',
         mimeType: 'application/json',
     },
     {
@@ -464,6 +464,11 @@ export const MCP_PROMPTS = [
         name: 'evb_check_document_prep',
         title: 'Check whether the current EVB document needs OCR',
         description: 'Workflow for determining whether an open PDF has enough searchable text for agent analysis.',
+    },
+    {
+        name: 'evb_large_document_strategy',
+        title: 'Handle a large or hard EVB document',
+        description: 'Workflow for large PDFs, scans, dictionaries, missing TOCs, weak OCR, or slow global text coverage: use bounded page probes, searches, and page images before expensive full-document reads.',
     },
     {
         name: 'evb_number_pages_from_printed_pages',

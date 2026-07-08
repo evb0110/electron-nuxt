@@ -30,12 +30,59 @@ const PDFTOTEXT_MAX_STDOUT_BYTES = (() => {
 interface IExtractTextOptions {
     pageCount?: number;
     signal?: AbortSignal;
+    pages?: readonly number[];
 }
 
 function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) {
         throw abortErrorFromSignal(signal);
     }
+}
+
+function normalizeRequestedPages(pages: readonly number[] | undefined, pageCount?: number) {
+    if (!pages || pages.length === 0) {
+        return [];
+    }
+
+    return Array.from(new Set(
+        pages
+            .map(page => Math.trunc(page))
+            .filter(page => page >= 1 && (pageCount === undefined || page <= pageCount)),
+    )).sort((left, right) => left - right);
+}
+
+function groupContiguousPages(pages: readonly number[]) {
+    const ranges: Array<{
+        firstPage: number;
+        lastPage: number
+    }> = [];
+    for (const page of pages) {
+        const lastRange = ranges.at(-1);
+        if (lastRange && page === lastRange.lastPage + 1) {
+            lastRange.lastPage = page;
+            continue;
+        }
+
+        ranges.push({
+            firstPage: page,
+            lastPage: page,
+        });
+    }
+    return ranges;
+}
+
+function splitPdfTextOutput(output: string, expectedCount?: number) {
+    let pages = output.split('\f');
+    if (typeof expectedCount === 'number' && expectedCount > 0) {
+        if (pages.length < expectedCount) {
+            pages = pages.concat(Array.from({ length: expectedCount - pages.length }, () => ''));
+        } else if (pages.length > expectedCount) {
+            pages = pages.slice(0, expectedCount);
+        }
+    } else if (pages.length > 1 && pages.at(-1)?.trim() === '') {
+        pages = pages.slice(0, -1);
+    }
+    return pages;
 }
 
 /**
@@ -80,36 +127,49 @@ export async function extractTextFromPdf(
             commandOptions.signal = signal;
         }
 
-        const result = await runElectronCommand(pdftotext, [
+        const requestedPages = normalizeRequestedPages(options.pages, options.pageCount);
+        const argsForRange = (firstPage: number, lastPage: number) => [
+            '-layout',
+            '-f',
+            String(firstPage),
+            '-l',
+            String(lastPage),
+            pdfPath,
+            '-',
+        ];
+        const allPagesArgs = [
             '-layout',
             pdfPath,
             '-',
-        ], commandOptions);
+        ];
+
+        const rangeOutputs: Array<{
+            firstPage: number;
+            texts: string[]
+        }> = [];
+        if (requestedPages.length > 0) {
+            for (const range of groupContiguousPages(requestedPages)) {
+                const result = await runElectronCommand(pdftotext, argsForRange(range.firstPage, range.lastPage), commandOptions);
+                rangeOutputs.push({
+                    firstPage: range.firstPage,
+                    texts: splitPdfTextOutput(result.stdout ?? '', range.lastPage - range.firstPage + 1),
+                });
+            }
+        } else {
+            const result = await runElectronCommand(pdftotext, allPagesArgs, commandOptions);
+            rangeOutputs.push({
+                firstPage: 1,
+                texts: splitPdfTextOutput(result.stdout ?? '', options.pageCount),
+            });
+        }
         throwIfAborted(signal);
 
-        const output = result.stdout ?? '';
-
-        // Split by form feed character (page separator)
-        let pages = output.split('\f');
-
-        const expectedCount = options.pageCount;
-        if (typeof expectedCount === 'number' && expectedCount > 0) {
-            if (pages.length < expectedCount) {
-                pages = pages.concat(Array.from({ length: expectedCount - pages.length }, () => ''));
-            } else if (pages.length > expectedCount) {
-                pages = pages.slice(0, expectedCount);
-            }
-        } else if (pages.length > 1 && pages.at(-1)?.trim() === '') {
-            // Some pdftotext versions append a trailing form-feed, leaving an empty segment at the end.
-            pages = pages.slice(0, -1);
-        }
-
-        log.debug(`Extracted ${pages.length} page segments from PDF`);
-
-        const pageTexts: IPageText[] = pages.map((text, index) => ({
-            pageNumber: index + 1,
+        const pageTexts: IPageText[] = rangeOutputs.flatMap(range => range.texts.map((text, index) => ({
+            pageNumber: range.firstPage + index,
             text: collapseRepeatedPdfSearchPageText(text.trim()),
-        }));
+        })));
+
+        log.debug(`Extracted ${pageTexts.length} page segments from PDF`);
 
         return pageTexts;
     } catch (err) {

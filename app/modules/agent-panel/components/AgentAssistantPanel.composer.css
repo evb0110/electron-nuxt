@@ -129,6 +129,13 @@
     flex: 0 0 auto;
 }
 
+.agent-assistant-composer-submit-actions {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: var(--app-space-md);
+}
+
 .agent-assistant-composer-control-reserve {
     display: inline-flex;
     width: 8.5rem;

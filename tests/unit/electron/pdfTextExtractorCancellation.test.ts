@@ -81,6 +81,83 @@ describe('extractTextFromPdf cancellation', () => {
         ]);
     });
 
+    it('extracts only requested page ranges with pdftotext', async () => {
+        const { extractTextFromPdf } = await import('@electron/search/extractTextFromPdf');
+        mocks.runCommand
+            .mockResolvedValueOnce({
+                stdout: 'page-2\f',
+                stderr: '',
+                exitCode: 0,
+            })
+            .mockResolvedValueOnce({
+                stdout: 'page-4\fpage-5\f',
+                stderr: '',
+                exitCode: 0,
+            });
+
+        const result = await extractTextFromPdf('/tmp/file.pdf', {
+            pageCount: 10,
+            pages: [
+                5,
+                2,
+                4,
+                4,
+                99,
+            ],
+        });
+
+        expect(mocks.runCommand).toHaveBeenNthCalledWith(
+            1,
+            'pdftotext',
+            [
+                '-layout',
+                '-f',
+                '2',
+                '-l',
+                '2',
+                '/tmp/file.pdf',
+                '-',
+            ],
+            {
+                timeoutMs: 120000,
+                maxStdoutBytes: 67108864,
+                rejectOnStdoutTruncation: true,
+            },
+        );
+        expect(mocks.runCommand).toHaveBeenNthCalledWith(
+            2,
+            'pdftotext',
+            [
+                '-layout',
+                '-f',
+                '4',
+                '-l',
+                '5',
+                '/tmp/file.pdf',
+                '-',
+            ],
+            {
+                timeoutMs: 120000,
+                maxStdoutBytes: 67108864,
+                rejectOnStdoutTruncation: true,
+            },
+        );
+        expect(result).toEqual([
+            {
+                pageNumber: 2,
+                text: 'page-2',
+            },
+            {
+                pageNumber: 4,
+                text: 'page-4',
+            },
+            {
+                pageNumber: 5,
+                text: 'page-5',
+            },
+        ]);
+    });
+
     it('passes bundled Poppler runtime environment to pdftotext', async () => {
         const { extractTextFromPdf } = await import('@electron/search/extractTextFromPdf');
         mocks.getPdfNativeToolPaths.mockReturnValue({
