@@ -35,10 +35,13 @@ import {
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
 const TESSERACT_IMAGE_PAINT_RE = /^q\s+[\d.]+\s+0\s+0\s+[\d.]+\s+0\s+0\s+cm\s+\/Im\d+\s+Do\s+Q\r?\n/gm;
 const TESSERACT_IMAGE_XOBJECT_RE = /\n\s*\/XObject\s*<<\s*\n(?:\s*\/Im\d+\s+\d+\s+\d+\s+R\s*\n)+\s*>>/g;
+const XOBJECT_DRAW_LINE_RE = /^[^\r\n]*\/[A-Za-z0-9._-]+\s+Do\b[^\r\n]*(?:\r?\n)?/gm;
 const OCR_LAYER_MARKER = 'EVB_VIEWER_OCR_LAYER';
 const MAX_OCR_OUTPUT_ABSOLUTE_GROWTH_BYTES = 100 * 1024 * 1024;
 const MAX_OCR_OUTPUT_GROWTH_MULTIPLIER = 4;
 const INVISIBLE_TEXT_RENDERING_RE = /(?:^|\s)3(?:\.0+)?\s+Tr\b/;
+const TEXT_RENDERING_MODE_RE = /(^|\s)[0-7](?:\.0+)?\s+Tr\b/gm;
+const TEXT_OBJECT_BEGIN_RE = /\bBT\b/g;
 const IMAGE_OR_FORM_DRAW_TEST_RE = /\/[A-Za-z0-9._-]+\s+Do\b/;
 const IMAGE_OR_FORM_DRAW_RE = /\/([A-Za-z0-9._-]+)\s+Do\b/g;
 const FONT_DRAW_RE = /\/([A-Za-z0-9._-]+)\s+[-+0-9.]+\s+Tf\b/g;
@@ -48,6 +51,9 @@ const CONTENTS_NAME = PDFName.of('Contents');
 const RESOURCES_NAME = PDFName.of('Resources');
 const FONT_NAME = PDFName.of('Font');
 const XOBJECT_NAME = PDFName.of('XObject');
+const EXT_G_STATE_NAME = PDFName.of('ExtGState');
+const EXT_G_STATE_TYPE_NAME = PDFName.of('ExtGState');
+const EXT_G_STATE_APPLY_RE = /\/([A-Za-z0-9._-]+)\s+gs\b/g;
 
 function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) {
@@ -132,6 +138,15 @@ export function stripTesseractImageLayer(qdfSource: string) {
     return withoutImagePaint.replace(TESSERACT_IMAGE_XOBJECT_RE, '');
 }
 
+export function sanitizeOcrContentStreamForEmbedding(streamText: string) {
+    const withoutGeneratedImagePaint = streamText
+        .replace(TESSERACT_IMAGE_PAINT_RE, '')
+        .replace(XOBJECT_DRAW_LINE_RE, '');
+    return withoutGeneratedImagePaint
+        .replace(TEXT_RENDERING_MODE_RE, (_match, prefix: string) => `${prefix}3 Tr`)
+        .replace(TEXT_OBJECT_BEGIN_RE, 'BT\n3 Tr');
+}
+
 function decodeContentStream(stream: PDFStream) {
     if (stream instanceof PDFRawStream) {
         return Buffer.from(decodePDFRawStream(stream).decode()).toString('latin1');
@@ -167,10 +182,13 @@ function cloneMutablePageResources(page: PDFPage) {
     const resources = safePdfPageInheritableDict(page, RESOURCES_NAME)?.clone(context) ?? context.obj({});
     const font = safePdfDictLookupDict(resources, FONT_NAME)?.clone(context) ?? context.obj({});
     const xObject = safePdfDictLookupDict(resources, XOBJECT_NAME)?.clone(context) ?? context.obj({});
+    const extGState = safePdfDictLookupDict(resources, EXT_G_STATE_NAME)?.clone(context) ?? context.obj({});
     resources.set(FONT_NAME, font);
     resources.set(XOBJECT_NAME, xObject);
+    resources.set(EXT_G_STATE_NAME, extGState);
     page.node.set(RESOURCES_NAME, resources);
     return {
+        extGState,
         font,
         resources,
         xObject,
@@ -217,6 +235,7 @@ function isTextOnlyOcrStream(streamText: string, strippedText: string) {
 
 function removePreviousOcrLayer(page: PDFPage) {
     const {
+        extGState,
         font,
         xObject,
     } = cloneMutablePageResources(page);
@@ -241,6 +260,9 @@ function removePreviousOcrLayer(page: PDFPage) {
             for (const name of markedXObjects) {
                 xObject.delete(PDFName.of(name));
             }
+            for (const name of collectResourceNames(streamText, EXT_G_STATE_APPLY_RE)) {
+                extGState.delete(PDFName.of(name));
+            }
             continue;
         }
 
@@ -258,17 +280,47 @@ function removePreviousOcrLayer(page: PDFPage) {
             continue;
         }
 
-        if (strippedText !== streamText) {
-            const strippedRef = context.register(context.flateStream(strippedText));
-            contents.set(index, strippedRef);
-            keptContentText.push(strippedText);
-            continue;
-        }
-
+        // Mixed image/text streams sometimes use a single leading `3 Tr`
+        // preamble to keep all following text invisible. Removing just that
+        // preamble makes the original OCR layer paint over the scanned page.
         keptContentText.push(streamText);
     }
 
     const keptText = keptContentText.join('\n');
+    deleteUnreferencedEntries(extGState, collectResourceNames(keptText, EXT_G_STATE_APPLY_RE));
+    deleteUnreferencedEntries(font, collectResourceNames(keptText, FONT_DRAW_RE));
+    deleteUnreferencedEntries(xObject, collectResourceNames(keptText, IMAGE_OR_FORM_DRAW_RE));
+}
+
+function sanitizeOcrPageForEmbedding(page: PDFPage) {
+    const context = page.doc.context;
+    const contents = resolvePageContentsArray(page);
+
+    const sanitizedContentText: string[] = [];
+    for (let index = 0; index < contents.size(); index += 1) {
+        const contentRef = contents.get(index);
+        const contentStream = lookupPageContentStream(page, contentRef);
+        if (!contentStream) {
+            continue;
+        }
+
+        const sanitizedText = sanitizeOcrContentStreamForEmbedding(decodeContentStream(contentStream));
+        const sanitizedRef = context.register(context.flateStream(sanitizedText));
+        contents.set(index, sanitizedRef);
+        sanitizedContentText.push(sanitizedText);
+
+        if (contentRef instanceof PDFRef) {
+            context.delete(contentRef);
+        }
+    }
+
+    const {
+        extGState,
+        font,
+        xObject,
+    } = cloneMutablePageResources(page);
+    const keptText = sanitizedContentText.join('\n');
+    deleteUnreferencedEntries(extGState, collectResourceNames(keptText, EXT_G_STATE_APPLY_RE));
     deleteUnreferencedEntries(font, collectResourceNames(keptText, FONT_DRAW_RE));
     deleteUnreferencedEntries(xObject, collectResourceNames(keptText, IMAGE_OR_FORM_DRAW_RE));
 }
@@ -282,15 +334,26 @@ function appendOcrLayer(
         throw new Error(`Cannot safely add OCR text layer to rotated PDF page (${rotation} degrees)`);
     }
 
-    const { xObject } = cloneMutablePageResources(page);
+    const {
+        extGState,
+        xObject,
+    } = cloneMutablePageResources(page);
     const xObjectName = xObject.uniqueKey('EvbOcrLayer');
     xObject.set(xObjectName, embeddedPage.ref);
+    const invisibleStateName = extGState.uniqueKey('EvbOcrInvisible');
+    extGState.set(invisibleStateName, page.doc.context.obj({
+        Type: EXT_G_STATE_TYPE_NAME,
+        CA: 0,
+        ca: 0,
+    }));
     const xObjectToken = xObjectName.toString();
+    const invisibleStateToken = invisibleStateName.toString();
     const xScale = page.getWidth() / embeddedPage.width;
     const yScale = page.getHeight() / embeddedPage.height;
     const stream = [
         `% ${OCR_LAYER_MARKER}_BEGIN`,
         'q',
+        `${invisibleStateToken} gs`,
         `${xScale} 0 0 ${yScale} 0 0 cm`,
         `${xObjectToken} Do`,
         'Q',
@@ -345,7 +408,9 @@ export async function assembleSearchablePdf(
         removePreviousOcrLayer(page);
         const ocrPdfBytes = await readFile(ocrPdfPath);
         const ocrPdf = await PDFDocument.load(ocrPdfBytes, { ignoreEncryption: true });
-        const embeddedOcrPage = await pdf.embedPage(ocrPdf.getPage(0));
+        const ocrPage = ocrPdf.getPage(0);
+        sanitizeOcrPageForEmbedding(ocrPage);
+        const embeddedOcrPage = await pdf.embedPage(ocrPage);
         appendOcrLayer(page, embeddedOcrPage);
         throwIfAborted(signal);
     }

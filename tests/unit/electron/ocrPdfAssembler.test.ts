@@ -15,14 +15,22 @@ import {
 } from 'vitest';
 import {
     degrees,
+    decodePDFRawStream,
+    PDFArray,
+    PDFContentStream,
+    PDFDict,
     PDFDocument,
     PDFName,
+    PDFRawStream,
+    PDFRef,
+    PDFStream,
     rgb,
     StandardFonts,
 } from 'pdf-lib';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import {
     assembleSearchablePdf,
+    sanitizeOcrContentStreamForEmbedding,
     stripTesseractImageLayer,
 } from '@electron/ocr/worker/pdfAssembler';
 import { createPdfjsNodeDocumentOptions } from '@electron/search/createPdfjsNodeDocumentOptions';
@@ -103,6 +111,36 @@ async function createPdfWithPages(filePath: string, pages: Array<{
     await writeFile(filePath, await pdf.save());
 }
 
+async function createPdfWithMixedHiddenTextPreamble(filePath: string) {
+    const pdf = await PDFDocument.create();
+    const page = pdf.addPage([
+        220,
+        180,
+    ]);
+    page.drawRectangle({
+        x: 10,
+        y: 10,
+        width: 50,
+        height: 30,
+        color: rgb(0.8, 0.8, 0.8),
+    });
+    const font = await pdf.embedFont(StandardFonts.Helvetica);
+    const fontName = page.node.newFontDictionary('MixedOcrFont', font.ref);
+    const encodedText = font.encodeText('OLD OCR').toString();
+    const stream = [
+        'BT',
+        `${fontName} 12 Tf`,
+        '3 Tr',
+        'ET',
+        'BT',
+        `1 0 0 1 20 120 Tm ${encodedText} Tj`,
+        'ET',
+        '',
+    ].join('\n');
+    page.node.addContentStream(pdf.context.register(pdf.context.flateStream(stream)));
+    await writeFile(filePath, await pdf.save());
+}
+
 function countTextOccurrences(text: string, needle: string) {
     return text.split(needle).length - 1;
 }
@@ -137,6 +175,73 @@ async function extractPdfText(filePath: string) {
     } finally {
         await pdf.destroy();
     }
+}
+
+function decodeContentStream(stream: PDFStream) {
+    if (stream instanceof PDFRawStream) {
+        return Buffer.from(decodePDFRawStream(stream).decode()).toString('latin1');
+    }
+    if (stream instanceof PDFContentStream) {
+        return Buffer.from(stream.getUnencodedContents()).toString('latin1');
+    }
+    return '';
+}
+
+async function getFirstPageContentText(filePath: string) {
+    const pdf = await PDFDocument.load(await readFile(filePath));
+    const page = pdf.getPage(0);
+    const contentsValue = page.node.get(PDFName.of('Contents'));
+    const streams: PDFStream[] = [];
+
+    if (contentsValue instanceof PDFArray) {
+        for (let index = 0; index < contentsValue.size(); index += 1) {
+            const value = contentsValue.get(index);
+            const stream = value instanceof PDFRef
+                ? pdf.context.lookup(value)
+                : value;
+            if (stream instanceof PDFStream) {
+                streams.push(stream);
+            }
+        }
+    } else {
+        const stream = contentsValue instanceof PDFRef
+            ? pdf.context.lookup(contentsValue)
+            : contentsValue;
+        if (stream instanceof PDFStream) {
+            streams.push(stream);
+        }
+    }
+
+    return streams.map(decodeContentStream).join('\n');
+}
+
+async function getFirstPageExtGStateAlphaEntries(filePath: string) {
+    const pdf = await PDFDocument.load(await readFile(filePath));
+    const page = pdf.getPage(0);
+    const resources = page.node.lookup(PDFName.of('Resources'));
+    if (!(resources instanceof PDFDict)) {
+        return [];
+    }
+    const extGState = resources.lookup(PDFName.of('ExtGState'));
+    if (!(extGState instanceof PDFDict)) {
+        return [];
+    }
+
+    return extGState.keys().map(key => {
+        const value = extGState.lookup(key);
+        if (!(value instanceof PDFDict)) {
+            return {
+                name: key.toString(),
+                ca: null,
+                CA: null,
+            };
+        }
+        return {
+            name: key.toString(),
+            ca: value.get(PDFName.of('ca'))?.toString() ?? null,
+            CA: value.get(PDFName.of('CA'))?.toString() ?? null,
+        };
+    });
 }
 
 describe('assembleSearchablePdf', () => {
@@ -180,6 +285,40 @@ describe('assembleSearchablePdf', () => {
         expect(extractedText).toContain('VISIBLE ORIGINAL');
         expect(extractedText).toContain('NEW OCR');
         expect(extractedText).not.toContain('OLD OCR');
+    });
+
+    it('keeps text-only Tesseract OCR pages searchable without painting their visible glyphs', async () => {
+        tempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-assembler-'));
+        const originalPath = join(tempDir, 'original.pdf');
+        const ocrPath = join(tempDir, 'visible-text-only-ocr.pdf');
+        await createPdfWithVisibleAndHiddenText(originalPath, { visibleText: 'VISIBLE ORIGINAL' });
+        await createPdfWithVisibleAndHiddenText(ocrPath, { visibleText: 'OCR TEXT ONLY' });
+        const ocrPages = new Map<number, string>();
+        ocrPages.set(1, ocrPath);
+
+        const outputPath = await assembleSearchablePdf(
+            'qpdf-not-used',
+            originalPath,
+            ocrPages,
+            1,
+            tempDir,
+            'visible-text-session',
+            vi.fn(),
+            path => path,
+        );
+
+        const extractedText = await extractPdfText(outputPath);
+        const firstPageContent = await getFirstPageContentText(outputPath);
+        const alphaEntries = await getFirstPageExtGStateAlphaEntries(outputPath);
+
+        expect(extractedText).toContain('VISIBLE ORIGINAL');
+        expect(extractedText).toContain('OCR TEXT ONLY');
+        expect(firstPageContent).toContain('EVB_VIEWER_OCR_LAYER_BEGIN');
+        expect(firstPageContent).toMatch(/\/EvbOcrInvisible\S*\s+gs/u);
+        expect(alphaEntries).toContainEqual(expect.objectContaining({
+            ca: '0',
+            CA: '0',
+        }));
     });
 
     it('assembles OCR output when original page resources are malformed', async () => {
@@ -346,6 +485,32 @@ describe('assembleSearchablePdf', () => {
         ]);
     });
 
+    it('preserves mixed-stream invisible text preambles in original page content', async () => {
+        tempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-assembler-'));
+        const originalPath = join(tempDir, 'mixed-original.pdf');
+        const ocrPath = join(tempDir, 'ocr.pdf');
+        await createPdfWithMixedHiddenTextPreamble(originalPath);
+        await createPdfWithVisibleAndHiddenText(ocrPath, { hiddenText: 'NEW OCR' });
+        const ocrPages = new Map<number, string>();
+        ocrPages.set(1, ocrPath);
+
+        const outputPath = await assembleSearchablePdf(
+            'qpdf-not-used',
+            originalPath,
+            ocrPages,
+            1,
+            tempDir,
+            'mixed-hidden-preamble-session',
+            vi.fn(),
+            path => path,
+        );
+
+        const firstPageContent = await getFirstPageContentText(outputPath);
+
+        expect(firstPageContent).toMatch(/3 Tr\s+ET\s+BT/u);
+        expect(firstPageContent).toContain('EVB_VIEWER_OCR_LAYER_BEGIN');
+    });
+
     it('rejects rotated pages instead of silently placing a misaligned OCR layer', async () => {
         tempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-assembler-'));
         const originalPath = join(tempDir, 'rotated-original.pdf');
@@ -406,5 +571,29 @@ describe('stripTesseractImageLayer', () => {
         expect(stripped).not.toContain('/XObject');
         expect(stripped).toContain('3 Tr');
         expect(stripped).toContain('<04200438043C>');
+    });
+});
+
+describe('sanitizeOcrContentStreamForEmbedding', () => {
+    it('forces visible OCR text objects to invisible rendering mode and drops Tesseract image paint', () => {
+        const source = [
+            'q 423.8 0 0 640.8 0 0 cm /Im1 Do Q',
+            '/I6 Do',
+            'BT',
+            '1 0 0 1 28 100.8 Tm /f-0-0 8 Tf [ <004F00430052> ] TJ',
+            'ET',
+            'BT',
+            '0 Tr 1 0 0 1 28 80 Tm /f-0-0 8 Tf (VISIBLE) Tj',
+            'ET',
+        ].join('\n');
+
+        const sanitized = sanitizeOcrContentStreamForEmbedding(source);
+
+        expect(sanitized).not.toContain('/Im1 Do');
+        expect(sanitized).not.toContain('/I6 Do');
+        expect(sanitized).toContain('BT\n3 Tr\n1 0 0 1 28 100.8 Tm');
+        expect(sanitized).toContain('BT\n3 Tr\n3 Tr 1 0 0 1 28 80 Tm');
+        expect(sanitized).toContain('<004F00430052>');
+        expect(sanitized).toContain('(VISIBLE) Tj');
     });
 });
