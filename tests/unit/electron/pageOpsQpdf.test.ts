@@ -31,6 +31,15 @@ async function readQpdfArgFile(args: string[]) {
     return (await readFile(argFile.slice(1), 'utf8')).split('\n');
 }
 
+function expectManagedQpdfOutputPath(qpdfArgs: string[], forbiddenPath?: string) {
+    const outputPath = qpdfArgs.at(-1);
+    expect(outputPath).toEqual(expect.stringContaining('qpdfOutput-'));
+    if (forbiddenPath !== undefined) {
+        expect(outputPath).not.toBe(forbiddenPath);
+    }
+    return outputPath as string;
+}
+
 vi.mock('node:crypto', async (importOriginal) => {
     const actual = await importOriginal<typeof NodeCrypto>();
     return {
@@ -59,14 +68,15 @@ describe('page-ops qpdf extract', () => {
         const srcPath = join(workDir, 'source.pdf');
         const destPath = join(workDir, 'extract.pdf');
         const tempOutputPath = join(workDir, 'tmp-fixed-output-id.pdf');
+        let qpdfOutputPath = '';
 
         try {
             await writeFile(srcPath, '%PDF-1.7\n');
             await writeFile(destPath, '');
             runNativeToolCommandMock.mockImplementationOnce(async (_qpdf, args: string[]) => {
                 const qpdfArgs = await readQpdfArgFile(args);
-                expect(qpdfArgs.at(-1)).toBe(tempOutputPath);
-                await writeFile(tempOutputPath, new Uint8Array());
+                qpdfOutputPath = expectManagedQpdfOutputPath(qpdfArgs, tempOutputPath);
+                await writeFile(qpdfOutputPath, new Uint8Array());
                 return {
                     exitCode: 0,
                     stdout: '',
@@ -83,6 +93,7 @@ describe('page-ops qpdf extract', () => {
 
             await expect(stat(destPath)).rejects.toMatchObject({ code: 'ENOENT' });
             await expect(stat(tempOutputPath)).rejects.toMatchObject({ code: 'ENOENT' });
+            await expect(stat(qpdfOutputPath)).rejects.toMatchObject({ code: 'ENOENT' });
         } finally {
             await rm(workDir, {
                 recursive: true,
@@ -91,18 +102,19 @@ describe('page-ops qpdf extract', () => {
         }
     });
 
-    it('writes qpdf output to a sibling temp PDF before replacing the destination', async () => {
+    it('writes qpdf output to managed scratch before replacing the destination', async () => {
         const workDir = await mkdtemp(join(tmpdir(), 'page-ops-qpdf-'));
         const srcPath = join(workDir, 'source.pdf');
         const destPath = join(workDir, 'extract.pdf');
         const tempOutputPath = join(workDir, 'tmp-fixed-output-id.pdf');
+        let qpdfOutputPath = '';
 
         try {
             await writeFile(srcPath, '%PDF-1.7\n');
             runNativeToolCommandMock.mockImplementationOnce(async (_qpdf, args: string[]) => {
                 const qpdfArgs = await readQpdfArgFile(args);
-                expect(qpdfArgs.at(-1)).toBe(tempOutputPath);
-                await writeFile(tempOutputPath, '%PDF-1.7\nextracted');
+                qpdfOutputPath = expectManagedQpdfOutputPath(qpdfArgs, tempOutputPath);
+                await writeFile(qpdfOutputPath, '%PDF-1.7\nextracted');
                 return {
                     exitCode: 0,
                     stdout: '',
@@ -116,6 +128,42 @@ describe('page-ops qpdf extract', () => {
 
             await expect(readFile(destPath, 'utf8')).resolves.toBe('%PDF-1.7\nextracted');
             await expect(stat(tempOutputPath)).rejects.toMatchObject({ code: 'ENOENT' });
+            await expect(stat(qpdfOutputPath)).rejects.toMatchObject({ code: 'ENOENT' });
+        } finally {
+            await rm(workDir, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
+    it('does not pass user-selected destination paths to qpdf before saving the extracted PDF', async () => {
+        const workDir = await mkdtemp(join(tmpdir(), 'page-ops-qpdf-'));
+        const srcPath = join(workDir, 'source.pdf');
+        const destPath = join(workDir, 'страницы 1-2.pdf');
+
+        try {
+            await writeFile(srcPath, '%PDF-1.7\n');
+            runNativeToolCommandMock.mockImplementationOnce(async (_qpdf, args: string[]) => {
+                const qpdfArgs = await readQpdfArgFile(args);
+                expect(qpdfArgs).not.toContain(destPath);
+                const qpdfOutputPath = expectManagedQpdfOutputPath(qpdfArgs);
+                await writeFile(qpdfOutputPath, '%PDF-1.7\nunicode destination extraction');
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            });
+
+            const { extractPages } = await import('@electron/features/page-ops/main/qpdf');
+
+            await extractPages(srcPath, destPath, [
+                1,
+                2,
+            ]);
+
+            await expect(readFile(destPath, 'utf8')).resolves.toBe('%PDF-1.7\nunicode destination extraction');
         } finally {
             await rm(workDir, {
                 recursive: true,
@@ -129,6 +177,7 @@ describe('page-ops qpdf extract', () => {
         const srcPath = join(workDir, 'source.pdf');
         const destPath = join(workDir, 'extract.pdf');
         const tempOutputPath = join(workDir, 'tmp-fixed-output-id.pdf');
+        let qpdfOutputPath = '';
 
         try {
             await writeFile(srcPath, '%PDF-1.7\n');
@@ -144,13 +193,15 @@ describe('page-ops qpdf extract', () => {
                     srcPath,
                     '1',
                     '--',
-                    tempOutputPath,
+                    expect.stringContaining('qpdfOutput-'),
                 ]);
+                qpdfOutputPath = qpdfArgs.at(-1) ?? '';
+                expect(qpdfOutputPath).not.toBe(tempOutputPath);
                 expect(options.allowedExitCodes).toEqual([
                     0,
                     3,
                 ]);
-                await writeFile(tempOutputPath, '%PDF-1.7\nrepaired extraction');
+                await writeFile(qpdfOutputPath, '%PDF-1.7\nrepaired extraction');
                 return {
                     exitCode: 3,
                     stdout: '',
@@ -164,6 +215,7 @@ describe('page-ops qpdf extract', () => {
 
             await expect(readFile(destPath, 'utf8')).resolves.toBe('%PDF-1.7\nrepaired extraction');
             await expect(stat(tempOutputPath)).rejects.toMatchObject({ code: 'ENOENT' });
+            await expect(stat(qpdfOutputPath)).rejects.toMatchObject({ code: 'ENOENT' });
         } finally {
             await rm(workDir, {
                 recursive: true,

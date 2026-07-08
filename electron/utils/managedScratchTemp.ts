@@ -18,6 +18,7 @@ const MANAGED_SCRATCH_PREFIXES = [
     'pdfExport-',
     'pdfExport-scope-',
     'qpdfArgs-',
+    'qpdfOutput-',
     'pdf-page-ops-',
 ] as const;
 const MANAGED_SCRATCH_STALE_MAX_AGE_MS = parseIntegerEnv(

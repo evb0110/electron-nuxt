@@ -1,4 +1,5 @@
 import {
+    copyFile,
     rm,
     stat,
     unlink,
@@ -147,6 +148,27 @@ async function cleanupQpdfTemp(tempPath: string) {
     await cleanupTempOutput(tempPath, log, 'qpdf temp file');
 }
 
+async function createManagedQpdfOutputPath() {
+    const tempDir = await createManagedScratchTempDir('qpdfOutput-');
+    return {
+        outputPath: join(tempDir, 'output.pdf'),
+        tempDir,
+    };
+}
+
+async function cleanupManagedQpdfOutput(tempDir: string) {
+    try {
+        await rm(tempDir, {
+            recursive: true,
+            force: true,
+        });
+    } catch (cleanupError) {
+        log.debug(`Failed to cleanup qpdf output directory "${tempDir}": ${
+            getErrorMessage(cleanupError)
+        }`);
+    }
+}
+
 async function cleanupEmptyTarget(targetPath: string) {
     try {
         const outputStat = await stat(targetPath);
@@ -183,7 +205,8 @@ export async function extractPages(
     pages: number[],
     options: IQpdfOperationOptions = {},
 ) {
-    const tempPath = makeTempPdfOutputPath(destPath);
+    const qpdfOutput = await createManagedQpdfOutputPath();
+    const finalTempPath = makeTempPdfOutputPath(destPath);
     try {
         await runQpdfCommand([
             srcPath,
@@ -191,7 +214,7 @@ export async function extractPages(
             srcPath,
             formatPageList(pages),
             '--',
-            tempPath,
+            qpdfOutput.outputPath,
         ], {
             timeoutMs: QPDF_TIMEOUT_MS,
             allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
@@ -199,12 +222,16 @@ export async function extractPages(
             ...(options.signal ? { signal: options.signal } : {}),
             ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
         });
-        await assertNonEmptyPdfOutput(tempPath, 'Extracting pages');
-        await replaceQpdfOutput(tempPath, destPath);
+        await assertNonEmptyPdfOutput(qpdfOutput.outputPath, 'Extracting pages');
+        await copyFile(qpdfOutput.outputPath, finalTempPath);
+        await assertNonEmptyPdfOutput(finalTempPath, 'Extracting pages');
+        await replaceQpdfOutput(finalTempPath, destPath);
     } catch (err) {
-        await cleanupQpdfTemp(tempPath);
+        await cleanupQpdfTemp(finalTempPath);
         await cleanupEmptyTarget(destPath);
         throw err;
+    } finally {
+        await cleanupManagedQpdfOutput(qpdfOutput.tempDir);
     }
 }
 
