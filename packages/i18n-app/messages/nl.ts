@@ -321,6 +321,11 @@ export default {
                 'accurate': 'Nauwkeurig',
                 'poor-scan': 'Slechte scan',
             },
+            'help': {
+                'balanced': 'De standaardinstelling — goed voor de meeste documenten.',
+                'accurate': 'Gebruikt het taalwoordenboek om verkeerd gelezen woorden te corrigeren.',
+                'poor-scan': 'Voor vervaagde scans, scans met ruis of scans van lage kwaliteit.',
+            },
         },
         'preprocessing': {
             'label': 'Preprocessing',
@@ -328,16 +333,25 @@ export default {
                 'off': 'Off',
                 'clean': 'Clean scan',
             },
+            'help': {
+                'off': 'Gebruik de scan ongewijzigd.',
+                'clean': 'Maak de pagina-afbeelding eerst recht en schoon.',
+            },
         },
         'pageSegmentation': {
             'label': 'Text layout',
             'options': {
                 'auto': 'Auto',
-                'autoPage': 'Auto page',
                 'singleBlock': 'Single block',
                 'sparseText': 'Sparse text',
             },
+            'help': {
+                'auto': 'Detecteer de indeling automatisch.',
+                'singleBlock': 'Eén compact tekstblok, zoals een alinea.',
+                'sparseText': 'Verspreide tekst, zoals labels of bijschriften.',
+            },
         },
+        'settingHelpAria': 'Over {setting}',
         'languages': 'Talen',
         'preparing': 'OCR voorbereiden...',
         'progressStage': {

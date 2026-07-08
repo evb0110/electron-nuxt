@@ -321,6 +321,11 @@ export default {
                 'accurate': 'Genau',
                 'poor-scan': 'Schlechter Scan',
             },
+            'help': {
+                'balanced': 'Der Standard — gut für die meisten Dokumente.',
+                'accurate': 'Nutzt das Sprachwörterbuch, um falsch gelesene Wörter zu korrigieren.',
+                'poor-scan': 'Für verblasste, verrauschte oder qualitativ schlechte Scans.',
+            },
         },
         'preprocessing': {
             'label': 'Preprocessing',
@@ -328,16 +333,25 @@ export default {
                 'off': 'Off',
                 'clean': 'Clean scan',
             },
+            'help': {
+                'off': 'Scan unverändert verwenden.',
+                'clean': 'Seitenbild zuerst begradigen und bereinigen.',
+            },
         },
         'pageSegmentation': {
             'label': 'Text layout',
             'options': {
                 'auto': 'Auto',
-                'autoPage': 'Auto page',
                 'singleBlock': 'Single block',
                 'sparseText': 'Sparse text',
             },
+            'help': {
+                'auto': 'Layout automatisch erkennen.',
+                'singleBlock': 'Ein zusammenhängender Textblock, wie ein Absatz.',
+                'sparseText': 'Verstreuter Text, wie Beschriftungen oder Bildunterschriften.',
+            },
         },
+        'settingHelpAria': 'Über {setting}',
         'languages': 'Sprachen',
         'preparing': 'OCR wird vorbereitet...',
         'progressStage': {

@@ -105,7 +105,15 @@
                             orientation="horizontal"
                             indicator="hidden"
                             :ui="segmentedRadioGroupUi"
-                        />
+                        >
+                            <template #legend>
+                                {{ t('ocr.qualityProfile.label') }}
+                                <OcrSettingHelpTooltip
+                                    :trigger-label="t('ocr.settingHelpAria', { setting: t('ocr.qualityProfile.label') })"
+                                    :options="qualityProfileHelpItems"
+                                />
+                            </template>
+                        </URadioGroup>
                     </div>
 
                     <!-- OCR tuning -->
@@ -122,7 +130,15 @@
                             orientation="horizontal"
                             indicator="hidden"
                             :ui="segmentedRadioGroupUi"
-                        />
+                        >
+                            <template #legend>
+                                {{ t('ocr.preprocessing.label') }}
+                                <OcrSettingHelpTooltip
+                                    :trigger-label="t('ocr.settingHelpAria', { setting: t('ocr.preprocessing.label') })"
+                                    :options="preprocessingModeHelpItems"
+                                />
+                            </template>
+                        </URadioGroup>
                     </div>
 
                     <div class="section">
@@ -130,6 +146,13 @@
                             :label="t('ocr.pageSegmentation.label')"
                             :ui="formFieldUi"
                         >
+                            <template #label>
+                                {{ t('ocr.pageSegmentation.label') }}
+                                <OcrSettingHelpTooltip
+                                    :trigger-label="t('ocr.settingHelpAria', { setting: t('ocr.pageSegmentation.label') })"
+                                    :options="pageSegmentationHelpItems"
+                                />
+                            </template>
                             <USelect
                                 id="ocr-page-segmentation-mode"
                                 v-model="pageSegmentationModeSelectValue"
@@ -294,6 +317,7 @@ import type {
 import type { TTranslationKey } from '@i18n-app';
 import AppProgressBar from '@app/components/AppProgressBar.vue';
 import AppSpinner from '@app/components/AppSpinner.vue';
+import OcrSettingHelpTooltip from '@app/modules/ocr-panel/components/OcrSettingHelpTooltip.vue';
 import type { IOcrPopupAgentExpose } from '@app/types/ocrAgent';
 import { OCR_PAGE_SEGMENTATION_AUTOMATIC_VALUE } from '@app/modules/ocr-panel/runtime/ocrPopupSettings';
 import { useOcrPopupPresenter } from '@app/modules/ocr-panel/runtime/useOcrPopupPresenter';
@@ -308,6 +332,9 @@ type TOcrLanguageTranslationKey = Extract<TTranslationKey, `ocr.languageName.${s
 type TOcrQualityProfileLabelKey = Extract<TTranslationKey, `ocr.qualityProfile.options.${string}`>;
 type TOcrPreprocessingModeLabelKey = Extract<TTranslationKey, `ocr.preprocessing.options.${string}`>;
 type TOcrPageSegmentationLabelKey = Extract<TTranslationKey, `ocr.pageSegmentation.options.${string}`>;
+type TOcrQualityProfileHelpKey = Extract<TTranslationKey, `ocr.qualityProfile.help.${string}`>;
+type TOcrPreprocessingModeHelpKey = Extract<TTranslationKey, `ocr.preprocessing.help.${string}`>;
+type TOcrPageSegmentationHelpKey = Extract<TTranslationKey, `ocr.pageSegmentation.help.${string}`>;
 
 const ocrQualityProfileOptions = [
     'balanced',
@@ -324,24 +351,24 @@ const ocrPageSegmentationOptions = [
     {
         value: '',
         labelKey: 'ocr.pageSegmentation.options.auto',
-    },
-    {
-        value: '3',
-        labelKey: 'ocr.pageSegmentation.options.autoPage',
+        helpKey: 'ocr.pageSegmentation.help.auto',
     },
     {
         value: '6',
         labelKey: 'ocr.pageSegmentation.options.singleBlock',
+        helpKey: 'ocr.pageSegmentation.help.singleBlock',
     },
     {
         value: '11',
         labelKey: 'ocr.pageSegmentation.options.sparseText',
+        helpKey: 'ocr.pageSegmentation.help.sparseText',
     },
 ] as const satisfies ReadonlyArray<{
     value: string;
     labelKey: TOcrPageSegmentationLabelKey;
+    helpKey: TOcrPageSegmentationHelpKey;
 }>;
-const formFieldUi = { label: 'label' } as const;
+const formFieldUi = { label: 'label ocr-setting-legend' } as const;
 const listRadioGroupUi = {
     fieldset: 'gap-y-1.5',
     legend: 'label',
@@ -350,7 +377,7 @@ const listRadioGroupUi = {
 } as const;
 const segmentedRadioGroupUi = {
     fieldset: 'w-full gap-x-1',
-    legend: 'label',
+    legend: 'label ocr-setting-legend',
     item: 'flex-1 cursor-pointer justify-center px-2 py-1.5',
     label: 'w-full truncate text-center text-xs font-medium',
 } as const;
@@ -487,6 +514,18 @@ const pageSegmentationItems = computed<Array<{
         : option.value,
     label: t(option.labelKey, undefined),
 })));
+const qualityProfileHelpItems = computed(() => ocrQualityProfileOptions.map(profile => ({
+    label: t(getQualityProfileLabelKey(profile), undefined),
+    description: t(getQualityProfileHelpKey(profile), undefined),
+})));
+const preprocessingModeHelpItems = computed(() => ocrPreprocessingModeOptions.map(mode => ({
+    label: t(getPreprocessingModeLabelKey(mode), undefined),
+    description: t(getPreprocessingModeHelpKey(mode), undefined),
+})));
+const pageSegmentationHelpItems = computed(() => ocrPageSegmentationOptions.map(option => ({
+    label: t(option.labelKey, undefined),
+    description: t(option.helpKey, undefined),
+})));
 const latinCyrillicLanguageItems = computed(() => latinCyrillicLanguages.value.map(lang => ({
     value: lang.code,
     label: translateLanguageName(lang.code),
@@ -512,8 +551,16 @@ function getQualityProfileLabelKey(profile: TOcrQualityProfile): TOcrQualityProf
     return `ocr.qualityProfile.options.${profile}`;
 }
 
+function getQualityProfileHelpKey(profile: TOcrQualityProfile): TOcrQualityProfileHelpKey {
+    return `ocr.qualityProfile.help.${profile}`;
+}
+
 function getPreprocessingModeLabelKey(mode: TOcrPreprocessingMode): TOcrPreprocessingModeLabelKey {
     return `ocr.preprocessing.options.${mode}`;
+}
+
+function getPreprocessingModeHelpKey(mode: TOcrPreprocessingMode): TOcrPreprocessingModeHelpKey {
+    return `ocr.preprocessing.help.${mode}`;
 }
 
 defineExpose<IOcrPopupAgentExpose>({
@@ -599,6 +646,12 @@ defineExpose<IOcrPopupAgentExpose>({
     margin-bottom: var(--app-space-3xl);
     text-transform: uppercase;
     letter-spacing: 0.05em;
+}
+
+:deep(.ocr-setting-legend) {
+    display: flex;
+    align-items: center;
+    gap: var(--app-space-sm);
 }
 
 .custom-range-reveal {
