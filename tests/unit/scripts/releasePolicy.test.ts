@@ -3,9 +3,21 @@ import {
     expect,
     it,
 } from 'vitest';
-import { readFileSync } from 'node:fs';
+import {
+    chmodSync,
+    mkdirSync,
+    mkdtempSync,
+    readFileSync,
+    rmSync,
+    writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
-import { resolve } from 'node:path';
+import {
+    delimiter,
+    join,
+    resolve,
+} from 'node:path';
 
 type TReleaseArch = 'arm64' | 'x64';
 type TReleasePlatform = 'linux' | 'mac' | 'win';
@@ -178,6 +190,17 @@ interface IMacDmgNotarizationModule {
         readArtifactInfo: (artifactName: string) => IMacUpdaterFileInfo;
         readMetadataText: (fileName: string) => string;
     }) => boolean;
+    computeArtifactFileInfo: (filePath: string) => IMacUpdaterFileInfo;
+    notarizeMacDmgArtifacts: (options?: {
+        arch?: string;
+        artifactsDir?: string;
+        env?: TReleaseEnv;
+        platform?: NodeJS.Platform;
+        projectRoot?: string;
+    }) => {
+        processed: number;
+        skipped: boolean;
+    };
     parseMacUpdaterFileEntries: (
         metadataFileName: string,
         metadataText: string,
@@ -274,6 +297,8 @@ const {
 const { assertBuildArtifacts } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/assert-build-artifacts.mjs')).href) as IAssertBuildArtifactsModule;
 const {
     assertMacUpdaterMetadataHashes,
+    computeArtifactFileInfo,
+    notarizeMacDmgArtifacts,
     parseMacUpdaterFileEntries,
     updateMacUpdaterMetadataArtifactInfo,
 } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/notarize-macos-dmgs.mjs')).href) as IMacDmgNotarizationModule;
@@ -288,6 +313,76 @@ const {
     getReleaseWorkflowDispatchArgs,
     parseCutReleaseArgs,
 } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/cut-release.mjs')).href) as ICutReleaseModule;
+
+function writeExecutable(filePath: string, lines: string[]): void {
+    writeFileSync(filePath, `${lines.join('\n')}\n`);
+    chmodSync(filePath, 0o755);
+}
+
+function createFakeDmgNotaryTools(binDir: string): string {
+    writeExecutable(join(binDir, 'codesign'), [
+        '#!/usr/bin/env node',
+        'const args = process.argv.slice(2);',
+        'if (args[0] === \'-dv\') {',
+        '    process.stderr.write(\'not signed\\n\');',
+        '    process.exit(1);',
+        '}',
+        'process.exit(0);',
+    ]);
+
+    writeExecutable(join(binDir, 'xcrun'), [
+        '#!/usr/bin/env node',
+        'const { appendFileSync, existsSync, writeFileSync } = require(\'node:fs\');',
+        'const args = process.argv.slice(2);',
+        'if (args[0] === \'stapler\' && args[1] === \'validate\') {',
+        '    const markerPath = `${args[2]}.stapled`;',
+        '    if (existsSync(markerPath)) {',
+        '        process.stdout.write(\'valid\\n\');',
+        '        process.exit(0);',
+        '    }',
+        '    process.stderr.write(\'not stapled\\n\');',
+        '    process.exit(1);',
+        '}',
+        'if (args[0] === \'stapler\' && args[1] === \'staple\') {',
+        '    appendFileSync(args[2], \'\\nstapled-ticket\\n\');',
+        '    writeFileSync(`${args[2]}.stapled`, \'1\');',
+        '    process.exit(0);',
+        '}',
+        'if (args[0] === \'notarytool\' && args[1] === \'submit\') {',
+        '    process.stdout.write(JSON.stringify({ id: \'submission-1\' }));',
+        '    process.exit(0);',
+        '}',
+        'if (args[0] === \'notarytool\' && args[1] === \'wait\') {',
+        '    process.stdout.write(JSON.stringify({ status: \'Accepted\' }));',
+        '    process.exit(0);',
+        '}',
+        'process.stderr.write(`Unexpected xcrun args: ${args.join(\' \')}\\n`);',
+        'process.exit(2);',
+    ]);
+
+    const appBuilderPath = join(binDir, 'app-builder');
+    writeExecutable(appBuilderPath, [
+        '#!/usr/bin/env node',
+        'const { createHash } = require(\'node:crypto\');',
+        'const { readFileSync, statSync, writeFileSync } = require(\'node:fs\');',
+        'const args = process.argv.slice(2);',
+        'if (args[0] !== \'blockmap\') {',
+        '    process.stderr.write(`Unexpected app-builder args: ${args.join(\' \')}\\n`);',
+        '    process.exit(2);',
+        '}',
+        'const inputPath = args[args.indexOf(\'--input\') + 1];',
+        'const outputPath = args[args.indexOf(\'--output\') + 1];',
+        'writeFileSync(outputPath, \'blockmap\');',
+        'const data = readFileSync(inputPath);',
+        'const info = {',
+        '    sha512: createHash(\'sha512\').update(data).digest(\'base64\'),',
+        '    size: statSync(inputPath).size,',
+        '};',
+        'process.stdout.write(JSON.stringify(info));',
+    ]);
+
+    return appBuilderPath;
+}
 
 describe('release policy', () => {
     it('derives local release targets from host platform and arch', () => {
@@ -610,6 +705,84 @@ describe('release policy', () => {
                 readArtifactInfo,
                 readMetadataText: () => macMetadata,
             })).toThrow(/size mismatch/u);
+        });
+
+        it('notarizes and staples DMGs before refreshing macOS updater hashes', () => {
+            const projectRoot = mkdtempSync(join(tmpdir(), 'evb-dmg-notary-'));
+
+            try {
+                const artifactsDir = join(projectRoot, 'release');
+                const binDir = join(projectRoot, 'bin');
+                mkdirSync(artifactsDir, { recursive: true });
+                mkdirSync(binDir, { recursive: true });
+
+                const appBuilderPath = createFakeDmgNotaryTools(binDir);
+                const dmgName = 'EVB-Viewer-0.1.0-arm64.dmg';
+                const zipName = 'EVB-Viewer-0.1.0-arm64.zip';
+                const dmgPath = join(artifactsDir, dmgName);
+                const zipPath = join(artifactsDir, zipName);
+                const metadataPath = join(artifactsDir, 'latest-mac.yml');
+                writeFileSync(dmgPath, 'dmg-before-staple');
+                writeFileSync(zipPath, 'zip-bytes');
+
+                const zipInfo = computeArtifactFileInfo(zipPath);
+                writeFileSync(metadataPath, [
+                    'version: 0.1.0',
+                    'files:',
+                    `  - url: ${zipName}`,
+                    `    sha512: ${zipInfo.sha512}`,
+                    `    size: ${zipInfo.size}`,
+                    `  - url: ${dmgName}`,
+                    '    sha512: stale-dmg-hash',
+                    '    size: 1',
+                    `path: ${zipName}`,
+                    `sha512: ${zipInfo.sha512}`,
+                ].join('\n'));
+
+                expect(notarizeMacDmgArtifacts({
+                    arch: 'arm64',
+                    artifactsDir: 'release',
+                    env: {
+                        APP_BUILDER_BINARY: appBuilderPath,
+                        APPLE_API_ISSUER: 'issuer',
+                        APPLE_API_KEY: '/tmp/AuthKey_Test.p8',
+                        APPLE_API_KEY_ID: 'key-id',
+                        CSC_NAME: 'Developer ID Application: Example (TEAMID)',
+                        PATH: `${binDir}${delimiter}${process.env.PATH ?? ''}`,
+                    },
+                    platform: 'darwin',
+                    projectRoot,
+                })).toEqual({
+                    processed: 1,
+                    skipped: false,
+                });
+
+                const updatedMetadata = readFileSync(metadataPath, 'utf8');
+                const dmgInfo = computeArtifactFileInfo(dmgPath);
+                expect(readFileSync(`${dmgPath}.blockmap`, 'utf8')).toBe('blockmap');
+                expect(readFileSync(`${dmgPath}.stapled`, 'utf8')).toBe('1');
+                expect(parseMacUpdaterFileEntries('latest-mac.yml', updatedMetadata)).toEqual([
+                    {
+                        sha512: zipInfo.sha512,
+                        size: zipInfo.size,
+                        url: zipName,
+                    },
+                    {
+                        sha512: dmgInfo.sha512,
+                        size: dmgInfo.size,
+                        url: dmgName,
+                    },
+                ]);
+                expect(updatedMetadata.split(/\r?\n/u).slice(-2)).toEqual([
+                    `path: ${zipName}`,
+                    `sha512: ${zipInfo.sha512}`,
+                ]);
+            } finally {
+                rmSync(projectRoot, {
+                    force: true,
+                    recursive: true,
+                });
+            }
         });
     });
 

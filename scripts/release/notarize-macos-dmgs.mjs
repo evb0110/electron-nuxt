@@ -366,9 +366,13 @@ function resolveDmgSigningIdentity(artifactsDir, env) {
     return identityMatch?.[1] ?? null;
 }
 
-function findAppBuilderExecutable(projectRoot) {
-    if (process.env.APP_BUILDER_BINARY && existsSync(process.env.APP_BUILDER_BINARY)) {
-        return process.env.APP_BUILDER_BINARY;
+function findAppBuilderExecutable(projectRoot, {
+    arch = process.arch,
+    env = process.env,
+    platform = process.platform,
+} = {}) {
+    if (env.APP_BUILDER_BINARY && existsSync(env.APP_BUILDER_BINARY)) {
+        return env.APP_BUILDER_BINARY;
     }
 
     const binRoot = join(projectRoot, 'node_modules', '.pnpm');
@@ -381,23 +385,23 @@ function findAppBuilderExecutable(projectRoot) {
     }
 
     const packageRoot = join(binRoot, packageDir, 'node_modules', 'app-builder-bin');
-    const platformPart = process.platform === 'darwin'
+    const platformPart = platform === 'darwin'
         ? 'mac'
-        : process.platform === 'win32'
+        : platform === 'win32'
             ? 'win'
             : 'linux';
-    const archPart = process.arch === 'x64'
+    const archPart = arch === 'x64'
         ? 'amd64'
-        : process.arch;
-    const candidates = process.platform === 'darwin'
+        : arch;
+    const candidates = platform === 'darwin'
         ? [join(packageRoot, platformPart, `app-builder_${archPart}`)]
-        : process.platform === 'win32'
-            ? [join(packageRoot, platformPart, process.arch, 'app-builder.exe')]
-            : [join(packageRoot, platformPart, process.arch, 'app-builder')];
+        : platform === 'win32'
+            ? [join(packageRoot, platformPart, arch, 'app-builder.exe')]
+            : [join(packageRoot, platformPart, arch, 'app-builder')];
 
     const executable = candidates.find(candidate => existsSync(candidate));
     if (!executable) {
-        throw new Error(`No app-builder executable found for ${process.platform}-${process.arch}`);
+        throw new Error(`No app-builder executable found for ${platform}-${arch}`);
     }
     return executable;
 }
@@ -534,8 +538,15 @@ function waitForNotarization(submissionId, env) {
     throw new Error(`Timed out waiting for notarization submission ${submissionId}`);
 }
 
-function regenerateDmgBlockmap(dmgPath, projectRoot, env) {
-    const appBuilder = findAppBuilderExecutable(projectRoot);
+function regenerateDmgBlockmap(dmgPath, projectRoot, env, {
+    arch = process.arch,
+    platform = process.platform,
+} = {}) {
+    const appBuilder = findAppBuilderExecutable(projectRoot, {
+        arch,
+        env,
+        platform,
+    });
     const blockmapPath = `${dmgPath}.blockmap`;
     process.stdout.write(`[mac-dmg] Regenerating ${basename(blockmapPath)}.\n`);
     const output = runCommand(appBuilder, [
@@ -574,12 +585,14 @@ function updateMacMetadataFiles(artifactsDir, dmgPath, fileInfo) {
 }
 
 export function notarizeMacDmgArtifacts({
+    arch = process.arch,
     artifactsDir = 'release',
     env = process.env,
+    platform = process.platform,
     projectRoot = process.cwd(),
 } = {}) {
     const resolvedArtifactsDir = resolve(projectRoot, artifactsDir);
-    if (process.platform !== 'darwin') {
+    if (platform !== 'darwin') {
         process.stdout.write('[mac-dmg] Skipping DMG notarization on non-macOS host.\n');
         return {
             processed: 0,
@@ -617,7 +630,10 @@ export function notarizeMacDmgArtifacts({
     for (const dmgPath of dmgPaths) {
         ensureSignedDmg(dmgPath, signingIdentity, env);
         notarizeAndStapleDmg(dmgPath, env);
-        const fileInfo = regenerateDmgBlockmap(dmgPath, projectRoot, env);
+        const fileInfo = regenerateDmgBlockmap(dmgPath, projectRoot, env, {
+            arch,
+            platform,
+        });
         updateMacMetadataFiles(resolvedArtifactsDir, dmgPath, fileInfo);
     }
 
