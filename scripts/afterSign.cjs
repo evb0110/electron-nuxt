@@ -5,10 +5,69 @@ const {
 const fs = require('fs');
 const path = require('path');
 
-const PYINSTALLER_ENTITLEMENTS = path.resolve(__dirname, '..', 'build', 'entitlements.mac.plist');
+const HARDENED_RUNTIME_ENTITLEMENTS = path.resolve(__dirname, '..', 'build', 'entitlements.mac.plist');
 
 function hasDeveloperIdCredentials() {
     return Boolean(process.env.CSC_LINK && process.env.CSC_KEY_PASSWORD);
+}
+
+function hasNotaryCredentials() {
+    return Boolean(
+        process.env.APPLE_API_KEY
+        && process.env.APPLE_API_KEY_ID
+        && process.env.APPLE_API_ISSUER,
+    );
+}
+
+// Notarize + staple must run AFTER all re-signing above, otherwise the ticket is
+// bound to a code hash the shipped bundle no longer has. Because afterSign runs
+// before electron-builder builds the DMG/ZIP, stapling here means both artifacts
+// embed a stapled app and the updater metadata hashes stay correct.
+function notarizeAndStapleApp(appPath, identity) {
+    if (identity === '-') {
+        console.log('[afterSign] Ad-hoc signature; skipping notarization.');
+        return;
+    }
+
+    if (!hasNotaryCredentials()) {
+        console.log('[afterSign] APPLE_API_KEY/APPLE_API_KEY_ID/APPLE_API_ISSUER not set; skipping notarization.');
+        return;
+    }
+
+    const zipPath = `${appPath}.notarize.zip`;
+    console.log('[afterSign] Zipping app for notarization submission.');
+    execFileSync('ditto', [
+        '-c',
+        '-k',
+        '--keepParent',
+        appPath,
+        zipPath,
+    ], { stdio: 'inherit' });
+
+    try {
+        console.log('[afterSign] Submitting to Apple notary service (waits for the result).');
+        execFileSync('xcrun', [
+            'notarytool',
+            'submit',
+            zipPath,
+            '--key',
+            process.env.APPLE_API_KEY,
+            '--key-id',
+            process.env.APPLE_API_KEY_ID,
+            '--issuer',
+            process.env.APPLE_API_ISSUER,
+            '--wait',
+        ], { stdio: 'inherit' });
+
+        console.log('[afterSign] Stapling notarization ticket to the app.');
+        execFileSync('xcrun', [
+            'stapler',
+            'staple',
+            appPath,
+        ], { stdio: 'inherit' });
+    } finally {
+        fs.rmSync(zipPath, { force: true });
+    }
 }
 
 function walkFiles(rootDir) {
@@ -80,11 +139,6 @@ function isMacNativeCodeFile(filePath) {
 
 function isMacSharedLibrary(filePath) {
     return filePath.endsWith('.dylib') || filePath.endsWith('.so');
-}
-
-function isPageProcessorExecutable(filePath) {
-    const normalized = filePath.split(path.sep).join('/');
-    return /\/native-tools\/page-processing\/darwin-(?:arm64|x64)\/bin\/page-processor\/page-processor$/u.test(normalized);
 }
 
 function readCodesignMetadata(targetPath) {
@@ -161,17 +215,29 @@ function signTarget(targetPath, identity, options = {}) {
     execFileSync('codesign', args, { stdio: 'inherit' });
 }
 
-function signOptionsForBundledExecutable(filePath, identity) {
-    if (identity === '-' || !isPageProcessorExecutable(filePath)) {
+function signOptionsForCodeFile(filePath, identity) {
+    if (identity === '-') {
         return {};
     }
 
-    if (!fs.existsSync(PYINSTALLER_ENTITLEMENTS)) {
-        throw new Error(`[afterSign] PyInstaller entitlements not found: ${PYINSTALLER_ENTITLEMENTS}`);
+    // Shared libraries are signed with a secure timestamp but do not carry the
+    // hardened runtime flag — that requirement is specific to executables.
+    if (isMacSharedLibrary(filePath)) {
+        return {};
+    }
+
+    // Every Mach-O executable must enable the hardened runtime, or notarization
+    // rejects the app with "The executable does not have the hardened runtime
+    // enabled" for that file. The app's permissive entitlements (JIT, unsigned
+    // executable memory, dyld environment variables) are applied so the PyInstaller
+    // page-processor keeps working; they are harmless for the plain C/C++ native
+    // tools and the bundled Electron/Squirrel helper executables.
+    if (!fs.existsSync(HARDENED_RUNTIME_ENTITLEMENTS)) {
+        throw new Error(`[afterSign] Hardened-runtime entitlements not found: ${HARDENED_RUNTIME_ENTITLEMENTS}`);
     }
 
     return {
-        entitlements: PYINSTALLER_ENTITLEMENTS,
+        entitlements: HARDENED_RUNTIME_ENTITLEMENTS,
         runtime: true,
     };
 }
@@ -187,7 +253,7 @@ function resignEmbeddedAppCode(appPath, identity) {
         .sort((leftPath, rightPath) => rightPath.length - leftPath.length);
 
     for (const filePath of nestedCodeFiles) {
-        signTarget(filePath, identity);
+        signTarget(filePath, identity, signOptionsForCodeFile(filePath, identity));
     }
 
     const nestedBundles = walkDirectories(frameworksDir)
@@ -247,7 +313,7 @@ function resignBundledNativeToolPayloads(appPath, identity) {
     }
 
     for (const executablePath of executables) {
-        signTarget(executablePath, identity, signOptionsForBundledExecutable(executablePath, identity));
+        signTarget(executablePath, identity, signOptionsForCodeFile(executablePath, identity));
     }
 
     for (const bundlePath of nestedBundles.sort((leftPath, rightPath) => rightPath.length - leftPath.length)) {
@@ -307,4 +373,8 @@ exports.default = async function afterSign(context) {
         '--verbose=2',
         appPath,
     ], { stdio: 'inherit' });
+
+    // Final step: notarize the fully re-signed bundle and staple the ticket, so the
+    // shipped app (and the DMG/ZIP built from it) passes Gatekeeper offline.
+    notarizeAndStapleApp(appPath, identity);
 };

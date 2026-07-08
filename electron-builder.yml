@@ -59,10 +59,14 @@ mac:
   icon: resources/icon.icns
   artifactName: "EVB-Viewer-${version}-${arch}.${ext}"
   entitlementsInherit: build/entitlements.mac.plist
-  # Notarization runs after the afterSign hook re-signs the bundled native tools.
-  # Credentials come from env: APPLE_API_KEY (.p8 path), APPLE_API_KEY_ID,
-  # APPLE_API_ISSUER. Skipped automatically when those are absent (ad-hoc builds).
-  notarize: true
+  # Built-in notarization is disabled ON PURPOSE: electron-builder runs it BEFORE
+  # the afterSign hook re-signs the bundled native tools, which changes the app's
+  # code hash and orphans the notarization ticket (ships as "Unnotarized Developer
+  # ID"). Instead, afterSign.cjs notarizes + staples the app as its final step,
+  # after all re-signing, so the notarized hash matches the shipped app and both
+  # the DMG and the auto-update ZIP contain a stapled bundle. Credentials come from
+  # env: APPLE_API_KEY (.p8 path), APPLE_API_KEY_ID, APPLE_API_ISSUER.
+  notarize: false
   target:
     - dmg
     - zip
