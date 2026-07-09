@@ -18,6 +18,18 @@ Releases are cut locally and published by dispatching the GitHub Release workflo
 - The artifact-only workflow reruns the focused release checks, packages the same core release matrix, runs the supplemental macOS Intel and Windows 7 legacy lanes, and builds Store AppX packages with `submit: false`.
 - It never creates a tag, creates or updates a GitHub Release, uploads release assets, or submits Store packages. Downloads live as GitHub Actions artifacts on the workflow run.
 
+## Manual Microsoft Store submission
+
+Use this when GitHub built Store AppX artifacts but Partner Center API submission is not configured, or when a human wants to inspect the draft before certification. Keep account-specific IDs, portal screenshots, submission IDs, and live troubleshooting notes out of tracked docs.
+
+1. Download both Store package artifacts from the workflow run:
+   `gh run download <run-id> -n store-appx-win-x64 -n store-appx-win-arm64`
+2. Upload these package files from the downloaded artifact directories:
+   - `store-appx-win-x64/EVB-Viewer-<version>-x64-store.appx`
+   - `store-appx-win-arm64/EVB-Viewer-<version>-arm64-store.appx`
+3. In Partner Center, follow Microsoft's manual submission flow: create a draft update from the product overview, open the Packages section, upload the packages, complete required submission sections, and submit for certification. See [Create app submission for MSIX apps](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/create-app-submission) and [Upload MSIX app packages](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/upload-app-packages).
+4. Do not mix Partner Center edits with a submission created through the [Microsoft Store submissions API](https://learn.microsoft.com/en-us/windows/uwp/monetize/manage-app-submissions). Keep a submission on one path: manual Partner Center or API.
+
 ## Local guardrails
 
 - `pnpm run release:verify` mirrors the local parts of the release workflow, includes current-platform build and packaging verification, and fails if the successful verify run changes the working tree snapshot.
