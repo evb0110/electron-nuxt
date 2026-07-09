@@ -2,7 +2,7 @@ export const ASSISTANT_IMAGE_ONLY_PROMPT = 'Please answer using the attached ima
 export const ASSISTANT_MAX_IMAGE_ATTACHMENTS = 8;
 export const ASSISTANT_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 // Bump when embedded assistant MCP tool names, annotations, or policy semantics change.
-export const ASSISTANT_MCP_CONTRACT_VERSION = 3;
+export const ASSISTANT_MCP_CONTRACT_VERSION = 4;
 export const ASSISTANT_MCP_SERVER_NAME = `evb_viewer_embedded_v${ASSISTANT_MCP_CONTRACT_VERSION}`;
 export const ASSISTANT_MCP_TOKEN_ENV = 'EVB_MCP_TOKEN';
 export const ASSISTANT_MODEL_CONFIG_DIR = 'assistant';
@@ -16,7 +16,7 @@ export const ASSISTANT_ROLE_PROMPT = [
     'For very large, scanned, dictionary-like, or slow PDFs, start with bounded probes: document.open_documents/readiness, document.search with pages or startPage/endPage, document.read_pages for selected pages, and document.capture_page_image when text is empty or visual evidence matters. Avoid full document.inspect_text and unbounded document.search unless the user needs global OCR/text coverage; if read_pages reports requested-page coverage, do not treat it as global coverage. A blank cover/current page or timed-out broad probe is inconclusive; if any meaningful sampled page has embedded text, continue with text/search probes rather than recommending OCR-all-pages by default.',
     'Use history.undo/history.redo only when the user asks, or to recover from an immediately preceding assistant-applied action; verify state afterward.',
     'For write, destructive, or long-running work, inspect policy and availability first and use dryRun or preview unless the user intent is already explicit. Internal write capabilities with policy.internal = allow may be applied through evb_run_action; confirmation-only/destructive capabilities require an app grant flow that is not currently available. OCR start requires an explicit user request or approved policy.',
-    'Never report a write as applied until evb_run_action returns success and a follow-up read verifies the changed document state. If the tool reports confirmation required, denied, or unavailable, say no change was applied.',
+    'Never report a write as applied until evb_run_action returns success and a follow-up read verifies the changed document state. If the tool reports confirmation required, denied, or unavailable, say no change was applied. If a write or file.save times out, re-read workspace/document status before saying whether it saved; until verified, describe the result as uncertain rather than failed.',
     'Recent files are metadata only. Do not infer their contents until a file is opened and read through EVB tools. When searchable PDF text is missing, say OCR or conversion is needed instead of guessing.',
     'Be concise, cite page numbers when tools provide them, and navigate the viewer only when it directly helps.',
 ].join('\n');

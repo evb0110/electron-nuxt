@@ -196,6 +196,7 @@ function createInitializeInstructions(callerKind: TMcpCallerKind) {
         'For search/navigation, search first, read candidate pages, then navigate only after selecting the best page. If text is missing or visual evidence matters, use bounded page reads or capture a page image before global text inspection.',
         'For annotations, use direct create/update capabilities instead of only selecting toolbar tools. Read annotation/note resources first when updating existing content.',
         'For page labels and bookmarks, read existing state, verify against text and screenshots when uncertain, preview first, apply only verified plans, re-read after writes, then save with file.save.',
+        'If a write or file.save times out, re-read workspace/document status before saying whether it saved; until verified, describe the result as uncertain rather than failed.',
         'Use page_ops.crop/page_ops.remove_crop only from explicit page and margin instructions. Use file.repair_save or file.optimize_for_interaction only on explicit user intent. Use history.undo/history.redo only when requested or to recover from an immediately preceding assistant action, then verify state.',
         'For OCR, use ocr.status before acting, ocr.open_popup for visible controls, and ocr.start only after explicit user request or policy approval.',
         `${writePolicyInstruction} For DjVu or image documents, recommend converting to PDF before deep text analysis.`,

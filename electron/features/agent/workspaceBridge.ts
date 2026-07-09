@@ -41,6 +41,14 @@ import {
 import { getErrorMessage } from '@electron/utils/error';
 
 export const DEFAULT_AGENT_REQUEST_TIMEOUT_MS = 10_000;
+export const LONG_AGENT_COMMAND_REQUEST_TIMEOUT_MS = 180_000;
+
+const LONG_RUNNING_AGENT_ACTION_IDS = new Set([
+    'file.save',
+    'file.save_as',
+    'file.repair_save',
+    'file.optimize_for_interaction',
+]);
 
 interface ICachedWorkspaceSnapshot {
     revision: number;
@@ -200,6 +208,24 @@ function assertUsableTargetWindow(window: BrowserWindow | null | undefined) {
         throw new Error('No live renderer window is available for the agent request.');
     }
     return window;
+}
+
+export function resolveAgentCommandRequestTimeoutMs(
+    command: TAgentCommand,
+    requestedTimeoutMs?: number,
+) {
+    if (requestedTimeoutMs !== undefined) {
+        return requestedTimeoutMs;
+    }
+
+    if (
+        command.name === 'run_action'
+        && LONG_RUNNING_AGENT_ACTION_IDS.has(command.arguments.id)
+    ) {
+        return LONG_AGENT_COMMAND_REQUEST_TIMEOUT_MS;
+    }
+
+    return DEFAULT_AGENT_REQUEST_TIMEOUT_MS;
 }
 
 function getResponseSenderWindowId(event: IpcMainInvokeEvent) {
@@ -537,12 +563,13 @@ export function requestAgentWorkspaceSnapshot(
 export function requestAgentCommand(
     targetWindow: BrowserWindow | null | undefined,
     command: TAgentCommand,
-    timeoutMs = DEFAULT_AGENT_REQUEST_TIMEOUT_MS,
+    timeoutMs?: number,
     scope?: IAgentCommandExecutionScope,
     signal?: AbortSignal,
 ) {
     const window = assertUsableTargetWindow(targetWindow);
     const requestId = randomUUID();
+    const effectiveTimeoutMs = resolveAgentCommandRequestTimeoutMs(command, timeoutMs);
     const request: IAgentCommandRequest = {
         requestId,
         windowId: window.id,
@@ -553,7 +580,7 @@ export function requestAgentCommand(
         pendingCommandRequests,
         requestId,
         window,
-        timeoutMs,
+        effectiveTimeoutMs,
         {
             cancelRenderer: () => sendAgentCommandCancel(window, requestId),
             ...(signal === undefined ? {} : {signal}),

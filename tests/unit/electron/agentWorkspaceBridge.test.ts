@@ -24,8 +24,11 @@ vi.mock('electron', () => ({BrowserWindow: {fromWebContents: mocks.fromWebConten
 
 const {
     DEFAULT_AGENT_REQUEST_TIMEOUT_MS,
+    LONG_AGENT_COMMAND_REQUEST_TIMEOUT_MS,
     requestAgentCommand,
     requestAgentWorkspaceSnapshot,
+    resolveAgentCommandRequestTimeoutMs,
+    submitAgentCommandResponse,
     submitAgentWorkspaceSnapshotResponse,
 }: typeof AgentWorkspaceBridgeModule = await import('@electron/features/agent/workspaceBridge');
 
@@ -174,6 +177,70 @@ describe('agent workspace bridge', () => {
         } finally {
             vi.useRealTimers();
         }
+    });
+
+    it('lets long-running file save actions settle beyond the default command timeout', async () => {
+        vi.useFakeTimers();
+        try {
+            const window = createFakeWindow();
+            mocks.fromWebContents.mockReturnValue(window);
+
+            const pending = requestAgentCommand(toBrowserWindow(window), {
+                name: 'run_action',
+                arguments: {
+                    id: 'file.save',
+                    input: {},
+                },
+            });
+
+            await vi.advanceTimersByTimeAsync(DEFAULT_AGENT_REQUEST_TIMEOUT_MS);
+            expect(window.webContents.send.mock.calls).toHaveLength(1);
+
+            const request = window.webContents.send.mock.calls[0]?.[1];
+            expect(request).toMatchObject({
+                requestId: expect.any(String),
+                windowId: window.id,
+            });
+            const requestId = typeof request === 'object' && request !== null && 'requestId' in request
+                ? request.requestId
+                : null;
+            if (typeof requestId !== 'string') {
+                throw new Error('Expected command request id');
+            }
+
+            expect(submitAgentCommandResponse(
+                createResponseEvent(window),
+                {
+                    requestId,
+                    windowId: window.id,
+                    ok: true,
+                    result: { saved: true },
+                },
+            )).toEqual({ accepted: true });
+
+            await expect(pending).resolves.toEqual({ saved: true });
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('uses command-specific timeouts for long-running file actions', () => {
+        expect(resolveAgentCommandRequestTimeoutMs({
+            name: 'run_action',
+            arguments: { id: 'file.save' },
+        })).toBe(LONG_AGENT_COMMAND_REQUEST_TIMEOUT_MS);
+        expect(resolveAgentCommandRequestTimeoutMs({
+            name: 'run_action',
+            arguments: { id: 'file.repair_save' },
+        })).toBe(LONG_AGENT_COMMAND_REQUEST_TIMEOUT_MS);
+        expect(resolveAgentCommandRequestTimeoutMs({
+            name: 'go_to_page',
+            arguments: { page: 3 },
+        })).toBe(DEFAULT_AGENT_REQUEST_TIMEOUT_MS);
+        expect(resolveAgentCommandRequestTimeoutMs({
+            name: 'run_action',
+            arguments: { id: 'file.save' },
+        }, 12_345)).toBe(12_345);
     });
 
     it('sends a renderer cancel event when the caller aborts a command request', async () => {
