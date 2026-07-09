@@ -1226,10 +1226,14 @@ describe('agent assistant opt-in gating', () => {
         });
 
         expect(result.ok).toBe(true);
-        const events = send.mock.calls.map((call) => call[1]);
-        const deltaEvents = events.filter(event => event.type === 'message-delta');
-        expect(deltaEvents).toHaveLength(2);
+        let deltaEvents: IAgentAssistantEvent[] = [];
+        await vi.waitFor(() => {
+            const events = send.mock.calls.map((call) => call[1]);
+            deltaEvents = events.filter(event => event.type === 'message-delta');
+            expect(deltaEvents).toHaveLength(2);
+        }, {timeout: 5_000});
         expect(deltaEvents.every(event => event.state === undefined)).toBe(true);
+        const events = send.mock.calls.map((call) => call[1]);
         expect(events.find(event => event.type === 'turn-completed')?.state).toBeDefined();
     });
 
@@ -1283,13 +1287,16 @@ describe('agent assistant opt-in gating', () => {
             },
         });
 
-        const progressEvent = send.mock.calls
-            .map((call) => call[1])
-            .find(event => event.type === 'turn-progress');
-        expect(progressEvent).toMatchObject({
-            type: 'turn-progress',
-            progress: 'Tool evb_read_action running',
-        });
+        let progressEvent: IAgentAssistantEvent | undefined;
+        await vi.waitFor(() => {
+            progressEvent = send.mock.calls
+                .map((call) => call[1])
+                .find(event => event.type === 'turn-progress');
+            expect(progressEvent).toMatchObject({
+                type: 'turn-progress',
+                progress: 'Tool evb_read_action running',
+            });
+        }, {timeout: 5_000});
         expect(progressEvent?.state).toBeUndefined();
     });
 });
