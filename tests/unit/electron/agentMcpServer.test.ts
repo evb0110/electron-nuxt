@@ -1455,6 +1455,9 @@ describe('processMcpRequest', () => {
         expect(JSON.stringify(bookmarkPrompt?.result)).toContain('bookmarks.preview_tree');
         expect(JSON.stringify(bookmarkPrompt?.result)).toContain('bookmarks.apply_plan');
         expect(JSON.stringify(bookmarkPrompt?.result)).toContain('blank first page');
+        expect(JSON.stringify(bookmarkPrompt?.result)).toContain('visibly partial sibling alphabet');
+        expect(JSON.stringify(bookmarkPrompt?.result)).toContain('complete expected sequence');
+        expect(JSON.stringify(bookmarkPrompt?.result)).toContain('coarser verified range bookmarks');
         expect(JSON.stringify(bookmarkPrompt?.result)).toContain('file.save');
         expect(JSON.stringify(largeDocumentPrompt?.result)).toContain('bounded probes');
         expect(JSON.stringify(largeDocumentPrompt?.result)).toContain('document.read_pages');
