@@ -236,6 +236,9 @@ export default defineNuxtConfig({
             prerender: true,
             headers: appShellCacheHeaders,
         },
+        '/privacy': {
+            prerender: true,
+        },
         '/api/analytics/events': {
             prerender: false,
         },
@@ -475,6 +478,7 @@ export default defineNuxtConfig({
                 '/electron',
                 '/workspace',
                 '/mobile-reader-proof',
+                '/privacy',
                 '/robots.txt',
                 '/sitemap.xml',
             ],
