@@ -71,6 +71,20 @@ const SEARCH_PDFJS_FIRST_MAX_BYTES = (() => {
     }
     return parsed * 1024 * 1024;
 })();
+const SEARCH_PDFJS_FIRST_MAX_PAGES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_SEARCH_PDFJS_FIRST_MAX_PAGES ?? '200', 10);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+        return 200;
+    }
+    return Math.min(parsed, 10_000);
+})();
+const PARTIAL_OCR_DIRECT_TEXT_PAGE_LIMIT = (() => {
+    const parsed = Number.parseInt(process.env.EVB_SEARCH_PARTIAL_OCR_DIRECT_TEXT_PAGE_LIMIT ?? '200', 10);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+        return 200;
+    }
+    return Math.min(parsed, 10_000);
+})();
 interface IBuildSearchIndexOptions {
     documentRevision: TDocumentRevisionToken;
     pageCount?: number;
@@ -630,6 +644,17 @@ function shouldExtractPdfText(
     return false;
 }
 
+function shouldUsePartialOcrCorpus(
+    ocrPages: Map<number, IPageIndex> | undefined,
+    expectedCount: number | undefined,
+) {
+    return !!ocrPages
+        && ocrPages.size > 0
+        && isPositiveInteger(expectedCount)
+        && ocrPages.size < expectedCount
+        && expectedCount > PARTIAL_OCR_DIRECT_TEXT_PAGE_LIMIT;
+}
+
 function applyExtractedTexts(
     pagesByNumber: Map<number, IPageIndex>,
     pageTexts: IExtractedPageText[],
@@ -829,7 +854,13 @@ async function seedFromPdftotext(
     }
 }
 
-async function shouldPreferPdftotextFirst(pdfPath: string) {
+async function shouldPreferPdftotextFirst(
+    pdfPath: string,
+    expectedCount: number | undefined,
+) {
+    if (isPositiveInteger(expectedCount) && expectedCount > SEARCH_PDFJS_FIRST_MAX_PAGES) {
+        return true;
+    }
     try {
         const fileStat = await stat(pdfPath);
         return fileStat.size > SEARCH_PDFJS_FIRST_MAX_BYTES;
@@ -848,7 +879,7 @@ async function seedPagesFromPdfText(
     onPageIndexed?: (page: IPageIndex) => void,
     preservePageNumbers: ReadonlySet<number> = new Set(),
 ): Promise<Map<number, IPageIndex>> {
-    if (await shouldPreferPdftotextFirst(pdfPath)) {
+    if (await shouldPreferPdftotextFirst(pdfPath, expectedCount)) {
         const seeded = await seedFromPdftotext(pdfPath, pagesByNumber, expectedCount, signal, onPageIndexed, preservePageNumbers);
         if (seeded.hasText) {
             return seeded.pagesByNumber;
@@ -1034,8 +1065,15 @@ export async function buildSearchIndex(
         ? new Map(ocrPages)
         : seedFromExistingIndex(existing);
     const preservedOcrPages = new Set(ocrPages?.keys() ?? []);
+    const usePartialOcrCorpus = shouldUsePartialOcrCorpus(ocrPages, effectiveExpectedCount);
 
-    if (shouldExtractPdfText(pagesByNumber, existing, effectiveExpectedCount)) {
+    if (usePartialOcrCorpus) {
+        log.debug(
+            `Using partial OCR corpus for large search index (${ocrPages?.size ?? 0}/${
+                effectiveExpectedCount ?? 'unknown'
+            } pages); skipping full PDF text extraction`,
+        );
+    } else if (shouldExtractPdfText(pagesByNumber, existing, effectiveExpectedCount)) {
         pagesByNumber = await seedPagesFromPdfText(
             pdfPath,
             pagesByNumber,

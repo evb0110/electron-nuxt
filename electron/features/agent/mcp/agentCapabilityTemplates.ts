@@ -90,7 +90,7 @@ export const AGENT_CAPABILITY_TEMPLATES = [
         id: 'document.search',
         domain: 'document',
         title: 'Search open PDF',
-        summary: 'Search the open PDF using EVB Viewer cached search indexes and return page candidates with excerpts.',
+        summary: 'Search the open PDF using EVB Viewer cached search indexes and return page candidates with excerpts. For large PDFs, pass pages or startPage/endPage to keep probes bounded.',
         risk: 'read',
         inputSchema: SEARCH_INPUT_SCHEMA,
         outputSchema: OBJECT_OUTPUT_SCHEMA,

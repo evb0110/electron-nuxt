@@ -301,6 +301,30 @@ describe('buildSearchIndex assembly', () => {
         })]);
     });
 
+    it('uses pdftotext before pdfjs for high page-count PDFs below the byte threshold', async () => {
+        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
+        mocks.stat.mockResolvedValue({ size: 87 * 1024 * 1024 });
+        mocks.extractTextFromPdf.mockResolvedValue([{
+            pageNumber: 7,
+            text: 'kurdan',
+        }]);
+
+        const result = await buildSearchIndex('/tmp/file.pdf', [], {
+            documentRevision: DOCUMENT_REVISION,
+            pageCount: 2136,
+        });
+
+        expect(mocks.extractTextFromPdf).toHaveBeenCalledWith('/tmp/file.pdf', {pageCount: 2136});
+        expect(mocks.extractTextWithPdfjsWordBoxes).not.toHaveBeenCalled();
+        expect(mocks.extractTextWithPdfjs).not.toHaveBeenCalled();
+        expect(result.pageCount).toBe(2136);
+        expect(result.pages).toHaveLength(2136);
+        expect(result.pages[6]).toEqual(expect.objectContaining({
+            pageNumber: 7,
+            text: 'kurdan',
+        }));
+    });
+
     it('carries pdfjs word-box rotation into the search index', async () => {
         const { buildSearchIndex } = await import('@electron/search/indexBuilder');
         mocks.extractTextWithPdfjsWordBoxes.mockImplementation(async (_path: string, options: IPdfjsMockOptions) => {
@@ -819,6 +843,66 @@ describe('buildSearchIndex assembly', () => {
             }),
         ]);
         expect(result.pageCount).toBe(2);
+    });
+
+    it('does not extract full PDF text to complete large partial OCR sidecars', async () => {
+        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
+        mocks.existsSync.mockImplementation((path: string) => (
+            path.endsWith('manifest.json') || path.endsWith('page-7.json')
+        ));
+        mocks.readFile.mockImplementation(async (path: string) => {
+            if (path.endsWith('manifest.json')) {
+                return JSON.stringify({
+                    version: 3,
+                    documentRevision: { token: 'revision-token' },
+                    createdAt: 1,
+                    source: { pdfPath: '/tmp/large.pdf' },
+                    pageCount: 2136,
+                    pageBox: 'crop',
+                    ocr: {
+                        engine: 'tesseract',
+                        languages: [
+                            'kmr',
+                            'tur',
+                        ],
+                        renderDpi: 300,
+                    },
+                    pages: { 7: { path: 'page-7.json' } },
+                });
+            }
+            if (path.endsWith('page-7.json')) {
+                return JSON.stringify({
+                    pageNumber: 7,
+                    documentRevision: { token: 'revision-token' },
+                    render: {
+                        dpi: 300,
+                        imagePx: {
+                            w: 100,
+                            h: 200,
+                        },
+                    },
+                    text: 'Kurdan front matter',
+                    words: [],
+                });
+            }
+            throw new Error(`Unexpected read: ${path}`);
+        });
+
+        const result = await buildSearchIndex('/tmp/large.pdf', [], {documentRevision: DOCUMENT_REVISION});
+
+        expect(mocks.extractTextWithPdfjsWordBoxes).not.toHaveBeenCalled();
+        expect(mocks.extractTextWithPdfjs).not.toHaveBeenCalled();
+        expect(mocks.extractTextFromPdf).not.toHaveBeenCalled();
+        expect(result.pageCount).toBe(2136);
+        expect(result.pages).toHaveLength(2136);
+        expect(result.pages[6]).toMatchObject({
+            pageNumber: 7,
+            text: 'Kurdan front matter',
+        });
+        expect(result.pages[0]).toMatchObject({
+            pageNumber: 1,
+            text: '',
+        });
     });
 
     it('reads OCR page JSON instead of compact text-only sidecar so geometry is preserved', async () => {

@@ -5,6 +5,7 @@ import type {
 import type { IPdfSearchResponse } from '@contracts/search';
 import type { ISearchMatchOptions } from '@pdf-core';
 import type { IAgentTabSnapshot } from '@contracts/agent';
+import { toPageNumber } from '@contracts/pageNumbers';
 import { createLogger } from '@electron/utils/createLogger';
 import {
     parseOptionalSearchPageCount,
@@ -16,10 +17,15 @@ import {
 import { loadSearchIndex } from '@electron/search/indexBuilder';
 import { getWorkingCopyRevision } from '@electron/file-access/documentRevisionStore';
 import type { IPageText } from '@electron/search/pageText';
+import {
+    buildExcerpt,
+    iteratePageMatches,
+} from '@electron/search/worker/searchMatch';
 
 export interface IAgentDocumentSearchOptions extends ISearchMatchOptions {
     query: string;
     maxResults?: number;
+    pages?: number[];
 }
 
 export interface IAgentDocumentPageReadOptions {
@@ -229,6 +235,44 @@ export async function searchAgentDocument(
         wholeWord: input.options.wholeWord,
         useRegex: input.options.useRegex,
     });
+    const maxResults = normalizePositiveInteger(
+        input.options.maxResults,
+        DEFAULT_SEARCH_RESULT_LIMIT,
+        MAX_SEARCH_RESULT_LIMIT,
+    );
+    if (input.options.pages && input.options.pages.length > 0) {
+        const pageRead = await readAgentDocumentPages(window, {
+            tab: input.tab,
+            options: {
+                pages: input.options.pages,
+                maxCharsPerPage: MAX_PAGE_TEXT_CHARS,
+            },
+        });
+        const boundedSearch = searchBoundedPageTexts(query, pageRead.pages, input.options, maxResults);
+        return {
+            tabId: input.tab.tabId,
+            fileName: input.tab.fileName,
+            originalPath: input.tab.originalPath,
+            requestedPath: pageRead.requestedPath,
+            resolvedPdfPath: pageRead.resolvedPdfPath,
+            query,
+            options: {
+                matchCase: Boolean(input.options.matchCase),
+                wholeWord: Boolean(input.options.wholeWord),
+                useRegex: Boolean(input.options.useRegex),
+                pages: input.options.pages,
+            },
+            results: boundedSearch.results,
+            returnedResults: boundedSearch.results.length,
+            totalAvailableResults: boundedSearch.totalAvailableResults,
+            truncated: boundedSearch.truncated,
+            searchTruncated: false,
+            toolTruncated: boundedSearch.truncated,
+            bounded: true,
+            textStatus: pageRead.textStatus,
+            pageRead,
+        };
+    }
 
     const {
         requestedPath,
@@ -248,11 +292,6 @@ export async function searchAgentDocument(
             ...(input.options.wholeWord === undefined ? {} : { wholeWord: input.options.wholeWord }),
             ...(input.options.useRegex === undefined ? {} : { useRegex: input.options.useRegex }),
         },
-    );
-    const maxResults = normalizePositiveInteger(
-        input.options.maxResults,
-        DEFAULT_SEARCH_RESULT_LIMIT,
-        MAX_SEARCH_RESULT_LIMIT,
     );
     const results = response.results.slice(0, maxResults);
     const index = await loadSearchIndex(resolvedPdfPath, documentRevision).catch((error) => {
@@ -317,6 +356,45 @@ function completeRequestedPageTexts(pageTexts: readonly IPageText[], pages: read
         pageNumber,
         text: pageTextByNumber.get(pageNumber) ?? '',
     }));
+}
+
+function searchBoundedPageTexts(
+    query: string,
+    pageTexts: ReadonlyArray<ReturnType<typeof buildPageTextResponse>>,
+    options: IAgentDocumentSearchOptions,
+    maxResults: number,
+) {
+    const results: IPdfSearchResponse['results'] = [];
+    let matchIndex = 0;
+    let totalAvailableResults = 0;
+    for (const page of pageTexts) {
+        let pageMatchIndex = 0;
+        for (const match of iteratePageMatches(page.text, query, {
+            matchCase: Boolean(options.matchCase),
+            wholeWord: Boolean(options.wholeWord),
+            useRegex: Boolean(options.useRegex),
+        })) {
+            totalAvailableResults += 1;
+            if (results.length < maxResults) {
+                results.push({
+                    pageNumber: toPageNumber(page.page),
+                    pageMatchIndex,
+                    matchIndex,
+                    startOffset: match.startOffset,
+                    endOffset: match.endOffset,
+                    excerpt: buildExcerpt(page.text, match.startOffset, match.endOffset),
+                });
+            }
+            matchIndex += 1;
+            pageMatchIndex += 1;
+        }
+    }
+
+    return {
+        results,
+        totalAvailableResults,
+        truncated: totalAvailableResults > results.length,
+    };
 }
 
 async function extractSelectedPdfPageTextWithFallback(

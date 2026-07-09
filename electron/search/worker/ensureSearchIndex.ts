@@ -45,6 +45,7 @@ interface IInFlightSearchIndexBuild {
     waiterCount: number;
     indexedPages: IPdfSearchIndex['pages'];
     waiters: Set<IInFlightSearchIndexWaiter>;
+    expectedCount?: number;
 }
 
 interface IInFlightSearchIndexWaiter {
@@ -76,6 +77,10 @@ function getIndexBuildKey(
 }
 
 const inFlightIndexBuilds = new Map<string, IInFlightSearchIndexBuild>();
+
+function isPositiveInteger(value: unknown): value is number {
+    return typeof value === 'number' && Number.isInteger(value) && value > 0;
+}
 
 async function statMtimeMs(filePath: string) {
     try {
@@ -412,11 +417,18 @@ function createInFlightIndexBuild(
     pdfPath: string,
     documentRevision: TDocumentRevisionToken,
     cacheOptions: ISearchIndexCacheOptions,
+    expectedCount: number | undefined,
 ) {
     const buildKey = getIndexBuildKey(pdfPath, documentRevision);
     const existing = inFlightIndexBuilds.get(buildKey);
     if (existing) {
-        return existing;
+        const shouldReplaceUnknownCountBuild = isPositiveInteger(expectedCount)
+            && (!isPositiveInteger(existing.expectedCount) || existing.expectedCount < expectedCount);
+        if (!shouldReplaceUnknownCountBuild) {
+            return existing;
+        }
+        existing.controller.abort();
+        inFlightIndexBuilds.delete(buildKey);
     }
 
     const controller = new AbortController();
@@ -426,12 +438,16 @@ function createInFlightIndexBuild(
         indexedPages: [],
         waiters: new Set(),
         promise: null,
+        ...(expectedCount !== undefined ? { expectedCount } : {}),
     };
 
     const buildOptions: Parameters<typeof buildSearchIndex>[2] = {
         documentRevision,
         signal: controller.signal,
     };
+    if (expectedCount !== undefined) {
+        buildOptions.pageCount = expectedCount;
+    }
     buildOptions.onPageIndexed = page => publishIndexedPageToWaiters(build, page);
     buildOptions.validateBeforePersist = index => validateIndexTextBudget(index, cacheOptions);
 
@@ -446,7 +462,9 @@ function createInFlightIndexBuild(
         await ensureNativeSearchSidecar(pdfPath, entry, documentRevision, controller.signal);
         return entry;
     })().finally(() => {
-        inFlightIndexBuilds.delete(buildKey);
+        if (inFlightIndexBuilds.get(buildKey) === build) {
+            inFlightIndexBuilds.delete(buildKey);
+        }
     });
     inFlightIndexBuilds.set(buildKey, build);
     return build;
@@ -473,6 +491,7 @@ export async function ensureSearchIndex(
             pdfPath,
             documentRevision,
             cacheOptions,
+            expectedCount,
         ), signal, ensureOptions.onPageIndexed);
         ensureOptions.throwIfCancelled(signal);
     }

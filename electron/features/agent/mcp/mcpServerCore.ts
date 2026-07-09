@@ -192,7 +192,7 @@ function createInitializeInstructions(callerKind: TMcpCallerKind) {
         'Use the compact capability workflow: evb_workspace_snapshot for state; evb_list_capabilities to discover compact action ids by domain; evb_describe_capability for schemas, policy, and availability before unfamiliar writes; evb_read_resource for notes, annotations, bookmarks, page labels, page text, and OCR status; evb_read_action for non-mutating preview/read capabilities; evb_run_action for write, destructive, navigation, and long-running actions.',
         'Use semantic capability ids through evb_read_action for read/preview capabilities such as document.open_documents, document.readiness, document.inspect_text, document.search, document.read_pages, page_labels.preview, and bookmarks.preview_tree; use evb_run_action for document.capture_page_image, view.go_to_page, annotation.*, page_labels writes, bookmarks writes, ocr.*, file.save, and other non-read actions.',
         'Recent files in workspace snapshots are metadata only; do not summarize contents until opened and read through EVB tools.',
-        'For large, scanned, or slow PDFs, prefer bounded document.read_pages/search/page-image probes before document.inspect_text. Treat requested-page coverage as local evidence, not full-document OCR coverage.',
+        'For large, scanned, or slow PDFs, prefer bounded document.read_pages/search/page-image probes before document.inspect_text. Call document.search with pages or startPage/endPage on large PDFs; avoid unbounded search unless global coverage is truly needed. Treat requested-page coverage as local evidence, not full-document OCR coverage.',
         'For search/navigation, search first, read candidate pages, then navigate only after selecting the best page. If text is missing or visual evidence matters, use bounded page reads or capture a page image before global text inspection.',
         'For annotations, use direct create/update capabilities instead of only selecting toolbar tools. Read annotation/note resources first when updating existing content.',
         'For page labels and bookmarks, read existing state, verify against text and screenshots when uncertain, preview first, apply only verified plans, re-read after writes, then save with file.save.',
@@ -339,14 +339,21 @@ function getReadPages(params: unknown, fallbackPage: number | null, pageCount: n
     return Array.from(pages).sort((left, right) => left - right);
 }
 
-function getDocumentSearchOptions(params: unknown): IAgentDocumentSearchOptions {
+function getDocumentSearchOptions(
+    params: unknown,
+    tab?: IAgentTabSnapshot,
+): IAgentDocumentSearchOptions {
     const maxResults = getOptionalFiniteNumber(params, 'maxResults');
     const matchCase = getOptionalBoolean(params, 'matchCase');
     const wholeWord = getOptionalBoolean(params, 'wholeWord');
     const useRegex = getOptionalBoolean(params, 'useRegex');
+    const pages = tab
+        ? getReadPages(params, null, getTabPageCount(tab))
+        : [];
     return {
         query: getRequiredQuery(params),
         ...(maxResults === undefined ? {} : {maxResults}),
+        ...(pages.length === 0 ? {} : {pages}),
         ...(matchCase === undefined ? {} : {matchCase}),
         ...(wholeWord === undefined ? {} : {wholeWord}),
         ...(useRegex === undefined ? {} : {useRegex}),
@@ -516,7 +523,7 @@ async function runAgentActionTool(
         const searchDocument = getRequiredCapability(options.searchDocument, id);
         return searchDocument({
             tab,
-            options: getDocumentSearchOptions(actionParams),
+            options: getDocumentSearchOptions(actionParams, tab),
         }, windowId);
     }
 
@@ -661,7 +668,7 @@ async function callTool(name: string, params: unknown, options: IProcessMcpReque
         const searchDocument = getRequiredCapability(options.searchDocument, name);
         return createToolResult(await searchDocument({
             tab,
-            options: getDocumentSearchOptions(params),
+            options: getDocumentSearchOptions(params, tab),
         }, windowId));
     }
 

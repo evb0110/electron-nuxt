@@ -121,6 +121,68 @@ describe('agent document search validation', () => {
         expect(mocks.dispatchSearchRequest).not.toHaveBeenCalled();
     });
 
+    it('searches bounded page ranges without dispatching a global worker search', async () => {
+        const { searchAgentDocument } = await import('@electron/features/agent/documentText');
+        mocks.loadSearchIndex.mockResolvedValue({
+            pageCount: 2136,
+            pages: [
+                {
+                    pageNumber: 7,
+                    text: 'Kurdish introduction',
+                },
+                {
+                    pageNumber: 8,
+                    text: '',
+                },
+            ],
+        });
+        mocks.extractTextWithPdfjs.mockResolvedValue([{
+            pageNumber: 8,
+            text: 'Kurdan front matter Kurdan',
+        }]);
+
+        const result = await searchAgentDocument(
+            createWindow() as never,
+            {
+                tab: {
+                    ...pdfTab,
+                    totalPages: 2136,
+                },
+                options: {
+                    query: 'Kurdan',
+                    pages: [
+                        7,
+                        8,
+                    ],
+                    maxResults: 1,
+                },
+            },
+        );
+
+        expect(mocks.dispatchSearchRequest).not.toHaveBeenCalled();
+        expect(result).toMatchObject({
+            bounded: true,
+            returnedResults: 1,
+            totalAvailableResults: 2,
+            truncated: true,
+            options: { pages: [
+                7,
+                8,
+            ] },
+            textStatus: {
+                coverageScope: 'requested-pages',
+                inspectedPages: [
+                    7,
+                    8,
+                ],
+            },
+        });
+        expect(result.results[0]).toMatchObject({
+            pageNumber: 8,
+            excerpt: { match: 'Kurdan' },
+        });
+    });
+
     it('uses a bounded direct page probe when no cached search index is available', async () => {
         const { readAgentDocumentPages } = await import('@electron/features/agent/documentText');
         mocks.loadSearchIndex.mockRejectedValue(new Error('missing index'));

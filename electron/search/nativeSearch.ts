@@ -33,9 +33,11 @@ import {
 } from '@electron/search/indexBuilder';
 import { collectSearchMatchWords } from '@pdf-core';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import { createLogger } from '@electron/utils/createLogger';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const isPackaged = __dirname.includes('app.asar');
+const log = createLogger('native-search');
 const HEADER_SIZE = 64;
 const PAGE_RECORD_SIZE = 24;
 const NATIVE_SEARCH_TIMEOUT_MS = (() => {
@@ -227,10 +229,13 @@ async function isNativeSearchIndexFresh(
         return null;
     }
 
+    // Partial OCR sidecars can validly contain only the OCR'd page records while
+    // still declaring the document's total page count. The native search tool
+    // searches the records present and returns the declared total separately.
     if (
         typeof expectedPageCount === 'number'
         && expectedPageCount > 0
-        && (metadata.pageCount < expectedPageCount || metadata.pageRecordCount < expectedPageCount)
+        && metadata.pageCount < expectedPageCount
     ) {
         return null;
     }
@@ -408,19 +413,23 @@ function attachGeometryToNativeResponse(
 
 export async function tryRunNativeSearch(options: INativeSearchOptions): Promise<INativeSearchResult | null> {
     if (isNativeSearchDisabled() || !isNativeSearchSupportedOptions(options)) {
+        log.debug('Native search skipped: disabled or unsupported options');
         return null;
     }
 
     const binaryPath = resolveNativeSearchPath();
     if (!binaryPath) {
+        log.debug('Native search skipped: evb-pdf-search binary unavailable');
         return null;
     }
 
     const freshIndex = await isNativeSearchIndexFresh(options.pdfPath, options.documentRevision, options.pageCount);
     if (!freshIndex) {
+        log.debug(`Native search skipped: missing or stale sidecar for ${options.pdfPath}`);
         return null;
     }
 
+    const startedAt = Date.now();
     const searchIndex = await loadSearchIndex(options.pdfPath, options.documentRevision);
 
     const commandOptions: Parameters<typeof runNativeToolCommand>[2] = {
@@ -441,6 +450,12 @@ export async function tryRunNativeSearch(options: INativeSearchOptions): Promise
 
     const parsed: unknown = JSON.parse(result.stdout ?? '');
     const nativeResult = parseNativeSearchResponse(parsed);
+    if (nativeResult) {
+        log.debug(
+            `Native search completed for ${options.pdfPath} in ${Math.max(0, Date.now() - startedAt)}ms `
+            + `(results=${nativeResult.response.results.length}, totalPages=${nativeResult.totalPages})`,
+        );
+    }
     return nativeResult && hasSearchIndexGeometry(searchIndex)
         ? attachGeometryToNativeResponse(nativeResult, searchIndex)
         : nativeResult;

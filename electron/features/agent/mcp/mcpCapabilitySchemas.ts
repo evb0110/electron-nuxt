@@ -96,6 +96,19 @@ export const SEARCH_INPUT_SCHEMA = {
             type: 'number',
             description: 'Maximum results to return. Defaults to 25 and is capped at 100.',
         },
+        pages: {
+            type: 'array',
+            items: {type: 'number'},
+            description: 'Optional one-based pages to search. Use this for bounded probes in large PDFs.',
+        },
+        startPage: {
+            type: 'number',
+            description: 'Optional first page in a one-based inclusive search range.',
+        },
+        endPage: {
+            type: 'number',
+            description: 'Optional last page in a one-based inclusive search range.',
+        },
         matchCase: {type: 'boolean'},
         wholeWord: {type: 'boolean'},
         useRegex: {type: 'boolean'},

@@ -468,7 +468,7 @@ export const MCP_PROMPTS = [
     {
         name: 'evb_large_document_strategy',
         title: 'Handle a large or hard EVB document',
-        description: 'Workflow for large PDFs, scans, dictionaries, missing TOCs, weak OCR, or slow global text coverage: use bounded page probes, searches, and page images before expensive full-document reads.',
+        description: 'Workflow for large PDFs, scans, dictionaries, missing TOCs, weak OCR, or slow global text coverage: use bounded page probes, page-ranged searches, and page images before expensive full-document reads.',
     },
     {
         name: 'evb_number_pages_from_printed_pages',

@@ -41,6 +41,7 @@ interface IIndexPageForTest {
 interface IIndexForTest { pages: IIndexPageForTest[]; }
 
 interface IBuildSearchIndexOptionsForTest {
+    pageCount?: number;
     signal?: AbortSignal;
     onPageIndexed?: (page: IIndexPageForTest) => void;
     validateBeforePersist?: (index: IIndexForTest) => void;
@@ -102,6 +103,7 @@ describe('ensureSearchIndex text budget handling', () => {
 
         expect(mocks.rm).toHaveBeenCalledWith(`${PDF_PATH}.index.json`, { force: true });
         expect(mocks.buildSearchIndex).toHaveBeenCalledTimes(1);
+        expect(mocks.buildSearchIndex).toHaveBeenCalledWith(PDF_PATH, [], expect.objectContaining({ pageCount: 1 }));
         expect(entry.index.pages).toEqual([{
             pageNumber: 1,
             text: 'healed',
@@ -238,5 +240,98 @@ describe('ensureSearchIndex text budget handling', () => {
             text: 'needle',
         }));
         expect(mocks.buildSearchIndex).toHaveBeenCalledOnce();
+    });
+
+    it('replaces an unknown-count in-flight build with a counted build', async () => {
+        const { ensureSearchIndex } = await import('@electron/search/worker/ensureSearchIndex');
+        mocks.stat.mockImplementation(async (path: string) => {
+            if (path === PDF_PATH) {
+                return { mtimeMs: 1 };
+            }
+            throw new Error(`Missing ${path}`);
+        });
+        mocks.loadSearchIndex.mockResolvedValue(null);
+
+        let firstSignal: AbortSignal | undefined;
+        let resolveFirst!: () => void;
+        let resolveSecond!: () => void;
+        mocks.buildSearchIndex.mockImplementation(async (
+            _pdfPath: string,
+            _pageData: unknown[],
+            options: IBuildSearchIndexOptionsForTest,
+        ) => new Promise((resolve, reject) => {
+            options.signal?.addEventListener('abort', () => reject(createAbortError()), { once: true });
+            if (mocks.buildSearchIndex.mock.calls.length === 1) {
+                firstSignal = options.signal;
+                resolveFirst = () => resolve({
+                    schemaVersion: 7,
+                    documentRevision: {token: DOCUMENT_REVISION},
+                    pdfPath: PDF_PATH,
+                    createdAt: 2,
+                    pages: [{
+                        pageNumber: 1,
+                        text: 'unknown-count',
+                    }],
+                });
+                return;
+            }
+            resolveSecond = () => resolve({
+                schemaVersion: 7,
+                documentRevision: {token: DOCUMENT_REVISION},
+                pdfPath: PDF_PATH,
+                createdAt: 3,
+                pageCount: 2136,
+                pages: Array.from({ length: 2136 }, (_value, index) => ({
+                    pageNumber: index + 1,
+                    text: index === 0 ? 'counted' : '',
+                })),
+            });
+        }));
+
+        const cache = new Map();
+        const unknownBuild = ensureSearchIndex(cache, PDF_PATH, {
+            maxEntries: 4,
+            ttlMs: 60_000,
+            maxPageTextBytes: 1024,
+            maxTotalTextBytes: 4096,
+        }, {
+            documentRevision: DOCUMENT_REVISION,
+            throwIfCancelled: signal => {
+                if (signal?.aborted) {
+                    throw createAbortError();
+                }
+            },
+        });
+        const unknownOutcome = unknownBuild.catch(error => error);
+
+        await vi.waitFor(() => {
+            expect(mocks.buildSearchIndex).toHaveBeenCalledTimes(1);
+        });
+
+        const countedBuild = ensureSearchIndex(cache, PDF_PATH, {
+            maxEntries: 4,
+            ttlMs: 60_000,
+            maxPageTextBytes: 1024,
+            maxTotalTextBytes: 4096,
+        }, {
+            documentRevision: DOCUMENT_REVISION,
+            pageCount: 2136,
+            throwIfCancelled: () => undefined,
+        });
+
+        await vi.waitFor(() => {
+            expect(mocks.buildSearchIndex).toHaveBeenCalledTimes(2);
+        });
+        expect(firstSignal?.aborted).toBe(true);
+        expect(mocks.buildSearchIndex.mock.calls[1]?.[2]).toEqual(expect.objectContaining({ pageCount: 2136 }));
+
+        resolveSecond();
+        const countedEntry = await countedBuild;
+
+        expect(countedEntry.index.pageCount).toBe(2136);
+        expect(countedEntry.index.pages[0]).toEqual(expect.objectContaining({ text: 'counted' }));
+        await expect(unknownOutcome).resolves.toMatchObject({ name: 'AbortError' });
+
+        resolveFirst();
     });
 });

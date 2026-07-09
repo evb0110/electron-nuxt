@@ -31,16 +31,19 @@ vi.mock('@electron/search/indexBuilder', () => ({
 
 const DOCUMENT_REVISION = 'revision-token';
 
-function createNativeSearchHeader() {
+function createNativeSearchHeader({
+    pageCount = 1,
+    pageRecordCount = 1,
+} = {}) {
     const revisionTokenLength = Buffer.byteLength(DOCUMENT_REVISION, 'utf8');
     const pageTableOffset = 64 + revisionTokenLength;
-    const textDataOffset = pageTableOffset + 24;
+    const textDataOffset = pageTableOffset + pageRecordCount * 24;
     const header = Buffer.alloc(textDataOffset);
     header.write('EVBSIDX2', 0, 'ascii');
     header.writeUInt32LE(2, 8);
     header.writeUInt32LE(64, 12);
-    header.writeUInt32LE(1, 16);
-    header.writeUInt32LE(1, 20);
+    header.writeUInt32LE(pageCount, 16);
+    header.writeUInt32LE(pageRecordCount, 20);
     header.writeUInt32LE(revisionTokenLength, 28);
     header.writeBigUInt64LE(64n, 32);
     header.writeBigUInt64LE(BigInt(pageTableOffset), 40);
@@ -193,5 +196,60 @@ describe('native search invocation', () => {
         });
 
         expect(mocks.runNativeToolCommand).toHaveBeenCalledOnce();
+    });
+
+    it('runs native search for partial OCR sidecars on large documents', async () => {
+        const partialHeader = createNativeSearchHeader({
+            pageCount: 2136,
+            pageRecordCount: 1,
+        });
+        mocks.open.mockResolvedValue({
+            read: vi.fn(async (
+                buffer: Buffer,
+                offset = 0,
+                length = buffer.length,
+                position = 0,
+            ) => {
+                const bytesRead = partialHeader.copy(buffer, offset, position, position + length);
+                return {bytesRead};
+            }),
+            stat: vi.fn(async () => ({size: partialHeader.length})),
+            close: vi.fn(async () => undefined),
+        });
+        mocks.runNativeToolCommand.mockResolvedValue({
+            exitCode: 0,
+            stdout: JSON.stringify({
+                pageCount: 2136,
+                results: [],
+                truncated: false,
+            }),
+            stderr: '',
+        });
+        const { tryRunNativeSearch } = await import('@electron/search/nativeSearch');
+
+        await expect(tryRunNativeSearch({
+            pdfPath: '/tmp/doc.pdf',
+            documentRevision: DOCUMENT_REVISION,
+            query: 'needle',
+            matchCase: false,
+            wholeWord: false,
+            useRegex: false,
+            pageCount: 2136,
+        })).resolves.toMatchObject({
+            response: {
+                results: [],
+                truncated: false,
+            },
+            totalPages: 2136,
+        });
+
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
+            '/native/evb-pdf-search',
+            expect.arrayContaining([
+                '--page-count',
+                '2136',
+            ]),
+            expect.any(Object),
+        );
     });
 });
