@@ -1395,6 +1395,60 @@ export const usePdfSinglePageScroll = (
         return didScroll;
     }
 
+    function primeContinuousNavigationTargetBeforeHydration(
+        runId: number,
+        targetPage: number,
+        options?: IScrollToPageOptions,
+    ) {
+        if (
+            isDisposed
+            || !isContinuousNavigationTargetCurrent(runId, targetPage)
+            || !continuousScroll.value
+            || !viewerContainer.value
+        ) {
+            return false;
+        }
+
+        const rowRange = setVisibleRangeToPageRow(targetPage, runId);
+        startContinuousNavigationLayoutObservers(runId, targetPage, options);
+
+        if (options?.preferExactDom === true) {
+            logPdfRenderTrace('single-page-continuous-navigation-target-primed', {
+                runId,
+                targetPage,
+                rowRange,
+                preferExactDom: true,
+                didRequestLayoutScroll: false,
+                scrollTop: viewerContainer.value.scrollTop,
+            });
+            return false;
+        }
+
+        scrollToPageInternal(
+            viewerContainer.value,
+            targetPage,
+            numPages.value,
+            scaledMargin.value,
+            options,
+        );
+        if (isContinuousNavigationTargetCurrent(runId, targetPage)) {
+            dispatchNavigationMachine({
+                type: 'SCROLL_APPLIED',
+                txn: runId,
+                page: targetPage,
+            });
+        }
+        logPdfRenderTrace('single-page-continuous-navigation-target-primed', {
+            runId,
+            targetPage,
+            rowRange,
+            preferExactDom: false,
+            didRequestLayoutScroll: true,
+            scrollTop: viewerContainer.value.scrollTop,
+        });
+        return true;
+    }
+
     /**
      * Hydrates target-row metrics before the first continuous jump, but treats a
      * false result as "metrics already cached". `ensurePageMetricsInRange`
@@ -1539,7 +1593,7 @@ export const usePdfSinglePageScroll = (
         prepareRunId: number,
         targetPage: number,
         anchor: TPageSnapAnchor,
-        options?: Pick<IScrollToPageOptions, 'pageYRatio' | 'markerRect' | 'suppressRenderAfterSnap'>,
+        options?: Pick<IScrollToPageOptions, 'pageYRatio' | 'markerRect' | 'preferExactDom' | 'suppressRenderAfterSnap'>,
     ) {
         if (!isPagedNavigationPrepareRunCurrent(prepareRunId, targetPage)) {
             return false;
@@ -1572,6 +1626,25 @@ export const usePdfSinglePageScroll = (
             commitPagedNavigationTarget(runId, targetPage, 'mounted-target-ready');
             return true;
         }
+
+        const rowRange = setVisibleRangeToPageRow(targetPage, runId);
+        if (!options?.preferExactDom && viewerContainer.value) {
+            scrollToPageInternal(
+                viewerContainer.value,
+                targetPage,
+                numPages.value,
+                scaledMargin.value,
+                options,
+            );
+        }
+        logPdfRenderTrace('single-page-snap-unmounted-target-prepared', {
+            targetPage,
+            anchor,
+            runId,
+            rowRange,
+            preferExactDom: options?.preferExactDom === true,
+            scrollTop: viewerContainer.value?.scrollTop ?? null,
+        });
 
         if (!options?.suppressRenderAfterSnap) {
             queueAuthoritativePagedRowRenderAfterNavigation(
@@ -1634,7 +1707,7 @@ export const usePdfSinglePageScroll = (
     function snapToPage(
         pageNumber: number,
         anchor: TPageSnapAnchor = 'center',
-        options?: Pick<IScrollToPageOptions, 'pageYRatio' | 'markerRect' | 'suppressRenderAfterSnap'>,
+        options?: Pick<IScrollToPageOptions, 'pageYRatio' | 'markerRect' | 'preferExactDom' | 'suppressRenderAfterSnap'>,
     ) {
         if (!viewerContainer.value || numPages.value === 0) {
             return false;
@@ -1867,16 +1940,20 @@ export const usePdfSinglePageScroll = (
         updateVisibleRange(container, numPages.value);
         const previous = currentPage.value;
         let page = previous;
+        const isProgrammaticScrollSuppressed = isProgrammaticNavigationActive.value
+            || Date.now() < snapSuppressUntil.value;
         if (currentPageAuthority.canSyncFromViewport()) {
             const viewportPage = updateCurrentPage(container, numPages.value, { requireAuthoritative: true });
             if (
                 continuousScroll.value
-                && isProgrammaticNavigationActive.value
+                && isProgrammaticScrollSuppressed
                 && viewportPage !== previous
             ) {
                 commitCurrentPageValue(previous, previous);
-                scrollToPageInternal(container!, previous, numPages.value, scaledMargin.value, continuousNavigationTargetScrollOptions);
-                updateVisibleRange(container, numPages.value);
+                if (container) {
+                    scrollToPageInternal(container, previous, numPages.value, scaledMargin.value, continuousNavigationTargetScrollOptions);
+                    updateVisibleRange(container, numPages.value);
+                }
             } else {
                 page = viewportPage;
             }
@@ -1990,6 +2067,11 @@ export const usePdfSinglePageScroll = (
                     && getPageContainerByNumber(viewerContainer.value, targetPage)
                 )
             ) {
+                const didPrimeTarget = primeContinuousNavigationTargetBeforeHydration(
+                    runId,
+                    targetPage,
+                    options,
+                );
                 runGuardedTask(
                     () => finishContinuousNavigationStartAfterMetricHydration(
                         runId,
@@ -2005,7 +2087,7 @@ export const usePdfSinglePageScroll = (
                         },
                     },
                 );
-                return false;
+                return didPrimeTarget;
             }
 
             return finishContinuousNavigationStart(

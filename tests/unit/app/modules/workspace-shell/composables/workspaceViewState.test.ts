@@ -389,6 +389,7 @@ describe('useWorkspaceViewState', () => {
 
     it('forwards a same-page request when it cancels a conflicting pending viewer target', () => {
         const beginProgrammaticPageNavigation = vi.fn();
+        const invalidateBookmarkNavigationRequests = vi.fn();
         const scrollToPage = vi.fn();
         const state = useWorkspaceViewState({
             fitMode: ref('height'),
@@ -414,6 +415,7 @@ describe('useWorkspaceViewState', () => {
             currentPage: ref(1),
             totalPages: ref(10),
             beginProgrammaticPageNavigation,
+            invalidateBookmarkNavigationRequests,
             documentViewerRef: ref({
                 getViewerContainer: () => null,
                 scrollToPage,
@@ -424,7 +426,56 @@ describe('useWorkspaceViewState', () => {
 
         state.handleGoToPage(1);
 
+        expect(invalidateBookmarkNavigationRequests).toHaveBeenCalledOnce();
         expect(beginProgrammaticPageNavigation).toHaveBeenCalledWith(1);
         expect(scrollToPage).toHaveBeenCalledWith(1, undefined);
+    });
+
+    it('preserves bookmark replay intent for bookmark-originated page requests', () => {
+        const beginProgrammaticPageNavigation = vi.fn();
+        const invalidateBookmarkNavigationRequests = vi.fn();
+        const scrollToPage = vi.fn();
+        const state = useWorkspaceViewState({
+            fitMode: ref('height'),
+            zoomMode: ref('fit-height'),
+            zoom: ref(1),
+            dragMode: ref(false),
+            showSidebar: ref(false),
+            sidebarTab: ref('bookmarks'),
+            annotationTool: ref('none'),
+            annotationPlacingPageNote: ref(false),
+            annotationEditorState: ref({
+                isEditing: false,
+                isEmpty: true,
+                hasSomethingToUndo: false,
+                hasSomethingToRedo: false,
+                hasSelectedEditor: false,
+            }),
+            hasLivePdfJsAnnotationChanges: ref(false),
+            appAnnotationUndoDepth: ref(0),
+            hasOpenAnnotationNotes: ref(false),
+            canUndoHistory: ref(false),
+            canRedoHistory: ref(false),
+            currentPage: ref(1),
+            totalPages: ref(10),
+            beginProgrammaticPageNavigation,
+            invalidateBookmarkNavigationRequests,
+            documentViewerRef: ref({
+                getViewerContainer: () => null,
+                scrollToPage,
+                cancelCommentPlacement: () => {},
+            }),
+        });
+        const options = {
+            navigationSource: 'bookmark' as const,
+            pageYRatio: 0.25,
+            preferExactDom: true,
+        };
+
+        state.handleGoToPage(4, options);
+
+        expect(invalidateBookmarkNavigationRequests).not.toHaveBeenCalled();
+        expect(beginProgrammaticPageNavigation).toHaveBeenCalledWith(4);
+        expect(scrollToPage).toHaveBeenCalledWith(4, options);
     });
 });

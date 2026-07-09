@@ -15,25 +15,35 @@ export function createPostSaveReloadHandle(
     preparePostSaveReload: (() => IPostSaveReloadWaiter) | undefined,
     preserveLivePdfjsAnnotationSession: boolean,
 ): IPostSaveReloadHandle {
-    let current = preserveLivePdfjsAnnotationSession
-        ? null
-        : (preparePostSaveReload?.() ?? null);
+    let current: IPostSaveReloadWaiter | null = null;
+    let prepared = preserveLivePdfjsAnnotationSession;
     let finalized = false;
+    function ensureCurrent() {
+        if (!prepared) {
+            prepared = true;
+            current = preparePostSaveReload?.() ?? null;
+        }
+        return current;
+    }
     return {
         get current() {
-            return current;
+            return ensureCurrent();
         },
         get finalized() {
             return finalized;
         },
         cancel() {
-            current?.cancel();
+            if (prepared) {
+                current?.cancel();
+            }
             current = null;
+            prepared = true;
         },
         cancelPending() {
-            if (current && !finalized) {
-                current.cancel();
+            if (!prepared || finalized) {
+                return;
             }
+            current?.cancel();
         },
         markFinalized() {
             finalized = true;

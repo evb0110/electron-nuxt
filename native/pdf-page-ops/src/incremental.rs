@@ -28,6 +28,34 @@ impl<W: Write> Write for SkipWriter<W> {
     }
 }
 
+fn append_paths_refer_to_same_file(input_path: &PathBuf, output_path: &PathBuf) -> bool {
+    if input_path == output_path {
+        return true;
+    }
+
+    match (fs::canonicalize(input_path), fs::canonicalize(output_path)) {
+        (Ok(input), Ok(output)) => input == output,
+        _ => false,
+    }
+}
+
+fn assert_append_output_seeded(
+    input_path: &PathBuf,
+    output_path: &PathBuf,
+    previous_bytes: &[u8],
+) -> Result<()> {
+    if append_paths_refer_to_same_file(input_path, output_path) {
+        return Ok(());
+    }
+
+    let output_bytes = fs::read(output_path)?;
+    if output_bytes.as_slice() == previous_bytes {
+        return Ok(());
+    }
+
+    Err("Append output must already contain an exact byte-for-byte copy of the input PDF".into())
+}
+
 fn append_note_text_update(
     input_path: &PathBuf,
     output_path: &PathBuf,
@@ -43,13 +71,7 @@ fn append_note_text_update(
     update_note_text_incremental(&mut incremental, updates, modified_at)?;
 
     let previous_bytes = incremental.get_prev_documents_bytes();
-    let output_bytes = fs::read(output_path)?;
-    if output_bytes.as_slice() != previous_bytes {
-        return Err(
-            "Append output must already contain an exact byte-for-byte copy of the input PDF"
-                .into(),
-        );
-    }
+    assert_append_output_seeded(input_path, output_path, previous_bytes)?;
     let previous_len = previous_bytes.len();
     let previous_xref_start = incremental.get_prev_documents().xref_start;
     let expected_object_ids = collect_incremental_append_object_ids(&incremental);
@@ -99,13 +121,7 @@ fn append_note_changes(
     }
 
     let previous_bytes = incremental.get_prev_documents_bytes();
-    let output_bytes = fs::read(output_path)?;
-    if output_bytes.as_slice() != previous_bytes {
-        return Err(
-            "Append output must already contain an exact byte-for-byte copy of the input PDF"
-                .into(),
-        );
-    }
+    assert_append_output_seeded(input_path, output_path, previous_bytes)?;
     let previous_len = previous_bytes.len();
     let previous_xref_start = incremental.get_prev_documents().xref_start;
     let expected_object_ids = collect_incremental_append_object_ids(&incremental);
@@ -217,13 +233,7 @@ fn append_native_mutations(
     apply_native_mutations_incremental(&mut incremental, mutations, modified_at)?;
 
     let previous_bytes = incremental.get_prev_documents_bytes();
-    let output_bytes = fs::read(output_path)?;
-    if output_bytes.as_slice() != previous_bytes {
-        return Err(
-            "Append output must already contain an exact byte-for-byte copy of the input PDF"
-                .into(),
-        );
-    }
+    assert_append_output_seeded(input_path, output_path, previous_bytes)?;
     let previous_len = previous_bytes.len();
     let previous_xref_start = incremental.get_prev_documents().xref_start;
     let expected_object_ids = collect_incremental_append_object_ids(&incremental);

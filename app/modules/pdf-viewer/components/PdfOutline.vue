@@ -128,6 +128,7 @@ interface IProps {
     isEditMode: boolean;
     bookmarkItems?: IPdfBookmarkEntry[] | undefined;
     bookmarksDirty?: boolean | undefined;
+    navigationIntentVersion?: number | undefined;
 }
 
 const props = defineProps<IProps>();
@@ -215,6 +216,8 @@ const bookmarkOrderIndexMap = computed(() => {
 });
 
 let bookmarkNavigationRequestId = 0;
+let bookmarkNavigationIntentVersion = props.navigationIntentVersion ?? 0;
+const bookmarkNavigationIntentVersionByRequest = new Map<number, number>();
 
 /**
  * Prevents async bookmark resolution from applying to an outline/document that
@@ -222,16 +225,36 @@ let bookmarkNavigationRequestId = 0;
  */
 function invalidateBookmarkNavigationRequests() {
     bookmarkNavigationRequestId += 1;
+    bookmarkNavigationIntentVersion = props.navigationIntentVersion ?? 0;
+    bookmarkNavigationIntentVersionByRequest.clear();
 }
 
 function beginBookmarkNavigationRequest() {
     invalidateBookmarkNavigationRequests();
+    bookmarkNavigationIntentVersionByRequest.set(
+        bookmarkNavigationRequestId,
+        props.navigationIntentVersion ?? 0,
+    );
     return bookmarkNavigationRequestId;
 }
 
 function isBookmarkNavigationRequestCurrent(requestId: number) {
-    return requestId === bookmarkNavigationRequestId;
+    return requestId === bookmarkNavigationRequestId
+        && bookmarkNavigationIntentVersionByRequest.get(requestId) === bookmarkNavigationIntentVersion;
 }
+
+watch(
+    () => props.navigationIntentVersion,
+    (version) => {
+        const nextVersion = version ?? 0;
+        if (nextVersion === bookmarkNavigationIntentVersion) {
+            return;
+        }
+        bookmarkNavigationIntentVersion = nextVersion;
+        invalidateBookmarkNavigationRequests();
+    },
+    { flush: 'sync' },
+);
 
 const selection = usePdfOutlineSelection(
     bookmarks,

@@ -389,7 +389,67 @@ describe('handleNativeNoteTextSave', () => {
         expect(readFileSyncUtf8(latestWorkingPath)).toBe('latest-before');
     });
 
-    it('runs the generic native mutation append command for metadata changes', async () => {
+    it('uses tail-only native validation for metadata-only mutation saves', async () => {
+        const requestedWorkingPath = join(tempRoot, 'requested-working.pdf');
+        const latestWorkingPath = join(tempRoot, 'latest-working.pdf');
+        const originalPath = join(tempRoot, 'original.pdf');
+        const tempPath = `${originalPath}.tmp`;
+        writeFileSync(requestedWorkingPath, 'working-before');
+        writeFileSync(latestWorkingPath, 'latest-before');
+        writeFileSync(originalPath, 'original-before');
+        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
+        mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(latestWorkingPath);
+        mocks.runNativeToolCommand.mockImplementation(async (_binaryPath: string, args: string[]) => {
+            expect(args[0]).toBe('save-mutations');
+            await appendFile(tempPath, '\n% native metadata-only changes');
+        });
+        const { handleNativePdfMutationsSave } = await import('@electron/features/documents/main/nativePdfMutationSaveHandlers');
+
+        const result = await handleNativePdfMutationsSave(
+            context,
+            requestedWorkingPath,
+            {
+                pageLabels: {
+                    totalPages: 3,
+                    ranges: [{
+                        startPage: 1,
+                        style: 'r',
+                        prefix: 'intro-',
+                        startNumber: 2,
+                    }],
+                },
+                bookmarks: {
+                    totalPages: 3,
+                    untitledLabel: 'Untitled',
+                    items: [{
+                        title: 'Chapter 1',
+                        pageIndex: 0,
+                        namedDest: null,
+                        bold: true,
+                        italic: false,
+                        color: '#336699',
+                        items: [],
+                    }],
+                },
+            },
+            'D:20260609133855+03\'00\'',
+            revisionOptions,
+        );
+
+        expect(result).toMatchObject({
+            applied: true,
+            validation: {
+                isValid: true,
+                tool: 'native',
+            },
+        });
+        const runOptions = mocks.runNativeToolCommand.mock.calls[0]?.[2] as {env?: NodeJS.ProcessEnv;} | undefined;
+        expect(runOptions?.env).toMatchObject({EVB_PDF_PAGE_OPS_FULL_INCREMENTAL_VALIDATE: '0'});
+        expect(readFileSyncUtf8(requestedWorkingPath)).toContain('% native metadata-only changes');
+        expect(readFileSyncUtf8(latestWorkingPath)).toBe('latest-before');
+    });
+
+    it('runs the generic native mutation append command for mixed native changes', async () => {
         const requestedWorkingPath = join(tempRoot, 'requested-working.pdf');
         const latestWorkingPath = join(tempRoot, 'latest-working.pdf');
         const originalPath = join(tempRoot, 'original.pdf');
@@ -556,6 +616,8 @@ describe('handleNativeNoteTextSave', () => {
             ]),
             expect.objectContaining({commandLabel: 'evb-pdf-page-ops(save-mutations)'}),
         );
+        const runOptions = mocks.runNativeToolCommand.mock.calls[0]?.[2] as {env?: NodeJS.ProcessEnv;} | undefined;
+        expect(runOptions?.env?.EVB_PDF_PAGE_OPS_FULL_INCREMENTAL_VALIDATE).toBeUndefined();
         expect(mocks.atomicReplace).toHaveBeenCalledWith(tempPath, originalPath);
         expect(mocks.copyFileCopyOnWrite).toHaveBeenLastCalledWith(originalPath, requestedWorkingPath);
         expect(readFileSyncUtf8(requestedWorkingPath)).toContain('% native metadata changes');

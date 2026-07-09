@@ -52,6 +52,12 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                     });
                     options.cancelPendingSearchScroll();
                     singlePageScroll.cancelProgrammaticNavigation();
+                    logPdfRenderTrace('viewer-requested-current-page-reissue-after-cancel', {
+                        requestedPage: pageNumber,
+                        targetPage,
+                        viewerCurrentPage: options.currentPage.value,
+                    });
+                    singlePageScroll.scrollToPage(targetPage);
                     return;
                 }
 

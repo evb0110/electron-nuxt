@@ -130,6 +130,7 @@
                     :bookmark-edit-mode="bookmarkEditMode"
                     :bookmark-items="bookmarkItems"
                     :bookmarks-dirty="bookmarksDirty"
+                    :bookmark-navigation-intent-version="bookmarkNavigationIntentVersion"
                     :is-page-operation-in-progress="isPageOperationInProgress"
                     :is-djvu-mode="isDjvuMode"
                     :selected-thumbnail-pages="selectedThumbnailPages"
@@ -652,6 +653,7 @@ const {
     bookmarkEditMode,
     bookmarkItems,
     bookmarksDirty,
+    bookmarkNavigationIntentVersion,
     handleBookmarksChange,
 } = metadata;
 

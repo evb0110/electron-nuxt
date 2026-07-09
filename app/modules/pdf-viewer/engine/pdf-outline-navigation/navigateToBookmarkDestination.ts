@@ -22,7 +22,10 @@ function emitBookmarkDestinationTarget(
     target: IBookmarkDestinationTarget,
     emitGoToPage: INavigateToBookmarkDestinationOptions['emitGoToPage'],
 ) {
-    const options: IScrollToPageOptions = {preferExactDom: true};
+    const options: IScrollToPageOptions = {
+        navigationSource: 'bookmark',
+        preferExactDom: true,
+    };
     if (typeof target.pageYRatio === 'number') {
         options.pageYRatio = target.pageYRatio;
     }
@@ -85,11 +88,17 @@ export async function navigateToBookmarkDestination(options: INavigateToBookmark
         }
     }
 
+    const fallbackPageIndex = item.pageIndex;
     if (
         immediateTarget === null
-        && typeof item.pageIndex === 'number'
+        && typeof fallbackPageIndex === 'number'
+        && Number.isFinite(fallbackPageIndex)
         && isBookmarkNavigationRequestCurrent(navigationRequestId)
     ) {
-        emitGoToPage(item.pageIndex + 1, { pageYRatio: 0 });
+        emitGoToPage(fallbackPageIndex + 1, {
+            navigationSource: 'bookmark',
+            pageYRatio: 0,
+            preferExactDom: true,
+        });
     }
 }

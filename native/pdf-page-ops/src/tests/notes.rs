@@ -239,6 +239,26 @@
     }
 
     #[test]
+    fn append_seed_check_detects_same_file_aliases() {
+        let input_path = temp_pdf_path("append-same-file-detect");
+        write(&input_path, b"%PDF-1.7\n").unwrap();
+        let alias_path = input_path
+            .parent()
+            .unwrap()
+            .join(".")
+            .join(input_path.file_name().unwrap());
+        let other_path = temp_pdf_path("append-other-file-detect");
+        write(&other_path, b"%PDF-1.7\n").unwrap();
+
+        assert!(append_paths_refer_to_same_file(&input_path, &input_path));
+        assert!(append_paths_refer_to_same_file(&input_path, &alias_path));
+        assert!(!append_paths_refer_to_same_file(&input_path, &other_path));
+
+        let _ = remove_file(input_path);
+        let _ = remove_file(other_path);
+    }
+
+    #[test]
     fn appends_note_text_update_when_input_and_output_are_same_file() {
         let (mut document, target_id, popup_id) = create_test_note_pdf();
         let pdf_path = temp_pdf_path("append-in-place");

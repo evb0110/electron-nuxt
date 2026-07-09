@@ -58,6 +58,7 @@ interface IScrollHarnessOptions {
         numPages: number,
         visibleRange: TVisibleRangeRef,
     ) => void;
+    updateCurrentPage?: Parameters<typeof usePdfSinglePageScroll>[0]['updateCurrentPage'];
 }
 
 function createWheelEvent(
@@ -215,7 +216,7 @@ function createSinglePageScrollHarness(options?: IScrollHarnessOptions) {
         getMostVisiblePage,
         scrollToPageInternal,
         updateVisibleRange,
-        updateCurrentPage: vi.fn((viewer: HTMLElement | null) => getMostVisiblePage(viewer)),
+        updateCurrentPage: vi.fn(options?.updateCurrentPage ?? ((viewer: HTMLElement | null) => getMostVisiblePage(viewer))),
         renderVisiblePages,
         ensurePageMetricsInRange: options?.ensurePageMetricsInRange,
         isPageFreshlyRenderedForNavigation: pageNumber => freshRenderedPageNumbers.has(pageNumber),
@@ -342,8 +343,11 @@ function createSinglePageNavigationControllerHarness() {
 
     return {
         cancelPendingSearchScroll,
+        container,
+        currentPage,
         requestedCurrentPage,
         singlePageScroll,
+        visibleRange,
     };
 }
 
@@ -351,6 +355,7 @@ describe('usePdfSinglePageNavigationController', () => {
     it('starts a new navigation when requested page changes away from the active target', async () => {
         const {
             cancelPendingSearchScroll,
+            container,
             requestedCurrentPage,
             singlePageScroll,
         } = createSinglePageNavigationControllerHarness();
@@ -358,12 +363,36 @@ describe('usePdfSinglePageNavigationController', () => {
         singlePageScroll.scrollToPage(3);
 
         expect(singlePageScroll.pagedNavigationTargetPage.value).toBe(3);
+        expect(container.scrollTop).toBeGreaterThan(100);
 
         requestedCurrentPage.value = 1;
         await nextTick();
 
         expect(cancelPendingSearchScroll).toHaveBeenCalledOnce();
-        expect(singlePageScroll.pagedNavigationTargetPage.value).toBeNull();
+        expect(container.scrollTop).toBeLessThan(100);
+        expect(singlePageScroll.isProgrammaticNavigationActive.value).toBe(true);
+    });
+
+    it('reissues a same-page request after canceling a stale visual target', async () => {
+        const {
+            cancelPendingSearchScroll,
+            container,
+            currentPage,
+            requestedCurrentPage,
+            singlePageScroll,
+        } = createSinglePageNavigationControllerHarness();
+
+        singlePageScroll.scrollToPage(3);
+
+        expect(singlePageScroll.pagedNavigationTargetPage.value).toBe(3);
+        expect(container.scrollTop).toBeGreaterThan(100);
+
+        currentPage.value = 1;
+        requestedCurrentPage.value = 1;
+        await nextTick();
+
+        expect(cancelPendingSearchScroll).toHaveBeenCalledOnce();
+        expect(container.scrollTop).toBeLessThan(100);
         expect(singlePageScroll.isProgrammaticNavigationActive.value).toBe(true);
     });
 });
@@ -383,6 +412,49 @@ describe('usePdfSinglePageScroll programmatic scroll ownership', () => {
         container.scrollTop = 180;
 
         expect(singlePageScroll.shouldCancelProgrammaticNavigationForViewportScroll()).toBe(true);
+    });
+
+    it('reverts stale viewport page updates while snap suppression still owns continuous scroll', () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(1_000);
+        try {
+            let currentPageRef: Ref<number> | null = null;
+            const harness = createSinglePageScrollHarness({
+                continuousScroll: true,
+                getMostVisiblePage: () => 1,
+                updateCurrentPage: (viewer) => {
+                    const page = viewer ? 1 : 3;
+                    currentPageRef!.value = page;
+                    return page;
+                },
+            });
+            currentPageRef = harness.currentPage;
+            const {
+                container,
+                currentPage,
+                emitCurrentPage,
+                scrollToPageInternal,
+                singlePageScroll,
+            } = harness;
+
+            currentPage.value = 3;
+            singlePageScroll.suppressSnapFor(100);
+            singlePageScroll.isProgrammaticNavigationActive.value = false;
+
+            singlePageScroll.handleScroll();
+
+            expect(currentPage.value).toBe(3);
+            expect(emitCurrentPage).not.toHaveBeenCalled();
+            expect(scrollToPageInternal).toHaveBeenCalledWith(
+                container,
+                3,
+                3,
+                20,
+                undefined,
+            );
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });
 
@@ -1379,7 +1451,7 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         }
     });
 
-    it('hydrates target row metrics before the first continuous destination scroll', async () => {
+    it('primes the continuous destination before target row metric hydration settles', async () => {
         const waitMacrotask = () => new Promise(resolve => setTimeout(resolve, 0));
         let resolveHydration!: (value: boolean) => void;
         const hydrationPromise = new Promise<boolean>((resolve) => {
@@ -1400,7 +1472,18 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
             singlePageScroll.scrollToPage(3, {pageYRatio: 0});
 
             expect(ensurePageMetricsInRange).toHaveBeenCalledWith(3, 3);
-            expect(scrollToPageInternal).not.toHaveBeenCalled();
+            expect(visibleRange.value).toEqual({
+                start: 3,
+                end: 3,
+            });
+            expect(scrollToPageInternal).toHaveBeenCalledWith(
+                expect.anything(),
+                3,
+                3,
+                20,
+                {pageYRatio: 0},
+            );
+            expect(scrollToPageInternal).toHaveBeenCalledTimes(1);
 
             resolveHydration(true);
             await nextTick();
@@ -1432,6 +1515,8 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
                 {pageYRatio: 0},
             );
             expect(scrollToPageInternal.mock.invocationCallOrder[0])
+                .toBeLessThan(renderVisiblePages.mock.invocationCallOrder[0]!);
+            expect(scrollToPageInternal.mock.invocationCallOrder.at(-1))
                 .toBeGreaterThan(renderVisiblePages.mock.invocationCallOrder[0]!);
         } finally {
             singlePageScroll.resetContinuousScrollState();
@@ -1694,16 +1779,16 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
             await waitMacrotask();
 
             expect(ensurePageMetricsInRange).toHaveBeenCalledWith(2, 2);
-            expect(scrollToPageInternal).toHaveBeenCalledTimes(2);
+            expect(scrollToPageInternal).toHaveBeenCalledTimes(3);
 
             container.scrollTop = 0;
             singlePageScroll.handleScroll();
             await nextTick();
             await Promise.resolve();
 
-            expect(scrollToPageInternal).toHaveBeenCalledTimes(3);
-            expect(scrollToPageInternal.mock.calls[2]?.[1]).toBe(2);
-            expect(scrollToPageInternal.mock.calls[2]?.[4]).toEqual({pageYRatio: 0});
+            expect(scrollToPageInternal).toHaveBeenCalledTimes(4);
+            expect(scrollToPageInternal.mock.calls[3]?.[1]).toBe(2);
+            expect(scrollToPageInternal.mock.calls[3]?.[4]).toEqual({pageYRatio: 0});
         } finally {
             singlePageScroll.resetContinuousScrollState();
         }
@@ -1845,6 +1930,7 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         const {
             currentPage,
             renderVisiblePages,
+            scrollToPageInternal,
             singlePageScroll,
             visibleRange,
         } = createSinglePageScrollHarness({ mountedPageNumbers });
@@ -1858,10 +1944,11 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         expect(didScroll).toBe(true);
         expect(currentPage.value).toBe(2);
         expect(visibleRange.value).toEqual({
-            start: 1,
-            end: 1,
+            start: 2,
+            end: 2,
         });
         expect(singlePageScroll.pagedNavigationTargetPage.value).toBe(2);
+        expect(scrollToPageInternal).not.toHaveBeenCalled();
         expect(renderVisiblePages).not.toHaveBeenCalled();
     });
 
@@ -2362,7 +2449,7 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         expect(emitCurrentPage).toHaveBeenCalledWith(1);
     });
 
-    it('keeps an unmounted paged target pending before visual readiness', async () => {
+    it('primes an unmounted paged target row before visual readiness', async () => {
         const {
             currentPage,
             emitCurrentPage,
@@ -2383,15 +2470,21 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
 
         expect(currentPage.value).toBe(2);
         expect(visibleRange.value).toEqual({
-            start: 1,
-            end: 1,
+            start: 2,
+            end: 3,
         });
         expect(singlePageScroll.pagedNavigationTargetPage.value).toBe(2);
         expect(emitCurrentPage).toHaveBeenCalledWith(2);
-        expect(scrollToPageInternal).not.toHaveBeenCalled();
+        expect(scrollToPageInternal).toHaveBeenCalledWith(
+            expect.anything(),
+            2,
+            3,
+            20,
+            undefined,
+        );
 
         await nextTick();
-        expect(scrollToPageInternal).not.toHaveBeenCalled();
+        expect(scrollToPageInternal).toHaveBeenCalledTimes(1);
     });
 
     it('keeps a paged navigation target pending while stale scroll events settle', () => {

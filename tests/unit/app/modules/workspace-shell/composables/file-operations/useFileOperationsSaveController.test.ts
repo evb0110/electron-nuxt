@@ -1192,6 +1192,10 @@ describe('useFileOperationsSaveController', () => {
     });
 
     it('uses the native PDF mutation path for page labels and bookmarks', async () => {
+        const preparePostSaveReload = vi.fn(() => ({
+            promise: Promise.resolve(),
+            cancel: vi.fn(),
+        }));
         const trySavePdfNativeMutations = vi.fn(async () => ({
             success: true,
             outPath: '/tmp/work.pdf',
@@ -1221,6 +1225,7 @@ describe('useFileOperationsSaveController', () => {
                 items: [],
             }]),
             untitledBookmarkLabel: 'Untitled',
+            preparePostSaveReload,
             trySavePdfNativeMutations,
         });
         const { handleSave } = useFileOperationsSaveController(deps);
@@ -1258,6 +1263,7 @@ describe('useFileOperationsSaveController', () => {
         expect(deps.getSourcePdfData).not.toHaveBeenCalled();
         expect(deps.serializePdfForSave).not.toHaveBeenCalled();
         expect(saveFile).not.toHaveBeenCalled();
+        expect(preparePostSaveReload).not.toHaveBeenCalled();
         expect(deps.markPageLabelsSaved).toHaveBeenCalledOnce();
         expect(deps.markBookmarksSaved).toHaveBeenCalledOnce();
     });
@@ -1936,8 +1942,11 @@ describe('useFileOperationsSaveController', () => {
 
     it('uses the native annotation changes path for PDF-sourced annotation deletes', async () => {
         const pendingDeletes = [createPdfNoteComment()];
-        const reloadWaiter = createDeferred<undefined>();
         const cancelReloadWaiter = vi.fn();
+        const preparePostSaveReload = vi.fn(() => ({
+            promise: Promise.resolve(),
+            cancel: cancelReloadWaiter,
+        }));
         const trySaveEmbeddedNoteTextUpdates = vi.fn(async () => ({
             success: true,
             outPath: '/tmp/work.pdf',
@@ -1952,10 +1961,7 @@ describe('useFileOperationsSaveController', () => {
             annotationComments: ref([createPdfNoteComment()]),
             consumePendingEmbeddedAnnotationDeletes: vi.fn(() => pendingDeletes),
             trySaveEmbeddedNoteTextUpdates,
-            preparePostSaveReload: () => ({
-                promise: reloadWaiter.promise,
-                cancel: cancelReloadWaiter,
-            }),
+            preparePostSaveReload,
         });
         const { handleSave } = useFileOperationsSaveController(deps);
 
@@ -1979,7 +1985,8 @@ describe('useFileOperationsSaveController', () => {
         expect(deps.getSourcePdfData).not.toHaveBeenCalled();
         expect(deps.serializePdfForSave).not.toHaveBeenCalled();
         expect(saveFile).not.toHaveBeenCalled();
-        expect(cancelReloadWaiter).toHaveBeenCalledOnce();
+        expect(preparePostSaveReload).not.toHaveBeenCalled();
+        expect(cancelReloadWaiter).not.toHaveBeenCalled();
     });
 
     it('uses the native note text save path when pending text is keyed by annotation id alias', async () => {

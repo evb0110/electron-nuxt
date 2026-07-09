@@ -70,7 +70,7 @@ interface ICreatePagedNavigationAuthorityOptions {
 }
 
 type TPagedNavigationTargetScrollOptions =
-    | Pick<IScrollToPageOptions, 'pageYRatio' | 'markerRect'>
+    | Pick<IScrollToPageOptions, 'pageYRatio' | 'markerRect' | 'preferExactDom'>
     | undefined;
 
 export function createPagedNavigationAuthority(options: ICreatePagedNavigationAuthorityOptions) {

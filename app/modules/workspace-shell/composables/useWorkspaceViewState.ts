@@ -33,6 +33,7 @@ interface IWorkspaceViewStateDeps {
     canRedoHistory: Ref<boolean>;
     currentPage: Ref<number>;
     totalPages: Ref<number>;
+    invalidateBookmarkNavigationRequests?: (() => void) | undefined;
     beginProgrammaticPageNavigation?: ((page: number) => void) | undefined;
     documentViewerRef: Ref<(
         IDocumentViewerExpose & {
@@ -173,6 +174,9 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
                 pendingNavigationTargetPage,
             });
             return;
+        }
+        if (options?.navigationSource !== 'bookmark') {
+            deps.invalidateBookmarkNavigationRequests?.();
         }
         deps.beginProgrammaticPageNavigation?.(targetPage);
         deps.documentViewerRef.value?.scrollToPage(targetPage, options);

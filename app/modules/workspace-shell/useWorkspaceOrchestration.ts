@@ -573,6 +573,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     const { handleExportImages } = exportControls;
 
     const programmaticPageNavigationTarget = ref<number | null>(null);
+    const bookmarkNavigationIntentVersion = ref(0);
     let programmaticPageNavigationTimer: ReturnType<typeof setTimeout> | null = null;
 
     function clearProgrammaticPageNavigationTarget(reason = 'clear') {
@@ -609,6 +610,15 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
                 programmaticPageNavigationTarget.value = null;
             }
         }, WORKSPACE_PAGE_NAVIGATION_LOCK_MS);
+    }
+
+    function invalidateBookmarkNavigationRequests() {
+        bookmarkNavigationIntentVersion.value += 1;
+        logPdfRenderTrace('workspace-bookmark-navigation-invalidated', {
+            version: bookmarkNavigationIntentVersion.value,
+            currentPage: currentPage.value,
+            pendingProgrammaticPage: programmaticPageNavigationTarget.value,
+        });
     }
 
     function settleProgrammaticPageNavigationTarget(page: number) {
@@ -677,6 +687,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         canRedoHistory: workspaceUndoTimeline.canRedoTimeline,
         currentPage,
         totalPages,
+        invalidateBookmarkNavigationRequests,
         beginProgrammaticPageNavigation,
         documentViewerRef,
     });
@@ -1116,6 +1127,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         metadata: {
             ...pageLabelState,
             ...bookmarkState,
+            bookmarkNavigationIntentVersion,
         },
         viewNavigation: {
             ...viewState,

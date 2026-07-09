@@ -1,6 +1,7 @@
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
 
 export interface IScrollToPageOptions {
+    navigationSource?: 'bookmark' | undefined;
     preferExactDom?: boolean;
     /**
      * Align a normalized page y coordinate to the top of the viewport. This is
@@ -19,4 +20,3 @@ export interface IScrollToPageOptions {
     suppressRenderAfterSnap?: boolean;
     markerRect?: IAnnotationMarkerRect | null | undefined;
 }
-

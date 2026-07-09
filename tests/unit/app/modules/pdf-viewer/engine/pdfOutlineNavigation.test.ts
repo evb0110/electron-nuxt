@@ -97,10 +97,12 @@ describe('navigateToBookmarkDestination', () => {
         });
 
         expect(emitGoToPage).toHaveBeenNthCalledWith(1, 1, {
+            navigationSource: 'bookmark',
             preferExactDom: true,
             pageYRatio: 0,
         });
         expect(emitGoToPage).toHaveBeenNthCalledWith(2, 5, {
+            navigationSource: 'bookmark',
             preferExactDom: true,
             pageYRatio: 0,
         });
@@ -137,13 +139,77 @@ describe('navigateToBookmarkDestination', () => {
         });
 
         expect(emitGoToPage).toHaveBeenNthCalledWith(1, 5, {
+            navigationSource: 'bookmark',
             preferExactDom: true,
             pageYRatio: 0.25,
         });
         expect(emitGoToPage).toHaveBeenNthCalledWith(2, 5, {
+            navigationSource: 'bookmark',
             preferExactDom: true,
             pageYRatio: 0.25,
         });
         expect(emitGoToPage).toHaveBeenCalledTimes(2);
+    });
+
+    it('marks page-index immediate navigation as bookmark-originated', async () => {
+        const emitGoToPage = vi.fn();
+
+        await navigateToBookmarkDestination({
+            item: createBookmark({
+                id: 'page-index-only',
+                pageIndex: 6,
+            }),
+            pdfDocument: null,
+            navigationRequestId: 1,
+            isBookmarkNavigationRequestCurrent: requestId => requestId === 1,
+            emitGoToPage,
+        });
+
+        expect(emitGoToPage).toHaveBeenCalledWith(7, {
+            navigationSource: 'bookmark',
+            pageYRatio: 0,
+            preferExactDom: true,
+        });
+    });
+
+    it('keeps defensive page-index fallback bookmark-originated and exact', async () => {
+        const emitGoToPage = vi.fn();
+        const isCurrent = vi.fn()
+            .mockReturnValueOnce(false)
+            .mockReturnValueOnce(true);
+
+        await navigateToBookmarkDestination({
+            item: createBookmark({
+                id: 'fallback',
+                pageIndex: 2,
+            }),
+            pdfDocument: null,
+            navigationRequestId: 1,
+            isBookmarkNavigationRequestCurrent: isCurrent,
+            emitGoToPage,
+        });
+
+        expect(emitGoToPage).toHaveBeenCalledWith(3, {
+            navigationSource: 'bookmark',
+            pageYRatio: 0,
+            preferExactDom: true,
+        });
+    });
+
+    it('does not emit a defensive fallback for non-finite page indexes', async () => {
+        const emitGoToPage = vi.fn();
+
+        await navigateToBookmarkDestination({
+            item: createBookmark({
+                id: 'nan-page',
+                pageIndex: Number.NaN,
+            }),
+            pdfDocument: null,
+            navigationRequestId: 1,
+            isBookmarkNavigationRequestCurrent: requestId => requestId === 1,
+            emitGoToPage,
+        });
+
+        expect(emitGoToPage).not.toHaveBeenCalled();
     });
 });

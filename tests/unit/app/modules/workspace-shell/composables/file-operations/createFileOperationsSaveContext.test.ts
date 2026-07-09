@@ -197,7 +197,8 @@ describe('createFileOperationsSaveContext', () => {
             pageLabels: 'page-label-token',
             bookmarks: 'bookmark-token',
         });
-        expect(preparePostSaveReload).toHaveBeenCalledOnce();
+        expect(preparePostSaveReload).not.toHaveBeenCalled();
         expect(context?.reloadWaiter.current).not.toBeNull();
+        expect(preparePostSaveReload).toHaveBeenCalledOnce();
     });
 });
