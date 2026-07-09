@@ -22,9 +22,10 @@ function emitBookmarkDestinationTarget(
     target: IBookmarkDestinationTarget,
     emitGoToPage: INavigateToBookmarkDestinationOptions['emitGoToPage'],
 ) {
-    const options = typeof target.pageYRatio === 'number'
-        ? { pageYRatio: target.pageYRatio }
-        : undefined;
+    const options: IScrollToPageOptions = {preferExactDom: true};
+    if (typeof target.pageYRatio === 'number') {
+        options.pageYRatio = target.pageYRatio;
+    }
     emitGoToPage(target.page, options);
 }
 

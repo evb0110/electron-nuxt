@@ -1659,6 +1659,7 @@ export const usePdfSinglePageScroll = (
             const activePagedTargetPage = pagedNavigationTargetPage.value;
             if (activePagedTargetPage === targetPage) {
                 const activeAnchor = navigationRuntime.state.value.anchor ?? anchor;
+                pagedNavigationAuthority.setTargetScrollOptions(options);
                 const didSnap = applySnapToMountedPage(targetPage, activeAnchor, options, { commitCurrentPage: false });
                 logPdfRenderTrace('single-page-snap-active-paged-target', {
                     targetPage,

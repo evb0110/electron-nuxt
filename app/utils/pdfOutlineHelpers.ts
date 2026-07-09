@@ -73,14 +73,19 @@ function areBookmarkDestinationTargetsEquivalent(
 }
 
 /**
- * Preserves bookmark destination intent by replaying async refinement whenever
- * the resolved target carries information the immediate jump did not.
+ * Preserves bookmark destination intent by replaying async refinement after the
+ * fast jump. Equal resolved targets are still useful for virtualized PDFs where
+ * the first snap can run before the destination page DOM is ready.
  */
 export function shouldEmitResolvedBookmarkDestinationTarget(
     target: IBookmarkDestinationTarget,
     immediateTarget: IBookmarkDestinationTarget | null,
 ) {
-    return immediateTarget === null || !areBookmarkDestinationTargetsEquivalent(target, immediateTarget);
+    if (immediateTarget === null || !areBookmarkDestinationTargetsEquivalent(target, immediateTarget)) {
+        return true;
+    }
+
+    return typeof target.pageYRatio === 'number' && Number.isFinite(target.pageYRatio);
 }
 
 interface IPageViewBounds {

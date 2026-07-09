@@ -96,8 +96,14 @@ describe('navigateToBookmarkDestination', () => {
             emitGoToPage,
         });
 
-        expect(emitGoToPage).toHaveBeenNthCalledWith(1, 1, { pageYRatio: 0 });
-        expect(emitGoToPage).toHaveBeenNthCalledWith(2, 5, { pageYRatio: 0 });
+        expect(emitGoToPage).toHaveBeenNthCalledWith(1, 1, {
+            preferExactDom: true,
+            pageYRatio: 0,
+        });
+        expect(emitGoToPage).toHaveBeenNthCalledWith(2, 5, {
+            preferExactDom: true,
+            pageYRatio: 0,
+        });
 
         firstDestination.resolve({
             page: 9,
@@ -107,6 +113,37 @@ describe('navigateToBookmarkDestination', () => {
         secondDestination.resolve(null);
         await secondNavigation;
 
+        expect(emitGoToPage).toHaveBeenCalledTimes(2);
+    });
+
+    it('replays an equivalent resolved destination so virtualized pages can snap exactly after render', async () => {
+        vi.mocked(resolveBookmarkDestinationTarget).mockResolvedValue({
+            page: 5,
+            pageYRatio: 0.25,
+        });
+
+        const emitGoToPage = vi.fn();
+        await navigateToBookmarkDestination({
+            item: createBookmark({
+                dest: 'chapter-dest',
+                id: 'chapter',
+                pageIndex: 4,
+                pageYRatio: 0.25,
+            }),
+            pdfDocument: cast<PDFDocumentProxy>({}),
+            navigationRequestId: 1,
+            isBookmarkNavigationRequestCurrent: requestId => requestId === 1,
+            emitGoToPage,
+        });
+
+        expect(emitGoToPage).toHaveBeenNthCalledWith(1, 5, {
+            preferExactDom: true,
+            pageYRatio: 0.25,
+        });
+        expect(emitGoToPage).toHaveBeenNthCalledWith(2, 5, {
+            preferExactDom: true,
+            pageYRatio: 0.25,
+        });
         expect(emitGoToPage).toHaveBeenCalledTimes(2);
     });
 });

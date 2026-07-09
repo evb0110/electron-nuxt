@@ -332,7 +332,7 @@ describe('pdfOutlineHelpers', () => {
         expect(resolveImmediateBookmarkDestinationTarget(createBookmark('missing', null))).toBeNull();
     });
 
-    it('emits late same-page bookmark destination refinement when the resolved y target differs', () => {
+    it('emits late same-page bookmark destination refinement even when the resolved y target matches', () => {
         expect(shouldEmitResolvedBookmarkDestinationTarget({
             page: 279,
             pageYRatio: 0.35,
@@ -346,7 +346,7 @@ describe('pdfOutlineHelpers', () => {
         }, {
             page: 279,
             pageYRatio: 0,
-        })).toBe(false);
+        })).toBe(true);
         expect(shouldEmitResolvedBookmarkDestinationTarget({
             page: 328,
             pageYRatio: 0.35,

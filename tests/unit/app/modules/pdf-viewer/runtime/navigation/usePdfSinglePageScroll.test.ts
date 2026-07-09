@@ -2534,6 +2534,33 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         expect(container.scrollTop).toBe(220);
     });
 
+    it('keeps the latest exact destination options when re-snapping an active paged target', async () => {
+        const {
+            container,
+            markPageCanvasReady,
+            markPageVisualReady,
+            singlePageScroll,
+        } = createSinglePageScrollHarness({visuallyReadyPageNumbers: [1]});
+
+        singlePageScroll.scrollToPage(2, { pageYRatio: 0.1 });
+        await nextTick();
+
+        expect(container.scrollTop).toBe(138);
+        expect(singlePageScroll.pagedNavigationTargetPage.value).toBe(2);
+
+        singlePageScroll.scrollToPage(2, { pageYRatio: 0.4 });
+
+        expect(container.scrollTop).toBe(192);
+        expect(singlePageScroll.pagedNavigationTargetPage.value).toBe(2);
+
+        markPageCanvasReady(2);
+        markPageVisualReady(2);
+        singlePageScroll.releasePagedNavigationHoldForPage(2);
+
+        expect(container.scrollTop).toBe(192);
+        expect(singlePageScroll.pagedNavigationTargetPage.value).toBeNull();
+    });
+
     it('scrollToPage in facing-first-single mode honors destination y against the target page height', () => {
         const {
             container,
