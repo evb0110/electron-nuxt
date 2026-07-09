@@ -64,6 +64,7 @@ export default defineNuxtConfig({
         '/': { isr: 600 },
         '/features': { prerender: true },
         '/docs': { prerender: true },
+        '/privacy': { prerender: true },
         ...Object.fromEntries(
             LOCALE_CODES
                 .filter(code => code !== DEFAULT_LOCALE)
@@ -78,6 +79,10 @@ export default defineNuxtConfig({
                     ],
                     [
                         `/${code}/docs`,
+                        { prerender: true },
+                    ],
+                    [
+                        `/${code}/privacy`,
                         { prerender: true },
                     ],
                 ]),

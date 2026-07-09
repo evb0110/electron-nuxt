@@ -30,6 +30,8 @@ Use this when GitHub built Store AppX artifacts but Partner Center API submissio
 3. In Partner Center, follow Microsoft's manual submission flow: create a draft update from the product overview, open the Packages section, upload the packages, complete required submission sections, and submit for certification. See [Create app submission for MSIX apps](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/create-app-submission) and [Upload MSIX app packages](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/upload-app-packages).
 4. Do not mix Partner Center edits with a submission created through the [Microsoft Store submissions API](https://learn.microsoft.com/en-us/windows/uwp/monetize/manage-app-submissions). Keep a submission on one path: manual Partner Center or API.
 
+Store AppX packages must declare every shipped UI locale in `electron-builder.yml`. The Store workflow validates those manifest resources so Partner Center can offer matching localized listings.
+
 ## Local guardrails
 
 - `pnpm run release:verify` mirrors the local parts of the release workflow, includes current-platform build and packaging verification, and fails if the successful verify run changes the working tree snapshot.

@@ -142,7 +142,16 @@ jobs:
             'Id="EVBViewer"',
             'Executable="app\EVB Viewer.exe"',
             'EntryPoint="Windows.FullTrustApplication"',
-            'Name="runFullTrust"'
+            'Name="runFullTrust"',
+            '<Resource Language="en-US" />',
+            '<Resource Language="ru-RU" />',
+            '<Resource Language="fr-FR" />',
+            '<Resource Language="de-DE" />',
+            '<Resource Language="es-ES" />',
+            '<Resource Language="it-IT" />',
+            '<Resource Language="pt-PT" />',
+            '<Resource Language="pt-BR" />',
+            '<Resource Language="nl-NL" />'
           )
 
           foreach ($snippet in $expectedManifestSnippets) {

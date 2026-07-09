@@ -7,6 +7,12 @@
 
     <div class="footer-links">
       <UButton
+        label="Privacy"
+        :to="localePath('/privacy')"
+        color="neutral"
+        variant="ghost"
+      />
+      <UButton
         :label="t('footer.viewSource')"
         :to="GITHUB_REPOSITORY_URL"
         target="_blank"
@@ -22,4 +28,5 @@
 import { GITHUB_REPOSITORY_URL } from '~/constants/githubRepositoryUrl';
 
 const { t } = useTypedI18n();
+const localePath = useLocalePath();
 </script>

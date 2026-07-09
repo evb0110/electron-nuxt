@@ -126,6 +126,16 @@ appx:
   publisher: CN=06251AF5-66AF-420F-B896-574B507600B9
   publisherDisplayName: Eugene Barsky
   displayName: EVB Viewer
+  languages:
+    - en-US
+    - ru-RU
+    - fr-FR
+    - de-DE
+    - es-ES
+    - it-IT
+    - pt-PT
+    - pt-BR
+    - nl-NL
   capabilities:
     - runFullTrust
 

@@ -43,6 +43,25 @@ describe('electron-builder asarUnpack check', () => {
         expect(source).toContain('scripts/evb-mcp-proxy.mjs');
     });
 
+    it('declares every shipped UI locale in Microsoft Store packages', async () => {
+        const source = await readFile(resolve(process.cwd(), 'electron-builder.yml'), 'utf8');
+        const storeLanguages = [
+            'en-US',
+            'ru-RU',
+            'fr-FR',
+            'de-DE',
+            'es-ES',
+            'it-IT',
+            'pt-PT',
+            'pt-BR',
+            'nl-NL',
+        ];
+
+        for (const language of storeLanguages) {
+            expect(source).toContain(`    - ${language}`);
+        }
+    });
+
     it('accepts the generated worker bundle unpack list', () => {
         expect(() => {
             assertAsarUnpackMatchesWorkerBundles(formatConfig(getExpectedAsarUnpackEntries()));

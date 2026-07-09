@@ -7,6 +7,12 @@ import {
     vi,
 } from 'vitest';
 import { EventEmitter } from 'node:events';
+import {
+    mkdtemp,
+    rm,
+} from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { BrowserWindow } from 'electron';
 import type {
@@ -41,6 +47,7 @@ const mocks = vi.hoisted(() => ({
         error: vi.fn(),
     },
     assistantTurnBusyMessage: 'EVB Assistant is still working on the previous message for this document.',
+    userDataPath: '',
 }));
 
 class FakeCodexAppServerProcess extends EventEmitter {
@@ -262,7 +269,7 @@ vi.mock('electron', () => ({
     app: {
         focus: vi.fn(),
         getVersion: vi.fn(() => '0.0.0-test'),
-        getPath: vi.fn(() => '/tmp/evb-viewer-test'),
+        getPath: vi.fn(() => mocks.userDataPath),
     },
     BrowserWindow: {
         getAllWindows: vi.fn(() => []),
@@ -373,9 +380,10 @@ async function settleAsyncTicks(count = 3) {
 }
 
 describe('agent assistant opt-in gating', () => {
-    beforeEach(() => {
+    beforeEach(async () => {
         vi.resetModules();
         vi.clearAllMocks();
+        mocks.userDataPath = await mkdtemp(join(tmpdir(), 'evb-viewer-agent-test-'));
         mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: false});
         mocks.initializeGate = null;
         mocks.turnStartGate = null;
@@ -383,9 +391,15 @@ describe('agent assistant opt-in gating', () => {
         mocks.codexAuthStatusMode = 'signed-in';
     });
 
-    afterEach(() => {
+    afterEach(async () => {
         vi.useRealTimers();
         vi.unstubAllEnvs();
+        await rm(mocks.userDataPath, {
+            force: true,
+            maxRetries: 10,
+            recursive: true,
+            retryDelay: 20,
+        });
     });
 
     it('does not discover Codex or start MCP when disabled state is requested', async () => {
