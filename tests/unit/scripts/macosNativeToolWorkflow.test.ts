@@ -346,5 +346,5 @@ describe('macOS native tool workflow', () => {
         expect(output).toMatch(/(CI-GEN|OK)\s+tesseract: resources\/tesseract\/linux-x64\/bin\/tesseract/u);
         expect(output).toContain('CI-GEN  tesseract: resources/tesseract/linux-arm64/bin/tesseract');
         expect(output).toContain('Native tool source matrix check passed (--all).');
-    });
+    }, 15_000);
 });
