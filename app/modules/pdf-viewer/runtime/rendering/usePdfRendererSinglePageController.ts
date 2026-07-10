@@ -8,13 +8,18 @@ import type { IPageRange } from '@app/types/pdfUi';
 import type { IPdfViewerTransactionRenderRequest } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
 import type { MaybeRefOrGetter } from 'vue';
 import type { PDFPageProxy } from 'pdfjs-dist';
-import type { IArmPdfRenderSupervisorTimerOptions } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
+import type {
+    IArmPdfRenderSupervisorTimerOptions,
+    IPdfRenderSupervisor,
+} from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
 import type { TAnnotationEditorLayerRenderResult } from '@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer';
 import { getPageContainer } from '@app/modules/pdf-viewer/engine/pdf-page-buffer-manager/getPageContainer';
 import { formatRenderError } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/formatRenderError';
 import { isRenderingCancelledError } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/isRenderingCancelledError';
 import { isPageRenderTimeoutError } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/isPageRenderTimeoutError';
 import type { IPageRenderTimeoutError } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
+import { withPageStageTimeout } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
+import { PDF_PAGE_RENDER_TIMEOUT_MS } from '@app/constants/timeouts';
 import { pdfViewerDomClasses } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/pdfViewerDomClasses';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
@@ -144,7 +149,10 @@ interface IUsePdfRendererSinglePageControllerOptions<TRenderResult> {
         viewport: ReturnType<PDFPageProxy['getViewport']>,
         pageNumber: number,
         annotationLayerInstance: null,
-        options?: { shouldContinue?: () => boolean },
+        options?: {
+            shouldContinue?: () => boolean;
+            signal?: AbortSignal;
+        },
     ) => Promise<TAnnotationEditorLayerRenderResult>;
     getViewportForAnnotationEditorLayer: (pdfPage: PDFPageProxy, scale: number) => ReturnType<PDFPageProxy['getViewport']>;
     scheduleOcrDebugForPage: (pageNumber: number, context: IRenderPageContext<TRenderResult>) => void;
@@ -152,6 +160,7 @@ interface IUsePdfRendererSinglePageControllerOptions<TRenderResult> {
     onPageRendered?: ((pageNumber: number) => void) | undefined;
     onRenderedPageStateChanged?: (() => void) | undefined;
     logNonCriticalStageError: (pageNumber: number, stage: string, error: unknown) => void;
+    renderSupervisor?: IPdfRenderSupervisor | undefined;
 }
 
 export const usePdfRendererSinglePageController = <TRenderResult>(
@@ -532,7 +541,6 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
         version: number,
         requestId: number,
         documentToken: string,
-        transactionRequest?: IPdfViewerTransactionRenderRequest | undefined,
     ) {
         if (
             getRenderVersion() !== version
@@ -578,7 +586,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
             scheduleRenderForSinglePage(pageNumber, {
                 preserveRenderedPages: true,
                 bufferOverride: 0,
-            }, transactionRequest);
+            });
         });
     }
 
@@ -601,7 +609,6 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
         error: unknown,
         version: number,
         requestId: number,
-        transactionRequest?: IPdfViewerTransactionRenderRequest | undefined,
     ) {
         if (isRenderingCancelledError(error)) {
             scheduleCancelledPageRenderRetry(
@@ -609,7 +616,6 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
                 version,
                 requestId,
                 getRenderDocumentToken(),
-                transactionRequest,
             );
             return;
         }
@@ -874,7 +880,6 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
                 error,
                 version,
                 requestId,
-                transactionRequest,
             );
         } finally {
             pageLease?.release();
@@ -933,14 +938,29 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
                     return false;
                 }
                 const viewport = getViewportForAnnotationEditorLayer(pdfPage, scale);
-                const editorLayerResult = await renderAnnotationEditorLayer(
-                    target.container,
-                    annotationEditorLayerDiv,
-                    textLayerDiv,
-                    viewport,
-                    pageNumber,
-                    null,
-                    { shouldContinue: shouldContinueEditorLayerRender },
+                const annotationEditorAbortController = new AbortController();
+                const editorLayerResult = await withPageStageTimeout(
+                    renderAnnotationEditorLayer(
+                        target.container,
+                        annotationEditorLayerDiv,
+                        textLayerDiv,
+                        viewport,
+                        pageNumber,
+                        null,
+                        {
+                            shouldContinue: shouldContinueEditorLayerRender,
+                            signal: annotationEditorAbortController.signal,
+                        },
+                    ),
+                    {
+                        pageNumber,
+                        stage: 'annotation-editor-layer',
+                        timeoutMs: PDF_PAGE_RENDER_TIMEOUT_MS,
+                    },
+                    shouldContinueEditorLayerRender,
+                    () => annotationEditorAbortController.abort(),
+                    undefined,
+                    options.renderSupervisor,
                 );
                 return editorLayerResult.ok
                     && editorLayerResult.rendered

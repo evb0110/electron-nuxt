@@ -30,9 +30,15 @@ export const usePdfViewerInitialRenderRecovery = (options: IUsePdfViewerInitialR
         if (!container) {
             return false;
         }
-        return Boolean(
-            container.querySelector('.page_container .page_canvas canvas'),
-        );
+        const visibleRange = options.getVisibleRange();
+        for (let pageNumber = visibleRange.start; pageNumber <= visibleRange.end; pageNumber += 1) {
+            if (!container.querySelector(
+                `.page_container[data-page="${pageNumber}"] .page_canvas canvas`,
+            )) {
+                return false;
+            }
+        }
+        return visibleRange.end >= visibleRange.start;
     }
 
     function hasRenderedInitialContent() {

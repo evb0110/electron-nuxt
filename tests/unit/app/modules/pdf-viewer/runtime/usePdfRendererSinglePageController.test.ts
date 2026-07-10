@@ -9,6 +9,7 @@ import {
 import { ref } from 'vue';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { usePdfRendererSinglePageController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererSinglePageController';
+import { PDF_PAGE_RENDER_TIMEOUT_MS } from '@app/constants/timeouts';
 
 function createPageRoot() {
     document.body.replaceChildren();
@@ -204,6 +205,84 @@ describe('usePdfRendererSinglePageController', () => {
         expect(releasePageResources).toHaveBeenCalledWith(1, pdfPage);
     });
 
+    it('retries a cancelled current-page render without reusing its settled transaction request', async () => {
+        const { root } = createPageRoot();
+        const pdfPage = { cleanup: vi.fn() } as PDFPageProxy & {cleanup: ReturnType<typeof vi.fn>};
+        const scheduleRenderForSinglePage = vi.fn();
+        const cancelledError = Object.assign(new Error('rendering cancelled'), {name: 'RenderingCancelledException'});
+        const controller = usePdfRendererSinglePageController({
+            isActive: true,
+            effectiveScale: 1,
+            annotationUiManager: null,
+            getContainerRoot: () => root,
+            renderedPages: new Set<number>(),
+            staleRenderedPages: new Set<number>(),
+            renderingPages: new Map(),
+            renderingPageRequestIds: new Map(),
+            activeRenderTasks: new Map(),
+            getRenderVersion: () => 1,
+            getRenderDocumentToken: () => 'doc-1',
+            getVisibleRenderRequestId: () => 1,
+            summarizePageDom: () => ({}),
+            clearSelectionBeforePageLayerTeardown: vi.fn(),
+            cleanupPageIfCurrentRender: vi.fn(),
+            cleanupCanvasRenderResult: vi.fn(),
+            releasePageResources: vi.fn(),
+            loadPageForRender: vi.fn(async () => pdfPage),
+            prepareCanvasRenderForPage: vi.fn(async () => ({
+                canvas: document.createElement('canvas'),
+                startRender: vi.fn(),
+            })),
+            renderPreparedCanvasForPage: vi.fn(async prepared => ({ canvas: prepared.canvas })),
+            prepareCanvasForRender: vi.fn(async () => {
+                throw cancelledError;
+            }),
+            applyContainerDimensions: vi.fn(),
+            mountRenderedCanvas: vi.fn(),
+            scheduleRenderForSinglePage,
+            scheduleMissingRenderTargetRetry: vi.fn(),
+            clearMissingRenderTargetRetry: vi.fn(),
+            waitForRenderLifecycleDelay: vi.fn(async () => true),
+            renderTextLayerForPage: vi.fn(async () => true),
+            renderAnnotationLayersForPage: vi.fn(async () => ({
+                shouldContinue: true,
+                annotationLayerInstance: null,
+            })),
+            renderAnnotationEditorLayer: vi.fn(async () => ({
+                ok: true,
+                rendered: true,
+            } as const)),
+            getViewportForAnnotationEditorLayer: vi.fn(() => ({}) as never),
+            scheduleOcrDebugForPage: vi.fn(),
+            logNonCriticalStageError: vi.fn(),
+        });
+
+        await controller.renderSingleVisiblePage(
+            root,
+            1,
+            1,
+            1,
+            false,
+            1,
+            () => true,
+            new Set([1]),
+            {
+                start: 1,
+                end: 1,
+            },
+            {transactionRequest: {transactionId: 99} as never},
+        );
+        await Promise.resolve();
+
+        expect(scheduleRenderForSinglePage.mock.calls).toEqual([[
+            1,
+            {
+                preserveRenderedPages: true,
+                bufferOverride: 0,
+            },
+        ]]);
+    });
+
     it('uses the invocation scale for standalone annotation-editor layer renders', async () => {
         const { root } = createPageRoot();
         const renderVersion = 1;
@@ -327,5 +406,82 @@ describe('usePdfRendererSinglePageController', () => {
         expect(rendered).toBe(false);
         expect(renderAnnotationEditorLayer).toHaveBeenCalledOnce();
         expect(releasePageResources).toHaveBeenCalledWith(1, pdfPage);
+    });
+
+    it('times out and aborts a stalled standalone annotation-editor layer render', async () => {
+        vi.useFakeTimers();
+        try {
+            const { root } = createPageRoot();
+            const pdfPage = { cleanup: vi.fn() } as PDFPageProxy & {cleanup: ReturnType<typeof vi.fn>};
+            const releasePageResources = vi.fn();
+            const annotationEditorSignals: AbortSignal[] = [];
+            const renderAnnotationEditorLayer = vi.fn((...args: unknown[]) => {
+                annotationEditorSignals.push((args[6] as {signal: AbortSignal}).signal);
+                return new Promise<never>(() => {});
+            });
+            const logNonCriticalStageError = vi.fn();
+
+            const controller = usePdfRendererSinglePageController({
+                isActive: true,
+                effectiveScale: 1,
+                annotationUiManager: {},
+                getContainerRoot: () => root,
+                renderedPages: new Set<number>(),
+                staleRenderedPages: new Set<number>(),
+                renderingPages: new Map(),
+                renderingPageRequestIds: new Map(),
+                activeRenderTasks: new Map(),
+                getRenderVersion: () => 1,
+                getRenderDocumentToken: () => 'doc-1',
+                getVisibleRenderRequestId: () => 1,
+                summarizePageDom: () => ({}),
+                clearSelectionBeforePageLayerTeardown: vi.fn(),
+                cleanupPageIfCurrentRender: vi.fn(),
+                cleanupCanvasRenderResult: vi.fn(),
+                releasePageResources,
+                loadPageForRender: vi.fn(async () => pdfPage),
+                prepareCanvasRenderForPage: vi.fn(async () => ({
+                    canvas: document.createElement('canvas'),
+                    startRender: vi.fn(),
+                })),
+                renderPreparedCanvasForPage: vi.fn(async prepared => ({ canvas: prepared.canvas })),
+                prepareCanvasForRender: vi.fn(async () => ({ canvas: document.createElement('canvas') })),
+                applyContainerDimensions: vi.fn(),
+                mountRenderedCanvas: vi.fn(),
+                scheduleRenderForSinglePage: vi.fn(),
+                scheduleMissingRenderTargetRetry: vi.fn(),
+                clearMissingRenderTargetRetry: vi.fn(),
+                waitForRenderLifecycleDelay: vi.fn(async () => true),
+                renderTextLayerForPage: vi.fn(async () => true),
+                renderAnnotationLayersForPage: vi.fn(async () => ({
+                    shouldContinue: true,
+                    annotationLayerInstance: null,
+                })),
+                renderAnnotationEditorLayer,
+                getViewportForAnnotationEditorLayer: vi.fn(() => ({}) as never),
+                scheduleOcrDebugForPage: vi.fn(),
+                logNonCriticalStageError,
+            });
+
+            const renderPromise = controller.renderAnnotationEditorLayerForPage(1);
+            await vi.advanceTimersByTimeAsync(0);
+            expect(annotationEditorSignals).toHaveLength(1);
+
+            await vi.advanceTimersByTimeAsync(PDF_PAGE_RENDER_TIMEOUT_MS);
+
+            await expect(renderPromise).resolves.toBe(false);
+            expect(annotationEditorSignals[0]?.aborted).toBe(true);
+            expect(logNonCriticalStageError).toHaveBeenCalledWith(
+                1,
+                'annotation editor layer',
+                expect.objectContaining({
+                    name: 'PdfPageRenderTimeoutError',
+                    stage: 'annotation-editor-layer',
+                }),
+            );
+            expect(releasePageResources).toHaveBeenCalledWith(1, pdfPage);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });

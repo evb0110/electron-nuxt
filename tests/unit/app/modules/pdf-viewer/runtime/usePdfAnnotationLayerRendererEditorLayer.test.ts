@@ -27,6 +27,8 @@ vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
 }}));
 
 const annotationEditorLayerCtor = vi.fn();
+const annotationLayerRender = vi.fn(async (_options: unknown) => {});
+const annotationEditorLayerRender = vi.fn(async (_options: unknown) => {});
 const editorLayerInstances: MockAnnotationEditorLayer[] = [];
 const drawLayerInstances: MockDrawLayer[] = [];
 
@@ -65,7 +67,7 @@ class MockAnnotationLayer {
             cast<{ append: (element: IFakeEditorLayerAnnotationElement) => void }>(params.div)
                 .append(createAnnotationElement(annotation.id));
         });
-        return;
+        await annotationLayerRender(params);
     }
 }
 
@@ -87,7 +89,7 @@ class MockAnnotationEditorLayer {
         removeLayer?: (layer: MockAnnotationEditorLayer) => void;
     };
     public update = vi.fn();
-    public render = vi.fn();
+    public render = vi.fn((options: unknown) => annotationEditorLayerRender(options));
     public pause = vi.fn();
 
     constructor(params: {
@@ -292,6 +294,10 @@ function mockUiManagerRef(uiManager: ReturnType<typeof createUiManager>) {
 describe('usePdfAnnotationLayerRenderer', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        annotationLayerRender.mockReset();
+        annotationLayerRender.mockResolvedValue(undefined);
+        annotationEditorLayerRender.mockReset();
+        annotationEditorLayerRender.mockResolvedValue(undefined);
         editorLayerInstances.length = 0;
         drawLayerInstances.length = 0;
     });
@@ -340,6 +346,133 @@ describe('usePdfAnnotationLayerRenderer', () => {
         expect(didRenderAnnotationEditorLayer(secondResult)).toBe(true);
         expect(annotationEditorLayerCtor).toHaveBeenCalledTimes(1);
         expect(editorLayerInstances[0]?.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('detaches and destroys an editor layer whose render settles after abort', async () => {
+        const lateRender = Promise.withResolvers<undefined>();
+        annotationEditorLayerRender.mockImplementationOnce(() => lateRender.promise);
+        const uiManager = createUiManager(true);
+        const renderer = usePdfAnnotationLayerRenderer({
+            numPages: ref(1),
+            currentPage: ref(1),
+            pdfDocument: ref(null),
+            showAnnotations: ref(true),
+            annotationUiManager: mockUiManagerRef(uiManager),
+            annotationL10n: ref(null),
+        });
+        const pageCanvas = createDiv();
+        const annotationEditorLayerDiv = createDiv();
+        let mountedEditorLayerDiv = annotationEditorLayerDiv;
+        const replaceChild = vi.fn((replacement: HTMLDivElement, staleLayer: HTMLElement) => {
+            mountedEditorLayerDiv = replacement;
+            cast<{ isConnected: boolean }>(staleLayer).isConnected = false;
+        });
+        const layerParent = { replaceChild };
+        Object.assign(annotationEditorLayerDiv, {
+            cloneNode: () => createDiv(),
+            isConnected: true,
+            parentNode: layerParent,
+        });
+        const querySelector = vi.fn((selector: string) => {
+            if (selector === '.page_canvas') {
+                return pageCanvas;
+            }
+            if (selector === '.annotation-editor-layer') {
+                return mountedEditorLayerDiv;
+            }
+            return null;
+        });
+        const container = cast<HTMLElement>({ querySelector });
+        const abortController = new AbortController();
+
+        const renderPromise = renderer.renderAnnotationEditorLayer(
+            container,
+            annotationEditorLayerDiv,
+            null,
+            createViewport(),
+            1,
+            null,
+            { signal: abortController.signal },
+        );
+        await vi.waitFor(() => {
+            expect(annotationEditorLayerRender).toHaveBeenCalledTimes(1);
+        });
+
+        abortController.abort();
+        const result = await renderPromise;
+        const replacement = mountedEditorLayerDiv;
+
+        expect(result).toMatchObject({
+            ok: false,
+            reason: 'render-error',
+        });
+        expect(replacement).not.toBe(annotationEditorLayerDiv);
+        expect(replacement?.hidden).toBe(true);
+        expect(cast<{ isConnected: boolean }>(annotationEditorLayerDiv).isConnected).toBe(false);
+
+        lateRender.resolve(undefined);
+        await vi.waitFor(() => {
+            expect(uiManager.removeLayer).toHaveBeenCalledWith(editorLayerInstances[0]);
+        });
+        expect(cast<{ isConnected: boolean }>(annotationEditorLayerDiv).isConnected).toBe(false);
+        expect(mountedEditorLayerDiv).toBe(replacement);
+    });
+
+    it('skips editor rendering while the shared UI manager has a stuck annotation render', async () => {
+        const stuckAnnotationRender = Promise.withResolvers<undefined>();
+        annotationLayerRender.mockImplementationOnce(() => stuckAnnotationRender.promise);
+        const uiManager = Object.assign(createUiManager(true), { renderAnnotationElement: vi.fn() });
+        const renderer = usePdfAnnotationLayerRenderer({
+            numPages: ref(1),
+            currentPage: ref(1),
+            pdfDocument: ref(null),
+            showAnnotations: ref(true),
+            annotationUiManager: mockUiManagerRef(uiManager),
+            annotationL10n: ref(null),
+        });
+        const annotationAbortController = new AbortController();
+        const annotationRender = renderer.renderAnnotationLayer(
+            cast<PDFPageProxy>({ getAnnotations: vi.fn(async () => []) }),
+            createAnnotationLayerDiv(),
+            createViewport(),
+            1,
+            null,
+            { signal: annotationAbortController.signal },
+        ).catch(error => error as Error);
+        await vi.waitFor(() => {
+            expect(annotationLayerRender).toHaveBeenCalledTimes(1);
+        });
+        annotationAbortController.abort();
+        expect(await annotationRender).toMatchObject({ name: 'AbortError' });
+
+        const container = createContainer(createDiv());
+        const quarantinedResult = await renderer.renderAnnotationEditorLayer(
+            container,
+            createDiv(),
+            null,
+            createViewport(),
+            1,
+            null,
+        );
+        expect(quarantinedResult).toEqual({
+            ok: true,
+            rendered: false,
+            reason: 'quarantined',
+        });
+        expect(annotationEditorLayerCtor).not.toHaveBeenCalled();
+
+        stuckAnnotationRender.resolve(undefined);
+        await new Promise(resolve => setTimeout(resolve, 0));
+        const recoveredResult = await renderer.renderAnnotationEditorLayer(
+            container,
+            createDiv(),
+            createDiv(),
+            createViewport(),
+            1,
+            null,
+        );
+        expect(didRenderAnnotationEditorLayer(recoveredResult)).toBe(true);
+        expect(annotationEditorLayerCtor).toHaveBeenCalledTimes(1);
     });
 
     it('quarantines only the page whose annotation editor layer exhausts retries', async () => {

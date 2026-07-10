@@ -61,6 +61,7 @@ const hiddenAnnotationGuardQueues = new WeakMap<
     AnnotationEditorUIManager,
     Promise<unknown>
 >();
+const quarantinedHiddenAnnotationGuards = new WeakSet<AnnotationEditorUIManager>();
 
 export function didRenderAnnotationEditorLayer(result: TAnnotationEditorLayerRenderResult) {
     return result.ok && result.rendered;
@@ -373,22 +374,39 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         });
     }
 
-    async function withHiddenAnnotationRenderGuards<T>(
+    async function withHiddenAnnotationRenderGuards(
         annotationUiManager: AnnotationEditorUIManager | null,
         pageContainer: HTMLElement | null,
-        render: () => Promise<T>,
+        render: () => Promise<void>,
+        pageNumber: number,
+        options?: IAnnotationLayerRenderOptions,
     ) {
         if (!annotationUiManager) {
-            return render();
+            await raceWithAnnotationAbort(render(), pageNumber, options);
+            return true;
+        }
+        if (quarantinedHiddenAnnotationGuards.has(annotationUiManager)) {
+            return false;
         }
 
         const previousGuard = hiddenAnnotationGuardQueues.get(annotationUiManager)
             ?? Promise.resolve();
-        const queuedGuard = (async () => {
-            try {
-                await previousGuard;
-            } catch {
-                // Previous guarded renders report their own errors.
+        const guardTurn = previousGuard.catch(() => {
+            // Previous guarded renders report their own errors.
+        });
+        const guardRelease = Promise.withResolvers<undefined>();
+        const queueTail = guardTurn.then(() => guardRelease.promise);
+        hiddenAnnotationGuardQueues.set(annotationUiManager, queueTail);
+        void queueTail.finally(() => {
+            if (hiddenAnnotationGuardQueues.get(annotationUiManager) === queueTail) {
+                hiddenAnnotationGuardQueues.delete(annotationUiManager);
+            }
+        });
+        let releaseAfterUnderlyingRender = false;
+        try {
+            await raceWithAnnotationAbort(guardTurn, pageNumber, options);
+            if (quarantinedHiddenAnnotationGuards.has(annotationUiManager)) {
+                return false;
             }
 
             const mutableUiManager =
@@ -405,21 +423,25 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             );
 
             if (!originalRenderAnnotationElement && !originalSetMissingCanvas) {
-                return render();
+                await raceWithAnnotationAbort(render(), pageNumber, options);
+                return true;
             }
 
+            let guardedRenderAnnotationElement: IAnnotationUiManagerWithAnnotationRenderGuards['renderAnnotationElement'];
             if (originalRenderAnnotationElement) {
-                mutableUiManager.renderAnnotationElement = (annotation: unknown) => {
+                guardedRenderAnnotationElement = (annotation: unknown) => {
                     if (isHiddenEditableAnnotationId(getEditableAnnotationId(annotation), pageContainer)) {
                         return undefined;
                     }
 
                     return originalRenderAnnotationElement.call(annotationUiManager, annotation);
                 };
+                mutableUiManager.renderAnnotationElement = guardedRenderAnnotationElement;
             }
 
+            let guardedSetMissingCanvas: IAnnotationUiManagerWithAnnotationRenderGuards['setMissingCanvas'];
             if (originalSetMissingCanvas) {
-                mutableUiManager.setMissingCanvas = (
+                guardedSetMissingCanvas = (
                     annotationId: string,
                     annotationElementId: string,
                     canvas: HTMLCanvasElement,
@@ -435,26 +457,45 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                         canvas,
                     );
                 };
+                mutableUiManager.setMissingCanvas = guardedSetMissingCanvas;
             }
 
             try {
-                return await render();
+                const underlyingRender = render();
+                try {
+                    await raceWithAnnotationAbort(underlyingRender, pageNumber, options);
+                    return true;
+                } catch (error) {
+                    if (options?.signal?.aborted) {
+                        releaseAfterUnderlyingRender = true;
+                        quarantinedHiddenAnnotationGuards.add(annotationUiManager);
+                        void underlyingRender.then(() => {
+                            quarantinedHiddenAnnotationGuards.delete(annotationUiManager);
+                            guardRelease.resolve(undefined);
+                        }, () => {
+                            quarantinedHiddenAnnotationGuards.delete(annotationUiManager);
+                            guardRelease.resolve(undefined);
+                        });
+                    }
+                    throw error;
+                }
             } finally {
-                if (originalRenderAnnotationElement) {
+                if (
+                    originalRenderAnnotationElement
+                    && mutableUiManager.renderAnnotationElement === guardedRenderAnnotationElement
+                ) {
                     mutableUiManager.renderAnnotationElement = originalRenderAnnotationElement;
                 }
-                if (originalSetMissingCanvas) {
+                if (
+                    originalSetMissingCanvas
+                    && mutableUiManager.setMissingCanvas === guardedSetMissingCanvas
+                ) {
                     mutableUiManager.setMissingCanvas = originalSetMissingCanvas;
                 }
             }
-        })();
-        const queueTail = queuedGuard.catch(() => {});
-        hiddenAnnotationGuardQueues.set(annotationUiManager, queueTail);
-        try {
-            return await queuedGuard;
         } finally {
-            if (hiddenAnnotationGuardQueues.get(annotationUiManager) === queueTail) {
-                hiddenAnnotationGuardQueues.delete(annotationUiManager);
+            if (!releaseAfterUnderlyingRender) {
+                guardRelease.resolve(undefined);
             }
         }
 
@@ -551,6 +592,18 @@ export const usePdfAnnotationLayerRenderer = (deps: {
     function hideAnnotationEditorLayer(annotationEditorLayerDiv: HTMLElement) {
         annotationEditorLayerDiv.innerHTML = '';
         annotationEditorLayerDiv.hidden = true;
+    }
+
+    function detachTimedOutAnnotationEditorLayer(annotationEditorLayerDiv: HTMLElement) {
+        const parent = annotationEditorLayerDiv.parentNode;
+        if (!parent || typeof annotationEditorLayerDiv.cloneNode !== 'function') {
+            return;
+        }
+
+        const replacement = annotationEditorLayerDiv.cloneNode(false) as HTMLElement;
+        replacement.innerHTML = '';
+        replacement.hidden = true;
+        parent.replaceChild(replacement, annotationEditorLayerDiv);
     }
 
     function isDocumentVersionCurrent(options?: IAnnotationLayerRenderOptions) {
@@ -766,8 +819,10 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                     visibleAnnotations: visibleAnnotations.length,
                 },
             );
-            await raceWithAnnotationAbort(
-                withHiddenAnnotationRenderGuards(annotationUiManager, pageContainer, async () => {
+            const didRenderAnnotationLayer = await withHiddenAnnotationRenderGuards(
+                annotationUiManager,
+                pageContainer,
+                async () => {
                     if (!shouldContinueLayerRender(options)) {
                         return;
                     }
@@ -780,10 +835,13 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                         renderForms: false,
                         annotationStorage,
                     });
-                }),
+                },
                 pageNumber,
                 options,
             );
+            if (!didRenderAnnotationLayer) {
+                return null;
+            }
             if (
                 annotationLayerPageRenderTokens.get(pageNumber) !== renderToken
             ) {
@@ -882,6 +940,18 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                     reason: 'no-ui-manager', 
                 } satisfies TAnnotationEditorLayerRenderResult;
             }
+            if (quarantinedHiddenAnnotationGuards.has(annotationUiManager)) {
+                tracePdfAnnotationSaveDom(
+                    'editor-layer:render:skipped-manager-quarantine',
+                    container,
+                    { pageNumber },
+                );
+                return {
+                    ok: true,
+                    rendered: false,
+                    reason: 'quarantined',
+                } satisfies TAnnotationEditorLayerRenderResult;
+            }
             if (isAnnotationEditorCompatibilityUnsupported()) {
                 const error = new Error(compatibilityAdapter.report.failures.join('; '));
                 recordAnnotationEditorLayerFailure(
@@ -965,16 +1035,24 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 );
             }
 
-            const activeLayer = await renderOrUpdateAnnotationEditorLayer({
-                annotationEditorLayerDiv,
-                annotationLayerInstance,
-                annotationUiManager,
-                drawLayer,
-                editorLayer,
-                pageMetrics,
+            const activeLayer = await raceWithAnnotationAbort(
+                renderOrUpdateAnnotationEditorLayer({
+                    annotationEditorLayerDiv,
+                    annotationLayerInstance,
+                    annotationUiManager,
+                    drawLayer,
+                    editorLayer,
+                    pageMetrics,
+                    pageNumber,
+                    shouldContinue: () => (
+                        isCurrentEditorLayerRender()
+                        && shouldContinueLayerRender(options)
+                    ),
+                    textLayerDiv,
+                }),
                 pageNumber,
-                textLayerDiv,
-            });
+                options,
+            );
             if (!isCurrentEditorLayerRender()) {
                 return {
                     ok: true,
@@ -1038,6 +1116,9 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 preserveRenderToken: true,
                 preserveFailure: true,
             });
+            if (options?.signal?.aborted) {
+                detachTimedOutAnnotationEditorLayer(annotationEditorLayerDiv);
+            }
             hideAnnotationEditorLayer(annotationEditorLayerDiv);
             return {
                 ok: false,
@@ -1139,6 +1220,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         editorLayer: TAnnotationEditorLayer | undefined;
         pageMetrics: ReturnType<typeof getAnnotationEditorPageMetrics>;
         pageNumber: number;
+        shouldContinue: () => boolean;
         textLayerDiv: HTMLDivElement | null;
     }) {
         const {
@@ -1149,6 +1231,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             editorLayer,
             pageMetrics,
             pageNumber,
+            shouldContinue,
             textLayerDiv,
         } = params;
         const l10n = toValue(deps.annotationL10n) ?? fallbackL10n;
@@ -1174,6 +1257,21 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         } else {
             annotationEditorLayers.set(pageNumber, activeLayer);
             await Promise.resolve(activeLayer.render({ viewport: pageMetrics.editorViewport }));
+            if (!shouldContinue()) {
+                if (annotationEditorLayers.get(pageNumber) === activeLayer) {
+                    annotationEditorLayers.delete(pageNumber);
+                }
+                try {
+                    activeLayer.destroy();
+                } catch (error) {
+                    BrowserLogger.debug(
+                        'pdf-annotation-layer',
+                        'Failed to destroy a stale annotation editor layer',
+                        error,
+                    );
+                }
+                throw createAnnotationLayerCancelledError(pageNumber);
+            }
         }
 
         return activeLayer;

@@ -1,6 +1,9 @@
 import type { MaybeRefOrGetter } from 'vue';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import type { usePdfAnnotationLayerRenderer } from '@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer';
+import { PDF_PAGE_RENDER_TIMEOUT_MS } from '@app/constants/timeouts';
+import { withPageStageTimeout } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
+import type { IPdfRenderSupervisor } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
 
 type TAnnotationLayerInstance = Awaited<
     ReturnType<ReturnType<typeof usePdfAnnotationLayerRenderer>['renderAnnotationLayer']>
@@ -23,6 +26,7 @@ interface IUsePdfRendererAnnotationLayerControllerOptions {
     getRenderVersion: () => number;
     cleanupPageIfCurrentRender: (pageNumber: number, version: number, requestId?: number) => void;
     logNonCriticalStageError: (pageNumber: number, stage: string, error: unknown) => void;
+    renderSupervisor?: IPdfRenderSupervisor | undefined;
     onAnnotationLayersRendered?: ((pageNumber: number, container: HTMLElement) => void) | undefined;
 }
 
@@ -83,17 +87,28 @@ export const usePdfRendererAnnotationLayerController = (options: IUsePdfRenderer
             const annotationAbortController = createAnnotationLayerAbortController(pageNumber);
             try {
                 annotationLayerInstance =
-                    await annotationLayerRenderer.renderAnnotationLayer(
-                        pdfPage,
-                        annotationLayerDiv,
-                        viewport,
-                        pageNumber,
-                        annotationCanvasMap,
+                    await withPageStageTimeout(
+                        annotationLayerRenderer.renderAnnotationLayer(
+                            pdfPage,
+                            annotationLayerDiv,
+                            viewport,
+                            pageNumber,
+                            annotationCanvasMap,
+                            {
+                                documentVersion: version,
+                                signal: annotationAbortController.signal,
+                                shouldContinue,
+                            },
+                        ),
                         {
-                            documentVersion: version,
-                            signal: annotationAbortController.signal,
-                            shouldContinue,
+                            pageNumber,
+                            stage: 'annotation-layer',
+                            timeoutMs: PDF_PAGE_RENDER_TIMEOUT_MS,
                         },
+                        () => getRenderVersion() === version && shouldContinue(),
+                        () => annotationAbortController.abort(),
+                        undefined,
+                        options.renderSupervisor,
                     );
             } catch (annotationError) {
                 logNonCriticalStageError(
@@ -127,15 +142,30 @@ export const usePdfRendererAnnotationLayerController = (options: IUsePdfRenderer
                     annotationLayerInstance: null,
                 };
             }
+            const annotationEditorAbortController = createAnnotationLayerAbortController(pageNumber);
             try {
-                await annotationLayerRenderer.renderAnnotationEditorLayer(
-                    container,
-                    annotationEditorLayerDiv,
-                    textLayerDiv,
-                    viewport,
-                    pageNumber,
-                    annotationLayerInstance,
-                    { shouldContinue },
+                await withPageStageTimeout(
+                    annotationLayerRenderer.renderAnnotationEditorLayer(
+                        container,
+                        annotationEditorLayerDiv,
+                        textLayerDiv,
+                        viewport,
+                        pageNumber,
+                        annotationLayerInstance,
+                        {
+                            signal: annotationEditorAbortController.signal,
+                            shouldContinue,
+                        },
+                    ),
+                    {
+                        pageNumber,
+                        stage: 'annotation-editor-layer',
+                        timeoutMs: PDF_PAGE_RENDER_TIMEOUT_MS,
+                    },
+                    () => getRenderVersion() === version && shouldContinue(),
+                    () => annotationEditorAbortController.abort(),
+                    undefined,
+                    options.renderSupervisor,
                 );
             } catch (annotationEditorError) {
                 logNonCriticalStageError(
@@ -143,6 +173,8 @@ export const usePdfRendererAnnotationLayerController = (options: IUsePdfRenderer
                     'annotation editor layer',
                     annotationEditorError,
                 );
+            } finally {
+                releaseAnnotationLayerAbortController(pageNumber, annotationEditorAbortController);
             }
 
             if (getRenderVersion() !== version || !shouldContinue()) {

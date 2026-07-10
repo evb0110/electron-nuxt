@@ -264,4 +264,158 @@ describe('usePdfAnnotationLayerRenderer', () => {
         expect(annotationUiManager.renderAnnotationElement).toBe(originalRenderAnnotationElement);
         expect(annotationUiManager.setMissingCanvas).toBe(originalSetMissingCanvas);
     });
+
+    it('releases hidden annotation UI manager guards when a render is aborted', async () => {
+        const stuckRender = Promise.withResolvers<undefined>();
+        const originalRenderAnnotationElement = vi.fn();
+        const originalSetMissingCanvas = vi.fn();
+        const annotationUiManager = {
+            renderAnnotationElement: originalRenderAnnotationElement,
+            setMissingCanvas: originalSetMissingCanvas,
+        };
+        annotationLayerRender
+            .mockImplementationOnce(async () => {
+                await stuckRender.promise;
+            })
+            .mockResolvedValueOnce(undefined);
+
+        const renderer = usePdfAnnotationLayerRenderer({
+            numPages: ref(3),
+            currentPage: ref(1),
+            pdfDocument: ref({ annotationStorage: {} } as never),
+            showAnnotations: ref(true),
+            hiddenAnnotationIds: ref(new Set(['hidden-1'])),
+            annotationUiManager: ref(annotationUiManager as never),
+            annotationL10n: ref(null),
+        });
+        const viewport = {
+            width: 200,
+            height: 300,
+            rotation: 0,
+        };
+        const pdfPage = {getAnnotations: vi.fn(async () => [])} as never;
+        const annotationLayerDiv = {
+            innerHTML: '',
+            querySelectorAll: vi.fn(() => []),
+        };
+        const abortController = new AbortController();
+
+        const abortedRender = renderer.renderAnnotationLayer(
+            pdfPage,
+            annotationLayerDiv as never,
+            viewport as never,
+            1,
+            null,
+            { signal: abortController.signal },
+        ).catch(error => error as Error);
+        await vi.waitFor(() => {
+            expect(annotationLayerRender).toHaveBeenCalledTimes(1);
+        });
+
+        abortController.abort();
+        const abortError = await abortedRender;
+        expect(abortError).toBeInstanceOf(Error);
+        expect(abortError).toMatchObject({ name: 'AbortError' });
+        expect(annotationUiManager.renderAnnotationElement).toBe(originalRenderAnnotationElement);
+        expect(annotationUiManager.setMissingCanvas).toBe(originalSetMissingCanvas);
+
+        const quarantinedRender = await renderer.renderAnnotationLayer(
+            pdfPage,
+            annotationLayerDiv as never,
+            viewport as never,
+            2,
+        );
+        expect(quarantinedRender).toBeNull();
+        expect(annotationLayerRender).toHaveBeenCalledTimes(1);
+
+        stuckRender.resolve(undefined);
+        await vi.waitFor(() => {
+            expect(annotationUiManager.renderAnnotationElement).toBe(originalRenderAnnotationElement);
+        });
+
+        const nextRender = renderer.renderAnnotationLayer(
+            pdfPage,
+            annotationLayerDiv as never,
+            viewport as never,
+            3,
+        );
+        await vi.waitFor(() => {
+            expect(annotationLayerRender).toHaveBeenCalledTimes(2);
+        });
+        await nextRender;
+
+        expect(annotationUiManager.renderAnnotationElement).toBe(originalRenderAnnotationElement);
+        expect(annotationUiManager.setMissingCanvas).toBe(originalSetMissingCanvas);
+    });
+
+    it('keeps queued guards serialized when a waiting render is aborted', async () => {
+        const activeRender = Promise.withResolvers<undefined>();
+        const originalRenderAnnotationElement = vi.fn();
+        const annotationUiManager = { renderAnnotationElement: originalRenderAnnotationElement };
+        annotationLayerRender
+            .mockImplementationOnce(async () => {
+                await activeRender.promise;
+            })
+            .mockResolvedValueOnce(undefined);
+        const renderer = usePdfAnnotationLayerRenderer({
+            numPages: ref(3),
+            currentPage: ref(1),
+            pdfDocument: ref({ annotationStorage: {} } as never),
+            showAnnotations: ref(true),
+            hiddenAnnotationIds: ref(new Set(['hidden-1'])),
+            annotationUiManager: ref(annotationUiManager as never),
+            annotationL10n: ref(null),
+        });
+        const viewport = {
+            width: 200,
+            height: 300,
+            rotation: 0,
+        };
+        const pdfPage = {getAnnotations: vi.fn(async () => [])} as never;
+        const annotationLayerDiv = {
+            innerHTML: '',
+            querySelectorAll: vi.fn(() => []),
+        };
+        const waitingAbortController = new AbortController();
+
+        const firstRender = renderer.renderAnnotationLayer(
+            pdfPage,
+            annotationLayerDiv as never,
+            viewport as never,
+            1,
+        );
+        await vi.waitFor(() => {
+            expect(annotationLayerRender).toHaveBeenCalledTimes(1);
+        });
+        const waitingRender = renderer.renderAnnotationLayer(
+            pdfPage,
+            annotationLayerDiv as never,
+            viewport as never,
+            2,
+            null,
+            { signal: waitingAbortController.signal },
+        ).catch(error => error as Error);
+        await vi.waitFor(() => {
+            expect(annotationLayerCtor).toHaveBeenCalledTimes(2);
+        });
+        waitingAbortController.abort();
+        expect(await waitingRender).toMatchObject({ name: 'AbortError' });
+
+        const thirdRender = renderer.renderAnnotationLayer(
+            pdfPage,
+            annotationLayerDiv as never,
+            viewport as never,
+            3,
+        );
+        await Promise.resolve();
+        expect(annotationLayerRender).toHaveBeenCalledTimes(1);
+
+        activeRender.resolve(undefined);
+        await Promise.all([
+            firstRender,
+            thirdRender,
+        ]);
+        expect(annotationLayerRender).toHaveBeenCalledTimes(2);
+        expect(annotationUiManager.renderAnnotationElement).toBe(originalRenderAnnotationElement);
+    });
 });

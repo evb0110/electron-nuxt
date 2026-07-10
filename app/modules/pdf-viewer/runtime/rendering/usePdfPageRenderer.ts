@@ -648,6 +648,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         getRenderVersion: () => renderVersion,
         cleanupPageIfCurrentRender,
         logNonCriticalStageError,
+        renderSupervisor,
         onAnnotationLayersRendered: options.onAnnotationLayersRendered,
     });
     const renderTextLayerForPage = usePdfRendererTextLayerController({
@@ -718,6 +719,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         onPageRendered: options.onPageRendered,
         onRenderedPageStateChanged: options.onRenderedPageStateChanged,
         logNonCriticalStageError,
+        renderSupervisor,
     });
 
     function setupPagePlaceholders() {

@@ -341,9 +341,6 @@ export const usePdfMountedPageRenderRecovery = (options: IUsePdfMountedPageRende
             const recoverablePages = getRecoverablePages();
             const ranges = getRecoveryRenderRanges(recoverablePages);
             const transactionId = beginRecoveryTransaction(recoverablePages, ranges);
-            if (options.transactionController && transactionId === null) {
-                return;
-            }
             advanceRecoveryTransaction(transactionId, 'render-requested');
             for (const range of ranges) {
                 if (!isRecoveryTransactionCurrent(transactionId)) {

@@ -27,23 +27,26 @@ describe('usePdfViewerInitialRenderRecovery', () => {
         document.body.innerHTML = '';
     });
 
-    function createHarness(container: HTMLElement) {
+    function createHarness(
+        container: HTMLElement,
+        visibleRange = {
+            start: 1,
+            end: 1,
+        },
+    ) {
         const reRenderVisiblePagesAndSyncCurrentPage = vi.fn(async () => {});
         const renderVisiblePages = vi.fn(async () => {});
         const syncCurrentPageFromViewport = vi.fn(async () => {});
         const recovery = usePdfViewerInitialRenderRecovery({
             viewerContainer: ref(container),
             pdfDocument: shallowRef(cast<PDFDocumentProxy>({})),
-            numPages: ref(1),
+            numPages: ref(Math.max(1, visibleRange.end)),
             isLoading: ref(false),
             computeFitWidthScale: vi.fn(() => true),
             updateVisibleRange: vi.fn(),
             reRenderVisiblePagesAndSyncCurrentPage,
             renderVisiblePages,
-            getVisibleRange: vi.fn(() => ({
-                start: 1,
-                end: 1,
-            })),
+            getVisibleRange: vi.fn(() => visibleRange),
             syncCurrentPageFromViewport,
         });
 
@@ -63,7 +66,7 @@ describe('usePdfViewerInitialRenderRecovery', () => {
     it('rerenders when only a text layer exists without a page canvas', async () => {
         const container = document.createElement('div');
         container.innerHTML = `
-            <div class="page_container">
+            <div class="page_container" data-page="1">
                 <div class="page_canvas"></div>
                 <div class="text-layer textLayer"><span>ocr title</span></div>
             </div>
@@ -79,7 +82,7 @@ describe('usePdfViewerInitialRenderRecovery', () => {
     it('does not rerender when the page canvas already exists', async () => {
         const container = document.createElement('div');
         container.innerHTML = `
-            <div class="page_container">
+            <div class="page_container" data-page="1">
                 <div class="page_canvas"><canvas></canvas></div>
                 <div class="text-layer textLayer"><span>searchable text</span></div>
             </div>
@@ -92,5 +95,47 @@ describe('usePdfViewerInitialRenderRecovery', () => {
         expect(harness.reRenderVisiblePagesAndSyncCurrentPage).not.toHaveBeenCalled();
         expect(harness.renderVisiblePages).not.toHaveBeenCalled();
         expect(harness.syncCurrentPageFromViewport).not.toHaveBeenCalled();
+    });
+
+    it('rerenders when only a buffered neighbor has a canvas', async () => {
+        const container = document.createElement('div');
+        container.innerHTML = `
+            <div class="page_container" data-page="1">
+                <div class="page_canvas"><canvas></canvas></div>
+            </div>
+            <div class="page_container" data-page="2">
+                <div class="page_canvas"></div>
+            </div>
+        `;
+        const harness = createHarness(container, {
+            start: 2,
+            end: 2,
+        });
+
+        harness.recovery.scheduleRecoverInitialRender();
+        await letRecoveryRun();
+
+        expect(harness.reRenderVisiblePagesAndSyncCurrentPage).toHaveBeenCalledTimes(1);
+    });
+
+    it('rerenders when one page in a visible spread is still missing its canvas', async () => {
+        const container = document.createElement('div');
+        container.innerHTML = `
+            <div class="page_container" data-page="4">
+                <div class="page_canvas"><canvas></canvas></div>
+            </div>
+            <div class="page_container" data-page="5">
+                <div class="page_canvas"></div>
+            </div>
+        `;
+        const harness = createHarness(container, {
+            start: 4,
+            end: 5,
+        });
+
+        harness.recovery.scheduleRecoverInitialRender();
+        await letRecoveryRun();
+
+        expect(harness.reRenderVisiblePagesAndSyncCurrentPage).toHaveBeenCalledTimes(1);
     });
 });

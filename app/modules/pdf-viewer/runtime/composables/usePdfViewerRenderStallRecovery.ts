@@ -286,10 +286,13 @@ export const usePdfViewerRenderStallRecovery = (options: IUsePdfViewerRenderStal
                 );
                 const recoveryRunId = ++pageLevelRecoveryRunId;
                 const recoveryTransactionId = beginRecoveryTransaction(pages);
-                if (options.transactionController && recoveryTransactionId === null) {
-                    return;
+                const ownsRecoveryTransaction = (
+                    !options.transactionController
+                    || recoveryTransactionId !== null
+                );
+                if (ownsRecoveryTransaction) {
+                    void cancelInFlightPageRenders?.();
                 }
-                void cancelInFlightPageRenders?.();
                 invalidatePages(pages);
                 advanceRecoveryTransaction(recoveryTransactionId, 'render-requested');
                 void renderVisiblePages({

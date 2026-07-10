@@ -387,6 +387,31 @@ describe('usePdfMountedPageRenderRecovery', () => {
         scope.stop();
     });
 
+    it('renders a mounted page inside the active authoritative transaction when recovery admission is denied', async () => {
+        vi.useFakeTimers();
+        const transactionController: TMountedRecoveryTransactionController = {
+            beginTransaction: vi.fn(() => null),
+            advanceTransaction: vi.fn(() => true),
+            cancelActiveTransaction: vi.fn(() => true),
+            isTransactionCurrent: vi.fn(() => true),
+        };
+        const {
+            pagesNeedingRender,
+            recovery,
+            renderVisiblePages,
+            scope,
+        } = createHarness({ transactionController });
+        pagesNeedingRender.value = new Set([928]);
+
+        recovery.queueMountedPageRender(928);
+        await flushTimersAndTicks();
+
+        expect(renderVisiblePages).toHaveBeenCalledOnce();
+        expect(transactionController.advanceTransaction).not.toHaveBeenCalled();
+
+        scope.stop();
+    });
+
     it('cancels mounted page recovery when cleaned up during an active render pass', async () => {
         vi.useFakeTimers();
         const transactionController: TMountedRecoveryTransactionController = {

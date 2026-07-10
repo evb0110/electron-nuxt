@@ -103,7 +103,7 @@ const textLayerRendererMock = {
 
 const annotationLayerRendererMock = {
     renderAnnotationLayer: vi.fn(),
-    renderAnnotationEditorLayer: vi.fn(() => ({
+    renderAnnotationEditorLayer: vi.fn(async () => ({
         ok: true,
         rendered: true,
     })),
@@ -118,7 +118,10 @@ vi.mock('@app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer
 vi.mock('@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer', () => ({usePdfAnnotationLayerRenderer: () => annotationLayerRendererMock}));
 
 const { usePdfPageRenderer } = await import('@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer');
-const { PDF_PAGE_TEXT_LAYER_TIMEOUT_MS } = await import('@app/constants/timeouts');
+const {
+    PDF_PAGE_RENDER_TIMEOUT_MS,
+    PDF_PAGE_TEXT_LAYER_TIMEOUT_MS,
+} = await import('@app/constants/timeouts');
 
 function createClassList(): IClassList {
     const classNames = new Set<string>();
@@ -1262,6 +1265,127 @@ describe('usePdfPageRenderer resilience', () => {
             'pdf-renderer',
             expect.stringContaining('Failed to render annotation layer for page 1'),
             expect.any(Error),
+        );
+    });
+
+    it('times out a stalled annotation layer and still reveals the rendered page', async () => {
+        vi.useFakeTimers();
+        const { pageContainer } = createPageContainer();
+        const containerRoot = createContainerRoot(pageContainer);
+        const annotationSignals: AbortSignal[] = [];
+        const documentState = {
+            pdfDocument: shallowRef({} as object),
+            numPages: ref(1),
+            basePageWidth: ref(100),
+            basePageHeight: ref(100),
+            isLoading: ref(false),
+            leasePage: vi.fn(async () => ({render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() }))})),
+            releasePage: createReleasePageMock(),
+            evictPage: vi.fn(),
+            cleanupPageCache: vi.fn(),
+        };
+
+        canvasRendererMock.renderCanvas.mockResolvedValue(createRenderResult());
+        textLayerRendererMock.renderTextLayer.mockResolvedValue(undefined);
+        annotationLayerRendererMock.renderAnnotationLayer.mockImplementation((...args: unknown[]) => {
+            annotationSignals.push((args[5] as { signal: AbortSignal }).signal);
+            return new Promise(() => {});
+        });
+
+        const renderer = usePdfPageRenderer({
+            container: ref(containerRoot),
+            document: documentState as never,
+            currentPage: ref(1),
+            effectiveScale: ref(1),
+            bufferPages: ref(0),
+            showAnnotations: ref(true),
+            annotationUiManager: ref(null),
+            annotationL10n: ref(null),
+            searchPageMatches: ref(new Map()),
+            currentSearchMatch: ref(null),
+            workingCopyPath: ref(null),
+        });
+
+        const renderPromise = renderer.renderVisiblePages({
+            start: 1,
+            end: 1,
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(annotationSignals).toHaveLength(1);
+
+        await vi.advanceTimersByTimeAsync(PDF_PAGE_RENDER_TIMEOUT_MS);
+        await renderPromise;
+
+        expect(annotationSignals[0]?.aborted).toBe(true);
+        expect(renderer.isPageRendered(1)).toBe(true);
+        expect(loggerError).toHaveBeenCalledWith(
+            'pdf-renderer',
+            expect.stringContaining('Failed to render annotation layer for page 1'),
+            expect.objectContaining({
+                name: 'PdfPageRenderTimeoutError',
+                stage: 'annotation-layer',
+            }),
+        );
+    });
+
+    it('times out a stalled annotation editor layer and still reveals the rendered page', async () => {
+        vi.useFakeTimers();
+        const { pageContainer } = createPageContainer();
+        const containerRoot = createContainerRoot(pageContainer);
+        const annotationEditorSignals: AbortSignal[] = [];
+        const documentState = {
+            pdfDocument: shallowRef({} as object),
+            numPages: ref(1),
+            basePageWidth: ref(100),
+            basePageHeight: ref(100),
+            isLoading: ref(false),
+            leasePage: vi.fn(async () => ({render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() }))})),
+            releasePage: createReleasePageMock(),
+            evictPage: vi.fn(),
+            cleanupPageCache: vi.fn(),
+        };
+
+        canvasRendererMock.renderCanvas.mockResolvedValue(createRenderResult());
+        textLayerRendererMock.renderTextLayer.mockResolvedValue(undefined);
+        annotationLayerRendererMock.renderAnnotationLayer.mockResolvedValue(null);
+        annotationLayerRendererMock.renderAnnotationEditorLayer.mockImplementation((...args: unknown[]) => {
+            annotationEditorSignals.push((args[6] as { signal: AbortSignal }).signal);
+            return new Promise(() => {});
+        });
+
+        const renderer = usePdfPageRenderer({
+            container: ref(containerRoot),
+            document: documentState as never,
+            currentPage: ref(1),
+            effectiveScale: ref(1),
+            bufferPages: ref(0),
+            showAnnotations: ref(true),
+            annotationUiManager: cast<Ref<AnnotationEditorUIManager | null>>(ref({ direction: 'ltr' })),
+            annotationL10n: ref(null),
+            searchPageMatches: ref(new Map()),
+            currentSearchMatch: ref(null),
+            workingCopyPath: ref(null),
+        });
+
+        const renderPromise = renderer.renderVisiblePages({
+            start: 1,
+            end: 1,
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(annotationEditorSignals).toHaveLength(1);
+
+        await vi.advanceTimersByTimeAsync(PDF_PAGE_RENDER_TIMEOUT_MS);
+        await renderPromise;
+
+        expect(annotationEditorSignals[0]?.aborted).toBe(true);
+        expect(renderer.isPageRendered(1)).toBe(true);
+        expect(loggerError).toHaveBeenCalledWith(
+            'pdf-renderer',
+            expect.stringContaining('Failed to render annotation editor layer for page 1'),
+            expect.objectContaining({
+                name: 'PdfPageRenderTimeoutError',
+                stage: 'annotation-editor-layer',
+            }),
         );
     });
 
