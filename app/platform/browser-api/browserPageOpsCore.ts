@@ -7,6 +7,7 @@ import type {
     ICropMargins,
     IPageGeometry,
 } from '@contracts/shared';
+import { normalizeCropMargins } from '@contracts/shared';
 import type { IPageMutationWorkerResult } from '@app/platform/browser-api/browserPageOpsWorker.types';
 import {
     resolvePdfLibCropBox,
@@ -323,21 +324,36 @@ export async function cropPdfBytes(
     pages: number[],
     margins: ICropMargins,
 ): Promise<IPageMutationWorkerResult> {
+    const normalizedMargins = normalizeCropMargins(margins);
+    const pdfDocument = await PDFDocument.load(data);
+    validatePageNumbers(pages, 'cropPages', {
+        pageCount: pdfDocument.getPageCount(),
+        requireUnique: true,
+    });
+    const selectedPages = pages.map((pageNumber) => {
+        const page = pdfDocument.getPage(pageNumber - 1);
+        const cropBox = getCropBoxFromMargins(resolvePdfLibMediaBox(page), normalizedMargins);
+        if (cropBox.width <= 0 || cropBox.height <= 0) {
+            throw new Error(`Crop margins consume page ${pageNumber}`);
+        }
+        return {
+            cropBox,
+            page,
+        };
+    });
     const wasmResult = await tryRunBrowserPageOpsWithWasm('crop', {
         data,
         pages,
-        margins,
+        margins: normalizedMargins,
     });
     if (wasmResult) {
         return wasmResult;
     }
 
-    return mutateValidatedPdfPages(data, pages, 'cropPages', (page) => {
-        const cropBox = getCropBoxFromMargins(resolvePdfLibMediaBox(page), margins);
-        if (cropBox.width <= 0 || cropBox.height <= 0) {
-            return;
-        }
-
+    selectedPages.forEach(({
+        cropBox,
+        page,
+    }) => {
         page.setCropBox(
             cropBox.x,
             cropBox.y,
@@ -345,6 +361,7 @@ export async function cropPdfBytes(
             cropBox.height,
         );
     });
+    return toSavedPdfResult(pdfDocument);
 }
 
 export async function removeCropPdfBytes(

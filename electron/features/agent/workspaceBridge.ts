@@ -180,8 +180,6 @@ function createPendingRequest<TResponse>(
                 new Error('Agent renderer request was aborted by the caller.'),
             );
         };
-        options.signal?.addEventListener('abort', handleAbortSignal, { once: true });
-
         pendingMap.set(requestId, {
             ...(options.cancelRenderer === undefined ? {} : {cancelRenderer: options.cancelRenderer}),
             windowId: window.id,
@@ -190,6 +188,10 @@ function createPendingRequest<TResponse>(
             resolve,
             reject,
         });
+        options.signal?.addEventListener('abort', handleAbortSignal, { once: true });
+        if (options.signal?.aborted) {
+            handleAbortSignal();
+        }
     });
 }
 
@@ -528,8 +530,12 @@ export function requestAgentWorkspaceSnapshot(
     targetWindow: BrowserWindow | null | undefined,
     timeoutMs = DEFAULT_AGENT_REQUEST_TIMEOUT_MS,
     scope?: IAgentCommandExecutionScope,
+    signal?: AbortSignal,
 ) {
     const window = assertUsableTargetWindow(targetWindow);
+    if (signal?.aborted) {
+        return Promise.reject(new Error('Agent renderer request was aborted by the caller.'));
+    }
     const requestId = randomUUID();
     const cachedSnapshot = snapshotCacheByWindowId.get(window.id);
     const request: IAgentWorkspaceSnapshotRequest = {
@@ -543,12 +549,14 @@ export function requestAgentWorkspaceSnapshot(
         requestId,
         window,
         timeoutMs,
-        {},
+        signal === undefined ? {} : {signal},
         () => snapshotCacheByWindowId.delete(window.id),
     );
 
     try {
-        sendAgentWorkspaceSnapshotRequest(window, request);
+        if (pendingSnapshotRequests.has(requestId)) {
+            sendAgentWorkspaceSnapshotRequest(window, request);
+        }
     } catch (error) {
         rejectPendingRequest(
             pendingSnapshotRequests,
@@ -568,6 +576,9 @@ export function requestAgentCommand(
     signal?: AbortSignal,
 ) {
     const window = assertUsableTargetWindow(targetWindow);
+    if (signal?.aborted) {
+        return Promise.reject(new Error('Agent renderer request was aborted by the caller.'));
+    }
     const requestId = randomUUID();
     const effectiveTimeoutMs = resolveAgentCommandRequestTimeoutMs(command, timeoutMs);
     const request: IAgentCommandRequest = {
@@ -589,7 +600,9 @@ export function requestAgentCommand(
     );
 
     try {
-        sendAgentCommandRequest(window, request);
+        if (pendingCommandRequests.has(requestId)) {
+            sendAgentCommandRequest(window, request);
+        }
     } catch (error) {
         rejectPendingRequest(
             pendingCommandRequests,

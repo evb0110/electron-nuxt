@@ -4,23 +4,28 @@ Core Page Processor
 Orchestrates the processing pipeline for scanned book pages.
 """
 
-import cv2
-import numpy as np
 import os
 import time
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Optional, cast
 
+import cv2
+import numpy as np
+from crop import crop_to_content
+from deskew_wrapper import deskew_page
 from detection import (
+    detect_content_bounds,
+    detect_curvature,
     detect_facing_pages,
     detect_skew_angle,
-    detect_curvature,
-    detect_content_bounds,
+)
+from resource_policy import (
+    MAX_PADDING_PIXELS,
+    validate_finite_range,
+    validate_integer_range,
 )
 from split import find_gutter_position, split_facing_pages
-from deskew_wrapper import deskew_page
-from crop import crop_to_content
-from stages.io import load_image, write_image_atomically
+from stages.io import load_image, publish_image_set_atomically, write_image_atomically
 
 
 class PageProcessor:
@@ -42,9 +47,9 @@ class PageProcessor:
         auto_detect: bool = True,
         force_split: bool = False,
     ):
-        self.min_skew_angle = min_skew_angle
-        self.min_curvature = min_curvature
-        self.crop_padding = crop_padding
+        self.min_skew_angle = validate_finite_range("min_skew_angle", min_skew_angle, 0.0, 90.0)
+        self.min_curvature = validate_finite_range("min_curvature", min_curvature, 0.0, 1.0)
+        self.crop_padding = validate_integer_range("crop_padding", crop_padding, 0, MAX_PADDING_PIXELS)
         self.auto_detect = auto_detect
         self.force_split = force_split
 
@@ -97,7 +102,7 @@ class PageProcessor:
         # Detection phase
         detect_start = time.monotonic()
         progress("detecting", "Analyzing page characteristics")
-        detection = {
+        detection: dict[str, object] = {
             "was_facing_pages": False,
             "skew_angle": 0.0,
             "curvature_score": 0.0,
@@ -147,6 +152,8 @@ class PageProcessor:
                 should_split = True
 
         if should_split:
+            if original_width < 2:
+                raise ValueError("Forced split requires an image at least 2 pixels wide")
             progress("splitting", "Splitting facing pages")
             gutter_x = find_gutter_position(image)
             left, right = split_facing_pages(image, gutter_x=gutter_x)
@@ -194,7 +201,7 @@ class PageProcessor:
                 if len(pages) > 1:
                     page_skew = float(detect_skew_angle(page) or 0.0)
                 else:
-                    page_skew = float(detection.get("skew_angle") or 0.0)
+                    page_skew = float(cast(float, detection.get("skew_angle") or 0.0))
 
                 if abs(page_skew) >= self.min_skew_angle:
                     progress("deskewing", f"Deskewing page{page_suffix} by {page_skew:.2f}°")
@@ -328,22 +335,28 @@ class PageProcessor:
 
         # Save outputs
         save_start = time.monotonic()
-        output_paths = []
+        output_paths: list[str] = []
         output_sizes = []
+        output_set: list[tuple[Path, np.ndarray, list[int]]] = []
         for i, page in enumerate(processed_pages):
             page_suffix = f"_{i+1}" if len(processed_pages) > 1 else ""
             output_filename = f"{input_stem}{page_suffix}.png"
             output_path = Path(output_dir) / output_filename
 
             progress("saving", f"Saving {output_filename}")
-            write_image_atomically(
-                output_path,
-                page,
-                [cv2.IMWRITE_PNG_COMPRESSION, png_compression],
-            )
+            output_set.append((output_path, page, [cv2.IMWRITE_PNG_COMPRESSION, png_compression]))
             output_paths.append(str(output_path))
             ph, pw = page.shape[:2]
             output_sizes.append({"width": int(pw), "height": int(ph)})
+        stale_paths = (
+            [Path(output_dir) / f"{input_stem}.png"]
+            if len(processed_pages) > 1
+            else [
+                Path(output_dir) / f"{input_stem}_1.png",
+                Path(output_dir) / f"{input_stem}_2.png",
+            ]
+        )
+        publish_image_set_atomically(output_set, obsolete_paths=stale_paths)
         timings_ms["save"] = int((time.monotonic() - save_start) * 1000)
 
         return {

@@ -21,6 +21,7 @@ export interface IPnpmLockfileIndex {
 }
 
 export interface IDependencyLockstepInput {
+    landingLockfile?: IPnpmLockfileIndex;
     landingPackageJson?: PackageJson;
     lockfile: IPnpmLockfileIndex;
     packageJson: PackageJson;
@@ -680,7 +681,12 @@ function assertLandingPackageLockstep(
     assertLandingSharedDependencyAnchors(packageJson, landingPackageJson, errors);
 }
 
-function assertOverrideGraph(packageJson: PackageJson, lockfile: IPnpmLockfileIndex, errors: string[]) {
+function assertLockfileOverrideManifest(
+    packageJson: PackageJson,
+    lockfile: IPnpmLockfileIndex,
+    lockfileLabel: string,
+    errors: string[],
+) {
     const overrides = getOverrides(packageJson);
     const packageOverrideEntries = sortedEntries(overrides);
     const lockfileOverrideEntries = sortedEntries(lockfile.overrides);
@@ -691,18 +697,7 @@ function assertOverrideGraph(packageJson: PackageJson, lockfile: IPnpmLockfileIn
     ] of packageOverrideEntries) {
         const lockfileValue = lockfile.overrides[overrideKey];
         if (lockfileValue !== overrideValue) {
-            errors.push(`pnpm-lock.yaml override ${overrideKey} must match package.json value "${overrideValue}", received "${lockfileValue ?? '<missing>'}".`);
-        }
-
-        const targetPackageName = getOverrideTargetPackageName(overrideKey);
-        const resolvedVersions = lockfile.resolvedPackages.get(targetPackageName);
-        if (resolvedVersions === undefined) {
-            errors.push(`pnpm.overrides.${overrideKey} targets ${targetPackageName}, but that package is not resolved in pnpm-lock.yaml.`);
-            continue;
-        }
-
-        if (isExactVersion(overrideValue) && !resolvedVersions.has(overrideValue)) {
-            errors.push(`pnpm.overrides.${overrideKey} pins ${overrideValue}, but pnpm-lock.yaml resolves ${targetPackageName} at ${formatVersions(resolvedVersions)}.`);
+            errors.push(`${lockfileLabel} override ${overrideKey} must match package.json value "${overrideValue}", received "${lockfileValue ?? '<missing>'}".`);
         }
     }
 
@@ -711,9 +706,74 @@ function assertOverrideGraph(packageJson: PackageJson, lockfile: IPnpmLockfileIn
         lockfileValue,
     ] of lockfileOverrideEntries) {
         if (overrides[overrideKey] === undefined) {
-            errors.push(`pnpm-lock.yaml contains override ${overrideKey}: ${lockfileValue}, but package.json does not.`);
+            errors.push(`${lockfileLabel} contains override ${overrideKey}: ${lockfileValue}, but package.json does not.`);
         }
     }
+}
+
+function assertOverrideResolution(
+    packageJson: PackageJson,
+    lockfiles: Array<{
+        index: IPnpmLockfileIndex;
+        label: string;
+    }>,
+    errors: string[],
+) {
+    for (const [
+        overrideKey,
+        overrideValue,
+    ] of sortedEntries(getOverrides(packageJson))) {
+        const targetPackageName = getOverrideTargetPackageName(overrideKey);
+        const resolvedGraphs = lockfiles.flatMap(lockfile => {
+            const resolvedVersions = lockfile.index.resolvedPackages.get(targetPackageName);
+            return resolvedVersions === undefined
+                ? []
+                : [{
+                    label: lockfile.label,
+                    versions: resolvedVersions,
+                }];
+        });
+
+        if (resolvedGraphs.length === 0) {
+            errors.push(`pnpm.overrides.${overrideKey} targets ${targetPackageName}, but that package is not resolved in either pnpm-lock.yaml or landing/pnpm-lock.yaml.`);
+            continue;
+        }
+
+        if (!isExactVersion(overrideValue)) {
+            continue;
+        }
+
+        for (const graph of resolvedGraphs) {
+            if (!graph.versions.has(overrideValue)) {
+                errors.push(`pnpm.overrides.${overrideKey} pins ${overrideValue}, but ${graph.label} resolves ${targetPackageName} at ${formatVersions(graph.versions)}.`);
+            }
+        }
+    }
+}
+
+function assertOverrideGraphs(
+    packageJson: PackageJson,
+    lockfile: IPnpmLockfileIndex,
+    landingLockfile: IPnpmLockfileIndex | undefined,
+    errors: string[],
+) {
+    assertLockfileOverrideManifest(packageJson, lockfile, 'pnpm-lock.yaml', errors);
+    if (landingLockfile === undefined) {
+        errors.push('landing/pnpm-lock.yaml must be checked by dependency lockstep.');
+        return;
+    }
+
+    assertLockfileOverrideManifest(packageJson, landingLockfile, 'landing/pnpm-lock.yaml', errors);
+    assertOverrideResolution(packageJson, [
+        {
+            index: lockfile,
+            label: 'pnpm-lock.yaml',
+        },
+        {
+            index: landingLockfile,
+            label: 'landing/pnpm-lock.yaml',
+        },
+    ], errors);
 }
 
 export function checkDependencyLockstep(input: IDependencyLockstepInput) {
@@ -721,7 +781,7 @@ export function checkDependencyLockstep(input: IDependencyLockstepInput) {
 
     assertVueLockstep(input.packageJson, errors);
     assertIntlifyLockstep(input.packageJson, errors);
-    assertOverrideGraph(input.packageJson, input.lockfile, errors);
+    assertOverrideGraphs(input.packageJson, input.lockfile, input.landingLockfile, errors);
     assertLandingPackageLockstep(input.packageJson, input.landingPackageJson, errors);
 
     return errors;
@@ -739,7 +799,9 @@ async function main() {
     const packageJson = await readPackageJson(path.join(PROJECT_ROOT, 'package.json'));
     const landingPackageJson = await readPackageJson(path.join(PROJECT_ROOT, 'landing', 'package.json'));
     const lockfileContent = await readFile(path.join(PROJECT_ROOT, 'pnpm-lock.yaml'), 'utf8');
+    const landingLockfileContent = await readFile(path.join(PROJECT_ROOT, 'landing', 'pnpm-lock.yaml'), 'utf8');
     const errors = checkDependencyLockstep({
+        landingLockfile: parsePnpmLockfile(landingLockfileContent),
         landingPackageJson,
         lockfile: parsePnpmLockfile(lockfileContent),
         packageJson,

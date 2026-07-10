@@ -62,6 +62,7 @@ interface IWorkspacePrintDeps {
     canPrintDjvuSource?: Readonly<Ref<boolean>>;
     getCurrentPrintPage?: () => number | null | undefined;
     getQuickPrintPageMetrics: () => Promise<IPdfPageMetric[] | null>;
+    ensurePrintReady?: () => Promise<boolean>;
     getPrintableSourceData: () => Promise<Uint8Array | null>;
     renderLoadedPdfPagesForBrowserPrint?: (
         targetDocument: IBrowserPrintDocument,
@@ -596,6 +597,12 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         }
 
         try {
+            throwIfPrintAborted(signal);
+            if (deps.ensurePrintReady && !await deps.ensurePrintReady()) {
+                throw new Error('Annotation notes could not be persisted for printing');
+            }
+            throwIfPrintAborted(signal);
+
             if (canPrintDjvuSource() && deps.printDjvuSource) {
                 throwIfPrintAborted(signal);
                 let didStartNativePrintHandoff = false;

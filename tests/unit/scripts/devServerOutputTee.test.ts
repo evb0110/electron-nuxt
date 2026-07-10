@@ -1,7 +1,12 @@
 import {
+    existsSync,
     mkdtempSync,
+    mkdirSync,
     readFileSync,
     rmSync,
+    statSync,
+    utimesSync,
+    writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -13,10 +18,15 @@ import {
 } from 'vitest';
 import {
     DEV_OUTPUT_TEE_DISABLED_ENV,
+    DEV_OUTPUT_TEE_TRUNCATION_MARKER,
     createDevServerOutputTee,
     formatDevServerOutputTeeTimestamp,
     sanitizeDevServerOutputFileStem,
 } from '@scripts/electron-run/devServerOutputTee';
+import {
+    DEFAULT_DEV_SERVER_OUTPUT_RETENTION_POLICY,
+    pruneDevServerOutputRuns,
+} from '@scripts/electron-run/devServerOutputRetention';
 
 const tempRoots: string[] = [];
 
@@ -28,6 +38,38 @@ function createTempBaseDir() {
 
 function readJsonFile<T>(filePath: string): T {
     return JSON.parse(readFileSync(filePath, 'utf8')) as T;
+}
+
+function createCompletedRun(
+    baseDir: string,
+    runName: string,
+    createdAt: Date,
+    byteLength = 1,
+) {
+    const runDir = join(baseDir, 'retention-session', runName);
+    mkdirSync(runDir, {recursive: true});
+    writeFileSync(join(runDir, 'output.log'), Buffer.alloc(byteLength, runName.charCodeAt(0)));
+    writeFileSync(join(runDir, 'electron-run-tee.json'), JSON.stringify({
+        schemaVersion: 1,
+        createdAt: createdAt.toISOString(),
+        closedAt: createdAt.toISOString(),
+        pid: process.pid,
+        runDir,
+    }));
+    return runDir;
+}
+
+function createBareRun(
+    baseDir: string,
+    runName: string,
+    createdAt: Date,
+    byteLength: number,
+) {
+    const runDir = join(baseDir, 'retention-session', runName);
+    mkdirSync(runDir, {recursive: true});
+    writeFileSync(join(runDir, 'output.log'), Buffer.alloc(byteLength, runName.charCodeAt(0)));
+    utimesSync(runDir, createdAt, createdAt);
+    return runDir;
 }
 
 describe('dev server output tee', () => {
@@ -86,5 +128,157 @@ describe('dev server output tee', () => {
             allowDisabled: true,
         })).toBeNull();
         expect(() => createDevServerOutputTee({ env: { [DEV_OUTPUT_TEE_DISABLED_ENV]: '1' } })).toThrow(/disabled/u);
+    });
+
+    it('prunes completed runs by age on startup and close', () => {
+        const baseDir = createTempBaseDir();
+        const now = new Date('2026-07-20T12:00:00.000Z');
+        const startupOldRun = createCompletedRun(
+            baseDir,
+            'startup-old',
+            new Date('2026-07-01T12:00:00.000Z'),
+        );
+        const tee = createDevServerOutputTee({
+            sessionName: 'unit-session',
+            baseDir,
+            now,
+            pid: process.pid,
+            retentionPolicy: {
+                maxAgeMs: 7 * 24 * 60 * 60 * 1000,
+                maxRuns: 100,
+                maxTotalBytes: 1024 * 1024,
+            },
+        });
+
+        expect(existsSync(startupOldRun)).toBe(false);
+
+        const closeOldRun = createCompletedRun(
+            baseDir,
+            'close-old',
+            new Date('2026-07-02T12:00:00.000Z'),
+        );
+        tee.close();
+
+        expect(existsSync(closeOldRun)).toBe(false);
+        expect(existsSync(tee.runDir)).toBe(true);
+    });
+
+    it('prunes the oldest completed runs to the configured run count', () => {
+        const baseDir = createTempBaseDir();
+        const oldestRun = createBareRun(baseDir, 'count-oldest', new Date('2026-07-01T00:00:00.000Z'), 10);
+        const middleRun = createBareRun(baseDir, 'count-middle', new Date('2026-07-02T00:00:00.000Z'), 10);
+        const newestRun = createBareRun(baseDir, 'count-newest', new Date('2026-07-03T00:00:00.000Z'), 10);
+
+        pruneDevServerOutputRuns({
+            baseDir,
+            now: new Date('2026-07-04T00:00:00.000Z'),
+            policy: {
+                maxAgeMs: DEFAULT_DEV_SERVER_OUTPUT_RETENTION_POLICY.maxAgeMs,
+                maxRuns: 2,
+                maxTotalBytes: 1024,
+            },
+        });
+
+        expect(existsSync(oldestRun)).toBe(false);
+        expect(existsSync(middleRun)).toBe(true);
+        expect(existsSync(newestRun)).toBe(true);
+    });
+
+    it('prunes the oldest completed runs to the configured total byte budget', () => {
+        const baseDir = createTempBaseDir();
+        const oldestRun = createBareRun(baseDir, 'bytes-oldest', new Date('2026-07-01T00:00:00.000Z'), 80);
+        const newestRun = createBareRun(baseDir, 'bytes-newest', new Date('2026-07-02T00:00:00.000Z'), 80);
+
+        pruneDevServerOutputRuns({
+            baseDir,
+            now: new Date('2026-07-03T00:00:00.000Z'),
+            policy: {
+                maxAgeMs: DEFAULT_DEV_SERVER_OUTPUT_RETENTION_POLICY.maxAgeMs,
+                maxRuns: 10,
+                maxTotalBytes: 100,
+            },
+        });
+
+        expect(existsSync(oldestRun)).toBe(false);
+        expect(existsSync(newestRun)).toBe(true);
+        expect(statSync(join(newestRun, 'output.log')).size).toBe(80);
+    });
+
+    it('preserves latest-pointer targets and runs referenced by active descriptors', () => {
+        const baseDir = createTempBaseDir();
+        const activeRun = createBareRun(baseDir, 'active-target', new Date('2026-07-01T00:00:00.000Z'), 10);
+        const descriptorRun = createBareRun(baseDir, 'active-descriptor', new Date('2026-07-02T00:00:00.000Z'), 10);
+        const latestRun = createBareRun(baseDir, 'latest-target', new Date('2026-07-03T00:00:00.000Z'), 10);
+        const removableRun = createBareRun(baseDir, 'removable', new Date('2026-07-04T00:00:00.000Z'), 10);
+        writeFileSync(join(descriptorRun, 'active.json'), JSON.stringify({
+            pid: process.pid,
+            runDir: activeRun,
+        }));
+        writeFileSync(join(baseDir, 'latest-run.json'), JSON.stringify({runDir: latestRun}));
+
+        pruneDevServerOutputRuns({
+            baseDir,
+            now: new Date('2026-07-20T00:00:00.000Z'),
+            policy: {
+                maxAgeMs: 0,
+                maxRuns: 0,
+                maxTotalBytes: 0,
+            },
+        });
+
+        expect(existsSync(activeRun)).toBe(true);
+        expect(existsSync(latestRun)).toBe(true);
+        expect(existsSync(removableRun)).toBe(false);
+    });
+
+    it('ignores malformed, stale, and out-of-tree latest pointers safely', () => {
+        const baseDir = createTempBaseDir();
+        const removableRun = createBareRun(baseDir, 'stale-pointer-removable', new Date('2026-07-01T00:00:00.000Z'), 10);
+        const sessionDir = join(baseDir, 'retention-session');
+        const outsidePointerSessionDir = join(baseDir, 'outside-pointer-session');
+        const outsideDir = createTempBaseDir();
+        const outsideFile = join(outsideDir, 'must-survive.log');
+        mkdirSync(outsidePointerSessionDir, {recursive: true});
+        writeFileSync(outsideFile, 'keep');
+        writeFileSync(join(baseDir, 'latest-run.json'), '{ malformed');
+        writeFileSync(join(sessionDir, 'latest-run.json'), JSON.stringify({runDir: join(baseDir, 'missing-run')}));
+        writeFileSync(join(outsidePointerSessionDir, 'latest-run.json'), JSON.stringify({runDir: outsideDir}));
+
+        expect(() => pruneDevServerOutputRuns({
+            baseDir,
+            now: new Date('2026-07-20T00:00:00.000Z'),
+            policy: {
+                maxAgeMs: 0,
+                maxRuns: 0,
+                maxTotalBytes: 0,
+            },
+        })).not.toThrow();
+
+        expect(existsSync(removableRun)).toBe(false);
+        expect(readFileSync(outsideFile, 'utf8')).toBe('keep');
+    });
+
+    it('caps individual logs and appends an explicit truncation marker', () => {
+        const baseDir = createTempBaseDir();
+        const tee = createDevServerOutputTee({
+            sessionName: 'unit-session',
+            baseDir,
+            now: new Date('2026-07-20T12:00:00.000Z'),
+            pid: process.pid,
+            retentionPolicy: {maxFileBytes: 96},
+        });
+
+        tee.write('oversized source', 'stdout', 'x'.repeat(512));
+        tee.write('oversized source', 'stdout', 'ignored after truncation');
+        tee.close();
+
+        for (const fileName of [
+            'oversized-source.stdout.log',
+            'oversized-source.combined.log',
+        ]) {
+            const output = readFileSync(join(tee.runDir, fileName));
+            expect(output.byteLength).toBeLessThanOrEqual(96);
+            expect(output.toString('utf8')).toContain(DEV_OUTPUT_TEE_TRUNCATION_MARKER.trim());
+        }
     });
 });

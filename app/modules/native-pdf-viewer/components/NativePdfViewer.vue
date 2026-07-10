@@ -74,6 +74,11 @@ import {
     restorePageAnchorScrollSnapshot,
 } from '@app/utils/document-viewer/page-anchor-scroll-snapshot/pageAnchorScrollSnapshot';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import {
+    resolveDocumentContinuousScrollGeometry,
+    resolveDocumentContinuousScrollWindow,
+    resolveDocumentViewportPageNumbers,
+} from '@app/utils/document-viewer/viewport/resolveDocumentContinuousScrollWindow';
 
 interface IProps {
     src: TDocumentRef | null;
@@ -203,53 +208,30 @@ const effectiveZoom = computed(() => {
 });
 
 const pageLayouts = computed<IPageLayout[]>(() => {
-    let top = NATIVE_PDF_BASE_MARGIN;
-    return pageSizes.value.map((pageSize, index) => {
+    const dimensions = pageSizes.value.map((pageSize, index) => {
         const pageNumber = index + 1;
         const scale = getPageDisplayScale(pageNumber);
-        const width = Math.max(1, Math.round(pageSize.width * scale));
-        const height = Math.max(1, Math.round(pageSize.height * scale));
-        const layout = {
-            top,
-            width,
-            height,
+        return {
+            width: Math.max(1, Math.round(pageSize.width * scale)),
+            height: Math.max(1, Math.round(pageSize.height * scale)),
         };
-        top += height + NATIVE_PDF_BASE_MARGIN;
-        return layout;
     });
+    const geometry = resolveDocumentContinuousScrollGeometry({
+        pageGapPx: NATIVE_PDF_BASE_MARGIN,
+        pageHeights: dimensions.map(page => page.height),
+        totalPages: dimensions.length,
+    });
+    return dimensions.map((page, index) => ({
+        ...page,
+        top: geometry.pageTops[index] ?? NATIVE_PDF_BASE_MARGIN,
+    }));
 });
 
-function findFirstLayoutIndexEndingAtOrAfter(layouts: IPageLayout[], offset: number) {
-    let low = 0;
-    let high = layouts.length;
-    while (low < high) {
-        const mid = Math.floor((low + high) / 2);
-        const layout = layouts[mid];
-        if (!layout || layout.top + layout.height >= offset) {
-            high = mid;
-        } else {
-            low = mid + 1;
-        }
-    }
-    return low;
-}
-
-function getPageNumbersIntersectingViewport(
-    layouts: IPageLayout[],
-    viewportStart: number,
-    viewportEnd: number,
-) {
-    const pages: number[] = [];
-    const firstIndex = findFirstLayoutIndexEndingAtOrAfter(layouts, viewportStart);
-    for (let index = firstIndex; index < layouts.length; index += 1) {
-        const layout = layouts[index];
-        if (!layout || layout.top > viewportEnd) {
-            break;
-        }
-        pages.push(index + 1);
-    }
-    return pages;
-}
+const continuousGeometry = computed(() => resolveDocumentContinuousScrollGeometry({
+    pageGapPx: NATIVE_PDF_BASE_MARGIN,
+    pageHeights: pageLayouts.value.map(page => page.height),
+    totalPages: totalPages.value,
+}));
 
 const continuousSurfaceWidth = computed(() => {
     const maxPageWidth = pageLayouts.value.reduce((maxWidth, layout) => Math.max(maxWidth, layout.width), 0);
@@ -257,11 +239,7 @@ const continuousSurfaceWidth = computed(() => {
 });
 
 const continuousDocumentHeight = computed(() => {
-    const lastLayout = pageLayouts.value.at(-1);
-    if (!lastLayout) {
-        return Math.max(containerHeight.value, 1);
-    }
-    return Math.max(containerHeight.value, lastLayout.top + lastLayout.height + NATIVE_PDF_BASE_MARGIN, 1);
+    return Math.max(containerHeight.value, continuousGeometry.value.totalHeight, 1);
 });
 
 const renderedPageNumbers = computed(() => {
@@ -269,11 +247,15 @@ const renderedPageNumbers = computed(() => {
         return [] as number[];
     }
 
-    const viewportStart = Math.max(0, scrollTop.value - containerHeight.value * NATIVE_PDF_RENDER_OVERSCAN_VIEWPORTS);
-    const viewportEnd = scrollTop.value + containerHeight.value * (1 + NATIVE_PDF_RENDER_OVERSCAN_VIEWPORTS);
-    const pages = getPageNumbersIntersectingViewport(pageLayouts.value, viewportStart, viewportEnd);
-
-    return pages.length > 0 ? pages : [currentPage.value];
+    const pages = resolveDocumentViewportPageNumbers({
+        geometry: continuousGeometry.value,
+        pageGapPx: NATIVE_PDF_BASE_MARGIN,
+        scrollTop: scrollTop.value,
+        totalPages: totalPages.value,
+        viewportHeight: containerHeight.value,
+        overscanViewports: NATIVE_PDF_RENDER_OVERSCAN_VIEWPORTS,
+    });
+    return pages.length ? pages : [currentPage.value];
 });
 
 const renderedPagesSurfaceStyle = computed(() => ({
@@ -499,27 +481,17 @@ function getVisiblePageNumber() {
         return currentPage.value;
     }
 
-    const viewportStart = container.scrollTop;
-    const viewportEnd = viewportStart + container.clientHeight;
-    let bestPage = currentPage.value;
-    let bestVisiblePx = 0;
-    const layouts = pageLayouts.value;
-    const firstIndex = findFirstLayoutIndexEndingAtOrAfter(layouts, viewportStart);
-    for (let index = firstIndex; index < layouts.length; index += 1) {
-        const layout = layouts[index];
-        if (!layout || layout.top > viewportEnd) {
-            break;
-        }
-        const visiblePx = Math.max(
-            0,
-            Math.min(viewportEnd, layout.top + layout.height) - Math.max(viewportStart, layout.top),
-        );
-        if (visiblePx > bestVisiblePx) {
-            bestVisiblePx = visiblePx;
-            bestPage = index + 1;
-        }
-    }
-    return bestPage;
+    return resolveDocumentContinuousScrollWindow({
+        currentPage: currentPage.value,
+        geometry: continuousGeometry.value,
+        pageGapPx: NATIVE_PDF_BASE_MARGIN,
+        pageHeights: continuousGeometry.value.pageHeights,
+        renderMarginPages: 0,
+        scrollTop: container.scrollTop,
+        totalPages: totalPages.value,
+        viewportHeight: container.clientHeight,
+        overscanViewports: 0,
+    })?.mostVisiblePage ?? currentPage.value;
 }
 
 function syncCurrentPageFromViewport() {

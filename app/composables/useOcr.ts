@@ -88,6 +88,7 @@ export const useOcr = () => {
     let timeoutRunToken: symbol | null = null;
     let pendingOcrReject: ((reason?: unknown) => void) | null = null;
     let cancelCleanupTimer: ReturnType<typeof setTimeout> | null = null;
+    let disposed = false;
 
     function clearCancelCleanupTimer() {
         if (cancelCleanupTimer !== null) {
@@ -218,9 +219,14 @@ export const useOcr = () => {
 
     async function loadLanguages() {
         try {
-            availableLanguages.value = await getOcrCapability().getLanguages();
+            const languages = await getOcrCapability().getLanguages();
+            if (!disposed) {
+                availableLanguages.value = languages;
+            }
         } catch (e) {
-            error.value = localizeOcrError(e, 'errors.ocr.loadLanguages');
+            if (!disposed) {
+                error.value = localizeOcrError(e, 'errors.ocr.loadLanguages');
+            }
         }
     }
 
@@ -605,7 +611,7 @@ export const useOcr = () => {
                 ensureRunActive,
             );
         } catch (e) {
-            if (e instanceof OcrRunCanceledError) {
+            if (disposed || e instanceof OcrRunCanceledError) {
                 return;
             }
             logOcrRunFailure(requestId, e);
@@ -641,6 +647,7 @@ export const useOcr = () => {
     }
 
     onScopeDispose(() => {
+        disposed = true;
         void cancelOcr();
     });
 
@@ -726,12 +733,16 @@ export const useOcr = () => {
                 t,
                 toast,
                 setError: message => {
-                    error.value = message;
+                    if (!disposed) {
+                        error.value = message;
+                    }
                 },
                 localizeError: e => localizeOcrError(e, 'errors.ocr.exportDocx'),
             });
         } finally {
-            isExporting.value = false;
+            if (!disposed) {
+                isExporting.value = false;
+            }
         }
     }
 

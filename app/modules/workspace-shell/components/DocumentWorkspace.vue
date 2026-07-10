@@ -365,6 +365,7 @@ import {
     type IOcrPopupAgentExpose,
 } from '@app/modules/workspace-shell/agent/useDocumentWorkspaceAgent';
 import { useWorkspaceStartupReadiness } from '@app/modules/workspace-shell/composables/useWorkspaceStartupReadiness';
+import { createDeferredWorkspaceSearch } from '@app/modules/workspace-shell/composables/createDeferredWorkspaceSearch';
 import { useWorkspaceOrchestration } from '@app/modules/workspace-shell/useWorkspaceOrchestration';
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
@@ -1336,108 +1337,42 @@ watch([
     }
 });
 
-function delaySearchReadinessPoll() {
-    return new Promise<void>(resolve => {
-        setTimeout(resolve, SEARCH_DOCUMENT_READY_POLL_MS);
-    });
-}
-
-function isDocumentReadyForSearch() {
-    return Boolean(
+const deferredWorkspaceSearch = createDeferredWorkspaceSearch({
+    tabId,
+    pollIntervalMs: SEARCH_DOCUMENT_READY_POLL_MS,
+    timeoutMs: SEARCH_DOCUMENT_READY_TIMEOUT_MS,
+    isReady: () => Boolean(
         workingCopyPath.value
         && pdfDocument.value
         && totalPages.value > 0
         && !isLoading.value
         && !isOpeningDocumentForToolbarDisplay.value,
-    );
-}
-
-function readDeferredSearchDocumentIdentity() {
-    return {
+    ),
+    readDiagnostics: () => ({
+        hasWorkingCopyPath: Boolean(workingCopyPath.value),
+        hasPdfDocument: Boolean(pdfDocument.value),
+        totalPages: totalPages.value,
+        isLoading: isLoading.value,
+        isOpeningDocument: isOpeningDocumentForToolbarDisplay.value,
+    }),
+    readIdentity: () => ({
         documentRevisionToken: documentRevisionToken.value,
         workingCopyPath: workingCopyPath.value,
-    };
-}
-
-function isDeferredSearchDocumentIdentityCurrent(
-    requestedIdentity: ReturnType<typeof readDeferredSearchDocumentIdentity>,
-) {
-    const currentIdentity = readDeferredSearchDocumentIdentity();
-    return currentIdentity.workingCopyPath === requestedIdentity.workingCopyPath
-        && currentIdentity.documentRevisionToken === requestedIdentity.documentRevisionToken;
-}
-
-async function waitForDocumentReadyForSearch() {
-    if (isDocumentReadyForSearch()) {
-        return true;
-    }
-
-    BrowserLogger.diagnostic('pdf-search', 'Delaying search until document open settles', {
-        tabId,
-        hasWorkingCopyPath: Boolean(workingCopyPath.value),
-        hasPdfDocument: Boolean(pdfDocument.value),
-        totalPages: totalPages.value,
-        isLoading: isLoading.value,
-        isOpeningDocument: isOpeningDocumentForToolbarDisplay.value,
-    });
-
-    let settleFinished = false;
-    const settlePromise = waitForDocumentOpenSettled()
-        .catch((error) => {
-            BrowserLogger.warn('pdf-search', 'Document open settle wait failed before search', {
-                tabId,
-                error: getErrorMessage(error),
-            });
-        })
-        .finally(() => {
-            settleFinished = true;
-        });
-    const deadline = Date.now() + SEARCH_DOCUMENT_READY_TIMEOUT_MS;
-
-    while (Date.now() < deadline) {
-        if (isDocumentReadyForSearch()) {
-            return true;
-        }
-
-        if (settleFinished) {
-            await delaySearchReadinessPoll();
-        } else {
-            await Promise.race([
-                settlePromise,
-                delaySearchReadinessPoll(),
-            ]);
-        }
-        await nextTick();
-    }
-
-    BrowserLogger.warn('pdf-search', 'Search requested before document became ready', {
-        tabId,
-        hasWorkingCopyPath: Boolean(workingCopyPath.value),
-        hasPdfDocument: Boolean(pdfDocument.value),
-        totalPages: totalPages.value,
-        isLoading: isLoading.value,
-        isOpeningDocument: isOpeningDocumentForToolbarDisplay.value,
-    });
-    return isDocumentReadyForSearch();
-}
-
-async function handleSearchWhenDocumentReady() {
-    const requestedDocumentIdentity = readDeferredSearchDocumentIdentity();
-    const requestedQuery = searchQuery.value;
-    const requestedOptions = { ...searchOptions.value };
-
-    if (!await waitForDocumentReadyForSearch()) {
-        return;
-    }
-    if (!isDeferredSearchDocumentIdentityCurrent(requestedDocumentIdentity)) {
-        return;
-    }
-    if (!searchQuery.value && requestedQuery) {
-        searchQuery.value = requestedQuery;
-        searchOptions.value = requestedOptions;
-    }
-    await handleSearch();
-}
+    }),
+    isIdentityCurrent: identity => (
+        identity.workingCopyPath === workingCopyPath.value
+        && identity.documentRevisionToken === documentRevisionToken.value
+    ),
+    readQuery: () => searchQuery.value,
+    readOptions: () => ({ ...searchOptions.value }),
+    restoreSearch: (query, options) => {
+        searchQuery.value = query;
+        searchOptions.value = options;
+    },
+    waitForDocumentOpenSettled,
+    handleSearch,
+});
+const handleSearchWhenDocumentReady = deferredWorkspaceSearch.handleSearchWhenDocumentReady;
 
 function handleAnnotationComments(comments: IAnnotationCommentSummary[]) {
     if (
@@ -1639,6 +1574,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+    deferredWorkspaceSearch.dispose();
     unsubscribeOptimizeProgress?.();
     unsubscribeOptimizeProgress = null;
     emit('expose-released');

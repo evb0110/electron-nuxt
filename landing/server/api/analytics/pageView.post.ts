@@ -1,5 +1,14 @@
 import { getOptionalDb } from '~~/server/db';
-import { landingPageView } from '~~/server/db/schema';
+import { admitLandingAnalyticsEvent } from '~~/server/db/analyticsAdmission';
+import { readBoundedLandingAnalyticsJsonBody } from '~~/server/utils/analyticsRequestBody';
+import {
+    createLandingAnalyticsDedupeKey,
+    getAnalyticsRequestContext,
+    isLandingAnalyticsAdmissionRejected,
+    isLandingAnalyticsWriteAllowed,
+    LANDING_ANALYTICS_BODY_MAX_BYTES,
+    resolveLandingAnalyticsAdmissionPolicy,
+} from '~~/server/utils/analytics';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
@@ -15,7 +24,9 @@ function validatePageViewBody(value: unknown): IPageViewBody {
         !isRecord(value)
         || typeof value.path !== 'string'
         || !value.path
+        || value.path.length > 255
         || (value.referrer !== undefined && value.referrer !== null && typeof value.referrer !== 'string')
+        || (typeof value.referrer === 'string' && value.referrer.length > 1_024)
     ) {
         throw createError({
             statusCode: 400,
@@ -30,30 +41,67 @@ function validatePageViewBody(value: unknown): IPageViewBody {
 }
 
 export default defineEventHandler(async (event) => {
-    const body = await readValidatedBody(event, validatePageViewBody);
+    if (!isLandingAnalyticsWriteAllowed(event)) {
+        return {
+            ok: true,
+            persisted: false,
+        };
+    }
     const config = useRuntimeConfig(event);
     const db = getOptionalDb(config.databaseUrl ?? process.env.DATABASE_URL);
     if (!db) {
-        return { ok: true };
+        return {
+            ok: true,
+            persisted: false,
+        };
     }
+    const rawBody = await readBoundedLandingAnalyticsJsonBody(
+        event,
+        LANDING_ANALYTICS_BODY_MAX_BYTES,
+    );
+    const body = validatePageViewBody(rawBody);
 
     const {
         geo, visitorHash, userAgent,
     } = await getAnalyticsRequestContext(event);
+    const policy = resolveLandingAnalyticsAdmissionPolicy('page_view');
+    const dedupeKey = await createLandingAnalyticsDedupeKey(
+        'page_view',
+        visitorHash,
+        body,
+    );
 
     try {
-        await db.insert(landingPageView).values({
-            path: body.path.slice(0, 255),
-            referrer: body.referrer?.slice(0, 2000) ?? null,
+        await admitLandingAnalyticsEvent(db, {
+            ...policy,
+            surface: 'page_view',
+            event: {
+                path: body.path,
+                referrer: body.referrer,
+            },
             country: geo.country,
             city: geo.city,
             region: geo.region,
             visitorHash,
             userAgent,
+            dedupeKey,
         });
     } catch (error) {
+        if (isLandingAnalyticsAdmissionRejected(error)) {
+            return {
+                ok: true,
+                persisted: false,
+            };
+        }
         console.warn('Landing page-view analytics insert failed', error);
+        return {
+            ok: false,
+            persisted: false,
+        };
     }
 
-    return { ok: true };
+    return {
+        ok: true,
+        persisted: true,
+    };
 });

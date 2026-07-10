@@ -7,6 +7,7 @@ import type {
     ICropMargins,
     IPageGeometry,
 } from '@contracts/shared';
+import { normalizeCropMargins } from '@contracts/shared';
 import {
     resolvePdfLibCropBox,
     resolvePdfLibMediaBox,
@@ -23,21 +24,6 @@ import {
 } from '@electron/features/page-ops/main/nativeCrop';
 
 const log = createLogger('page-ops-crop');
-
-function isValidCropMargin(value: number) {
-    return Number.isFinite(value) && value >= 0;
-}
-
-function assertValidMargins(margins: ICropMargins) {
-    if (
-        !isValidCropMargin(margins.top)
-        || !isValidCropMargin(margins.bottom)
-        || !isValidCropMargin(margins.left)
-        || !isValidCropMargin(margins.right)
-    ) {
-        throw new Error('Invalid crop margins');
-    }
-}
 
 function assertValidRequestedPages(pages: number[], totalPages: number) {
     if (pages.length === 0) {
@@ -87,7 +73,7 @@ export async function assertCropMarginsFitSelectedPages(
     margins: ICropMargins,
     signal?: AbortSignal,
 ) {
-    assertValidMargins(margins);
+    const normalizedMargins = normalizeCropMargins(margins);
     if (signal?.aborted) {
         throw signal.reason instanceof Error ? signal.reason : new DOMException('Operation aborted', 'AbortError');
     }
@@ -102,8 +88,8 @@ export async function assertCropMarginsFitSelectedPages(
     for (const pageNum of pages) {
         const page = allPages[pageNum - 1]!;
         const mediaBox = resolvePdfLibMediaBox(page);
-        const cropWidth = mediaBox.width - margins.left - margins.right;
-        const cropHeight = mediaBox.height - margins.top - margins.bottom;
+        const cropWidth = mediaBox.width - normalizedMargins.left - normalizedMargins.right;
+        const cropHeight = mediaBox.height - normalizedMargins.top - normalizedMargins.bottom;
 
         if (cropWidth <= 0 || cropHeight <= 0) {
             throw new Error(`Crop margins consume page ${pageNum}`);
@@ -117,9 +103,10 @@ export async function cropPagesLocal(
     margins: ICropMargins,
     signal?: AbortSignal,
 ) {
-    await assertCropMarginsFitSelectedPages(workingCopyPath, pages, margins, signal);
+    const normalizedMargins = normalizeCropMargins(margins);
+    await assertCropMarginsFitSelectedPages(workingCopyPath, pages, normalizedMargins, signal);
 
-    if (await tryCropPagesWithNativePageOps(workingCopyPath, pages, margins, signal)) {
+    if (await tryCropPagesWithNativePageOps(workingCopyPath, pages, normalizedMargins, signal)) {
         return;
     }
 
@@ -129,10 +116,10 @@ export async function cropPagesLocal(
             const page = allPages[pageNum - 1]!;
 
             const mediaBox = resolvePdfLibMediaBox(page);
-            const cropX = mediaBox.x + margins.left;
-            const cropY = mediaBox.y + margins.bottom;
-            const cropWidth = mediaBox.width - margins.left - margins.right;
-            const cropHeight = mediaBox.height - margins.top - margins.bottom;
+            const cropX = mediaBox.x + normalizedMargins.left;
+            const cropY = mediaBox.y + normalizedMargins.bottom;
+            const cropWidth = mediaBox.width - normalizedMargins.left - normalizedMargins.right;
+            const cropHeight = mediaBox.height - normalizedMargins.top - normalizedMargins.bottom;
 
             page.setCropBox(cropX, cropY, cropWidth, cropHeight);
         }

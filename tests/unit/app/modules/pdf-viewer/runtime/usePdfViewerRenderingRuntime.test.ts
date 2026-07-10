@@ -35,6 +35,7 @@ function createRuntime() {
         managedAnnotationIds: ref(new Set<string>()),
         annotationUiManager: shallowRef(null),
         annotationL10n: shallowRef(null),
+        replaceAnnotationUiManager: vi.fn(),
         scrollToPage: vi.fn(),
         suppressSnap: vi.fn(),
         beginSearchNavigation: vi.fn(),

@@ -1,6 +1,9 @@
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IDjvuPagePreviewOptions } from '@contracts/electronApiDjvu';
-import type { IDocumentsFileIoCapability } from '@contracts/electronApiDocuments';
+import {
+    assertDocumentAllocationSize,
+    type IDocumentsFileIoCapability,
+} from '@contracts/electronApiDocuments';
 import {
     browserDocumentStore,
     isBrowserDocumentRef,
@@ -52,7 +55,7 @@ async function readBrowserDocumentBytes(
         return bytes;
     }
 
-    const output = new Uint8Array(size);
+    const output = new Uint8Array(assertDocumentAllocationSize(size));
     let offset = 0;
     while (offset < size) {
         throwIfCanceled(options.signal);
@@ -139,7 +142,7 @@ async function readDesktopDocumentBytes(
         return bytes;
     }
 
-    const output = new Uint8Array(size);
+    const output = new Uint8Array(assertDocumentAllocationSize(size));
     let offset = 0;
     while (offset < size) {
         throwIfCanceled(options.signal);

@@ -43,17 +43,7 @@ import {
     selectedAssistantModelForProvider,
 } from '@app/modules/agent-panel/utils/assistantSelectionPreference';
 import { useAssistantComposerAutofocus } from '@app/modules/agent-panel/utils/useAssistantComposerAutofocus';
-import {
-    ASSISTANT_IMAGE_SIZE_LIMIT_LABEL,
-    buildComposerImageAttachments,
-    buildExpandedImagePreview,
-    getClipboardImageFiles,
-    navigateExpandedImagePreview,
-    type IExpandedImagePreview,
-    type TAssistantComposerImageError,
-} from '@app/modules/agent-panel/utils/assistantImageAttachments';
 import { isAssistantSelectionLocked } from '@app/modules/agent-panel/utils/isAssistantSelectionLocked';
-import { formatAssistantMessage } from '@app/modules/agent-panel/utils/formatAssistantMessage';
 import { getAgentAssistantPanelView } from '@app/modules/agent-panel/utils/getAgentAssistantPanelView';
 import { guardAsync } from '@app/utils/asyncGuard';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -62,13 +52,13 @@ import { getAgentCapability } from '@app/utils/getAgentCapability';
 import {
     defaultDocument,
     defaultWindow,
-    useClipboard,
     useEventListener,
     useIntervalFn,
-    useTimeoutFn,
 } from '@vueuse/core';
 import { useRuntimeErrorReports } from '@app/composables/useRuntimeErrorReports';
 import { useTypedI18n } from '@app/composables/useTypedI18n';
+import { useAssistantPanelClipboard } from '@app/modules/agent-panel/composables/useAssistantPanelClipboard';
+import { useAssistantImageComposer } from '@app/modules/agent-panel/composables/useAssistantImageComposer';
 export interface IAgentAssistantPanelControllerProps {
     activeDocumentName?: string | null;
     chatScope?: IAgentAssistantChatScope | null;
@@ -88,12 +78,10 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
 
     const { t }: { t: TTranslateFn } = useTypedI18n();
     const { reportRuntimeError } = useRuntimeErrorReports();
-    const { copy: copyClipboardText } = useClipboard();
     const ASSISTANT_AUTO_REFRESH_MIN_INTERVAL_MS = 2500;
     const ASSISTANT_SCROLL_STICKY_THRESHOLD_PX = 96;
     const ASSISTANT_STATUS_HEARTBEAT_MS = 1000;
     const ASSISTANT_STATUS_TEXT_LIMIT = 140;
-    const EMPTY_ASSISTANT_MESSAGE_BLOCKS: ReturnType<typeof formatAssistantMessage> = [];
 
     const assistantSelectionStorage = defaultWindow?.localStorage;
     const initialAssistantSelectionPreference = readAssistantSelectionPreference(assistantSelectionStorage);
@@ -117,9 +105,6 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     const draft = ref('');
     const composerImages = ref<IAgentAssistantImageAttachment[]>([]);
     const composerError = ref('');
-    const copiedMessageId = ref<string | null>(null);
-    const panelRef = ref<HTMLElement | null>(null);
-    const messagesRef = ref<HTMLElement | null>(null);
     const composerInputRef = ref<HTMLTextAreaElement | null>(null);
     const state = ref<IAgentAssistantState | null>(null);
     const selectedProvider = ref<TAgentAssistantProviderId>(initialSelectedProvider);
@@ -135,13 +120,6 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     let assistantSwitchGeneration = 0;
     let lastRefreshStartedAt = 0;
 
-    const {
-        start: startCopiedMessageReset,
-        stop: stopCopiedMessageReset,
-    } = useTimeoutFn(() => {
-        copiedMessageId.value = null;
-    }, 1800, { immediate: false });
-
     type TAssistantActionErrorTarget = 'status' | 'composer' | 'none';
 
     interface IAssistantActionErrorOptions {
@@ -150,18 +128,12 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         log?: boolean;
     }
 
-    interface IAssistantMarkdownCacheEntry {
-        text: string;
-        blocks: ReturnType<typeof formatAssistantMessage>;
-    }
-
     interface IAssistantSubmitPayload {
         text: string;
         attachments?: IAgentAssistantImageAttachment[];
         presetId?: TAgentAssistantPresetId;
     }
 
-    const assistantMarkdownCache = new Map<string, IAssistantMarkdownCacheEntry>();
     const queuedSteer = ref<IAssistantSubmitPayload | null>(null);
 
     const emptyState = computed<IAgentAssistantState>(() => createEmptyAssistantState({
@@ -184,17 +156,17 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         return speedModes.length > 0 ? [...speedModes] : [...ASSISTANT_SPEED_MODES];
     });
     const messages = computed(() => (state.value ?? emptyState.value).messages);
-    const renderedMessages = computed(() => {
-        const activeMessageIds = new Set<string>();
-        const rendered = messages.value.map(message => {
-            activeMessageIds.add(message.id);
-            return {
-                message,
-                blocks: getCachedAssistantMessageBlocks(message),
-            };
-        });
-        pruneAssistantMarkdownCache(activeMessageIds);
-        return rendered;
+    const {
+        copyMessageIcon,
+        copyMessageTooltip,
+        handleAssistantCopyShortcut,
+        handleCopyMessageText,
+        messagesRef,
+        panelRef,
+        renderedMessages,
+    } = useAssistantPanelClipboard({
+        messages,
+        t,
     });
     const isClaudeProvider = computed(() => selectedProvider.value === 'claude');
     const panelView = computed(() => getAgentAssistantPanelView(status.value, hasLoadedState.value));
@@ -316,53 +288,23 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             turnClockNowMs.value = Date.now();
         }
     }, ASSISTANT_STATUS_HEARTBEAT_MS);
-    const expandedImage = ref<IExpandedImagePreview | null>(null);
-    const expandedImageItem = computed(() => {
-        const preview = expandedImage.value;
-        return preview?.images[preview.index] ?? null;
+    const {
+        closeExpandedImage,
+        expandImage,
+        expandedImage,
+        expandedImageCaption,
+        expandedImageItem,
+        handleComposerPaste,
+        handleExpandedImageKeydown,
+        navigateExpandedImage,
+        removeComposerImage,
+    } = useAssistantImageComposer({
+        composerError,
+        composerImages,
+        isSending,
+        isTurnActive,
+        t,
     });
-    const expandedImageCaption = computed(() => {
-        const preview = expandedImage.value;
-        const item = expandedImageItem.value;
-        if (!preview || !item) {
-            return '';
-        }
-        if (preview.images.length <= 1) {
-            return item.name;
-        }
-        return t('assistant.imagePreviewPosition', {
-            name: item.name,
-            current: preview.index + 1,
-            total: preview.images.length,
-        });
-    });
-
-    function getCachedAssistantMessageBlocks(message: IAgentAssistantChatMessage) {
-        if (message.text.length === 0) {
-            return EMPTY_ASSISTANT_MESSAGE_BLOCKS;
-        }
-
-        const cached = assistantMarkdownCache.get(message.id);
-        if (cached?.text === message.text) {
-            return cached.blocks;
-        }
-
-        const blocks = formatAssistantMessage(message.text);
-        assistantMarkdownCache.set(message.id, {
-            text: message.text,
-            blocks,
-        });
-        return blocks;
-    }
-
-    function pruneAssistantMarkdownCache(activeMessageIds: Set<string>) {
-        assistantMarkdownCache.forEach((_entry, messageId) => {
-            if (!activeMessageIds.has(messageId)) {
-                assistantMarkdownCache.delete(messageId);
-            }
-        });
-    }
-
     function isAssistantBtwCommand(value: string) {
         return value.trim().toLowerCase() === '/btw';
     }
@@ -522,112 +464,6 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             }
         })();
     }
-
-    function isCopyShortcut(event: KeyboardEvent) {
-        return (event.metaKey || event.ctrlKey)
-            && !event.altKey
-            && event.key.toLowerCase() === 'c';
-    }
-
-    function isEditableCopyTarget(target: EventTarget | null) {
-        if (typeof HTMLElement === 'undefined' || !(target instanceof HTMLElement)) {
-            return false;
-        }
-        return Boolean(
-            target.isContentEditable === true
-            || Boolean(target.closest('[contenteditable="true"], [contenteditable=""]'))
-            || Boolean(target.closest('input, textarea, select')),
-        );
-    }
-
-    function rangeIntersectsPanel(range: Range, panel: HTMLElement) {
-        try {
-            return range.intersectsNode(panel);
-        } catch {
-            return false;
-        }
-    }
-
-    function selectionNodeIsInPanel(node: Node | null, panel: HTMLElement) {
-        return Boolean(node && (node === panel || panel.contains(node)));
-    }
-
-    function getAssistantSelectionText() {
-        const panel = panelRef.value;
-        const selection = defaultDocument?.getSelection();
-        if (!panel || !selection || selection.isCollapsed || selection.rangeCount === 0) {
-            return '';
-        }
-
-        const isSelectionInPanel = selectionNodeIsInPanel(selection.anchorNode, panel)
-            || selectionNodeIsInPanel(selection.focusNode, panel)
-            || Array.from({ length: selection.rangeCount }).some((_, index) => (
-                rangeIntersectsPanel(selection.getRangeAt(index), panel)
-            ));
-        if (!isSelectionInPanel) {
-            return '';
-        }
-
-        const text = selection.toString();
-        return text.trim().length > 0 ? text : '';
-    }
-
-    async function copyText(text: string, logMessage: string) {
-        try {
-            await copyClipboardText(text);
-            return true;
-        } catch (error) {
-            BrowserLogger.warn('assistant', logMessage, error);
-            return false;
-        }
-    }
-
-    function copyMessageTooltip(messageId: string) {
-        return copiedMessageId.value === messageId
-            ? t('assistant.copyMessageCopied')
-            : t('assistant.copyMessage');
-    }
-
-    function copyMessageIcon(messageId: string) {
-        return copiedMessageId.value === messageId
-            ? 'i-ph-check'
-            : 'i-ph-copy';
-    }
-
-    async function copyMessageText(messageId: string, text: string) {
-        if (text.trim().length === 0) {
-            return;
-        }
-
-        const copied = await copyText(text, 'Failed to copy assistant message text');
-        if (!copied) {
-            return;
-        }
-
-        stopCopiedMessageReset();
-        copiedMessageId.value = messageId;
-        startCopiedMessageReset();
-    }
-
-    function handleCopyMessageText(messageId: string, text: string) {
-        void copyMessageText(messageId, text);
-    }
-
-    function handleAssistantCopyShortcut(event: KeyboardEvent) {
-        if (!isCopyShortcut(event) || isEditableCopyTarget(event.target)) {
-            return;
-        }
-
-        const text = getAssistantSelectionText();
-        if (!text) {
-            return;
-        }
-
-        event.preventDefault();
-        event.stopPropagation();
-        void copyText(text, 'Failed to copy selected assistant text');
-    }
-
     function createOptimisticAssistantState(
         provider: TAgentAssistantProviderId,
         model: string,
@@ -995,113 +831,12 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     function handleStartLogin(mode: TAgentAssistantLoginMode) {
         runAssistantUiAction(() => startLogin(mode), { title: 'Failed to start assistant login' });
     }
-
     function handleCancelLogin() {
         runAssistantUiAction(cancelLogin, { title: 'Failed to cancel assistant login' });
     }
 
     function handleRefreshState() {
         runAssistantUiAction(refreshState, { title: 'Failed to refresh assistant state' });
-    }
-
-    function fallbackImageName(index: number) {
-        return t('assistant.imageAttachmentFallbackName', { count: index + 1 });
-    }
-
-    function formatComposerImageError(error: TAssistantComposerImageError | null) {
-        if (!error) {
-            return '';
-        }
-        if (error.type === 'unsupported') {
-            return t('assistant.imageUnsupported', { name: error.name });
-        }
-        if (error.type === 'too-large') {
-            return t('assistant.imageTooLarge', {
-                name: error.name,
-                size: ASSISTANT_IMAGE_SIZE_LIMIT_LABEL,
-            });
-        }
-        if (error.type === 'limit') {
-            return t('assistant.imageAttachmentLimit', { count: error.count });
-        }
-        return t('assistant.imageReadFailed', { name: error.name });
-    }
-
-    async function addComposerImages(files: File[]) {
-        if (files.length === 0 || isSending.value) {
-            return;
-        }
-
-        const result = await buildComposerImageAttachments({
-            files,
-            existingImages: composerImages.value,
-            fallbackName: fallbackImageName,
-        });
-        composerImages.value = result.images;
-        composerError.value = formatComposerImageError(result.error);
-    }
-
-    function handleComposerPaste(event: ClipboardEvent) {
-        const imageFiles = getClipboardImageFiles(event.clipboardData);
-        if (imageFiles.length === 0) {
-            return;
-        }
-
-        event.preventDefault();
-        if (isTurnActive.value) {
-            composerError.value = t('assistant.imagePasteBusy');
-            return;
-        }
-        void addComposerImages(imageFiles);
-    }
-
-    function removeComposerImage(imageId: string) {
-        composerImages.value = composerImages.value.filter((
-            image: IAgentAssistantImageAttachment,
-        ) => image.id !== imageId);
-        composerError.value = '';
-    }
-
-    function expandImage(images: readonly IAgentAssistantImageAttachment[] | undefined, selectedImageId: string) {
-        if (!images) {
-            return;
-        }
-        expandedImage.value = buildExpandedImagePreview(images, selectedImageId);
-    }
-
-    function closeExpandedImage() {
-        expandedImage.value = null;
-    }
-
-    function navigateExpandedImage(direction: -1 | 1) {
-        const preview = expandedImage.value;
-        if (!preview || preview.images.length <= 1) {
-            return;
-        }
-        expandedImage.value = navigateExpandedImagePreview(preview, direction);
-    }
-
-    function handleExpandedImageKeydown(event: KeyboardEvent) {
-        if (!expandedImage.value) {
-            return;
-        }
-        if (event.key === 'Escape') {
-            event.preventDefault();
-            event.stopPropagation();
-            closeExpandedImage();
-            return;
-        }
-        if (event.key === 'ArrowLeft') {
-            event.preventDefault();
-            event.stopPropagation();
-            navigateExpandedImage(-1);
-            return;
-        }
-        if (event.key === 'ArrowRight') {
-            event.preventDefault();
-            event.stopPropagation();
-            navigateExpandedImage(1);
-        }
     }
 
     async function submitAssistantPayload(
@@ -1340,7 +1075,6 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
 
     onUnmounted(() => {
         interruptAssistantStateBestEffort(state.value, 'Failed to interrupt assistant turn before closing panel');
-        stopCopiedMessageReset();
         unsubscribe?.();
         unsubscribe = null;
     });

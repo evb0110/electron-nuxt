@@ -130,7 +130,7 @@ describe('CI topology policy', () => {
         expect(packageJson).toContain('"lint:style": "stylelint \\"app/**/*.{vue,scss,css}\\""');
         expect(packageJson).toContain('"check:static:fast": "pnpm run check:platform-api-generated');
         expect(packageJson).toContain('pnpm run check:native-tool-protocols');
-        expect(packageJson).toContain('"check:static:reports": "pnpm run check:platform-manifest-consumers:report"');
+        expect(packageJson).toContain('"check:static:reports": "pnpm run check:platform-manifest-consumers"');
         expect(packageJson).toContain('"check:static:assets": "pnpm run check:web-deploy-source && pnpm run check:ocr-language-model-registry && pnpm run check:vendor-sync"');
         expect(prQuality).toContain('run: pnpm run typecheck');
         expect(prQuality).toContain('run: pnpm run test:unit');
@@ -160,24 +160,17 @@ describe('CI topology policy', () => {
         expect(packageJson).not.toMatch(/"gate:commit":\s*"[^"]*coverage/u);
     });
 
-    it('keeps native, landing, and Python smoke checks manual or nightly only', async () => {
+    it('keeps native and landing PR checks path-filtered from checked-in policy', async () => {
         const workflow = await readProjectFile('.github/workflows/ci.yml');
         const testsTsconfig = await readTsConfigJsonWithGlobs('tests/tsconfig.json');
         const sharedVitestConfig = await readProjectFile('vitest.shared.config.ts');
 
         expect(workflow).not.toContain('github.event_name == \'push\'');
         expect(workflow).toContain('name: Pull Request Changed Area Detection');
-        expect(workflowJob(workflow, 'pr_changed_areas')).toContain('uses: dorny/paths-filter@v3');
-        expect(workflowJob(workflow, 'pr_changed_areas')).toContain('native/**');
-        expect(workflowJob(workflow, 'pr_changed_areas')).toContain('scripts/build-*.mjs');
-        expect(workflowJob(workflow, 'pr_changed_areas')).toContain('scripts/check-drizzle-schema.mjs');
-        expect(workflowJob(workflow, 'pr_changed_areas')).toContain('scripts/check-electron-builder-asar-unpack.mjs');
-        expect(workflowJob(workflow, 'pr_changed_areas')).toContain('scripts/check-generated-native-resources.mjs');
-        expect(workflowJob(workflow, 'pr_changed_areas')).toContain('scripts/release/**');
-        expect(workflowJob(workflow, 'pr_changed_areas')).toContain('scripts/run-workspace-package-typecheck.mjs');
-        expect(workflowJob(workflow, 'pr_changed_areas')).toContain('scripts/workspace-roots.mjs');
-        expect(workflowJob(workflow, 'pr_changed_areas')).toContain('electron-builder.yml');
-        expect(workflowJob(workflow, 'pr_changed_areas')).toContain('pnpm-workspace.yaml');
+        expect(workflowJob(workflow, 'pr_changed_areas')).toContain('run: node scripts/ci/classify-changed-areas.mjs');
+        expect(workflowJob(workflow, 'pr_changed_areas')).toContain('fetch-depth: 0');
+        expect(workflowJob(workflow, 'pr_changed_areas')).not.toContain('dorny/paths-filter');
+        expect(workflowJob(workflow, 'pr_changed_areas')).not.toContain('native/**');
         expect(workflow).toContain('name: Pull Request Native And Build Safety');
         expect(workflowJob(workflow, 'pr_native_build_safety')).toContain('needs: pr_changed_areas');
         expect(workflowJob(workflow, 'pr_native_build_safety')).toContain('needs.pr_changed_areas.outputs.native_or_build == \'true\'');
@@ -189,18 +182,31 @@ describe('CI topology policy', () => {
         expect(workflowJob(workflow, 'manual_native')).toContain('if: ${{ github.event_name == \'workflow_dispatch\' }}');
         expect(workflowJob(workflow, 'manual_native')).toContain('run: pnpm run test:rust');
         expect(workflow).toContain('name: Landing Quality Gates');
-        expect(workflow).toContain('run: pnpm --dir landing run check:vendor');
-        expect(workflow).toContain('run: pnpm --dir landing run typecheck');
-        expect(workflow).toContain('run: pnpm --dir landing run build');
+        expect(workflow).toContain('name: Pull Request Landing Quality Gates');
+        expect(workflowJob(workflow, 'pr_landing_quality')).toContain('needs.pr_changed_areas.outputs.landing == \'true\'');
+        expect(workflowJob(workflow, 'pr_landing_quality')).toContain('run: pnpm --dir landing run check:vendor');
+        expect(workflowJob(workflow, 'pr_landing_quality')).toContain('run: pnpm --dir landing run lint');
+        expect(workflowJob(workflow, 'pr_landing_quality')).toContain('run: pnpm --dir landing run typecheck');
+        expect(workflowJob(workflow, 'pr_landing_quality')).toContain('run: pnpm --dir landing run build');
+        expect(workflowJob(workflow, 'pr_landing_quality')).not.toContain('continue-on-error: true');
         expect(workflowJob(workflow, 'manual_landing')).toContain('if: ${{ github.event_name == \'workflow_dispatch\' }}');
-        expect(workflowJob(workflow, 'manual_landing')).toContain('continue-on-error: true');
+        expect(workflowJob(workflow, 'manual_landing')).not.toContain('continue-on-error: true');
         expect(sharedVitestConfig).toContain('tests/unit/landing/**/*.test.ts');
         expect(testsTsconfig.exclude).toContain('./unit/landing/**/*.ts');
-        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('python -m pip install');
-        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('opencv-python-headless');
-        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('img2pdf');
-        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('Pillow');
+        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('python -m pip install --require-hashes --only-binary=:all: -r python/page-processor/requirements-lock.txt');
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm run test:python-page-processor');
+    });
+
+    it('runs regular packaged-content verification against extracted Store AppX contents', async () => {
+        const storeWorkflow = await readProjectFile('.github/workflows/store-appx.yml');
+        const extractIndex = storeWorkflow.indexOf('tar.exe -xf $packages[0].FullName -C $extractDir');
+        const nativeVerifyIndex = storeWorkflow.indexOf('bash scripts/verify-packaged-native-tools.sh win');
+        const contentsVerifyIndex = storeWorkflow.indexOf('node scripts/release/assert-packaged-app-contents.mjs');
+
+        expect(extractIndex).toBeGreaterThan(-1);
+        expect(nativeVerifyIndex).toBeGreaterThan(extractIndex);
+        expect(contentsVerifyIndex).toBeGreaterThan(nativeVerifyIndex);
+        expect(storeWorkflow).toContain('".tmp/store-appx-${{ matrix.arch }}"');
     });
 
     it('verifies release build artifacts before upload', async () => {
@@ -298,10 +304,9 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('run: pnpm run test:rust');
         expect(workflow).toContain('run: pnpm run test:coverage');
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm run check:static:assets');
-        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('python -m pip install');
-        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('opencv-python-headless');
-        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('img2pdf');
-        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('Pillow');
+        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm run check:production-dependency-audit');
+        expect(workflowJob(workflow, 'manual_quality')).not.toContain('run: pnpm run check:production-dependency-audit');
+        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('python -m pip install --require-hashes --only-binary=:all: -r python/page-processor/requirements-lock.txt');
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm run test:python-page-processor');
         expect(nvmrc.trim()).toBe('24.11.1');
         expect(workflow).toContain('NODE_VERSION: \'24.11.1\'');

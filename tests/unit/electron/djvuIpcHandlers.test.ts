@@ -30,6 +30,7 @@ const mocks = vi.hoisted(() => ({
     handleDjvuConvertToPdf: vi.fn(),
     handleDjvuCancel: vi.fn(),
     handleDjvuOpenForViewing: vi.fn(),
+    cancelConversion: vi.fn(),
     isAllowedDjvuViewingPath: vi.fn(),
     getDjvuPageSizesForViewing: vi.fn(),
     renderDjvuPagePreview: vi.fn(),
@@ -70,6 +71,7 @@ vi.mock('@electron/features/djvu/main/pagePreview', () => ({
     getDjvuPageSizesForViewing: mocks.getDjvuPageSizesForViewing,
     renderDjvuPagePreview: mocks.renderDjvuPagePreview,
 }));
+vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({cancelConversion: mocks.cancelConversion}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
     info: vi.fn(),
@@ -162,6 +164,7 @@ describe('registerDjvuIpcAdapter', () => {
         mocks.handleDjvuConvertToPdf.mockResolvedValue({success: true});
         mocks.handleDjvuCancel.mockResolvedValue({canceled: true});
         mocks.handleDjvuOpenForViewing.mockResolvedValue({success: true});
+        mocks.cancelConversion.mockResolvedValue(true);
         mocks.isAllowedDjvuViewingPath.mockReturnValue(true);
         mocks.getDjvuPageSizesForViewing.mockResolvedValue([{
             width: 100,
@@ -343,11 +346,172 @@ describe('registerDjvuIpcAdapter', () => {
                     subsample: 3,
                 }),
                 expect.objectContaining({
-                    cancelGroup: expect.stringMatching(/^djvu-preview:djvu-preview-/u),
+                    cancelGroup: expect.stringMatching(/^djvu-preview:1:djvu-preview-/u),
                     signal: expect.any(AbortSignal),
                 }),
             );
             expect(mocks.getDjvuPageCount).not.toHaveBeenCalled();
+        } finally {
+            rmSync(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('isolates identical preview request ids and cancellation across senders', async () => {
+        const tempRoot = mkdtempSync(join(tmpdir(), 'evb-djvu-preview-sender-key-test-'));
+        try {
+            const realPath = join(tempRoot, 'real.djvu');
+            writeFileSync(realPath, new Uint8Array([1]));
+            const firstPreview = createDeferred<{
+                bytes: Uint8Array;
+                width: number;
+                height: number;
+            }>();
+            const secondPreview = createDeferred<{
+                bytes: Uint8Array;
+                width: number;
+                height: number;
+            }>();
+            mocks.renderDjvuPagePreview
+                .mockReturnValueOnce(firstPreview.promise)
+                .mockReturnValueOnce(secondPreview.promise);
+
+            const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
+            const firstEvent = createIpcEvent(21);
+            const secondEvent = createIpcEvent(22);
+            allowOpenPath(realPath, firstEvent.sender as never);
+            allowOpenPath(realPath, secondEvent.sender as never);
+            registerDjvuIpcAdapter();
+            const renderHandler = getHandler('djvu:renderPagePreview');
+            const cancelHandler = getHandler('djvu:cancelPagePreview');
+
+            const firstRun = renderHandler(firstEvent, realPath, 1, {
+                previewRequestId: 'shared-preview-id',
+                subsample: 3,
+            });
+            const secondRun = renderHandler(secondEvent, realPath, 1, {
+                previewRequestId: 'shared-preview-id',
+                subsample: 3,
+            });
+
+            await vi.waitFor(() => expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(2));
+            const firstOperation = mocks.renderDjvuPagePreview.mock.calls[0]?.[3];
+            const secondOperation = mocks.renderDjvuPagePreview.mock.calls[1]?.[3];
+            expect(firstOperation).toMatchObject({
+                cancelGroup: 'djvu-preview:21:shared-preview-id',
+                signal: expect.any(AbortSignal),
+            });
+            expect(secondOperation).toMatchObject({
+                cancelGroup: 'djvu-preview:22:shared-preview-id',
+                signal: expect.any(AbortSignal),
+            });
+
+            await expect(cancelHandler(firstEvent, 'shared-preview-id')).resolves.toEqual({canceled: true});
+
+            expect(firstOperation?.signal.aborted).toBe(true);
+            expect(secondOperation?.signal.aborted).toBe(false);
+            expect(mocks.cancelConversion).toHaveBeenCalledWith('djvu-preview:21:shared-preview-id');
+            expect(mocks.cancelConversion).not.toHaveBeenCalledWith('djvu-preview:22:shared-preview-id');
+
+            firstPreview.resolve({
+                bytes: new Uint8Array([1]),
+                width: 100,
+                height: 200,
+            });
+            secondPreview.resolve({
+                bytes: new Uint8Array([2]),
+                width: 100,
+                height: 200,
+            });
+            await expect(firstRun).resolves.toMatchObject({width: 100});
+            await expect(secondRun).resolves.toMatchObject({width: 100});
+        } finally {
+            rmSync(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('keeps a newer matching preview operation registered when the older operation completes', async () => {
+        const tempRoot = mkdtempSync(join(tmpdir(), 'evb-djvu-preview-operation-identity-test-'));
+        try {
+            const realPath = join(tempRoot, 'real.djvu');
+            writeFileSync(realPath, new Uint8Array([1]));
+            const firstPreview = createDeferred<{
+                bytes: Uint8Array;
+                width: number;
+                height: number;
+            }>();
+            const secondPreview = createDeferred<{
+                bytes: Uint8Array;
+                width: number;
+                height: number;
+            }>();
+            mocks.renderDjvuPagePreview
+                .mockReturnValueOnce(firstPreview.promise)
+                .mockReturnValueOnce(secondPreview.promise);
+
+            const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
+            const event = createIpcEvent(24);
+            allowOpenPath(realPath, event.sender as never);
+            registerDjvuIpcAdapter();
+            const renderHandler = getHandler('djvu:renderPagePreview');
+            const cancelHandler = getHandler('djvu:cancelPagePreview');
+
+            const firstRun = renderHandler(event, realPath, 1, {
+                previewRequestId: 'reused-preview-id',
+                subsample: 3,
+            });
+            const secondRun = renderHandler(event, realPath, 2, {
+                previewRequestId: 'reused-preview-id',
+                subsample: 3,
+            });
+            await vi.waitFor(() => expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(2));
+            const secondSignal = mocks.renderDjvuPagePreview.mock.calls[1]?.[3]?.signal as AbortSignal | undefined;
+
+            firstPreview.resolve({
+                bytes: new Uint8Array([1]),
+                width: 100,
+                height: 200,
+            });
+            await expect(firstRun).resolves.toMatchObject({width: 100});
+
+            await expect(cancelHandler(event, 'reused-preview-id')).resolves.toEqual({canceled: true});
+            expect(secondSignal?.aborted).toBe(true);
+
+            secondPreview.resolve({
+                bytes: new Uint8Array([2]),
+                width: 100,
+                height: 200,
+            });
+            await expect(secondRun).resolves.toMatchObject({width: 100});
+        } finally {
+            rmSync(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('rejects oversized preview request ids in main before starting native work', async () => {
+        const tempRoot = mkdtempSync(join(tmpdir(), 'evb-djvu-preview-id-limit-test-'));
+        try {
+            const realPath = join(tempRoot, 'real.djvu');
+            writeFileSync(realPath, new Uint8Array([1]));
+
+            const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
+            const event = createIpcEvent(23);
+            allowOpenPath(realPath, event.sender as never);
+            registerDjvuIpcAdapter();
+            const handler = getHandler('djvu:renderPagePreview');
+
+            await expect(handler(event, realPath, 1, {previewRequestId: 'x'.repeat(129)}))
+                .rejects.toThrow('renderPagePreview.options.previewRequestId exceeds maximum length (128)');
+
+            expect(mocks.renderDjvuPagePreview).not.toHaveBeenCalled();
         } finally {
             rmSync(tempRoot, {
                 force: true,
@@ -423,7 +587,7 @@ describe('registerDjvuIpcAdapter', () => {
                 previewRequestId: 'preview-4',
                 subsample: 3,
             }, expect.objectContaining({
-                cancelGroup: 'djvu-preview:preview-4',
+                cancelGroup: 'djvu-preview:9:preview-4',
                 signal: expect.any(AbortSignal),
             }));
 
@@ -633,7 +797,7 @@ describe('registerDjvuIpcAdapter', () => {
                 previewRequestId: '1:3:1',
                 subsample: 3,
             }, expect.objectContaining({
-                cancelGroup: 'djvu-preview:1:3:1',
+                cancelGroup: 'djvu-preview:10:1:3:1',
                 signal: expect.any(AbortSignal),
             }));
 
@@ -649,7 +813,7 @@ describe('registerDjvuIpcAdapter', () => {
                 previewRequestId: '1:8:1',
                 subsample: 3,
             }, expect.objectContaining({
-                cancelGroup: 'djvu-preview:1:8:1',
+                cancelGroup: 'djvu-preview:10:1:8:1',
                 signal: expect.any(AbortSignal),
             }));
 
@@ -746,7 +910,7 @@ describe('registerDjvuIpcAdapter', () => {
                 previewRequestId: '2:3:1',
                 subsample: 3,
             }, expect.objectContaining({
-                cancelGroup: 'djvu-preview:2:3:1',
+                cancelGroup: 'djvu-preview:11:2:3:1',
                 signal: expect.any(AbortSignal),
             }));
 

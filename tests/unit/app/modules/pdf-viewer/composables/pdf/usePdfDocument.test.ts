@@ -60,10 +60,7 @@ const electronApi = {
 
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => electronApi}));
 
-const {
-    releasePdfDocumentPage,
-    usePdfDocument,
-} = await import('@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument');
+const {usePdfDocument} = await import('@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument');
 const {maxCachedPdfPages} = await import('@app/modules/pdf-viewer/engine/maxCachedPdfPages');
 
 const rangePreloadTestTimeoutMs = 15_000;
@@ -973,17 +970,12 @@ describe('usePdfDocument range loading', () => {
             path: '/tmp/deferred-lease-cleanup.pdf',
             size: 2048,
         });
-        const loadedDocument = documentState.pdfDocument.value;
-        if (!loadedDocument) {
-            throw new Error('Expected loaded PDF document');
-        }
-
-        const leasedPage = await documentState.leasePage(1);
+        const pageLease = await documentState.leasePage(1);
         documentState.cleanupPageCache();
 
         expect(loadedPages.get(1)?.[0]?.cleanup).not.toHaveBeenCalled();
 
-        releasePdfDocumentPage(loadedDocument, 1, leasedPage);
+        pageLease.release();
 
         expect(loadedPages.get(1)?.[0]?.cleanup).toHaveBeenCalledTimes(1);
 
@@ -991,5 +983,58 @@ describe('usePdfDocument range loading', () => {
 
         expect(getPage).toHaveBeenCalledTimes(2);
         expect(loadedPages.get(1)?.[1]?.cleanup).not.toHaveBeenCalled();
+    });
+
+    it('keeps stable cached page proxies attached to one exact lease entry across eviction', async () => {
+        const stablePage = {
+            cleanup: vi.fn(),
+            getViewport: vi.fn(() => ({
+                width: 200,
+                height: 400,
+            })),
+            pageNumber: 1,
+        };
+        const getPage = vi.fn(async () => stablePage);
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.resolve({
+                numPages: 1,
+                getPage,
+                destroy: vi.fn(),
+            }),
+            destroy: vi.fn(),
+        });
+        electronApi.documentFiles.readFileRange.mockResolvedValue(Uint8Array.of(1, 2, 3, 4));
+
+        const documentState = usePdfDocument();
+        await documentState.loadPdf({
+            kind: 'path',
+            path: '/tmp/stable-proxy-leases.pdf',
+            size: 2048,
+        });
+
+        const firstLease = await documentState.leasePage(1);
+        documentState.evictPage(1);
+        const secondLease = await documentState.leasePage(1);
+        documentState.evictPage(1);
+
+        secondLease.release();
+        expect(stablePage.cleanup).not.toHaveBeenCalled();
+
+        firstLease.release();
+        expect(stablePage.cleanup).toHaveBeenCalledOnce();
+
+        firstLease.release();
+        secondLease.release();
+        expect(stablePage.cleanup).toHaveBeenCalledOnce();
+
+        const thirdLease = await documentState.leasePage(1);
+        const fourthLease = await documentState.leasePage(1);
+        documentState.evictPage(1);
+
+        thirdLease.release();
+        expect(stablePage.cleanup).toHaveBeenCalledOnce();
+        fourthLease.release();
+        expect(stablePage.cleanup).toHaveBeenCalledTimes(2);
+        expect(getPage).toHaveBeenCalledTimes(3);
     });
 });

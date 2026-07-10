@@ -10,6 +10,7 @@ import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TTranslateFn } from '@i18n-app';
 import {
     clearRegisteredPdfRasterDisplayProfilesForTests,
+    getRegisteredPdfRasterDisplayProfileCountForTests,
     registerPdfRasterDisplayProfile,
 } from '@app/types/pdfRasterDisplayProfile';
 import { createEpochGuard } from '@app/modules/workspace-shell/composables/document-session/createEpochGuard';
@@ -271,6 +272,56 @@ describe('createDocumentOpenFlow', () => {
         await expect(openFlow.openFileDirect('/tmp/generated.pdf')).resolves.toMatchObject({status: 'opened'});
 
         expect(state.pdfRasterDisplayProfile.value).toStrictEqual(profile);
+        expect(getRegisteredPdfRasterDisplayProfileCountForTests()).toBe(0);
+
+        await expect(openFlow.openFileDirect('/tmp/generated.pdf')).resolves.toMatchObject({status: 'opened'});
+
+        expect(state.pdfRasterDisplayProfile.value).toBeNull();
+    });
+
+    it('bounds pending raster display profile handoffs', () => {
+        const profile = {
+            kind: 'trusted-raster-djvu' as const,
+            sourcePagePixels: [{
+                width: 100,
+                height: 200,
+            }],
+        };
+
+        for (let index = 0; index < 100; index += 1) {
+            registerPdfRasterDisplayProfile(`/tmp/generated-${index}.pdf`, profile);
+        }
+
+        expect(getRegisteredPdfRasterDisplayProfileCountForTests()).toBe(64);
+    });
+
+    it('consumes a raster display profile handoff even when the target open fails', async () => {
+        const {
+            openFlow,
+            state,
+        } = createOpenFlowHarness();
+        const result: TOpenFileResult = {
+            kind: 'pdf',
+            originalPath: '/tmp/reused.pdf',
+            workingPath: '/tmp/reused-working.pdf',
+        };
+        mocks.documentOpen.openDocumentDirect.mockResolvedValue(result);
+        registerPdfRasterDisplayProfile('/tmp/reused.pdf', {
+            kind: 'trusted-raster-djvu',
+            sourcePagePixels: [{
+                width: 100,
+                height: 200,
+            }],
+        });
+        mocks.documentFiles.readFile
+            .mockRejectedValueOnce(new Error('load failed'))
+            .mockResolvedValue(PDF_BYTES);
+
+        await expect(openFlow.openFileDirect('/tmp/reused.pdf')).resolves.toMatchObject({status: 'failed'});
+        expect(getRegisteredPdfRasterDisplayProfileCountForTests()).toBe(0);
+
+        await expect(openFlow.openFileDirect('/tmp/reused.pdf')).resolves.toMatchObject({status: 'opened'});
+        expect(state.pdfRasterDisplayProfile.value).toBeNull();
     });
 
     it('does not let a stale PDF open clobber dirty state or conformance after history reset', async () => {

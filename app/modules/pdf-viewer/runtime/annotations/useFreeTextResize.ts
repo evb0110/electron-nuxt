@@ -195,7 +195,6 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
         if (tagged.__evbPreSelectPatched) {
             return;
         }
-        tagged.__evbPreSelectPatched = true;
 
         const div = editor.div;
         if (!div) {
@@ -203,6 +202,7 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
         }
 
         div.addEventListener('pointerdown', handleFreeTextPreSelectPointerDown(editor), { capture: true });
+        tagged.__evbPreSelectPatched = true;
     }
 
     function canPreSelectFreeTextEditor(editor: IPdfjsEditor, event: PointerEvent) {

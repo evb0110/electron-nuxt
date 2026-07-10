@@ -14,7 +14,7 @@ export function defaultRetentionForKind(kind: IBrowserDocumentEntry['kind']) {
     return kind === 'working' ? 'transient' : 'durable';
 }
 
-export function shouldInlineFileBytes(fileSize: number) {
+function shouldInlineFileBytes(fileSize: number) {
     return fileSize <= BROWSER_INLINE_FILE_THRESHOLD_BYTES;
 }
 

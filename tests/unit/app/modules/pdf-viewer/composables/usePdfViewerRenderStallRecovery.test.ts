@@ -62,7 +62,7 @@ describe('usePdfViewerRenderStallRecovery', () => {
                 timeoutMs: 15_000,
             });
 
-            vi.runAllTimers();
+            vi.runOnlyPendingTimers();
             await Promise.resolve();
 
             expect(cancelInFlightPageRenders).toHaveBeenCalledOnce();
@@ -156,11 +156,12 @@ describe('usePdfViewerRenderStallRecovery', () => {
         }
     });
 
-    it('runs stalled render recovery inside the active authoritative transaction when recovery admission is denied', async () => {
+    it('requeues stalled render recovery without raw rendering when recovery admission is denied', async () => {
         vi.useFakeTimers();
         try {
+            const beginTransaction = vi.fn<TRenderStallRecoveryTransactionController['beginTransaction']>(() => null);
             const transactionController: TRenderStallRecoveryTransactionController = {
-                beginTransaction: vi.fn(() => null),
+                beginTransaction,
                 advanceTransaction: vi.fn(() => true),
                 cancelActiveTransaction: vi.fn(() => true),
                 isTransactionCurrent: vi.fn(() => true),
@@ -194,23 +195,20 @@ describe('usePdfViewerRenderStallRecovery', () => {
                 stage: 'canvas-render',
                 timeoutMs: 15_000,
             });
-            vi.runAllTimers();
+            vi.runOnlyPendingTimers();
+            await Promise.resolve();
+
+            expect(renderVisiblePages).not.toHaveBeenCalled();
+            expect(transactionController.advanceTransaction).not.toHaveBeenCalled();
+            expect(cancelInFlightPageRenders).not.toHaveBeenCalled();
+
+            beginTransaction.mockReturnValue({ id: 73 });
+            await vi.advanceTimersByTimeAsync(160);
             await Promise.resolve();
 
             expect(renderVisiblePages).toHaveBeenCalledOnce();
-            expect(renderVisiblePages).toHaveBeenCalledWith(
-                {
-                    start: 4,
-                    end: 4,
-                },
-                {
-                    preserveRenderedPages: true,
-                    forceRerender: true,
-                    bufferOverride: 0,
-                },
-            );
-            expect(transactionController.advanceTransaction).not.toHaveBeenCalled();
-            expect(cancelInFlightPageRenders).not.toHaveBeenCalled();
+            expect(cancelInFlightPageRenders).toHaveBeenCalledOnce();
+            expect(transactionController.advanceTransaction).toHaveBeenCalledWith(73, 'render-requested');
         } finally {
             vi.useRealTimers();
         }

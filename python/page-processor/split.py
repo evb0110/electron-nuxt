@@ -4,39 +4,13 @@ Page Splitting
 Splits facing page scans (double-page spreads) into individual pages.
 """
 
-import cv2
-import numpy as np
 from typing import Tuple
 
+import cv2
+import numpy as np
+from stages.image_utils import _resize_for_analysis, _smooth_1d, _to_gray
 
 _IMAGE_ANALYSIS_EXCEPTIONS = (cv2.error, ValueError, TypeError, FloatingPointError, IndexError)
-
-
-def _to_gray(image: np.ndarray) -> np.ndarray:
-    if len(image.shape) == 3:
-        return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    return image
-
-
-def _resize_for_analysis(gray: np.ndarray, max_dim: int = 1500) -> tuple[np.ndarray, float]:
-    h, w = gray.shape[:2]
-    if max(h, w) <= max_dim:
-        return gray, 1.0
-
-    scale = max_dim / float(max(h, w))
-    new_w = max(1, int(round(w * scale)))
-    new_h = max(1, int(round(h * scale)))
-    resized = cv2.resize(gray, (new_w, new_h), interpolation=cv2.INTER_AREA)
-    return resized, scale
-
-
-def _smooth_1d(values: np.ndarray, kernel_size: int) -> np.ndarray:
-    if values.size == 0:
-        return values
-    k = max(3, int(kernel_size))
-    if k % 2 == 0:
-        k += 1
-    return cv2.GaussianBlur(values.reshape(1, -1).astype(np.float32), (k, 1), 0).reshape(-1)
 
 
 def _confidence_from_valley(curve: np.ndarray, idx: int) -> float:
@@ -303,7 +277,7 @@ def find_gutter_position(image: np.ndarray) -> int:
 
 def split_facing_pages(
     image: np.ndarray,
-    gutter_x: int = None,
+    gutter_x: int | None = None,
     overlap: int = 0,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
@@ -332,7 +306,9 @@ def split_facing_pages(
     left_end = min(gutter_x + overlap, w)
     right_start = max(gutter_x - overlap, 0)
 
-    left_page = image[:, :left_end].copy()
-    right_page = image[:, right_start:].copy()
+    # Views avoid two full-page copies. Downstream transforms return new arrays,
+    # and publication encodes both pages before the input image can be released.
+    left_page = image[:, :left_end]
+    right_page = image[:, right_start:]
 
     return left_page, right_page

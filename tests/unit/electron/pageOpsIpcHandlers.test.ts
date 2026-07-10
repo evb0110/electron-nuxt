@@ -686,15 +686,38 @@ describe('registerPageOpsIpcAdapter', () => {
         expect(mocks.extractPages).not.toHaveBeenCalled();
     });
 
-    it('rejects invalid crop margins before reaching page crop mutations', async () => {
+    it.each([
+        [
+            'non-finite',
+            {
+                top: Number.NaN,
+                bottom: 0,
+                left: 0,
+                right: 0,
+            },
+        ],
+        [
+            'negative',
+            {
+                top: -1,
+                bottom: 0,
+                left: 0,
+                right: 0,
+            },
+        ],
+        [
+            'structurally invalid',
+            {
+                top: 0,
+                bottom: 0,
+                left: 0,
+            },
+        ],
+    ])('rejects %s crop margins before reaching Electron page crop mutations', async (_label, margins) => {
         const handler = getHandler('page-ops:crop');
 
-        await expect(handler({sender: {id: 1}}, '/tmp/crop.pdf', [1], 3, {
-            top: Number.NaN,
-            bottom: 0,
-            left: 0,
-            right: 0,
-        })).rejects.toThrow('Invalid crop margins');
+        await expect(handler({sender: {id: 1}}, '/tmp/crop.pdf', [1], 3, margins))
+            .rejects.toThrow('Invalid crop margins');
 
         expect(mocks.cropPages).not.toHaveBeenCalled();
     });

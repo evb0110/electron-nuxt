@@ -12,6 +12,57 @@ import type { IpcRenderer } from 'electron';
 import type * as OcrPreloadClientModule from '@electron/features/ocr/createOcrPreloadClient';
 
 describe('createOcrPreloadClient', () => {
+    it('decodes OCR languages and rejects malformed nested language entries', async () => {
+        let result: unknown = [
+            {
+                code: 'eng',
+                script: 'latin',
+            },
+            {
+                code: 'ara',
+                script: 'rtl',
+            },
+        ];
+        const ipcRenderer: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener'> = {
+            invoke: vi.fn(async () => result),
+            on: vi.fn(),
+            removeListener: vi.fn(),
+        };
+        const { createOcrPreloadClient }: typeof OcrPreloadClientModule = await import('@electron/features/ocr/createOcrPreloadClient');
+        const client = createOcrPreloadClient(ipcRenderer as IpcRenderer);
+
+        await expect(client.getLanguages()).resolves.toEqual(result);
+
+        for (result of [
+            {
+                code: 'eng',
+                script: 'latin',
+            },
+            [{
+                code: 'ENG',
+                script: 'latin',
+            }],
+            [{
+                code: 'eng',
+                script: 'future-script',
+            }],
+            [
+                {
+                    code: 'eng',
+                    script: 'latin',
+                },
+                {
+                    code: 'eng',
+                    script: 'latin',
+                },
+            ],
+        ]) {
+            await expect(client.getLanguages()).rejects.toThrow(
+                `Invalid IPC response for ${OCR_CHANNELS.getLanguages}`,
+            );
+        }
+    });
+
     it('does not report language installation success when only validation is available', async () => {
         const ipcRenderer: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener'> = {
             invoke: vi.fn(async (channel: string) => {

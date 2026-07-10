@@ -206,6 +206,7 @@ const assistantAction = ref<'refresh' | 'install' | 'login' | 'cancel' | null>(n
 const isAssistantBusy = computed(() => assistantAction.value !== null);
 let assistantPanelPreferenceSave: Promise<boolean> | null = null;
 let unsubscribeAssistantEvent: (() => void) | null = null;
+let disposed = false;
 const shortcutsDescription = computed(() => isDesktopRuntime.value
     ? t('settings.shortcutsDescription')
     : t('settings.browserShortcutsDescription'));
@@ -387,6 +388,9 @@ function handleCheckForUpdates() {
 }
 
 function applyAssistantState(nextState: IAgentAssistantState) {
+    if (disposed) {
+        return;
+    }
     assistantState.value = nextState;
     if (nextState.status.authState !== 'login-pending') {
         assistantDeviceCode.value = '';
@@ -394,7 +398,7 @@ function applyAssistantState(nextState: IAgentAssistantState) {
 }
 
 function handleAssistantEvent(event: IAgentAssistantEvent) {
-    if (!settings.value.assistantPanelEnabled) {
+    if (disposed || !settings.value.assistantPanelEnabled) {
         return;
     }
     if (event.state) {
@@ -410,6 +414,7 @@ async function runAssistantAction(
         action,
         activeAction: assistantAction,
         isDesktopRuntime: isDesktopRuntime.value,
+        isActive: () => !disposed,
         run: callback,
         t,
         toast,
@@ -418,7 +423,8 @@ async function runAssistantAction(
 
 async function refreshAssistantState() {
     await runAssistantAction('refresh', async () => {
-        applyAssistantState(await getAgentCapability().getAssistantState());
+        const state = await getAgentCapability().getAssistantState();
+        applyAssistantState(state);
     });
 }
 
@@ -451,6 +457,10 @@ async function updateAssistantPanelEnabled(enabled: boolean) {
     });
     const saved = await assistantPanelPreferenceSave;
 
+    if (disposed) {
+        return;
+    }
+
     if (!enabled) {
         assistantState.value = null;
         assistantDeviceCode.value = '';
@@ -476,8 +486,15 @@ async function refreshAgentMcpStatus() {
 
     isAgentMcpBusy.value = true;
     try {
-        agentMcpStatus.value = await getAgentCapability().getMcpIntegrationStatus();
+        const status = await getAgentCapability().getMcpIntegrationStatus();
+        if (disposed) {
+            return;
+        }
+        agentMcpStatus.value = status;
     } catch (error) {
+        if (disposed) {
+            return;
+        }
         BrowserLogger.warn('settings', 'Failed to refresh agent MCP integration status', { error });
         toast.add({
             color: 'error',
@@ -485,7 +502,9 @@ async function refreshAgentMcpStatus() {
             description: getErrorMessage(error),
         });
     } finally {
-        isAgentMcpBusy.value = false;
+        if (!disposed) {
+            isAgentMcpBusy.value = false;
+        }
     }
 }
 
@@ -497,8 +516,14 @@ async function setAgentMcpEnabled(enabled: boolean) {
     isAgentMcpBusy.value = true;
     try {
         const result = await getAgentCapability().setMcpIntegrationEnabled(enabled);
+        if (disposed) {
+            return;
+        }
         agentMcpStatus.value = result.status;
         await load();
+        if (disposed) {
+            return;
+        }
         if (!result.ok && result.error) {
             toast.add({
                 color: 'error',
@@ -507,6 +532,9 @@ async function setAgentMcpEnabled(enabled: boolean) {
             });
         }
     } catch (error) {
+        if (disposed) {
+            return;
+        }
         BrowserLogger.warn('settings', 'Failed to update agent MCP integration status', {
             enabled,
             error,
@@ -517,18 +545,26 @@ async function setAgentMcpEnabled(enabled: boolean) {
             description: getErrorMessage(error),
         });
         try {
-            agentMcpStatus.value = await getAgentCapability().getMcpIntegrationStatus();
+            const status = await getAgentCapability().getMcpIntegrationStatus();
+            if (!disposed) {
+                agentMcpStatus.value = status;
+            }
         } catch (statusError) {
             BrowserLogger.warn('settings', 'Failed to refresh agent MCP status after update failure', { statusError });
         }
     } finally {
-        isAgentMcpBusy.value = false;
+        if (!disposed) {
+            isAgentMcpBusy.value = false;
+        }
     }
 }
 
 function openAgentMcpInstall() {
     const installUrl = agentMcpStatus.value?.installUrl ?? 'https://developers.openai.com/codex/app';
     void getShellCapability().openExternal(installUrl).catch((error: unknown) => {
+        if (disposed) {
+            return;
+        }
         BrowserLogger.warn('settings', 'Failed to open agent MCP install URL', {
             installUrl,
             error,
@@ -567,6 +603,7 @@ watch(() => settings.value.assistantPanelEnabled, (enabled) => {
 });
 
 onBeforeUnmount(() => {
+    disposed = true;
     unsubscribeAssistantEvent?.();
     unsubscribeAssistantEvent = null;
 });

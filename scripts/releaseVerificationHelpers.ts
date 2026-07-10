@@ -3,8 +3,6 @@ interface IPackagedStartupReadiness {
     rendererReady: boolean;
 }
 
-export const PACKAGED_STARTUP_READY_MARKER = '[packaged-startup-ready]';
-
 export function isPackagedStartupReady(state: IPackagedStartupReadiness) {
     return state.rendererReady && state.appAlive;
 }

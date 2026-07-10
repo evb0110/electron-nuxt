@@ -1,4 +1,5 @@
 export {
+    buildClientProfile,
     detectArchitecture,
     detectPlatform,
     compareInstallersForSelect,
@@ -30,3 +31,10 @@ export type {
     TReleaseArch,
     TReleasePlatform,
 } from '@contracts';
+
+export {
+    fetchLatestReleaseWithRetry,
+    getReleaseFetchStatusCode,
+    parseRetryAfterMs,
+    shouldRetryReleaseFetch,
+} from './latestReleaseRetry';

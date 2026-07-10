@@ -33,15 +33,17 @@ Communication:
 import argparse
 import json
 import math
-import sys
 import os
+import sys
 import tempfile
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional, cast
 
 VERSION = "2.0.0"
 
 STAGES = ['rotation', 'split', 'deskew', 'dewarp']
+TSplitType = Literal['none', 'vertical', 'horizontal']
+TRotation = Literal[0, 90, 180, 270]
 
 
 class CommandError(Exception):
@@ -96,7 +98,7 @@ def send_result(data: dict):
 
 def send_error(message: str, code: str = "UNKNOWN_ERROR", details: Optional[dict] = None):
     """Send error to stderr."""
-    payload = {
+    payload: dict[str, object] = {
         "type": "error",
         "message": message,
         "code": code
@@ -146,7 +148,7 @@ def coerce_split_overlap(value) -> int:
     return overlap
 
 
-def coerce_rotation(value) -> int:
+def coerce_rotation(value) -> TRotation:
     if isinstance(value, bool):
         raise invalid_param("rotation", value, "one of: 0, 90, 180, 270")
 
@@ -160,7 +162,7 @@ def coerce_rotation(value) -> int:
     if rotation not in (0, 90, 180, 270):
         raise invalid_param("rotation", value, "one of: 0, 90, 180, 270")
 
-    return rotation
+    return cast(TRotation, rotation)
 
 
 def coerce_deskew_angle(value) -> float:
@@ -203,6 +205,56 @@ def validate_apply_deskew_params(params: dict) -> tuple[float, tuple[int, int, i
     return angle, background
 
 
+def coerce_finite_range(field: str, value, minimum: float, maximum: float) -> float:
+    expected = f"finite number in [{minimum}, {maximum}]"
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise invalid_param(field, value, expected)
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed < minimum or parsed > maximum:
+        raise invalid_param(field, value, expected)
+    return parsed
+
+
+def coerce_bounded_integer(field: str, value, minimum: int, maximum: int) -> int:
+    expected = f"integer in [{minimum}, {maximum}]"
+    if isinstance(value, bool):
+        raise invalid_param(field, value, expected)
+    if isinstance(value, int):
+        parsed = value
+    elif isinstance(value, float) and math.isfinite(value) and value.is_integer():
+        parsed = int(value)
+    else:
+        raise invalid_param(field, value, expected)
+    if parsed < minimum or parsed > maximum:
+        raise invalid_param(field, value, expected)
+    return parsed
+
+
+def validate_process_options(args) -> dict:
+    from resource_policy import MAX_PADDING_PIXELS
+
+    return {
+        "force_split": bool(args.force_split),
+        "auto_detect": not args.no_auto_detect,
+        "min_skew_angle": coerce_finite_range("min_skew_angle", args.min_skew_angle, 0.0, 90.0),
+        "min_curvature": coerce_finite_range("min_curvature", args.min_curvature, 0.0, 1.0),
+        "crop_padding": coerce_bounded_integer("crop_padding", args.crop_padding, 0, MAX_PADDING_PIXELS),
+    }
+
+
+def validate_detect_options(args) -> dict:
+    min_angle = coerce_finite_range("min_angle", args.min_angle, 0.0, 45.0)
+    max_angle = coerce_finite_range("max_angle", args.max_angle, 0.0, 45.0)
+    if max_angle < min_angle:
+        raise invalid_param("max_angle", max_angle, f"number in [{min_angle}, 45.0]")
+    return {
+        "min_confidence": coerce_finite_range("min_confidence", args.min_confidence, 0.0, 1.0),
+        "min_angle": min_angle,
+        "max_angle": max_angle,
+        "min_curvature": coerce_finite_range("min_curvature", args.min_curvature, 0.0, 1.0),
+    }
+
+
 def read_image_dimensions(input_path: str) -> tuple[int, int]:
     from stages.io import load_image_unchanged
 
@@ -212,7 +264,7 @@ def read_image_dimensions(input_path: str) -> tuple[int, int]:
     return int(w), int(h)
 
 
-def validate_apply_split_params(input_path: str, params: dict) -> tuple[str, float, int]:
+def validate_apply_split_params(input_path: str, params: dict) -> tuple[TSplitType, float, int]:
     split_type = params.get('split_type', 'none')
     if split_type not in ('none', 'vertical', 'horizontal'):
         raise invalid_param("split_type", split_type, "one of: none, vertical, horizontal")
@@ -242,7 +294,7 @@ def validate_apply_split_params(input_path: str, params: dict) -> tuple[str, flo
             f"integer between 0 and {max_overlap} for this {split_type} split",
         )
 
-    return split_type, position, overlap
+    return cast(TSplitType, split_type), position, overlap
 
 
 def invalid_img2pdf_input(field: str, path: str, index: int, expected: str, reason: Optional[str] = None) -> CommandError:
@@ -264,6 +316,7 @@ def invalid_img2pdf_input(field: str, path: str, index: int, expected: str, reas
 
 def prevalidate_img2pdf_input(path_value: str, field: str, index: int) -> None:
     from PIL import Image  # type: ignore
+    from resource_policy import validate_image_file
 
     expected = "existing decodable image file"
     path_text = str(path_value)
@@ -280,6 +333,7 @@ def prevalidate_img2pdf_input(path_value: str, field: str, index: int) -> None:
         raise invalid_img2pdf_input(field, path_text, index, expected, "path is not a file")
 
     try:
+        validate_image_file(path)
         with Image.open(path) as image:
             image.verify()
     except Exception as e:
@@ -418,27 +472,23 @@ def run_stage_detect(stage: str, input_path: str, options: dict) -> dict:
     """
     if stage == 'rotation':
         from stages.rotation import detect_rotation
-        result = detect_rotation(input_path)
-        return result.to_dict()
+        return detect_rotation(input_path).to_dict()
 
     elif stage == 'split':
         from stages.split import detect_split
         min_confidence = options.get('min_confidence', 0.6)
-        result = detect_split(input_path, min_confidence)
-        return result.to_dict()
+        return detect_split(input_path, min_confidence).to_dict()
 
     elif stage == 'deskew':
         from stages.deskew import detect_deskew
         min_angle = options.get('min_angle', 0.5)
         max_angle = options.get('max_angle', 15.0)
-        result = detect_deskew(input_path, min_angle, max_angle)
-        return result.to_dict()
+        return detect_deskew(input_path, min_angle, max_angle).to_dict()
 
     elif stage == 'dewarp':
         from stages.dewarp import detect_dewarp
         min_curvature = options.get('min_curvature', 0.1)
-        result = detect_dewarp(input_path, min_curvature)
-        return result.to_dict()
+        return detect_dewarp(input_path, min_curvature).to_dict()
 
     else:
         raise ValueError(f"Unknown stage: {stage}")
@@ -528,7 +578,7 @@ def main():
     apply_parser.add_argument('--params', type=str, required=True, help='JSON parameters')
 
     # List-stages command
-    list_parser = subparsers.add_parser('list-stages', help='List available stages')
+    subparsers.add_parser('list-stages', help='List available stages')
 
     # Pad command - symmetric white padding to a target canvas size (no scaling/cropping)
     pad_parser = subparsers.add_parser('pad', help='Pad an image to a target size (symmetric, white)')
@@ -570,15 +620,8 @@ def main():
 
     try:
         if args.command == 'process':
+            options = validate_process_options(args)
             os.makedirs(args.output_dir, exist_ok=True)
-
-            options = {
-                'force_split': args.force_split,
-                'auto_detect': not args.no_auto_detect,
-                'min_skew_angle': args.min_skew_angle,
-                'min_curvature': args.min_curvature,
-                'crop_padding': args.crop_padding,
-            }
 
             result = process_image(
                 input_path=args.input,
@@ -597,15 +640,10 @@ def main():
                 input_path = args.input
 
                 if not input_path:
-                    send_error(f"Input path required for stage detection", "MISSING_INPUT")
+                    send_error("Input path required for stage detection", "MISSING_INPUT")
                     sys.exit(1)
 
-                options = {
-                    'min_confidence': args.min_confidence,
-                    'min_angle': args.min_angle,
-                    'max_angle': args.max_angle,
-                    'min_curvature': args.min_curvature,
-                }
+                options = validate_detect_options(args)
 
                 result = run_stage_detect(stage, input_path, options)
                 send_result({
@@ -660,6 +698,7 @@ def main():
             # Keep this import local so `--version` and other lightweight commands stay fast.
             import cv2  # type: ignore
             import numpy as np  # type: ignore
+            from resource_policy import validate_pad_target
             from stages.io import load_image_unchanged, write_image_atomically
 
             try:
@@ -671,14 +710,18 @@ def main():
             h, w = image.shape[:2]
             target_w = int(args.width)
             target_h = int(args.height)
-            if target_w <= 0 or target_h <= 0:
-                send_error("Target width/height must be positive", "INVALID_TARGET")
-                sys.exit(1)
-            if w > target_w or h > target_h:
-                send_error(
-                    f"Target size too small: input={w}x{h}, target={target_w}x{target_h}",
-                    "TARGET_TOO_SMALL",
+            try:
+                channels = int(image.shape[2]) if len(image.shape) == 3 else 1
+                target_w, target_h = validate_pad_target(
+                    w,
+                    h,
+                    target_w,
+                    target_h,
+                    channels=channels,
+                    itemsize=int(image.dtype.itemsize),
                 )
+            except ValueError as error:
+                send_error(str(error), "INVALID_TARGET")
                 sys.exit(1)
 
             # Match channel count; always white padding.
@@ -718,10 +761,8 @@ def main():
             })
 
         elif args.command == 'img2pdf':
-            dpi = int(args.dpi or 300)
-            if dpi <= 0:
-                send_error("DPI must be positive", "INVALID_DPI")
-                sys.exit(1)
+            from resource_policy import MAX_DPI
+            dpi = coerce_bounded_integer("dpi", args.dpi or 300, 1, MAX_DPI)
 
             prevalidate_img2pdf_inputs([args.input], "input")
 
@@ -749,11 +790,8 @@ def main():
 
         elif args.command == 'img2pdf-pages':
             from PIL import Image  # type: ignore
-
-            dpi = int(args.dpi or 300)
-            if dpi <= 0:
-                send_error("DPI must be positive", "INVALID_DPI")
-                sys.exit(1)
+            from resource_policy import MAX_DPI
+            dpi = coerce_bounded_integer("dpi", args.dpi or 300, 1, MAX_DPI)
 
             if not args.images:
                 send_error("At least one image is required", "MISSING_INPUT")
@@ -818,10 +856,8 @@ def main():
                         else:
                             src_rgb = src
 
-                        q = int(args.jpeg_quality or 95)
-                        q = max(1, min(100, q))
-                        subs = int(args.jpeg_subsampling or 0)
-                        subs = max(0, min(2, subs))
+                        q = coerce_bounded_integer("jpeg_quality", args.jpeg_quality or 95, 1, 100)
+                        subs = coerce_bounded_integer("jpeg_subsampling", args.jpeg_subsampling or 0, 0, 2)
 
                         outp = reencode_temp_path(inp, work_dir, index, ".jpg")
                         src_rgb.save(

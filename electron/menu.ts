@@ -30,6 +30,7 @@ import {
     getWindowByIdFromRegistry,
 } from '@electron/window/registry';
 import { getErrorMessage } from '@electron/utils/error';
+import { shouldExposeDevToolsMenu } from '@electron/menuDevToolsPolicy';
 
 const logger = createLogger('menu');
 const MENU_REBUILD_DEBOUNCE_MS = 40;
@@ -691,8 +692,12 @@ function getViewMenu(documentActionsEnabled: boolean): MenuItemConstructorOption
                     },
                 ],
             },
-            { type: 'separator' },
-            { role: 'toggleDevTools' },
+            ...(shouldExposeDevToolsMenu(config.isDev)
+                ? [
+                    { type: 'separator' as const },
+                    { role: 'toggleDevTools' as const },
+                ]
+                : []),
         ],
     };
 }

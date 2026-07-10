@@ -3,6 +3,7 @@ mod flate;
 mod image;
 mod jpeg;
 mod netpbm;
+mod output;
 mod pdf;
 mod png;
 mod png_encode;
@@ -13,17 +14,19 @@ mod wasm;
 
 use std::{
     error::Error,
-    fs::{self, File},
-    io::BufWriter,
+    fs::File,
+    io::{BufWriter, Read, Write},
     path::{Path, PathBuf},
 };
 
 use crate::{
     image::{
-        assert_pixel_limit, read_image_page, read_image_page_from_bytes, read_image_pages,
-        read_image_pages_from_bytes, visit_image_pages, PdfImageCompression,
+        assert_pixel_limit, read_image_page_from_bytes, read_image_page_from_file,
+        read_image_pages, read_image_pages_from_bytes, visit_image_pages_from_file,
+        PdfImageCompression,
     },
     netpbm::parse_pbm_p4,
+    output::{validate_output_inputs, write_atomically},
     pdf::{
         build_layered_pdf_page, build_mask_pdf_page, build_pdf, write_pdf_to_writer, ImagePage,
         ImagePayload,
@@ -182,30 +185,49 @@ pub fn write_pdf_from_image_paths_with_progress(
     input_paths: &[PathBuf],
     output_path: &Path,
     options: &PdfBuildOptions,
+    on_processed: impl FnMut(usize),
+) -> Result<()> {
+    let validated_inputs = validate_output_inputs(input_paths, output_path)?;
+    write_pdf_from_validated_image_paths_with_progress(
+        input_paths,
+        output_path,
+        options,
+        &validated_inputs,
+        on_processed,
+    )
+}
+
+fn write_pdf_from_validated_image_paths_with_progress(
+    input_paths: &[PathBuf],
+    output_path: &Path,
+    options: &PdfBuildOptions,
+    validated_inputs: &output::ValidatedInputs,
     mut on_processed: impl FnMut(usize),
 ) -> Result<()> {
-    let output = File::create(output_path)?;
-    let writer = BufWriter::new(output);
     let mut page_count = 0;
 
-    write_pdf_to_writer(writer, |pdf| {
-        for (index, input_path) in input_paths.iter().enumerate() {
-            visit_image_pages(
-                input_path,
-                options.max_pixels,
-                options.default_dpi,
-                options.max_tiff_frames,
-                |page| {
-                    page_count = next_page_count_with_limit(page_count, 1, options.max_pages)?;
-                    pdf.add_page(&page)
-                },
-            )?;
-            on_processed(index + 1);
-        }
+    write_atomically(output_path, |output| {
+        let writer = BufWriter::new(output);
+        let mut writer = write_pdf_to_writer(writer, |pdf| {
+            for (index, input_path) in input_paths.iter().enumerate() {
+                visit_image_pages_from_file(
+                    input_path,
+                    validated_inputs.file(index)?,
+                    options.max_pixels,
+                    options.default_dpi,
+                    options.max_tiff_frames,
+                    |page| {
+                        page_count = next_page_count_with_limit(page_count, 1, options.max_pages)?;
+                        pdf.add_page(&page)
+                    },
+                )?;
+                on_processed(index + 1);
+            }
+            Ok(())
+        })?;
+        writer.flush()?;
         Ok(())
-    })?;
-
-    Ok(())
+    })
 }
 
 pub fn build_pdf_from_image_bytes_inputs(
@@ -406,93 +428,133 @@ pub fn write_mixed_pdf_from_page_specs_with_progress(
     }
     next_page_count_with_limit(0, page_specs.len(), options.max_pages)?;
 
-    let output = File::create(output_path)?;
-    let writer = BufWriter::new(output);
+    let input_paths = mixed_pdf_input_paths(page_specs);
+    let validated_inputs = validate_output_inputs(&input_paths, output_path)?;
 
-    write_pdf_to_writer(writer, |pdf| {
-        for (index, spec) in page_specs.iter().enumerate() {
-            match spec {
-                MixedPdfPageSpec::FullImage {
-                    page_size,
-                    image_path,
-                    compression,
-                    image_processing,
-                    size_guardrail,
-                } => {
-                    let page = read_single_image_page(
+    write_atomically(output_path, |output| {
+        let writer = BufWriter::new(output);
+        let mut writer = write_pdf_to_writer(writer, |pdf| {
+            let mut input_index = 0usize;
+            for (index, spec) in page_specs.iter().enumerate() {
+                match spec {
+                    MixedPdfPageSpec::FullImage {
+                        page_size,
                         image_path,
-                        options,
-                        image_compression_to_reader(*compression),
-                        *image_processing,
-                        Some(*page_size),
-                        guardrail_for_page(*size_guardrail, index + 1, true),
-                    )?;
-                    pdf.add_page_with_size(&page, page_size)?;
-                }
-                MixedPdfPageSpec::Layered {
-                    page_size,
-                    background_path,
-                    foreground_mask_path,
-                    foreground_color,
-                    background_compression,
-                    background_processing,
-                    size_guardrail,
-                } => {
-                    let background = read_single_image_page(
+                        compression,
+                        image_processing,
+                        size_guardrail,
+                    } => {
+                        let page = read_single_image_page_from_file(
+                            image_path,
+                            validated_inputs.file(input_index)?,
+                            options,
+                            image_compression_to_reader(*compression),
+                            *image_processing,
+                            Some(*page_size),
+                            guardrail_for_page(*size_guardrail, index + 1, true),
+                        )?;
+                        input_index += 1;
+                        pdf.add_page_with_size(&page, page_size)?;
+                    }
+                    MixedPdfPageSpec::Layered {
+                        page_size,
                         background_path,
-                        options,
-                        image_compression_to_reader(*background_compression),
-                        *background_processing,
-                        Some(*page_size),
-                        guardrail_for_page(*size_guardrail, index + 1, true),
-                    )?;
-                    let foreground_mask =
-                        parse_processed_pbm_mask(foreground_mask_path, options.max_pixels)?;
-                    assert_pixel_limit(
-                        foreground_mask.width,
-                        foreground_mask.height,
-                        options.max_pixels,
-                    )?;
-                    pdf.add_layered_page(&LayeredPdfPage {
-                        page_size: PdfPageSize {
-                            width_points: page_size.width_points,
-                            height_points: page_size.height_points,
-                        },
-                        background: image_page_to_layered_image(background),
-                        foreground_mask,
-                        foreground_color: *foreground_color,
-                    })?;
+                        foreground_mask_path: _,
+                        foreground_color,
+                        background_compression,
+                        background_processing,
+                        size_guardrail,
+                    } => {
+                        let background = read_single_image_page_from_file(
+                            background_path,
+                            validated_inputs.file(input_index)?,
+                            options,
+                            image_compression_to_reader(*background_compression),
+                            *background_processing,
+                            Some(*page_size),
+                            guardrail_for_page(*size_guardrail, index + 1, true),
+                        )?;
+                        input_index += 1;
+                        let foreground_mask = parse_processed_pbm_mask_from_file(
+                            validated_inputs.file(input_index)?,
+                            options.max_pixels,
+                        )?;
+                        input_index += 1;
+                        assert_pixel_limit(
+                            foreground_mask.width,
+                            foreground_mask.height,
+                            options.max_pixels,
+                        )?;
+                        pdf.add_layered_page(&LayeredPdfPage {
+                            page_size: PdfPageSize {
+                                width_points: page_size.width_points,
+                                height_points: page_size.height_points,
+                            },
+                            background: image_page_to_layered_image(background),
+                            foreground_mask,
+                            foreground_color: *foreground_color,
+                        })?;
+                    }
+                    MixedPdfPageSpec::MaskOnly {
+                        page_size,
+                        foreground_mask_path: _,
+                    } => {
+                        let foreground_mask = parse_processed_pbm_mask_from_file(
+                            validated_inputs.file(input_index)?,
+                            options.max_pixels,
+                        )?;
+                        input_index += 1;
+                        assert_pixel_limit(
+                            foreground_mask.width,
+                            foreground_mask.height,
+                            options.max_pixels,
+                        )?;
+                        pdf.add_mask_page(&MaskPdfPage {
+                            page_size: PdfPageSize {
+                                width_points: page_size.width_points,
+                                height_points: page_size.height_points,
+                            },
+                            foreground_mask,
+                        })?;
+                    }
                 }
-                MixedPdfPageSpec::MaskOnly {
-                    page_size,
-                    foreground_mask_path,
-                } => {
-                    let foreground_mask =
-                        parse_processed_pbm_mask(foreground_mask_path, options.max_pixels)?;
-                    assert_pixel_limit(
-                        foreground_mask.width,
-                        foreground_mask.height,
-                        options.max_pixels,
-                    )?;
-                    pdf.add_mask_page(&MaskPdfPage {
-                        page_size: PdfPageSize {
-                            width_points: page_size.width_points,
-                            height_points: page_size.height_points,
-                        },
-                        foreground_mask,
-                    })?;
-                }
+                on_processed(index + 1);
             }
-            on_processed(index + 1);
-        }
+            Ok(())
+        })?;
+        writer.flush()?;
         Ok(())
-    })?;
-
-    Ok(())
+    })
 }
 
-pub fn encode_netpbm_path_as_png(input_path: &Path, output_path: &Path) -> Result<()> {
-    encode_netpbm_file_as_png(input_path, output_path)
+fn mixed_pdf_input_paths(page_specs: &[MixedPdfPageSpec]) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    for spec in page_specs {
+        match spec {
+            MixedPdfPageSpec::FullImage { image_path, .. } => paths.push(image_path.clone()),
+            MixedPdfPageSpec::Layered {
+                background_path,
+                foreground_mask_path,
+                ..
+            } => {
+                paths.push(background_path.clone());
+                paths.push(foreground_mask_path.clone());
+            }
+            MixedPdfPageSpec::MaskOnly {
+                foreground_mask_path,
+                ..
+            } => paths.push(foreground_mask_path.clone()),
+        }
+    }
+    paths
+}
+
+pub fn encode_netpbm_path_as_png(
+    input_path: &Path,
+    output_path: &Path,
+    max_pixels: u64,
+) -> Result<()> {
+    encode_netpbm_file_as_png(input_path, output_path, max_pixels)
 }
 
 pub fn combine_tiff_paths(
@@ -539,8 +601,10 @@ fn guardrail_for_page(
     })
 }
 
-fn read_single_image_page(
+#[allow(clippy::too_many_arguments)]
+fn read_single_image_page_from_file(
     input_path: &Path,
+    file: File,
     options: &PdfBuildOptions,
     compression: PdfImageCompression,
     processing: MixedPdfImageProcessing,
@@ -548,8 +612,9 @@ fn read_single_image_page(
     size_guardrail: Option<JpegSizeGuardrail>,
 ) -> Result<ImagePage> {
     if !matches!(compression, PdfImageCompression::Auto) {
-        return read_image_page(
+        return read_image_page_from_file(
             input_path,
+            file,
             options.max_pixels,
             options.default_dpi,
             compression,
@@ -559,11 +624,17 @@ fn read_single_image_page(
         );
     }
 
-    let pages = read_image_pages(
+    let mut pages = Vec::new();
+    visit_image_pages_from_file(
         input_path,
+        file,
         options.max_pixels,
         options.default_dpi,
         options.max_tiff_frames,
+        |page| {
+            pages.push(page);
+            Ok(())
+        },
     )?;
     match pages.len() {
         1 => pages
@@ -623,8 +694,10 @@ fn read_single_image_page_from_bytes(
     }
 }
 
-fn parse_processed_pbm_mask(input_path: &Path, max_pixels: u64) -> Result<PbmP4Image> {
-    let foreground_mask = parse_pbm_p4(&fs::read(input_path)?)?;
+fn parse_processed_pbm_mask_from_file(mut file: File, max_pixels: u64) -> Result<PbmP4Image> {
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)?;
+    let foreground_mask = parse_pbm_p4(&bytes)?;
     assert_pixel_limit(foreground_mask.width, foreground_mask.height, max_pixels)?;
     Ok(foreground_mask)
 }
@@ -709,6 +782,7 @@ mod tests {
 
         fs::write(&first_path, b"P6\n1 1\n255\n\xff\0\0").unwrap();
         fs::write(&second_path, b"P6\n1 1\n255\n\0\xff\0").unwrap();
+        fs::write(&output_path, b"old-output").unwrap();
 
         let mut progress = Vec::new();
         write_pdf_from_image_paths_with_progress(
@@ -734,6 +808,170 @@ mod tests {
 
         let _ = fs::remove_file(first_path);
         let _ = fs::remove_file(second_path);
+        let _ = fs::remove_file(output_path);
+    }
+
+    #[test]
+    fn pdf_writer_decodes_validated_descriptors_after_paths_become_output_aliases() {
+        let ppm_path = temp_path("descriptor-ppm").with_extension("ppm");
+        let jpeg_path = temp_path("descriptor-jpeg").with_extension("jpg");
+        let png_path = temp_path("descriptor-png").with_extension("png");
+        let tiff_path = temp_path("descriptor-tiff").with_extension("tiff");
+        let output_path = temp_path("descriptor-output").with_extension("pdf");
+        let input_paths = vec![
+            ppm_path.clone(),
+            jpeg_path.clone(),
+            png_path.clone(),
+            tiff_path.clone(),
+        ];
+        fs::write(&ppm_path, b"P6\n1 1\n255\n\xff\0\0").unwrap();
+        fs::write(&jpeg_path, minimal_jpeg()).unwrap();
+        fs::write(&png_path, minimal_png()).unwrap();
+        write_two_page_rgb_tiff(&tiff_path);
+        fs::write(&output_path, b"old-output").unwrap();
+
+        let validated_inputs = validate_output_inputs(&input_paths, &output_path).unwrap();
+        let mut displaced_paths = Vec::new();
+        for (index, input_path) in input_paths.iter().enumerate() {
+            let displaced_path = temp_path(&format!("descriptor-original-{index}"));
+            fs::rename(input_path, &displaced_path).unwrap();
+            fs::hard_link(&output_path, input_path).unwrap();
+            displaced_paths.push(displaced_path);
+        }
+
+        write_pdf_from_validated_image_paths_with_progress(
+            &input_paths,
+            &output_path,
+            &PdfBuildOptions::default(),
+            &validated_inputs,
+            |_| {},
+        )
+        .unwrap();
+
+        let pdf = fs::read(&output_path).unwrap();
+        assert!(pdf.starts_with(b"%PDF-1.4"));
+        assert!(pdf
+            .windows(b"/Count 5".len())
+            .any(|window| window == b"/Count 5"));
+        for input_path in &input_paths {
+            assert_eq!(fs::read(input_path).unwrap(), b"old-output");
+            let _ = fs::remove_file(input_path);
+        }
+        for displaced_path in displaced_paths {
+            let _ = fs::remove_file(displaced_path);
+        }
+        let _ = fs::remove_file(output_path);
+    }
+
+    #[test]
+    fn rejects_pdf_output_that_is_the_input_without_modifying_it() {
+        let input_path = temp_path("same-input-output").with_extension("ppm");
+        let original = b"P6\n1 1\n255\n\xff\0\0";
+        fs::write(&input_path, original).unwrap();
+
+        let error = write_pdf_from_image_paths(
+            std::slice::from_ref(&input_path),
+            &input_path,
+            &PdfBuildOptions::default(),
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("Output aliases an input"));
+        assert_eq!(fs::read(&input_path).unwrap(), original);
+        let _ = fs::remove_file(input_path);
+    }
+
+    #[test]
+    fn rejects_pdf_output_hardlink_to_input_without_modifying_either_link() {
+        let input_path = temp_path("hardlink-input").with_extension("ppm");
+        let output_path = temp_path("hardlink-output").with_extension("pdf");
+        let original = b"P6\n1 1\n255\n\0\xff\0";
+        fs::write(&input_path, original).unwrap();
+        fs::hard_link(&input_path, &output_path).unwrap();
+
+        let error = write_pdf_from_image_paths(
+            std::slice::from_ref(&input_path),
+            &output_path,
+            &PdfBuildOptions::default(),
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("Output aliases an input"));
+        assert_eq!(fs::read(&input_path).unwrap(), original);
+        assert_eq!(fs::read(&output_path).unwrap(), original);
+        let _ = fs::remove_file(input_path);
+        let _ = fs::remove_file(output_path);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_pdf_output_symlink_to_input_without_modifying_target() {
+        use std::os::unix::fs::symlink;
+
+        let input_path = temp_path("symlink-input").with_extension("ppm");
+        let output_path = temp_path("symlink-output").with_extension("pdf");
+        let original = b"P6\n1 1\n255\n\0\0\xff";
+        fs::write(&input_path, original).unwrap();
+        symlink(&input_path, &output_path).unwrap();
+
+        let error = write_pdf_from_image_paths(
+            std::slice::from_ref(&input_path),
+            &output_path,
+            &PdfBuildOptions::default(),
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("Output aliases an input"));
+        assert_eq!(fs::read(&input_path).unwrap(), original);
+        assert!(fs::symlink_metadata(&output_path)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        let _ = fs::remove_file(input_path);
+        let _ = fs::remove_file(output_path);
+    }
+
+    #[test]
+    fn keeps_existing_pdf_and_cleans_temporary_file_on_processing_failure() {
+        let valid_path = temp_path("atomic-valid").with_extension("ppm");
+        let invalid_path = temp_path("atomic-invalid").with_extension("ppm");
+        let output_path = temp_path("atomic-existing-output").with_extension("pdf");
+        fs::write(&valid_path, b"P6\n1 1\n255\n\xff\0\0").unwrap();
+        fs::write(&invalid_path, b"not a netpbm image").unwrap();
+        fs::write(&output_path, b"existing-output").unwrap();
+
+        let result = write_pdf_from_image_paths(
+            &[valid_path.clone(), invalid_path.clone()],
+            &output_path,
+            &PdfBuildOptions::default(),
+        );
+
+        assert!(result.is_err());
+        assert_eq!(fs::read(&output_path).unwrap(), b"existing-output");
+        assert_no_sibling_temporary(&output_path);
+        let _ = fs::remove_file(valid_path);
+        let _ = fs::remove_file(invalid_path);
+        let _ = fs::remove_file(output_path);
+    }
+
+    #[test]
+    fn validates_every_pdf_input_before_creating_a_temporary_output() {
+        let valid_path = temp_path("prevalidate-valid").with_extension("ppm");
+        let missing_path = temp_path("prevalidate-missing").with_extension("ppm");
+        let output_path = temp_path("prevalidate-output").with_extension("pdf");
+        fs::write(&valid_path, b"P6\n1 1\n255\n\xff\0\0").unwrap();
+        fs::write(&output_path, b"existing-output").unwrap();
+
+        let result = write_pdf_from_image_paths(
+            &[valid_path.clone(), missing_path],
+            &output_path,
+            &PdfBuildOptions::default(),
+        );
+
+        assert!(result.is_err());
+        assert_eq!(fs::read(&output_path).unwrap(), b"existing-output");
+        assert_no_sibling_temporary(&output_path);
+        let _ = fs::remove_file(valid_path);
         let _ = fs::remove_file(output_path);
     }
 
@@ -854,6 +1092,78 @@ mod tests {
         let _ = fs::remove_file(background_path);
         let _ = fs::remove_file(mask_path);
         let _ = fs::remove_file(fallback_path);
+        let _ = fs::remove_file(output_path);
+    }
+
+    #[test]
+    fn keeps_existing_mixed_pdf_on_late_page_failure() {
+        let valid_path = temp_path("mixed-atomic-valid").with_extension("ppm");
+        let invalid_path = temp_path("mixed-atomic-invalid").with_extension("ppm");
+        let output_path = temp_path("mixed-atomic-output").with_extension("pdf");
+        fs::write(&valid_path, b"P6\n1 1\n255\n\xff\0\0").unwrap();
+        fs::write(&invalid_path, b"invalid").unwrap();
+        fs::write(&output_path, b"existing-mixed-output").unwrap();
+        let page_size = PdfPageSize {
+            width_points: 72.0,
+            height_points: 72.0,
+        };
+
+        let result = write_mixed_pdf_from_page_specs_with_progress(
+            &[
+                MixedPdfPageSpec::FullImage {
+                    page_size,
+                    image_path: valid_path.clone(),
+                    compression: MixedPdfImageCompression::Auto,
+                    image_processing: MixedPdfImageProcessing::None,
+                    size_guardrail: false,
+                },
+                MixedPdfPageSpec::FullImage {
+                    page_size,
+                    image_path: invalid_path.clone(),
+                    compression: MixedPdfImageCompression::Auto,
+                    image_processing: MixedPdfImageProcessing::None,
+                    size_guardrail: false,
+                },
+            ],
+            &output_path,
+            &PdfBuildOptions::default(),
+            |_| {},
+        );
+
+        assert!(result.is_err());
+        assert_eq!(fs::read(&output_path).unwrap(), b"existing-mixed-output");
+        assert_no_sibling_temporary(&output_path);
+        let _ = fs::remove_file(valid_path);
+        let _ = fs::remove_file(invalid_path);
+        let _ = fs::remove_file(output_path);
+    }
+
+    #[test]
+    fn rejects_mixed_pdf_output_hardlink_to_mask_input() {
+        let mask_path = temp_path("mixed-mask-alias-input").with_extension("pbm");
+        let output_path = temp_path("mixed-mask-alias-output").with_extension("pdf");
+        let original = b"P4\n8 1\n\x80";
+        fs::write(&mask_path, original).unwrap();
+        fs::hard_link(&mask_path, &output_path).unwrap();
+
+        let error = write_mixed_pdf_from_page_specs_with_progress(
+            &[MixedPdfPageSpec::MaskOnly {
+                page_size: PdfPageSize {
+                    width_points: 72.0,
+                    height_points: 72.0,
+                },
+                foreground_mask_path: mask_path.clone(),
+            }],
+            &output_path,
+            &PdfBuildOptions::default(),
+            |_| {},
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("Output aliases an input"));
+        assert_eq!(fs::read(&mask_path).unwrap(), original);
+        assert_eq!(fs::read(&output_path).unwrap(), original);
+        let _ = fs::remove_file(mask_path);
         let _ = fs::remove_file(output_path);
     }
 
@@ -992,6 +1302,20 @@ mod tests {
         chunk
     }
 
+    fn minimal_png() -> Vec<u8> {
+        let mut ihdr = Vec::new();
+        ihdr.extend_from_slice(&1u32.to_be_bytes());
+        ihdr.extend_from_slice(&1u32.to_be_bytes());
+        ihdr.extend_from_slice(&[8, 2, 0, 0, 0]);
+        [
+            b"\x89PNG\r\n\x1a\n".as_slice(),
+            &png_chunk(b"IHDR", &ihdr),
+            &png_chunk(b"IDAT", &zlib_bytes(&[0, 0, 0, 0])),
+            &png_chunk(b"IEND", b""),
+        ]
+        .concat()
+    }
+
     fn zlib_bytes(data: &[u8]) -> Vec<u8> {
         let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
         encoder.write_all(data).unwrap();
@@ -1021,9 +1345,24 @@ mod tests {
     }
 
     fn minimal_jpeg() -> Vec<u8> {
-        vec![
-            0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, b'J', b'F', b'I', b'F', 0, 1, 1, 1, 0, 72, 0, 72,
-            0, 0, 0xff, 0xc0, 0x00, 0x0b, 8, 0, 1, 0, 1, 1, 1, 0x11, 0, 0xff, 0xd9,
-        ]
+        let mut jpeg = Vec::new();
+        jpeg_encoder::Encoder::new(&mut jpeg, 90)
+            .encode(&[0, 0, 0], 1, 1, jpeg_encoder::ColorType::Rgb)
+            .unwrap();
+        jpeg
+    }
+
+    fn assert_no_sibling_temporary(output_path: &Path) {
+        let parent = output_path.parent().unwrap();
+        let marker = format!(
+            ".{}.evb-tmp-",
+            output_path.file_name().unwrap().to_string_lossy()
+        );
+        let leftovers: Vec<_> = fs::read_dir(parent)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with(&marker))
+            .collect();
+        assert!(leftovers.is_empty(), "temporary output was not cleaned");
     }
 }

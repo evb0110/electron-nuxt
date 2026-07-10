@@ -10,6 +10,26 @@ import {
     type IDependencyLockstepInput,
 } from '@scripts/checkDependencyLockstep';
 
+const DEFAULT_OVERRIDES = {
+    '@babel/core': '7.29.6',
+    '@nuxt/cli': '3.36.1',
+    '@tiptap/y-tiptap': '3.0.4',
+    '@vue/compiler-sfc': '3.5.35',
+    '@eslint/config-inspector@^1.0.0>esbuild': '0.28.1',
+    'bundle-require@^5.0.0>esbuild': '0.28.1',
+    'fast-uri': '3.1.2',
+    'fast-xml-builder': '1.1.7',
+    'fontless@^0.2.0>esbuild': '0.28.1',
+    'js-yaml': '4.2.0',
+    'launch-editor': '2.14.1',
+    'minimatch@^10.0.0>brace-expansion': '5.0.7',
+    'shell-quote': '1.8.4',
+    tar: '7.5.19',
+    'tsx@^4.0.0>esbuild': '0.28.1',
+    'vite@^7.0.0>esbuild': '0.28.1',
+    ws: '8.21.0',
+};
+
 function createPackageJson(overrides: {
     dependencies?: Record<string, string>;
     devDependencies?: Record<string, string>;
@@ -37,7 +57,7 @@ function createPackageJson(overrides: {
         devDependencies: {
             '@nuxt/eslint': '^1.15.2',
             eslint: '^9.39.4',
-            nuxt: '4.4.2',
+            nuxt: '4.4.8',
             typescript: '^5.9.3',
             'vue-i18n': '^11.4.4',
             'vue-tsc': '3.3.3',
@@ -45,9 +65,7 @@ function createPackageJson(overrides: {
         },
         packageManager: overrides.packageManager ?? 'pnpm@10.32.1',
         pnpm: {overrides: {
-            '@nuxt/cli': '3.35.1',
-            '@tiptap/y-tiptap': '3.0.4',
-            '@vue/compiler-sfc': '3.5.35',
+            ...DEFAULT_OVERRIDES,
             ...overrides.pnpmOverrides,
         }},
     };
@@ -61,7 +79,7 @@ function createLandingPackageJson(overrides: {
 } = {}): IDependencyLockstepInput['packageJson'] {
     return {
         dependencies: {
-            nuxt: '4.4.2',
+            nuxt: '4.4.8',
             'vue-i18n': '^11.4.4',
             ...overrides.dependencies,
         },
@@ -74,9 +92,7 @@ function createLandingPackageJson(overrides: {
         },
         packageManager: overrides.packageManager ?? 'pnpm@10.32.1',
         pnpm: {overrides: {
-            '@nuxt/cli': '3.35.1',
-            '@tiptap/y-tiptap': '3.0.4',
-            '@vue/compiler-sfc': '3.5.35',
+            ...DEFAULT_OVERRIDES,
             ...overrides.pnpmOverrides,
         }},
     };
@@ -84,9 +100,7 @@ function createLandingPackageJson(overrides: {
 
 function createLockfile(overrides: Record<string, string> = {}) {
     const lockfileOverrides = {
-        '@nuxt/cli': '3.35.1',
-        '@tiptap/y-tiptap': '3.0.4',
-        '@vue/compiler-sfc': '3.5.35',
+        ...DEFAULT_OVERRIDES,
         ...overrides,
     };
     const overrideLines = Object.entries(lockfileOverrides)
@@ -95,6 +109,25 @@ function createLockfile(overrides: Record<string, string> = {}) {
             version,
         ]) => `  '${packageName}': ${version}`)
         .join('\n');
+    const resolvedPackages = new Map<string, string>();
+    for (const [
+        overrideKey,
+        version,
+    ] of Object.entries(DEFAULT_OVERRIDES)) {
+        const target = overrideKey.split('>').at(-1) ?? overrideKey;
+        const versionSeparator = target.startsWith('@')
+            ? target.indexOf('@', target.indexOf('/') + 1)
+            : target.indexOf('@');
+        const packageName = versionSeparator === -1 ? target : target.slice(0, versionSeparator);
+
+        resolvedPackages.set(packageName, version);
+    }
+    const packageLines = [...resolvedPackages]
+        .map(([
+            packageName,
+            version,
+        ]) => `  '${packageName}@${version}':\n    resolution: {integrity: sha512-test}`)
+        .join('\n\n');
 
     return parsePnpmLockfile(`
 lockfileVersion: '9.0'
@@ -104,30 +137,13 @@ ${overrideLines}
 
 packages:
 
-  '@nuxt/cli@3.35.1':
-    resolution: {integrity: sha512-test}
-
-  '@tiptap/y-tiptap@3.0.4':
-    resolution: {integrity: sha512-test}
-
-  '@vue/compiler-sfc@3.5.35':
-    resolution: {integrity: sha512-test}
-
-snapshots:
-
-  '@nuxt/cli@3.35.1(@nuxt/schema@4.4.2)':
-    dependencies: {}
-
-  '@tiptap/y-tiptap@3.0.4(prosemirror-model@1.25.7)':
-    dependencies: {}
-
-  '@vue/compiler-sfc@3.5.35':
-    dependencies: {}
+${packageLines}
 `);
 }
 
 function runCheck(packageOverrides: Parameters<typeof createPackageJson>[0] = {}) {
     return checkDependencyLockstep({
+        landingLockfile: createLockfile(packageOverrides.pnpmOverrides),
         landingPackageJson: createLandingPackageJson(packageOverrides),
         lockfile: createLockfile(packageOverrides.pnpmOverrides),
         packageJson: createPackageJson(packageOverrides),
@@ -159,25 +175,36 @@ describe('dependency lockstep check', () => {
     });
 
     it('rejects overrides that are not resolved in the lockfile graph', () => {
-        expect(runCheck({pnpmOverrides: {'@stale/package': '1.0.0'}})).toContain('pnpm.overrides.@stale/package targets @stale/package, but that package is not resolved in pnpm-lock.yaml.');
+        expect(runCheck({pnpmOverrides: {'@stale/package': '1.0.0'}})).toContain('pnpm.overrides.@stale/package targets @stale/package, but that package is not resolved in either pnpm-lock.yaml or landing/pnpm-lock.yaml.');
     });
 
     it('rejects landing package manager and override drift from the root package', () => {
         expect(checkDependencyLockstep({
+            landingLockfile: createLockfile(),
             landingPackageJson: createLandingPackageJson({
                 packageManager: 'pnpm@10.32.2',
-                pnpmOverrides: {'@nuxt/cli': '3.35.2'},
+                pnpmOverrides: {'@nuxt/cli': '3.36.2'},
             }),
             lockfile: createLockfile(),
             packageJson: createPackageJson(),
         })).toEqual(expect.arrayContaining([
             'landing/package.json packageManager must match root package.json (pnpm@10.32.1), received "pnpm@10.32.2".',
-            'landing/package.json pnpm.overrides.@nuxt/cli must match root package.json value "3.35.1", received "3.35.2".',
+            'landing/package.json pnpm.overrides.@nuxt/cli must match root package.json value "3.36.1", received "3.36.2".',
         ]));
+    });
+
+    it('rejects independent landing lockfile override drift', () => {
+        expect(checkDependencyLockstep({
+            landingLockfile: createLockfile({'js-yaml': '4.1.1'}),
+            landingPackageJson: createLandingPackageJson(),
+            lockfile: createLockfile(),
+            packageJson: createPackageJson(),
+        })).toContain('landing/pnpm-lock.yaml override js-yaml must match package.json value "4.2.0", received "4.1.1".');
     });
 
     it('rejects landing shared dependency anchor drift while allowing exact/range style differences', () => {
         expect(checkDependencyLockstep({
+            landingLockfile: createLockfile(),
             landingPackageJson: createLandingPackageJson({devDependencies: {
                 '@nuxt/eslint': '1.15.3',
                 'vue-tsc': '^3.3.3',

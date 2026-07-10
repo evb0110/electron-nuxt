@@ -4,21 +4,37 @@ import {
 } from 'fs';
 import {
     access,
+    chmod,
+    copyFile,
+    lstat,
+    mkdtemp,
     mkdir,
+    open,
+    rename,
+    rm,
 } from 'fs/promises';
 import { spawn } from 'child_process';
 import {
     delimiter,
     join,
+    win32 as windowsPath,
 } from 'path';
-import { homedir } from 'os';
+import {
+    homedir,
+    tmpdir,
+} from 'os';
+import { randomBytes } from 'node:crypto';
 import { app } from 'electron';
 import { getErrorMessage } from '@electron/utils/error';
+import { downloadPinnedCodexArtifact } from '@electron/features/agent/codexCliArtifactDownload';
+import {
+    PINNED_CODEX_CLI_VERSION,
+    resolvePinnedCodexCliArtifact,
+} from '@electron/features/agent/codexCliReleaseManifest';
 
 export const CODEX_APP_INSTALL_URL = 'https://developers.openai.com/codex/app';
-export const CODEX_STANDALONE_INSTALL_URL = process.platform === 'win32'
-    ? 'https://chatgpt.com/codex/install.ps1'
-    : 'https://chatgpt.com/codex/install.sh';
+export const CODEX_STANDALONE_INSTALL_URL = resolvePinnedCodexCliArtifact()?.url
+    ?? CODEX_APP_INSTALL_URL;
 const MIN_CODEX_APP_SERVER_VERSION = '0.133.0';
 
 const CODEX_COMMAND_TIMEOUT_MS = 15_000;
@@ -53,8 +69,8 @@ function getCodexExecutableName() {
 
 function getWindowsCodexExecutableNames() {
     return [
-        'codex.cmd',
         'codex.exe',
+        'codex.cmd',
         'codex',
     ];
 }
@@ -282,64 +298,191 @@ export async function getCodexCliInfo(): Promise<ICodexCliInfo> {
     };
 }
 
-function createInstallProgressRelay(options: IInstallCodexOptions) {
-    let pending = '';
-    return (chunk: string) => {
-        pending += chunk;
-        const lines = pending.split(/\r?\n/u);
-        pending = lines.pop() ?? '';
-        for (const line of lines) {
-            const normalized = line.trim();
-            if (normalized) {
-                options.onProgress?.(normalized);
-            }
-        }
-    };
+function isMissingPathError(error: unknown) {
+    return error instanceof Error && 'code' in error && error.code === 'ENOENT';
 }
 
-export async function installManagedCodex(options: IInstallCodexOptions = {}) {
-    const installDir = getManagedCodexInstallDir();
-    await mkdir(installDir, { recursive: true });
-
-    const relay = createInstallProgressRelay(options);
-    const env = {
-        CODEX_INSTALL_DIR: installDir,
-        CODEX_NON_INTERACTIVE: '1',
-    };
-    const result = process.platform === 'win32'
-        ? await runCommand(
-            'powershell.exe',
-            [
-                '-NoProfile',
-                '-ExecutionPolicy',
-                'Bypass',
-                '-Command',
-                `$ErrorActionPreference = 'Stop'; Invoke-WebRequest -UseBasicParsing '${CODEX_STANDALONE_INSTALL_URL}' | Invoke-Expression`,
-            ],
-            CODEX_INSTALL_TIMEOUT_MS,
-            {
-                env,
-                onStdout: relay,
-                onStderr: relay,
-            },
-        )
-        : await runCommand(
-            '/bin/sh',
-            [
-                '-c',
-                `curl -fsSL '${CODEX_STANDALONE_INSTALL_URL}' | sh`,
-            ],
-            CODEX_INSTALL_TIMEOUT_MS,
-            {
-                env,
-                onStdout: relay,
-                onStderr: relay,
-            },
-        );
-
-    if (!result.ok) {
-        throw new Error(result.stderr.trim() || result.stdout.trim() || 'Codex installation failed.');
+export function resolveManagedCodexArchiveExtractorPath(
+    platform: NodeJS.Platform = process.platform,
+    environment: NodeJS.ProcessEnv = process.env,
+    pathExists: (path: string) => boolean = existsSync,
+) {
+    const candidates = platform === 'win32'
+        ? (() => {
+            const configuredRoot = environment.SystemRoot;
+            const normalizedConfiguredRoot = configuredRoot
+                ? windowsPath.normalize(configuredRoot)
+                : null;
+            const normalizedRoot = normalizedConfiguredRoot
+                && /^[a-z]:\\windows$/iu.test(normalizedConfiguredRoot)
+                ? normalizedConfiguredRoot
+                : 'C:\\Windows';
+            return [windowsPath.join(normalizedRoot, 'System32', 'tar.exe')];
+        })()
+        : [
+            '/usr/bin/tar',
+            '/bin/tar',
+        ];
+    const extractorPath = candidates.find(pathExists);
+    if (!extractorPath) {
+        throw new Error('A trusted system tar extractor is required to install Codex.');
     }
+    return extractorPath;
+}
 
-    return getCodexCliInfo();
+async function stageManagedCodexReplacement(stagedPath: string, targetPath: string) {
+    const backupPath = `${targetPath}.backup.${process.pid}.${randomBytes(8).toString('hex')}`;
+    let hasBackup = false;
+    try {
+        await rename(targetPath, backupPath);
+        hasBackup = true;
+    } catch (error) {
+        if (!isMissingPathError(error)) {
+            throw error;
+        }
+    }
+    try {
+        await rename(stagedPath, targetPath);
+    } catch (error) {
+        if (hasBackup) {
+            await rename(backupPath, targetPath).catch(() => undefined);
+        }
+        throw error;
+    }
+    return hasBackup ? backupPath : null;
+}
+
+async function restoreManagedCodexReplacement(targetPath: string, backupPath: string | null) {
+    await rm(targetPath, {force: true});
+    if (backupPath) {
+        await rename(backupPath, targetPath);
+    }
+}
+
+export async function removeReplacedCodexBackupBestEffort(
+    backupPath: string | null,
+    removeFile: (path: string, options: {force: true}) => Promise<unknown> = rm,
+) {
+    if (backupPath) {
+        await removeFile(backupPath, {force: true}).catch(() => undefined);
+    }
+    return null;
+}
+
+let managedCodexInstallPromise: Promise<ICodexCliInfo> | null = null;
+
+async function performManagedCodexInstall(options: IInstallCodexOptions) {
+    const artifact = resolvePinnedCodexCliArtifact();
+    if (!artifact) {
+        throw new Error(`Managed Codex installation is not supported on ${process.platform}/${process.arch}.`);
+    }
+    const installDir = getManagedCodexInstallDir();
+    await mkdir(installDir, {
+        recursive: true,
+        mode: 0o700,
+    });
+    if (process.platform !== 'win32') {
+        await chmod(installDir, 0o700);
+    }
+    const workingDir = await mkdtemp(join(tmpdir(), 'evb-codex-install-'));
+    const archivePath = join(workingDir, artifact.assetName);
+    const extractionDir = join(workingDir, 'extracted');
+    const targetPath = join(installDir, process.platform === 'win32' ? 'codex.exe' : 'codex');
+    const stagedPath = join(installDir, `.codex.${process.pid}.${randomBytes(8).toString('hex')}.tmp`);
+    let backupPath: string | null = null;
+    try {
+        options.onProgress?.(`Downloading verified Codex ${PINNED_CODEX_CLI_VERSION} artifact…`);
+        await downloadPinnedCodexArtifact(artifact, archivePath);
+        options.onProgress?.('SHA-256 verified. Extracting Codex…');
+        await mkdir(extractionDir, {mode: 0o700});
+        const extractionResult = await runCommand(
+            resolveManagedCodexArchiveExtractorPath(),
+            [
+                artifact.archiveKind === 'tar.gz' ? '-xzf' : '-xf',
+                archivePath,
+                '-C',
+                extractionDir,
+                artifact.executableEntry,
+            ],
+            CODEX_INSTALL_TIMEOUT_MS,
+        );
+        if (!extractionResult.ok) {
+            throw new Error(extractionResult.stderr.trim() || 'Failed to extract the verified Codex artifact.');
+        }
+        const extractedPath = join(extractionDir, artifact.executableEntry);
+        const extractedStats = await lstat(extractedPath);
+        if (extractedStats.isSymbolicLink() || !extractedStats.isFile()) {
+            throw new Error('Verified Codex archive did not contain the expected regular executable file.');
+        }
+        await copyFile(extractedPath, stagedPath, constants.COPYFILE_EXCL);
+        if (process.platform !== 'win32') {
+            await chmod(stagedPath, 0o700);
+        }
+        const stagedHandle = await open(stagedPath, 'r');
+        try {
+            await stagedHandle.sync();
+        } finally {
+            await stagedHandle.close();
+        }
+
+        backupPath = await stageManagedCodexReplacement(stagedPath, targetPath);
+        const versionResult = await runCommand(targetPath, ['--version']);
+        const version = versionResult.ok
+            ? parseCodexVersion(versionResult.stdout || versionResult.stderr)
+            : null;
+        if (version !== PINNED_CODEX_CLI_VERSION) {
+            await restoreManagedCodexReplacement(targetPath, backupPath);
+            backupPath = null;
+            throw new Error(`Installed Codex version ${version ?? 'unknown'} did not match pinned version ${PINNED_CODEX_CLI_VERSION}.`);
+        }
+        if (backupPath) {
+            const replacedBackupPath = backupPath;
+            backupPath = null;
+            await removeReplacedCodexBackupBestEffort(replacedBackupPath);
+        }
+        options.onProgress?.(`Installed verified Codex ${version}.`);
+        return {
+            installed: true,
+            path: targetPath,
+            version,
+            isVersionSupported: isCodexVersionSupported(version),
+            minimumVersion: MIN_CODEX_APP_SERVER_VERSION,
+            managedInstallDir: installDir,
+        };
+    } catch (error) {
+        if (backupPath) {
+            try {
+                await restoreManagedCodexReplacement(targetPath, backupPath);
+                backupPath = null;
+            } catch (restoreError) {
+                throw new AggregateError(
+                    [
+                        error,
+                        restoreError,
+                    ],
+                    `Codex installation failed and the previous executable remains at ${backupPath}.`,
+                );
+            }
+        }
+        throw error;
+    } finally {
+        await rm(stagedPath, {force: true}).catch(() => undefined);
+        await rm(workingDir, {
+            recursive: true,
+            force: true,
+        }).catch(() => undefined);
+    }
+}
+
+export function installManagedCodex(options: IInstallCodexOptions = {}) {
+    if (managedCodexInstallPromise) {
+        return managedCodexInstallPromise;
+    }
+    const installPromise = performManagedCodexInstall(options).finally(() => {
+        if (managedCodexInstallPromise === installPromise) {
+            managedCodexInstallPromise = null;
+        }
+    });
+    managedCodexInstallPromise = installPromise;
+    return installPromise;
 }

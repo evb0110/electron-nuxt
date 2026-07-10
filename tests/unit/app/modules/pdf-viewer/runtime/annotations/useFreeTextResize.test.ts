@@ -10,6 +10,7 @@ import {
 import { effectScope } from 'vue';
 import { useFreeTextResize } from '@app/modules/pdf-viewer/runtime/annotations/useFreeTextResize';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
+import { cast } from '@tests/helpers/cast';
 
 function createFreeTextEditor() {
     const div = document.createElement('div');
@@ -114,5 +115,48 @@ describe('useFreeTextResize', () => {
         scope.stop();
 
         expect(document.documentElement.classList.contains('pdf-resizing-nwse')).toBe(false);
+    });
+
+    it('installs pre-select after an editor receives its DOM later', () => {
+        vi.stubGlobal('requestAnimationFrame', vi.fn());
+        vi.stubGlobal('cancelAnimationFrame', vi.fn());
+        const scope = effectScope();
+        const selectedEditor = {current: null as IPdfjsEditor | null};
+        const setSelected = (editor: IPdfjsEditor) => {
+            selectedEditor.current = editor;
+        };
+        const uiManager = {setSelected};
+        const editor = cast<IPdfjsEditor>({
+            div: null,
+            height: 1,
+            isSelected: false,
+            isDraggable: true,
+            serialize: () => ({
+                annotationType: 'freetext',
+                fontSize: 10,
+            }),
+            width: 1,
+        });
+        const resize = scope.run(() => useFreeTextResize({
+            getAnnotationUiManager: () => uiManager as never,
+            getNumPages: () => 1,
+            emitAnnotationModified: vi.fn(),
+            emitAnnotationSetting: vi.fn(),
+            scheduleAnnotationCommentsSync: vi.fn(),
+        }));
+        if (!resize) {
+            throw new Error('Expected FreeText resize scope');
+        }
+
+        resize.ensureFreeTextEditorCanResize(editor);
+        const div = document.createElement('div');
+        div.className = 'freeTextEditor';
+        document.body.append(div);
+        editor.div = div;
+        resize.ensureFreeTextEditorCanResize(editor);
+        div.dispatchEvent(new PointerEvent('pointerdown', { button: 0 }));
+
+        expect(selectedEditor.current).toBe(editor);
+        scope.stop();
     });
 });

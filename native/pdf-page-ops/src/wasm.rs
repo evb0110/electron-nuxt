@@ -40,7 +40,10 @@ struct ParsedRequest<'a> {
 
 #[no_mangle]
 pub extern "C" fn evb_pdf_page_ops_alloc(len: usize) -> *mut u8 {
-    let mut buffer = Vec::<u8>::with_capacity(len);
+    let mut buffer = Vec::<u8>::new();
+    if buffer.try_reserve_exact(len).is_err() {
+        return std::ptr::null_mut();
+    }
     let pointer = buffer.as_mut_ptr();
     mem::forget(buffer);
     pointer
@@ -162,7 +165,30 @@ fn parse_request(request: &[u8]) -> Result<ParsedRequest<'_>> {
     let data_len = read_usize_le(request, &mut offset, "data_len")?;
     let insertion_data_len = read_usize_le(request, &mut offset, "insertion_data_len")?;
 
-    let mut pages = Vec::with_capacity(page_count);
+    let page_bytes_len = page_count
+        .checked_mul(std::mem::size_of::<u32>())
+        .ok_or("Invalid page-op WASM page count")?;
+    let required_remaining = page_bytes_len
+        .checked_add(data_len)
+        .and_then(|length| length.checked_add(insertion_data_len))
+        .ok_or("Invalid page-op WASM request length")?;
+    let actual_remaining = request
+        .len()
+        .checked_sub(offset)
+        .ok_or("Invalid page-op WASM request length")?;
+    if required_remaining != actual_remaining {
+        return Err(if required_remaining > actual_remaining {
+            "Truncated page-op WASM request"
+        } else {
+            "Trailing bytes in page-op WASM request"
+        }
+        .into());
+    }
+
+    let mut pages = Vec::new();
+    pages
+        .try_reserve_exact(page_count)
+        .map_err(|_| "Page-op WASM page list is too large")?;
     for _ in 0..page_count {
         pages.push(read_u32_le(request, &mut offset)?);
     }
@@ -263,4 +289,111 @@ fn write_u32_le(output: &mut Vec<u8>, value: u32) {
 
 fn write_f64_le(output: &mut Vec<u8>, value: f64) {
     output.extend_from_slice(&value.to_le_bytes());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lopdf::{dictionary, Document, Object};
+
+    fn request_header(page_count: u32, data_len: u32, insertion_data_len: u32) -> Vec<u8> {
+        let mut request = Vec::new();
+        request.extend_from_slice(REQUEST_MAGIC);
+        for value in [REQUEST_VERSION, OP_DELETE_PAGES, page_count, 0, 0, 0] {
+            write_u32_le(&mut request, value);
+        }
+        for _ in 0..4 {
+            write_f64_le(&mut request, 0.0);
+        }
+        write_u32_le(&mut request, data_len);
+        write_u32_le(&mut request, insertion_data_len);
+        request
+    }
+
+    fn test_pdf_bytes() -> Vec<u8> {
+        let mut document = Document::with_version("1.4");
+        let pages_id = document.new_object_id();
+        let page_id = document.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+        });
+        document.set_object(
+            pages_id,
+            dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![Object::Reference(page_id)],
+                "Count" => 1,
+                "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+            },
+        );
+        let catalog_id = document.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        });
+        document.trailer.set("Root", catalog_id);
+        let mut bytes = Vec::new();
+        document.save_to(&mut bytes).expect("serialize test PDF");
+        bytes
+    }
+
+    fn crop_request(data: &[u8], top: f64) -> Vec<u8> {
+        let mut request = Vec::new();
+        request.extend_from_slice(REQUEST_MAGIC);
+        for value in [REQUEST_VERSION, OP_CROP, 1, 0, 0, 0] {
+            write_u32_le(&mut request, value);
+        }
+        for value in [top, 0.0, 0.0, 0.0] {
+            write_f64_le(&mut request, value);
+        }
+        write_u32_le(&mut request, data.len() as u32);
+        write_u32_le(&mut request, 0);
+        write_u32_le(&mut request, 1);
+        request.extend_from_slice(data);
+        request
+    }
+
+    #[test]
+    fn rejects_page_count_that_exceeds_remaining_records_before_reserving() {
+        let request = request_header(u32::MAX, 0, 0);
+
+        let error = parse_request(&request)
+            .err()
+            .expect("oversized page count must fail");
+
+        assert!(error.to_string().contains("Truncated page-op WASM request"));
+    }
+
+    #[test]
+    fn rejects_combined_record_lengths_that_exceed_remaining_bytes() {
+        let mut request = request_header(1, u32::MAX, u32::MAX);
+        write_u32_le(&mut request, 1);
+
+        let error = parse_request(&request)
+            .err()
+            .expect("oversized payload lengths must fail");
+
+        assert!(error.to_string().contains("Truncated page-op WASM request"));
+    }
+
+    #[test]
+    fn rejects_trailing_bytes_before_allocating_page_records() {
+        let mut request = request_header(0, 0, 0);
+        request.push(0);
+
+        let error = parse_request(&request)
+            .err()
+            .expect("trailing bytes must fail");
+
+        assert!(error.to_string().contains("Trailing bytes"));
+    }
+
+    #[test]
+    fn wasm_crop_rejects_non_finite_margins_through_shared_validation() {
+        let request = crop_request(&test_pdf_bytes(), f64::NAN);
+
+        let error = run_request(&request)
+            .expect_err("WASM crop must reject non-finite margins through shared validation");
+
+        assert!(error.to_string().contains("Invalid top crop margin"));
+    }
 }

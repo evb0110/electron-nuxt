@@ -17,11 +17,16 @@ export async function runSettingsAssistantAction(
         activeAction: Ref<TSettingsAssistantAction | null>;
         isDesktopRuntime: boolean;
         run: () => Promise<void>;
+        isActive?: () => boolean;
         t: TTranslateFn;
         toast: ISettingsAssistantActionToast;
     },
 ) {
-    if (!options.isDesktopRuntime || options.activeAction.value !== null) {
+    if (
+        !options.isDesktopRuntime
+        || options.activeAction.value !== null
+        || options.isActive?.() === false
+    ) {
         return false;
     }
 
@@ -34,13 +39,17 @@ export async function runSettingsAssistantAction(
             action: options.action,
             error,
         });
-        options.toast.add({
-            color: 'error',
-            title: options.t('settings.assistantPanel'),
-            description: getErrorMessage(error),
-        });
+        if (options.isActive?.() !== false) {
+            options.toast.add({
+                color: 'error',
+                title: options.t('settings.assistantPanel'),
+                description: getErrorMessage(error),
+            });
+        }
         return false;
     } finally {
-        options.activeAction.value = null;
+        if (options.isActive?.() !== false) {
+            options.activeAction.value = null;
+        }
     }
 }

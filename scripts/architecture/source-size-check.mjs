@@ -45,24 +45,24 @@ const EXCLUDED_PATH_SEGMENTS = new Set([
 
 export const SOURCE_SIZE_ALLOWLIST = {
     'app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageScroll.ts': {
-        maxLines: 2086,
-        reason: 'transitional PDF navigation controller facade after single-page scroll geometry extraction',
-        stage: 'Worker 2/Stage 5 - Single-page scroll geometry extraction',
+        maxLines: 2084,
+        reason: 'PDF navigation facade after commit, frame scheduling, and timing policy extraction',
+        stage: 'Static audit Stage 15 - navigation domain extraction',
     },
     'app/modules/agent-panel/components/AgentAssistantPanel.vue': {
-        maxLines: 919,
-        reason: 'assistant panel entrypoint after controller ownership extraction',
-        stage: 'Worker 2/Stage 2 - Assistant panel controller split',
+        maxLines: 911,
+        reason: 'assistant panel entrypoint after extracted reactive controller-props bridge',
+        stage: 'Static audit Stage 15 - assistant panel props extraction',
     },
     'app/modules/agent-panel/composables/useAgentAssistantPanelController.ts': {
-        maxLines: 1201,
-        reason: 'transitional assistant panel controller after renderer bridge startup and selection-state hardening',
-        stage: 'Second-pass assistant panel controller integration',
+        maxLines: 1161,
+        reason: 'assistant controller after clipboard/message-cache and image-composer ownership extraction',
+        stage: 'Static audit Stage 15 - assistant controller domain extraction',
     },
     'app/modules/pdf-viewer/components/PdfThumbnails.vue': {
-        maxLines: 1105,
-        reason: 'transitional PDF thumbnail UI/layout hotspot after render orchestration extraction',
-        stage: 'Finding 9 Stage A - PDF thumbnail render orchestration extraction',
+        maxLines: 1103,
+        reason: 'transitional PDF thumbnail UI/layout hotspot after removing redundant label wrapper',
+        stage: 'Static audit Stage 15 - thumbnail label simplification',
     },
     'electron/features/agent/codexAssistant.ts': {
         maxLines: 1331,
@@ -80,9 +80,9 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Finding 9 Stage B - DjVu preview runtime and scroll controller extraction',
     },
     'scripts/electron-run/sessionManager.ts': {
-        maxLines: 1312,
-        reason: 'transitional Electron dev session manager hotspot',
-        stage: 'Future Electron run/session extraction',
+        maxLines: 1167,
+        reason: 'Electron dev session controller after page-diagnostics ownership extraction',
+        stage: 'Static audit Stage 15 - Electron session diagnostics extraction',
     },
     'scripts/diagnostics/pdfNavigationBlinkTrace.ts': {
         maxLines: 1730,
@@ -90,24 +90,24 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Worker 6 - Diagnostic trace analysis extraction',
     },
     'app/modules/workspace-shell/components/DocumentWorkspace.vue': {
-        maxLines: 1623,
-        reason: 'transitional workspace component hotspot after viewer adapter binding extraction',
-        stage: 'Stage S - viewer adapter interface',
+        maxLines: 1584,
+        reason: 'workspace component after deferred-search lifecycle extraction',
+        stage: 'Static audit Stage 15 - workspace search binding extraction',
     },
     'app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue': {
-        maxLines: 1037,
-        reason: 'transitional deferred workspace host hotspot',
-        stage: 'Future workspace host extraction',
+        maxLines: 1029,
+        reason: 'deferred workspace host after event/session binding and timeout policy extraction',
+        stage: 'Static audit Stage 15 - deferred host binding extraction',
     },
     'app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer.ts': {
-        maxLines: 1340,
-        reason: 'transitional PDF annotation layer renderer hotspot',
-        stage: 'Future PDF rendering extraction',
+        maxLines: 1308,
+        reason: 'annotation renderer after hidden-annotation policy and failure tracking extraction',
+        stage: 'Static audit Stage 15 - annotation renderer domain extraction',
     },
     'app/platform/browser/browserDocumentRepository.ts': {
-        maxLines: 1237,
-        reason: 'transitional browser document repository hotspot after persistence and mutation guard changes',
-        stage: 'Future browser document repository extraction',
+        maxLines: 1174,
+        reason: 'browser repository after file-entry, revision-event, and persistence-record extraction',
+        stage: 'Static audit Stage 15 - browser repository domain extraction',
     },
     'app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer.ts': {
         maxLines: 1262,
@@ -115,14 +115,14 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Future PDF rendering extraction',
     },
     'electron/ocr/jobManager.ts': {
-        maxLines: 1069,
-        reason: 'OCR job manager facade after worker lifecycle extraction',
-        stage: 'Worker 2/Stage 3 - OCR job manager lifecycle split',
+        maxLines: 1050,
+        reason: 'OCR job manager facade after request-work estimation extraction',
+        stage: 'Static audit Stage 15 - OCR admission calculation extraction',
     },
     'app/modules/workspace-shell/components/AppShellRoot.vue': {
-        maxLines: 1047,
-        reason: 'transitional app shell root hotspot',
-        stage: 'Future workspace shell extraction',
+        maxLines: 917,
+        reason: 'app shell orchestration after scoped presentation styles were extracted',
+        stage: 'Static audit Stage 15 - app shell style extraction',
     },
     'app/modules/workspace-shell/agent/useDocumentWorkspaceAgent.ts': {
         maxLines: 1069,
@@ -135,14 +135,14 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Future workspace annotation extraction',
     },
     'electron/features/agent/mcp/mcpServerCore.ts': {
-        maxLines: 1062,
-        reason: 'transitional agent MCP server core hotspot',
-        stage: 'Future MCP server core extraction',
+        maxLines: 981,
+        reason: 'agent MCP server core after result encoding and public option-contract extraction',
+        stage: 'Static audit Stage 15 - MCP core contract extraction',
     },
     'scripts/architecture/boundary-check.mjs': {
-        maxLines: 1267,
-        reason: 'transitional architecture boundary checker after scripts-to-app diagnostics and package-layer policy expansion',
-        stage: 'Second-pass architecture boundary enforcement',
+        maxLines: 1232,
+        reason: 'architecture boundary checker after runtime/tool policy extraction',
+        stage: 'Static audit Stage 15 - boundary policy extraction',
     },
 };
 

@@ -33,6 +33,7 @@ interface IUsePdfViewerRenderingRuntimeOptions {
     managedAnnotationIds: Ref<Set<string>> | ComputedRef<Set<string>>;
     annotationUiManager: ShallowRef<AnnotationEditorUIManager | null>;
     annotationL10n: ShallowRef<IPdfjsL10n | null>;
+    replaceAnnotationUiManager: (manager: AnnotationEditorUIManager) => void;
     scrollToPage: (pageNumber: number, options?: IScrollToPageOptions) => void;
     suppressSnap: () => void;
     beginSearchNavigation: (pageNumber: number) => void;
@@ -78,6 +79,7 @@ export const usePdfViewerRenderingRuntime = (options: IUsePdfViewerRenderingRunt
         managedAnnotationIds: options.managedAnnotationIds,
         annotationUiManager: options.annotationUiManager,
         annotationL10n: options.annotationL10n,
+        replaceAnnotationUiManager: options.replaceAnnotationUiManager,
         scrollToPage: options.scrollToPage,
         suppressSnap: options.suppressSnap,
         beginSearchNavigation: options.beginSearchNavigation,

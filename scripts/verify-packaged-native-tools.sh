@@ -3,14 +3,14 @@ set -euo pipefail
 
 source "$(dirname "$0")/release/platform-arch.sh"
 
-if [ "$#" -ne 2 ]; then
-  release_target_usage "$0"
+if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
+  echo "Usage: $0 <platform: mac|win|linux> <arch: x64|arm64> [release-dir]"
   exit 1
 fi
 
 platform="$1"
 arch="$2"
-release_dir="release"
+release_dir="${3:-release}"
 resolve_release_target_platform_arch "$platform" "$arch"
 platform_arch="$RELEASE_PLATFORM_ARCH"
 exe_suffix="$RELEASE_EXE_SUFFIX"

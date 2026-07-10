@@ -69,7 +69,7 @@ fn run() -> Result<()> {
         if config.input_paths.len() != 1 {
             return Err("PNG output requires exactly one Netpbm input".into());
         }
-        encode_netpbm_path_as_png(&config.input_paths[0], &config.output_path)?;
+        encode_netpbm_path_as_png(&config.input_paths[0], &config.output_path, max_pixels)?;
         return Ok(());
     }
 

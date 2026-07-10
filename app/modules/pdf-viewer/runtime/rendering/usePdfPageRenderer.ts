@@ -87,6 +87,7 @@ export interface IUsePdfPageRendererOptions {
 
     annotationUiManager?: MaybeRefOrGetter<AnnotationEditorUIManager | null>;
     annotationL10n?: MaybeRefOrGetter<IPdfjsL10n | null>;
+    replaceAnnotationUiManager?: ((manager: AnnotationEditorUIManager) => void) | undefined;
 
     searchPageMatches?: MaybeRefOrGetter<Map<number, IPdfPageMatches>>;
     currentSearchMatch?: MaybeRefOrGetter<IPdfSearchMatch | null>;
@@ -113,7 +114,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         basePageHeight,
         isLoading,
         leasePage,
-        releasePage,
         evictPage,
         cleanupPageCache,
     } = options.document;
@@ -163,6 +163,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         annotationL10n: options.annotationL10n ?? null,
         renderSupervisor,
         getDocumentVersion: () => renderVersion,
+        replaceAnnotationUiManager: options.replaceAnnotationUiManager,
         ...(options.scrollToPage ? { scrollToPage: options.scrollToPage } : {}),
     });
 
@@ -626,14 +627,12 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         ),
         getRenderVersion: () => renderVersion,
         getPage: leasePage,
-        releasePage,
         cancelActiveRenderTask,
         cancelActiveRenderTaskIfCurrent,
         onRenderStall: options.onRenderStall,
         renderSupervisor,
     });
     const {
-        releasePageResources,
         loadPageForRender,
         prepareCanvasRenderForPage,
         renderPreparedCanvasForPage,
@@ -685,7 +684,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         clearSelectionBeforePageLayerTeardown,
         cleanupPageIfCurrentRender,
         cleanupCanvasRenderResult: canvasRenderer.cleanupCanvasRenderResult,
-        releasePageResources,
         loadPageForRender,
         prepareCanvasRenderForPage,
         renderPreparedCanvasForPage,

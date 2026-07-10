@@ -284,8 +284,12 @@ describe('image export', () => {
 
     it('creates a multi-page TIFF without host tool fallbacks', async () => {
         const outputPath = join(tempDir, 'exported.tiff');
+        const controller = new AbortController();
 
-        const resultPaths = await exportPdfAsMultiPageTiff('/tmp/input.pdf', outputPath);
+        const resultPaths = await exportPdfAsMultiPageTiff('/tmp/input.pdf', outputPath, {
+            cancelGroup: 'tiff-export-1',
+            signal: controller.signal,
+        });
         expect(resultPaths).toEqual([outputPath]);
 
         const outputBytes = new Uint8Array(await readFile(outputPath));
@@ -315,10 +319,65 @@ describe('image export', () => {
             '/mock/pdftoppm',
             expect.any(Array),
             expect.objectContaining({
+                cancelGroup: 'tiff-export-1',
                 timeoutMs: 180_000,
                 commandLabel: 'pdftoppm(export-tiff)',
+                signal: controller.signal,
             }),
         );
+        expect(mocks.runCommand).toHaveBeenCalledWith(
+            '/mock/qpdf',
+            [
+                '--show-npages',
+                '/tmp/input.pdf',
+            ],
+            expect.objectContaining({
+                cancelGroup: 'tiff-export-1',
+                signal: controller.signal,
+            }),
+        );
+    });
+
+    it('aborts image export while its page-count protocol wait is pending', async () => {
+        const outputPath = join(tempDir, 'page-count-canceled.png');
+        const controller = new AbortController();
+        let pageCountSignal: AbortSignal | undefined;
+        mocks.runCommand.mockImplementationOnce((
+            _command: string,
+            _args: string[],
+            options: {
+                cancelGroup?: string;
+                signal?: AbortSignal;
+            },
+        ) => {
+            pageCountSignal = options.signal;
+            return new Promise((_resolve, reject) => {
+                options.signal?.addEventListener('abort', () => reject(options.signal?.reason), {once: true});
+            });
+        });
+
+        const exportPromise = exportPdfPagesAsImages('/tmp/input.pdf', outputPath, {
+            cancelGroup: 'image-export-page-count',
+            signal: controller.signal,
+        });
+
+        await vi.waitFor(() => expect(pageCountSignal).toBe(controller.signal));
+        expect(mocks.runCommand).toHaveBeenCalledWith(
+            '/mock/qpdf',
+            [
+                '--show-npages',
+                '/tmp/input.pdf',
+            ],
+            expect.objectContaining({
+                cancelGroup: 'image-export-page-count',
+                signal: controller.signal,
+            }),
+        );
+
+        controller.abort(new DOMException('page count canceled', 'AbortError'));
+
+        await expect(exportPromise).rejects.toThrow('page count canceled');
+        expect(mocks.runCommand).toHaveBeenCalledTimes(1);
     });
 
     it('reports multi-page TIFF render and combine progress', async () => {

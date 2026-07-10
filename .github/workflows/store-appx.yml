@@ -122,7 +122,7 @@ jobs:
             exit 1
           }
 
-          $extractDir = Join-Path $env:RUNNER_TEMP "store-appx-${{ matrix.arch }}"
+          $extractDir = Join-Path "${{ github.workspace }}" ".tmp\store-appx-${{ matrix.arch }}"
           Remove-Item -Recurse -Force $extractDir -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path $extractDir | Out-Null
           tar.exe -xf $packages[0].FullName -C $extractDir
@@ -180,6 +180,14 @@ jobs:
           }
 
           Write-Host "Verified Store package: $($packages[0].Name)"
+
+      - name: Verify packaged native tools in Microsoft Store AppX
+        shell: bash
+        run: bash scripts/verify-packaged-native-tools.sh win "${{ matrix.arch }}" ".tmp/store-appx-${{ matrix.arch }}"
+
+      - name: Verify packaged app contents in Microsoft Store AppX
+        shell: bash
+        run: node scripts/release/assert-packaged-app-contents.mjs ".tmp/store-appx-${{ matrix.arch }}"
 
       - name: Upload Microsoft Store AppX
         uses: actions/upload-artifact@v7

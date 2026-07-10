@@ -5,6 +5,7 @@ import {
 } from '@electron/native-tools/runNativeCommand';
 import type { IProcessResult } from '@electron/native-tools/processResult';
 import { GENERATED_RUST_NATIVE_TOOL_PROTOCOLS } from '@contracts/nativeToolProtocols';
+import { abortErrorFromSignal } from '@electron/utils/abort';
 
 export interface IRunNativeToolCommandOptions {
     cwd?: string;
@@ -57,10 +58,13 @@ export async function verifyNativeToolProtocol(command: string, options: IRunNat
     if (toolName === null) {
         return;
     }
+    if (options.signal?.aborted) {
+        throw abortErrorFromSignal(options.signal);
+    }
 
     const cachedHandshake = nativeToolProtocolHandshakeCache.get(command);
     if (cachedHandshake) {
-        await cachedHandshake;
+        await waitForProtocolHandshake(cachedHandshake, options.signal);
         return;
     }
 
@@ -72,7 +76,34 @@ export async function verifyNativeToolProtocol(command: string, options: IRunNat
             throw error;
         });
     nativeToolProtocolHandshakeCache.set(command, handshake);
-    await handshake;
+    await waitForProtocolHandshake(handshake, options.signal);
+}
+
+function waitForProtocolHandshake(handshake: Promise<void>, signal: AbortSignal | undefined) {
+    if (signal === undefined) {
+        return handshake;
+    }
+    if (signal.aborted) {
+        return Promise.reject(abortErrorFromSignal(signal));
+    }
+
+    return new Promise<void>((resolve, reject) => {
+        const handleAbort = () => {
+            signal.removeEventListener('abort', handleAbort);
+            reject(abortErrorFromSignal(signal));
+        };
+        signal.addEventListener('abort', handleAbort, { once: true });
+        void handshake.then(
+            () => {
+                signal.removeEventListener('abort', handleAbort);
+                resolve();
+            },
+            (error: unknown) => {
+                signal.removeEventListener('abort', handleAbort);
+                reject(error);
+            },
+        );
+    });
 }
 
 function getNativeToolName(command: string) {

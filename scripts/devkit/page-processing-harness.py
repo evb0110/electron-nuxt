@@ -24,8 +24,6 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
-
 
 RE_RANGE = re.compile(r"^\s*(\d+)\s*-\s*(\d+)\s*$")
 RE_INT = re.compile(r"^\s*\d+\s*$")

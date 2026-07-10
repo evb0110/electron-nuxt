@@ -12,13 +12,14 @@ const browserDocumentStoreMock = vi.hoisted(() => ({
     stat: vi.fn(),
     read: vi.fn(),
     write: vi.fn(),
-    assertDocumentRevisionCurrent: vi.fn(),
+    runDocumentMutationWithSource: vi.fn(),
     assignSaveTarget: vi.fn(),
     touchRecentFile: vi.fn(),
     replaceWithHandleBackedDocument: vi.fn(),
 }));
 
 const filePickerMock = vi.hoisted(() => ({
+    pickSaveTarget: vi.fn(),
     saveBytesToPickerOrDownload: vi.fn(),
     writeDocumentRefToHandle: vi.fn(),
 }));
@@ -29,6 +30,7 @@ vi.mock('@app/platform/browserDocumentStore', () => ({
 }));
 
 vi.mock('@app/platform/browser-api/browserFilePickerAdapter', () => ({
+    pickSaveTarget: (...args: unknown[]) => filePickerMock.pickSaveTarget(...args),
     saveBytesToPickerOrDownload: (...args: unknown[]) => filePickerMock.saveBytesToPickerOrDownload(...args),
     writeDocumentRefToHandle: (...args: unknown[]) => filePickerMock.writeDocumentRefToHandle(...args),
 }));
@@ -48,10 +50,20 @@ describe('browserSaveTargets', () => {
             2,
             3,
         ]));
-        browserDocumentStoreMock.assertDocumentRevisionCurrent.mockResolvedValue(undefined);
+        browserDocumentStoreMock.runDocumentMutationWithSource.mockImplementation((
+            _path: string,
+            _sourceRef: string,
+            _revision: string | null | undefined,
+            operation: (mutation: unknown) => Promise<unknown>,
+        ) => operation({writeSource: browserDocumentStoreMock.write}));
         browserDocumentStoreMock.write.mockResolvedValue(true);
         browserDocumentStoreMock.assignSaveTarget.mockResolvedValue(undefined);
         browserDocumentStoreMock.touchRecentFile.mockResolvedValue(undefined);
+        filePickerMock.pickSaveTarget.mockResolvedValue({
+            canceled: false,
+            fileName: 'source.pdf',
+            handle: null,
+        });
     });
 
     it('returns structured success when browser save completes', async () => {
@@ -73,7 +85,11 @@ describe('browserSaveTargets', () => {
     });
 
     it('returns user-canceled when the picker is canceled', async () => {
-        filePickerMock.saveBytesToPickerOrDownload.mockResolvedValue({canceled: true});
+        filePickerMock.pickSaveTarget.mockResolvedValue({
+            canceled: true,
+            fileName: 'source.pdf',
+            handle: null,
+        });
         const { saveWorkingBytesToSourceStructured } = await import('@app/platform/browser-api/browserSaveTargets');
 
         await expect(saveWorkingBytesToSourceStructured('browser://documents/working', () => 'hint'))
@@ -119,5 +135,46 @@ describe('browserSaveTargets', () => {
                 workingCopySyncRequired: true,
                 validation: null,
             });
+    });
+
+    it('revalidates the working-copy revision after the picker before external commit', async () => {
+        let resolvePicker!: (value: {
+            canceled: false;
+            fileName: string;
+            handle: null;
+        }) => void;
+        filePickerMock.pickSaveTarget.mockReturnValue(new Promise(resolve => {
+            resolvePicker = resolve;
+        }));
+        browserDocumentStoreMock.runDocumentMutationWithSource.mockRejectedValue(
+            new Error('Document changed while this edit was being prepared'),
+        );
+        const { saveWorkingBytesToSourceStructured } = await import('@app/platform/browser-api/browserSaveTargets');
+
+        const savePromise = saveWorkingBytesToSourceStructured(
+            'browser://documents/working',
+            () => 'hint',
+            {expectedDocumentRevisionToken: 'revision-before-picker'},
+        );
+        expect(browserDocumentStoreMock.runDocumentMutationWithSource).not.toHaveBeenCalled();
+
+        resolvePicker({
+            canceled: false,
+            fileName: 'saved.pdf',
+            handle: null,
+        });
+
+        await expect(savePromise).resolves.toMatchObject({
+            ok: false,
+            reason: 'write-failed',
+            externalWriteCommitted: false,
+        });
+        expect(browserDocumentStoreMock.runDocumentMutationWithSource).toHaveBeenCalledWith(
+            'browser://documents/working',
+            'browser://documents/source',
+            'revision-before-picker',
+            expect.any(Function),
+        );
+        expect(filePickerMock.saveBytesToPickerOrDownload).not.toHaveBeenCalled();
     });
 });

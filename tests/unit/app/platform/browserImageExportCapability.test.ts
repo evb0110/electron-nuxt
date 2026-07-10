@@ -214,6 +214,75 @@ describe('createBrowserImageExportCapability', () => {
         expect(saveBytesToPickerOrDownloadMock).not.toHaveBeenCalled();
     });
 
+    it('cleans up the PDF page and resets its canvas when rendering rejects', async () => {
+        const canvas = createCanvas();
+        const cleanup = vi.fn(async () => {});
+        const fakePdfDocument = {
+            numPages: 1,
+            destroy: vi.fn(async () => {}),
+            getPage: vi.fn(async () => ({
+                getViewport: vi.fn(() => ({
+                    width: 4,
+                    height: 5,
+                })),
+                render: vi.fn(() => ({promise: Promise.reject(new Error('render failed'))})),
+                cleanup,
+            })),
+        };
+        getDocumentMock.mockReturnValue({promise: Promise.resolve(fakePdfDocument)});
+        vi.stubGlobal('document', {createElement: vi.fn(() => canvas)});
+
+        const { createBrowserImageExportCapability } = await import(
+            '@app/platform/browser-api/createBrowserImageExportCapability'
+        );
+
+        await expect(createBrowserImageExportCapability().exportPdfToImages(
+            'browser://documents/work/sample.pdf',
+            [1],
+        )).rejects.toThrow('render failed');
+
+        expect(cleanup).toHaveBeenCalledOnce();
+        expect(canvas.width).toBe(0);
+        expect(canvas.height).toBe(0);
+        expect(fakePdfDocument.destroy).toHaveBeenCalledOnce();
+    });
+
+    it('cleans up the PDF page and resets its canvas when no 2D context is available', async () => {
+        const canvas = createCanvas();
+        canvas.getContext.mockReturnValueOnce(null as never);
+        const cleanup = vi.fn(async () => {});
+        const render = vi.fn();
+        const fakePdfDocument = {
+            numPages: 1,
+            destroy: vi.fn(async () => {}),
+            getPage: vi.fn(async () => ({
+                getViewport: vi.fn(() => ({
+                    width: 4,
+                    height: 5,
+                })),
+                render,
+                cleanup,
+            })),
+        };
+        getDocumentMock.mockReturnValue({promise: Promise.resolve(fakePdfDocument)});
+        vi.stubGlobal('document', {createElement: vi.fn(() => canvas)});
+
+        const { createBrowserImageExportCapability } = await import(
+            '@app/platform/browser-api/createBrowserImageExportCapability'
+        );
+
+        await expect(createBrowserImageExportCapability().exportPdfToImages(
+            'browser://documents/work/sample.pdf',
+            [1],
+        )).rejects.toThrow('Canvas 2D context is unavailable');
+
+        expect(render).not.toHaveBeenCalled();
+        expect(cleanup).toHaveBeenCalledOnce();
+        expect(canvas.width).toBe(0);
+        expect(canvas.height).toBe(0);
+        expect(fakePdfDocument.destroy).toHaveBeenCalledOnce();
+    });
+
     it('defaults browser image export to JPEG and stores handle-backed outputs', async () => {
         const fakePdfDocument = createFakePdfDocument(1);
         getDocumentMock.mockReturnValue({ promise: Promise.resolve(fakePdfDocument) });

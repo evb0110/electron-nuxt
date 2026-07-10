@@ -27,6 +27,7 @@ import {
     createTypedIpcEventSubscriber,
     createTypedIpcInvoker,
 } from '@electron/preload/ipcClient';
+import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
 
 const DJVU_NATIVE_IPC_TIMEOUT_MS = 30 * 60 * 1000;
 const DJVU_INVOKE_TIMEOUT_MS_BY_CHANNEL = {
@@ -138,10 +139,14 @@ function normalizeDjvuPagePreviewOptions(options: IDjvuPagePreviewOptions | unde
     }
     const previewRequestId = options.previewRequestId;
     if (previewRequestId !== undefined) {
-        if (typeof previewRequestId !== 'string' || previewRequestId.trim() === '') {
+        const normalizedPreviewRequestId = normalizeOptionalIpcRequestId(
+            previewRequestId,
+            'renderPagePreview.options.previewRequestId',
+        );
+        if (normalizedPreviewRequestId === undefined) {
             throw new TypeError('renderPagePreview.options.previewRequestId must be a non-empty string');
         }
-        normalizedOptions.previewRequestId = previewRequestId.trim();
+        normalizedOptions.previewRequestId = normalizedPreviewRequestId;
     }
     const previewPriority = options.previewPriority;
     if (previewPriority !== undefined) {
@@ -195,10 +200,11 @@ function normalizeDjvuConvertOptions(options: IDjvuConvertOptions) {
         normalizedOptions.pdfStrategy = options.pdfStrategy;
     }
     if (options.requestId !== undefined) {
-        if (typeof options.requestId !== 'string' || options.requestId.trim() === '') {
+        const requestId = normalizeOptionalIpcRequestId(options.requestId, 'convertToPdf.options.requestId');
+        if (requestId === undefined) {
             throw new TypeError('convertToPdf.options.requestId must be a non-empty string');
         }
-        normalizedOptions.requestId = options.requestId.trim();
+        normalizedOptions.requestId = requestId;
     }
     if (options.documentRef !== undefined) {
         if (typeof options.documentRef !== 'string' || options.documentRef.trim() === '') {
@@ -249,10 +255,7 @@ function normalizeDjvuPrintOptions(options: IDjvuPrintOptions) {
     if (fileName !== undefined && typeof fileName !== 'string') {
         throw new TypeError('printDjvuPath.options.fileName must be a string');
     }
-    const requestId = options.requestId;
-    if (requestId !== undefined && typeof requestId !== 'string') {
-        throw new TypeError('printDjvuPath.options.requestId must be a string');
-    }
+    const requestId = normalizeOptionalIpcRequestId(options.requestId, 'printDjvuPath.options.requestId');
 
     const normalizedOptions: IDjvuPrintOptions = {
         viewMode: options.viewMode,
@@ -304,7 +307,10 @@ export function createDjvuPreloadClient(ipcRenderer: IpcRenderer): IDjvuCapabili
             normalizeDjvuPrintOptions(options),
         ),
         cancel: (jobId: string) => invoke(DJVU_CHANNELS.cancel, jobId),
-        cancelPagePreview: (requestId: string) => invoke(DJVU_CHANNELS.cancelPagePreview, requestId),
+        cancelPagePreview: (requestId: string) => invoke(
+            DJVU_CHANNELS.cancelPagePreview,
+            normalizeOptionalIpcRequestId(requestId, 'cancelPagePreview.requestId') ?? '',
+        ),
         getInfo: (djvuPath: TDocumentRef) => invoke(DJVU_CHANNELS.getInfo, djvuPath),
         getPageSizes: (djvuPath: TDocumentRef) => invoke(DJVU_CHANNELS.getPageSizes, djvuPath),
         renderPagePreview: (

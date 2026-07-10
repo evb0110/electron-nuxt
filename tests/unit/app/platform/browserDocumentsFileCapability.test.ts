@@ -1906,7 +1906,7 @@ describe('createBrowserDocumentsFileCapability', () => {
         expect(writes.length).toBeGreaterThan(1);
     });
 
-    it('replaces the existing source with a handle-backed document on Save As to a picked handle', async () => {
+    it('detaches Save As from a source shared by another working copy', async () => {
         const handle = cast<FileSystemFileHandle>({
             kind: 'file',
             name: 'picked.pdf',
@@ -1935,6 +1935,7 @@ describe('createBrowserDocumentsFileCapability', () => {
             },
         );
         const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
+        const siblingWorkingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
 
         const savedRef = await capability.savePdfAs(
             workingRef,
@@ -1942,11 +1943,285 @@ describe('createBrowserDocumentsFileCapability', () => {
             await getRevisionOptions(browserDocumentStore, workingRef),
         );
 
-        expect(savedRef).toBe(sourceRef);
-        const sourceEntry = await browserDocumentStore.requireEntry(sourceRef);
-        expect(sourceEntry.storageMode).toBe('handle');
-        expect(sourceEntry.saveHandle).toBe(handle);
-        expect(sourceEntry.fileName).toBe('picked.pdf');
+        expect(savedRef).not.toBe(sourceRef);
+        const savedEntry = await browserDocumentStore.requireEntry(savedRef!);
+        const workingEntry = await browserDocumentStore.requireEntry(workingRef);
+        const siblingEntry = await browserDocumentStore.requireEntry(siblingWorkingRef);
+        expect(savedEntry.storageMode).toBe('handle');
+        expect(savedEntry.saveHandle).toBe(handle);
+        expect(savedEntry.fileName).toBe('picked.pdf');
+        expect(workingEntry.sourceRef).toBe(savedRef);
+        expect(siblingEntry.sourceRef).toBe(sourceRef);
+    });
+
+    it('serializes regular saves from working copies that share one source', async () => {
+        const firstWriteStarted = Promise.withResolvers<undefined>();
+        const releaseFirstWrite = Promise.withResolvers<undefined>();
+        let writableIndex = 0;
+        const createWritable = vi.fn(async () => {
+            const index = writableIndex++;
+            return {
+                write: vi.fn(async () => {
+                    if (index === 0) {
+                        firstWriteStarted.resolve(undefined);
+                        await releaseFirstWrite.promise;
+                    }
+                }),
+                close: vi.fn(async () => undefined),
+            };
+        });
+        const handle = cast<FileSystemFileHandle>({
+            kind: 'file',
+            name: 'shared.pdf',
+            getFile: vi.fn(async () => new File([], 'shared.pdf', {type: 'application/pdf'})),
+            createWritable,
+        });
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability();
+        const sourceRef = await browserDocumentStore.createStoredDocument(
+            'shared.pdf',
+            new Uint8Array([
+                37,
+                80,
+                68,
+                70,
+            ]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+                saveHandle: handle,
+            },
+        );
+        const firstWorkingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
+        const secondWorkingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
+        await browserDocumentStore.writeForBootstrap(
+            firstWorkingRef,
+            new Uint8Array([
+                37,
+                80,
+                68,
+                70,
+                1,
+            ]),
+            'first-save-test',
+        );
+        await browserDocumentStore.writeForBootstrap(
+            secondWorkingRef,
+            new Uint8Array([
+                37,
+                80,
+                68,
+                70,
+                2,
+            ]),
+            'second-save-test',
+        );
+
+        const firstSave = capability.saveFileStructured(
+            firstWorkingRef,
+            await getRevisionOptions(browserDocumentStore, firstWorkingRef),
+        );
+        const secondSave = capability.saveFileStructured(
+            secondWorkingRef,
+            await getRevisionOptions(browserDocumentStore, secondWorkingRef),
+        );
+        await firstWriteStarted.promise;
+        await new Promise<undefined>(resolve => setImmediate(() => resolve(undefined)));
+        expect(createWritable).toHaveBeenCalledOnce();
+
+        releaseFirstWrite.resolve(undefined);
+        await expect(Promise.all([
+            firstSave,
+            secondSave,
+        ])).resolves.toEqual([
+            expect.objectContaining({ok: true}),
+            expect.objectContaining({ok: true}),
+        ]);
+        expect(createWritable).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not commit Save As when the working copy changes while the picker is open', async () => {
+        let resolvePicker!: (handle: FileSystemFileHandle) => void;
+        const createWritable = vi.fn(async () => ({
+            write: vi.fn(async () => {}),
+            close: vi.fn(async () => {}),
+        }));
+        const handle = cast<FileSystemFileHandle>({
+            kind: 'file',
+            name: 'picked.pdf',
+            getFile: vi.fn(async () => new File([], 'picked.pdf', {type: 'application/pdf'})),
+            createWritable,
+        });
+        const showSaveFilePicker = vi.fn(() => new Promise<FileSystemFileHandle>((resolve) => {
+            resolvePicker = resolve;
+        }));
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker}});
+        const workingRef = await browserDocumentStore.createStoredDocument(
+            'draft.pdf',
+            new Uint8Array([
+                37,
+                80,
+                68,
+                70,
+            ]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'working',
+                saveKind: 'pdf',
+            },
+        );
+        const revisionOptions = await getRevisionOptions(browserDocumentStore, workingRef);
+
+        const savePromise = capability.savePdfAs(workingRef, undefined, revisionOptions);
+        await vi.waitFor(() => expect(showSaveFilePicker).toHaveBeenCalledOnce());
+        await browserDocumentStore.writeForBootstrap(
+            workingRef,
+            new Uint8Array([
+                37,
+                80,
+                68,
+                70,
+                10,
+            ]),
+            'test-picker-race',
+        );
+        resolvePicker(handle);
+
+        await expect(savePromise).rejects.toThrow(
+            'Document changed while this edit was being prepared',
+        );
+        expect(createWritable).not.toHaveBeenCalled();
+    });
+
+    it('does not commit Save As when the working copy source changes while the picker is open', async () => {
+        const pickerResult = Promise.withResolvers<FileSystemFileHandle>();
+        const staleCreateWritable = vi.fn(async () => ({
+            write: vi.fn(async () => {}),
+            close: vi.fn(async () => {}),
+        }));
+        const staleHandle = cast<FileSystemFileHandle>({
+            kind: 'file',
+            name: 'stale.pdf',
+            getFile: vi.fn(async () => new File([], 'stale.pdf', {type: 'application/pdf'})),
+            createWritable: staleCreateWritable,
+        });
+        const replacementCreateWritable = vi.fn(async () => ({
+            write: vi.fn(async () => {}),
+            close: vi.fn(async () => {}),
+        }));
+        const replacementHandle = cast<FileSystemFileHandle>({
+            kind: 'file',
+            name: 'replacement.pdf',
+            getFile: vi.fn(async () => new File([], 'replacement.pdf', {type: 'application/pdf'})),
+            createWritable: replacementCreateWritable,
+        });
+        const showSaveFilePicker = vi.fn()
+            .mockImplementationOnce(() => pickerResult.promise)
+            .mockResolvedValueOnce(replacementHandle);
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker}});
+        const originalSourceRef = await browserDocumentStore.createStoredDocument(
+            'original.pdf',
+            new Uint8Array([
+                37,
+                80,
+                68,
+                70,
+            ]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+        const workingRef = await browserDocumentStore.cloneAsWorkingCopy(originalSourceRef);
+        const revisionOptions = await getRevisionOptions(browserDocumentStore, workingRef);
+
+        const staleSavePromise = capability.savePdfAs(workingRef, undefined, revisionOptions);
+        await vi.waitFor(() => expect(showSaveFilePicker).toHaveBeenCalledOnce());
+
+        await expect(capability.savePdfAs(
+            workingRef,
+            undefined,
+            revisionOptions,
+        )).resolves.toEqual(expect.stringContaining('browser://documents/'));
+        pickerResult.resolve(staleHandle);
+
+        await expect(staleSavePromise).rejects.toThrow(
+            'Browser document source changed while the save target was being selected.',
+        );
+        expect(replacementCreateWritable).toHaveBeenCalledOnce();
+        expect(staleCreateWritable).not.toHaveBeenCalled();
+    });
+
+    it('does not deadlock when a regular save queues behind Save As for the same source', async () => {
+        const saveAsWriteStarted = Promise.withResolvers<undefined>();
+        const releaseSaveAsWrite = Promise.withResolvers<undefined>();
+        const saveAsHandle = cast<FileSystemFileHandle>({
+            kind: 'file',
+            name: 'save-as.pdf',
+            getFile: vi.fn(async () => new File([], 'save-as.pdf', {type: 'application/pdf'})),
+            createWritable: vi.fn(async () => ({
+                write: vi.fn(async () => {
+                    saveAsWriteStarted.resolve(undefined);
+                    await releaseSaveAsWrite.promise;
+                }),
+                close: vi.fn(async () => {}),
+            })),
+        });
+        const originalCreateWritable = vi.fn(async () => ({
+            write: vi.fn(async () => {}),
+            close: vi.fn(async () => {}),
+        }));
+        const originalHandle = cast<FileSystemFileHandle>({
+            kind: 'file',
+            name: 'original.pdf',
+            getFile: vi.fn(async () => new File([], 'original.pdf', {type: 'application/pdf'})),
+            createWritable: originalCreateWritable,
+        });
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: vi.fn(async () => saveAsHandle)}});
+        const sourceRef = await browserDocumentStore.createStoredDocument(
+            'original.pdf',
+            new Uint8Array([
+                37,
+                80,
+                68,
+                70,
+            ]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+                saveHandle: originalHandle,
+            },
+        );
+        const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
+        const revisionOptions = await getRevisionOptions(browserDocumentStore, workingRef);
+
+        const saveAsPromise = capability.savePdfAs(workingRef, undefined, revisionOptions);
+        await saveAsWriteStarted.promise;
+        const regularSavePromise = capability.saveFileStructured(workingRef, revisionOptions);
+        await new Promise<undefined>(resolve => setImmediate(() => resolve(undefined)));
+        releaseSaveAsWrite.resolve(undefined);
+
+        await expect(saveAsPromise).resolves.not.toBeNull();
+        await expect(regularSavePromise).resolves.toMatchObject({
+            ok: false,
+            reason: 'write-failed',
+            message: expect.stringContaining('source changed'),
+        });
+        expect(originalCreateWritable).not.toHaveBeenCalled();
     });
 
     it('leaves the browser working copy untouched when Save As is canceled for new PDF data', async () => {

@@ -55,7 +55,7 @@
                         :icon="getReaderCommandToolbarIcon('print')"
                         :tooltip="t('toolbar.print')"
                         :shortcut="shortcutLabels.print"
-                        :disabled="!hasInteractiveDocument || !canPrint || isAnySaving || isHistoryBusy"
+                        :disabled="isPrintCommandDisabled"
                         :loading="isPreparingPrint && !isPreparingCurrentPagePrint"
                         @click="handleToolbarCommand('print')"
                     />
@@ -65,7 +65,7 @@
                         v-if="isCommandInline('print-current-page')"
                         icon="ph:printer"
                         :tooltip="t('toolbar.printCurrentPage')"
-                        :disabled="!hasInteractiveDocument || !canPrint || isAnySaving || isHistoryBusy"
+                        :disabled="isPrintCommandDisabled"
                         :loading="isPreparingCurrentPagePrint"
                         @click="handleToolbarCommand('print-current-page')"
                     >
@@ -285,6 +285,7 @@ import { AssistantToolbarToggle } from '@app/modules/agent-panel/public/componen
 import PrintCurrentPageIcon from '@app/components/icons/PrintCurrentPageIcon.vue';
 import { useShortcutLabels } from '@app/constants/shortcuts';
 import { getReaderCommandToolbarIcon } from '@app/utils/readerCommandIcons';
+import { isReaderPrintCommandDisabled } from '@app/utils/isReaderPrintCommandDisabled';
 import {
     isReaderCommandInline,
     type TReaderCommandId,
@@ -302,6 +303,9 @@ const {
     canPrint = true,
     canSaveAs = true,
     canToggleContinuousScroll = true,
+    isAnySaving,
+    isHistoryBusy,
+    isPreparingPrint = false,
 } = defineProps<{
     hasPdf: boolean;
     variant?: 'editor' | 'reader';
@@ -384,6 +388,13 @@ const { t } = useTypedI18n();
 
 const shortcutLabels = useShortcutLabels();
 const hasInteractiveDocument = computed(() => hasPdf && !documentBusy && !isOpeningDocument);
+const isPrintCommandDisabled = computed(() => isReaderPrintCommandDisabled({
+    hasInteractiveDocument: hasInteractiveDocument.value,
+    canPrint,
+    isPreparingPrint,
+    isAnySaving,
+    isHistoryBusy,
+}));
 const {
     toolbarRef,
     collapseTier,

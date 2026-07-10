@@ -11,15 +11,15 @@ Detection methods:
 4. Content symmetry analysis
 """
 
-import cv2
-import numpy as np
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from typing import Literal, Optional, Tuple
 
-from .io import load_image, load_grayscale, save_image
-from .geometry import split_vertical
+import cv2
+import numpy as np
 from split import analyze_gutter_position, split_facing_pages
 
+from .geometry import split_vertical
+from .io import load_grayscale, load_image, publish_image_set_atomically
 
 TSplitType = Literal['none', 'vertical', 'horizontal']
 
@@ -150,7 +150,7 @@ def detect_split(
 
     # Determine best method for debugging
     method_scores = {m[0]: m[1] * weights[m[0]] for m in methods}
-    best_method = max(method_scores, key=method_scores.get)
+    best_method = max(method_scores, key=lambda name: method_scores[name])
 
     should_split = bool(total_confidence >= min_confidence)
 
@@ -265,13 +265,13 @@ def detect_content_symmetry(gray: np.ndarray) -> SymmetryResult:
     right_height = rh
 
     if max(left_height, right_height) == 0:
-        height_ratio = 0
+        height_ratio = 0.0
     else:
         height_ratio = min(left_height, right_height) / max(left_height, right_height)
 
     # Check width similarity (both halves should have similar content width)
     if max(lw, rw) == 0:
-        width_ratio = 0
+        width_ratio = 0.0
     else:
         width_ratio = min(lw, rw) / max(lw, rw)
 
@@ -352,13 +352,19 @@ def apply_split(
     if split_type == 'none':
         # No split - just copy
         output_path = output_dir_path / f"{input_stem}.png"
-        saved_path = save_image(image, str(output_path))
+        publish_image_set_atomically(
+            [(output_path, image, [cv2.IMWRITE_PNG_COMPRESSION, 0])],
+            obsolete_paths=[
+                output_dir_path / f"{input_stem}_1.png",
+                output_dir_path / f"{input_stem}_2.png",
+            ],
+        )
 
         return {
             'success': True,
             'split_applied': False,
             'split_type': 'none',
-            'output_paths': [saved_path],
+            'output_paths': [str(output_path.absolute())],
             'page_count': 1,
             'original_size': {'width': w, 'height': h},
         }
@@ -371,8 +377,13 @@ def apply_split(
         left_path = output_dir_path / f"{input_stem}_1.png"
         right_path = output_dir_path / f"{input_stem}_2.png"
 
-        left_saved = save_image(left, str(left_path))
-        right_saved = save_image(right, str(right_path))
+        publish_image_set_atomically(
+            [
+                (left_path, left, [cv2.IMWRITE_PNG_COMPRESSION, 0]),
+                (right_path, right, [cv2.IMWRITE_PNG_COMPRESSION, 0]),
+            ],
+            obsolete_paths=[output_dir_path / f"{input_stem}.png"],
+        )
 
         return {
             'success': True,
@@ -380,7 +391,7 @@ def apply_split(
             'split_type': 'vertical',
             'split_position': position,
             'overlap': overlap,
-            'output_paths': [left_saved, right_saved],
+            'output_paths': [str(left_path.absolute()), str(right_path.absolute())],
             'page_count': 2,
             'original_size': {'width': w, 'height': h},
             'output_sizes': [
@@ -396,8 +407,13 @@ def apply_split(
         top_path = output_dir_path / f"{input_stem}_1.png"
         bottom_path = output_dir_path / f"{input_stem}_2.png"
 
-        top_saved = save_image(top, str(top_path))
-        bottom_saved = save_image(bottom, str(bottom_path))
+        publish_image_set_atomically(
+            [
+                (top_path, top, [cv2.IMWRITE_PNG_COMPRESSION, 0]),
+                (bottom_path, bottom, [cv2.IMWRITE_PNG_COMPRESSION, 0]),
+            ],
+            obsolete_paths=[output_dir_path / f"{input_stem}.png"],
+        )
 
         return {
             'success': True,
@@ -405,7 +421,7 @@ def apply_split(
             'split_type': 'horizontal',
             'split_position': position,
             'overlap': overlap,
-            'output_paths': [top_saved, bottom_saved],
+            'output_paths': [str(top_path.absolute()), str(bottom_path.absolute())],
             'page_count': 2,
             'original_size': {'width': w, 'height': h},
             'output_sizes': [

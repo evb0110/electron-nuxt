@@ -11,43 +11,34 @@ import {
     resolve,
 } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+    createVendorManifest,
+    vendoredContractFiles,
+    vendoredPackages,
+} from './vendorManifest.mjs';
 
 const landingRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const repoPackages = join(landingRoot, '..', 'packages');
 
-const vendoredPackages = [
-    'i18n-core',
-    'release-selection',
-];
-
-function createVendorManifest({
-    landingRoot: landingRootPath = landingRoot,
-    repoPackages: repoPackagesPath = repoPackages,
-} = {}) {
-    const manifest = [{
-        src: join(repoPackagesPath, 'contracts/release.ts'),
-        dest: join(landingRootPath, 'vendor/contracts/release.ts'),
-    }];
-
-    for (const pkg of vendoredPackages) {
-        const sourceDir = join(repoPackagesPath, pkg);
-        for (const file of readdirSync(sourceDir)) {
-            if (file.endsWith('.ts')) {
-                manifest.push({
-                    src: join(sourceDir, file),
-                    dest: join(landingRootPath, 'vendor', pkg, file),
-                });
-            }
+function expandVendorManifest(manifest) {
+    return manifest.flatMap((entry) => {
+        if (entry.src && entry.dest) {
+            return [entry];
         }
-    }
 
-    return manifest;
+        return readdirSync(entry.sourceDir)
+            .filter(file => file.endsWith('.ts'))
+            .map(file => ({
+                src: join(entry.sourceDir, file),
+                dest: join(entry.destDir, file),
+            }));
+    });
 }
 
 export function transformVendoredSource(source) {
     return source
         .replaceAll('@evb/i18n-core/', './')
-        .replaceAll('@evb/releaseSelection/releaseSelection', './releaseSelection');
+        .replaceAll('@evb/releaseSelection/', './');
 }
 
 function formatDriftError(drifted) {
@@ -64,7 +55,7 @@ function formatMissingSourcesMessage() {
 
 function assertVendoredFilesExist({landingRoot: landingRootPath = landingRoot} = {}) {
     const missing = [
-        join(landingRootPath, 'vendor/contracts/release.ts'),
+        ...vendoredContractFiles.map(file => join(landingRootPath, 'vendor/contracts', file)),
         ...vendoredPackages.map(pkg => join(landingRootPath, 'vendor', pkg, 'index.ts')),
     ].filter(file => !existsSync(file));
 
@@ -96,10 +87,10 @@ export function syncVendor({
         };
     }
 
-    const manifest = createVendorManifest({
+    const manifest = expandVendorManifest(createVendorManifest({
         landingRoot: landingRootPath,
         repoPackages: repoPackagesPath,
-    });
+    }));
     const drifted = [];
 
     for (const {

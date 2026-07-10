@@ -6,12 +6,13 @@ Detects and corrects page skew (small rotation angles) using:
 2. Shared deskew interpolation policy
 """
 
-import numpy as np
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from typing import Tuple
 
-from .io import load_image, load_grayscale, save_image
+import numpy as np
+
 from .geometry import deskew_interpolation_flag, rotate_angle
+from .io import load_grayscale, load_image, save_image
 
 
 @dataclass

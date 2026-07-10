@@ -222,6 +222,10 @@ import {
     WORKSPACE_DOCUMENT_EXTENSIONS,
 } from '@app/utils/supportedDocumentPaths';
 import { createBrowserSafeId } from '@app/utils/browserSafe';
+import {
+    canMutateCombineFiles,
+    removeCompletedCombineSnapshot,
+} from '@app/services/pdf/combineOperationSnapshot';
 
 type TCombineFileKind = 'pdf' | 'djvu' | 'image' | 'document';
 
@@ -329,6 +333,9 @@ function mergeCombineFiles(currentFiles: readonly ICombineFile[], fileList: File
 }
 
 function addFiles(fileList: FileList | File[]) {
+    if (!canMutateCombineFiles(isCombining.value)) {
+        return;
+    }
     combineError.value = null;
     const merged = mergeCombineFiles(files.value, fileList);
 
@@ -337,6 +344,9 @@ function addFiles(fileList: FileList | File[]) {
 }
 
 function openFileInput() {
+    if (!canMutateCombineFiles(isCombining.value)) {
+        return;
+    }
     fileInputRef.value?.click();
 }
 
@@ -409,6 +419,9 @@ useEventListener(dragCancelTarget, 'dragleave', handleWindowDragLeave);
 useEventListener(dragCancelTarget, 'keydown', handleDragCancelKeydown);
 
 function clearFiles() {
+    if (!canMutateCombineFiles(isCombining.value)) {
+        return;
+    }
     files.value = [];
     lastRejectedCount.value = 0;
     combineError.value = null;
@@ -416,6 +429,9 @@ function clearFiles() {
 }
 
 function removeFile(index: number) {
+    if (!canMutateCombineFiles(isCombining.value)) {
+        return;
+    }
     files.value = files.value.filter((_, fileIndex) => fileIndex !== index);
 }
 
@@ -432,6 +448,9 @@ function announceReorder(position: number) {
 }
 
 function moveFile(index: number, delta: -1 | 1) {
+    if (!canMutateCombineFiles(isCombining.value)) {
+        return;
+    }
     const targetIndex = index + delta;
     if (targetIndex < 0 || targetIndex >= files.value.length) {
         return;
@@ -442,6 +461,9 @@ function moveFile(index: number, delta: -1 | 1) {
 }
 
 function handleReorder(fromIndex: number, toIndex: number) {
+    if (!canMutateCombineFiles(isCombining.value)) {
+        return;
+    }
     files.value = moveArrayItem(files.value, fromIndex, toIndex);
     announceReorder(toIndex);
 }
@@ -459,9 +481,9 @@ function startReorder(event: PointerEvent, index: number) {
     onReorderPointerDown(event, index);
 }
 
-function buildOutputName() {
-    if (files.value.length === 1) {
-        return files.value[0]!.name.replace(/\.[^.]+$/u, '.pdf');
+function buildOutputName(operationFiles: readonly ICombineFile[]) {
+    if (operationFiles.length === 1) {
+        return operationFiles[0]!.name.replace(/\.[^.]+$/u, '.pdf');
     }
     return `combined-${Date.now()}.pdf`;
 }
@@ -475,12 +497,13 @@ async function combineFiles() {
         return;
     }
 
+    const operationFiles = Object.freeze(files.value.map(file => Object.freeze({...file})));
     isCombining.value = true;
     combineError.value = null;
     lastRejectedCount.value = 0;
     progress.value = {
         processed: 0,
-        total: files.value.length,
+        total: operationFiles.length,
         percent: 0,
         elapsedMs: 0,
         estimatedRemainingMs: null,
@@ -488,13 +511,16 @@ async function combineFiles() {
 
     try {
         const result = await combinePdfInputFiles({
-            files: files.value,
-            outputName: buildOutputName(),
+            files: operationFiles,
+            outputName: buildOutputName(operationFiles),
             openErrorMessage: t('errors.file.open'),
             onProgress: handleCombineProgress,
         });
         emit('open-result', result);
-        clearFiles();
+        files.value = removeCompletedCombineSnapshot(files.value, operationFiles);
+        lastRejectedCount.value = 0;
+        combineError.value = null;
+        progress.value = null;
     } catch (error) {
         combineError.value = getErrorMessage(error) || t('errors.file.open');
     } finally {

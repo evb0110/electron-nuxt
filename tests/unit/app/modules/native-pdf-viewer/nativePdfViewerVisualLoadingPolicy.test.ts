@@ -49,8 +49,10 @@ describe('Native PDF viewer visual loading policy', () => {
             'utf8',
         );
 
-        expect(viewerSource).toContain('function findFirstLayoutIndexEndingAtOrAfter');
-        expect(viewerSource).toContain('getPageNumbersIntersectingViewport(pageLayouts.value, viewportStart, viewportEnd)');
+        expect(viewerSource).toContain('resolveDocumentContinuousScrollGeometry');
+        expect(viewerSource).toContain('resolveDocumentContinuousScrollWindow');
+        expect(viewerSource).toContain('resolveDocumentViewportPageNumbers');
+        expect(viewerSource).not.toContain('function findFirstLayoutIndexEndingAtOrAfter');
         expect(viewerSource).toContain('for (const pageNumber of retainedPageNumbers)');
         expect(viewerSource).not.toContain('for (const [\n        index,\n        layout,\n    ] of pageLayouts.value.entries())');
     });

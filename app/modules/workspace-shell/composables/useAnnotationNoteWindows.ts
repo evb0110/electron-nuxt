@@ -691,7 +691,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             }
         }
         if (force) {
-            await waitForForcedAnnotationNoteSync(notes);
+            return waitForForcedAnnotationNoteSync(notes);
         }
         return true;
     }
@@ -704,7 +704,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
                 text: note.text,
             }));
         if (expected.length === 0) {
-            return;
+            return true;
         }
 
         try {
@@ -714,12 +714,17 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             }) => {
                 const matched = findMatchingAnnotationComment(comment);
                 return matched?.text === text;
-            })).toBe(true, { timeout: 1_000 });
+            })).toBe(true, {
+                timeout: 1_000,
+                throwOnTimeout: true,
+            });
+            return true;
         } catch (error) {
             BrowserLogger.debug('annotations', 'Timed out waiting for forced note text sync before save', {
                 expectedCount: expected.length,
                 error,
             });
+            return false;
         }
     }
 

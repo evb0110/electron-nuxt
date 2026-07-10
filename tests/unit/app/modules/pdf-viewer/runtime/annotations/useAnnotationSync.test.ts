@@ -16,13 +16,15 @@ import type {
 import { useAnnotationIdentity } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationIdentity';
 import type { IPdfPageAnnotationBundle } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/annotationSyncHelpersTypes';
 
-const { loadPdfPageAnnotations } = vi.hoisted(() => ({loadPdfPageAnnotations: vi.fn<(_doc: unknown, _pageNumber: number) => Promise<IPdfPageAnnotationBundle | null>>()}));
+const {loadPdfPageAnnotations} = vi.hoisted(() => {
+    const mock = vi.fn<
+        (_doc: unknown, _pageNumber: number) => Promise<IPdfPageAnnotationBundle | null>
+    >();
+    return {loadPdfPageAnnotations: mock};
+});
 
 vi.mock('@app/services/pdfjs/runtimeLib', () => ({PDFDateString: {toDateObject: vi.fn(() => null)}}));
-vi.mock('@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument', () => ({
-    leasePdfDocumentPage: vi.fn(),
-    releasePdfDocumentPage: vi.fn(),
-}));
+vi.mock('@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument', () => ({leasePdfDocumentPage: vi.fn()}));
 
 vi.mock('@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/loadPdfPageAnnotations', async (importOriginal) => {
     const actual = await importOriginal<object>();

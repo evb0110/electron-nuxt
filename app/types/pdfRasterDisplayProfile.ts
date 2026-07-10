@@ -15,6 +15,7 @@ export type TPdfRasterDisplayProfile = ITrustedRasterDjvuPdfDisplayProfile;
 export interface IPdfRasterDisplayProfileOpenOptions {rasterDisplayProfile?: TPdfRasterDisplayProfile | null | undefined;}
 
 const registeredRasterDisplayProfiles = new Map<TDocumentRef, TPdfRasterDisplayProfile>();
+const MAX_REGISTERED_RASTER_DISPLAY_PROFILES = 64;
 
 function normalizePositivePixelDimension(value: unknown) {
     return typeof value === 'number'
@@ -63,22 +64,46 @@ export function registerPdfRasterDisplayProfile(
     if (!documentRef || !profile) {
         return;
     }
+    registeredRasterDisplayProfiles.delete(documentRef);
     registeredRasterDisplayProfiles.set(documentRef, profile);
+    while (registeredRasterDisplayProfiles.size > MAX_REGISTERED_RASTER_DISPLAY_PROFILES) {
+        const oldestRef = registeredRasterDisplayProfiles.keys().next().value;
+        if (typeof oldestRef !== 'string') {
+            break;
+        }
+        registeredRasterDisplayProfiles.delete(oldestRef);
+    }
 }
 
-export function resolveRegisteredPdfRasterDisplayProfile(
+export function consumeRegisteredPdfRasterDisplayProfile(
     ...documentRefs: Array<TDocumentRef | null | undefined>
 ): TPdfRasterDisplayProfile | null {
+    let resolvedProfile: TPdfRasterDisplayProfile | null = null;
     for (const documentRef of documentRefs) {
         if (!documentRef) {
             continue;
         }
         const profile = registeredRasterDisplayProfiles.get(documentRef);
-        if (profile) {
-            return profile;
+        registeredRasterDisplayProfiles.delete(documentRef);
+        if (!resolvedProfile && profile) {
+            resolvedProfile = profile;
         }
     }
-    return null;
+    return resolvedProfile;
+}
+
+export function unregisterPdfRasterDisplayProfiles(
+    ...documentRefs: Array<TDocumentRef | null | undefined>
+) {
+    for (const documentRef of documentRefs) {
+        if (documentRef) {
+            registeredRasterDisplayProfiles.delete(documentRef);
+        }
+    }
+}
+
+export function getRegisteredPdfRasterDisplayProfileCountForTests() {
+    return registeredRasterDisplayProfiles.size;
 }
 
 export function clearRegisteredPdfRasterDisplayProfilesForTests() {

@@ -212,6 +212,143 @@
         }
     }
 
+    fn test_markup_hint(index: usize) -> MarkupSubtypeHint {
+        MarkupSubtypeHint {
+            subtype: "Highlight".to_string(),
+            page_index: 0,
+            marker_rect: MarkerRect {
+                left: 0.0,
+                top: 0.0,
+                width: 1.0,
+                height: 1.0,
+            },
+            annotation_id: None,
+            color: Some("#ffff00".to_string()),
+            id: Some(format!("hint-{index}")),
+            page_markup_index: Some(index as u32),
+            source: None,
+        }
+    }
+
+    #[test]
+    fn caps_text_markup_hints_before_matching() {
+        let hints = (0..=MAX_MARKUP_SUBTYPE_HINTS)
+            .map(test_markup_hint)
+            .collect();
+
+        let error = validate_markup_mutation(&MarkupMutation {
+            overrides: Vec::new(),
+            hints,
+        })
+        .expect_err("oversized hint list must fail");
+
+        assert!(error.to_string().contains("Too many text-markup mutations"));
+    }
+
+    #[test]
+    fn bounds_dense_markup_assignment_comparisons() {
+        let hints: Vec<_> = (0..MAX_MARKUP_SUBTYPE_HINTS)
+            .map(|index| {
+                let hint = test_markup_hint(index);
+                MarkupHintState {
+                    annotation_ref: None,
+                    color: parse_css_rgb_color(hint.color.as_deref()),
+                    hint,
+                    consumed: false,
+                }
+            })
+            .collect();
+        let candidates: Vec<_> = (0..129)
+            .map(|index| MarkupAnnotationCandidate {
+                color: Some(RgbColor {
+                    r: 255,
+                    g: 255,
+                    b: 0,
+                }),
+                marker_rect: Some(MarkerRect {
+                    left: 0.0,
+                    top: 0.0,
+                    width: 1.0,
+                    height: 1.0,
+                }),
+                object_id: (index + 1, 0),
+                page_markup_index: index,
+                quad_points: None,
+                rect: Some(PdfRect {
+                    x1: 0.0,
+                    y1: 0.0,
+                    x2: 1.0,
+                    y2: 1.0,
+                }),
+                ref_tag: format!("{index}R"),
+                subtype: "Highlight".to_string(),
+            })
+            .collect();
+
+        let error = assign_subtype_hints_to_candidates(&hints, &candidates)
+            .expect_err("pathological overlap must stop at the work budget");
+
+        assert!(error.to_string().contains("comparison budget exceeded"));
+    }
+
+    #[test]
+    fn spatial_markup_assignment_preserves_best_geometry_matches() {
+        let marker_rects = [
+            MarkerRect {
+                left: 0.05,
+                top: 0.1,
+                width: 0.2,
+                height: 0.1,
+            },
+            MarkerRect {
+                left: 0.7,
+                top: 0.8,
+                width: 0.2,
+                height: 0.1,
+            },
+        ];
+        let hints = marker_rects
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(index, marker_rect)| MarkupSubtypeHint {
+                subtype: if index == 0 { "Underline" } else { "StrikeOut" }.to_string(),
+                page_index: 0,
+                marker_rect,
+                annotation_id: None,
+                color: Some("#336699".to_string()),
+                id: Some(format!("spatial-{index}")),
+                page_markup_index: Some(index as u32),
+                source: None,
+            })
+            .collect::<Vec<_>>();
+        let hint_states = dedupe_markup_subtype_hints(&hints).expect("dedupe hints");
+        let candidates = marker_rects
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(index, marker_rect)| MarkupAnnotationCandidate {
+                color: Some(RgbColor {
+                    r: 0x33,
+                    g: 0x66,
+                    b: 0x99,
+                }),
+                marker_rect: Some(marker_rect),
+                object_id: (index as u32 + 1, 0),
+                page_markup_index: index as u32,
+                quad_points: None,
+                rect: None,
+                ref_tag: format!("{}R", index + 1),
+                subtype: "Highlight".to_string(),
+            })
+            .collect::<Vec<_>>();
+
+        let assignments = assign_subtype_hints_to_candidates(&hint_states, &candidates)
+            .expect("bounded spatial assignment");
+
+        assert_eq!(assignments, vec![(0, 0), (1, 1)]);
+    }
+
     #[test]
     fn updates_and_deletes_managed_shapes_as_incremental_revision() {
         let (mut document, page_id) = create_test_document();

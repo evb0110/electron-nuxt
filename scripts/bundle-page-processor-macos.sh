@@ -136,8 +136,8 @@ if [ ! -d "$PYTHON_DIR" ]; then
   exit 1
 fi
 
-if [ ! -f "$PYTHON_DIR/requirements.txt" ]; then
-  echo "Error: requirements.txt not found in $PYTHON_DIR"
+if [ ! -f "$PYTHON_DIR/requirements-lock.txt" ]; then
+  echo "Error: requirements-lock.txt not found in $PYTHON_DIR"
   exit 1
 fi
 
@@ -178,8 +178,8 @@ echo "=========================================="
 echo "Installing dependencies..."
 echo "=========================================="
 
-pip install --upgrade pip
-pip install -r requirements.txt
+pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r requirements-lock.txt
+pip check
 
 echo "  Installed packages:"
 pip list | grep -E "(pyinstaller|pdf|ocr|pillow)" | sed 's/^/    /' || true
@@ -341,6 +341,25 @@ from pathlib import Path
 pdf_path = Path(sys.argv[1])
 if pdf_path.read_bytes()[:5] != b"%PDF-":
     raise SystemExit(f"img2pdf output is not a PDF: {pdf_path}")
+PY
+
+"$BINARY_PATH" apply dewarp "$SMOKE_IMAGE" "$SMOKE_DIR/dewarped.png" --params '{}' \
+  > "$SMOKE_DIR/dewarp.stdout.log" 2> "$SMOKE_DIR/dewarp.stderr.log"
+python - "$SMOKE_DIR/dewarp.stdout.log" "$SMOKE_DIR/dewarped.png" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+payloads = [json.loads(line) for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines() if line.strip()]
+results = [payload for payload in payloads if payload.get("type") == "result"]
+if len(results) != 1:
+    raise SystemExit(f"unexpected dewarp result payloads: {results!r}")
+result = results[0]
+debug = result.get("debug", {})
+if debug.get("page_dewarp_version") != "0.3.4" or not result.get("tool_available") or not result.get("attempted"):
+    raise SystemExit(f"locked real page-dewarp operation was not exercised: {result!r}")
+if not Path(sys.argv[2]).is_file():
+    raise SystemExit(f"dewarp did not publish an output: {sys.argv[2]}")
 PY
 
 echo "  Binary fixture smoke passed"

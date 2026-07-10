@@ -56,9 +56,11 @@ describe('landing vendor sync', () => {
         expect(transformVendoredSource([
             'import { format } from "@evb/i18n-core/messageFormat";',
             'import { selectRelease } from "@evb/releaseSelection/releaseSelection";',
+            'import { retry } from "@evb/releaseSelection/latestReleaseRetry";',
         ].join('\n'))).toBe([
             'import { format } from "./messageFormat";',
             'import { selectRelease } from "./releaseSelection";',
+            'import { retry } from "./latestReleaseRetry";',
         ].join('\n'));
     });
 
@@ -68,6 +70,7 @@ describe('landing vendor sync', () => {
 
         for (const file of [
             'vendor/contracts/release.ts',
+            'vendor/contracts/runtimeGuards.ts',
             'vendor/i18n-core/index.ts',
             'vendor/release-selection/index.ts',
         ]) {
@@ -85,5 +88,40 @@ describe('landing vendor sync', () => {
             drifted: [],
             skipped: expect.stringContaining('source packages are unavailable'),
         });
+    });
+
+    it('detects drift in every file from the canonical manifest', () => {
+        const root = mkdtempSync(join(tmpdir(), 'landing-vendor-manifest-'));
+        tmpRoots.push(root);
+        const landingRoot = join(root, 'landing');
+        const repoPackages = join(root, 'packages');
+
+        for (const file of [
+            'contracts/release.ts',
+            'contracts/runtimeGuards.ts',
+            'i18n-core/index.ts',
+            'release-selection/index.ts',
+        ]) {
+            const path = join(repoPackages, file);
+            mkdirSync(resolve(path, '..'), {recursive: true});
+            writeFileSync(path, `export const source = '${file}';\n`, 'utf8');
+        }
+
+        expect(syncVendor({
+            landingRoot,
+            repoPackages,
+        })).toMatchObject({count: 4});
+
+        writeFileSync(
+            join(repoPackages, 'contracts/runtimeGuards.ts'),
+            'export const source = "changed";\n',
+            'utf8',
+        );
+
+        expect(() => syncVendor({
+            check: true,
+            landingRoot,
+            repoPackages,
+        })).toThrow('vendor/contracts/runtimeGuards.ts');
     });
 });

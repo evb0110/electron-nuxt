@@ -8,6 +8,20 @@
       "when": 1774097445956,
       "tag": "0000_wonderful_the_fury",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1783691633928,
+      "tag": "0001_lame_hex",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783691655722,
+      "tag": "0002_analytics_admission",
+      "breakpoints": true
     }
   ]
 }

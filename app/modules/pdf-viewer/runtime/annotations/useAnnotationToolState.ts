@@ -48,6 +48,7 @@ import { createAnnotationEditorPresentation } from '@app/modules/pdf-viewer/engi
 import { toOpaqueHighlightDisplayColor } from '@app/modules/pdf-viewer/engine/text-markup-color/toOpaqueHighlightDisplayColor';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 
 const ANNOTATION_MODE_RETRY_RENDER_WAIT_TIMEOUT_MS = 500;
 
@@ -61,6 +62,7 @@ const ANNOTATION_TOOL_MODES: Partial<Record<TAnnotationTool, TAnnotationEditorMo
 };
 
 interface IUseAnnotationToolStateOptions {
+    pdfDocument: ShallowRef<PDFDocumentProxy | null>;
     annotationUiManager: ShallowRef<AnnotationEditorUIManager | null>;
     currentPage: Ref<number>;
     annotationTool: Ref<TAnnotationTool>;
@@ -80,6 +82,7 @@ interface IMarkupSubtypeGeometryHintEntry {
 export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) => {
     const {
         annotationUiManager,
+        pdfDocument,
         currentPage,
         annotationTool,
         annotationKeepActive,
@@ -535,22 +538,41 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         uiManager: AnnotationEditorUIManager,
         mode: Parameters<AnnotationEditorUIManager['updateMode']>[0],
         pageNumber = currentPage.value,
+        isIdentityCurrent: () => boolean = () => true,
     ) {
         try {
             await uiManager.updateMode(mode);
+            if (!isIdentityCurrent()) {
+                return 'stale' as const;
+            }
             return null;
         } catch (initialError) {
+            if (!isIdentityCurrent()) {
+                return 'stale' as const;
+            }
             BrowserLogger.debug('annotations', `Annotation mode switch will retry: ${errorToLogText(initialError)}`);
             try {
                 await waitForEditorsRenderedBeforeModeRetry(uiManager, pageNumber);
+                if (!isIdentityCurrent()) {
+                    return 'stale' as const;
+                }
             } catch (waitError) {
+                if (!isIdentityCurrent()) {
+                    return 'stale' as const;
+                }
                 BrowserLogger.debug('annotations', `Failed to wait for editor render before mode retry: ${errorToLogText(waitError)}`);
             }
             await nextTick();
+            if (!isIdentityCurrent()) {
+                return 'stale' as const;
+            }
         }
 
         try {
             await uiManager.updateMode(mode);
+            if (!isIdentityCurrent()) {
+                return 'stale' as const;
+            }
             return null;
         } catch (retryError) {
             return retryError;
@@ -576,13 +598,19 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
     async function setAnnotationTool(tool: TAnnotationTool) {
         pendingAnnotationTool.value = tool;
         const uiManager = annotationUiManager.value;
-        if (!uiManager) {
+        const document = pdfDocument.value;
+        if (!uiManager || !document) {
             return;
         }
         const localToken = ++annotationToolUpdateToken;
 
         annotationToolUpdatePromise = annotationToolUpdatePromise.then(async () => {
-            if (annotationToolUpdateToken !== localToken) {
+            const isIdentityCurrent = () => (
+                annotationToolUpdateToken === localToken
+                && annotationUiManager.value === uiManager
+                && pdfDocument.value === document
+            );
+            if (!isIdentityCurrent()) {
                 return;
             }
 
@@ -594,7 +622,15 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
                 applyHighlightParamsForTool(uiManager, settings, effectiveTool);
             }
 
-            const modeError = await updateModeWithRetry(uiManager, mode, currentPage.value);
+            const modeError = await updateModeWithRetry(
+                uiManager,
+                mode,
+                currentPage.value,
+                isIdentityCurrent,
+            );
+            if (modeError === 'stale') {
+                return;
+            }
             if (modeError) {
                 BrowserLogger.warn('annotations', `Failed to update annotation tool mode: ${errorToLogText(modeError)}`);
                 return;
@@ -602,12 +638,11 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
 
             syncAnnotationEditorLayerVisibility(mode);
 
-            if (annotationToolUpdateToken !== localToken || !settings) {
+            if (!isIdentityCurrent() || !settings) {
                 return;
             }
 
             applyAnnotationSettings(settings);
-            getFreeTextResize().patchResizableFreeTextEditors(uiManager);
         }).catch((error: unknown) => {
             BrowserLogger.warn('annotations', 'Failed to apply annotation tool update', error);
         });

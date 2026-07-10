@@ -7,16 +7,8 @@ import {
     type Server,
 } from 'http';
 import type { AddressInfo } from 'net';
-import {
-    mkdir,
-    readFile,
-    writeFile,
-} from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
-import {
-    dirname,
-    join,
-} from 'node:path';
+import {join} from 'node:path';
 import type {
     IAgentTabSnapshot,
     TAgentWorkspaceCommandTarget,
@@ -52,6 +44,7 @@ import {
     ASSISTANT_MCP_SERVER_NAME,
     ASSISTANT_MCP_TOKEN_ENV,
 } from '@electron/features/agent/codexAssistantConfig';
+import { ensureSecurePersistentLocalMcpToken } from '@electron/features/agent/localMcpTokenStore';
 
 export { processMcpRequest } from '@electron/features/agent/mcp/mcpServerCore';
 
@@ -59,7 +52,8 @@ const logger = createLogger('agent-mcp');
 const DEFAULT_MCP_HOST = '127.0.0.1';
 const DEFAULT_PROD_MCP_PORT = 38671;
 const DEFAULT_DEV_MCP_PORT = 38672;
-const LOCAL_MCP_TOKEN_FILE_NAME = 'agent-mcp-token.txt';
+const MCP_SERVER_CLOSE_GRACE_MS = 250;
+const MCP_SERVER_CLOSE_DEADLINE_MS = 1_000;
 const LOCAL_MCP_PROXY_SCRIPT_PATH = join('scripts', 'evb-mcp-proxy.mjs');
 const LOCAL_MCP_PROXY_ENV = {
     runAsNode: 'ELECTRON_RUN_AS_NODE',
@@ -69,13 +63,21 @@ const LOCAL_MCP_PROXY_ENV = {
 
 let localMcpServer: Server | null = null;
 let localMcpToken: string | null = null;
+let localMcpTokenPromise: Promise<string> | null = null;
 let localMcpTokenEnvOwned = false;
 let localMcpStartPromise: Promise<void> | null = null;
+let localMcpStopPromise: Promise<void> | null = null;
+let localMcpDesiredRunning = false;
+let localMcpGeneration = 0;
 let embeddedMcpServer: Server | null = null;
+const activeMcpRequestsByServer = new WeakMap<Server, Set<AbortController>>();
 let embeddedMcpServerDescriptor: ILocalMcpServerDescriptor | null = null;
 // Stable for the server's lifetime so sessions opened earlier keep working; rotated only on full shutdown.
 let embeddedMcpToken: string | null = null;
 let embeddedMcpStartPromise: Promise<IEmbeddedMcpServerHandle> | null = null;
+let embeddedMcpStopPromise: Promise<void> | null = null;
+let embeddedMcpDesiredRunning = false;
+let embeddedMcpGeneration = 0;
 
 function getDefaultAgentWindow() {
     const focusedWindow = BrowserWindow.getFocusedWindow();
@@ -142,39 +144,31 @@ export function getLocalMcpServerDescriptor(): ILocalMcpServerDescriptor {
     };
 }
 
-function getLocalMcpTokenStoragePath() {
-    return join(app.getPath('userData'), LOCAL_MCP_TOKEN_FILE_NAME);
-}
-
-async function readPersistedLocalMcpToken() {
-    try {
-        const token = (await readFile(getLocalMcpTokenStoragePath(), 'utf8')).trim();
-        return token.length > 0 ? token : null;
-    } catch {
-        return null;
-    }
-}
-
-async function persistLocalMcpToken(token: string) {
-    const tokenPath = getLocalMcpTokenStoragePath();
-    await mkdir(dirname(tokenPath), {recursive: true});
-    await writeFile(tokenPath, `${token}\n`, 'utf8');
-}
-
 async function ensureLocalMcpServerBearerToken() {
-    const configuredToken = process.env[ASSISTANT_MCP_TOKEN_ENV]?.trim();
-    if (!localMcpToken) {
-        if (configuredToken && configuredToken.length > 0) {
-            localMcpToken = configuredToken;
-        } else {
-            localMcpToken = await readPersistedLocalMcpToken()
-                ?? randomBytes(32).toString('hex');
-            await persistLocalMcpToken(localMcpToken);
-            localMcpTokenEnvOwned = true;
-        }
+    if (localMcpToken) {
+        process.env[ASSISTANT_MCP_TOKEN_ENV] = localMcpToken;
+        return localMcpToken;
     }
-    process.env[ASSISTANT_MCP_TOKEN_ENV] = localMcpToken;
-    return localMcpToken;
+    if (localMcpTokenPromise) {
+        return localMcpTokenPromise;
+    }
+
+    const tokenPromise = (async () => {
+        const configuredToken = process.env[ASSISTANT_MCP_TOKEN_ENV]?.trim();
+        const token = configuredToken && configuredToken.length > 0
+            ? configuredToken
+            : await ensureSecurePersistentLocalMcpToken(app.getPath('userData'));
+        localMcpToken = token;
+        localMcpTokenEnvOwned = !(configuredToken && configuredToken.length > 0);
+        process.env[ASSISTANT_MCP_TOKEN_ENV] = token;
+        return token;
+    })().finally(() => {
+        if (localMcpTokenPromise === tokenPromise) {
+            localMcpTokenPromise = null;
+        }
+    });
+    localMcpTokenPromise = tokenPromise;
+    return tokenPromise;
 }
 
 interface ILocalMcpProxyLaunchConfig {
@@ -294,7 +288,63 @@ function clearGeneratedLocalMcpTokenEnv() {
 }
 
 export function isLocalMcpServerRunning() {
-    return localMcpServer !== null;
+    return localMcpServer?.listening === true;
+}
+
+function createStartupCanceledError(serverKind: string) {
+    return new Error(`${serverKind} MCP server startup was canceled by shutdown.`);
+}
+
+function createTrackedHttpServer(
+    options: IProcessMcpRequestOptions,
+    bearerToken: string,
+) {
+    const activeRequestControllers = new Set<AbortController>();
+    const server = createServer(createHttpHandler(options, {
+        bearerToken,
+        activeRequestControllers,
+    }));
+    activeMcpRequestsByServer.set(server, activeRequestControllers);
+    return server;
+}
+
+function closeHttpServer(server: Server | null) {
+    if (!server) {
+        return Promise.resolve();
+    }
+
+    for (const controller of activeMcpRequestsByServer.get(server) ?? []) {
+        controller.abort(new Error('MCP server is shutting down.'));
+    }
+
+    return new Promise<void>((resolve) => {
+        let settled = false;
+        let forceTimer: NodeJS.Timeout | null = null;
+        let deadlineTimer: NodeJS.Timeout | null = null;
+        const finish = () => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            if (forceTimer) {
+                clearTimeout(forceTimer);
+            }
+            if (deadlineTimer) {
+                clearTimeout(deadlineTimer);
+            }
+            resolve();
+        };
+        try {
+            server.close(finish);
+            server.closeIdleConnections();
+            forceTimer = setTimeout(() => server.closeAllConnections(), MCP_SERVER_CLOSE_GRACE_MS);
+            deadlineTimer = setTimeout(finish, MCP_SERVER_CLOSE_DEADLINE_MS);
+            forceTimer.unref?.();
+            deadlineTimer.unref?.();
+        } catch {
+            finish();
+        }
+    });
 }
 
 function resolveInternalAssistantWindow(windowId?: number) {
@@ -388,7 +438,7 @@ function createDefaultMcpRequestOptions(
                     window,
                 } = resolveInternalAssistantWindow(windowId);
                 const scope = createAssistantCommandExecutionScope(binding);
-                const snapshot = await requestAgentWorkspaceSnapshot(window, undefined, scope);
+                const snapshot = await requestAgentWorkspaceSnapshot(window, undefined, scope, signal);
                 assertAssistantMcpSnapshotMatchesScope(snapshot, binding);
                 return requestAgentCommand(
                     window,
@@ -398,7 +448,7 @@ function createDefaultMcpRequestOptions(
                     signal,
                 );
             },
-            inspectDocumentText: async (input, windowId) => {
+            inspectDocumentText: async (input, windowId, signal) => {
                 const {
                     binding,
                     window,
@@ -407,9 +457,9 @@ function createDefaultMcpRequestOptions(
                     throw new Error('No live renderer window is available for document text inspection.');
                 }
                 assertInternalInputTabMatchesBinding(input.tab, binding);
-                return inspectAgentDocumentText(window, input);
+                return inspectAgentDocumentText(window, input, signal);
             },
-            searchDocument: async (input, windowId) => {
+            searchDocument: async (input, windowId, signal) => {
                 const {
                     binding,
                     window,
@@ -418,9 +468,9 @@ function createDefaultMcpRequestOptions(
                     throw new Error('No live renderer window is available for document search.');
                 }
                 assertInternalInputTabMatchesBinding(input.tab, binding);
-                return searchAgentDocument(window, input);
+                return searchAgentDocument(window, input, signal);
             },
-            readDocumentPages: async (input, windowId) => {
+            readDocumentPages: async (input, windowId, signal) => {
                 const {
                     binding,
                     window,
@@ -429,7 +479,7 @@ function createDefaultMcpRequestOptions(
                     throw new Error('No live renderer window is available for document page text reading.');
                 }
                 assertInternalInputTabMatchesBinding(input.tab, binding);
-                return readAgentDocumentPages(window, input);
+                return readAgentDocumentPages(window, input, signal);
             },
         };
     }
@@ -445,70 +495,96 @@ function createDefaultMcpRequestOptions(
             const window = resolveAgentWindow(windowId);
             return requestAgentCommand(window, command, undefined, undefined, signal);
         },
-        inspectDocumentText: async (input, windowId) => {
+        inspectDocumentText: async (input, windowId, signal) => {
             const window = resolveAgentWindow(windowId);
             if (!window) {
                 throw new Error('No live renderer window is available for document text inspection.');
             }
-            return inspectAgentDocumentText(window, input);
+            return inspectAgentDocumentText(window, input, signal);
         },
-        searchDocument: async (input, windowId) => {
+        searchDocument: async (input, windowId, signal) => {
             const window = resolveAgentWindow(windowId);
             if (!window) {
                 throw new Error('No live renderer window is available for document search.');
             }
-            return searchAgentDocument(window, input);
+            return searchAgentDocument(window, input, signal);
         },
-        readDocumentPages: async (input, windowId) => {
+        readDocumentPages: async (input, windowId, signal) => {
             const window = resolveAgentWindow(windowId);
             if (!window) {
                 throw new Error('No live renderer window is available for document page text reading.');
             }
-            return readAgentDocumentPages(window, input);
+            return readAgentDocumentPages(window, input, signal);
         },
     };
 }
 
 export function startLocalMcpServer() {
-    if (localMcpStartPromise) {
+    if (localMcpDesiredRunning && localMcpStartPromise) {
         return localMcpStartPromise;
     }
-    if (localMcpServer) {
+    if (localMcpDesiredRunning && localMcpServer?.listening) {
         return Promise.resolve();
     }
+    localMcpDesiredRunning = true;
+    const generation = ++localMcpGeneration;
+    const precedingStop = localMcpStopPromise;
     const startPromise = (async () => {
+        await precedingStop;
+        if (!localMcpDesiredRunning || localMcpGeneration !== generation) {
+            throw createStartupCanceledError('Local');
+        }
         const bearerToken = await ensureLocalMcpServerBearerToken();
+        if (!localMcpDesiredRunning || localMcpGeneration !== generation) {
+            throw createStartupCanceledError('Local');
+        }
         const port = resolveConfiguredLocalMcpPort();
         const identity = createLocalMcpServerIdentity(port);
         const options = {...createDefaultMcpRequestOptions(identity, 'external')};
 
-        const server = createServer(createHttpHandler(options, { bearerToken }));
+        const server = createTrackedHttpServer(options, bearerToken);
         localMcpServer = server;
         await new Promise<void>((resolve, reject) => {
             let settled = false;
-            const failStartup = (error: Error) => {
-                logger.error(`Local MCP server failed: ${getErrorMessage(error)}`);
+            const failStartup = (error: Error, logFailure: boolean) => {
                 if (settled) {
                     return;
                 }
                 settled = true;
+                if (logFailure) {
+                    logger.error(`Local MCP server failed: ${getErrorMessage(error)}`);
+                }
                 if (localMcpServer === server) {
                     localMcpServer = null;
                 }
                 reject(error);
             };
 
-            server.on('error', error => failStartup(error instanceof Error ? error : new Error(getErrorMessage(error))));
+            server.on('error', (error) => {
+                const normalizedError = error instanceof Error ? error : new Error(getErrorMessage(error));
+                if (settled) {
+                    logger.error(`Local MCP server failed: ${getErrorMessage(normalizedError)}`);
+                    return;
+                }
+                const isCurrentStartup = localMcpDesiredRunning
+                    && localMcpGeneration === generation
+                    && localMcpServer === server;
+                failStartup(normalizedError, isCurrentStartup);
+            });
             server.on('close', () => {
-                failStartup(new Error('Local MCP server was shut down during startup.'));
+                failStartup(createStartupCanceledError('Local'), false);
             });
             server.listen(port, DEFAULT_MCP_HOST, () => {
                 if (settled) {
                     return;
                 }
-                if (localMcpServer !== server) {
-                    server.close();
-                    failStartup(new Error('Local MCP server was shut down during startup.'));
+                if (
+                    !localMcpDesiredRunning
+                    || localMcpGeneration !== generation
+                    || localMcpServer !== server
+                ) {
+                    void closeHttpServer(server);
+                    failStartup(createStartupCanceledError('Local'), false);
                     return;
                 }
 
@@ -528,26 +604,33 @@ export function startLocalMcpServer() {
 }
 
 export function shutdownLocalMcpServer() {
+    localMcpDesiredRunning = false;
+    const generation = ++localMcpGeneration;
     const server = localMcpServer;
-    if (!server) {
-        clearGeneratedLocalMcpTokenEnv();
-        localMcpToken = null;
-        return Promise.resolve();
-    }
-
     localMcpServer = null;
-    localMcpStartPromise = null;
-    return new Promise<void>((resolve) => {
-        server.close(() => {
+    const pendingStart = localMcpStartPromise;
+    const pendingToken = localMcpTokenPromise;
+    const stopPromise = (async () => {
+        await Promise.allSettled([
+            closeHttpServer(server),
+            ...(pendingStart ? [pendingStart] : []),
+            ...(pendingToken ? [pendingToken] : []),
+        ]);
+        if (!localMcpDesiredRunning && localMcpGeneration === generation) {
             clearGeneratedLocalMcpTokenEnv();
             localMcpToken = null;
-            resolve();
-        });
+        }
+    })().finally(() => {
+        if (localMcpStopPromise === stopPromise) {
+            localMcpStopPromise = null;
+        }
     });
+    localMcpStopPromise = stopPromise;
+    return stopPromise;
 }
 
 export function isEmbeddedMcpServerRunning() {
-    return embeddedMcpServer !== null;
+    return embeddedMcpServer?.listening === true;
 }
 
 export function getEmbeddedMcpServerDescriptor() {
@@ -569,79 +652,100 @@ export function startEmbeddedMcpServer(): Promise<IEmbeddedMcpServerHandle> {
             token: embeddedMcpToken,
         });
     }
-    if (embeddedMcpStartPromise) {
+    if (embeddedMcpDesiredRunning && embeddedMcpStartPromise) {
         return embeddedMcpStartPromise;
     }
+    embeddedMcpDesiredRunning = true;
+    const generation = ++embeddedMcpGeneration;
+    const precedingStop = embeddedMcpStopPromise;
+    const startPromise = (async () => {
+        await precedingStop;
+        if (!embeddedMcpDesiredRunning || embeddedMcpGeneration !== generation) {
+            throw createStartupCanceledError('Embedded');
+        }
+        const token = embeddedMcpToken ?? randomBytes(32).toString('hex');
+        embeddedMcpToken = token;
+        return new Promise<IEmbeddedMcpServerHandle>((resolve, reject) => {
+            const identity = createLocalMcpServerIdentity(0);
+            identity.name = ASSISTANT_MCP_SERVER_NAME;
+            identity.title = `${identity.title} Assistant`;
+            const options = createDefaultMcpRequestOptions(identity, 'internal');
+            const server = createTrackedHttpServer(options, token);
+            // Track the binding server immediately so a shutdown racing the bind can always close it.
+            embeddedMcpServer = server;
+            let settled = false;
 
-    const token = embeddedMcpToken ?? randomBytes(32).toString('hex');
-    embeddedMcpToken = token;
-
-    const startPromise = new Promise<IEmbeddedMcpServerHandle>((resolve, reject) => {
-        const identity = createLocalMcpServerIdentity(0);
-        identity.name = ASSISTANT_MCP_SERVER_NAME;
-        identity.title = `${identity.title} Assistant`;
-        const options = createDefaultMcpRequestOptions(identity, 'internal');
-        const server = createServer(createHttpHandler(options, { bearerToken: token }));
-        // Track the binding server immediately so a shutdown racing the bind can always close it.
-        embeddedMcpServer = server;
-        let settled = false;
-
-        const failStartup = (error: Error) => {
-            if (settled) {
-                return;
-            }
-            settled = true;
-            if (embeddedMcpServer === server) {
-                embeddedMcpServer = null;
-                embeddedMcpServerDescriptor = null;
-            }
-            reject(error);
-        };
-
-        server.on('error', (error) => {
-            logger.error(`Embedded MCP server failed: ${getErrorMessage(error)}`);
-            failStartup(error instanceof Error ? error : new Error(getErrorMessage(error)));
-        });
-        // If a shutdown closes the server mid-bind, Node aborts the bind and fires neither the
-        // listen callback nor 'error' — only 'close'. Settle here so awaiters don't hang forever.
-        server.on('close', () => {
-            failStartup(new Error('Embedded MCP server was shut down during startup.'));
-        });
-        server.listen(0, DEFAULT_MCP_HOST, () => {
-            if (settled) {
-                return;
-            }
-            // A shutdown that raced this bind has already detached the server.
-            if (embeddedMcpServer !== server) {
-                server.close();
-                failStartup(new Error('Embedded MCP server was shut down during startup.'));
-                return;
-            }
-
-            const address = server.address() as AddressInfo | null;
-            const port = address?.port;
-            if (!port) {
-                server.close();
-                failStartup(new Error('Embedded MCP server did not receive a port.'));
-                return;
-            }
-
-            identity.port = port;
-            embeddedMcpServerDescriptor = {
-                name: identity.name,
-                title: identity.title,
-                host: identity.host,
-                port,
-                url: `http://${identity.host}:${port}`,
+            const failStartup = (error: Error, logFailure: boolean) => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                if (logFailure) {
+                    logger.error(`Embedded MCP server failed: ${getErrorMessage(error)}`);
+                }
+                if (embeddedMcpServer === server) {
+                    embeddedMcpServer = null;
+                    embeddedMcpServerDescriptor = null;
+                }
+                reject(error);
             };
-            settled = true;
-            logger.info(`Embedded MCP server ${identity.name} listening on ${embeddedMcpServerDescriptor.url}`);
-            resolve({
-                descriptor: embeddedMcpServerDescriptor,
-                token,
+
+            server.on('error', (error) => {
+                const normalizedError = error instanceof Error ? error : new Error(getErrorMessage(error));
+                if (settled) {
+                    logger.error(`Embedded MCP server failed: ${getErrorMessage(normalizedError)}`);
+                    return;
+                }
+                const isCurrentStartup = embeddedMcpDesiredRunning
+                && embeddedMcpGeneration === generation
+                && embeddedMcpServer === server;
+                failStartup(normalizedError, isCurrentStartup);
+            });
+            // If a shutdown closes the server mid-bind, Node aborts the bind and fires neither the
+            // listen callback nor 'error' — only 'close'. Settle here so awaiters don't hang forever.
+            server.on('close', () => {
+                failStartup(createStartupCanceledError('Embedded'), false);
+            });
+            server.listen(0, DEFAULT_MCP_HOST, () => {
+                if (settled) {
+                    return;
+                }
+                // A shutdown that raced this bind has already detached the server.
+                if (
+                    !embeddedMcpDesiredRunning
+                || embeddedMcpGeneration !== generation
+                || embeddedMcpServer !== server
+                ) {
+                    void closeHttpServer(server);
+                    failStartup(createStartupCanceledError('Embedded'), false);
+                    return;
+                }
+
+                const address = server.address() as AddressInfo | null;
+                const port = address?.port;
+                if (!port) {
+                    server.close();
+                    failStartup(new Error('Embedded MCP server did not receive a port.'), true);
+                    return;
+                }
+
+                identity.port = port;
+                embeddedMcpServerDescriptor = {
+                    name: identity.name,
+                    title: identity.title,
+                    host: identity.host,
+                    port,
+                    url: `http://${identity.host}:${port}`,
+                };
+                settled = true;
+                logger.info(`Embedded MCP server ${identity.name} listening on ${embeddedMcpServerDescriptor.url}`);
+                resolve({
+                    descriptor: embeddedMcpServerDescriptor,
+                    token,
+                });
             });
         });
-    }).finally(() => {
+    })().finally(() => {
         if (embeddedMcpStartPromise === startPromise) {
             embeddedMcpStartPromise = null;
         }
@@ -653,16 +757,26 @@ export function startEmbeddedMcpServer(): Promise<IEmbeddedMcpServerHandle> {
 
 export function shutdownEmbeddedMcpServer() {
     clearAssistantMcpSessionScope();
+    embeddedMcpDesiredRunning = false;
+    const generation = ++embeddedMcpGeneration;
     const server = embeddedMcpServer;
     embeddedMcpServer = null;
     embeddedMcpServerDescriptor = null;
     embeddedMcpToken = null;
-    embeddedMcpStartPromise = null;
-    if (!server) {
-        return Promise.resolve();
-    }
-
-    return new Promise<void>((resolve) => {
-        server.close(() => resolve());
+    const pendingStart = embeddedMcpStartPromise;
+    const stopPromise = (async () => {
+        await Promise.allSettled([
+            closeHttpServer(server),
+            ...(pendingStart ? [pendingStart] : []),
+        ]);
+        if (!embeddedMcpDesiredRunning && embeddedMcpGeneration === generation) {
+            embeddedMcpToken = null;
+        }
+    })().finally(() => {
+        if (embeddedMcpStopPromise === stopPromise) {
+            embeddedMcpStopPromise = null;
+        }
     });
+    embeddedMcpStopPromise = stopPromise;
+    return stopPromise;
 }

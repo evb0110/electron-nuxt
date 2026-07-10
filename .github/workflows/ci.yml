@@ -48,6 +48,9 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
+      - name: Source-size architecture ratchet
+        run: pnpm run check:architecture:source-size
+
       - name: Unit tests
         run: pnpm run test:unit
 
@@ -85,39 +88,23 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      native_or_build: ${{ steps.filter.outputs.native_or_build }}
+      landing: ${{ steps.classify.outputs.landing }}
+      native_or_build: ${{ steps.classify.outputs.native_or_build }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-
-      - name: Detect native or build-script changes
-        id: filter
-        uses: dorny/paths-filter@v3
         with:
-          filters: |
-            native_or_build:
-              - 'native/**'
-              - 'scripts/bundle-*.sh'
-              - 'scripts/build-*.mjs'
-              - 'scripts/check-build-*.mjs'
-              - 'scripts/check-drizzle-schema.mjs'
-              - 'scripts/check-electron-builder-asar-unpack.mjs'
-              - 'scripts/check-generated-native-resources.mjs'
-              - 'scripts/check-native-tools-source-matrix.sh'
-              - 'scripts/check-wasm-freshness.mjs'
-              - 'scripts/native-rust-targets.mjs'
-              - 'scripts/prune-build-artifacts.mjs'
-              - 'scripts/release/**'
-              - 'scripts/run-workspace-package-typecheck.mjs'
-              - 'scripts/run-build-strict.mjs'
-              - 'scripts/verify-packaged-native-tools.sh'
-              - 'scripts/wasm-artifacts.mjs'
-              - 'scripts/workspace-roots.mjs'
-              - 'pnpm-workspace.yaml'
-              - 'electron-builder.yml'
-              - 'package.json'
-              - 'pnpm-lock.yaml'
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Classify changed areas from release policy
+        id: classify
+        run: node scripts/ci/classify-changed-areas.mjs --base=${{ github.event.pull_request.base.sha }} --head=${{ github.event.pull_request.head.sha }}
 
   pr_native_build_safety:
     name: Pull Request Native And Build Safety
@@ -150,6 +137,42 @@ jobs:
 
       - name: Strict build
         run: pnpm run build:strict
+
+  pr_landing_quality:
+    name: Pull Request Landing Quality Gates
+    if: ${{ github.event_name == 'pull_request' && needs.pr_changed_areas.outputs.landing == 'true' }}
+    needs: pr_changed_areas
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: landing/pnpm-lock.yaml
+
+      - name: Install landing dependencies
+        run: pnpm --dir landing install --frozen-lockfile
+
+      - name: Landing vendor check
+        run: pnpm --dir landing run check:vendor
+
+      - name: Landing lint
+        run: pnpm --dir landing run lint
+
+      - name: Landing typecheck
+        run: pnpm --dir landing run typecheck
+
+      - name: Landing build
+        run: pnpm --dir landing run build
 
   manual_quality:
     name: Manual Quality Gates
@@ -187,6 +210,9 @@ jobs:
 
       - name: Static assets
         run: pnpm run check:static:assets
+
+      - name: Source-size architecture ratchet
+        run: pnpm run check:architecture:source-size
 
       - name: Typecheck
         run: pnpm run typecheck
@@ -231,7 +257,6 @@ jobs:
     name: Landing Quality Gates
     if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
-    continue-on-error: true
     timeout-minutes: 15
 
     steps:
@@ -253,6 +278,9 @@ jobs:
 
       - name: Landing vendor check
         run: pnpm --dir landing run check:vendor
+
+      - name: Landing lint
+        run: pnpm --dir landing run lint
 
       - name: Landing typecheck
         run: pnpm --dir landing run typecheck
@@ -290,11 +318,14 @@ jobs:
       - name: Install Rust WASM target
         run: rustup target add wasm32-unknown-unknown
 
+      - name: Production dependency audit
+        run: pnpm run check:production-dependency-audit
+
       - name: WASM freshness
         run: pnpm run check:wasm:portable
 
       - name: Install page processor smoke dependencies
-        run: python -m pip install 'numpy>=2.0.0' 'opencv-python-headless>=4.10.0' 'img2pdf>=0.6.3' 'Pillow>=10.0.0'
+        run: python -m pip install --require-hashes --only-binary=:all: -r python/page-processor/requirements-lock.txt
 
       - name: Lint
         run: pnpm run lint

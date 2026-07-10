@@ -10,6 +10,7 @@ import type {
     IDocumentsWorkingCopyCapability,
     IImageExportCapability,
 } from '@contracts/electronApiDocuments';
+import { assertDocumentAllocationSize } from '@contracts/electronApiDocuments';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IPageOpsCapability } from '@contracts/electronApiPageOps';
 import { isBrowserDocumentRef } from '@app/utils/documentRef';
@@ -82,7 +83,7 @@ export async function readDocumentFileFully(path: TDocumentRef) {
     }
 
     const { size } = await documents.statFile(path);
-    const output = new Uint8Array(size);
+    const output = new Uint8Array(assertDocumentAllocationSize(size));
     let offset = 0;
     while (offset < size) {
         const length = Math.min(FULL_READ_FALLBACK_CHUNK_SIZE, size - offset);

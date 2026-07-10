@@ -23,6 +23,7 @@ import { PDF_PAGE_RENDER_TIMEOUT_MS } from '@app/constants/timeouts';
 import { pdfViewerDomClasses } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/pdfViewerDomClasses';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
+import type { IPdfDocumentPageLease } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument';
 
 
 const TEXT_LAYER_FIRST_NAVIGATION_YIELD_MS = 50;
@@ -40,10 +41,7 @@ interface IRenderPageContext<TRenderResult> {
     annotationLayerInstance: unknown;
 }
 
-interface IPdfPageRenderLease {
-    pdfPage: PDFPageProxy;
-    release: () => void;
-}
+type IPdfPageRenderLease = IPdfDocumentPageLease;
 
 interface IUsePdfRendererSinglePageControllerOptions<TRenderResult> {
     isActive: MaybeRefOrGetter<boolean>;
@@ -62,12 +60,11 @@ interface IUsePdfRendererSinglePageControllerOptions<TRenderResult> {
     clearSelectionBeforePageLayerTeardown: TClearSelectionBeforePageLayerTeardown;
     cleanupPageIfCurrentRender: (pageNumber: number, version: number, requestId?: number) => void;
     cleanupCanvasRenderResult: (renderResult: TRenderResult) => void;
-    releasePageResources: (pageNumber: number, pdfPage: PDFPageProxy) => void;
     loadPageForRender: (
         pageNumber: number,
         version: number,
         shouldContinue: () => boolean,
-    ) => Promise<PDFPageProxy | null>;
+    ) => Promise<IPdfDocumentPageLease | null>;
     prepareCanvasForRender: (
         pdfPage: PDFPageProxy,
         pageNumber: number,
@@ -183,7 +180,6 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
         clearSelectionBeforePageLayerTeardown,
         cleanupPageIfCurrentRender,
         cleanupCanvasRenderResult,
-        releasePageResources,
         loadPageForRender,
         prepareCanvasRenderForPage,
         renderPreparedCanvasForPage,
@@ -213,23 +209,6 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
     ) {
         cleanupPageIfCurrentRender(pageNumber, version, requestId);
         pageLease.release();
-    }
-
-    function createPageRenderLease(
-        pageNumber: number,
-        pdfPage: PDFPageProxy,
-    ): IPdfPageRenderLease {
-        let released = false;
-        return {
-            pdfPage,
-            release: () => {
-                if (released) {
-                    return;
-                }
-                released = true;
-                releasePageResources(pageNumber, pdfPage);
-            },
-        };
     }
 
     function finalizePageRender(
@@ -323,7 +302,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
         requestId: number,
         shouldContinue: () => boolean,
     ) {
-        const { pdfPage } = pageLease;
+        const pdfPage = pageLease.page;
         if (!renderResult) {
             return;
         }
@@ -427,7 +406,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
         documentToken: string,
         shouldContinue: () => boolean,
     ) {
-        const { pdfPage } = pageLease;
+        const pdfPage = pageLease.page;
         if (getRenderVersion() !== version || !shouldContinue()) {
             cleanupCanvasRenderResult(preparedCanvasRender);
             pageLease.release();
@@ -759,8 +738,8 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
                 version,
                 requestId,
             });
-            const pdfPage = await loadPageForRender(pageNumber, version, shouldContinuePage);
-            if (!pdfPage) {
+            pageLease = await loadPageForRender(pageNumber, version, shouldContinuePage);
+            if (!pageLease) {
                 logPdfRenderTrace('renderer-page-load-stale', {
                     pageNumber,
                     version,
@@ -769,7 +748,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
                 });
                 return;
             }
-            pageLease = createPageRenderLease(pageNumber, pdfPage);
+            const pdfPage = pageLease.page;
             logPdfRenderTrace('renderer-page-load-end', {
                 pageNumber,
                 version,
@@ -910,15 +889,15 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
             }
             const version = getRenderVersion();
             const scale = toValue(effectiveScale);
-            const pdfPage = await loadPageForRender(
+            const pageLease = await loadPageForRender(
                 pageNumber,
                 version,
                 () => getRenderVersion() === version,
             );
-            if (!pdfPage) {
+            if (!pageLease) {
                 return false;
             }
-            const pageLease = createPageRenderLease(pageNumber, pdfPage);
+            const pdfPage = pageLease.page;
             try {
                 const shouldContinueEditorLayerRender = () => (
                     getRenderVersion() === version

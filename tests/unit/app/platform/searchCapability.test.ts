@@ -218,6 +218,14 @@ class FakeDatabase {
     }
 
     public close() {}
+
+    public rejectNextTransaction(error: Error) {
+        const transaction = this.transaction.bind(this);
+        this.transaction = ((_name: string, _mode: IDBTransactionMode) => {
+            this.transaction = transaction;
+            throw error;
+        }) as typeof this.transaction;
+    }
 }
 
 class FakeIndexedDbFactory {
@@ -318,6 +326,18 @@ describe('createBrowserSearchCapability', () => {
         browserSearchWorkerClientMock.cancelBrowserSearchWorkerRequest.mockReset();
         browserSearchWorkerClientMock.cancelBrowserSearchWorkerRequest.mockResolvedValue(undefined);
         pdfjsModule.getDocument.mockReset();
+    });
+
+    it('returns an observable cache-clear rejection and allows the caller to retry', async () => {
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
+        const { clearSearchCaches } = createBrowserSearchCapability();
+        await clearSearchCaches();
+        const database = cast<FakeIndexedDbFactory>(indexedDB)
+            .getDatabase('evb-browser-search-cache');
+        database?.rejectNextTransaction(new Error('clear transaction failed'));
+
+        await expect(clearSearchCaches()).rejects.toThrow('clear transaction failed');
+        await expect(clearSearchCaches()).resolves.toBeUndefined();
     });
 
     it('does not reuse persisted browser page text for geometry-required search runs', async () => {

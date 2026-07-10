@@ -771,6 +771,64 @@ describe('usePdfSearch', () => {
         await secondSearch;
     });
 
+    it('settles three overlapping runs and schedules only the newest search after cancellation', async () => {
+        let resolveFirstSearch: (value: IPdfSearchRunResult) => void = () => {};
+        let resolveCancel: () => void = () => {};
+        mockSearch.run.mockImplementation(async (_pdfPath, query) => {
+            if (query === 'alpha') {
+                return new Promise<IPdfSearchRunResult>((resolve) => {
+                    resolveFirstSearch = resolve;
+                });
+            }
+            return {
+                results: [],
+                truncated: false,
+            };
+        });
+        mockSearch.cancel.mockImplementation(async () => new Promise<void>((resolve) => {
+            resolveCancel = resolve;
+        }));
+        const search = await createPdfSearch();
+
+        const firstSearch = search.search('alpha', '/tmp/work.pdf');
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        expect(mockSearch.run).toHaveBeenCalledWith(
+            '/tmp/work.pdf',
+            'alpha',
+            expect.any(Object),
+        );
+
+        const secondSearch = search.search('beta', '/tmp/work.pdf');
+        await vi.waitFor(() => {
+            expect(mockSearch.cancel).toHaveBeenCalledOnce();
+        });
+        const thirdSearch = search.search('gamma', '/tmp/work.pdf');
+        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+
+        expect(mockSearch.run).toHaveBeenCalledTimes(2);
+        expect(mockSearch.run).toHaveBeenLastCalledWith(
+            '/tmp/work.pdf',
+            'gamma',
+            expect.any(Object),
+        );
+
+        resolveCancel();
+        resolveFirstSearch({
+            results: [],
+            truncated: false,
+        });
+
+        await expect(firstSearch).resolves.toBe(false);
+        await expect(secondSearch).resolves.toBe(false);
+        await expect(thirdSearch).resolves.toBe(true);
+        expect(mockSearch.run).not.toHaveBeenCalledWith(
+            '/tmp/work.pdf',
+            'beta',
+            expect.any(Object),
+        );
+    });
+
     it('surfaces a localized search error when backend search fails', async () => {
         mockSearch.run.mockRejectedValue(new Error('ERR_BROWSER_SEARCH_TOO_LARGE'));
         const search = await createPdfSearch();

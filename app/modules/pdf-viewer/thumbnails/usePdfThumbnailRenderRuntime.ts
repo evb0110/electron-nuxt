@@ -20,7 +20,7 @@ import type { IPdfPagePreviewEntry } from '@app/modules/pdf-viewer/engine/pdf-pa
 import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
 import {
     leasePdfDocumentPage,
-    releasePdfDocumentPage,
+    type IPdfDocumentPageLease,
 } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { runGuardedTask } from '@app/utils/asyncGuard';
@@ -471,8 +471,7 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
     }
 
     function releaseThumbnailPage(
-        pdfDocument: PDFDocumentProxy,
-        page: PDFPageProxy,
+        pageLease: IPdfDocumentPageLease,
         pageNumber: number,
         reason: string,
     ) {
@@ -481,7 +480,7 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
                 pageNumber,
                 reason,
             });
-            releasePdfDocumentPage(pdfDocument, pageNumber, page);
+            pageLease.release();
             logPdfRenderTrace('thumbnail-page-release-end', {
                 pageNumber,
                 reason,
@@ -555,7 +554,8 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
             renderKey,
             renderRunId,
         });
-        const page = await leasePdfDocumentPage(pdfDocument, pageNum);
+        const pageLease = await leasePdfDocumentPage(pdfDocument, pageNum);
+        const page = pageLease.page;
         const renderAbortController = new AbortController();
         logPdfRenderTrace('thumbnail-page-load-end', {
             pageNumber: pageNum,
@@ -648,6 +648,7 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
                     pageNumber: pageNum,
                     pdfPage: page,
                     priority: renderCoordination.priority,
+                    signal: renderAbortController.signal,
                     shouldStart: isCurrentThumbnailRender,
                     startRender: () => page.render({
                         canvasContext: context,
@@ -723,7 +724,7 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
             finalizeRenderedThumbnail(pageNum, canvas, renderKey);
         } finally {
             thumbnailRenderState.clearAbortController(pageNum, renderAbortController);
-            releaseThumbnailPage(pdfDocument, page, pageNum, 'render-thumbnail');
+            releaseThumbnailPage(pageLease, pageNum, 'render-thumbnail');
         }
     }
 
@@ -897,7 +898,8 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
     async function preloadThumbnailAspectRatio(pdfDocument: PDFDocumentProxy, runId: number) {
         const pageNum = clamp(source.currentPage.value || 1, 1, Math.max(1, source.totalPages.value));
         try {
-            const page = await leasePdfDocumentPage(pdfDocument, pageNum);
+            const pageLease = await leasePdfDocumentPage(pdfDocument, pageNum);
+            const page = pageLease.page;
             try {
                 if (!isThumbnailRenderGenerationCurrent(pdfDocument, runId)) {
                     return;
@@ -912,7 +914,7 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
                 );
                 void effects.refreshVisibleThumbnailPane('preload-viewport');
             } finally {
-                releaseThumbnailPage(pdfDocument, page, pageNum, 'preload-aspect-ratio');
+                releaseThumbnailPage(pageLease, pageNum, 'preload-aspect-ratio');
             }
         } catch (error) {
             if (shouldIgnoreThumbnailRenderError(error, pdfDocument, runId)) {

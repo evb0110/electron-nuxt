@@ -2,6 +2,7 @@ import type {
     ICropMargins,
     IPageGeometry,
 } from '@contracts/shared';
+import { normalizeCropMargins } from '@contracts/shared';
 import {
     isRecord,
     isSafeWorkerRequestId,
@@ -107,15 +108,12 @@ function isPositiveIntegerArray(value: unknown): value is number[] {
 }
 
 function isCropMargins(value: unknown): value is ICropMargins {
-    return isRecord(value)
-        && typeof value.top === 'number'
-        && typeof value.bottom === 'number'
-        && typeof value.left === 'number'
-        && typeof value.right === 'number'
-        && Number.isFinite(value.top)
-        && Number.isFinite(value.bottom)
-        && Number.isFinite(value.left)
-        && Number.isFinite(value.right);
+    try {
+        normalizeCropMargins(value);
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 function getPdfData(value: Record<string, unknown>) {

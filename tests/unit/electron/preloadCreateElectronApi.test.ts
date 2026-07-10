@@ -8,7 +8,10 @@ import {
 } from 'vitest';
 import { AGENT_EVENT_CHANNELS } from '@electron/features/agent/contract';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
-import { CORE_IPC_EVENT_CHANNELS } from '@electron/platform-ipc/coreContract';
+import {
+    CORE_IPC_CHANNELS,
+    CORE_IPC_EVENT_CHANNELS,
+} from '@electron/platform-ipc/coreContract';
 import { getPlatformDocumentCapabilityMirrors } from '@contracts/platformApi';
 
 const documentsClientMock = vi.hoisted(() => ({
@@ -579,6 +582,90 @@ describe('createElectronApi', () => {
             `Dropped invalid decoded IPC event payload for ${CORE_IPC_EVENT_CHANNELS.tabsIncomingTransfer}`,
             expect.objectContaining({ transferId: 'transfer-bad' }),
         );
+    });
+
+    it('decodes update, host, and window-action payloads while preserving unsubscribe handles', async () => {
+        silenceExpectedDecodedEventWarnings();
+        const listeners = new Map<string, (_event: unknown, payload: unknown) => void>();
+        const ipcRenderer = {
+            invoke: vi.fn(async (channel: string) => {
+                if (channel === CORE_IPC_CHANNELS.updatesGetState) {
+                    return {
+                        phase: 'future-phase',
+                        origin: 'manual',
+                        version: null,
+                        percent: null,
+                        message: null,
+                    };
+                }
+                if (channel === CORE_IPC_CHANNELS.hostGetEnvironment) {
+                    return {
+                        platform: 'linux',
+                        osScaleFactor: 0,
+                    };
+                }
+                return undefined;
+            }),
+            on: vi.fn((channel: string, handler: (_event: unknown, payload: unknown) => void) => {
+                listeners.set(channel, handler);
+            }),
+            removeListener: vi.fn(),
+            send: vi.fn(),
+        };
+        const { createElectronApi } = await import('@electron/preload/createElectronApi');
+        const api = createElectronApi(ipcRenderer as never, { getPathForFile: () => '' });
+        const updateCallback = vi.fn();
+        const environmentCallback = vi.fn();
+        const actionCallback = vi.fn();
+        const unsubscribers = [
+            api.updates.onStatus(updateCallback),
+            api.host.onEnvironmentChange(environmentCallback),
+            api.windowTabs.onWindowAction(actionCallback),
+        ];
+
+        listeners.get(CORE_IPC_EVENT_CHANNELS.updatesStatus)?.({}, {
+            phase: 'future-phase',
+            origin: 'manual',
+            version: null,
+            percent: null,
+            message: null,
+        });
+        listeners.get(CORE_IPC_EVENT_CHANNELS.updatesStatus)?.({}, {
+            phase: 'downloaded',
+            origin: 'auto',
+            version: '2.0.0',
+            percent: 100,
+            message: null,
+        });
+        listeners.get(CORE_IPC_EVENT_CHANNELS.hostEnvironmentChanged)?.({}, {
+            platform: 'freebsd',
+            osScaleFactor: 1,
+        });
+        listeners.get(CORE_IPC_EVENT_CHANNELS.hostEnvironmentChanged)?.({}, {
+            platform: 'darwin',
+            osScaleFactor: 2,
+        });
+        listeners.get(CORE_IPC_EVENT_CHANNELS.menuWindowTabsAction)?.({}, {
+            kind: 'move-tab-to-window',
+            targetWindowId: -1,
+        });
+        listeners.get(CORE_IPC_EVENT_CHANNELS.menuWindowTabsAction)?.({}, {
+            kind: 'move-tab-to-window',
+            targetWindowId: 3,
+            tabId: ' tab-1 ',
+        });
+        unsubscribers.forEach(unsubscribe => unsubscribe());
+
+        expect(updateCallback).toHaveBeenCalledOnce();
+        expect(environmentCallback).toHaveBeenCalledOnce();
+        expect(actionCallback).toHaveBeenCalledWith({
+            kind: 'move-tab-to-window',
+            targetWindowId: 3,
+            tabId: 'tab-1',
+        });
+        expect(ipcRenderer.removeListener).toHaveBeenCalledTimes(3);
+        await expect(api.updates.getState()).rejects.toThrow('Invalid IPC response for updates:getState');
+        await expect(api.host.getEnvironment()).rejects.toThrow('Invalid IPC response for host:getEnvironment');
     });
 
     it('awaits renderer file-open authorization before single-file direct open', async () => {

@@ -5,14 +5,14 @@ Detects and corrects page orientation (0, 90, 180, 270 degrees).
 Uses text line orientation and edge analysis for robust detection.
 """
 
-import cv2
-import numpy as np
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from typing import Literal
 
-from .io import load_image, load_grayscale, save_image
-from .geometry import rotate_90
+import cv2
+import numpy as np
 
+from .geometry import rotate_90
+from .io import load_grayscale, load_image, save_image
 
 TRotation = Literal[0, 90, 180, 270]
 
@@ -58,7 +58,7 @@ def detect_rotation(image_path: str) -> RotationResult:
     content_result = detect_content_orientation(gray)
 
     # Combine results with weighted voting
-    candidates = {
+    candidates: dict[TRotation, float] = {
         0: 0.0,
         90: 0.0,
         180: 0.0,
@@ -78,16 +78,16 @@ def detect_rotation(image_path: str) -> RotationResult:
         candidates[rotation] += conf * weights['content']
 
     # Find best rotation
-    best_rotation = max(candidates, key=candidates.get)
+    best_rotation = max(candidates, key=lambda rotation: candidates[rotation])
     confidence = candidates[best_rotation]
 
     # Determine which method contributed most
-    method_contributions = {
+    method_contributions: dict[str, float] = {
         'text': text_result.get(best_rotation, 0) * weights['text'],
         'edge': edge_result.get(best_rotation, 0) * weights['edge'],
         'content': content_result.get(best_rotation, 0) * weights['content'],
     }
-    method_used = max(method_contributions, key=method_contributions.get)
+    method_used = max(method_contributions, key=lambda method: method_contributions[method])
 
     return RotationResult(
         rotation=best_rotation,

@@ -12,10 +12,7 @@ import type {
 } from '@contracts/electronApiDocuments';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { IPdfRasterDisplayProfileOpenOptions } from '@app/types/pdfRasterDisplayProfile';
-import {
-    registerPdfRasterDisplayProfile,
-    resolveRegisteredPdfRasterDisplayProfile,
-} from '@app/types/pdfRasterDisplayProfile';
+import {consumeRegisteredPdfRasterDisplayProfile} from '@app/types/pdfRasterDisplayProfile';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { IDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/createDocumentSessionState';
 import type { IPdfLoadedState } from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
@@ -256,6 +253,12 @@ export function createDocumentOpenFlow(
         openMethod: 'picker' | 'preselected' | 'direct' | 'batch',
         options: IPdfRasterDisplayProfileOpenOptions = {},
     ) {
+        const registeredRasterDisplayProfile = consumeRegisteredPdfRasterDisplayProfile(
+            result.originalPath,
+            result.workingPath,
+        );
+        const rasterDisplayProfile = options.rasterDisplayProfile
+            ?? registeredRasterDisplayProfile;
         try {
             await loadPdfFromPath(result.workingPath, {
                 markDirty: !!result.isGenerated,
@@ -283,12 +286,6 @@ export function createDocumentOpenFlow(
         }
         state.originalPath.value = result.originalPath;
         state.requiresSaveAsOnFirstSave.value = !!result.isGenerated;
-        const rasterDisplayProfile = options.rasterDisplayProfile
-            ?? resolveRegisteredPdfRasterDisplayProfile(result.originalPath, result.workingPath);
-        if (rasterDisplayProfile) {
-            registerPdfRasterDisplayProfile(result.originalPath, rasterDisplayProfile);
-            registerPdfRasterDisplayProfile(result.workingPath, rasterDisplayProfile);
-        }
         state.pdfRasterDisplayProfile.value = rasterDisplayProfile;
         return {
             status: 'opened',

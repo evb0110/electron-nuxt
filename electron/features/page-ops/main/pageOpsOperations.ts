@@ -5,7 +5,10 @@ import {
     extname,
 } from 'path';
 import type { ICropMargins } from '@contracts/shared';
-import { normalizeNonEmptyStringPaths } from '@contracts/shared';
+import {
+    normalizeCropMargins,
+    normalizeNonEmptyStringPaths,
+} from '@contracts/shared';
 import type { TOpenBatchProgressOperation } from '@contracts/electronApiDocuments';
 import type { IPageOpsMutationOptions } from '@contracts/electronApiPageOps';
 import {
@@ -435,19 +438,7 @@ export async function handlePageOpsCrop(
     const expectedTotalPages = validateExpectedTotalPages(totalPages);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
     validatePageNumbers(pages, 'cropPages', {requireUnique: true});
-    if (
-        !margins
-        || !Number.isFinite(margins.top)
-        || !Number.isFinite(margins.bottom)
-        || !Number.isFinite(margins.left)
-        || !Number.isFinite(margins.right)
-        || margins.top < 0
-        || margins.bottom < 0
-        || margins.left < 0
-        || margins.right < 0
-    ) {
-        throw new Error('Invalid crop margins');
-    }
+    const normalizedMargins = normalizeCropMargins(margins);
 
     const documentRevision = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async (operation) => {
         const nativeOptions = createNativeOperationOptions(operation);
@@ -461,7 +452,7 @@ export async function handlePageOpsCrop(
             totalPages: mainTotalPages,
             requireUnique: true,
         });
-        await cropPages(queuedWorkingCopyPath, pages, margins, context.senderId, operation.signal);
+        await cropPages(queuedWorkingCopyPath, pages, normalizedMargins, context.senderId, operation.signal);
         return markWorkingCopyContentChanged(queuedWorkingCopyPath, 'page-ops', context.senderId);
     });
     return {

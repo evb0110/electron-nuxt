@@ -387,10 +387,11 @@ describe('usePdfMountedPageRenderRecovery', () => {
         scope.stop();
     });
 
-    it('renders a mounted page inside the active authoritative transaction when recovery admission is denied', async () => {
+    it('requeues a mounted page without raw rendering when recovery admission is denied', async () => {
         vi.useFakeTimers();
+        const beginTransaction = vi.fn<TMountedRecoveryTransactionController['beginTransaction']>(() => null);
         const transactionController: TMountedRecoveryTransactionController = {
-            beginTransaction: vi.fn(() => null),
+            beginTransaction,
             advanceTransaction: vi.fn(() => true),
             cancelActiveTransaction: vi.fn(() => true),
             isTransactionCurrent: vi.fn(() => true),
@@ -406,8 +407,16 @@ describe('usePdfMountedPageRenderRecovery', () => {
         recovery.queueMountedPageRender(928);
         await flushTimersAndTicks();
 
-        expect(renderVisiblePages).toHaveBeenCalledOnce();
+        expect(renderVisiblePages).not.toHaveBeenCalled();
         expect(transactionController.advanceTransaction).not.toHaveBeenCalled();
+
+        beginTransaction.mockReturnValue({ id: 83 });
+        await vi.advanceTimersByTimeAsync(160);
+        await nextTick();
+        await Promise.resolve();
+
+        expect(renderVisiblePages).toHaveBeenCalledOnce();
+        expect(transactionController.advanceTransaction).toHaveBeenCalledWith(83, 'render-requested');
 
         scope.stop();
     });

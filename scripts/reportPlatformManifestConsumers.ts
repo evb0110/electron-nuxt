@@ -6,6 +6,7 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
+import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { platformMethodManifest } from '@contracts/platformMethodManifest';
 
@@ -49,13 +50,17 @@ const IGNORED_DIRECTORY_NAMES = new Set([
     'generated',
 ]);
 
-const AGGREGATE_DOCUMENTS_ALLOWED_FILES = new Set([
+export const AGGREGATE_DOCUMENTS_ALLOWED_FILES = [
     'app/platform/browser-api/createDjvuWorkerFromPath.ts',
     'app/platform/browserPlatformApi.ts',
     'app/platform/lazyBrowserPlatformApi.ts',
     'app/utils/platformDocuments.ts',
     'app/platform/validatePlatformApi.ts',
-]);
+] as const;
+
+export const AGGREGATE_DOCUMENTS_UNAPPROVED_BASELINE = 0;
+
+const aggregateDocumentsAllowedFileSet = new Set<string>(AGGREGATE_DOCUMENTS_ALLOWED_FILES);
 
 function toPosix(filePath: string) {
     return filePath.split(path.sep).join('/');
@@ -174,7 +179,7 @@ function scanSourceBlock(block: ISourceBlock, inventory: ISourceInventory) {
             }
             if (
                 isAggregateDocumentsAccess(node)
-                && !AGGREGATE_DOCUMENTS_ALLOWED_FILES.has(block.file)
+                && !aggregateDocumentsAllowedFileSet.has(block.file)
             ) {
                 inventory.aggregateDocumentsCallSites.push(`${block.file}:${lineAndColumn(sourceFile, node)}`);
             }
@@ -183,6 +188,23 @@ function scanSourceBlock(block: ISourceBlock, inventory: ISourceInventory) {
     }
 
     visit(sourceFile);
+}
+
+export function collectAggregateDocumentsCallSites(file: string, sourceText: string) {
+    const inventory: ISourceInventory = {
+        fileCount: 1,
+        propertyChains: new Set(),
+        propertyNames: new Set(),
+        aggregateDocumentsCallSites: [],
+    };
+    for (const block of collectSourceBlocks(file, sourceText)) {
+        scanSourceBlock(block, inventory);
+    }
+    return inventory.aggregateDocumentsCallSites.sort();
+}
+
+export function isAggregateDocumentsBaselineSatisfied(unapprovedCallSiteCount: number) {
+    return unapprovedCallSiteCount <= AGGREGATE_DOCUMENTS_UNAPPROVED_BASELINE;
 }
 
 function isManifestDescriptor(value: unknown): value is IManifestEntry {
@@ -238,14 +260,14 @@ async function buildInventory() {
     return inventory;
 }
 
-async function run() {
+export async function runPlatformManifestConsumerCheck() {
     const entries = collectManifestEntries(platformMethodManifest)
         .sort((a, b) => a.path.join('.').localeCompare(b.path.join('.')));
     const inventory = await buildInventory();
     const zeroConsumerEntries = entries.filter(entry => !hasConsumer(entry, inventory));
     const legacyDocumentsEntries = entries.filter(entry => entry.path[0] === 'documents');
 
-    console.log('[platform-manifest-consumers] Report only; this script does not fail lint.');
+    console.log('[platform-manifest-consumers] Strict aggregate-capability boundary check.');
     console.log(`[platform-manifest-consumers] App source files scanned: ${inventory.fileCount}`);
     console.log(`[platform-manifest-consumers] Manifest entries: ${entries.length}`);
     console.log(`[platform-manifest-consumers] Compatibility-only documents entries: ${legacyDocumentsEntries.length}`);
@@ -258,16 +280,35 @@ async function run() {
     }
 
     console.log(`[platform-manifest-consumers] Unapproved aggregate documents call sites: ${inventory.aggregateDocumentsCallSites.length}`);
+    console.log(`[platform-manifest-consumers] Allowed baseline: ${AGGREGATE_DOCUMENTS_UNAPPROVED_BASELINE}`);
     for (const callSite of inventory.aggregateDocumentsCallSites.slice(0, 25)) {
         console.log(`  - ${callSite}`);
     }
     if (inventory.aggregateDocumentsCallSites.length > 25) {
         console.log(`  ... ${inventory.aggregateDocumentsCallSites.length - 25} more`);
     }
+
+    if (!isAggregateDocumentsBaselineSatisfied(inventory.aggregateDocumentsCallSites.length)) {
+        console.error('[platform-manifest-consumers] New aggregate documents capability access is forbidden. Use a narrow capability or explicitly approve the access at the platform boundary.');
+        return false;
+    }
+
+    return true;
 }
 
-run().catch((error: unknown) => {
-    console.error('[platform-manifest-consumers] Unexpected failure.');
-    console.error(error);
-    process.exit(1);
-});
+const isDirectRun = process.argv[1] !== undefined
+    && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isDirectRun) {
+    runPlatformManifestConsumerCheck()
+        .then((passed) => {
+            if (!passed) {
+                process.exitCode = 1;
+            }
+        })
+        .catch((error: unknown) => {
+            console.error('[platform-manifest-consumers] Unexpected failure.');
+            console.error(error);
+            process.exitCode = 1;
+        });
+}

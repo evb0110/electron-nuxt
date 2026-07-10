@@ -7,6 +7,8 @@ struct RgbColor {
 
 #[derive(Clone)]
 struct MarkupHintState {
+    annotation_ref: Option<String>,
+    color: Option<RgbColor>,
     hint: MarkupSubtypeHint,
     consumed: bool,
 }
@@ -39,6 +41,9 @@ const SQUIGGLY_APPEARANCE_AMPLITUDE_RATIO: f64 = 0.07;
 const MIN_POINT_MARKER_SIZE: f64 = 0.0016;
 const SAME_TEXT_MARKUP_LINE_CENTER_TOLERANCE_RATIO: f64 = 0.35;
 const MIN_TEXT_MARKUP_QUAD_HEIGHT: f64 = 0.01;
+const MAX_MARKUP_SUBTYPE_HINTS: usize = 512;
+const MARKUP_HINT_GRID_DIMENSION: u8 = 8;
+const MAX_MARKUP_HINT_COMPARISONS: usize = 65_536;
 
 fn markup_subtype_pdf_name(subtype: &str) -> Option<&'static str> {
     match subtype {
@@ -402,26 +407,124 @@ fn merge_subtype_hints(
     }
 }
 
-fn dedupe_markup_subtype_hints(hints: &[MarkupSubtypeHint]) -> Vec<MarkupHintState> {
-    let mut deduped: Vec<MarkupSubtypeHint> = Vec::new();
-    for hint in hints {
-        let existing_index = deduped.iter().position(|existing| {
-            subtype_hints_share_identity(existing, hint)
-                || subtype_hints_share_geometry(existing, hint)
-        });
-        if let Some(index) = existing_index {
-            deduped[index] = merge_subtype_hints(&deduped[index], hint);
-        } else {
-            deduped.push(hint.clone());
+fn marker_rect_grid_cells(rect: MarkerRect) -> Vec<(u8, u8)> {
+    let grid_max = MARKUP_HINT_GRID_DIMENSION - 1;
+    let cell = |coordinate: f64| {
+        ((coordinate.clamp(0.0, 1.0) * f64::from(MARKUP_HINT_GRID_DIMENSION)).floor() as u8)
+            .min(grid_max)
+    };
+    let left = cell(rect.left);
+    let right = cell(rect.left + rect.width);
+    let top = cell(rect.top);
+    let bottom = cell(rect.top + rect.height);
+    let mut cells = Vec::new();
+    for row in top..=bottom {
+        for column in left..=right {
+            cells.push((row, column));
         }
     }
+    cells
+}
+
+type MarkupHintGridKey = (u32, String, u8, u8);
+
+fn hint_grid_key(hint: &MarkupSubtypeHint, row: u8, column: u8) -> MarkupHintGridKey {
+    (hint.page_index, hint.subtype.clone(), row, column)
+}
+
+fn dedupe_markup_subtype_hints(hints: &[MarkupSubtypeHint]) -> Result<Vec<MarkupHintState>> {
+    if hints.len() > MAX_MARKUP_SUBTYPE_HINTS {
+        return Err(format!(
+            "Too many text-markup hints (maximum {MAX_MARKUP_SUBTYPE_HINTS})"
+        )
+        .into());
+    }
+
+    let mut deduped: Vec<MarkupSubtypeHint> = Vec::new();
     deduped
+        .try_reserve_exact(hints.len())
+        .map_err(|_| "Text-markup hint list is too large")?;
+    let mut hints_by_id: HashMap<(String, String), usize> = HashMap::new();
+    let mut hints_by_ref: HashMap<(String, String), usize> = HashMap::new();
+    let mut geometry_grid: HashMap<MarkupHintGridKey, Vec<usize>> = HashMap::new();
+    let mut comparisons = 0usize;
+
+    for hint in hints {
+        let id_key = hint
+            .id
+            .as_ref()
+            .map(|id| (hint.subtype.clone(), id.clone()));
+        let annotation_ref = normalize_hint_annotation_ref(hint);
+        let ref_key = annotation_ref
+            .as_ref()
+            .map(|reference| (hint.subtype.clone(), reference.clone()));
+        let mut existing_index = id_key
+            .as_ref()
+            .and_then(|key| hints_by_id.get(key).copied())
+            .into_iter()
+            .chain(
+                ref_key
+                    .as_ref()
+                    .and_then(|key| hints_by_ref.get(key).copied()),
+            )
+            .min();
+
+        if existing_index.is_none() {
+            let mut nearby_indexes = HashSet::new();
+            for (row, column) in marker_rect_grid_cells(hint.marker_rect) {
+                if let Some(indexes) = geometry_grid.get(&hint_grid_key(hint, row, column)) {
+                    nearby_indexes.extend(indexes.iter().copied());
+                }
+            }
+            let mut nearby_indexes: Vec<_> = nearby_indexes.into_iter().collect();
+            nearby_indexes.sort_unstable();
+            for index in nearby_indexes {
+                comparisons = comparisons.saturating_add(1);
+                if comparisons > MAX_MARKUP_HINT_COMPARISONS {
+                    return Err("Text-markup hint comparison budget exceeded".into());
+                }
+                if subtype_hints_share_geometry(&deduped[index], hint) {
+                    existing_index = Some(index);
+                    break;
+                }
+            }
+        }
+
+        if let Some(index) = existing_index {
+            deduped[index] = merge_subtype_hints(&deduped[index], hint);
+            if let Some(key) = id_key {
+                hints_by_id.entry(key).or_insert(index);
+            }
+            if let Some(key) = ref_key {
+                hints_by_ref.entry(key).or_insert(index);
+            }
+        } else {
+            let index = deduped.len();
+            deduped.push(hint.clone());
+            if let Some(key) = id_key {
+                hints_by_id.entry(key).or_insert(index);
+            }
+            if let Some(key) = ref_key {
+                hints_by_ref.entry(key).or_insert(index);
+            }
+            for (row, column) in marker_rect_grid_cells(hint.marker_rect) {
+                geometry_grid
+                    .entry(hint_grid_key(hint, row, column))
+                    .or_default()
+                    .push(index);
+            }
+        }
+    }
+
+    Ok(deduped
         .into_iter()
         .map(|hint| MarkupHintState {
+            annotation_ref: normalize_hint_annotation_ref(&hint),
+            color: parse_css_rgb_color(hint.color.as_deref()),
             hint,
             consumed: false,
         })
-        .collect()
+        .collect())
 }
 
 fn can_use_geometry_only_subtype_hint(hint: &MarkupSubtypeHint) -> bool {
@@ -440,11 +543,10 @@ fn score_subtype_hint_for_candidate(
         return None;
     }
     let hint = &hint_state.hint;
-    let hint_ref = normalize_hint_annotation_ref(hint);
-    let ref_matched = hint_ref.as_deref() == Some(candidate.ref_tag.as_str());
+    let ref_matched = hint_state.annotation_ref.as_deref() == Some(candidate.ref_tag.as_str());
     let geometry_score = marker_rect_iou(candidate.marker_rect, Some(hint.marker_rect));
     if !ref_matched
-        && (hint_ref.is_some()
+        && (hint_state.annotation_ref.is_some()
             || !can_use_geometry_only_subtype_hint(hint)
             || geometry_score < MIN_MARKUP_SUBTYPE_HINT_IOU)
     {
@@ -462,8 +564,7 @@ fn score_subtype_hint_for_candidate(
         }
         None => 0.0,
     };
-    let color_score = color_similarity(parse_css_rgb_color(hint.color.as_deref()), candidate.color)
-        .unwrap_or(0.0);
+    let color_score = color_similarity(hint_state.color, candidate.color).unwrap_or(0.0);
     Some(
         (if ref_matched {
             EXPLICIT_REF_MATCH_SCORE
@@ -478,26 +579,27 @@ fn score_subtype_hint_for_candidate(
 fn find_exact_ref_highlight_preservation_hint(
     page_hints: &[MarkupHintState],
     candidate: &MarkupAnnotationCandidate,
+    hints_by_ref: &HashMap<String, Vec<usize>>,
 ) -> Option<usize> {
-    page_hints.iter().position(|hint_state| {
-        !hint_state.consumed
-            && hint_state.hint.subtype == "Highlight"
-            && normalize_hint_annotation_ref(&hint_state.hint).as_deref()
-                == Some(candidate.ref_tag.as_str())
+    hints_by_ref.get(&candidate.ref_tag)?.iter().copied().find(|index| {
+        let hint_state = &page_hints[*index];
+        !hint_state.consumed && hint_state.hint.subtype == "Highlight"
     })
 }
 
 fn find_best_exact_ref_hint_for_candidate(
     page_hints: &[MarkupHintState],
     candidate: &MarkupAnnotationCandidate,
+    hints_by_ref: &HashMap<String, Vec<usize>>,
 ) -> Option<usize> {
     let mut best: Option<(usize, f64)> = None;
-    for (index, hint_state) in page_hints.iter().enumerate() {
-        if normalize_hint_annotation_ref(&hint_state.hint).as_deref()
-            != Some(candidate.ref_tag.as_str())
-        {
-            continue;
-        }
+    for index in hints_by_ref
+        .get(&candidate.ref_tag)
+        .into_iter()
+        .flatten()
+        .copied()
+    {
+        let hint_state = &page_hints[index];
         let Some(score) = score_subtype_hint_for_candidate(hint_state, candidate) else {
             continue;
         };
@@ -511,41 +613,116 @@ fn find_best_exact_ref_hint_for_candidate(
 fn consume_exact_ref_hints(
     page_hints: &mut [MarkupHintState],
     candidate: &MarkupAnnotationCandidate,
+    hints_by_ref: &HashMap<String, Vec<usize>>,
 ) {
-    for hint_state in page_hints {
-        if normalize_hint_annotation_ref(&hint_state.hint).as_deref()
-            == Some(candidate.ref_tag.as_str())
-        {
-            hint_state.consumed = true;
+    if let Some(indexes) = hints_by_ref.get(&candidate.ref_tag) {
+        for index in indexes {
+            page_hints[*index].consumed = true;
         }
+    }
+}
+
+fn index_markup_hints_by_ref(page_hints: &[MarkupHintState]) -> HashMap<String, Vec<usize>> {
+    let mut hints_by_ref: HashMap<String, Vec<usize>> = HashMap::new();
+    for (index, hint_state) in page_hints.iter().enumerate() {
+        if let Some(annotation_ref) = &hint_state.annotation_ref {
+            hints_by_ref
+                .entry(annotation_ref.clone())
+                .or_default()
+                .push(index);
+        }
+    }
+    hints_by_ref
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ScoredMarkupHintAssignment {
+    candidate_index: usize,
+    hint_index: usize,
+    score: f64,
+}
+
+impl PartialEq for ScoredMarkupHintAssignment {
+    fn eq(&self, other: &Self) -> bool {
+        self.score.total_cmp(&other.score) == Ordering::Equal
+            && self.candidate_index == other.candidate_index
+            && self.hint_index == other.hint_index
+    }
+}
+
+impl Eq for ScoredMarkupHintAssignment {}
+
+impl PartialOrd for ScoredMarkupHintAssignment {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ScoredMarkupHintAssignment {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.score
+            .total_cmp(&other.score)
+            .then_with(|| other.candidate_index.cmp(&self.candidate_index))
+            .then_with(|| other.hint_index.cmp(&self.hint_index))
     }
 }
 
 fn assign_subtype_hints_to_candidates(
     page_hints: &[MarkupHintState],
     candidates: &[MarkupAnnotationCandidate],
-) -> Vec<(usize, usize)> {
-    let mut matches = Vec::new();
+) -> Result<Vec<(usize, usize)>> {
+    let mut hint_grid: HashMap<(u8, u8), Vec<usize>> = HashMap::new();
+    for (hint_index, hint_state) in page_hints.iter().enumerate() {
+        if hint_state.consumed || hint_state.annotation_ref.is_some() {
+            continue;
+        }
+        for cell in marker_rect_grid_cells(hint_state.hint.marker_rect) {
+            hint_grid.entry(cell).or_default().push(hint_index);
+        }
+    }
+
+    let mut matches = BinaryHeap::new();
+    let mut comparisons = 0usize;
     for (candidate_index, candidate) in candidates.iter().enumerate() {
-        for (hint_index, hint_state) in page_hints.iter().enumerate() {
+        let Some(marker_rect) = candidate.marker_rect else {
+            continue;
+        };
+        let mut nearby_hint_indexes = HashSet::new();
+        for cell in marker_rect_grid_cells(marker_rect) {
+            if let Some(indexes) = hint_grid.get(&cell) {
+                nearby_hint_indexes.extend(indexes.iter().copied());
+            }
+        }
+        for hint_index in nearby_hint_indexes {
+            comparisons = comparisons.saturating_add(1);
+            if comparisons > MAX_MARKUP_HINT_COMPARISONS {
+                return Err("Text-markup assignment comparison budget exceeded".into());
+            }
+            let hint_state = &page_hints[hint_index];
             if let Some(score) = score_subtype_hint_for_candidate(hint_state, candidate) {
-                matches.push((candidate_index, hint_index, score));
+                matches.push(ScoredMarkupHintAssignment {
+                    candidate_index,
+                    hint_index,
+                    score,
+                });
             }
         }
     }
-    matches.sort_by(|left, right| right.2.total_cmp(&left.2));
+
     let mut assigned_candidates = HashSet::new();
     let mut assigned_hints = HashSet::new();
     let mut assignments = Vec::new();
-    for (candidate_index, hint_index, _score) in matches {
-        if assigned_candidates.contains(&candidate_index) || assigned_hints.contains(&hint_index) {
+    while let Some(scored) = matches.pop() {
+        if assigned_candidates.contains(&scored.candidate_index)
+            || assigned_hints.contains(&scored.hint_index)
+        {
             continue;
         }
-        assigned_candidates.insert(candidate_index);
-        assigned_hints.insert(hint_index);
-        assignments.push((candidate_index, hint_index));
+        assigned_candidates.insert(scored.candidate_index);
+        assigned_hints.insert(scored.hint_index);
+        assignments.push((scored.candidate_index, scored.hint_index));
     }
-    assignments
+    Ok(assignments)
 }
 
 fn rect_to_fallback_quad_points(rect: PdfRect) -> Vec<f64> {

@@ -50,6 +50,7 @@
 <script setup lang="ts">
 import type { TPdfViewMode } from '@contracts/shared';
 import PrintCurrentPageIcon from '@app/components/icons/PrintCurrentPageIcon.vue';
+import { isReaderPrintCommandDisabled } from '@app/utils/isReaderPrintCommandDisabled';
 import type { TToolbarOverflowMenuCommand } from '@app/types/toolbarMenuCommands';
 import {
     isReaderCommandInMenu,
@@ -111,6 +112,8 @@ interface IProps {
     canUseViewModes?: boolean
     isPreparingPrint?: boolean
     isPreparingCurrentPagePrint?: boolean
+    isAnySaving?: boolean
+    isHistoryBusy?: boolean
 }
 
 const {
@@ -140,6 +143,8 @@ const {
     isPlacingPageNote,
     isPreparingCurrentPagePrint,
     isPreparingPrint,
+    isAnySaving = false,
+    isHistoryBusy = false,
     open,
     showDocumentSection,
     showSidebar,
@@ -190,6 +195,13 @@ const isOpen = computed({
     set: (value: boolean) => emit('update:open', value && hasOverflowMenuCommands.value),
 });
 const hasInteractiveDocument = computed(() => hasPdf && documentBusy !== true);
+const isPrintCommandDisabled = computed(() => isReaderPrintCommandDisabled({
+    hasInteractiveDocument: hasInteractiveDocument.value,
+    canPrint,
+    isPreparingPrint: isPreparingPrint === true,
+    isAnySaving,
+    isHistoryBusy,
+}));
 const isFullscreen = computed(() => isFullscreenProp === true);
 const fullscreenSupported = computed(() => fullscreenSupportedProp !== false);
 const contentOptions = {
@@ -282,7 +294,7 @@ function buildDocumentItems() {
 
     if (canPrintCurrentPage === true) {
         items.push(createCommandItem('print-current-page', t('menu.printCurrentPage'), undefined, {
-            disabled: !hasInteractiveDocument.value || !canPrint || isPreparingPrint === true,
+            disabled: isPrintCommandDisabled.value,
             slot: 'print-current-page',
         }));
     }

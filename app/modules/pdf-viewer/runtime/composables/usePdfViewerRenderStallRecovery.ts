@@ -73,6 +73,16 @@ interface IUsePdfViewerRenderStallRecoveryOptions {
     transactionController?: IRenderStallRecoveryTransactionController | undefined;
 }
 
+type TRecoveryTransactionAdmission =
+    | { kind: 'uncoordinated' }
+    | { kind: 'denied' }
+    | {
+        kind: 'owned';
+        transactionId: number;
+    };
+
+const RENDER_STALL_RECOVERY_ADMISSION_RETRY_MS = 160;
+
 export const usePdfViewerRenderStallRecovery = (options: IUsePdfViewerRenderStallRecoveryOptions) => {
     const {
         src,
@@ -133,18 +143,24 @@ export const usePdfViewerRenderStallRecovery = (options: IUsePdfViewerRenderStal
             start: pages[0]!,
             end: pages[pages.length - 1]!,
         };
-        const transaction = options.transactionController?.beginTransaction({
+        if (!options.transactionController) {
+            return { kind: 'uncoordinated' } satisfies TRecoveryTransactionAdmission;
+        }
+        const transaction = options.transactionController.beginTransaction({
             kind: 'recovery',
             source: 'render-stall-recovery',
             page: range.start,
             range,
             anchor: 'top',
         });
-        if (options.transactionController && !transaction) {
-            return null;
+        if (!transaction) {
+            return { kind: 'denied' } satisfies TRecoveryTransactionAdmission;
         }
-        activeRecoveryTransactionId = transaction?.id ?? null;
-        return activeRecoveryTransactionId;
+        activeRecoveryTransactionId = transaction.id;
+        return {
+            kind: 'owned',
+            transactionId: transaction.id,
+        } satisfies TRecoveryTransactionAdmission;
     }
 
     function isRecoveryTransactionCurrent(transactionId: number | null) {
@@ -243,18 +259,26 @@ export const usePdfViewerRenderStallRecovery = (options: IUsePdfViewerRenderStal
             },
         );
 
-        if (renderStallRecoveryTimer !== null) {
+        scheduleRenderStallRecovery(0, payload);
+    }
+
+    function scheduleRenderStallRecovery(
+        delayMs = 0,
+        payload?: Pick<IPageRenderStallPayload, 'pageNumber' | 'stage' | 'timeoutMs'>,
+    ) {
+        if (renderStallRecoveryTimer !== null || pendingRenderStallRecoveryPages.size === 0) {
             return;
         }
 
         renderStallRecoveryTimer = renderSupervisor.armTimer({
             cause: 'render-stall-recovery',
-            delayMs: 0,
+            delayMs,
             key: 'render-stall-recovery',
             metadata: {
-                queuedPage: pageNumber,
-                stage: payload.stage,
-                timeoutMs: payload.timeoutMs,
+                queuedPage: payload?.pageNumber,
+                queuedPages: Array.from(pendingRenderStallRecoveryPages),
+                stage: payload?.stage,
+                timeoutMs: payload?.timeoutMs,
             },
             onFire: () => {
                 renderStallRecoveryTimer = null;
@@ -285,14 +309,16 @@ export const usePdfViewerRenderStallRecovery = (options: IUsePdfViewerRenderStal
                     },
                 );
                 const recoveryRunId = ++pageLevelRecoveryRunId;
-                const recoveryTransactionId = beginRecoveryTransaction(pages);
-                const ownsRecoveryTransaction = (
-                    !options.transactionController
-                    || recoveryTransactionId !== null
-                );
-                if (ownsRecoveryTransaction) {
-                    void cancelInFlightPageRenders?.();
+                const admission = beginRecoveryTransaction(pages);
+                if (admission.kind === 'denied') {
+                    pages.forEach(page => pendingRenderStallRecoveryPages.add(page));
+                    scheduleRenderStallRecovery(RENDER_STALL_RECOVERY_ADMISSION_RETRY_MS);
+                    return;
                 }
+                const recoveryTransactionId = admission.kind === 'owned'
+                    ? admission.transactionId
+                    : null;
+                void cancelInFlightPageRenders?.();
                 invalidatePages(pages);
                 advanceRecoveryTransaction(recoveryTransactionId, 'render-requested');
                 void renderVisiblePages({

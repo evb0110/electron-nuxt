@@ -1,5 +1,7 @@
 import {
     closeSync,
+    fstatSync,
+    ftruncateSync,
     mkdirSync,
     openSync,
     writeFileSync,
@@ -15,10 +17,16 @@ import {
     getCurrentSessionName,
     validateSessionName,
 } from '@scripts/electron-run/electronRunSessionPaths';
+import {
+    type IDevServerOutputRetentionPolicy,
+    pruneDevServerOutputRuns,
+    resolveDevServerOutputRetentionPolicy,
+} from '@scripts/electron-run/devServerOutputRetention';
 
 export const DEV_OUTPUT_TEE_DIR_ENV = 'EVB_DEV_OUTPUT_TEE_DIR';
 export const DEV_OUTPUT_TEE_DISABLED_ENV = 'EVB_DEV_OUTPUT_TEE_DISABLED';
 export const devServerOutputTeeBaseDir = join(projectRoot, '.devkit', 'scratch', 'dev-server-logs');
+export const DEV_OUTPUT_TEE_TRUNCATION_MARKER = '\n[EVB dev output truncated at file size limit]\n';
 
 type TOutputStreamName = 'stdout' | 'stderr';
 type TOutputChunk = string | Uint8Array;
@@ -32,6 +40,7 @@ interface ICreateDevServerOutputTeeOptions {
     pid?: number;
     metadataFileName?: string;
     owner?: string;
+    retentionPolicy?: Partial<IDevServerOutputRetentionPolicy>;
 }
 
 export interface IDevServerOutputTee {
@@ -45,6 +54,7 @@ export interface IDevServerOutputTee {
 }
 
 let activeTee: DevServerOutputTee | null = null;
+const openTeeRunDirs = new Set<string>();
 
 function isTruthyEnvValue(value: string | undefined) {
     return value === '1' || value?.toLowerCase() === 'true' || value?.toLowerCase() === 'yes';
@@ -122,11 +132,28 @@ class DevServerOutputTee implements IDevServerOutputTee {
     readonly relativeRunDir: string;
     readonly sessionName: string;
 
-    private readonly fileDescriptors = new Map<string, number>();
+    private readonly baseDir: string;
+    private readonly descriptor: {
+        schemaVersion: number;
+        owner: string;
+        createdAt: string;
+        pid: number;
+        sessionName: string;
+        runDir: string;
+        relativeRunDir: string;
+    };
+    private readonly fileDescriptors = new Map<string, {
+        bytesWritten: number;
+        fd: number;
+        truncated: boolean;
+    }>();
+    private readonly metadataFilePath: string;
+    private readonly retentionPolicy: IDevServerOutputRetentionPolicy;
     private readonly restoreProcessStreams: Array<() => void> = [];
     private closed = false;
 
     constructor(options: Required<ICreateDevServerOutputTeeOptions>) {
+        this.baseDir = options.baseDir;
         this.sessionName = validateSessionName(options.sessionName);
         this.runDir = resolveRunDir({
             env: options.env,
@@ -137,7 +164,16 @@ class DevServerOutputTee implements IDevServerOutputTee {
             ...(options.runDir ? { runDir: options.runDir } : {}),
         });
         this.relativeRunDir = createRelativeRunDir(this.runDir);
+        const retentionPolicy = resolveDevServerOutputRetentionPolicy(options.retentionPolicy);
+        this.retentionPolicy = {
+            ...retentionPolicy,
+            maxFileBytes: Math.max(
+                Buffer.byteLength(DEV_OUTPUT_TEE_TRUNCATION_MARKER),
+                retentionPolicy.maxFileBytes,
+            ),
+        };
         mkdirSync(this.runDir, { recursive: true });
+        openTeeRunDirs.add(this.runDir);
 
         const createdAt = options.now.toISOString();
         writeLatestRunPointers({
@@ -147,7 +183,8 @@ class DevServerOutputTee implements IDevServerOutputTee {
             relativeRunDir: this.relativeRunDir,
             sessionName: this.sessionName,
         });
-        writeJsonFile(join(this.runDir, options.metadataFileName), {
+        this.metadataFilePath = join(this.runDir, options.metadataFileName);
+        this.descriptor = {
             schemaVersion: 1,
             owner: options.owner,
             createdAt,
@@ -155,7 +192,9 @@ class DevServerOutputTee implements IDevServerOutputTee {
             sessionName: this.sessionName,
             runDir: this.runDir,
             relativeRunDir: this.relativeRunDir,
-        });
+        };
+        writeJsonFile(this.metadataFilePath, this.descriptor);
+        this.pruneCompletedRuns(options.now);
     }
 
     write(source: string, stream: TOutputStreamName, chunk: TOutputChunk) {
@@ -193,12 +232,20 @@ class DevServerOutputTee implements IDevServerOutputTee {
         for (const restore of this.restoreProcessStreams.splice(0).reverse()) {
             restore();
         }
-        for (const fd of this.fileDescriptors.values()) {
+        for (const state of this.fileDescriptors.values()) {
             try {
-                closeSync(fd);
+                closeSync(state.fd);
             } catch {}
         }
         this.fileDescriptors.clear();
+        try {
+            writeJsonFile(this.metadataFilePath, {
+                ...this.descriptor,
+                closedAt: new Date().toISOString(),
+            });
+        } catch {}
+        this.pruneCompletedRuns();
+        openTeeRunDirs.delete(this.runDir);
     }
 
     private patchWriteStream(
@@ -229,13 +276,43 @@ class DevServerOutputTee implements IDevServerOutputTee {
         }
 
         const fd = openSync(join(this.runDir, fileName), 'a');
-        this.fileDescriptors.set(fileName, fd);
-        return fd;
+        const bytesWritten = fstatSync(fd).size;
+        const contentLimit = Math.max(0, this.retentionPolicy.maxFileBytes - Buffer.byteLength(DEV_OUTPUT_TEE_TRUNCATION_MARKER));
+        const state = {
+            bytesWritten,
+            fd,
+            truncated: false,
+        };
+        if (bytesWritten > contentLimit) {
+            ftruncateSync(fd, contentLimit);
+            writeSync(fd, DEV_OUTPUT_TEE_TRUNCATION_MARKER);
+            state.bytesWritten = contentLimit + Buffer.byteLength(DEV_OUTPUT_TEE_TRUNCATION_MARKER);
+            state.truncated = true;
+        }
+        this.fileDescriptors.set(fileName, state);
+        return state;
     }
 
     private writeFile(fileName: string, buffer: Buffer) {
         try {
-            writeSync(this.openFile(fileName), buffer);
+            const state = this.openFile(fileName);
+            if (state.truncated) {
+                return;
+            }
+            const marker = Buffer.from(DEV_OUTPUT_TEE_TRUNCATION_MARKER);
+            const contentLimit = Math.max(0, this.retentionPolicy.maxFileBytes - marker.byteLength);
+            const availableBytes = Math.max(0, contentLimit - state.bytesWritten);
+            if (buffer.byteLength <= availableBytes) {
+                writeSync(state.fd, buffer);
+                state.bytesWritten += buffer.byteLength;
+                return;
+            }
+            if (availableBytes > 0) {
+                writeSync(state.fd, buffer.subarray(0, availableBytes));
+            }
+            writeSync(state.fd, marker);
+            state.bytesWritten += availableBytes + marker.byteLength;
+            state.truncated = true;
         } catch {}
     }
 
@@ -243,6 +320,17 @@ class DevServerOutputTee implements IDevServerOutputTee {
         const prefix = `[${new Date().toISOString()} ${stream}] `;
         const text = buffer.toString('utf8').replace(/^/gmu, prefix);
         this.writeFile(`${stem}.combined.log`, Buffer.from(text));
+    }
+
+    private pruneCompletedRuns(now = new Date()) {
+        try {
+            pruneDevServerOutputRuns({
+                baseDir: this.baseDir,
+                now,
+                policy: this.retentionPolicy,
+                protectedRunDirs: openTeeRunDirs,
+            });
+        } catch {}
     }
 }
 
@@ -266,6 +354,7 @@ export function createDevServerOutputTee(options: ICreateDevServerOutputTeeOptio
         pid: options.pid ?? process.pid,
         metadataFileName: options.metadataFileName ?? 'electron-run-tee.json',
         owner: options.owner ?? 'electron-run',
+        retentionPolicy: options.retentionPolicy ?? {},
     };
     return new DevServerOutputTee({
         ...createOptions,

@@ -37,6 +37,7 @@
 <script setup lang="ts">
 import { useShortcutLabels } from '@app/constants/shortcuts';
 import PrintCurrentPageIcon from '@app/components/icons/PrintCurrentPageIcon.vue';
+import { isReaderPrintCommandDisabled } from '@app/utils/isReaderPrintCommandDisabled';
 import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
 import { getReaderCommandMenuIcon } from '@app/utils/readerCommandIcons';
 import type { TToolbarAppMenuCommand } from '@app/types/toolbarMenuCommands';
@@ -144,11 +145,13 @@ const emitMenuCommand = {
 
 const shortcutLabels = useShortcutLabels();
 const hasInteractiveDocument = computed(() => hasPdf && documentBusy !== true);
-const isPrintCommandDisabled = computed(() => !hasInteractiveDocument.value
-    || !canPrint
-    || isPreparingPrint
-    || isAnySaving
-    || isHistoryBusy);
+const isPrintCommandDisabled = computed(() => isReaderPrintCommandDisabled({
+    hasInteractiveDocument: hasInteractiveDocument.value,
+    canPrint,
+    isPreparingPrint,
+    isAnySaving,
+    isHistoryBusy,
+}));
 const isExportDocxCommandDisabled = computed(() => !hasInteractiveDocument.value
     || !canExportDocx
     || isAnySaving

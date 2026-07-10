@@ -4,10 +4,18 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { REQUIRED_WEB_WASM_ASSETS } from './wasm-artifacts.mjs';
+import {
+    REQUIRED_WEB_DEPLOY_ASSETS,
+    REQUIRED_WEB_OUTPUT_CONTRACTS,
+    REQUIRED_WEB_WASM_ASSETS,
+} from './web-deploy-asset-manifest.mjs';
 
 const defaultProjectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-export { REQUIRED_WEB_WASM_ASSETS };
+export {
+    REQUIRED_WEB_DEPLOY_ASSETS,
+    REQUIRED_WEB_OUTPUT_CONTRACTS,
+    REQUIRED_WEB_WASM_ASSETS,
+};
 
 function isVercelBuildOutputEnv(env = process.env) {
     return env.VERCEL === '1' || env.NOW_BUILDER === '1';
@@ -32,7 +40,7 @@ async function assertDirectory(dirPath, label) {
     }
 }
 
-async function assertWasmAsset(rootPath, rootLabel, asset) {
+async function assertFileAsset(rootPath, rootLabel, asset) {
     const assetPath = path.join(rootPath, asset.relativePath);
     let assetStat;
     try {
@@ -45,7 +53,15 @@ async function assertWasmAsset(rootPath, rootLabel, asset) {
         throw new Error(`${rootLabel} asset is empty or not a file: ${asset.relativePath}`);
     }
 
-    const wasmBytes = await readFile(assetPath);
+    return {
+        byteLength: assetStat.size,
+        path: assetPath,
+    };
+}
+
+async function assertWasmAsset(rootPath, rootLabel, asset) {
+    const fileResult = await assertFileAsset(rootPath, rootLabel, asset);
+    const wasmBytes = await readFile(fileResult.path);
     const wasmModule = new WebAssembly.Module(wasmBytes);
     const exportNames = new Set(WebAssembly.Module.exports(wasmModule).map(entry => entry.name));
     const missingExports = asset.requiredExports.filter(name => !exportNames.has(name));
@@ -57,16 +73,23 @@ async function assertWasmAsset(rootPath, rootLabel, asset) {
 
     return {
         byteLength: wasmBytes.byteLength,
-        path: assetPath,
+        path: fileResult.path,
     };
 }
 
-async function validateAssetRoot(rootPath, rootLabel) {
+async function validateAssetRoot(rootPath, rootLabel, {requireOutputContracts = false} = {}) {
     await assertDirectory(rootPath, rootLabel);
 
     const assets = [];
-    for (const asset of REQUIRED_WEB_WASM_ASSETS) {
-        assets.push(await assertWasmAsset(rootPath, rootLabel, asset));
+    for (const asset of REQUIRED_WEB_DEPLOY_ASSETS) {
+        assets.push('requiredExports' in asset
+            ? await assertWasmAsset(rootPath, rootLabel, asset)
+            : await assertFileAsset(rootPath, rootLabel, asset));
+    }
+    if (requireOutputContracts) {
+        for (const relativePath of REQUIRED_WEB_OUTPUT_CONTRACTS) {
+            assets.push(await assertFileAsset(rootPath, rootLabel, {relativePath}));
+        }
     }
     return assets;
 }
@@ -84,7 +107,11 @@ export async function validateWebDeployAssets({
     for (const outputRoot of outputRoots) {
         const outputRootPath = path.join(projectRoot, outputRoot);
         outputResults.push({
-            assets: await validateAssetRoot(outputRootPath, `web build output ${outputRoot}`),
+            assets: await validateAssetRoot(
+                outputRootPath,
+                `web build output ${outputRoot}`,
+                {requireOutputContracts: true},
+            ),
             root: outputRoot,
         });
     }

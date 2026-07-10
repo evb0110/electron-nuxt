@@ -3,6 +3,7 @@ import type {
     IPageOpsMutationOptions,
 } from '@contracts/electronApiPageOps';
 import type { IPageGeometry } from '@contracts/shared';
+import { normalizeCropMargins } from '@contracts/shared';
 import type * as BrowserPageOpsCoreModule from '@app/platform/browser-api/browserPageOpsCore';
 import {
     browserDocumentStore,
@@ -38,7 +39,7 @@ interface IStoredPageMutationResult {
 }
 
 interface ICreateBrowserPageOpsOptions {
-    clearSearchCaches: () => void;
+    clearSearchCaches: () => void | Promise<void>;
     openInputAccept: string;
     pickFiles: (options: {
         accept: string;
@@ -261,7 +262,7 @@ export function createBrowserPageOpsCapability(
             workingCopyPath,
             data,
         );
-        options.clearSearchCaches();
+        await options.clearSearchCaches();
         return {
             success: true,
             pageCount,
@@ -534,6 +535,7 @@ export function createBrowserPageOpsCapability(
             });
         },
         async crop(workingCopyPath, pages, _totalPages, margins, mutationOptions) {
+            const normalizedMargins = normalizeCropMargins(margins);
             return serializeWorkingCopyMutation(workingCopyPath, mutationOptions, async () => {
                 const result = await runWorkerBackedPdfOperation({
                     path: workingCopyPath,
@@ -543,11 +545,11 @@ export function createBrowserPageOpsCapability(
                     createPayload: (data) => ({
                         data,
                         pages,
-                        margins,
+                        margins: normalizedMargins,
                     }),
                     runDirect: async (data) => {
                         const { cropPdfBytes } = await loadBrowserPageOpsCore();
-                        return cropPdfBytes(data, pages, margins);
+                        return cropPdfBytes(data, pages, normalizedMargins);
                     },
                 });
                 return writePageMutationResult(

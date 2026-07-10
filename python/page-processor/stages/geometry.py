@@ -4,10 +4,11 @@ Geometry utilities for stage processing.
 Provides rotation, transformation, and coordinate helpers.
 """
 
+import os
+from typing import Optional, Tuple
+
 import cv2
 import numpy as np
-import os
-from typing import Tuple, Optional
 
 
 def deskew_interpolation_flag() -> int:
@@ -92,6 +93,7 @@ def rotate_angle(
         new_w, new_h = w, h
 
     # Handle grayscale images
+    bg: int | tuple[int, int, int]
     if len(image.shape) == 2:
         bg = background_color[0]
     else:

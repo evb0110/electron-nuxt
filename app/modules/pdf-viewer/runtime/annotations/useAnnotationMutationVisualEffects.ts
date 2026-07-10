@@ -17,6 +17,7 @@ import type {
     IAnnotationMutationVisualEffect,
     IAnnotationMutationVisualEffectsState,
 } from '@app/modules/pdf-viewer/runtime/annotations/annotationMutationVisualEffects.types';
+import { tryOnScopeDispose } from '@vueuse/core';
 
 interface IUseAnnotationMutationVisualEffectsOptions {
     viewerContainer: Ref<HTMLElement | null>;
@@ -43,6 +44,7 @@ function isHighlightComment(comment: IAnnotationCommentSummary) {
 export const useAnnotationMutationVisualEffects = (options: IUseAnnotationMutationVisualEffectsOptions) => {
     let isFlushing = false;
     let lastConsumedEffectId = 0;
+    let disposed = false;
 
     function resolveComment(effect: IAnnotationMutationVisualEffect, preferSnapshot = false) {
         if (preferSnapshot && effect.commentSnapshot) {
@@ -150,6 +152,9 @@ export const useAnnotationMutationVisualEffects = (options: IUseAnnotationMutati
     }
 
     async function applyEffect(effect: IAnnotationMutationVisualEffect) {
+        if (disposed) {
+            return false;
+        }
         try {
             if (effect.kind === 'text-markup-color') {
                 applyTextMarkupColorEffect(effect);
@@ -161,6 +166,7 @@ export const useAnnotationMutationVisualEffects = (options: IUseAnnotationMutati
         } catch (error) {
             BrowserLogger.warn('annotations', 'Failed to apply annotation visual mutation effect', error);
         }
+        return !disposed;
     }
 
     async function flushVisualEffects() {
@@ -176,14 +182,19 @@ export const useAnnotationMutationVisualEffects = (options: IUseAnnotationMutati
                     return;
                 }
                 for (const effect of pendingEffects) {
-                    await applyEffect(effect);
+                    if (!await applyEffect(effect)) {
+                        return;
+                    }
                     lastConsumedEffectId = Math.max(lastConsumedEffectId, effect.id);
+                }
+                if (disposed) {
+                    return;
                 }
                 options.visualEffects.consumeThrough(lastConsumedEffectId);
             }
         } finally {
             isFlushing = false;
-            if (options.visualEffects.effects.value.some(effect => effect.id > lastConsumedEffectId)) {
+            if (!disposed && options.visualEffects.effects.value.some(effect => effect.id > lastConsumedEffectId)) {
                 void flushVisualEffects();
             }
         }
@@ -192,10 +203,19 @@ export const useAnnotationMutationVisualEffects = (options: IUseAnnotationMutati
     watch(
         options.visualEffects.version,
         () => {
-            void nextTick().then(flushVisualEffects);
+            void nextTick().then(async () => {
+                if (disposed) {
+                    return;
+                }
+                await flushVisualEffects();
+            });
         },
         { immediate: true },
     );
+
+    tryOnScopeDispose(() => {
+        disposed = true;
+    });
 
     return { flushVisualEffects };
 };

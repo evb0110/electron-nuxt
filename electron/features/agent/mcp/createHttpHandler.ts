@@ -20,9 +20,10 @@ interface IHttpHandlerOptions {
     bearerToken?: string | null;
     allowUnauthenticated?: boolean;
     allowBrowserOrigins?: boolean;
+    activeRequestControllers?: Set<AbortController>;
 }
 
-function createRequestAbortController(request: IncomingMessage) {
+function createRequestAbortController(request: IncomingMessage, response: ServerResponse) {
     const controller = new AbortController();
     const abort = (reason: string) => {
         if (!controller.signal.aborted) {
@@ -30,25 +31,85 @@ function createRequestAbortController(request: IncomingMessage) {
         }
     };
     request.once('aborted', () => abort('MCP HTTP request aborted'));
-    request.once('close', () => abort('MCP HTTP request closed'));
+    request.once('close', () => {
+        if (request.aborted || !request.complete) {
+            abort('MCP HTTP request closed before its body completed');
+        }
+    });
     request.once('error', (error) => abort(getErrorMessage(error)));
+    response.once('close', () => {
+        if (!response.writableFinished) {
+            abort('MCP HTTP response closed before it completed');
+        }
+    });
+    response.once('error', (error) => abort(getErrorMessage(error)));
     return controller;
+}
+
+function throwIfRequestAborted(signal: AbortSignal) {
+    if (!signal.aborted) {
+        return;
+    }
+    throw signal.reason instanceof Error
+        ? signal.reason
+        : new Error('MCP HTTP request was aborted.');
 }
 
 function withRequestAbortSignal(
     options: IProcessMcpRequestOptions,
     signal: AbortSignal,
 ): IProcessMcpRequestOptions {
-    return {
+    const requestOptions: IProcessMcpRequestOptions = {
         ...options,
-        getWorkspaceSnapshot: (windowId) => options.getWorkspaceSnapshot(windowId),
-        runCommand: (command, windowId) => options.runCommand(command, windowId, signal),
+        getWorkspaceSnapshot: async (windowId) => {
+            throwIfRequestAborted(signal);
+            const snapshot = await options.getWorkspaceSnapshot(windowId);
+            throwIfRequestAborted(signal);
+            return snapshot;
+        },
+        runCommand: async (command, windowId) => {
+            throwIfRequestAborted(signal);
+            const result = await options.runCommand(command, windowId, signal);
+            throwIfRequestAborted(signal);
+            return result;
+        },
     };
+    const inspectDocumentText = options.inspectDocumentText;
+    if (inspectDocumentText) {
+        requestOptions.inspectDocumentText = async (input, windowId) => {
+            throwIfRequestAborted(signal);
+            const result = await inspectDocumentText(input, windowId, signal);
+            throwIfRequestAborted(signal);
+            return result;
+        };
+    }
+    const searchDocument = options.searchDocument;
+    if (searchDocument) {
+        requestOptions.searchDocument = async (input, windowId) => {
+            throwIfRequestAborted(signal);
+            const result = await searchDocument(input, windowId, signal);
+            throwIfRequestAborted(signal);
+            return result;
+        };
+    }
+    const readDocumentPages = options.readDocumentPages;
+    if (readDocumentPages) {
+        requestOptions.readDocumentPages = async (input, windowId) => {
+            throwIfRequestAborted(signal);
+            const result = await readDocumentPages(input, windowId, signal);
+            throwIfRequestAborted(signal);
+            return result;
+        };
+    }
+    return requestOptions;
 }
 
-function readRequestBody(request: IncomingMessage) {
+function readRequestBody(request: IncomingMessage, signal: AbortSignal) {
     return new Promise<string>((resolve, reject) => {
         let body = '';
+        const handleAbort = () => reject(signal.reason instanceof Error
+            ? signal.reason
+            : new Error('MCP HTTP request was aborted.'));
 
         request.setEncoding('utf8');
         request.on('data', (chunk: string) => {
@@ -60,6 +121,7 @@ function readRequestBody(request: IncomingMessage) {
         });
         request.on('end', () => resolve(body));
         request.on('error', reject);
+        signal.addEventListener('abort', handleAbort, {once: true});
     });
 }
 
@@ -97,7 +159,13 @@ export function createHttpHandler(
     httpOptions: IHttpHandlerOptions = {},
 ) {
     return async (request: IncomingMessage, response: ServerResponse) => {
-        const requestAbortController = createRequestAbortController(request);
+        const requestAbortController = createRequestAbortController(request, response);
+        httpOptions.activeRequestControllers?.add(requestAbortController);
+        const releaseRequestController = () => {
+            httpOptions.activeRequestControllers?.delete(requestAbortController);
+        };
+        response.once('finish', releaseRequestController);
+        response.once('close', releaseRequestController);
         const requestOptions = withRequestAbortSignal(options, requestAbortController.signal);
         if (httpOptions.allowBrowserOrigins !== true && isBrowserOriginMcpRequest(request)) {
             writeJson(response, 403, { error: 'Browser-origin MCP requests are not allowed.' });
@@ -124,7 +192,7 @@ export function createHttpHandler(
         }
 
         try {
-            const body = await readRequestBody(request);
+            const body = await readRequestBody(request, requestAbortController.signal);
             const parsed: unknown = JSON.parse(body);
             if (Array.isArray(parsed)) {
                 if (parsed.length > MAX_JSON_RPC_BATCH_ITEMS) {
@@ -157,6 +225,9 @@ export function createHttpHandler(
             }
             writeJson(response, 200, result);
         } catch (error) {
+            if (response.destroyed) {
+                return;
+            }
             const message = error instanceof SyntaxError
                 ? 'Invalid JSON-RPC request body.'
                 : getErrorMessage(error);

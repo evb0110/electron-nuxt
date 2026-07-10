@@ -13,6 +13,34 @@ import type {
     IChunkKeyRecord,
     TBrowserDocumentStorageMode,
 } from '@app/platform/browser/browserDocumentTypes';
+import { getBrowserDocumentEntryContentRevision } from '@app/platform/browser/browserDocumentRevision';
+
+export function createPersistedBrowserDocumentRecord(
+    entry: IBrowserDocumentEntry,
+    data = entry.data,
+    cloneData = true,
+): IBrowserPersistedDocumentRecord {
+    return {
+        ref: entry.ref,
+        fileName: entry.fileName,
+        mimeType: entry.mimeType,
+        kind: entry.kind,
+        retention: entry.retention,
+        ...(entry.sourceRef ? { sourceRef: entry.sourceRef } : {}),
+        data: cloneData ? cloneBytes(data) : data,
+        fileSize: entry.fileSize,
+        updatedAt: entry.updatedAt,
+        ...(entry.contentToken ? { contentToken: entry.contentToken } : {}),
+        contentRevision: getBrowserDocumentEntryContentRevision(entry),
+        ...(entry.saveName ? { saveName: entry.saveName } : {}),
+        saveKind: entry.saveKind,
+        saveHandle: entry.saveHandle ?? null,
+        storageMode: entry.storageMode,
+        chunkCount: entry.chunkCount,
+        chunkSize: entry.chunkSize,
+        ...(entry.chunkGeneration ? { chunkGeneration: entry.chunkGeneration } : {}),
+    };
+}
 
 type TPersistedDocumentKind = IBrowserPersistedDocumentRecord['kind'];
 
@@ -37,8 +65,6 @@ interface IPersistedChunkLayout {
     chunkSize?: number;
     chunkGeneration?: string;
 }
-
-export { isRecord };
 
 function normalizeStorageMode(value: unknown): TBrowserDocumentStorageMode {
     if (

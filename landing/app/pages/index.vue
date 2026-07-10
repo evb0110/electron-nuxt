@@ -207,12 +207,12 @@ import { partition } from 'es-toolkit/array';
 import { GITHUB_REPOSITORY_URL } from '~/constants/githubRepositoryUrl';
 import { selectInstallersForPlatform } from '~~/shared/selectInstallersForPlatform';
 import {
+    buildClientProfile,
     formatFileSize,
     formatPlatform,
     INSTALLER_PLATFORM_ORDER,
     parseArchitectureHint,
     parsePlatformHint,
-    parseUserAgent,
     recommendInstaller,
     type IReleaseInstaller,
     type TReleaseArch,
@@ -393,34 +393,6 @@ onBeforeUnmount(() => {
     stopIframeCleanup();
     cleanupPendingDownloadIframes();
 });
-
-function buildClientProfile(
-    userAgent: string,
-    hintedPlatform: TReleasePlatform = 'unknown',
-    hintedArch: TReleaseArch = 'unknown',
-): IUserAgentProfile {
-    const uaProfile = parseUserAgent(userAgent);
-    const platform = hintedPlatform === 'unknown' ? uaProfile.platform : hintedPlatform;
-
-    if (hintedArch !== 'unknown') {
-        return {
-            platform,
-            arch: hintedArch, 
-        };
-    }
-
-    if (platform === 'macos') {
-        return {
-            platform,
-            arch: 'arm64', 
-        };
-    }
-
-    return {
-        platform,
-        arch: uaProfile.arch, 
-    };
-}
 
 async function detectClientProfile(): Promise<IUserAgentProfile> {
     const uaData = (navigator as Navigator & { userAgentData?: INavigatorUADataLike }).userAgentData;

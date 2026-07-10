@@ -15,6 +15,7 @@ import {
     parseArchitectureScopeArg,
 } from './architectureCliArgs.mjs';
 import { getFocusedArchitectureRoots } from '../workspace-roots.mjs';
+import { RUNTIME_TOOL_BOUNDARY_RULES } from './runtimeToolBoundaryRules.mjs';
 
 const APP_MODULE_PUBLIC_ENTRYPOINTS = new Set([
     'public',
@@ -103,42 +104,7 @@ const ROOT_BOUNDARY_RULES = [
         rule: 'scripts-to-app',
         message: 'scripts/** must not import app runtime code; diagnostic scripts may use only approved app trace/test types.',
     },
-    {
-        sourceRoot: 'server',
-        targetRoot: 'electron',
-        rule: 'server-to-electron',
-        message: 'server/** must not import electron runtime code.',
-    },
-    {
-        sourceRoot: 'server',
-        targetRoot: 'landing',
-        rule: 'server-to-landing',
-        message: 'server/** must not import landing runtime code.',
-    },
-    {
-        sourceRoot: 'app',
-        targetRoot: 'server',
-        rule: 'app-to-server',
-        message: 'app/** must not import server runtime code.',
-    },
-    {
-        sourceRoot: 'electron',
-        targetRoot: 'server',
-        rule: 'electron-to-server',
-        message: 'electron/** must not import server runtime code.',
-    },
-    {
-        sourceRoot: 'landing',
-        targetRoot: 'server',
-        rule: 'landing-to-server',
-        message: 'landing/** must not import server runtime code.',
-    },
-    {
-        sourceRoot: 'packages',
-        targetRoot: 'server',
-        rule: 'packages-to-server',
-        message: 'Shared packages must not import server runtime code.',
-    },
+    ...RUNTIME_TOOL_BOUNDARY_RULES,
 ];
 
 const SCRIPTS_TO_APP_ALLOWED_EDGES = new Set(`
@@ -217,11 +183,9 @@ app/utils/platform.ts
 
 const PLATFORM_API_AGGREGATE_TYPE_BOUNDARY_FILES = new Set(`
 app/platform/browserPlatformPathDescriptors.ts
-packages/contracts/platformMethodManifest.ts
 app/types/electron.d.ts
 packages/contracts/electronApi.ts
 packages/contracts/index.ts
-packages/contracts/platformMethodManifest.ts
 `.trim().split('\n'));
 
 const PLATFORM_API_AGGREGATE_IMPORT_BOUNDARY_FILES = new Set([

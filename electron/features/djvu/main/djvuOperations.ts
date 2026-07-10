@@ -41,6 +41,7 @@ import type {
     IDjvuPagePreviewOptions,
     IDjvuPrintOptions,
 } from '@contracts/electronApiDjvu';
+import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
 
 const logger = createLogger('djvu-operations');
 const DJVU_PREVIEW_MAX_IN_FLIGHT_PER_SENDER = 2;
@@ -66,12 +67,14 @@ interface IDjvuPreviewWaiter extends IDjvuPreviewRequest {
 }
 
 const previewQueuesBySender = new Map<number, IDjvuPreviewSenderQueue>();
-const activePreviewOperationsByRequestId = new Map<string, {
+interface IActiveDjvuPreviewOperation {
     abortController: AbortController;
     cancelGroup: string;
     ownerWebContentsId: number;
     request: IDjvuPreviewRequest;
-}>();
+}
+
+const activePreviewOperationsBySenderRequestKey = new Map<string, IActiveDjvuPreviewOperation>();
 const activeEstimateOperationsById = new Map<string, {
     abortController: AbortController;
     documentKey: string;
@@ -121,6 +124,10 @@ function getPreviewRequestKey(djvuPath: string, pageNumber: number) {
     return `${djvuPath}\u0000${pageNumber}`;
 }
 
+function getActivePreviewOperationKey(ownerWebContentsId: number, requestId: string) {
+    return `${ownerWebContentsId}\u0000${requestId}`;
+}
+
 function parsePreviewRequestGeneration(requestId: string | undefined) {
     if (!requestId) {
         return null;
@@ -136,10 +143,11 @@ function parsePreviewRequestGeneration(requestId: string | undefined) {
 }
 
 function createPreviewRequestId(requestId: string | undefined) {
-    const normalizedRequestId = typeof requestId === 'string' ? requestId.trim() : '';
-    return normalizedRequestId.length > 0
-        ? normalizedRequestId
-        : `djvu-preview-${randomUUID()}`;
+    const normalizedRequestId = normalizeOptionalIpcRequestId(
+        requestId,
+        'renderPagePreview.options.previewRequestId',
+    );
+    return normalizedRequestId ?? `djvu-preview-${randomUUID()}`;
 }
 
 function normalizePreviewPriority(priority: number | undefined) {
@@ -148,8 +156,10 @@ function normalizePreviewPriority(priority: number | undefined) {
         : 0;
 }
 
-async function cancelPreviewOperation(requestId: string, reason: string) {
-    const active = activePreviewOperationsByRequestId.get(requestId);
+async function cancelPreviewOperation(ownerWebContentsId: number, requestId: string, reason: string) {
+    const active = activePreviewOperationsBySenderRequestKey.get(
+        getActivePreviewOperationKey(ownerWebContentsId, requestId),
+    );
     if (!active) {
         return false;
     }
@@ -161,9 +171,9 @@ async function cancelPreviewOperation(requestId: string, reason: string) {
 }
 
 function cancelPreviewOperationsForSender(ownerWebContentsId: number, reason: string) {
-    for (const active of activePreviewOperationsByRequestId.values()) {
+    for (const active of activePreviewOperationsBySenderRequestKey.values()) {
         if (active.ownerWebContentsId === ownerWebContentsId) {
-            void cancelPreviewOperation(active.request.requestId, reason);
+            void cancelPreviewOperation(ownerWebContentsId, active.request.requestId, reason);
         }
     }
 }
@@ -186,7 +196,7 @@ function rejectQueuedPreviewWaitersForSender(ownerWebContentsId: number, reason:
 }
 
 function unregisterPreviewSenderCleanupIfIdle(ownerWebContentsId: number) {
-    for (const active of activePreviewOperationsByRequestId.values()) {
+    for (const active of activePreviewOperationsBySenderRequestKey.values()) {
         if (active.ownerWebContentsId === ownerWebContentsId) {
             return;
         }
@@ -309,12 +319,16 @@ function registerEstimateSenderCleanup(sender: WebContents) {
 }
 
 function cancelSupersededActivePreviewOperations(queue: IDjvuPreviewSenderQueue, ownerWebContentsId: number) {
-    for (const active of activePreviewOperationsByRequestId.values()) {
+    for (const active of activePreviewOperationsBySenderRequestKey.values()) {
         if (
             active.ownerWebContentsId === ownerWebContentsId
             && isPreviewRequestSuperseded(queue, active.request)
         ) {
-            void cancelPreviewOperation(active.request.requestId, 'DjVu preview request superseded');
+            void cancelPreviewOperation(
+                ownerWebContentsId,
+                active.request.requestId,
+                'DjVu preview request superseded',
+            );
         }
     }
 }
@@ -462,7 +476,8 @@ async function runCoalescedPreviewRequest<TResult>(
             throw new Error('DjVu preview request superseded');
         }
         const abortController = new AbortController();
-        const cancelGroup = `djvu-preview:${request.requestId}`;
+        const operationKey = getActivePreviewOperationKey(senderId, request.requestId);
+        const cancelGroup = `djvu-preview:${senderId}:${request.requestId}`;
         const mainOperation = registerMainOperation({
             kind: 'abortable-work',
             ownerWebContentsId: senderId,
@@ -473,12 +488,13 @@ async function runCoalescedPreviewRequest<TResult>(
             },
         });
         registerPreviewSenderCleanup(sender);
-        activePreviewOperationsByRequestId.set(request.requestId, {
+        const activeOperation: IActiveDjvuPreviewOperation = {
             abortController,
             cancelGroup,
             ownerWebContentsId: senderId,
             request,
-        });
+        };
+        activePreviewOperationsBySenderRequestKey.set(operationKey, activeOperation);
         const abortMainOperation = () => {
             if (!abortController.signal.aborted) {
                 abortController.abort(new Error('DjVu preview operation canceled'));
@@ -493,7 +509,9 @@ async function runCoalescedPreviewRequest<TResult>(
             });
         } finally {
             mainOperation.signal.removeEventListener('abort', abortMainOperation);
-            activePreviewOperationsByRequestId.delete(request.requestId);
+            if (activePreviewOperationsBySenderRequestKey.get(operationKey) === activeOperation) {
+                activePreviewOperationsBySenderRequestKey.delete(operationKey);
+            }
             mainOperation.complete();
         }
     } finally {
@@ -599,23 +617,22 @@ export async function handleDjvuCancelPagePreview(
     context: IDjvuOperationContext,
     requestId: string,
 ) {
-    const normalizedRequestId = typeof requestId === 'string' ? requestId.trim() : '';
+    const normalizedRequestId = normalizeOptionalIpcRequestId(requestId, 'cancelPagePreview.requestId') ?? '';
     if (!normalizedRequestId) {
         return { canceled: false };
     }
 
-    const active = activePreviewOperationsByRequestId.get(normalizedRequestId);
+    const active = activePreviewOperationsBySenderRequestKey.get(
+        getActivePreviewOperationKey(context.senderId, normalizedRequestId),
+    );
     if (!active) {
         return { canceled: false };
     }
-    if (active.ownerWebContentsId !== context.senderId) {
-        logger.warn(
-            `[${normalizedRequestId}] Preview cancel ignored: sender ${context.senderId} does not own DjVu preview operation (owner=${active.ownerWebContentsId})`,
-        );
-        return { canceled: false };
-    }
-
-    const canceled = await cancelPreviewOperation(normalizedRequestId, 'DjVu preview request canceled');
+    const canceled = await cancelPreviewOperation(
+        context.senderId,
+        normalizedRequestId,
+        'DjVu preview request canceled',
+    );
     return { canceled };
 }
 

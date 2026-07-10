@@ -5,8 +5,14 @@ import {
     it,
     vi,
 } from 'vitest';
-import { createServer } from 'node:http';
-import type { Server } from 'node:http';
+import {
+    createServer,
+    request as createHttpRequest,
+} from 'node:http';
+import type {
+    IncomingMessage,
+    Server,
+} from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { createHttpHandler } from '@electron/features/agent/mcp/createHttpHandler';
 import type { IProcessMcpRequestOptions } from '@electron/features/agent/mcp/mcpServerCore';
@@ -44,8 +50,17 @@ function createOptions(): IProcessMcpRequestOptions {
     };
 }
 
-async function listen(handler: ReturnType<typeof createHttpHandler>) {
-    const server = createServer(handler);
+async function listen(
+    handler: ReturnType<typeof createHttpHandler>,
+    observeRequest?: (request: IncomingMessage) => void,
+) {
+    const server = createServer();
+    if (observeRequest) {
+        server.on('request', observeRequest);
+    }
+    server.on('request', (request, response) => {
+        void handler(request, response);
+    });
     servers.push(server);
     await new Promise<void>((resolve) => {
         server.listen(0, '127.0.0.1', () => resolve());
@@ -93,6 +108,150 @@ describe('createHttpHandler', () => {
 
         expect(response.status).toBe(200);
         expect(JSON.stringify(body.result)).toContain('evb_workspace_snapshot');
+    });
+
+    it('does not abort completed requests when Node emits data, end, then close', async () => {
+        const events: string[] = [];
+        const options = createOptions();
+        options.getWorkspaceSnapshot = vi.fn().mockImplementation(async () => {
+            await new Promise<void>(resolve => setImmediate(resolve));
+            return {};
+        });
+        const url = await listen(
+            createHttpHandler(options, { bearerToken: 'secret' }),
+            (request) => {
+                request.on('data', () => events.push('data'));
+                request.on('end', () => events.push('end'));
+                request.on('close', () => events.push('close'));
+            },
+        );
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { Authorization: 'Bearer secret' },
+            body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'tools/call',
+                params: {
+                    name: 'evb_workspace_snapshot',
+                    arguments: {},
+                },
+            }),
+        });
+
+        expect(response.status).toBe(200);
+        expect(events).toEqual([
+            'data',
+            'end',
+            'close',
+        ]);
+        expect(options.getWorkspaceSnapshot).toHaveBeenCalledOnce();
+    });
+
+    it('aborts an incomplete request when Node emits data, aborted, then close', async () => {
+        const events: string[] = [];
+        let resolveClosed: (() => void) | undefined;
+        const requestClosed = new Promise<void>((resolve) => {
+            resolveClosed = resolve;
+        });
+        const options = createOptions();
+        const url = await listen(
+            createHttpHandler(options, { bearerToken: 'secret' }),
+            (request) => {
+                request.on('data', () => events.push('data'));
+                request.on('aborted', () => events.push('aborted'));
+                request.on('close', () => {
+                    events.push('close');
+                    resolveClosed?.();
+                });
+            },
+        );
+        const body = JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'tools/call',
+            params: {
+                name: 'evb_workspace_snapshot',
+                arguments: {},
+            },
+        });
+
+        await new Promise<void>((resolve) => {
+            const request = createHttpRequest(url, {
+                method: 'POST',
+                headers: {
+                    Authorization: 'Bearer secret',
+                    'Content-Length': Buffer.byteLength(body) + 32,
+                    'Content-Type': 'application/json',
+                },
+            });
+            request.on('error', () => resolve());
+            request.on('socket', (socket) => {
+                socket.once('connect', () => {
+                    request.write(body.slice(0, 24));
+                    setImmediate(() => request.destroy());
+                });
+            });
+            request.on('close', resolve);
+        });
+        await requestClosed;
+
+        expect(events).toEqual([
+            'data',
+            'aborted',
+            'close',
+        ]);
+        expect(options.getWorkspaceSnapshot).not.toHaveBeenCalled();
+    });
+
+    it('propagates client disconnect cancellation into document-text work', async () => {
+        const started = Promise.withResolvers<undefined>();
+        let receivedSignal: AbortSignal | undefined;
+        const options = createOptions();
+        options.getWorkspaceSnapshot = vi.fn().mockResolvedValue({
+            activeTabId: 'tab-1',
+            tabs: [{
+                tabId: 'tab-1',
+                kind: 'pdf',
+                fileName: 'test.pdf',
+                originalPath: '/tmp/test.pdf',
+            }],
+        });
+        options.inspectDocumentText = vi.fn().mockImplementation(async (
+            _input,
+            _windowId,
+            signal: AbortSignal | undefined,
+        ) => {
+            receivedSignal = signal;
+            started.resolve(undefined);
+            await new Promise<void>((_resolve, reject) => {
+                signal?.addEventListener('abort', () => reject(signal.reason), {once: true});
+            });
+            return {};
+        });
+        const url = await listen(createHttpHandler(options, {bearerToken: 'secret'}));
+        const controller = new AbortController();
+        const response = fetch(url, {
+            method: 'POST',
+            headers: {Authorization: 'Bearer secret'},
+            body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'tools/call',
+                params: {
+                    name: 'evb_inspect_document_text',
+                    arguments: {tabId: 'tab-1'},
+                },
+            }),
+            signal: controller.signal,
+        });
+
+        await started.promise;
+        controller.abort();
+
+        await expect(response).rejects.toThrow();
+        await vi.waitFor(() => expect(receivedSignal?.aborted).toBe(true));
     });
 
     it('rejects browser-origin requests unless explicitly allowed', async () => {

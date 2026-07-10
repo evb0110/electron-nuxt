@@ -344,20 +344,20 @@ fn create_markup_candidate(
 
 fn build_markup_inputs(
     markup: &MarkupMutation,
-) -> (HashMap<String, String>, HashMap<u32, Vec<MarkupHintState>>) {
+) -> Result<(HashMap<String, String>, HashMap<u32, Vec<MarkupHintState>>)> {
     let overrides = markup
         .overrides
         .iter()
         .map(|(annotation_id, subtype)| (annotation_id.clone(), subtype.clone()))
         .collect();
     let mut hints_by_page: HashMap<u32, Vec<MarkupHintState>> = HashMap::new();
-    for hint_state in dedupe_markup_subtype_hints(&markup.hints) {
+    for hint_state in dedupe_markup_subtype_hints(&markup.hints)? {
         hints_by_page
             .entry(hint_state.hint.page_index)
             .or_default()
             .push(hint_state);
     }
-    (overrides, hints_by_page)
+    Ok((overrides, hints_by_page))
 }
 
 fn rewrite_page_markup_subtypes(
@@ -368,12 +368,14 @@ fn rewrite_page_markup_subtypes(
 ) -> Result<bool> {
     let mut rewritten = false;
     let mut unmatched_candidates = Vec::new();
+    let hints_by_ref = index_markup_hints_by_ref(page_hints);
 
     for candidate in candidates {
-        if let Some(hint_index) = find_exact_ref_highlight_preservation_hint(page_hints, candidate)
+        if let Some(hint_index) =
+            find_exact_ref_highlight_preservation_hint(page_hints, candidate, &hints_by_ref)
         {
             let hint = page_hints[hint_index].hint.clone();
-            consume_exact_ref_hints(page_hints, candidate);
+            consume_exact_ref_hints(page_hints, candidate, &hints_by_ref);
             rewritten = apply_markup_rewrite_to_object(
                 document,
                 candidate,
@@ -383,7 +385,9 @@ fn rewrite_page_markup_subtypes(
             continue;
         }
 
-        if let Some(hint_index) = find_best_exact_ref_hint_for_candidate(page_hints, candidate) {
+        if let Some(hint_index) =
+            find_best_exact_ref_hint_for_candidate(page_hints, candidate, &hints_by_ref)
+        {
             page_hints[hint_index].consumed = true;
             let hint = page_hints[hint_index].hint.clone();
             rewritten = apply_markup_rewrite_to_object(
@@ -396,7 +400,7 @@ fn rewrite_page_markup_subtypes(
         }
 
         if let Some(override_subtype) = overrides.get(&candidate.ref_tag) {
-            consume_exact_ref_hints(page_hints, candidate);
+            consume_exact_ref_hints(page_hints, candidate, &hints_by_ref);
             rewritten =
                 apply_markup_rewrite_to_object(document, candidate, override_subtype, None)?
                     || rewritten;
@@ -411,7 +415,7 @@ fn rewrite_page_markup_subtypes(
     }
 
     for (candidate_index, hint_index) in
-        assign_subtype_hints_to_candidates(page_hints, &unmatched_candidates)
+        assign_subtype_hints_to_candidates(page_hints, &unmatched_candidates)?
     {
         page_hints[hint_index].consumed = true;
         let hint = page_hints[hint_index].hint.clone();
@@ -449,12 +453,14 @@ fn rewrite_page_markup_subtypes_incremental(
 ) -> Result<bool> {
     let mut rewritten = false;
     let mut unmatched_candidates = Vec::new();
+    let hints_by_ref = index_markup_hints_by_ref(page_hints);
 
     for candidate in candidates {
-        if let Some(hint_index) = find_exact_ref_highlight_preservation_hint(page_hints, candidate)
+        if let Some(hint_index) =
+            find_exact_ref_highlight_preservation_hint(page_hints, candidate, &hints_by_ref)
         {
             let hint = page_hints[hint_index].hint.clone();
-            consume_exact_ref_hints(page_hints, candidate);
+            consume_exact_ref_hints(page_hints, candidate, &hints_by_ref);
             rewritten = apply_markup_rewrite_to_incremental_object(
                 incremental,
                 candidate,
@@ -464,7 +470,9 @@ fn rewrite_page_markup_subtypes_incremental(
             continue;
         }
 
-        if let Some(hint_index) = find_best_exact_ref_hint_for_candidate(page_hints, candidate) {
+        if let Some(hint_index) =
+            find_best_exact_ref_hint_for_candidate(page_hints, candidate, &hints_by_ref)
+        {
             page_hints[hint_index].consumed = true;
             let hint = page_hints[hint_index].hint.clone();
             rewritten = apply_markup_rewrite_to_incremental_object(
@@ -477,7 +485,7 @@ fn rewrite_page_markup_subtypes_incremental(
         }
 
         if let Some(override_subtype) = overrides.get(&candidate.ref_tag) {
-            consume_exact_ref_hints(page_hints, candidate);
+            consume_exact_ref_hints(page_hints, candidate, &hints_by_ref);
             rewritten = apply_markup_rewrite_to_incremental_object(
                 incremental,
                 candidate,
@@ -495,7 +503,7 @@ fn rewrite_page_markup_subtypes_incremental(
     }
 
     for (candidate_index, hint_index) in
-        assign_subtype_hints_to_candidates(page_hints, &unmatched_candidates)
+        assign_subtype_hints_to_candidates(page_hints, &unmatched_candidates)?
     {
         page_hints[hint_index].consumed = true;
         let hint = page_hints[hint_index].hint.clone();
@@ -511,7 +519,7 @@ fn rewrite_page_markup_subtypes_incremental(
 }
 
 fn apply_markup_mutations(document: &mut Document, markup: &MarkupMutation) -> Result<()> {
-    let (overrides, mut hints_by_page) = build_markup_inputs(markup);
+    let (overrides, mut hints_by_page) = build_markup_inputs(markup)?;
     let page_map = document.get_pages();
     let mut modified = false;
 
@@ -551,7 +559,7 @@ fn apply_markup_mutations_incremental(
     incremental: &mut IncrementalDocument,
     markup: &MarkupMutation,
 ) -> Result<()> {
-    let (overrides, mut hints_by_page) = build_markup_inputs(markup);
+    let (overrides, mut hints_by_page) = build_markup_inputs(markup)?;
     let page_map = incremental.get_prev_documents().get_pages();
     let mut modified = false;
 

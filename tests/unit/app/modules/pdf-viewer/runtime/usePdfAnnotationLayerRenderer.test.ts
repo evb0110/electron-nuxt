@@ -316,8 +316,8 @@ describe('usePdfAnnotationLayerRenderer', () => {
         const abortError = await abortedRender;
         expect(abortError).toBeInstanceOf(Error);
         expect(abortError).toMatchObject({ name: 'AbortError' });
-        expect(annotationUiManager.renderAnnotationElement).toBe(originalRenderAnnotationElement);
-        expect(annotationUiManager.setMissingCanvas).toBe(originalSetMissingCanvas);
+        expect(annotationUiManager.renderAnnotationElement).not.toBe(originalRenderAnnotationElement);
+        expect(annotationUiManager.setMissingCanvas).not.toBe(originalSetMissingCanvas);
 
         const quarantinedRender = await renderer.renderAnnotationLayer(
             pdfPage,

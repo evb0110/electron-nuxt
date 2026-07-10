@@ -42,6 +42,30 @@ function firstNonEmptyString(values: Array<string | undefined>) {
     return '';
 }
 
+export function isAnalyticsWriteAllowedForHost(
+    env: Record<string, string | undefined>,
+    requestHost: string,
+) {
+    const writeEnabled = firstNonEmptyString([
+        env.NUXT_ANALYTICS_WRITE_ENABLED,
+        env.ANALYTICS_WRITE_ENABLED,
+    ]);
+    if (!isTruthyFlag(writeEnabled)) {
+        return false;
+    }
+
+    const allowedHosts = normalizeAllowedHosts(
+        firstNonEmptyString([
+            env.NUXT_ANALYTICS_ALLOWED_HOSTS,
+            env.ANALYTICS_ALLOWED_HOSTS,
+        ]),
+    );
+    if (allowedHosts.length === 0) {
+        return true;
+    }
+    return allowedHosts.includes(requestHost.trim().toLowerCase());
+}
+
 export function extractGeo(event: H3Event): IAnalyticsGeoData {
     return normalizeAnalyticsGeo({
         country: getHeader(event, 'x-vercel-ip-country') ?? null,
@@ -69,26 +93,6 @@ export async function hashVisitorIdentity(event: H3Event) {
 }
 
 export function isAnalyticsWriteAllowed(event: H3Event) {
-    void event;
     const env = getRuntimeEnv();
-
-    const writeEnabled = firstNonEmptyString([
-        env.NUXT_ANALYTICS_WRITE_ENABLED,
-        env.ANALYTICS_WRITE_ENABLED,
-    ]);
-    if (!isTruthyFlag(writeEnabled)) {
-        return false;
-    }
-
-    const allowedHosts = normalizeAllowedHosts(
-        firstNonEmptyString([
-            env.NUXT_ANALYTICS_ALLOWED_HOSTS,
-            env.ANALYTICS_ALLOWED_HOSTS,
-        ]),
-    );
-    if (allowedHosts.length === 0) {
-        return true;
-    }
-
-    return allowedHosts.includes(getAnalyticsRequestHost(event));
+    return isAnalyticsWriteAllowedForHost(env, getAnalyticsRequestHost(event));
 }

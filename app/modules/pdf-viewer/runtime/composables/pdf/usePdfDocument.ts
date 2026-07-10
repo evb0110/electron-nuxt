@@ -38,19 +38,18 @@ interface IPdfPreloadedRange {
 
 interface IPdfCachedPageEntry {
     page: PDFPageProxy;
+    pageNumber: number;
     leases: number;
     pendingEviction: boolean;
+    cleaned: boolean;
 }
 
-interface IDeferredPdfPageEviction {
-    entry: IPdfCachedPageEntry;
-    pageNumber: number;
+export interface IPdfDocumentPageLease {
+    readonly page: PDFPageProxy;
+    release: () => void;
 }
 
-interface IPdfDocumentPageLeaseOwner {
-    leasePage: (pageNumber: number) => Promise<PDFPageProxy>;
-    releasePage: (pageNumber: number, page: PDFPageProxy) => void;
-}
+interface IPdfDocumentPageLeaseOwner { leasePage: (pageNumber: number) => Promise<IPdfDocumentPageLease> }
 
 const PDF_RANGE_SUBREAD_BYTES = 8 * 1024 * 1024;
 const MAX_AGGREGATE_PDF_RANGE_BYTES = 64 * 1024 * 1024;
@@ -65,14 +64,6 @@ export async function leasePdfDocumentPage(
         throw new Error('PDF document page lease owner is unavailable');
     }
     return owner.leasePage(pageNumber);
-}
-
-export function releasePdfDocumentPage(
-    document: PDFDocumentProxy,
-    pageNumber: number,
-    page: PDFPageProxy,
-) {
-    pdfDocumentPageLeaseOwners.get(document)?.releasePage(pageNumber, page);
 }
 
 function destroyPdfDocumentDeferred(
@@ -119,11 +110,11 @@ export const usePdfDocument = () => {
 
     let renderVersion = 0;
     const pdfPageCache = new Map<number, IPdfCachedPageEntry>();
+    const pdfPageEntries = new WeakMap<PDFPageProxy, IPdfCachedPageEntry>();
     const pageMetricLoads = new Map<number, Promise<IPdfPageMetric | null>>();
     let objectUrl: string | null = null;
     let loadingTask: ReturnType<typeof pdfjsLib.getDocument> | null = null;
     let rangeTransport: PDFDataRangeTransport | null = null;
-    const deferredPageEvictions = new WeakMap<PDFPageProxy, IDeferredPdfPageEviction>();
 
     async function getPdfjsDocumentOptions() {
         await preparePdfjsBrowserRuntime(pdfjsLib);
@@ -137,16 +128,24 @@ export const usePdfDocument = () => {
 
     function rememberCachedPage(pageNumber: number, page: PDFPageProxy) {
         const existingEntry = pdfPageCache.get(pageNumber);
-        const entry = existingEntry?.page === page
+        const proxyEntry = pdfPageEntries.get(page);
+        const entry = existingEntry?.page === page && !existingEntry.cleaned
             ? existingEntry
-            : {
-                page,
-                leases: 0,
-                pendingEviction: false,
-            };
+            : proxyEntry && !proxyEntry.cleaned
+                ? proxyEntry
+                : {
+                    page,
+                    pageNumber,
+                    leases: 0,
+                    pendingEviction: false,
+                    cleaned: false,
+                };
+        entry.pageNumber = pageNumber;
         entry.pendingEviction = false;
+        pdfPageEntries.set(page, entry);
         touchCachedPage(pageNumber, entry);
         enforcePageCacheLimit();
+        return entry;
     }
 
     function enforcePageCacheLimit() {
@@ -320,17 +319,15 @@ export const usePdfDocument = () => {
         }
 
         pdfDocument.value = document;
-        pdfDocumentPageLeaseOwners.set(document, {
-            leasePage: (pageNumber: number) => {
-                if (pdfDocument.value !== document) {
-                    throw createStalePdfDocumentError(
-                        'Rendering cancelled: PDF page lease owner became stale',
-                    );
-                }
-                return leasePage(pageNumber);
-            },
-            releasePage,
-        });
+        const leaseOwnedPage = (pageNumber: number) => {
+            if (pdfDocument.value !== document) {
+                throw createStalePdfDocumentError(
+                    'Rendering cancelled: PDF page lease owner became stale',
+                );
+            }
+            return leasePage(pageNumber);
+        };
+        pdfDocumentPageLeaseOwners.set(document, {leasePage: leaseOwnedPage});
         numPages.value = document.numPages;
         await primeInitialPageMetrics(document, version);
         if (version !== renderVersion || document !== pdfDocument.value) {
@@ -913,10 +910,24 @@ export const usePdfDocument = () => {
             leases: entry.leases,
             renderVersion,
         });
-        return page;
+        let released = false;
+        return {
+            page,
+            release: () => {
+                if (released) {
+                    return;
+                }
+                released = true;
+                releasePageEntry(entry);
+            },
+        } satisfies IPdfDocumentPageLease;
     }
 
     function cleanupPageEntry(pageNumber: number, entry: IPdfCachedPageEntry) {
+        if (entry.cleaned) {
+            return;
+        }
+        entry.cleaned = true;
         logPdfRenderTrace('pdf-document-page-cache-cleanup-page', {
             pageNumber,
             leases: entry.leases,
@@ -931,34 +942,20 @@ export const usePdfDocument = () => {
         if (pdfPageCache.get(pageNumber) === entry) {
             pdfPageCache.delete(pageNumber);
         }
-        deferredPageEvictions.set(entry.page, {
-            entry,
-            pageNumber,
-        });
     }
 
-    function releasePage(pageNumber: number, page: PDFPageProxy) {
-        const cachedEntry = pdfPageCache.get(pageNumber);
-        const deferredEviction = deferredPageEvictions.get(page);
-        const entry = cachedEntry?.page === page
-            ? cachedEntry
-            : deferredEviction?.entry;
-        if (!entry || entry.page !== page) {
-            return;
-        }
-
+    function releasePageEntry(entry: IPdfCachedPageEntry) {
         entry.leases = Math.max(0, entry.leases - 1);
         logPdfRenderTrace('pdf-document-page-lease-release', {
-            pageNumber,
+            pageNumber: entry.pageNumber,
             leases: entry.leases,
             pendingEviction: entry.pendingEviction,
             renderVersion,
         });
         if (entry.leases === 0 && entry.pendingEviction) {
-            cleanupPageEntry(deferredEviction?.pageNumber ?? pageNumber, entry);
-            deferredPageEvictions.delete(page);
-            if (pdfPageCache.get(pageNumber) === entry) {
-                pdfPageCache.delete(pageNumber);
+            cleanupPageEntry(entry.pageNumber, entry);
+            if (pdfPageCache.get(entry.pageNumber) === entry) {
+                pdfPageCache.delete(entry.pageNumber);
             }
         }
     }
@@ -1043,7 +1040,6 @@ export const usePdfDocument = () => {
         ensurePageMetricsInRange,
         getPage,
         leasePage,
-        releasePage,
         evictPage,
         cleanupPageCache,
         cleanup,

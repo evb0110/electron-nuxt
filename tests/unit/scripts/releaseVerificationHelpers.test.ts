@@ -4,11 +4,11 @@ import {
     it,
 } from 'vitest';
 import {
-    PACKAGED_STARTUP_READY_MARKER,
     isAllowedPackagedToolExitCode,
     isPackagedStartupReady,
     parseAllowedToolExitCodes,
 } from '@scripts/releaseVerificationHelpers';
+import { PACKAGED_STARTUP_READY_MARKER } from '@contracts/packagedStartupReadyMarker';
 
 describe('release verification helpers', () => {
     it('exposes a stable packaged-startup ready marker token', () => {

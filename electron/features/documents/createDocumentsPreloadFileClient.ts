@@ -2,7 +2,7 @@ import type {
     IpcRenderer,
     IpcRendererEvent,
 } from 'electron';
-import type { IDocumentRevisionChangedEvent } from '@contracts/documentRevision';
+import { decodeDocumentRevisionChangedEvent } from '@contracts/documentRevision';
 import type {
     IDocumentsFileCapability,
     IDocumentChunkReadOptions,
@@ -11,7 +11,10 @@ import type {
     IPdfSaveAsOptions,
     IPdfSerializedSaveOptions,
 } from '@contracts/electronApiDocuments';
-import { isPdfOptimizePreset } from '@contracts/electronApiDocuments';
+import {
+    decodeFileStatResult,
+    isPdfOptimizePreset,
+} from '@contracts/electronApiDocuments';
 import {
     normalizePdfNativeModifiedAt,
     normalizePdfNativeMutationSet,
@@ -26,6 +29,7 @@ import {
     PDF_PERSISTENCE_DEFAULT_MAX_IN_FLIGHT_CHUNKS,
     PDF_PERSISTENCE_DEFAULT_RESULT_TIMEOUT_MS,
     SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION,
+    createPdfPersistenceCancelFrame,
     createPdfPersistenceChunkFrame,
     createPdfPersistenceCompleteFrame,
     getPdfPersistenceErrorMessage,
@@ -38,7 +42,10 @@ import {
     DOCUMENTS_EVENT_CHANNELS,
     type IDocumentsInvokeMap,
 } from '@electron/features/documents/contract';
-import { createTypedIpcInvoker } from '@electron/preload/ipcClient';
+import {
+    createDecodedIpcInvoker,
+    createTypedIpcInvoker,
+} from '@electron/preload/ipcClient';
 import {
     assertAbsolutePath,
     assertNonEmptyString,
@@ -262,93 +269,148 @@ function assertPersistenceProtocolLimits(value: unknown) {
     return value;
 }
 
-function waitForPortStreamResult(port: MessagePort) {
-    return new Promise<ISerializedPdfPersistencePortResult>((resolve, reject) => {
-        const cleanup = () => {
-            clearTimeout(timeout);
-            port.removeEventListener('message', handleMessage);
-        };
-        const timeout = setTimeout(() => {
-            cleanup();
-            reject(new Error('PDF persistence port did not return a final result'));
-        }, PDF_PERSISTENCE_RESULT_TIMEOUT_MS);
-        const handleMessage = (event: MessageEvent<unknown>) => {
-            const payload = parsePdfPersistenceMainToPreloadFrame(event.data);
-            if (!payload) {
-                return;
-            }
-            if (payload.type === 'result') {
-                cleanup();
-                resolve({
-                    path: payload.path,
-                    validation: payload.validation,
-                });
-                return;
-            }
-            if (payload.type === 'error') {
-                cleanup();
-                reject(new PdfPersistenceError(payload));
-            }
-        };
-        port.addEventListener('message', handleMessage);
-    });
+interface IPersistencePortDeferred<T> {
+    promise: Promise<T>;
+    resolve(value: T): void;
+    reject(error: unknown): void;
+    settled: boolean;
+    timer: ReturnType<typeof setTimeout>;
 }
 
-function waitForPortReady(port: MessagePort) {
-    return new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-            port.removeEventListener('message', handleMessage);
-            reject(new Error('PDF persistence port did not become ready'));
-        }, PDF_PERSISTENCE_READY_TIMEOUT_MS);
-        const handleMessage = (event: MessageEvent<unknown>) => {
-            const payload = parsePdfPersistenceMainToPreloadFrame(event.data);
-            if (!payload) {
-                return;
+class PdfPersistencePortLifecycle {
+    private readonly trackedPromises: Array<Promise<unknown>> = [];
+    private readonly acknowledgements = new Map<number, IPersistencePortDeferred<undefined>>();
+    private readonly ready: IPersistencePortDeferred<undefined>;
+    private readonly result: IPersistencePortDeferred<ISerializedPdfPersistencePortResult>;
+    private aborted = false;
+
+    public constructor(private readonly port: MessagePort) {
+        this.ready = this.createDeferred<undefined>(
+            PDF_PERSISTENCE_READY_TIMEOUT_MS,
+            'PDF persistence port did not become ready',
+        );
+        this.result = this.createDeferred<ISerializedPdfPersistencePortResult>(
+            PDF_PERSISTENCE_RESULT_TIMEOUT_MS,
+            'PDF persistence port did not return a final result',
+        );
+        port.addEventListener('message', this.handleMessage);
+    }
+
+    public waitUntilReady() {
+        return this.ready.promise;
+    }
+
+    public waitForAcknowledgement(seq: number) {
+        if (this.aborted) {
+            const promise = Promise.reject(new Error('PDF persistence port lifecycle was aborted'));
+            void promise.catch(() => undefined);
+            this.trackedPromises.push(promise);
+            return promise;
+        }
+        const acknowledgement = this.createDeferred<undefined>(
+            PDF_PERSISTENCE_ACK_TIMEOUT_MS,
+            `PDF persistence chunk ${seq} was not acknowledged`,
+        );
+        this.acknowledgements.set(seq, acknowledgement);
+        return acknowledgement.promise;
+    }
+
+    public waitForResult() {
+        return this.result.promise;
+    }
+
+    public abort(error: unknown) {
+        if (this.aborted) {
+            return;
+        }
+        this.aborted = true;
+        this.port.removeEventListener('message', this.handleMessage);
+        this.rejectDeferred(this.ready, error);
+        this.rejectDeferred(this.result, error);
+        for (const acknowledgement of this.acknowledgements.values()) {
+            this.rejectDeferred(acknowledgement, error);
+        }
+        this.acknowledgements.clear();
+    }
+
+    public async drain() {
+        await Promise.allSettled(this.trackedPromises);
+    }
+
+    private readonly handleMessage = (event: MessageEvent<unknown>) => {
+        const payload = parsePdfPersistenceMainToPreloadFrame(event.data);
+        if (!payload) {
+            return;
+        }
+        if (payload.type === 'ready') {
+            this.resolveDeferred(this.ready, undefined);
+            return;
+        }
+        if (payload.type === 'ack') {
+            const acknowledgement = this.acknowledgements.get(payload.seq);
+            if (acknowledgement) {
+                this.acknowledgements.delete(payload.seq);
+                this.resolveDeferred(acknowledgement, undefined);
             }
-            if (payload.type === 'ready') {
-                clearTimeout(timeout);
-                port.removeEventListener('message', handleMessage);
-                resolve();
-                return;
-            }
-            if (payload.type === 'error') {
-                clearTimeout(timeout);
-                port.removeEventListener('message', handleMessage);
-                reject(new PdfPersistenceError(payload));
-            }
+            return;
+        }
+        if (payload.type === 'result') {
+            this.resolveDeferred(this.result, {
+                path: payload.path,
+                validation: payload.validation,
+            });
+            return;
+        }
+        this.abort(new PdfPersistenceError(payload));
+    };
+
+    private createDeferred<T>(timeoutMs: number, timeoutMessage: string): IPersistencePortDeferred<T> {
+        let resolvePromise!: (value: T) => void;
+        let rejectPromise!: (error: unknown) => void;
+        const promise = new Promise<T>((resolve, reject) => {
+            resolvePromise = resolve;
+            rejectPromise = reject;
+        });
+        void promise.catch(() => undefined);
+        this.trackedPromises.push(promise);
+        const deferred: IPersistencePortDeferred<T> = {
+            promise,
+            resolve: resolvePromise,
+            reject: rejectPromise,
+            settled: false,
+            timer: setTimeout(() => {
+                this.abort(new Error(timeoutMessage));
+            }, timeoutMs),
         };
-        port.addEventListener('message', handleMessage);
-    });
+        return deferred;
+    }
+
+    private resolveDeferred<T>(deferred: IPersistencePortDeferred<T>, value: T) {
+        if (deferred.settled) {
+            return;
+        }
+        deferred.settled = true;
+        clearTimeout(deferred.timer);
+        deferred.resolve(value);
+    }
+
+    private rejectDeferred<T>(deferred: IPersistencePortDeferred<T>, error: unknown) {
+        if (deferred.settled) {
+            return;
+        }
+        deferred.settled = true;
+        clearTimeout(deferred.timer);
+        deferred.reject(error);
+    }
 }
 
-function waitForPortAck(port: MessagePort, expectedSeq: number) {
-    return new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-            port.removeEventListener('message', handleMessage);
-            reject(new Error(`PDF persistence chunk ${expectedSeq} was not acknowledged`));
-        }, PDF_PERSISTENCE_ACK_TIMEOUT_MS);
-        const handleMessage = (event: MessageEvent<unknown>) => {
-            const payload = parsePdfPersistenceMainToPreloadFrame(event.data);
-            if (!payload) {
-                return;
-            }
-            if (payload.type === 'ack') {
-                if (payload.seq !== expectedSeq) {
-                    return;
-                }
-                clearTimeout(timeout);
-                port.removeEventListener('message', handleMessage);
-                resolve();
-                return;
-            }
-            if (payload.type === 'error') {
-                clearTimeout(timeout);
-                port.removeEventListener('message', handleMessage);
-                reject(new PdfPersistenceError(payload));
-            }
-        };
-        port.addEventListener('message', handleMessage);
-    });
+function tryPostPdfPersistenceCancel(port: MessagePort) {
+    try {
+        port.postMessage(createPdfPersistenceCancelFrame());
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 async function streamPdfBytesToPersistencePort(
@@ -360,10 +422,12 @@ async function streamPdfBytesToPersistencePort(
     const limits = assertPersistenceProtocolLimits(beginResult);
     const channel = new MessageChannel();
     channel.port1.start();
+    const lifecycle = new PdfPersistencePortLifecycle(channel.port1);
+    let portTransferred = false;
     try {
-        const resultPromise = waitForPortStreamResult(channel.port1);
         ipcRenderer.postMessage(DOCUMENTS_CHANNELS.fileSavePdfDataPort, beginResult.sessionId, [channel.port2]);
-        await waitForPortReady(channel.port1);
+        portTransferred = true;
+        await lifecycle.waitUntilReady();
 
         let seq = 0;
         let bytesWritten = 0;
@@ -376,8 +440,9 @@ async function streamPdfBytesToPersistencePort(
             }
             // Electron's main-process MessagePort only transfers ports here; transferring the
             // ArrayBuffer drops the structured-clone payload before MessagePortMain receives it.
+            const acknowledgement = lifecycle.waitForAcknowledgement(seq);
             channel.port1.postMessage(createPdfPersistenceChunkFrame(seq, bytes));
-            inFlightAcks.push(waitForPortAck(channel.port1, seq));
+            inFlightAcks.push(acknowledgement);
             if (inFlightAcks.length >= limits.maxInFlightChunks) {
                 await inFlightAcks.shift();
             }
@@ -389,8 +454,16 @@ async function streamPdfBytesToPersistencePort(
         await Promise.all(inFlightAcks);
 
         channel.port1.postMessage(createPdfPersistenceCompleteFrame());
-        return await resultPromise;
+        return await lifecycle.waitForResult();
+    } catch (error) {
+        if (portTransferred) {
+            tryPostPdfPersistenceCancel(channel.port1);
+        }
+        lifecycle.abort(error);
+        throw error;
     } finally {
+        lifecycle.abort(new Error('PDF persistence port lifecycle closed'));
+        await lifecycle.drain();
         channel.port1.close();
     }
 }
@@ -399,6 +472,7 @@ export function createDocumentsPreloadFileClient(
     ipcRenderer: TDocumentsFileIpcRenderer,
 ): TDocumentsPreloadFileClient {
     const invoke = createTypedIpcInvoker<IDocumentsInvokeMap>(ipcRenderer, {invokeTimeoutMsByChannel: DOCUMENTS_NATIVE_INVOKE_TIMEOUT_MS_BY_CHANNEL});
+    const invokeDecoded = createDecodedIpcInvoker<IDocumentsInvokeMap>(ipcRenderer, {invokeTimeoutMsByChannel: DOCUMENTS_NATIVE_INVOKE_TIMEOUT_MS_BY_CHANNEL});
     const openDocumentDialog = () => invoke(DOCUMENTS_CHANNELS.openDocumentDialog);
     const openDocumentDirect = (path: string) => invoke(DOCUMENTS_CHANNELS.openDocumentDirect, path);
     const openDocumentDirectBatch = (paths: string[], requestId?: string) =>
@@ -457,7 +531,11 @@ export function createDocumentsPreloadFileClient(
         savePdfDialog: (suggestedName) => invoke(DOCUMENTS_CHANNELS.savePdfDialog, suggestedName),
         saveDocxAs: (workingPath) => invoke(DOCUMENTS_CHANNELS.saveDocxAs, workingPath),
         readFile: (path) => invoke(DOCUMENTS_CHANNELS.fileRead, path),
-        statFile: (path) => invoke(DOCUMENTS_CHANNELS.fileStat, path),
+        statFile: (path) => invokeDecoded(
+            DOCUMENTS_CHANNELS.fileStat,
+            decodeFileStatResult,
+            path,
+        ),
         readFileRange: (path, offset, length) =>
             invoke(DOCUMENTS_CHANNELS.fileReadRange, path, offset, length),
         getPdfNativePageSizes: (path) =>
@@ -480,7 +558,11 @@ export function createDocumentsPreloadFileClient(
         readFileChunks: async (path, options, onChunk) => {
             const checkedPath = assertAbsolutePath(path, 'readFileChunks.path');
             const chunkBytes = getChunkReadSize(options);
-            const { size } = await invoke(DOCUMENTS_CHANNELS.fileStat, checkedPath);
+            const { size } = await invokeDecoded(
+                DOCUMENTS_CHANNELS.fileStat,
+                decodeFileStatResult,
+                checkedPath,
+            );
             let bytesRead = 0;
             let chunks = 0;
             while (bytesRead < size) {
@@ -513,8 +595,13 @@ export function createDocumentsPreloadFileClient(
             }
             const handler = (
                 _event: IpcRendererEvent,
-                payload: IDocumentRevisionChangedEvent,
-            ) => callback(payload);
+                payload: unknown,
+            ) => {
+                const decoded = decodeDocumentRevisionChangedEvent(payload);
+                if (decoded !== null) {
+                    callback(decoded);
+                }
+            };
             ipcRenderer.on(DOCUMENTS_EVENT_CHANNELS.documentRevisionChanged, handler);
             return () => {
                 ipcRenderer.removeListener?.(DOCUMENTS_EVENT_CHANNELS.documentRevisionChanged, handler);

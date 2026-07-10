@@ -28,7 +28,6 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-
 RE_RANGE = re.compile(r"^\s*(\d+)\s*-\s*(\d+)\s*$")
 RE_INT = re.compile(r"^\s*\d+\s*$")
 PROJECT_ROOT = Path(__file__).resolve().parents[2]

@@ -82,7 +82,6 @@ describe('usePdfRendererCanvasController', () => {
             hiddenAnnotationIds,
             getRenderVersion: () => 5,
             getPage: vi.fn(),
-            releasePage: vi.fn(),
             cancelActiveRenderTask: vi.fn(),
             cancelActiveRenderTaskIfCurrent: vi.fn(),
         });
@@ -130,7 +129,6 @@ describe('usePdfRendererCanvasController', () => {
             hiddenAnnotationIds: (_pageNumber: number) => new Set(['hidden-7']),
             getRenderVersion: () => 5,
             getPage: vi.fn(),
-            releasePage: vi.fn(),
             cancelActiveRenderTask: vi.fn(),
             cancelActiveRenderTaskIfCurrent: vi.fn(),
             onRenderStall,
@@ -197,7 +195,6 @@ describe('usePdfRendererCanvasController', () => {
             hiddenAnnotationIds: (_pageNumber: number) => undefined,
             getRenderVersion: () => 5,
             getPage: vi.fn(),
-            releasePage: vi.fn(),
             cancelActiveRenderTask,
             cancelActiveRenderTaskIfCurrent: vi.fn(),
         });
@@ -243,8 +240,12 @@ describe('usePdfRendererCanvasController', () => {
     it('releases a leased page when the completed page load is stale', async () => {
         let renderVersion = 1;
         const pdfPage = {} as never;
-        const pageLoad = Promise.withResolvers<typeof pdfPage>();
-        const releasePage = vi.fn();
+        const release = vi.fn();
+        const pageLease = {
+            page: pdfPage,
+            release,
+        };
+        const pageLoad = Promise.withResolvers<typeof pageLease>();
         const controller = usePdfRendererCanvasController({
             canvasRenderer: {
                 prepareCanvasRender: vi.fn(),
@@ -260,17 +261,16 @@ describe('usePdfRendererCanvasController', () => {
             hiddenAnnotationIds: (_pageNumber: number) => undefined,
             getRenderVersion: () => renderVersion,
             getPage: vi.fn(() => pageLoad.promise),
-            releasePage,
             cancelActiveRenderTask: vi.fn(),
             cancelActiveRenderTaskIfCurrent: vi.fn(),
         });
 
         const loadPromise = controller.loadPageForRender(1, 1, () => true);
         renderVersion = 2;
-        pageLoad.resolve(pdfPage);
+        pageLoad.resolve(pageLease);
 
         await expect(loadPromise).resolves.toBeNull();
-        expect(releasePage).toHaveBeenCalledWith(1, pdfPage);
+        expect(release).toHaveBeenCalledOnce();
     });
 
     it('does not start a canvas render after its stage timeout fires while waiting for the page coordinator', async () => {
@@ -325,7 +325,6 @@ describe('usePdfRendererCanvasController', () => {
             hiddenAnnotationIds: (_pageNumber: number) => undefined,
             getRenderVersion: () => 5,
             getPage: vi.fn(),
-            releasePage: vi.fn(),
             cancelActiveRenderTask: vi.fn(),
             cancelActiveRenderTaskIfCurrent: vi.fn(),
             onRenderStall,

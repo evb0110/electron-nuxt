@@ -7,7 +7,6 @@ import { isRecord } from '@contracts/runtimeGuards';
 import type {
     IAgentDocumentPageReadOptions,
     IAgentDocumentSearchOptions,
-    IAgentDocumentTextOperationInput,
 } from '@electron/features/agent/documentText';
 import { getErrorMessage } from '@electron/utils/error';
 import {
@@ -38,6 +37,17 @@ import {
     type IAgentCapabilityTemplate,
     type IMcpResourceDefinition,
 } from '@electron/features/agent/mcp/mcpDefinitions';
+import { createMcpToolResult } from '@electron/features/agent/mcp/createMcpToolResult';
+import type {
+    ILocalMcpServerIdentity,
+    IProcessMcpRequestOptions,
+    TMcpCallerKind,
+} from '@electron/features/agent/mcp/mcpServerCoreTypes';
+export type {
+    ILocalMcpServerDescriptor,
+    ILocalMcpServerIdentity,
+    IProcessMcpRequestOptions,
+} from '@electron/features/agent/mcp/mcpServerCoreTypes';
 
 const MCP_PROTOCOL_VERSION = '2025-11-25';
 const MAX_READ_DOCUMENT_PAGES_PER_REQUEST = 50;
@@ -50,112 +60,7 @@ interface IJsonRpcRequest {
 }
 
 
-interface IMcpToolTextContent {
-    type: 'text';
-    text: string;
-}
 
-interface IMcpToolImageContent {
-    type: 'image';
-    data: string;
-    mimeType: string;
-}
-
-type TMcpToolContent = IMcpToolTextContent | IMcpToolImageContent;
-
-
-export interface ILocalMcpServerIdentity {
-    name: string;
-    title: string;
-    appName: string;
-    version: string;
-    isPackaged: boolean;
-    userDataPath: string | null;
-    host: string;
-    port: number;
-}
-
-export interface ILocalMcpServerDescriptor {
-    name: string;
-    title: string;
-    host: string;
-    port: number;
-    url: string;
-}
-
-export type TMcpCallerKind = 'internal' | 'external';
-
-export interface IProcessMcpRequestOptions {
-    identity: ILocalMcpServerIdentity;
-    callerKind?: TMcpCallerKind;
-    getWorkspaceSnapshot(windowId?: number): Promise<IAgentWorkspaceSnapshot>;
-    runCommand(command: TAgentCommand, windowId?: number, signal?: AbortSignal): Promise<Record<string, unknown>>;
-    inspectDocumentText?(
-        input: IAgentDocumentTextOperationInput<Record<never, never>>,
-        windowId?: number,
-    ): Promise<Record<string, unknown>>;
-    searchDocument?(
-        input: IAgentDocumentTextOperationInput<IAgentDocumentSearchOptions>,
-        windowId?: number,
-    ): Promise<Record<string, unknown>>;
-    readDocumentPages?(
-        input: IAgentDocumentTextOperationInput<IAgentDocumentPageReadOptions>,
-        windowId?: number,
-    ): Promise<Record<string, unknown>>;
-}
-
-
-function getMcpImagePayload(data: unknown) {
-    if (!isRecord(data) || !isRecord(data.image)) {
-        return null;
-    }
-
-    const { image } = data;
-    return typeof image.data === 'string'
-        && image.data.trim().length > 0
-        && typeof image.mimeType === 'string'
-        && image.mimeType.trim().startsWith('image/')
-        ? {
-            data: image.data.trim(),
-            mimeType: image.mimeType.trim(),
-        }
-        : null;
-}
-
-function createToolStructuredContent(data: unknown) {
-    if (!isRecord(data) || !isRecord(data.image)) {
-        return data;
-    }
-
-    const imageMetadata = Object.fromEntries(
-        Object.entries(data.image).filter(([key]) => key !== 'data'),
-    );
-    return {
-        ...data,
-        image: imageMetadata,
-    };
-}
-
-function createToolResult(data: unknown) {
-    const structuredContent = createToolStructuredContent(data);
-    const content: TMcpToolContent[] = [{
-        type: 'text',
-        text: JSON.stringify(structuredContent, null, 2),
-    }];
-    const image = getMcpImagePayload(data);
-    if (image) {
-        content.push({
-            type: 'image',
-            data: image.data,
-            mimeType: image.mimeType,
-        });
-    }
-
-    return {
-        content,
-        structuredContent,
-    };
-}
 
 function createInitializeMetadata(identity: ILocalMcpServerIdentity) {
     return {evb: {
@@ -616,49 +521,49 @@ function getJobStatus(params: unknown) {
 async function callTool(name: string, params: unknown, options: IProcessMcpRequestOptions) {
     const windowId = getOptionalWindowId(params);
     if (name === 'evb_list_capabilities') {
-        return createToolResult(await listAgentCapabilities(params, options));
+        return createMcpToolResult(await listAgentCapabilities(params, options));
     }
 
     if (name === 'evb_describe_capability') {
-        return createToolResult(await describeAgentCapability(params, options));
+        return createMcpToolResult(await describeAgentCapability(params, options));
     }
 
     if (name === 'evb_read_resource') {
-        return createToolResult(await readMcpResource({
+        return createMcpToolResult(await readMcpResource({
             windowId,
             uri: getRequiredResourceUri(params),
         }, options));
     }
 
     if (name === 'evb_run_action') {
-        return createToolResult(await runAgentActionTool(params, options));
+        return createMcpToolResult(await runAgentActionTool(params, options));
     }
 
     if (name === 'evb_read_action') {
-        return createToolResult(await runAgentActionTool(params, options, {readOnlyOnly: true}));
+        return createMcpToolResult(await runAgentActionTool(params, options, {readOnlyOnly: true}));
     }
 
     if (name === 'evb_job_status') {
-        return createToolResult(getJobStatus(params));
+        return createMcpToolResult(getJobStatus(params));
     }
 
     if (name === 'evb_workspace_snapshot') {
-        return createToolResult(await options.getWorkspaceSnapshot(windowId));
+        return createMcpToolResult(await options.getWorkspaceSnapshot(windowId));
     }
 
     if (name === 'evb_viewer_open_documents') {
-        return createToolResult(createOpenDocumentsResponse(await options.getWorkspaceSnapshot(windowId)));
+        return createMcpToolResult(createOpenDocumentsResponse(await options.getWorkspaceSnapshot(windowId)));
     }
 
     if (name === 'evb_document_readiness') {
         const snapshot = await options.getWorkspaceSnapshot(windowId);
-        return createToolResult(selectDocumentsFromSnapshot(snapshot, getOptionalTabId(params)));
+        return createMcpToolResult(selectDocumentsFromSnapshot(snapshot, getOptionalTabId(params)));
     }
 
     if (name === 'evb_inspect_document_text') {
         const {tab} = await getTargetTabFromParams(params, options);
         const inspectDocumentText = getRequiredCapability(options.inspectDocumentText, 'evb_inspect_document_text');
-        return createToolResult(await inspectDocumentText({
+        return createMcpToolResult(await inspectDocumentText({
             tab,
             options: {},
         }, windowId));
@@ -667,7 +572,7 @@ async function callTool(name: string, params: unknown, options: IProcessMcpReque
     if (name === 'evb_search_document' || name === 'evb_viewer_search_open_document') {
         const {tab} = await getTargetTabFromParams(params, options);
         const searchDocument = getRequiredCapability(options.searchDocument, name);
-        return createToolResult(await searchDocument({
+        return createMcpToolResult(await searchDocument({
             tab,
             options: getDocumentSearchOptions(params, tab),
         }, windowId));
@@ -676,14 +581,14 @@ async function callTool(name: string, params: unknown, options: IProcessMcpReque
     if (name === 'evb_read_document_pages') {
         const {tab} = await getTargetTabFromParams(params, options);
         const readDocumentPages = getRequiredCapability(options.readDocumentPages, 'evb_read_document_pages');
-        return createToolResult(await readDocumentPages({
+        return createMcpToolResult(await readDocumentPages({
             tab,
             options: getDocumentPageReadOptions(params, tab),
         }, windowId));
     }
 
     if (name === 'evb_activate_tab') {
-        return createToolResult(await options.runCommand({
+        return createMcpToolResult(await options.runCommand({
             name: 'activate_tab',
             arguments: { tabId: getRequiredTabId(params) },
         }, windowId));
@@ -698,7 +603,7 @@ async function callTool(name: string, params: unknown, options: IProcessMcpReque
                 ...(tabId ? { tabId } : {}),
             },
         };
-        return createToolResult(await options.runCommand(command, windowId));
+        return createMcpToolResult(await options.runCommand(command, windowId));
     }
 
     throw new Error(`Unknown tool: ${name}`);

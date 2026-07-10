@@ -9,6 +9,7 @@ import type {
     Simplify,
 } from 'type-fest';
 import {
+    buildClientProfile,
     compareInstallersForSelect,
     detectArchitecture,
     detectPlatform,
@@ -86,6 +87,19 @@ describe('release selection', () => {
         });
         expect(parseUserAgent('Mozilla/5.0 (X11; Linux aarch64)')).toEqual({
             platform: 'linux',
+            arch: 'arm64',
+        });
+    });
+
+    it('preserves a parsed Intel Mac architecture until Client Hints provide a real override', () => {
+        const intelMacUserAgent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)';
+
+        expect(buildClientProfile(intelMacUserAgent)).toEqual({
+            platform: 'macos',
+            arch: 'x64',
+        });
+        expect(buildClientProfile(intelMacUserAgent, 'macos', 'arm64')).toEqual({
+            platform: 'macos',
             arch: 'arm64',
         });
     });

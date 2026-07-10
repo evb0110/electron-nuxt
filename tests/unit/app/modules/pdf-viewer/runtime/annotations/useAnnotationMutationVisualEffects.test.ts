@@ -1,5 +1,6 @@
 import {
     computed,
+    effectScope,
     ref,
 } from 'vue';
 import {
@@ -183,5 +184,35 @@ describe('useAnnotationMutationVisualEffects', () => {
         await runner.flushVisualEffects();
 
         expect(removeAnnotationCommentDom).toHaveBeenCalledWith(viewerContainer, comment);
+    });
+
+    it('does not consume queued effects after its scope is disposed during rendering', async () => {
+        const state = createVisualEffectsState();
+        const render = Promise.withResolvers<undefined>();
+        const renderVisiblePages = vi.fn(() => render.promise);
+        const scope = effectScope();
+        const runner = scope.run(() => useAnnotationMutationVisualEffects({
+            viewerContainer: ref({} as HTMLElement),
+            annotationCommentsCache: ref([]),
+            annotationSettings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
+            renderVisiblePages,
+            visualEffects: state,
+        }));
+        if (!runner) {
+            throw new Error('Expected annotation effect scope');
+        }
+        state.enqueue({
+            kind: 'render-page-text-markup',
+            pageNumber: 2,
+        });
+        const flush = runner.flushVisualEffects();
+        await vi.waitFor(() => expect(renderVisiblePages).toHaveBeenCalledOnce());
+
+        scope.stop();
+        render.resolve(undefined);
+        await flush;
+
+        expect(state.effects.value).toHaveLength(1);
+        expect(removeAnnotationCommentDom).not.toHaveBeenCalled();
     });
 });

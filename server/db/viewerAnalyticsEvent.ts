@@ -1,8 +1,10 @@
 import { sql } from 'drizzle-orm';
 import {
     index,
+    integer,
     jsonb,
     pgTable,
+    primaryKey,
     serial,
     text,
     timestamp,
@@ -28,6 +30,7 @@ export const viewerAnalyticsEvent = pgTable(
         deploymentHost: varchar('deployment_host', { length: 255 }),
         userAgent: text('user_agent'),
         payload: jsonb('payload').$type<JsonObject>().notNull().default(sql`'{}'::jsonb`),
+        clientOccurredAt: timestamp('client_occurred_at', { withTimezone: true }),
         occurredAt: timestamp('occurred_at', { withTimezone: true }).defaultNow().notNull(),
         createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     },
@@ -38,4 +41,41 @@ export const viewerAnalyticsEvent = pgTable(
         index('viewer_analytics_event_session_id_idx').on(table.sessionId),
         index('viewer_analytics_event_visitor_hash_idx').on(table.visitorHash),
     ],
+);
+
+export const viewerAnalyticsDedupe = pgTable(
+    'viewer_analytics_dedupe',
+    {
+        dedupeKey: varchar('dedupe_key', {length: 64}).primaryKey(),
+        expiresAt: timestamp('expires_at', {withTimezone: true}).notNull(),
+    },
+    table => [index('viewer_analytics_dedupe_expires_at_idx').on(table.expiresAt)],
+);
+
+export const viewerAnalyticsVisitorQuota = pgTable(
+    'viewer_analytics_visitor_quota',
+    {
+        visitorHash: varchar('visitor_hash', {length: 64}).notNull(),
+        bucketStart: timestamp('bucket_start', {withTimezone: true}).notNull(),
+        eventCount: integer('event_count').notNull(),
+    },
+    table => [
+        primaryKey({
+            name: 'viewer_analytics_visitor_quota_pk',
+            columns: [
+                table.visitorHash,
+                table.bucketStart,
+            ],
+        }),
+        index('viewer_analytics_visitor_quota_bucket_start_idx').on(table.bucketStart),
+    ],
+);
+
+export const viewerAnalyticsGlobalQuota = pgTable(
+    'viewer_analytics_global_quota',
+    {
+        bucketStart: timestamp('bucket_start', {withTimezone: true}).primaryKey(),
+        eventCount: integer('event_count').notNull(),
+    },
+    table => [index('viewer_analytics_global_quota_bucket_start_idx').on(table.bucketStart)],
 );

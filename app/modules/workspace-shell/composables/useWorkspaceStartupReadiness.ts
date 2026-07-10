@@ -2,6 +2,7 @@ import type { Ref } from 'vue';
 import { delay } from 'es-toolkit/promise';
 import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { tryOnScopeDispose } from '@vueuse/core';
 
 const STARTUP_OPEN_VISUAL_READY_EVENT_NAME = 'evb:startup-open-visual-ready';
 const STARTUP_OPEN_VISUAL_READY_TIMEOUT_MS = 15_000;
@@ -43,8 +44,12 @@ function createStartupTimeout(timeoutMs: number) {
 export const useWorkspaceStartupReadiness = (options: IWorkspaceStartupReadinessOptions) => {
     const { documentViewerRef } = options;
     let startupOpenVisualReadyToken = 0;
+    let disposed = false;
 
     function scheduleStartupOpenVisualReady(reason: string) {
+        if (disposed) {
+            return;
+        }
         const token = ++startupOpenVisualReadyToken;
         void (async () => {
             const startedAt = Date.now();
@@ -52,7 +57,7 @@ export const useWorkspaceStartupReadiness = (options: IWorkspaceStartupReadiness
 
             try {
                 while (Date.now() - startedAt < STARTUP_OPEN_VISUAL_READY_TIMEOUT_MS) {
-                    if (token !== startupOpenVisualReadyToken) {
+                    if (disposed || token !== startupOpenVisualReadyToken) {
                         return;
                     }
 
@@ -89,13 +94,18 @@ export const useWorkspaceStartupReadiness = (options: IWorkspaceStartupReadiness
                 BrowserLogger.diagnostic('loader', 'Startup visual readiness wait failed', error);
             }
 
-            if (token !== startupOpenVisualReadyToken) {
+            if (disposed || token !== startupOpenVisualReadyToken) {
                 return;
             }
 
             dispatchStartupOpenVisualReady(reason, timedOut);
         })();
     }
+
+    tryOnScopeDispose(() => {
+        disposed = true;
+        startupOpenVisualReadyToken += 1;
+    });
 
     return {
         scheduleStartupOpenVisualReady,

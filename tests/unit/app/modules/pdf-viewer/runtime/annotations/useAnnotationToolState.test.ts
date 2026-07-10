@@ -100,6 +100,7 @@ function mockUiManagerRef(uiManager: ReturnType<typeof createUiManager>) {
 
 function createToolStateOptions(uiManager: ReturnType<typeof createUiManager>, overrides: Record<string, unknown> = {}) {
     return {
+        pdfDocument: shallowRef({}),
         annotationUiManager: mockUiManagerRef(uiManager),
         currentPage: ref(1),
         annotationTool: computed(() => (overrides.tool as string) ?? 'none'),
@@ -202,6 +203,54 @@ describe('useAnnotationToolState', () => {
 
         expect(uiManager.updateMode).toHaveBeenCalledTimes(1);
         expect(uiManager.updateMode).toHaveBeenCalledWith(manager.getAnnotationMode('draw'));
+    });
+
+    it('patches FreeText editors after a stable tool switch completes', async () => {
+        const useAnnotationToolState = await loadUseAnnotationToolState();
+        const uiManager = createUiManager();
+        const patchResizableFreeTextEditors = vi.fn();
+        const manager = useAnnotationToolState(createToolStateOptions(uiManager, {getFreeTextResize: () => ({patchResizableFreeTextEditors})}));
+
+        manager.applyAnnotationSettings(createAnnotationSettings());
+        patchResizableFreeTextEditors.mockClear();
+        await manager.setAnnotationTool('text');
+
+        expect(patchResizableFreeTextEditors).toHaveBeenCalledOnce();
+        expect(patchResizableFreeTextEditors).toHaveBeenCalledWith(uiManager);
+    });
+
+    it('does not patch or configure a captured manager after document identity changes', async () => {
+        const useAnnotationToolState = await loadUseAnnotationToolState();
+        const modeUpdate = Promise.withResolvers<undefined>();
+        const uiManager = createUiManager({updateMode: vi.fn(() => modeUpdate.promise)});
+        const patchResizableFreeTextEditors = vi.fn();
+        const options = createToolStateOptions(uiManager, {getFreeTextResize: () => ({patchResizableFreeTextEditors})});
+        const manager = useAnnotationToolState(options);
+
+        const update = manager.setAnnotationTool('text');
+        await vi.waitFor(() => expect(uiManager.updateMode).toHaveBeenCalledOnce());
+        options.pdfDocument.value = cast<Record<string, never>>({});
+        modeUpdate.resolve(undefined);
+        await update;
+
+        expect(patchResizableFreeTextEditors).not.toHaveBeenCalled();
+    });
+
+    it('does not retry a captured manager after the current UI manager changes', async () => {
+        const useAnnotationToolState = await loadUseAnnotationToolState();
+        const initialUpdate = Promise.withResolvers<never>();
+        const uiManager = createUiManager({updateMode: vi.fn(() => initialUpdate.promise)});
+        const options = createToolStateOptions(uiManager);
+        const manager = useAnnotationToolState(options);
+
+        const update = manager.setAnnotationTool('text');
+        await vi.waitFor(() => expect(uiManager.updateMode).toHaveBeenCalledOnce());
+        options.annotationUiManager.value = cast<AnnotationEditorUIManager>(createUiManager());
+        initialUpdate.reject(new Error('old manager failed'));
+        await update;
+
+        expect(uiManager.waitForEditorsRendered).not.toHaveBeenCalled();
+        expect(uiManager.updateMode).toHaveBeenCalledOnce();
     });
 
     it('auto-resets tool when keep-active is disabled', async () => {

@@ -1,4 +1,5 @@
 import type { TDocumentRef } from '@contracts/documentRef';
+import { assertDocumentAllocationSize } from '@contracts/electronApiDocuments';
 import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
 
 const DEFAULT_DOCUMENT_READ_CHUNK_BYTES = 4 * 1024 * 1024;
@@ -60,7 +61,7 @@ export async function readDocumentBytes(
         return data;
     }
 
-    const output = new Uint8Array(size);
+    const output = new Uint8Array(assertDocumentAllocationSize(size));
     let offset = 0;
 
     while (offset < size) {

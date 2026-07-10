@@ -159,7 +159,9 @@ fn load_index(path: &PathBuf, expected_revision: &str) -> Result<SearchIndex, Bo
     let text_data_offset = usize_from_u64(read_u64_le(&data, 48)?, "text data offset")?;
     let revision_token_end = revision_token_byte_offset
         .checked_add(revision_token_byte_length)
-        .ok_or_else(|| CliError("Native search index revision token offset overflow".to_string()))?;
+        .ok_or_else(|| {
+            CliError("Native search index revision token offset overflow".to_string())
+        })?;
     if revision_token_byte_length == 0
         || revision_token_byte_offset < HEADER_SIZE
         || revision_token_end > page_table_offset
@@ -170,7 +172,9 @@ fn load_index(path: &PathBuf, expected_revision: &str) -> Result<SearchIndex, Bo
     }
     let revision_token = std::str::from_utf8(
         data.get(revision_token_byte_offset..revision_token_end)
-            .ok_or_else(|| CliError("Native search index revision token is truncated".to_string()))?,
+            .ok_or_else(|| {
+                CliError("Native search index revision token is truncated".to_string())
+            })?,
     )?;
     if revision_token != expected_revision {
         return Err(Box::new(CliError(
@@ -284,10 +288,9 @@ fn parse_search_options(
                 page_count = Some(parse_u32(args.next(), "--page-count")?);
             }
             "--document-revision" => {
-                document_revision = Some(
-                    args.next()
-                        .ok_or_else(|| CliError("Missing value for --document-revision".to_string()))?,
-                );
+                document_revision = Some(args.next().ok_or_else(|| {
+                    CliError("Missing value for --document-revision".to_string())
+                })?);
             }
             "--help" | "-h" => {
                 return Err(Box::new(CliError(usage().to_string())));
@@ -320,58 +323,12 @@ fn parse_search_options(
     })
 }
 
-fn find_case_sensitive_matches(text: &str, needle: &str) -> Vec<(usize, usize)> {
-    if needle.is_empty() {
-        return Vec::new();
-    }
-
-    let mut matches = Vec::new();
-    let mut cursor = 0usize;
-    while let Some(relative_start) = text[cursor..].find(needle) {
-        let start = cursor + relative_start;
-        let end = start + needle.len();
-        if text.is_char_boundary(start) && text.is_char_boundary(end) {
-            matches.push((start, end));
-        }
-        cursor = end;
-        if cursor >= text.len() {
-            break;
-        }
-    }
-    matches
-}
-
 fn ascii_bytes_equal_ignore_case(left: &[u8], right: &[u8]) -> bool {
     left.len() == right.len()
         && left
             .iter()
             .zip(right.iter())
             .all(|(left_byte, right_byte)| left_byte.eq_ignore_ascii_case(right_byte))
-}
-
-fn find_ascii_case_insensitive_matches(text: &str, needle: &str) -> Vec<(usize, usize)> {
-    let needle_bytes = needle.as_bytes();
-    if needle_bytes.is_empty() || !needle.is_ascii() {
-        return Vec::new();
-    }
-
-    let haystack = text.as_bytes();
-    let needle_len = needle_bytes.len();
-    let mut matches = Vec::new();
-    let mut cursor = 0usize;
-    while cursor + needle_len <= haystack.len() {
-        let end = cursor + needle_len;
-        if ascii_bytes_equal_ignore_case(&haystack[cursor..end], needle_bytes)
-            && text.is_char_boundary(cursor)
-            && text.is_char_boundary(end)
-        {
-            matches.push((cursor, end));
-            cursor = end;
-            continue;
-        }
-        cursor += 1;
-    }
-    matches
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -434,50 +391,152 @@ fn original_byte_range_for_folded_match(
     ))
 }
 
-fn find_unicode_case_insensitive_matches(text: &str, needle: &str) -> Vec<(usize, usize)> {
-    let folded_needle = simple_case_fold(needle);
-    if folded_needle.is_empty() {
-        return Vec::new();
-    }
-
-    let folded_text = fold_text_with_spans(text);
-    find_case_sensitive_matches(&folded_text.text, &folded_needle)
-        .into_iter()
-        .filter_map(|(start, end)| original_byte_range_for_folded_match(&folded_text, start, end))
-        .collect()
+enum MatchScanner<'a> {
+    CaseSensitive {
+        cursor: usize,
+        needle: &'a str,
+        text: &'a str,
+    },
+    AsciiCaseInsensitive {
+        cursor: usize,
+        needle: &'a [u8],
+        text: &'a str,
+    },
+    UnicodeCaseInsensitive {
+        cursor: usize,
+        folded_needle: String,
+        folded_text: FoldedText,
+    },
 }
 
-fn find_matches(text: &str, needle: &str, match_case: bool) -> Vec<(usize, usize)> {
-    if match_case {
-        find_case_sensitive_matches(text, needle)
-    } else if text.is_ascii() && needle.is_ascii() {
-        find_ascii_case_insensitive_matches(text, needle)
-    } else {
-        find_unicode_case_insensitive_matches(text, needle)
-    }
-}
-
-fn utf16_offset_for_byte(text: &str, byte_offset: usize) -> usize {
-    text[..byte_offset].encode_utf16().count()
-}
-
-fn utf16_len(text: &str) -> usize {
-    text.encode_utf16().count()
-}
-
-fn byte_index_for_utf16_offset(text: &str, target_offset: usize) -> usize {
-    let mut utf16_offset = 0usize;
-    for (byte_index, character) in text.char_indices() {
-        let next_offset = utf16_offset + character.len_utf16();
-        if next_offset > target_offset {
-            return byte_index;
+impl<'a> MatchScanner<'a> {
+    fn new(text: &'a str, needle: &'a str, match_case: bool) -> Self {
+        if match_case {
+            Self::CaseSensitive {
+                cursor: 0,
+                needle,
+                text,
+            }
+        } else if text.is_ascii() && needle.is_ascii() {
+            Self::AsciiCaseInsensitive {
+                cursor: 0,
+                needle: needle.as_bytes(),
+                text,
+            }
+        } else {
+            Self::UnicodeCaseInsensitive {
+                cursor: 0,
+                folded_needle: simple_case_fold(needle),
+                folded_text: fold_text_with_spans(text),
+            }
         }
-        if next_offset == target_offset {
-            return byte_index + character.len_utf8();
-        }
-        utf16_offset = next_offset;
     }
-    text.len()
+}
+
+impl Iterator for MatchScanner<'_> {
+    type Item = (usize, usize);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::CaseSensitive {
+                cursor,
+                needle,
+                text,
+            } => {
+                if needle.is_empty() || *cursor >= text.len() {
+                    return None;
+                }
+                let relative_start = text[*cursor..].find(*needle)?;
+                let start = *cursor + relative_start;
+                let end = start + needle.len();
+                *cursor = end;
+                Some((start, end))
+            }
+            Self::AsciiCaseInsensitive {
+                cursor,
+                needle,
+                text,
+            } => {
+                let haystack = text.as_bytes();
+                while !needle.is_empty() && *cursor + needle.len() <= haystack.len() {
+                    let start = *cursor;
+                    let end = start + needle.len();
+                    if ascii_bytes_equal_ignore_case(&haystack[start..end], needle)
+                        && text.is_char_boundary(start)
+                        && text.is_char_boundary(end)
+                    {
+                        *cursor = end;
+                        return Some((start, end));
+                    }
+                    *cursor += 1;
+                }
+                None
+            }
+            Self::UnicodeCaseInsensitive {
+                cursor,
+                folded_needle,
+                folded_text,
+            } => {
+                while !folded_needle.is_empty() && *cursor < folded_text.text.len() {
+                    let relative_start =
+                        folded_text.text[*cursor..].find(folded_needle.as_str())?;
+                    let start = *cursor + relative_start;
+                    let end = start + folded_needle.len();
+                    *cursor = end;
+                    if let Some(original_range) =
+                        original_byte_range_for_folded_match(folded_text, start, end)
+                    {
+                        return Some(original_range);
+                    }
+                }
+                None
+            }
+        }
+    }
+}
+
+struct PageTextMap {
+    byte_offsets: Vec<usize>,
+    utf16_offsets: Vec<usize>,
+}
+
+impl PageTextMap {
+    fn new(text: &str) -> Self {
+        let mut byte_offsets = Vec::new();
+        let mut utf16_offsets = Vec::new();
+        let mut utf16_offset = 0usize;
+        for (byte_offset, character) in text.char_indices() {
+            byte_offsets.push(byte_offset);
+            utf16_offsets.push(utf16_offset);
+            utf16_offset += character.len_utf16();
+        }
+        byte_offsets.push(text.len());
+        utf16_offsets.push(utf16_offset);
+        Self {
+            byte_offsets,
+            utf16_offsets,
+        }
+    }
+
+    fn utf16_offset_for_byte(&self, byte_offset: usize) -> usize {
+        let index = self
+            .byte_offsets
+            .binary_search(&byte_offset)
+            .expect("match offsets are character boundaries");
+        self.utf16_offsets[index]
+    }
+
+    fn byte_index_for_utf16_offset(&self, target_offset: usize) -> usize {
+        match self.utf16_offsets.binary_search(&target_offset) {
+            Ok(index) => self.byte_offsets[index],
+            Err(0) => 0,
+            Err(index) => self.byte_offsets[index - 1],
+        }
+    }
+
+    fn utf16_len(&self) -> usize {
+        self.utf16_offsets.last().copied().unwrap_or(0)
+    }
 }
 
 fn collapse_whitespace(value: &str) -> String {
@@ -524,17 +583,18 @@ fn trim_js_whitespace_end(value: &str) -> &str {
 
 fn build_excerpt(
     text: &str,
+    text_map: &PageTextMap,
     start_byte_offset: usize,
     end_byte_offset: usize,
     start_utf16_offset: usize,
     end_utf16_offset: usize,
     context_chars: usize,
 ) -> SearchExcerpt {
-    let text_utf16_len = utf16_len(text);
+    let text_utf16_len = text_map.utf16_len();
     let excerpt_start_utf16 = start_utf16_offset.saturating_sub(context_chars);
     let excerpt_end_utf16 = text_utf16_len.min(end_utf16_offset.saturating_add(context_chars));
-    let excerpt_start_byte = byte_index_for_utf16_offset(text, excerpt_start_utf16);
-    let excerpt_end_byte = byte_index_for_utf16_offset(text, excerpt_end_utf16);
+    let excerpt_start_byte = text_map.byte_index_for_utf16_offset(excerpt_start_utf16);
+    let excerpt_end_byte = text_map.byte_index_for_utf16_offset(excerpt_end_utf16);
 
     let before_collapsed = collapse_whitespace(&text[excerpt_start_byte..start_byte_offset]);
     let before = trim_js_whitespace_start(&before_collapsed).to_string();
@@ -554,9 +614,17 @@ fn search_index(
     index: &SearchIndex,
     options: &SearchOptions,
 ) -> Result<SearchResponse, Box<dyn Error>> {
+    search_index_with_work_count(index, options).map(|(response, _)| response)
+}
+
+fn search_index_with_work_count(
+    index: &SearchIndex,
+    options: &SearchOptions,
+) -> Result<(SearchResponse, usize), Box<dyn Error>> {
     let total_pages = options.page_count.unwrap_or(index.page_count);
     let mut results = Vec::new();
     let mut truncated = false;
+    let mut matches_examined = 0usize;
 
     'pages: for record in &index.records {
         if record.page_number == 0 || record.page_number > total_pages {
@@ -564,15 +632,18 @@ fn search_index(
         }
 
         let text = index.page_text(record)?;
+        let mut text_map: Option<PageTextMap> = None;
         let mut page_match_index = 0usize;
-        for (start_byte, end_byte) in find_matches(text, &options.query, options.match_case) {
+        for (start_byte, end_byte) in MatchScanner::new(text, &options.query, options.match_case) {
+            matches_examined += 1;
             if results.len() >= options.limit {
                 truncated = true;
                 break 'pages;
             }
 
-            let start_offset = utf16_offset_for_byte(text, start_byte);
-            let end_offset = utf16_offset_for_byte(text, end_byte);
+            let text_map = text_map.get_or_insert_with(|| PageTextMap::new(text));
+            let start_offset = text_map.utf16_offset_for_byte(start_byte);
+            let end_offset = text_map.utf16_offset_for_byte(end_byte);
             results.push(SearchMatch {
                 page_number: record.page_number,
                 page_match_index,
@@ -581,6 +652,7 @@ fn search_index(
                 end_offset,
                 excerpt: build_excerpt(
                     text,
+                    &text_map,
                     start_byte,
                     end_byte,
                     start_offset,
@@ -592,11 +664,14 @@ fn search_index(
         }
     }
 
-    Ok(SearchResponse {
-        results,
-        truncated,
-        page_count: total_pages,
-    })
+    Ok((
+        SearchResponse {
+            results,
+            truncated,
+            page_count: total_pages,
+        },
+        matches_examined,
+    ))
 }
 
 fn run_cli(mut args: impl Iterator<Item = String>) -> Result<(), Box<dyn Error>> {
@@ -888,6 +963,24 @@ mod tests {
     }
 
     #[test]
+    fn limit_one_bounds_dense_page_match_work() {
+        let dense_text = "a ".repeat(100_000);
+        let index = test_index(&[(1, &dense_text)]);
+        let mut search_options = options("a");
+        search_options.limit = 1;
+
+        let (response, matches_examined) =
+            search_index_with_work_count(&index, &search_options).expect("search should succeed");
+
+        assert_eq!(response.results.len(), 1);
+        assert!(response.truncated);
+        assert_eq!(
+            matches_examined, 2,
+            "only the result and truncation probe run"
+        );
+    }
+
+    #[test]
     fn zero_limit_returns_no_matches_and_tracks_truncation() {
         let index = test_index(&[(1, "alpha"), (2, "beta")]);
         let mut search_options = options("alpha");
@@ -922,13 +1015,15 @@ mod tests {
         let text = "\u{feff}\u{85}Needle\u{85}\u{feff}";
         let start_byte = text.find("Needle").unwrap();
         let end_byte = start_byte + "Needle".len();
+        let text_map = PageTextMap::new(text);
 
         let excerpt = build_excerpt(
             text,
+            &text_map,
             start_byte,
             end_byte,
-            utf16_offset_for_byte(text, start_byte),
-            utf16_offset_for_byte(text, end_byte),
+            text_map.utf16_offset_for_byte(start_byte),
+            text_map.utf16_offset_for_byte(end_byte),
             10,
         );
 
@@ -946,12 +1041,16 @@ mod tests {
         for case in corpus.cases.iter().filter(|case| case.native_supported) {
             let options_ref = case.options.as_ref();
             assert!(
-                !options_ref.and_then(|value| value.whole_word).unwrap_or(false),
+                !options_ref
+                    .and_then(|value| value.whole_word)
+                    .unwrap_or(false),
                 "native corpus case {} must not require whole-word matching",
                 case.id,
             );
             assert!(
-                !options_ref.and_then(|value| value.use_regex).unwrap_or(false),
+                !options_ref
+                    .and_then(|value| value.use_regex)
+                    .unwrap_or(false),
                 "native corpus case {} must not require regex matching",
                 case.id,
             );

@@ -30,10 +30,7 @@ import { runGuardedTask } from '@app/utils/asyncGuard';
 import { getEditorsOnPage } from '@app/services/pdfjs/annotationEditorAdapter';
 import { collectPagePdfSnapshotEntries } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/collectPagePdfSnapshotEntries';
 import { loadPdfPageAnnotations } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/loadPdfPageAnnotations';
-import {
-    leasePdfDocumentPage,
-    releasePdfDocumentPage,
-} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument';
+import { leasePdfDocumentPage } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument';
 import { resolveEditorMarkerRect } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/resolveEditorMarkerRect';
 import { resolveMarkupSubtypeOverrideRegistration } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/resolveMarkupSubtypeOverrideRegistration';
 import { safeReadEditorData } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/safeReadEditorData';
@@ -439,10 +436,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
                 doc,
                 pageNumber,
                 annotationNamesByPage?.get(pageNumber - 1),
-                {
-                    leasePage: leasePdfDocumentPage,
-                    releasePage: releasePdfDocumentPage,
-                },
+                {leasePage: leasePdfDocumentPage},
             );
             if (!pageBundle) {
                 continue;

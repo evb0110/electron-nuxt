@@ -1,6 +1,6 @@
 import { DOCUMENT_CHUNKS_STORE } from '@app/platform/browser/browserDocumentConstants';
 import { normalizePersistedBytes } from '@app/platform/browser/browserDocumentBytes';
-import { isRecord } from '@app/platform/browser/browserDocumentRecords';
+import { isRecord } from '@contracts/runtimeGuards';
 import type {
     IBrowserDocumentChunkRecord,
     IChunkKeyRecord,

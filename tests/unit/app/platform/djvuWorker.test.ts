@@ -6,6 +6,7 @@ import {
     vi,
 } from 'vitest';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import { MAX_DOCUMENT_ALLOCATION_BYTES } from '@contracts/electronApiDocuments';
 
 const mocks = vi.hoisted(() => ({
     stat: vi.fn(),
@@ -229,6 +230,21 @@ describe('createDjvuWorkerFromPath', () => {
         expect(mocks.readRange).toHaveBeenCalledTimes(1);
         expect(mocks.createDocument).not.toHaveBeenCalled();
         expect(mocks.terminate).toHaveBeenCalled();
+        expect(mocks.unload).toHaveBeenCalledWith(ref);
+    });
+
+    it('rejects oversized DjVu allocations before requesting ranges', async () => {
+        const { createDjvuWorkerFromPath } =
+            await import('@app/platform/browser-api/createDjvuWorkerFromPath');
+        const ref = 'browser://documents/source/oversized.djvu';
+        mocks.stat.mockResolvedValue({size: MAX_DOCUMENT_ALLOCATION_BYTES + 1});
+
+        await expect(createDjvuWorkerFromPath(ref))
+            .rejects
+            .toThrow(`no greater than ${MAX_DOCUMENT_ALLOCATION_BYTES} bytes`);
+        expect(mocks.readRange).not.toHaveBeenCalled();
+        expect(mocks.createDocument).not.toHaveBeenCalled();
+        expect(mocks.terminate).toHaveBeenCalledOnce();
         expect(mocks.unload).toHaveBeenCalledWith(ref);
     });
 

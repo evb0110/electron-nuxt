@@ -3,6 +3,7 @@ import {
     mkdir,
     mkdtemp,
     rm,
+    writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path, { resolve } from 'node:path';
@@ -14,6 +15,8 @@ import {
 } from 'vitest';
 
 interface IWebDeployAssetsModule {
+    REQUIRED_WEB_DEPLOY_ASSETS: Array<{ relativePath: string }>;
+    REQUIRED_WEB_OUTPUT_CONTRACTS: string[];
     REQUIRED_WEB_WASM_ASSETS: Array<{ relativePath: string }>;
     getExpectedWebDeployOutputRoots: (env?: NodeJS.ProcessEnv) => string[];
     validateWebDeployAssets: (options?: {
@@ -25,6 +28,8 @@ interface IWebDeployAssetsModule {
 }
 
 const {
+    REQUIRED_WEB_DEPLOY_ASSETS,
+    REQUIRED_WEB_OUTPUT_CONTRACTS,
     REQUIRED_WEB_WASM_ASSETS,
     getExpectedWebDeployOutputRoots,
     validateWebDeployAssets,
@@ -48,6 +53,23 @@ async function createTempProject() {
         const sourcePath = path.join(process.cwd(), 'public', asset.relativePath);
         for (const root of roots) {
             await copyFile(sourcePath, path.join(tempRoot, root, asset.relativePath));
+        }
+    }
+
+    const wasmPaths = new Set(REQUIRED_WEB_WASM_ASSETS.map(asset => asset.relativePath));
+    for (const asset of REQUIRED_WEB_DEPLOY_ASSETS) {
+        if (wasmPaths.has(asset.relativePath)) {
+            continue;
+        }
+        for (const root of roots) {
+            const assetPath = path.join(tempRoot, root, asset.relativePath);
+            await mkdir(path.dirname(assetPath), {recursive: true});
+            await writeFile(assetPath, 'required web asset', 'utf8');
+        }
+    }
+    for (const root of roots.slice(1)) {
+        for (const relativePath of REQUIRED_WEB_OUTPUT_CONTRACTS) {
+            await writeFile(path.join(tempRoot, root, relativePath), '<!doctype html>', 'utf8');
         }
     }
 
@@ -109,4 +131,42 @@ describe('web deploy assets check', () => {
             });
         }
     });
+
+    it.each(REQUIRED_WEB_DEPLOY_ASSETS)(
+        'fails when required output asset $relativePath is absent',
+        async (asset) => {
+            const tempRoot = await createTempProject();
+            try {
+                await rm(path.join(tempRoot, 'nuxt-output/public', asset.relativePath));
+                await expect(validateWebDeployAssets({
+                    env: {},
+                    projectRoot: tempRoot,
+                })).rejects.toThrow(`Missing web build output nuxt-output/public asset: ${asset.relativePath}`);
+            } finally {
+                await rm(tempRoot, {
+                    force: true,
+                    recursive: true,
+                });
+            }
+        },
+    );
+
+    it.each(REQUIRED_WEB_OUTPUT_CONTRACTS)(
+        'fails when required output contract %s is absent',
+        async (relativePath) => {
+            const tempRoot = await createTempProject();
+            try {
+                await rm(path.join(tempRoot, 'nuxt-output/public', relativePath));
+                await expect(validateWebDeployAssets({
+                    env: {},
+                    projectRoot: tempRoot,
+                })).rejects.toThrow(`Missing web build output nuxt-output/public asset: ${relativePath}`);
+            } finally {
+                await rm(tempRoot, {
+                    force: true,
+                    recursive: true,
+                });
+            }
+        },
+    );
 });

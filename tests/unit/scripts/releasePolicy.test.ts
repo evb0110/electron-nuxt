@@ -47,10 +47,10 @@ interface IReleaseCommand {
 }
 
 interface IReleaseGatePolicyManifest {
-    ci: {changedAreas: {nativeOrBuild: {
-        owner: string;
-        paths: string[];
-    };};};
+    ci: {changedAreas: {
+        landing: IChangedAreaPolicy;
+        nativeOrBuild: IChangedAreaPolicy;
+    };};
     release: {
         localChecks: {
             gateGroups: Array<{
@@ -69,6 +69,12 @@ interface IReleaseGatePolicyManifest {
         };
     };
     schemaVersion: number;
+}
+
+interface IChangedAreaPolicy {
+    output: string;
+    owner: string;
+    paths: string[];
 }
 
 interface IRunCommandOptions {
@@ -814,6 +820,7 @@ describe('release policy', () => {
             'lint',
             'check:static:reports',
             'check:static:assets',
+            'check:architecture:source-size',
             'typecheck',
             'typecheck:coverage',
             'check:drizzle-schema',
@@ -848,6 +855,41 @@ describe('release policy', () => {
         expect(scriptNames).not.toContain('db:migrate');
         expect(scriptNames).not.toContain('db:check');
         expect(commandArgs.flat()).not.toContain('landing');
+    });
+
+    it('keeps native/build and landing changed-area policy in one release manifest', () => {
+        const changedAreas = getGatePolicyManifest().ci.changedAreas;
+
+        expect(changedAreas.nativeOrBuild).toMatchObject({
+            output: 'native_or_build',
+            owner: 'pr_native_build_safety',
+        });
+        expect(changedAreas.nativeOrBuild.paths).toEqual(expect.arrayContaining([
+            '.github/workflows/**',
+            'native/**',
+            'resources/**',
+            'scripts/afterPack.cjs',
+            'scripts/afterSign.cjs',
+            'scripts/ci/classify-changed-areas.mjs',
+            'scripts/nativeResourceManifest.ts',
+            'scripts/nativeResourceManifestCli.ts',
+            'scripts/release/**',
+            'scripts/verify-packaged-native-tools.sh',
+            'scripts/verify-packaged-startup.sh',
+            'electron-builder.yml',
+            'rust-toolchain.toml',
+        ]));
+        expect(changedAreas.landing).toMatchObject({
+            output: 'landing',
+            owner: 'pr_landing_quality',
+        });
+        expect(changedAreas.landing.paths).toEqual(expect.arrayContaining([
+            '.github/workflows/**',
+            'landing/**',
+            'packages/release-selection/**',
+            'scripts/ci/classify-changed-areas.mjs',
+            'scripts/release/policy.mjs',
+        ]));
     });
 
     it('supports release resume without requiring a new version bump level', () => {

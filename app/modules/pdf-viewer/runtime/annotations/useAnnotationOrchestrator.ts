@@ -143,6 +143,7 @@ export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOpt
     });
 
     const toolState = useAnnotationToolState({
+        pdfDocument,
         annotationUiManager,
         currentPage,
         annotationTool,

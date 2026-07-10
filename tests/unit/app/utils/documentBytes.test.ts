@@ -9,6 +9,7 @@ import {
     readDocumentBytes,
     readDocumentBytesIfBelowLimit,
 } from '@app/utils/documentBytes';
+import { MAX_DOCUMENT_ALLOCATION_BYTES } from '@contracts/electronApiDocuments';
 
 const mockDocuments = {
     statFile: vi.fn(),
@@ -105,5 +106,15 @@ describe('documentBytes', () => {
         await expect(readDocumentBytes('/tmp/doc.pdf', { chunkSize: 64 * 1024 }))
             .rejects
             .toThrow('expected 65536 bytes, read 1 bytes');
+    });
+
+    it('rejects oversized allocation sizes before reading or allocating', async () => {
+        mockDocuments.statFile.mockResolvedValue({ size: MAX_DOCUMENT_ALLOCATION_BYTES + 1 });
+
+        await expect(readDocumentBytes('/tmp/oversized.pdf'))
+            .rejects
+            .toThrow(`no greater than ${MAX_DOCUMENT_ALLOCATION_BYTES} bytes`);
+        expect(mockDocuments.readFile).not.toHaveBeenCalled();
+        expect(mockDocuments.readFileRange).not.toHaveBeenCalled();
     });
 });

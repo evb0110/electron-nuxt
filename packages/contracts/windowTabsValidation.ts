@@ -7,6 +7,7 @@ import type {
     IWindowTabTransferRequest,
     TSplitPayload,
     TWindowTabTransferTarget,
+    TWindowTabsAction,
 } from '@contracts/windowTabs';
 
 function normalizeNonEmptyString(value: unknown) {
@@ -45,6 +46,8 @@ function decodeOptionalDocumentBackend(value: unknown): TDocumentBackend | null 
 function isNonNegativeInteger(value: unknown): value is number {
     return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
+
+const WINDOW_TAB_ACTION_ID_MAX_LENGTH = 512;
 
 function decodeTransferredTabState(value: unknown): ITransferredTabState | null {
     if (!isRecord(value)) {
@@ -239,4 +242,41 @@ export function decodeWindowTabIncomingTransfer(value: unknown): IWindowTabIncom
         payload,
         ...(session === undefined ? {} : {session}),
     };
+}
+
+export function decodeWindowTabsAction(value: unknown): TWindowTabsAction | null {
+    if (!isRecord(value)) {
+        return null;
+    }
+    const tabId = value.tabId === undefined
+        ? undefined
+        : normalizeNonEmptyString(value.tabId);
+    if (tabId === null) {
+        return null;
+    }
+    if (tabId !== undefined && tabId.length > WINDOW_TAB_ACTION_ID_MAX_LENGTH) {
+        return null;
+    }
+    if (value.kind === 'close-tab' || value.kind === 'move-tab-to-new-window') {
+        return {
+            kind: value.kind,
+            ...(tabId === undefined ? {} : {tabId}),
+        };
+    }
+    if (
+        (value.kind === 'move-tab-to-window' || value.kind === 'merge-window-into')
+        && isPositiveWindowId(value.targetWindowId)
+    ) {
+        return value.kind === 'move-tab-to-window'
+            ? {
+                kind: value.kind,
+                targetWindowId: value.targetWindowId,
+                ...(tabId === undefined ? {} : {tabId}),
+            }
+            : {
+                kind: value.kind,
+                targetWindowId: value.targetWindowId,
+            };
+    }
+    return null;
 }

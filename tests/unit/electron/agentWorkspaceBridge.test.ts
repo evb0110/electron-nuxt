@@ -257,6 +257,36 @@ describe('agent workspace bridge', () => {
         expect(window.webContents.send.mock.calls[1]?.[0]).toBe(AGENT_EVENT_CHANNELS.commandCancelRequest);
     });
 
+    it('rejects pre-aborted command requests without sending them to the renderer', async () => {
+        const window = createFakeWindow();
+        const abortController = new AbortController();
+        abortController.abort();
+
+        const pending = requestAgentCommand(toBrowserWindow(window), {
+            name: 'activate_tab',
+            arguments: {tabId: 'tab-1'},
+        }, DEFAULT_AGENT_REQUEST_TIMEOUT_MS, undefined, abortController.signal);
+
+        await expect(pending).rejects.toThrow('aborted by the caller');
+        expect(window.webContents.send).not.toHaveBeenCalled();
+    });
+
+    it('rejects pre-aborted snapshot requests without sending them to the renderer', async () => {
+        const window = createFakeWindow();
+        const abortController = new AbortController();
+        abortController.abort();
+
+        const pending = requestAgentWorkspaceSnapshot(
+            toBrowserWindow(window),
+            DEFAULT_AGENT_REQUEST_TIMEOUT_MS,
+            undefined,
+            abortController.signal,
+        );
+
+        await expect(pending).rejects.toThrow('aborted by the caller');
+        expect(window.webContents.send).not.toHaveBeenCalled();
+    });
+
     it('rejects pending snapshot requests on main-frame navigation only', async () => {
         const window = createFakeWindow();
 

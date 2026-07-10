@@ -5,11 +5,10 @@ Applies a rotation correction given an angle. (Detection happens elsewhere.)
 """
 
 import numpy as np
-
 from stages.geometry import deskew_interpolation_flag, rotate_angle
 
 
-def deskew_page(image: np.ndarray, angle: float = None) -> np.ndarray:
+def deskew_page(image: np.ndarray, angle: float | None = None) -> np.ndarray:
     """
     Correct page rotation (skew).
 

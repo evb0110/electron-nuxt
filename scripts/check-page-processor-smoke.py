@@ -3,29 +3,30 @@
 import json
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
+import zlib
 from contextlib import redirect_stdout
 from importlib.util import find_spec, module_from_spec, spec_from_file_location
 from io import StringIO
 from pathlib import Path
 
+sys.dont_write_bytecode = True
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PAGE_PROCESSOR_ROOT = PROJECT_ROOT / "python" / "page-processor"
-SMOKE_DEPENDENCIES = (
-    "numpy>=2.0.0",
-    "opencv-python-headless>=4.10.0",
-    "img2pdf>=0.6.3",
-    "Pillow>=10.0.0",
-)
+LOCK_PATH = PAGE_PROCESSOR_ROOT / "requirements-lock.txt"
 SMOKE_BOOTSTRAP_ENV_VAR = "EVB_PAGE_PROCESSOR_SMOKE_BOOTSTRAPPED"
 SMOKE_VENV_ROOT = PROJECT_ROOT / ".devkit" / "python-page-processor-smoke"
 
 
 def has_smoke_dependencies() -> bool:
-    return all(find_spec(module_name) is not None for module_name in ("cv2", "numpy", "img2pdf", "PIL"))
+    return all(
+        find_spec(module_name) is not None
+        for module_name in ("cv2", "numpy", "img2pdf", "PIL", "page_dewarp")
+    )
 
 
 def venv_python_path(venv_dir: Path) -> Path:
@@ -93,7 +94,10 @@ def create_smoke_venv_python() -> Path:
                     "pip",
                     "install",
                     "--disable-pip-version-check",
-                    *SMOKE_DEPENDENCIES,
+                    "--require-hashes",
+                    "--only-binary=:all:",
+                    "-r",
+                    str(LOCK_PATH),
                 ],
                 check=True,
             )
@@ -101,10 +105,11 @@ def create_smoke_venv_python() -> Path:
                 [
                     str(python_path),
                     "-c",
-                    "import cv2; import numpy",
+                    "import cv2; import img2pdf; import numpy; import page_dewarp; from PIL import Image",
                 ],
                 check=True,
             )
+            subprocess.run([str(python_path), "-m", "pip", "check"], check=True)
             return python_path
         except subprocess.CalledProcessError as error:
             failures.append(f"{python_command}: exited with {error.returncode}")
@@ -122,7 +127,7 @@ def ensure_smoke_dependencies() -> None:
     if os.environ.get(SMOKE_BOOTSTRAP_ENV_VAR) == "1":
         raise RuntimeError(
             "Page processor smoke dependencies are unavailable after bootstrap. "
-            f"Expected {', '.join(SMOKE_DEPENDENCIES)}."
+            f"Expected the complete hashed lock at {LOCK_PATH}."
         )
 
     python_path = create_smoke_venv_python()
@@ -140,6 +145,14 @@ def compile_sources() -> None:
         compile(source, str(source_path.relative_to(PROJECT_ROOT)), "exec")
 
 
+def run_python_quality_gates() -> None:
+    subprocess.run(
+        [sys.executable, str(PROJECT_ROOT / "scripts" / "check-page-processor-quality.py")],
+        cwd=PROJECT_ROOT,
+        check=True,
+    )
+
+
 def load_page_processor_main():
     spec = spec_from_file_location("page_processor_main_smoke", PAGE_PROCESSOR_ROOT / "main.py")
     if spec is None or spec.loader is None:
@@ -147,6 +160,24 @@ def load_page_processor_main():
 
     module = module_from_spec(spec)
     spec.loader.exec_module(module)
+    return module
+
+
+def load_ocr_benchmark():
+    module_name = "ocr_profile_benchmark_smoke"
+    spec = spec_from_file_location(
+        module_name,
+        PROJECT_ROOT / "scripts" / "devkit" / "ocr-profile-benchmark.py",
+    )
+    if spec is None or spec.loader is None:
+        raise AssertionError("Failed to load OCR benchmark module spec")
+
+    module = module_from_spec(spec)
+    sys.modules[module_name] = module
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.modules.pop(module_name, None)
     return module
 
 
@@ -264,6 +295,44 @@ def run_main_helper_regressions() -> None:
             raise AssertionError("Same-stem reencode temp paths should not collide")
         if first.name != "000000-page.jpg" or second.name != "000001-page.jpg":
             raise AssertionError(f"Unexpected reencode temp path names: {first.name}, {second.name}")
+
+
+def run_ocr_benchmark_regressions() -> None:
+    module = load_ocr_benchmark()
+    with tempfile.TemporaryDirectory(prefix="evb-ocr-benchmark-regressions-") as temp_dir:
+        temp_root = Path(temp_dir)
+        first = temp_root / "a" / "scan.pdf"
+        second = temp_root / "b" / "scan.pdf"
+        first.parent.mkdir()
+        second.parent.mkdir()
+        if module.stable_source_key(first) == module.stable_source_key(second):
+            raise AssertionError("Same-stem OCR benchmark sources must have distinct artifact keys")
+        if module.stable_source_key(first) != module.stable_source_key(first):
+            raise AssertionError("OCR benchmark source artifact keys must be deterministic")
+
+        captured: dict[str, object] = {}
+        original_run_command = module.run_command
+
+        def fake_run_command(command, *, env=None, timeout=None):
+            captured["command"] = command
+            captured["timeout"] = timeout
+            Path(command[-1]).with_suffix(".png").write_bytes(b"rendered")
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        module.run_command = fake_run_command
+        try:
+            rendered = module.render_pdf_page(
+                Path("/fake/pdftoppm"),
+                first,
+                7,
+                300,
+                temp_root / "rendered",
+                23,
+            )
+        finally:
+            module.run_command = original_run_command
+        if captured.get("timeout") != 23 or not rendered.exists():
+            raise AssertionError(f"PDF benchmark rendering did not propagate its timeout: {captured}")
 
 
 def assert_invalid_params(result: subprocess.CompletedProcess[str], field: str) -> None:
@@ -823,6 +892,142 @@ def run_fake_dewarp_cli() -> None:
             raise AssertionError(f"Broken page-dewarp runtime reported wrong debug payload: {broken_detect_payload}")
 
 
+def run_real_locked_dewarp_cli() -> None:
+    """Exercise the installed locked page-dewarp API through the real CLI path."""
+    import cv2  # type: ignore
+    import numpy as np  # type: ignore
+
+    with tempfile.TemporaryDirectory(prefix="evb-page-processor-real-dewarp-") as temp_dir:
+        temp_root = Path(temp_dir)
+        input_path = temp_root / "curved-text.png"
+        output_path = temp_root / "dewarped.png"
+        image = np.full((900, 700, 3), 255, dtype=np.uint8)
+        for row, y in enumerate(range(100, 800, 42)):
+            curve = 12 * np.sin(np.linspace(0, np.pi, 520) + row * 0.04)
+            points = np.column_stack((np.arange(90, 610), (y + curve).astype(np.int32))).astype(np.int32)
+            cv2.polylines(image, [points], False, (0, 0, 0), 2, cv2.LINE_AA)
+        if not cv2.imwrite(str(input_path), image, [cv2.IMWRITE_PNG_COMPRESSION, 0]):
+            raise AssertionError("Failed to write real dewarp fixture")
+
+        payload = result_payload(run_page_processor([
+            "apply",
+            "dewarp",
+            str(input_path),
+            str(output_path),
+            "--params",
+            "{}",
+        ], env={"PAGE_PROCESSOR_PNG_COMPRESSION": "0"}).stdout)
+        debug = payload.get("debug", {})
+        if debug.get("page_dewarp_version") != "0.3.4":
+            raise AssertionError(f"Real dewarp did not use the locked page-dewarp version: {payload}")
+        if not payload.get("tool_available") or not payload.get("attempted"):
+            raise AssertionError(f"Real page-dewarp operation was not attempted: {payload}")
+        if debug.get("execution_model") != "one-command-per-process-with-serialized-global-state":
+            raise AssertionError(f"Dewarp execution isolation is not explicit: {payload}")
+        if not output_path.exists() or cv2.imread(str(output_path)) is None:
+            raise AssertionError(f"Real page-dewarp operation did not publish a readable output: {payload}")
+
+
+def run_resource_and_transaction_regressions() -> None:
+    import cv2  # type: ignore
+    import numpy as np  # type: ignore
+
+    with tempfile.TemporaryDirectory(prefix="evb-page-processor-policy-") as temp_dir:
+        temp_root = Path(temp_dir)
+        one_pixel = temp_root / "one-pixel.png"
+        if not cv2.imwrite(str(one_pixel), np.full((8, 1, 3), 255, dtype=np.uint8)):
+            raise AssertionError("Failed to write one-pixel fixture")
+        forced = run_page_processor([
+            "process", str(one_pixel), str(temp_root / "forced"),
+            "--operations", "split", "--force-split", "--no-auto-detect",
+        ], check=False)
+        if forced.returncode == 0 or "at least 2 pixels wide" not in forced.stderr:
+            raise AssertionError(f"One-pixel forced split was not rejected safely: {forced}")
+
+        invalid_output_dir = temp_root / "invalid"
+        invalid_process = run_page_processor([
+            "process", str(one_pixel), str(invalid_output_dir),
+            "--operations", "crop", "--min-curvature", "nan",
+        ], check=False)
+        assert_invalid_params(invalid_process, "min_curvature")
+        if invalid_output_dir.exists():
+            raise AssertionError("Invalid process options should not create an output directory")
+        invalid_padding = run_page_processor([
+            "process", str(one_pixel), str(temp_root / "invalid-padding"),
+            "--operations", "crop", "--crop-padding", "-1",
+        ], check=False)
+        assert_invalid_params(invalid_padding, "crop_padding")
+
+        oversized = temp_root / "oversized.bin"
+        with oversized.open("wb") as file:
+            file.truncate(256 * 1024 * 1024 + 1)
+        rejected = run_page_processor(["detect", str(oversized)], check=False)
+        if rejected.returncode == 0 or "Compressed image" not in rejected.stderr:
+            raise AssertionError(f"Oversized compressed input was not rejected before decode: {rejected}")
+
+        def png_chunk(chunk_type: bytes, payload: bytes) -> bytes:
+            checksum = zlib.crc32(chunk_type)
+            checksum = zlib.crc32(payload, checksum)
+            return struct.pack(">I", len(payload)) + chunk_type + payload + struct.pack(">I", checksum)
+
+        oversized_dimensions = temp_root / "oversized-dimensions.png"
+        oversized_dimensions.write_bytes(
+            b"\x89PNG\r\n\x1a\n"
+            + png_chunk(b"IHDR", struct.pack(">IIBBBBB", 16_385, 1, 8, 2, 0, 0, 0))
+            + png_chunk(b"IEND", b"")
+        )
+        rejected_dimensions = run_page_processor(["detect", str(oversized_dimensions)], check=False)
+        if rejected_dimensions.returncode == 0 or "image width" not in rejected_dimensions.stderr:
+            raise AssertionError(
+                f"Oversized header dimensions were not rejected before decode: {rejected_dimensions}"
+            )
+
+        rejected_pad = run_page_processor([
+            "pad", str(one_pixel), str(temp_root / "oversized-pad.png"),
+            "--width", "100", "--height", "100",
+        ], check=False)
+        if rejected_pad.returncode == 0 or "Pad expansion ratio" not in rejected_pad.stderr:
+            raise AssertionError(f"Excessive pad expansion was not rejected before allocation: {rejected_pad}")
+
+        sys.path.insert(0, str(PAGE_PROCESSOR_ROOT))
+        try:
+            from stages import io as image_io  # type: ignore
+
+            first = temp_root / "set-1.png"
+            second = temp_root / "set-2.png"
+            first.write_bytes(b"old-first")
+            second.write_bytes(b"old-second")
+            original_replace = image_io.os.replace
+
+            def fail_second_publish(source, target):
+                source_path = Path(source)
+                target_path = Path(target)
+                if source_path.suffix == ".stage" and target_path == second:
+                    raise OSError("injected second-page publication failure")
+                return original_replace(source, target)
+
+            image_io.os.replace = fail_second_publish  # type: ignore[assignment]
+            try:
+                try:
+                    image_io.publish_image_set_atomically([
+                        (first, np.zeros((4, 4, 3), dtype=np.uint8), [cv2.IMWRITE_PNG_COMPRESSION, 0]),
+                        (second, np.zeros((4, 4, 3), dtype=np.uint8), [cv2.IMWRITE_PNG_COMPRESSION, 0]),
+                    ])
+                except OSError as error:
+                    if "injected" not in str(error):
+                        raise
+                else:
+                    raise AssertionError("Injected multi-page publication failure unexpectedly succeeded")
+            finally:
+                image_io.os.replace = original_replace  # type: ignore[assignment]
+            if first.read_bytes() != b"old-first" or second.read_bytes() != b"old-second":
+                raise AssertionError("Multi-page publication failure did not restore the previous complete set")
+            if list(temp_root.glob("*.stage")) or list(temp_root.glob("*.backup")):
+                raise AssertionError("Transactional publication left staging artifacts behind")
+        finally:
+            sys.path.remove(str(PAGE_PROCESSOR_ROOT))
+
+
 def run_legacy_deskew_sign_cli() -> None:
     try:
         import cv2  # type: ignore
@@ -887,12 +1092,16 @@ def run_legacy_deskew_sign_cli() -> None:
 def main() -> None:
     ensure_smoke_dependencies()
     compile_sources()
+    run_python_quality_gates()
     run_lightweight_cli()
     run_main_helper_regressions()
+    run_ocr_benchmark_regressions()
     run_generated_scan_pipeline()
     run_stage_and_padding_cli()
     run_pdf_cli()
+    run_real_locked_dewarp_cli()
     run_fake_dewarp_cli()
+    run_resource_and_transaction_regressions()
     run_legacy_deskew_sign_cli()
     print("Page processor smoke check passed.")
 

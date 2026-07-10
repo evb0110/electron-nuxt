@@ -60,7 +60,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
     const isTruncated = ref(false);
     const wasSearchCanceled = ref(false);
     let searchRunId = 0;
-    let scheduledResolve: ((applied: boolean) => void) | null = null;
+    const scheduledResolvers = new Map<number, (applied: boolean) => void>();
     let progressCleanup: (() => void) | null = null;
     let activeRequestId: string | null = null;
 
@@ -329,8 +329,11 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         options: IResolvedSearchMatchOptions;
         requestedAt: number;
     }) => {
-        const resolver = scheduledResolve;
-        scheduledResolve = null;
+        const resolver = scheduledResolvers.get(payload.runId);
+        scheduledResolvers.delete(payload.runId);
+        if (!resolver) {
+            return;
+        }
 
         try {
             await performSearch(
@@ -360,10 +363,10 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
     }, SEARCH_DEBOUNCE_MS);
 
     function cancelScheduledSearch() {
-        if (scheduledResolve) {
-            scheduledResolve(false);
-            scheduledResolve = null;
+        for (const resolver of scheduledResolvers.values()) {
+            resolver(false);
         }
+        scheduledResolvers.clear();
     }
 
     async function cancelActiveSearch() {
@@ -523,12 +526,15 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         }
 
         const runId = ++searchRunId;
-        cancelScheduledSearch();
-        await cancelActiveSearch();
-        cleanupProgressListener();
         const normalizedDocumentRevisionToken = documentRevisionToken === undefined
             ? getCurrentDocumentRevisionToken()
             : normalizeDocumentRevisionToken(documentRevisionToken);
+        cancelScheduledSearch();
+        await cancelActiveSearch();
+        if (!isCurrentSearchRun(runId, normalizedDocumentRevisionToken)) {
+            return false;
+        }
+        cleanupProgressListener();
 
         if (trimmedQuery.length < MIN_QUERY_LENGTH) {
             isSearching.value = false;
@@ -549,7 +555,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         searchError.value = null;
 
         return new Promise<boolean>((resolve) => {
-            scheduledResolve = resolve;
+            scheduledResolvers.set(runId, resolve);
             const payload = {
                 runId,
                 query: trimmedQuery,

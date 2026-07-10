@@ -16,6 +16,7 @@ import type {
 import {
     normalizePdfRasterSourcePagePixels,
     registerPdfRasterDisplayProfile,
+    unregisterPdfRasterDisplayProfiles,
 } from '@app/types/pdfRasterDisplayProfile';
 import { useDjvuMode } from '@app/composables/useDjvuMode';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -544,9 +545,14 @@ export const useDjvu = () => {
 
             registerPdfRasterDisplayProfile(savePath, rasterDisplayProfile);
             registerPdfRasterDisplayProfile(result.pdfPath, rasterDisplayProfile);
-            const openResult = rasterDisplayProfile
-                ? await openConvertedPdf(result.pdfPath, {rasterDisplayProfile})
-                : await openConvertedPdf(result.pdfPath);
+            let openResult: TDocumentOpenOutcome;
+            try {
+                openResult = rasterDisplayProfile
+                    ? await openConvertedPdf(result.pdfPath, {rasterDisplayProfile})
+                    : await openConvertedPdf(result.pdfPath);
+            } finally {
+                unregisterPdfRasterDisplayProfiles(savePath, result.pdfPath);
+            }
             if (generation !== conversionGeneration) {
                 return;
             }

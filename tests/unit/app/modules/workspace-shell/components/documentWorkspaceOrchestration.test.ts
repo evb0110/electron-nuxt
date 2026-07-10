@@ -13,6 +13,7 @@ import {
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../..');
 const documentWorkspacePath = 'app/modules/workspace-shell/components/DocumentWorkspace.vue';
+const deferredWorkspaceSearchPath = 'app/modules/workspace-shell/composables/createDeferredWorkspaceSearch.ts';
 
 const expectedOrchestrationGroups = new Set([
     'annotationSession',
@@ -163,27 +164,26 @@ describe('DocumentWorkspace orchestration grouping', () => {
     });
 
     it('fences deferred search replay to the document identity that requested it', () => {
-        const source = readWorkspaceFile(documentWorkspacePath);
-        const scriptSetup = readScriptSetup(source);
-        const handlerStart = scriptSetup.indexOf('async function handleSearchWhenDocumentReady()');
-        const handlerEnd = scriptSetup.indexOf('\nfunction handleAnnotationComments', handlerStart);
+        const source = readWorkspaceFile(deferredWorkspaceSearchPath);
+        const handlerStart = source.indexOf('const handleSearchWhenDocumentReady = async () => {');
+        const handlerEnd = source.indexOf('\n    return {', handlerStart);
         expect(handlerStart).toBeGreaterThanOrEqual(0);
         expect(handlerEnd).toBeGreaterThan(handlerStart);
-        const handlerSource = scriptSetup.slice(handlerStart, handlerEnd);
-        const identityCaptureIndex = handlerSource.indexOf(
-            'const requestedDocumentIdentity = readDeferredSearchDocumentIdentity();',
-        );
-        const readinessWaitIndex = handlerSource.indexOf('await waitForDocumentReadyForSearch()');
-        const identityGuardIndex = handlerSource.indexOf(
-            'if (!isDeferredSearchDocumentIdentityCurrent(requestedDocumentIdentity))',
-        );
-        const searchRunIndex = handlerSource.indexOf('await handleSearch();');
+        const handlerSource = source.slice(handlerStart, handlerEnd);
+        const identityCaptureIndex = handlerSource.indexOf('const requestedIdentity = options.readIdentity();');
+        const readinessWaitIndex = handlerSource.indexOf('await waitUntilReady()');
+        const identityGuardIndex = handlerSource.indexOf('!options.isIdentityCurrent(requestedIdentity)');
+        const searchRunIndex = handlerSource.indexOf('await options.handleSearch();');
 
-        expect(scriptSetup).toContain('function readDeferredSearchDocumentIdentity()');
-        expect(scriptSetup).toContain('function isDeferredSearchDocumentIdentityCurrent');
         expect(identityCaptureIndex).toBeGreaterThanOrEqual(0);
         expect(identityCaptureIndex).toBeLessThan(readinessWaitIndex);
         expect(identityGuardIndex).toBeGreaterThan(readinessWaitIndex);
         expect(identityGuardIndex).toBeLessThan(searchRunIndex);
+
+        const workspaceScript = readScriptSetup(readWorkspaceFile(documentWorkspacePath));
+        expect(workspaceScript).toContain('createDeferredWorkspaceSearch({');
+        expect(workspaceScript).toContain('documentRevisionToken: documentRevisionToken.value');
+        expect(workspaceScript).toContain('workingCopyPath: workingCopyPath.value');
+        expect(workspaceScript).toContain('deferredWorkspaceSearch.dispose();');
     });
 });

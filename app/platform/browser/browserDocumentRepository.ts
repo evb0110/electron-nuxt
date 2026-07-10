@@ -6,10 +6,9 @@ import {
     cloneBytes,
     normalizePersistedWriteBytes,
     normalizeReadRange,
-    toUint8Array,
 } from '@app/platform/browser/browserDocumentBytes';
 import {
-    createBrowserDocumentEntry,
+    createPersistedBrowserDocumentRecord,
     createEntryFromPersistedRecord,
     toPersistedDocumentRecord,
 } from '@app/platform/browser/browserDocumentRecords';
@@ -18,12 +17,9 @@ import {
     buildBrowserDocumentFullReadError,
     defaultRetentionForKind,
     resolveByteBackedStorageMode,
-    resolveStoredDocumentStorageMode,
-    shouldInlineFileBytes,
 } from '@app/platform/browser/browserDocumentStoragePolicy';
 import type {
     IBrowserDocumentEntry,
-    IBrowserPersistedDocumentRecord,
     ICreateStoredDocumentOptions,
     IRegisterFileOptions,
     IWriteDocumentOptions,
@@ -62,6 +58,14 @@ import {
     getBrowserDocumentEntryContentRevision,
     updateBrowserDocumentEntryContentToken,
 } from '@app/platform/browser/browserDocumentRevision';
+import { emitBrowserDocumentRevisionChange } from '@app/platform/browser/emitBrowserDocumentRevisionChange';
+import { createBrowserFileDocumentEntry } from '@app/platform/browser/createBrowserFileDocumentEntry';
+import {createStoredBrowserDocument} from '@app/platform/browser/createStoredBrowserDocument';
+import {BrowserDocumentMutationQueue} from '@app/platform/browser/browserDocumentMutationQueue';
+import {
+    BrowserDocumentMutationCoordinator,
+    type IBrowserDocumentSourceMutation,
+} from '@app/platform/browser/browserDocumentMutationCoordinator';
 import { BrowserRecentFilesStore } from '@app/platform/browser/browserRecentFilesStore';
 import type {
     IDocumentRevisionChangedEvent,
@@ -77,7 +81,15 @@ import {
 export class BrowserDocumentStore {
     private readonly entries = new Map<string, IBrowserDocumentEntry>();
     private readonly fileRefs = new WeakMap<File, string>();
-    private readonly mutationQueues = new Map<string, Promise<void>>();
+    private readonly mutationQueue = new BrowserDocumentMutationQueue();
+    private readonly mutationCoordinator = new BrowserDocumentMutationCoordinator(this.mutationQueue, {
+        assertRevision: (ref, revision) => this.assertDocumentRevisionCurrent(ref, revision),
+        getSourceRef: ref => this.getSourceRef(ref),
+        writeUnlocked: (ref, data, options) => this.writeUnlocked(ref, data, options, true),
+        replaceSource: (ref, sourceRef, saveName, saveHandle) => (
+            this.replaceWorkingCopySourceUnlocked(ref, sourceRef, saveName, saveHandle)
+        ),
+    });
     private readonly revisionListeners = new Set<(event: IDocumentRevisionChangedEvent) => void>();
     private readonly recentFilesStore = new BrowserRecentFilesStore({
         requireEntry: (ref) => this.requireEntry(ref),
@@ -103,24 +115,13 @@ export class BrowserDocumentStore {
         previousToken: TDocumentRevisionToken | undefined,
         reason: TDocumentRevisionChangeReason,
     ) {
-        this.emitDocumentRevisionChanged({
-            ...createBrowserDocumentRevisionInfo(entry),
-            ...(previousToken ? { previousToken } : {}),
+        emitBrowserDocumentRevisionChange({
+            entries: this.entries,
+            listeners: this.revisionListeners,
+            entry,
+            previousToken,
             reason,
         });
-        for (const dependentEntry of this.entries.values()) {
-            if (
-                dependentEntry.ref !== entry.ref
-                && dependentEntry.storageMode === 'source-proxy'
-                && dependentEntry.sourceRef === entry.ref
-            ) {
-                this.emitDocumentRevisionChanged({
-                    ...createBrowserDocumentRevisionInfo(entry, dependentEntry.ref),
-                    ...(previousToken ? { previousToken } : {}),
-                    reason,
-                });
-            }
-        }
     }
 
     public getRefForFile(file: File) {
@@ -130,24 +131,7 @@ export class BrowserDocumentStore {
         }
 
         const ref = createBrowserDocumentRef(file.name);
-        const entry: IBrowserDocumentEntry = {
-            ref,
-            fileName: file.name,
-            mimeType: file.type || 'application/octet-stream',
-            kind: 'source',
-            retention: 'durable',
-            data: new Uint8Array(),
-            fileSize: file.size,
-            updatedAt: Date.now(),
-            contentToken: createBrowserDocumentContentToken(),
-            pendingLoad: null,
-            saveName: file.name,
-            saveKind: /\.docx$/i.test(file.name) ? 'docx' : 'generic',
-            saveHandle: null,
-            storageMode: shouldInlineFileBytes(file.size) ? 'inline' : 'chunked',
-            chunkCount: 0,
-            chunkSize: BROWSER_DOCUMENT_CHUNK_SIZE,
-        };
+        const entry = createBrowserFileDocumentEntry(ref, file, {saveKind: /\.docx$/i.test(file.name) ? 'docx' : 'generic'});
 
         this.entries.set(ref, entry);
         this.fileRefs.set(file, ref);
@@ -163,27 +147,8 @@ export class BrowserDocumentStore {
 
     public async registerFile(file: File, options: IRegisterFileOptions = {}) {
         await this.ensureMaintenance();
-        const storageMode = resolveByteBackedStorageMode(file.size);
         const ref = createBrowserDocumentRef(file.name);
-        const entry: IBrowserDocumentEntry = {
-            ref,
-            fileName: file.name,
-            mimeType: file.type || 'application/octet-stream',
-            kind: options.kind ?? 'source',
-            retention: options.retention ?? defaultRetentionForKind(options.kind ?? 'source'),
-            ...(options.sourceRef ? { sourceRef: options.sourceRef } : {}),
-            data: new Uint8Array(),
-            fileSize: file.size,
-            updatedAt: Date.now(),
-            contentToken: createBrowserDocumentContentToken(),
-            pendingLoad: null,
-            saveName: file.name,
-            saveKind: options.saveKind ?? 'generic',
-            saveHandle: options.saveHandle ?? null,
-            storageMode,
-            chunkCount: 0,
-            chunkSize: BROWSER_DOCUMENT_CHUNK_SIZE,
-        };
+        const entry = createBrowserFileDocumentEntry(ref, file, options);
 
         this.entries.set(ref, entry);
         this.fileRefs.set(file, ref);
@@ -202,71 +167,16 @@ export class BrowserDocumentStore {
         options: ICreateStoredDocumentOptions,
     ) {
         await this.ensureMaintenance();
-        const sourceBytes = toUint8Array(data);
-        const storageMode = resolveStoredDocumentStorageMode(
-            sourceBytes.byteLength,
-            options.storageMode,
-        );
-        const bytes = storageMode === 'inline'
-            ? cloneBytes(sourceBytes)
-            : new Uint8Array();
-        const ref = createBrowserDocumentRef(fileName);
-        const kind = options.kind ?? 'source';
-        const entry = createBrowserDocumentEntry({
-            ref,
-            fileName,
-            mimeType: options.mimeType,
-            kind,
-            retention: options.retention ?? defaultRetentionForKind(kind),
-            ...(options.sourceRef ? { sourceRef: options.sourceRef } : {}),
-            data: bytes,
-            fileSize: storageMode === 'chunked'
-                ? sourceBytes.byteLength
-                : bytes.byteLength,
-            contentToken: createBrowserDocumentContentToken(),
-            saveKind: options.saveKind ?? 'generic',
-            saveHandle: options.saveHandle ?? null,
-            storageMode,
-            chunkCount: options.chunkCount ?? 0,
-            chunkSize: options.chunkSize ?? BROWSER_DOCUMENT_CHUNK_SIZE,
-        });
-
-        this.entries.set(ref, entry);
-        let stagedGeneration: string | undefined;
-        let stagedChunkCount = 0;
-        try {
-            if (storageMode === 'chunked' && sourceBytes.byteLength > 0) {
-                const stagedLayout = await persistBrowserDocumentChunkGeneration(
-                    entry.ref,
-                    sourceBytes.byteLength,
-                    Math.max(1, entry.chunkSize),
-                    (offset, length) => Promise.resolve(sourceBytes.slice(offset, offset + length)),
-                );
-                stagedGeneration = stagedLayout.generation;
-                stagedChunkCount = stagedLayout.chunkCount;
-                entry.data = new Uint8Array();
-                entry.chunkGeneration = stagedLayout.generation;
-                entry.chunkCount = stagedLayout.chunkCount;
-                entry.fileSize = sourceBytes.byteLength;
-                entry.updatedAt = Date.now();
-            }
-            await persistRecord(this.toPersistedRecord(entry, entry.data, false));
-            if (storageMode === 'chunked') {
-                stagedGeneration = undefined;
-                stagedChunkCount = 0;
-            }
-        } catch (error) {
-            this.entries.delete(ref);
-            if (stagedGeneration) {
-                await deleteBrowserDocumentChunks(entry.ref, stagedChunkCount, stagedGeneration)
-                    .catch(() => undefined);
-            }
-            await deleteRecord(ref).catch(() => undefined);
-            throw error;
+        const create = () => createStoredBrowserDocument(this.entries, fileName, data, options);
+        const sourceRef = options.sourceRef;
+        if (sourceRef) {
+            return this.runRefMutation(sourceRef, async () => {
+                await this.requireEntry(sourceRef);
+                return create();
+            });
         }
-        return ref;
+        return create();
     }
-
     public async cloneAsWorkingCopy(sourceRef: string, fileName?: string) {
         const sourceEntry = await this.requireEntry(sourceRef);
         const nextName = fileName ?? sourceEntry.fileName;
@@ -289,6 +199,27 @@ export class BrowserDocumentStore {
             saveKind?: IBrowserDocumentEntry['saveKind'];
             saveHandle?: FileSystemFileHandle | null;
         } = {},
+    ) {
+        const nextSourceRef = options.sourceRef;
+        if (nextSourceRef) {
+            return this.runRefMutation(nextSourceRef, async () => {
+                await this.requireEntry(nextSourceRef);
+                return this.cloneStoredDocumentUnlocked(sourceRef, options);
+            });
+        }
+        return this.cloneStoredDocumentUnlocked(sourceRef, options);
+    }
+
+    private async cloneStoredDocumentUnlocked(
+        sourceRef: string,
+        options: {
+            fileName?: string;
+            kind?: IBrowserDocumentEntry['kind'];
+            retention?: IBrowserDocumentEntry['retention'];
+            sourceRef?: string;
+            saveKind?: IBrowserDocumentEntry['saveKind'];
+            saveHandle?: FileSystemFileHandle | null;
+        },
     ) {
         const sourceEntry = await this.requireEntry(sourceRef);
         const nextName = options.fileName ?? sourceEntry.fileName;
@@ -336,7 +267,7 @@ export class BrowserDocumentStore {
                 entry.chunkCount = stagedLayout.chunkCount;
                 entry.fileSize = sourceEntry.fileSize;
                 entry.updatedAt = Date.now();
-                await persistRecord(this.toPersistedRecord(entry, entry.data, false));
+                await persistRecord(createPersistedBrowserDocumentRecord(entry, entry.data, false));
                 stagedGeneration = undefined;
                 stagedChunkCount = 0;
             } catch (error) {
@@ -353,7 +284,7 @@ export class BrowserDocumentStore {
         }
 
         const bytes = await this.readEntryBytes(sourceEntry);
-        return this.createStoredDocument(nextName, bytes, {
+        return createStoredBrowserDocument(this.entries, nextName, bytes, {
             mimeType: sourceEntry.mimeType,
             kind: nextKind,
             retention: nextRetention,
@@ -534,12 +465,22 @@ export class BrowserDocumentStore {
         }));
     }
 
+    public runDocumentMutationWithSource<T>(
+        ref: string,
+        sourceRef: string,
+        expectedRevision: TDocumentRevisionToken | null | undefined,
+        operation: (mutation: IBrowserDocumentSourceMutation) => Promise<T>,
+    ) {
+        return this.mutationCoordinator.runWithSource(ref, sourceRef, expectedRevision, operation);
+    }
+
     private async writeUnlocked(
         ref: string,
         data: Uint8Array | ArrayBuffer,
         options: IWriteDocumentOptions = {},
+        revisionAlreadyChecked = false,
     ) {
-        if (options.skipDocumentRevisionCheckForBootstrap !== true) {
+        if (!revisionAlreadyChecked && options.skipDocumentRevisionCheckForBootstrap !== true) {
             await this.assertDocumentRevisionCurrent(ref, options.expectedDocumentRevisionToken);
         }
         const entry = await this.requireEntry(ref);
@@ -581,7 +522,7 @@ export class BrowserDocumentStore {
                 entry.fileSize = bytes.byteLength;
                 entry.updatedAt = Date.now();
                 const previousToken = updateBrowserDocumentEntryContentToken(entry);
-                await persistRecord(this.toPersistedRecord(entry, entry.data, false));
+                await persistRecord(createPersistedBrowserDocumentRecord(entry, entry.data, false));
                 this.emitRevisionChangeForEntry(entry, previousToken, 'write');
                 stagedGeneration = undefined;
                 stagedChunkCount = 0;
@@ -593,7 +534,7 @@ export class BrowserDocumentStore {
                 entry.updatedAt = Date.now();
                 const previousToken = updateBrowserDocumentEntryContentToken(entry);
                 delete entry.chunkGeneration;
-                await persistRecord(this.toPersistedRecord(entry, bytes, false));
+                await persistRecord(createPersistedBrowserDocumentRecord(entry, bytes, false));
                 entry.data = bytes;
                 this.emitRevisionChangeForEntry(entry, previousToken, 'write');
             }
@@ -645,17 +586,19 @@ export class BrowserDocumentStore {
     }
 
     public async remove(ref: string) {
-        await this.runRefMutation(ref, async () => {
-            await this.ensureMaintenance();
-            const entry = await this.ensureEntry(ref);
-            if (entry) {
-                await clearPendingBrowserDocumentChunks(entry);
-                await clearBrowserDocumentExternalChunkStorage(entry);
-            }
-            this.entries.delete(ref);
-            await deleteRecord(ref);
-            await this.removeRecentFile(ref);
-        });
+        await this.runRefMutation(ref, () => this.removeUnlocked(ref));
+    }
+
+    private async removeUnlocked(ref: string) {
+        await this.ensureMaintenance();
+        const entry = await this.ensureEntry(ref);
+        if (entry) {
+            await clearPendingBrowserDocumentChunks(entry);
+            await clearBrowserDocumentExternalChunkStorage(entry);
+        }
+        this.entries.delete(ref);
+        await deleteRecord(ref);
+        await this.removeRecentFile(ref);
     }
 
     public unload(ref: string) {
@@ -670,6 +613,13 @@ export class BrowserDocumentStore {
         ref: string,
         options?: { allowDurable?: boolean },
     ) {
+        return this.runRefMutation(ref, () => this.cleanupDetachedPersistedRecordUnlocked(ref, options));
+    }
+
+    private async cleanupDetachedPersistedRecordUnlocked(
+        ref: string,
+        options?: { allowDurable?: boolean },
+    ) {
         await this.ensureMaintenance();
         const entry = await this.ensureEntry(ref);
         if (!entry) {
@@ -677,7 +627,7 @@ export class BrowserDocumentStore {
         }
 
         if (entry.kind === 'working') {
-            await this.remove(ref);
+            await this.removeUnlocked(ref);
             return true;
         }
 
@@ -698,11 +648,11 @@ export class BrowserDocumentStore {
             return false;
         }
 
-        await this.remove(ref);
+        await this.removeUnlocked(ref);
         return true;
     }
 
-    public async replaceWorkingCopySource(
+    private async replaceWorkingCopySourceUnlocked(
         workingRef: string,
         sourceRef: string,
         saveName: string,
@@ -717,7 +667,7 @@ export class BrowserDocumentStore {
             workingEntry.storageMode = 'source-proxy';
             workingEntry.data = new Uint8Array();
         }
-        await persistRecord(this.toPersistedRecord(workingEntry, workingEntry.data, false));
+        await persistRecord(createPersistedBrowserDocumentRecord(workingEntry, workingEntry.data, false));
         const nextRevision = await this.getDocumentRevision(workingRef);
         if (nextRevision.token !== previousRevision.token) {
             this.emitDocumentRevisionChanged({
@@ -738,7 +688,7 @@ export class BrowserDocumentStore {
         entry.saveName = saveName;
         entry.saveKind = saveKind;
         entry.saveHandle = saveHandle ?? null;
-        await persistRecord(this.toPersistedRecord(entry, entry.data, false));
+        await persistRecord(createPersistedBrowserDocumentRecord(entry, entry.data, false));
     }
 
     public async setRetention(
@@ -747,7 +697,7 @@ export class BrowserDocumentStore {
     ) {
         const entry = await this.requireEntry(ref);
         entry.retention = retention;
-        await persistRecord(this.toPersistedRecord(entry, entry.data, false));
+        await persistRecord(createPersistedBrowserDocumentRecord(entry, entry.data, false));
     }
 
     public async getSourceRef(ref: string) {
@@ -851,7 +801,7 @@ export class BrowserDocumentStore {
             entry.saveName = options.saveName;
             entry.fileName = options.saveName;
         }
-        await persistRecord(this.toPersistedRecord(entry, entry.data, false));
+        await persistRecord(createPersistedBrowserDocumentRecord(entry, entry.data, false));
         this.emitRevisionChangeForEntry(entry, previousToken, 'replace-working-copy');
     }
 
@@ -941,7 +891,7 @@ export class BrowserDocumentStore {
                 entry.fileName = options.saveName;
             }
             try {
-                await persistRecord(this.toPersistedRecord(entry, entry.data, false));
+                await persistRecord(createPersistedBrowserDocumentRecord(entry, entry.data, false));
                 this.emitRevisionChangeForEntry(entry, previousToken, 'write');
             } catch (error) {
                 entry.storageMode = previousEntryState.storageMode;
@@ -1010,7 +960,7 @@ export class BrowserDocumentStore {
             entry.fileSize = 0;
             entry.updatedAt = Date.now();
             const previousToken = updateBrowserDocumentEntryContentToken(entry);
-            await persistRecord(this.toPersistedRecord(entry, entry.data, false));
+            await persistRecord(createPersistedBrowserDocumentRecord(entry, entry.data, false));
             this.emitRevisionChangeForEntry(entry, previousToken, 'write');
         });
     }
@@ -1041,9 +991,11 @@ export class BrowserDocumentStore {
         }
 
         this.maintenancePromise ??= sweepBrowserDocumentMaintenance(this.entries)
+            .then(() => {
+                this.maintenanceComplete = true;
+            })
             .finally(() => {
                 this.maintenancePromise = null;
-                this.maintenanceComplete = true;
             });
 
         await this.maintenancePromise;
@@ -1053,19 +1005,7 @@ export class BrowserDocumentStore {
         ref: string,
         operation: () => Promise<T>,
     ): Promise<T> {
-        const previous = this.mutationQueues.get(ref) ?? Promise.resolve();
-        const run = previous.catch(() => undefined).then(operation);
-        const tracked = run.then(
-            () => undefined,
-            () => undefined,
-        );
-        this.mutationQueues.set(ref, tracked);
-        void tracked.finally(() => {
-            if (this.mutationQueues.get(ref) === tracked) {
-                this.mutationQueues.delete(ref);
-            }
-        });
-        return run;
+        return this.mutationQueue.run(ref, operation);
     }
 
     private async consumeFileIntoEntry(
@@ -1090,7 +1030,7 @@ export class BrowserDocumentStore {
                 entry.fileSize = file.size;
                 entry.updatedAt = Date.now();
                 const previousToken = updateBrowserDocumentEntryContentToken(entry);
-                await persistRecord(this.toPersistedRecord(entry, entry.data, false));
+                await persistRecord(createPersistedBrowserDocumentRecord(entry, entry.data, false));
                 this.emitRevisionChangeForEntry(entry, previousToken, 'open');
             } else {
                 const bytes = new Uint8Array(await file.arrayBuffer());
@@ -1098,7 +1038,7 @@ export class BrowserDocumentStore {
                 entry.fileSize = bytes.byteLength;
                 entry.updatedAt = Date.now();
                 const previousToken = updateBrowserDocumentEntryContentToken(entry);
-                await persistRecord(this.toPersistedRecord(entry, entry.data, false));
+                await persistRecord(createPersistedBrowserDocumentRecord(entry, entry.data, false));
                 this.emitRevisionChangeForEntry(entry, previousToken, 'open');
             }
             entry.pendingLoad = null;
@@ -1153,7 +1093,7 @@ export class BrowserDocumentStore {
         entry.updatedAt = Date.now();
         entry.contentToken = contentToken;
         entry.contentRevision = getBrowserDocumentEntryContentRevision(entry) + 1;
-        await persistRecord(this.toPersistedRecord(entry, entry.data, false));
+        await persistRecord(createPersistedBrowserDocumentRecord(entry, entry.data, false));
         this.emitRevisionChangeForEntry(entry, previousToken, 'browser-handle-refresh');
     }
 
@@ -1229,32 +1169,6 @@ export class BrowserDocumentStore {
         }
     }
 
-    private toPersistedRecord(
-        entry: IBrowserDocumentEntry,
-        data = entry.data,
-        cloneData = true,
-    ): IBrowserPersistedDocumentRecord {
-        return {
-            ref: entry.ref,
-            fileName: entry.fileName,
-            mimeType: entry.mimeType,
-            kind: entry.kind,
-            retention: entry.retention,
-            ...(entry.sourceRef ? { sourceRef: entry.sourceRef } : {}),
-            data: cloneData ? cloneBytes(data) : data,
-            fileSize: entry.fileSize,
-            updatedAt: entry.updatedAt,
-            ...(entry.contentToken ? { contentToken: entry.contentToken } : {}),
-            contentRevision: getBrowserDocumentEntryContentRevision(entry),
-            ...(entry.saveName ? { saveName: entry.saveName } : {}),
-            saveKind: entry.saveKind,
-            saveHandle: entry.saveHandle ?? null,
-            storageMode: entry.storageMode,
-            chunkCount: entry.chunkCount,
-            chunkSize: entry.chunkSize,
-            ...(entry.chunkGeneration ? { chunkGeneration: entry.chunkGeneration } : {}),
-        };
-    }
 }
 
 export const browserDocumentStore = new BrowserDocumentStore();

@@ -15,17 +15,17 @@ import type {
     IPdfPageAnnotationBundle,
 } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/annotationSyncHelpersTypes';
 
-interface IPdfPageAnnotationLeaseOptions {
-    leasePage?: (
-        doc: PDFDocumentProxy,
-        pageNumber: number,
-    ) => Promise<Awaited<ReturnType<PDFDocumentProxy['getPage']>>>;
-    releasePage?: (
-        doc: PDFDocumentProxy,
-        pageNumber: number,
-        page: Awaited<ReturnType<PDFDocumentProxy['getPage']>>,
-    ) => void;
+interface IPdfPageAnnotationLease {
+    page: Awaited<ReturnType<PDFDocumentProxy['getPage']>>;
+    release: () => void;
 }
+
+type TLeasePdfAnnotationPage = (
+    doc: PDFDocumentProxy,
+    pageNumber: number,
+) => Promise<IPdfPageAnnotationLease>;
+
+interface IPdfPageAnnotationLeaseOptions { leasePage?: TLeasePdfAnnotationPage }
 
 function attachPdfAnnotationNames(
     annotations: IPdfAnnotationRecord[],
@@ -108,10 +108,14 @@ export async function loadPdfPageAnnotations(
     pageLeaseOptions?: IPdfPageAnnotationLeaseOptions,
 ): Promise<IPdfPageAnnotationBundle | null> {
     let page: Awaited<ReturnType<PDFDocumentProxy['getPage']>> | null = null;
+    let pageLease: Awaited<ReturnType<NonNullable<IPdfPageAnnotationLeaseOptions['leasePage']>>> | null = null;
     try {
-        page = pageLeaseOptions?.leasePage
-            ? await pageLeaseOptions.leasePage(doc, pageNumber)
-            : await doc.getPage(pageNumber);
+        if (pageLeaseOptions?.leasePage) {
+            pageLease = await pageLeaseOptions.leasePage(doc, pageNumber);
+            page = pageLease.page;
+        } else {
+            page = await doc.getPage(pageNumber);
+        }
         const rawAnnotations: unknown = await page.getAnnotations();
         const annotations = attachPdfAnnotationNames(
             Array.isArray(rawAnnotations)
@@ -138,8 +142,8 @@ export async function loadPdfPageAnnotations(
         );
         return null;
     } finally {
-        if (pageLeaseOptions?.releasePage && page) {
-            pageLeaseOptions.releasePage(doc, pageNumber, page);
+        if (pageLease) {
+            pageLease.release();
         } else {
             try {
                 page?.cleanup();

@@ -291,7 +291,7 @@ fn is_supported_markup_subtype(subtype: &str) -> bool {
 }
 
 fn validate_markup_mutation(markup: &MarkupMutation) -> Result<()> {
-    if markup.overrides.len() > 4_096 || markup.hints.len() > 4_096 {
+    if markup.overrides.len() > 4_096 || markup.hints.len() > MAX_MARKUP_SUBTYPE_HINTS {
         return Err("Too many text-markup mutations".into());
     }
     if markup.overrides.is_empty() && markup.hints.is_empty() {

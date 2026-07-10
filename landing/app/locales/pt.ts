@@ -18,6 +18,42 @@ export default {
         features: 'Funcionalidades',
         viewSource: 'Ver código-fonte',
     },
+    privacy: {
+        seo: {
+            title: 'Política de privacidade',
+            description: 'Política de privacidade da aplicação desktop, da aplicação no navegador, do site e das funcionalidades opcionais do assistente do EVB Viewer.',
+        },
+        hero: {
+            title: 'Política de privacidade',
+            subtitle: 'Como o EVB Viewer trata documentos, definições, dados analíticos e funcionalidades opcionais do assistente.',
+            effectiveDate: 'Em vigor desde 9 de julho de 2026',
+        },
+        documents: {
+            heading: 'Documentos e processamento local',
+            body: 'O EVB Viewer abre os documentos que selecionar. Na aplicação desktop, a visualização, o OCR, as anotações, as operações de página e a exportação são efetuados no seu dispositivo. A aplicação no navegador processa os documentos selecionados no navegador, exceto se escolher uma funcionalidade que utilize explicitamente um serviço externo. Por predefinição, o EVB Viewer não envia os seus documentos para o programador.',
+        },
+        assistant: {
+            heading: 'Serviços opcionais do assistente',
+            body: 'As funcionalidades do assistente são opcionais. Quando utiliza um assistente baseado no Codex, OpenAI ou Anthropic Claude, os pedidos e qualquer conteúdo ou anexo que decida incluir são enviados a esse fornecedor através da sua conta e regem-se pelos respetivos termos e política de privacidade. O EVB Viewer não vende estas informações.',
+        },
+        analytics: {
+            heading: 'Dados analíticos e informações técnicas',
+            body: 'O site e a aplicação no navegador do EVB Viewer podem recolher eventos limitados de utilização e dados técnicos, como caminhos de páginas, eventos de funcionalidades, idioma, categoria do ecrã, referenciador, agente do utilizador do navegador, região aproximada e um identificador de visitante com hash que muda periodicamente. Estas informações ajudam a compreender a fiabilidade e a utilização do produto e não são usadas para identificar o conteúdo dos documentos.',
+        },
+        settings: {
+            heading: 'Definições, ficheiros recentes e atualizações',
+            body: 'As preferências da aplicação, o estado da área de trabalho e as referências a ficheiros recentes podem ser armazenados localmente no seu dispositivo. A aplicação desktop pode contactar o GitHub para procurar e transferir atualizações. O sistema operativo e os serviços da loja de aplicações podem processar informações técnicas adicionais segundo as respetivas políticas.',
+        },
+        retention: {
+            heading: 'Conservação e opções',
+            body: 'Os dados locais da aplicação permanecem no seu dispositivo até os remover ou desinstalar a aplicação. Controla quais os documentos e anexos que são abertos ou enviados para serviços opcionais do assistente. Os registos analíticos do site são conservados apenas durante o período necessário ao funcionamento do produto, à segurança e à análise de tendências.',
+        },
+        contact: {
+            heading: 'Contacto',
+            intro: 'Pode enviar perguntas ou pedidos sobre privacidade através do',
+            linkLabel: 'sistema de acompanhamento de problemas do EVB Viewer',
+        },
+    },
     home: {
         seo: {
             title: 'Aplicação web EVB Viewer e transferências desktop',

@@ -119,23 +119,50 @@ fn marker_rect_to_pdf_rect(
 }
 
 fn crop_pages(document: &mut Document, pages: &[u32], margins: CropMargins) -> Result<()> {
+    validate_crop_margins(margins)?;
     let page_map = document.get_pages();
+    let mut preflighted_pages = Vec::new();
+    preflighted_pages
+        .try_reserve_exact(pages.len())
+        .map_err(|_| "Too many pages selected for crop")?;
     for page_number in pages {
         let page_id = resolve_page_id(&page_map, *page_number)?;
         let media_box = resolve_inherited_box(document, page_id, b"MediaBox")?;
         let crop_width = media_box.width() - margins.left - margins.right;
         let crop_height = media_box.height() - margins.top - margins.bottom;
         if crop_width <= 0.0 || crop_height <= 0.0 {
-            continue;
+            return Err(format!(
+                "Crop margins consume page {page_number} ({} x {})",
+                media_box.width(),
+                media_box.height()
+            )
+            .into());
         }
-
         let crop_box = PdfRect {
             x1: media_box.x1 + margins.left,
             y1: media_box.y1 + margins.bottom,
             x2: media_box.x1 + margins.left + crop_width,
             y2: media_box.y1 + margins.bottom + crop_height,
         };
+        preflighted_pages.push((page_id, crop_box));
+    }
+
+    for (page_id, crop_box) in preflighted_pages {
         set_page_crop_box(document, page_id, crop_box)?;
+    }
+    Ok(())
+}
+
+fn validate_crop_margins(margins: CropMargins) -> Result<()> {
+    for (label, value) in [
+        ("top", margins.top),
+        ("bottom", margins.bottom),
+        ("left", margins.left),
+        ("right", margins.right),
+    ] {
+        if !value.is_finite() || value < 0.0 {
+            return Err(format!("Invalid {label} crop margin").into());
+        }
     }
     Ok(())
 }

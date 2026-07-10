@@ -9,7 +9,7 @@ import { ref } from 'vue';
 import type * as TVueModule from 'vue';
 import {
     clearRegisteredPdfRasterDisplayProfilesForTests,
-    resolveRegisteredPdfRasterDisplayProfile,
+    getRegisteredPdfRasterDisplayProfileCountForTests,
 } from '@app/types/pdfRasterDisplayProfile';
 import type { IDjvuProgress } from '@contracts/electronApiDjvu';
 
@@ -404,13 +404,7 @@ describe('useDjvu', () => {
                     height: 1966,
                 }],
             }});
-            expect(resolveRegisteredPdfRasterDisplayProfile('/tmp/out.pdf')).toStrictEqual({
-                kind: 'trusted-raster-djvu',
-                sourcePagePixels: [{
-                    width: 1293,
-                    height: 1966,
-                }],
-            });
+            expect(getRegisteredPdfRasterDisplayProfileCountForTests()).toBe(0);
         });
 
         it('passes the selected PDF strategy through to the DjVu capability', async () => {

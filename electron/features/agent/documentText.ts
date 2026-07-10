@@ -2,6 +2,7 @@ import type {
     BrowserWindow,
     IpcMainInvokeEvent,
 } from 'electron';
+import {randomUUID} from 'node:crypto';
 import type { IPdfSearchResponse } from '@contracts/search';
 import type { ISearchMatchOptions } from '@pdf-core';
 import type { IAgentTabSnapshot } from '@contracts/agent';
@@ -55,6 +56,55 @@ function createSearchEvent(window: BrowserWindow) {
     return {sender: window.webContents} as IpcMainInvokeEvent;
 }
 
+function abortErrorFromSignal(signal: AbortSignal) {
+    return signal.reason instanceof Error
+        ? signal.reason
+        : new Error('Agent document-text request was aborted.');
+}
+
+function throwIfAborted(signal?: AbortSignal) {
+    if (signal?.aborted) {
+        throw abortErrorFromSignal(signal);
+    }
+}
+
+async function dispatchAgentSearchRequest(
+    window: BrowserWindow,
+    payload: Parameters<SearchWorkerService['dispatchSearchRequest']>[1],
+    signal?: AbortSignal,
+) {
+    throwIfAborted(signal);
+    const requestId = `${payload.requestIdPrefix}-${randomUUID()}`;
+    const request = agentSearchWorkerService.dispatchSearchRequest(
+        createSearchEvent(window),
+        {
+            ...payload,
+            requestId,
+        },
+    );
+    if (!signal) {
+        return request;
+    }
+
+    return new Promise<Awaited<typeof request>>((resolve, reject) => {
+        const handleAbort = () => {
+            signal.removeEventListener('abort', handleAbort);
+            agentSearchWorkerService.cancel({
+                sender: window.webContents,
+                senderId: window.webContents.id,
+            }, requestId);
+            reject(abortErrorFromSignal(signal));
+        };
+        signal.addEventListener('abort', handleAbort, {once: true});
+        if (signal.aborted) {
+            handleAbort();
+        }
+        void request.then(resolve, reject).finally(() => {
+            signal.removeEventListener('abort', handleAbort);
+        });
+    });
+}
+
 function normalizePositiveInteger(value: number | null | undefined, fallback: number, max: number) {
     if (typeof value !== 'number' || !Number.isFinite(value)) {
         return fallback;
@@ -99,15 +149,17 @@ async function resolveAgentSearchPath(window: BrowserWindow, tab: IAgentTabSnaps
 async function warmAgentSearchIndex(
     window: BrowserWindow,
     tab: IAgentTabSnapshot,
+    signal?: AbortSignal,
 ) {
+    throwIfAborted(signal);
     const {
         requestedPath,
         resolvedPdfPath,
         documentRevision,
     } = await resolveAgentSearchPath(window, tab);
     const pageCount = getValidatedSearchPageCount(tab);
-    await agentSearchWorkerService.dispatchSearchRequest(
-        createSearchEvent(window),
+    await dispatchAgentSearchRequest(
+        window,
         {
             resolvedPdfPath,
             documentRevision,
@@ -116,9 +168,12 @@ async function warmAgentSearchIndex(
             requestIdPrefix: 'agent-warm',
             ...(pageCount === undefined ? {} : { pageCount }),
         },
+        signal,
     );
 
+    throwIfAborted(signal);
     const index = await loadSearchIndex(resolvedPdfPath, documentRevision);
+    throwIfAborted(signal);
     return {
         requestedPath,
         resolvedPdfPath,
@@ -203,12 +258,13 @@ function createTextRecommendations(textStatus: ReturnType<typeof buildTextStatus
 export async function inspectAgentDocumentText(
     window: BrowserWindow,
     input: IAgentDocumentTextOperationInput<Record<never, never>>,
+    signal?: AbortSignal,
 ) {
     const {
         requestedPath,
         resolvedPdfPath,
         index,
-    } = await warmAgentSearchIndex(window, input.tab);
+    } = await warmAgentSearchIndex(window, input.tab, signal);
     const textStatus = buildTextStatus(input.tab, index);
 
     return {
@@ -225,7 +281,9 @@ export async function inspectAgentDocumentText(
 export async function searchAgentDocument(
     window: BrowserWindow,
     input: IAgentDocumentTextOperationInput<IAgentDocumentSearchOptions>,
+    signal?: AbortSignal,
 ) {
+    throwIfAborted(signal);
     const query = input.options.query.trim();
     if (!query) {
         throw new Error('query is required.');
@@ -247,7 +305,7 @@ export async function searchAgentDocument(
                 pages: input.options.pages,
                 maxCharsPerPage: MAX_PAGE_TEXT_CHARS,
             },
-        });
+        }, signal);
         const boundedSearch = searchBoundedPageTexts(query, pageRead.pages, input.options, maxResults);
         return {
             tabId: input.tab.tabId,
@@ -280,8 +338,8 @@ export async function searchAgentDocument(
         documentRevision,
     } = await resolveAgentSearchPath(window, input.tab);
     const pageCount = getValidatedSearchPageCount(input.tab);
-    const response: IPdfSearchResponse = await agentSearchWorkerService.dispatchSearchRequest(
-        createSearchEvent(window),
+    const response: IPdfSearchResponse = await dispatchAgentSearchRequest(
+        window,
         {
             resolvedPdfPath,
             documentRevision,
@@ -292,6 +350,7 @@ export async function searchAgentDocument(
             ...(input.options.wholeWord === undefined ? {} : { wholeWord: input.options.wholeWord }),
             ...(input.options.useRegex === undefined ? {} : { useRegex: input.options.useRegex }),
         },
+        signal,
     );
     const results = response.results.slice(0, maxResults);
     const index = await loadSearchIndex(resolvedPdfPath, documentRevision).catch((error) => {
@@ -401,14 +460,20 @@ async function extractSelectedPdfPageTextWithFallback(
     pdfPath: string,
     pages: readonly number[],
     pageCount: number,
+    signal?: AbortSignal,
 ) {
+    throwIfAborted(signal);
     try {
         const { extractTextWithPdfjs } = await import('@electron/search/extractTextWithPdfjs');
         return {
             source: 'direct-pdfjs' as const,
-            pages: completeRequestedPageTexts(await extractTextWithPdfjs(pdfPath, {pages}), pages),
+            pages: completeRequestedPageTexts(await extractTextWithPdfjs(pdfPath, {
+                pages,
+                ...(signal === undefined ? {} : {signal}),
+            }), pages),
         };
     } catch (pdfjsError) {
+        throwIfAborted(signal);
         logger.debug(`Direct PDF.js page text probe failed; falling back to pdftotext: ${pdfjsError instanceof Error ? pdfjsError.message : String(pdfjsError)}`);
         const { extractTextFromPdf } = await import('@electron/search/extractTextFromPdf');
         return {
@@ -416,6 +481,7 @@ async function extractSelectedPdfPageTextWithFallback(
             pages: completeRequestedPageTexts(await extractTextFromPdf(pdfPath, {
                 pageCount,
                 pages,
+                ...(signal === undefined ? {} : {signal}),
             }), pages),
         };
     }
@@ -456,7 +522,9 @@ function buildRequestedPagesTextStatus(
 export async function readAgentDocumentPages(
     window: BrowserWindow,
     input: IAgentDocumentTextOperationInput<IAgentDocumentPageReadOptions>,
+    signal?: AbortSignal,
 ) {
+    throwIfAborted(signal);
     const {
         requestedPath,
         resolvedPdfPath,
@@ -466,6 +534,7 @@ export async function readAgentDocumentPages(
         logger.debug(`No cached search index available for agent page read; using direct page probe: ${error instanceof Error ? error.message : String(error)}`);
         return null;
     });
+    throwIfAborted(signal);
     const pageCount = resolvePageCount(input.tab, index?.pageCount, index?.pages.length ?? 0);
     const maxCharsPerPage = normalizePositiveInteger(
         input.options.maxCharsPerPage,
@@ -486,7 +555,12 @@ export async function readAgentDocumentPages(
         return cachedText === undefined || cachedText.trim().length === 0;
     });
     const directPageProbe = pagesNeedingDirectProbe.length > 0
-        ? await extractSelectedPdfPageTextWithFallback(resolvedPdfPath, pagesNeedingDirectProbe, pageCount)
+        ? await extractSelectedPdfPageTextWithFallback(
+            resolvedPdfPath,
+            pagesNeedingDirectProbe,
+            pageCount,
+            signal,
+        )
         : null;
     const directPageTextByNumber = new Map((directPageProbe?.pages ?? []).map(page => [
         page.pageNumber,

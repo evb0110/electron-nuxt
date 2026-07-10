@@ -61,7 +61,7 @@
           :style="getThumbnailCanvasStyle(page)"
           :data-thumbnail-render-key="getThumbnailRenderKey(page)"
         />
-        <span class="pdf-thumbnail-number">{{ getPageIndicator(page) }}</span>
+        <span class="pdf-thumbnail-number">{{ formatPageIndicatorWithOptions(page, pageLabels ?? null) }}</span>
       </div>
     </div>
   </div>
@@ -347,8 +347,8 @@ const {
 
 function getThumbnailSelectionLabel(page: number) {
     return isSelected(page)
-        ? t('pageOps.deselectPage', { page: getPageIndicator(page) })
-        : t('pageOps.selectPage', { page: getPageIndicator(page) });
+        ? t('pageOps.deselectPage', { page: formatPageIndicatorWithOptions(page, pageLabels ?? null) })
+        : t('pageOps.selectPage', { page: formatPageIndicatorWithOptions(page, pageLabels ?? null) });
 }
 
 function getCanvas(pageNum: number): HTMLCanvasElement | null {
@@ -368,10 +368,6 @@ function getThumbnailElement(pageNum: number) {
     return containerRef.value.querySelector<HTMLElement>(
         `.pdf-thumbnail[data-page="${pageNum}"]`,
     );
-}
-
-function getPageIndicator(page: number) {
-    return formatPageIndicatorWithOptions(page, pageLabels ?? null);
 }
 
 function describeContainerGeometry(container: HTMLElement) {

@@ -45,6 +45,13 @@ function createPageRoot() {
     };
 }
 
+function createPageLease(page: PDFPageProxy) {
+    return {
+        page,
+        release: vi.fn(),
+    };
+}
+
 describe('usePdfRendererSinglePageController', () => {
     it('cleans a mounted canvas when a later async text-layer stage goes stale', async () => {
         const {
@@ -57,7 +64,7 @@ describe('usePdfRendererSinglePageController', () => {
         const cleanupPageIfCurrentRender = vi.fn(() => {
             canvasHost.replaceChildren();
         });
-        const releasePageResources = vi.fn();
+        const pageLease = createPageLease(pdfPage);
         const renderingPages = new Map<number, number>();
         const renderingPageRequestIds = new Map<number, number>();
 
@@ -78,8 +85,7 @@ describe('usePdfRendererSinglePageController', () => {
             clearSelectionBeforePageLayerTeardown: vi.fn(),
             cleanupPageIfCurrentRender,
             cleanupCanvasRenderResult: vi.fn(),
-            releasePageResources,
-            loadPageForRender: vi.fn(async () => pdfPage),
+            loadPageForRender: vi.fn(async () => pageLease),
             prepareCanvasRenderForPage: vi.fn(async () => ({
                 canvas: document.createElement('canvas'),
                 startRender: vi.fn(),
@@ -129,14 +135,14 @@ describe('usePdfRendererSinglePageController', () => {
         expect(canvasHost.children).toHaveLength(0);
         expect(pageClassAdd).not.toHaveBeenCalledWith('page_container--rendered');
         expect(cleanupPageIfCurrentRender).toHaveBeenCalledWith(1, 1, 1);
-        expect(releasePageResources).toHaveBeenCalledWith(1, pdfPage);
+        expect(pageLease.release).toHaveBeenCalled();
         expect(renderingPages.has(1)).toBe(false);
     });
 
     it('releases the loaded page when canvas preparation throws', async () => {
         const { root } = createPageRoot();
         const pdfPage = { cleanup: vi.fn() } as PDFPageProxy & {cleanup: ReturnType<typeof vi.fn>};
-        const releasePageResources = vi.fn();
+        const pageLease = createPageLease(pdfPage);
         const cleanupPageIfCurrentRender = vi.fn();
         const controller = usePdfRendererSinglePageController({
             isActive: true,
@@ -155,8 +161,7 @@ describe('usePdfRendererSinglePageController', () => {
             clearSelectionBeforePageLayerTeardown: vi.fn(),
             cleanupPageIfCurrentRender,
             cleanupCanvasRenderResult: vi.fn(),
-            releasePageResources,
-            loadPageForRender: vi.fn(async () => pdfPage),
+            loadPageForRender: vi.fn(async () => pageLease),
             prepareCanvasRenderForPage: vi.fn(async () => ({
                 canvas: document.createElement('canvas'),
                 startRender: vi.fn(),
@@ -201,13 +206,13 @@ describe('usePdfRendererSinglePageController', () => {
         );
 
         expect(cleanupPageIfCurrentRender).toHaveBeenCalledWith(1, 1, 1);
-        expect(releasePageResources).toHaveBeenCalledTimes(1);
-        expect(releasePageResources).toHaveBeenCalledWith(1, pdfPage);
+        expect(pageLease.release).toHaveBeenCalled();
     });
 
     it('retries a cancelled current-page render without reusing its settled transaction request', async () => {
         const { root } = createPageRoot();
         const pdfPage = { cleanup: vi.fn() } as PDFPageProxy & {cleanup: ReturnType<typeof vi.fn>};
+        const pageLease = createPageLease(pdfPage);
         const scheduleRenderForSinglePage = vi.fn();
         const cancelledError = Object.assign(new Error('rendering cancelled'), {name: 'RenderingCancelledException'});
         const controller = usePdfRendererSinglePageController({
@@ -227,8 +232,7 @@ describe('usePdfRendererSinglePageController', () => {
             clearSelectionBeforePageLayerTeardown: vi.fn(),
             cleanupPageIfCurrentRender: vi.fn(),
             cleanupCanvasRenderResult: vi.fn(),
-            releasePageResources: vi.fn(),
-            loadPageForRender: vi.fn(async () => pdfPage),
+            loadPageForRender: vi.fn(async () => pageLease),
             prepareCanvasRenderForPage: vi.fn(async () => ({
                 canvas: document.createElement('canvas'),
                 startRender: vi.fn(),
@@ -288,7 +292,7 @@ describe('usePdfRendererSinglePageController', () => {
         const renderVersion = 1;
         const effectiveScale = ref(1);
         const pdfPage = { cleanup: vi.fn() } as PDFPageProxy & {cleanup: ReturnType<typeof vi.fn>};
-        const releasePageResources = vi.fn();
+        const pageLease = createPageLease(pdfPage);
         const getViewportForAnnotationEditorLayer = vi.fn(() => ({}) as never);
         const renderAnnotationEditorLayer = vi.fn(async () => ({
             ok: true,
@@ -312,10 +316,9 @@ describe('usePdfRendererSinglePageController', () => {
             clearSelectionBeforePageLayerTeardown: vi.fn(),
             cleanupPageIfCurrentRender: vi.fn(),
             cleanupCanvasRenderResult: vi.fn(),
-            releasePageResources,
             loadPageForRender: vi.fn(async () => {
                 effectiveScale.value = 2;
-                return pdfPage;
+                return pageLease;
             }),
             prepareCanvasRenderForPage: vi.fn(async () => ({
                 canvas: document.createElement('canvas'),
@@ -345,13 +348,13 @@ describe('usePdfRendererSinglePageController', () => {
         expect(rendered).toBe(true);
         expect(getViewportForAnnotationEditorLayer).toHaveBeenCalledWith(pdfPage, 1);
         expect(renderAnnotationEditorLayer).toHaveBeenCalledOnce();
-        expect(releasePageResources).toHaveBeenCalledWith(1, pdfPage);
+        expect(pageLease.release).toHaveBeenCalled();
     });
 
     it('reports standalone annotation-editor layer failure instead of treating current DOM as ready', async () => {
         const { root } = createPageRoot();
         const pdfPage = { cleanup: vi.fn() } as PDFPageProxy & {cleanup: ReturnType<typeof vi.fn>};
-        const releasePageResources = vi.fn();
+        const pageLease = createPageLease(pdfPage);
         const renderAnnotationEditorLayer = vi.fn(async () => ({
             ok: false,
             reason: 'render-error',
@@ -376,8 +379,7 @@ describe('usePdfRendererSinglePageController', () => {
             clearSelectionBeforePageLayerTeardown: vi.fn(),
             cleanupPageIfCurrentRender: vi.fn(),
             cleanupCanvasRenderResult: vi.fn(),
-            releasePageResources,
-            loadPageForRender: vi.fn(async () => pdfPage),
+            loadPageForRender: vi.fn(async () => pageLease),
             prepareCanvasRenderForPage: vi.fn(async () => ({
                 canvas: document.createElement('canvas'),
                 startRender: vi.fn(),
@@ -405,7 +407,7 @@ describe('usePdfRendererSinglePageController', () => {
 
         expect(rendered).toBe(false);
         expect(renderAnnotationEditorLayer).toHaveBeenCalledOnce();
-        expect(releasePageResources).toHaveBeenCalledWith(1, pdfPage);
+        expect(pageLease.release).toHaveBeenCalled();
     });
 
     it('times out and aborts a stalled standalone annotation-editor layer render', async () => {
@@ -413,7 +415,7 @@ describe('usePdfRendererSinglePageController', () => {
         try {
             const { root } = createPageRoot();
             const pdfPage = { cleanup: vi.fn() } as PDFPageProxy & {cleanup: ReturnType<typeof vi.fn>};
-            const releasePageResources = vi.fn();
+            const pageLease = createPageLease(pdfPage);
             const annotationEditorSignals: AbortSignal[] = [];
             const renderAnnotationEditorLayer = vi.fn((...args: unknown[]) => {
                 annotationEditorSignals.push((args[6] as {signal: AbortSignal}).signal);
@@ -438,8 +440,7 @@ describe('usePdfRendererSinglePageController', () => {
                 clearSelectionBeforePageLayerTeardown: vi.fn(),
                 cleanupPageIfCurrentRender: vi.fn(),
                 cleanupCanvasRenderResult: vi.fn(),
-                releasePageResources,
-                loadPageForRender: vi.fn(async () => pdfPage),
+                loadPageForRender: vi.fn(async () => pageLease),
                 prepareCanvasRenderForPage: vi.fn(async () => ({
                     canvas: document.createElement('canvas'),
                     startRender: vi.fn(),
@@ -479,7 +480,7 @@ describe('usePdfRendererSinglePageController', () => {
                     stage: 'annotation-editor-layer',
                 }),
             );
-            expect(releasePageResources).toHaveBeenCalledWith(1, pdfPage);
+            expect(pageLease.release).toHaveBeenCalled();
         } finally {
             vi.useRealTimers();
         }

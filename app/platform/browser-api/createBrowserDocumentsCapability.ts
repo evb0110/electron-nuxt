@@ -47,7 +47,7 @@ import {
 } from '@i18n-core';
 import { safeDecodeURIComponent } from '@app/utils/browserSafe';
 
-interface ICreateBrowserDocumentsCapabilityOptions {clearSearchCaches: (pdfPath?: string) => void;}
+interface ICreateBrowserDocumentsCapabilityOptions {clearSearchCaches: (pdfPath?: string) => void | Promise<void>;}
 
 export interface IBrowserDocumentCapabilities {
     documents: IDocumentsCapability;

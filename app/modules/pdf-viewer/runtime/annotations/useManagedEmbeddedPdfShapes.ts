@@ -11,6 +11,7 @@ import { tracePdfAnnotationSaveEvent } from '@app/modules/pdf-viewer/engine/pdf-
 import { readDocumentBytes } from '@app/utils/documentBytes';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import type { IGuardAsyncOptions } from '@app/utils/asyncGuard';
+import { tryOnScopeDispose } from '@vueuse/core';
 
 interface IManagedEmbeddedPdfShapesPageRange {
     start: number;
@@ -103,6 +104,8 @@ export const useManagedEmbeddedPdfShapes = ({
     const pendingDeletedEmbeddedShapeRefreshPages = new Set<number>();
     let isDeletedEmbeddedShapeRefreshScheduled = false;
     let isDeferredHiddenEmbeddedAnnotationDomSyncScheduled = false;
+    let deferredHiddenAnnotationSyncFrame: number | null = null;
+    let disposed = false;
 
     function adoptPersistedManagedShapesOnNextImport() {
         shouldAdoptSelfSaveMetadataOnNextImport = true;
@@ -199,19 +202,23 @@ export const useManagedEmbeddedPdfShapes = ({
     }
 
     function queueDeferredHiddenEmbeddedAnnotationDomSync() {
-        if (isDeferredHiddenEmbeddedAnnotationDomSyncScheduled) {
+        if (disposed || isDeferredHiddenEmbeddedAnnotationDomSyncScheduled) {
             return;
         }
 
         isDeferredHiddenEmbeddedAnnotationDomSyncScheduled = true;
         const runDeferredSync = () => {
+            deferredHiddenAnnotationSyncFrame = null;
             isDeferredHiddenEmbeddedAnnotationDomSyncScheduled = false;
+            if (disposed) {
+                return;
+            }
             syncHiddenEmbeddedAnnotationDom({ retryDeferredManagedAnnotations: false });
             hideManagedAnnotationEditors();
         };
 
         if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
-            window.requestAnimationFrame(runDeferredSync);
+            deferredHiddenAnnotationSyncFrame = window.requestAnimationFrame(runDeferredSync);
             return;
         }
 
@@ -328,7 +335,9 @@ export const useManagedEmbeddedPdfShapes = ({
     }
 
     function isStaleEmbeddedShapeImport(token: number, path: string | null) {
-        return embeddedShapeImportToken !== token || workingCopyPath.value !== path;
+        return disposed
+            || embeddedShapeImportToken !== token
+            || workingCopyPath.value !== path;
     }
 
     function logStaleEmbeddedShapeImport(token: number, path: string | null) {
@@ -453,6 +462,9 @@ export const useManagedEmbeddedPdfShapes = ({
         data: Uint8Array | null,
         path: string | null,
     ) {
+        if (disposed) {
+            return Promise.resolve();
+        }
         pendingEmbeddedShapeImportData = data;
         pendingEmbeddedShapeImportPath = path;
         const localToken = ++embeddedShapeImportToken;
@@ -628,7 +640,7 @@ export const useManagedEmbeddedPdfShapes = ({
     }
 
     function queueDeletedEmbeddedShapePageRefresh(pageNumber: number) {
-        if (!Number.isFinite(pageNumber) || pageNumber < 1) {
+        if (disposed || !Number.isFinite(pageNumber) || pageNumber < 1) {
             return;
         }
 
@@ -788,6 +800,17 @@ export const useManagedEmbeddedPdfShapes = ({
         },
         { immediate: true },
     );
+
+    tryOnScopeDispose(() => {
+        disposed = true;
+        embeddedShapeImportToken += 1;
+        pendingDeletedEmbeddedShapeRefreshPages.clear();
+        if (deferredHiddenAnnotationSyncFrame !== null && typeof window !== 'undefined') {
+            window.cancelAnimationFrame(deferredHiddenAnnotationSyncFrame);
+            deferredHiddenAnnotationSyncFrame = null;
+        }
+        isDeferredHiddenEmbeddedAnnotationDomSyncScheduled = false;
+    });
 
     return {
         managedEmbeddedAnnotationIds,

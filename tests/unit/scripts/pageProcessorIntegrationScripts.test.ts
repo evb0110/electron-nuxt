@@ -14,10 +14,15 @@ describe('page processor integration scripts', () => {
     it('keeps the smoke check covering core CLI integration surfaces', async () => {
         const smoke = await readProjectFile('scripts/check-page-processor-smoke.py');
 
-        expect(smoke).toContain('"img2pdf>=0.6.3"');
-        expect(smoke).toContain('"Pillow>=10.0.0"');
+        expect(smoke).toContain('LOCK_PATH = PAGE_PROCESSOR_ROOT / "requirements-lock.txt"');
+        expect(smoke).toContain('"--require-hashes"');
+        expect(smoke).toContain('"--only-binary=:all:"');
+        expect(smoke).toContain('run_python_quality_gates()');
         expect(smoke).toContain('run_stage_and_padding_cli()');
         expect(smoke).toContain('run_pdf_cli()');
+        expect(smoke).toContain('run_real_locked_dewarp_cli()');
+        expect(smoke).toContain('run_resource_and_transaction_regressions()');
+        expect(smoke).toContain('run_ocr_benchmark_regressions()');
         expect(smoke).toContain('"detect",');
         expect(smoke).toContain('"apply",');
         expect(smoke).toContain('"pad",');

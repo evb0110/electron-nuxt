@@ -7,13 +7,14 @@ Uses page_dewarp library for cubic spline-based dewarping.
 This stage typically runs after deskew and before split detection.
 """
 
-import cv2
-import numpy as np
 import warnings
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from .io import load_image, load_grayscale, save_image
+import cv2
+import numpy as np
+
+from .io import load_grayscale, load_image, save_image
 
 try:
     from numpy.exceptions import RankWarning as NumpyRankWarning
@@ -226,6 +227,8 @@ def apply_dewarp(
     result = {
         'success': True,
         'output_path': saved_path,
+        'attempted': bool(dewarp_result.attempted),
+        'tool_available': bool(dewarp_result.tool_available),
         'dewarp_applied': bool(dewarp_result.dewarp_applied),
         'changed': bool(dewarp_result.changed),
         'reason': dewarp_result.reason,

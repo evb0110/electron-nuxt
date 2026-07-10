@@ -1,4 +1,6 @@
 import {
+    fetchLatestReleaseWithRetry,
+    getReleaseFetchStatusCode,
     detectArchitecture,
     detectPlatform,
     getAssetExtension,
@@ -9,7 +11,6 @@ import {
     type ILatestReleaseResponse,
     type IReleaseInstaller,
 } from '@releaseSelection';
-import { retry } from 'es-toolkit/function';
 import { isLegacyInstallerAsset } from '@releaseSelection';
 
 interface IGithubReleaseAsset {
@@ -65,16 +66,26 @@ export default defineEventHandler(async (event): Promise<ILatestReleaseResponse>
     }
 
     async function fetchLatestRelease(): Promise<IGithubRelease> {
-        return $fetch<IGithubRelease>(`${githubApiBase}/repos/${githubOwner}/${githubRepo}/releases/latest`, { headers });
+        return $fetch<IGithubRelease>(`${githubApiBase}/repos/${githubOwner}/${githubRepo}/releases/latest`, {
+            headers,
+            retry: 0,
+            timeout: 8_000,
+        });
     }
 
-    let release: IGithubRelease;
+    let releaseResult: {
+        release: IGithubRelease,
+        installers: IReleaseInstaller[]
+    };
     try {
-        release = await fetchLatestRelease();
+        releaseResult = await fetchLatestReleaseWithRetry({
+            fetchRelease: fetchLatestRelease,
+            toInstallers,
+        });
     } catch (error) {
         console.error('Unable to fetch latest release', {
             message: error instanceof Error ? error.message : String(error),
-            statusCode: typeof error === 'object' && error && 'statusCode' in error ? error.statusCode : undefined,
+            statusCode: getReleaseFetchStatusCode(error) ?? undefined,
             statusMessage: typeof error === 'object' && error && 'statusMessage' in error ? error.statusMessage : undefined,
         });
         throw createError({
@@ -83,23 +94,9 @@ export default defineEventHandler(async (event): Promise<ILatestReleaseResponse>
         });
     }
 
-    let installers = toInstallers(release);
-    if (!installers.length) {
-        try {
-            await retry(async () => {
-                release = await fetchLatestRelease();
-                installers = toInstallers(release);
-                if (!installers.length) {
-                    throw new Error('No installers in latest release response');
-                }
-            }, {
-                retries: 2,
-                delay: (attempt) => 450 * attempt,
-            });
-        } catch {
-            // Keep initial empty installers response on transient follow-up failures.
-        }
-    }
+    const {
+        release, installers,
+    } = releaseResult;
 
     const clientHintsPlatform = getHeader(event, 'sec-ch-ua-platform')?.replace(/"/g, '') ?? '';
     const profile = parseUserAgent(getHeader(event, 'user-agent') ?? '', clientHintsPlatform);

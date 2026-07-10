@@ -5,10 +5,14 @@ import type { createPagePreviewCache } from '@app/modules/pdf-viewer/engine/pdf-
 import type { TPdfPagePreviewSource } from '@app/modules/pdf-viewer/engine/pdf-page-preview/pdfPagePreviewTypes';
 import { runCoordinatedPdfPageRender } from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
 
+interface IPdfPagePreviewLease {
+    readonly page: PDFPageProxy;
+    release: () => void;
+}
+
 interface ICreatePagePreviewRenderQueueOptions {
     cache: ReturnType<typeof createPagePreviewCache>;
-    leasePage: (pageNumber: number) => Promise<PDFPageProxy>;
-    releasePage: (pageNumber: number, pdfPage: PDFPageProxy) => void;
+    leasePage: (pageNumber: number) => Promise<IPdfPagePreviewLease>;
     maxLongestSidePx: number;
     concurrency: number;
     shouldSkipPage?: ((pageNumber: number) => boolean) | undefined;
@@ -227,9 +231,10 @@ export function createPagePreviewRenderQueue(options: ICreatePagePreviewRenderQu
 
         const abortController = new AbortController();
         activeAbortControllers.add(abortController);
-        let pdfPage: PDFPageProxy | null = null;
+        let pageLease: IPdfPagePreviewLease | null = null;
         try {
-            pdfPage = await options.leasePage(request.pageNumber);
+            pageLease = await options.leasePage(request.pageNumber);
+            const pdfPage = pageLease.page;
             if (
                 abortController.signal.aborted
                 || request.generation !== generation
@@ -275,9 +280,7 @@ export function createPagePreviewRenderQueue(options: ICreatePagePreviewRenderQu
             );
         } finally {
             activeAbortControllers.delete(abortController);
-            if (pdfPage) {
-                options.releasePage(request.pageNumber, pdfPage);
-            }
+            pageLease?.release();
         }
     }
 

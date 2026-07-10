@@ -17,18 +17,20 @@ import importlib.util
 import io
 import os
 import tempfile
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import cv2
 import numpy as np
-
+from stages.io import load_image
 
 IMAGE_EXTENSIONS = (".png", ".tif", ".tiff", ".jpg", ".jpeg", ".bmp")
 
 _page_dewarp_runtime: tuple[Any, Any] | None = None
 _page_dewarp_import_error: str | None = None
+_PAGE_DEWARP_PROCESS_STATE_LOCK = threading.Lock()
 
 
 @dataclass
@@ -178,7 +180,10 @@ def _make_page_dewarp_config(config_cls: Any, output_dir: Path) -> tuple[Any, di
 
 def _binary_like(image: np.ndarray) -> bool:
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
-    unique_values = np.unique(gray)
+    # This is debug metadata only; cap analysis so it cannot allocate/sort an
+    # additional full-size array for a maximum-policy image.
+    stride = max(1, int(np.ceil(np.sqrt(gray.size / 1_000_000))))
+    unique_values = np.unique(gray[::stride, ::stride])
     if len(unique_values) > 2:
         return False
     return all(int(value) in {0, 255} for value in unique_values)
@@ -235,9 +240,11 @@ def _read_first_output(
         if not candidate.exists() or candidate == input_path.resolve():
             continue
         existing.append(str(candidate))
-        result = cv2.imread(str(candidate), cv2.IMREAD_COLOR)
-        if result is not None:
-            return result, candidate, existing
+        try:
+            result = load_image(str(candidate))
+        except ValueError:
+            continue
+        return result, candidate, existing
 
     return None, None, existing
 
@@ -287,6 +294,7 @@ def dewarp_page_with_metadata(
         "page_dewarp_available": tool_available,
         "page_dewarp_version": _page_dewarp_version(),
         "output_stem": output_stem,
+        "execution_model": "one-command-per-process-with-serialized-global-state",
     }
     if _page_dewarp_import_error is not None:
         debug["page_dewarp_import_error"] = _page_dewarp_import_error
@@ -317,19 +325,24 @@ def dewarp_page_with_metadata(
         stderr_buffer = io.StringIO()
 
         try:
-            with (
-                contextlib.redirect_stdout(stdout_buffer),
-                contextlib.redirect_stderr(stderr_buffer),
-                _temporary_cwd(tmpdir),
-            ):
-                runtime = _load_page_dewarp_runtime()
-                if runtime is None:
-                    raise RuntimeError(_page_dewarp_import_error or "page_dewarp import failed")
+            # page-dewarp changes cwd and writes to process-global stdout/stderr.
+            # The CLI is one-command-per-process; this lock additionally makes
+            # accidental imported/threaded reuse serial instead of corrupting
+            # another invocation's protocol or working directory.
+            with _PAGE_DEWARP_PROCESS_STATE_LOCK:
+                with (
+                    contextlib.redirect_stdout(stdout_buffer),
+                    contextlib.redirect_stderr(stderr_buffer),
+                    _temporary_cwd(tmpdir),
+                ):
+                    runtime = _load_page_dewarp_runtime()
+                    if runtime is None:
+                        raise RuntimeError(_page_dewarp_import_error or "page_dewarp import failed")
 
-                WarpedImage, Config = runtime
-                config, config_debug = _make_page_dewarp_config(Config, tmpdir)
-                debug.update(config_debug)
-                processed_image = WarpedImage(str(input_path), config=config)
+                    WarpedImage, Config = runtime
+                    config, config_debug = _make_page_dewarp_config(Config, tmpdir)
+                    debug.update(config_debug)
+                    processed_image = WarpedImage(str(input_path), config=config)
 
             stdout_text = stdout_buffer.getvalue()
             stderr_text = stderr_buffer.getvalue()
@@ -409,22 +422,3 @@ def dewarp_page(image: np.ndarray) -> np.ndarray:
         fails, or produces no changed output.
     """
     return dewarp_page_with_metadata(image).image
-
-
-def order_points(pts: np.ndarray) -> np.ndarray:
-    """
-    Order points in clockwise order: top-left, top-right, bottom-right, bottom-left.
-    """
-    rect = np.zeros((4, 2), dtype=np.float32)
-
-    # Top-left has smallest sum, bottom-right has largest sum
-    s = pts.sum(axis=1)
-    rect[0] = pts[np.argmin(s)]
-    rect[2] = pts[np.argmax(s)]
-
-    # Top-right has smallest difference, bottom-left has largest difference
-    diff = np.diff(pts, axis=1)
-    rect[1] = pts[np.argmin(diff)]
-    rect[3] = pts[np.argmax(diff)]
-
-    return rect

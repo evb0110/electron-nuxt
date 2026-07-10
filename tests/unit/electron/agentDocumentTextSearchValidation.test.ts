@@ -10,6 +10,7 @@ import type * as SearchRequestValidation from '@electron/features/search/main/se
 
 const mocks = vi.hoisted(() => ({
     dispatchSearchRequest: vi.fn(),
+    cancelSearch: vi.fn(),
     resolveSearchablePdfPath: vi.fn(),
     resolveSearchWorkerPath: vi.fn(() => '/tmp/search-worker.js'),
     loadSearchIndex: vi.fn(),
@@ -29,6 +30,7 @@ vi.mock('@electron/features/search/public', async () => {
         resolveSearchWorkerPath: mocks.resolveSearchWorkerPath,
         SearchWorkerService: class {
             dispatchSearchRequest = mocks.dispatchSearchRequest;
+            cancel = mocks.cancelSearch;
         },
     };
 });
@@ -367,5 +369,62 @@ describe('agent document search validation', () => {
 
         expect(result.textStatus.status).toBe('unknown');
         expect(result.recommendations).toEqual([]);
+    });
+
+    it('cancels an in-flight warmup worker request when its caller disconnects', async () => {
+        const {inspectAgentDocumentText} = await import('@electron/features/agent/documentText');
+        const controller = new AbortController();
+        mocks.dispatchSearchRequest.mockReturnValue(new Promise(() => undefined));
+
+        const inspection = inspectAgentDocumentText(
+            createWindow() as never,
+            {
+                tab: pdfTab,
+                options: {},
+            },
+            controller.signal,
+        );
+        await vi.waitFor(() => expect(mocks.dispatchSearchRequest).toHaveBeenCalledOnce());
+        const dispatchedPayload = mocks.dispatchSearchRequest.mock.calls[0]?.[1] as {requestId: string};
+
+        controller.abort(new Error('client disconnected'));
+
+        await expect(inspection).rejects.toThrow('client disconnected');
+        expect(mocks.cancelSearch).toHaveBeenCalledWith(
+            expect.objectContaining({senderId: 42}),
+            dispatchedPayload.requestId,
+        );
+    });
+
+    it('aborts direct page extraction without falling back to another backend', async () => {
+        const {readAgentDocumentPages} = await import('@electron/features/agent/documentText');
+        const controller = new AbortController();
+        const started = Promise.withResolvers<undefined>();
+        mocks.loadSearchIndex.mockResolvedValue(null);
+        mocks.extractTextWithPdfjs.mockImplementation(async (
+            _path,
+            options: {signal?: AbortSignal},
+        ) => {
+            expect(options.signal).toBe(controller.signal);
+            started.resolve(undefined);
+            await new Promise<undefined>((_resolve, reject) => {
+                options.signal?.addEventListener('abort', () => reject(options.signal?.reason), {once: true});
+            });
+            return [];
+        });
+
+        const read = readAgentDocumentPages(
+            createWindow() as never,
+            {
+                tab: pdfTab,
+                options: {pages: [1]},
+            },
+            controller.signal,
+        );
+        await started.promise;
+        controller.abort(new Error('client disconnected'));
+
+        await expect(read).rejects.toThrow('client disconnected');
+        expect(mocks.extractTextFromPdf).not.toHaveBeenCalled();
     });
 });

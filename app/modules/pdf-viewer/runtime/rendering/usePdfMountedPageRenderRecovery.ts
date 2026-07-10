@@ -74,6 +74,15 @@ const MOUNTED_PAGE_RENDER_RETRY_DELAYS_MS = [
     600,
     1_500,
 ] as const;
+const MOUNTED_PAGE_RECOVERY_ADMISSION_RETRY_MS = 160;
+
+type TMountedRecoveryTransactionAdmission =
+    | { kind: 'uncoordinated' }
+    | { kind: 'denied' }
+    | {
+        kind: 'owned';
+        transactionId: number;
+    };
 
 function normalizePageNumber(pageNumber: number, totalPages: number) {
     if (!Number.isFinite(pageNumber) || totalPages <= 0) {
@@ -167,24 +176,30 @@ export const usePdfMountedPageRenderRecovery = (options: IUsePdfMountedPageRende
         const firstPage = pageNumbers[0];
         const firstRange = ranges[0];
         if (firstPage === undefined || firstRange === undefined) {
-            return null;
+            return { kind: 'denied' } satisfies TMountedRecoveryTransactionAdmission;
         }
         const range = {
             start: Math.min(...ranges.map(item => item.start)),
             end: Math.max(...ranges.map(item => item.end)),
         };
-        const transaction = options.transactionController?.beginTransaction({
+        if (!options.transactionController) {
+            return { kind: 'uncoordinated' } satisfies TMountedRecoveryTransactionAdmission;
+        }
+        const transaction = options.transactionController.beginTransaction({
             kind: 'recovery',
             source: 'mounted-page-recovery',
             page: firstPage,
             range,
             anchor: 'top',
         });
-        if (options.transactionController && !transaction) {
-            return null;
+        if (!transaction) {
+            return { kind: 'denied' } satisfies TMountedRecoveryTransactionAdmission;
         }
-        activeRecoveryTransactionId = transaction?.id ?? null;
-        return activeRecoveryTransactionId;
+        activeRecoveryTransactionId = transaction.id;
+        return {
+            kind: 'owned',
+            transactionId: transaction.id,
+        } satisfies TMountedRecoveryTransactionAdmission;
     }
 
     function advanceRecoveryTransaction(
@@ -328,9 +343,7 @@ export const usePdfMountedPageRenderRecovery = (options: IUsePdfMountedPageRende
         }
 
         isRenderPassActive = true;
-        for (const pageNumber of pages) {
-            pendingPages.set(pageNumber, (pendingPages.get(pageNumber) ?? 0) + 1);
-        }
+        let admissionDenied = false;
 
         try {
             await nextTick();
@@ -340,7 +353,17 @@ export const usePdfMountedPageRenderRecovery = (options: IUsePdfMountedPageRende
 
             const recoverablePages = getRecoverablePages();
             const ranges = getRecoveryRenderRanges(recoverablePages);
-            const transactionId = beginRecoveryTransaction(recoverablePages, ranges);
+            const admission = beginRecoveryTransaction(recoverablePages, ranges);
+            if (admission.kind === 'denied') {
+                admissionDenied = true;
+                return;
+            }
+            const transactionId = admission.kind === 'owned'
+                ? admission.transactionId
+                : null;
+            for (const pageNumber of recoverablePages) {
+                pendingPages.set(pageNumber, (pendingPages.get(pageNumber) ?? 0) + 1);
+            }
             advanceRecoveryTransaction(transactionId, 'render-requested');
             for (const range of ranges) {
                 if (!isRecoveryTransactionCurrent(transactionId)) {
@@ -364,6 +387,9 @@ export const usePdfMountedPageRenderRecovery = (options: IUsePdfMountedPageRende
             );
         } finally {
             isRenderPassActive = false;
+            if (admissionDenied) {
+                scheduleRenderPass(MOUNTED_PAGE_RECOVERY_ADMISSION_RETRY_MS);
+            }
         }
 
         const stillRecoverablePages = getRecoverablePages();

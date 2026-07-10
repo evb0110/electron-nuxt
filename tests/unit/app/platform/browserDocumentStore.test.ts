@@ -562,6 +562,85 @@ describe('BrowserDocumentStore', () => {
         await expect(store.exists(sourceRef)).resolves.toBe(true);
     });
 
+    it('serializes dependent creation against detached-source cleanup', async () => {
+        for (let index = 0; index < 6; index += 1) {
+            const store = new BrowserDocumentStore();
+            const sourceRef = await store.createStoredDocument(
+                `race-source-${index}.pdf`,
+                new Uint8Array([index]),
+                {
+                    mimeType: 'application/pdf',
+                    kind: 'source',
+                    retention: 'transient',
+                    saveKind: 'pdf',
+                },
+            );
+            const clone = () => store.cloneAsWorkingCopy(sourceRef);
+            const cleanup = () => store.cleanupDetachedDocument(sourceRef);
+            let clonePromise: Promise<string>;
+            let cleanupPromise: Promise<boolean>;
+            if (index % 2 === 0) {
+                clonePromise = clone();
+                cleanupPromise = cleanup();
+            } else {
+                cleanupPromise = cleanup();
+                clonePromise = clone();
+            }
+            const [
+                cloneResult,
+                cleanupResult,
+            ] = await Promise.allSettled([
+                clonePromise,
+                cleanupPromise,
+            ]);
+
+            if (cloneResult.status === 'fulfilled') {
+                expect(cleanupResult).toEqual({
+                    status: 'fulfilled',
+                    value: false,
+                });
+                await expect(store.exists(sourceRef)).resolves.toBe(true);
+                const dependent = await store.requireEntry(cloneResult.value);
+                expect(dependent.sourceRef).toBe(sourceRef);
+            } else {
+                expect(cleanupResult).toEqual({
+                    status: 'fulfilled',
+                    value: true,
+                });
+                await expect(store.exists(sourceRef)).resolves.toBe(false);
+            }
+        }
+    });
+
+    it('clones a byte-backed document while atomically attaching it to its source', async () => {
+        const store = new BrowserDocumentStore();
+        const sourceRef = await store.createStoredDocument(
+            'clone-source.pdf',
+            new Uint8Array([
+                1,
+                2,
+                3,
+            ]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                retention: 'transient',
+                saveKind: 'pdf',
+            },
+        );
+
+        const dependentRef = await store.cloneStoredDocument(sourceRef, {
+            fileName: 'dependent.pdf',
+            kind: 'working',
+            sourceRef,
+            saveKind: 'pdf',
+        });
+
+        const dependent = await store.requireEntry(dependentRef);
+        expect(dependent.sourceRef).toBe(sourceRef);
+        await expect(store.cleanupDetachedDocument(sourceRef)).resolves.toBe(false);
+    });
+
     it('serves range reads through source-proxy working copies', async () => {
         const store = new BrowserDocumentStore();
         const sourceRef = await store.createStoredDocument(
@@ -1249,6 +1328,54 @@ describe('BrowserDocumentStore', () => {
 
         await expect(store.readRange(ref, 0, 1)).resolves.toEqual(new Uint8Array([7]));
         await expect(store.readRange(ref, bytes.byteLength - 1, 1)).resolves.toEqual(new Uint8Array([8]));
+    });
+
+    it('retries document maintenance after a failed sweep', async () => {
+        const sourceStore = new BrowserDocumentStore();
+        const staleRef = await sourceStore.createStoredDocument(
+            'stale-working.pdf',
+            new Uint8Array([1]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'working',
+                saveKind: 'pdf',
+            },
+        );
+        const database = indexedDbFactory.getDatabase('evb-viewer-browser-documents');
+        if (!database) {
+            throw new Error('Expected browser document database');
+        }
+        const transaction = database.transaction.bind(database);
+        const transactionSpy = vi.spyOn(database, 'transaction')
+            .mockImplementation((name, mode) => {
+                if (mode === 'readwrite') {
+                    throw new Error('maintenance delete failed');
+                }
+                return transaction(name, mode);
+            });
+        const rehydratedStore = new BrowserDocumentStore();
+
+        await expect(rehydratedStore.createStoredDocument(
+            'first-trigger.pdf',
+            new Uint8Array([2]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'working',
+                saveKind: 'pdf',
+            },
+        )).rejects.toThrow('IndexedDB document delete did not commit');
+
+        transactionSpy.mockRestore();
+        await expect(rehydratedStore.createStoredDocument(
+            'retry-trigger.pdf',
+            new Uint8Array([3]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'working',
+                saveKind: 'pdf',
+            },
+        )).resolves.toMatch(/^browser:\/\/documents\//u);
+        expect(database.getStoreRecords('documents').has(staleRef)).toBe(false);
     });
 
     it('sweeps corrupt recent chunked documents with positive size and no chunk records', async () => {

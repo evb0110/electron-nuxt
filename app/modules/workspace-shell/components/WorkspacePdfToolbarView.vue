@@ -174,6 +174,8 @@
                 :can-convert-to-pdf="canUseDjvu && snapshot.viewerCapabilities.conversionDialog"
                 :is-preparing-print="snapshot.isPreparingPrint"
                 :is-preparing-current-page-print="snapshot.isPreparingCurrentPagePrint"
+                :is-any-saving="snapshot.isAnySaving"
+                :is-history-busy="snapshot.isHistoryBusy"
                 :is-fullscreen="isFullscreen"
                 :fullscreen-supported="fullscreenSupported"
                 trigger-icon="i-ph-dots-three"

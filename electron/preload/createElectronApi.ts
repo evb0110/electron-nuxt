@@ -15,8 +15,13 @@ import type {
     IDocumentsWorkingCopyCapability,
 } from '@contracts/electronApiDocuments';
 import type { TMenuEventUnsubscribe } from '@contracts/electronApiCommon';
+import { decodeHostEnvironmentSnapshot } from '@contracts/electronApiHost';
+import { decodeAppUpdateStatus } from '@contracts/electronApiUpdates';
 import { sanitizeSettings } from '@contracts/settings';
-import { decodeWindowTabIncomingTransfer } from '@contracts/windowTabsValidation';
+import {
+    decodeWindowTabIncomingTransfer,
+    decodeWindowTabsAction,
+} from '@contracts/windowTabsValidation';
 import { getDebugLogMessages } from '@electron/preload/debugLogBuffer';
 import { decodeDebugLogEntry } from '@electron/preload/installDebugLogListener';
 import { createAgentPreloadClient } from '@electron/features/agent/createAgentPreloadClient';
@@ -462,13 +467,17 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         },
 
         updates: {
-            getState: () => invokeCore(CORE_IPC_CHANNELS.updatesGetState),
+            getState: () => invokeCoreDecoded(CORE_IPC_CHANNELS.updatesGetState, decodeAppUpdateStatus),
             check: () => invokeCore(CORE_IPC_CHANNELS.updatesCheck),
             install: () => invokeCore(CORE_IPC_CHANNELS.updatesInstall),
             defer: () => invokeCore(CORE_IPC_CHANNELS.updatesDefer),
             skipVersion: (version) => invokeCore(CORE_IPC_CHANNELS.updatesSkipVersion, version),
             onStatus: (callback): TMenuEventUnsubscribe =>
-                eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.updatesStatus, callback),
+                eventSubscriber.onDecodedPayload(
+                    CORE_IPC_EVENT_CHANNELS.updatesStatus,
+                    decodeAppUpdateStatus,
+                    callback,
+                ),
             onMenuCheckForUpdates: (callback): TMenuEventUnsubscribe =>
                 eventSubscriber.onNoArg(CORE_IPC_EVENT_CHANNELS.menuCheckForUpdates, callback),
         },
@@ -476,9 +485,16 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         shell: {openExternal: (url) => invokeCore(CORE_IPC_CHANNELS.shellOpenExternal, url)},
 
         host: {
-            getEnvironment: () => invokeCore(CORE_IPC_CHANNELS.hostGetEnvironment),
+            getEnvironment: () => invokeCoreDecoded(
+                CORE_IPC_CHANNELS.hostGetEnvironment,
+                decodeHostEnvironmentSnapshot,
+            ),
             onEnvironmentChange: (callback): TMenuEventUnsubscribe =>
-                eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.hostEnvironmentChanged, callback),
+                eventSubscriber.onDecodedPayload(
+                    CORE_IPC_EVENT_CHANNELS.hostEnvironmentChanged,
+                    decodeHostEnvironmentSnapshot,
+                    callback,
+                ),
             getZenModeState: () => invokeCore(CORE_IPC_CHANNELS.hostGetZenModeState),
             setZenMode: (active) => invokeCore(CORE_IPC_CHANNELS.hostSetZenMode, active),
             onZenModeChange: (callback): TMenuEventUnsubscribe =>
@@ -512,7 +528,11 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
                     callback,
                 ),
             onWindowAction: (callback): TMenuEventUnsubscribe =>
-                eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.menuWindowTabsAction, callback),
+                eventSubscriber.onDecodedPayload(
+                    CORE_IPC_EVENT_CHANNELS.menuWindowTabsAction,
+                    decodeWindowTabsAction,
+                    callback,
+                ),
             onMenuNewTab: (callback): TMenuEventUnsubscribe =>
                 eventSubscriber.onNoArg(CORE_IPC_EVENT_CHANNELS.menuNewTab, callback),
             onMenuCloseTab: (callback): TMenuEventUnsubscribe =>

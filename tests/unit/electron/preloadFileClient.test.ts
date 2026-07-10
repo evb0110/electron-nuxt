@@ -6,10 +6,14 @@ import {
     it,
     vi,
 } from 'vitest';
-import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
+import {
+    DOCUMENTS_CHANNELS,
+    DOCUMENTS_EVENT_CHANNELS,
+} from '@electron/features/documents/contract';
 import { createDocumentsPreloadFileClient } from '@electron/features/documents/createDocumentsPreloadFileClient';
 import { toPageIndex } from '@contracts/pageNumbers';
 import { PDF_NATIVE_MUTATION_LIMITS } from '@contracts/nativePdfMutations';
+import { MAX_DOCUMENT_ALLOCATION_BYTES } from '@contracts/electronApiDocuments';
 
 class FakeMessagePort {
     readonly close = vi.fn();
@@ -172,6 +176,8 @@ describe('createDocumentsPreloadFileClient', () => {
         );
 
         expect(port1.close).toHaveBeenCalledTimes(1);
+        expect(port1.postedMessages).toContainEqual({type: 'cancel'});
+        expect(port1.listeners.size).toBe(0);
     });
 
     it('invokes Save As with normalized lossless optimization options', async () => {
@@ -447,6 +453,77 @@ describe('createDocumentsPreloadFileClient', () => {
         expect(ipcRenderer.invoke).toHaveBeenCalledWith(DOCUMENTS_CHANNELS.fileReadRange, '/tmp/working.pdf', 0, 2);
         expect(ipcRenderer.invoke).toHaveBeenCalledWith(DOCUMENTS_CHANNELS.fileReadRange, '/tmp/working.pdf', 2, 2);
         expect(ipcRenderer.invoke).toHaveBeenCalledWith(DOCUMENTS_CHANNELS.fileReadRange, '/tmp/working.pdf', 4, 1);
+    });
+
+    it('rejects malformed stat results while preserving safe large-file metadata', async () => {
+        let result: unknown = {size: -1};
+        const ipcRenderer = {
+            invoke: vi.fn(async () => result),
+            postMessage: vi.fn(),
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        const client = createDocumentsPreloadFileClient(ipcRenderer);
+
+        for (result of [
+            {size: -1},
+            {size: 1.5},
+            {size: Number.MAX_SAFE_INTEGER + 1},
+            {size: '100'},
+        ]) {
+            await expect(client.statFile('/tmp/working.pdf')).rejects.toThrow(
+                'Invalid IPC response for file:stat',
+            );
+        }
+
+        result = {size: MAX_DOCUMENT_ALLOCATION_BYTES + 1};
+        await expect(client.statFile('/tmp/working.pdf')).resolves.toEqual({size: MAX_DOCUMENT_ALLOCATION_BYTES + 1});
+    });
+
+    it('drops malformed revision events and removes the exact subscribed listener', () => {
+        const listeners = new Map<string, (_event: unknown, payload: unknown) => void>();
+        const ipcRenderer = {
+            invoke: vi.fn(),
+            postMessage: vi.fn(),
+            on: vi.fn((channel: string, handler: (_event: unknown, payload: unknown) => void) => {
+                listeners.set(channel, handler);
+                return undefined as never;
+            }),
+            removeListener: vi.fn(),
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'on' | 'removeListener'>;
+        const client = createDocumentsPreloadFileClient(ipcRenderer);
+        const callback = vi.fn();
+        const unsubscribe = client.onDocumentRevisionChanged(callback);
+        const listener = listeners.get(DOCUMENTS_EVENT_CHANNELS.documentRevisionChanged);
+        if (!listener) {
+            throw new Error('Expected document revision listener');
+        }
+        const valid = {
+            version: 1,
+            token: 'revision-2',
+            previousToken: 'revision-1',
+            documentRef: '/tmp/working.pdf',
+            authority: 'electron-working-copy',
+            contentRevision: 2,
+            mintedAt: 123,
+            reason: 'write',
+        };
+
+        listener({}, {
+            ...valid,
+            reason: 'future-reason',
+        });
+        listener({}, {
+            ...valid,
+            contentRevision: -1,
+        });
+        listener({}, valid);
+        unsubscribe();
+
+        expect(callback).toHaveBeenCalledOnce();
+        expect(callback).toHaveBeenCalledWith(valid);
+        expect(ipcRenderer.removeListener).toHaveBeenCalledWith(
+            DOCUMENTS_EVENT_CHANNELS.documentRevisionChanged,
+            listener,
+        );
     });
 
     it('invokes native PDF preview metadata, cancel, and render channels with validated inputs', async () => {

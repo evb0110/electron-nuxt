@@ -859,8 +859,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             return pdfData.value ?? readWorkingCopyBytes();
         }
 
-        await persistAllAnnotationNotes(true);
-
         const printTransaction = await pdfViewerRef.value?.runSaveTransaction({
             mode: 'print',
             forcePdfjsMaterialize: true,
@@ -878,6 +876,13 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             pendingTexts: printTransaction?.pendingEmbeddedTextUpdates ?? null,
             pendingDeletes: printTransaction?.pendingEmbeddedAnnotationDeletes ?? null,
         });
+    }
+
+    async function ensurePrintReady() {
+        if (!hasOpenAnnotationNotes.value) {
+            return true;
+        }
+        return persistAllAnnotationNotes(true);
     }
 
     async function getQuickPrintPageMetrics() {
@@ -1001,6 +1006,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         canPrintDjvuSource: computed(() => isDjvuMode.value && Boolean(djvuSourcePath.value)),
         getCurrentPrintPage: () => documentViewerRef.value?.getCurrentPage?.() ?? currentPage.value,
         getQuickPrintPageMetrics,
+        ensurePrintReady,
         getPrintableSourceData,
         renderLoadedPdfPagesForBrowserPrint,
         printDjvuSource,

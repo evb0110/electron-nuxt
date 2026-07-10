@@ -146,6 +146,11 @@ import type {
 } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
 import { useDeferredWorkspaceChunkLoader } from '@app/modules/workspace-shell/composables/useDeferredWorkspaceChunkLoader';
 import {
+    createDeferredWorkspaceHostBindings,
+    type IDeferredWorkspaceHostEmits,
+} from '@app/modules/workspace-shell/composables/createDeferredWorkspaceHostBindings';
+import { DEFERRED_WORKSPACE_HOST_POLICY } from '@app/modules/workspace-shell/host/deferredWorkspaceHostPolicy';
+import {
     type IDocumentOpenIntent,
     type IDocumentOpenTransactionRun,
     resolveDocumentOpenRunResult,
@@ -187,64 +192,8 @@ const {
 }>();
 const { t } = useTypedI18n();
 
-const emit = defineEmits<{
-    'update-document-record': [record: IWorkspaceDocumentRecord];
-    'update-session-state': [state: ITabViewSessionState];
-    'update:start-section': [section: TStartSection];
-    'open-in-new-tab': [result: string | TOpenFileResult];
-    'request-close-tab': [];
-    'open-settings': [];
-    'open-combine': [];
-    'toggle-fullscreen': [];
-    'expose-ready': [expose: IWorkspaceExpose];
-    'expose-released': [];
-}>();
+const emit = defineEmits<IDeferredWorkspaceHostEmits>();
 
-function handleDocumentRecordUpdate(record: IWorkspaceDocumentRecord) {
-    if (!documentSession) {
-        activeDocumentSession.value.applyWorkspaceRecord(record, 'workspace');
-    }
-    emit('update-document-record', record);
-}
-
-function handleStartSectionUpdate(section: TStartSection) {
-    emit('update:start-section', section);
-}
-
-function handleOpenInNewTab(result: string | TOpenFileResult) {
-    emit('open-in-new-tab', result);
-}
-
-function handleRequestCloseTab() {
-    emit('request-close-tab');
-}
-
-function handleOpenSettings() {
-    emit('open-settings');
-}
-
-function handleOpenCombine() {
-    emit('open-combine');
-}
-
-function handleToggleFullscreen() {
-    emit('toggle-fullscreen');
-}
-
-function handleWorkspaceExposeReady(expose: IWorkspaceExpose) {
-    mountedWorkspace.value = expose;
-    activeDocumentSession.value.attachWorkspace(expose);
-}
-
-function handleWorkspaceExposeReleased() {
-    mountedWorkspace.value = null;
-    activeDocumentSession.value.detachWorkspace();
-}
-const RECENT_OPEN_LOG_SECTION = 'recent-open';
-const LOADER_LOG_SECTION = 'loader';
-const DOCUMENT_OPEN_SETTLE_TIMEOUT_MS = 4_000;
-
-const WORKSPACE_MOUNT_POLL_INTERVAL_MS = 25;
 
 const {
     DocumentWorkspace,
@@ -255,7 +204,7 @@ const {
     workspaceChunkLoadError,
     workspaceRenderNonce,
 } = useDeferredWorkspaceChunkLoader({
-    logSection: RECENT_OPEN_LOG_SECTION,
+    logSection: DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION,
     tabId,
 });
 
@@ -267,13 +216,27 @@ let isHostUnmounted = false;
 const restoreAttemptState = createWorkspaceRestoreAttemptState();
 const filePickerInFlightCount = ref(0);
 const workspaceSplitCache = useWorkspaceSplitCache();
-const WORKSPACE_MOUNT_TIMEOUT_MS = 30_000;
-const WORKSPACE_MOUNT_RETRY_TIMEOUT_MS = 20_000;
 const fallbackDocumentSession = createWorkspaceDocumentSessionCore({
     tabId,
     initialRecord: documentRecord ?? createWorkspaceDocumentRecord(),
 });
 const activeDocumentSession = computed(() => documentSession ?? fallbackDocumentSession);
+const {
+    handleDocumentRecordUpdate,
+    handleStartSectionUpdate,
+    handleOpenInNewTab,
+    handleRequestCloseTab,
+    handleOpenSettings,
+    handleOpenCombine,
+    handleToggleFullscreen,
+    handleWorkspaceExposeReady,
+    handleWorkspaceExposeReleased,
+} = createDeferredWorkspaceHostBindings({
+    emit,
+    hasExternalDocumentSession: Boolean(documentSession),
+    activeDocumentSession,
+    mountedWorkspace,
+});
 const splitCacheSession = computed(() => createWorkspaceSplitCacheSessionState(activeDocumentSession.value));
 
 const {
@@ -393,7 +356,7 @@ function requestWorkspaceMount(reason: string) {
     }
 
     workspaceRequested.value = true;
-    BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Requesting workspace mount', {
+    BrowserLogger.debug(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Requesting workspace mount', {
         tabId: tabId,
         reason,
     });
@@ -443,7 +406,7 @@ watch(loaderVariant, (nextVariant, previousVariant) => {
         return;
     }
 
-    BrowserLogger.debug(LOADER_LOG_SECTION, 'Workspace host loader variant changed', {
+    BrowserLogger.debug(DEFERRED_WORKSPACE_HOST_POLICY.LOADER_LOG_SECTION, 'Workspace host loader variant changed', {
         tabId: tabId,
         previousVariant,
         nextVariant,
@@ -541,7 +504,7 @@ watch([
 });
 
 function handleRetryWorkspaceMount() {
-    BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'Retrying DocumentWorkspace async chunk load', {tabId: tabId});
+    BrowserLogger.info(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Retrying DocumentWorkspace async chunk load', {tabId: tabId});
 
     retryWorkspaceChunkRender();
     workspaceLoadPromise = null;
@@ -564,7 +527,7 @@ function beginDocumentOpenTransaction(intent: IDocumentOpenIntent) {
         documentRef: resolveTransactionDocumentRef(target, documentPath ?? null),
     });
     if (!sessionTransaction) {
-        BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Document open transaction deferred because another transaction is active', {
+        BrowserLogger.debug(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Document open transaction deferred because another transaction is active', {
             tabId: tabId,
             action: intent.action,
             activeTransaction: activeDocumentSession.value.snapshot.value.activeTransaction,
@@ -584,7 +547,7 @@ function beginDocumentOpenTransaction(intent: IDocumentOpenIntent) {
 
     requestWorkspaceMount(`document-open:${intent.action}`);
 
-    BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Document open transaction started', {
+    BrowserLogger.debug(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Document open transaction started', {
         tabId: tabId,
         transactionId: sessionTransaction.id,
         action: transaction.action,
@@ -602,7 +565,7 @@ async function waitForDocumentOpenTerminalState(transaction: IDocumentOpenTransa
         return false;
     }
 
-    const deadline = Date.now() + DOCUMENT_OPEN_SETTLE_TIMEOUT_MS;
+    const deadline = Date.now() + DEFERRED_WORKSPACE_HOST_POLICY.DOCUMENT_OPEN_SETTLE_TIMEOUT_MS;
     while (
         !isHostUnmounted
         && activeDocumentOpenTransaction.value?.id === transaction.sessionTransaction.id
@@ -620,7 +583,7 @@ async function waitForDocumentOpenTerminalState(transaction: IDocumentOpenTransa
                         }),
                     ]);
                 } catch (error) {
-                    BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Document open settle wait failed', {
+                    BrowserLogger.warn(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Document open settle wait failed', {
                         tabId: tabId,
                         transactionId: transaction.sessionTransaction.id,
                         action: transaction.action,
@@ -635,17 +598,17 @@ async function waitForDocumentOpenTerminalState(transaction: IDocumentOpenTransa
                 return true;
             }
         } else {
-            await delay(WORKSPACE_MOUNT_POLL_INTERVAL_MS);
+            await delay(DEFERRED_WORKSPACE_HOST_POLICY.WORKSPACE_MOUNT_POLL_INTERVAL_MS);
         }
     }
 
     if (!workspaceHasDocumentOrOpenError()) {
-        BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Document open did not reach a terminal visible state before settle timeout', {
+        BrowserLogger.warn(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Document open did not reach a terminal visible state before settle timeout', {
             tabId: tabId,
             transactionId: transaction.sessionTransaction.id,
             action: transaction.action,
             target: transaction.target,
-            timeoutMs: DOCUMENT_OPEN_SETTLE_TIMEOUT_MS,
+            timeoutMs: DEFERRED_WORKSPACE_HOST_POLICY.DOCUMENT_OPEN_SETTLE_TIMEOUT_MS,
             hasMountedWorkspace: hasMountedWorkspace.value,
         });
     }
@@ -663,7 +626,7 @@ function finishDocumentOpenTransaction(transaction: IDocumentOpenTransactionRun,
         handleDocumentRecordUpdate(createWorkspaceDocumentRecord());
     }
 
-    BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Document open transaction finished', {
+    BrowserLogger.debug(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Document open transaction finished', {
         tabId: tabId,
         transactionId: transaction.sessionTransaction.id,
         action: transaction.action,
@@ -737,21 +700,21 @@ async function preloadWorkspaceComponent(reason: string) {
         return workspacePreloadPromise;
     }
 
-    BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Preloading DocumentWorkspace chunk', {
+    BrowserLogger.debug(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Preloading DocumentWorkspace chunk', {
         tabId: tabId,
         reason,
     });
 
     workspacePreloadPromise = loadDocumentWorkspace()
         .then(() => {
-            BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'DocumentWorkspace chunk preloaded', {
+            BrowserLogger.debug(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'DocumentWorkspace chunk preloaded', {
                 tabId: tabId,
                 reason,
             });
             return true;
         })
         .catch((error) => {
-            BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'Failed to preload DocumentWorkspace chunk', {
+            BrowserLogger.error(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Failed to preload DocumentWorkspace chunk', {
                 tabId: tabId,
                 reason,
                 error: error instanceof Error ? error.message : String(error),
@@ -765,7 +728,9 @@ async function preloadWorkspaceComponent(reason: string) {
     return workspacePreloadPromise;
 }
 
-async function waitForWorkspaceMount(timeoutMs = WORKSPACE_MOUNT_TIMEOUT_MS) {
+async function waitForWorkspaceMount(
+    timeoutMs: number = DEFERRED_WORKSPACE_HOST_POLICY.WORKSPACE_MOUNT_TIMEOUT_MS,
+) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
         if (isHostUnmounted) {
@@ -778,7 +743,7 @@ async function waitForWorkspaceMount(timeoutMs = WORKSPACE_MOUNT_TIMEOUT_MS) {
             return mountedWorkspace.value;
         }
 
-        await delay(WORKSPACE_MOUNT_POLL_INTERVAL_MS);
+        await delay(DEFERRED_WORKSPACE_HOST_POLICY.WORKSPACE_MOUNT_POLL_INTERVAL_MS);
     }
     return null;
 }
@@ -795,7 +760,7 @@ async function ensureWorkspaceLoaded(reason: string) {
 
     const preloadSucceeded = await preloadWorkspaceComponent(`ensureWorkspaceLoaded:${reason}`);
     if (!preloadSucceeded) {
-        BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Proceeding with workspace mount after preload failure', {
+        BrowserLogger.warn(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Proceeding with workspace mount after preload failure', {
             tabId: tabId,
             reason,
         });
@@ -820,7 +785,7 @@ async function ensureWorkspaceLoaded(reason: string) {
             });
         }
     } else {
-        BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Workspace mount ready', {
+        BrowserLogger.debug(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Workspace mount ready', {
             tabId: tabId,
             reason,
         });
@@ -831,7 +796,7 @@ async function ensureWorkspaceLoaded(reason: string) {
 async function withLoadedWorkspace<T = void>(action: string, run: (workspace: IWorkspaceExpose) => Promise<T> | T) {
     let workspace = mountedWorkspace.value ?? await ensureWorkspaceLoaded(action);
     if (!workspace && !hasWorkspaceChunkLoadError.value) {
-        workspace = await waitForWorkspaceMount(WORKSPACE_MOUNT_RETRY_TIMEOUT_MS);
+        workspace = await waitForWorkspaceMount(DEFERRED_WORKSPACE_HOST_POLICY.WORKSPACE_MOUNT_RETRY_TIMEOUT_MS);
     }
     if (!workspace) {
         BrowserLogger.error('workspace-host', 'Workspace unavailable for loaded action', {
@@ -860,7 +825,7 @@ async function withLoadedWorkspaceRequired<T = void>(
 ) {
     let workspace = mountedWorkspace.value ?? await ensureWorkspaceLoaded(action);
     if (!workspace && !hasWorkspaceChunkLoadError.value) {
-        workspace = await waitForWorkspaceMount(WORKSPACE_MOUNT_RETRY_TIMEOUT_MS);
+        workspace = await waitForWorkspaceMount(DEFERRED_WORKSPACE_HOST_POLICY.WORKSPACE_MOUNT_RETRY_TIMEOUT_MS);
     }
     if (!workspace) {
         const error = new Error('Workspace is not available.');
@@ -888,7 +853,7 @@ async function withWorkspace(
     action: string,
     run: (workspace: IWorkspaceExpose) => Promise<boolean | undefined> | boolean | undefined,
 ) {
-    BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'withWorkspace start', {
+    BrowserLogger.debug(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'withWorkspace start', {
         tabId: tabId,
         action,
         hasMountedWorkspace: hasMountedWorkspace.value,
@@ -905,7 +870,7 @@ async function withWorkspace(
             });
             return false;
         }
-        workspace = await waitForWorkspaceMount(WORKSPACE_MOUNT_RETRY_TIMEOUT_MS);
+        workspace = await waitForWorkspaceMount(DEFERRED_WORKSPACE_HOST_POLICY.WORKSPACE_MOUNT_RETRY_TIMEOUT_MS);
     }
     if (!workspace) {
         BrowserLogger.error('workspace-host', 'Workspace unavailable for action', {
@@ -917,7 +882,7 @@ async function withWorkspace(
 
     try {
         const result = await run(workspace);
-        BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'withWorkspace completed', {
+        BrowserLogger.debug(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'withWorkspace completed', {
             tabId: tabId,
             action,
             hasPdf: workspaceHasPdf(workspace),
@@ -934,7 +899,7 @@ async function withWorkspace(
 }
 
 async function openPath(path: TDocumentRef, action: string) {
-    BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Attempting open path', {
+    BrowserLogger.debug(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Attempting open path', {
         tabId: tabId,
         action,
         path,
@@ -943,7 +908,7 @@ async function openPath(path: TDocumentRef, action: string) {
 }
 
 async function handleOpenRecentFromPlaceholder(file: IRecentFile) {
-    BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Recent item clicked from placeholder', {
+    BrowserLogger.debug(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Recent item clicked from placeholder', {
         tabId: tabId,
         path: file.originalPath,
         workspaceRequested: workspaceRequested.value,
@@ -956,7 +921,7 @@ async function handleOpenRecentFromPlaceholder(file: IRecentFile) {
     }, async () => {
         const preloadedWorkspace = mountedWorkspace.value ?? await ensureWorkspaceLoaded('openRecentFromPlaceholder:preload');
         if (!preloadedWorkspace) {
-            BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'Failed to preload workspace for recent open', {
+            BrowserLogger.error(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Failed to preload workspace for recent open', {
                 tabId: tabId,
                 path: file.originalPath,
             });
@@ -1020,9 +985,9 @@ onMounted(() => {
         void preloadWorkspaceComponent('workspace-host-mounted');
     }
 
-    BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Workspace host mounted; loading recent files', {tabId: tabId});
+    BrowserLogger.debug(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Workspace host mounted; loading recent files', {tabId: tabId});
     void loadRecentFiles().finally(() => {
-        BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Workspace host recent files load settled', {
+        BrowserLogger.debug(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Workspace host recent files load settled', {
             tabId: tabId,
             count: recentFiles.value.length,
         });

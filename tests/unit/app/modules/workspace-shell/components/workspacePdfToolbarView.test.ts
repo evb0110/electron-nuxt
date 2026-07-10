@@ -46,4 +46,22 @@ describe('workspace PDF toolbar wiring', () => {
         expect(documentWorkspace).toContain('isOpeningDocument: isOpeningDocumentForToolbarDisplay.value');
         expect(documentWorkspace).not.toContain('isOpeningDocument: pendingDocumentOpen.value');
     });
+
+    it('routes inline, app-menu, and overflow print commands through the shared busy predicate', () => {
+        const presenter = readWorkspaceFile('app/modules/workspace-shell/components/WorkspacePdfToolbarView.vue');
+        const toolbar = readWorkspaceFile('app/modules/pdf-viewer/components/PdfToolbar.vue');
+        const appMenu = readWorkspaceFile('app/components/toolbar/ToolbarAppMenu.vue');
+        const overflowMenu = readWorkspaceFile('app/components/toolbar/ToolbarOverflowMenu.vue');
+
+        expect(presenter).toContain(':is-any-saving="snapshot.isAnySaving"');
+        expect(presenter).toContain(':is-history-busy="snapshot.isHistoryBusy"');
+        for (const source of [
+            toolbar,
+            appMenu,
+            overflowMenu,
+        ]) {
+            expect(source).toContain('isReaderPrintCommandDisabled');
+        }
+        expect(overflowMenu).toContain('disabled: isPrintCommandDisabled.value');
+    });
 });

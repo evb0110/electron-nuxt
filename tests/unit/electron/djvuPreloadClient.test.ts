@@ -10,6 +10,23 @@ import type * as DjvuPreloadClientModule from '@electron/features/djvu/createDjv
 import { cast } from '@tests/helpers/cast';
 
 describe('createDjvuPreloadClient', () => {
+    it('rejects oversized preview request ids before invoking main', async () => {
+        const ipcRenderer: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener'> = {
+            invoke: vi.fn(),
+            on: vi.fn(),
+            removeListener: vi.fn(),
+        };
+        const { createDjvuPreloadClient }: typeof DjvuPreloadClientModule = await import('@electron/features/djvu/createDjvuPreloadClient');
+        const client = createDjvuPreloadClient(cast<IpcRenderer>(ipcRenderer));
+        const oversizedRequestId = 'x'.repeat(129);
+
+        expect(() => client.renderPagePreview('/tmp/book.djvu', 1, {previewRequestId: oversizedRequestId}))
+            .toThrow('renderPagePreview.options.previewRequestId exceeds maximum length (128)');
+        expect(() => client.cancelPagePreview(oversizedRequestId))
+            .toThrow('cancelPagePreview.requestId exceeds maximum length (128)');
+        expect(ipcRenderer.invoke).not.toHaveBeenCalled();
+    });
+
     it('drops malformed DjVu events before callbacks', async () => {
         const listeners = new Map<string, (_event: unknown, payload: unknown) => void>();
         const ipcRenderer: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener'> = {

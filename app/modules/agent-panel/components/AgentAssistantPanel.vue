@@ -804,6 +804,7 @@ import type { IAgentAssistantPanelControllerProps } from '@app/modules/agent-pan
 import AssistantEffortSwitcher from '@app/modules/agent-panel/components/AssistantEffortSwitcher.vue';
 import AssistantModelSwitcher from '@app/modules/agent-panel/components/AssistantModelSwitcher.vue';
 import AssistantSpeedSwitcher from '@app/modules/agent-panel/components/AssistantSpeedSwitcher.vue';
+import { createAgentAssistantPanelControllerProps } from '@app/modules/agent-panel/composables/createAgentAssistantPanelControllerProps';
 import { useAgentAssistantPanelController } from '@app/modules/agent-panel/composables/useAgentAssistantPanelController';
 
 const {
@@ -820,26 +821,14 @@ const emit = defineEmits<{
     'resize-start': [event: PointerEvent];
 }>();
 
-const props = {
-    get activeDocumentName() {
-        return activeDocumentName;
-    },
-    get chatScope() {
-        return chatScope;
-    },
-    get hasActiveDocument() {
-        return hasActiveDocument;
-    },
-    get hasAnyDocument() {
-        return hasAnyDocument;
-    },
-    get width() {
-        return width;
-    },
-    get isResizing() {
-        return isResizing;
-    },
-} satisfies Readonly<IAgentAssistantPanelControllerProps>;
+const props = createAgentAssistantPanelControllerProps(() => ({
+    activeDocumentName: activeDocumentName ?? null,
+    chatScope: chatScope ?? null,
+    hasActiveDocument: hasActiveDocument ?? false,
+    hasAnyDocument: hasAnyDocument ?? false,
+    width,
+    isResizing: isResizing ?? false,
+}));
 
 const {
     ASSISTANT_PRESETS,

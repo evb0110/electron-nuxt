@@ -1,10 +1,31 @@
 import type { TMenuEventUnsubscribe } from '@contracts/electronApiCommon';
+import {
+    isFiniteNumber,
+    isRecord,
+} from '@contracts/runtimeGuards';
 
 export type THostPlatform = 'darwin' | 'win32' | 'linux';
+const HOST_OS_SCALE_FACTOR_MAX = 8;
 
 export interface IHostEnvironmentSnapshot {
     platform: THostPlatform;
     osScaleFactor: number;
+}
+
+export function decodeHostEnvironmentSnapshot(value: unknown): IHostEnvironmentSnapshot | null {
+    if (
+        !isRecord(value)
+        || (value.platform !== 'darwin' && value.platform !== 'win32' && value.platform !== 'linux')
+        || !isFiniteNumber(value.osScaleFactor)
+        || value.osScaleFactor <= 0
+        || value.osScaleFactor > HOST_OS_SCALE_FACTOR_MAX
+    ) {
+        return null;
+    }
+    return {
+        platform: value.platform,
+        osScaleFactor: value.osScaleFactor,
+    };
 }
 
 export interface IHostZenModeState {

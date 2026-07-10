@@ -600,6 +600,79 @@ describe('fileOps path security', () => {
         expect(close).toHaveBeenCalledTimes(1);
     });
 
+    it('closes and retries a pending range handle opened across a working-copy mutation', async () => {
+        const firstOpen = deferred<{
+            close: ReturnType<typeof vi.fn>;
+            read: ReturnType<typeof vi.fn>;
+        }>();
+        const firstClose = vi.fn(async () => {});
+        const firstRead = vi.fn(async () => ({bytesRead: 0}));
+        const secondClose = vi.fn(async () => {});
+        const secondRead = vi.fn(async (buffer: Buffer) => {
+            buffer.fill(9);
+            return {bytesRead: buffer.byteLength};
+        });
+        mocks.open
+            .mockImplementationOnce(() => firstOpen.promise)
+            .mockResolvedValueOnce({
+                close: secondClose,
+                read: secondRead,
+            });
+
+        const rangeRead = handleFileReadRange(
+            readContext,
+            '/tmp/electron-test/safe.pdf',
+            0,
+            2,
+        );
+        await waitForSettledQueueTurn();
+        await enqueueWorkingCopyMutation('/tmp/electron-test/safe.pdf', async () => undefined);
+        firstOpen.resolve({
+            close: firstClose,
+            read: firstRead,
+        });
+
+        await expect(rangeRead).resolves.toEqual(new Uint8Array([
+            9,
+            9,
+        ]));
+        expect(mocks.open).toHaveBeenCalledTimes(2);
+        expect(firstRead).not.toHaveBeenCalled();
+        expect(firstClose).toHaveBeenCalledTimes(1);
+        expect(secondClose).not.toHaveBeenCalled();
+    });
+
+    it('defers invalidation close until the active range read releases its handle', async () => {
+        const readResult = deferred<{bytesRead: number}>();
+        const close = vi.fn(async () => {});
+        const read = vi.fn((buffer: Buffer) => {
+            buffer.fill(4);
+            return readResult.promise;
+        });
+        mocks.open.mockResolvedValue({
+            close,
+            read,
+        });
+
+        const rangeRead = handleFileReadRange(
+            readContext,
+            '/tmp/electron-test/safe.pdf',
+            0,
+            2,
+        );
+        await vi.waitFor(() => expect(read).toHaveBeenCalledOnce());
+        await enqueueWorkingCopyMutation('/tmp/electron-test/safe.pdf', async () => undefined);
+        await waitForSettledQueueTurn();
+
+        expect(close).not.toHaveBeenCalled();
+        readResult.resolve({bytesRead: 2});
+        await expect(rangeRead).resolves.toEqual(new Uint8Array([
+            4,
+            4,
+        ]));
+        expect(close).toHaveBeenCalledTimes(1);
+    });
+
     it('allows direct reads for DjVu files approved for native viewing', async () => {
         mocks.resolveAllowedReadPath.mockResolvedValue(null);
         mocks.isAllowedDjvuViewingPath.mockReturnValue(true);

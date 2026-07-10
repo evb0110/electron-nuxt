@@ -8,7 +8,8 @@ use lopdf::{
 use page_sizes::write_page_sizes_json;
 use serde::Deserialize;
 use std::{
-    collections::{HashMap, HashSet},
+    cmp::Ordering,
+    collections::{BinaryHeap, HashMap, HashSet},
     env,
     error::Error,
     fs::{self, File, OpenOptions},

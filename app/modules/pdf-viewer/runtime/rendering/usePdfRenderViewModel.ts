@@ -62,7 +62,6 @@ interface IUsePdfRenderViewModelOptions {
     effectiveScale: Ref<number>;
     continuousScroll: ComputedRef<boolean>;
     numPages: Ref<number>;
-    isPagedNavigationBurstActive?: (() => boolean) | undefined;
     markersByPage: Ref<Map<number, IMarkerViewModel[]>>;
     linksByPage: ComputedRef<Record<number, ILinkAnnotation[]>>;
     renderVisiblePages: (
@@ -79,7 +78,6 @@ interface IUsePdfRenderViewModelOptions {
 }
 
 const emptyLinksByPage: Record<number, never[]> = {};
-const PAGED_BUFFER_RENDER_QUIET_DELAY_MS = 220;
 
 export const usePdfRenderViewModel = (options: IUsePdfRenderViewModelOptions) => {
     const { isViewerLoadingOverlayVisible } = usePdfViewerLoadingState({
@@ -172,19 +170,8 @@ export const usePdfRenderViewModel = (options: IUsePdfRenderViewModelOptions) =>
     }
 
     let pagedBufferRenderToken = 0;
-    let pagedBufferRenderQuietTimer: ReturnType<typeof setTimeout> | null = null;
-
     function isPagedBufferRenderSuppressed() {
         return options.suppressPagedBufferRender?.value === true;
-    }
-
-    function clearPagedBufferQuietTimer() {
-        if (!pagedBufferRenderQuietTimer) {
-            return;
-        }
-
-        clearTimeout(pagedBufferRenderQuietTimer);
-        pagedBufferRenderQuietTimer = null;
     }
 
     function getPendingPagedTargetRenderRange(mountedPages: number[]) {
@@ -264,22 +251,6 @@ export const usePdfRenderViewModel = (options: IUsePdfRenderViewModelOptions) =>
             }
 
             const pendingTargetRange = getPendingPagedTargetRenderRange(mountedPages);
-            if (options.isPagedNavigationBurstActive?.() === true) {
-                clearPagedBufferQuietTimer();
-                pagedBufferRenderQuietTimer = setTimeout(() => {
-                    pagedBufferRenderQuietTimer = null;
-                    if (token === pagedBufferRenderToken) {
-                        schedulePagedBufferRender();
-                    }
-                }, PAGED_BUFFER_RENDER_QUIET_DELAY_MS);
-                logPdfRenderTrace('paged-buffer-render-deferred-for-navigation-burst', {
-                    token,
-                    currentPage: options.currentPage.value,
-                    mountedPages,
-                });
-                return;
-            }
-
             const renderRange = pendingTargetRange ?? {
                 start: firstMountedPage,
                 end: lastMountedPage,
@@ -332,17 +303,6 @@ export const usePdfRenderViewModel = (options: IUsePdfRenderViewModelOptions) =>
         },
         { flush: 'post' },
     );
-
-    watch(
-        () => options.pdfDocument.value,
-        () => {
-            clearPagedBufferQuietTimer();
-        },
-    );
-
-    onScopeDispose(() => {
-        clearPagedBufferQuietTimer();
-    });
 
     return {
         isViewerLoadingOverlayVisible,

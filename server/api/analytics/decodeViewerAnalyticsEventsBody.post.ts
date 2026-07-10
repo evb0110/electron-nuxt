@@ -1,7 +1,7 @@
 import {
+    createError,
     defineEventHandler,
     getHeader,
-    readBody,
     setHeader,
 } from 'h3';
 import { isNotNil } from 'es-toolkit/predicate';
@@ -12,29 +12,39 @@ import type {
 } from 'type-fest';
 import {
     ANALYTICS_EVENT_NAMES,
-    type IAnalyticsEventEnvelope,
     type TAnalyticsEventName,
     type TAnalyticsScreenCategory,
     normalizeAnalyticsScalar,
 } from '@contracts/analytics';
 import { isRecord } from '@contracts/runtimeGuards';
 import { getAnalyticsDb } from '@server/db';
-import { viewerAnalyticsEvent } from '@server/db/viewerAnalyticsEvent';
+import {
+    admitViewerAnalyticsEvents,
+    type IViewerAnalyticsAdmissionEvent,
+} from '@server/db/admitViewerAnalyticsEvents';
 import {
     extractGeo,
     getAnalyticsRequestHost,
     hashVisitorIdentity,
     isAnalyticsWriteAllowed,
 } from '@server/utils/analytics';
+import {
+    createAnalyticsDedupeKey,
+    isAnalyticsAdmissionRejected,
+    resolveRootAnalyticsAdmissionPolicy,
+    ROOT_ANALYTICS_BODY_MAX_BYTES,
+    ROOT_ANALYTICS_MAX_EVENT_COUNT,
+    ROOT_ANALYTICS_USER_AGENT_MAX_LENGTH,
+} from '@server/utils/analyticsAdmission';
+import { readBoundedAnalyticsJsonBody } from '@server/utils/analyticsRequestBody';
+import { getRuntimeEnv } from '@server/utils/getRuntimeEnv';
 
 const VALID_EVENT_NAMES: ReadonlySet<string> = new Set<TAnalyticsEventName>(ANALYTICS_EVENT_NAMES);
-const MAX_EVENT_COUNT = 20;
-const MAX_STRING_LENGTH = 2_000;
+const MAX_STRING_LENGTH = 500;
+const MAX_REFERRER_LENGTH = 1_024;
 const MAX_OBJECT_KEYS = 40;
 const MAX_ARRAY_ITEMS = 25;
 const MAX_NORMALIZE_DEPTH = 4;
-
-type TViewerAnalyticsInsert = typeof viewerAnalyticsEvent.$inferInsert;
 
 function isAnalyticsEventName(value: string): value is TAnalyticsEventName {
     return VALID_EVENT_NAMES.has(value);
@@ -104,16 +114,16 @@ function sanitizePayload(value: unknown): JsonObject {
     return isRecord(value) ? sanitizePayloadObject(value, 0) : {};
 }
 
-function parseOccurredAt(value: unknown) {
+function parseClientOccurredAt(value: unknown) {
     if (typeof value !== 'string') {
-        return new Date();
+        return null;
     }
 
     const parsed = new Date(value);
-    return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
-function parseEventEnvelope(value: unknown): IAnalyticsEventEnvelope | null {
+function parseEventEnvelope(value: unknown): IViewerAnalyticsAdmissionEvent | null {
     if (!isRecord(value)) {
         return null;
     }
@@ -125,7 +135,7 @@ function parseEventEnvelope(value: unknown): IAnalyticsEventEnvelope | null {
 
     const path = sanitizeString(value.path, 255) ?? '/';
     const locale = sanitizeString(value.locale, 16);
-    const referrer = sanitizeString(value.referrer, MAX_STRING_LENGTH);
+    const referrer = sanitizeString(value.referrer, MAX_REFERRER_LENGTH);
     const screenCategoryValue = sanitizeString(value.screenCategory, 16);
     const screenCategory: TAnalyticsScreenCategory = (
         screenCategoryValue === 'mobile'
@@ -141,7 +151,7 @@ function parseEventEnvelope(value: unknown): IAnalyticsEventEnvelope | null {
 
     return {
         name,
-        occurredAt: parseOccurredAt(value.occurredAt).toISOString(),
+        clientOccurredAt: parseClientOccurredAt(value.occurredAt),
         path,
         locale,
         referrer,
@@ -149,6 +159,21 @@ function parseEventEnvelope(value: unknown): IAnalyticsEventEnvelope | null {
         sessionId,
         payload: sanitizePayload(value.payload),
     };
+}
+
+export function decodeViewerAnalyticsEventsBody(value: unknown) {
+    if (!isRecord(value) || !Array.isArray(value.events)) {
+        return [];
+    }
+    if (value.events.length > ROOT_ANALYTICS_MAX_EVENT_COUNT) {
+        throw createError({
+            statusCode: 400,
+            statusMessage: `Analytics batches may contain at most ${ROOT_ANALYTICS_MAX_EVENT_COUNT} events`,
+        });
+    }
+    return value.events
+        .map(entry => parseEventEnvelope(entry))
+        .filter(isNotNil);
 }
 
 export default defineEventHandler(async (event) => {
@@ -161,20 +186,8 @@ export default defineEventHandler(async (event) => {
         };
     }
 
-    const body = await readBody<{ events?: unknown }>(event);
-    const rawEvents = Array.isArray(body?.events)
-        ? body.events.slice(0, MAX_EVENT_COUNT)
-        : [];
-    if (rawEvents.length === 0) {
-        return {
-            ok: true,
-            persisted: false,
-        };
-    }
-
-    const parsedEvents = rawEvents
-        .map(entry => parseEventEnvelope(entry))
-        .filter(isNotNil);
+    const body = await readBoundedAnalyticsJsonBody(event, ROOT_ANALYTICS_BODY_MAX_BYTES);
+    const parsedEvents = decodeViewerAnalyticsEventsBody(body);
     if (parsedEvents.length === 0) {
         return {
             ok: true,
@@ -184,30 +197,35 @@ export default defineEventHandler(async (event) => {
 
     const geo = extractGeo(event);
     const visitorHash = await hashVisitorIdentity(event);
-    const userAgent = getHeader(event, 'user-agent') ?? null;
+    const userAgent = getHeader(event, 'user-agent')?.slice(0, ROOT_ANALYTICS_USER_AGENT_MAX_LENGTH) ?? null;
     const deploymentHost = getAnalyticsRequestHost(event);
+    const policy = resolveRootAnalyticsAdmissionPolicy(getRuntimeEnv());
+    const dedupeKey = await createAnalyticsDedupeKey(
+        'viewer_events',
+        visitorHash,
+        parsedEvents,
+    );
 
     try {
         const db = getAnalyticsDb(event);
-        const rows = parsedEvents.map(entry => ({
-            eventName: entry.name,
-            path: entry.path,
-            locale: entry.locale,
-            screenCategory: entry.screenCategory,
-            sessionId: entry.sessionId,
-            referrer: entry.referrer,
-            country: geo.country,
-            city: geo.city,
-            region: geo.region,
+        await admitViewerAnalyticsEvents(db, {
+            ...policy,
+            events: parsedEvents,
             visitorHash,
             deploymentHost,
             userAgent,
-            payload: entry.payload,
-            occurredAt: new Date(entry.occurredAt),
-        })) satisfies TViewerAnalyticsInsert[];
-
-        await db.insert(viewerAnalyticsEvent).values(rows);
+            country: geo.country,
+            city: geo.city,
+            region: geo.region,
+            dedupeKey,
+        });
     } catch (error) {
+        if (isAnalyticsAdmissionRejected(error)) {
+            return {
+                ok: true,
+                persisted: false,
+            };
+        }
         console.error('viewer analytics insert failed', error);
         return {
             ok: false,

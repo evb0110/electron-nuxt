@@ -252,6 +252,121 @@ describe('createBrowserPageOpsCapability', () => {
         expect(clearSearchCaches).toHaveBeenCalledTimes(1);
     });
 
+    it('awaits browser search-cache clearing after a stored page mutation', async () => {
+        const pdfBytes = new Uint8Array([
+            1,
+            2,
+            3,
+        ]);
+        browserDocumentStoreMock.stat.mockResolvedValue({size: pdfBytes.byteLength});
+        browserDocumentStoreMock.read.mockResolvedValue(pdfBytes);
+        browserPageOpsWorkerMock.canUse.mockReturnValue(true);
+        browserPageOpsWorkerMock.run.mockResolvedValue({
+            data: new Uint8Array([4]),
+            pageCount: 1,
+        });
+        const clearGate = Promise.withResolvers<undefined>();
+        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
+        const pageOps = createBrowserPageOpsCapability({
+            clearSearchCaches: vi.fn(() => clearGate.promise),
+            openInputAccept: 'application/pdf',
+            pickFiles: vi.fn(),
+            buildOpenPdfPickerTypes: vi.fn(),
+            createCombinedPdfFromPaths: vi.fn(),
+            pickSaveTarget: vi.fn(),
+            saveBytesToPickerOrDownload: vi.fn(),
+            writeBytesToHandle: vi.fn(),
+        });
+        let settled = false;
+        const operation = pageOps.rotate('/tmp/work.pdf', [1], 1, 90)
+            .finally(() => {
+                settled = true;
+            });
+
+        await vi.waitFor(() => {
+            expect(browserDocumentStoreMock.write).toHaveBeenCalledOnce();
+        });
+        expect(settled).toBe(false);
+        clearGate.resolve(undefined);
+        await expect(operation).resolves.toMatchObject({success: true});
+    });
+
+    it.each([
+        [
+            'negative',
+            {
+                top: -1,
+                bottom: 0,
+                left: 0,
+                right: 0,
+            },
+        ],
+        [
+            'non-finite',
+            {
+                top: Number.POSITIVE_INFINITY,
+                bottom: 0,
+                left: 0,
+                right: 0,
+            },
+        ],
+        [
+            'structurally invalid',
+            {
+                top: 0,
+                bottom: 0,
+                left: 0,
+            },
+        ],
+    ])('rejects %s crop margins before browser mutation', async (_label, margins) => {
+        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
+        const pageOps = createBrowserPageOpsCapability({
+            clearSearchCaches: vi.fn(),
+            openInputAccept: 'application/pdf',
+            pickFiles: vi.fn(),
+            buildOpenPdfPickerTypes: vi.fn(),
+            createCombinedPdfFromPaths: vi.fn(),
+            pickSaveTarget: vi.fn(),
+            saveBytesToPickerOrDownload: vi.fn(),
+            writeBytesToHandle: vi.fn(),
+        });
+
+        await expect(pageOps.crop('/tmp/work.pdf', [1], 1, margins as never))
+            .rejects.toThrow('Invalid crop margins');
+        expect(browserDocumentStoreMock.read).not.toHaveBeenCalled();
+        expect(browserDocumentStoreMock.write).not.toHaveBeenCalled();
+    });
+
+    it('rejects browser crop margins that consume a selected page', async () => {
+        const pdfDocument = await PDFDocument.create();
+        pdfDocument.addPage([
+            200,
+            100,
+        ]);
+        const pdfBytes = new Uint8Array(await pdfDocument.save());
+        browserDocumentStoreMock.stat.mockResolvedValue({size: pdfBytes.byteLength});
+        browserDocumentStoreMock.read.mockResolvedValue(pdfBytes);
+        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
+        const pageOps = createBrowserPageOpsCapability({
+            clearSearchCaches: vi.fn(),
+            openInputAccept: 'application/pdf',
+            pickFiles: vi.fn(),
+            buildOpenPdfPickerTypes: vi.fn(),
+            createCombinedPdfFromPaths: vi.fn(),
+            pickSaveTarget: vi.fn(),
+            saveBytesToPickerOrDownload: vi.fn(),
+            writeBytesToHandle: vi.fn(),
+        });
+
+        await expect(pageOps.crop('/tmp/work.pdf', [1], 1, {
+            top: 0,
+            bottom: 0,
+            left: 120,
+            right: 80,
+        })).rejects.toThrow('Crop margins consume page 1');
+        expect(browserDocumentStoreMock.write).not.toHaveBeenCalled();
+    });
+
     it('uses the worker for delete and reorder mutations when available', async () => {
         const pdfBytes = new Uint8Array([
             1,

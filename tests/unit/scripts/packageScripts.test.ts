@@ -206,7 +206,7 @@ describe('package scripts', () => {
             'check:ocr-language-model-registry',
             'check:vendor-sync',
         ]);
-        expect(scriptRunTargets(packageJson, 'check:static:reports')).toEqual(['check:platform-manifest-consumers:report']);
+        expect(scriptRunTargets(packageJson, 'check:static:reports')).toEqual(['check:platform-manifest-consumers']);
         expect(lintCommandText).not.toContain('|| true');
         expect(lintCommandText).not.toContain('landing');
         expect(lintCommandText).not.toContain(':all');
@@ -250,6 +250,7 @@ describe('package scripts', () => {
             'pnpm run lint',
             'pnpm run check:static:reports',
             'pnpm run check:static:assets',
+            'pnpm run check:architecture:source-size',
             'pnpm run typecheck',
             'pnpm run test:unit',
             'pnpm run typecheck:coverage',
@@ -290,6 +291,7 @@ describe('package scripts', () => {
         expect(scripts['check:electron-builder:asar-unpack']).toBe('node scripts/check-electron-builder-asar-unpack.mjs');
         expect(scripts['check:generated-native-resources:host']).toBe('node scripts/check-generated-native-resources.mjs --host');
         expect(scripts['check:pdfjs-viewer-css']).toBe('node scripts/sync-pdfjs-viewer-css.mjs --check');
+        expect(scripts['check:production-dependency-audit']).toBe('pnpm exec tsx scripts/checkProductionDependencyAudit.ts');
         expect(scripts['release:resume']).toBe('HUSKY=0 node scripts/release/cut-release.mjs --resume');
         expect(scripts['test:python-page-processor']).toBe('python3 scripts/check-page-processor-smoke.py');
         expect(scripts['check:wasm:freshness']).toBe('node scripts/check-wasm-freshness.mjs --mode=strict');
@@ -297,6 +299,12 @@ describe('package scripts', () => {
         expect(scripts['check:architecture:dep-graph']).toBe('node scripts/architecture/dep-graph.mjs --scope=focused --output=.tmp/dep-graph.json');
         expect(scripts['check:architecture:boundaries']).toBe('node scripts/architecture/boundary-check.mjs --scope=focused');
         expect(scripts['check:architecture:source-size']).toBe('node scripts/architecture/source-size-check.mjs');
+        expect(scriptRunTargets(packageJson, 'check:architecture')).toEqual([
+            'check:architecture:dep-graph',
+            'check:architecture:boundaries',
+            'check:architecture:source-size',
+        ]);
+        expect(scriptRunTargets(packageJson, 'check:architecture:all')).toContain('check:architecture:source-size');
         expect(scriptCommands(packageJson, 'test:e2e:electron')).toEqual([
             'pnpm run build:electron',
             'pnpm run test:e2e:electron:regression:no-build',

@@ -147,34 +147,38 @@ async function withRenderedPdfPageCanvas<T>(
     callback: (rendered: IRenderedPdfPageCanvas) => Promise<T> | T,
 ): Promise<T> {
     const page = await pdfDocument.getPage(pageNumber);
-    const viewport = page.getViewport({ scale: EXPORT_RENDER_SCALE });
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.ceil(viewport.width);
-    canvas.height = Math.ceil(viewport.height);
-    const context = canvas.getContext('2d');
-    if (!context) {
-        throw new Error('Canvas 2D context is unavailable');
-    }
-
-    await page.render({
-        canvas,
-        canvasContext: context,
-        viewport,
-    }).promise;
+    let canvas: HTMLCanvasElement | null = null;
 
     try {
+        const viewport = page.getViewport({ scale: EXPORT_RENDER_SCALE });
+        canvas = document.createElement('canvas');
+        canvas.width = Math.ceil(viewport.width);
+        canvas.height = Math.ceil(viewport.height);
+        const context = canvas.getContext('2d');
+        if (!context) {
+            throw new Error('Canvas 2D context is unavailable');
+        }
+
+        await page.render({
+            canvas,
+            canvasContext: context,
+            viewport,
+        }).promise;
+
         return await callback({
             pageNumber,
             canvas,
             context,
         });
     } finally {
+        if (canvas) {
+            releaseCanvas(canvas);
+        }
         try {
             await Promise.resolve(page.cleanup?.());
         } catch {
             // Cleanup is best effort.
         }
-        releaseCanvas(canvas);
     }
 }
 

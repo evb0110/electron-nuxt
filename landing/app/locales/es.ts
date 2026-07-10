@@ -18,6 +18,42 @@ export default {
         features: 'Funciones',
         viewSource: 'Ver código fuente',
     },
+    privacy: {
+        seo: {
+            title: 'Política de privacidad',
+            description: 'Política de privacidad de la aplicación de escritorio, la aplicación web, el sitio y las funciones opcionales de asistente de EVB Viewer.',
+        },
+        hero: {
+            title: 'Política de privacidad',
+            subtitle: 'Cómo gestiona EVB Viewer los documentos, la configuración, los datos analíticos y las funciones opcionales de asistente.',
+            effectiveDate: 'En vigor desde el 9 de julio de 2026',
+        },
+        documents: {
+            heading: 'Documentos y procesamiento local',
+            body: 'EVB Viewer abre los documentos que seleccionas. En la aplicación de escritorio, la visualización, el OCR, las anotaciones, las operaciones de página y la exportación se realizan en tu dispositivo. La aplicación web procesa los documentos seleccionados en el navegador, salvo que elijas una función que use expresamente un servicio externo. De forma predeterminada, EVB Viewer no sube tus documentos al desarrollador.',
+        },
+        assistant: {
+            heading: 'Servicios opcionales de asistente',
+            body: 'Las funciones de asistente son opcionales. Cuando utilizas un asistente basado en Codex, OpenAI o Anthropic Claude, las instrucciones y el contenido o los archivos adjuntos que decidas incluir se envían a ese proveedor mediante tu cuenta y se rigen por sus condiciones y política de privacidad. EVB Viewer no vende esta información.',
+        },
+        analytics: {
+            heading: 'Datos analíticos e información técnica',
+            body: 'El sitio y la aplicación web de EVB Viewer pueden recopilar eventos limitados de uso e información técnica, como rutas de páginas, eventos de funciones, idioma, categoría de pantalla, sitio de referencia, agente de usuario del navegador, región aproximada y un identificador de visitante cifrado que cambia periódicamente. Esta información se usa para comprender la fiabilidad y el uso del producto, no para identificar el contenido de los documentos.',
+        },
+        settings: {
+            heading: 'Configuración, archivos recientes y actualizaciones',
+            body: 'Las preferencias de la aplicación, el estado del espacio de trabajo y las referencias a archivos recientes pueden almacenarse localmente en tu dispositivo. La aplicación de escritorio puede contactar con GitHub para buscar y descargar actualizaciones. El sistema operativo y los servicios de la tienda de aplicaciones pueden tratar información técnica adicional conforme a sus propias políticas.',
+        },
+        retention: {
+            heading: 'Conservación y opciones',
+            body: 'Los datos locales de la aplicación permanecen en tu dispositivo hasta que los eliminas o desinstalas la aplicación. Tú controlas qué documentos y archivos adjuntos se abren o se envían a los servicios opcionales de asistente. Los registros analíticos del sitio se conservan solo el tiempo necesario para el funcionamiento del producto, la seguridad y el análisis de tendencias.',
+        },
+        contact: {
+            heading: 'Contacto',
+            intro: 'Puedes enviar preguntas o solicitudes de privacidad mediante el',
+            linkLabel: 'seguimiento de incidencias de EVB Viewer',
+        },
+    },
     home: {
         seo: {
             title: 'Aplicación web de EVB Viewer y descargas de escritorio',

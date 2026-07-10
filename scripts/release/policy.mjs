@@ -7,32 +7,58 @@ export function hasWindowsSigningCredentials(env = process.env) {
 }
 
 const GATE_POLICY_MANIFEST = Object.freeze({
-    ci: {changedAreas: {nativeOrBuild: {
-        owner: 'pr_native_build_safety',
-        paths: [
-            'native/**',
-            'scripts/bundle-*.sh',
-            'scripts/build-*.mjs',
-            'scripts/check-build-*.mjs',
-            'scripts/check-drizzle-schema.mjs',
-            'scripts/check-electron-builder-asar-unpack.mjs',
-            'scripts/check-generated-native-resources.mjs',
-            'scripts/check-native-tools-source-matrix.sh',
-            'scripts/check-wasm-freshness.mjs',
-            'scripts/native-rust-targets.mjs',
-            'scripts/prune-build-artifacts.mjs',
-            'scripts/release/**',
-            'scripts/run-workspace-package-typecheck.mjs',
-            'scripts/run-build-strict.mjs',
-            'scripts/verify-packaged-native-tools.sh',
-            'scripts/wasm-artifacts.mjs',
-            'scripts/workspace-roots.mjs',
-            'pnpm-workspace.yaml',
-            'electron-builder.yml',
-            'package.json',
-            'pnpm-lock.yaml',
-        ],
-    }}},
+    ci: {changedAreas: {
+        landing: {
+            output: 'landing',
+            owner: 'pr_landing_quality',
+            paths: [
+                'landing/**',
+                'packages/contracts/**',
+                'packages/i18n-core/**',
+                'packages/release-selection/**',
+                'scripts/checkLandingVendorSync.ts',
+                'scripts/ci/classify-changed-areas.mjs',
+                'scripts/release/policy.mjs',
+                '.github/workflows/**',
+            ],
+        },
+        nativeOrBuild: {
+            output: 'native_or_build',
+            owner: 'pr_native_build_safety',
+            paths: [
+                '.github/workflows/**',
+                'native/**',
+                'resources/**',
+                'scripts/afterPack.cjs',
+                'scripts/afterSign.cjs',
+                'scripts/bundle-*.sh',
+                'scripts/build-*.mjs',
+                'scripts/check-build-*.mjs',
+                'scripts/check-drizzle-schema.mjs',
+                'scripts/check-electron-builder-asar-unpack.mjs',
+                'scripts/check-generated-native-resources.mjs',
+                'scripts/check-native-tools-source-matrix.sh',
+                'scripts/check-wasm-freshness.mjs',
+                'scripts/ci/classify-changed-areas.mjs',
+                'scripts/native-rust-targets.mjs',
+                'scripts/nativeResourceManifest.ts',
+                'scripts/nativeResourceManifestCli.ts',
+                'scripts/prune-build-artifacts.mjs',
+                'scripts/release/**',
+                'scripts/run-workspace-package-typecheck.mjs',
+                'scripts/run-build-strict.mjs',
+                'scripts/verify-packaged-native-tools.sh',
+                'scripts/verify-packaged-startup.sh',
+                'scripts/wasm-artifacts.mjs',
+                'scripts/workspace-roots.mjs',
+                'electron-builder.yml',
+                'package.json',
+                'pnpm-lock.yaml',
+                'pnpm-workspace.yaml',
+                'rust-toolchain.toml',
+            ],
+        },
+    }},
     release: {
         localChecks: {
             gateGroups: [
@@ -43,6 +69,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                         'lint',
                         'check:static:reports',
                         'check:static:assets',
+                        'check:architecture:source-size',
                         'typecheck',
                         'typecheck:coverage',
                         'check:drizzle-schema',
@@ -105,10 +132,19 @@ function cloneGateCommand(gate) {
 
 export function getGatePolicyManifest() {
     return {
-        ci: {changedAreas: {nativeOrBuild: {
-            owner: GATE_POLICY_MANIFEST.ci.changedAreas.nativeOrBuild.owner,
-            paths: [...GATE_POLICY_MANIFEST.ci.changedAreas.nativeOrBuild.paths],
-        }}},
+        ci: {changedAreas: Object.fromEntries(
+            Object.entries(GATE_POLICY_MANIFEST.ci.changedAreas).map(([
+                area,
+                policy,
+            ]) => [
+                area,
+                {
+                    output: policy.output,
+                    owner: policy.owner,
+                    paths: [...policy.paths],
+                },
+            ]),
+        )},
         release: {
             localChecks: {
                 gateGroups: GATE_POLICY_MANIFEST.release.localChecks.gateGroups.map(group => ({
@@ -133,6 +169,10 @@ export function getGatePolicyManifest() {
 
 export function getNativeOrBuildChangedAreaPaths() {
     return [...GATE_POLICY_MANIFEST.ci.changedAreas.nativeOrBuild.paths];
+}
+
+export function getCiChangedAreaPolicy() {
+    return getGatePolicyManifest().ci.changedAreas;
 }
 
 export function getLocalReleaseCheckGateScripts() {

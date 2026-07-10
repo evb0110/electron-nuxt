@@ -18,6 +18,42 @@ export default {
         features: 'Fonctionnalités',
         viewSource: 'Voir le code source',
     },
+    privacy: {
+        seo: {
+            title: 'Politique de confidentialité',
+            description: 'Politique de confidentialité de l’application de bureau, de l’application web, du site et des fonctions d’assistant optionnelles d’EVB Viewer.',
+        },
+        hero: {
+            title: 'Politique de confidentialité',
+            subtitle: 'Comment EVB Viewer traite les documents, les réglages, les données analytiques et les fonctions d’assistant optionnelles.',
+            effectiveDate: 'En vigueur le 9 juillet 2026',
+        },
+        documents: {
+            heading: 'Documents et traitement local',
+            body: 'EVB Viewer ouvre les documents que vous sélectionnez. Dans l’application de bureau, la consultation, l’OCR, les annotations, les opérations sur les pages et l’export sont effectués sur votre appareil. L’application web traite les documents sélectionnés dans votre navigateur, sauf si vous choisissez une fonction qui utilise explicitement un service externe. Par défaut, EVB Viewer ne transmet pas vos documents au développeur.',
+        },
+        assistant: {
+            heading: 'Services d’assistant optionnels',
+            body: 'Les fonctions d’assistant sont optionnelles. Lorsque vous utilisez un assistant reposant sur Codex, OpenAI ou Anthropic Claude, les requêtes ainsi que le contenu ou les pièces jointes que vous choisissez d’inclure sont envoyés à ce fournisseur avec votre compte et relèvent de ses conditions et de sa politique de confidentialité. EVB Viewer ne vend pas ces informations.',
+        },
+        analytics: {
+            heading: 'Données analytiques et techniques',
+            body: 'Le site et l’application web EVB Viewer peuvent recueillir des événements d’utilisation et des données techniques limités, notamment les chemins de pages, les événements de fonctionnalités, la langue, la catégorie d’écran, le site référent, l’agent utilisateur du navigateur, la région approximative et un identifiant de visiteur haché et renouvelé. Ces données servent à comprendre la fiabilité et l’utilisation du produit, pas à identifier le contenu des documents.',
+        },
+        settings: {
+            heading: 'Réglages, fichiers récents et mises à jour',
+            body: 'Les préférences de l’application, l’état de l’espace de travail et les références aux fichiers récents peuvent être stockés localement sur votre appareil. L’application de bureau peut contacter GitHub pour rechercher et télécharger des mises à jour. Le système d’exploitation et les services de la boutique d’applications peuvent traiter d’autres données techniques selon leurs propres politiques.',
+        },
+        retention: {
+            heading: 'Conservation et choix',
+            body: 'Les données locales de l’application restent sur votre appareil jusqu’à ce que vous les supprimiez ou désinstalliez l’application. Vous choisissez les documents et pièces jointes ouverts ou envoyés aux services d’assistant optionnels. Les données analytiques du site ne sont conservées que le temps nécessaire au fonctionnement du produit, à la sécurité et à l’analyse des tendances.',
+        },
+        contact: {
+            heading: 'Contact',
+            intro: 'Les questions ou demandes relatives à la confidentialité peuvent être envoyées via le',
+            linkLabel: 'système de suivi d’EVB Viewer',
+        },
+    },
     home: {
         seo: {
             title: 'Application web EVB Viewer et téléchargements bureau',

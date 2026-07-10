@@ -18,6 +18,42 @@ export default {
         features: 'Funktionen',
         viewSource: 'Quellcode anzeigen',
     },
+    privacy: {
+        seo: {
+            title: 'Datenschutzerklärung',
+            description: 'Datenschutzerklärung für die Desktop- und Browser-App, die Website und optionale Assistentenfunktionen von EVB Viewer.',
+        },
+        hero: {
+            title: 'Datenschutzerklärung',
+            subtitle: 'Wie EVB Viewer Dokumente, Einstellungen, Analysedaten und optionale Assistentenfunktionen behandelt.',
+            effectiveDate: 'Gültig ab 9. Juli 2026',
+        },
+        documents: {
+            heading: 'Dokumente und lokale Verarbeitung',
+            body: 'EVB Viewer öffnet die von dir ausgewählten Dokumente. In der Desktop-App erfolgen Dokumentanzeige, OCR, Anmerkungen, Seitenoperationen und Export auf deinem Gerät. Die Browser-App verarbeitet ausgewählte Dokumente im Browser, sofern du keine Funktion wählst, die ausdrücklich einen externen Dienst nutzt. Standardmäßig lädt EVB Viewer deine Dokumente nicht zum Entwickler hoch.',
+        },
+        assistant: {
+            heading: 'Optionale Assistentendienste',
+            body: 'Assistentenfunktionen sind optional. Wenn du einen auf Codex, OpenAI oder Anthropic Claude basierenden Assistenten verwendest, werden Eingaben sowie von dir ausgewählte Inhalte oder Anhänge über dein Konto an den jeweiligen Anbieter gesendet und unterliegen dessen Bedingungen und Datenschutzerklärung. EVB Viewer verkauft diese Informationen nicht.',
+        },
+        analytics: {
+            heading: 'Analyse- und technische Informationen',
+            body: 'Die EVB-Viewer-Website und Browser-App können begrenzte Nutzungs- und technische Ereignisse erfassen, etwa Seitenpfade, Funktionsereignisse, Sprache, Bildschirmkategorie, Referrer, Browser-User-Agent, ungefähre Region und eine regelmäßig wechselnde gehashte Besucherkennung. Diese Daten dienen dazu, Zuverlässigkeit und Produktnutzung zu verstehen, und nicht dazu, Dokumentinhalte zu identifizieren.',
+        },
+        settings: {
+            heading: 'Einstellungen, zuletzt verwendete Dateien und Updates',
+            body: 'App-Einstellungen, Arbeitsbereichszustand und Verweise auf zuletzt verwendete Dateien können lokal auf deinem Gerät gespeichert werden. Die Desktop-App kann GitHub kontaktieren, um Softwareupdates zu suchen und herunterzuladen. Betriebssystem- und App-Store-Dienste können nach ihren eigenen Richtlinien weitere technische Informationen verarbeiten.',
+        },
+        retention: {
+            heading: 'Aufbewahrung und Wahlmöglichkeiten',
+            body: 'Lokale App-Daten verbleiben auf deinem Gerät, bis du sie entfernst oder die App deinstallierst. Du entscheidest, welche Dokumente und Anhänge geöffnet oder an optionale Assistentendienste gesendet werden. Website-Analysedaten werden nur so lange gespeichert, wie es für Produktbetrieb, Sicherheit und Trendanalysen erforderlich ist.',
+        },
+        contact: {
+            heading: 'Kontakt',
+            intro: 'Fragen oder Datenschutzanfragen kannst du über den',
+            linkLabel: 'Issue-Tracker von EVB Viewer',
+        },
+    },
     home: {
         seo: {
             title: 'EVB Viewer Web-App und Desktop-Downloads',

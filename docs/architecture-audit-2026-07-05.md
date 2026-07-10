@@ -208,8 +208,8 @@ type coverage, strict build, fallow, architecture), `pnpm run test:rust` green.
    Renderer honors `workingCopyRefreshed:false` (PDFED-2/NEW-2); page ops persist
    pending edits first (PDFED-3); NEW-3/4/5, SHELL-2, PDFED-4 closed. Stale-save UX:
    `errors.file.changedReload` notification (en+ru).
-2. **Contracts + blocking lane** — DONE. Single hand-written manifest
-   (`packages/contracts/platformMethodManifest.ts`) drives the lazy proxy, exhaustive
+2. **Contracts + blocking lane** — DONE. The canonical platform descriptor
+   (`packages/contracts/platformApiDescriptor.ts`) drives the lazy proxy, exhaustive
    runtime validation, generated test fixture, and preload/browser parity tests
    (ARCH-1/2, IPC-2/3, TEST-1). PR-blocking Electron lane `e2e-blocking-smoke`
    (save roundtrip) in CI without continue-on-error; per-run session names/ports and
@@ -324,7 +324,7 @@ type coverage, strict build, fallow, architecture), `pnpm run test:rust` green.
 | HYG-3 | Fixed. Package-layer architecture rules are enforced. |
 | HYG-4 | Fixed. Manifest documents aggregate is marked compatibility-only with no unapproved aggregate consumers. |
 | HYG-7 | Fixed. `tests/e2e/electron/prBlockingSmoke.e2e.test.ts` is registered in the blocking Electron E2E smoke project. |
-| HYG-10 | Fixed. `scripts/reportPlatformManifestConsumers.ts` is wired into lint as an informational manifest consumer report. |
+| HYG-10 | Fixed. `scripts/reportPlatformManifestConsumers.ts` is wired into static checks as a strict zero-baseline ratchet for unapproved aggregate document capability access. |
 
 ### Open
 

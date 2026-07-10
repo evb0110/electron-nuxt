@@ -67,7 +67,7 @@ import { OCR_EVENT_CHANNELS } from '@electron/features/ocr/contract';
 import { getErrorMessage } from '@electron/utils/error';
 import { getWorkingCopyRevision } from '@electron/file-access/documentRevisionStore';
 import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
-import { getOcrConcurrency } from '@electron/utils/concurrency';
+import { estimateOcrRequestWork } from '@electron/ocr/estimateOcrRequestWork';
 
 const log = createLogger('ocr-ipc');
 
@@ -268,32 +268,6 @@ function ensureQueueCapacity(
     }
 
     return { ok: true };
-}
-
-function estimateRenderedBytesForPage(renderDpi: number) {
-    const widthPx = Math.ceil(8.5 * renderDpi);
-    const heightPx = Math.ceil(11 * renderDpi);
-    return widthPx * heightPx * 4;
-}
-
-function estimateRequestWork(
-    pages: IOcrPdfPageRequest[],
-    options: IOcrSearchablePdfOptions,
-) {
-    const renderDpi = options.renderDpi ?? 300;
-    const perPageBytes = estimateRenderedBytesForPage(renderDpi);
-    const baselinePageBytes = estimateRenderedBytesForPage(300);
-    const pageWeight = Math.max(1, Math.ceil(perPageBytes / baselinePageBytes));
-    const peakRenderedPageCount = getOcrConcurrency(pages.length);
-    const totalPageWork = pages.length * pageWeight;
-    return {
-        bytes: peakRenderedPageCount * perPageBytes,
-        pageWork: Math.min(
-            totalPageWork,
-            OCR_QUEUE_MAX_DOCUMENT_PAGE_WORK,
-            OCR_QUEUE_MAX_GLOBAL_PAGE_WORK,
-        ),
-    };
 }
 
 function logQueueDepth(context: string) {
@@ -870,7 +844,7 @@ export async function handleOcrCreateSearchablePdfAsync(
         isPreparingReserved = true;
         sendOcrProgressStage(context.senderId, requestId, pages, 'model-prep');
 
-        const requestWork = estimateRequestWork(pages, options);
+        const requestWork = estimateOcrRequestWork(pages, options);
         preparingJob.requestedBytes = requestWork.bytes;
         preparingJob.pageWork = requestWork.pageWork;
         const capacityResult = ensureQueueCapacity({

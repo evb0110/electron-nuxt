@@ -6,6 +6,7 @@ import {
     vi,
 } from 'vitest';
 import { createServer } from 'node:net';
+import {request as createHttpRequest} from 'node:http';
 import { rm } from 'node:fs/promises';
 import type {
     IAgentWorkspaceSnapshot,
@@ -16,9 +17,13 @@ import {
     createLocalMcpServerIdentity,
     getLocalMcpCodexRegistrationTransport,
     getLocalMcpSetupSnippets,
+    isEmbeddedMcpServerRunning,
+    isLocalMcpServerRunning,
     processMcpRequest,
     resolveDefaultLocalMcpPort,
     shutdownLocalMcpServer,
+    shutdownEmbeddedMcpServer,
+    startEmbeddedMcpServer,
     startLocalMcpServer,
 } from '@electron/features/agent/mcpServer';
 import type {
@@ -49,11 +54,13 @@ vi.mock('@electron/features/agent/workspaceBridge', () => ({
     requestAgentWorkspaceSnapshot: vi.fn(),
 }));
 
-vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => ({
+const mocks = vi.hoisted(() => ({logger: {
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
-}) }));
+}}));
+
+vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => mocks.logger }));
 
 interface IListToolsResult { tools?: IListToolsResultTool[]; }
 interface IListToolsResultTool {
@@ -236,8 +243,12 @@ function expectStructuredCloneable(value: unknown) {
 
 describe('processMcpRequest', () => {
     afterEach(async () => {
+        await shutdownEmbeddedMcpServer();
         await shutdownLocalMcpServer();
-        await rm('/tmp/userData/agent-mcp-token.txt', {force: true}).catch(() => {});
+        await rm('/tmp/userData/agent-mcp', {
+            recursive: true,
+            force: true,
+        }).catch(() => {});
         vi.unstubAllEnvs();
     });
 
@@ -268,6 +279,78 @@ describe('processMcpRequest', () => {
         await startLocalMcpServer();
 
         expect(process.env[ASSISTANT_MCP_TOKEN_ENV]).toBe(firstToken);
+    });
+
+    it('does not resurrect a canceled startup across start, stop, then start', async () => {
+        vi.stubEnv('EVB_MCP_PORT', String(await findFreePort()));
+        vi.stubEnv(ASSISTANT_MCP_TOKEN_ENV, '');
+
+        const canceledStart = startLocalMcpServer();
+        const stopping = shutdownLocalMcpServer();
+        const restarted = startLocalMcpServer();
+
+        await expect(canceledStart).rejects.toThrow('canceled by shutdown');
+        await stopping;
+        await restarted;
+        expect(isLocalMcpServerRunning()).toBe(true);
+    });
+
+    it('does not log a startup failure during clean shutdown', async () => {
+        vi.stubEnv('EVB_MCP_PORT', String(await findFreePort()));
+        vi.stubEnv(ASSISTANT_MCP_TOKEN_ENV, '');
+        mocks.logger.error.mockClear();
+
+        await startLocalMcpServer();
+        await shutdownLocalMcpServer();
+
+        expect(mocks.logger.error).not.toHaveBeenCalled();
+    });
+
+    it('bounds shutdown while an authenticated request body is incomplete', async () => {
+        const port = await findFreePort();
+        vi.stubEnv('EVB_MCP_PORT', String(port));
+        vi.stubEnv(ASSISTANT_MCP_TOKEN_ENV, '');
+        await startLocalMcpServer();
+        const token = process.env[ASSISTANT_MCP_TOKEN_ENV];
+        expect(token).toBeTruthy();
+
+        const connected = Promise.withResolvers<undefined>();
+        const request = createHttpRequest({
+            host: '127.0.0.1',
+            port,
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Length': 1_024,
+                'Content-Type': 'application/json',
+            },
+        });
+        request.on('error', () => undefined);
+        request.on('socket', socket => socket.once('connect', () => {
+            request.write('{"jsonrpc":');
+            connected.resolve(undefined);
+        }));
+        await connected.promise;
+
+        const startedAt = Date.now();
+        await shutdownLocalMcpServer();
+
+        expect(Date.now() - startedAt).toBeLessThan(1_500);
+        request.destroy();
+    });
+
+    it('cancels an embedded startup before allowing a later restart to publish', async () => {
+        mocks.logger.error.mockClear();
+
+        const canceledStart = startEmbeddedMcpServer();
+        const stopping = shutdownEmbeddedMcpServer();
+        const restarted = startEmbeddedMcpServer();
+
+        await expect(canceledStart).rejects.toThrow('canceled by shutdown');
+        await stopping;
+        await restarted;
+        expect(isEmbeddedMcpServerRunning()).toBe(true);
+        expect(mocks.logger.error).not.toHaveBeenCalled();
     });
 
     it('builds authenticated external MCP setup snippets through the stdio proxy transport', async () => {

@@ -5,6 +5,7 @@ import type {
     IOcrErrorEnvelope,
     IOcrProgress,
 } from '@contracts/electronApiOcr';
+import { decodeOcrLanguages } from '@contracts/ocrLanguages';
 import {
     OCR_ERROR_CODES,
     OCR_PROGRESS_PHASES,
@@ -27,6 +28,7 @@ import {
     type IOcrInvokeMap,
 } from '@electron/features/ocr/contract';
 import {
+    createDecodedIpcInvoker,
     createTypedIpcEventSubscriber,
     createTypedIpcInvoker,
 } from '@electron/preload/ipcClient';
@@ -197,6 +199,7 @@ function decodeOcrCompleteResult(payload: unknown): IOcrCompleteResult | null {
 
 export function createOcrPreloadClient(ipcRenderer: IpcRenderer): IOcrCapability {
     const invoke = createTypedIpcInvoker<IOcrInvokeMap>(ipcRenderer, {invokeTimeoutMsByChannel: OCR_INVOKE_TIMEOUT_MS_BY_CHANNEL});
+    const invokeDecoded = createDecodedIpcInvoker<IOcrInvokeMap>(ipcRenderer, {invokeTimeoutMsByChannel: OCR_INVOKE_TIMEOUT_MS_BY_CHANNEL});
     const eventSubscriber = createTypedIpcEventSubscriber<IOcrEventMap>(ipcRenderer);
 
     return {
@@ -217,7 +220,7 @@ export function createOcrPreloadClient(ipcRenderer: IpcRenderer): IOcrCapability
 
         cancel: (requestId) => invoke(OCR_CHANNELS.cancel, requestId),
 
-        getLanguages: () => invoke(OCR_CHANNELS.getLanguages),
+        getLanguages: () => invokeDecoded(OCR_CHANNELS.getLanguages, decodeOcrLanguages),
 
         validateTools: () => invoke(OCR_CHANNELS.validateTools),
 

@@ -9,6 +9,7 @@ import {
     BROWSER_DOCUMENT_FULL_READ_TOO_LARGE,
     BrowserDocumentReadError,
 } from '@app/platform/browser/browserDocumentReadError';
+import { MAX_DOCUMENT_ALLOCATION_BYTES } from '@contracts/electronApiDocuments';
 
 const documentsMock = vi.hoisted(() => ({
     readFile: vi.fn(),
@@ -282,6 +283,20 @@ describe('platformDocuments', () => {
         expect(documentsMock.statFile).not.toHaveBeenCalled();
         expect(documentsMock.readFileRange).not.toHaveBeenCalled();
         expect(yieldToBrowserMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('rejects an oversized fallback allocation before requesting any ranges', async () => {
+        documentsMock.readFile.mockRejectedValueOnce(new BrowserDocumentReadError(
+            BROWSER_DOCUMENT_FULL_READ_TOO_LARGE,
+            'Browser document is too large for a direct read',
+        ));
+        documentsMock.statFile.mockResolvedValueOnce({ size: MAX_DOCUMENT_ALLOCATION_BYTES + 1 });
+
+        const { readDocumentFileFully } = await import('@app/utils/platformDocuments');
+        await expect(readDocumentFileFully('browser://oversized.pdf'))
+            .rejects
+            .toThrow(`no greater than ${MAX_DOCUMENT_ALLOCATION_BYTES} bytes`);
+        expect(documentsMock.readFileRange).not.toHaveBeenCalled();
     });
 
     it('fails the fallback read when a range read returns no bytes before EOF', async () => {

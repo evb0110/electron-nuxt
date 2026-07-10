@@ -66,7 +66,7 @@ interface IPersistedSearchDocumentCacheRecord {
 
 interface ICreateBrowserSearchCapabilityResult {
     capability: ISearchCapability;
-    clearSearchCaches: (pdfPath?: string) => void;
+    clearSearchCaches: (pdfPath?: string) => Promise<void>;
 }
 
 interface IIterateSearchPagesOptions {
@@ -635,9 +635,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         await clearPersistedSearchCaches();
     }
 
-    function clearSearchCaches(pdfPath?: string) {
-        void clearSearchCachesAsync(pdfPath);
-    }
+    const clearSearchCaches = clearSearchCachesAsync;
 
     async function assertSearchWithinBrowserBudget(pdfPath: string) {
         const { size } = await browserDocumentStore.stat(pdfPath);

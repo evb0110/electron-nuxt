@@ -305,6 +305,11 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         managedAnnotationIds: managedEmbeddedAnnotationIds,
         annotationUiManager,
         annotationL10n,
+        replaceAnnotationUiManager: (manager) => {
+            if (annotationUiManager.value === manager) {
+                annotations.editor.initAnnotationEditor();
+            }
+        },
         scrollToPage: (pageNumber, options) => singlePageScroll.scrollToPage(pageNumber, options),
         suppressSnap: () => singlePageScroll.suppressSnapFor(220),
         beginSearchNavigation: (pageNumber) => {
@@ -859,7 +864,6 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         effectiveScale,
         continuousScroll,
         numPages,
-        isPagedNavigationBurstActive: () => singlePageScroll.isPagedNavigationBurstActive(),
         markersByPage,
         linksByPage,
         renderVisiblePages,

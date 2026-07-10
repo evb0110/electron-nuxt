@@ -8,13 +8,13 @@ Detects properties of scanned book pages:
 - Content bounds (for margin cropping)
 """
 
-import cv2
-import numpy as np
 import warnings
 from typing import Optional
 
+import cv2
+import numpy as np
 from split import find_gutter_position
-from stages.image_utils import _to_gray, _resize_for_analysis, _smooth_1d
+from stages.image_utils import _resize_for_analysis, _smooth_1d, _to_gray
 from stages.io import load_image
 
 try:
@@ -134,7 +134,7 @@ def detect_skew_angle_with_confidence(
     gray = _to_gray(image)
     gray_small, scale = _resize_for_analysis(gray, max_dim=1500)
 
-    debug = {
+    debug: dict[str, object] = {
         "analysis_scale": float(scale),
         "contrast_std": 0.0,
         "low_contrast_threshold": float(LOW_CONTRAST_STD_THRESHOLD),

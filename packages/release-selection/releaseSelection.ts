@@ -227,6 +227,19 @@ export function parseUserAgent(userAgent: string, platformHint = ''): IUserAgent
     };
 }
 
+export function buildClientProfile(
+    userAgent: string,
+    hintedPlatform: TReleasePlatform = 'unknown',
+    hintedArch: TReleaseArch = 'unknown',
+): IUserAgentProfile {
+    const userAgentProfile = parseUserAgent(userAgent);
+
+    return {
+        platform: hintedPlatform === 'unknown' ? userAgentProfile.platform : hintedPlatform,
+        arch: hintedArch === 'unknown' ? userAgentProfile.arch : hintedArch,
+    };
+}
+
 export function recommendInstaller(assets: IReleaseInstaller[], profile: IUserAgentProfile): IReleaseInstaller | null {
     const preferredAssets = assets.filter(asset => !asset.isLegacy);
     const candidatePool = preferredAssets.length ? preferredAssets : assets;

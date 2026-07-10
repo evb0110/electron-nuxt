@@ -200,6 +200,7 @@ function createState(options?: {
         height: number;
     }> | null>;
     getPrintableSourceData?: () => Promise<Uint8Array | null>;
+    ensurePrintReady?: () => Promise<boolean>;
     canPrintDjvuSource?: boolean;
     getCurrentPrintPage?: () => number | null | undefined;
     printDjvuSource?: (
@@ -244,6 +245,7 @@ function createState(options?: {
             ? { getCurrentPrintPage: options.getCurrentPrintPage }
             : {}),
         getQuickPrintPageMetrics,
+        ...(options?.ensurePrintReady ? {ensurePrintReady: options.ensurePrintReady} : {}),
         getPrintableSourceData,
         ...(options?.printDjvuSource
             ? { printDjvuSource: options.printDjvuSource }
@@ -318,6 +320,31 @@ describe('useWorkspacePrint', () => {
                 return 1;
             },
         });
+    });
+
+    it('aborts printing when open annotation-note persistence is not ready', async () => {
+        const ensurePrintReady = vi.fn(async () => false);
+        const getPrintableSourceData = vi.fn(async () => Uint8Array.of(1, 2, 3));
+        const {
+            scope,
+            state,
+        } = createState({
+            ensurePrintReady,
+            getPrintableSourceData,
+        });
+
+        await state.handlePrintDialogSubmit({
+            viewMode: 'single',
+            orientation: 'auto',
+        }, {reopenDialogOnError: false});
+
+        expect(ensurePrintReady).toHaveBeenCalledOnce();
+        expect(getPrintableSourceData).not.toHaveBeenCalled();
+        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
+            color: 'error',
+            title: 'print.failed',
+        }));
+        scope.stop();
     });
 
     it('quick-prints through rendered browser printing', async () => {

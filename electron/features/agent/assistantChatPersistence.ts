@@ -35,11 +35,13 @@ import { app } from 'electron';
 import type {
     IAgentAssistantChatMessage,
     IAgentAssistantChatScope,
+    TAgentWorkspaceCommandTarget,
     TAgentAssistantEffort,
     TAgentAssistantProviderId,
     TAgentAssistantSpeedMode,
 } from '@contracts/agent';
 import { isErrnoException } from '@contracts/runtimeGuards';
+import { isDocumentRevisionInfo } from '@contracts/documentRevision';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import {
@@ -273,6 +275,21 @@ function atomicWriteJsonFileSync(filePath: string, payload: unknown) {
     fsyncParentDirectorySync(filePath);
 }
 
+function atomicWriteJsonLineFileSync(filePath: string, payload: unknown) {
+    mkdirSync(dirname(filePath), { recursive: true });
+    const tempPath = join(dirname(filePath), `.${basename(filePath)}.${randomSuffix()}.tmp`);
+    writeFileSync(tempPath, `${JSON.stringify(payload)}\n`, 'utf8');
+    let fd: number | null = null;
+    try {
+        fd = openSync(tempPath, 'r');
+        fsyncSyncBestEffort(fd);
+    } finally {
+        safeCloseSync(fd);
+    }
+    renameSync(tempPath, filePath);
+    fsyncParentDirectorySync(filePath);
+}
+
 function clonePersistedSession(session: IAssistantChatPersistenceSession): IPersistedAssistantChatSession {
     return {
         provider: session.provider,
@@ -302,22 +319,181 @@ function isObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
 }
 
+function isNonNegativeInteger(value: unknown) {
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+function isSafeInteger(value: unknown) {
+    return typeof value === 'number' && Number.isSafeInteger(value);
+}
+
+function isNullableString(value: unknown) {
+    return value === null || typeof value === 'string';
+}
+
+function isOptionalNullableString(value: unknown) {
+    return value === undefined || isNullableString(value);
+}
+
+function isOptionalDocumentBackend(value: unknown) {
+    return value === undefined || value === 'electron' || value === 'browser';
+}
+
+function isWorkspaceCommandTarget(value: unknown): value is TAgentWorkspaceCommandTarget {
+    if (
+        !isObject(value)
+        || typeof value.tabId !== 'string'
+        || value.tabId.length === 0
+        || typeof value.sessionId !== 'string'
+        || value.sessionId.length === 0
+        || !isNullableString(value.documentRef)
+        || !isOptionalDocumentBackend(value.documentBackend)
+        || !isOptionalNullableString(value.documentInstanceId)
+        || (
+            value.documentRevisionToken !== undefined
+            && (typeof value.documentRevisionToken !== 'string' || value.documentRevisionToken.length === 0)
+        )
+    ) {
+        return false;
+    }
+    return value.kind === 'transaction'
+        ? typeof value.transactionId === 'string' && value.transactionId.length > 0
+        : value.kind === 'revision' && isNonNegativeInteger(value.sessionRevision);
+}
+
+function isAssistantChatScope(value: unknown): value is IAgentAssistantChatScope {
+    return isObject(value)
+        && value.kind === 'document'
+        && typeof value.key === 'string'
+        && value.key.length > 0
+        && isNullableString(value.title)
+        && isOptionalNullableString(value.tabId)
+        && isOptionalNullableString(value.documentSessionKey)
+        && isOptionalNullableString(value.documentInstanceId)
+        && isOptionalNullableString(value.documentRef)
+        && isOptionalDocumentBackend(value.documentBackend)
+        && (
+            value.documentIdentity === undefined
+            || value.documentIdentity === null
+            || isDocumentRevisionInfo(value.documentIdentity)
+        )
+        && (
+            value.commandTarget === undefined
+            || isWorkspaceCommandTarget(value.commandTarget)
+        );
+}
+
+function isAssistantErrorEnvelope(value: unknown) {
+    return isObject(value)
+        && (
+            value.code === 'AUTH_REQUIRED'
+            || value.code === 'INSTALL_MISSING'
+            || value.code === 'LOGIN_CANCELLED'
+            || value.code === 'USER_INTERRUPTED'
+            || value.code === 'MODEL_UNAVAILABLE'
+            || value.code === 'RUNTIME_UNAVAILABLE'
+            || value.code === 'PROVIDER_RATE_LIMITED'
+            || value.code === 'INTERNAL'
+        )
+        && typeof value.message === 'string'
+        && typeof value.retryable === 'boolean'
+        && typeof value.timestamp === 'number'
+        && Number.isFinite(value.timestamp);
+}
+
+function isAssistantImageAttachment(value: unknown) {
+    return isObject(value)
+        && value.type === 'image'
+        && typeof value.id === 'string'
+        && typeof value.name === 'string'
+        && typeof value.mimeType === 'string'
+        && typeof value.dataUrl === 'string'
+        && typeof value.sizeBytes === 'number'
+        && Number.isFinite(value.sizeBytes)
+        && value.sizeBytes > 0;
+}
+
+function isAssistantChatMessage(value: unknown): value is IAgentAssistantChatMessage {
+    return isObject(value)
+        && typeof value.id === 'string'
+        && (value.role === 'user' || value.role === 'assistant' || value.role === 'system')
+        && typeof value.text === 'string'
+        && typeof value.createdAt === 'string'
+        && (
+            value.attachments === undefined
+            || Array.isArray(value.attachments) && value.attachments.every(isAssistantImageAttachment)
+        )
+        && (value.pending === undefined || typeof value.pending === 'boolean')
+        && (value.error === undefined || typeof value.error === 'string')
+        && (value.errorEnvelope === undefined || isAssistantErrorEnvelope(value.errorEnvelope));
+}
+
+function isAssistantSessionScopeBinding(value: unknown): value is IAssistantSessionScopeBinding {
+    return isObject(value)
+        && typeof value.sessionKey === 'string'
+        && value.sessionKey.length > 0
+        && typeof value.scopeKey === 'string'
+        && value.scopeKey.length > 0
+        && (value.provider === 'codex' || value.provider === 'claude')
+        && isNonNegativeInteger(value.turnGeneration)
+        && isSafeInteger(value.windowId)
+        && typeof value.tabId === 'string'
+        && isOptionalNullableString(value.documentSessionKey)
+        && isNullableString(value.documentRef)
+        && isOptionalDocumentBackend(value.documentBackend)
+        && isOptionalNullableString(value.documentInstanceId)
+        && (value.documentIdentity === null || isDocumentRevisionInfo(value.documentIdentity))
+        && (value.commandTarget === undefined || isWorkspaceCommandTarget(value.commandTarget));
+}
+
+function isAssistantTurnOwner(value: unknown): value is TAssistantTurnOwnerState {
+    if (!isObject(value) || !isNonNegativeInteger(value.generation)) {
+        return false;
+    }
+    if (value.phase === 'idle') {
+        return value.turnId === null && value.localTurnId === null;
+    }
+    if (value.phase === 'error') {
+        return value.turnId === null
+            && value.localTurnId === null
+            && typeof value.error === 'string';
+    }
+    if (value.phase === 'starting') {
+        return typeof value.localTurnId === 'string'
+            && value.providerTurnId === null
+            && isAssistantSessionScopeBinding(value.scope)
+            && value.scope.turnGeneration === value.generation;
+    }
+    if (value.phase === 'running' || value.phase === 'interrupting') {
+        return typeof value.localTurnId === 'string'
+            && (
+                value.phase === 'interrupting' && value.providerTurnId === null
+                || typeof value.providerTurnId === 'string'
+            )
+            && isAssistantSessionScopeBinding(value.scope)
+            && value.scope.turnGeneration === value.generation;
+    }
+    return false;
+}
+
 function isPersistedSession(value: unknown): value is IPersistedAssistantChatSession {
     if (!isObject(value)) {
         return false;
     }
     return (value.provider === 'codex' || value.provider === 'claude')
-        && isObject(value.scope)
-        && value.scope.kind === 'document'
-        && typeof value.scope.key === 'string'
+        && isAssistantChatScope(value.scope)
         && typeof value.model === 'string'
         && typeof value.effort === 'string'
         && (value.speedMode === 'fast' || value.speedMode === 'standard')
         && (typeof value.providerThreadId === 'string' || value.providerThreadId === null)
-        && (typeof value.lastSenderWindowId === 'number' || value.lastSenderWindowId === null)
-        && isObject(value.turnOwner)
+        && (isNonNegativeInteger(value.lastSenderWindowId) || value.lastSenderWindowId === null)
+        && isAssistantTurnOwner(value.turnOwner)
+        && (value.scopeBinding === null || isAssistantSessionScopeBinding(value.scopeBinding))
         && Array.isArray(value.messages)
-        && typeof value.lastAccessedAtMs === 'number';
+        && value.messages.every(isAssistantChatMessage)
+        && typeof value.lastAccessedAtMs === 'number'
+        && Number.isFinite(value.lastAccessedAtMs)
+        && (value.lastError === undefined || typeof value.lastError === 'string');
 }
 
 function parsePersistedRecord(line: string): TPersistedAssistantChatRecord | null {
@@ -331,12 +507,19 @@ function parsePersistedRecord(line: string): TPersistedAssistantChatRecord | nul
     if (!isObject(parsed) || parsed.schemaVersion !== ASSISTANT_CHAT_PERSISTENCE_SCHEMA_VERSION) {
         return null;
     }
-    if (parsed.type === 'session-reset' && typeof parsed.key === 'string') {
+    if (
+        parsed.type === 'session-reset'
+        && typeof parsed.key === 'string'
+        && parsed.key.length > 0
+        && typeof parsed.writtenAt === 'string'
+    ) {
         return parsed as TPersistedAssistantChatRecord;
     }
     if (
         parsed.type === 'session-snapshot'
         && typeof parsed.key === 'string'
+        && parsed.key.length > 0
+        && typeof parsed.writtenAt === 'string'
         && isPersistedSession(parsed.session)
     ) {
         return parsed as TPersistedAssistantChatRecord;
@@ -450,6 +633,11 @@ export class AssistantChatPersistence {
                     sizeBytes: statSync(filePath).size,
                 });
             } catch (error) {
+                try {
+                    this.quarantineCorruptSessionSync(filePath);
+                } catch (quarantineError) {
+                    this.onError(`Failed to quarantine corrupt assistant chat session "${key ?? entry.name}"`, quarantineError);
+                }
                 this.onError(`Failed to recover assistant chat session "${key ?? entry.name}"`, error);
             }
         }
@@ -575,7 +763,14 @@ export class AssistantChatPersistence {
             return;
         }
 
-        const recovered = this.recoverSessionFile(filePath, key);
+        let recovered: IRecoveredAssistantChatSessionFile | null;
+        try {
+            recovered = this.recoverSessionFile(filePath, key);
+        } catch (error) {
+            this.quarantineCorruptSessionSync(filePath);
+            this.onError(`Quarantined corrupt assistant chat session "${key}" during compaction`, error);
+            return;
+        }
         if (!recovered) {
             await rm(filePath, { force: true });
             return;
@@ -586,14 +781,37 @@ export class AssistantChatPersistence {
     private recoverSessionFile(filePath: string, expectedKey?: string): IRecoveredAssistantChatSessionFile | null {
         let key: string | null = null;
         let lastSession: IPersistedAssistantChatSession | null = null;
-        for (const rawLine of readFileSync(filePath, 'utf8').split(/\r?\n/u)) {
+        const contents = readFileSync(filePath, 'utf8');
+        const lines = contents.split(/\r?\n/u);
+        for (const [
+            lineIndex,
+            rawLine,
+        ] of lines.entries()) {
             const line = rawLine.trim();
             if (!line) {
                 continue;
             }
             const record = parsePersistedRecord(line);
-            if (!record || expectedKey !== undefined && record.key !== expectedKey) {
-                continue;
+            if (!record) {
+                if (
+                    lineIndex === lines.length - 1
+                    && !contents.endsWith('\n')
+                    && key !== null
+                    && lastSession !== null
+                ) {
+                    atomicWriteJsonLineFileSync(
+                        filePath,
+                        createPersistedSnapshotRecord(key, lastSession),
+                    );
+                    break;
+                }
+                throw new Error('Assistant chat transcript contains a malformed persisted record.');
+            }
+            if (
+                (expectedKey !== undefined && record.key !== expectedKey)
+                || (key !== null && record.key !== key)
+            ) {
+                throw new Error('Assistant chat transcript contains records for different session keys.');
             }
             key = record.key;
             if (record.type === 'session-snapshot') {
@@ -609,6 +827,20 @@ export class AssistantChatPersistence {
                 session: lastSession,
             }
             : null;
+    }
+
+    private quarantineCorruptSessionSync(filePath: string) {
+        if (!existsSync(filePath)) {
+            return;
+        }
+        mkdirSync(this.archiveDir, {recursive: true});
+        const archivedPath = join(
+            this.archiveDir,
+            `${basename(filePath, '.jsonl')}.corrupt.${this.now()}.${randomSuffix()}.jsonl`,
+        );
+        renameSync(filePath, archivedPath);
+        fsyncParentDirectorySync(filePath);
+        fsyncParentDirectorySync(archivedPath);
     }
 
     private async pruneSessions() {
@@ -656,7 +888,14 @@ export class AssistantChatPersistence {
                 continue;
             }
             const filePath = join(this.sessionsDir, entry.name);
-            const recovered = this.recoverSessionFile(filePath, key ?? undefined);
+            let recovered: IRecoveredAssistantChatSessionFile | null;
+            try {
+                recovered = this.recoverSessionFile(filePath, key ?? undefined);
+            } catch (error) {
+                this.quarantineCorruptSessionSync(filePath);
+                this.onError(`Quarantined corrupt assistant chat session "${key ?? entry.name}" during maintenance`, error);
+                continue;
+            }
             const fileStat = await stat(filePath).catch(() => null);
             if (!recovered || !fileStat) {
                 continue;

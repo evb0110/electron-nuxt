@@ -5,6 +5,7 @@ import {
     vi,
 } from 'vitest';
 import {
+    effectScope,
     nextTick,
     ref,
 } from 'vue';
@@ -398,5 +399,47 @@ describe('useManagedEmbeddedPdfShapes', () => {
         expect(managedShapes.renderHiddenEmbeddedAnnotationIds.value.has('12R')).toBe(true);
         await Promise.all(pendingTasks);
         expect(renderVisiblePages).not.toHaveBeenCalled();
+    });
+
+    it('does not apply an embedded-shape import after its scope is disposed', async () => {
+        const imported = Promise.withResolvers<IShapeAnnotation[]>();
+        const importEmbeddedShapesMock = vi.mocked(importEmbeddedShapeAnnotations);
+        importEmbeddedShapesMock.mockReset();
+        importEmbeddedShapesMock.mockReturnValueOnce(imported.promise);
+        const shapeComposable = createManagedShapeStorePort();
+        const scope = effectScope();
+        scope.run(() => useManagedEmbeddedPdfShapes({
+            viewerContainer: ref<HTMLElement | null>(createRenderedViewerContainer()),
+            workingCopyPath: ref('/tmp/work.pdf'),
+            sourcePdfData: ref<Uint8Array | null>(new Uint8Array([1])),
+            sourcePdfFileSize: ref(1),
+            visibleRange: ref({
+                start: 1,
+                end: 1,
+            }),
+            bufferPages: ref(0),
+            shapeComposable,
+            suppressCommentAnnotationId: vi.fn(),
+            logger: {
+                debug: vi.fn(),
+                warn: vi.fn(),
+            },
+            runGuardedTask: task => void Promise.resolve(task()),
+            nextTick,
+            isPageRendered: () => true,
+            invalidatePages: vi.fn(),
+            renderVisiblePages: vi.fn(async () => undefined),
+            hideManagedAnnotationEditors: vi.fn(),
+            currentPage: ref(1),
+        }));
+        await vi.waitFor(() => expect(importEmbeddedShapesMock).toHaveBeenCalledOnce());
+
+        scope.stop();
+        imported.resolve([createEmbeddedInkShape({annotationId: '77R'})]);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(shapeComposable.replaceShapes).not.toHaveBeenCalled();
+        expect(shapeComposable.reconcilePersistedShapes).not.toHaveBeenCalled();
     });
 });

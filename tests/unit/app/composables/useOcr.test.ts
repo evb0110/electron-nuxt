@@ -100,6 +100,30 @@ describe('useOcr', () => {
         });
     });
 
+    it('does not publish languages after its scope is disposed during IPC', async () => {
+        const languages = Promise.withResolvers<Array<{
+            code: string;
+            script: 'latin';
+        }>>();
+        mockOcr.getLanguages.mockReturnValueOnce(languages.promise);
+        const scope = effectScope();
+        const ocr = scope.run(() => useOcr());
+        if (!ocr) {
+            throw new Error('Failed to create OCR composable scope');
+        }
+
+        const load = ocr.loadLanguages();
+        scope.stop();
+        languages.resolve([{
+            code: 'eng',
+            script: 'latin',
+        }]);
+        await load;
+
+        expect(ocr.availableLanguages.value).toEqual([]);
+        expect(ocr.error.value).toBeNull();
+    });
+
     it('settles runOcr when canceled before completion', async () => {
         interface IOcrCompleteTestResult {
             requestId: string;

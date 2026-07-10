@@ -90,3 +90,30 @@ export interface ICropMargins {
     left: number;
     right: number;
 }
+
+export function normalizeCropMargins(value: unknown): ICropMargins {
+    if (
+        !isRecord(value)
+        || typeof value.top !== 'number'
+        || typeof value.bottom !== 'number'
+        || typeof value.left !== 'number'
+        || typeof value.right !== 'number'
+        || !Number.isFinite(value.top)
+        || !Number.isFinite(value.bottom)
+        || !Number.isFinite(value.left)
+        || !Number.isFinite(value.right)
+        || value.top < 0
+        || value.bottom < 0
+        || value.left < 0
+        || value.right < 0
+    ) {
+        throw new Error('Invalid crop margins');
+    }
+
+    return {
+        top: value.top,
+        bottom: value.bottom,
+        left: value.left,
+        right: value.right,
+    };
+}

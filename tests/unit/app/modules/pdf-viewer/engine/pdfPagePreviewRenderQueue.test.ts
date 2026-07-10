@@ -54,24 +54,26 @@ function createQueueHarness(options?: { concurrency?: number; }) {
 
     const queue = createPagePreviewRenderQueue({
         cache,
-        leasePage: async pageNumber => cast<PDFPageProxy>({
-            getViewport: () => ({
-                width: 100,
-                height: 100,
+        leasePage: async pageNumber => ({
+            page: cast<PDFPageProxy>({
+                getViewport: () => ({
+                    width: 100,
+                    height: 100,
+                }),
+                render: () => {
+                    startedRenders.push(pageNumber);
+                    return {
+                        promise: ensureRenderControl(pageNumber).promise,
+                        cancel: vi.fn(() => {
+                            const error = new Error('cancelled');
+                            error.name = 'RenderingCancelledException';
+                            ensureRenderControl(pageNumber).reject(error);
+                        }),
+                    };
+                },
             }),
-            render: () => {
-                startedRenders.push(pageNumber);
-                return {
-                    promise: ensureRenderControl(pageNumber).promise,
-                    cancel: vi.fn(() => {
-                        const error = new Error('cancelled');
-                        error.name = 'RenderingCancelledException';
-                        ensureRenderControl(pageNumber).reject(error);
-                    }),
-                };
-            },
+            release: vi.fn(),
         }),
-        releasePage: vi.fn(),
         maxLongestSidePx: 768,
         concurrency: options?.concurrency ?? 2,
     });

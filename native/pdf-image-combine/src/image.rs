@@ -1,8 +1,8 @@
 use jpeg_encoder::{ColorType, Encoder as JpegEncoder, SamplingFactor};
 use std::{
     borrow::Cow,
-    fs::{self, File},
-    io::{BufReader, Cursor},
+    fs::File,
+    io::{BufReader, Cursor, Read},
     path::Path,
 };
 
@@ -12,7 +12,7 @@ use crate::{
     netpbm::{is_rgb_data_grayscale, parse_netpbm},
     pdf::{ImagePage, ImagePayload},
     png::parse_png_reader,
-    tiff_io::{read_tiff_pdf_pages_from_bytes, visit_tiff_pdf_pages},
+    tiff_io::{read_tiff_pdf_pages_from_bytes, visit_tiff_pdf_pages_from_file},
     MixedPdfImageProcessing, PdfPageSize, Result, DEFAULT_DPI,
 };
 
@@ -63,18 +63,43 @@ pub(crate) fn visit_image_pages(
     max_pixels: u64,
     default_dpi: Option<u32>,
     max_tiff_frames: usize,
+    on_page: impl FnMut(ImagePage) -> Result<()>,
+) -> Result<usize> {
+    visit_image_pages_from_file(
+        path,
+        File::open(path)?,
+        max_pixels,
+        default_dpi,
+        max_tiff_frames,
+        on_page,
+    )
+}
+
+pub(crate) fn visit_image_pages_from_file(
+    path: &Path,
+    file: File,
+    max_pixels: u64,
+    default_dpi: Option<u32>,
+    max_tiff_frames: usize,
     mut on_page: impl FnMut(ImagePage) -> Result<()>,
 ) -> Result<usize> {
     let extension = image_extension(path);
     if is_tiff_extension(&extension) {
-        return visit_tiff_pdf_pages(path, max_pixels, default_dpi, max_tiff_frames, on_page);
+        return visit_tiff_pdf_pages_from_file(
+            file,
+            &path.display().to_string(),
+            max_pixels,
+            default_dpi,
+            max_tiff_frames,
+            on_page,
+        );
     }
 
     let page = match extension.as_str() {
-        "png" => read_png_page(path, max_pixels, default_dpi)?,
-        "jpg" | "jpeg" => read_jpeg_page(fs::read(path)?, max_pixels, default_dpi)?,
+        "png" => read_png_page_from_reader(BufReader::new(file), max_pixels, default_dpi)?,
+        "jpg" | "jpeg" => read_jpeg_page(read_file(file)?, max_pixels, default_dpi)?,
         "pgm" | "ppm" => read_netpbm_page(
-            &fs::read(path)?,
+            &read_file(file)?,
             max_pixels,
             default_dpi.unwrap_or(DEFAULT_DPI),
         )?,
@@ -85,8 +110,10 @@ pub(crate) fn visit_image_pages(
     Ok(1)
 }
 
-pub(crate) fn read_image_page(
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn read_image_page_from_file(
     path: &Path,
+    file: File,
     max_pixels: u64,
     default_dpi: Option<u32>,
     compression: PdfImageCompression,
@@ -97,7 +124,7 @@ pub(crate) fn read_image_page(
     let extension = image_extension(path);
     match (extension.as_str(), compression) {
         ("pgm" | "ppm", PdfImageCompression::Jpeg { quality }) => read_netpbm_jpeg_page(
-            &fs::read(path)?,
+            &read_file(file)?,
             max_pixels,
             default_dpi.unwrap_or(DEFAULT_DPI),
             quality,
@@ -105,13 +132,13 @@ pub(crate) fn read_image_page(
             page_size,
             size_guardrail,
         ),
-        ("jpg" | "jpeg", _) => read_jpeg_page(fs::read(path)?, max_pixels, default_dpi),
+        ("jpg" | "jpeg", _) => read_jpeg_page(read_file(file)?, max_pixels, default_dpi),
         ("pgm" | "ppm", _) => read_netpbm_page(
-            &fs::read(path)?,
+            &read_file(file)?,
             max_pixels,
             default_dpi.unwrap_or(DEFAULT_DPI),
         ),
-        ("png", _) => read_png_page(path, max_pixels, default_dpi),
+        ("png", _) => read_png_page_from_reader(BufReader::new(file), max_pixels, default_dpi),
         _ => Err(format!("Unsupported image extension: {}", path.display()).into()),
     }
 }
@@ -184,9 +211,10 @@ pub(crate) fn read_image_page_from_bytes(
     }
 }
 
-fn read_png_page(path: &Path, max_pixels: u64, default_dpi: Option<u32>) -> Result<ImagePage> {
-    let file = File::open(path)?;
-    read_png_page_from_reader(BufReader::new(file), max_pixels, default_dpi)
+fn read_file(mut file: File) -> Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)?;
+    Ok(bytes)
 }
 
 fn read_png_page_from_reader<R: std::io::Read>(
@@ -194,8 +222,7 @@ fn read_png_page_from_reader<R: std::io::Read>(
     max_pixels: u64,
     default_dpi: Option<u32>,
 ) -> Result<ImagePage> {
-    let png = parse_png_reader(reader)?;
-    assert_pixel_limit(png.width, png.height, max_pixels)?;
+    let png = parse_png_reader(reader, max_pixels)?;
 
     let (colors, color_space) = match png.color_type {
         0 => (1, "DeviceGray"),
@@ -245,8 +272,7 @@ fn read_jpeg_page(bytes: Vec<u8>, max_pixels: u64, default_dpi: Option<u32>) -> 
 }
 
 fn read_netpbm_page(bytes: &[u8], max_pixels: u64, dpi: u32) -> Result<ImagePage> {
-    let netpbm = parse_netpbm(bytes)?;
-    assert_pixel_limit(netpbm.width, netpbm.height, max_pixels)?;
+    let netpbm = parse_netpbm(bytes, max_pixels)?;
 
     let total_pixels = netpbm.width as usize * netpbm.height as usize;
     let height = netpbm.height as usize;
@@ -296,8 +322,7 @@ fn read_netpbm_jpeg_page(
     page_size: Option<PdfPageSize>,
     size_guardrail: Option<JpegSizeGuardrail>,
 ) -> Result<ImagePage> {
-    let netpbm = parse_netpbm(bytes)?;
-    assert_pixel_limit(netpbm.width, netpbm.height, max_pixels)?;
+    let netpbm = parse_netpbm(bytes, max_pixels)?;
     let prepared = prepare_netpbm_for_jpeg(&netpbm, max_pixels, processing, page_size)?;
     let (prepared, quality) =
         encode_with_size_guardrail(prepared, max_pixels, quality, page_size, size_guardrail)?;

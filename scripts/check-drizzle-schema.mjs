@@ -20,7 +20,12 @@ export function assertDrizzleSchemaWiring() {
     const packageJson = JSON.parse(readProjectFile('package.json'));
     const scripts = packageJson.scripts ?? {};
 
-    assertContains(drizzleConfig, 'schema: \'./server/db/viewerAnalyticsEvent.ts\'', 'drizzle.config.ts');
+    assertContains(drizzleConfig, 'relative(process.cwd()', 'drizzle.config.ts');
+    assertContains(
+        drizzleConfig,
+        'new URL(\'./server/db/viewerAnalyticsEvent.ts\', import.meta.url)',
+        'drizzle.config.ts',
+    );
     assertContains(drizzleConfig, 'dialect: \'postgresql\'', 'drizzle.config.ts');
     assertContains(schema, 'pgTable(', 'viewer analytics schema');
     assertContains(schema, 'viewer_analytics_event', 'viewer analytics schema');

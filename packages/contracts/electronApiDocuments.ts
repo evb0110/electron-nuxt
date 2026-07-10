@@ -25,7 +25,10 @@ import type {
     TPdfAnnotationShapePdfSubtype,
     TPdfAnnotationShapeType,
 } from '@contracts/annotations';
-import { isOneOf } from '@contracts/runtimeGuards';
+import {
+    isOneOf,
+    isRecord,
+} from '@contracts/runtimeGuards';
 import type { IRecentFile } from '@contracts/shared';
 import type {
     IPdfConformanceProfile,
@@ -47,6 +50,35 @@ export interface IDocumentChunkReadResult {
     size: number;
     bytesRead: number;
     chunks: number;
+}
+
+export const MAX_DOCUMENT_ALLOCATION_BYTES = 512 * 1024 * 1024;
+
+export function decodeFileStatResult(
+    value: unknown,
+    maxBytes = Number.MAX_SAFE_INTEGER,
+): {size: number} | null {
+    if (
+        !isRecord(value)
+        || typeof value.size !== 'number'
+        || !Number.isSafeInteger(value.size)
+        || value.size < 0
+        || value.size > maxBytes
+    ) {
+        return null;
+    }
+    return {size: value.size};
+}
+
+export function assertDocumentAllocationSize(
+    value: unknown,
+    maxBytes = MAX_DOCUMENT_ALLOCATION_BYTES,
+) {
+    const decoded = decodeFileStatResult({size: value}, maxBytes);
+    if (decoded === null) {
+        throw new RangeError(`Document allocation size must be a non-negative safe integer no greater than ${maxBytes} bytes`);
+    }
+    return decoded.size;
 }
 
 export type TDocumentChunkSource = Iterable<Uint8Array> | AsyncIterable<Uint8Array>;

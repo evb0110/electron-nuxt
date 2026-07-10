@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import os
 import platform
@@ -21,7 +22,6 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_FIXTURE = PROJECT_ROOT / "tests/fixtures/electron/test-scanned.pdf"
@@ -69,6 +69,7 @@ class ProfileSpec:
 @dataclass(frozen=True)
 class BenchmarkImage:
     source: Path
+    source_key: str
     image: Path
     label: str
     page: int | None
@@ -82,6 +83,12 @@ def now_tag() -> str:
 def safe_stem(path: Path) -> str:
     stem = re.sub(r"[^a-zA-Z0-9._-]+", "_", path.stem).strip("_")
     return stem or "source"
+
+
+def stable_source_key(path: Path) -> str:
+    resolved = str(path.expanduser().resolve())
+    digest = hashlib.sha256(resolved.encode("utf-8")).hexdigest()[:12]
+    return f"{safe_stem(path)}-{digest}"
 
 
 def display_path(path: Path) -> str:
@@ -312,7 +319,14 @@ def build_unpaper_clean_args(input_path: Path, output_path: Path) -> list[str]:
     ]
 
 
-def render_pdf_page(pdftoppm: Path, source: Path, page: int, dpi: int, out_dir: Path) -> Path:
+def render_pdf_page(
+    pdftoppm: Path,
+    source: Path,
+    page: int,
+    dpi: int,
+    out_dir: Path,
+    timeout: int,
+) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     base = out_dir / f"{safe_stem(source)}-p{page:04d}-r{dpi}"
     output = base.with_suffix(".png")
@@ -328,22 +342,31 @@ def render_pdf_page(pdftoppm: Path, source: Path, page: int, dpi: int, out_dir: 
         "-png",
         str(source),
         str(base),
-    ])
+    ], timeout=timeout)
     if not output.exists():
         raise RuntimeError(f"pdftoppm did not create {output}")
     return output
 
 
-def prepare_images(sources: list[Path], pages: list[int], dpi: int, pdftoppm: Path, out_root: Path) -> list[BenchmarkImage]:
+def prepare_images(
+    sources: list[Path],
+    pages: list[int],
+    dpi: int,
+    pdftoppm: Path,
+    out_root: Path,
+    timeout: int,
+) -> list[BenchmarkImage]:
     images: list[BenchmarkImage] = []
     render_root = out_root / "rendered"
     for source in sources:
+        source_key = stable_source_key(source)
         suffix = source.suffix.lower()
         if suffix == ".pdf":
             for page in pages:
-                image = render_pdf_page(pdftoppm, source, page, dpi, render_root / safe_stem(source))
+                image = render_pdf_page(pdftoppm, source, page, dpi, render_root / source_key, timeout)
                 images.append(BenchmarkImage(
                     source=source,
+                    source_key=source_key,
                     image=image,
                     label=f"p{page:04d}",
                     page=page,
@@ -353,6 +376,7 @@ def prepare_images(sources: list[Path], pages: list[int], dpi: int, pdftoppm: Pa
 
         images.append(BenchmarkImage(
             source=source,
+            source_key=source_key,
             image=source,
             label="image",
             page=None,
@@ -540,6 +564,7 @@ def run_profile(
         return {
             "type": "run",
             "source": display_path(image.source),
+            "source_key": image.source_key,
             "image": display_path(image.image),
             "ocr_image": display_path(ocr_image),
             "page": image.page,
@@ -596,11 +621,12 @@ def run_profile(
 
     text = str(metrics.pop("text"))
     (out_dir / "parsed-text.txt").write_text(f"{text}\n", encoding="utf-8")
-    error = "" if success else (parse_error or proc.stderr.strip() or f"Tesseract exited with code {proc.returncode}")
+    run_error = "" if success else (parse_error or proc.stderr.strip() or f"Tesseract exited with code {proc.returncode}")
 
     return {
         "type": "run",
         "source": display_path(image.source),
+        "source_key": image.source_key,
         "image": display_path(image.image),
         "ocr_image": display_path(ocr_image),
         "page": image.page,
@@ -616,7 +642,7 @@ def run_profile(
         "success": success,
         **metrics,
         "text_preview": text[:160],
-        "error": error,
+        "error": run_error,
         "artifact_dir": display_path(out_dir),
     }
 
@@ -754,11 +780,11 @@ def main() -> int:
     manifest = build_manifest(args, profiles, sources, pages)
     (out_root / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
-    images = prepare_images(sources, pages, args.dpi, args.pdftoppm, out_root)
+    images = prepare_images(sources, pages, args.dpi, args.pdftoppm, out_root, args.timeout)
     records: list[dict[str, object]] = [manifest]
     for image in images:
         for profile in profiles:
-            run_dir = out_root / "runs" / safe_stem(image.source) / image.label / profile.name
+            run_dir = out_root / "runs" / image.source_key / image.label / profile.name
             record = run_profile(
                 image=image,
                 profile=profile,

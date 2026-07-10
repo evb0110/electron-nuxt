@@ -18,6 +18,42 @@ export default {
         features: 'Functies',
         viewSource: 'Broncode bekijken',
     },
+    privacy: {
+        seo: {
+            title: 'Privacybeleid',
+            description: 'Privacybeleid voor de desktop-app, browser-app, website en optionele assistentfuncties van EVB Viewer.',
+        },
+        hero: {
+            title: 'Privacybeleid',
+            subtitle: 'Hoe EVB Viewer omgaat met documenten, instellingen, analysegegevens en optionele assistentfuncties.',
+            effectiveDate: 'Van kracht vanaf 9 juli 2026',
+        },
+        documents: {
+            heading: 'Documenten en lokale verwerking',
+            body: 'EVB Viewer opent documenten die je zelf selecteert. In de desktop-app worden documentweergave, OCR, annotaties, paginabewerkingen en export op je apparaat uitgevoerd. De browser-app verwerkt geselecteerde documenten in je browser, tenzij je een functie kiest die uitdrukkelijk een externe dienst gebruikt. EVB Viewer uploadt je documenten standaard niet naar de ontwikkelaar.',
+        },
+        assistant: {
+            heading: 'Optionele assistentdiensten',
+            body: 'Assistentfuncties zijn optioneel. Wanneer je een assistent gebruikt die is gebaseerd op Codex, OpenAI of Anthropic Claude, worden prompts en alle inhoud of bijlagen die je kiest via je account naar die aanbieder gestuurd en vallen ze onder de voorwaarden en het privacybeleid van die aanbieder. EVB Viewer verkoopt deze informatie niet.',
+        },
+        analytics: {
+            heading: 'Analyse- en technische gegevens',
+            body: 'De website en browser-app van EVB Viewer kunnen beperkte gebruiksgebeurtenissen en technische gegevens verzamelen, zoals paginapaden, functiegebeurtenissen, taal, schermcategorie, verwijzende site, browser-user-agent, geschatte regio en een wisselende gehashte bezoekerscode. Deze gegevens worden gebruikt om de betrouwbaarheid en het productgebruik te begrijpen en niet om de inhoud van documenten vast te stellen.',
+        },
+        settings: {
+            heading: 'Instellingen, recente bestanden en updates',
+            body: 'Appvoorkeuren, de status van de werkruimte en verwijzingen naar recente bestanden kunnen lokaal op je apparaat worden opgeslagen. De desktop-app kan GitHub benaderen om software-updates te controleren en te downloaden. Het besturingssysteem en appstorediensten kunnen aanvullende technische gegevens verwerken volgens hun eigen beleid.',
+        },
+        retention: {
+            heading: 'Bewaartermijnen en keuzes',
+            body: 'Lokale appgegevens blijven op je apparaat totdat je ze verwijdert of de app deïnstalleert. Je bepaalt zelf welke documenten en bijlagen worden geopend of naar optionele assistentdiensten worden gestuurd. Analysegegevens van de website worden alleen bewaard zolang dat nodig is voor de werking en beveiliging van het product en voor trendanalyse.',
+        },
+        contact: {
+            heading: 'Contact',
+            intro: 'Vragen of privacyverzoeken kun je indienen via de',
+            linkLabel: 'issue-tracker van EVB Viewer',
+        },
+    },
     home: {
         seo: {
             title: 'EVB Viewer web-app en desktopdownloads',

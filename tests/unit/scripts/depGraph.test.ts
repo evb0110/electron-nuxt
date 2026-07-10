@@ -352,7 +352,6 @@ describe('dependency graph', () => {
             'app/utils/platform.ts',
             'packages/contracts/electronApi.ts',
             'packages/contracts/index.ts',
-            'packages/contracts/platformMethodManifest.ts',
         ]) {
             expect(checkArchitectureBoundaryEdge({
                 source,
@@ -392,6 +391,44 @@ describe('dependency graph', () => {
             specifier: '@app/modules/workspace-shell/public',
             message: 'scripts/** must not import app runtime code; diagnostic scripts may use only approved app trace/test types.',
         }]);
+    });
+
+    it('denies production runtime imports from scripts while allowing shared contracts', () => {
+        for (const violation of [
+            {
+                source: 'app/composables/useStartup.ts',
+                rule: 'app-to-scripts',
+                message: 'App runtime code must not import scripts/** tooling; move shared contracts into packages/**.',
+            },
+            {
+                source: 'electron/bootstrap/runInitSequence.ts',
+                rule: 'electron-to-scripts',
+                message: 'Electron runtime code must not import scripts/** tooling; move shared contracts into packages/**.',
+            },
+            {
+                source: 'packages/contracts/startup.ts',
+                rule: 'packages-to-scripts',
+                message: 'Shared runtime packages must not import scripts/** tooling; keep shared contracts inside packages/**.',
+            },
+        ]) {
+            expect(checkArchitectureBoundaryEdge({
+                source: violation.source,
+                target: 'scripts/releaseVerificationHelpers.ts',
+                specifier: '@scripts/releaseVerificationHelpers',
+            })).toEqual([{
+                rule: violation.rule,
+                source: violation.source,
+                target: 'scripts/releaseVerificationHelpers.ts',
+                specifier: '@scripts/releaseVerificationHelpers',
+                message: violation.message,
+            }]);
+        }
+
+        expect(checkArchitectureBoundaryEdge({
+            source: 'electron/bootstrap/runInitSequence.ts',
+            target: 'packages/contracts/packagedStartupReadyMarker.ts',
+            specifier: '@contracts/packagedStartupReadyMarker',
+        })).toEqual([]);
     });
 
     it('enforces workspace package dependency layers', () => {

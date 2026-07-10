@@ -14,6 +14,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { runCoordinatedPdfPageRender } from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
 import type { IPdfRenderSupervisor } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
+import type { IPdfDocumentPageLease } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument';
 
 interface IUsePdfRendererCanvasControllerOptions {
     canvasRenderer: ReturnType<typeof usePdfCanvasRenderer>;
@@ -22,8 +23,7 @@ interface IUsePdfRendererCanvasControllerOptions {
     hiddenAnnotationIds: (pageNumber: number) => Set<string> | undefined;
     sourceMaxPixels?: ((pageNumber: number) => number | null | undefined) | undefined;
     getRenderVersion: () => number;
-    getPage: (pageNumber: number) => Promise<PDFPageProxy>;
-    releasePage: (pageNumber: number, pdfPage: PDFPageProxy) => void;
+    getPage: (pageNumber: number) => Promise<IPdfDocumentPageLease>;
     cancelActiveRenderTask: (pageNumber: number) => void;
     cancelActiveRenderTaskIfCurrent: (pageNumber: number, version: number, requestId: number) => void;
     onRenderStall?: ((payload: IPageRenderStallPayload) => void) | undefined;
@@ -39,7 +39,6 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
         sourceMaxPixels,
         getRenderVersion,
         getPage,
-        releasePage,
         cancelActiveRenderTask,
         cancelActiveRenderTaskIfCurrent,
         onRenderStall,
@@ -56,14 +55,14 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
 
     function releasePageResources(
         pageNumber: number,
-        pdfPage: PDFPageProxy,
+        pageLease: IPdfDocumentPageLease,
     ) {
         try {
             logPdfRenderTrace('renderer-page-cleanup-begin', {
                 pageNumber,
                 renderVersion: getRenderVersion(),
             });
-            releasePage(pageNumber, pdfPage);
+            pageLease.release();
             logPdfRenderTrace('renderer-page-cleanup-end', {
                 pageNumber,
                 renderVersion: getRenderVersion(),
@@ -202,12 +201,12 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
     ) {
         let pageLoadTimedOut = false;
         const pagePromise = getPage(pageNumber);
-        void pagePromise.then((pdfPage) => {
+        void pagePromise.then((pageLease) => {
             if (pageLoadTimedOut) {
-                releasePageResources(pageNumber, pdfPage);
+                releasePageResources(pageNumber, pageLease);
             }
         }, () => {});
-        const pdfPage = await withPageStageTimeout(
+        const pageLease = await withPageStageTimeout(
             pagePromise,
             {
                 pageNumber,
@@ -222,9 +221,9 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
             renderSupervisor,
         );
         if (getRenderVersion() === version && shouldContinue()) {
-            return pdfPage;
+            return pageLease;
         }
-        releasePageResources(pageNumber, pdfPage);
+        releasePageResources(pageNumber, pageLease);
         return null;
     }
 

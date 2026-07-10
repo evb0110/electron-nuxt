@@ -836,7 +836,10 @@ export async function exportPdfPagesAsImages(
 
     try {
         const requestedPageCount = getRequestedPageCount(options);
-        const pageCount = requestedPageCount ?? await getPdfPageCount(preparedSourcePdf.pdfPath);
+        const pageCount = requestedPageCount ?? await getPdfPageCount(preparedSourcePdf.pdfPath, {
+            ...(options.signal ? { signal: options.signal } : {}),
+            ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
+        });
         assertExportPageCountWithinLimit(pageCount);
         const exportedPaths = resolveOutputPathConflicts(buildImageExportOutputPaths(
             normalizedPath,
@@ -1093,7 +1096,10 @@ export async function exportPdfAsMultiPageTiff(
 
     try {
         const requestedPageCount = getRequestedPageCount(options);
-        const pageCount = requestedPageCount ?? await getPdfPageCount(preparedSourcePdf.pdfPath);
+        const pageCount = requestedPageCount ?? await getPdfPageCount(preparedSourcePdf.pdfPath, {
+            ...(options.signal ? { signal: options.signal } : {}),
+            ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
+        });
         assertExportPageCountWithinLimit(pageCount);
         const pageFiles: IRenderedPageFile[] = [];
         let renderedPageCount = 0;
@@ -1107,7 +1113,13 @@ export async function exportPdfAsMultiPageTiff(
         try {
             for (const pageRange of createPageRanges(pageCount)) {
                 throwIfAborted(options.signal);
-                const renderedPageFiles = await renderPdfToTempPages(preparedSourcePdf.pdfPath, 'tiff', pageRange, options.signal);
+                const renderedPageFiles = await renderPdfToTempPages(
+                    preparedSourcePdf.pdfPath,
+                    'tiff',
+                    pageRange,
+                    options.signal,
+                    options.cancelGroup,
+                );
                 pageFiles.push(...renderedPageFiles);
                 renderedPageCount += renderedPageFiles.length;
                 emitExportProgress(options, {

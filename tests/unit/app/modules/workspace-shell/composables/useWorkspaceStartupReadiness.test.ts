@@ -2,6 +2,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
+    effectScope,
     nextTick,
     ref,
 } from 'vue';
@@ -79,5 +80,28 @@ describe('useWorkspaceStartupReadiness', () => {
         expect(readinessSource).not.toContain('requestAnimationFrame');
         expect(readinessSource).not.toContain('showNativeDjvuViewer');
         expect(readinessSource).not.toContain('showNativePdfViewer');
+    });
+
+    it('suppresses readiness dispatch after its owning scope is disposed', async () => {
+        const readiness = createDeferred();
+        const viewer = {
+            getViewerContainer: () => null,
+            scrollToPage: vi.fn(),
+            waitForViewerLoadSettled: vi.fn(() => readiness.promise),
+        } satisfies IDocumentViewerExpose;
+        const dispatchEvent = vi.spyOn(window, 'dispatchEvent');
+        const scope = effectScope();
+        const startupReadiness = scope.run(() => useWorkspaceStartupReadiness({documentViewerRef: ref(viewer)}));
+        if (!startupReadiness) {
+            throw new Error('Expected startup readiness scope');
+        }
+        startupReadiness.scheduleStartupOpenVisualReady('disposed-open');
+        await nextTick();
+        scope.stop();
+        readiness.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(dispatchEvent).not.toHaveBeenCalled();
     });
 });
