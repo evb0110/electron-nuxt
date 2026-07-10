@@ -194,4 +194,43 @@ describe('usePdfViewerActivationRestore', () => {
         expect(transactionController.cancelActiveTransaction).not.toHaveBeenCalled();
         expect(renderVisiblePages).toHaveBeenCalledTimes(2);
     });
+
+    it('restores a visible pane when authoritative work denies recovery admission', async () => {
+        const transactionController: TActivationRestoreTransactionController = {
+            beginTransaction: vi.fn(() => null),
+            advanceTransaction: vi.fn(() => true),
+            cancelActiveTransaction: vi.fn(() => true),
+            isTransactionCurrent: vi.fn(() => true),
+            commitVisibleRange: vi.fn(() => true),
+        };
+        const {
+            applySearchHighlights,
+            renderVisiblePages,
+            restore,
+        } = createHarness({ transactionController });
+        const runId = restore.nextActivationRestoreRunId();
+
+        await restore.renderActiveDocumentAfterActivation(runId);
+
+        expect(transactionController.beginTransaction).toHaveBeenCalledOnce();
+        expect(transactionController.commitVisibleRange).toHaveBeenCalledWith({
+            start: 1,
+            end: 2,
+        }, undefined);
+        expect(transactionController.advanceTransaction).not.toHaveBeenCalled();
+        expect(transactionController.cancelActiveTransaction).not.toHaveBeenCalled();
+        expect(renderVisiblePages).toHaveBeenNthCalledWith(1, {
+            start: 1,
+            end: 2,
+        }, { preserveRenderedPages: true });
+        expect(renderVisiblePages).toHaveBeenNthCalledWith(2, {
+            start: 1,
+            end: 2,
+        }, {
+            preserveRenderedPages: true,
+            forceRerender: true,
+            bufferOverride: 0,
+        });
+        expect(applySearchHighlights).toHaveBeenCalledOnce();
+    });
 });

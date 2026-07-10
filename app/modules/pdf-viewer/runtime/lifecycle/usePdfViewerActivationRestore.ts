@@ -325,9 +325,6 @@ export const usePdfViewerActivationRestore = (options: IUsePdfViewerActivationRe
             return;
         }
         const transactionId = beginActivationTransaction();
-        if (transactionController && transactionId === null) {
-            return;
-        }
         if (!await restoreCurrentPageViewportForActivation(transactionId)) {
             cancelActivationTransaction(transactionId, 'superseded');
             return;
