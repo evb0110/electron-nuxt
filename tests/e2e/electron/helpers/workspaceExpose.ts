@@ -8,6 +8,10 @@ import type {
     IWorkspaceExpose,
     IWorkspaceToolbarSnapshot,
 } from '@app/types/workspaceExpose';
+import {
+    evaluateInPage,
+    waitForFunctionInPage,
+} from '@tests/e2e/electron/helpers/pageRuntime';
 
 export type { IWorkspaceExpose };
 
@@ -68,7 +72,7 @@ function collectRequiredMethods(
 }
 
 export async function installWorkspaceExposeProbe(page: Page) {
-    await page.evaluate(() => {
+    await evaluateInPage(page, () => {
         const probeWindow = window as IWorkspaceExposeProbeWindow;
         if (probeWindow.__evbFindWorkspaceExpose && probeWindow.__evbCollectWorkspaceExposeDebug) {
             return;
@@ -157,7 +161,7 @@ export async function getWorkspaceToolbarSnapshot(
     options: IFindWorkspaceExposeOptions = {},
 ) {
     await installWorkspaceExposeProbe(page);
-    return page.evaluate((searchOptions: IFindWorkspaceExposeOptions): IWorkspaceToolbarSnapshot | null => {
+    return evaluateInPage(page, (searchOptions: IFindWorkspaceExposeOptions): IWorkspaceToolbarSnapshot | null => {
         const apiSnapshot = (window as IWorkspaceExposeProbeWindow).__evbTestApi?.getActiveToolbarSnapshot() ?? null;
         if (apiSnapshot) {
             return apiSnapshot;
@@ -225,7 +229,7 @@ export async function waitForWorkspaceToolbarIdle(
     } = options;
 
     await installWorkspaceExposeProbe(page);
-    await page.waitForFunction((payload: IFindWorkspaceExposeOptions) => {
+    await waitForFunctionInPage(page, (payload: IFindWorkspaceExposeOptions) => {
         const snapshot = (window as IWorkspaceExposeProbeWindow)
             .__evbTestApi
             ?.getActiveToolbarSnapshot()
@@ -256,7 +260,7 @@ export async function waitForAutomationEvent(
     const normalizedPath = options.path?.replace(/\\/gu, '/').toLowerCase() ?? null;
 
     await installWorkspaceExposeProbe(page);
-    return page.evaluate(async (payload: {
+    return evaluateInPage(page, async (payload: {
         afterEventId: number;
         normalizedPath: string | null;
         timeoutMs: number;
@@ -293,7 +297,7 @@ export async function waitForAutomationEvent(
 
 export async function getLatestAutomationEventId(page: Page) {
     await installWorkspaceExposeProbe(page);
-    return page.evaluate(() => {
+    return evaluateInPage(page, () => {
         const events = (window as IWorkspaceExposeProbeWindow).__evbTestApi?.getAutomationEvents?.() ?? [];
         return events.at(-1)?.id ?? 0;
     });
@@ -346,7 +350,7 @@ export async function readWorkspaceStateValues<TValues extends Record<string, un
     options: IFindWorkspaceExposeOptions = {},
 ) {
     await installWorkspaceExposeProbe(page);
-    return page.evaluate((payload: {
+    return evaluateInPage(page, (payload: {
         propertyNames: string[];
         searchOptions: IFindWorkspaceExposeOptions;
     }) => {
