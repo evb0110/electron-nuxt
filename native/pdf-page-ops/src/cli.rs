@@ -1,11 +1,6 @@
-fn main() {
-    if let Err(error) = run() {
-        eprintln!("{error}");
-        std::process::exit(1);
-    }
-}
+use super::*;
 
-fn run() -> Result<()> {
+pub(crate) fn run() -> Result<()> {
     if env::args().skip(1).any(|arg| arg == "--protocol-version") {
         println!("{PROTOCOL_VERSION}");
         return Ok(());
@@ -16,10 +11,12 @@ fn run() -> Result<()> {
         return Ok(());
     }
 
-    mutate_pdf(parse_args()?)
+    let config = parse_args()
+        .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
+    mutate_pdf(config)
 }
 
-fn parse_args() -> Result<Config> {
+pub(crate) fn parse_args() -> Result<Config> {
     let mut args = env::args().skip(1);
     let command = args.next().ok_or("Missing command")?;
     let mut input_path = None;

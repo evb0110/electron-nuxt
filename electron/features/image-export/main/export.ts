@@ -332,7 +332,7 @@ async function tryConvertRenderedPpmToPngNative(
     }
 }
 
-async function convertRenderedPpmToPng(
+export async function convertRenderedPpmToPng(
     sourcePath: string,
     signal?: AbortSignal,
     cancelGroup?: string,

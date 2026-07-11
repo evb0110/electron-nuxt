@@ -145,6 +145,7 @@ vi.mock('fs/promises', () => ({
 vi.mock('os', () => ({
     availableParallelism: () => 5,
     cpus: () => Array.from({length: 5}, () => ({})),
+    totalmem: () => 16 * 1024 * 1024 * 1024,
     tmpdir: () => '/tmp',
 }));
 vi.mock('@electron/djvu/paths', () => ({buildDjvuRuntimeEnv: () => ({PATH: '/bin'})}));
@@ -163,13 +164,44 @@ vi.mock('@electron/utils/nativeChildProcess', () => ({
     createDetachedChildProcessSpawnOptions: (options: unknown) => options,
     terminateDetachedChildProcess: mocks.terminateDetachedChildProcess,
 }));
+vi.mock('@electron/features/djvu/main/djvuArtifactManifest', () => ({openDjvuArtifactJob: vi.fn(async (_sourcePath: string, ranges: Array<{
+    startPage: number;
+    endPage: number;
+}>) => {
+    const manifest = {ranges: ranges.map(range => ({
+        ...range,
+        outputPath: `/tmp/djvu-pages-test/pages-${range.startPage}-${range.endPage}.pdf`,
+        status: 'pending' as const,
+    }))};
+    return {
+        directory: '/tmp/djvu-pages-test',
+        manifestPath: '/tmp/djvu-pages-test/manifest.json',
+        manifest,
+        updateRange: vi.fn(async (index: number, update: object) => {
+            Object.assign(manifest.ranges[index]!, update);
+        }),
+    };
+})}));
 
 const {
     cancelConversion,
     convertDjvuToPdfFile,
     renderDjvuPageToImage,
+    resolveDjvuRangeWorkerCount,
     runRegisteredDjvuProcess,
 } = await import('@electron/features/djvu/main/ddjvuConversion');
+
+describe('resolveDjvuRangeWorkerCount', () => {
+    it('does not clamp a two-core host up to two conversion workers', () => {
+        expect(resolveDjvuRangeWorkerCount(25, 2)).toBe(1);
+        expect(resolveDjvuRangeWorkerCount(25, 1)).toBe(1);
+    });
+
+    it('keeps one core free and respects the page count', () => {
+        expect(resolveDjvuRangeWorkerCount(25, 5)).toBe(4);
+        expect(resolveDjvuRangeWorkerCount(2, 16)).toBe(2);
+    });
+});
 
 describe('convertDjvuToPdfFile', () => {
     beforeEach(() => {
@@ -212,10 +244,7 @@ describe('convertDjvuToPdfFile', () => {
             ],
         });
         expect(progress).toHaveBeenLastCalledWith(95);
-        expect(mocks.rm).toHaveBeenCalledWith('/tmp/djvu-pages-test', {
-            recursive: true,
-            force: true,
-        });
+        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/djvu-pages-test', expect.anything());
     });
 
     it('keeps small conversions on the single native process path', async () => {

@@ -6,40 +6,42 @@ import {
     vi,
 } from 'vitest';
 
-const readOptionalOcrArtifactJsonMock = vi.hoisted(() => vi.fn());
-const readOptionalAdjacentJsonArtifactMock = vi.hoisted(() => vi.fn());
-const yieldToBrowserMock = vi.hoisted(() => vi.fn(async () => {}));
+const resolveDocumentTextCatalogMock = vi.hoisted(() => vi.fn());
 
-vi.mock('@app/utils/platformOcrArtifacts', () => ({
-    readOptionalOcrArtifactJson: readOptionalOcrArtifactJsonMock,
-    readOptionalAdjacentJsonArtifact: readOptionalAdjacentJsonArtifactMock,
-}));
-
-vi.mock('@app/utils/yieldToBrowser', () => ({yieldToBrowser: yieldToBrowserMock}));
-
+vi.mock('@app/utils/getOcrCapability', () => ({getOcrCapability: () => ({resolveDocumentTextCatalog: resolveDocumentTextCatalogMock})}));
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {warn: vi.fn()}}));
 
 const { loadOcrText } = await import('@app/utils/ocr/loadOcrText');
-
 const TEST_DOCUMENT_REVISION = 'revision-token';
 
 describe('loadOcrText', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        readOptionalOcrArtifactJsonMock.mockResolvedValue(null);
-        readOptionalAdjacentJsonArtifactMock.mockResolvedValue(null);
+        resolveDocumentTextCatalogMock.mockResolvedValue({
+            documentRevision: TEST_DOCUMENT_REVISION,
+            pageCount: 17,
+            pages: Array.from({length: 17}, (_value, index) => ({
+                pageNumber: index + 1,
+                text: `Page ${index + 1}`,
+                source: 'evb-ocr',
+                contentDigest: `digest-${index + 1}`,
+            })),
+            contentDigest: 'snapshot-digest',
+        });
     });
 
-    it('yields while reading large revision-matched search indexes', async () => {
-        const pages = Array.from({length: 17}, (_value, index) => ({text: `Page ${index + 1}`}));
-        readOptionalAdjacentJsonArtifactMock.mockResolvedValue({
-            schemaVersion: 7,
-            documentRevision: {token: TEST_DOCUMENT_REVISION},
-            pages,
-        });
-
+    it('reads all canonical pages through the production catalog capability', async () => {
         await expect(loadOcrText('/tmp/work.pdf', TEST_DOCUMENT_REVISION)).resolves.toContain('Page 17');
+        expect(resolveDocumentTextCatalogMock).toHaveBeenCalledWith('/tmp/work.pdf', TEST_DOCUMENT_REVISION);
+    });
 
-        expect(yieldToBrowserMock).toHaveBeenCalledTimes(2);
+    it('does not fall back to renderer-side artifacts', async () => {
+        resolveDocumentTextCatalogMock.mockResolvedValue({
+            documentRevision: TEST_DOCUMENT_REVISION,
+            pageCount: 1,
+            pages: [],
+            contentDigest: 'empty',
+        });
+        await expect(loadOcrText('/tmp/work.pdf', TEST_DOCUMENT_REVISION)).resolves.toBeNull();
     });
 });

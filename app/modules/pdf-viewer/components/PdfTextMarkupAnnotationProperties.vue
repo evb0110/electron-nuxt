@@ -99,7 +99,7 @@ function close() {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 6px 6px 6px 10px;
+    padding: var(--app-pdf-annotation-properties-header-padding);
     border-bottom: 1px solid var(--ui-border);
 }
 
@@ -135,7 +135,7 @@ function close() {
     justify-self: start;
     width: var(--app-pdf-annotation-properties-color-size);
     height: var(--app-pdf-annotation-properties-color-size);
-    padding: 1px;
+    padding: var(--app-pdf-annotation-properties-color-padding);
     border: 1px solid var(--ui-border);
     border-radius: var(--app-radius-xs);
     background: transparent;

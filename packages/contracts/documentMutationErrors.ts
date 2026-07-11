@@ -1,5 +1,8 @@
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import {
+    parseDocumentRevisionToken,
+    type TDocumentRevisionToken,
+} from '@contracts/documentRevision';
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import { isRecord } from '@contracts/runtimeGuards';
 
@@ -58,17 +61,23 @@ function decodeDocumentMutationErrorMessage(message: string): IDocumentMutationE
             return null;
         }
         const fallbackMessage = getDefaultDocumentMutationErrorMessage(parsed.code);
+        const expectedRevision = parsed.expectedRevision === null
+            ? null
+            : parseDocumentRevisionToken(parsed.expectedRevision);
+        const actualRevision = parsed.actualRevision === null
+            ? null
+            : parseDocumentRevisionToken(parsed.actualRevision);
         return {
             code: parsed.code,
             message: typeof parsed.message === 'string' && parsed.message.length > 0
                 ? parsed.message
                 : fallbackMessage,
             ...(typeof parsed.documentRef === 'string' ? {documentRef: parsed.documentRef} : {}),
-            ...(typeof parsed.expectedRevision === 'string' || parsed.expectedRevision === null
-                ? {expectedRevision: parsed.expectedRevision}
+            ...(expectedRevision !== null || parsed.expectedRevision === null
+                ? {expectedRevision}
                 : {}),
-            ...(typeof parsed.actualRevision === 'string' || parsed.actualRevision === null
-                ? {actualRevision: parsed.actualRevision}
+            ...(actualRevision !== null || parsed.actualRevision === null
+                ? {actualRevision}
                 : {}),
         };
     } catch {
@@ -95,15 +104,21 @@ export function getDocumentMutationErrorPayload(error: unknown): IDocumentMutati
             )
             && typeof error.message === 'string'
         ) {
+            const expectedRevision = error.expectedRevision === null
+                ? null
+                : parseDocumentRevisionToken(error.expectedRevision);
+            const actualRevision = error.actualRevision === null
+                ? null
+                : parseDocumentRevisionToken(error.actualRevision);
             return {
                 code: error.code,
                 message: error.message,
                 ...(typeof error.documentRef === 'string' ? {documentRef: error.documentRef} : {}),
-                ...(typeof error.expectedRevision === 'string' || error.expectedRevision === null
-                    ? {expectedRevision: error.expectedRevision}
+                ...(expectedRevision !== null || error.expectedRevision === null
+                    ? {expectedRevision}
                     : {}),
-                ...(typeof error.actualRevision === 'string' || error.actualRevision === null
-                    ? {actualRevision: error.actualRevision}
+                ...(actualRevision !== null || error.actualRevision === null
+                    ? {actualRevision}
                     : {}),
             };
         }

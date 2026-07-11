@@ -33,7 +33,7 @@
         @save-as="handleSaveAs"
         @print="handlePrint"
         @print-current-page="handlePrintCurrentPage"
-        @combine-images="handleCombineImages"
+        @combine-files="handleCombineImages"
         @export-docx="handleExportDocx"
         @ocr-export-docx="handleExportDocx"
         @export-images="handleExportImages"
@@ -112,7 +112,7 @@ const emit = defineEmits<{
     'save-as': [];
     'print': [];
     'print-current-page': [];
-    'combine-images': [];
+    'combine-files': [];
     'export-docx': [];
     'export-images': [];
     'export-multi-page-tiff': [];
@@ -218,7 +218,7 @@ function handlePrintCurrentPage() {
 }
 
 function handleCombineImages() {
-    emit('combine-images');
+    emit('combine-files');
 }
 
 function handleExportDocx() {

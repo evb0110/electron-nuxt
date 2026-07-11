@@ -319,12 +319,12 @@ export async function waitForDjvuLoaded(page: Page, timeoutMs = DEFAULT_TIMEOUT_
                 return false;
             }
 
-            const pages = host.querySelectorAll('.djvu-page-shell');
+            const pages = host.querySelectorAll('[data-testid="document-page-source-page"]');
             if (pages.length === 0) {
                 return false;
             }
 
-            return host.querySelectorAll('.djvu-page-shell img').length > 0;
+            return host.querySelectorAll('[data-testid="document-page-source-image"]').length > 0;
         }, {timeout: timeoutMs});
     });
 }

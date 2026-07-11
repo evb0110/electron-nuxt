@@ -5,10 +5,42 @@ interface IDesktopViewerChunkWarmupOptions {
     loaders?: TViewerChunkLoader[];
 }
 
+interface IPrioritizedViewerChunkWarmupOptions {
+    isDesktopRuntime: boolean;
+    paths: readonly string[];
+    djvuLoader?: TViewerChunkLoader;
+    pdfLoader?: TViewerChunkLoader;
+}
+
+const defaultDjvuChunkLoader: TViewerChunkLoader = () => (
+    import('@app/modules/workspace-shell/components/DocumentPageSourceFeaturePack.vue')
+);
+const defaultPdfChunkLoader: TViewerChunkLoader = () => (
+    import('@app/modules/native-pdf-viewer/public/component-exports/nativePdfViewer')
+);
+
 const defaultViewerChunkLoaders: TViewerChunkLoader[] = [
-    () => import('@app/modules/djvu-viewer/public'),
-    () => import('@app/modules/native-pdf-viewer/public'),
+    defaultDjvuChunkLoader,
+    defaultPdfChunkLoader,
 ];
+
+/** Loads only the viewer engine required by paths already handed to this renderer. */
+export function warmupDesktopViewerChunkForPaths(options: IPrioritizedViewerChunkWarmupOptions) {
+    if (!options.isDesktopRuntime || options.paths.length === 0) {
+        return null;
+    }
+
+    const loaders = new Set<TViewerChunkLoader>();
+    for (const path of options.paths) {
+        const normalizedPath = path.toLowerCase().split(/[?#]/u, 1)[0] ?? '';
+        if (normalizedPath.endsWith('.djvu') || normalizedPath.endsWith('.djv')) {
+            loaders.add(options.djvuLoader ?? defaultDjvuChunkLoader);
+        } else if (normalizedPath.endsWith('.pdf')) {
+            loaders.add(options.pdfLoader ?? defaultPdfChunkLoader);
+        }
+    }
+    return loaders.size > 0 ? Promise.all([...loaders].map(loadViewerChunk => loadViewerChunk())) : null;
+}
 
 /**
  * Warms the heavy document-viewer chunks (DjVu and native PDF) in the background after
@@ -25,10 +57,8 @@ const defaultViewerChunkLoaders: TViewerChunkLoader[] = [
  *   behind `defineAsyncComponent`/dynamic `import()` so neither web visitors nor desktop
  *   cold start pay their parse cost up front. The same renderer build ships to the web
  *   (Vercel) and to Electron, so async boundaries must stay valid for both targets.
- * - On desktop the renderer is served from local disk, which makes chunk loads cheap but
- *   not free (fetch, parse, evaluate). Likely-needed chunks are therefore warmed early:
- *   `app.vue` blocks the startup overlay on the DocumentWorkspace preload and fires this
- *   helper non-blocking for the viewer engines.
+ * - On desktop, pending external-open paths first warm only their matching engine. This
+ *   all-engine helper is reserved for background warmup after that startup claim.
  *
  * Web stays cold on purpose: prefetching both viewer engines would spend bandwidth on
  * visitors who may never open that document type.

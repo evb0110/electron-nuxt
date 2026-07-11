@@ -15,12 +15,15 @@ import type {
 } from '@electron/ocr/jobManager.types';
 import type { createPendingResultFileStore } from '@electron/ocr/createPendingResultFileStore';
 import { transitionOcrJobLifecycle } from '@electron/ocr/ocrJobLifecycle';
+import {documentOutputService} from '@electron/output/documentOutputService';
 import { ocrResourceGovernor } from '@electron/ocr/ocrResourceGovernor';
 import { OCR_EVENT_CHANNELS } from '@electron/features/ocr/contract';
 import { buildOcrErrorEnvelope } from '@electron/ocr/contracts';
 import type { ILogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import { runDetached } from '@electron/utils/runDetached';
 import type {
+    IOcrCompleteResult,
     IOcrErrorEnvelope,
     TOcrErrorCode,
 } from '@contracts/electronApiOcr';
@@ -52,7 +55,6 @@ interface IOcrJobWorkerLifecycleControllerOptions {
     pendingResultFileStore: TOcrPendingResultFileStore;
     logger: ILogger;
     clearOcrProgressPump: (scopedJobId: string, requestId?: string) => void;
-    dispatchQueuedJobs: () => void;
     enqueueOcrProgress: (
         job: Pick<IOcrQueuedJob | IOcrPreparingJob, 'scopedJobId' | 'requestId'>,
         status: 'success' | 'canceled' | 'failed',
@@ -63,8 +65,8 @@ interface IOcrJobWorkerLifecycleControllerOptions {
     removeResultFile: (path: string) => Promise<boolean>;
     safeSendToWindow: (
         window: BrowserWindow | null | undefined,
-        channel: typeof OCR_EVENT_CHANNELS[keyof typeof OCR_EVENT_CHANNELS],
-        ...args: unknown[]
+        channel: typeof OCR_EVENT_CHANNELS.complete,
+        payload: IOcrCompleteResult,
     ) => void;
 }
 
@@ -103,7 +105,6 @@ export function createOcrJobWorkerLifecycleController(
         pendingResultFileStore,
         logger,
         clearOcrProgressPump,
-        dispatchQueuedJobs,
         enqueueOcrProgress,
         getJobWindow,
         onFinalizeActiveJob,
@@ -186,9 +187,16 @@ export function createOcrJobWorkerLifecycleController(
             job.requestId,
             job.webContentsId,
             result.pdfPath,
+            result.resultSha256,
             result.requiresCleanupAck,
         );
-        void pendingResultFileStore.evictStale();
+        runDetached(
+            () => pendingResultFileStore.evictStale(),
+            {
+                label: 'evict stale OCR result files',
+                logger,
+            },
+        );
         job.pendingCompletionResult = null;
         return true;
     }
@@ -200,7 +208,13 @@ export function createOcrJobWorkerLifecycleController(
         }
 
         job.pendingCompletionResult = null;
-        void removeResultFile(result.pdfPath);
+        runDetached(
+            () => removeResultFile(result.pdfPath),
+            {
+                label: `remove incomplete OCR result ${job.requestId}`,
+                logger,
+            },
+        );
     }
 
     async function terminateWorkerSafely(
@@ -236,7 +250,6 @@ export function createOcrJobWorkerLifecycleController(
         clearOcrProgressPump(scopedJobId);
         activeJobs.delete(scopedJobId);
         onFinalizeActiveJob?.(scopedJobId, activeJob ?? null);
-        dispatchQueuedJobs();
     }
 
     function terminateAndFinalizeActiveJob(
@@ -309,6 +322,10 @@ export function createOcrJobWorkerLifecycleController(
         }
 
         if (result.success) {
+            documentOutputService.update(job.scopedJobId, {
+                phase: 'applying',
+                percent: 99,
+            });
             trackPendingCompletionResultFile(job);
         } else {
             job.pendingCompletionResult = null;

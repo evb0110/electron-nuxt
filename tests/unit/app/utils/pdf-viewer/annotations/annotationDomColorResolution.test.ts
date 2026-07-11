@@ -62,7 +62,7 @@ function createElement(
 function createComment(overrides: Partial<IAnnotationCommentSummary>): IAnnotationCommentSummary {
     return {
         id: 'comment-1',
-        stableKey: 'comment-1',
+        stableKey: 'ann:0:comment-1',
         pageIndex: 0,
         pageNumber: 1,
         text: 'Marked text',

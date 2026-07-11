@@ -57,7 +57,9 @@ function createAsyncDefault(path: string) {
     if (path.includes('getPathsForFiles')) {
         return vi.fn(() => []);
     }
-    return vi.fn(async () => undefined);
+    return vi.fn(async () => {
+        throw new Error(`Unsupported platform API fixture call: ${path}`);
+    });
 }
 
 export function createDefaultPlatformApiFixtureMethod(descriptor: IPlatformMethodDescriptor) {

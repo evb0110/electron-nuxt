@@ -1,8 +1,11 @@
 import type { Ref } from 'vue';
-import type { IAnnotationNoteWindowState } from '@app/types/annotationNoteWindow';
+import type { IAnnotationNoteWindowViewModel } from '@app/types/annotationNoteWindow';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { IWorkspaceAgentCommandContext } from '@app/types/workspaceExpose';
-import { normalizeMarkerRect } from '@app/modules/pdf-viewer/public';
+import {
+    normalizeMarkerRect,
+    annotationIdForSummary,
+} from '@app/modules/pdf-viewer/public';
 import type { IWorkspacePdfViewerAgentAnnotationNotePort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import {
     getAgentRawStringInput,
@@ -20,12 +23,10 @@ interface IAgentUpdateNoteInput {
 }
 
 interface ICreateDocumentAgentAnnotationNoteActionsOptions {
-    annotationComments: Ref<IAnnotationCommentSummary[]>;
-    sortedAnnotationNoteWindows: Ref<IAnnotationNoteWindowState[]>;
+    sortedAnnotationNoteWindows: Ref<IAnnotationNoteWindowViewModel[]>;
     pdfViewerRef: Ref<IWorkspacePdfViewerAgentAnnotationNotePort | null>;
     findAgentAnnotationComment: (input: Record<string, unknown>) => IAnnotationCommentSummary;
     normalizeAgentAnnotationComment: (comment: IAnnotationCommentSummary) => object;
-    isSameAnnotationComment: (left: IAnnotationCommentSummary, right: IAnnotationCommentSummary) => boolean;
     handleOpenAnnotationNote: (comment: IAnnotationCommentSummary) => void;
     updateAnnotationNoteText: (stableKey: string, text: string) => void;
     markAnnotationDirty: () => void;
@@ -81,75 +82,9 @@ function markerRectsEqual(
 export function createDocumentAgentAnnotationNoteActions(
     options: ICreateDocumentAgentAnnotationNoteActionsOptions,
 ): ReadonlyArray<IAgentActionHandlerDefinition<unknown>> {
-    function patchAgentAnnotationCommentMarker(
-        comment: IAnnotationCommentSummary,
-        inputMarkerRect: IAnnotationCommentSummary['markerRect'] | null,
-        text: string,
-    ) {
-        if (!inputMarkerRect) {
-            return;
-        }
-        let matched = false;
-        const nextComments = options.annotationComments.value.map((candidate) => {
-            if (
-                candidate.stableKey !== comment.stableKey
-                && candidate.id !== comment.id
-                && (!candidate.annotationId || candidate.annotationId !== comment.annotationId)
-            ) {
-                return candidate;
-            }
-            matched = true;
-            return {
-                ...candidate,
-                markerRect: inputMarkerRect,
-                text,
-                hasNote: true,
-            };
-        });
-        options.annotationComments.value = matched
-            ? nextComments
-            : [
-                ...nextComments,
-                {
-                    ...comment,
-                    markerRect: inputMarkerRect,
-                    text,
-                    hasNote: true,
-                },
-            ];
-    }
-
     function findOpenAgentAnnotationNote(comment: IAnnotationCommentSummary) {
-        return options.sortedAnnotationNoteWindows.value.find(note =>
-            note.comment.stableKey === comment.stableKey
-            || options.isSameAnnotationComment(note.comment, comment),
-        );
-    }
-
-    function updateOpenAgentAnnotationNoteMarker(
-        comment: IAnnotationCommentSummary,
-        markerRect: IAnnotationCommentSummary['markerRect'] | null,
-    ) {
-        const openNote = findOpenAgentAnnotationNote(comment);
-        if (!openNote || !markerRect) {
-            return openNote ?? null;
-        }
-
-        const previousComment = openNote.comment;
-        openNote.comment = {
-            ...previousComment,
-            markerRect,
-        };
-        options.annotationComments.value = options.annotationComments.value.map(candidate => (
-            candidate.stableKey === previousComment.stableKey
-            || options.isSameAnnotationComment(candidate, previousComment)
-                ? {
-                    ...candidate,
-                    markerRect,
-                }
-                : candidate
-        ));
-        return openNote;
+        const annotationId = annotationIdForSummary(comment);
+        return options.sortedAnnotationNoteWindows.value.find(note => note.annotationId === annotationId);
     }
 
     function applyAgentAnnotationNoteTextUpdate(
@@ -164,10 +99,12 @@ export function createDocumentAgentAnnotationNoteActions(
                 hasNote: text.trim().length > 0 || comment.hasNote === true,
             }
             : comment;
-        patchAgentAnnotationCommentMarker(commentForUpdate, markerRect, text);
-        const openNote = updateOpenAgentAnnotationNoteMarker(commentForUpdate, markerRect);
+        if (markerRect && options.pdfViewerRef.value?.moveAnnotationMarker(comment, markerRect) !== true) {
+            return false;
+        }
+        const openNote = findOpenAgentAnnotationNote(commentForUpdate);
         if (openNote) {
-            options.updateAnnotationNoteText(openNote.comment.stableKey, text);
+            options.updateAnnotationNoteText(openNote.annotationId, text);
             options.markAnnotationDirty();
             return true;
         }
@@ -215,7 +152,6 @@ export function createDocumentAgentAnnotationNoteActions(
                         hasNote: true,
                     }
                     : comment;
-                patchAgentAnnotationCommentMarker(commentForUpdate, parsedInput.markerRect, parsedInput.text);
                 options.handleOpenAnnotationNote(commentForUpdate);
                 await nextTick();
                 context?.assertCurrentDocument();
@@ -242,8 +178,6 @@ export function createDocumentAgentAnnotationNoteActions(
                 );
                 await nextTick();
                 context?.assertCurrentDocument();
-                patchAgentAnnotationCommentMarker(commentForUpdate, parsedInput.markerRect, parsedInput.text);
-                await nextTick();
                 return {
                     updated,
                     comment: options.normalizeAgentAnnotationComment({

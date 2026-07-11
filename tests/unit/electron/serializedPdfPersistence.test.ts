@@ -25,15 +25,17 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { createOriginalFileContentFingerprintSync } from '@electron/file-access/workingCopyOriginalFileExpectation';
 import { createStaleRevisionError } from '@contracts/documentMutationErrors';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type * as SerializedPdfPersistenceModule from '@electron/features/documents/main/serializedPdfPersistence';
 import type * as WorkingCopyMutationQueueModule from '@electron/file-access/workingCopyMutationQueue';
+import {requireDocumentRevisionToken} from '@contracts';
 
 type TSerializedPdfPersistenceModule = typeof SerializedPdfPersistenceModule;
 type TWorkingCopyMutationQueueModule = typeof WorkingCopyMutationQueueModule;
 
 interface IInvocationOrderMock { mock: { invocationCallOrder: number[] }; }
 
-const SERIALIZED_TEST_REVISION_OPTIONS = { expectedDocumentRevisionToken: 'drt1:test:base' };
+const SERIALIZED_TEST_REVISION_OPTIONS = { expectedDocumentRevisionToken: requireDocumentRevisionToken('drt1:test:base') };
 
 const mocks = vi.hoisted(() => ({
     atomicReplace: vi.fn(),
@@ -56,6 +58,7 @@ const mocks = vi.hoisted(() => ({
     optimizePdfForSaveAs: vi.fn(),
     optimizeLargePdfForSave: vi.fn(),
     copyFileCopyOnWrite: vi.fn(),
+    transitionOriginalAndWorkingCopyRevision: vi.fn(),
 }));
 
 vi.mock('@electron/utils/atomicReplace', () => ({
@@ -88,6 +91,8 @@ vi.mock('@electron/file-access/workingCopyDirectory', () => ({copyFileCopyOnWrit
 vi.mock('@electron/file-access/openPathCapabilities', () => ({allowOpenPath: (...args: unknown[]) => mocks.allowOpenPath(...args)}));
 vi.mock('@electron/recentFiles', () => ({addRecentFile: (...args: unknown[]) => mocks.addRecentFile(...args)}));
 vi.mock('@electron/menu', () => ({updateRecentFilesMenu: (...args: unknown[]) => mocks.updateRecentFilesMenu(...args)}));
+vi.mock('@electron/features/documents/main/commitPdfTempFile', () => ({commitPdfTempFile: (...args: [string, string]) => mocks.atomicReplace(...args)}));
+vi.mock('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision', () => ({transitionOriginalAndWorkingCopyRevision: (...args: unknown[]) => mocks.transitionOriginalAndWorkingCopyRevision(...args)}));
 
 function createOriginalFileExpectationForTest(originalPath: string) {
     const originalStat = statSync(originalPath);
@@ -163,7 +168,7 @@ describe('serializedPdfPersistence', () => {
             version: 1,
             documentRef: workingPath,
             authority: 'electron-working-copy',
-            token: 'drt1:test:main-base',
+            token: requireDocumentRevisionToken('drt1:test:main-base'),
             contentRevision: 1,
             mintedAt: 1,
         }));
@@ -174,6 +179,31 @@ describe('serializedPdfPersistence', () => {
         });
         mocks.copyFileCopyOnWrite.mockImplementation(async (sourcePath: string, targetPath: string) => {
             await writeFile(targetPath, await readFile(sourcePath));
+        });
+        mocks.transitionOriginalAndWorkingCopyRevision.mockImplementation(async (input: {
+            workingCopyPath: string;
+            originalPath: string;
+            assertOriginalCurrent?: () => Promise<boolean>;
+            publishOriginal: () => Promise<void>;
+            afterWorkingCopySync?: () => Promise<void>;
+        }) => {
+            if (input.assertOriginalCurrent && !await input.assertOriginalCurrent()) {
+                return null;
+            }
+            const originalBefore = await readFile(input.originalPath);
+            const workingBefore = await readFile(input.workingCopyPath);
+            try {
+                await input.publishOriginal();
+                await mocks.copyFileCopyOnWrite(input.originalPath, input.workingCopyPath);
+                await input.afterWorkingCopySync?.();
+            } catch (error) {
+                await Promise.all([
+                    writeFile(input.originalPath, originalBefore),
+                    writeFile(input.workingCopyPath, workingBefore),
+                ]);
+                throw error;
+            }
+            return {token: requireDocumentRevisionToken('drt1:test:committed')};
         });
     });
 
@@ -206,7 +236,7 @@ describe('serializedPdfPersistence', () => {
         expect(readFileSyncUtf8(targetPath)).toBe('new-pdf');
         expect(existsSync(tempPath)).toBe(false);
         expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith(workingPath, 42);
-        expect(mocks.atomicReplace).toHaveBeenCalledWith(tempPath, targetPath);
+        expect(mocks.atomicReplace).toHaveBeenCalledWith(tempPath, targetPath, expect.any(Object));
         expect(
             firstInvocationOrder(mocks.ensureWorkingCopyDirectory),
         ).toBeLessThan(firstInvocationOrder(mocks.makeSiblingTempPath));
@@ -353,14 +383,14 @@ describe('serializedPdfPersistence', () => {
         mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
         mocks.assertWorkingCopyRevisionCurrent.mockRejectedValueOnce(createStaleRevisionError({
             documentRef: workingPath,
-            expectedRevision: 'drt1:test:base',
-            actualRevision: 'drt1:test:newer',
+            expectedRevision: requireDocumentRevisionToken('drt1:test:base'),
+            actualRevision: requireDocumentRevisionToken('drt1:test:newer'),
         }));
 
         const result = await runSaveToOriginalSession({
             workingPath,
             bytes: Buffer.from('stale-serialized-pdf'),
-            serializedSaveOptions: { expectedDocumentRevisionToken: 'drt1:test:base' },
+            serializedSaveOptions: { expectedDocumentRevisionToken: requireDocumentRevisionToken('drt1:test:base') },
         });
 
         expect(result).toMatchObject({
@@ -385,14 +415,14 @@ describe('serializedPdfPersistence', () => {
         mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
         mocks.assertWorkingCopyRevisionCurrent.mockRejectedValueOnce(createStaleRevisionError({
             documentRef: workingPath,
-            expectedRevision: 'drt1:test:caller-base',
-            actualRevision: 'drt1:test:page-op',
+            expectedRevision: requireDocumentRevisionToken('drt1:test:caller-base'),
+            actualRevision: requireDocumentRevisionToken('drt1:test:page-op'),
         }));
 
         const result = await runSaveToOriginalSession({
             workingPath,
             bytes: Buffer.from('stale-serialized-pdf'),
-            serializedSaveOptions: { expectedDocumentRevisionToken: 'drt1:test:caller-base' },
+            serializedSaveOptions: { expectedDocumentRevisionToken: requireDocumentRevisionToken('drt1:test:caller-base') },
         });
 
         expect(result).toMatchObject({
@@ -415,15 +445,15 @@ describe('serializedPdfPersistence', () => {
         writeFileSync(targetPath, 'old-target');
         mocks.assertWorkingCopyRevisionCurrent.mockRejectedValueOnce(createStaleRevisionError({
             documentRef: workingPath,
-            expectedRevision: 'drt1:test:save-as-base',
-            actualRevision: 'drt1:test:newer-save-as',
+            expectedRevision: requireDocumentRevisionToken('drt1:test:save-as-base'),
+            actualRevision: requireDocumentRevisionToken('drt1:test:newer-save-as'),
         }));
 
         const result = await runSaveAsSession({
             workingPath,
             targetPath,
             bytes: Buffer.from('stale-serialized-pdf'),
-            serializedSaveOptions: { expectedDocumentRevisionToken: 'drt1:test:save-as-base' },
+            serializedSaveOptions: { expectedDocumentRevisionToken: requireDocumentRevisionToken('drt1:test:save-as-base') },
         });
 
         expect(result).toMatchObject({
@@ -440,7 +470,7 @@ describe('serializedPdfPersistence', () => {
         expect(mocks.setWorkingCopyOriginalPath).not.toHaveBeenCalled();
     });
 
-    it('returns committed failure when streamed Save to original copy-back fails', async () => {
+    it('rolls back streamed Save to original when working-copy synchronization fails', async () => {
         const workingPath = join(tempRoot, 'copyback-working.pdf');
         const originalPath = join(tempRoot, 'copyback-original.pdf');
         writeFileSync(workingPath, 'old-working');
@@ -454,15 +484,10 @@ describe('serializedPdfPersistence', () => {
         });
 
         expect(result).toMatchObject({
-            type: 'result',
-            path: originalPath,
-            validation: {
-                isValid: false,
-                errors: [expect.stringContaining('copy-back failed')],
-                warnings: [expect.stringContaining('copy-back failed')],
-            },
+            type: 'error',
+            phase: 'complete',
         });
-        expect(readFileSyncUtf8(originalPath)).toBe('new-pdf');
+        expect(readFileSyncUtf8(originalPath)).toBe('old-original');
         expect(readFileSyncUtf8(workingPath)).toBe('old-working');
         expect(mocks.optimizeLargePdfForSave).toHaveBeenCalledWith(`${originalPath}.tmp`);
         expect(mocks.refreshWorkingCopyOriginalFileExpectation).not.toHaveBeenCalled();
@@ -557,7 +582,7 @@ describe('serializedPdfPersistence', () => {
             .toBeLessThan(firstInvocationOrder(mocks.refreshWorkingCopyOriginalFileExpectation));
     });
 
-    it('returns the committed streamed Save to original path when expectation refresh fails', async () => {
+    it('rolls back streamed Save to original when expectation refresh fails', async () => {
         const workingPath = join(tempRoot, 'refresh-fail-working.pdf');
         const originalPath = join(tempRoot, 'refresh-fail-original.pdf');
         writeFileSync(workingPath, 'old-working');
@@ -571,20 +596,12 @@ describe('serializedPdfPersistence', () => {
         });
 
         expect(result).toMatchObject({
-            type: 'result',
-            path: originalPath,
-            validation: {
-                isValid: false,
-                errors: [expect.stringContaining('expectation refresh completed')],
-                warnings: [expect.stringContaining('expectation refresh completed')],
-            },
+            type: 'error',
+            phase: 'complete',
         });
-        expect(readFileSyncUtf8(originalPath)).toBe('new-pdf');
-        expect(readFileSyncUtf8(workingPath)).toBe('new-pdf');
-        expect(mocks.markWorkingCopySyncRequired).toHaveBeenCalledWith(
-            workingPath,
-            expect.stringContaining('expectation refresh completed'),
-        );
+        expect(readFileSyncUtf8(originalPath)).toBe('old-original');
+        expect(readFileSyncUtf8(workingPath)).toBe('old-working');
+        expect(mocks.markWorkingCopySyncRequired).not.toHaveBeenCalled();
         expect(mocks.markWorkingCopyContentChanged).not.toHaveBeenCalled();
     });
 
@@ -1064,7 +1081,7 @@ describe('serializedPdfPersistence', () => {
     });
 });
 
-interface ISerializedPersistenceTestRevisionOptions { expectedDocumentRevisionToken: string }
+interface ISerializedPersistenceTestRevisionOptions { expectedDocumentRevisionToken: TDocumentRevisionToken }
 
 async function runSaveAsSession(options: {
     workingPath: string;

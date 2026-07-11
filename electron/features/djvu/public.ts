@@ -24,5 +24,6 @@ export {
     handleDjvuOpenForViewing,
     isAllowedDjvuViewingPath,
     releaseDjvuViewingPath,
-    sweepStaleDjvuTempPdfs,
 } from '@electron/features/djvu/main/viewing';
+export {pruneStaleDjvuArtifactJobs} from '@electron/features/djvu/main/djvuArtifactManifest';
+export {buildCompactDjvuAwarePdfFromDjvu} from '@electron/features/djvu/main/buildCompactDjvuAwarePdfFromDjvu';

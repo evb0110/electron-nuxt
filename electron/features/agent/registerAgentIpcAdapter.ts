@@ -28,8 +28,11 @@ import type {
     IAgentIpcContext,
     IAgentService,
 } from '@electron/features/agent/ports';
+import type {IValidatedIpcMainRegistrar} from '@electron/platform-ipc/validatedIpcRegistrar';
 
-export type TAgentIpcMainRegistrar = IContractIpcMainRegistrar<IAgentInvokeMap, IpcMainInvokeEvent>;
+export type TAgentIpcMainRegistrar =
+    IContractIpcMainRegistrar<IAgentInvokeMap, IpcMainInvokeEvent>
+    | IValidatedIpcMainRegistrar<IAgentInvokeMap, IpcMainInvokeEvent>;
 
 const ASSISTANT_MAX_IMAGE_DATA_URL_LENGTH = Math.ceil(ASSISTANT_MAX_IMAGE_BYTES / 3) * 4 + 128;
 const ASSISTANT_IMAGE_DATA_URL_PREFIX_RE = /^data:image\/[a-z0-9.+-]+(?:;[a-z0-9.+-]+=[a-z0-9.+/-]+)*;base64,/iu;

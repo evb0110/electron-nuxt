@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import type * as PdfCoreModule from '@pdf-core';
 
 const mocks = vi.hoisted(() => {
     const nativeCombine = vi.fn();
@@ -86,6 +87,15 @@ vi.mock('fs/promises', () => ({
 }));
 
 vi.mock('pdf-lib', () => ({PDFDocument: {create: mocks.create}}));
+
+vi.mock('@pdf-core', async (importOriginal) => {
+    const actual = await importOriginal<typeof PdfCoreModule>();
+    return {
+        ...actual,
+        applyCombinedPdfPageLabels: vi.fn(),
+        writePdfBookmarkOutlines: vi.fn(),
+    };
+});
 
 vi.mock('electron', () => ({nativeImage: {createFromPath: mocks.nativeImageCreateFromPath}}));
 

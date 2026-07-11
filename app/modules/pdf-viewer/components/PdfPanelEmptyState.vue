@@ -29,28 +29,28 @@ defineProps<{
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
-    padding: 1.5rem;
+    padding: var(--app-panel-empty-padding);
     text-align: center;
     color: var(--ui-text-muted);
 }
 
 .pdf-panel-empty-state__icon {
-    width: 1.5rem;
-    height: 1.5rem;
+    width: var(--app-panel-empty-icon-size);
+    height: var(--app-panel-empty-icon-size);
     color: var(--ui-text-dimmed);
 }
 
 .pdf-panel-empty-state__title {
     margin: 0;
-    font-size: 0.9375rem;
+    font-size: var(--app-text-size-panel-title);
     font-weight: 600;
     color: var(--ui-text);
 }
 
 .pdf-panel-empty-state__description {
     margin: 0;
-    max-width: 22rem;
-    font-size: 0.8125rem;
+    max-width: var(--app-panel-empty-max-width);
+    font-size: var(--app-text-size-body-sm);
     line-height: 1.45;
 }
 

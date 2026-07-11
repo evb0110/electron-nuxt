@@ -3,6 +3,7 @@ import {
     useLocalStorage,
 } from '@vueuse/core';
 import { useClamp } from '@vueuse/math';
+import { createRafCoalescedCallback } from '@app/utils/createRafCoalescedCallback';
 
 const ASSISTANT_PANEL = {
     DEFAULT_WIDTH: 384,
@@ -39,10 +40,13 @@ export const useAssistantPanelResize = () => {
         applyClampedWidth(resizeStartWidth - deltaX);
     }
 
-    function stopPanelResize() {
+    const panelResize = createRafCoalescedCallback(handlePanelResize);
+
+    function stopPanelResize(event: PointerEvent) {
         if (!isResizingPanel.value) {
             return;
         }
+        panelResize.flush(event);
         isResizingPanel.value = false;
     }
 
@@ -54,7 +58,7 @@ export const useAssistantPanelResize = () => {
     }
 
     const target = typeof window !== 'undefined' ? window : undefined;
-    useEventListener(target, 'pointermove', handlePanelResize);
+    useEventListener(target, 'pointermove', panelResize.schedule);
     useEventListener(target, 'pointerup', stopPanelResize);
     useEventListener(target, 'pointercancel', stopPanelResize);
 
@@ -62,6 +66,7 @@ export const useAssistantPanelResize = () => {
         // Normalize any previously persisted value that falls outside the bounds.
         applyClampedWidth(persistedPanelWidth.value);
     });
+    onScopeDispose(panelResize.cancel);
 
     return {
         panelWidth,

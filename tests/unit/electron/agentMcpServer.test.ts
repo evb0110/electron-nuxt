@@ -881,9 +881,12 @@ describe('processMcpRequest', () => {
             },
         }, options);
 
-        expect(response?.error).toMatchObject({
-            code: -32603,
-            message: 'Capability annotation.create_text_markup requires explicit user confirmation for external MCP callers.',
+        expect(response?.result).toMatchObject({
+            isError: true,
+            structuredContent: {
+                code: 'tool_execution_failed',
+                message: 'Capability annotation.create_text_markup requires explicit user confirmation for external MCP callers.',
+            },
         });
         expect(options.runCommand).not.toHaveBeenCalled();
     });
@@ -978,13 +981,13 @@ describe('processMcpRequest', () => {
             },
         }, options);
 
-        expect(writeResponse?.error).toMatchObject({
-            code: -32603,
-            message: 'Capability bookmarks.apply_plan is write; use evb_run_action for non-read capabilities.',
+        expect(writeResponse?.result).toMatchObject({
+            isError: true,
+            structuredContent: {message: 'Capability bookmarks.apply_plan is write; use evb_run_action for non-read capabilities.'},
         });
-        expect(destructiveResponse?.error).toMatchObject({
-            code: -32603,
-            message: 'Capability bookmarks.delete is destructive; use evb_run_action for non-read capabilities.',
+        expect(destructiveResponse?.result).toMatchObject({
+            isError: true,
+            structuredContent: {message: 'Capability bookmarks.delete is destructive; use evb_run_action for non-read capabilities.'},
         });
         expect(options.runCommand).not.toHaveBeenCalled();
     });
@@ -1009,9 +1012,9 @@ describe('processMcpRequest', () => {
             },
         }, options);
 
-        expect(response?.error).toMatchObject({
-            code: -32603,
-            message: 'Capability bookmarks.apply_plan requires explicit user confirmation for external MCP callers.',
+        expect(response?.result).toMatchObject({
+            isError: true,
+            structuredContent: {message: 'Capability bookmarks.apply_plan requires explicit user confirmation for external MCP callers.'},
         });
         expect(options.runCommand).not.toHaveBeenCalled();
     });
@@ -1472,9 +1475,9 @@ describe('processMcpRequest', () => {
             },
         }, options);
 
-        expect(response?.error).toMatchObject({
-            code: -32603,
-            message: 'Too many pages requested; maximum is 50.',
+        expect(response?.result).toMatchObject({
+            isError: true,
+            structuredContent: {message: 'Too many pages requested; maximum is 50.'},
         });
         expect(options.readDocumentPages).not.toHaveBeenCalled();
     });

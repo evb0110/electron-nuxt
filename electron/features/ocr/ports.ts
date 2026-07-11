@@ -31,6 +31,18 @@ export interface IOcrService {
         context: IOcrOperationContext,
         ...args: Parameters<TOcrApi['cancel']>
     ) => TPromiseOrValue<Awaited<ReturnType<TOcrApi['cancel']>>>;
+    getJobState: (
+        context: IOcrOperationContext,
+        ...args: Parameters<TOcrApi['getJobState']>
+    ) => TPromiseOrValue<Awaited<ReturnType<TOcrApi['getJobState']>>>;
+    subscribeJob: (
+        context: IOcrOperationContext,
+        ...args: Parameters<TOcrApi['subscribeJob']>
+    ) => TPromiseOrValue<Awaited<ReturnType<TOcrApi['subscribeJob']>>>;
+    reconnectJob: (
+        context: IOcrOperationContext,
+        ...args: Parameters<TOcrApi['reconnectJob']>
+    ) => TPromiseOrValue<Awaited<ReturnType<TOcrApi['reconnectJob']>>>;
     acknowledgeResultFile: (
         context: IOcrOperationContext,
         ...args: Parameters<TOcrApi['acknowledgeResultFile']>
@@ -39,6 +51,10 @@ export interface IOcrService {
         context: IOcrOperationContext,
         ...args: Parameters<TOcrApi['getLanguages']>
     ) => TPromiseOrValue<Awaited<ReturnType<TOcrApi['getLanguages']>>>;
+    resolveDocumentTextCatalog: (
+        context: IOcrOperationContext,
+        ...args: Parameters<TOcrApi['resolveDocumentTextCatalog']>
+    ) => TPromiseOrValue<Awaited<ReturnType<TOcrApi['resolveDocumentTextCatalog']>>>;
     validateTools: (
         context: IOcrOperationContext,
         ...args: Parameters<TOcrApi['validateTools']>

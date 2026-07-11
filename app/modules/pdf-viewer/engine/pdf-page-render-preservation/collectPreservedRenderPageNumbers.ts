@@ -1,7 +1,7 @@
 import { union } from 'es-toolkit/array';
 
 export function collectPreservedRenderPageNumbers(options: {
-    renderedPages: ReadonlySet<number>;
+    renderedPages: Iterable<number>;
     pageCanvases: ReadonlyMap<number, unknown>;
 }) {
     return new Set(union(

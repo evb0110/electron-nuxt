@@ -3,6 +3,10 @@ import type {
     IDocumentsFileIoCapability,
     IPdfNativePagePreviewOptions,
 } from '@contracts/electronApiDocuments';
+import {
+    requireWorkspaceSurfaceBudgetPort,
+    type IWorkspaceSurfaceBudgetLeasePort,
+} from '@app/utils/document-viewer/workspaceSurfaceBudgetPort';
 
 interface INativePdfRenderedPageObjectUrl {
     objectUrl: string;
@@ -36,6 +40,9 @@ export function createNativePdfPreviewSourceFromPath(
     let nextPreviewRequestId = 0;
     const activePreviewRequestIds = new Set<string>();
     const activePreviewRequestIdsByPage = new Map<number, string>();
+    const objectUrlLeases = new Map<string, {lease: IWorkspaceSurfaceBudgetLeasePort | null}>();
+    const surfaceScopeId = `native-preview:${pdfPath}`;
+    const surfaceBudget = requireWorkspaceSurfaceBudgetPort();
     const cancelPreviewRequest = (requestId: string) => {
         void cancelPdfNativePagePreview(requestId).catch(() => undefined);
     };
@@ -89,12 +96,33 @@ export function createNativePdfPreviewSourceFromPath(
             if (terminated) {
                 throw new Error('Native PDF preview canceled');
             }
+            const objectUrl = createPngObjectUrl(preview.bytes);
+            const leaseEntry: {lease: IWorkspaceSurfaceBudgetLeasePort | null} = {lease: null};
+            objectUrlLeases.set(objectUrl, leaseEntry);
+            leaseEntry.lease = surfaceBudget.reserve({
+                scopeId: surfaceScopeId,
+                category: 'native-preview',
+                bytes: preview.width * preview.height * 4,
+                priority: 20,
+                evict: () => {
+                    objectUrlLeases.delete(objectUrl);
+                    URL.revokeObjectURL(objectUrl);
+                },
+            });
+            if (!objectUrlLeases.has(objectUrl)) {
+                leaseEntry.lease.release();
+                throw new Error('Native PDF preview evicted under memory pressure');
+            }
             return {
-                objectUrl: createPngObjectUrl(preview.bytes),
+                objectUrl,
                 renderedPx: preview.width,
             };
         },
-        revokeObjectURL: (url: string) => URL.revokeObjectURL(url),
+        revokeObjectURL: (url: string) => {
+            objectUrlLeases.get(url)?.lease?.release();
+            objectUrlLeases.delete(url);
+            URL.revokeObjectURL(url);
+        },
         terminate() {
             terminated = true;
             for (const requestId of activePreviewRequestIds) {
@@ -102,6 +130,15 @@ export function createNativePdfPreviewSourceFromPath(
             }
             activePreviewRequestIds.clear();
             activePreviewRequestIdsByPage.clear();
+            for (const [
+                objectUrl,
+                entry,
+            ] of objectUrlLeases) {
+                entry.lease?.release();
+                URL.revokeObjectURL(objectUrl);
+            }
+            objectUrlLeases.clear();
+            surfaceBudget.releaseScope(surfaceScopeId);
         },
     };
 }

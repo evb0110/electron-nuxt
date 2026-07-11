@@ -2,19 +2,20 @@ import type {
     IpcRenderer,
     IpcRendererEvent,
 } from 'electron';
-import { decodeDocumentRevisionChangedEvent } from '@contracts/documentRevision';
+import {
+    decodeDocumentRevisionChangedEvent,
+    parseDocumentRevisionToken,
+} from '@contracts/documentRevision';
 import type {
     IDocumentsFileCapability,
     IDocumentChunkReadOptions,
     IPdfNativePagePreviewOptions,
+    IPdfNativeStagedCommitOptions,
     IPdfOptimizeOptions,
     IPdfSaveAsOptions,
     IPdfSerializedSaveOptions,
 } from '@contracts/electronApiDocuments';
-import {
-    decodeFileStatResult,
-    isPdfOptimizePreset,
-} from '@contracts/electronApiDocuments';
+import { isPdfOptimizePreset } from '@contracts/electronApiDocuments';
 import {
     normalizePdfNativeModifiedAt,
     normalizePdfNativeMutationSet,
@@ -42,10 +43,8 @@ import {
     DOCUMENTS_EVENT_CHANNELS,
     type IDocumentsInvokeMap,
 } from '@electron/features/documents/contract';
-import {
-    createDecodedIpcInvoker,
-    createTypedIpcInvoker,
-} from '@electron/preload/ipcClient';
+import {createCodecIpcInvoker} from '@electron/preload/ipcClient';
+import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
 import {
     assertAbsolutePath,
     assertNonEmptyString,
@@ -140,11 +139,31 @@ function assertPdfSerializedSaveOptions(value: unknown, label: string): IPdfSeri
     if (token === undefined || token === null) {
         throw new TypeError(`${label}.expectedDocumentRevisionToken must be a non-empty string`);
     }
-    if (typeof token !== 'string' || token.trim().length === 0) {
+    const parsedToken = parseDocumentRevisionToken(token);
+    if (parsedToken === null) {
         throw new TypeError(`${label}.expectedDocumentRevisionToken must be a non-empty string`);
     }
 
-    return { expectedDocumentRevisionToken: token.trim() };
+    const changedObjectRefs = value.changedObjectRefs;
+    if (changedObjectRefs !== undefined && (
+        !Array.isArray(changedObjectRefs)
+        || changedObjectRefs.length > 128
+        || !changedObjectRefs.every(ref => typeof ref === 'string' && PDF_OBJECT_REF_PATTERN.test(ref))
+    )) {
+        throw new TypeError(`${label}.changedObjectRefs must contain at most 128 canonical PDF object references`);
+    }
+    return {
+        expectedDocumentRevisionToken: parsedToken,
+        ...(Array.isArray(changedObjectRefs)
+            ? {changedObjectRefs: [...new Set(changedObjectRefs as string[])]}
+            : {}),
+    };
+}
+
+const PDF_OBJECT_REF_PATTERN = /^\d+\s+\d+\s+R$/;
+
+function assertPdfNativeStagedCommitOptions(value: unknown, label: string): IPdfNativeStagedCommitOptions {
+    return assertPdfSerializedSaveOptions(value, label);
 }
 
 function assertPdfOptimizeOptions(value: unknown, label: string): IPdfOptimizeOptions {
@@ -471,12 +490,16 @@ async function streamPdfBytesToPersistencePort(
 export function createDocumentsPreloadFileClient(
     ipcRenderer: TDocumentsFileIpcRenderer,
 ): TDocumentsPreloadFileClient {
-    const invoke = createTypedIpcInvoker<IDocumentsInvokeMap>(ipcRenderer, {invokeTimeoutMsByChannel: DOCUMENTS_NATIVE_INVOKE_TIMEOUT_MS_BY_CHANNEL});
-    const invokeDecoded = createDecodedIpcInvoker<IDocumentsInvokeMap>(ipcRenderer, {invokeTimeoutMsByChannel: DOCUMENTS_NATIVE_INVOKE_TIMEOUT_MS_BY_CHANNEL});
+    const invoke = createCodecIpcInvoker<IDocumentsInvokeMap>(ipcRenderer, DOCUMENTS_IPC_CODECS, {invokeTimeoutMsByChannel: DOCUMENTS_NATIVE_INVOKE_TIMEOUT_MS_BY_CHANNEL});
     const openDocumentDialog = () => invoke(DOCUMENTS_CHANNELS.openDocumentDialog);
     const openDocumentDirect = (path: string) => invoke(DOCUMENTS_CHANNELS.openDocumentDirect, path);
-    const openDocumentDirectBatch = (paths: string[], requestId?: string) =>
-        invoke(DOCUMENTS_CHANNELS.openDocumentDirectBatch, paths, requestId);
+    const openDocumentDirectBatch = (
+        paths: string[],
+        requestId?: string,
+        options?: {forceCombine?: boolean},
+    ) => options === undefined
+        ? invoke(DOCUMENTS_CHANNELS.openDocumentDirectBatch, paths, requestId)
+        : invoke(DOCUMENTS_CHANNELS.openDocumentDirectBatch, paths, requestId, options);
 
     return {
         openDocumentDialog,
@@ -488,6 +511,8 @@ export function createDocumentsPreloadFileClient(
         openPdfDirect: openDocumentDirect,
         openDocumentDirectBatch,
         openPdfDirectBatch: openDocumentDirectBatch,
+        cancelOpenDocumentDirectBatch: (requestId: string) =>
+            invoke(DOCUMENTS_CHANNELS.cancelOpenDocumentDirectBatch, requestId),
         savePdfAs: (workingPath, options, revisionOptions) =>
             invoke(
                 DOCUMENTS_CHANNELS.savePdfAs,
@@ -531,13 +556,19 @@ export function createDocumentsPreloadFileClient(
         savePdfDialog: (suggestedName) => invoke(DOCUMENTS_CHANNELS.savePdfDialog, suggestedName),
         saveDocxAs: (workingPath) => invoke(DOCUMENTS_CHANNELS.saveDocxAs, workingPath),
         readFile: (path) => invoke(DOCUMENTS_CHANNELS.fileRead, path),
-        statFile: (path) => invokeDecoded(
-            DOCUMENTS_CHANNELS.fileStat,
-            decodeFileStatResult,
-            path,
-        ),
+        statFile: (path) => invoke(DOCUMENTS_CHANNELS.fileStat, path),
         readFileRange: (path, offset, length) =>
             invoke(DOCUMENTS_CHANNELS.fileReadRange, path, offset, length),
+        createManagedTempFileHandle: (path) =>
+            invoke(
+                DOCUMENTS_CHANNELS.fileCreateManagedHandle,
+                assertAbsolutePath(path, 'createManagedTempFileHandle.path'),
+            ),
+        releaseManagedTempFileHandle: (leaseId) =>
+            invoke(
+                DOCUMENTS_CHANNELS.fileReleaseManagedHandle,
+                assertNonEmptyString(leaseId, 'releaseManagedTempFileHandle.leaseId'),
+            ),
         getPdfNativePageSizes: (path) =>
             invoke(
                 DOCUMENTS_CHANNELS.pdfNativePageSizes,
@@ -558,17 +589,19 @@ export function createDocumentsPreloadFileClient(
         readFileChunks: async (path, options, onChunk) => {
             const checkedPath = assertAbsolutePath(path, 'readFileChunks.path');
             const chunkBytes = getChunkReadSize(options);
-            const { size } = await invokeDecoded(
-                DOCUMENTS_CHANNELS.fileStat,
-                decodeFileStatResult,
-                checkedPath,
-            );
+            const { size } = await invoke(DOCUMENTS_CHANNELS.fileStat, checkedPath);
             let bytesRead = 0;
             let chunks = 0;
             while (bytesRead < size) {
                 throwIfAborted(options?.signal);
                 const length = Math.min(chunkBytes, size - bytesRead);
                 const chunk = await invoke(DOCUMENTS_CHANNELS.fileReadRange, checkedPath, bytesRead, length);
+                if (chunk.byteLength === 0) {
+                    throw new Error(`Unexpected end of file after ${bytesRead} of ${size} bytes`);
+                }
+                if (chunk.byteLength > length) {
+                    throw new Error(`Invalid file range response: received ${chunk.byteLength} bytes for a ${length}-byte request`);
+                }
                 await onChunk(chunk, bytesRead);
                 bytesRead += chunk.byteLength;
                 chunks += 1;
@@ -791,6 +824,13 @@ export function createDocumentsPreloadFileClient(
                 normalizePdfNativeModifiedAt(modifiedAt, 'applyPdfNativeMutationsToWorkingCopy.modifiedAt'),
                 normalizePdfNativeWorkingCopyExpectation(expectedBase, 'applyPdfNativeMutationsToWorkingCopy.expectedBase'),
                 assertPdfSerializedSaveOptions(options, 'applyPdfNativeMutationsToWorkingCopy.options'),
+            ),
+        commitStagedPdfNativeMutations: (path, stagedOutput, options) =>
+            invoke(
+                DOCUMENTS_CHANNELS.fileCommitStagedPdfNativeMutations,
+                assertAbsolutePath(path, 'commitStagedPdfNativeMutations.path'),
+                stagedOutput,
+                assertPdfNativeStagedCommitOptions(options, 'commitStagedPdfNativeMutations.options'),
             ),
         cleanupFile: (path) => invoke(DOCUMENTS_CHANNELS.fileCleanup, path),
         cleanupOcrTemp: (path) => invoke(DOCUMENTS_CHANNELS.fileCleanupOcrTemp, path),

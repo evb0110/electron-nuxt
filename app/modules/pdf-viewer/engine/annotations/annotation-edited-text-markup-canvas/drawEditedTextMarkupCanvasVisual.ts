@@ -8,29 +8,13 @@ import { ANNOTATION_COLOR_SWATCHES } from '@app/constants/pdfColors';
 import { parseCssRgbColor } from '@app/modules/pdf-viewer/engine/text-markup-color/parseCssRgbColor';
 import { rgbToHex } from '@app/modules/pdf-viewer/engine/text-markup-color/rgbToHex';
 import { toOpaqueHighlightDisplayColor } from '@app/modules/pdf-viewer/engine/text-markup-color/toOpaqueHighlightDisplayColor';
+import { parseMarkupSubtype } from '@contracts/annotations';
 
 interface IEditedTextMarkupCanvasOptions { highlightOpacity?: number | null | undefined; }
 
 const EDITED_TEXT_MARKUP_THUMBNAIL_STROKE_WIDTH = 1;
 
 const DEFAULT_EDITED_HIGHLIGHT_OVERLAY_OPACITY = 0.35;
-
-function toTextMarkupSubtype(subtype: string | null | undefined): TMarkupSubtype | null {
-    const normalized = (subtype ?? '').trim().toLowerCase();
-    if (normalized === 'highlight') {
-        return 'Highlight';
-    }
-    if (normalized === 'underline') {
-        return 'Underline';
-    }
-    if (normalized === 'squiggly') {
-        return 'Squiggly';
-    }
-    if (normalized === 'strikeout') {
-        return 'StrikeOut';
-    }
-    return null;
-}
 
 function normalizeEditedHighlightOverlayOpacity(value: number | null | undefined) {
     if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -68,7 +52,7 @@ export function drawEditedTextMarkupCanvasVisual(
     color: string,
     options: IEditedTextMarkupCanvasOptions = {},
 ) {
-    const subtype = toTextMarkupSubtype(comment.subtype);
+    const subtype: TMarkupSubtype | null = parseMarkupSubtype(comment.subtype);
     const rect = normalizeMarkerRect(comment.markerRect);
     const normalizedColor = color.trim();
     if (!subtype || !rect || !normalizedColor || canvas.width <= 0 || canvas.height <= 0) {

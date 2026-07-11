@@ -4,6 +4,7 @@ import type {
     TSearchErrorCode,
 } from '@contracts/search';
 import { getErrorMessage } from '@electron/utils/error';
+import {hasNativeErrorCode} from '@contracts/nativeErrors';
 
 const SEARCH_ERROR_DETAILS_MAX_LENGTH = 1_000;
 
@@ -54,6 +55,18 @@ export function toSearchIpcError(
 ) {
     if (error instanceof SearchIpcError) {
         return error;
+    }
+    if (hasNativeErrorCode(error)) {
+        const code: TSearchErrorCode = error.code === 'invalid-request'
+            ? 'SEARCH_INVALID_PAYLOAD'
+            : error.code === 'too-large'
+                ? 'SEARCH_WORKER_LIMIT'
+                : 'SEARCH_WORKER_ERROR';
+        return new SearchIpcError(buildSearchErrorEnvelope(
+            code,
+            getErrorMessage(error) || 'Native search failed',
+            {retryable: error.code === 'io' || error.code === 'native-failure'},
+        ));
     }
     return new SearchIpcError(buildSearchErrorEnvelope(
         fallbackCode,

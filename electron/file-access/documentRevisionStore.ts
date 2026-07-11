@@ -17,6 +17,7 @@ import type {
     TDocumentRevisionChangeReason,
     TDocumentRevisionToken,
 } from '@contracts/documentRevision';
+import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 import { createWorkingCopySyncRequiredError } from '@contracts/documentMutationErrors';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
@@ -42,12 +43,18 @@ import {
 import { isWorkingCopyDirectoryName } from '@electron/file-access/workingCopyDirectory';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import { clearWorkingCopyOcrArtifacts } from '@electron/file-access/workingCopyMutationQueue';
+import {recoverPreparedOcrRevisionTransition} from '@electron/ocr/recoverPreparedOcrRevisionTransition';
+import {
+    completeWorkingCopyContentTransition,
+    prepareWorkingCopyContentTransition,
+    recoverWorkingCopyContentTransition,
+    rollbackWorkingCopyContentTransition,
+} from '@electron/file-access/workingCopyContentTransitionJournal';
+import {recoverTwoTargetDocumentTransition} from '@electron/file-access/recoverTwoTargetDocumentTransition';
 
 const log = createLogger('documentRevisionStore');
 const revisionListeners = new Set<(event: IDocumentRevisionChangedEvent) => void>();
-const generatedRegistrationIds = new Map<string, string>();
 const workingCopySyncRequired = new Map<string, string>();
-let nextGeneratedRegistrationId = 0;
 
 function getRevisionQueueKey(workingCopyPath: string) {
     return normalizePathForLookup(workingCopyPath) || workingCopyPath;
@@ -99,15 +106,7 @@ function getTokenRegistrationId(workingCopyPath: string, senderId?: number) {
         return String(registrationId);
     }
 
-    const queueKey = getRevisionQueueKey(workingCopyPath);
-    const existing = generatedRegistrationIds.get(queueKey);
-    if (existing) {
-        return existing;
-    }
-
-    const generated = `generated-${nextGeneratedRegistrationId += 1}`;
-    generatedRegistrationIds.set(queueKey, generated);
-    return generated;
+    return `generated-${randomUUID()}`;
 }
 
 function createRevisionSidecar(
@@ -121,7 +120,7 @@ function createRevisionSidecar(
         version: 1,
         documentRef: workingCopyPath,
         authority: 'electron-working-copy',
-        token: `drt1:${getTokenRegistrationId(workingCopyPath, senderId)}:${contentRevision}:${randomUUID()}`,
+        token: requireDocumentRevisionToken(`drt1:${getTokenRegistrationId(workingCopyPath, senderId)}:${contentRevision}:${randomUUID()}`),
         contentRevision,
         mintedAt,
         updatedAt: mintedAt,
@@ -172,6 +171,9 @@ export async function ensureWorkingCopyRevision(
         throw new Error('Invalid file path');
     }
     assertCanUseWorkingCopyRevision(normalizedWorkingPath, senderId);
+    await recoverTwoTargetDocumentTransition(normalizedWorkingPath);
+    await recoverWorkingCopyContentTransition(normalizedWorkingPath);
+    await recoverPreparedOcrRevisionTransition(normalizedWorkingPath);
     hydrateWorkingCopySyncRequiredFromJournal(normalizedWorkingPath);
 
     const existing = await readWorkingCopyRevisionSidecar(normalizedWorkingPath);
@@ -209,6 +211,51 @@ export async function markWorkingCopyRevisionChanged(
     } catch (error) {
         log.debug(`Failed to clear document revision journal entry: ${getErrorMessage(error)}`);
     }
+
+    const event: IDocumentRevisionChangedEvent = {
+        ...toRevisionInfo(sidecar),
+        ...(previous?.token ? {previousToken: previous.token} : {}),
+        reason,
+    };
+    notifyRevisionChanged(event);
+    return event;
+}
+
+/**
+ * Runs a content replacement and its revision publication as one serialized
+ * transition. The caller must make `commit` rollback its file mutations when
+ * it throws; no new revision is externally visible until it succeeds.
+ */
+export async function transitionWorkingCopyContentRevision(
+    workingCopyPath: string,
+    reason: TDocumentRevisionChangeReason,
+    commit: (nextRevision: IDocumentRevisionInfo) => Promise<void>,
+    senderId?: number,
+): Promise<IDocumentRevisionChangedEvent> {
+    const normalizedWorkingPath = typeof workingCopyPath === 'string' ? workingCopyPath.trim() : '';
+    if (!normalizedWorkingPath) {
+        throw new Error('Invalid file path');
+    }
+    assertCanUseWorkingCopyRevision(normalizedWorkingPath, senderId);
+
+    const previous = await readWorkingCopyRevisionSidecar(normalizedWorkingPath);
+    const sidecar = createRevisionSidecar(normalizedWorkingPath, (previous?.contentRevision ?? 0) + 1, senderId);
+    const contentJournal = await prepareWorkingCopyContentTransition(normalizedWorkingPath, sidecar.token);
+    try {
+        await commit(toRevisionInfo(sidecar));
+    } catch (error) {
+        await rollbackWorkingCopyContentTransition(contentJournal);
+        throw error;
+    }
+
+    stageWorkingCopyRevisionSidecarCommit(normalizedWorkingPath, sidecar, reason);
+    await writeWorkingCopyRevisionSidecar(normalizedWorkingPath, sidecar);
+    try {
+        clearWorkingCopyRevisionSidecarCommit(normalizedWorkingPath, sidecar.token);
+    } catch (error) {
+        log.debug(`Failed to clear document revision journal entry: ${getErrorMessage(error)}`);
+    }
+    await completeWorkingCopyContentTransition(contentJournal);
 
     const event: IDocumentRevisionChangedEvent = {
         ...toRevisionInfo(sidecar),

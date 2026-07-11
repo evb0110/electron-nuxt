@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {requireDocumentRevisionToken} from '@contracts';
 
 const browserDocumentStoreMock = vi.hoisted(() => ({
     getSourceRef: vi.fn(),
@@ -154,7 +155,7 @@ describe('browserSaveTargets', () => {
         const savePromise = saveWorkingBytesToSourceStructured(
             'browser://documents/working',
             () => 'hint',
-            {expectedDocumentRevisionToken: 'revision-before-picker'},
+            {expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-picker')},
         );
         expect(browserDocumentStoreMock.runDocumentMutationWithSource).not.toHaveBeenCalled();
 

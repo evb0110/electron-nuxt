@@ -13,9 +13,9 @@
 .browser-install-hint {
     position: fixed;
     top: auto;
-    bottom: var(--app-install-hint-block-end);
-    right: var(--app-install-hint-inline-end);
-    z-index: 35;
+    inset-block-end: var(--app-install-hint-block-end);
+    inset-inline-start: var(--app-install-hint-inline-start);
+    z-index: var(--app-z-floating-chrome);
     display: inline-flex;
     align-items: center;
     gap: var(--app-install-hint-gap);
@@ -67,7 +67,7 @@
 }
 
 .browser-install-divider {
-    width: 1px;
+    width: var(--app-install-hint-divider-width);
     height: var(--app-install-hint-divider-height);
     background: var(--ui-border);
     flex: 0 0 auto;
@@ -129,7 +129,6 @@
 
 @media (width <= 900px) {
     .browser-install-hint {
-        right: var(--app-space-9xl);
-        bottom: var(--app-space-9xl);
+        display: none;
     }
 }

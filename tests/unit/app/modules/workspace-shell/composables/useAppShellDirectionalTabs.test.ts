@@ -9,12 +9,9 @@ import {
 import {
     computed,
     ref,
-    shallowRef,
 } from 'vue';
 import type { TSplitPayload } from '@contracts/windowTabs';
 import { useAppShellDirectionalTabs } from '@app/modules/workspace-shell/composables/useAppShellDirectionalTabs';
-import { createWorkspaceDocumentSessionCore } from '@app/modules/workspace-shell/document-sessions/createWorkspaceDocumentSessionCore';
-import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import type { ITab } from '@app/types/tabs';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
@@ -95,7 +92,12 @@ describe('useAppShellDirectionalTabs', () => {
         vi.unstubAllGlobals();
     });
 
-    it('does not create a split pane when independent payload preparation fails', async () => {
+    it.each([
+        'left',
+        'right',
+        'up',
+        'down',
+    ] as const)('creates an active empty tab when splitting %s', async (direction) => {
         const sourcePane = {
             paneId: 'pane-1',
             activeTabId: 'tab-1',
@@ -109,8 +111,16 @@ describe('useAppShellDirectionalTabs', () => {
             isDjvu: false,
         };
         const splitPane = vi.fn(() => 'pane-2');
-        const createTab = vi.fn();
-        mocks.createWorkingCopyFromPath.mockRejectedValueOnce(new Error('copy failed'));
+        const createTab = vi.fn(() => ({
+            id: 'tab-2',
+            fileName: null,
+            originalPath: null,
+            isDirty: false,
+            isDjvu: false,
+        }));
+        const activatePane = vi.fn();
+        const captureWorkspacePayload = vi.fn(async () => createPayload());
+        const restoreWorkspacePayload = vi.fn(async () => true);
 
         const tabs = useAppShellDirectionalTabs({
             activePaneId: ref('pane-1'),
@@ -126,7 +136,7 @@ describe('useAppShellDirectionalTabs', () => {
             splitPane,
             moveTabToPane: vi.fn(),
             createTab,
-            activatePane: vi.fn(),
+            activatePane,
             activateTab: vi.fn(),
             removeTabFromState: vi.fn(),
             cleanupEmptyPanes: vi.fn(),
@@ -139,98 +149,24 @@ describe('useAppShellDirectionalTabs', () => {
             },
             isSingletonPlaceholderCloseBlocked: vi.fn(() => false),
             enqueueTabTransition: vi.fn(async task => task()),
-            captureWorkspacePayload: vi.fn(async () => createPayload()),
-            restoreWorkspacePayload: vi.fn(),
+            captureWorkspacePayload,
+            restoreWorkspacePayload,
             moveTabToNewWindow: vi.fn(),
             moveTabToWindow: vi.fn(),
             handleCloseTab: vi.fn(),
         });
 
-        await expect(tabs.splitEditor('right')).rejects.toThrow('copy failed');
-        expect(mocks.createWorkingCopyFromPath).toHaveBeenCalledWith('/tmp/snapshot.pdf', '/tmp/sample.pdf');
-        expect(mocks.legacyCreateWorkingCopyFromPath).not.toHaveBeenCalled();
-        expect(splitPane).not.toHaveBeenCalled();
-        expect(createTab).not.toHaveBeenCalled();
-    });
+        await tabs.splitEditor(direction);
 
-    it('tags split cache entries with the source tab session snapshot', async () => {
-        const sourcePane = {
-            paneId: 'pane-1',
-            activeTabId: 'tab-1',
-            tabIds: ['tab-1'],
-        };
-        const sourceTab = {
-            id: 'tab-1',
-            fileName: 'sample.pdf',
-            originalPath: '/tmp/sample.pdf',
-            isDirty: true,
-            isDjvu: false,
-        };
-        const session = createWorkspaceDocumentSessionCore({
-            tabId: 'tab-1',
-            sessionId: 'session-1',
-            initialRecord: createWorkspaceDocumentRecord({tab: {
-                fileName: sourceTab.fileName,
-                originalPath: sourceTab.originalPath,
-                isDirty: sourceTab.isDirty,
-                isDjvu: sourceTab.isDjvu,
-            }}),
+        expect(splitPane).toHaveBeenCalledWith('pane-1', direction);
+        expect(createTab).toHaveBeenCalledWith({
+            paneId: 'pane-2',
+            activate: true,
         });
-        const workspaceSplitCacheSet = vi.fn(() => 'cache-entry');
-        mocks.createWorkingCopyFromPath.mockResolvedValueOnce('/tmp/snapshot-copy.pdf');
-
-        const tabs = useAppShellDirectionalTabs({
-            activePaneId: ref('pane-1'),
-            panes: ref([sourcePane]),
-            tabs: ref([sourceTab]),
-            workspaceRefs: ref(new Map()),
-            documentSessionsByTabId: shallowRef({'tab-1': session}),
-            getDocumentRecord: vi.fn(() => null),
-            isTabTransitionBusy: computed(() => false),
-            getPaneById: vi.fn((paneId: string | null | undefined) => paneId === 'pane-1' ? sourcePane : null),
-            getTabById: vi.fn((tabId: string | null | undefined) => tabId === 'tab-1' ? sourceTab : null),
-            findDirectionalPane: vi.fn(() => null),
-            focusPane: vi.fn(),
-            splitPane: vi.fn(() => 'pane-2'),
-            moveTabToPane: vi.fn(),
-            createTab: vi.fn(() => ({
-                id: 'tab-2',
-                fileName: null,
-                originalPath: null,
-                isDirty: false,
-                isDjvu: false,
-            })),
-            activatePane: vi.fn(),
-            activateTab: vi.fn(),
-            removeTabFromState: vi.fn(),
-            cleanupEmptyPanes: vi.fn(),
-            workspaceSplitCache: {
-                clear: vi.fn(),
-                consume: vi.fn(),
-                has: vi.fn(),
-                peek: vi.fn(),
-                set: workspaceSplitCacheSet,
-            },
-            isSingletonPlaceholderCloseBlocked: vi.fn(() => false),
-            enqueueTabTransition: vi.fn(async task => task()),
-            captureWorkspacePayload: vi.fn(async () => createPayload()),
-            restoreWorkspacePayload: vi.fn(async () => true),
-            moveTabToNewWindow: vi.fn(),
-            moveTabToWindow: vi.fn(),
-            handleCloseTab: vi.fn(),
-        });
-
-        await tabs.splitEditor('right');
-
-        expect(workspaceSplitCacheSet).toHaveBeenCalledWith(
-            'tab-1',
-            expect.objectContaining({kind: 'pdfSnapshot'}),
-            {session: expect.objectContaining({
-                sessionId: 'session-1',
-                sessionRevision: 0,
-                documentRef: '/tmp/sample.pdf',
-            })},
-        );
+        expect(activatePane).toHaveBeenCalledWith('pane-2');
+        expect(captureWorkspacePayload).not.toHaveBeenCalled();
+        expect(restoreWorkspacePayload).not.toHaveBeenCalled();
+        expect(mocks.createWorkingCopyFromPath).not.toHaveBeenCalled();
     });
 
     it('activates copied destination tabs before restoring their workspace payload', async () => {

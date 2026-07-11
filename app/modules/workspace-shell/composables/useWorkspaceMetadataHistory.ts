@@ -8,6 +8,7 @@ import {
     isImplicitDefaultPageLabels,
 } from '@app/utils/pdfPageLabels';
 import { maxWorkspaceMetadataHistoryEntries } from '@app/modules/workspace-shell/metadata/maxWorkspaceMetadataHistoryEntries';
+import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
 
 interface IWorkspaceMetadataSnapshot {
     bookmarkItems: IPdfBookmarkEntry[];
@@ -21,6 +22,7 @@ export const useWorkspaceMetadataHistory = (deps: {
     pageLabelRanges: Ref<IPdfPageLabelRange[]>;
     pageLabelsDirty: Ref<boolean>;
     totalPages: Ref<number>;
+    commandSink?: IWorkspaceCommandSink | undefined;
 }) => {
     const history = shallowRef<IWorkspaceMetadataSnapshot[]>([]);
     const historyIndex = ref(-1);
@@ -85,6 +87,7 @@ export const useWorkspaceMetadataHistory = (deps: {
         historyIndex.value = 0;
         cleanSnapshot.value = cloneSnapshot(snapshot);
         metadataHistoryResetVersion.value += 1;
+        deps.commandSink?.reset('metadata');
         syncDirtyFlags(snapshot);
     }
 
@@ -153,6 +156,14 @@ export const useWorkspaceMetadataHistory = (deps: {
         }
         historyIndex.value = history.value.length - 1;
         metadataHistoryMutationVersion.value += 1;
+        deps.commandSink?.register({
+            source: 'metadata',
+            undo: undoMetadata,
+            cmd: redoMetadata,
+            canUndo: () => canUndoMetadata.value,
+            canRedo: () => canRedoMetadata.value,
+            estimatedBytes: JSON.stringify(snapshot).length + JSON.stringify(current).length,
+        });
         syncDirtyFlags(snapshot);
     }
 

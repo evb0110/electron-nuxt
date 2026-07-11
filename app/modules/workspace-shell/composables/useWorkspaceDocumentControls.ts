@@ -52,6 +52,8 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
         originalPath,
         workingCopyPath,
         documentRevisionToken,
+        pageLabels,
+        bookmarkItems,
         currentPage,
         effectiveZoom,
         isDocumentVisualPending,
@@ -69,6 +71,7 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
         closePageContextMenu,
         handleExportImages,
         ensureHistoryBaselineForExternalMutation,
+        materializeAnnotationsForPageMutation,
         reloadWorkingCopyIntoHistory,
         ensureWorkingCopyFreshForRead,
         preparePdfReloadWaiter,
@@ -112,6 +115,8 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
 
     const pageOpsHandlers = usePageOpsHandlers({
         workingCopyPath,
+        pageLabels,
+        bookmarkItems,
         currentPage,
         totalPages,
         selectedThumbnailPages,
@@ -128,6 +133,7 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
             emitOpenInNewTab(path);
         },
         ensureHistoryBaselineForExternalMutation,
+        materializeAnnotationsForPageMutation,
         reloadWorkingCopyIntoHistory,
         ...(documentRevisionToken !== undefined ? { documentRevisionToken } : {}),
         ...(ensureWorkingCopyFreshForRead !== undefined ? { ensureWorkingCopyFreshForRead } : {}),

@@ -5,6 +5,7 @@ import {
 } from 'vitest';
 import {
     AVAILABLE_OCR_LANGUAGES,
+    BUNDLED_OCR_LANGUAGE_CODES,
     GREEK_OCR_LANGUAGE_CODES,
     RTL_OCR_LANGUAGE_CODES,
     isGreekOcrLanguage,
@@ -13,6 +14,17 @@ import {
 import { resolveTesseractLanguageConfig } from '@electron/ocr/resolveTesseractLanguageConfig';
 
 describe('resolveTesseractLanguageConfig', () => {
+    it('ships English and Russian offline while retaining every supported on-demand language', () => {
+        expect(BUNDLED_OCR_LANGUAGE_CODES).toEqual([
+            'eng',
+            'rus',
+        ]);
+        expect(BUNDLED_OCR_LANGUAGE_CODES.every(code => (
+            AVAILABLE_OCR_LANGUAGES.some(language => language.code === code)
+        ))).toBe(true);
+        expect(AVAILABLE_OCR_LANGUAGES.length).toBeGreaterThan(BUNDLED_OCR_LANGUAGE_CODES.length);
+    });
+
     it('derives the rtl language set from the canonical OCR language registry', () => {
         const registryRtlCodes = AVAILABLE_OCR_LANGUAGES
             .filter(language => language.script === 'rtl')

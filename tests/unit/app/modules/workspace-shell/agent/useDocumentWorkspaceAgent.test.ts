@@ -15,7 +15,7 @@ import type {
     TAnnotationTool,
 } from '@app/types/annotations';
 import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
-import type { IAnnotationNoteWindowState } from '@app/types/annotationNoteWindow';
+import type { IAnnotationNoteWindowViewModel } from '@app/types/annotationNoteWindow';
 import type { IWorkspacePdfViewerAgentPort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import {
     DOCUMENT_WORKSPACE_AGENT_ACTION_IDS,
@@ -23,8 +23,16 @@ import {
     DOCUMENT_WORKSPACE_AGENT_PRIMARY_ACTION_IDS,
     useDocumentWorkspaceAgent,
 } from '@app/modules/workspace-shell/agent/useDocumentWorkspaceAgent';
-import type { IUseDocumentWorkspaceAgentOptions } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
+import type {
+    IUseDocumentWorkspaceAgentOptions,
+    TWorkspaceAgentFitMode,
+} from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
+import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
 import { cast } from '@tests/helpers/cast';
+import {
+    requireDocumentInstanceId,
+    requireDocumentRevisionToken,
+} from '@contracts';
 
 const COMMAND_ONLY_CAPABILITY_IDS = new Set([
     'workspace.snapshot',
@@ -60,7 +68,7 @@ function createAnnotationComment(
 ): IAnnotationCommentSummary {
     return {
         id: 'annotation-1',
-        stableKey: 'annotation-stable-1',
+        stableKey: 'ann:0:annotation-stable-1',
         pageIndex: 0,
         pageNumber: 1,
         text: '',
@@ -83,7 +91,7 @@ function createDocumentIdentity(
 ): IDocumentRevisionInfo {
     return {
         version: 1,
-        token,
+        token: requireDocumentRevisionToken(token),
         documentRef: '/tmp/document.pdf',
         authority: 'browser-document-store',
         contentRevision,
@@ -121,7 +129,7 @@ function createAgentOptions(
         continuousScroll: ref(false),
         currentPage: ref(1),
         documentIdentity: ref<IDocumentRevisionInfo | null>(null),
-        fitMode: ref<unknown>('width'),
+        fitMode: ref<TWorkspaceAgentFitMode>('width'),
         handleActualSize: vi.fn(),
         handleAnnotationFocusComment: vi.fn(async () => undefined),
         handleAnnotationToolChange: vi.fn(),
@@ -175,12 +183,13 @@ function createAgentOptions(
         showConvertDialog: ref(false),
         showSidebar,
         sidebarTab,
-        sortedAnnotationNoteWindows: ref<IAnnotationNoteWindowState[]>([]),
+        sortedAnnotationNoteWindows: ref<IAnnotationNoteWindowViewModel[]>([]),
         t: () => 'Untitled',
         tabId: 'tab-1',
         totalPages: ref(3),
         updateAnnotationNoteText: vi.fn(),
         viewMode: ref<TPdfViewMode>('single'),
+        viewerCapabilities: ref(createDefaultWorkspaceViewerCapabilities()),
         waitForDocumentOpenSettled: vi.fn(async () => undefined),
         workingCopyPath: ref<TDocumentRef | null>(null),
         zoom: ref(1),
@@ -240,6 +249,29 @@ describe('useDocumentWorkspaceAgent', () => {
         expect(sidebarTab.value).toBe('annotations');
     });
 
+    it('does not create phantom view state when the active viewer lacks a capability', async () => {
+        const continuousScroll = ref(false);
+        const viewMode = ref<TPdfViewMode>('single');
+        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+            continuousScroll,
+            viewMode,
+            viewerCapabilities: ref(createDefaultWorkspaceViewerCapabilities()),
+        }));
+
+        await expect(agent.runAgentAction('view.toggle_continuous_scroll')).resolves.toMatchObject({
+            ok: false,
+            unsupported: true,
+            capability: 'continuousScroll',
+        });
+        await expect(agent.runAgentAction('view.set_mode', {mode: 'facing'})).resolves.toMatchObject({
+            ok: false,
+            unsupported: true,
+            capability: 'viewMode',
+        });
+        expect(continuousScroll.value).toBe(false);
+        expect(viewMode.value).toBe('single');
+    });
+
     it('aborts action execution when the command signal is already aborted', async () => {
         const abortController = new AbortController();
         abortController.abort();
@@ -275,7 +307,7 @@ describe('useDocumentWorkspaceAgent', () => {
         }]}, {}, {
             signal: new AbortController().signal,
             documentIdentity: firstIdentity,
-            documentInstanceId: 'instance-a',
+            documentInstanceId: requireDocumentInstanceId('instance-a'),
             assertCurrentDocument: vi.fn(),
         })).rejects.toThrow('Agent command target document changed.');
         expect(waitForDocumentOpenSettled).toHaveBeenCalledOnce();

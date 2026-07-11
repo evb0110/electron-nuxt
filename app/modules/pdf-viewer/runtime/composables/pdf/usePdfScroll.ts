@@ -1,6 +1,4 @@
-import type { IScrollSnapshot } from '@app/types/pdfUi';
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
-import { tryOnScopeDispose } from '@vueuse/core';
 import { clamp } from 'es-toolkit/math';
 import { logPdfNav } from '@app/utils/logPdfNav';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/scrollToPageOptions';
@@ -11,13 +9,16 @@ import type { IPdfPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-p
 import { getPageHeight } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageHeight';
 import { getPageTop } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageTop';
 import { resolvePageBoundedHorizontalScroll } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolvePageBoundedHorizontalScroll';
+import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
 
 export type { IScrollToPageOptions } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/scrollToPageOptions';
 
 type TPageLayoutMetrics = IPdfPageLayoutMetrics;
-type TMarkerTargetReapplyReason = 'arm' | 'mutation' | 'resize';
 
-interface IUsePdfScrollOptions { getPinnedMostVisiblePage?: () => number | null; }
+interface IUsePdfScrollOptions {
+    getPinnedMostVisiblePage?: () => number | null;
+    viewportWritePort: IPdfViewportWritePort;
+}
 
 interface IViewportVisibilityCacheEntry {
     container: HTMLElement;
@@ -29,20 +30,6 @@ interface IViewportVisibilityCacheEntry {
     layoutMetrics: TPageLayoutMetrics | null;
     result: IViewportVisibilityResult;
 }
-
-interface IMarkerTargetReapplyState {
-    container: HTMLElement;
-    margin: number;
-    mutationObserver: MutationObserver | null;
-    observedTarget: HTMLElement | null;
-    options: IScrollToPageOptions;
-    pageNumber: number;
-    resizeObserver: ResizeObserver | null;
-    timer: ReturnType<typeof setTimeout> | null;
-    totalPages: number;
-}
-
-const MARKER_TARGET_REAPPLY_HOLD_MS = 2_000;
 
 function getLayoutPageTop(
     metrics: TPageLayoutMetrics,
@@ -228,28 +215,33 @@ function findLastVisibleLayoutRowIndex(
     return result;
 }
 
-export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
-    const currentPage = ref(1);
+export const usePdfScroll = (options: IUsePdfScrollOptions) => {
+    const currentPageProjection = shallowRef<{projection: Readonly<Ref<number>>} | null>(null);
+    const currentPage = computed(() => currentPageProjection.value?.projection.value ?? 1);
     const visibleRange = ref({
         start: 1,
         end: 1,
     });
     const pageLayoutMetrics = ref<TPageLayoutMetrics | null>(null);
     let viewportVisibilityCache: IViewportVisibilityCacheEntry | null = null;
-    let markerTargetReapplyState: IMarkerTargetReapplyState | null = null;
+    const viewportWritePort = options.viewportWritePort;
+    let viewportIntentSequence = 0;
 
-    function clearMarkerTargetReapply() {
-        const state = markerTargetReapplyState;
-        if (!state) {
-            return;
-        }
-
-        state.mutationObserver?.disconnect();
-        state.resizeObserver?.disconnect();
-        if (state.timer !== null) {
-            clearTimeout(state.timer);
-        }
-        markerTargetReapplyState = null;
+    function applyViewportWrite(
+        container: HTMLElement,
+        write: {
+            left?: number;
+            top?: number
+        },
+        reason: string,
+    ) {
+        viewportIntentSequence += 1;
+        const intentId = `pdf-scroll-${viewportIntentSequence}`;
+        viewportWritePort.apply(container, {
+            intent: viewportWritePort.beginIntent(intentId),
+            reason,
+            ...write,
+        });
     }
 
     function applyDomScrollToPage(
@@ -257,7 +249,7 @@ export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
         targetPage: number,
         margin: number,
         options: IScrollToPageOptions | undefined,
-        reason: TMarkerTargetReapplyReason | 'scroll',
+        reason: 'scroll',
     ) {
         const targetEl = getPageContainerByNumber(container, targetPage);
         if (!targetEl) {
@@ -289,112 +281,11 @@ export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
             + ` pageY=${typeof options?.pageYRatio === 'number' ? options.pageYRatio.toFixed(3) : 'none'}`
             + ` nextTop=${nextTop.toFixed(1)} scrollTop(before)=${container.scrollTop.toFixed(1)}`,
         );
-        if (nextLeft !== null) {
-            container.scrollLeft = nextLeft;
-        }
-        container.scrollTop = nextTop;
-        currentPage.value = targetPage;
+        applyViewportWrite(container, {
+            ...(nextLeft !== null ? {left: nextLeft} : {}),
+            top: nextTop,
+        }, `navigate:${reason}`);
         return targetEl;
-    }
-
-    function refreshMarkerTargetResizeObserver(
-        state: IMarkerTargetReapplyState,
-    ) {
-        const resizeObserver = state.resizeObserver;
-        if (!resizeObserver) {
-            return;
-        }
-
-        const targetEl = getPageContainerByNumber(state.container, state.pageNumber);
-        if (targetEl === state.observedTarget) {
-            return;
-        }
-
-        resizeObserver.disconnect();
-        state.observedTarget = targetEl;
-        if (targetEl) {
-            resizeObserver.observe(targetEl);
-        }
-    }
-
-    function reapplyMarkerTargetScroll(
-        state: IMarkerTargetReapplyState,
-        reason: TMarkerTargetReapplyReason,
-    ) {
-        if (markerTargetReapplyState !== state) {
-            return;
-        }
-
-        const targetEl = applyDomScrollToPage(
-            state.container,
-            state.pageNumber,
-            state.margin,
-            state.options,
-            reason,
-        );
-        if (targetEl) {
-            refreshMarkerTargetResizeObserver(state);
-        }
-    }
-
-    function armMarkerTargetReapply(
-        container: HTMLElement,
-        targetPage: number,
-        totalPages: number,
-        margin: number,
-        options?: IScrollToPageOptions,
-    ) {
-        if (!options?.markerRect) {
-            clearMarkerTargetReapply();
-            return;
-        }
-
-        clearMarkerTargetReapply();
-
-        const state: IMarkerTargetReapplyState = {
-            container,
-            margin,
-            mutationObserver: null,
-            observedTarget: null,
-            options,
-            pageNumber: targetPage,
-            resizeObserver: null,
-            timer: null,
-            totalPages,
-        };
-        markerTargetReapplyState = state;
-
-        if (typeof ResizeObserver !== 'undefined') {
-            state.resizeObserver = new ResizeObserver(() => {
-                reapplyMarkerTargetScroll(state, 'resize');
-            });
-        }
-        refreshMarkerTargetResizeObserver(state);
-
-        if (typeof MutationObserver !== 'undefined') {
-            state.mutationObserver = new MutationObserver(() => {
-                reapplyMarkerTargetScroll(state, 'mutation');
-            });
-            state.mutationObserver.observe(container, {
-                attributes: true,
-                attributeFilter: [
-                    'class',
-                    'data-page',
-                    'style',
-                ],
-                childList: true,
-                subtree: true,
-            });
-        }
-
-        state.timer = setTimeout(() => {
-            if (markerTargetReapplyState === state) {
-                clearMarkerTargetReapply();
-            }
-        }, MARKER_TARGET_REAPPLY_HOLD_MS);
-        (state.timer as { unref?: () => void }).unref?.();
-
-        reapplyMarkerTargetScroll(state, 'arm');
     }
 
     function getPreviousPageFallback(totalPages: number) {
@@ -404,12 +295,6 @@ export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
     }
 
     function setPageLayoutMetrics(metrics: TPageLayoutMetrics | null) {
-        if (
-            markerTargetReapplyState
-            && (!metrics || metrics.totalPages !== markerTargetReapplyState.totalPages)
-        ) {
-            clearMarkerTargetReapply();
-        }
         pageLayoutMetrics.value = metrics;
         viewportVisibilityCache = null;
     }
@@ -659,23 +544,17 @@ export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
         if (!container || totalPages === 0) {
             return;
         }
-        if (markerTargetReapplyState && markerTargetReapplyState.totalPages !== totalPages) {
-            clearMarkerTargetReapply();
-        }
-
         const targetPage = clamp(pageNumber, 1, totalPages);
         const targetEl = getPageContainerByNumber(container, targetPage);
 
         if (targetEl) {
             applyDomScrollToPage(container, targetPage, margin, options, 'scroll');
-            armMarkerTargetReapply(container, targetPage, totalPages, margin, options);
             return;
         }
 
         const metrics = pageLayoutMetrics.value;
         if (metrics && metrics.totalPages === totalPages) {
             if (options?.preferExactDom) {
-                clearMarkerTargetReapply();
                 logPdfNav(
                     `[PDF-NAV] usePdfScroll.scrollToPage source=anchor-only targetPage=${targetPage}`
                     + ` reason=dom-missing scrollTop(before)=${container.scrollTop.toFixed(1)}`,
@@ -713,64 +592,17 @@ export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
                 + ` nextLeft=${nextLeft === null ? 'none' : nextLeft.toFixed(1)}`
                 + ` nextTop=${nextTop.toFixed(1)} scrollTop(before)=${container.scrollTop.toFixed(1)}`,
             );
-            if (nextLeft !== null) {
-                container.scrollLeft = nextLeft;
-            }
-            container.scrollTop = nextTop;
-            currentPage.value = targetPage;
-            armMarkerTargetReapply(container, targetPage, totalPages, margin, options);
+            applyViewportWrite(container, {
+                ...(nextLeft !== null ? {left: nextLeft} : {}),
+                top: nextTop,
+            }, 'navigate:layout');
             return;
         }
 
-        clearMarkerTargetReapply();
         logPdfNav(
             '[PDF-NAV] usePdfScroll.scrollToPage failed: no DOM target and no layout metrics'
             + ` targetPage=${targetPage} totalPages=${totalPages}`,
         );
-    }
-
-    function captureScrollSnapshot(container: HTMLElement | null): IScrollSnapshot | null {
-        if (!container) {
-            return null;
-        }
-
-        const {
-            scrollWidth,
-            scrollHeight,
-        } = container;
-
-        if (!scrollWidth || !scrollHeight) {
-            return null;
-        }
-
-        return {
-            width: scrollWidth,
-            height: scrollHeight,
-            centerX: container.scrollLeft + container.clientWidth / 2,
-            centerY: container.scrollTop + container.clientHeight / 2,
-        };
-    }
-
-    function restoreScrollFromSnapshot(
-        container: HTMLElement | null,
-        snapshot: IScrollSnapshot | null,
-    ) {
-        if (!snapshot || !container) {
-            return;
-        }
-
-        const newWidth = container.scrollWidth;
-        const newHeight = container.scrollHeight;
-
-        if (!newWidth || !newHeight || !snapshot.width || !snapshot.height) {
-            return;
-        }
-
-        const targetLeft = (snapshot.centerX / snapshot.width) * newWidth - container.clientWidth / 2;
-        const targetTop = (snapshot.centerY / snapshot.height) * newHeight - container.clientHeight / 2;
-
-        container.scrollLeft = Math.max(0, targetLeft);
-        container.scrollTop = Math.max(0, targetTop);
     }
 
     function updateVisibleRange(container: HTMLElement | null, totalPages: number) {
@@ -783,19 +615,15 @@ export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
         options?: { requireAuthoritative?: boolean; },
     ) {
         const resolved = resolveMostVisiblePage(container, totalPages);
-        const page = resolved.page;
         if (options?.requireAuthoritative && !resolved.authoritative) {
             return currentPage.value;
         }
-        if (page !== currentPage.value) {
-            currentPage.value = page;
-        }
-        return page;
+        return resolved.page;
     }
 
-    tryOnScopeDispose(() => {
-        clearMarkerTargetReapply();
-    });
+    function bindCurrentPageProjection(projection: Readonly<Ref<number>>) {
+        currentPageProjection.value = {projection};
+    }
 
     return {
         currentPage,
@@ -804,10 +632,11 @@ export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
         getMostVisiblePage,
         getViewportVisibility,
         setPageLayoutMetrics,
+        getPageLayoutMetrics: () => pageLayoutMetrics.value,
         scrollToPage,
-        captureScrollSnapshot,
-        restoreScrollFromSnapshot,
         updateVisibleRange,
         updateCurrentPage,
+        bindCurrentPageProjection,
+        viewportWritePort,
     };
 };

@@ -70,7 +70,6 @@ function getDevNativeToolPathCandidates(options: IResolveNativeToolPathOptions) 
         candidates.push(join(
             projectRoot,
             'native',
-            options.crateName,
             'target',
             rustTarget,
             'release',
@@ -81,7 +80,6 @@ function getDevNativeToolPathCandidates(options: IResolveNativeToolPathOptions) 
     candidates.push(join(
         projectRoot,
         'native',
-        options.crateName,
         'target',
         'release',
         options.binaryName,

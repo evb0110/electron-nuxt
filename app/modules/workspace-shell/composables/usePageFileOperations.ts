@@ -2,7 +2,7 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
-import type { IAnnotationNoteWindowState } from '@app/types/annotationNoteWindow';
+import type { IAnnotationNoteWindowViewModel } from '@app/types/annotationNoteWindow';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { ICloseFileFromUiOptions } from '@app/types/workspaceExpose';
@@ -44,7 +44,7 @@ export interface IPageFileOperationsDeps {
     isExportingDocx: Ref<boolean>;
     isAnyAnnotationNoteSaving: Ref<boolean>;
     isDocumentOperationInProgress?: Ref<boolean> | ComputedRef<boolean>;
-    annotationNoteWindows: Ref<IAnnotationNoteWindowState[]>;
+    annotationNoteWindows: Ref<IAnnotationNoteWindowViewModel[]>;
     hasPendingUnsavedChanges: ComputedRef<boolean>;
     annotationDirty: Ref<boolean>;
     isDirty: Ref<boolean>;

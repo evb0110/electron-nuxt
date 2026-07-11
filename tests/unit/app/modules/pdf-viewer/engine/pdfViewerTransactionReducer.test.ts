@@ -28,8 +28,6 @@ const fitPlan: IPdfViewerTransactionFitPlan = {
     scalePage: null,
     hydrateRange: null,
     viewMode: null,
-    invalidateRangeAfterScaleChange: false,
-    suppressLegacyPagedRowRender: false,
     pagedTargetRenderHandoff: null,
 };
 
@@ -44,7 +42,6 @@ const reloadCancellation: IPdfViewerTransactionCancellation = {
     reason: 'reload',
     cancelInFlightRenders: true,
     bumpRenderVersion: true,
-    clearTimers: true,
     preserveVisualContent: true,
 };
 
@@ -181,7 +178,7 @@ describe('pdf viewer transaction reducer', () => {
             active,
             beginEvent({
                 kind: 'recovery',
-                source: 'mounted-page-recovery',
+                source: 'render-stall-recovery',
                 page: 4,
             }),
         );

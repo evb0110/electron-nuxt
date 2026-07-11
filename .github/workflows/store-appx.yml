@@ -189,11 +189,21 @@ jobs:
         shell: bash
         run: node scripts/release/assert-packaged-app-contents.mjs ".tmp/store-appx-${{ matrix.arch }}"
 
+      - name: Record Microsoft Store packaged-app provenance
+        shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          node scripts/release/build-provenance.mjs create store "${{ matrix.arch }}" \
+            ".tmp/store-appx-${{ matrix.arch }}/app/resources/app.asar" \
+            "release/EVB-Viewer-${version}-store-${{ matrix.arch }}-provenance.json"
+
       - name: Upload Microsoft Store AppX
         uses: actions/upload-artifact@v7
         with:
           name: store-appx-win-${{ matrix.arch }}
-          path: release/*-store.appx
+          path: |
+            release/*-store.appx
+            release/*-store-*-provenance.json
           if-no-files-found: error
 
   submit:
@@ -246,6 +256,23 @@ jobs:
           fi
 
           echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Compare GitHub and Microsoft Store packaged-app provenance
+        if: steps.store_submission.outputs.ready == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          mkdir direct-provenance
+          for arch in x64 arm64; do
+            direct="EVB-Viewer-${version}-win-${arch}-provenance.json"
+            store="store-artifacts/EVB-Viewer-${version}-store-${arch}-provenance.json"
+            gh release download "v${version}" --pattern "$direct" --dir direct-provenance
+            node scripts/release/build-provenance.mjs assert-match "direct-provenance/$direct" "$store"
+          done
 
       - name: Submit Microsoft Store AppX packages
         if: steps.store_submission.outputs.ready == 'true'

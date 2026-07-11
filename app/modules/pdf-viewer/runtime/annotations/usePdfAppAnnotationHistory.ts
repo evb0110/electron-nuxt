@@ -1,31 +1,22 @@
 import type { Ref } from 'vue';
 import type { IAnnotationEditorState } from '@app/types/annotations';
 import type { IPdfAppAnnotationHistoryCommand } from '@app/modules/pdf-viewer/engine/annotations/annotation-history/pdfAppAnnotationHistoryCommand';
-
-interface IPdfjsHistoryCommandParams {
-    type?: number;
-    overwriteIfSameType?: boolean;
-}
-
-type TPdfAnnotationHistoryEntry =
-    | {
-        source: 'app';
-        command: IPdfAppAnnotationHistoryCommand;
-    }
-    | {
-        source: 'pdfjs';
-        type: number | null;
-    };
+import {toCompatibleAnnotationEditorState} from '@app/modules/pdf-viewer/runtime/annotations/pdfjsAnnotationState';
+import type { IPdfjsAnnotationEditorState } from '@app/modules/pdf-viewer/runtime/annotations/pdfjsAnnotationState';
+import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
 
 const MAX_HISTORY_DEPTH = 128;
+// File checkpoints use the other 16 MiB half of the app-wide 32 MiB undo cap.
+const MAX_ANNOTATION_HISTORY_BYTES = 16 * 1024 * 1024;
+const DEFAULT_COMMAND_BYTES = 1024;
 
 export const usePdfAppAnnotationHistory = (options: {
-    pdfjsAnnotationState: Ref<IAnnotationEditorState>;
+    pdfjsAnnotationState: Ref<IPdfjsAnnotationEditorState>;
     emitAnnotationState: (state: IAnnotationEditorState) => void;
     markModified: () => void;
 }) => {
-    const undoStack: TPdfAnnotationHistoryEntry[] = [];
-    const redoStack: TPdfAnnotationHistoryEntry[] = [];
+    const undoStack: IPdfAppAnnotationHistoryCommand[] = [];
+    const redoStack: IPdfAppAnnotationHistoryCommand[] = [];
     const undoDepth = ref(0);
     const redoDepth = ref(0);
     const annotationHistoryMutationVersion = ref(0);
@@ -33,17 +24,31 @@ export const usePdfAppAnnotationHistory = (options: {
     const canUndo = computed(() => undoDepth.value > 0);
     const canRedo = computed(() => redoDepth.value > 0);
     let routedPdfjsHistoryDepth = 0;
+    let transactionDepth = 0;
+    let transactionCommands: IPdfAppAnnotationHistoryCommand[] = [];
+    let workspaceCommandSink: IWorkspaceCommandSink | null = null;
+
+    function setWorkspaceCommandSink(sink: IWorkspaceCommandSink | null) {
+        workspaceCommandSink = sink;
+        undoStack.length = 0;
+        redoStack.length = 0;
+        syncDepths();
+        emitCombinedState();
+    }
 
     function syncDepths() {
         undoDepth.value = undoStack.length;
         redoDepth.value = redoStack.length;
     }
 
-    function trimStack(stack: TPdfAnnotationHistoryEntry[]) {
-        if (stack.length <= MAX_HISTORY_DEPTH) {
-            return;
+    function trimStack(stack: IPdfAppAnnotationHistoryCommand[]) {
+        let retainedBytes = stack.reduce((total, command) => (
+            total + Math.max(0, command.estimatedBytes ?? DEFAULT_COMMAND_BYTES)
+        ), 0);
+        while (stack.length > MAX_HISTORY_DEPTH || retainedBytes > MAX_ANNOTATION_HISTORY_BYTES) {
+            const removed = stack.shift();
+            retainedBytes -= Math.max(0, removed?.estimatedBytes ?? DEFAULT_COMMAND_BYTES);
         }
-        stack.splice(0, stack.length - MAX_HISTORY_DEPTH);
     }
 
     function trimHistory() {
@@ -52,119 +57,89 @@ export const usePdfAppAnnotationHistory = (options: {
     }
 
     function emitCombinedState() {
-        const pdfjsState = options.pdfjsAnnotationState.value;
-        options.emitAnnotationState({
-            ...pdfjsState,
-            hasSomethingToUndo: pdfjsState.hasSomethingToUndo || canUndo.value,
-            hasSomethingToRedo: pdfjsState.hasSomethingToRedo || canRedo.value,
-            // App-routed PDF.js history is known immediately, while storage dirty
-            // detection can lag until the next annotation state event.
-            hasAppAnnotationUndoHistory: canUndo.value,
-            hasAppAnnotationRedoHistory: canRedo.value,
-        });
+        options.emitAnnotationState(toCompatibleAnnotationEditorState(
+            options.pdfjsAnnotationState.value,
+            {
+                canUndo: canUndo.value,
+                canRedo: canRedo.value,
+            },
+        ));
     }
 
-    function syncPdfjsUndoStateToRoutedHistory() {
-        // Routed PDF.js undo/redo can leave the last annotationeditorstateschanged
-        // payload stale; sync it so toolbar buttons settle after one click.
-        options.pdfjsAnnotationState.value = {
-            ...options.pdfjsAnnotationState.value,
-            hasSomethingToUndo: canUndo.value,
-            hasSomethingToRedo: canRedo.value,
-        };
+    function pushCommand(command: IPdfAppAnnotationHistoryCommand) {
+        if (workspaceCommandSink) {
+            workspaceCommandSink.register({
+                source: 'annotation',
+                estimatedBytes: Math.max(0, command.estimatedBytes ?? DEFAULT_COMMAND_BYTES),
+                undo: () => {
+                    withRoutedPdfjsHistory(command.undo);
+                    options.markModified();
+                    emitCombinedState();
+                    return true;
+                },
+                cmd: () => {
+                    withRoutedPdfjsHistory(command.cmd);
+                    options.markModified();
+                    emitCombinedState();
+                    return true;
+                },
+            });
+            annotationHistoryMutationVersion.value += 1;
+            emitCombinedState();
+            return;
+        }
+        undoStack.push(command);
+        redoStack.length = 0;
+        trimHistory();
+        syncDepths();
+        annotationHistoryMutationVersion.value += 1;
+        emitCombinedState();
     }
 
     function registerCommand(command: IPdfAppAnnotationHistoryCommand) {
-        undoStack.push({
-            source: 'app',
-            command,
+        if (transactionDepth > 0) {
+            transactionCommands.push(command);
+            return;
+        }
+        pushCommand(command);
+    }
+
+    function finishTransaction() {
+        transactionDepth -= 1;
+        if (transactionDepth > 0) {
+            return;
+        }
+        const commands = transactionCommands;
+        transactionCommands = [];
+        if (commands.length === 0) {
+            return;
+        }
+        pushCommand({
+            cmd: () => commands.forEach(command => command.cmd()),
+            undo: () => [...commands].reverse().forEach(command => command.undo()),
+            estimatedBytes: commands.reduce((total, command) => (
+                total + Math.max(0, command.estimatedBytes ?? DEFAULT_COMMAND_BYTES)
+            ), 0),
         });
-        redoStack.length = 0;
-        trimHistory();
-        syncDepths();
-        annotationHistoryMutationVersion.value += 1;
-        emitCombinedState();
     }
 
-    function registerPdfjsCommand(params?: IPdfjsHistoryCommandParams) {
-        const type = typeof params?.type === 'number' && Number.isFinite(params.type)
-            ? params.type
-            : null;
-        const previous = undoStack.at(-1);
-        if (
-            params?.overwriteIfSameType
-            && previous?.source === 'pdfjs'
-            && previous.type === type
-        ) {
-            undoStack[undoStack.length - 1] = {
-                source: 'pdfjs',
-                type,
-            };
-        } else {
-            undoStack.push({
-                source: 'pdfjs',
-                type,
-            });
-        }
-        redoStack.length = 0;
-        trimHistory();
-        syncDepths();
-        annotationHistoryMutationVersion.value += 1;
-        emitCombinedState();
-    }
-
-    function cleanPdfjsCommands(type: number) {
-        let index = undoStack.length - 1;
-        while (index >= 0) {
-            const entry = undoStack[index];
-            if (!entry || entry.source !== 'pdfjs' || entry.type !== type) {
-                break;
+    function runTransaction<T>(action: () => T): T {
+        transactionDepth += 1;
+        try {
+            const result = action();
+            if (result instanceof Promise) {
+                return result.finally(finishTransaction) as T;
             }
-            index -= 1;
+            finishTransaction();
+            return result;
+        } catch (error) {
+            finishTransaction();
+            throw error;
         }
-        if (index === undoStack.length - 1) {
-            return;
-        }
-        undoStack.splice(index + 1);
-        syncDepths();
-        emitCombinedState();
     }
 
-    function removeLastPdfjsEntry(stack: TPdfAnnotationHistoryEntry[]) {
-        for (let index = stack.length - 1; index >= 0; index -= 1) {
-            if (stack[index]?.source === 'pdfjs') {
-                return stack.splice(index, 1)[0] ?? null;
-            }
-        }
-        return null;
-    }
-
-    function notifyPdfjsUndo() {
-        if (isRoutingPdfjsHistory()) {
-            return;
-        }
-        const entry = removeLastPdfjsEntry(undoStack);
-        if (!entry) {
-            return;
-        }
-        redoStack.push(entry);
-        trimHistory();
-        syncDepths();
-        emitCombinedState();
-    }
-
-    function notifyPdfjsRedo() {
-        if (isRoutingPdfjsHistory()) {
-            return;
-        }
-        const entry = removeLastPdfjsEntry(redoStack);
-        if (!entry) {
-            return;
-        }
-        undoStack.push(entry);
-        trimHistory();
-        syncDepths();
-        emitCombinedState();
+    function registerExecutorCommand(command: IPdfAppAnnotationHistoryCommand) {
+        registerCommand(command);
     }
 
     function withRoutedPdfjsHistory(action: () => void) {
@@ -180,51 +155,31 @@ export const usePdfAppAnnotationHistory = (options: {
         return routedPdfjsHistoryDepth > 0;
     }
 
-    function undo(handlers?: { undoPdfjs?: () => void }) {
-        const entry = undoStack.at(-1);
-        if (!entry) {
-            return false;
-        }
-        if (entry.source === 'pdfjs' && !handlers?.undoPdfjs) {
+    function undo() {
+        const command = undoStack.at(-1);
+        if (!command) {
             return false;
         }
         undoStack.pop();
-        redoStack.push(entry);
+        redoStack.push(command);
         trimHistory();
         syncDepths();
-        if (entry.source === 'app') {
-            entry.command.undo();
-        } else {
-            withRoutedPdfjsHistory(() => {
-                handlers?.undoPdfjs?.();
-            });
-            syncPdfjsUndoStateToRoutedHistory();
-        }
+        withRoutedPdfjsHistory(command.undo);
         options.markModified();
         emitCombinedState();
         return true;
     }
 
-    function redo(handlers?: { redoPdfjs?: () => void }) {
-        const entry = redoStack.at(-1);
-        if (!entry) {
-            return false;
-        }
-        if (entry.source === 'pdfjs' && !handlers?.redoPdfjs) {
+    function redo() {
+        const command = redoStack.at(-1);
+        if (!command) {
             return false;
         }
         redoStack.pop();
-        undoStack.push(entry);
+        undoStack.push(command);
         trimHistory();
         syncDepths();
-        if (entry.source === 'app') {
-            entry.command.cmd();
-        } else {
-            withRoutedPdfjsHistory(() => {
-                handlers?.redoPdfjs?.();
-            });
-            syncPdfjsUndoStateToRoutedHistory();
-        }
+        withRoutedPdfjsHistory(command.cmd);
         options.markModified();
         emitCombinedState();
         return true;
@@ -235,27 +190,7 @@ export const usePdfAppAnnotationHistory = (options: {
         redoStack.length = 0;
         syncDepths();
         annotationHistoryResetVersion.value += 1;
-        emitCombinedState();
-    }
-
-    function discardPdfjsCommands() {
-        const undoLength = undoStack.length;
-        const redoLength = redoStack.length;
-        for (let index = undoStack.length - 1; index >= 0; index -= 1) {
-            if (undoStack[index]?.source === 'pdfjs') {
-                undoStack.splice(index, 1);
-            }
-        }
-        for (let index = redoStack.length - 1; index >= 0; index -= 1) {
-            if (redoStack[index]?.source === 'pdfjs') {
-                redoStack.splice(index, 1);
-            }
-        }
-        if (undoStack.length === undoLength && redoStack.length === redoLength) {
-            return;
-        }
-        syncDepths();
-        annotationHistoryResetVersion.value += 1;
+        workspaceCommandSink?.reset('annotation');
         emitCombinedState();
     }
 
@@ -265,15 +200,13 @@ export const usePdfAppAnnotationHistory = (options: {
         canUndo,
         canRedo,
         registerCommand,
-        registerPdfjsCommand,
-        cleanPdfjsCommands,
-        notifyPdfjsUndo,
-        notifyPdfjsRedo,
+        registerExecutorCommand,
+        runTransaction,
         isRoutingPdfjsHistory,
         undo,
         redo,
         clear,
-        discardPdfjsCommands,
         emitCombinedState,
+        setWorkspaceCommandSink,
     };
 };

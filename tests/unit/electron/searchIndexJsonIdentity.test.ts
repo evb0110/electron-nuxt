@@ -13,6 +13,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
@@ -22,7 +23,7 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
 })}));
 
 describe('search index JSON identity', () => {
-    const documentRevision = 'revision-token';
+    const documentRevision = requireDocumentRevisionToken('revision-token');
     let tempDir = '';
 
     beforeEach(async () => {

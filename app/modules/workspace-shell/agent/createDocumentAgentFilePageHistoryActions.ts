@@ -1,12 +1,9 @@
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { ICropMargins } from '@app/types/crop';
+import { normalizeCropMargins } from '@contracts/shared';
 import type { IWorkspaceAgentCommandContext } from '@app/types/workspaceExpose';
-import {
-    getAgentNumberArrayInput,
-    getAgentNumberInput,
-    isAgentRecord,
-} from '@app/modules/workspace-shell/agent/documentWorkspaceAgentInputs';
+import {getAgentNumberArrayInput} from '@app/modules/workspace-shell/agent/documentWorkspaceAgentInputs';
 import {
     defineAgentActionHandler,
     type IAgentActionHandlerDefinition,
@@ -47,34 +44,11 @@ function parseAgentPageArrayInput(
 }
 
 function parseAgentCropMargins(input: Record<string, unknown>, actionId: string): ICropMargins {
-    const rawMargins = input.margins;
-    if (!isAgentRecord(rawMargins)) {
-        throw new Error(`${actionId} requires input.margins with top, right, bottom, and left values in PDF points.`);
-    }
-    const top = getAgentNumberInput(rawMargins, 'top');
-    const right = getAgentNumberInput(rawMargins, 'right');
-    const bottom = getAgentNumberInput(rawMargins, 'bottom');
-    const left = getAgentNumberInput(rawMargins, 'left');
-    if (
-        top === null
-        || right === null
-        || bottom === null
-        || left === null
-        || [
-            top,
-            right,
-            bottom,
-            left,
-        ].some(value => value < 0)
-    ) {
+    try {
+        return normalizeCropMargins(input.margins);
+    } catch {
         throw new Error(`${actionId} requires non-negative numeric crop margins: top, right, bottom, and left.`);
     }
-    return {
-        top,
-        right,
-        bottom,
-        left,
-    };
 }
 
 function createMaintenanceResult(

@@ -4,6 +4,7 @@ import pdfjsLib, {
     preparePdfjsBrowserRuntime,
 } from '@app/services/pdfjs/runtimeLib';
 import { clamp } from 'es-toolkit/math';
+import type { TaggedUnion } from 'type-fest';
 import type {
     PDFDataRangeTransport,
     PDFDocumentProxy,
@@ -43,6 +44,22 @@ interface IPdfCachedPageEntry {
     pendingEviction: boolean;
     cleaned: boolean;
 }
+
+type TPdfDocumentLoadState = TaggedUnion<'status', {
+    idle: { version: number };
+    loading: {
+        version: number;
+        document: PDFDocumentProxy | null;
+    };
+    ready: {
+        version: number;
+        document: PDFDocumentProxy;
+    };
+    failed: {
+        version: number;
+        error: unknown;
+    };
+}>;
 
 export interface IPdfDocumentPageLease {
     readonly page: PDFPageProxy;
@@ -99,16 +116,26 @@ function createStalePdfDocumentError(message: string) {
 }
 
 export const usePdfDocument = () => {
-    const pdfDocument = shallowRef<PDFDocumentProxy | null>(null);
+    const loadState = shallowRef<TPdfDocumentLoadState>({
+        status: 'idle',
+        version: 0,
+    });
+    const pdfDocument = computed(() => {
+        const state = loadState.value;
+        return state.status === 'loading' || state.status === 'ready'
+            ? state.document
+            : null;
+    });
     const numPages = ref(0);
-    const isLoading = ref(false);
+    const isLoading = computed(() => loadState.value.status === 'loading');
     const basePageWidth = ref<number | null>(null);
     const basePageHeight = ref<number | null>(null);
     const pageMetrics = ref<IPdfPageMetric[]>([]);
     const pageMetricsVersion = ref(0);
-    const loadError = shallowRef<unknown | null>(null);
+    const loadError = computed(() => loadState.value.status === 'failed'
+        ? loadState.value.error
+        : null);
 
-    let renderVersion = 0;
     const pdfPageCache = new Map<number, IPdfCachedPageEntry>();
     const pdfPageEntries = new WeakMap<PDFPageProxy, IPdfCachedPageEntry>();
     const pageMetricLoads = new Map<number, Promise<IPdfPageMetric | null>>();
@@ -169,12 +196,17 @@ export const usePdfDocument = () => {
     }
 
     function getRenderVersion() {
-        return renderVersion;
+        return loadState.value.version;
     }
 
     function incrementRenderVersion() {
         pageMetricLoads.clear();
-        return ++renderVersion;
+        const version = loadState.value.version + 1;
+        loadState.value = {
+            ...loadState.value,
+            version,
+        };
+        return version;
     }
 
     function bumpPageMetricsVersion() {
@@ -217,7 +249,7 @@ export const usePdfDocument = () => {
              * cache already evicts old proxies, so ownership should stay there.
              */
             const page = await getPage(pageNumber);
-            if (version !== renderVersion || document !== pdfDocument.value) {
+            if (version !== getRenderVersion() || document !== pdfDocument.value) {
                 return null;
             }
 
@@ -268,7 +300,7 @@ export const usePdfDocument = () => {
             return false;
         }
 
-        const version = renderVersion;
+        const version = getRenderVersion();
         const concurrency = Math.min(4, pagesToLoad.length);
         let nextPageIndex = 0;
 
@@ -276,14 +308,14 @@ export const usePdfDocument = () => {
             while (nextPageIndex < pagesToLoad.length) {
                 const pageNumber = pagesToLoad[nextPageIndex]!;
                 nextPageIndex += 1;
-                if (version !== renderVersion) {
+                if (version !== getRenderVersion()) {
                     return;
                 }
                 await loadPageMetric(document, pageNumber, version);
             }
         }));
 
-        return version === renderVersion && document === pdfDocument.value;
+        return version === getRenderVersion() && document === pdfDocument.value;
     }
 
     async function primeInitialPageMetrics(
@@ -296,7 +328,7 @@ export const usePdfDocument = () => {
         }
 
         await loadPageMetric(document, 1, version);
-        if (version !== renderVersion || document !== pdfDocument.value) {
+        if (version !== getRenderVersion() || document !== pdfDocument.value) {
             return;
         }
 
@@ -313,12 +345,16 @@ export const usePdfDocument = () => {
         version: number,
     ) {
         // Discard stale result if a newer load was started
-        if (version !== renderVersion) {
+        if (version !== getRenderVersion()) {
             destroyPdfDocumentDeferred(document, 'Failed to destroy stale PDF document');
             return null;
         }
 
-        pdfDocument.value = document;
+        loadState.value = {
+            status: 'loading',
+            version,
+            document,
+        };
         const leaseOwnedPage = (pageNumber: number) => {
             if (pdfDocument.value !== document) {
                 throw createStalePdfDocumentError(
@@ -330,9 +366,15 @@ export const usePdfDocument = () => {
         pdfDocumentPageLeaseOwners.set(document, {leasePage: leaseOwnedPage});
         numPages.value = document.numPages;
         await primeInitialPageMetrics(document, version);
-        if (version !== renderVersion || document !== pdfDocument.value) {
+        if (version !== getRenderVersion() || document !== pdfDocument.value) {
             return null;
         }
+
+        loadState.value = {
+            status: 'ready',
+            version,
+            document,
+        };
 
         return {
             version,
@@ -382,8 +424,11 @@ export const usePdfDocument = () => {
         }
 
         const version = incrementRenderVersion();
-        isLoading.value = true;
-        loadError.value = null;
+        loadState.value = {
+            status: 'loading',
+            version,
+            document: null,
+        };
         if (!shouldPreservePageStructure) {
             resetLoadMetadata();
         }
@@ -393,8 +438,11 @@ export const usePdfDocument = () => {
 
     function finishLoad(version: number) {
         // Only clear loading state if this is still the current load
-        if (version === renderVersion) {
-            isLoading.value = false;
+        if (version === getRenderVersion() && loadState.value.status === 'loading') {
+            loadState.value = {
+                status: 'idle',
+                version,
+            };
         }
     }
 
@@ -403,11 +451,15 @@ export const usePdfDocument = () => {
         version: number,
     ) {
         // Ignore cancellation errors from destroyed loading tasks
-        if (version !== renderVersion) {
+        if (version !== getRenderVersion()) {
             return null;
         }
         BrowserLogger.error('pdf-document', 'Failed to load PDF', error);
-        loadError.value = error;
+        loadState.value = {
+            status: 'failed',
+            version,
+            error,
+        };
         return null;
     }
 
@@ -472,7 +524,7 @@ export const usePdfDocument = () => {
     }
 
     function cleanupFailedLoadAttempt(version: number) {
-        if (version !== renderVersion) {
+        if (version !== getRenderVersion()) {
             return;
         }
 
@@ -495,16 +547,31 @@ export const usePdfDocument = () => {
     function clearAcceptedDocumentState() {
         cleanupPageCache();
         pageMetricLoads.clear();
-        if (pdfDocument.value) {
-            destroyPdfDocumentDeferred(pdfDocument.value, 'Failed to destroy PDF document after load failure');
-            pdfDocument.value = null;
+        const document = pdfDocument.value;
+        if (document) {
+            destroyPdfDocumentDeferred(document, 'Failed to destroy PDF document after load failure');
+        }
+        const state = loadState.value;
+        if (state.status === 'loading') {
+            loadState.value = {
+                ...state,
+                document: null,
+            };
+        } else if (state.status === 'ready') {
+            loadState.value = {
+                status: 'idle',
+                version: state.version,
+            };
         }
         numPages.value = 0;
         resetLoadMetadata();
     }
 
-    function invalidateDocumentAfterRangeReadFailure(version: number) {
-        if (version !== renderVersion) {
+    function invalidateDocumentAfterRangeReadFailure(
+        error: unknown,
+        version: number,
+    ) {
+        if (version !== getRenderVersion()) {
             return;
         }
 
@@ -514,12 +581,16 @@ export const usePdfDocument = () => {
             return;
         }
 
-        incrementRenderVersion();
-        isLoading.value = false;
+        const failedVersion = incrementRenderVersion();
         abortActiveRangeTransport('Failed to abort PDF range transport after range read failure');
         destroyLoadingTaskAfterRangeReadFailure();
         revokeActiveObjectUrl();
         clearAcceptedDocumentState();
+        loadState.value = {
+            status: 'failed',
+            version: failedVersion,
+            error,
+        };
     }
 
     function createRangeReadFailureHandler() {
@@ -600,26 +671,26 @@ export const usePdfDocument = () => {
         let outputOffset = 0;
         let output: Uint8Array | null = null;
         while (cursor < end) {
-            if (version !== renderVersion) {
+            if (version !== getRenderVersion()) {
                 logPdfRenderTrace('pdf-document-range-request-stale-before-read', {
                     begin,
                     end,
                     cursor,
                     version,
-                    renderVersion,
+                    renderVersion: getRenderVersion(),
                 });
                 return;
             }
 
             const requestedLength = Math.min(PDF_RANGE_SUBREAD_BYTES, end - cursor);
             const chunk = await documentFiles.readFileRange(src.path, cursor, requestedLength);
-            if (version !== renderVersion) {
+            if (version !== getRenderVersion()) {
                 logPdfRenderTrace('pdf-document-range-request-stale-after-read', {
                     begin,
                     end,
                     cursor,
                     version,
-                    renderVersion,
+                    renderVersion: getRenderVersion(),
                 });
                 return;
             }
@@ -697,7 +768,7 @@ export const usePdfDocument = () => {
                         preloadedRanges,
                     );
                 } catch (error) {
-                    if (version !== renderVersion) {
+                    if (version !== getRenderVersion()) {
                         return;
                     }
 
@@ -713,7 +784,7 @@ export const usePdfDocument = () => {
                         error,
                     );
                     failRangeRead(error);
-                    invalidateDocumentAfterRangeReadFailure(version);
+                    invalidateDocumentAfterRangeReadFailure(error, version);
                 }
             })();
         };
@@ -723,12 +794,12 @@ export const usePdfDocument = () => {
         src: Blob,
         version: number,
     ) {
-        if (version !== renderVersion) {
+        if (version !== getRenderVersion()) {
             return null;
         }
 
         const documentOptions = await getPdfjsDocumentOptions();
-        if (version !== renderVersion) {
+        if (version !== getRenderVersion()) {
             return null;
         }
 
@@ -771,12 +842,12 @@ export const usePdfDocument = () => {
                 : Promise.resolve(null),
         ]);
 
-        if (version !== renderVersion) {
+        if (version !== getRenderVersion()) {
             return null;
         }
 
         const documentOptions = await getPdfjsDocumentOptions();
-        if (version !== renderVersion) {
+        if (version !== getRenderVersion()) {
             return null;
         }
 
@@ -851,7 +922,7 @@ export const usePdfDocument = () => {
 
     async function getPage(pageNumber: number) {
         const document = pdfDocument.value;
-        const version = renderVersion;
+        const version = getRenderVersion();
 
         if (!document) {
             throw new Error('No PDF document loaded');
@@ -863,14 +934,14 @@ export const usePdfDocument = () => {
             logPdfRenderTrace('pdf-document-page-cache-miss', {
                 pageNumber,
                 version,
-                renderVersion,
+                renderVersion: getRenderVersion(),
             });
             page = await document.getPage(pageNumber);
-            if (version !== renderVersion || document !== pdfDocument.value) {
+            if (version !== getRenderVersion() || document !== pdfDocument.value) {
                 logPdfRenderTrace('pdf-document-page-cache-stale-cleanup', {
                     pageNumber,
                     version,
-                    renderVersion,
+                    renderVersion: getRenderVersion(),
                 });
                 page.cleanup();
                 throw createStalePdfDocumentError(
@@ -908,7 +979,7 @@ export const usePdfDocument = () => {
         logPdfRenderTrace('pdf-document-page-lease-acquire', {
             pageNumber,
             leases: entry.leases,
-            renderVersion,
+            renderVersion: getRenderVersion(),
         });
         let released = false;
         return {
@@ -932,7 +1003,7 @@ export const usePdfDocument = () => {
             pageNumber,
             leases: entry.leases,
             pendingEviction: entry.pendingEviction,
-            renderVersion,
+            renderVersion: getRenderVersion(),
         });
         entry.page.cleanup();
     }
@@ -950,7 +1021,7 @@ export const usePdfDocument = () => {
             pageNumber: entry.pageNumber,
             leases: entry.leases,
             pendingEviction: entry.pendingEviction,
-            renderVersion,
+            renderVersion: getRenderVersion(),
         });
         if (entry.leases === 0 && entry.pendingEviction) {
             cleanupPageEntry(entry.pageNumber, entry);
@@ -998,9 +1069,8 @@ export const usePdfDocument = () => {
     }
 
     function cleanup() {
-        incrementRenderVersion();
-        isLoading.value = false;
-        loadError.value = null;
+        const version = incrementRenderVersion();
+        const document = pdfDocument.value;
         cleanupPageCache();
         pageMetricLoads.clear();
         abortActiveRangeTransport('Failed to abort PDF range transport');
@@ -1011,9 +1081,8 @@ export const usePdfDocument = () => {
             'error',
         );
 
-        if (pdfDocument.value) {
-            destroyPdfDocumentDeferred(pdfDocument.value, 'Failed to destroy PDF document');
-            pdfDocument.value = null;
+        if (document) {
+            destroyPdfDocumentDeferred(document, 'Failed to destroy PDF document');
         }
 
         revokeActiveObjectUrl();
@@ -1023,9 +1092,14 @@ export const usePdfDocument = () => {
         basePageHeight.value = null;
         pageMetrics.value = [];
         bumpPageMetricsVersion();
+        loadState.value = {
+            status: 'idle',
+            version,
+        };
     }
 
     return {
+        loadState,
         pdfDocument,
         numPages,
         isLoading,

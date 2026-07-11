@@ -9,12 +9,13 @@ import {
     ref,
 } from 'vue';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
+import type { AnnotationId } from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
 import { useAnnotationNoteWindows } from '@app/modules/workspace-shell/composables/useAnnotationNoteWindows';
 
 function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
-    return {
+    const comment: IAnnotationCommentSummary = {
         id: 'note-1',
-        stableKey: 'note-1:0',
+        stableKey: 'ann:0:note-1:0',
         pageIndex: 0,
         pageNumber: 1,
         text: 'Initial note',
@@ -27,6 +28,10 @@ function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnn
         hasNote: true,
         ...overrides,
     };
+    return {
+        ...comment,
+        appAnnotationId: overrides.appAnnotationId ?? comment.stableKey,
+    };
 }
 
 function createHarness(comment = createComment()) {
@@ -34,7 +39,7 @@ function createHarness(comment = createComment()) {
         annotationComments: ref<IAnnotationCommentSummary[]>([comment]),
         markAnnotationDirty: vi.fn(),
         updateAnnotationCommentInViewer: vi.fn<
-            (comment: IAnnotationCommentSummary, text: string) => boolean
+            (annotationId: AnnotationId, text: string) => boolean
         >(() => true),
         isAnnotationCommentSyncReady: vi.fn(() => true),
     };
@@ -67,18 +72,21 @@ describe('useAnnotationNoteWindows', () => {
         } = createHarness();
 
         windows.handleOpenAnnotationNote(createComment());
-        const note = windows.findAnnotationNoteWindow('note-1:0');
+        const note = windows.findAnnotationNoteWindow('ann:0:note-1:0');
         expect(note).not.toBeNull();
         if (!note) {
             return;
         }
 
-        note.text = 'Updated text';
-        const saved = windows.persistAnnotationNote('note-1:0', true);
+        note.draftText = 'Updated text';
+        note.dirty = true;
+        const saved = windows.persistAnnotationNote('ann:0:note-1:0', true);
 
         expect(saved).toBe(true);
-        expect(note.lastSavedText).toBe('Updated text');
-        expect(deps.annotationComments.value.find(comment => comment.stableKey === 'note-1:0')?.text).toBe('Updated text');
+        expect(note.draftText).toBe('Updated text');
+        expect(note.dirty).toBe(false);
+        expect(note.draftText).toBe('Updated text');
+        expect(deps.annotationComments.value.find(comment => comment.stableKey === 'ann:0:note-1:0')?.text).toBe('Initial note');
     });
 
     it('preserves a note creation timestamp when saving through a synchronized summary without one', () => {
@@ -98,18 +106,19 @@ describe('useAnnotationNoteWindows', () => {
         windows.handleOpenAnnotationNote(opened);
         deps.annotationComments.value = [syncedWithoutCreatedAt];
 
-        const note = windows.findAnnotationNoteWindow('note-1:0');
+        const note = windows.findAnnotationNoteWindow('ann:0:note-1:0');
         expect(note).not.toBeNull();
         if (!note) {
             return;
         }
 
-        note.text = 'Updated through sync';
-        const saved = windows.persistAnnotationNote('note-1:0');
+        note.draftText = 'Updated through sync';
+        note.dirty = true;
+        const saved = windows.persistAnnotationNote('ann:0:note-1:0');
 
         expect(saved).toBe(true);
-        expect(note.comment.createdAt).toBe(111);
-        expect(deps.annotationComments.value[0]?.createdAt).toBe(111);
+        expect(note.createdAt).toBe(111);
+        expect(deps.annotationComments.value[0]?.createdAt).toBeNull();
     });
 
     it('mirrors existing PDF note saves into the embedded serialization pipeline', () => {
@@ -121,7 +130,10 @@ describe('useAnnotationNoteWindows', () => {
             source: 'pdf',
             text: 'Initial note',
         });
-        const { windows } = createHarness(comment);
+        const {
+            deps,
+            windows,
+        } = createHarness(comment);
 
         windows.handleOpenAnnotationNote(comment);
         const note = windows.findAnnotationNoteWindow('ann:0:3856R');
@@ -130,13 +142,17 @@ describe('useAnnotationNoteWindows', () => {
             return;
         }
 
-        note.text = 'Updated PDF note';
+        note.draftText = 'Updated PDF note';
+        note.dirty = true;
         const saved = windows.persistAnnotationNote('ann:0:3856R', false);
 
         expect(saved).toBe(true);
-        expect(note.lastSavedText).toBe('Updated PDF note');
-        const pending = windows.consumePendingEmbeddedTextUpdates();
-        expect(pending?.get('ann:0:3856R')).toBe('Updated PDF note');
+        expect(note.draftText).toBe('Updated PDF note');
+        expect(note.dirty).toBe(false);
+        expect(deps.updateAnnotationCommentInViewer).toHaveBeenCalledWith(
+            expect.any(String),
+            'Updated PDF note',
+        );
     });
 
     it('mirrors reopened editor-sourced notes with durable annotation ids into embedded serialization', () => {
@@ -148,7 +164,10 @@ describe('useAnnotationNoteWindows', () => {
             source: 'editor',
             text: 'Initial note',
         });
-        const { windows } = createHarness(comment);
+        const {
+            deps,
+            windows,
+        } = createHarness(comment);
 
         windows.handleOpenAnnotationNote(comment);
         const note = windows.findAnnotationNoteWindow('uid:0:pdfjs_internal_editor_0');
@@ -157,16 +176,20 @@ describe('useAnnotationNoteWindows', () => {
             return;
         }
 
-        note.text = 'Updated reopened note';
+        note.draftText = 'Updated reopened note';
+        note.dirty = true;
         const saved = windows.persistAnnotationNote('uid:0:pdfjs_internal_editor_0', false);
 
         expect(saved).toBe(true);
-        expect(note.lastSavedText).toBe('Updated reopened note');
-        const pending = windows.consumePendingEmbeddedTextUpdates();
-        expect(pending?.get('uid:0:pdfjs_internal_editor_0')).toBe('Updated reopened note');
+        expect(note.draftText).toBe('Updated reopened note');
+        expect(note.dirty).toBe(false);
+        expect(deps.updateAnnotationCommentInViewer).toHaveBeenCalledWith(
+            expect.any(String),
+            'Updated reopened note',
+        );
     });
 
-    it('migrates pending embedded text when a note window resolves to a new stable key', async () => {
+    it('does not migrate pending text from a legacy binding without an explicit app annotation id', async () => {
         const initialComment = createComment({
             id: 'runtime-note',
             stableKey: 'uid:0:pdfjs_internal_editor_0',
@@ -187,7 +210,8 @@ describe('useAnnotationNoteWindows', () => {
             return;
         }
 
-        note.text = 'Updated PDF note';
+        note.draftText = 'Updated PDF note';
+        note.dirty = true;
         expect(windows.persistAnnotationNote('uid:0:pdfjs_internal_editor_0', false)).toBe(true);
 
         deps.annotationComments.value = [createComment({
@@ -199,9 +223,7 @@ describe('useAnnotationNoteWindows', () => {
         })];
         await nextTick();
 
-        const pending = windows.consumePendingEmbeddedTextUpdates();
-        expect(pending?.has('uid:0:pdfjs_internal_editor_0')).toBe(false);
-        expect(pending?.get('ann:0:3856R')).toBe('Updated PDF note');
+        expect(deps.updateAnnotationCommentInViewer).toHaveBeenCalledTimes(1);
     });
 
     it('saves replayable editor-only notes locally when auto path fails during forced save', () => {
@@ -226,53 +248,16 @@ describe('useAnnotationNoteWindows', () => {
             return;
         }
 
-        note.text = 'Unsaved sticky note text';
+        note.draftText = 'Unsaved sticky note text';
+        note.dirty = true;
         const saved = windows.persistAnnotationNote('uid:0:pdfjs_internal_editor_0', true);
 
         expect(saved).toBe(true);
-        expect(note.saveMode).toBe('auto');
-        expect(note.lastSavedText).toBe('Unsaved sticky note text');
-        expect(windows.consumePendingEmbeddedTextUpdates()).toBeNull();
+        expect(note.pendingEmbeddedSave).toBe(false);
+        expect(note.draftText).toBe('Unsaved sticky note text');
     });
 
-    it('returns null from consumePendingEmbeddedTextUpdates when nothing is pending', () => {
-        const { windows } = createHarness();
-
-        const pending = windows.consumePendingEmbeddedTextUpdates();
-        expect(pending).toBeNull();
-    });
-
-    it('clears pending updates after consume', () => {
-        const comment = createComment({
-            id: '3856R',
-            stableKey: 'ann:0:3856R',
-            annotationId: '3856R',
-            uid: null,
-            source: 'pdf',
-        });
-        const {
-            deps,
-            windows,
-        } = createHarness(comment);
-
-        deps.updateAnnotationCommentInViewer.mockReturnValue(false);
-
-        windows.handleOpenAnnotationNote(comment);
-        const note = windows.findAnnotationNoteWindow('ann:0:3856R');
-        if (!note) {
-            return;
-        }
-        note.text = 'Changed';
-        windows.persistAnnotationNote('ann:0:3856R', true);
-
-        const first = windows.consumePendingEmbeddedTextUpdates();
-        expect(first).not.toBeNull();
-
-        const second = windows.consumePendingEmbeddedTextUpdates();
-        expect(second).toBeNull();
-    });
-
-    it('sets saveMode to embedded when auto path fails without force', () => {
+    it('marks an embedded save pending when the auto path fails without force', () => {
         const comment = createComment();
         const {
             deps,
@@ -282,16 +267,16 @@ describe('useAnnotationNoteWindows', () => {
         deps.updateAnnotationCommentInViewer.mockReturnValue(false);
 
         windows.handleOpenAnnotationNote(comment);
-        const note = windows.findAnnotationNoteWindow('note-1:0');
+        const note = windows.findAnnotationNoteWindow('ann:0:note-1:0');
         if (!note) {
             return;
         }
-        note.text = 'Changed';
-        const saved = windows.persistAnnotationNote('note-1:0', false);
+        note.draftText = 'Changed';
+        note.dirty = true;
+        const saved = windows.persistAnnotationNote('ann:0:note-1:0', false);
 
         expect(saved).toBe(true);
-        expect(note.saveMode).toBe('embedded');
-        expect(windows.consumePendingEmbeddedTextUpdates()).toBeNull();
+        expect(note.pendingEmbeddedSave).toBe(true);
     });
 
     it('closes an open note window when its backing annotation disappears from a ready sync', async () => {
@@ -302,7 +287,7 @@ describe('useAnnotationNoteWindows', () => {
         } = createHarness(comment);
 
         windows.handleOpenAnnotationNote(comment);
-        const note = windows.findAnnotationNoteWindow('note-1:0');
+        const note = windows.findAnnotationNoteWindow('ann:0:note-1:0');
         expect(note).not.toBeNull();
         if (!note) {
             return;
@@ -312,7 +297,7 @@ describe('useAnnotationNoteWindows', () => {
         deps.annotationComments.value = [];
         await nextTick();
 
-        expect(windows.findAnnotationNoteWindow('note-1:0')).toBeNull();
+        expect(windows.findAnnotationNoteWindow('ann:0:note-1:0')).toBeNull();
     });
 
     it('keeps a freshly opened note window while annotation sync catches up', async () => {
@@ -327,7 +312,7 @@ describe('useAnnotationNoteWindows', () => {
         deps.annotationComments.value = [];
         await nextTick();
 
-        expect(windows.findAnnotationNoteWindow('note-1:0')).not.toBeNull();
+        expect(windows.findAnnotationNoteWindow('ann:0:note-1:0')).not.toBeNull();
     });
 
     it('keeps a dirty note window when annotation sync temporarily misses it', async () => {
@@ -338,18 +323,18 @@ describe('useAnnotationNoteWindows', () => {
         } = createHarness(comment);
 
         windows.handleOpenAnnotationNote(comment);
-        const note = windows.findAnnotationNoteWindow('note-1:0');
+        const note = windows.findAnnotationNoteWindow('ann:0:note-1:0');
         expect(note).not.toBeNull();
         if (!note) {
             return;
         }
         note.createdAtMs = Date.now() - 10_000;
-        windows.updateAnnotationNoteText('note-1:0', 'Unsynced typed note');
+        windows.updateAnnotationNoteText('ann:0:note-1:0', 'Unsynced typed note');
 
         deps.annotationComments.value = [];
         await nextTick();
 
-        expect(windows.findAnnotationNoteWindow('note-1:0')).not.toBeNull();
+        expect(windows.findAnnotationNoteWindow('ann:0:note-1:0')).not.toBeNull();
     });
 
     it('keeps an open note window during transient document reload sync gaps', async () => {
@@ -365,10 +350,10 @@ describe('useAnnotationNoteWindows', () => {
         deps.annotationComments.value = [];
         await nextTick();
 
-        expect(windows.findAnnotationNoteWindow('note-1:0')).not.toBeNull();
+        expect(windows.findAnnotationNoteWindow('ann:0:note-1:0')).not.toBeNull();
     });
 
-    it('adds locally saved new note comments to the annotation cache for serialization replay', () => {
+    it('keeps locally saved new note comments as a read-only window projection', () => {
         const comment = createComment({
             id: 'editor:0:pdfjs_internal_editor_0',
             stableKey: 'uid:0:pdfjs_internal_editor_0',
@@ -397,16 +382,19 @@ describe('useAnnotationNoteWindows', () => {
             return;
         }
 
-        note.text = 'Replayable new note text';
+        note.draftText = 'Replayable new note text';
+        note.dirty = true;
         const saved = windows.persistAnnotationNote('uid:0:pdfjs_internal_editor_0', true);
 
         expect(saved).toBe(true);
-        expect(deps.annotationComments.value).toContainEqual(expect.objectContaining({
-            stableKey: 'uid:0:pdfjs_internal_editor_0',
-            text: 'Replayable new note text',
+        expect(note).toEqual(expect.objectContaining({
+            annotationId: expect.any(String),
+            draftText: 'Replayable new note text',
             hasNote: true,
             markerRect: comment.markerRect,
         }));
+        expect(Object.isFrozen(note.markerRect)).toBe(true);
+        expect(deps.annotationComments.value).toEqual([]);
     });
 
     it('keeps existing PDF notes when forced-saving a new editor note with a recycled runtime id', async () => {
@@ -456,11 +444,12 @@ describe('useAnnotationNoteWindows', () => {
             return;
         }
 
-        note.text = 'saved new editor note';
+        note.draftText = 'saved new editor note';
+        note.dirty = true;
         const saved = await windows.persistAllAnnotationNotes(true);
 
         expect(saved).toBe(true);
-        expect(windows.consumePendingEmbeddedTextUpdates()).toBeNull();
+        expect(deps.updateAnnotationCommentInViewer).toHaveBeenCalled();
         expect(deps.annotationComments.value).toEqual(expect.arrayContaining([
             expect.objectContaining({
                 stableKey: 'ann:0:13275R',
@@ -469,10 +458,11 @@ describe('useAnnotationNoteWindows', () => {
             }),
             expect.objectContaining({
                 stableKey: 'uid:0:pdfjs_internal_editor_0',
-                text: 'saved new editor note',
+                text: 'new editor note',
                 source: 'editor',
             }),
         ]));
+        expect(note.draftText).toBe('saved new editor note');
     });
 
     it('preserves the latest marker rect when forced save races a stale open note window', async () => {
@@ -601,7 +591,7 @@ describe('useAnnotationNoteWindows', () => {
         );
     });
 
-    it('matches an open note to its persisted annotation summary during explicit delete cleanup', () => {
+    it('does not merge an open note with a persisted summary from geometry alone', () => {
         const markerRect = {
             left: 0.42,
             top: 0.24,
@@ -636,13 +626,15 @@ describe('useAnnotationNoteWindows', () => {
         if (!note) {
             return;
         }
-        note.text = 'Dirty text that should not keep a deleted note alive';
+        note.draftText = 'Dirty text that should not keep a deleted note alive';
+        note.dirty = true;
 
-        expect(windows.isSameAnnotationComment(note.comment, persistedDeleteSummary)).toBe(true);
+        expect(windows.isSameAnnotationComment(openEditorNote, persistedDeleteSummary)).toBe(false);
     });
 
-    it('migrates a transient note window to a persisted PDF note at the same placement', async () => {
+    it('keeps a transient note window bound by its explicit app annotation id after persistence', async () => {
         const transient = createComment({
+            appAnnotationId: 'anno-point-note',
             id: 'editor:0:pdfjs_internal_editor_0',
             stableKey: 'uid:0:pdfjs_internal_editor_0',
             annotationId: null,
@@ -658,6 +650,7 @@ describe('useAnnotationNoteWindows', () => {
             },
         });
         const persisted = createComment({
+            appAnnotationId: 'anno-point-note',
             id: '9999R',
             stableKey: 'ann:0:9999R',
             annotationId: '9999R',
@@ -681,7 +674,7 @@ describe('useAnnotationNoteWindows', () => {
         deps.annotationComments.value = [persisted];
         await nextTick();
 
-        expect(windows.findAnnotationNoteWindow('uid:0:pdfjs_internal_editor_0')).toBeNull();
-        expect(windows.findAnnotationNoteWindow('ann:0:9999R')).not.toBeNull();
+        expect(windows.findAnnotationNoteWindow('anno-point-note')).not.toBeNull();
+        expect(windows.annotationNoteWindows.value).toHaveLength(1);
     });
 });

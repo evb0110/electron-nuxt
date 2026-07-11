@@ -16,13 +16,21 @@ import {
     parentPort,
     workerData,
 } from 'worker_threads';
-import { randomUUID } from 'node:crypto';
 import {
+    createHash,
+    randomUUID,
+} from 'node:crypto';
+import {createReadStream} from 'node:fs';
+import {
+    copyFile,
+    mkdir,
     mkdtemp,
     readFile,
+    rename,
     rm,
     stat,
     unlink,
+    writeFile,
 } from 'fs/promises';
 import { join } from 'path';
 import {
@@ -33,6 +41,7 @@ import {
 import { PDFDocument } from 'pdf-lib';
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import type {
+    IOcrDiagnostic,
     IOcrSearchablePdfOptions,
     TOcrProgressPhase,
 } from '@contracts/electronApiOcr';
@@ -63,7 +72,6 @@ import {
 import { runOcrCommand } from '@electron/ocr/worker/runOcrCommand';
 import {
     resolveSafeOcrIndexBasePath,
-    writeOcrIndexV1,
     writeOcrIndexV3,
 } from '@electron/ocr/worker/indexWriter';
 import {
@@ -80,7 +88,12 @@ import { isAbortError } from '@electron/utils/abort';
 import { getErrorMessage } from '@electron/utils/error';
 import { buildOcrErrorEnvelope } from '@electron/ocr/contracts';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
+import {selectOcrPagesForSupersession} from '@electron/ocr/worker/selectOcrPagesForSupersession';
 import { assertPdfPageSizeFallbackInputSafe } from '@electron/ocr/worker/assertPdfPageSizeFallbackInputSafe';
+import {
+    cleanupStaleOcrJobDirectories,
+    createOcrJobManifestController,
+} from '@electron/ocr/worker/ocrJobManifest';
 
 const initialWorkerData: unknown = workerData;
 const paths = resolveWorkerPaths(initialWorkerData);
@@ -273,6 +286,8 @@ interface IOcrPageProcessingContext {
     pageSizeByNumber: Map<number, IOcrPageSizeInches>;
     pageSourceDpiByNumber: Map<number, number>;
     options: IOcrSearchablePdfOptions;
+    checkpointDir: string;
+    checkpointPage: (pageNumber: number) => Promise<void>;
     popplerEnv?: NodeJS.ProcessEnv;
     signal: AbortSignal;
     trackTempFile: (path: string) => string;
@@ -287,11 +302,40 @@ async function processOcrPage(
     page: IOcrPdfPageRequest,
     context: IOcrPageProcessingContext,
 ) {
+    const checkpointJsonPath = join(context.checkpointDir, `page-${page.pageNumber}.json`);
+    const checkpointPdfPath = join(context.checkpointDir, `page-${page.pageNumber}.pdf`);
+    try {
+        const checkpoint = JSON.parse(await readFile(checkpointJsonPath, 'utf8')) as {
+            pageData?: IOcrPageWithWords;
+            effectiveDpi?: number;
+            diagnostics?: IOcrDiagnostic[];
+        };
+        const checkpointPdfStat = await stat(checkpointPdfPath);
+        if (
+            checkpointPdfStat.size > 0
+            && checkpoint.pageData?.pageNumber === page.pageNumber
+            && checkpoint.pageData.imageWidth > 0
+            && checkpoint.pageData.imageHeight > 0
+            && typeof checkpoint.effectiveDpi === 'number'
+            && checkpoint.effectiveDpi > 0
+        ) {
+            await context.checkpointPage(page.pageNumber);
+            return {
+                pageData: checkpoint.pageData,
+                pdfPath: checkpointPdfPath,
+                effectiveDpi: checkpoint.effectiveDpi,
+                diagnostics: checkpoint.diagnostics ?? [],
+            };
+        }
+    } catch {
+        // Missing or invalid checkpoints are recomputed.
+    }
     log('debug', `Processing page ${page.pageNumber}`);
 
     const pageImagePath = context.trackTempFile(join(paths.tempDir, `${context.sessionId}-page-${page.pageNumber}.png`));
     const preprocessedImagePath = context.trackTempFile(join(paths.tempDir, `${context.sessionId}-page-${page.pageNumber}-clean.png`));
     let resourceToken: string | null = null;
+    const diagnostics: IOcrDiagnostic[] = [];
 
     try {
         const resourceLease = await acquireOcrResourceSlot(
@@ -309,6 +353,12 @@ async function processOcrPage(
                 ? 'to avoid upscaling the embedded page image'
                 : 'to stay within native resource budget';
             log('debug', `Reduced OCR render DPI for page ${page.pageNumber} from ${context.extractionDpi} to ${effectiveDpi} ${reason}`);
+            diagnostics.push({
+                code: 'OCR_SOURCE_DPI_LIMITED',
+                severity: 'info',
+                pageNumber: page.pageNumber,
+                message: `Used ${effectiveDpi} DPI instead of ${context.extractionDpi} DPI ${reason}`,
+            });
         }
 
         await renderPdfPageToPng(
@@ -332,6 +382,10 @@ async function processOcrPage(
                 preprocessedImagePath,
                 log,
                 context.signal,
+                diagnostic => diagnostics.push({
+                    ...diagnostic,
+                    pageNumber: page.pageNumber,
+                }),
             );
             if (candidateOcrImagePath !== pageImagePath) {
                 const candidateDims = await readPngDimensions(candidateOcrImagePath);
@@ -346,6 +400,12 @@ async function processOcrPage(
                         `from ${rawSize} to ${cleanSize};`,
                         'using raw page render to preserve text-layer alignment',
                     ].join(' '));
+                    diagnostics.push({
+                        code: 'OCR_PREPROCESSING_GEOMETRY_CHANGED',
+                        severity: 'warning',
+                        pageNumber: page.pageNumber,
+                        message: `Preprocessing changed image dimensions from ${rawSize} to ${cleanSize}; used raw render to preserve alignment`,
+                    });
                 }
             }
         }
@@ -382,10 +442,23 @@ async function processOcrPage(
         }
 
         context.trackTempFile(ocrResult.pdfPath);
+        const checkpointTempPdf = `${checkpointPdfPath}.${process.pid}.${randomUUID()}.tmp`;
+        const checkpointTempJson = `${checkpointJsonPath}.${process.pid}.${randomUUID()}.tmp`;
+        await copyFile(ocrResult.pdfPath, checkpointTempPdf);
+        await writeFile(checkpointTempJson, JSON.stringify({
+            version: 1,
+            pageData,
+            effectiveDpi,
+            diagnostics,
+        }), 'utf8');
+        await rename(checkpointTempPdf, checkpointPdfPath);
+        await rename(checkpointTempJson, checkpointJsonPath);
+        await context.checkpointPage(page.pageNumber);
         return {
             pageData,
-            pdfPath: ocrResult.pdfPath,
+            pdfPath: checkpointPdfPath,
             effectiveDpi,
+            diagnostics,
         };
     } catch (err) {
         if (isAbortError(err)) {
@@ -452,6 +525,7 @@ async function processOcrPages(
     const errors: string[] = [];
     const ocrPageData: IOcrPageWithWords[] = [];
     const effectiveDpis: number[] = [];
+    const diagnostics: IOcrDiagnostic[] = [];
     for (const { result } of pageResults) {
         if (result.error) {
             errors.push(result.error);
@@ -462,6 +536,7 @@ async function processOcrPages(
         if (typeof result.effectiveDpi === 'number') {
             effectiveDpis.push(result.effectiveDpi);
         }
+        diagnostics.push(...(result.diagnostics ?? []));
     }
 
     return {
@@ -482,6 +557,7 @@ async function processOcrPages(
                 : []
         ))),
         effectiveRenderDpi: Math.min(context.extractionDpi, ...effectiveDpis),
+        diagnostics,
     };
 }
 
@@ -497,6 +573,7 @@ async function resolveOcrIndexPath(sourcePdfPath: string) {
 
 async function writeOcrIndexes(
     sourcePdfPath: string,
+    stagedResultPdfPath: string,
     documentRevision: IDocumentRevisionInfo,
     ocrPageData: IOcrPageWithWords[],
     pageCount: number,
@@ -504,7 +581,6 @@ async function writeOcrIndexes(
     effectiveRenderDpi: number,
     signal: AbortSignal,
 ) {
-    const warnings: string[] = [];
     const validatedWorkingCopyPath = await resolveOcrIndexPath(sourcePdfPath);
     if (!validatedWorkingCopyPath) {
         const warning = 'Skipping OCR index writes due to invalid source PDF path';
@@ -522,28 +598,18 @@ async function writeOcrIndexes(
             effectiveRenderDpi,
             log,
             signal,
+            stagedResultPdfPath,
         );
     } catch (indexError) {
         if (isAbortError(indexError)) {
             throw indexError;
         }
         const indexErrorMessage = getErrorMessage(indexError);
-        const warning = `Failed to write OCR index v3: ${indexErrorMessage}`;
-        log('warn', warning);
-        warnings.push(warning);
+        log('error', `Failed to stage OCR text catalog: ${indexErrorMessage}`);
+        throw new Error(`Failed to stage OCR text catalog: ${indexErrorMessage}`, {cause: indexError});
     }
 
-    try {
-        throwIfAborted(signal);
-        await writeOcrIndexV1(validatedWorkingCopyPath, ocrPageData, pageCount);
-    } catch (v1Err) {
-        if (isAbortError(v1Err)) {
-            throw v1Err;
-        }
-        // Non-blocking - don't fail OCR if index save fails
-    }
-
-    return warnings;
+    return [];
 }
 
 async function validateSourcePdf(jobId: string, sourcePdfPath: string, pageCount: number) {
@@ -791,6 +857,18 @@ async function cleanupTempFiles(
     }
 }
 
+async function sha256File(path: string) {
+    const hash = createHash('sha256');
+    for await (const rawChunk of createReadStream(path)) {
+        const chunk: unknown = rawChunk;
+        if (!(chunk instanceof Uint8Array)) {
+            throw new Error('OCR result stream returned a non-binary chunk');
+        }
+        hash.update(chunk);
+    }
+    return hash.digest('hex');
+}
+
 async function processOcrJob(
     jobId: string,
     sourcePdfPath: string,
@@ -803,6 +881,8 @@ async function processOcrJob(
     const tempFiles = new Set<string>();
     const keepFiles = new Set<string>();
     const jobWarnings: string[] = [];
+    const jobDiagnostics: IOcrDiagnostic[] = [];
+    let durableManifest: Awaited<ReturnType<typeof createOcrJobManifestController>> | null = null;
 
     const trackTempFile = (filePath: string) => {
         tempFiles.add(filePath);
@@ -813,7 +893,50 @@ async function processOcrJob(
         assertUniqueOcrPageNumbers(pages);
         await validateSourcePdf(jobId, sourcePdfPath, pages.length);
 
+        const supersessionPolicy = options.supersessionPolicy ?? 'missing-only';
+        if (supersessionPolicy === 'replace-all' && options.replaceAllAcknowledged !== true) {
+            throw new Error('replace-all OCR requires explicit acknowledgement');
+        }
+        const selection = await selectOcrPagesForSupersession({
+            sourcePdfPath,
+            documentRevisionToken: documentRevision.token,
+            pages,
+            supersessionPolicy,
+            ...(paths.pdftotextBinary ? {pdftotextBinary: paths.pdftotextBinary} : {}),
+            signal: abortController.signal,
+        });
+        jobWarnings.push(...selection.warnings);
+        jobDiagnostics.push(...selection.diagnostics);
+        if (selection.pages.length === 0) {
+            sendComplete(jobId, {
+                success: false,
+                errors: [
+                    ...jobWarnings,
+                    'No pages require OCR under the selected text supersession policy',
+                ],
+                diagnostics: jobDiagnostics,
+            });
+            return;
+        }
+        pages = selection.pages;
+
         const sessionId = `ocr-${randomUUID()}`;
+        const checkpointFingerprint = createHash('sha256').update(JSON.stringify({
+            sourcePdfPath,
+            documentRevision: documentRevision.token,
+            pages: pages.map(page => ({
+                pageNumber: page.pageNumber,
+                languages: [...page.languages].sort(),
+            })),
+            options,
+        })).digest('hex');
+        const checkpointDir = join(paths.tempDir, 'ocr-checkpoints', checkpointFingerprint);
+        await mkdir(checkpointDir, {recursive: true});
+        const checkpointRoot = join(paths.tempDir, 'ocr-checkpoints');
+        await cleanupStaleOcrJobDirectories(checkpointRoot);
+        durableManifest = await createOcrJobManifestController(checkpointDir, checkpointFingerprint);
+        await durableManifest.markNode('model', 'verified');
+        await durableManifest.markNode('normalized-source', 'running');
         sendStageProgress(jobId, pages, 'pdf-prep');
         const preparedPopplerPdf = await preparePdfForPoppler(
             paths,
@@ -824,6 +947,7 @@ async function processOcrJob(
             abortController.signal,
         );
         const popplerSourcePdfPath = preparedPopplerPdf.pdfPath;
+        await durableManifest.markNode('normalized-source', 'verified');
         jobWarnings.push(...preparedPopplerPdf.warnings);
         const popplerEnv = buildPopplerEnv(paths);
         logPopplerEnvironment(popplerEnv);
@@ -834,6 +958,8 @@ async function processOcrJob(
             popplerSourcePdfPath,
             signal: abortController.signal,
             options,
+            checkpointDir,
+            checkpointPage: pageNumber => durableManifest!.markPageVerified(pageNumber),
             trackTempFile,
         };
         if (popplerEnv !== undefined) {
@@ -851,12 +977,20 @@ async function processOcrJob(
             planOptions,
             phase => sendStageProgress(jobId, pages, phase),
         );
+        await durableManifest.markNode('page-raster', 'running');
+        await durableManifest.markNode('preprocessed', 'running');
+        await durableManifest.markNode('recognized-page', 'running');
         const {
             errors,
             ocrPageData,
             ocrPdfMap,
             effectiveRenderDpi: actualRenderDpi,
+            diagnostics: pageDiagnostics,
         } = await processOcrPages(jobId, targetPages, concurrency, pageContext);
+        jobDiagnostics.push(...pageDiagnostics);
+        await durableManifest.markNode('page-raster', 'verified');
+        await durableManifest.markNode('preprocessed', 'verified');
+        await durableManifest.markNode('recognized-page', 'verified');
         const completionMessages = [
             ...jobWarnings,
             ...errors,
@@ -884,6 +1018,7 @@ async function processOcrJob(
         completionMessages.push(...pageCountResult.warnings);
 
         sendStageProgress(jobId, targetPages, 'merging');
+        await durableManifest.markNode('assembled-document', 'running');
         const mergedPdfPath = await assembleMergedOcrPdf(
             jobId,
             sourcePdfPath,
@@ -895,13 +1030,17 @@ async function processOcrJob(
             abortController.signal,
         );
         if (!mergedPdfPath) {
+            await durableManifest.setTerminal('failed');
             return;
         }
+        await durableManifest.markNode('assembled-document', 'verified');
 
         const allLanguages = uniq(targetPages.flatMap(p => p.languages));
         sendStageProgress(jobId, targetPages, 'indexing');
+        await durableManifest.markNode('text-catalog', 'running');
         completionMessages.push(...await writeOcrIndexes(
             sourcePdfPath,
+            mergedPdfPath,
             documentRevision,
             ocrPageData,
             pageCount,
@@ -909,6 +1048,8 @@ async function processOcrJob(
             actualRenderDpi,
             abortController.signal,
         ));
+        await durableManifest.markNode('text-catalog', 'verified');
+        await durableManifest.markNode('verified-result', 'verified');
         sendProgress(
             jobId,
             targetPages[targetPages.length - 1]?.pageNumber ?? 0,
@@ -921,16 +1062,20 @@ async function processOcrJob(
         );
 
         keepFiles.add(mergedPdfPath);
+        await durableManifest.setTerminal('completed');
         sendComplete(jobId, {
             success: true,
             pdfPath: mergedPdfPath,
             sourceDocumentRevisionToken: documentRevision.token,
+            resultSha256: await sha256File(mergedPdfPath),
             requiresCleanupAck: true,
             errors: completionMessages,
+            diagnostics: jobDiagnostics,
         });
     } catch (err) {
         const errMsg = getErrorMessage(err);
         if (isAbortError(err)) {
+            await durableManifest?.setTerminal('cancelled').catch(() => undefined);
             log('debug', `OCR job ${jobId} aborted: ${errMsg}`);
             sendComplete(jobId, {
                 success: false,
@@ -939,6 +1084,7 @@ async function processOcrJob(
             return;
         }
         log('error', `CRITICAL ERROR in processOcrJob: ${errMsg}`);
+        await durableManifest?.setTerminal('failed').catch(() => undefined);
         sendComplete(jobId, {
             success: false,
             errors: [`Critical error: ${errMsg}`],

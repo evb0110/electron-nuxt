@@ -22,6 +22,7 @@ import type {
     IOcrSettings,
     IOcrUiProgress,
 } from '@app/utils/ocr/ocrTypes';
+import {requireDocumentRevisionToken} from '@contracts';
 
 const useOcrMock = vi.hoisted(() => vi.fn());
 const copyClipboardTextMock = vi.hoisted(() => vi.fn());
@@ -58,6 +59,8 @@ function createSettings(): IOcrSettings {
         qualityProfile: 'balanced',
         preprocessingMode: 'off',
         pageSegmentationMode: null,
+        supersessionPolicy: 'missing-only',
+        replaceAllAcknowledged: false,
     };
 }
 
@@ -162,7 +165,7 @@ function setSearchableResult(
         searchablePdfResult: {
             requestId,
             pdfPath,
-            sourceDocumentRevisionToken: 'source-revision-token',
+            sourceDocumentRevisionToken: requireDocumentRevisionToken('source-revision-token'),
             requiresCleanupAck: true,
         },
     };
@@ -296,7 +299,7 @@ describe('useOcrPopupPresenter', () => {
             expect(harness.events.onOcrComplete).toHaveBeenCalledWith({
                 requestId: 'req-success',
                 pdfPath: resultPath,
-                sourceDocumentRevisionToken: 'source-revision-token',
+                sourceDocumentRevisionToken: requireDocumentRevisionToken('source-revision-token'),
                 requiresCleanupAck: true,
                 sourceWorkingCopyPath: '/tmp/source.pdf',
                 sourcePageToRestore: 5,
@@ -311,7 +314,12 @@ describe('useOcrPopupPresenter', () => {
                     ],
                 },
             });
+            expect(harness.presenter.showSuccessState.value).toBe(false);
+            expect(harness.presenter.viewState.value).toBe('applying');
+            harness.pdfDocument.value = {} as PDFDocumentProxy;
+            await nextTick();
             expect(harness.presenter.showSuccessState.value).toBe(true);
+            expect(harness.presenter.viewState.value).toBe('results');
         } finally {
             stopHarness(harness.scope);
         }
@@ -442,6 +450,53 @@ describe('useOcrPopupPresenter', () => {
             };
             await nextTick();
             expect(harness.ocr.settings.value.preprocessingMode).toBe('off');
+        } finally {
+            stopHarness(harness.scope);
+        }
+    });
+
+    it('uses missing-only by default and requires acknowledgement before replacing foreign hidden OCR', async () => {
+        const harness = createPresenterHarness();
+
+        try {
+            expect(harness.ocr.settings.value.supersessionPolicy).toBe('missing-only');
+            expect(harness.presenter.canRunOcr.value).toBe(true);
+
+            harness.ocr.settings.value = {
+                ...harness.ocr.settings.value,
+                supersessionPolicy: 'replace-all',
+                replaceAllAcknowledged: false,
+            };
+            await nextTick();
+            expect(harness.presenter.canRunOcr.value).toBe(false);
+            expect(harness.presenter.getAgentOcrSnapshot()).toMatchObject({
+                supersessionPolicy: 'replace-all',
+                replaceAllAcknowledged: false,
+            });
+
+            harness.ocr.settings.value = {
+                ...harness.ocr.settings.value,
+                replaceAllAcknowledged: true,
+            };
+            await nextTick();
+            expect(harness.presenter.canRunOcr.value).toBe(true);
+
+            harness.isOpen.value = true;
+            await nextTick();
+            harness.isOpen.value = false;
+            await nextTick();
+            expect(harness.ocr.settings.value).toMatchObject({
+                supersessionPolicy: 'replace-all',
+                replaceAllAcknowledged: false,
+            });
+            expect(harness.presenter.canRunOcr.value).toBe(false);
+
+            harness.ocr.settings.value = {
+                ...harness.ocr.settings.value,
+                supersessionPolicy: 'replace-evb',
+            };
+            await nextTick();
+            expect(harness.ocr.settings.value.replaceAllAcknowledged).toBe(false);
         } finally {
             stopHarness(harness.scope);
         }

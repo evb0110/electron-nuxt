@@ -26,7 +26,7 @@ function markerRect(overrides: Partial<IAnnotationMarkerRect> = {}): IAnnotation
 function comment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
     return {
         id: overrides.id ?? 'comment-1',
-        stableKey: overrides.stableKey ?? 'stable-1',
+        stableKey: overrides.stableKey ?? 'ann:0:stable-1',
         pageIndex: overrides.pageIndex ?? 0,
         pageNumber: overrides.pageNumber ?? 1,
         text: overrides.text ?? 'note',
@@ -44,26 +44,17 @@ function comment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotatio
 
 function createModel() {
     const emitted: IAnnotationCommentSummary[][] = [];
-    const suppressAnnotationStableKey = vi.fn();
-    const unsuppressAnnotationStableKey = vi.fn();
-    const suppressAnnotationId = vi.fn();
-    const unsuppressAnnotationId = vi.fn();
+    const annotationProjection = ref<IAnnotationCommentSummary[]>([]);
     const model = usePdfAnnotationCommentModel({
         isAnySaving: ref(false),
+        annotationProjection,
+        ingestSummaries: comments => { annotationProjection.value = comments.map(value => ({...value})); },
         getShapeAnnotationCommentSummaries: () => [],
         emitAnnotationComments: comments => emitted.push(comments),
-        suppressAnnotationStableKey,
-        unsuppressAnnotationStableKey,
-        suppressAnnotationId,
-        unsuppressAnnotationId,
     });
     return {
         emitted,
         model,
-        suppressAnnotationId,
-        suppressAnnotationStableKey,
-        unsuppressAnnotationId,
-        unsuppressAnnotationStableKey,
     };
 }
 
@@ -77,14 +68,14 @@ describe('usePdfAnnotationCommentModel', () => {
         vi.useRealTimers();
     });
 
-    it('preserves text markup display text through reload grace', () => {
+    it('does not carry text across different annotation identities during reload', () => {
         const { model } = createModel();
         model.handleSourceChanged('next.pdf', 'previous.pdf');
         model.upsertComment(comment({
             annotationId: 'old-highlight',
             displayText: 'selected text',
             hasNote: false,
-            stableKey: 'old-stable',
+            stableKey: 'ann:0:old-stable',
             subtype: 'highlight',
             text: '',
         }));
@@ -94,14 +85,14 @@ describe('usePdfAnnotationCommentModel', () => {
             displayText: null,
             hasNote: false,
             id: 'comment-2',
-            stableKey: 'new-stable',
+            stableKey: 'ann:0:new-stable',
             subtype: 'highlight',
             text: '',
             markerRect: markerRect({ left: 0.105 }),
         })]);
 
         expect(merged).toHaveLength(1);
-        expect(merged[0]?.displayText).toBe('selected text');
+        expect(merged[0]?.displayText).toBeNull();
     });
 
     it('updates cached text markup color through normalized annotation ids', () => {
@@ -115,7 +106,7 @@ describe('usePdfAnnotationCommentModel', () => {
 
         model.updateCachedColor(comment({
             id: 'replacement-comment',
-            stableKey: 'replacement-stable',
+            stableKey: 'ann:0:replacement-stable',
             annotationId: '42R0',
             pageIndex: cached.pageIndex,
             subtype: 'Underline',
@@ -123,19 +114,18 @@ describe('usePdfAnnotationCommentModel', () => {
 
         expect(model.annotationCommentsCache.value[0]).toMatchObject({
             annotationId: '42R',
-            color: '#3b82f6',
-            colorEdited: true,
+            color: '#ef4444',
         });
     });
 
-    it('preserves edited text markup color through normalized ids during sync', () => {
+    it('accepts the canonical color projection during sync without a shadow color cache', () => {
         const { model } = createModel();
         model.upsertComment(comment({
             annotationId: '42R0',
             color: '#3b82f6',
             colorEdited: true,
             id: 'local-comment',
-            stableKey: 'local-stable',
+            stableKey: 'ann:0:local-stable',
             subtype: 'StrikeOut',
         }));
 
@@ -143,52 +133,39 @@ describe('usePdfAnnotationCommentModel', () => {
             annotationId: '42R',
             color: '#ef4444',
             id: 'incoming-comment',
-            stableKey: 'incoming-stable',
+            stableKey: 'ann:0:incoming-stable',
             subtype: 'StrikeOut',
         })]);
 
         expect(merged[0]).toMatchObject({
             annotationId: '42R',
-            color: '#3b82f6',
-            colorEdited: true,
+            color: '#ef4444',
         });
     });
 
-    it('suppresses locally deleted comments that reappear from sync', () => {
-        const {
-            model,
-            suppressAnnotationId,
-            suppressAnnotationStableKey,
-        } = createModel();
+    it('does not retain a local deletion peer against a new canonical projection', () => {
+        const {model} = createModel();
         const deleted = comment();
 
         model.upsertComment(deleted);
         model.markLocallyDeleted(deleted);
         const merged = model.applyFromSync([deleted]);
 
-        expect(merged).toEqual([]);
-        expect(model.annotationCommentsCache.value).toEqual([]);
-        expect(suppressAnnotationStableKey).toHaveBeenCalledWith('stable-1');
-        expect(suppressAnnotationId).toHaveBeenCalledWith('annotation-1');
+        expect(merged).toEqual([deleted]);
+        expect(model.annotationCommentsCache.value).toEqual([deleted]);
     });
 
-    it('restores local deletion and unsuppresses identifiers', () => {
-        const {
-            model,
-            unsuppressAnnotationId,
-            unsuppressAnnotationStableKey,
-        } = createModel();
+    it('restores a local deletion by canonical command identity', () => {
+        const {model} = createModel();
         const restored = comment();
 
         model.markLocallyDeleted(restored);
         model.restoreLocally(restored);
 
-        expect(model.annotationCommentsCache.value).toHaveLength(1);
-        expect(unsuppressAnnotationStableKey).toHaveBeenCalledWith('stable-1');
-        expect(unsuppressAnnotationId).toHaveBeenCalledWith('annotation-1');
+        expect(model.annotationCommentsCache.value).toHaveLength(0);
     });
 
-    it('updates cache, pending marker move, and editor pending state when a marker moves', () => {
+    it('updates the read projection and editor executor state when a marker moves', () => {
         const { model } = createModel();
         const original = comment();
         const editor = {};
@@ -198,7 +175,7 @@ describe('usePdfAnnotationCommentModel', () => {
         model.upsertComment(original);
         const moved = model.handleMarkerMove(original, movedRect, {
             markEditorPending: (updated, previous, rect) => {
-                expect(previous).toBe(original);
+                expect(previous).toEqual(original);
                 expect(rect).toBe(movedRect);
                 Object.assign(editor, {
                     __evbPendingAnchorRect: rect,
@@ -209,11 +186,10 @@ describe('usePdfAnnotationCommentModel', () => {
         });
 
         expect(moved).toBe(true);
-        expect(model.annotationCommentsCache.value[0]?.markerRect).toEqual(movedRect);
-        expect(model.pendingMarkerMoves.get('stable-1')?.markerRect).toEqual(movedRect);
+        expect(model.annotationCommentsCache.value[0]?.markerRect).toEqual(original.markerRect);
         expect(editor).toMatchObject({
             __evbPendingAnchorRect: movedRect,
-            stableKey: 'stable-1',
+            stableKey: 'ann:0:stable-1',
         });
         expect(markModified).toHaveBeenCalledTimes(1);
     });
@@ -237,11 +213,11 @@ describe('usePdfAnnotationCommentModel', () => {
 
         model.handleSourceChanged(null, 'previous.pdf');
 
-        expect(model.annotationCommentsCache.value).toEqual([]);
+        expect(model.annotationCommentsCache.value).toHaveLength(1);
         expect(emitted.at(-1)).toEqual([]);
     });
 
-    it('replaces the annotation reload grace timer on source changes', () => {
+    it('requests a fresh canonical projection for each source change', () => {
         const { model } = createModel();
         const syncAnnotationComments = vi.fn();
 
@@ -249,6 +225,6 @@ describe('usePdfAnnotationCommentModel', () => {
         model.handleSourceChanged('third.pdf', 'second.pdf', { syncAnnotationComments });
         vi.advanceTimersByTime(5_101);
 
-        expect(syncAnnotationComments).toHaveBeenCalledOnce();
+        expect(syncAnnotationComments).toHaveBeenCalledTimes(2);
     });
 });

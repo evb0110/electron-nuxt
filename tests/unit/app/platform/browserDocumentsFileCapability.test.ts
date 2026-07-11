@@ -16,11 +16,15 @@ const browserPdfCombineWorkerMock = vi.hoisted(() => ({
     canUse: vi.fn(() => false),
     cloneInput: vi.fn((fileName: string, data: Uint8Array) => ({
         fileName,
-        data, 
+        data,
     })),
     run: vi.fn(),
 }));
-const browserDjvuCapabilityMock = vi.hoisted(() => ({convertToPdf: vi.fn()}));
+const browserDjvuCapabilityMock = vi.hoisted(() => ({
+    cancel: vi.fn(async () => ({canceled: true})),
+    convertToPdf: vi.fn(),
+    getBookmarks: vi.fn(async () => []),
+}));
 const utifMock = vi.hoisted(() => ({
     decode: vi.fn(() => []),
     decodeImage: vi.fn(),
@@ -42,7 +46,13 @@ vi.mock('@app/platform/browser-api/browserPdfCombineWorkerClient', () => ({
     runBrowserPdfCombineWorkerRequest: (type: string, payload: unknown) =>
         browserPdfCombineWorkerMock.run(type, payload),
 }));
-vi.mock('@app/platform/browser-api/browserDjvuCapability', () => ({browserDjvuCapability: {convertToPdf: browserDjvuCapabilityMock.convertToPdf}}));
+vi.mock('@app/platform/browser-api/browserDjvuCapability', () => ({
+    browserDjvuCapability: {
+        cancel: browserDjvuCapabilityMock.cancel,
+        convertToPdf: browserDjvuCapabilityMock.convertToPdf,
+    },
+    getBrowserDjvuBookmarksForCombine: browserDjvuCapabilityMock.getBookmarks,
+}));
 vi.mock('utif', () => {
     const decode = (...args: Parameters<typeof utifMock.decode>) => utifMock.decode(...args);
     const decodeImage = (...args: Parameters<typeof utifMock.decodeImage>) => utifMock.decodeImage(...args);
@@ -54,7 +64,7 @@ vi.mock('utif', () => {
         default: {
             decode,
             decodeImage,
-            toRGBA8, 
+            toRGBA8,
         },
     };
 });
@@ -247,7 +257,10 @@ interface ILoadedBrowserDocumentsFileCapability {
     capability: IBrowserDocumentsTestCapability;
 }
 
-interface ICreateCombinedPdfFromPathsOptions { requestId?: string }
+interface ICreateCombinedPdfFromPathsOptions {
+    requestId?: string;
+    signal?: AbortSignal;
+}
 
 type TCreateCombinedPdfFromPaths = (paths: string[], options?: ICreateCombinedPdfFromPathsOptions) => Promise<Uint8Array>;
 
@@ -384,13 +397,13 @@ describe('createBrowserDocumentsFileCapability', () => {
         ]));
     });
 
-    it('propagates browser file ingestion failures when registering files for open', async () => {
+    it('propagates browser file ingestion failures when the in-memory fallback cannot read the file', async () => {
         const file = new File([new Uint8Array([
             1,
             2,
             3,
         ])], 'broken.pdf', { type: 'application/pdf' });
-        vi.spyOn(file, 'arrayBuffer').mockRejectedValueOnce(new Error('read failed'));
+        vi.spyOn(file, 'arrayBuffer').mockRejectedValue(new Error('read failed'));
         const { capability } = await loadBrowserDocumentsFileCapability();
 
         await expect(capability.registerFilesForOpen([file])).rejects.toThrow('read failed');
@@ -541,6 +554,27 @@ describe('createBrowserDocumentsFileCapability', () => {
         readSpy.mockRestore();
     });
 
+    it('enforces the 500-page limit on the browser main-thread fallback', async () => {
+        const {browserDocumentStore} = await loadBrowserDocumentsFileCapability();
+        const createCombinedPdfFromPaths = await loadCreateCombinedPdfFromPaths();
+        const source = await PDFDocument.create();
+        for (let page = 0; page < 501; page += 1) {
+            source.addPage();
+        }
+        const sourceRef = await browserDocumentStore.createStoredDocument(
+            'too-many-pages.pdf',
+            new Uint8Array(await source.save()),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+
+        await expect(createCombinedPdfFromPaths([sourceRef]))
+            .rejects.toThrow('ERR_BROWSER_PDF_COMBINE_TOO_MANY_PAGES');
+    });
+
     it('offloads all-PDF combine jobs to the browser worker when available', async () => {
         const { browserDocumentStore } = await loadBrowserDocumentsFileCapability();
         const createCombinedPdfFromPaths = await loadCreateCombinedPdfFromPaths();
@@ -595,7 +629,7 @@ describe('createBrowserDocumentsFileCapability', () => {
                     1,
                     2,
                     3,
-                ]), 
+                ]),
             },
             {
                 fileName: 'second.pdf',
@@ -603,7 +637,7 @@ describe('createBrowserDocumentsFileCapability', () => {
                     4,
                     5,
                     6,
-                ]), 
+                ]),
             },
         ]});
     });
@@ -687,7 +721,7 @@ describe('createBrowserDocumentsFileCapability', () => {
                 requestId: 'browser-batch-1',
                 processed: 2,
                 total: 2,
-                percent: 100,
+                percent: 95,
             }),
         ]));
     });
@@ -753,7 +787,7 @@ describe('createBrowserDocumentsFileCapability', () => {
                     4,
                     5,
                     6,
-                ]), 
+                ]),
             },
         ]});
     });
@@ -804,13 +838,56 @@ describe('createBrowserDocumentsFileCapability', () => {
         expect(browserDjvuCapabilityMock.convertToPdf).toHaveBeenCalledWith(
             djvuRef,
             expect.stringMatching(/^browser:\/\/documents\//u),
-            {
-                subsample: 1,
-                preserveBookmarks: true,
-            },
+            expect.objectContaining({
+                pdfStrategy: 'compact-djvu-aware',
+                subsample: 2,
+                preserveBookmarks: false,
+                jobId: expect.stringMatching(/^browser-pdf-combine-djvu-/u),
+            }),
+        );
+        expect(browserDjvuCapabilityMock.getBookmarks).toHaveBeenCalledWith(
+            djvuRef,
+            undefined,
         );
         expect(convertedRef).not.toBeNull();
         await expect(browserDocumentStore.exists(convertedRef!)).resolves.toBe(false);
+    });
+
+    it('cancels browser DjVu pre-conversion when the combine signal aborts', async () => {
+        const {browserDocumentStore} = await loadBrowserDocumentsFileCapability();
+        const createCombinedPdfFromPaths = await loadCreateCombinedPdfFromPaths();
+        const djvuRef = await browserDocumentStore.createStoredDocument(
+            'scan.djvu',
+            new Uint8Array([
+                1,
+                2,
+                3,
+            ]),
+            {
+                mimeType: 'application/octet-stream',
+                kind: 'source',
+                saveKind: 'generic',
+            },
+        );
+        let finishConversion: (() => void) | undefined;
+        browserDjvuCapabilityMock.convertToPdf.mockImplementationOnce(async () => new Promise(resolve => {
+            finishConversion = () => resolve({success: true});
+        }));
+        browserDjvuCapabilityMock.cancel.mockImplementationOnce(async () => {
+            finishConversion?.();
+            return {canceled: true};
+        });
+        const controller = new AbortController();
+        const promise = createCombinedPdfFromPaths([djvuRef], {signal: controller.signal});
+        for (let attempt = 0; attempt < 50 && !finishConversion; attempt += 1) {
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+        const jobId = browserDjvuCapabilityMock.convertToPdf.mock.calls.at(-1)?.[2]?.jobId;
+        expect(jobId).toEqual(expect.stringMatching(/^browser-pdf-combine-djvu-/u));
+        controller.abort(new DOMException('combine canceled', 'AbortError'));
+
+        await expect(promise).rejects.toThrow('combine canceled');
+        expect(browserDjvuCapabilityMock.cancel).toHaveBeenCalledWith(jobId);
     });
 
     it('offloads TIFF combine jobs to the browser worker when available', async () => {

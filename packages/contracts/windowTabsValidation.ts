@@ -1,5 +1,7 @@
 import { isRecord } from '@contracts/runtimeGuards';
 import type { TDocumentBackend } from '@contracts/documentRef';
+import { parseDocumentInstanceId } from '@contracts/documentInstanceId';
+import { parseDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
     ITransferredTabState,
     IWindowTabTransferSessionState,
@@ -20,10 +22,6 @@ function normalizeNonEmptyString(value: unknown) {
 
 function isNullableString(value: unknown): value is string | null {
     return value === null || typeof value === 'string';
-}
-
-function isOptionalNullableString(value: unknown): value is string | null | undefined {
-    return value === undefined || isNullableString(value);
 }
 
 function isPositiveWindowId(value: unknown): value is number {
@@ -54,10 +52,13 @@ function decodeTransferredTabState(value: unknown): ITransferredTabState | null 
         return null;
     }
     const originalBackend = decodeOptionalDocumentBackend(value.originalBackend);
+    const documentInstanceId = value.documentInstanceId === undefined || value.documentInstanceId === null
+        ? value.documentInstanceId
+        : parseDocumentInstanceId(value.documentInstanceId);
     if (
         !isNullableString(value.fileName)
         || !isNullableString(value.originalPath)
-        || !isOptionalNullableString(value.documentInstanceId)
+        || documentInstanceId === null && value.documentInstanceId !== null
         || typeof value.isDirty !== 'boolean'
         || typeof value.isDjvu !== 'boolean'
         || originalBackend === null
@@ -69,7 +70,7 @@ function decodeTransferredTabState(value: unknown): ITransferredTabState | null 
         fileName: value.fileName,
         originalPath: value.originalPath,
         ...(originalBackend === undefined ? {} : {originalBackend}),
-        ...(value.documentInstanceId === undefined ? {} : {documentInstanceId: value.documentInstanceId}),
+        ...(documentInstanceId === undefined ? {} : {documentInstanceId}),
         isDirty: value.isDirty,
         isDjvu: value.isDjvu,
     };
@@ -159,13 +160,16 @@ function decodeTransferSession(value: unknown): IWindowTabTransferSessionState |
     const sessionId = normalizeNonEmptyString(value.sessionId);
     const documentRevisionToken = value.documentRevisionToken === undefined
         ? undefined
-        : normalizeNonEmptyString(value.documentRevisionToken);
+        : parseDocumentRevisionToken(value.documentRevisionToken);
+    const documentInstanceId = value.documentInstanceId === undefined || value.documentInstanceId === null
+        ? value.documentInstanceId
+        : parseDocumentInstanceId(value.documentInstanceId);
     const documentBackend = decodeOptionalDocumentBackend(value.documentBackend);
     if (
         sessionId === null
         || !isNonNegativeInteger(value.sessionRevision)
         || !isNullableString(value.documentRef)
-        || !isOptionalNullableString(value.documentInstanceId)
+        || documentInstanceId === null && value.documentInstanceId !== null
         || documentRevisionToken === null
         || documentBackend === null
     ) {
@@ -177,7 +181,7 @@ function decodeTransferSession(value: unknown): IWindowTabTransferSessionState |
         sessionRevision: value.sessionRevision,
         documentRef: value.documentRef,
         ...(documentBackend === undefined ? {} : {documentBackend}),
-        ...(value.documentInstanceId === undefined ? {} : {documentInstanceId: value.documentInstanceId}),
+        ...(documentInstanceId === undefined ? {} : {documentInstanceId}),
         ...(documentRevisionToken === undefined ? {} : {documentRevisionToken}),
     };
 }

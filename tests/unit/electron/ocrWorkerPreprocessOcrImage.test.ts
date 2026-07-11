@@ -71,6 +71,7 @@ describe('tryPreprocessOcrImage', () => {
 
     it('falls back to the raw Poppler image when unpaper is unavailable', async () => {
         const { tryPreprocessOcrImage } = await import('@electron/ocr/worker/tryPreprocessOcrImage');
+        const onDiagnostic = vi.fn();
 
         await expect(tryPreprocessOcrImage(
             undefined,
@@ -78,6 +79,7 @@ describe('tryPreprocessOcrImage', () => {
             '/tmp/clean.png',
             mocks.log,
             new AbortController().signal,
+            onDiagnostic,
         )).resolves.toBe('/tmp/raw.png');
 
         expect(mocks.runOcrCommand).not.toHaveBeenCalled();
@@ -85,6 +87,10 @@ describe('tryPreprocessOcrImage', () => {
             'warn',
             expect.stringContaining('unpaper is not bundled'),
         );
+        expect(onDiagnostic).toHaveBeenCalledWith(expect.objectContaining({
+            code: 'OCR_PREPROCESSING_UNAVAILABLE',
+            severity: 'warning',
+        }));
     });
 
     it('falls back to the raw Poppler image when unpaper fails', async () => {

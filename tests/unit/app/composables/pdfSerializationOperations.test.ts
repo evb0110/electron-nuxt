@@ -866,7 +866,7 @@ function makeFreeTextComment(overrides: Partial<IAnnotationCommentSummary> & {
 }): IAnnotationCommentSummary {
     return {
         id: 'comment',
-        stableKey: 'comment',
+        stableKey: 'ann:0:comment',
         pageNumber: overrides.pageIndex + 1,
         text: '',
         author: null,

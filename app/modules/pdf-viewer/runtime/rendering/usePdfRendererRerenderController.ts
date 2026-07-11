@@ -1,29 +1,17 @@
 import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
-import type {
-    MaybeRefOrGetter,
-    Ref,
-} from 'vue';
-import type {
-    IPageRange,
-    IScrollSnapshot,
-} from '@app/types/pdfUi';
-import { captureScrollSnapshot } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/captureScrollSnapshot';
+import type { MaybeRefOrGetter } from 'vue';
+import type { IPageRange } from '@app/types/pdfUi';
 import { collectPreservedRenderPageNumbers } from '@app/modules/pdf-viewer/engine/pdf-page-render-preservation/collectPreservedRenderPageNumbers';
-import { createPdfRerenderRestorationLogger } from '@app/modules/pdf-viewer/engine/pdf-rerender-restoration/createPdfRerenderRestorationLogger';
-import type { IRerenderRestorationContext } from '@app/modules/pdf-viewer/engine/pdf-rerender-restoration/pdfRerenderRestorationTypes';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import {
     normalizePdfRerenderSource,
     type TPdfRerenderSource,
 } from '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol';
+import type { IPdfPageNumberStateSet } from '@app/modules/pdf-viewer/runtime/rendering/pdfPageRenderState';
 
 interface IRerenderAllVisiblePagesOptions {
     preserveExistingPages?: boolean;
-    anchorSnapshot?: IScrollSnapshot | null;
-    disableHorizontalAnchorRestore?: boolean;
-    disableVerticalAnchorRestore?: boolean;
-    disablePageAnchorRestore?: boolean;
-    rerenderSource?: string;
+    rerenderSource?: TPdfRerenderSource;
     renderBufferOverride?: number;
     maxCanvasPixelsOverride?: number;
 }
@@ -38,28 +26,15 @@ interface IRerenderAllVisiblePagesOptionsWithExplicitUndefined extends Omit<
 
 interface INormalizedRerenderOptions {
     preserveExistingPages: boolean;
-    anchorSnapshot: IScrollSnapshot | null;
-    disableHorizontalAnchorRestore: boolean;
-    disableVerticalAnchorRestore: boolean;
-    disablePageAnchorRestore: boolean;
     rerenderSource: TPdfRerenderSource;
     renderBufferOverride?: number;
     maxCanvasPixelsOverride?: number;
 }
 
-interface IRerenderRestoreContext extends INormalizedRerenderOptions, IRerenderRestorationContext {
-    version: number;
-    snapshotToRestore: IScrollSnapshot | null;
-}
-
-
 interface IUsePdfRendererRerenderControllerOptions {
-    container: Ref<HTMLElement | null>;
-    currentPage: Ref<number>;
-    numPages: Ref<number>;
     isActive: MaybeRefOrGetter<boolean>;
-    renderedPages: Set<number>;
-    staleRenderedPages: Set<number>;
+    renderedPages: IPdfPageNumberStateSet;
+    staleRenderedPages: IPdfPageNumberStateSet;
     pageCanvases: Map<number, HTMLCanvasElement>;
     renderMutex: {
         acquire: () => Promise<void>;
@@ -71,14 +46,10 @@ interface IUsePdfRendererRerenderControllerOptions {
     renderVisiblePages: (visibleRange: IPageRange, options?: IRenderVisiblePagesOptions) => Promise<void>;
     getTrackedPageNumbersForCleanup: () => Set<number>;
     cleanupPage: (pageNumber: number) => void;
-    throttleMs: number;
 }
 
 export const usePdfRendererRerenderController = (options: IUsePdfRendererRerenderControllerOptions) => {
     const {
-        container,
-        currentPage,
-        numPages,
         isActive,
         renderedPages,
         staleRenderedPages,
@@ -90,28 +61,13 @@ export const usePdfRendererRerenderController = (options: IUsePdfRendererRerende
         renderVisiblePages,
         getTrackedPageNumbersForCleanup,
         cleanupPage,
-        throttleMs,
     } = options;
-
-    const {
-        logRerenderSnapshotCapture,
-        restoreScrollAndLog,
-    } = createPdfRerenderRestorationLogger({
-        container,
-        currentPage,
-        numPages,
-        throttleMs,
-    });
 
     function normalizeRerenderOptions(
         rerenderOptions?: IRerenderAllVisiblePagesOptionsWithExplicitUndefined,
     ): INormalizedRerenderOptions {
         const {
             preserveExistingPages = false,
-            anchorSnapshot = null,
-            disableHorizontalAnchorRestore = false,
-            disableVerticalAnchorRestore = false,
-            disablePageAnchorRestore = false,
             rerenderSource,
             renderBufferOverride,
             maxCanvasPixelsOverride,
@@ -119,10 +75,6 @@ export const usePdfRendererRerenderController = (options: IUsePdfRendererRerende
 
         const normalized: INormalizedRerenderOptions = {
             preserveExistingPages,
-            anchorSnapshot,
-            disableHorizontalAnchorRestore,
-            disableVerticalAnchorRestore,
-            disablePageAnchorRestore,
             rerenderSource: normalizePdfRerenderSource(rerenderSource),
         };
         if (renderBufferOverride !== undefined) {
@@ -207,22 +159,6 @@ export const usePdfRendererRerenderController = (options: IUsePdfRendererRerende
             preserveExistingPages,
             rerenderSource: normalizedOptions.rerenderSource ?? null,
         });
-        const containerAtCapture = container.value;
-        const snapshot = captureScrollSnapshot(containerAtCapture);
-        const restoreContext: IRerenderRestoreContext = {
-            ...normalizedOptions,
-            version,
-            snapshotToRestore: normalizedOptions.anchorSnapshot ?? snapshot,
-        };
-
-        logRerenderSnapshotCapture(
-            version,
-            preserveExistingPages,
-            normalizedOptions.anchorSnapshot,
-            snapshot,
-            containerAtCapture,
-        );
-
         await renderMutex.acquire();
 
         try {
@@ -234,10 +170,6 @@ export const usePdfRendererRerenderController = (options: IUsePdfRendererRerende
                 pagesWithPreservedContent?.forEach(page => staleRenderedPages.add(page));
 
                 setupPagePlaceholders();
-
-                if (getRenderVersion() === version) {
-                    restoreScrollAndLog('preserve', restoreContext);
-                }
 
                 await renderMountedVisiblePagesAfterRestore(
                     version,
@@ -262,9 +194,6 @@ export const usePdfRendererRerenderController = (options: IUsePdfRendererRerende
 
             setupPagePlaceholders();
 
-            if (getRenderVersion() === version) {
-                restoreScrollAndLog('full', restoreContext);
-            }
             await renderMountedVisiblePagesAfterRestore(
                 version,
                 getVisibleRange,

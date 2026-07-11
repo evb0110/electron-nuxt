@@ -6,9 +6,10 @@ use std::{
 };
 
 use evb_pdf_image_combine::{
-    combine_tiff_paths, encode_netpbm_path_as_png, write_mixed_pdf_from_page_specs_with_progress,
-    write_pdf_from_image_paths_with_progress, MixedPdfImageCompression, MixedPdfImageProcessing,
-    MixedPdfPageSpec, PdfBuildOptions, PdfPageSize, Result,
+    combine_tiff_paths, encode_netpbm_path_as_png, probe_netpbm_path,
+    write_mixed_pdf_from_page_specs_with_progress, write_pdf_from_image_paths_with_progress,
+    MixedPdfImageCompression, MixedPdfImageProcessing, MixedPdfPageSpec, PdfBuildOptions,
+    PdfPageSize, Result,
 };
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -31,13 +32,28 @@ enum OutputFormat {
 }
 
 fn main() {
-    if let Err(error) = run() {
-        eprintln!("{error}");
-        std::process::exit(1);
-    }
+    evb_native_support::run_cli_caught(run);
 }
 
 fn run() -> Result<()> {
+    let raw_args = env::args().skip(1).collect::<Vec<_>>();
+    if raw_args.first().is_some_and(|arg| arg == "--probe-netpbm") {
+        let input_path = raw_args.get(1).ok_or("Missing --probe-netpbm input path")?;
+        if raw_args.len() != 2 {
+            return Err("--probe-netpbm accepts exactly one input path".into());
+        }
+        let probe = probe_netpbm_path(
+            Path::new(input_path),
+            read_limit(
+                "EVB_PDF_COMBINE_MAX_IMAGE_PIXELS",
+                80_000_000,
+                1_000_000,
+                u64::MAX,
+            ),
+        )?;
+        println!("{}", serde_json::to_string(&probe)?);
+        return Ok(());
+    }
     if env::args().skip(1).any(|arg| arg == "--protocol-version") {
         println!("{PROTOCOL_VERSION}");
         return Ok(());

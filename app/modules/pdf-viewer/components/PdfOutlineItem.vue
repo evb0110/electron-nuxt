@@ -129,18 +129,18 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type {
     IBookmarkItem,
     IBookmarkMenuPayload,
+    TBookmarkDropPosition,
 } from '@app/types/pdfOutline';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import { navigateToBookmarkDestination } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/navigateToBookmarkDestination';
 import { usePdfOutlineItemState } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineItemState';
+import { getEventCurrentTarget } from '@app/utils/getEventCurrentTarget';
 
 const { t } = useTypedI18n();
 
-type TDropPosition = 'before' | 'after' | 'child';
-
 interface IDragHoverPayload {
     targetId: string;
-    position: TDropPosition;
+    position: TBookmarkDropPosition;
 }
 
 interface IProps {
@@ -284,7 +284,7 @@ function openActionsFromPointer(event: MouseEvent) {
 }
 
 function openActionsFromButton(event: MouseEvent) {
-    const target = event.currentTarget as HTMLElement | null;
+    const target = getEventCurrentTarget(event, HTMLElement);
     const rect = target?.getBoundingClientRect();
     openActions({
         id: item.id,
@@ -305,8 +305,8 @@ function cancelEdit() {
     emit('cancel-edit');
 }
 
-function detectDropPosition(event: DragEvent): TDropPosition {
-    const target = event.currentTarget as HTMLElement | null;
+function detectDropPosition(event: DragEvent): TBookmarkDropPosition {
+    const target = getEventCurrentTarget(event, HTMLElement);
     if (!target) {
         return 'after';
     }
@@ -403,7 +403,7 @@ function shouldIgnoreBookmarkClick(event?: MouseEvent | KeyboardEvent) {
     return event instanceof MouseEvent && event.button !== 0;
 }
 
-async function continueBookmarkClickNavigation(
+function continueBookmarkClickNavigation(
     wasActive: boolean,
     multiSelect: boolean,
     rangeSelect: boolean,
@@ -418,7 +418,7 @@ async function continueBookmarkClickNavigation(
         return;
     }
 
-    await navigateToBookmarkDestination({
+    navigateToBookmarkDestination({
         item,
         pdfDocument,
         navigationRequestId,
@@ -427,7 +427,7 @@ async function continueBookmarkClickNavigation(
     });
 }
 
-async function handleClick(event?: MouseEvent | KeyboardEvent) {
+function handleClick(event?: MouseEvent | KeyboardEvent) {
     if (shouldIgnoreBookmarkClick(event)) {
         return;
     }
@@ -438,7 +438,7 @@ async function handleClick(event?: MouseEvent | KeyboardEvent) {
     } = resolveBookmarkSelectionIntent(event);
     const navigationRequestId = treeContext.beginBookmarkNavigationRequest();
     const wasActive = emitBookmarkActivation(multiSelect, rangeSelect);
-    await continueBookmarkClickNavigation(
+    continueBookmarkClickNavigation(
         wasActive,
         multiSelect,
         rangeSelect,
@@ -452,9 +452,9 @@ async function handleClick(event?: MouseEvent | KeyboardEvent) {
     position: relative;
     display: flex;
     align-items: center;
-    gap: 4px;
-    padding: 6px 8px;
-    border-radius: 6px;
+    gap: var(--app-sidebar-row-gap);
+    padding: var(--app-sidebar-row-padding-block) var(--app-sidebar-row-padding-inline);
+    border-radius: var(--app-outline-row-radius);
     cursor: pointer;
     border: 1px solid transparent;
     transition:
@@ -506,19 +506,19 @@ async function handleClick(event?: MouseEvent | KeyboardEvent) {
 .pdf-bookmark-item-row.is-drop-after::after {
     content: '';
     position: absolute;
-    left: 4px;
-    right: 4px;
-    height: 2px;
-    border-radius: 999px;
+    left: var(--app-outline-row-inset);
+    right: var(--app-outline-row-inset);
+    height: var(--app-drop-indicator-height);
+    border-radius: var(--app-outline-drop-indicator-radius);
     background: color-mix(in srgb, var(--ui-primary) 72%, transparent 28%);
 }
 
 .pdf-bookmark-item-row.is-drop-before::before {
-    top: -2px;
+    top: calc(var(--app-drop-indicator-height) * -1);
 }
 
 .pdf-bookmark-item-row.is-drop-after::after {
-    bottom: -2px;
+    bottom: calc(var(--app-drop-indicator-height) * -1);
 }
 
 .pdf-bookmark-item-row.is-drop-child {
@@ -530,7 +530,7 @@ async function handleClick(event?: MouseEvent | KeyboardEvent) {
 }
 
 .pdf-bookmark-item-drag-handle {
-    width: 12px;
+    width: var(--app-outline-expand-icon-width);
     flex-shrink: 0;
     display: inline-flex;
     align-items: center;
@@ -543,14 +543,14 @@ async function handleClick(event?: MouseEvent | KeyboardEvent) {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 20px;
-    height: 20px;
+    width: var(--app-sidebar-action-size);
+    height: var(--app-sidebar-action-size);
     padding: 0;
     border: none;
     background: none;
     color: var(--ui-text-muted);
     cursor: pointer;
-    border-radius: 4px;
+    border-radius: var(--app-outline-action-radius);
 }
 
 .pdf-bookmark-item-toggle:hover {
@@ -558,14 +558,14 @@ async function handleClick(event?: MouseEvent | KeyboardEvent) {
 }
 
 .pdf-bookmark-item-spacer {
-    width: 20px;
+    width: var(--app-sidebar-action-size);
     flex-shrink: 0;
 }
 
 .pdf-bookmark-item-title {
     flex: 1;
     min-width: 0;
-    font-size: 13px;
+    font-size: var(--app-sidebar-row-font-size);
     line-height: 1.4;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -576,12 +576,12 @@ async function handleClick(event?: MouseEvent | KeyboardEvent) {
     flex: 1;
     min-width: 0;
     border: 1px solid color-mix(in srgb, var(--ui-primary) 45%, var(--ui-border) 55%);
-    border-radius: 4px;
+    border-radius: var(--app-outline-action-radius);
     background: var(--ui-bg);
     color: var(--ui-text-highlighted);
-    font-size: 12px;
+    font-size: var(--app-sidebar-caption-font-size);
     line-height: 1.4;
-    padding: 3px 6px;
+    padding: var(--app-space-3xs) var(--app-space-2xl);
 }
 
 .pdf-bookmark-item-input:focus {
@@ -591,10 +591,10 @@ async function handleClick(event?: MouseEvent | KeyboardEvent) {
 
 .pdf-bookmark-item-actions-trigger {
     flex-shrink: 0;
-    width: 20px;
-    height: 20px;
+    width: var(--app-sidebar-action-size);
+    height: var(--app-sidebar-action-size);
     border: 1px solid transparent;
-    border-radius: 5px;
+    border-radius: var(--app-radius-sm);
     background: transparent;
     color: var(--ui-text-muted);
     display: inline-flex;
@@ -619,6 +619,6 @@ async function handleClick(event?: MouseEvent | KeyboardEvent) {
 }
 
 .pdf-bookmark-item-children {
-    padding-left: 16px;
+    padding-left: var(--app-outline-row-indent);
 }
 </style>

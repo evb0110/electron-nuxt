@@ -5,6 +5,8 @@ import {
     it,
     vi,
 } from 'vitest';
+import {Readable} from 'node:stream';
+import {requireDocumentRevisionToken} from '@contracts';
 
 const mocks = vi.hoisted(() => ({
     existsSync: vi.fn<(path: string) => boolean>(),
@@ -17,6 +19,8 @@ const mocks = vi.hoisted(() => ({
     readFile: vi.fn(),
     writeFile: vi.fn(),
     copyFile: vi.fn(),
+    cp: vi.fn(),
+    rm: vi.fn(),
     stat: vi.fn(),
     unlink: vi.fn(),
     rename: vi.fn(),
@@ -26,11 +30,13 @@ const mocks = vi.hoisted(() => ({
     resolveAllowedReadPath: vi.fn<(path: string) => Promise<string | null>>(),
     resolveAllowedWritePath: vi.fn<(path: string) => Promise<string | null>>(),
     analyzePdfConformanceFile: vi.fn(),
+    validatePdfFile: vi.fn(),
     consumeAllowedDocxWritePath: vi.fn<(path: string, senderId: number) => boolean>(),
     findWorkingCopyPathByOriginalPath: vi.fn<(path: string, senderId?: number) => string | null>(),
     getWorkingCopyOriginalPath: vi.fn(),
     refreshWorkingCopyOriginalFileExpectation: vi.fn(),
     markWorkingCopyContentChanged: vi.fn(),
+    transitionWorkingCopyContentRevision: vi.fn(),
     ensureWorkingCopyDirectory: vi.fn<(path: string, senderId?: number) => Promise<boolean>>(),
     originalPathSaveBaseMatches: vi.fn(),
     isAllowedDjvuViewingPath: vi.fn<(path: string) => boolean>(),
@@ -38,6 +44,11 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('fs', () => ({
+    createReadStream: () => Readable.from(Buffer.from([
+        1,
+        2,
+        3,
+    ])),
     existsSync: (path: string) => mocks.existsSync(path),
     lstatSync: (path: string) => mocks.lstatSync(path),
     realpathSync: (path: string) => mocks.realpathSync(path),
@@ -45,12 +56,14 @@ vi.mock('fs', () => ({
 }));
 
 vi.mock('fs/promises', () => ({
+    cp: mocks.cp,
     copyFile: mocks.copyFile,
     readFile: mocks.readFile,
     writeFile: mocks.writeFile,
     stat: mocks.stat,
     unlink: mocks.unlink,
     rename: mocks.rename,
+    rm: mocks.rm,
     open: mocks.open,
 }));
 
@@ -63,6 +76,7 @@ vi.mock('@electron/utils/pathValidator', () => ({
 
 vi.mock('@electron/features/documents/main/pdfConformance', () => ({
     analyzePdfConformanceFile: mocks.analyzePdfConformanceFile,
+    validatePdfFile: mocks.validatePdfFile,
     validatePdfData: vi.fn(),
 }));
 vi.mock('@electron/file-access/docxExportPaths', () => ({consumeAllowedDocxWritePath: mocks.consumeAllowedDocxWritePath}));
@@ -73,7 +87,10 @@ vi.mock('@electron/file-access/workingCopyStore', () => ({
     normalizePathForLookup: (path: string) => path.trim(),
     refreshWorkingCopyOriginalFileExpectation: mocks.refreshWorkingCopyOriginalFileExpectation,
 }));
-vi.mock('@electron/file-access/documentRevisionStore', () => ({markWorkingCopyContentChanged: mocks.markWorkingCopyContentChanged}));
+vi.mock('@electron/file-access/documentRevisionStore', () => ({
+    markWorkingCopyContentChanged: mocks.markWorkingCopyContentChanged,
+    transitionWorkingCopyContentRevision: mocks.transitionWorkingCopyContentRevision,
+}));
 vi.mock('@electron/file-access/documentMutationGuards', () => ({
     assertQueuedWorkingCopyMutationPreconditions: vi.fn(),
     assertWorkingCopyMutationAllowed: vi.fn(),
@@ -83,6 +100,7 @@ vi.mock('@electron/file-access/documentMutationGuards', () => ({
 vi.mock('@electron/features/documents/main/originalPathSaveBaseMatches', () => ({originalPathSaveBaseMatches: mocks.originalPathSaveBaseMatches}));
 vi.mock('@electron/djvu/viewing', () => ({isAllowedDjvuViewingPath: mocks.isAllowedDjvuViewingPath}));
 vi.mock('@electron/ocr/createPendingResultFileStore', () => ({findPendingOcrResultFileForPath: mocks.findPendingOcrResultFileForPath}));
+vi.mock('@electron/ocr/documentTextCatalog', () => ({rebindDocumentTextCatalogRevision: vi.fn()}));
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
@@ -93,6 +111,7 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
 
 const {
     clearCachedRangeReadHandlesForTests,
+    getRangeReadCacheStatsForTests,
     handleFileRead,
     handleFileReadRange,
     handleFileStat,
@@ -125,6 +144,20 @@ describe('fileOps path security', () => {
         mocks.refreshWorkingCopyOriginalFileExpectation.mockResolvedValue(true);
         mocks.originalPathSaveBaseMatches.mockResolvedValue(true);
         mocks.markWorkingCopyContentChanged.mockResolvedValue({});
+        mocks.transitionWorkingCopyContentRevision.mockImplementation(async (
+            _path: string,
+            _reason: string,
+            commit: (revision: unknown) => Promise<void>,
+        ) => {
+            await commit({token: 'next-revision'});
+            return {token: 'next-revision'};
+        });
+        mocks.validatePdfFile.mockResolvedValue({
+            isValid: true,
+            tool: 'qpdf',
+            errors: [],
+            warnings: [],
+        });
         mocks.ensureWorkingCopyDirectory.mockResolvedValue(true);
         mocks.isAllowedDjvuViewingPath.mockReturnValue(false);
         mocks.findPendingOcrResultFileForPath.mockReturnValue({
@@ -134,6 +167,7 @@ describe('fileOps path security', () => {
             pdfPath: '/tmp/electron-test/ocr-1-merged.pdf',
             createdAtMs: Date.now(),
             cleanupTimer: null,
+            resultSha256: '039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81',
         });
         mocks.readFile.mockResolvedValue(Buffer.from([
             1,
@@ -207,14 +241,12 @@ describe('fileOps path security', () => {
         );
 
         expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith('/tmp/electron-test/safe.pdf', 42);
-        expect(mocks.open).toHaveBeenCalledWith(expect.stringMatching(/\/\.safe\.pdf\.\d+\..+\.tmp$/u), 'wx');
         expect(mocks.writeFile).toHaveBeenCalledWith(new Uint8Array([9]));
         expect(mocks.rename).toHaveBeenCalledWith(
-            expect.stringMatching(/\/\.safe\.pdf\.\d+\..+\.tmp$/u),
+            expect.stringMatching(/[.]tmp$/u),
             '/tmp/electron-test/safe.pdf',
         );
-        expect(mocks.markWorkingCopyContentChanged)
-            .toHaveBeenCalledWith('/tmp/electron-test/safe.pdf', 'write', 42);
+        expect(mocks.transitionWorkingCopyContentRevision).toHaveBeenCalled();
     });
 
     it('queues managed working copy writes behind pending mutations', async () => {
@@ -233,8 +265,7 @@ describe('fileOps path security', () => {
         await queuedMutation;
         await writePromise;
         expect(mocks.writeFile).toHaveBeenCalledWith(new Uint8Array([9]));
-        expect(mocks.markWorkingCopyContentChanged)
-            .toHaveBeenCalledWith('/tmp/electron-test/safe.pdf', 'write', 42);
+        expect(mocks.transitionWorkingCopyContentRevision).toHaveBeenCalled();
     });
 
     it('allows writes through standard macOS temp path aliases', async () => {
@@ -249,11 +280,10 @@ describe('fileOps path security', () => {
         );
 
         expect(mocks.rename).toHaveBeenCalledWith(
-            expect.stringMatching(/\/var\/folders\/evb\/\.safe\.pdf\.\d+\..+\.tmp$/u),
+            expect.stringMatching(/\/var\/folders\/evb\/.*[.]tmp$/u),
             '/var/folders/evb/safe.pdf',
         );
-        expect(mocks.markWorkingCopyContentChanged)
-            .toHaveBeenCalledWith('/var/folders/evb/safe.pdf', 'write', 42);
+        expect(mocks.transitionWorkingCopyContentRevision).toHaveBeenCalled();
     });
 
     it('rejects writes through non-system symlink path segments', async () => {
@@ -302,8 +332,7 @@ describe('fileOps path security', () => {
 
         expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledTimes(3);
         expect(mocks.writeFile).toHaveBeenCalledTimes(2);
-        expect(mocks.markWorkingCopyContentChanged)
-            .toHaveBeenCalledWith('/tmp/electron-test/safe.pdf', 'write', 42);
+        expect(mocks.transitionWorkingCopyContentRevision).toHaveBeenCalled();
     });
 
     it('atomically replaces a managed working copy from an OCR result file path', async () => {
@@ -314,6 +343,7 @@ describe('fileOps path security', () => {
             writeContext,
             '/tmp/electron-test/work.pdf',
             '/tmp/electron-test/ocr-1-merged.pdf',
+            {expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-ocr')},
         );
 
         expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith('/tmp/electron-test/work.pdf', 42);
@@ -325,8 +355,41 @@ describe('fileOps path security', () => {
             expect.stringMatching(/\/\.work\.pdf\.\d+\..+\.tmp$/u),
             '/tmp/electron-test/work.pdf',
         );
-        expect(mocks.markWorkingCopyContentChanged)
-            .toHaveBeenCalledWith('/tmp/electron-test/work.pdf', 'ocr-apply', 42);
+        expect(mocks.transitionWorkingCopyContentRevision).toHaveBeenCalled();
+        expect(mocks.cp).toHaveBeenCalledWith(
+            '/tmp/electron-test/ocr-1-merged.pdf.ocr',
+            '/tmp/electron-test/work.pdf.ocr',
+            {recursive: true},
+        );
+        expect(mocks.writeFile).toHaveBeenCalledWith(
+            '/tmp/electron-test/work.pdf.ocr-transition.json',
+            expect.stringContaining('"targetDocumentRevisionToken":"next-revision"'),
+            'utf8',
+        );
+    });
+
+    it('applies a staged OCR catalog when the document had no previous OCR catalog', async () => {
+        mocks.resolveAllowedWritePath.mockResolvedValue('/tmp/electron-test/work.pdf');
+        mocks.resolveAllowedReadPath.mockResolvedValue('/tmp/electron-test/ocr-1-merged.pdf');
+        mocks.cp.mockRejectedValueOnce(Object.assign(new Error('missing catalog'), {code: 'ENOENT'}));
+
+        await expect(handleReplaceWorkingCopyFromPath(
+            writeContext,
+            '/tmp/electron-test/work.pdf',
+            '/tmp/electron-test/ocr-1-merged.pdf',
+            {expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-ocr')},
+        )).resolves.toBe(true);
+
+        expect(mocks.cp).toHaveBeenCalledWith(
+            '/tmp/electron-test/ocr-1-merged.pdf.ocr',
+            '/tmp/electron-test/work.pdf.ocr',
+            {recursive: true},
+        );
+        expect(mocks.writeFile).toHaveBeenCalledWith(
+            '/tmp/electron-test/work.pdf.ocr-transition.json',
+            expect.stringContaining('"undoCatalogExisted":false'),
+            'utf8',
+        );
     });
 
     it('refreshes the original save base after an OCR replacement when the previous base still matches', async () => {
@@ -342,6 +405,7 @@ describe('fileOps path security', () => {
             writeContext,
             '/tmp/electron-test/work.pdf',
             '/tmp/electron-test/ocr-1-merged.pdf',
+            {expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-ocr')},
         );
 
         expect(mocks.originalPathSaveBaseMatches).toHaveBeenCalledWith(
@@ -355,8 +419,7 @@ describe('fileOps path security', () => {
         );
         expect(mocks.rename.mock.invocationCallOrder[0]!)
             .toBeLessThan(mocks.refreshWorkingCopyOriginalFileExpectation.mock.invocationCallOrder[0]!);
-        expect(mocks.markWorkingCopyContentChanged)
-            .toHaveBeenCalledWith('/tmp/electron-test/work.pdf', 'ocr-apply', 42);
+        expect(mocks.transitionWorkingCopyContentRevision).toHaveBeenCalled();
     });
 
     it('preserves the stale-original guard after an OCR replacement when the previous base no longer matches', async () => {
@@ -372,6 +435,7 @@ describe('fileOps path security', () => {
             writeContext,
             '/tmp/electron-test/work.pdf',
             '/tmp/electron-test/ocr-1-merged.pdf',
+            {expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-ocr')},
         );
 
         expect(mocks.copyFile).toHaveBeenCalled();
@@ -598,6 +662,19 @@ describe('fileOps path security', () => {
 
         await waitForSettledQueueTurn();
         expect(close).toHaveBeenCalledTimes(1);
+        expect(getRangeReadCacheStatsForTests()).toMatchObject({
+            handles: 0,
+            pendingOpens: 0,
+            pathEpochs: 0,
+        });
+    });
+
+    it('does not retain path epochs for mutations without cached range reads', async () => {
+        await enqueueWorkingCopyMutation('/tmp/electron-test/never-read.pdf', async () => undefined);
+
+        await waitForSettledQueueTurn();
+
+        expect(getRangeReadCacheStatsForTests().pathEpochs).toBe(0);
     });
 
     it('closes and retries a pending range handle opened across a working-copy mutation', async () => {
@@ -807,9 +884,9 @@ describe('fileOps path security', () => {
 
         const firstRead = handleFileReadRange(readContext, '/tmp/electron-test/safe.pdf', 0, 2);
         const secondRead = handleFileReadRange(readContext, '/tmp/electron-test/safe.pdf', 2, 2);
-        await waitForSettledQueueTurn();
-
-        expect(mocks.open).toHaveBeenCalledTimes(1);
+        await vi.waitFor(() => {
+            expect(mocks.open).toHaveBeenCalledTimes(1);
+        });
 
         firstOpen.resolve({
             close,
@@ -826,6 +903,43 @@ describe('fileOps path security', () => {
         ]));
         expect(mocks.open).toHaveBeenCalledTimes(1);
         expect(close).not.toHaveBeenCalled();
+    });
+
+    it('coalesces identical concurrent range reads', async () => {
+        const pendingRead = deferred<{bytesRead: number}>();
+        const close = vi.fn(async () => {});
+        const read = vi.fn((buffer: Buffer) => pendingRead.promise.then((result) => {
+            buffer.fill(7);
+            return result;
+        }));
+        mocks.open.mockResolvedValue({
+            close,
+            read,
+        });
+
+        const firstRead = handleFileReadRange(readContext, '/tmp/electron-test/safe.pdf', 4, 2);
+        const secondRead = handleFileReadRange(readContext, '/tmp/electron-test/safe.pdf', 4, 2);
+        await vi.waitFor(() => {
+            expect(read).toHaveBeenCalledTimes(1);
+        });
+        expect(getRangeReadCacheStatsForTests()).toMatchObject({pendingReads: 1});
+        pendingRead.resolve({bytesRead: 2});
+
+        await expect(Promise.all([
+            firstRead,
+            secondRead,
+        ])).resolves.toEqual([
+            new Uint8Array([
+                7,
+                7,
+            ]),
+            new Uint8Array([
+                7,
+                7,
+            ]),
+        ]);
+        expect(read).toHaveBeenCalledTimes(1);
+        expect(getRangeReadCacheStatsForTests()).toMatchObject({pendingReads: 0});
     });
 });
 

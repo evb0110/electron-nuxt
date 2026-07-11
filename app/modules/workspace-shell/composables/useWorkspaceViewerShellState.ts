@@ -1,7 +1,8 @@
-import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import type {
     TFitMode,
     TPdfViewMode,
+    TPdfZoomState,
     TZoomMode,
 } from '@contracts/shared';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
@@ -63,8 +64,58 @@ export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState
 
     const zoom = ref(initialState?.zoom ?? 1);
     const effectiveZoom = ref(initialState?.effectiveZoom ?? 1);
-    const zoomMode = ref<TZoomMode>(initialState?.zoomMode ?? 'fit-width');
-    const fitMode = ref<TFitMode>(initialState?.fitMode ?? 'width');
+    const rememberedFitAxis = ref<TFitMode>(initialState?.zoomMode === 'fit-height'
+        ? 'height'
+        : initialState?.zoomMode === 'fit-width' ? 'width' : initialState?.fitMode ?? 'width');
+    const initialZoomMode = initialState?.zoomMode ?? 'fit-width';
+    const zoomState = ref<TPdfZoomState>(initialZoomMode === 'custom'
+        ? {
+            kind: 'custom',
+            scale: zoom.value,
+        }
+        : {
+            kind: 'fit',
+            axis: initialZoomMode === 'fit-height' ? 'height' : 'width',
+        });
+    const zoomMode = computed<TZoomMode>({
+        get: () => zoomState.value.kind === 'custom'
+            ? 'custom'
+            : zoomState.value.axis === 'height' ? 'fit-height' : 'fit-width',
+        set: (mode) => {
+            if (mode === 'custom') {
+                zoomState.value = {
+                    kind: 'custom',
+                    scale: zoom.value,
+                };
+                return;
+            }
+            rememberedFitAxis.value = mode === 'fit-height' ? 'height' : 'width';
+            zoomState.value = {
+                kind: 'fit',
+                axis: rememberedFitAxis.value,
+            };
+        },
+    });
+    const fitMode = computed<TFitMode>({
+        get: () => zoomState.value.kind === 'fit' ? zoomState.value.axis : rememberedFitAxis.value,
+        set: (axis) => {
+            rememberedFitAxis.value = axis;
+            if (zoomState.value.kind === 'fit') {
+                zoomState.value = {
+                    kind: 'fit',
+                    axis,
+                };
+            }
+        },
+    });
+    watch(zoom, (scale) => {
+        if (zoomState.value.kind === 'custom') {
+            zoomState.value = {
+                kind: 'custom',
+                scale,
+            };
+        }
+    }, {flush: 'sync'});
     const viewMode = ref<TPdfViewMode>(initialState?.viewMode ?? 'single');
     const currentPage = ref(1);
     const totalPages = ref(0);
@@ -100,6 +151,7 @@ export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState
         handleSelectedThumbnailPagesUpdate,
         zoom,
         effectiveZoom,
+        zoomState,
         zoomMode,
         fitMode,
         viewMode,

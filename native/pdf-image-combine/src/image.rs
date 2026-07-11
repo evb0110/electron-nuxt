@@ -242,6 +242,7 @@ fn read_png_page_from_reader<R: std::io::Read>(
         height: png.height,
         dpi: png.dpi.or(default_dpi).unwrap_or(DEFAULT_DPI),
         color_space,
+        icc_profile: png.icc_profile,
         payload: ImagePayload::RawFlate {
             data: png.idat,
             decode_params,
@@ -267,6 +268,7 @@ fn read_jpeg_page(bytes: Vec<u8>, max_pixels: u64, default_dpi: Option<u32>) -> 
         height: metadata.height,
         dpi: metadata.dpi.or(default_dpi).unwrap_or(DEFAULT_DPI),
         color_space,
+        icc_profile: metadata.icc_profile,
         payload: ImagePayload::Jpeg { data: bytes },
     })
 }
@@ -306,6 +308,7 @@ fn read_netpbm_page(bytes: &[u8], max_pixels: u64, dpi: u32) -> Result<ImagePage
         height: netpbm.height,
         dpi,
         color_space,
+        icc_profile: None,
         payload: ImagePayload::RawFlate {
             data: compressed,
             decode_params,
@@ -333,6 +336,7 @@ fn read_netpbm_jpeg_page(
         height: prepared.height,
         dpi,
         color_space,
+        icc_profile: None,
         payload: ImagePayload::Jpeg { data },
     })
 }

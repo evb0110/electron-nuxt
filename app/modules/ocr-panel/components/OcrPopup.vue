@@ -2,6 +2,7 @@
     <UModal
         v-model:open="isOpen"
         :title="t('ocr.runTitle')"
+        :dismissible="!progress.isRunning"
         :ui="{ content: 'sm:max-w-md', footer: 'justify-end gap-2' }"
     >
         <AppTooltip
@@ -17,7 +18,7 @@
                         'is-loading': progress.isRunning,
                     },
                 ]"
-                :disabled="disabled || progress.isRunning"
+                :disabled="disabled && !progress.isRunning"
                 :aria-label="triggerTooltip"
                 type="button"
             >
@@ -88,6 +89,26 @@
                                     :aria-hidden="!showCustomRange"
                                 />
                             </div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <URadioGroup
+                            v-model="settings.supersessionPolicy"
+                            name="ocrSupersessionPolicy"
+                            :legend="t('ocr.supersession.label')"
+                            :items="supersessionPolicyItems"
+                            value-key="value"
+                            :ui="listRadioGroupUi"
+                        />
+                        <div
+                            v-if="settings.supersessionPolicy === 'replace-all'"
+                            class="supersession-acknowledgement"
+                        >
+                            <UCheckbox
+                                v-model="settings.replaceAllAcknowledged"
+                                :label="t('ocr.supersession.replaceAllAcknowledgement')"
+                            />
                         </div>
                     </div>
 
@@ -214,13 +235,13 @@
 
                 <!-- RUNNING STATE -->
                 <div
-                    v-else-if="viewState === 'running'"
+                    v-else-if="viewState === 'running' || viewState === 'applying'"
                     class="ocr-progress-panel flex flex-col gap-3"
                     role="status"
                     aria-live="polite"
                 >
                     <AppProgressBar :value="progressPercent" />
-                    <span class="progress-text">{{ progressStatusText }}</span>
+                    <span class="progress-text">{{ viewState === 'applying' ? applyingStatusText : progressStatusText }}</span>
                 </div>
 
                 <!-- RESULTS STATE -->
@@ -263,12 +284,14 @@
         </template>
 
         <template #footer>
-            <template v-if="viewState === 'running'">
+            <template v-if="viewState === 'running' || viewState === 'applying'">
                 <UButton
+                    v-if="viewState === 'running'"
                     color="neutral"
                     variant="soft"
                     icon="i-ph-x"
                     :label="t('ocr.cancel')"
+                    :disabled="progress.status === 'cancel-requested'"
                     @click="handleCancel"
                 />
             </template>
@@ -313,6 +336,7 @@ import type { TDocumentRef } from '@contracts/documentRef';
 import type {
     TOcrPreprocessingMode,
     TOcrQualityProfile,
+    TOcrTextSupersessionPolicy,
 } from '@contracts/electronApiOcr';
 import type { TTranslationKey } from '@i18n-app';
 import AppProgressBar from '@app/components/AppProgressBar.vue';
@@ -329,12 +353,15 @@ import type {
 
 const { t } = useTypedI18n();
 type TOcrLanguageTranslationKey = Extract<TTranslationKey, `ocr.languageName.${string}`>;
+type TOcrLanguageModelStateKey = Extract<TTranslationKey, `ocr.languageModelState.${string}`>;
 type TOcrQualityProfileLabelKey = Extract<TTranslationKey, `ocr.qualityProfile.options.${string}`>;
 type TOcrPreprocessingModeLabelKey = Extract<TTranslationKey, `ocr.preprocessing.options.${string}`>;
 type TOcrPageSegmentationLabelKey = Extract<TTranslationKey, `ocr.pageSegmentation.options.${string}`>;
 type TOcrQualityProfileHelpKey = Extract<TTranslationKey, `ocr.qualityProfile.help.${string}`>;
 type TOcrPreprocessingModeHelpKey = Extract<TTranslationKey, `ocr.preprocessing.help.${string}`>;
 type TOcrPageSegmentationHelpKey = Extract<TTranslationKey, `ocr.pageSegmentation.help.${string}`>;
+type TOcrSupersessionLabelKey = Extract<TTranslationKey, `ocr.supersession.options.${string}`>;
+type TOcrSupersessionDescriptionKey = Extract<TTranslationKey, `ocr.supersession.descriptions.${string}`>;
 
 const ocrQualityProfileOptions = [
     'balanced',
@@ -346,6 +373,12 @@ const ocrPreprocessingModeOptions = [
     'off',
     'clean',
 ] as const satisfies readonly TOcrPreprocessingMode[];
+
+const ocrSupersessionPolicies = [
+    'missing-only',
+    'replace-evb',
+    'replace-all',
+] as const satisfies readonly TOcrTextSupersessionPolicy[];
 
 const ocrPageSegmentationOptions = [
     {
@@ -441,6 +474,7 @@ const {
     copyLogsTooltip,
     showSuccessState,
     progressStatusText,
+    applyingStatusText,
     triggerTooltip,
     hasResultWarning,
     resultStatusText,
@@ -505,6 +539,15 @@ const preprocessingModeItems = computed<Array<{
     value: mode,
     label: t(getPreprocessingModeLabelKey(mode), undefined),
 })));
+const supersessionPolicyItems = computed<Array<{
+    value: TOcrTextSupersessionPolicy;
+    label: string;
+    description: string;
+}>>(() => ocrSupersessionPolicies.map(policy => ({
+    value: policy,
+    label: t(getSupersessionLabelKey(policy), undefined),
+    description: t(getSupersessionDescriptionKey(policy), undefined),
+})));
 const pageSegmentationItems = computed<Array<{
     value: string;
     label: string;
@@ -528,15 +571,15 @@ const pageSegmentationHelpItems = computed(() => ocrPageSegmentationOptions.map(
 })));
 const latinCyrillicLanguageItems = computed(() => latinCyrillicLanguages.value.map(lang => ({
     value: lang.code,
-    label: translateLanguageName(lang.code),
+    label: translateLanguageLabel(lang),
 })));
 const greekLanguageItems = computed(() => greekLanguages.value.map(lang => ({
     value: lang.code,
-    label: translateLanguageName(lang.code),
+    label: translateLanguageLabel(lang),
 })));
 const rtlLanguageItems = computed(() => rtlLanguages.value.map(lang => ({
     value: lang.code,
-    label: translateLanguageName(lang.code),
+    label: translateLanguageLabel(lang),
 })));
 
 function getLanguageNameKey(code: string): TOcrLanguageTranslationKey {
@@ -545,6 +588,15 @@ function getLanguageNameKey(code: string): TOcrLanguageTranslationKey {
 
 function translateLanguageName(code: string) {
     return t(getLanguageNameKey(code), undefined);
+}
+
+function translateLanguageLabel(language: {
+    code: string;
+    modelState?: 'installed' | 'downloading' | 'missing'
+}) {
+    const state = language.modelState ?? 'missing';
+    const stateKey = `ocr.languageModelState.${state}` as TOcrLanguageModelStateKey;
+    return `${translateLanguageName(language.code)} — ${t(stateKey, undefined)}`;
 }
 
 function getQualityProfileLabelKey(profile: TOcrQualityProfile): TOcrQualityProfileLabelKey {
@@ -561,6 +613,14 @@ function getPreprocessingModeLabelKey(mode: TOcrPreprocessingMode): TOcrPreproce
 
 function getPreprocessingModeHelpKey(mode: TOcrPreprocessingMode): TOcrPreprocessingModeHelpKey {
     return `ocr.preprocessing.help.${mode}`;
+}
+
+function getSupersessionLabelKey(policy: TOcrTextSupersessionPolicy): TOcrSupersessionLabelKey {
+    return `ocr.supersession.options.${policy}`;
+}
+
+function getSupersessionDescriptionKey(policy: TOcrTextSupersessionPolicy): TOcrSupersessionDescriptionKey {
+    return `ocr.supersession.descriptions.${policy}`;
 }
 
 defineExpose<IOcrPopupAgentExpose>({
@@ -619,7 +679,7 @@ defineExpose<IOcrPopupAgentExpose>({
 .ocr-trigger:focus-visible {
     box-shadow: inset 0 0 0 1px var(--app-toolbar-focus-ring);
     position: relative;
-    z-index: 1;
+    z-index: var(--app-z-local-raised);
 }
 
 .ocr-trigger:disabled {
@@ -672,6 +732,14 @@ defineExpose<IOcrPopupAgentExpose>({
 
 .custom-input {
     width: 100%;
+}
+
+.supersession-acknowledgement {
+    margin-top: var(--app-space-3xl);
+    padding: var(--app-space-lg);
+    border: 1px solid var(--ui-warning);
+    border-radius: var(--app-radius-md);
+    background: color-mix(in srgb, var(--ui-warning) 8%, transparent);
 }
 
 :deep(.language-checkboxes) {

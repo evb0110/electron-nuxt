@@ -28,7 +28,7 @@ import type { IPageText } from '@electron/search/pageText';
 import type { IOcrWord } from '@contracts/shared';
 import type { TOcrIndexRotation } from '@contracts/ocrIndex';
 import {
-    collapseRepeatedPdfSearchPageText,
+    assembleSearchablePageText,
     extractPdfjsWordBoxesFromOperatorList,
     getPdfjsPageViewBox,
 } from '@pdf-core';
@@ -68,11 +68,16 @@ interface IExtractPdfjsTextOptions {
     pages?: readonly number[];
 }
 
+function isInvisibleTextRenderingMode(args: unknown) {
+    return Array.isArray(args) && args[0] === 3;
+}
+
 export interface IPageTextWithWordBoxes extends IPageText {
     words: IOcrWord[];
     pageWidth: number;
     pageHeight: number;
     rotation: TOcrIndexRotation;
+    hasInvisibleText: boolean;
 }
 
 interface IExtractPdfjsWordBoxOptions {
@@ -189,6 +194,10 @@ export async function extractTextWithPdfjsWordBoxes(
                 pageWidth: pageBox.pageWidth,
                 pageHeight: pageBox.pageHeight,
                 rotation: pageBox.rotation,
+                hasInvisibleText: operatorList.fnArray.some((operator, index) => (
+                    operator === OPS.setTextRenderingMode
+                    && isInvisibleTextRenderingMode(operatorList.argsArray[index])
+                )),
             };
 
             extractedPageCount += 1;
@@ -255,21 +264,24 @@ export async function extractTextWithPdfjs(
             );
             throwIfAborted(signal);
 
-            const parts: string[] = [];
+            const textItems: Array<{
+                text: string;
+                separatorAfter: 'line' | 'none'
+            }> = [];
             for (const item of content.items) {
                 throwIfAborted(signal);
                 if ('str' in item) {
                     const textItem = item;
-                    parts.push(textItem.str);
-                    if (textItem.hasEOL) {
-                        parts.push('\n');
-                    }
+                    textItems.push({
+                        text: textItem.str,
+                        separatorAfter: textItem.hasEOL ? 'line' : 'none',
+                    });
                 }
             }
 
             const pageText = {
                 pageNumber,
-                text: collapseRepeatedPdfSearchPageText(parts.join('')),
+                text: assembleSearchablePageText(textItems).text,
             };
             extractedPageCount += 1;
             if (collectPages) {

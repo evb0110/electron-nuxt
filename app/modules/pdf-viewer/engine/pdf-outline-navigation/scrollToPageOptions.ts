@@ -1,7 +1,9 @@
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
+import type { IPdfNavigationRequest } from '@app/modules/pdf-viewer/engine/viewport/createPageNavigationRequest';
 
 export interface IScrollToPageOptions {
-    navigationSource?: 'bookmark' | undefined;
+    navigationRequest?: IPdfNavigationRequest | undefined;
+    navigationSource?: 'bookmark' | 'toolbar' | 'search' | 'annotation' | 'thumbnail' | 'activation' | 'restore' | 'wheel' | undefined;
     preferExactDom?: boolean;
     /**
      * Align a normalized page y coordinate to the top of the viewport. This is

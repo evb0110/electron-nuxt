@@ -10,7 +10,7 @@ import { groupMarkupSubtypeHintsByPage } from '@app/modules/pdf-viewer/engine/pd
 function createComment(overrides: Partial<IAnnotationCommentSummary>): IAnnotationCommentSummary {
     return {
         id: 'id-1',
-        stableKey: 'stable-1',
+        stableKey: 'ann:0:stable-1',
         pageIndex: 0,
         pageNumber: 1,
         text: '',

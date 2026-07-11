@@ -4,16 +4,29 @@ import type {
     TPdfTextLayerCleanup,
 } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
+import { createPdfPageRenderState } from '@app/modules/pdf-viewer/runtime/rendering/pdfPageRenderState';
+import {
+    estimateCanvasSurfaceBytes,
+    workspaceSurfaceBudgetController,
+    type IWorkspaceSurfaceLease,
+} from '@app/utils/document-viewer/workspaceSurfaceBudget';
 
+let nextPdfViewerSurfaceScopeId = 1;
 
 export const usePdfRendererPageRegistry = () => {
-    const renderedPages = new Set<number>();
-    const staleRenderedPages = new Set<number>();
-    const renderingPages = new Map<number, number>();
-    const renderingPageRequestIds = new Map<number, number>();
+    const pageRenderState = createPdfPageRenderState();
+    const {
+        renderedPages,
+        staleRenderedPages,
+        renderingPages,
+        renderingPageRequestIds,
+    } = pageRenderState;
     const missingRenderTargetRetries = new Map<number, number>();
     const activeRenderTasks = new Map<number, IActivePdfRenderTask>();
     const pageCanvases = new Map<number, HTMLCanvasElement>();
+    const pageCanvasSurfaceLeases = new Map<number, IWorkspaceSurfaceLease>();
+    const surfaceScopeId = `pdf-viewer:${nextPdfViewerSurfaceScopeId}`;
+    nextPdfViewerSurfaceScopeId += 1;
     const textLayerCleanupFns = new Map<number, TPdfTextLayerCleanup>();
     const activeTextLayerAbortControllers = new Map<number, IActivePdfTextLayerTask>();
 
@@ -142,7 +155,101 @@ export const usePdfRendererPageRegistry = () => {
         return pagesToCleanup;
     }
 
+    function reservePageCanvasSurface(
+        pageNumber: number,
+        canvas: HTMLCanvasElement,
+        annotationCanvases: Iterable<HTMLCanvasElement> = [],
+    ): IWorkspaceSurfaceLease {
+        const canvases = [
+            canvas,
+            ...annotationCanvases,
+        ];
+        const leases: IWorkspaceSurfaceLease[] = [];
+        let committed = false;
+        let released = false;
+
+        const evict = () => {
+            for (const reservedCanvas of canvases) {
+                reservedCanvas.width = 0;
+                reservedCanvas.height = 0;
+            }
+            if (pageCanvases.get(pageNumber) === canvas) {
+                pageCanvases.delete(pageNumber);
+                renderedPages.delete(pageNumber);
+                staleRenderedPages.delete(pageNumber);
+            }
+            if (pageCanvasSurfaceLeases.get(pageNumber) === compositeLease) {
+                pageCanvasSurfaceLeases.delete(pageNumber);
+            }
+            compositeLease.release();
+        };
+        const canEvict = () => committed && pageCanvases.get(pageNumber) === canvas;
+        leases.push(workspaceSurfaceBudgetController.reserve({
+            scopeId: surfaceScopeId,
+            category: 'pdf-page-canvas',
+            bytes: estimateCanvasSurfaceBytes(canvas),
+            priority: 50,
+            canEvict,
+            evict,
+        }));
+        for (const annotationCanvas of canvases.slice(1)) {
+            leases.push(workspaceSurfaceBudgetController.reserve({
+                scopeId: surfaceScopeId,
+                category: 'pdf-annotation-canvas',
+                bytes: estimateCanvasSurfaceBytes(annotationCanvas),
+                priority: 50,
+                canEvict,
+                evict,
+            }));
+        }
+        const compositeLease: IWorkspaceSurfaceLease = {
+            bytes: leases.reduce((total, lease) => total + lease.bytes, 0),
+            category: 'pdf-page-canvas',
+            scopeId: surfaceScopeId,
+            release() {
+                if (released) {
+                    return;
+                }
+                released = true;
+                leases.forEach(lease => lease.release());
+            },
+        };
+        pendingSurfaceLeaseCommits.set(compositeLease, () => {
+            committed = true;
+        });
+        return compositeLease;
+    }
+
+    const pendingSurfaceLeaseCommits = new WeakMap<IWorkspaceSurfaceLease, () => void>();
+
+    function replacePageCanvasSurfaceLease(pageNumber: number, lease: IWorkspaceSurfaceLease) {
+        const previousLease = pageCanvasSurfaceLeases.get(pageNumber);
+        pageCanvasSurfaceLeases.set(pageNumber, lease);
+        previousLease?.release();
+    }
+
+    function markPageCanvasSurfaceEvictable(pageNumber: number) {
+        const lease = pageCanvasSurfaceLeases.get(pageNumber);
+        if (!lease) {
+            return;
+        }
+        pendingSurfaceLeaseCommits.get(lease)?.();
+        pendingSurfaceLeaseCommits.delete(lease);
+        workspaceSurfaceBudgetController.enforceBudget();
+    }
+
+    function releasePageCanvasSurface(pageNumber: number) {
+        pageCanvasSurfaceLeases.get(pageNumber)?.release();
+        pageCanvasSurfaceLeases.delete(pageNumber);
+    }
+
+    function releaseAllSurfaceResources() {
+        workspaceSurfaceBudgetController.releaseScope(surfaceScopeId);
+        pageCanvasSurfaceLeases.clear();
+    }
+
     return {
+        pageRenderState,
         renderedPages,
         staleRenderedPages,
         renderingPages,
@@ -150,6 +257,11 @@ export const usePdfRendererPageRegistry = () => {
         missingRenderTargetRetries,
         activeRenderTasks,
         pageCanvases,
+        reservePageCanvasSurface,
+        replacePageCanvasSurfaceLease,
+        markPageCanvasSurfaceEvictable,
+        releasePageCanvasSurface,
+        releaseAllSurfaceResources,
         textLayerCleanupFns,
         activeTextLayerAbortControllers,
         cancelActiveRenderTask,

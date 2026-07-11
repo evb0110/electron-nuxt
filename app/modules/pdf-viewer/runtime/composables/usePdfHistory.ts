@@ -1,22 +1,15 @@
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import type { IScrollSnapshot } from '@app/types/pdfUi';
 import type { TWorkspaceUndoSource } from '@app/types/workspaceUndoSource';
-import { capturePdfReloadSnapshot } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/capturePdfReloadSnapshot';
 import { createPdfReloadWaiter } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/createPdfReloadWaiter';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
-interface IWaitForPdfReloadOptions {captureScrollSnapshot?: boolean;}
 type THistoryDirection = 'undo' | 'redo';
 type THistoryRoute = (
     | {kind: 'blocked';}
     | {
-        kind: 'annotation';
-        direction: THistoryDirection;
-    }
-    | {
-        kind: 'timeline';
+        kind: 'command';
         direction: THistoryDirection;
         source: TWorkspaceUndoSource | null;
     }
@@ -28,11 +21,6 @@ export const usePdfHistory = (deps: {
     pdfDocument: Ref<PDFDocumentProxy | null>;
     pdfViewerRef: Ref<{
         scrollToPage: (page: number) => void;
-        captureScrollSnapshot?: () => IScrollSnapshot | null;
-        restoreScrollSnapshot?: (
-            snapshot: IScrollSnapshot | null,
-            options?: { fallbackPage?: number | null; },
-        ) => void;
         undoAnnotation: () => void;
         redoAnnotation: () => void;
     } | null>;
@@ -41,9 +29,6 @@ export const usePdfHistory = (deps: {
     isHistoryBusy: Ref<boolean>;
     canUndo: Ref<boolean>;
     canRedo: Ref<boolean>;
-    canUndoAnnotation?: Ref<boolean> | undefined;
-    canRedoAnnotation?: Ref<boolean> | undefined;
-    isAnnotationUndoContext: Ref<boolean>;
     nextUndoSource: Ref<TWorkspaceUndoSource | null>;
     nextRedoSource: Ref<TWorkspaceUndoSource | null>;
     workingCopyPath: Ref<TDocumentRef | null>;
@@ -60,9 +45,6 @@ export const usePdfHistory = (deps: {
         isHistoryBusy,
         canUndo,
         canRedo,
-        canUndoAnnotation,
-        canRedoAnnotation,
-        isAnnotationUndoContext,
         nextUndoSource,
         nextRedoSource,
         workingCopyPath,
@@ -79,46 +61,27 @@ export const usePdfHistory = (deps: {
      */
     function preparePdfReloadWaiter(
         pageToRestore: number,
-        opts?: IWaitForPdfReloadOptions,
     ) {
-        const shouldCaptureScrollSnapshot = opts?.captureScrollSnapshot !== false;
         const normalizedPageToRestore = Math.max(1, Math.floor(pageToRestore));
-        const capturedReloadState = shouldCaptureScrollSnapshot
-            ? capturePdfReloadSnapshot(pdfViewerRef.value, normalizedPageToRestore)
-            : {
-                scrollSnapshot: null,
-                pageToRestore: normalizedPageToRestore,
-            };
-        currentPage.value = capturedReloadState.pageToRestore;
 
         return createPdfReloadWaiter({
             pdfDocument,
             pdfViewerRef,
             resetSearchCache,
-            pageToRestore: capturedReloadState.pageToRestore,
-            scrollSnapshot: capturedReloadState.scrollSnapshot,
-            captureScrollSnapshot: shouldCaptureScrollSnapshot,
+            pageToRestore: normalizedPageToRestore,
         });
     }
 
     function waitForPdfReload(
         pageToRestore: number,
-        opts?: IWaitForPdfReloadOptions,
     ) {
-        return preparePdfReloadWaiter(pageToRestore, opts).promise;
+        return preparePdfReloadWaiter(pageToRestore).promise;
     }
 
     function getCanUseHistory(direction: THistoryDirection) {
         return direction === 'undo'
             ? canUndo.value
             : canRedo.value;
-    }
-
-    function getCanUseAnnotationHistory(direction: THistoryDirection) {
-        const canUseAnnotation = direction === 'undo'
-            ? canUndoAnnotation
-            : canRedoAnnotation;
-        return canUseAnnotation?.value ?? getCanUseHistory(direction);
     }
 
     function getTimelineHistorySource(direction: THistoryDirection) {
@@ -132,33 +95,14 @@ export const usePdfHistory = (deps: {
             return {kind: 'blocked'};
         }
 
-        const source = getTimelineHistorySource(direction);
-        if (source) {
-            return {
-                kind: 'timeline',
-                direction,
-                source,
-            };
-        }
-
-        if (
-            isAnnotationUndoContext.value
-            && getCanUseAnnotationHistory(direction)
-        ) {
-            return {
-                kind: 'annotation',
-                direction,
-            };
-        }
-
         return {
-            kind: 'timeline',
+            kind: 'command',
             direction,
-            source,
+            source: getTimelineHistorySource(direction),
         };
     }
 
-    function reportMissingTimelineSource(route: Extract<THistoryRoute, {kind: 'timeline';}>) {
+    function reportMissingTimelineSource(route: Extract<THistoryRoute, {kind: 'command';}>) {
         BrowserLogger.warn(
             HISTORY_LOG_SECTION,
             `${route.direction === 'undo' ? 'Undo' : 'Redo'} requested but no timeline history source was available`,
@@ -166,13 +110,12 @@ export const usePdfHistory = (deps: {
                 direction: route.direction,
                 canUndo: canUndo.value,
                 canRedo: canRedo.value,
-                isAnnotationUndoContext: isAnnotationUndoContext.value,
             },
         );
     }
 
     async function runTimelineHistoryRoute(
-        route: Extract<THistoryRoute, {kind: 'timeline';}>,
+        route: Extract<THistoryRoute, {kind: 'command';}>,
         runHistory: () => Promise<boolean>,
     ) {
         if (isHistoryBusy.value) {
@@ -209,11 +152,6 @@ export const usePdfHistory = (deps: {
         if (route.kind === 'blocked') {
             return;
         }
-        if (route.kind === 'annotation') {
-            pdfViewerRef.value?.undoAnnotation();
-            return;
-        }
-
         await runTimelineHistoryRoute(route, undoHistory);
     }
 
@@ -222,11 +160,6 @@ export const usePdfHistory = (deps: {
         if (route.kind === 'blocked') {
             return;
         }
-        if (route.kind === 'annotation') {
-            pdfViewerRef.value?.redoAnnotation();
-            return;
-        }
-
         await runTimelineHistoryRoute(route, redoHistory);
     }
 

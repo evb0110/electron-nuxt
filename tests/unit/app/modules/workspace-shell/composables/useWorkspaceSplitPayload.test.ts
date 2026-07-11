@@ -147,4 +147,51 @@ describe('useWorkspaceSplitPayload', () => {
         expect(mocks.legacyCreateWorkingCopyFromPath).not.toHaveBeenCalled();
         expect(mocks.legacyCreateWorkingCopyFromData).not.toHaveBeenCalled();
     });
+
+    it('serializes dirty split snapshots inside the viewer canonical save transaction', async () => {
+        const serializedBytes = Uint8Array.of(7, 8, 9);
+        const serializePdfForSave = vi.fn(async () => serializedBytes);
+        const runSaveTransaction = vi.fn(async (request) => {
+            expect(request).toMatchObject({
+                mode: 'snapshot',
+                forcePdfjsMaterialize: true,
+                serializeResult: true,
+                includeManagedShapes: true,
+                rewriteShapeState: true,
+            });
+            expect(request.source?.serializePdfForSave).toBe(serializePdfForSave);
+            return {
+                source: 'serialized-rewrite' as const,
+                baseBytes: Uint8Array.of(1),
+                serializedBytes,
+                serializedResult: null,
+                nativeMutationProjection: null,
+                annotationSavePlan: {
+                    route: 'pdfjs-materialize' as const,
+                    expectedCost: 'full-document' as const,
+                    reason: 'no-live-pdfjs-annotation-work' as const,
+                    unreplayableLiveAnnotationIds: [],
+                },
+            };
+        });
+        const { captureSplitPayload } = useWorkspaceSplitPayload(createOptions({
+            hasPendingTabChanges: ref(true),
+            pdfViewerRef: ref({
+                runSaveTransaction,
+                saveDocument: vi.fn(async () => null),
+                materializePdfJsDocumentForInternalUse: vi.fn(async () => null),
+            }),
+            serializePdfForSave,
+        }));
+
+        await captureSplitPayload();
+
+        expect(runSaveTransaction).toHaveBeenCalledTimes(1);
+        expect(serializePdfForSave).not.toHaveBeenCalled();
+        expect(mocks.createWorkingCopyFromData).toHaveBeenCalledWith(
+            'sample.pdf',
+            serializedBytes,
+            '/tmp/original.pdf',
+        );
+    });
 });

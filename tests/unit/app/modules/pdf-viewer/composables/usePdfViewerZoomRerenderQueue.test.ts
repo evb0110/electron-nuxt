@@ -90,7 +90,6 @@ describe('usePdfViewerZoomRerenderQueue', () => {
                 capturedAtMs: Date.now(),
                 page: 1,
                 transitionToken: 40,
-                snapshot: null,
                 visibleRange: {
                     start: 1,
                     end: 1,
@@ -104,7 +103,6 @@ describe('usePdfViewerZoomRerenderQueue', () => {
                 capturedAtMs: Date.now(),
                 page: 2,
                 transitionToken: 41,
-                snapshot: null,
                 visibleRange: {
                     start: 2,
                     end: 2,
@@ -120,6 +118,40 @@ describe('usePdfViewerZoomRerenderQueue', () => {
             'zoom-queue-reset:fit-mode-change',
             2,
         );
+        queue.cleanupZoomRerenderQueue();
+    });
+
+    it('bounds and flushes resize settle work when zoom remains busy', async () => {
+        vi.useFakeTimers();
+        const zoomRender = Promise.withResolvers<undefined>();
+        const reRenderVisiblePagesAndSyncCurrentPage = vi.fn<TQueueOptions['reRenderVisiblePagesAndSyncCurrentPage']>(
+            options => options?.source === 'zoom-change' ? zoomRender.promise : Promise.resolve(),
+        );
+        const {queue} = createQueueHarness({
+            isZoomInteractionLocked: () => true,
+            reRenderVisiblePagesAndSyncCurrentPage,
+        });
+
+        queue.enqueueZoomSync({
+            source: 'zoom-change',
+            resizeAnchor: createResizeAnchor(1, 40),
+        });
+        queue.scheduleResizeAwareRerender('resize settle', {
+            source: 'resize-settle',
+            resizeAnchor: createResizeAnchor(2, 41),
+        });
+
+        await vi.advanceTimersByTimeAsync(1_499);
+        expect(reRenderVisiblePagesAndSyncCurrentPage.mock.calls.some(([options]) => (
+            options?.source === 'resize-settle'
+        ))).toBe(false);
+
+        await vi.advanceTimersByTimeAsync(1);
+        expect(reRenderVisiblePagesAndSyncCurrentPage).toHaveBeenCalledWith(
+            expect.objectContaining({source: 'resize-settle'}),
+        );
+        zoomRender.resolve(undefined);
+        await Promise.resolve();
         queue.cleanupZoomRerenderQueue();
     });
 

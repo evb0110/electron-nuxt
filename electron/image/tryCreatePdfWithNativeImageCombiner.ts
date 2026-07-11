@@ -24,6 +24,7 @@ import {
     createDetachedChildProcessSpawnOptions,
     terminateDetachedChildProcess,
 } from '@electron/utils/nativeChildProcess';
+import { readJpegExifOrientation } from '@electron/image/imageDpi';
 
 interface INativePdfImageCombineProgress {
     processed: number;
@@ -260,6 +261,9 @@ export async function tryCreatePdfWithNativeImageCombiner(
     if (!canUseNativePdfImageCombine(inputPaths, SUPPORTED_NATIVE_BITMAP_EXTENSIONS)) {
         return null;
     }
+    if (await hasOrientedJpegInput(inputPaths)) {
+        return null;
+    }
 
     return createPdfWithNativeImageCombiner(inputPaths, options);
 }
@@ -272,8 +276,22 @@ export async function tryWritePdfWithNativeImageCombiner(
     if (!canUseNativePdfImageCombine(inputPaths, SUPPORTED_NATIVE_BITMAP_EXTENSIONS)) {
         return false;
     }
+    if (await hasOrientedJpegInput(inputPaths)) {
+        return false;
+    }
 
     return writePdfWithNativeImageCombiner(inputPaths, outputPath, options);
+}
+
+async function hasOrientedJpegInput(inputPaths: string[]) {
+    for (const inputPath of inputPaths) {
+        const extension = extname(inputPath).toLowerCase();
+        if (extension !== '.jpg' && extension !== '.jpeg') continue;
+        if (readJpegExifOrientation(new Uint8Array(await readFile(inputPath))) !== 1) {
+            return true;
+        }
+    }
+    return false;
 }
 
 export async function tryBuildOptimizedPdfWithNativeImageCombiner(

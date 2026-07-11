@@ -35,7 +35,7 @@ vi.mock('@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/remov
 function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
     return {
         id: overrides.id ?? 'ann-1',
-        stableKey: overrides.stableKey ?? 'stable-1',
+        stableKey: overrides.stableKey ?? 'ann:0:stable-1',
         pageIndex: overrides.pageIndex ?? 0,
         pageNumber: overrides.pageNumber ?? 1,
         text: overrides.text ?? 'Marked text',
@@ -161,7 +161,7 @@ describe('useAnnotationMutationVisualEffects', () => {
 
     it('removes annotation DOM from the comment snapshot after cache deletion', async () => {
         const comment = createComment({
-            stableKey: 'removed-stable',
+            stableKey: 'ann:0:removed-stable',
             annotationId: '19R0',
         });
         const state = createVisualEffectsState();

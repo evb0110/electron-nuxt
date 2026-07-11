@@ -7,6 +7,7 @@ import { parseWorkerMessage } from '@electron/ocr/jobManagerProtocol';
 
 describe('parseWorkerMessage', () => {
     it('preserves source revision tokens on successful completion messages', () => {
+        const resultSha256 = 'a'.repeat(64);
         expect(parseWorkerMessage({
             type: 'complete',
             jobId: 'job-1',
@@ -14,6 +15,7 @@ describe('parseWorkerMessage', () => {
                 success: true,
                 pdfPath: '/tmp/searchable.pdf',
                 sourceDocumentRevisionToken: 'source-revision-token',
+                resultSha256,
                 requiresCleanupAck: true,
                 errors: [],
             },
@@ -24,8 +26,36 @@ describe('parseWorkerMessage', () => {
                 success: true,
                 pdfPath: '/tmp/searchable.pdf',
                 sourceDocumentRevisionToken: 'source-revision-token',
+                resultSha256,
                 requiresCleanupAck: true,
                 errors: [],
+            },
+        });
+    });
+
+    it('preserves structured diagnostics on completion messages', () => {
+        const diagnostics = [{
+            code: 'OCR_PREPROCESSING_UNAVAILABLE' as const,
+            severity: 'warning' as const,
+            message: 'Preprocessing was unavailable',
+            pageNumber: 2,
+        }];
+
+        expect(parseWorkerMessage({
+            type: 'complete',
+            jobId: 'job-1',
+            result: {
+                success: false,
+                errors: [],
+                diagnostics,
+            },
+        })).toEqual({
+            type: 'complete',
+            jobId: 'job-1',
+            result: {
+                success: false,
+                errors: [],
+                diagnostics,
             },
         });
     });

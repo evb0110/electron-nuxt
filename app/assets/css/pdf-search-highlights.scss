@@ -5,7 +5,7 @@
 .pdfViewer .pdf-search-highlight {
     background-color: var(--app-pdf-search-highlight-bg);
     color: transparent;
-    border-radius: 2px;
+    border-radius: var(--app-pdf-search-highlight-radius);
     padding: 0;
     margin: 0;
 }
@@ -15,7 +15,7 @@
 }
 
 .pdfViewer :is(.textLayer, .text-layer) .pdf-search-highlight.begin {
-    border-radius: 2px 0 0 2px;
+    border-radius: var(--app-pdf-search-highlight-radius) 0 0 var(--app-pdf-search-highlight-radius);
 }
 
 .pdfViewer :is(.textLayer, .text-layer) .pdf-search-highlight.end {
@@ -32,7 +32,7 @@
 }
 
 .pdf-word-box {
-    border-radius: 1px;
+    border-radius: var(--app-pdf-search-highlight-fragment-radius);
 }
 
 .pdf-word-box--current {

@@ -137,6 +137,10 @@ export function createSelectedAssistantStatus(
             : {
                 id: null,
                 phase: 'idle',
+                reasoning: '',
+                toolActivity: [],
+                lastEventAtMs: null,
+                usage: null,
             },
         ...(providerStatus.error ? {error: providerStatus.error} : {}),
     } satisfies IAgentAssistantStatus;

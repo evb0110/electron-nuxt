@@ -15,10 +15,16 @@ const mocks = vi.hoisted(() => {
             outputPath,
             fileSize: 12,
         })),
-        encode: vi.fn(() => new Uint8Array([
-            9,
-            9,
-        ])),
+        probeNativeNetpbm: vi.fn<() => Promise<{
+            width: number;
+            height: number;
+            channels: number;
+        } | null>>(async () => ({
+            width: 1,
+            height: 1,
+            channels: 3,
+        })),
+        runNativeToolCommand: vi.fn(async () => undefined),
         getDjvuResolution: vi.fn(async () => 300),
         mkdtemp: vi.fn(async () => '/tmp/djvu-preview-test'),
         readFile: vi.fn(async () => tinyPpm),
@@ -35,7 +41,6 @@ const mocks = vi.hoisted(() => {
     };
 });
 
-vi.mock('fast-png', () => ({encode: mocks.encode}));
 vi.mock('fs/promises', () => ({
     mkdtemp: mocks.mkdtemp,
     readFile: mocks.readFile,
@@ -46,6 +51,12 @@ vi.mock('@electron/djvu/metadata', () => ({getDjvuResolution: mocks.getDjvuResol
 vi.mock('@electron/djvu/nativeToolPaths', () => ({getDjvuNativeToolPaths: () => ({djvused: '/tools/djvused'})}));
 vi.mock('@electron/djvu/paths', () => ({buildDjvuRuntimeEnv: () => ({DJVU: '1'})}));
 vi.mock('@electron/native-tools/runNativeCommand', () => ({runNativeCommand: mocks.runNativeCommand}));
+vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runNativeToolCommand}));
+vi.mock('@electron/features/djvu/main/probeNativeNetpbm', () => ({probeNativeNetpbm: mocks.probeNativeNetpbm}));
+vi.mock('@electron/image/tryCreatePdfWithNativeImageCombiner', () => ({
+    isNativePdfImageCombineDisabled: () => false,
+    resolveNativePdfImageCombinePath: () => '/tools/evb-pdf-image-combine',
+}));
 vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({convertDjvuPageToImage: mocks.convertDjvuPageToImage}));
 
 const {
@@ -64,6 +75,12 @@ describe('DjVu native page preview helpers', () => {
         mocks.getDjvuResolution.mockResolvedValue(300);
         mocks.mkdtemp.mockResolvedValue('/tmp/djvu-preview-test');
         mocks.readFile.mockResolvedValue(mocks.tinyPpm);
+        mocks.probeNativeNetpbm.mockResolvedValue({
+            width: 1,
+            height: 1,
+            channels: 3,
+        });
+        mocks.runNativeToolCommand.mockResolvedValue(undefined);
         mocks.runNativeCommand.mockResolvedValue({
             stdout: '100 200',
             stderr: '',
@@ -148,6 +165,16 @@ describe('DjVu native page preview helpers', () => {
         await expect(renderDjvuPagePreview('/tmp/book.djvu', 1, {subsample: 4}))
             .rejects
             .toThrow('DjVu preview output exceeds safe read limit (192MB)');
+
+        expect(mocks.readFile).not.toHaveBeenCalled();
+    });
+
+    it('fails recoverably instead of decoding a large Netpbm buffer in the main process', async () => {
+        mocks.probeNativeNetpbm.mockResolvedValueOnce(null);
+
+        await expect(renderDjvuPagePreview('/tmp/book.djvu', 1, {subsample: 4}))
+            .rejects
+            .toThrow('large Netpbm fallback is intentionally disabled');
 
         expect(mocks.readFile).not.toHaveBeenCalled();
     });

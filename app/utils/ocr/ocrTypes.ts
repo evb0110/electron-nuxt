@@ -4,6 +4,7 @@ import type {
     TOcrProgressPhase,
     TOcrPreprocessingMode,
     TOcrQualityProfile,
+    TOcrTextSupersessionPolicy,
 } from '@contracts/electronApiOcr';
 
 export type TOcrPageRange = 'all' | 'current' | 'custom';
@@ -15,10 +16,13 @@ export interface IOcrSettings {
     qualityProfile: TOcrQualityProfile;
     preprocessingMode: TOcrPreprocessingMode;
     pageSegmentationMode: number | null;
+    supersessionPolicy: TOcrTextSupersessionPolicy;
+    replaceAllAcknowledged: boolean;
 }
 
 export interface IOcrUiProgress {
     isRunning: boolean;
+    status?: 'idle' | 'running' | 'cancel-requested' | 'cancelled';
     phase: TOcrProgressPhase;
     currentPage: number;
     totalPages: number;

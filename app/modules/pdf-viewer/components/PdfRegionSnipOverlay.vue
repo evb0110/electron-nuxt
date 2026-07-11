@@ -105,7 +105,7 @@ function cancelSelection() {
 .snip-overlay {
     position: absolute;
     inset: 0;
-    z-index: 50;
+    z-index: var(--app-z-pdf-selection-overlay);
     overflow: hidden;
     pointer-events: none;
     user-select: none;

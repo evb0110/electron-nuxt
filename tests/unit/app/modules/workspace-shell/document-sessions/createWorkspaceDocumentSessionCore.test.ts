@@ -4,6 +4,7 @@ import {
     it,
 } from 'vitest';
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
+import { requireDocumentInstanceId } from '@contracts/documentInstanceId';
 import { createWorkspaceDocumentSessionCore } from '@app/modules/workspace-shell/document-sessions/createWorkspaceDocumentSessionCore';
 import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import {
@@ -11,11 +12,12 @@ import {
     type IWorkspaceExpose,
 } from '@app/types/workspaceExpose';
 import { cast } from '@tests/helpers/cast';
+import {requireDocumentRevisionToken} from '@contracts';
 
 function createDocumentRevision(token = 'revision-1', documentRef = '/tmp/working.pdf'): IDocumentRevisionInfo {
     return {
         version: 1,
-        token,
+        token: requireDocumentRevisionToken(token),
         documentRef,
         authority: 'browser-document-store',
         contentRevision: token === 'revision-1' ? 1 : 2,
@@ -56,7 +58,7 @@ describe('createWorkspaceDocumentSessionCore', () => {
             workingCopyPath: '/tmp/working.pdf',
             fileName: 'Document.pdf',
             isDjvu: false,
-            revisionInfo: {token: 'revision-1'},
+            revisionInfo: {token: requireDocumentRevisionToken('revision-1')},
         });
         expect(session.snapshot.value.dirty).toBe(true);
         expect(session.snapshot.value.closeable).toBe(true);
@@ -240,7 +242,7 @@ describe('createWorkspaceDocumentSessionCore', () => {
             sessionId: 'session-1',
             createDocumentInstanceId: () => {
                 nextInstanceId += 1;
-                return `instance-${nextInstanceId}`;
+                return requireDocumentInstanceId(`instance-${nextInstanceId}`);
             },
         });
         const record = createWorkspaceDocumentRecord({

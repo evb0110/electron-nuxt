@@ -175,10 +175,10 @@ export default {
     'zoom': {
         'fitWidth': 'По ширине',
         'fitHeight': 'По высоте',
+        'continuousScroll': 'Непрерывная прокрутка',
         'singlePage': 'Одна страница',
         'facingPages': 'Развороты',
         'facingWithFirstSingle': 'Развороты (первая отдельно)',
-        'continuousScroll': 'Непрерывная прокрутка',
         'handTool': 'Рука',
         'textSelect': 'Выделение текста',
         'zoomOut': 'Уменьшить',
@@ -320,6 +320,20 @@ export default {
         'currentPage': 'Текущая страница ({page})',
         'customRange': 'Свой диапазон',
         'customRangePlaceholder': 'напр., 1-5, 8, 10-12',
+        'supersession': {
+            'label': 'Существующий текст',
+            'options': {
+                'missing-only': 'OCR только без текста',
+                'replace-evb': 'Повторить OCR EVB',
+                'replace-all': 'Заменить весь скрытый OCR',
+            },
+            'descriptions': {
+                'missing-only': 'Сохранить все существующие текстовые слои и распознать только страницы без текста.',
+                'replace-evb': 'Заменить активное поколение OCR EVB; встроенный и сторонний текст не изменятся.',
+                'replace-all': 'Заменить скрытые слои OCR EVB и других программ; видимый встроенный текст не изменится.',
+            },
+            'replaceAllAcknowledgement': 'Я понимаю, что сторонний скрытый OCR-текст на выбранных страницах будет удалён и заменён.',
+        },
         'qualityProfile': {
             'label': 'Качество',
             'options': {
@@ -359,6 +373,18 @@ export default {
         },
         'settingHelpAria': 'О параметре «{setting}»',
         'languages': 'Языки',
+        'languageModelState': {
+            'installed': 'Установлен',
+            'downloading': 'Загружается',
+            'missing': 'Загрузится при запуске',
+        },
+        'diagnostic': {
+            'preprocessingUnavailable': 'Страница {page}: очистка скана недоступна; использовано исходное изображение.',
+            'preprocessingFailed': 'Страница {page}: очистка скана не удалась; использовано исходное изображение.',
+            'preprocessingGeometryChanged': 'Страница {page}: очистка изменила геометрию; использовано исходное изображение.',
+            'sourceDpiLimited': 'Страница {page}: разрешение источника ограничило DPI распознавания.',
+            'existingTextSkipped': 'Страница {page}: существующий текст сохранён.',
+        },
         'preparing': 'Подготовка OCR...',
         'progressStage': {
             'modelPrep': 'Подготовка языковых моделей OCR...',
@@ -642,7 +668,7 @@ export default {
         'title': 'Объединить файлы в PDF',
         'pageEyebrow': 'Инструменты PDF',
         'dropTitle': 'Перетащите файлы для объединения',
-        'dropDescription': 'Используйте PDF, DjVu, PNG, JPG, TIFF, WebP, GIF, BMP, AVIF или APNG. Каждый файл становится частью итогового PDF в показанном порядке.',
+        'dropDescription': 'Используйте PDF, DjVu, PNG, JPG, TIFF, WebP, GIF или BMP. Каждый файл становится частью итогового PDF в показанном порядке.',
         'chooseFiles': 'Выбрать файлы',
         'addMore': 'Добавить ещё',
         'listTitle': 'Порядок вывода',
@@ -653,9 +679,6 @@ export default {
             other: '{count} файлов в очереди',
         }),
         'clear': 'Очистить',
-        'emptyTitle': 'Файлы не выбраны',
-        'emptyDescription': 'Перетащите файлы слева или выберите их на компьютере.',
-        'combineAction': 'Объединить в PDF',
         'combineCountAction': plural({
             one: 'Объединить {count} файл',
             few: 'Объединить {count} файла',
@@ -706,7 +729,7 @@ export default {
         'searching': 'Поиск…',
         'pagesProgress': '{processed} из {total} страниц',
         'enterSearchTerm': 'Введите поисковый запрос',
-        'enterSearchHint': 'Введите слово или фразу для поиска по текущему документу.',
+        'enterSearchHint': 'Поиск выполняется постранично, поэтому фразы не переходят через границы страниц. Используйте двойные кавычки, чтобы сохранить пробелы в начале или конце.',
         'typeMinChars': plural({
             one: 'Введите не менее {count} символа',
             few: 'Введите не менее {count} символов',
@@ -1119,6 +1142,8 @@ export default {
             'emptyPdf': 'PDF-файл пустой (0 байт)',
             'folderEmpty': 'В выбранной папке нет поддерживаемых документов',
             'save': 'Не удалось сохранить файл',
+            'browserStorageTitle': 'Хранилище браузера недоступно',
+            'browserStorageDescription': '«{name}» открыт в памяти, но не появится снова после перезагрузки.',
         },
         'export': {
             'images': 'Не удалось экспортировать изображения',
@@ -1250,5 +1275,20 @@ export default {
         'scopeSelected': 'Выбранные страницы ({count})',
         'apply': 'Обрезать',
         'removeCrop': 'Убрать обрезку',
+    },
+    'documentSourceSidebar': {
+        'navLabel': 'Навигация по документу',
+        'loadingOutline': 'Загрузка оглавления…',
+        'noOutline': 'Оглавление отсутствует',
+        'searchPlaceholder': 'Поиск по документу',
+        'searchAction': 'Найти',
+        'searching': 'Поиск…',
+        'noResults': 'Ничего не найдено',
+        'goToPage': 'Перейти на страницу {page}',
+        'page': 'Страница {page}',
+        'addNoteOnPage': 'Добавить заметку на страницу {page}',
+        'noAnnotations': 'На этой странице нет аннотаций',
+        'note': 'Заметка',
+        'deleteAnnotation': 'Удалить аннотацию {id}',
     },
 };

@@ -5,9 +5,6 @@ import type { TDocumentRef } from '@contracts/documentRef';
 interface IWorkspaceUiSyncDeps {
     pendingDjvu: Ref<TDocumentRef | null>;
     openDjvuFile: TOpenDjvuFile;
-    loadPdfFromPath: (path: TDocumentRef) => Promise<void>;
-    currentPage: Ref<number>;
-    pdfViewerRef: Ref<{ scrollToPage: (page: number) => void } | null>;
     originalPath: Ref<TDocumentRef | null>;
     closeFile: () => void | Promise<void>;
     showSettings: Ref<boolean>;
@@ -24,15 +21,12 @@ export const useWorkspaceUiSyncWatchers = (deps: IWorkspaceUiSyncDeps): void => 
         try {
             await deps.openDjvuFile(
                 djvuPath,
-                deps.loadPdfFromPath,
-                () => deps.currentPage.value,
-                (page: number) => {
-                    deps.pdfViewerRef.value?.scrollToPage(page);
+                {
+                    closeActiveDocument: deps.closeFile,
+                    setOriginalPath: (path: TDocumentRef | null) => {
+                        deps.originalPath.value = path;
+                    },
                 },
-                (path: TDocumentRef | null) => {
-                    deps.originalPath.value = path;
-                },
-                deps.closeFile,
             );
         } catch (error) {
             deps.onOpenDjvuError?.(error);

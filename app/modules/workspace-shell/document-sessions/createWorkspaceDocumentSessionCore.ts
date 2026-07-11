@@ -1,5 +1,8 @@
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
-import type { TDocumentInstanceId } from '@contracts/documentInstanceId';
+import {
+    requireDocumentInstanceId,
+    type TDocumentInstanceId,
+} from '@contracts/documentInstanceId';
 import type { TTabUpdate } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
@@ -83,7 +86,7 @@ function createDefaultDocumentSessionKey(input: {
 }
 
 function createDefaultDocumentInstanceId() {
-    return crypto.randomUUID();
+    return requireDocumentInstanceId(crypto.randomUUID());
 }
 
 function createEmptyIdentity(): IWorkspaceDocumentIdentity {

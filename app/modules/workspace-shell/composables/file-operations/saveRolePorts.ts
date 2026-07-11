@@ -2,17 +2,16 @@ import type {
     Ref,
     ShallowRef,
 } from 'vue';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type {
-    IAnnotationCommentSummary,
-    IShapeAnnotation,
-    TMarkupSubtype,
-} from '@app/types/annotations';
-import type {
+    PDFDocumentProxy,
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
     TPdfSaveMode,
 } from '@app/types/pdfContracts';
+import type {
+    IShapeAnnotation,
+    TMarkupSubtype,
+} from '@app/types/annotations';
 import type {
     IPdfPersistResult,
     IPdfSaveResult,
@@ -53,7 +52,6 @@ export interface IWorkspaceSaveDocumentIdentityPort {
 
 export interface IWorkspaceSaveAnnotationStatePort {
     annotationDirty: Ref<boolean>;
-    annotationComments: Ref<IAnnotationCommentSummary[]>;
     markAnnotationSaved: (opts?: { preserveLivePdfjsSession?: boolean }) => void;
     getAnnotationSaveStateToken?: () => unknown;
     hasAnnotationChanges: () => boolean;
@@ -92,9 +90,6 @@ export interface IWorkspaceSavePdfSerializationPort {serializePdfForSave: (
         forceRewrite?: boolean;
         includeShapes?: boolean;
         rewriteShapeState?: boolean;
-        annotationCommentsSnapshot?: IAnnotationCommentSummary[];
-        pendingTexts?: Map<string, string> | null;
-        pendingDeletes?: IAnnotationCommentSummary[] | null;
     },
 ) => Promise<Uint8Array>;}
 
@@ -102,6 +97,7 @@ export interface IWorkspaceSavePersistOptions {
     saveMode?: TPdfSaveMode;
     expectedWorkingPath?: TDocumentRef | null;
     expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
+    changedObjectRefs?: string[];
 }
 
 export interface IWorkspaceSavePersistSerializedOptions extends IWorkspaceSavePersistOptions {preserveLoadedSource?: boolean;}
@@ -136,6 +132,8 @@ export interface IWorkspaceSaveNativeWorkingCopyPersistencePort {
 export interface IWorkspaceSaveNativeMutationOptions extends IWorkspaceSavePersistSerializedOptions {
     saveMode: TPdfSaveMode;
     modifiedAt: string;
+    verifyBeforeExpose?: (bytes: Uint8Array) => Promise<void>;
+    assertBeforeExpose?: () => Promise<void> | void;
 }
 
 export interface IWorkspaceSaveEmbeddedNoteTextUpdateOptions extends IWorkspaceSaveNativeMutationOptions {
@@ -152,17 +150,11 @@ export interface IWorkspaceSaveNativeMutationPersistencePort {
         mutations: IPdfNativeMutationSet,
         opts: IWorkspaceSaveNativeMutationOptions,
     ) => Promise<IPdfPersistResult | null>;
-    markNativeFreeTextNotesSaved?: (notes: IPdfNativeFreeTextNote[]) => void;
-    markNativeFreeTextNotesDeleted?: (deletes: IPdfNativeAnnotationDelete[]) => void;
 }
 
 export interface IWorkspaceSaveMarkupSourcePort {
     getMarkupSubtypeOverrides?: () => Map<string, TMarkupSubtype> | undefined;
     getMarkupSubtypeHints?: () => IMarkupSubtypeHint[] | undefined;
-    getAnnotationCommentsSnapshot?: () => IAnnotationCommentSummary[] | undefined;
-    getPendingEmbeddedMutationSnapshot?: () => ReturnType<
-        NonNullable<IPdfViewerAnnotationCommentExpose['getPendingEmbeddedMutationSnapshot']>
-    > | undefined;
 }
 
 export interface IWorkspaceSaveShapeQueryPort {
@@ -183,10 +175,6 @@ export interface IWorkspaceSaveShapeStatePort {
 
 export interface IWorkspaceSaveEmbeddedAnnotationEditsPort {
     persistAllAnnotationNotes: (force: boolean) => Promise<boolean>;
-    consumePendingEmbeddedTextUpdates: () => Map<string, string> | null;
-    restorePendingEmbeddedTextUpdates?: (updates: Map<string, string> | null | undefined) => void;
-    consumePendingEmbeddedAnnotationDeletes: () => IAnnotationCommentSummary[] | null;
-    restorePendingEmbeddedAnnotationDeletes?: (deletions: IAnnotationCommentSummary[] | null | undefined) => void;
     clearAnnotationHistory?: () => void;
     annotationNoteWindowsCount: Ref<number>;
 }
@@ -259,9 +247,7 @@ export interface IWorkspacePdfViewerSaveAnnotationSourcePort extends
         | 'hasShapes'
     >,
     Pick<IPdfViewerAnnotationCommentExpose,
-        'getAnnotationCommentsSnapshot'
-        | 'getPendingEmbeddedMutationSnapshot'
-        | 'getMarkupSubtypeHints'
+        'getMarkupSubtypeHints'
         | 'getMarkupSubtypeOverrides'
     >,
     Pick<IPdfViewerShapeExpose,

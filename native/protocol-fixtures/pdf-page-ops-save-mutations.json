@@ -1,0 +1,19 @@
+{
+  "updates": [],
+  "freeTextNotes": [],
+  "deletes": [],
+  "placedImages": [
+    {
+      "pageIndex": 0,
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.3,
+      "height": 0.4,
+      "rotationDegrees": 0,
+      "mimeType": "image/jpeg",
+      "bytesPath": "/tmp/evb-native-protocol-fixture.jpg",
+      "byteLength": 4,
+      "sha256": "32461d5bd1773012acef0ba15636752949bd7c2ce50f9172159d9f56cf0dd9af"
+    }
+  ]
+}

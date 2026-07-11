@@ -196,11 +196,11 @@ pnpm test
 # Coverage ratchet, run in nightly CI
 pnpm run test:coverage
 
-# Heavy generated Electron bundle integrity check
-pnpm run test:bundle-integrity
+# Heavy generated Electron bundle static-integrity check
+pnpm run test:electron-bundle-static-integrity
 
-# No-build bundle integrity against an existing dist-electron/
-pnpm run test:bundle-integrity:no-build
+# No-build static integrity against an existing dist-electron/
+pnpm run test:electron-bundle-static-integrity:no-build
 
 # Fast release/local policy loop
 pnpm exec vitest run --project unit-policy tests/unit/scripts/releasePolicy.test.ts
@@ -241,7 +241,7 @@ build/package gate. Broader maintenance checks stay in
 `pnpm validate` and scheduled nightly CI. For local iteration, use changed or
 file-scoped loops such as `pnpm run validate:changed`,
 `pnpm exec vitest run --project unit-policy tests/unit/scripts/releasePolicy.test.ts`, or
-`pnpm run test:bundle-integrity:no-build` after
+`pnpm run test:electron-bundle-static-integrity:no-build` after
 `dist-electron/` already exists. Direct pushes to `main` run
 `pnpm lint`, `pnpm typecheck`, and `pnpm run test:release`; native, landing,
 and Python page-processor changes also get path-filtered checks. Electron E2E

@@ -10,6 +10,8 @@ interface IMenuItemLike {
     label?: string;
     enabled?: boolean;
     role?: string;
+    type?: string;
+    checked?: boolean;
     click?: (item: unknown, window?: unknown) => unknown;
     submenu?: IMenuItemLike[] | unknown;
 }
@@ -201,6 +203,11 @@ function getEditMenuSubmenu(template: IMenuItemLike[]) {
     return Array.isArray(editMenu?.submenu) ? editMenu.submenu : [];
 }
 
+function getViewMenuSubmenu(template: IMenuItemLike[]) {
+    const viewMenu = template.find(item => item.label === 'menu.view');
+    return Array.isArray(viewMenu?.submenu) ? viewMenu.submenu : [];
+}
+
 describe('menu per-window document state', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -387,6 +394,50 @@ describe('menu per-window document state', () => {
         expect(printCurrentPageItem?.enabled).toBe(true);
         printCurrentPageItem?.click?.({}, window);
         expect(window.webContents.send).toHaveBeenCalledWith('menu:printCurrentPage');
+    });
+
+    it('shows a capability-aware checked continuous-scroll command', () => {
+        const window = mocks.createWindow(1, 'Window');
+        mocks.windows.push(window);
+        mocks.focusWindow(window);
+        setupMenu();
+
+        setMenuDocumentState(1, {
+            hasDocument: true,
+            canSave: false,
+            interactive: true,
+            canContinuousScroll: true,
+            continuousScroll: true,
+        });
+
+        const item = getViewMenuSubmenu(getLastMenuTemplate())
+            .find(candidate => candidate.label === 'zoom.continuousScroll');
+        expect(item).toMatchObject({
+            enabled: true,
+            type: 'checkbox',
+            checked: true,
+        });
+        item?.click?.({}, window);
+        expect(window.webContents.send).toHaveBeenCalledWith('menu:toggleContinuousScroll');
+    });
+
+    it('disables View commands while the active document is still opening', () => {
+        const window = mocks.createWindow(1, 'Window');
+        mocks.windows.push(window);
+        mocks.focusWindow(window);
+        setupMenu();
+
+        setMenuDocumentState(1, {
+            hasDocument: true,
+            canSave: false,
+            interactive: false,
+            canContinuousScroll: true,
+            continuousScroll: true,
+        });
+
+        const viewItems = getViewMenuSubmenu(getLastMenuTemplate());
+        expect(viewItems.find(item => item.label === 'menu.zoomIn')?.enabled).toBe(false);
+        expect(viewItems.find(item => item.label === 'zoom.continuousScroll')?.enabled).toBe(false);
     });
 
     it('routes undo to the focused text input instead of the document action', async () => {

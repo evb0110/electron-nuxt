@@ -5,8 +5,7 @@ import {
 } from 'es-toolkit/math';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
-import { editorIdsLikelyMatch } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/editorIdsLikelyMatch';
-import { getCommentCandidateIds } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/getCommentCandidateIds';
+import { getCommentCandidateIds } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 import { getEditorsOnPage } from '@app/services/pdfjs/annotationEditorAdapter';
 
 function getPreferredPageScanOrder(pageIndex: number, numPages: number) {
@@ -35,14 +34,15 @@ export function findEditorForComment(
     for (const pageIndex of getPreferredPageScanOrder(comment.pageIndex, numPages)) {
         for (const normalizedEditor of getEditorsOnPage(uiManager, pageIndex)) {
             const editorIdentity = getEditorIdentity(normalizedEditor, pageIndex);
-            if (
-                candidateIds.some(candidateId => (
-                    editorIdsLikelyMatch(editorIdentity, candidateId)
-                    || editorIdsLikelyMatch(normalizedEditor.uid ?? null, candidateId)
-                    || editorIdsLikelyMatch(normalizedEditor.annotationElementId ?? null, candidateId)
-                    || editorIdsLikelyMatch(normalizedEditor.id ?? null, candidateId)
-                ))
-            ) {
+            const editorIds = new Set([
+                editorIdentity,
+                normalizedEditor.uid,
+                normalizedEditor.annotationElementId,
+                normalizedEditor.id === null || normalizedEditor.id === undefined
+                    ? null
+                    : String(normalizedEditor.id),
+            ].filter((value): value is string => Boolean(value)));
+            if (candidateIds.some(candidateId => editorIds.has(candidateId))) {
                 return normalizedEditor;
             }
         }

@@ -7,6 +7,7 @@ import {
     vi,
 } from 'vitest';
 import type { SearchWorkerService } from '@electron/features/search/main/searchWorkerService';
+import {requireDocumentRevisionToken} from '@contracts';
 
 const workerMocks = vi.hoisted(() => ({instances: [] as Array<{
     postMessage: ReturnType<typeof vi.fn>;
@@ -127,7 +128,7 @@ function dispatchSearch(
         },
         {
             resolvedPdfPath: options.pdfPath ?? '/tmp/work.pdf',
-            documentRevision: 'revision-token',
+            documentRevision: requireDocumentRevisionToken('revision-token'),
             query: options.warmup ? '' : 'term',
             requestId,
             requestIdPrefix: 'search',

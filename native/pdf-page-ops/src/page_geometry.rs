@@ -1,4 +1,6 @@
-fn normalize_page_rotation(value: i64) -> i64 {
+use super::*;
+
+pub(crate) fn normalize_page_rotation(value: i64) -> i64 {
     let snapped = ((value as f64) / 90.0).round() as i64 * 90;
     let normalized = ((snapped % 360) + 360) % 360;
     match normalized {
@@ -7,7 +9,7 @@ fn normalize_page_rotation(value: i64) -> i64 {
     }
 }
 
-fn resolve_page_rotation(document: &Document, page_id: ObjectId) -> Result<i64> {
+pub(crate) fn resolve_page_rotation(document: &Document, page_id: ObjectId) -> Result<i64> {
     let mut current_id = Some(page_id);
     let mut seen = HashSet::new();
 
@@ -28,7 +30,7 @@ fn resolve_page_rotation(document: &Document, page_id: ObjectId) -> Result<i64> 
     Ok(0)
 }
 
-fn intersect_rect(left: PdfRect, right: PdfRect) -> Option<PdfRect> {
+pub(crate) fn intersect_rect(left: PdfRect, right: PdfRect) -> Option<PdfRect> {
     let rect = PdfRect {
         x1: left.x1.max(right.x1),
         y1: left.y1.max(right.y1),
@@ -41,7 +43,7 @@ fn intersect_rect(left: PdfRect, right: PdfRect) -> Option<PdfRect> {
     Some(rect)
 }
 
-fn resolve_page_view(document: &Document, page_id: ObjectId) -> Result<PdfRect> {
+pub(crate) fn resolve_page_view(document: &Document, page_id: ObjectId) -> Result<PdfRect> {
     let media_box = resolve_inherited_box(document, page_id, b"MediaBox")?;
     match resolve_inherited_box(document, page_id, b"CropBox") {
         Ok(crop_box) => Ok(intersect_rect(crop_box, media_box).unwrap_or(media_box)),
@@ -49,7 +51,7 @@ fn resolve_page_view(document: &Document, page_id: ObjectId) -> Result<PdfRect> 
     }
 }
 
-fn pdf_point_from_marker_point(
+pub(crate) fn pdf_point_from_marker_point(
     marker_x: f64,
     marker_y: f64,
     page_view: PdfRect,
@@ -80,7 +82,7 @@ fn pdf_point_from_marker_point(
     )
 }
 
-fn marker_rect_to_pdf_rect(
+pub(crate) fn marker_rect_to_pdf_rect(
     marker_rect: MarkerRect,
     page_view: PdfRect,
     page_rotation: i64,
@@ -118,7 +120,11 @@ fn marker_rect_to_pdf_rect(
     ]))
 }
 
-fn crop_pages(document: &mut Document, pages: &[u32], margins: CropMargins) -> Result<()> {
+pub(crate) fn crop_pages(
+    document: &mut Document,
+    pages: &[u32],
+    margins: CropMargins,
+) -> Result<()> {
     validate_crop_margins(margins)?;
     let page_map = document.get_pages();
     let mut preflighted_pages = Vec::new();
@@ -153,7 +159,7 @@ fn crop_pages(document: &mut Document, pages: &[u32], margins: CropMargins) -> R
     Ok(())
 }
 
-fn validate_crop_margins(margins: CropMargins) -> Result<()> {
+pub(crate) fn validate_crop_margins(margins: CropMargins) -> Result<()> {
     for (label, value) in [
         ("top", margins.top),
         ("bottom", margins.bottom),
@@ -167,7 +173,7 @@ fn validate_crop_margins(margins: CropMargins) -> Result<()> {
     Ok(())
 }
 
-fn remove_crop_from_pages(document: &mut Document, pages: &[u32]) -> Result<()> {
+pub(crate) fn remove_crop_from_pages(document: &mut Document, pages: &[u32]) -> Result<()> {
     let page_map = document.get_pages();
     for page_number in pages {
         let page_id = resolve_page_id(&page_map, *page_number)?;
@@ -177,7 +183,7 @@ fn remove_crop_from_pages(document: &mut Document, pages: &[u32]) -> Result<()> 
     Ok(())
 }
 
-fn resolve_page_id(
+pub(crate) fn resolve_page_id(
     page_map: &std::collections::BTreeMap<u32, ObjectId>,
     page_number: u32,
 ) -> Result<ObjectId> {
@@ -190,7 +196,11 @@ fn resolve_page_id(
     })
 }
 
-fn resolve_inherited_box(document: &Document, page_id: ObjectId, key: &[u8]) -> Result<PdfRect> {
+pub(crate) fn resolve_inherited_box(
+    document: &Document,
+    page_id: ObjectId,
+    key: &[u8],
+) -> Result<PdfRect> {
     let mut current_id = Some(page_id);
     let mut seen = HashSet::new();
 
@@ -215,7 +225,7 @@ fn resolve_inherited_box(document: &Document, page_id: ObjectId, key: &[u8]) -> 
     Err(format!("Missing inherited {}", String::from_utf8_lossy(key)).into())
 }
 
-fn parse_rect(object: &Object) -> Result<PdfRect> {
+pub(crate) fn parse_rect(object: &Object) -> Result<PdfRect> {
     let values = object.as_array()?;
     if values.len() != 4 {
         return Err("PDF rectangle must contain 4 values".into());
@@ -237,7 +247,7 @@ fn parse_rect(object: &Object) -> Result<PdfRect> {
     Ok(rect)
 }
 
-fn object_to_f64(object: &Object) -> Result<f64> {
+pub(crate) fn object_to_f64(object: &Object) -> Result<f64> {
     let value = object.as_float()? as f64;
     if !value.is_finite() {
         return Err("PDF rectangle contains a non-finite value".into());
@@ -245,7 +255,11 @@ fn object_to_f64(object: &Object) -> Result<f64> {
     Ok(value)
 }
 
-fn set_page_crop_box(document: &mut Document, page_id: ObjectId, rect: PdfRect) -> Result<()> {
+pub(crate) fn set_page_crop_box(
+    document: &mut Document,
+    page_id: ObjectId,
+    rect: PdfRect,
+) -> Result<()> {
     let page = document.get_dictionary_mut(page_id)?;
     page.set(
         "CropBox",
@@ -259,7 +273,7 @@ fn set_page_crop_box(document: &mut Document, page_id: ObjectId, rect: PdfRect) 
     Ok(())
 }
 
-fn number_object(value: f64) -> Object {
+pub(crate) fn number_object(value: f64) -> Object {
     let rounded = value.round();
     if (value - rounded).abs() < 0.000_001
         && rounded >= i64::MIN as f64

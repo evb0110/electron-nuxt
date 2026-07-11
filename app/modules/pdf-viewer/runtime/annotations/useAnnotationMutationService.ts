@@ -1,14 +1,11 @@
-import { syncCommentMarkerAnchorEditor } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/commentMarkerAnchorEditor';
+import { syncPdfjsCommentMarkerAnchor } from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
 import type {
     IAnnotationMoveMarkerInput,
     IAnnotationMutationContext,
     IAnnotationMutationService,
-    IAnnotationPendingEmbeddedTextUpdateInput,
-    IAnnotationSuppressionTarget,
     IAnnotationUpdateColorInput,
     IAnnotationUpdateCommentInput,
     IAnnotationUpdateMetadataInput,
-    IConsumedAnnotationEmbeddedMutations,
     IUseAnnotationMutationServiceOptions,
 } from '@app/modules/pdf-viewer/runtime/annotations/annotationMutationService.types';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
@@ -16,15 +13,6 @@ import type {
     IAnnotationMutationVisualEffect,
     IAnnotationMutationVisualEffectsState,
 } from '@app/modules/pdf-viewer/runtime/annotations/annotationMutationVisualEffects.types';
-
-function createEmptyConsumedEmbeddedMutations(): IConsumedAnnotationEmbeddedMutations {
-    return {
-        pendingEmbeddedTextUpdates: new Map<string, string>(),
-        pendingEmbeddedAnnotationDeletes: [],
-        restore: () => undefined,
-        commit: () => undefined,
-    };
-}
 
 function hasTargetValue(value: string | null | undefined): value is string {
     return typeof value === 'string' && value.length > 0;
@@ -62,79 +50,31 @@ function createAnnotationMutationVisualEffectsState(): IAnnotationMutationVisual
 export const useAnnotationMutationService = (
     options: IUseAnnotationMutationServiceOptions,
 ): IAnnotationMutationService => {
-    const pendingEmbeddedMutationVersion = ref(0);
     const visualEffects = createAnnotationMutationVisualEffectsState();
-    const pendingEmbeddedTextUpdates = new Map<string, string>();
-    const pendingEmbeddedAnnotationDeletes = new Map<string, IAnnotationCommentSummary>();
 
-    function bumpPendingEmbeddedMutationVersion() {
-        pendingEmbeddedMutationVersion.value += 1;
+    function runHistoryTransaction<T>(action: () => T) {
+        return options.runHistoryTransaction?.(action) ?? action();
     }
 
-    function resolvePendingEmbeddedTextUpdateKey(input: IAnnotationPendingEmbeddedTextUpdateInput) {
-        return input.stableKey ?? input.comment.stableKey;
-    }
-
-    function queuePendingEmbeddedTextUpdate(input: IAnnotationPendingEmbeddedTextUpdateInput) {
-        const stableKey = resolvePendingEmbeddedTextUpdateKey(input);
-        if (!stableKey) {
+    function deleteEmbeddedAnnotationDeferred(comment: IAnnotationCommentSummary) {
+        const annotationId = options.resolveCanonicalAnnotationId?.(comment);
+        if (!annotationId) {
             return false;
         }
-        pendingEmbeddedTextUpdates.set(stableKey, input.text);
-        bumpPendingEmbeddedMutationVersion();
+        options.deleteCanonicalAnnotation?.(annotationId);
         return true;
-    }
-
-    function clearPendingEmbeddedTextUpdate(stableKey: string) {
-        if (!pendingEmbeddedTextUpdates.delete(stableKey)) {
-            return;
-        }
-        bumpPendingEmbeddedMutationVersion();
-    }
-
-    function migratePendingEmbeddedTextUpdate(previousKey: string, nextKey: string) {
-        if (!previousKey || !nextKey || previousKey === nextKey) {
-            return;
-        }
-        if (!pendingEmbeddedTextUpdates.has(previousKey)) {
-            return;
-        }
-        const pendingText = pendingEmbeddedTextUpdates.get(previousKey);
-        pendingEmbeddedTextUpdates.delete(previousKey);
-        if (typeof pendingText === 'string' && !pendingEmbeddedTextUpdates.has(nextKey)) {
-            pendingEmbeddedTextUpdates.set(nextKey, pendingText);
-        }
-        bumpPendingEmbeddedMutationVersion();
-    }
-
-    function queuePendingEmbeddedAnnotationDelete(comment: IAnnotationCommentSummary) {
-        if (!comment.stableKey) {
-            return false;
-        }
-        pendingEmbeddedAnnotationDeletes.set(comment.stableKey, comment);
-        bumpPendingEmbeddedMutationVersion();
-        return true;
-    }
-
-    function unqueuePendingEmbeddedAnnotationDelete(stableKey: string) {
-        if (!pendingEmbeddedAnnotationDeletes.delete(stableKey)) {
-            return;
-        }
-        bumpPendingEmbeddedMutationVersion();
-    }
-
-    function getPendingEmbeddedMutationSnapshot() {
-        return {
-            pendingEmbeddedTextUpdates: new Map(pendingEmbeddedTextUpdates),
-            pendingEmbeddedAnnotationDeletes: Array.from(pendingEmbeddedAnnotationDeletes.values()),
-        };
     }
 
     function updateComment(
         input: IAnnotationUpdateCommentInput,
         _context: IAnnotationMutationContext,
     ) {
-        return options.updateAnnotationComment(input.comment, input.text);
+        return runHistoryTransaction(() => {
+            const updated = options.updateAnnotationComment(input.comment, input.text);
+            const id = updated ? options.resolveCanonicalAnnotationId?.(input.comment) : null;
+            if (id) options.setCanonicalNoteText?.(id, input.text);
+            return updated;
+        });
     }
 
     async function deleteAnnotation(
@@ -144,22 +84,30 @@ export const useAnnotationMutationService = (
         },
         _context: IAnnotationMutationContext,
     ) {
-        if (input.strategy === 'local-only') {
-            options.markAnnotationLocallyDeleted(input.comment);
-            enqueueAnnotationDomRemoval(input.comment);
-            return true;
-        }
-        const deleted = await options.deleteAnnotationComment(input.comment);
-        if (deleted) {
-            enqueueAnnotationDomRemoval(input.comment);
-        }
-        return deleted;
+        return runHistoryTransaction(async () => {
+            if (input.strategy === 'local-only') {
+                options.markAnnotationLocallyDeleted(input.comment);
+                enqueueAnnotationDomRemoval(input.comment);
+                return true;
+            }
+            const deleted = await options.deleteAnnotationComment(input.comment);
+            if (deleted) {
+                enqueueAnnotationDomRemoval(input.comment);
+                const id = options.resolveCanonicalAnnotationId?.(input.comment);
+                if (id) options.deleteCanonicalAnnotation?.(id);
+            }
+            return deleted;
+        });
     }
 
     function updateColor(
         input: IAnnotationUpdateColorInput,
         _context: IAnnotationMutationContext,
     ) {
+        return runHistoryTransaction(() => updateColorInTransaction(input));
+    }
+
+    function updateColorInTransaction(input: IAnnotationUpdateColorInput) {
         const result = input.selected === true
             ? options.updateSelectedTextMarkupAnnotationColor(input.color)
             : input.comment
@@ -168,6 +116,8 @@ export const useAnnotationMutationService = (
         if (!result?.updated || !result.comment) {
             return result?.updated === true;
         }
+        const id = options.resolveCanonicalAnnotationId?.(result.comment);
+        if (id) options.setCanonicalColor?.(id, input.color);
         if (result.shouldApplyTextMarkupColor) {
             visualEffects.enqueue({
                 kind: 'text-markup-color',
@@ -238,19 +188,23 @@ export const useAnnotationMutationService = (
         input: IAnnotationMoveMarkerInput,
         _context: IAnnotationMutationContext,
     ) {
-        return options.handleMarkerMove(input.comment, input.rect, {
+        return runHistoryTransaction(() => moveMarkerInTransaction(input));
+    }
+
+    function moveMarkerInTransaction(input: IAnnotationMoveMarkerInput) {
+        const moved = options.handleMarkerMove(input.comment, input.rect, {
             markEditorPending: (updated, original, markerRect) => {
                 const editor = options.findEditorForComment(updated) ?? options.findEditorForComment(original);
                 if (!editor) {
                     return;
                 }
-                syncCommentMarkerAnchorEditor(editor, markerRect);
-                options.addPendingCommentEditorKey(
-                    options.getEditorPendingKey(editor, updated.pageIndex),
-                );
+                syncPdfjsCommentMarkerAnchor(editor, markerRect);
             },
             markModified: options.markModified,
         });
+        const id = moved ? options.resolveCanonicalAnnotationId?.(input.comment) : null;
+        if (id) options.moveCanonicalAnchor?.(id, input.rect);
+        return moved;
     }
 
     function restoreAnnotation(
@@ -268,80 +222,11 @@ export const useAnnotationMutationService = (
         options.removeAnnotationFromInternalCache(stableKey);
     }
 
-    function suppressAnnotation(target: IAnnotationSuppressionTarget) {
-        const {
-            annotationId,
-            stableKey,
-        } = target;
-        if (hasTargetValue(stableKey)) {
-            options.suppressAnnotationStableKey(stableKey);
-        }
-        if (hasTargetValue(annotationId)) {
-            options.suppressManagedAnnotationId(annotationId);
-        }
-    }
-
-    function unsuppressAnnotation(target: IAnnotationSuppressionTarget) {
-        const {
-            annotationId,
-            stableKey,
-        } = target;
-        if (hasTargetValue(stableKey)) {
-            options.unsuppressAnnotationStableKey(stableKey);
-        }
-        if (hasTargetValue(annotationId)) {
-            options.unsuppressManagedAnnotationId(annotationId);
-            options.unsuppressCommentAnnotationId(annotationId);
-        }
-    }
-
     async function flushForSave() {
         return options.flushAnnotationCommentsForSave();
     }
 
-    function consumePendingEmbeddedMutations() {
-        const external = options.consumePendingEmbeddedMutations?.();
-        if (external) {
-            return external;
-        }
-        if (pendingEmbeddedTextUpdates.size === 0 && pendingEmbeddedAnnotationDeletes.size === 0) {
-            return createEmptyConsumedEmbeddedMutations();
-        }
-        const consumedTexts = new Map(pendingEmbeddedTextUpdates);
-        const consumedDeletes = Array.from(pendingEmbeddedAnnotationDeletes.values());
-        pendingEmbeddedTextUpdates.clear();
-        pendingEmbeddedAnnotationDeletes.clear();
-        bumpPendingEmbeddedMutationVersion();
-
-        let settled = false;
-        return {
-            pendingEmbeddedTextUpdates: consumedTexts,
-            pendingEmbeddedAnnotationDeletes: consumedDeletes,
-            restore: () => {
-                if (settled) {
-                    return;
-                }
-                settled = true;
-                consumedTexts.forEach((text, stableKey) => {
-                    if (!pendingEmbeddedTextUpdates.has(stableKey)) {
-                        pendingEmbeddedTextUpdates.set(stableKey, text);
-                    }
-                });
-                consumedDeletes.forEach((comment) => {
-                    if (!pendingEmbeddedAnnotationDeletes.has(comment.stableKey)) {
-                        pendingEmbeddedAnnotationDeletes.set(comment.stableKey, comment);
-                    }
-                });
-                bumpPendingEmbeddedMutationVersion();
-            },
-            commit: () => {
-                settled = true;
-            },
-        };
-    }
-
     return {
-        pendingEmbeddedMutationVersion,
         visualEffects,
         updateComment,
         deleteAnnotation,
@@ -352,15 +237,7 @@ export const useAnnotationMutationService = (
         enqueueAnnotationDomRemoval,
         removeAnnotationFromInternalCache,
         clearPendingMarkerMoves: options.clearPendingMarkerMoves,
-        suppressAnnotation,
-        unsuppressAnnotation,
-        queuePendingEmbeddedTextUpdate,
-        clearPendingEmbeddedTextUpdate,
-        migratePendingEmbeddedTextUpdate,
-        queuePendingEmbeddedAnnotationDelete,
-        unqueuePendingEmbeddedAnnotationDelete,
-        getPendingEmbeddedMutationSnapshot,
+        deleteEmbeddedAnnotationDeferred,
         flushForSave,
-        consumePendingEmbeddedMutations,
     };
 };

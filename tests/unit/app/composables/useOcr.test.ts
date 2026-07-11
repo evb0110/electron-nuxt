@@ -9,7 +9,7 @@ import { effectScope } from 'vue';
 import { retry } from 'es-toolkit/function';
 import { withTimeout } from 'es-toolkit/promise';
 
-const loadOcrTextMock = vi.hoisted(() => vi.fn<() => Promise<string | null>>(async () => null));
+const loadDocumentTextCatalogPagesMock = vi.hoisted(() => vi.fn<() => Promise<unknown>>(async () => null));
 const extractPdfTextMock = vi.hoisted(() => vi.fn<() => Promise<string | null>>(async () => null));
 const createDocxFromTextMock = vi.hoisted(() => vi.fn(() => new Uint8Array([
     7,
@@ -43,7 +43,7 @@ vi.mock('@app/utils/platformDocuments', () => ({
     getDocumentFilesCapability: () => mockElectronAPI.documents,
     getDocumentWorkingCopyCapability: () => mockElectronAPI.documents,
 }));
-vi.mock('@app/utils/ocr/loadOcrText', () => ({ loadOcrText: loadOcrTextMock }));
+vi.mock('@app/utils/ocr/loadOcrText', () => ({loadDocumentTextCatalogPages: loadDocumentTextCatalogPagesMock}));
 vi.mock('@app/utils/ocr/extractPdfText', () => ({ extractPdfText: extractPdfTextMock }));
 vi.mock('@app/utils/docx', () => ({createDocxFromText: createDocxFromTextMock}));
 vi.stubGlobal('useToast', () => ({ add: toastAddMock }));
@@ -168,7 +168,8 @@ describe('useOcr', () => {
             expect(mockOcr.cancel).toHaveBeenCalledTimes(1);
             expect(progressUnsubscribe).toHaveBeenCalledTimes(1);
             expect(completeUnsubscribe).not.toHaveBeenCalled();
-            expect(ocr.progress.value.isRunning).toBe(false);
+            expect(ocr.progress.value.isRunning).toBe(true);
+            expect(ocr.progress.value.status).toBe('cancel-requested');
             expect(ocr.error.value).toBeNull();
 
             const requestId = mockOcr.createSearchablePdf.mock.calls[0]?.[2] as string;
@@ -429,6 +430,7 @@ describe('useOcr', () => {
             expect(options).toEqual({
                 qualityProfile: 'balanced',
                 preprocessingMode: 'off',
+                supersessionPolicy: 'missing-only',
             });
             emitComplete({
                 requestId: requestId as string,
@@ -481,6 +483,7 @@ describe('useOcr', () => {
             expect(mockOcr.createSearchablePdf.mock.calls[0]?.[3]).toEqual({
                 qualityProfile: 'poor-scan',
                 preprocessingMode: 'clean',
+                supersessionPolicy: 'missing-only',
                 pageSegmentationMode: 6,
             });
         } finally {
@@ -593,7 +596,8 @@ describe('useOcr', () => {
             await runPromise;
 
             expect(mockOcr.cancel).toHaveBeenCalledWith(requestId);
-            expect(ocr.progress.value.isRunning).toBe(false);
+            expect(ocr.progress.value.isRunning).toBe(true);
+            expect(ocr.progress.value.status).toBe('cancel-requested');
             expect(ocr.error.value).not.toBeNull();
         } finally {
             scope.stop();
@@ -683,7 +687,7 @@ describe('useOcr', () => {
         }
     });
 
-    it('opens the DOCX save dialog before gathering text for export', async () => {
+    it('opens the DOCX save dialog before gathering canonical catalog text for export', async () => {
         const callOrder: string[] = [];
         mockDocuments.saveDocxAs.mockImplementationOnce(async () => {
             callOrder.push('saveDocxAs');
@@ -691,13 +695,13 @@ describe('useOcr', () => {
         });
         mockDocuments.writeDocxFile.mockResolvedValueOnce(undefined);
         mockDocuments.cleanupFile.mockResolvedValueOnce(undefined);
-        loadOcrTextMock.mockImplementationOnce(async () => {
+        loadDocumentTextCatalogPagesMock.mockImplementationOnce(async () => {
             callOrder.push('loadOcrText');
-            return null;
-        });
-        extractPdfTextMock.mockImplementationOnce(async () => {
-            callOrder.push('extractPdfText');
-            return 'pdf text';
+            return [{
+                pageNumber: 1,
+                text: 'pdf text',
+                source: 'pdf-native',
+            }];
         });
 
         const scope = effectScope();
@@ -712,10 +716,14 @@ describe('useOcr', () => {
             expect(callOrder).toEqual([
                 'saveDocxAs',
                 'loadOcrText',
-                'extractPdfText',
             ]);
-            expect(loadOcrTextMock).toHaveBeenCalledWith('/tmp/work.pdf', 'revision-token');
+            expect(loadDocumentTextCatalogPagesMock).toHaveBeenCalledWith(
+                '/tmp/work.pdf',
+                'revision-token',
+                undefined,
+            );
             expect(createDocxFromTextMock).toHaveBeenCalledWith('pdf text', false);
+            expect(extractPdfTextMock).not.toHaveBeenCalled();
             expect(mockDocuments.writeDocxFile).toHaveBeenCalledWith(
                 '/tmp/export.docx',
                 new Uint8Array([

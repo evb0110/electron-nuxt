@@ -1,4 +1,6 @@
-fn normalize_managed_shape_stable_key(value: Option<&str>) -> Option<String> {
+use super::*;
+
+pub(crate) fn normalize_managed_shape_stable_key(value: Option<&str>) -> Option<String> {
     let trimmed = value?.trim();
     if trimmed.starts_with("evb-shape:") {
         Some(trimmed.to_string())
@@ -7,14 +9,17 @@ fn normalize_managed_shape_stable_key(value: Option<&str>) -> Option<String> {
     }
 }
 
-fn read_managed_shape_stable_key(dict: &Dictionary) -> Option<String> {
+pub(crate) fn read_managed_shape_stable_key(dict: &Dictionary) -> Option<String> {
     dict.get(b"EVBShapeKey")
         .ok()
         .and_then(pdf_string_to_text)
         .and_then(|value| normalize_managed_shape_stable_key(Some(&value)))
 }
 
-fn write_managed_shape_stable_key(dict: &mut Dictionary, stable_key: Option<&str>) -> bool {
+pub(crate) fn write_managed_shape_stable_key(
+    dict: &mut Dictionary,
+    stable_key: Option<&str>,
+) -> bool {
     let Some(stable_key) = normalize_managed_shape_stable_key(stable_key) else {
         return false;
     };
@@ -31,7 +36,7 @@ fn write_managed_shape_stable_key(dict: &mut Dictionary, stable_key: Option<&str
     true
 }
 
-fn format_pdfjs_annotation_ref(object_id: ObjectId) -> String {
+pub(crate) fn format_pdfjs_annotation_ref(object_id: ObjectId) -> String {
     if object_id.1 == 0 {
         format!("{}R", object_id.0)
     } else {
@@ -39,7 +44,7 @@ fn format_pdfjs_annotation_ref(object_id: ObjectId) -> String {
     }
 }
 
-fn normalize_pdfjs_annotation_id(value: &str) -> Option<String> {
+pub(crate) fn normalize_pdfjs_annotation_id(value: &str) -> Option<String> {
     let trimmed = value.trim();
     let (object, generation) = trimmed.split_once('R')?;
     if object.is_empty() || !object.chars().all(|character| character.is_ascii_digit()) {
@@ -66,7 +71,7 @@ fn normalize_pdfjs_annotation_id(value: &str) -> Option<String> {
     }
 }
 
-fn shape_annotation_subtype_for_create(shape: &ShapeAnnotation) -> Option<&'static str> {
+pub(crate) fn shape_annotation_subtype_for_create(shape: &ShapeAnnotation) -> Option<&'static str> {
     match shape.shape_type.as_str() {
         "rectangle" => Some("Square"),
         "circle" => Some("Circle"),
@@ -78,14 +83,14 @@ fn shape_annotation_subtype_for_create(shape: &ShapeAnnotation) -> Option<&'stat
     }
 }
 
-fn is_supported_shape_subtype(subtype: &str) -> bool {
+pub(crate) fn is_supported_shape_subtype(subtype: &str) -> bool {
     matches!(
         subtype,
         "square" | "circle" | "line" | "polyline" | "polygon" | "ink"
     )
 }
 
-fn timestamp_millis_to_pdf_date_utc(timestamp_millis: u64) -> String {
+pub(crate) fn timestamp_millis_to_pdf_date_utc(timestamp_millis: u64) -> String {
     let seconds = (timestamp_millis / 1_000).min(i64::MAX as u64) as i64;
     let days = seconds.div_euclid(86_400);
     let seconds_of_day = seconds.rem_euclid(86_400);
@@ -96,7 +101,7 @@ fn timestamp_millis_to_pdf_date_utc(timestamp_millis: u64) -> String {
     format!("D:{year:04}{month:02}{day:02}{hour:02}{minute:02}{second:02}Z")
 }
 
-fn civil_from_unix_days(days: i64) -> (i64, i64, i64) {
+pub(crate) fn civil_from_unix_days(days: i64) -> (i64, i64, i64) {
     let z = days + 719_468;
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
     let doe = z - era * 146_097;
@@ -112,21 +117,21 @@ fn civil_from_unix_days(days: i64) -> (i64, i64, i64) {
     (year, month, day)
 }
 
-fn shape_pdf_date(timestamp: Option<u64>, fallback: &str) -> String {
+pub(crate) fn shape_pdf_date(timestamp: Option<u64>, fallback: &str) -> String {
     timestamp
         .filter(|value| *value > 0)
         .map(timestamp_millis_to_pdf_date_utc)
         .unwrap_or_else(|| fallback.to_string())
 }
 
-fn set_shape_dates(dict: &mut Dictionary, shape: &ShapeAnnotation, modified_at: &str) {
+pub(crate) fn set_shape_dates(dict: &mut Dictionary, shape: &ShapeAnnotation, modified_at: &str) {
     let created = shape_pdf_date(shape.created_at.or(shape.modified_at), modified_at);
     let modified = shape_pdf_date(shape.modified_at, &created);
     dict.set("CreationDate", Object::string_literal(created.into_bytes()));
     dict.set("M", Object::string_literal(modified.into_bytes()));
 }
 
-fn set_shape_style(dict: &mut Dictionary, shape: &ShapeAnnotation) {
+pub(crate) fn set_shape_style(dict: &mut Dictionary, shape: &ShapeAnnotation) {
     set_rgb_color(dict, "C", Some(&shape.color));
     dict.set("CA", number_object(shape.opacity));
     dict.set(
@@ -139,7 +144,7 @@ fn set_shape_style(dict: &mut Dictionary, shape: &ShapeAnnotation) {
     );
 }
 
-fn shape_line_ending_name(style: Option<&str>) -> Object {
+pub(crate) fn shape_line_ending_name(style: Option<&str>) -> Object {
     match style {
         Some("openArrow") => Object::Name(b"OpenArrow".to_vec()),
         Some("closedArrow") => Object::Name(b"ClosedArrow".to_vec()),
@@ -147,7 +152,7 @@ fn shape_line_ending_name(style: Option<&str>) -> Object {
     }
 }
 
-fn set_shape_line_endings(dict: &mut Dictionary, shape: &ShapeAnnotation) {
+pub(crate) fn set_shape_line_endings(dict: &mut Dictionary, shape: &ShapeAnnotation) {
     let start = shape.line_start_style.as_deref().unwrap_or("none");
     let end = shape.line_end_style.as_deref().unwrap_or("none");
     if start == "none" && end == "none" {
@@ -163,7 +168,7 @@ fn set_shape_line_endings(dict: &mut Dictionary, shape: &ShapeAnnotation) {
     );
 }
 
-fn shape_rect_from_bounds(
+pub(crate) fn shape_rect_from_bounds(
     left: f64,
     top: f64,
     width: f64,
@@ -183,11 +188,15 @@ fn shape_rect_from_bounds(
     )
 }
 
-fn shape_pdf_point(point: &ShapePoint, page_view: PdfRect, page_rotation: i64) -> (f64, f64) {
+pub(crate) fn shape_pdf_point(
+    point: &ShapePoint,
+    page_view: PdfRect,
+    page_rotation: i64,
+) -> (f64, f64) {
     pdf_point_from_marker_point(point.x, point.y, page_view, page_rotation)
 }
 
-fn shape_points_to_pdf_points(
+pub(crate) fn shape_points_to_pdf_points(
     points: &[ShapePoint],
     page_view: PdfRect,
     page_rotation: i64,
@@ -198,7 +207,7 @@ fn shape_points_to_pdf_points(
         .collect()
 }
 
-fn pdf_points_bounds(points: &[(f64, f64)], stroke_width: f64) -> Result<PdfRect> {
+pub(crate) fn pdf_points_bounds(points: &[(f64, f64)], stroke_width: f64) -> Result<PdfRect> {
     if points.is_empty() {
         return Err("Shape has no PDF points".into());
     }
@@ -235,7 +244,7 @@ fn pdf_points_bounds(points: &[(f64, f64)], stroke_width: f64) -> Result<PdfRect
     Ok(rect)
 }
 
-fn flat_pdf_points_object(points: &[(f64, f64)]) -> Object {
+pub(crate) fn flat_pdf_points_object(points: &[(f64, f64)]) -> Object {
     Object::Array(
         points
             .iter()
@@ -244,7 +253,7 @@ fn flat_pdf_points_object(points: &[(f64, f64)]) -> Object {
     )
 }
 
-fn set_rect_shape_fields(
+pub(crate) fn set_rect_shape_fields(
     dict: &mut Dictionary,
     shape: &ShapeAnnotation,
     page_view: PdfRect,
@@ -264,7 +273,7 @@ fn set_rect_shape_fields(
     Ok(())
 }
 
-fn set_line_shape_fields(
+pub(crate) fn set_line_shape_fields(
     dict: &mut Dictionary,
     shape: &ShapeAnnotation,
     page_view: PdfRect,
@@ -286,7 +295,7 @@ fn set_line_shape_fields(
     Ok(())
 }
 
-fn set_vertex_shape_fields(
+pub(crate) fn set_vertex_shape_fields(
     dict: &mut Dictionary,
     shape: &ShapeAnnotation,
     page_view: PdfRect,
@@ -308,7 +317,7 @@ fn set_vertex_shape_fields(
     Ok(())
 }
 
-fn shape_ink_strokes<'a>(shape: &'a ShapeAnnotation) -> Vec<&'a [ShapePoint]> {
+pub(crate) fn shape_ink_strokes(shape: &ShapeAnnotation) -> Vec<&[ShapePoint]> {
     if shape.strokes.is_empty() {
         vec![shape.points.as_slice()]
     } else {
@@ -316,7 +325,7 @@ fn shape_ink_strokes<'a>(shape: &'a ShapeAnnotation) -> Vec<&'a [ShapePoint]> {
     }
 }
 
-fn set_ink_shape_fields(
+pub(crate) fn set_ink_shape_fields(
     dict: &mut Dictionary,
     shape: &ShapeAnnotation,
     page_view: PdfRect,
@@ -338,7 +347,7 @@ fn set_ink_shape_fields(
     Ok(())
 }
 
-fn update_shape_annotation_dict(
+pub(crate) fn update_shape_annotation_dict(
     dict: &mut Dictionary,
     shape: &ShapeAnnotation,
     page_view: PdfRect,
@@ -362,7 +371,7 @@ fn update_shape_annotation_dict(
     Ok(true)
 }
 
-fn create_shape_annotation_dict(
+pub(crate) fn create_shape_annotation_dict(
     shape: &ShapeAnnotation,
     page_view: PdfRect,
     page_rotation: i64,
@@ -385,15 +394,15 @@ fn create_shape_annotation_dict(
     Ok(dict)
 }
 
-struct ShapeConsumptionState<'a> {
-    shapes: &'a [ShapeAnnotation],
-    consumed: Vec<bool>,
-    by_annotation_id: HashMap<String, usize>,
-    by_stable_key: HashMap<String, usize>,
+pub(crate) struct ShapeConsumptionState<'a> {
+    pub(crate) shapes: &'a [ShapeAnnotation],
+    pub(crate) consumed: Vec<bool>,
+    pub(crate) by_annotation_id: HashMap<String, usize>,
+    pub(crate) by_stable_key: HashMap<String, usize>,
 }
 
 impl<'a> ShapeConsumptionState<'a> {
-    fn new(shapes: &'a [ShapeAnnotation]) -> Self {
+    pub(crate) fn new(shapes: &'a [ShapeAnnotation]) -> Self {
         let mut state = Self {
             shapes,
             consumed: vec![false; shapes.len()],
@@ -417,27 +426,27 @@ impl<'a> ShapeConsumptionState<'a> {
         state
     }
 
-    fn find_by_annotation_id(&self, annotation_id: &str) -> Option<usize> {
+    pub(crate) fn find_by_annotation_id(&self, annotation_id: &str) -> Option<usize> {
         self.by_annotation_id
             .get(annotation_id)
             .copied()
             .filter(|index| !self.consumed[*index])
     }
 
-    fn find_by_stable_key(&self, stable_key: &str) -> Option<usize> {
+    pub(crate) fn find_by_stable_key(&self, stable_key: &str) -> Option<usize> {
         self.by_stable_key
             .get(stable_key)
             .copied()
             .filter(|index| !self.consumed[*index])
     }
 
-    fn consume(&mut self, index: usize) {
+    pub(crate) fn consume(&mut self, index: usize) {
         if index < self.consumed.len() {
             self.consumed[index] = true;
         }
     }
 
-    fn remaining(&self) -> impl Iterator<Item = &ShapeAnnotation> {
+    pub(crate) fn remaining(&self) -> impl Iterator<Item = &ShapeAnnotation> {
         self.shapes
             .iter()
             .enumerate()
@@ -445,12 +454,12 @@ impl<'a> ShapeConsumptionState<'a> {
     }
 }
 
-struct DeletedShapeRefs {
-    annotation_ids: HashSet<String>,
-    stable_keys: HashSet<String>,
+pub(crate) struct DeletedShapeRefs {
+    pub(crate) annotation_ids: HashSet<String>,
+    pub(crate) stable_keys: HashSet<String>,
 }
 
-fn collect_deleted_shape_refs(shapes: &ShapesMutation) -> DeletedShapeRefs {
+pub(crate) fn collect_deleted_shape_refs(shapes: &ShapesMutation) -> DeletedShapeRefs {
     DeletedShapeRefs {
         annotation_ids: shapes
             .deleted_annotation_ids
@@ -465,7 +474,7 @@ fn collect_deleted_shape_refs(shapes: &ShapesMutation) -> DeletedShapeRefs {
     }
 }
 
-fn collect_shape_annotation_refs_to_delete(
+pub(crate) fn collect_shape_annotation_refs_to_delete(
     document: &Document,
     refs_to_delete: &mut HashSet<ObjectId>,
     object_id: ObjectId,
@@ -476,7 +485,7 @@ fn collect_shape_annotation_refs_to_delete(
     Ok(())
 }
 
-fn apply_shape_annotation_decision(
+pub(crate) fn apply_shape_annotation_decision(
     document: &mut Document,
     state: &mut ShapeConsumptionState,
     deleted_refs: &DeletedShapeRefs,
@@ -535,7 +544,7 @@ fn apply_shape_annotation_decision(
     Ok(false)
 }
 
-fn apply_shape_annotation_decision_incremental(
+pub(crate) fn apply_shape_annotation_decision_incremental(
     incremental: &mut IncrementalDocument,
     state: &mut ShapeConsumptionState,
     deleted_refs: &DeletedShapeRefs,
@@ -596,7 +605,7 @@ fn apply_shape_annotation_decision_incremental(
     Ok(false)
 }
 
-fn remove_shape_refs_from_pages(
+pub(crate) fn remove_shape_refs_from_pages(
     document: &mut Document,
     refs_to_delete: &HashSet<ObjectId>,
 ) -> Result<bool> {
@@ -618,7 +627,7 @@ fn remove_shape_refs_from_pages(
     Ok(removed_any)
 }
 
-fn remove_shape_refs_from_pages_incremental(
+pub(crate) fn remove_shape_refs_from_pages_incremental(
     incremental: &mut IncrementalDocument,
     refs_to_delete: &HashSet<ObjectId>,
 ) -> Result<bool> {
@@ -642,7 +651,7 @@ fn remove_shape_refs_from_pages_incremental(
     Ok(removed_any)
 }
 
-fn append_remaining_shape_annotations(
+pub(crate) fn append_remaining_shape_annotations(
     document: &mut Document,
     shapes: Vec<ShapeAnnotation>,
     modified_at: &str,
@@ -665,7 +674,7 @@ fn append_remaining_shape_annotations(
     Ok(modified)
 }
 
-fn append_remaining_shape_annotations_incremental(
+pub(crate) fn append_remaining_shape_annotations_incremental(
     incremental: &mut IncrementalDocument,
     shapes: Vec<ShapeAnnotation>,
     modified_at: &str,
@@ -690,7 +699,7 @@ fn append_remaining_shape_annotations_incremental(
     Ok(modified)
 }
 
-fn apply_shape_annotations(
+pub(crate) fn apply_shape_annotations(
     document: &mut Document,
     shapes: &ShapesMutation,
     modified_at: &str,
@@ -736,7 +745,7 @@ fn apply_shape_annotations(
     Ok(())
 }
 
-fn apply_shape_annotations_incremental(
+pub(crate) fn apply_shape_annotations_incremental(
     incremental: &mut IncrementalDocument,
     shapes: &ShapesMutation,
     modified_at: &str,

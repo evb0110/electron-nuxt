@@ -6,7 +6,7 @@
                 :tooltip="t('pageDropdown.firstPage')"
                 :disabled="disabled || totalPages === 0 || commandPage <= 1"
                 grouped
-                icon-class="size-[1.1rem]"
+                icon-class="size-[var(--app-toolbar-icon-size)]"
                 @click="goToFirst"
             />
         </div>
@@ -16,7 +16,7 @@
                 :tooltip="t('pageDropdown.previousPage')"
                 :disabled="disabled || totalPages === 0 || commandPage <= 1"
                 grouped
-                icon-class="size-[1.1rem]"
+                icon-class="size-[var(--app-toolbar-icon-size)]"
                 @click="goToPrevious"
             />
         </div>
@@ -77,7 +77,7 @@
                 :tooltip="t('pageDropdown.nextPage')"
                 :disabled="disabled || totalPages === 0 || commandPage >= totalPages"
                 grouped
-                icon-class="size-[1.1rem]"
+                icon-class="size-[var(--app-toolbar-icon-size)]"
                 @click="goToNext"
             />
         </div>
@@ -87,7 +87,7 @@
                 :tooltip="t('pageDropdown.lastPage')"
                 :disabled="disabled || totalPages === 0 || commandPage >= totalPages"
                 grouped
-                icon-class="size-[1.1rem]"
+                icon-class="size-[var(--app-toolbar-icon-size)]"
                 @click="goToLast"
             />
         </div>
@@ -262,7 +262,9 @@ function commitPageInput() {
 }
 
 onClickOutside(pageControlsRef, () => {
-    const activeElement = document.activeElement as HTMLElement | null;
+    const activeElement = document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
     if (activeElement?.closest('.page-controls')) {
         activeElement.blur();
     }
@@ -332,7 +334,7 @@ onClickOutside(pageControlsRef, () => {
 .page-controls-total,
 .page-controls-slash,
 .page-controls-inline-input {
-    font-size: 0.875rem;
+    font-size: var(--app-text-size-body);
     font-family: var(--app-font-mono);
     font-variant-numeric: tabular-nums;
     color: var(--ui-text);

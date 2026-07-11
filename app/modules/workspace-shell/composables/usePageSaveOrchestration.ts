@@ -3,9 +3,8 @@ import type {
     Ref,
     ShallowRef,
 } from 'vue';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type {
+    PDFDocumentProxy,
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
 } from '@app/types/pdfContracts';
@@ -15,7 +14,7 @@ import type { IPdfOptimizeOptions } from '@contracts/electronApiDocuments';
 import { isStaleRevisionError } from '@contracts/documentMutationErrors';
 import {
     usePdfSerialization,
-    capturePdfReloadSnapshot,
+    resolvePdfReloadPage,
     createPdfReloadWaiter,
 } from '@app/modules/pdf-viewer/public';
 import { useFileOperationsSaveController } from '@app/modules/workspace-shell/composables/file-operations/useFileOperationsSaveController';
@@ -54,7 +53,6 @@ interface IPageSaveOrchestrationDeps {
     workingCopyPath: Ref<TDocumentRef | null>;
     originalPath: Ref<TDocumentRef | null>;
     documentRevisionToken: Ref<TDocumentRevisionToken | null>;
-    annotationComments: Ref<IAnnotationCommentSummary[]>;
     totalPages: Ref<number>;
     pageLabelsDirty: Ref<boolean>;
     pageLabelRanges: Ref<IPdfPageLabelRange[]>;
@@ -68,8 +66,6 @@ interface IPageSaveOrchestrationDeps {
     hasLivePdfJsAnnotationChanges?: () => boolean;
     hasSavedPdfJsAnnotationBaselineChanges?: () => boolean;
     hasPreservedAnnotationSourceChanges?: () => boolean;
-    markNativeFreeTextNotesSaved?: IWorkspaceSaveNativeMutationPersistencePort['markNativeFreeTextNotesSaved'];
-    markNativeFreeTextNotesDeleted?: IWorkspaceSaveNativeMutationPersistencePort['markNativeFreeTextNotesDeleted'];
     markAnnotationSaved: (opts?: { preserveLivePdfjsSession?: boolean }) => void;
     getAnnotationSaveStateToken?: () => unknown;
     markPageLabelsSaved: () => void;
@@ -91,10 +87,6 @@ interface IPageSaveOrchestrationDeps {
     saveWorkingCopyAs: IWorkspaceSavePersistencePort['saveWorkingCopyAs'];
     optimizePdfOnSaveAs?: IWorkspaceSaveNativeWorkingCopyPersistencePort['optimizePdfOnSaveAs'];
     persistAllAnnotationNotes: (force: boolean) => Promise<boolean>;
-    consumePendingEmbeddedTextUpdates: () => Map<string, string> | null;
-    restorePendingEmbeddedTextUpdates?: (updates: Map<string, string> | null | undefined) => void;
-    consumePendingEmbeddedAnnotationDeletes: () => IAnnotationCommentSummary[] | null;
-    restorePendingEmbeddedAnnotationDeletes?: (deletions: IAnnotationCommentSummary[] | null | undefined) => void;
     clearAnnotationHistory?: () => void;
     loadRecentFiles: () => void;
     clearOcrCache: (path: TDocumentRef) => void;
@@ -123,7 +115,6 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         workingCopyPath,
         originalPath,
         documentRevisionToken,
-        annotationComments,
         totalPages,
         pageLabelsDirty,
         pageLabelRanges,
@@ -137,8 +128,6 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         hasLivePdfJsAnnotationChanges,
         hasSavedPdfJsAnnotationBaselineChanges,
         hasPreservedAnnotationSourceChanges,
-        markNativeFreeTextNotesSaved,
-        markNativeFreeTextNotesDeleted,
         markAnnotationSaved,
         getAnnotationSaveStateToken,
         markPageLabelsSaved,
@@ -158,10 +147,6 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         trySaveEmbeddedNoteTextUpdates,
         saveWorkingCopyAs,
         persistAllAnnotationNotes,
-        consumePendingEmbeddedTextUpdates,
-        restorePendingEmbeddedTextUpdates,
-        consumePendingEmbeddedAnnotationDeletes,
-        restorePendingEmbeddedAnnotationDeletes,
         clearAnnotationHistory,
         loadRecentFiles,
         clearOcrCache,
@@ -186,7 +171,6 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         pdfData,
         workingCopyPath,
         documentRevisionToken,
-        annotationComments,
         totalPages,
         pageLabelsDirty,
         pageLabelRanges,
@@ -195,7 +179,6 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         untitledBookmarkLabel: t('bookmarks.untitled'),
         getMarkupSubtypeOverrides: () => pdfViewerRef.value?.getMarkupSubtypeOverrides(),
         getMarkupSubtypeHints: () => pdfViewerRef.value?.getMarkupSubtypeHints?.(),
-        getAnnotationCommentsSnapshot: () => pdfViewerRef.value?.getAnnotationCommentsSnapshot?.(),
         getAllShapes: () => pdfViewerRef.value?.getAllShapes() ?? [],
         getDeletedEmbeddedShapeAnnotationIds: () => pdfViewerRef.value?.getDeletedEmbeddedShapeAnnotationIds() ?? [],
         getDeletedEmbeddedShapeStableKeys: () => pdfViewerRef.value?.getDeletedEmbeddedShapeStableKeys?.() ?? [],
@@ -214,7 +197,6 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             },
             annotations: {
                 annotationDirty,
-                annotationComments,
                 markAnnotationSaved,
                 ...(getAnnotationSaveStateToken ? { getAnnotationSaveStateToken } : {}),
                 hasAnnotationChanges,
@@ -264,16 +246,10 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             nativeMutations: {
                 ...(trySavePdfNativeMutations !== undefined ? { trySavePdfNativeMutations } : {}),
                 ...(trySaveEmbeddedNoteTextUpdates !== undefined ? { trySaveEmbeddedNoteTextUpdates } : {}),
-                ...(markNativeFreeTextNotesSaved ? { markNativeFreeTextNotesSaved } : {}),
-                ...(markNativeFreeTextNotesDeleted ? { markNativeFreeTextNotesDeleted } : {}),
             },
         },
         annotationEdits: {
             persistAllAnnotationNotes,
-            consumePendingEmbeddedTextUpdates,
-            ...(restorePendingEmbeddedTextUpdates !== undefined ? { restorePendingEmbeddedTextUpdates } : {}),
-            consumePendingEmbeddedAnnotationDeletes,
-            ...(restorePendingEmbeddedAnnotationDeletes !== undefined ? { restorePendingEmbeddedAnnotationDeletes } : {}),
             ...(clearAnnotationHistory !== undefined ? { clearAnnotationHistory } : {}),
             annotationNoteWindowsCount,
         },
@@ -281,8 +257,6 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             markup: {
                 getMarkupSubtypeOverrides: () => pdfViewerRef.value?.getMarkupSubtypeOverrides(),
                 getMarkupSubtypeHints: () => pdfViewerRef.value?.getMarkupSubtypeHints?.(),
-                getAnnotationCommentsSnapshot: () => pdfViewerRef.value?.getAnnotationCommentsSnapshot?.(),
-                getPendingEmbeddedMutationSnapshot: () => pdfViewerRef.value?.getPendingEmbeddedMutationSnapshot?.(),
             },
             shapes: {
                 hasShapeChanges: () => hasViewerShapeChanges(pdfViewerRef.value),
@@ -310,19 +284,19 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
                 if (shouldPreserveMetadata) {
                     preserveMetadataForNextSourceReload?.();
                 }
-                const capturedReloadState = capturePdfReloadSnapshot(pdfViewerRef.value, currentPage.value);
+                const scrollSnapshot = pdfViewerRef.value?.captureScrollSnapshot?.() ?? null;
+                const pageToRestore = resolvePdfReloadPage(scrollSnapshot?.anchorPage ?? currentPage.value);
                 pdfViewerRef.value?.preserveNextSourceReloadVisibleContent?.({
-                    scrollSnapshot: capturedReloadState.scrollSnapshot,
-                    pageToRestore: capturedReloadState.pageToRestore,
+                    ...(scrollSnapshot ? {scrollSnapshot} : {}),
+                    pageToRestore,
                 });
 
                 const reloadWaiter = createPdfReloadWaiter({
                     pdfDocument,
                     pdfViewerRef,
                     resetSearchCache,
-                    pageToRestore: capturedReloadState.pageToRestore,
-                    scrollSnapshot: capturedReloadState.scrollSnapshot,
-                    restoreScroll: capturedReloadState.scrollSnapshot !== null,
+                    pageToRestore,
+                    restoreScroll: true,
                 });
                 return {
                     promise: reloadWaiter.promise,

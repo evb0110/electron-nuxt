@@ -19,6 +19,7 @@ import {
     normalizeEditorPanesState,
 } from '@app/modules/workspace-shell/editor-panes/normalization';
 import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
+import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
 
 interface ICreateTabOptions {
     paneId?: string | null;
@@ -145,6 +146,34 @@ export const useEditorPanesManager = () => {
         layout.value = nextState.layout;
         activePaneId.value = nextState.activePaneId;
         paneMru.value = nextState.paneMru;
+    }
+
+    function restoreWorkspaceCheckpointGraph(checkpoint: IWorkspaceCheckpoint) {
+        tabs.value = checkpoint.tabs.map(tab => ({
+            id: tab.tabId,
+            fileName: null,
+            originalPath: null,
+            isDirty: false,
+            isDjvu: tab.isDjvu,
+        }));
+        panes.value = checkpoint.panes.map(pane => ({
+            paneId: pane.paneId,
+            tabIds: [...pane.tabIds],
+            activeTabId: pane.activeTabId,
+        }));
+        layout.value = checkpoint.layout;
+        activePaneId.value = checkpoint.activePaneId;
+        paneMru.value = checkpoint.activePaneId ? [checkpoint.activePaneId] : [];
+
+        const numericSuffixes = [
+            ...checkpoint.tabs.map(tab => tab.tabId),
+            ...checkpoint.panes.map(pane => pane.paneId),
+        ].map((id) => {
+            const suffix = id.split('-').at(-1);
+            return suffix ? Number.parseInt(suffix, 36) : 0;
+        }).filter(Number.isFinite);
+        nextEntityId.value = Math.max(nextEntityId.value, ...numericSuffixes, checkpoint.tabs.length + checkpoint.panes.length);
+        normalizeManagerState();
     }
 
     function createEmptyTab(initial?: ICreateTabOptions['initial']): ITab {
@@ -698,6 +727,7 @@ export const useEditorPanesManager = () => {
         activePaneId,
         activePane,
         activeTabId,
+        restoreWorkspaceCheckpointGraph,
         ensureAtLeastOneTab,
         getPaneById,
         getTabById,

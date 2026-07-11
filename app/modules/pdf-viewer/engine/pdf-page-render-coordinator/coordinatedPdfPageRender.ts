@@ -1,9 +1,17 @@
-import type { PDFPageProxy } from 'pdfjs-dist';
+import type {
+    PDFPageProxy,
+    RenderTask,
+} from 'pdfjs-dist';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
+import {
+    pdfRenderContinuationScheduler,
+    type TPdfRenderContinuationPriority,
+} from '@app/modules/pdf-viewer/engine/pdf-render-continuation-scheduler/pdfRenderContinuationScheduler';
 
 interface ICoordinatedPdfPageRenderTask {
     promise: Promise<unknown>;
     cancel: () => void;
+    onContinue?: RenderTask['onContinue'];
 }
 
 interface IActivePdfPageOperation {
@@ -24,6 +32,10 @@ interface IRunCoordinatedPdfPageRenderOptions<TTask extends ICoordinatedPdfPageR
     shouldStart?: (() => boolean) | undefined;
     startRender: () => TTask;
     onTask?: ((task: TTask) => void) | undefined;
+    continuation?: {
+        key: string;
+        priority: TPdfRenderContinuationPriority;
+    } | undefined;
 }
 
 interface IRunCoordinatedPdfPageOperationOptions<TResult> {
@@ -249,6 +261,7 @@ export async function runCoordinatedPdfPageRender<TTask extends ICoordinatedPdfP
         signal,
         shouldStart,
         startRender,
+        continuation,
     } = options;
 
     await waitForCoordinatedTurn(pdfPage, owner, priority, signal);
@@ -259,6 +272,9 @@ export async function runCoordinatedPdfPageRender<TTask extends ICoordinatedPdfP
     }
 
     const task = startRender();
+    const disposeContinuation = continuation
+        ? bindRenderTaskContinuation(task, continuation, signal)
+        : () => {};
     const id = ++nextRenderId;
     const settled = task.promise
         .catch(() => {})
@@ -295,8 +311,37 @@ export async function runCoordinatedPdfPageRender<TTask extends ICoordinatedPdfP
             : task.promise);
     } finally {
         abortWaiter?.remove();
+        disposeContinuation();
         await settled;
     }
+}
+
+function bindRenderTaskContinuation(
+    task: ICoordinatedPdfPageRenderTask,
+    continuation: {
+        key: string;
+        priority: TPdfRenderContinuationPriority;
+    },
+    signal?: AbortSignal,
+) {
+    let disposePending = () => {};
+    const previousOnContinue = task.onContinue;
+    task.onContinue = (continueRender: () => void) => {
+        disposePending();
+        disposePending = pdfRenderContinuationScheduler.schedule({
+            ...continuation,
+            continueRender,
+            signal,
+        });
+    };
+    return () => {
+        disposePending();
+        if (previousOnContinue) {
+            task.onContinue = previousOnContinue;
+        } else {
+            delete task.onContinue;
+        }
+    };
 }
 
 export function resetCoordinatedPdfPageRendersForTest() {

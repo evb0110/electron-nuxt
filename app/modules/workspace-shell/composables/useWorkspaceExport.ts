@@ -6,6 +6,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { useAnalytics } from '@app/composables/useAnalytics';
 import type {
     IImageExportProgress,
+    TDocumentImageExportSourceKind,
     TImageExportProgressFormat,
 } from '@contracts/electronApiDocuments';
 import {
@@ -26,6 +27,8 @@ export interface IWorkspaceExportOverlay {
 
 interface IWorkspaceExportDeps {
     workingCopyPath: Ref<TDocumentRef | null>;
+    sourceKind?: Ref<TDocumentImageExportSourceKind>;
+    sourcePath?: Ref<TDocumentRef | null>;
     totalPages: Ref<number>;
     ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
 }
@@ -36,6 +39,8 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
     const toast = useToast();
     const {
         workingCopyPath,
+        sourceKind = ref('pdf'),
+        sourcePath = workingCopyPath,
         totalPages,
         ensureWorkingCopyFreshForRead,
     } = deps;
@@ -240,17 +245,18 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
     }
 
     async function runImageExport(pageNumbers?: number[]) {
-        if (!workingCopyPath.value || isExportInProgress.value) {
+        if (!sourcePath.value || isExportInProgress.value) {
             return;
         }
 
         const selectedPageCount = getSelectedPageCount(pageNumbers);
         isExportInProgress.value = true;
         try {
-            const isFreshForRead = ensureWorkingCopyFreshForRead
+            const isFreshForRead = sourceKind.value === 'pdf' && ensureWorkingCopyFreshForRead
                 ? await ensureWorkingCopyFreshForRead()
                 : true;
-            if (!isFreshForRead || !workingCopyPath.value) {
+            const exportSourcePath = sourcePath.value;
+            if (!isFreshForRead || !exportSourcePath) {
                 setExportOverlay(null);
                 if (!isFreshForRead) {
                     showFreshReadFailureToast();
@@ -264,7 +270,12 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
             const requestId = createExportRequestId();
             subscribeExportProgress(imageExport, requestId, 'images');
             const startedAt = Date.now();
-            const result = await imageExport.exportPdfToImages(workingCopyPath.value, pageNumbers, requestId);
+            const result = await imageExport.exportPdfToImages(
+                exportSourcePath,
+                pageNumbers,
+                requestId,
+                sourceKind.value,
+            );
             if (result.success || result.canceled) {
                 trackExportCompleted({
                     startedAt,
@@ -286,17 +297,18 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
     }
 
     async function runMultiPageTiffExport(pageNumbers?: number[]) {
-        if (!workingCopyPath.value || isExportInProgress.value) {
+        if (!sourcePath.value || isExportInProgress.value) {
             return;
         }
 
         const selectedPageCount = getSelectedPageCount(pageNumbers);
         isExportInProgress.value = true;
         try {
-            const isFreshForRead = ensureWorkingCopyFreshForRead
+            const isFreshForRead = sourceKind.value === 'pdf' && ensureWorkingCopyFreshForRead
                 ? await ensureWorkingCopyFreshForRead()
                 : true;
-            if (!isFreshForRead || !workingCopyPath.value) {
+            const exportSourcePath = sourcePath.value;
+            if (!isFreshForRead || !exportSourcePath) {
                 setExportOverlay(null);
                 if (!isFreshForRead) {
                     toast.add({
@@ -314,7 +326,12 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
             const requestId = createExportRequestId();
             subscribeExportProgress(imageExport, requestId, 'multipage-tiff');
             const startedAt = Date.now();
-            const result = await imageExport.exportPdfToMultiPageTiff(workingCopyPath.value, pageNumbers, requestId);
+            const result = await imageExport.exportPdfToMultiPageTiff(
+                exportSourcePath,
+                pageNumbers,
+                requestId,
+                sourceKind.value,
+            );
             const outputPaths = result.outputPaths ?? (result.outputPath ? [result.outputPath] : []);
             if (result.success || result.canceled) {
                 trackExportCompleted({
@@ -346,7 +363,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
     }
 
     async function handleExportImages(selectedPages: number[] = []) {
-        if (!workingCopyPath.value) {
+        if (!sourcePath.value) {
             return;
         }
         const pageNumbers = await openExportScopeDialog('images', selectedPages);
@@ -357,7 +374,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
     }
 
     async function handleExportMultiPageTiff(selectedPages: number[] = []) {
-        if (!workingCopyPath.value) {
+        if (!sourcePath.value) {
             return;
         }
         const pageNumbers = await openExportScopeDialog('multipage-tiff', selectedPages);

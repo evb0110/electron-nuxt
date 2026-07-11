@@ -39,6 +39,7 @@ const retiredWorkingCopyOriginalMap = new Map<string, {
     ownerWebContentsId?: number;
     role: TWorkingCopyRole;
 }>();
+let retiredWorkingCopyPruneTimer: ReturnType<typeof setTimeout> | null = null;
 const currentWorkingCopyByOriginalPath = new Map<string, {
     ownerWebContentsId?: number;
     registeredAtMs: number;
@@ -211,6 +212,26 @@ function pruneRetiredWorkingCopyOriginals() {
     }
 }
 
+function scheduleRetiredWorkingCopyPrune() {
+    if (retiredWorkingCopyPruneTimer) {
+        clearTimeout(retiredWorkingCopyPruneTimer);
+        retiredWorkingCopyPruneTimer = null;
+    }
+    let nextExpiresAtMs = Number.POSITIVE_INFINITY;
+    for (const entry of retiredWorkingCopyOriginalMap.values()) {
+        nextExpiresAtMs = Math.min(nextExpiresAtMs, entry.expiresAtMs);
+    }
+    if (!Number.isFinite(nextExpiresAtMs)) {
+        return;
+    }
+    retiredWorkingCopyPruneTimer = setTimeout(() => {
+        retiredWorkingCopyPruneTimer = null;
+        pruneRetiredWorkingCopyOriginals();
+        scheduleRetiredWorkingCopyPrune();
+    }, Math.max(0, nextExpiresAtMs - Date.now()));
+    retiredWorkingCopyPruneTimer.unref?.();
+}
+
 export function getWorkingCopyOriginalPath(workingPath: string, senderWebContentsId?: number) {
     const activeEntry = workingCopyMap.get(workingPath);
     if (activeEntry) {
@@ -300,6 +321,7 @@ export function rememberRetiredWorkingCopyOriginal(
     if (!originalPath) {
         return;
     }
+    pruneRetiredWorkingCopyOriginals();
     const originalFileExpectation = copyOriginalFileExpectation(options.originalFileExpectation);
     retiredWorkingCopyOriginalMap.set(workingPath, {
         originalPath,
@@ -308,14 +330,21 @@ export function rememberRetiredWorkingCopyOriginal(
         expiresAtMs: Date.now() + RETIRED_WORKING_COPY_TTL_MS,
         role: options.role ?? 'current',
     });
+    scheduleRetiredWorkingCopyPrune();
 }
 
 export function clearRetiredWorkingCopyOriginals() {
     retiredWorkingCopyOriginalMap.clear();
+    scheduleRetiredWorkingCopyPrune();
 }
 
 export function forgetRetiredWorkingCopyOriginal(workingPath: string) {
     retiredWorkingCopyOriginalMap.delete(workingPath);
+    scheduleRetiredWorkingCopyPrune();
+}
+
+export function getRetiredWorkingCopyOriginalCountForTests() {
+    return retiredWorkingCopyOriginalMap.size;
 }
 
 export function forgetWorkingCopyOriginalPath(workingPath: string) {
@@ -399,6 +428,23 @@ export function isKnownWorkingCopyOriginalPath(originalPath: string, senderWebCo
 
 export function getWorkingCopyOwnerWebContentsId(workingPath: string): number | undefined {
     return workingCopyMap.get(workingPath)?.ownerWebContentsId;
+}
+
+export function claimWorkingCopyOwnership(
+    workingPath: string,
+    expectedOwnerWebContentsId: number,
+    nextOwnerWebContentsId: number,
+) {
+    const entry = workingCopyMap.get(workingPath);
+    if (!entry || entry.ownerWebContentsId !== expectedOwnerWebContentsId) {
+        return false;
+    }
+    workingCopyMap.delete(workingPath);
+    refreshCurrentWorkingCopyForOriginal(entry.originalPath, entry.ownerWebContentsId);
+    entry.ownerWebContentsId = nextOwnerWebContentsId;
+    workingCopyMap.set(workingPath, entry);
+    setCurrentWorkingCopyForOriginal(workingPath, entry);
+    return true;
 }
 
 export function getWorkingCopyRegistrationId(workingPath: string, senderWebContentsId?: number): number | null {

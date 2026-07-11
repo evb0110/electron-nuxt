@@ -7,9 +7,10 @@ import {
     assertNonEmptyString,
     assertOptionalAbsolutePath,
 } from '@contracts/ipcAssertions';
+import { IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES } from '@contracts/electronApiDocuments';
 
 const MAX_IPC_FILE_NAME_LENGTH = 255;
-const MAX_IPC_WRITE_BYTES = 512 * 1024 * 1024;
+const MAX_IPC_WRITE_BYTES = IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES;
 
 function assertWriteData(value: unknown, fieldName: string) {
     if (!(value instanceof Uint8Array)) {

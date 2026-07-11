@@ -4,19 +4,14 @@ import type {
     IWorkspaceDocumentTransaction,
     TWorkspaceDocumentTransactionKind,
 } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
-import type { TWorkspaceCommandTarget } from '@app/modules/workspace-shell/document-sessions/workspaceCommandTarget';
+
+export type { IDocumentOpenIntent } from '@app/modules/workspace-shell/document-sessions/documentOpenIntent';
 
 export interface IDocumentOpenTransactionRun {
     sessionTransaction: IWorkspaceDocumentTransaction;
     action: string;
     target: TTabUpdate | null;
     seededTabHint: boolean;
-}
-
-export interface IDocumentOpenIntent {
-    action: string;
-    commandTarget?: TWorkspaceCommandTarget | undefined;
-    target?: TTabUpdate | null;
 }
 
 export function shouldSeedPendingTabHint({

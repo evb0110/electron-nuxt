@@ -156,9 +156,11 @@ export async function runOcrFileBased(
             forceFinalizeHandle: null as NodeJS.Timeout | null,
         };
         let abortHandler: (() => void) | null = null;
+        let terminationPromise: Promise<void> | null = null;
 
-        const requestTermination = async () => {
-            await terminateDetachedChildProcess(proc, FILE_BASED_OCR_KILL_GRACE_MS);
+        const requestTermination = () => {
+            terminationPromise ??= terminateDetachedChildProcess(proc, FILE_BASED_OCR_KILL_GRACE_MS);
+            return terminationPromise;
         };
 
         const finalize = createTesseractFinalize<IOcrFileResult>(handles, resolve, () => {
@@ -200,7 +202,11 @@ export async function runOcrFileBased(
             handles.forceFinalizeHandle.unref?.();
         };
 
-        const getCloseFailureMessage = (code: number | null, stderrSummary: string) => {
+        const getCloseFailureMessage = (
+            code: number | null,
+            closeSignal: NodeJS.Signals | null,
+            stderrSummary: string,
+        ) => {
             if (aborted) {
                 return 'Tesseract aborted';
             }
@@ -208,7 +214,9 @@ export async function runOcrFileBased(
                 return `Tesseract timed out after ${FILE_BASED_OCR_TIMEOUT_MS}ms`;
             }
             if (code !== 0) {
-                return stderrSummary || `Tesseract exited with code ${code}`;
+                return stderrSummary || (closeSignal
+                    ? `Tesseract exited after signal ${closeSignal}`
+                    : `Tesseract exited with code ${code}`);
             }
             return null;
         };
@@ -294,12 +302,15 @@ export async function runOcrFileBased(
             stderrTruncated = stderrTruncated || appended.truncated;
         });
 
-        proc.on('close', async (code) => {
+        proc.on('close', async (code, closeSignal) => {
             const stderrSummary = stderrTruncated
                 ? `[stderr truncated to ${FILE_BASED_OCR_MAX_STDERR_BYTES} bytes]\n${stderr}`
                 : stderr;
-            const closeFailureMessage = getCloseFailureMessage(code, stderrSummary);
+            const closeFailureMessage = getCloseFailureMessage(code, closeSignal, stderrSummary);
             if (closeFailureMessage) {
+                if (terminationPromise) {
+                    await terminationPromise;
+                }
                 await finalizeFailureAfterCleanup(closeFailureMessage);
                 return;
             }

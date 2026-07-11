@@ -58,7 +58,22 @@ import {
 import { useRuntimeErrorReports } from '@app/composables/useRuntimeErrorReports';
 import { useTypedI18n } from '@app/composables/useTypedI18n';
 import { useAssistantPanelClipboard } from '@app/modules/agent-panel/composables/useAssistantPanelClipboard';
+import {
+    createAssistantEventFence,
+    isAssistantStateCurrent,
+} from '@app/modules/agent-panel/utils/assistantEventFence';
 import { useAssistantImageComposer } from '@app/modules/agent-panel/composables/useAssistantImageComposer';
+import {
+    ASSISTANT_AUTO_REFRESH_MIN_INTERVAL_MS,
+    ASSISTANT_STATUS_HEARTBEAT_MS,
+    ASSISTANT_STATUS_TEXT_LIMIT,
+    formatAssistantElapsed,
+    formatAssistantTurnStatus,
+    isAssistantBtwCommand,
+    isAssistantMessageListNearBottom,
+    isActiveAssistantTurnPhase,
+    truncateAssistantStatusText,
+} from '@app/modules/agent-panel/utils/assistantTurnPresentation';
 export interface IAgentAssistantPanelControllerProps {
     activeDocumentName?: string | null;
     chatScope?: IAgentAssistantChatScope | null;
@@ -78,11 +93,6 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
 
     const { t }: { t: TTranslateFn } = useTypedI18n();
     const { reportRuntimeError } = useRuntimeErrorReports();
-    const ASSISTANT_AUTO_REFRESH_MIN_INTERVAL_MS = 2500;
-    const ASSISTANT_SCROLL_STICKY_THRESHOLD_PX = 96;
-    const ASSISTANT_STATUS_HEARTBEAT_MS = 1000;
-    const ASSISTANT_STATUS_TEXT_LIMIT = 140;
-
     const assistantSelectionStorage = defaultWindow?.localStorage;
     const initialAssistantSelectionPreference = readAssistantSelectionPreference(assistantSelectionStorage);
     const initialSelectedProvider = initialAssistantSelectionPreference?.provider ?? 'codex';
@@ -119,9 +129,8 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     let stateGeneration = 0;
     let assistantSwitchGeneration = 0;
     let lastRefreshStartedAt = 0;
-
+    const acceptAssistantEvent = createAssistantEventFence();
     type TAssistantActionErrorTarget = 'status' | 'composer' | 'none';
-
     interface IAssistantActionErrorOptions {
         title: string;
         target?: TAssistantActionErrorTarget;
@@ -135,7 +144,6 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     }
 
     const queuedSteer = ref<IAssistantSubmitPayload | null>(null);
-
     const emptyState = computed<IAgentAssistantState>(() => createEmptyAssistantState({
         chatScope: chatScope.value,
         selectedProvider: selectedProvider.value,
@@ -202,6 +210,9 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             || status.value.runtimeState === 'busy'
         )
     ));
+    const canRetryAssistantError = computed(() => status.value.errorEnvelope?.retryable === true && (
+        !isTurnActive.value || isTurnStalled.value
+    ));
     const installButtonLabel = computed(() => isInstalling.value
         ? t('assistant.installingCodex')
         : t('assistant.installCodex'));
@@ -235,11 +246,11 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         : t('assistant.workspacePlaceholder'));
     const headerIcon = computed(() => (chatScope.value?.title ? 'i-ph-file-text' : 'i-ph-chat-circle-dots'));
     const headerTitle = computed(() => chatScope.value?.title ?? t('assistant.title'));
-    const isTurnActive = computed(() => (
-        status.value.turn.phase === 'starting'
-        || status.value.turn.phase === 'running'
-        || status.value.turn.phase === 'interrupting'
-    ));
+    const isTurnActive = computed(() => isActiveAssistantTurnPhase(status.value.turn.phase));
+    const turnReasoning = computed(() => status.value.turn.reasoning);
+    const turnToolActivity = computed(() => status.value.turn.toolActivity);
+    const turnUsage = computed(() => status.value.turn.usage);
+    const isTurnStalled = computed(() => status.value.turn.phase === 'stalled');
     const assistantSelectionLocked = computed(() => isAssistantSelectionLocked({
         isSending: isSending.value,
         runtimeState: status.value.runtimeState,
@@ -248,35 +259,15 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     const turnStatusText = computed(() => {
         const ageReference = turnActivityAtMs.value ?? turnStartedAtMs.value;
         const activity = turnActivityText.value.trim();
-        if (queuedSteer.value && status.value.turn.phase === 'interrupting') {
-            return t('assistant.steerQueued');
-        }
-        if (status.value.turn.phase === 'interrupting') {
-            return ageReference === null
-                ? t('assistant.interrupting')
-                : t('assistant.workingWithActivity', {
-                    activity: t('assistant.interrupting'),
-                    age: formatAssistantElapsed(turnClockNowMs.value - ageReference),
-                });
-        }
-        if (status.value.turn.phase === 'starting') {
-            return ageReference === null
-                ? t('assistant.startingTurn')
-                : t('assistant.workingWithActivity', {
-                    activity: activity || t('assistant.startingTurn'),
-                    age: formatAssistantElapsed(turnClockNowMs.value - ageReference),
-                });
-        }
-        if (activity && ageReference !== null) {
-            return t('assistant.workingWithActivity', {
-                activity,
-                age: formatAssistantElapsed(turnClockNowMs.value - ageReference),
-            });
-        }
-        if (turnStartedAtMs.value !== null) {
-            return t('assistant.workingElapsed', {age: formatAssistantElapsed(turnClockNowMs.value - turnStartedAtMs.value)});
-        }
-        return t('assistant.working');
+        return formatAssistantTurnStatus({
+            phase: status.value.turn.phase,
+            activity,
+            ageReferenceMs: ageReference,
+            startedAtMs: turnStartedAtMs.value,
+            nowMs: turnClockNowMs.value,
+            hasQueuedSteer: Boolean(queuedSteer.value),
+            t,
+        });
     });
     const sendButtonAriaLabel = computed(() => (
         isTurnActive.value && !isBtwDraft.value
@@ -305,34 +296,8 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         isTurnActive,
         t,
     });
-    function isAssistantBtwCommand(value: string) {
-        return value.trim().toLowerCase() === '/btw';
-    }
-
-    function truncateAssistantStatusText(value: string, limit = ASSISTANT_STATUS_TEXT_LIMIT) {
-        const normalized = value.replace(/\s+/gu, ' ').trim();
-        if (normalized.length <= limit) {
-            return normalized;
-        }
-        return `${normalized.slice(0, Math.max(0, limit - 3)).trimEnd()}...`;
-    }
-
-    function formatAssistantElapsed(elapsedMs: number) {
-        const seconds = Math.max(0, Math.floor(elapsedMs / 1000));
-        if (seconds < 60) {
-            return `${seconds}s`;
-        }
-        const minutes = Math.floor(seconds / 60);
-        if (minutes < 60) {
-            return `${minutes}m`;
-        }
-        const hours = Math.floor(minutes / 60);
-        const remainingMinutes = minutes % 60;
-        return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
-    }
-
     function setTurnActivity(activity: string) {
-        const normalized = truncateAssistantStatusText(activity);
+        const normalized = truncateAssistantStatusText(activity, ASSISTANT_STATUS_TEXT_LIMIT);
         if (!normalized) {
             return;
         }
@@ -343,10 +308,10 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     }
 
     function syncTurnActivityWithPhase(phase: IAgentAssistantState['status']['turn']['phase']) {
-        if (phase === 'starting' || phase === 'running' || phase === 'interrupting') {
+        if (isActiveAssistantTurnPhase(phase)) {
             turnStartedAtMs.value ??= Date.now();
             if (!turnActivityText.value) {
-                setTurnActivity(phase === 'starting'
+                setTurnActivity(phase === 'queued'
                     ? t('assistant.startingTurn')
                     : t('assistant.working'));
             }
@@ -506,12 +471,6 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         isSending.value = optimisticState.status.runtimeState === 'busy';
     }
 
-    function isActiveAssistantTurnPhase(phase: IAgentAssistantState['status']['turn']['phase']) {
-        return phase === 'starting'
-            || phase === 'running'
-            || phase === 'interrupting';
-    }
-
     function createAssistantStateRequestForScope(
         scope: IAgentAssistantChatScope | null,
     ): IAgentAssistantStateRequest {
@@ -564,19 +523,8 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         });
     }
 
-    function isCurrentScopeState(nextState: IAgentAssistantState) {
-        return getStateScopeFingerprint(nextState)
-            === buildAgentAssistantScopeFingerprint(selectedProvider.value, chatScope.value);
-    }
-
     function isAssistantMessagesNearBottom() {
-        const el = messagesRef.value;
-        if (!el) {
-            return true;
-        }
-
-        const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-        return distanceFromBottom <= ASSISTANT_SCROLL_STICKY_THRESHOLD_PX;
+        return isAssistantMessageListNearBottom(messagesRef.value);
     }
 
     function scrollAssistantMessagesToBottom() {
@@ -587,7 +535,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     }
 
     function applyState(nextState: IAgentAssistantState) {
-        if (!isCurrentScopeState(nextState)) {
+        if (!isAssistantStateCurrent(nextState, selectedProvider.value, chatScope.value)) {
             return;
         }
         const shouldScrollToBottom = isAssistantMessagesNearBottom();
@@ -638,11 +586,46 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     }
 
     function handleAssistantEvent(event: IAgentAssistantEvent) {
+        if (!acceptAssistantEvent(event, selectedProvider.value, chatScope.value)) {
+            return;
+        }
+        if (event.state && !isAssistantStateCurrent(event.state, selectedProvider.value, chatScope.value)) {
+            return;
+        }
         if (event.state) {
             applyState(event.state);
         }
         if (event.type === 'turn-started') {
             setTurnActivity(t('assistant.activityStarted'));
+        }
+        if (event.type === 'reasoning-delta' && event.reasoningDelta && state.value) {
+            state.value = {
+                ...state.value,
+                status: {
+                    ...state.value.status,
+                    turn: {
+                        ...state.value.status.turn,
+                        phase: 'thinking',
+                        reasoning: `${state.value.status.turn.reasoning}${event.reasoningDelta}`,
+                        lastEventAtMs: event.lastEventAtMs ?? Date.now(),
+                    },
+                },
+            };
+            setTurnActivity('Thinking');
+        }
+        if (event.type === 'heartbeat' && event.phase && state.value) {
+            state.value = {
+                ...state.value,
+                status: {
+                    ...state.value.status,
+                    turn: {
+                        ...state.value.status.turn,
+                        phase: event.phase,
+                        lastEventAtMs: event.lastEventAtMs ?? state.value.status.turn.lastEventAtMs,
+                    },
+                },
+            };
+            syncTurnActivityWithPhase(event.phase);
         }
         if (event.type === 'turn-progress' && event.progress) {
             setTurnActivity(event.progress);
@@ -667,7 +650,9 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
                     ...state.value,
                     messages,
                 };
-                void nextTick(scrollAssistantMessagesToBottom);
+                if (isAssistantMessagesNearBottom()) {
+                    void nextTick(scrollAssistantMessagesToBottom);
+                }
             }
         }
         if (event.type === 'install-progress' && event.progress) {
@@ -793,7 +778,6 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             message: 'Failed to refresh assistant state after app focus',
         });
     }
-
     async function installCodex() {
         isInstalling.value = true;
         installProgress.value = '';
@@ -804,7 +788,6 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             isInstalling.value = false;
         }
     }
-
     async function startLogin(mode: TAgentAssistantLoginMode) {
         isLoggingIn.value = true;
         loginMode.value = mode;
@@ -818,27 +801,22 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             loginMode.value = null;
         }
     }
-
     async function cancelLogin() {
         applyState(await getAgentCapability().cancelAssistantLogin());
         deviceCode.value = '';
     }
-
     function handleInstallCodex() {
         runAssistantUiAction(installCodex, { title: 'Failed to install assistant Codex' });
     }
-
     function handleStartLogin(mode: TAgentAssistantLoginMode) {
         runAssistantUiAction(() => startLogin(mode), { title: 'Failed to start assistant login' });
     }
     function handleCancelLogin() {
         runAssistantUiAction(cancelLogin, { title: 'Failed to cancel assistant login' });
     }
-
     function handleRefreshState() {
         runAssistantUiAction(refreshState, { title: 'Failed to refresh assistant state' });
     }
-
     async function submitAssistantPayload(
         payload: IAssistantSubmitPayload,
         errorTitle: string,
@@ -881,7 +859,6 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             }
         }
     }
-
     function presetLabel(presetId: TAgentAssistantPresetId) {
         if (presetId === 'add-bookmarks') {
             return t('assistant.presetAddBookmarks');
@@ -891,7 +868,6 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         }
         return t('assistant.presetCheckOcr');
     }
-
     function sendPreset(preset: IAssistantPreset) {
         if (!chatScope.value || isSending.value) {
             return;
@@ -899,12 +875,11 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         void submitAssistantPayload(
             {
                 text: presetLabel(preset.id),
-                presetId: preset.id, 
+                presetId: preset.id,
             },
             'Failed to send assistant preset',
         );
     }
-
     function queueSteer(payload: IAssistantSubmitPayload) {
         queuedSteer.value = payload;
         draft.value = '';
@@ -965,7 +940,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         await submitAssistantPayload(
             {
                 text,
-                attachments, 
+                attachments,
             },
             'Failed to send assistant message',
             () => {
@@ -977,6 +952,24 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
 
     function handleSendMessage() {
         void sendMessage();
+    }
+
+    async function retryLastAssistantMessage() {
+        const lastUserMessage = [...messages.value].reverse().find(message => message.role === 'user');
+        if (!lastUserMessage || isTurnActive.value && !isTurnStalled.value) {
+            return;
+        }
+        const attachments = lastUserMessage.attachments?.map(attachment => ({...attachment})) ?? [];
+        if (isTurnStalled.value) {
+            await interrupt();
+        }
+        await submitAssistantPayload({
+            text: lastUserMessage.text,
+            attachments,
+        }, 'Failed to retry assistant message', () => {
+            draft.value = lastUserMessage.text;
+            composerImages.value = attachments;
+        });
     }
 
     async function interrupt() {
@@ -1051,6 +1044,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     watch([
         isTurnActive,
         isSending,
+        isTurnStalled,
     ], () => {
         flushQueuedSteerIfReady();
     }, { flush: 'post' });
@@ -1086,6 +1080,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         availableEfforts,
         availableSpeedModes,
         canResetChat,
+        canRetryAssistantError,
         canSend,
         chatScope,
         closeExpandedImage,
@@ -1131,6 +1126,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         isSending,
         isSwitchingAssistant,
         isTurnActive,
+        isTurnStalled,
         loginMode,
         messagesRef,
         navigateExpandedImage,
@@ -1139,6 +1135,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         placeholderText,
         presetLabel,
         removeComposerImage,
+        retryLastAssistantMessage,
         renderedMessages,
         roleLabel,
         selectedEffort,
@@ -1152,6 +1149,9 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         status,
         t,
         turnStatusText,
+        turnReasoning,
+        turnToolActivity,
+        turnUsage,
         updateEffort,
         updateModel,
         updateProvider,

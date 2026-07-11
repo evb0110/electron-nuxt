@@ -7,6 +7,7 @@ import type {
     TPdfViewMode,
     TZoomMode,
 } from '@app/types/pdfContracts';
+import type {TPdfZoomState} from '@contracts/shared';
 import type { IPdfPageMatches } from '@app/types/pdfUi';
 import type { IPdfViewerProps } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
 import { getPerformanceProfile } from '@app/utils/performanceProfile';
@@ -23,7 +24,22 @@ function isPropProvided(...names: string[]) {
 
 export const usePdfViewerPropModel = (props: Readonly<IPdfViewerProps>) => {
     const performanceProfile = getPerformanceProfile();
-    const fitMode = computed<TFitMode>(() => props.fitMode ?? 'width');
+    const zoomState = computed<TPdfZoomState>(() => {
+        const zoomMode = props.zoomMode ?? (props.fitMode === 'height' ? 'fit-height' : 'fit-width');
+        if (zoomMode === 'custom') {
+            return {
+                kind: 'custom',
+                scale: props.zoom ?? 1,
+            };
+        }
+        return {
+            kind: 'fit',
+            axis: zoomMode === 'fit-height' ? 'height' : 'width',
+        };
+    });
+    const fitMode = computed<TFitMode>(() => zoomState.value.kind === 'fit'
+        ? zoomState.value.axis
+        : props.fitMode ?? 'width');
     const hasShowAnnotationsProp = isPropProvided('showAnnotations', 'show-annotations');
 
     return {
@@ -35,11 +51,12 @@ export const usePdfViewerPropModel = (props: Readonly<IPdfViewerProps>) => {
         bufferPages: computed(() => props.bufferPages ?? performanceProfile.pdfBufferPages),
         isAnySaving: computed(() => props.isAnySaving ?? false),
         zoom: computed(() => props.zoom ?? 1),
+        zoomState,
         dragMode: computed(() => props.dragMode ?? false),
         fitMode,
-        zoomMode: computed<TZoomMode>(() => props.zoomMode ?? (
-            fitMode.value === 'height' ? 'fit-height' : 'fit-width'
-        )),
+        zoomMode: computed<TZoomMode>(() => zoomState.value.kind === 'custom'
+            ? 'custom'
+            : zoomState.value.axis === 'height' ? 'fit-height' : 'fit-width'),
         viewMode: computed<TPdfViewMode>(() => props.viewMode ?? 'single'),
         isResizing: computed(() => props.isResizing ?? false),
         showAnnotations: computed(() => !hasShowAnnotationsProp || props.showAnnotations !== false),

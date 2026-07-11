@@ -158,7 +158,7 @@ describe('native PDF image combiner output validation', () => {
         await expect(pending).rejects.toBe(abortError);
         expect(mocks.spawn).toHaveBeenCalledWith('/native/evb-pdf-image-combine', expect.any(Array), expect.objectContaining({detached: true}));
         expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(proc, 1_000);
-        expect(mocks.readFile).not.toHaveBeenCalled();
+        expect(mocks.readFile).toHaveBeenCalledWith('/tmp/input.jpg');
         expect(mocks.rm).toHaveBeenCalledWith('/tmp/pdf-image-combine-test', {
             recursive: true,
             force: true,
@@ -183,7 +183,7 @@ describe('native PDF image combiner output validation', () => {
 
         await expect(tryWritePdfWithNativeImageCombiner(['/tmp/input.jpg'], '/tmp/output.pdf')).resolves.toBe(true);
 
-        expect(mocks.readFile).not.toHaveBeenCalled();
+        expect(mocks.readFile).toHaveBeenCalledWith('/tmp/input.jpg');
         expect(mocks.open).toHaveBeenCalledWith('/tmp/output.pdf', 'r');
     });
 

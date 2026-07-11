@@ -54,6 +54,10 @@ export default defineNuxtConfig({
         githubOwner: process.env.NUXT_GITHUB_OWNER || 'evb0110',
         githubRepo: process.env.NUXT_GITHUB_REPO || 'evb-viewer',
         githubToken: process.env.NUXT_GITHUB_TOKEN || '',
+        releaseStableTags: process.env.NUXT_RELEASE_STABLE_TAGS || '',
+        releaseWithdrawnTags: process.env.NUXT_RELEASE_WITHDRAWN_TAGS || '',
+        releaseCanaryTag: process.env.NUXT_RELEASE_CANARY_TAG || '',
+        releaseCanaryPercent: process.env.NUXT_RELEASE_CANARY_PERCENT || '0',
         public: {
             siteUrl: process.env.NUXT_PUBLIC_SITE_URL || process.env.NUXT_SITE_URL || 'https://evb-viewer.com',
             webAppUrl: process.env.NUXT_PUBLIC_WEB_APP_URL || 'https://web.evb-viewer.com',
@@ -95,12 +99,12 @@ export default defineNuxtConfig({
         xslColumns: [
             {
                 label: 'URL',
-                width: '65%', 
+                width: '65%',
             },
             {
                 label: 'Last Modified',
                 select: 'sitemap:lastmod',
-                width: '35%', 
+                width: '35%',
             },
         ],
     },

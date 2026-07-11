@@ -84,30 +84,28 @@ check_no_absolute_symlinks() {
   fi
 }
 
-get_registry_language_codes() {
-  # scripts/printOcrLanguageCodes.ts reads packages/contracts/ocrLanguages.ts with
-  # source.matchAll(languageCodePattern), keeping packaged tessdata tied to the canonical registry.
-  pnpm exec tsx scripts/printOcrLanguageCodes.ts
+get_bundled_language_codes() {
+  pnpm exec tsx scripts/printOcrLanguageCodes.ts --bundled
 }
 
-verify_tessdata_registry_complete() {
+verify_tessdata_bundle_complete() {
   local tessdata_path="$1"
   local missing=0
   local registry_code
-  while IFS= read -r registry_code; do
-    [ -n "$registry_code" ] || continue
-    if [ ! -s "$tessdata_path/$registry_code.traineddata" ]; then
-      echo "Error: Missing packaged tessdata for registry language \"$registry_code\" ($tessdata_path/$registry_code.traineddata)"
+  while IFS= read -r bundled_code; do
+    [ -n "$bundled_code" ] || continue
+    if [ ! -s "$tessdata_path/$bundled_code.traineddata" ]; then
+      echo "Error: Missing default packaged tessdata \"$bundled_code\" ($tessdata_path/$bundled_code.traineddata)"
       missing=1
     fi
-  done < <(get_registry_language_codes)
+  done < <(get_bundled_language_codes)
 
   local traineddata_file
   while IFS= read -r -d '' traineddata_file; do
     local code
     code="$(basename "$traineddata_file" .traineddata)"
-    if ! get_registry_language_codes | grep -Fxq "$code"; then
-      echo "Error: Packaged tessdata contains unregistered language \"$code\" ($traineddata_file)"
+    if ! get_bundled_language_codes | grep -Fxq "$code"; then
+      echo "Error: Packaged tessdata contains non-default language \"$code\" ($traineddata_file)"
       missing=1
     fi
   done < <(find "$tessdata_path" -maxdepth 1 -type f -name '*.traineddata' -print0)
@@ -184,7 +182,7 @@ if ! find "$tessdata_dir" -maxdepth 1 -type f -name '*.traineddata' -print -quit
   echo "Error: No traineddata files found in $tessdata_dir"
   exit 1
 fi
-verify_tessdata_registry_complete "$tessdata_dir"
+verify_tessdata_bundle_complete "$tessdata_dir"
 
 check_file "$native_tool_root/poppler/$platform_arch/bin/pdfinfo$exe_suffix" "pdfinfo binary"
 check_file "$native_tool_root/poppler/$platform_arch/bin/pdftoppm$exe_suffix" "pdftoppm binary"
@@ -206,30 +204,12 @@ check_file "$native_tool_root/pdf-image-combine/$platform_arch/bin/evb-pdf-image
 check_file "$native_tool_root/pdf-page-ops/$platform_arch/bin/evb-pdf-page-ops$exe_suffix" "pdf page ops binary"
 check_file "$native_tool_root/pdf-search/$platform_arch/bin/evb-pdf-search$exe_suffix" "pdf search binary"
 
-page_processor_root="$native_tool_root/page-processing/$platform_arch"
-page_processor_binary="$page_processor_root/bin/page-processor/page-processor$exe_suffix"
-page_processor_internal_dir="$page_processor_root/bin/page-processor/_internal"
-if [ -d "$page_processor_root" ]; then
-  check_file "$page_processor_binary" "page-processor binary"
-  if [ "$platform" = "mac" ]; then
-    check_dir "$page_processor_internal_dir" "page-processor PyInstaller _internal directory"
-    if ! find "$page_processor_internal_dir" -type f -print -quit | grep -q .; then
-      echo "Error: page-processor PyInstaller _internal directory is empty ($page_processor_internal_dir)"
-      exit 1
-    fi
-    check_no_absolute_symlinks "$page_processor_internal_dir" "page-processor PyInstaller _internal directory"
-  fi
-else
-  echo "Skipping optional dormant page-processor packaged resource check for $platform_arch"
-fi
-
 find_tool_files() {
   local tag="$1"
   local kind="$2"
   local dirs=(
     "$native_tool_root/tesseract/$tag/$kind"
     "$native_tool_root/poppler/$tag/$kind"
-    "$native_tool_root/page-processing/$tag/$kind"
     "$native_tool_root/pdf-image-combine/$tag/$kind"
     "$native_tool_root/pdf-page-ops/$tag/$kind"
     "$native_tool_root/pdf-search/$tag/$kind"
@@ -465,6 +445,15 @@ if [ "$platform" = "mac" ]; then
   fi
 
   expected_macho_arch="$(macos_macho_arch_for_release_arch "$arch")"
+  readonly_update_payload=0
+  while IFS= read -r payload_path; do
+    echo "Error: macOS update payload is not owner-writable; ShipIt cannot remove quarantine metadata: $payload_path"
+    readonly_update_payload=1
+  done < <(find "$native_tool_root" \( -type f -o -type d \) ! -perm -u+w -print)
+  if [ "$readonly_update_payload" -ne 0 ]; then
+    exit 1
+  fi
+
   unresolved=0
   arch_mismatch=0
   while IFS= read -r file; do
@@ -506,9 +495,6 @@ if [ "$platform" = "mac" ]; then
   run_macos_packaged_tool_smoke "evb-pdf-image-combine-compact-manifest" "$native_tool_root/pdf-image-combine/$platform_arch/bin/evb-pdf-image-combine" --compact-manifest
   run_macos_packaged_tool_smoke "evb-pdf-page-ops" "$native_tool_root/pdf-page-ops/$platform_arch/bin/evb-pdf-page-ops" --version
   run_macos_packaged_tool_smoke "evb-pdf-search" "$native_tool_root/pdf-search/$platform_arch/bin/evb-pdf-search" --version
-  if [ -f "$page_processor_binary" ]; then
-    run_macos_packaged_tool_smoke "page-processor" "$page_processor_binary" --version
-  fi
   run_macos_packaged_tool_smoke "tesseract" "$native_tool_root/tesseract/$platform_arch/bin/tesseract" --version
   run_macos_packaged_tool_smoke "unpaper" "$native_tool_root/tesseract/$platform_arch/bin/unpaper" --help
 fi
@@ -550,6 +536,8 @@ fi
 
 if [ "$platform" = "win" ]; then
   script_dir="$(cd "$(dirname "$0")" && pwd)"
+  node "$script_dir/release/windows-tesseract-payload-policy.mjs" \
+    "$native_tool_root/tesseract/$platform_arch/bin"
   windows_pe_files="$(mktemp)"
   trap 'rm -f "$windows_pe_files"' EXIT
   find_tool_files "$platform_arch" "bin" | grep -Ei '\.(exe|dll)$' > "$windows_pe_files" || true

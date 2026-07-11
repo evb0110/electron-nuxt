@@ -57,44 +57,47 @@
                 :value="searchProgressPercent"
                 class="pdf-search-results-progress-bar"
             />
-            <div class="pdf-search-results-list app-scrollbar">
-                <section
-                    v-for="group in groupedResults"
-                    :key="group.pageIndex"
-                    class="pdf-search-results-group flex flex-col"
-                >
+            <div
+                v-bind="containerProps"
+                class="pdf-search-results-list app-scrollbar"
+            >
+                <div v-bind="wrapperProps">
+                    <template
+                        v-for="virtualRow in virtualRows"
+                        :key="virtualRow.data.key"
+                    >
                     <button
+                        v-if="virtualRow.data.kind === 'group'"
                         type="button"
                         class="pdf-search-results-group-toggle"
-                        :aria-expanded="isGroupExpanded(group.pageIndex)"
-                        @click="togglePage(group.pageIndex)"
+                        :aria-expanded="isGroupExpanded(virtualRow.data.pageIndex)"
+                        @click="togglePage(virtualRow.data.pageIndex)"
                     >
                         <UIcon
                             name="i-ph-caret-right"
                             class="pdf-search-results-group-chevron"
-                            :class="{ 'is-open': isGroupExpanded(group.pageIndex) }"
+                            :class="{ 'is-open': isGroupExpanded(virtualRow.data.pageIndex) }"
                         />
                         <span class="pdf-search-results-group-label">
                             {{ t('searchResults.pageWithCount', {
-                                page: formatPageIndicatorWithOptions(group.pageIndex + 1, pageLabels ?? null),
-                                count: group.matches.length,
+                                page: formatPageIndicatorWithOptions(virtualRow.data.pageIndex + 1, pageLabels ?? null),
+                                count: virtualRow.data.matchCount,
                             }) }}
                         </span>
                     </button>
 
-                    <div v-if="isGroupExpanded(group.pageIndex)" class="flex flex-col">
-                        <PdfSearchResultItem
-                            v-for="matchEntry in group.matches"
-                            :key="matchEntry.resultIndex"
-                            :ref="element => setResultRef(matchEntry.resultIndex, element)"
-                            :result="matchEntry.match"
-                            :is-active="matchEntry.resultIndex === currentResultIndex"
+                    <PdfSearchResultItem
+                            v-else
+                            :ref="element => setResultRef(asMatchRow(virtualRow.data).resultIndex, element)"
+                            :result="asMatchRow(virtualRow.data).match"
+                            :is-active="asMatchRow(virtualRow.data).resultIndex === currentResultIndex"
                             :page-labels="pageLabels"
                             :show-page-label="false"
-                            @activate="goToResult(matchEntry.resultIndex)"
+                            class="pdf-search-results-virtual-match"
+                            @activate="goToResult(asMatchRow(virtualRow.data).resultIndex)"
                         />
-                    </div>
-                </section>
+                    </template>
+                </div>
             </div>
         </div>
     </div>
@@ -102,6 +105,7 @@
 
 <script setup lang="ts">
 import type { ComponentPublicInstance } from 'vue';
+import { useVirtualList } from '@vueuse/core';
 import { groupBy } from 'es-toolkit/array';
 import type { IPdfSearchMatch } from '@app/types/pdfUi';
 import AppProgressBar from '@app/components/AppProgressBar.vue';
@@ -171,6 +175,61 @@ const groupedResults = computed(() => {
         pageIndex: Number(pageIndex),
         matches,
     }));
+});
+
+type TSearchVirtualRow = {
+    kind: 'group';
+    key: string;
+    pageIndex: number;
+    matchCount: number;
+} | {
+    kind: 'match';
+    key: string;
+    pageIndex: number;
+    match: IPdfSearchMatch;
+    resultIndex: number;
+};
+
+function asMatchRow(row: TSearchVirtualRow): Extract<TSearchVirtualRow, {kind: 'match';}> {
+    if (row.kind !== 'match') {
+        throw new Error('Expected a virtual search match row');
+    }
+    return row;
+}
+
+const flattenedRows = computed<TSearchVirtualRow[]>(() => groupedResults.value.flatMap((group) => {
+    const header: TSearchVirtualRow = {
+        kind: 'group',
+        key: `group-${group.pageIndex}`,
+        pageIndex: group.pageIndex,
+        matchCount: group.matches.length,
+    };
+    if (!expandedPages.value.has(group.pageIndex)) {
+        return [header];
+    }
+    return [
+        header,
+        ...group.matches.map(({
+            match,
+            resultIndex,
+        }): TSearchVirtualRow => ({
+            kind: 'match',
+            key: `match-${resultIndex}`,
+            pageIndex: group.pageIndex,
+            match,
+            resultIndex,
+        })),
+    ];
+}));
+
+const {
+    list: virtualRows,
+    containerProps,
+    wrapperProps,
+    scrollTo: scrollToVirtualRow,
+} = useVirtualList(flattenedRows, {
+    itemHeight: index => flattenedRows.value[index]?.kind === 'group' ? 36 : 84,
+    overscan: 8,
 });
 
 function goToResult(resultIndex: number) {
@@ -257,7 +316,8 @@ watch(
         if (query !== previousSearchQuery.value) {
             previousSearchQuery.value = query;
             knownGroupPages.value = nextGroupPages;
-            expandedPages.value = new Set(nextGroupPages);
+            const firstPage = groups[0]?.pageIndex;
+            expandedPages.value = firstPage === undefined ? new Set() : new Set([firstPage]);
             return;
         }
 
@@ -297,6 +357,13 @@ watch(
         expandedPages.value = new Set(expandedPages.value).add(currentResult.pageIndex);
 
         await nextTick();
+        const virtualIndex = flattenedRows.value.findIndex(row => (
+            row.kind === 'match' && row.resultIndex === nextIndex
+        ));
+        if (virtualIndex >= 0) {
+            scrollToVirtualRow(virtualIndex);
+            await nextTick();
+        }
         resultItemRefs.get(nextIndex)?.scrollIntoView({
             block: 'nearest',
             behavior: 'smooth',
@@ -311,15 +378,20 @@ watch(
     min-height: 100%;
 }
 
+.pdf-search-results-virtual-match {
+    height: var(--app-search-virtual-row-height);
+    overflow: hidden;
+}
+
 
 .pdf-search-results-header {
     display: flex;
     min-width: 0;
-    min-height: 36px;
+    min-height: var(--app-control-height-md);
     align-items: center;
-    gap: 12px;
-    padding: 8px 12px;
-    font-size: 12px;
+    gap: var(--app-sidebar-row-gap);
+    padding: var(--app-sidebar-row-padding-block) var(--app-sidebar-row-padding-inline);
+    font-size: var(--app-sidebar-caption-font-size);
     color: var(--ui-text-muted);
     border-bottom: 1px solid var(--ui-border);
     font-variant-numeric: tabular-nums;
@@ -348,13 +420,13 @@ watch(
 }
 
 .pdf-search-results-progress-bar {
-    height: 3px;
+    height: var(--app-search-progress-height);
     border-radius: 0;
 }
 
 .pdf-search-results-truncated {
     margin-left: auto;
-    font-size: 11px;
+    font-size: var(--app-sidebar-caption-font-size);
     color: var(--ui-text-dimmed);
 }
 
@@ -367,6 +439,7 @@ watch(
     flex: 1;
     min-height: 0;
     overflow: auto;
+    scrollbar-gutter: stable;
 }
 
 
@@ -378,13 +451,13 @@ watch(
     display: flex;
     width: 100%;
     align-items: center;
-    gap: 0.45rem;
+    gap: var(--app-sidebar-row-gap);
     border: none;
     background: color-mix(in oklab, var(--ui-bg-muted) 55%, transparent 45%);
-    padding: 0.55rem 0.75rem;
+    padding: var(--app-sidebar-row-padding-block) var(--app-sidebar-row-padding-inline);
     text-align: left;
     color: var(--ui-text);
-    font-size: 0.8rem;
+    font-size: var(--app-sidebar-row-font-size);
     font-weight: 600;
     cursor: pointer;
 }

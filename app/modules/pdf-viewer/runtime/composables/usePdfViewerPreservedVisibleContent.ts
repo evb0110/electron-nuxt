@@ -5,24 +5,18 @@ import { hasPdfPageAnnotationVisualContentForSnapshotRelease } from '@app/module
 import type { TPdfLayerVisualSnapshotRelease } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotRelease';
 import { preservePdfPageAnnotationVisualSnapshot } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/preservePdfPageAnnotationVisualSnapshot';
 import { schedulePdfLayerVisualSnapshotRelease } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/schedulePdfLayerVisualSnapshotRelease';
-import type { IScrollSnapshot } from '@app/types/pdfUi';
 
 const PRESERVED_VISUAL_SNAPSHOT_CAPTURE_MAX_DELAY_MS = 15_000;
 const PRESERVED_VISUAL_SNAPSHOT_RELEASE_MAX_DELAY_MS = 2_500;
 
-export interface IPreservedScrollPosition {
-    left: number;
-    top: number;
-}
-
-export interface IPreservedVisibleContentRequest {
-    scrollSnapshot?: IScrollSnapshot | null;
-    pageToRestore?: number | null;
-}
+export interface IPreservedVisibleContentRequest {pageToRestore?: number | null;}
 
 export interface IPreservedVisibleContentState {
-    scrollPosition: IPreservedScrollPosition | null;
     pageToRestore: number | null;
+    semanticAnchor: {
+        xRatio: number;
+        yRatio: number;
+    } | null;
     visualSnapshotRelease: TPdfLayerVisualSnapshotRelease | null;
 }
 
@@ -109,6 +103,33 @@ export const usePdfViewerPreservedVisibleContent = (options: IUsePdfViewerPreser
         return release;
     }
 
+    function captureSemanticAnchor(pageNumber: number | null) {
+        const container = options.viewerContainer.value;
+        const pageContainer = findPreservedPageContainer(pageNumber);
+        if (
+            !container
+            || !pageContainer
+            || !Number.isFinite(pageContainer.offsetLeft)
+            || !Number.isFinite(pageContainer.offsetTop)
+            || !Number.isFinite(pageContainer.offsetWidth)
+            || !Number.isFinite(pageContainer.offsetHeight)
+            || pageContainer.offsetWidth <= 0
+            || pageContainer.offsetHeight <= 0
+        ) {
+            return null;
+        }
+        const viewportCenterX = container.scrollLeft + container.clientWidth / 2;
+        const viewportCenterY = container.scrollTop + container.clientHeight / 2;
+        return {
+            xRatio: Math.max(0, Math.min(1,
+                (viewportCenterX - pageContainer.offsetLeft) / Math.max(1, pageContainer.offsetWidth),
+            )),
+            yRatio: Math.max(0, Math.min(1,
+                (viewportCenterY - pageContainer.offsetTop) / Math.max(1, pageContainer.offsetHeight),
+            )),
+        };
+    }
+
     function releasePreservedVisualSnapshotNow(
         state: IPreservedVisibleContentState | null,
         reason: string,
@@ -159,18 +180,11 @@ export const usePdfViewerPreservedVisibleContent = (options: IUsePdfViewerPreser
     function capturePreservedVisibleContentState(
         request?: IPreservedVisibleContentRequest,
     ): IPreservedVisibleContentState {
-        const container = options.viewerContainer.value;
         const requestPage = normalizePreservedPageNumber(request?.pageToRestore);
-        const snapshotPage = normalizePreservedPageNumber(request?.scrollSnapshot?.anchorPage);
-        const pageToRestore = requestPage ?? snapshotPage ?? options.currentPage.value;
+        const pageToRestore = requestPage ?? options.currentPage.value;
         return {
-            scrollPosition: container
-                ? {
-                    left: container.scrollLeft,
-                    top: container.scrollTop,
-                }
-                : null,
             pageToRestore,
+            semanticAnchor: captureSemanticAnchor(pageToRestore),
             visualSnapshotRelease: capturePreservedVisualSnapshot(pageToRestore),
         };
     }

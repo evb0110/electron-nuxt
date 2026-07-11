@@ -32,16 +32,21 @@
             @keyup.stop
         />
 
-        <div class="notes-list app-scrollbar flex flex-col">
-            <button
-                v-for="comment in filteredComments"
-                :key="comment.stableKey"
+        <div
+            v-bind="commentsContainerProps"
+            class="notes-list app-scrollbar"
+        >
+            <div v-bind="commentsWrapperProps">
+                <button
+                v-for="virtualComment in virtualComments"
+                :key="virtualComment.data.stableKey"
                 type="button"
                 class="note-item flex flex-col"
-                :class="{ 'is-active': activeCommentStableKey === comment.stableKey }"
-                @click="focusComment(comment)"
-                @dblclick.prevent.stop="openComment(comment)"
+                :class="{ 'is-active': activeCommentStableKey === annotationIdForSummary(virtualComment.data) }"
+                @click="focusComment(virtualComment.data)"
+                @dblclick.prevent.stop="openComment(virtualComment.data)"
             >
+                <template v-for="comment in [virtualComment.data]" :key="comment.stableKey">
                 <span class="note-item-top">
                     <span class="note-item-page">
                         <template v-for="(part, index) in highlightTextParts(pageLabel(comment))" :key="`page-${comment.stableKey}-${index}`">
@@ -109,7 +114,9 @@
                     </span>
                     <span v-if="commentTimeLabel(comment)">{{ commentTimeLabel(comment) }}</span>
                 </span>
+                </template>
             </button>
+            </div>
 
             <PdfPanelEmptyState
                 v-if="showEmptyState"
@@ -133,11 +140,13 @@
 <script setup lang="ts">
 import {isFiniteNumber} from '@contracts/runtimeGuards';
 import { clamp } from 'es-toolkit/math';
+import { useVirtualList } from '@vueuse/core';
 import type {
     IAnnotationCommentSummary,
     TAnnotationCommentsStatus,
 } from '@app/types/annotations';
 import PdfPanelEmptyState from '@app/modules/pdf-viewer/components/PdfPanelEmptyState.vue';
+import { annotationIdForSummary } from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
 import {
     compareAnnotationCommentSummaries,
     getAnnotationCommentDisplayTimestamp,
@@ -193,6 +202,14 @@ const sortedComments = computed(() => comments.slice().sort(compareAnnotationCom
 
 const filteredComments = computed(() => {
     return sortedComments.value.filter(comment => matchesCommentQuery(comment, normalizedQuery.value, authorName.value));
+});
+const {
+    list: virtualComments,
+    containerProps: commentsContainerProps,
+    wrapperProps: commentsWrapperProps,
+} = useVirtualList(filteredComments, {
+    itemHeight: 112,
+    overscan: 6,
 });
 const showLoadingState = computed(() => status === 'loading' && filteredComments.value.length === 0);
 const showEmptyState = computed(() => status === 'ready' && filteredComments.value.length === 0);
@@ -451,17 +468,17 @@ function placeNote() {
 .notes-list-header {
     display: flex;
     align-items: center;
-    gap: 0.35rem;
+    gap: var(--app-sidebar-row-gap);
 }
 
 .notes-list-title {
-    font-size: 0.82rem;
+    font-size: var(--app-sidebar-row-font-size);
     font-weight: 700;
     color: var(--ui-text-highlighted);
 }
 
 .notes-count {
-    font-size: 0.78rem;
+    font-size: var(--app-sidebar-caption-font-size);
     color: var(--ui-text-muted);
 }
 
@@ -469,13 +486,13 @@ function placeNote() {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 1.6rem;
-    height: 1.6rem;
+    width: var(--app-sidebar-action-size);
+    height: var(--app-sidebar-action-size);
     border: none;
     border-radius: 0.35rem;
     background: transparent;
     color: var(--ui-text-muted);
-    font-size: 0.85rem;
+    font-size: var(--app-icon-size-sm);
     cursor: pointer;
 }
 
@@ -494,15 +511,16 @@ function placeNote() {
     border-radius: 0.5rem;
     background: var(--ui-bg);
     color: var(--ui-text-highlighted);
-    font-size: 0.82rem;
-    padding: 0.45rem 0.55rem;
+    font-size: var(--app-sidebar-row-font-size);
+    padding: var(--app-sidebar-row-padding-block) var(--app-sidebar-row-padding-inline);
 }
 
 .notes-list {
     flex: 1 1 0;
-    min-height: 5rem;
+    min-height: var(--app-annotation-list-min-height);
     overflow: auto;
-    gap: 0.45rem;
+    scrollbar-gutter: stable;
+    gap: var(--app-sidebar-row-gap);
     padding-right: 0.1rem;
 }
 
@@ -513,13 +531,17 @@ function placeNote() {
     background: color-mix(in oklab, var(--ui-bg) 70%, var(--ui-bg-muted) 30%);
     color: var(--ui-text-highlighted);
     text-align: left;
-    padding: 0.5rem;
-    gap: 0.35rem;
+    padding: var(--app-sidebar-row-padding-block) var(--app-sidebar-row-padding-inline);
+    gap: var(--app-sidebar-row-gap);
     cursor: pointer;
     transition:
         background-color 0.12s ease,
         border-color 0.12s ease,
         box-shadow 0.12s ease;
+    width: 100%;
+    height: var(--app-annotation-editor-height);
+    margin-bottom: var(--app-annotation-editor-margin);
+    overflow: hidden;
 }
 
 .note-item:hover {
@@ -538,9 +560,9 @@ function placeNote() {
 .note-item-top {
     display: flex;
     align-items: center;
-    gap: 0.35rem;
+    gap: var(--app-sidebar-row-gap);
     flex-wrap: wrap;
-    font-size: 0.72rem;
+    font-size: var(--app-sidebar-caption-font-size);
 }
 
 .note-item-page {
@@ -557,13 +579,13 @@ function placeNote() {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 1.35rem;
-    height: 1.35rem;
+    width: var(--app-sidebar-action-size);
+    height: var(--app-sidebar-action-size);
     border: none;
     border-radius: 0.25rem;
     background: transparent;
     color: var(--ui-text-muted);
-    font-size: 0.75rem;
+    font-size: var(--app-sidebar-caption-font-size);
     cursor: pointer;
     opacity: 0;
     transition: opacity $ease-standard;
@@ -579,7 +601,7 @@ function placeNote() {
 }
 
 .note-item-text {
-    font-size: 0.8rem;
+    font-size: var(--app-sidebar-row-font-size);
     line-height: 1.35;
     color: var(--ui-text-highlighted);
     overflow: hidden;
@@ -593,7 +615,7 @@ function placeNote() {
     display: flex;
     align-items: center;
     min-width: 0;
-    gap: 0.4rem;
+    gap: var(--app-sidebar-row-gap);
     color: var(--ui-text-highlighted);
 }
 
@@ -609,7 +631,7 @@ function placeNote() {
     min-width: 0;
     overflow: hidden;
     color: var(--ui-text-highlighted);
-    font-size: 0.8rem;
+    font-size: var(--app-sidebar-row-font-size);
     line-height: 1.35;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -624,8 +646,8 @@ function placeNote() {
 }
 
 .note-item-color-chip--solid {
-    width: 0.7rem;
-    height: 0.7rem;
+    width: var(--app-icon-size-xs);
+    height: var(--app-icon-size-xs);
     border-radius: 0.18rem;
     background: var(--note-item-chip-color);
 }
@@ -637,7 +659,7 @@ function placeNote() {
 .note-item-text-mark--highlight {
     background: color-mix(in srgb, var(--note-item-marker-color) 45%, transparent);
     border-radius: 0.15rem;
-    padding: 0 0.15rem;
+    padding: 0 var(--app-space-2xs);
     box-decoration-break: clone;
 }
 
@@ -665,8 +687,8 @@ function placeNote() {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.45rem;
-    font-size: 0.7rem;
+    gap: var(--app-sidebar-row-gap);
+    font-size: var(--app-sidebar-caption-font-size);
     color: var(--ui-text-toned);
 }
 
@@ -680,13 +702,13 @@ function placeNote() {
 .notes-loading-state {
     display: flex;
     flex-direction: column;
-    gap: 0.7rem;
-    padding: 0.35rem 0.15rem;
+    gap: var(--app-sidebar-row-gap);
+    padding: var(--app-sidebar-row-padding-block) var(--app-space-2xs);
 }
 
 .notes-loading-state span {
     display: block;
-    height: 4.7rem;
+    height: var(--app-annotation-preview-height);
     border: 1px solid var(--ui-border);
     border-radius: 0.45rem;
     background: color-mix(in srgb, var(--ui-bg-muted) 70%, transparent);

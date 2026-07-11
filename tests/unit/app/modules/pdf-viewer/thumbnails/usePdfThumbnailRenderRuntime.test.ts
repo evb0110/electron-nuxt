@@ -13,7 +13,10 @@ import type {
     PDFDocumentProxy,
     PDFPageProxy,
 } from 'pdfjs-dist';
-import { usePdfThumbnailRenderRuntime } from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailRenderRuntime';
+import {
+    shouldPreserveThumbnailBitmap,
+    usePdfThumbnailRenderRuntime,
+} from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailRenderRuntime';
 import {
     resetCoordinatedPdfPageRendersForTest,
     runCoordinatedPdfPageRender,
@@ -35,6 +38,17 @@ describe('usePdfThumbnailRenderRuntime', () => {
         vi.useRealTimers();
         vi.restoreAllMocks();
         resetCoordinatedPdfPageRendersForTest();
+    });
+
+    it('retains an existing bitmap while its replacement is rendering', () => {
+        expect(shouldPreserveThumbnailBitmap({
+            width: 240,
+            height: 320,
+        })).toBe(true);
+        expect(shouldPreserveThumbnailBitmap({
+            width: 0,
+            height: 320,
+        })).toBe(false);
     });
 
     it('leases thumbnail pages and leaves cleanup with the shared page cache owner', async () => {
@@ -71,6 +85,7 @@ describe('usePdfThumbnailRenderRuntime', () => {
         });
         const thumbnailAspectRatios = ref<Array<number | null>>([]);
         const thumbnailRenderWidth = ref(100);
+        const updateThumbnailAspectRatio = vi.fn();
         const runtime = usePdfThumbnailRenderRuntime({
             dom: {
                 getCanvas: () => canvas,
@@ -89,13 +104,13 @@ describe('usePdfThumbnailRenderRuntime', () => {
                 shouldPreferVisibleAnchorOverCurrentPage: () => false,
                 thumbnailAspectRatios,
                 thumbnailRenderWidth,
+                updateThumbnailAspectRatio,
                 virtualPages: computed(() => [1]),
             },
             source: {
                 currentPage: computed(() => 1),
                 invalidationRequest: computed(() => null),
                 isActive: computed(() => true),
-                pagePreviewProvider: computed(() => null),
                 pdfDocument: computed(() => pdfDocument),
                 totalPages: computed(() => 1),
             },
@@ -119,6 +134,7 @@ describe('usePdfThumbnailRenderRuntime', () => {
         releases.forEach(release => expect(release).toHaveBeenCalledOnce());
         expect(pdfPage.cleanup).not.toHaveBeenCalled();
         expect(canvas.dataset.thumbnailRendered).toBe('true');
+        expect(updateThumbnailAspectRatio).toHaveBeenCalledWith(1, 2);
     });
 
     it('aborts a thumbnail waiting for coordinated rendering and releases its exact lease', async () => {
@@ -153,6 +169,7 @@ describe('usePdfThumbnailRenderRuntime', () => {
         await Promise.resolve();
 
         const releases: Array<ReturnType<typeof vi.fn>> = [];
+        const updateThumbnailAspectRatio = vi.fn();
         pdfDocumentLeaseMocks.leasePdfDocumentPage.mockImplementation(async () => {
             const release = vi.fn();
             releases.push(release);
@@ -179,13 +196,13 @@ describe('usePdfThumbnailRenderRuntime', () => {
                 shouldPreferVisibleAnchorOverCurrentPage: () => false,
                 thumbnailAspectRatios: ref<Array<number | null>>([]),
                 thumbnailRenderWidth: ref(100),
+                updateThumbnailAspectRatio,
                 virtualPages: computed(() => [1]),
             },
             source: {
                 currentPage: computed(() => 1),
                 invalidationRequest: computed(() => null),
                 isActive: computed(() => true),
-                pagePreviewProvider: computed(() => null),
                 pdfDocument: computed(() => pdfDocument),
                 totalPages: computed(() => 1),
             },
@@ -207,6 +224,7 @@ describe('usePdfThumbnailRenderRuntime', () => {
         }
         expect(queuedRenderRelease).not.toHaveBeenCalled();
         expect(pdfPage.render).not.toHaveBeenCalled();
+        expect(updateThumbnailAspectRatio).toHaveBeenCalledWith(1, 2);
 
         runtime.cancelAllRenders();
         await vi.waitFor(() => expect(queuedRenderRelease).toHaveBeenCalledOnce());

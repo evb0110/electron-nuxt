@@ -36,7 +36,10 @@ vi.mock('@app/modules/pdf-viewer/runtime/composables/pdf/usePageOperations', () 
 
 const { usePageOpsHandlers } = await import('@app/modules/workspace-shell/composables/usePageOpsHandlers');
 
-function createHarness(options: { canMutatePages?: Ref<boolean> } = {}) {
+function createHarness(options: {
+    canMutatePages?: Ref<boolean>;
+    selectedPages?: number[]
+} = {}) {
     const { canMutatePages = ref(true) } = options;
     const invalidateThumbnailPages = vi.fn();
     const invalidatePages = vi.fn();
@@ -54,17 +57,23 @@ function createHarness(options: { canMutatePages?: Ref<boolean> } = {}) {
 
     const handlers = usePageOpsHandlers({
         workingCopyPath: ref('/tmp/work.pdf'),
+        pageLabels: ref(null),
+        bookmarkItems: ref([]),
         currentPage: ref(4),
         totalPages: ref(10),
-        selectedThumbnailPages: ref<number[]>([]),
+        selectedThumbnailPages: ref(options.selectedPages ?? []),
         setSelectedThumbnailPages,
         invalidateThumbnailPages,
-        pdfViewerRef: ref({ invalidatePages }),
+        pdfViewerRef: ref({
+            invalidatePages,
+            runSaveTransaction: vi.fn(),
+        }),
         pageContextMenu,
         closePageContextMenu: vi.fn(),
         onExportPages,
         canMutatePages,
         ensureHistoryBaselineForExternalMutation: vi.fn(async () => true),
+        materializeAnnotationsForPageMutation: vi.fn(async () => true),
         reloadWorkingCopyIntoHistory: vi.fn(async () => true),
         preparePdfReloadWaiter,
         clearOcrCache: vi.fn(),
@@ -179,26 +188,43 @@ describe('usePageOpsHandlers crop reload strategy', () => {
         expect(operationMocks.insertPages).not.toHaveBeenCalled();
     });
 
-    it('clears thumbnail selection after successful structural page mutations', async () => {
+    it('conserves surviving thumbnail/sidebar selection through delete and reorder', async () => {
         const {
             handlers,
             setSelectedThumbnailPages,
-        } = createHarness();
+        } = createHarness({selectedPages: [
+            1,
+            3,
+            5,
+        ]});
         operationMocks.deletePages.mockResolvedValueOnce(true);
         operationMocks.insertPages.mockResolvedValueOnce(true);
         operationMocks.reorderPages.mockResolvedValueOnce(true);
 
         await handlers.pageOpsDelete([2], 10);
-        await handlers.pageOpsInsert(10, 2);
         await handlers.pageOpsReorder([
-            2,
+            3,
             1,
+            2,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
         ]);
 
-        expect(setSelectedThumbnailPages).toHaveBeenCalledTimes(3);
-        expect(setSelectedThumbnailPages).toHaveBeenNthCalledWith(1, []);
-        expect(setSelectedThumbnailPages).toHaveBeenNthCalledWith(2, []);
-        expect(setSelectedThumbnailPages).toHaveBeenNthCalledWith(3, []);
+        expect(setSelectedThumbnailPages).toHaveBeenCalledTimes(2);
+        expect(setSelectedThumbnailPages).toHaveBeenNthCalledWith(1, [
+            1,
+            2,
+            4,
+        ]);
+        expect(setSelectedThumbnailPages).toHaveBeenNthCalledWith(2, [
+            2,
+            1,
+            5,
+        ]);
     });
 
     it('keeps thumbnail selection when a structural page mutation fails', async () => {

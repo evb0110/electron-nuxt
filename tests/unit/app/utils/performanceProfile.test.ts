@@ -6,15 +6,20 @@ import {
 import {
     PDF_BUFFER_MAX_CANVAS_PIXELS_DEFAULT,
     PDF_BUFFER_MAX_CANVAS_PIXELS_LOW_MEMORY,
+    PDF_BUFFER_MAX_CANVAS_PIXELS_WORKSTATION,
+    PDF_BUFFER_PAGES_WORKSTATION,
     PDF_PAGE_PROXY_CACHE_DEFAULT,
     PDF_PAGE_PROXY_CACHE_LOW_MEMORY,
+    PDF_PAGE_PROXY_CACHE_WORKSTATION,
     PDF_RENDER_CONCURRENCY_DEFAULT,
     PDF_RENDER_CONCURRENCY_LOW_CPU,
     PDF_RENDER_CONCURRENCY_LOW_MEMORY,
     PDF_SETTLED_MAX_CANVAS_PIXELS_DEFAULT,
     PDF_SETTLED_MAX_CANVAS_PIXELS_HIGH_MEMORY,
+    PDF_SETTLED_MAX_CANVAS_PIXELS_WORKSTATION,
     PDF_THUMBNAIL_CONCURRENCY_DEFAULT,
     PDF_THUMBNAIL_CONCURRENCY_LOW_PROFILE,
+    PDF_THUMBNAIL_CONCURRENCY_WORKSTATION,
     resolvePerformanceProfile,
 } from '@app/utils/performanceProfile';
 
@@ -65,18 +70,33 @@ describe('resolvePerformanceProfile', () => {
         });
     });
 
-    it('uses the higher settled canvas budget on real 16 GB+ machines', () => {
+    it('scales render, prefetch, proxy, thumbnail, and raster budgets upward on workstations', () => {
         expect(resolvePerformanceProfile({
             deviceMemory: 8,
-            hardwareConcurrency: 8,
+            hardwareConcurrency: 24,
             totalMemoryBytes: 32 * 1024 ** 3,
         })).toMatchObject({
             lowMemory: false,
             lowCpu: false,
+            pdfBufferPages: PDF_BUFFER_PAGES_WORKSTATION,
+            concurrentPdfRenders: 6,
+            maxCachedPdfPages: PDF_PAGE_PROXY_CACHE_WORKSTATION,
+            thumbnailBaseConcurrency: PDF_THUMBNAIL_CONCURRENCY_WORKSTATION,
+            settledMaxCanvasPixels: PDF_SETTLED_MAX_CANVAS_PIXELS_WORKSTATION,
+            maxBufferCanvasPixels: PDF_BUFFER_MAX_CANVAS_PIXELS_WORKSTATION,
+        });
+    });
+
+    it('requires both workstation memory and CPU before widening concurrent work', () => {
+        expect(resolvePerformanceProfile({
+            hardwareConcurrency: 8,
+            totalMemoryBytes: 64 * 1024 ** 3,
+        })).toMatchObject({
             pdfBufferPages: 2,
             concurrentPdfRenders: PDF_RENDER_CONCURRENCY_DEFAULT,
             maxCachedPdfPages: PDF_PAGE_PROXY_CACHE_DEFAULT,
-            settledMaxCanvasPixels: PDF_SETTLED_MAX_CANVAS_PIXELS_HIGH_MEMORY,
+            thumbnailBaseConcurrency: PDF_THUMBNAIL_CONCURRENCY_DEFAULT,
+            settledMaxCanvasPixels: PDF_SETTLED_MAX_CANVAS_PIXELS_WORKSTATION,
             maxBufferCanvasPixels: PDF_BUFFER_MAX_CANVAS_PIXELS_DEFAULT,
         });
     });

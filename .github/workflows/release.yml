@@ -187,6 +187,7 @@ jobs:
           merge-multiple: true
 
       - name: Validate updater metadata paths
+        id: metadata_policy
         shell: bash
         env:
           EVB_RELEASE_HAS_MAC_SIGNING: ${{ secrets.CSC_LINK != '' && secrets.CSC_KEY_PASSWORD != '' }}
@@ -195,7 +196,8 @@ jobs:
           set -euo pipefail
           node scripts/release/assert-publish-metadata-policy.mjs artifacts
 
-      - name: Create or update GitHub release
+      - name: Create or update draft GitHub release
+        id: draft_release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -209,10 +211,72 @@ jobs:
           # runner's current Node/LTS stack instead of a separately versioned
           # JavaScript action runtime.
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            is_draft="$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)"
+            if [ "$is_draft" != "true" ]; then
+              echo "::error::Release $RELEASE_TAG is already public; refusing to replace public assets outside the draft promotion flow."
+              exit 1
+            fi
             gh release upload "$RELEASE_TAG" artifacts/* --clobber
           else
-            gh release create "$RELEASE_TAG" artifacts/* --generate-notes --target "$TARGET_SHA"
+            gh release create "$RELEASE_TAG" artifacts/* --draft --generate-notes --target "$TARGET_SHA"
           fi
+
+      - name: Verify uploaded release assets
+        id: uploaded_assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          EVB_RELEASE_HAS_MAC_SIGNING: ${{ secrets.CSC_LINK != '' && secrets.CSC_KEY_PASSWORD != '' }}
+          EVB_RELEASE_HAS_WINDOWS_SIGNING: ${{ secrets.WIN_CSC_LINK != '' && secrets.WIN_CSC_KEY_PASSWORD != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir downloaded-assets
+          gh release download "$RELEASE_TAG" --dir downloaded-assets
+          node scripts/release/assert-publish-metadata-policy.mjs downloaded-assets
+
+          for source in artifacts/*; do
+            name="$(basename "$source")"
+            downloaded="downloaded-assets/$name"
+            if [ ! -f "$downloaded" ]; then
+              echo "::error::Uploaded release asset is missing after download: $name"
+              exit 1
+            fi
+            if [ "$(sha256sum "$source" | cut -d' ' -f1)" != "$(sha256sum "$downloaded" | cut -d' ' -f1)" ]; then
+              echo "::error::Uploaded release asset hash mismatch: $name"
+              exit 1
+            fi
+          done
+
+      - name: Promote verified draft release
+        id: promote_release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        shell: bash
+        run: gh release edit "$RELEASE_TAG" --draft=false
+
+      - name: Report release gate outcomes
+        if: ${{ always() }}
+        shell: bash
+        env:
+          METADATA_POLICY_OUTCOME: ${{ steps.metadata_policy.outcome }}
+          DRAFT_RELEASE_OUTCOME: ${{ steps.draft_release.outcome }}
+          UPLOADED_ASSETS_OUTCOME: ${{ steps.uploaded_assets.outcome }}
+          PROMOTE_RELEASE_OUTCOME: ${{ steps.promote_release.outcome }}
+        run: |
+          {
+            echo '## GitHub release gate outcomes'
+            echo
+            echo '| Actual gate | Outcome |'
+            echo '| --- | --- |'
+            echo "| Updater metadata path policy | $METADATA_POLICY_OUTCOME |"
+            echo "| Draft release creation/upload | $DRAFT_RELEASE_OUTCOME |"
+            echo "| Downloaded asset presence and SHA-256 parity | $UPLOADED_ASSETS_OUTCOME |"
+            echo "| Verified draft promotion | $PROMOTE_RELEASE_OUTCOME |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   publish_mac_intel:
     name: Attach macOS Intel Release Asset

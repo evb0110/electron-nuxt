@@ -9,7 +9,6 @@ import {
 interface INativeRustTarget {
     arch: string;
     binaryExtension: string;
-    cargoReleaseDirSegments: string[];
     cargoTargetArgs: string[];
     isHostTarget: boolean;
     platform: string;
@@ -60,10 +59,6 @@ describe('native Rust targets', () => {
         })).toEqual({
             arch: 'arm64',
             binaryExtension: '',
-            cargoReleaseDirSegments: [
-                'target',
-                'release',
-            ],
             cargoTargetArgs: [],
             isHostTarget: true,
             platform: 'darwin',
@@ -82,11 +77,6 @@ describe('native Rust targets', () => {
         })).toEqual({
             arch: 'arm64',
             binaryExtension: '.exe',
-            cargoReleaseDirSegments: [
-                'target',
-                'aarch64-pc-windows-msvc',
-                'release',
-            ],
             cargoTargetArgs: [
                 '--target',
                 'aarch64-pc-windows-msvc',

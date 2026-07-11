@@ -10,6 +10,10 @@ import type {
     TDocumentSaveResult,
 } from '@contracts/electronApiDocuments';
 import {
+    parseDocumentRevisionToken,
+    type TDocumentRevisionToken,
+} from '@contracts/documentRevision';
+import {
     atomicReplace,
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
@@ -21,12 +25,11 @@ import {
 } from '@electron/file-access/workingCopyStore';
 import { isAllowedOriginalSavePath } from '@electron/file-access/isAllowedOriginalSavePath';
 import { WorkingCopyMissingError } from '@electron/file-access/workingCopyMissingError';
-import { normalizeIpcWritePayload } from '@electron/features/documents/main/documentFileWriteAtomic';
+import {normalizeIpcWritePayload} from '@electron/file-access/documentFileWriteAtomic';
 import { validatePdfFile } from '@electron/features/documents/main/pdfConformance';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
 import {
     clearWorkingCopySyncRequired,
-    markWorkingCopySyncRequired,
     markWorkingCopyContentChanged,
 } from '@electron/file-access/documentRevisionStore';
 import {
@@ -35,6 +38,7 @@ import {
 } from '@electron/file-access/documentMutationGuards';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
 import { originalPathSaveBaseMatches } from '@electron/features/documents/main/originalPathSaveBaseMatches';
+import {transitionOriginalAndWorkingCopyRevision} from '@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
@@ -71,15 +75,16 @@ function createOriginalChangedValidationResult(): IPdfValidationResult {
     };
 }
 
-function normalizeExpectedDocumentRevisionToken(options?: IPdfSerializedSaveOptions | null): string | null {
+function normalizeExpectedDocumentRevisionToken(options?: IPdfSerializedSaveOptions | null): TDocumentRevisionToken | null {
     const token = options?.expectedDocumentRevisionToken;
     if (token === undefined || token === null) {
         return null;
     }
-    if (typeof token !== 'string' || token.trim().length === 0) {
+    const parsedToken = parseDocumentRevisionToken(token);
+    if (parsedToken === null) {
         throw new TypeError('expectedDocumentRevisionToken must be a non-empty string');
     }
-    return token.trim();
+    return parsedToken;
 }
 
 function getValidationSaveFailureReason(validation: IPdfValidationResult): TDocumentSaveFailureReason {
@@ -107,29 +112,6 @@ function createSaveFailureResult(
         ...(options.externalWriteCommitted === undefined ? {} : {externalWriteCommitted: options.externalWriteCommitted}),
         ...(reason === 'working-copy-sync-required' ? {workingCopySyncRequired: true} : {}),
         ...(options.validation === undefined ? {} : {validation: options.validation}),
-    };
-}
-
-function createWorkingCopySyncRequiredResult(error: unknown, validation?: IPdfValidationResult | null): TDocumentSaveResult {
-    return createSaveFailureResult('working-copy-sync-required', error, {
-        externalWriteCommitted: true,
-        validation: validation ?? null,
-    });
-}
-
-function withWorkingCopySyncWarning(validation: IPdfValidationResult, error: unknown): IPdfValidationResult {
-    const message = `Saved original file, but failed to refresh the working copy: ${getErrorMessage(error)}`;
-    return {
-        ...validation,
-        isValid: false,
-        errors: [
-            ...validation.errors,
-            message,
-        ],
-        warnings: [
-            ...validation.warnings,
-            message,
-        ],
     };
 }
 
@@ -180,14 +162,28 @@ async function replaceOriginalWithValidatedTemp(
             };
         }
 
-        if (!await originalPathSaveBaseMatches(workingPath, originalPath, senderWebContentsId)) {
+        const transition = await transitionOriginalAndWorkingCopyRevision({
+            workingCopyPath: workingPath,
+            originalPath,
+            reason: 'save-sync',
+            senderId: senderWebContentsId,
+            assertOriginalCurrent: () => originalPathSaveBaseMatches(
+                workingPath,
+                originalPath,
+                senderWebContentsId,
+            ),
+            publishOriginal: () => atomicReplace(tempPath, originalPath),
+            afterWorkingCopySync: () => refreshWorkingCopyOriginalFileExpectationForSave(
+                workingPath,
+                senderWebContentsId,
+            ),
+        });
+        if (!transition) {
             return {
                 validation: createOriginalChangedValidationResult(),
                 optimized: false,
             };
         }
-
-        await atomicReplace(tempPath, originalPath);
         replaced = true;
         return {
             validation,
@@ -253,29 +249,10 @@ export async function handleFileSaveStructured(
                 { optimize: 'large' },
             );
             if (queuedSave.validation.isValid) {
-                try {
-                    if (queuedSave.optimized) {
-                        await copyFileCopyOnWrite(originalPath, normalizedWorkingPath);
-                    }
-                    await refreshWorkingCopyOriginalFileExpectationForSave(normalizedWorkingPath, senderId);
-                    if (queuedSave.optimized) {
-                        await markWorkingCopyContentChanged(normalizedWorkingPath, 'save-sync', senderId);
-                    }
-                    return {
-                        validation: queuedSave.validation,
-                        workingCopyRefreshed: true,
-                    };
-                } catch (refreshError) {
-                    markWorkingCopySyncRequired(
-                        normalizedWorkingPath,
-                        `Original file was saved, but the working copy refresh failed: ${getErrorMessage(refreshError)}`,
-                    );
-                    return {
-                        validation: queuedSave.validation,
-                        workingCopyRefreshed: false,
-                        refreshError,
-                    };
-                }
+                return {
+                    validation: queuedSave.validation,
+                    workingCopyRefreshed: true,
+                };
             }
 
             return {
@@ -293,10 +270,6 @@ export async function handleFileSaveStructured(
                     validation: saveResult.validation,
                 },
             );
-        }
-
-        if (!saveResult.workingCopyRefreshed) {
-            return createWorkingCopySyncRequiredResult(saveResult.refreshError, saveResult.validation);
         }
 
         return {
@@ -400,17 +373,7 @@ export async function handleSerializedPdfSave(
                 { optimize: 'large' },
             );
             if (queuedSave.validation.isValid) {
-                try {
-                    await copyFileCopyOnWrite(originalPath, normalizedWorkingPath);
-                    await refreshWorkingCopyOriginalFileExpectationForSave(normalizedWorkingPath, senderId);
-                    await markWorkingCopyContentChanged(normalizedWorkingPath, 'save-sync', senderId);
-                } catch (syncError) {
-                    markWorkingCopySyncRequired(
-                        normalizedWorkingPath,
-                        `Original file was saved, but the working copy refresh failed: ${getErrorMessage(syncError)}`,
-                    );
-                    return withWorkingCopySyncWarning(queuedSave.validation, syncError);
-                }
+                return queuedSave.validation;
             }
 
             return queuedSave.validation;
@@ -457,17 +420,7 @@ export async function handleRepairPdfSave(
                 { optimize: 'large' },
             );
             if (queuedSave.validation.isValid) {
-                try {
-                    await copyFileCopyOnWrite(originalPath, normalizedWorkingPath);
-                    await refreshWorkingCopyOriginalFileExpectationForSave(normalizedWorkingPath, senderId);
-                    await markWorkingCopyContentChanged(normalizedWorkingPath, 'save-sync', senderId);
-                } catch (syncError) {
-                    markWorkingCopySyncRequired(
-                        normalizedWorkingPath,
-                        `Original file was saved, but the working copy refresh failed: ${getErrorMessage(syncError)}`,
-                    );
-                    return withWorkingCopySyncWarning(queuedSave.validation, syncError);
-                }
+                return queuedSave.validation;
             }
 
             return queuedSave.validation;
@@ -514,17 +467,7 @@ export async function handleOptimizePdfForInteraction(
                 { optimize: 'force' },
             );
             if (queuedSave.validation.isValid) {
-                try {
-                    await copyFileCopyOnWrite(originalPath, normalizedWorkingPath);
-                    await refreshWorkingCopyOriginalFileExpectationForSave(normalizedWorkingPath, senderId);
-                    await markWorkingCopyContentChanged(normalizedWorkingPath, 'save-sync', senderId);
-                } catch (syncError) {
-                    markWorkingCopySyncRequired(
-                        normalizedWorkingPath,
-                        `Original file was saved, but the working copy refresh failed: ${getErrorMessage(syncError)}`,
-                    );
-                    return withWorkingCopySyncWarning(queuedSave.validation, syncError);
-                }
+                return queuedSave.validation;
             }
 
             return queuedSave.validation;

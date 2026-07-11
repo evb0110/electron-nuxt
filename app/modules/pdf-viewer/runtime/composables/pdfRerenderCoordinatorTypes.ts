@@ -8,10 +8,7 @@ import type {
     TPdfViewMode,
     TZoomMode,
 } from '@app/types/pdfContracts';
-import type {
-    IPageRange,
-    IScrollSnapshot,
-} from '@app/types/pdfUi';
+import type { IPageRange } from '@app/types/pdfUi';
 import type {
     ICurrentPageSyncOptions,
     IResizeAnchorContext,
@@ -25,8 +22,7 @@ import type {
     TPdfViewerTransactionSource,
     TPdfViewerTransactionState,
 } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
-
-export type TFitRerenderTransitionOwner = 'current-page' | 'paged-target';
+import type { TPdfRerenderSource } from '@app/modules/pdf-viewer/engine/pdf-rerender-protocol/pdfRerenderProtocol';
 
 export interface IRerenderCoordinatorTransactionController {
     beginTransaction: (options: {
@@ -73,11 +69,7 @@ export interface IUsePdfViewerRerenderCoordinatorOptions {
         getVisibleRange: () => IPageRange,
         options?: {
             preserveExistingPages?: boolean;
-            anchorSnapshot?: IScrollSnapshot | null;
-            disableHorizontalAnchorRestore?: boolean;
-            disableVerticalAnchorRestore?: boolean;
-            disablePageAnchorRestore?: boolean;
-            rerenderSource?: string;
+            rerenderSource?: TPdfRerenderSource;
             renderBufferOverride?: number | undefined;
             maxCanvasPixelsOverride?: number | undefined;
         },
@@ -115,6 +107,5 @@ export interface IUsePdfViewerRerenderCoordinatorOptions {
     consumeZoomViewportAnchor?: (() => IZoomViewportAnchor | null) | undefined;
     beginResizeTransition: (source: string, anchorPage: number | null) => number;
     consumeSuppressedZoomRerender?: ((nextZoom: number) => boolean) | undefined;
-    setCurrentPageFitRerenderTransitionActive?: ((active: boolean) => void) | undefined;
     transactionController?: IRerenderCoordinatorTransactionController | undefined;
 }

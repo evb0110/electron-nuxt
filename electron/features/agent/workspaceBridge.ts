@@ -48,6 +48,11 @@ const LONG_RUNNING_AGENT_ACTION_IDS = new Set([
     'file.save_as',
     'file.repair_save',
     'file.optimize_for_interaction',
+    'ocr.start',
+    'export.docx',
+    'export.images',
+    'export.multi_page_tiff',
+    'page_ops.convert_to_pdf',
 ]);
 
 interface ICachedWorkspaceSnapshot {

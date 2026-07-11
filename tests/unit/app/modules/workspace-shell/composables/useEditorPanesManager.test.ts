@@ -10,6 +10,7 @@ import type {
     IEditorPaneState,
     TEditorLayoutNode,
 } from '@contracts/editorPanes';
+import { useEditorPanesManager } from '@app/modules/workspace-shell/composables/useEditorPanesManager';
 
 const stateStore = new Map<string, ReturnType<typeof ref>>();
 
@@ -45,13 +46,11 @@ function collectLeafPaneIds(node: TEditorLayoutNode | null, target: Set<string>)
 
 describe('useEditorPanesManager', () => {
     beforeEach(() => {
-        vi.resetModules();
         stateStore.clear();
         installUseStateStub();
     });
 
     it('repairs duplicate tab assignment and invalid active tab references', async () => {
-        const { useEditorPanesManager } = await import('@app/modules/workspace-shell/composables/useEditorPanesManager');
         const manager = useEditorPanesManager();
         manager.ensureAtLeastOneTab();
 
@@ -106,7 +105,6 @@ describe('useEditorPanesManager', () => {
     });
 
     it('repairs layout leaves that reference removed panes', async () => {
-        const { useEditorPanesManager } = await import('@app/modules/workspace-shell/composables/useEditorPanesManager');
         const manager = useEditorPanesManager();
 
         manager.layout.value = {
@@ -130,7 +128,6 @@ describe('useEditorPanesManager', () => {
     });
 
     it('keeps key refs stable when normalization is a no-op', async () => {
-        const { useEditorPanesManager } = await import('@app/modules/workspace-shell/composables/useEditorPanesManager');
         const manager = useEditorPanesManager();
         manager.ensureAtLeastOneTab();
 
@@ -150,7 +147,6 @@ describe('useEditorPanesManager', () => {
     });
 
     it('selects the adjacent source tab after moving the active tab to another pane', async () => {
-        const { useEditorPanesManager } = await import('@app/modules/workspace-shell/composables/useEditorPanesManager');
         const manager = useEditorPanesManager();
         manager.ensureAtLeastOneTab();
 
@@ -177,7 +173,6 @@ describe('useEditorPanesManager', () => {
     });
 
     it('replaces a singleton destination placeholder when moving a tab between panes', async () => {
-        const { useEditorPanesManager } = await import('@app/modules/workspace-shell/composables/useEditorPanesManager');
         const manager = useEditorPanesManager();
         manager.ensureAtLeastOneTab();
 
@@ -214,7 +209,6 @@ describe('useEditorPanesManager', () => {
     });
 
     it('inserts a moved tab at the requested destination index', async () => {
-        const { useEditorPanesManager } = await import('@app/modules/workspace-shell/composables/useEditorPanesManager');
         const manager = useEditorPanesManager();
         manager.ensureAtLeastOneTab();
 
@@ -256,7 +250,6 @@ describe('useEditorPanesManager', () => {
     });
 
     it('reorders tabs within a pane without changing the active tab', async () => {
-        const { useEditorPanesManager } = await import('@app/modules/workspace-shell/composables/useEditorPanesManager');
         const manager = useEditorPanesManager();
         manager.ensureAtLeastOneTab();
 
@@ -283,7 +276,6 @@ describe('useEditorPanesManager', () => {
     });
 
     it('closes active tabs by selecting the next neighbor and removes empty panes', async () => {
-        const { useEditorPanesManager } = await import('@app/modules/workspace-shell/composables/useEditorPanesManager');
         const manager = useEditorPanesManager();
         manager.ensureAtLeastOneTab();
 
@@ -325,7 +317,6 @@ describe('useEditorPanesManager', () => {
     });
 
     it('moves and copies active tabs by direction while updating pane focus', async () => {
-        const { useEditorPanesManager } = await import('@app/modules/workspace-shell/composables/useEditorPanesManager');
         const manager = useEditorPanesManager();
         manager.ensureAtLeastOneTab();
 
@@ -363,7 +354,6 @@ describe('useEditorPanesManager', () => {
     });
 
     it('clamps split ratios and focuses directional panes', async () => {
-        const { useEditorPanesManager } = await import('@app/modules/workspace-shell/composables/useEditorPanesManager');
         const manager = useEditorPanesManager();
         manager.ensureAtLeastOneTab();
 
@@ -383,5 +373,93 @@ describe('useEditorPanesManager', () => {
 
         expect(focusedPaneId).toBe(targetPaneId);
         expect(manager.activePaneId.value).toBe(targetPaneId);
+    });
+
+    it('restores the exact checkpoint pane, tab, layout, and active graph', async () => {
+        const manager = useEditorPanesManager();
+        manager.ensureAtLeastOneTab();
+
+        manager.restoreWorkspaceCheckpointGraph({
+            version: 1,
+            capturedAt: 123,
+            activePaneId: 'pane-b',
+            activeTabId: 'tab-b',
+            layout: {
+                type: 'split',
+                id: 'split-a',
+                orientation: 'horizontal',
+                ratio: 0.4,
+                first: {
+                    type: 'leaf',
+                    paneId: 'pane-a',
+                },
+                second: {
+                    type: 'leaf',
+                    paneId: 'pane-b',
+                },
+            },
+            panes: [
+                {
+                    paneId: 'pane-a',
+                    tabIds: ['tab-a'],
+                    activeTabId: 'tab-a',
+                },
+                {
+                    paneId: 'pane-b',
+                    tabIds: ['tab-b'],
+                    activeTabId: 'tab-b',
+                },
+            ],
+            tabs: [
+                {
+                    tabId: 'tab-a',
+                    paneId: 'pane-a',
+                    fileName: 'a.pdf',
+                    sourceRef: '/documents/a.pdf',
+                    workingCopyRef: null,
+                    isDirty: false,
+                    isDjvu: false,
+                    currentPage: 1,
+                    zoom: 1,
+                    zoomMode: 'fit-width',
+                },
+                {
+                    tabId: 'tab-b',
+                    paneId: 'pane-b',
+                    fileName: 'b.pdf',
+                    sourceRef: '/documents/b.pdf',
+                    workingCopyRef: null,
+                    isDirty: false,
+                    isDjvu: false,
+                    currentPage: 2,
+                    zoom: 1.25,
+                    zoomMode: 'custom',
+                },
+            ],
+        });
+
+        expect(manager.panes.value).toEqual([
+            {
+                paneId: 'pane-a',
+                tabIds: ['tab-a'],
+                activeTabId: 'tab-a',
+            },
+            {
+                paneId: 'pane-b',
+                tabIds: ['tab-b'],
+                activeTabId: 'tab-b',
+            },
+        ]);
+        expect(manager.tabs.value.map(tab => tab.id)).toEqual([
+            'tab-a',
+            'tab-b',
+        ]);
+        expect(manager.layout.value).toMatchObject({
+            type: 'split',
+            id: 'split-a',
+            ratio: 0.4,
+        });
+        expect(manager.activePaneId.value).toBe('pane-b');
+        expect(manager.activeTabId.value).toBe('tab-b');
     });
 });

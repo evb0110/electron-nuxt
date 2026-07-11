@@ -36,6 +36,7 @@ import {
     encodeTiffIfds,
 } from '@pdf-core';
 import type { ITiffImageDescriptor } from '@pdf-core';
+import { createDjvuWorkerFromPath } from '@app/platform/browser-api/createDjvuWorkerFromPath';
 
 type TBrowserImageExportFormat = 'jpeg' | 'png' | 'tiff';
 type TBrowserImageExportProgressPayload = Omit<IImageExportProgress, 'format' | 'requestId'>;
@@ -453,9 +454,168 @@ function getTargetPages(pdfDocument: { numPages: number }, pageNumbers?: number[
     return targetPages;
 }
 
+async function exportBrowserDjvuPagesAsImages(
+    workingCopyPath: string,
+    pageNumbers: number[] | undefined,
+    requestId: string | undefined,
+) {
+    const worker = await createDjvuWorkerFromPath(workingCopyPath);
+    const outputRefs: string[] = [];
+    try {
+        const sizes = await worker.doc.getPagesSizes().run();
+        const targetPages = getTargetPages({numPages: sizes.length}, pageNumbers);
+        if (targetPages.length === 0) {
+            return {
+                success: false as const,
+                canceled: true as const,
+            };
+        }
+        for (const [
+            index,
+            pageNumber,
+        ] of targetPages.entries()) {
+            const rendered = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
+            try {
+                const response = await fetch(rendered.url);
+                if (!response.ok) throw new Error(`Failed to render DjVu page ${pageNumber}`);
+                const bytes = new Uint8Array(await response.arrayBuffer());
+                const saveResult = await saveBytesToPickerOrDownload(bytes, {
+                    suggestedName: `document-page-${String(pageNumber).padStart(3, '0')}.png`,
+                    mimeType: 'image/png',
+                    pickerTypes: buildImageExportPickerTypes(),
+                });
+                if (saveResult.canceled) {
+                    return {
+                        success: false as const,
+                        canceled: true as const,
+                    };
+                }
+                const outputRef = await browserDocumentStore.createStoredDocument(saveResult.fileName, bytes, {
+                    mimeType: 'image/png',
+                    saveKind: 'generic',
+                    kind: 'output',
+                    retention: 'transient',
+                    saveHandle: saveResult.handle ?? null,
+                    storageMode: saveResult.handle ? 'handle' : 'inline',
+                });
+                await browserDocumentStore.touchRecentFile(outputRef);
+                outputRefs.push(outputRef);
+                emitBrowserImageExportProgress(requestId, 'images', {
+                    phase: 'rendering',
+                    processed: index + 1,
+                    total: targetPages.length,
+                    percent: ((index + 1) / targetPages.length) * 100,
+                });
+            } finally {
+                worker.revokeObjectURL(rendered.url);
+            }
+        }
+        return {
+            success: true as const,
+            outputPaths: outputRefs,
+        };
+    } finally {
+        worker.terminate();
+    }
+}
+
+async function decodePngToRgba(bytes: Uint8Array) {
+    const bitmap = await createImageBitmap(new Blob([new Uint8Array(bytes)], {type: 'image/png'}));
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext('2d', {willReadFrequently: true});
+    if (!context) throw new Error('Canvas 2D context is unavailable for DjVu TIFF export');
+    context.drawImage(bitmap, 0, 0);
+    bitmap.close();
+    const image = context.getImageData(0, 0, canvas.width, canvas.height);
+    return {
+        width: canvas.width,
+        height: canvas.height,
+        rgba: new Uint8Array(image.data.buffer.slice(0)),
+    };
+}
+
+async function exportBrowserDjvuAsTiff(
+    workingCopyPath: string,
+    pageNumbers: number[] | undefined,
+    requestId: string | undefined,
+) {
+    const worker = await createDjvuWorkerFromPath(workingCopyPath);
+    try {
+        const sizes = await worker.doc.getPagesSizes().run();
+        const targetPages = getTargetPages({numPages: sizes.length}, pageNumbers);
+        const pages: Array<{
+            rgba: Uint8Array;
+            width: number;
+            height: number
+        }> = [];
+        for (const [
+            index,
+            pageNumber,
+        ] of targetPages.entries()) {
+            const rendered = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
+            try {
+                const response = await fetch(rendered.url);
+                if (!response.ok) throw new Error(`Failed to render DjVu page ${pageNumber}`);
+                pages.push(await decodePngToRgba(new Uint8Array(await response.arrayBuffer())));
+                const totalBytes = sumBy(pages, page => page.rgba.byteLength);
+                if (totalBytes > BROWSER_INLINE_TIFF_EXPORT_MAX_RGBA_BYTES) {
+                    throw new Error('Browser DjVu TIFF export exceeds the 64MB decoded-image limit');
+                }
+                emitBrowserImageExportProgress(requestId, 'multipage-tiff', {
+                    phase: 'rendering',
+                    processed: index + 1,
+                    total: targetPages.length,
+                    percent: ((index + 1) / targetPages.length) * 90,
+                });
+            } finally {
+                worker.revokeObjectURL(rendered.url);
+            }
+        }
+        const bytes = encodeMultiPageTiff(pages);
+        const saveResult = await saveBytesToPickerOrDownload(bytes, {
+            suggestedName: 'document.tiff',
+            mimeType: 'image/tiff',
+            pickerTypes: buildTiffSaveTypes(),
+        });
+        if (saveResult.canceled) {
+            return {
+                success: false as const,
+                canceled: true as const,
+            };
+        }
+        const outputRef = await browserDocumentStore.createStoredDocument(saveResult.fileName, bytes, {
+            mimeType: 'image/tiff',
+            saveKind: 'generic',
+            kind: 'output',
+            retention: 'transient',
+            saveHandle: saveResult.handle ?? null,
+            storageMode: saveResult.handle ? 'handle' : 'inline',
+        });
+        await browserDocumentStore.touchRecentFile(outputRef);
+        emitBrowserImageExportProgress(requestId, 'multipage-tiff', {
+            phase: 'combining',
+            processed: 1,
+            total: 1,
+            percent: 100,
+        });
+        return {
+            success: true as const,
+            outputPath: outputRef,
+            outputPaths: [outputRef],
+        };
+    } finally {
+        worker.terminate();
+    }
+}
+
 export function createBrowserImageExportCapability(): IImageExportCapability {
     return {
-        async exportPdfToImages(workingCopyPath, pageNumbers, requestId) {
+        async exportPdfToImages(workingCopyPath, pageNumbers, requestId, sourceKind) {
+            if (sourceKind === 'djvu') {
+                return exportBrowserDjvuPagesAsImages(workingCopyPath, pageNumbers, requestId);
+            }
             const pdfDocument = await loadPdfDocument(workingCopyPath);
             const targetPages = getTargetPages(pdfDocument.pdfDocument, pageNumbers);
             const outputRefs: string[] = [];
@@ -573,7 +733,10 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                 outputPaths: outputRefs,
             };
         },
-        async exportPdfToMultiPageTiff(workingCopyPath, pageNumbers, requestId) {
+        async exportPdfToMultiPageTiff(workingCopyPath, pageNumbers, requestId, sourceKind) {
+            if (sourceKind === 'djvu') {
+                return exportBrowserDjvuAsTiff(workingCopyPath, pageNumbers, requestId);
+            }
             const pdfDocument = await loadPdfDocument(workingCopyPath);
             try {
                 const targetPages = getTargetPages(pdfDocument.pdfDocument, pageNumbers);

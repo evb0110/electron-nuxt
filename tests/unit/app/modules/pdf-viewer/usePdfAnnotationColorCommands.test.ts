@@ -15,7 +15,7 @@ vi.mock('@app/services/pdfjs/annotationEditorMutation', () => ({ getStoredAnnota
 function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
     return {
         id: overrides.id ?? 'ann-1',
-        stableKey: overrides.stableKey ?? 'ann-1',
+        stableKey: overrides.stableKey ?? 'ann:0:ann-1',
         pageIndex: overrides.pageIndex ?? 0,
         pageNumber: overrides.pageNumber ?? 1,
         text: overrides.text ?? 'Marked text',
@@ -153,7 +153,7 @@ describe('usePdfAnnotationColorCommands', () => {
         expect(annotationCommentModel.updateCachedColor).toHaveBeenCalledWith(
             expect.objectContaining({
                 annotationId: '12R0',
-                stableKey: '12R0',
+                stableKey: 'ann:0:12R0',
             }),
             '#22c55e',
             {},

@@ -6,7 +6,8 @@ import {
     vi,
 } from 'vitest';
 import type { IpcRenderer } from 'electron';
-import { createTypedIpcInvoker } from '@electron/preload/ipcClient';
+import type { TIpcCodecMap } from '@contracts/ipcMain';
+import { createCodecIpcInvoker } from '@electron/preload/ipcClient';
 
 interface ITestInvokeMap {
     'native:slow': {
@@ -19,7 +20,18 @@ interface ITestInvokeMap {
     };
 }
 
-describe('createTypedIpcInvoker timeout policy', () => {
+const codecs = {
+    'native:slow': {
+        decodeArgs: value => [String(value[0])],
+        decodeResult: String,
+    },
+    'regular:slow': {
+        decodeArgs: () => [],
+        decodeResult: String,
+    },
+} satisfies TIpcCodecMap<ITestInvokeMap>;
+
+describe('createCodecIpcInvoker timeout policy', () => {
     afterEach(() => {
         vi.useRealTimers();
     });
@@ -27,7 +39,7 @@ describe('createTypedIpcInvoker timeout policy', () => {
     it('rejects configured channels with channel-scoped timeout context', async () => {
         vi.useFakeTimers();
         const ipcRenderer: Pick<IpcRenderer, 'invoke'> = {invoke: vi.fn(() => new Promise(() => {}))};
-        const invoke = createTypedIpcInvoker<ITestInvokeMap>(ipcRenderer, {invokeTimeoutMsByChannel: {'native:slow': 250}});
+        const invoke = createCodecIpcInvoker<ITestInvokeMap>(ipcRenderer, codecs, {invokeTimeoutMsByChannel: {'native:slow': 250}});
 
         const pending = invoke('native:slow', 'payload');
         const assertion = expect(pending).rejects.toMatchObject({
@@ -49,7 +61,7 @@ describe('createTypedIpcInvoker timeout policy', () => {
     it('leaves unconfigured channels without a renderer-side timeout', async () => {
         vi.useFakeTimers();
         const ipcRenderer: Pick<IpcRenderer, 'invoke'> = {invoke: vi.fn(() => new Promise(() => {}))};
-        const invoke = createTypedIpcInvoker<ITestInvokeMap>(ipcRenderer);
+        const invoke = createCodecIpcInvoker<ITestInvokeMap>(ipcRenderer, codecs);
         const rejected = vi.fn();
 
         void invoke('regular:slow').catch(rejected);

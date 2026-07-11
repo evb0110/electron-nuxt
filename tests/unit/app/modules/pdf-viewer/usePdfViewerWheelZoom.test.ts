@@ -14,12 +14,6 @@ import {
 } from 'vue';
 import { ZOOM } from '@app/constants/pdfLayout';
 
-const captureScrollSnapshot = vi.fn();
-const restoreScrollFromSnapshot = vi.fn();
-
-vi.mock('@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/captureScrollSnapshot', () => ({captureScrollSnapshot: (...args: unknown[]) => captureScrollSnapshot(...args)}));
-vi.mock('@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/restoreScrollFromSnapshot', () => ({restoreScrollFromSnapshot: (...args: unknown[]) => restoreScrollFromSnapshot(...args)}));
-
 vi.mock('@app/utils/browserLogger', () => {
     return { BrowserLogger: {
         diagnostic: vi.fn(),
@@ -40,10 +34,6 @@ describe('usePdfViewerWheelZoom', () => {
         vi.clearAllMocks();
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-03-15T12:00:00Z'));
-        captureScrollSnapshot.mockReturnValue({
-            anchorViewportX: 120,
-            anchorViewportY: 160,
-        });
     });
 
     afterEach(() => {
@@ -121,9 +111,11 @@ describe('usePdfViewerWheelZoom', () => {
             singlePageScroll.cancelProgrammaticNavigation();
         });
         const emit = vi.fn();
+        const submitZoomIntent = vi.fn();
 
         const scope = effectScope();
         const wheelZoom = scope.run(() => usePdfViewerWheelZoom({
+            submitZoomIntent,
             viewerContainer,
             src: computed(() => ({ kind: 'data' }) as never),
             isLoading: ref(false),
@@ -161,6 +153,7 @@ describe('usePdfViewerWheelZoom', () => {
             cancelPendingSearchScroll,
             markUserViewportInteraction,
             emit,
+            submitZoomIntent,
             wheelZoom,
         };
     }
@@ -502,7 +495,7 @@ describe('usePdfViewerWheelZoom', () => {
         }
     });
 
-    it('restores the captured scroll snapshot after the zoom ref changes', async () => {
+    it('submits the cursor semantic anchor with the zoom intent', () => {
         const setup = setupWheelZoom();
 
         try {
@@ -514,22 +507,12 @@ describe('usePdfViewerWheelZoom', () => {
             });
             setup.wheelZoom.handleViewerWheel(zoomEvent);
 
-            setup.zoom.value = 1.25;
-            await nextTick();
-
-            expect(captureScrollSnapshot).toHaveBeenCalledOnce();
-            expect(restoreScrollFromSnapshot).toHaveBeenCalledWith(
-                setup.viewerContainer.value,
-                {
-                    anchorViewportX: 120,
-                    anchorViewportY: 160,
-                },
-                expect.objectContaining({
-                    restoreHorizontal: true,
-                    restoreVertical: true,
-                    preferPageAnchor: true,
-                }),
-            );
+            expect(setup.submitZoomIntent).toHaveBeenCalledOnce();
+            expect(setup.submitZoomIntent).toHaveBeenCalledWith({
+                zoom: expect.any(Number),
+                x: 120,
+                y: 160,
+            });
         } finally {
             setup.scope.stop();
         }
@@ -587,7 +570,7 @@ describe('usePdfViewerWheelZoom', () => {
             setup.zoom.value = 1.1;
             await nextTick();
 
-            expect(restoreScrollFromSnapshot).not.toHaveBeenCalled();
+            expect(setup.submitZoomIntent).toHaveBeenCalledOnce();
         } finally {
             setup.scope.stop();
         }

@@ -59,8 +59,25 @@ export const browserOcrCapability: IOcrCapability = {
             errorEnvelope: createBrowserOcrUnavailableEnvelope(),
         });
     },
+    getJobState() {
+        return Promise.resolve(null);
+    },
+    subscribeJob() {
+        return Promise.resolve(null);
+    },
+    reconnectJob() {
+        return Promise.resolve(null);
+    },
     getLanguages() {
         return Promise.resolve([]);
+    },
+    resolveDocumentTextCatalog(_workingCopyPath, documentRevision, pageCount = 0) {
+        return Promise.resolve({
+            documentRevision,
+            pageCount,
+            pages: [],
+            contentDigest: '',
+        });
     },
     validateTools(): Promise<IOcrToolValidationResult> {
         return Promise.resolve({

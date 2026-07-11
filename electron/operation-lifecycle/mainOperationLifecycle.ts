@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { createMainOperationShuttingDownError } from '@contracts/mainOperationErrors';
+import { createLogger } from '@electron/utils/createLogger';
+import { runDetached } from '@electron/utils/runDetached';
 
 export type TMainOperationKind = 'critical-write' | 'abortable-work' | 'resource-cleanup';
 
@@ -39,6 +41,7 @@ interface IMainOperationRecord {
 }
 
 const operations = new Map<string, IMainOperationRecord>();
+const log = createLogger('main-operation-lifecycle');
 let shutdownAdmissionMessage: string | null = null;
 
 function createTimeoutPromise(timeoutMs: number): Promise<'timeout'> {
@@ -104,7 +107,15 @@ export function cancelAllMainOperations(reason: string): void {
         if (!operation.controller.signal.aborted) {
             operation.controller.abort(new Error(reason));
         }
-        void operation.cancel?.(reason);
+        if (operation.cancel) {
+            runDetached(
+                () => operation.cancel?.(reason),
+                {
+                    label: `cancel ${operation.kind} operation ${operation.id}`,
+                    logger: log,
+                },
+            );
+        }
     }
 }
 

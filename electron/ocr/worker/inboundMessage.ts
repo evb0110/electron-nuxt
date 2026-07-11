@@ -3,6 +3,7 @@ import type {
     IDocumentRevisionInfo,
     TDocumentRevisionAuthority,
 } from '@contracts/documentRevision';
+import { parseDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
     IOcrWorkerStartPayload,
     TOcrWorkerInboundMessage,
@@ -20,14 +21,14 @@ const DOCUMENT_REVISION_AUTHORITIES: ReadonlySet<TDocumentRevisionAuthority> = n
 
 function parseDocumentRevisionInfo(value: unknown): IDocumentRevisionInfo | null {
     const authority = isRecord(value) ? value.authority : undefined;
+    const token = isRecord(value) ? parseDocumentRevisionToken(value.token) : null;
     if (
         !isRecord(value)
         || value.version !== 1
         || typeof value.documentRef !== 'string'
         || typeof authority !== 'string'
         || !DOCUMENT_REVISION_AUTHORITIES.has(authority as TDocumentRevisionAuthority)
-        || typeof value.token !== 'string'
-        || value.token.length === 0
+        || token === null
         || typeof value.contentRevision !== 'number'
         || !Number.isSafeInteger(value.contentRevision)
         || value.contentRevision < 1
@@ -41,7 +42,7 @@ function parseDocumentRevisionInfo(value: unknown): IDocumentRevisionInfo | null
         version: 1,
         documentRef: value.documentRef,
         authority: authority as TDocumentRevisionAuthority,
-        token: value.token,
+        token,
         contentRevision: value.contentRevision,
         mintedAt: value.mintedAt,
     };

@@ -4,7 +4,10 @@ import {
     writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import {
+    dirname,
+    join,
+} from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
     describe,
@@ -104,7 +107,7 @@ describe('Windows PE dependency helpers', () => {
             'KERNEL32.dll',
             'glib-2.0-0.dll',
         ]);
-        const bundledAliasPath = join(mkdtempSync(join(tmpdir(), 'evb-pe-dll-')), 'libglib-2.0-0.dll');
+        const bundledAliasPath = join(dirname(toolPath), 'libglib-2.0-0.dll');
         copyFileSync(createPeFixture('arm64', []), bundledAliasPath);
 
         expect(verifyWindowsPeDependencies({
@@ -115,6 +118,22 @@ describe('Windows PE dependency helpers', () => {
             ],
             systemDllPattern: /^(kernel32\.dll)$/iu,
         })).toEqual([]);
+    });
+
+    it('does not satisfy an import with a DLL bundled beside another tool', () => {
+        const toolPath = createPeFixture('arm64', ['custom-runtime.dll']);
+        const siblingToolDirectory = mkdtempSync(join(tmpdir(), 'evb-pe-other-tool-'));
+        const misplacedDllPath = join(siblingToolDirectory, 'custom-runtime.dll');
+        copyFileSync(createPeFixture('arm64', []), misplacedDllPath);
+
+        expect(verifyWindowsPeDependencies({
+            allowedMachines: ['arm64'],
+            files: [
+                toolPath,
+                misplacedDllPath,
+            ],
+            systemDllPattern: /^kernel32\.dll$/iu,
+        })).toEqual([expect.stringContaining('Missing bundled DLL dependency "custom-runtime.dll"')]);
     });
 
     it('allows mixed ia32 and x64 PE files in Windows x64 packages', () => {

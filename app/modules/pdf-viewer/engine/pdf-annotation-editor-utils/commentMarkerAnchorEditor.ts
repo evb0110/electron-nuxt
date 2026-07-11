@@ -1,6 +1,7 @@
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 import { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
+import { getPdfjsEditorFacadeState } from '@app/modules/pdf-viewer/engine/annotations/bridge/getPdfjsEditorFacadeState';
 
 export const COMMENT_MARKER_ANCHOR_EDITOR_CLASS = 'pdf-comment-marker-anchor-editor';
 export const COMMENT_MARKER_ANCHOR_EDITOR_ATTRIBUTE = 'data-evb-comment-marker-anchor';
@@ -10,7 +11,7 @@ function formatPercent(value: number) {
 }
 
 function tagCommentMarkerAnchorEditor(editor: IPdfjsEditor) {
-    editor.__evbCommentMarkerAnchor = true;
+    getPdfjsEditorFacadeState(editor).commentMarkerAnchor = true;
 
     const editorDiv = editor.div;
     if (!editorDiv) {
@@ -39,11 +40,11 @@ export function syncCommentMarkerAnchorEditor(
 
     const normalizedRect = normalizeMarkerRect(markerRect);
     if (!normalizedRect) {
-        editor.__evbPendingAnchorRect = null;
+        getPdfjsEditorFacadeState(editor).pendingAnchorRect = null;
         return false;
     }
 
-    editor.__evbPendingAnchorRect = normalizedRect;
+    getPdfjsEditorFacadeState(editor).pendingAnchorRect = normalizedRect;
     editor.x = normalizedRect.left;
     editor.y = normalizedRect.top;
     editor.width = normalizedRect.width;

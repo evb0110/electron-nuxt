@@ -1,7 +1,6 @@
 import type { Ref } from 'vue';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { TAgentTextMarkupKind } from '@app/modules/pdf-viewer/public';
-import type { IAnnotationNoteWindowState } from '@app/types/annotationNoteWindow';
 import {
     markerRectFromPoint,
     normalizeMarkerRect,
@@ -20,16 +19,12 @@ import {
 interface ICreateDocumentAgentAnnotationsOptions {
     annotationComments: Ref<IAnnotationCommentSummary[]>;
     currentPage: Ref<number>;
-    isSameAnnotationComment: (left: IAnnotationCommentSummary, right: IAnnotationCommentSummary) => boolean;
-    sortedAnnotationNoteWindows: Ref<IAnnotationNoteWindowState[]>;
 }
 
 export function createDocumentAgentAnnotations(options: ICreateDocumentAgentAnnotationsOptions) {
     const {
         annotationComments,
         currentPage,
-        isSameAnnotationComment,
-        sortedAnnotationNoteWindows,
     } = options;
 
     function getAgentTextMarkupCreateOptions(input: Record<string, unknown>) {
@@ -95,31 +90,6 @@ export function createDocumentAgentAnnotations(options: ICreateDocumentAgentAnno
         if (!markerRect) {
             return null;
         }
-        const pageNumber = Math.max(1, Math.trunc(options.pageNumber));
-        const openNote = [...sortedAnnotationNoteWindows.value]
-            .reverse()
-            .find(note =>
-                note.comment.source === 'editor'
-                && note.comment.pageNumber === pageNumber,
-            );
-        if (!openNote) {
-            return markerRect;
-        }
-
-        const previousComment = openNote.comment;
-        openNote.comment = {
-            ...previousComment,
-            markerRect,
-        };
-        annotationComments.value = annotationComments.value.map(comment => (
-            comment.stableKey === previousComment.stableKey
-            || isSameAnnotationComment(comment, previousComment)
-                ? {
-                    ...comment,
-                    markerRect,
-                }
-                : comment
-        ));
         return markerRect;
     }
 

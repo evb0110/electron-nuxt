@@ -90,7 +90,7 @@ function handleClick(event: MouseEvent, link: ILinkAnnotation) {
 .pdf-link-overlay-layer {
     position: absolute;
     inset: 0;
-    z-index: 2;
+    z-index: var(--app-z-pdf-link-layer);
     pointer-events: none;
 }
 

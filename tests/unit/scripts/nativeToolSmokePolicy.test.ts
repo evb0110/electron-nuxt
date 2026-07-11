@@ -64,10 +64,6 @@ describe('native tool smoke policy', () => {
                 new Set([0]),
             ],
             [
-                'page-processor',
-                new Set([0]),
-            ],
-            [
                 'pdfinfo',
                 new Set([0]),
             ],
@@ -112,7 +108,6 @@ describe('native tool smoke policy', () => {
         expect(() => assertMacPackagedToolSmoke('evb-pdf-page-ops', 0, 'evb-pdf-page-ops 0.1.0')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('evb-pdf-search', 0, 'evb-pdf-search 0.1.0')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('evb-pdf-image-combine-compact-manifest', 1, 'Missing --compact-manifest value')).not.toThrow();
-        expect(() => assertMacPackagedToolSmoke('page-processor', 0, 'page-processor 2.0.0')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('ddjvu', 1, 'ddjvu usage')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('djvudump', 1, 'djvudump usage')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('unpaper', 0, 'Usage: unpaper [options]')).not.toThrow();
@@ -127,12 +122,12 @@ describe('native tool smoke policy', () => {
         );
     });
 
-    it('keeps packaged OCR verification production-like and registry-complete', () => {
+    it('keeps packaged OCR verification production-like and default-bundle complete', () => {
         const verifierSource = readFileSync(resolve(process.cwd(), 'scripts/verify-packaged-native-tools.sh'), 'utf-8');
 
-        expect(verifierSource).toContain('verify_tessdata_registry_complete "$tessdata_dir"');
-        expect(verifierSource).toContain('get_registry_language_codes');
-        expect(verifierSource).toContain('packages/contracts/ocrLanguages.ts');
+        expect(verifierSource).toContain('verify_tessdata_bundle_complete "$tessdata_dir"');
+        expect(verifierSource).toContain('printOcrLanguageCodes.ts --bundled');
+        expect(verifierSource).toContain('get_bundled_language_codes');
         expect(verifierSource).not.toContain('DYLD_LIBRARY_PATH=');
         expect(verifierSource).not.toContain('LD_LIBRARY_PATH=');
         expect(verifierSource).toContain('windows-pe-dependencies.mjs');

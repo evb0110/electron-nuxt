@@ -120,7 +120,7 @@ function onSave() {
     position: absolute;
     left: var(--app-statusbar-divider-offset);
     top: 50%;
-    width: 1px;
+    width: var(--app-statusbar-divider-width);
     height: var(--app-statusbar-divider-height);
     transform: translateY(-50%);
     background: var(--app-status-bar-divider);

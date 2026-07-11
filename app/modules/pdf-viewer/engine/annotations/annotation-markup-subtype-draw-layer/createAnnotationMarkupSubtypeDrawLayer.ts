@@ -11,6 +11,7 @@ import type { ITextMarkupRect } from '@app/modules/pdf-viewer/engine/text-markup
 import { refreshHighlightCompositeOverlay } from '@app/modules/pdf-viewer/engine/pdf-highlight-composite-overlay/refreshHighlightCompositeOverlay';
 import { findClosestHighlightDrawLayerSvg } from '@app/modules/pdf-viewer/engine/annotations/annotation-markup-subtype-draw-layer/findClosestHighlightDrawLayerSvg';
 import { resolveEditorHighlightClipPathId } from '@app/modules/pdf-viewer/engine/annotations/annotation-markup-subtype-draw-layer/resolveEditorHighlightClipPathId';
+import { getPdfjsEditorFacadeState } from '@app/modules/pdf-viewer/engine/annotations/bridge/getPdfjsEditorFacadeState';
 
 const MARKUP_DRAW_LAYER_CLASS_PREFIX = 'pdf-markup-subtype-draw-';
 
@@ -228,6 +229,16 @@ export function createAnnotationMarkupSubtypeDrawLayer() {
         markupSubtypeRetryTimers.add(timer);
     }
 
+    function scheduleEditorRetry(editor: IPdfjsEditor, run: (current: IPdfjsEditor) => void) {
+        const editorRef = new WeakRef(editor);
+        scheduleMarkupSubtypeRetry(() => {
+            const current = editorRef.deref();
+            if (current) {
+                run(current);
+            }
+        }, DRAW_LAYER_RETRY_DELAY_MS);
+    }
+
     function beginEditorPresentation(editor: IPdfjsEditor) {
         presentationToken += 1;
         editorPresentationTokens.set(editor, presentationToken);
@@ -412,9 +423,9 @@ export function createAnnotationMarkupSubtypeDrawLayer() {
         const highlightSvg = resolveEditorDrawLayerHighlight(editor);
         if (!highlightSvg) {
             if (attempt < DRAW_LAYER_RETRY_LIMIT && editor.div?.isConnected) {
-                scheduleMarkupSubtypeRetry(() => {
-                    applyMarkupSubtypeDrawLayerClass(editor, subtype, color, attempt + 1, token, stateVersion);
-                }, DRAW_LAYER_RETRY_DELAY_MS);
+                scheduleEditorRetry(editor, current => {
+                    applyMarkupSubtypeDrawLayerClass(current, subtype, color, attempt + 1, token, stateVersion);
+                });
             }
             return false;
         }
@@ -428,18 +439,19 @@ export function createAnnotationMarkupSubtypeDrawLayer() {
         const drawLayerRect = resolveDrawLayerSvgRect(highlightSvg);
         const pageDimensions = resolveEditorPageDimensions(editor);
         const drawLayer = resolveEditorDrawLayer(editor);
-        if (!drawLayer || !drawLayerRect || !pageDimensions || !editor.__evbMarkupBoxes?.length) {
+        const editorState = getPdfjsEditorFacadeState(editor);
+        if (!drawLayer || !drawLayerRect || !pageDimensions || !editorState.markupBoxes?.length) {
             if (attempt < DRAW_LAYER_RETRY_LIMIT && editor.div?.isConnected) {
-                scheduleMarkupSubtypeRetry(() => {
-                    applyMarkupSubtypeDrawLayerClass(editor, subtype, color, attempt + 1, token, stateVersion);
-                }, DRAW_LAYER_RETRY_DELAY_MS);
+                scheduleEditorRetry(editor, current => {
+                    applyMarkupSubtypeDrawLayerClass(current, subtype, color, attempt + 1, token, stateVersion);
+                });
             }
             editor.div?.classList.remove(MARKUP_VISUAL_READY_CLASS);
             return false;
         }
 
         const plan = createTextMarkupDrawLayerVisualPlan({
-            boxes: editor.__evbMarkupBoxes,
+            boxes: editorState.markupBoxes,
             drawLayerRect,
             pageDimensions,
             subtype,

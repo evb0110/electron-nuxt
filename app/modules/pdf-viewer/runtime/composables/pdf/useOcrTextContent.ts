@@ -1,21 +1,18 @@
 import type { PageViewport } from 'pdfjs-dist';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { IPdfRawDims } from '@app/types/pdfUi';
 import type { IOcrWord } from '@contracts/shared';
 import { isRtlOcrLanguage } from '@contracts/ocrLanguages';
+import type { IDocumentTextCatalogPage } from '@contracts/documentTextCatalog';
 import {
     buildOcrTextLayerItemText,
     isLastOcrWordInLine,
 } from '@contracts/ocrText';
-import type {
-    IOcrManifest,
-    IOcrPageData,
-} from '@app/modules/pdf-viewer/engine/ocr-text-content-cache/ocrTextContentCacheTypes';
 import {
-    loadCachedOcrManifest,
-    loadCachedOcrPageData,
-} from '@app/modules/pdf-viewer/engine/ocr/ocrIndexArtifactLoader';
-import { sharedOcrTextContentCache } from '@app/modules/pdf-viewer/engine/ocr-text-content-cache/sharedOcrTextContentCache';
+    clearSharedDocumentTextCatalog,
+    loadSharedDocumentTextCatalog,
+} from '@app/modules/pdf-viewer/engine/document-text-catalog/sharedDocumentTextCatalogCache';
 
 type TOcrTextDirection = 'ltr' | 'rtl';
 const SERVER_ASCENT_RATIO_FALLBACK = 0.8;
@@ -106,28 +103,6 @@ export const useOcrTextContent = () => {
     }
 
     /**
-     * Loads and caches the OCR manifest for a working copy path.
-     */
-    async function loadManifest(
-        workingCopyPath: TDocumentRef,
-        documentRevisionToken: string,
-    ): Promise<IOcrManifest | null> {
-        return loadCachedOcrManifest(workingCopyPath, documentRevisionToken, 'ocr');
-    }
-
-    /**
-     * Loads and caches per-page OCR data.
-     */
-    async function loadPageData(
-        workingCopyPath: TDocumentRef,
-        documentRevisionToken: string,
-        pageNumber: number,
-        manifest: IOcrManifest,
-    ): Promise<IOcrPageData | null> {
-        return loadCachedOcrPageData(workingCopyPath, documentRevisionToken, pageNumber, manifest, 'ocr');
-    }
-
-    /**
      * Transforms an OCR word (in pixel coordinates) to a PDF.js TextItem
      * for use in the TextLayer.
      *
@@ -142,13 +117,16 @@ export const useOcrTextContent = () => {
      */
     function transformWordToTextItem(
         word: IOcrWord,
-        ocrPage: IOcrPageData,
+        ocrPage: IDocumentTextCatalogPage,
         viewport: PageViewport,
         isLastInLine: boolean,
         textDir: TOcrTextDirection,
         ascentRatio: number,
     ) {
         const { render } = ocrPage;
+        if (!render) {
+            throw new Error(`EVB OCR catalog page ${ocrPage.pageNumber} is missing render geometry`);
+        }
 
         // Get raw page dimensions from viewport
         // PDF.js viewport includes a rawDims property with the original page size
@@ -211,22 +189,18 @@ export const useOcrTextContent = () => {
      */
     async function getOcrTextContent(
         workingCopyPath: TDocumentRef,
-        documentRevisionToken: string,
+        documentRevisionToken: TDocumentRevisionToken,
         pageNumber: number,
         viewport: PageViewport,
     ) {
-        const manifest = await loadManifest(workingCopyPath, documentRevisionToken);
-        if (!manifest) {
+        const snapshot = await loadSharedDocumentTextCatalog(workingCopyPath, documentRevisionToken);
+        const pageData = snapshot?.pages.find(page => page.pageNumber === pageNumber && page.source === 'evb-ocr');
+        if (!pageData?.render || !pageData.words?.length) {
             return null;
         }
 
-        const isRtl = manifest.ocr.languages.some(isRtlOcrLanguage);
+        const isRtl = pageData.languages?.some(isRtlOcrLanguage) === true;
         const textDir: TOcrTextDirection = isRtl ? 'rtl' : 'ltr';
-
-        const pageData = await loadPageData(workingCopyPath, documentRevisionToken, pageNumber, manifest);
-        if (!pageData || !pageData.words || pageData.words.length === 0) {
-            return null;
-        }
 
         const ascentRatio = getAscentRatio();
 
@@ -252,7 +226,7 @@ export const useOcrTextContent = () => {
                 descent: 1 - ascentRatio,
                 vertical: false,
             }},
-            lang: manifest.ocr.languages[0] ?? null,
+            lang: pageData.languages?.[0] ?? null,
         };
     }
 
@@ -264,10 +238,10 @@ export const useOcrTextContent = () => {
      */
     async function hasOcrData(
         workingCopyPath: TDocumentRef,
-        documentRevisionToken: string,
+        documentRevisionToken: TDocumentRevisionToken,
     ) {
-        const manifest = await loadManifest(workingCopyPath, documentRevisionToken);
-        return manifest !== null;
+        const snapshot = await loadSharedDocumentTextCatalog(workingCopyPath, documentRevisionToken);
+        return snapshot?.pages.some(page => page.source === 'evb-ocr') === true;
     }
 
     /**
@@ -279,14 +253,11 @@ export const useOcrTextContent = () => {
      */
     async function hasPageOcrData(
         workingCopyPath: TDocumentRef,
-        documentRevisionToken: string,
+        documentRevisionToken: TDocumentRevisionToken,
         pageNumber: number,
     ) {
-        const manifest = await loadManifest(workingCopyPath, documentRevisionToken);
-        if (!manifest) {
-            return false;
-        }
-        return pageNumber in manifest.pages;
+        const snapshot = await loadSharedDocumentTextCatalog(workingCopyPath, documentRevisionToken);
+        return snapshot?.pages.some(page => page.pageNumber === pageNumber && page.source === 'evb-ocr') === true;
     }
 
     /**
@@ -295,12 +266,11 @@ export const useOcrTextContent = () => {
      * @param workingCopyPath - Optional path to clear; clears all if omitted
      */
     function clearCache(workingCopyPath?: TDocumentRef) {
-        sharedOcrTextContentCache.clearCache(workingCopyPath);
+        clearSharedDocumentTextCatalog(workingCopyPath);
     }
 
     return {
         getOcrTextContent,
-        loadManifest,
         hasOcrData,
         hasPageOcrData,
         clearCache,

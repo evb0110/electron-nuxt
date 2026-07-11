@@ -6,7 +6,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 PYTHON_DIR="$PROJECT_ROOT/python/page-processor"
-RESOURCES_DIR="$PROJECT_ROOT/resources/page-processing"
+RESOURCES_DIR="$PROJECT_ROOT/.devkit/page-processor-bundles"
 DEVKIT_TMP_DIR="$PROJECT_ROOT/.devkit/tmp"
 
 normalize_macos_arch() {
@@ -388,4 +388,4 @@ echo "Size:   $(du -h "$BINARY_PATH" | awk '{print $1}')"
 echo ""
 echo "Next steps:"
 echo "1. Test the binary: $BINARY_PATH --help"
-echo "2. Use manually for devkit maintenance, or opt in explicitly with EVB_INCLUDE_PAGE_PROCESSOR=1"
+echo "2. Use manually for devkit maintenance via EVB_PAGE_PROCESSOR; this artifact is never packaged"

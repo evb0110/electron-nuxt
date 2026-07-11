@@ -12,6 +12,7 @@ import {
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { getAppTempDir } from '@electron/utils/appTempDir';
+import type { IImageDimensions } from '@electron/image/imageDimensions';
 
 const log = createLogger('ocr-ipc');
 const PREPROCESS_MAX_IMAGE_BYTES = (() => {
@@ -35,11 +36,6 @@ const PREPROCESS_MAX_IMAGE_DIMENSION = (() => {
     }
     return Math.min(parsed, 100_000);
 })();
-
-interface IImageDimensions {
-    width: number;
-    height: number;
-}
 
 type TPreprocessSenderNavigationListener = (
     event: Electron.Event,

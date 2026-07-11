@@ -40,8 +40,9 @@ const mocks = vi.hoisted(() => ({
         size: 1024,
         isFile: () => true,
     })),
+    rm: vi.fn(async () => {}),
     unlink: vi.fn(async () => {}),
-    sendToLiveWindow: vi.fn(),
+    sendPlatformEvent: vi.fn(),
     getWorkingCopyRevision: vi.fn(),
 }));
 
@@ -85,6 +86,7 @@ vi.mock('fs', () => ({
     mkdirSync: vi.fn(),
 }));
 vi.mock('fs/promises', () => ({
+    rm: mocks.rm,
     stat: mocks.stat,
     unlink: mocks.unlink,
 }));
@@ -94,7 +96,7 @@ vi.mock('@electron/ocr/languageModels', () => ({
 }));
 vi.mock('@electron/ocr/paths', () => ({getOcrToolPaths: mocks.getOcrToolPaths}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
-vi.mock('@electron/utils/sendToLiveWindow', () => ({sendToLiveWindow: mocks.sendToLiveWindow}));
+vi.mock('@electron/utils/sendPlatformEvent', () => ({sendPlatformEvent: mocks.sendPlatformEvent}));
 vi.mock('@electron/file-access/documentRevisionStore', () => ({getWorkingCopyRevision: mocks.getWorkingCopyRevision}));
 
 function createDocumentRevision(documentRef: string) {
@@ -165,7 +167,7 @@ function getResourceDeniedMessages(worker: { postMessage: ReturnType<typeof vi.f
 }
 
 function getOcrCompleteCalls() {
-    return mocks.sendToLiveWindow.mock.calls.filter(([
+    return mocks.sendPlatformEvent.mock.calls.filter(([
         ,
         channel,
     ]) => channel === 'ocr:complete');
@@ -217,7 +219,7 @@ describe('ocr job manager preparing-stage robustness', () => {
             '/tmp/work-1.pdf',
             [{
                 pageNumber: 1,
-                languages: ['eng'], 
+                languages: ['eng'],
             }],
             'job-1',
         );
@@ -231,7 +233,7 @@ describe('ocr job manager preparing-stage robustness', () => {
             '/tmp/work-2.pdf',
             [{
                 pageNumber: 1,
-                languages: ['eng'], 
+                languages: ['eng'],
             }],
             'job-2',
         );
@@ -344,7 +346,7 @@ describe('ocr job manager preparing-stage robustness', () => {
             '/tmp/work-3.pdf',
             [{
                 pageNumber: 1,
-                languages: ['eng'], 
+                languages: ['eng'],
             }],
             'job-3',
         );
@@ -366,7 +368,7 @@ describe('ocr job manager preparing-stage robustness', () => {
             '/tmp/work-4.pdf',
             [{
                 pageNumber: 1,
-                languages: ['eng'], 
+                languages: ['eng'],
             }],
             'job-4',
         );
@@ -426,12 +428,12 @@ describe('ocr job manager preparing-stage robustness', () => {
 
         await vi.advanceTimersByTimeAsync(1_251);
         expect(worker?.terminate).toHaveBeenCalledTimes(1);
-        const completeCalls = mocks.sendToLiveWindow.mock.calls.filter(([
+        const completeCalls = mocks.sendPlatformEvent.mock.calls.filter(([
             ,
             channel,
         ]) => channel === 'ocr:complete');
         expect(completeCalls).toHaveLength(1);
-        expect(completeCalls[0]?.[2]).toEqual([expect.objectContaining({
+        expect(completeCalls[0]?.[2]).toEqual(expect.objectContaining({
             requestId: 'job-5',
             success: false,
             errors: [expect.stringContaining('OCR job idle timed out')],
@@ -441,7 +443,7 @@ describe('ocr job manager preparing-stage robustness', () => {
                 retryable: false,
                 timestamp: expect.any(Number),
             }),
-        })]);
+        }));
         vi.useRealTimers();
     });
 
@@ -512,7 +514,7 @@ describe('ocr job manager preparing-stage robustness', () => {
                 errors: ['done'],
             },
         });
-        const terminalCalls = () => mocks.sendToLiveWindow.mock.calls.filter(([
+        const terminalCalls = () => mocks.sendPlatformEvent.mock.calls.filter(([
             ,
             channel,
         ]) => channel === 'ocr:complete');
@@ -560,12 +562,12 @@ describe('ocr job manager preparing-stage robustness', () => {
         });
         const worker = mocks.workerInstances[0];
         expect(worker).toBeDefined();
-        mocks.sendToLiveWindow.mockClear();
+        mocks.sendPlatformEvent.mockClear();
 
         expect(handleOcrCancel(context, 'job-6')).toEqual({ canceled: true });
         const cancelCompleteCalls = getOcrCompleteCalls();
         expect(cancelCompleteCalls).toHaveLength(1);
-        expect(cancelCompleteCalls[0]?.[2]).toEqual([expect.objectContaining({
+        expect(cancelCompleteCalls[0]?.[2]).toEqual(expect.objectContaining({
             requestId: 'job-6',
             success: false,
             errors: ['OCR job was cancelled'],
@@ -576,7 +578,7 @@ describe('ocr job manager preparing-stage robustness', () => {
                 timestamp: expect.any(Number),
                 details: 'explicit cancel request',
             }),
-        })]);
+        }));
 
         worker?.emit('message', {
             type: 'progress',
@@ -635,16 +637,16 @@ describe('ocr job manager preparing-stage robustness', () => {
             jobId: 'job-70',
         });
         expect(mocks.workerInstances).toHaveLength(1);
-        mocks.sendToLiveWindow.mockClear();
+        mocks.sendPlatformEvent.mockClear();
 
         expect(handleOcrCancel(createContext(70), 'job-70')).toEqual({ canceled: true });
         expect(getOcrCompleteCalls()).toHaveLength(1);
-        expect(getOcrCompleteCalls()[0]?.[2]).toEqual([expect.objectContaining({
+        expect(getOcrCompleteCalls()[0]?.[2]).toEqual(expect.objectContaining({
             requestId: 'job-70',
             success: false,
             errors: ['OCR job was cancelled'],
             errorEnvelope: expect.objectContaining({details: 'explicit cancel request'}),
-        })]);
+        }));
         expect(mocks.workerInstances).toHaveLength(1);
     });
 
@@ -676,15 +678,15 @@ describe('ocr job manager preparing-stage robustness', () => {
         await vi.waitFor(() => {
             expect(mocks.ensureTessdataLanguages).toHaveBeenCalledTimes(1);
         });
-        mocks.sendToLiveWindow.mockClear();
+        mocks.sendPlatformEvent.mockClear();
 
         expect(handleOcrCancel(context, 'job-71')).toEqual({ canceled: true });
         expect(getOcrCompleteCalls()).toHaveLength(1);
-        expect(getOcrCompleteCalls()[0]?.[2]).toEqual([expect.objectContaining({
+        expect(getOcrCompleteCalls()[0]?.[2]).toEqual(expect.objectContaining({
             requestId: 'job-71',
             success: false,
             errors: ['OCR job was cancelled'],
-        })]);
+        }));
         await expect(startPromise).resolves.toMatchObject({
             started: false,
             error: 'OCR job was cancelled before it started',
@@ -767,7 +769,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         });
         const worker = mocks.workerInstances[0];
         expect(worker).toBeDefined();
-        mocks.sendToLiveWindow.mockClear();
+        mocks.sendPlatformEvent.mockClear();
 
         worker?.emit('message', {
             type: 'complete',
@@ -776,6 +778,7 @@ describe('ocr job manager preparing-stage robustness', () => {
                 success: true,
                 pdfPath: '/tmp/work-7-ocr.pdf',
                 sourceDocumentRevisionToken: 'source-revision-token',
+                resultSha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
                 requiresCleanupAck: true,
                 errors: [],
             },
@@ -785,17 +788,18 @@ describe('ocr job manager preparing-stage robustness', () => {
             jobId: 'job-7',
         });
 
-        expect(mocks.sendToLiveWindow).toHaveBeenCalledWith(
+        expect(mocks.sendPlatformEvent).toHaveBeenCalledWith(
             undefined,
             'ocr:complete',
-            [{
+            {
                 requestId: 'job-7',
                 success: true,
                 pdfPath: '/tmp/work-7-ocr.pdf',
                 sourceDocumentRevisionToken: 'source-revision-token',
+                resultSha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
                 requiresCleanupAck: true,
                 errors: [],
-            }],
+            },
             expect.any(Function),
         );
     });
@@ -821,7 +825,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         });
         const worker = mocks.workerInstances[0];
         expect(worker).toBeDefined();
-        mocks.sendToLiveWindow.mockClear();
+        mocks.sendPlatformEvent.mockClear();
 
         worker?.emit('message', {
             type: 'complete',
@@ -832,10 +836,10 @@ describe('ocr job manager preparing-stage robustness', () => {
             },
         });
 
-        expect(mocks.sendToLiveWindow).toHaveBeenCalledWith(
+        expect(mocks.sendPlatformEvent).toHaveBeenCalledWith(
             undefined,
             'ocr:complete',
-            [{
+            {
                 requestId: 'job-79',
                 success: false,
                 errors: ['Worker failed before producing OCR output'],
@@ -845,7 +849,7 @@ describe('ocr job manager preparing-stage robustness', () => {
                     retryable: false,
                     timestamp: expect.any(Number),
                 }),
-            }],
+            },
             expect.any(Function),
         );
     });
@@ -870,7 +874,7 @@ describe('ocr job manager preparing-stage robustness', () => {
 
         const worker = mocks.workerInstances[0];
         expect(worker).toBeDefined();
-        mocks.sendToLiveWindow.mockClear();
+        mocks.sendPlatformEvent.mockClear();
 
         worker?.emit('message', {
             type: 'complete',
@@ -879,28 +883,30 @@ describe('ocr job manager preparing-stage robustness', () => {
                 success: true,
                 pdfPath: '/tmp/work-177-ocr.pdf',
                 sourceDocumentRevisionToken: 'source-revision-token',
+                resultSha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
                 requiresCleanupAck: true,
                 errors: [],
             },
         });
         worker?.emit('exit', 0);
 
-        const completeCalls = mocks.sendToLiveWindow.mock.calls.filter(([
+        const completeCalls = mocks.sendPlatformEvent.mock.calls.filter(([
             ,
             channel,
         ]) => channel === 'ocr:complete');
         expect(completeCalls).toHaveLength(1);
-        expect(mocks.sendToLiveWindow).toHaveBeenCalledWith(
+        expect(mocks.sendPlatformEvent).toHaveBeenCalledWith(
             undefined,
             'ocr:complete',
-            [{
+            {
                 requestId: 'job-177',
                 success: true,
                 pdfPath: '/tmp/work-177-ocr.pdf',
                 sourceDocumentRevisionToken: 'source-revision-token',
+                resultSha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
                 requiresCleanupAck: true,
                 errors: [],
-            }],
+            },
             expect.any(Function),
         );
     });
@@ -927,7 +933,7 @@ describe('ocr job manager preparing-stage robustness', () => {
 
         const worker = mocks.workerInstances[0];
         expect(worker).toBeDefined();
-        mocks.sendToLiveWindow.mockClear();
+        mocks.sendPlatformEvent.mockClear();
 
         worker?.emit('message', {
             type: 'complete',
@@ -936,6 +942,7 @@ describe('ocr job manager preparing-stage robustness', () => {
                 success: true,
                 pdfPath: '/tmp/work-178-ocr.pdf',
                 sourceDocumentRevisionToken: 'source-revision-token',
+                resultSha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
                 requiresCleanupAck: true,
                 errors: [],
             },
@@ -946,7 +953,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         await vi.advanceTimersByTimeAsync(1000);
 
         expect(worker?.terminate).toHaveBeenCalledTimes(1);
-        const completeCalls = mocks.sendToLiveWindow.mock.calls.filter(([
+        const completeCalls = mocks.sendPlatformEvent.mock.calls.filter(([
             ,
             channel,
         ]) => channel === 'ocr:complete');
@@ -974,7 +981,7 @@ describe('ocr job manager preparing-stage robustness', () => {
 
         const worker = mocks.workerInstances[0];
         expect(worker).toBeDefined();
-        mocks.sendToLiveWindow.mockClear();
+        mocks.sendPlatformEvent.mockClear();
 
         worker?.emit('message', {
             type: 'complete',
@@ -983,21 +990,22 @@ describe('ocr job manager preparing-stage robustness', () => {
                 success: true,
                 pdfPath: '/tmp/work-179-ocr.pdf',
                 sourceDocumentRevisionToken: 'source-revision-token',
+                resultSha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
                 requiresCleanupAck: true,
                 errors: [],
             },
         });
         worker?.emit('error', new Error('late worker failure'));
 
-        const completeCalls = mocks.sendToLiveWindow.mock.calls.filter(([
+        const completeCalls = mocks.sendPlatformEvent.mock.calls.filter(([
             ,
             channel,
         ]) => channel === 'ocr:complete');
         expect(completeCalls).toHaveLength(1);
-        expect(completeCalls[0]?.[2]).toEqual([expect.objectContaining({
+        expect(completeCalls[0]?.[2]).toEqual(expect.objectContaining({
             requestId: 'job-179',
             success: true,
-        })]);
+        }));
     });
 
     it('denies resource acquires after a terminal result has been sent', async () => {
@@ -1031,6 +1039,7 @@ describe('ocr job manager preparing-stage robustness', () => {
                 success: true,
                 pdfPath: '/tmp/work-180-ocr.pdf',
                 sourceDocumentRevisionToken: 'source-revision-token',
+                resultSha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
                 requiresCleanupAck: true,
                 errors: [],
             },
@@ -1183,6 +1192,7 @@ describe('ocr job manager preparing-stage robustness', () => {
                 success: true,
                 pdfPath: '/tmp/work-78-ocr.pdf',
                 sourceDocumentRevisionToken: 'source-revision-token',
+                resultSha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
                 requiresCleanupAck: true,
                 errors: [],
             },
@@ -1230,7 +1240,9 @@ describe('ocr job manager preparing-stage robustness', () => {
             error: 'OCR job was cancelled before it started',
         });
 
-        expect(vi.getTimerCount()).toBe(1);
+        // The reconnectable DocumentOutputService retains the terminal OCR
+        // state for one hour in addition to the progress pump's own timer.
+        expect(vi.getTimerCount()).toBe(2);
         vi.useRealTimers();
     });
 
@@ -1321,9 +1333,8 @@ describe('ocr job manager preparing-stage robustness', () => {
 
         expect(handleOcrCancel(firstContext, 'job-99')).toEqual({ canceled: true });
         await vi.waitFor(() => {
-            expect(mocks.logger.warn).toHaveBeenCalledWith(expect.stringContaining('OCR resource request cancelled for job 99:job-99'));
+            expect(getResourceDeniedMessages(firstWorker)).toEqual([expect.objectContaining({ requestId: 'page-2' })]);
         });
-        expect(getResourceDeniedMessages(firstWorker)).toEqual([expect.objectContaining({ requestId: 'page-2' })]);
 
         const secondResult = await handleOcrCreateSearchablePdfAsync(
             createContext(100),

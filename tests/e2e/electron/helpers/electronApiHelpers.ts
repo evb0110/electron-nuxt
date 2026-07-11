@@ -45,6 +45,7 @@ export async function runOcrSearchablePdf(page: Page, sourcePdfPath: string, req
                 requestId: string;
                 success: boolean;
                 pdfPath?: string;
+                sourceDocumentRevisionToken?: string;
                 requiresCleanupAck?: boolean;
                 errors: string[];
             }) => void) => () => void;
@@ -76,6 +77,7 @@ export async function runOcrSearchablePdf(page: Page, sourcePdfPath: string, req
                 requestId: string;
                 success: boolean;
                 pdfPath?: string;
+                sourceDocumentRevisionToken?: string;
                 requiresCleanupAck?: boolean;
                 errors: string[];
             }>((resolve, reject) => {
@@ -128,6 +130,7 @@ export async function runOcrSearchablePdf(page: Page, sourcePdfPath: string, req
                 progressEventCount: progressEvents.length,
                 success: result.success,
                 pdfPath: result.pdfPath ?? null,
+                sourceDocumentRevisionToken: result.sourceDocumentRevisionToken ?? null,
                 errors: result.errors,
                 startError: null,
                 requiresCleanupAck: Boolean(result.requiresCleanupAck),
@@ -149,7 +152,7 @@ export async function acknowledgeOcrResult(page: Page, requestId: string, pdfPat
     }) => {
         const api = (window as IE2EWindow & {electronAPI?: {ocr?: {acknowledgeResultFile?: (requestId: string, pdfPath?: string) => Promise<{
             cleaned: boolean;
-            error?: string 
+            error?: string
         }>;};};}).electronAPI;
 
         if (!api?.ocr?.acknowledgeResultFile) {
@@ -180,11 +183,17 @@ export async function applyOcrResultToActiveWorkspace(page: Page, pdfPath: strin
     return true;
 }
 
-export async function consumeOcrResultIntoActiveWorkspace(page: Page, requestId: string, pdfPath: string) {
+export async function consumeOcrResultIntoActiveWorkspace(
+    page: Page,
+    requestId: string,
+    pdfPath: string,
+    sourceDocumentRevisionToken: string,
+) {
     const workingCopyPath = await getActiveWorkspaceWorkingCopyPath(page);
     const result = await callWorkspaceCommand(page, 'handleOcrComplete', [{
         requestId,
         pdfPath,
+        sourceDocumentRevisionToken,
         requiresCleanupAck: true,
         sourceWorkingCopyPath: workingCopyPath,
     }]);
@@ -226,7 +235,7 @@ export async function reorderPages(page: Page, workingCopyPath: string, newOrder
     }) => {
         const api = (window as IE2EWindow & {electronAPI?: {pageOps?: {reorder?: (workingCopyPath: string, newOrder: number[]) => Promise<{
             success: boolean;
-            pageCount?: number 
+            pageCount?: number
         }>;};};}).electronAPI;
 
         const reorder = api?.pageOps?.reorder;
@@ -248,7 +257,7 @@ export async function deletePages(page: Page, workingCopyPath: string, pages: nu
     }) => {
         const api = (window as IE2EWindow & {electronAPI?: {pageOps?: {delete?: (workingCopyPath: string, pages: number[], totalPages: number) => Promise<{
             success: boolean;
-            pageCount?: number 
+            pageCount?: number
         }>;};};}).electronAPI;
 
         const remove = api?.pageOps?.delete;
@@ -269,7 +278,7 @@ export async function openDjvuForViewing(page: Page, djvuPath: string) {
             success: boolean;
             pdfPath?: string;
             pageCount?: number;
-            error?: string 
+            error?: string
         }>;};};}).electronAPI;
 
         const openForViewing = api?.djvu?.openForViewing;

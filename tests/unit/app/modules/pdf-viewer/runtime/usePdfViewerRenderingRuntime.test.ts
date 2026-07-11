@@ -11,6 +11,7 @@ import {
     shallowRef,
 } from 'vue';
 import { usePdfViewerRenderingRuntime } from '@app/modules/pdf-viewer/runtime/rendering/usePdfViewerRenderingRuntime';
+import {createTestPdfViewportWritePort} from '@tests/helpers/createTestPdfViewportWritePort';
 
 const rendererMocks = vi.hoisted(() => ({
     cleanupAllPages: vi.fn(),
@@ -22,6 +23,7 @@ vi.mock('@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer', () => ({
 
 function createRuntime() {
     return usePdfViewerRenderingRuntime({
+        viewportWritePort: createTestPdfViewportWritePort().port,
         viewerContainer: ref(null),
         document: {} as never,
         currentPage: ref(1),

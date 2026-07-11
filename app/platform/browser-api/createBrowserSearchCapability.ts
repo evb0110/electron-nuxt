@@ -1,6 +1,4 @@
 import {isRecord} from '@contracts/runtimeGuards';
-import { orderBy } from 'es-toolkit/array';
-import { sumBy } from 'es-toolkit/math';
 import type {
     IPdfSearchProgress,
     IPdfSearchResponse,
@@ -8,11 +6,10 @@ import type {
 } from '@contracts/search';
 import {
     buildPdfSearchExcerpt,
-    buildPdfSearchRegex,
     collectSearchMatchWords,
     iteratePdfSearchMatches,
 } from '@pdf-core';
-import { toPageNumber } from '@contracts/pageNumbers';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import type { ISearchCapability } from '@contracts/searchCapability';
 import {
     SEARCH_EXCERPT_CONTEXT_CHARS,
@@ -35,7 +32,6 @@ import {
     clearStore,
     deleteStoreValue,
     isIndexedDbAvailable,
-    readAllStoreValues,
     readStoreValue,
     writeStoreValue,
 } from '@app/platform/browser-api/browserIndexeddb';
@@ -114,9 +110,10 @@ const SEARCH_DOCUMENT_TEXT_CACHE_MAX_BYTES = 32 * 1024 * 1024;
 const SEARCH_PERSISTED_CACHE_MAX_RECORDS = 16;
 const SEARCH_PERSISTED_CACHE_MAX_BYTES = 128 * 1024 * 1024;
 const SEARCH_CACHE_DB_NAME = 'evb-browser-search-cache';
-const SEARCH_CACHE_DB_VERSION = 1;
+const SEARCH_CACHE_DB_VERSION = 2;
 const SEARCH_CACHE_RECORD_VERSION = 7;
 const SEARCH_CACHE_STORE = 'document-text';
+const SEARCH_CACHE_LAST_ACCESSED_INDEX = 'last-accessed-at';
 const PDFJS_TEXT_SOURCE: ISearchDocumentTextSource = {
     kind: 'pdfjs-text-content',
     version: 1,
@@ -173,8 +170,11 @@ function openSearchCacheDb(): Promise<IDBDatabase | null> {
         const request = indexedDB.open(SEARCH_CACHE_DB_NAME, SEARCH_CACHE_DB_VERSION);
         request.onupgradeneeded = () => {
             const db = request.result;
-            if (!db.objectStoreNames.contains(SEARCH_CACHE_STORE)) {
-                db.createObjectStore(SEARCH_CACHE_STORE, { keyPath: 'pdfPath' });
+            const store = db.objectStoreNames.contains(SEARCH_CACHE_STORE)
+                ? request.transaction?.objectStore(SEARCH_CACHE_STORE)
+                : db.createObjectStore(SEARCH_CACHE_STORE, { keyPath: 'pdfPath' });
+            if (store && !store.indexNames.contains(SEARCH_CACHE_LAST_ACCESSED_INDEX)) {
+                store.createIndex(SEARCH_CACHE_LAST_ACCESSED_INDEX, 'lastAccessedAt');
             }
         };
         request.onsuccess = () => resolve(request.result);
@@ -308,29 +308,15 @@ async function runSearchCacheTransaction<T>(
 }
 
 async function loadPersistedSearchCacheRecord(cacheKey: string) {
-    const record = await runSearchCacheTransaction(
+    return runSearchCacheTransaction(
         'readonly',
-        (store) => readStoreValue<unknown>(
+        (store) => readStoreValue(
             store,
             cacheKey,
             'Failed to read search cache record',
+            parsePersistedSearchCacheRecord,
         ),
     );
-    return parsePersistedSearchCacheRecord(record);
-}
-
-async function loadAllPersistedSearchCacheRecords() {
-    const records = await runSearchCacheTransaction(
-        'readonly',
-        (store) => readAllStoreValues<unknown>(
-            store,
-            'Failed to list search cache records',
-        ),
-    ) ?? [];
-    return records.flatMap((record) => {
-        const parsed = parsePersistedSearchCacheRecord(record);
-        return parsed ? [parsed] : [];
-    });
 }
 
 async function deletePersistedSearchCacheRecord(cacheKey: string) {
@@ -395,33 +381,31 @@ async function clearPersistedSearchCaches() {
 }
 
 async function prunePersistedSearchCaches() {
-    const records = await loadAllPersistedSearchCacheRecords();
-    if (records.length <= SEARCH_PERSISTED_CACHE_MAX_RECORDS) {
-        const totalBytes = sumBy(records, getPersistedRecordBytes);
-        if (totalBytes <= SEARCH_PERSISTED_CACHE_MAX_BYTES) {
-            return;
-        }
-    }
-
-    const newestFirst = orderBy(records, [record => record.lastAccessedAt ?? 0], ['desc']);
-    let keptRecords = 0;
-    let keptBytes = 0;
-    const deleteKeys: string[] = [];
-
-    for (const record of newestFirst) {
-        const nextBytes = keptBytes + getPersistedRecordBytes(record);
-        if (
-            keptRecords >= SEARCH_PERSISTED_CACHE_MAX_RECORDS
-            || nextBytes > SEARCH_PERSISTED_CACHE_MAX_BYTES
-        ) {
-            deleteKeys.push(record.pdfPath);
-            continue;
-        }
-        keptRecords += 1;
-        keptBytes = nextBytes;
-    }
-
-    await Promise.all(deleteKeys.map((key) => deletePersistedSearchCacheRecord(key)));
+    await runSearchCacheTransaction('readwrite', store => new Promise<void>((resolve, reject) => {
+        let keptRecords = 0;
+        let keptBytes = 0;
+        const request = store.index(SEARCH_CACHE_LAST_ACCESSED_INDEX).openCursor(null, 'prev');
+        request.onerror = () => reject(request.error ?? new Error('Failed to prune search cache records'));
+        request.onsuccess = () => {
+            const cursor = request.result;
+            if (!cursor) {
+                resolve();
+                return;
+            }
+            const record = parsePersistedSearchCacheRecord(cursor.value);
+            const recordBytes = record === null ? 0 : getPersistedRecordBytes(record);
+            const shouldDelete = record === null
+                || keptRecords >= SEARCH_PERSISTED_CACHE_MAX_RECORDS
+                || keptBytes + recordBytes > SEARCH_PERSISTED_CACHE_MAX_BYTES;
+            if (shouldDelete) {
+                cursor.delete();
+            } else {
+                keptRecords += 1;
+                keptBytes += recordBytes;
+            }
+            cursor.continue();
+        };
+    }));
 }
 
 async function clearPersistedSearchCacheForDocument(pdfPath: string) {
@@ -997,7 +981,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
 
     const capability: ISearchCapability = {
         async run(pdfPath, query, options = {}) {
-            if (!query || query.trim().length === 0) {
+            if (query.length === 0) {
                 return {
                     results: [],
                     truncated: false,
@@ -1006,12 +990,13 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
 
             const requestId = options.requestId ?? createBrowserSafeId();
             const results: IPdfSearchResult[] = [];
+            let emittedResultCount = 0;
             const pageMatchCounts = new Map<number, number>();
-            const matcher = buildPdfSearchRegex(query, {
+            const matchOptions = {
                 matchCase: Boolean(options.matchCase),
                 wholeWord: Boolean(options.wholeWord),
                 useRegex: Boolean(options.useRegex),
-            });
+            };
 
             startSearchRequest(requestId);
             try {
@@ -1029,12 +1014,12 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                             return false;
                         }
 
-                        for (const match of iteratePdfSearchMatches(page.text, matcher)) {
+                        for (const match of iteratePdfSearchMatches(page.text, query, matchOptions)) {
                             const pageMatchIndex = pageMatchCounts.get(page.pageNumber) ?? 0;
                             pageMatchCounts.set(page.pageNumber, pageMatchIndex + 1);
                             const words = collectSearchMatchWords(page, match.startOffset, match.endOffset);
                             results.push({
-                                pageNumber: toPageNumber(page.pageNumber),
+                                pageNumber: requirePageNumber(page.pageNumber),
                                 pageMatchIndex,
                                 matchIndex: results.length,
                                 startOffset: match.startOffset,
@@ -1050,24 +1035,30 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                                 ...(words !== undefined && page.pageHeight !== undefined ? {pageHeight: page.pageHeight} : {}),
                             });
                             if (results.length >= SEARCH_RESULT_LIMIT) {
+                                const delta = results.slice(emittedResultCount);
                                 emitSearchProgress({
                                     requestId,
                                     processed: page.pageNumber,
                                     total: pageCount,
-                                    results: [...results],
+                                    results: delta,
+                                    resultsStartIndex: emittedResultCount,
                                     truncated: true,
                                 });
+                                emittedResultCount = results.length;
                                 return false;
                             }
                         }
 
+                        const delta = results.slice(emittedResultCount);
                         emitSearchProgress({
                             requestId,
                             processed: page.pageNumber,
                             total: pageCount,
-                            results: [...results],
+                            results: delta,
+                            resultsStartIndex: emittedResultCount,
                             truncated: false,
                         });
+                        emittedResultCount = results.length;
                         await yieldToBrowser();
                         return true;
                     },

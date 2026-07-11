@@ -43,13 +43,24 @@
     },
     {
       "id": "unicode-precomposed-with-combining-neighbor",
-      "description": "Search does not normalize combining sequences into precomposed forms, but offsets still count the combining mark as one UTF-16 code unit.",
+      "description": "NFC and NFD forms match equally while reported offsets remain UTF-16 ranges in the original page text.",
       "text": "Café café",
       "query": "café",
       "options": {},
       "contextChars": 4,
       "nativeSupported": true,
       "expectedMatches": [
+        {
+          "startOffset": 0,
+          "endOffset": 5,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "",
+            "match": "Café",
+            "after": " caf"
+          }
+        },
         {
           "startOffset": 6,
           "endOffset": 10,
@@ -58,6 +69,188 @@
             "suffix": false,
             "before": "fé ",
             "match": "café",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "pdf-presentation-ligature-fold",
+      "description": "Common PDF presentation ligatures match their decomposed query while offsets map to the original glyph text.",
+      "text": "office oﬃce ﬁle",
+      "query": "office",
+      "options": {},
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 0,
+          "endOffset": 6,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "",
+            "match": "office",
+            "after": " oﬃ"
+          }
+        },
+        {
+          "startOffset": 7,
+          "endOffset": 11,
+          "excerpt": {
+            "prefix": true,
+            "suffix": true,
+            "before": "ce ",
+            "match": "oﬃce",
+            "after": " ﬁl"
+          }
+        }
+      ]
+    },
+    {
+      "id": "cjk-literal-utf16-offsets",
+      "description": "CJK literal matching does not require whitespace-delimited words and retains UTF-16 offsets.",
+      "text": "日本語検索と検索",
+      "query": "検索",
+      "options": {
+        "matchCase": true
+      },
+      "contextChars": 2,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 3,
+          "endOffset": 5,
+          "excerpt": {
+            "prefix": true,
+            "suffix": true,
+            "before": "本語",
+            "match": "検索",
+            "after": "と検"
+          }
+        },
+        {
+          "startOffset": 6,
+          "endOffset": 8,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "索と",
+            "match": "検索",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "rtl-hebrew-literal-offsets",
+      "description": "RTL visual direction does not alter logical UTF-16 match offsets.",
+      "text": "שלום עולם שלום",
+      "query": "שלום",
+      "options": {
+        "matchCase": true
+      },
+      "contextChars": 2,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 0,
+          "endOffset": 4,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "",
+            "match": "שלום",
+            "after": " ע"
+          }
+        },
+        {
+          "startOffset": 10,
+          "endOffset": 14,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "ם ",
+            "match": "שלום",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "zwj-sequence-before-match",
+      "description": "ZWJ emoji sequences before matches retain JavaScript UTF-16 offsets.",
+      "text": "👩‍💻 code 👩‍💻code",
+      "query": "code",
+      "options": {
+        "matchCase": true
+      },
+      "contextChars": 0,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 6,
+          "endOffset": 10,
+          "excerpt": {
+            "prefix": true,
+            "suffix": true,
+            "before": "",
+            "match": "code",
+            "after": ""
+          }
+        },
+        {
+          "startOffset": 16,
+          "endOffset": 20,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "",
+            "match": "code",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "unicode-simple-fold-greek-sigma",
+      "description": "Unicode simple folding treats capital, standard, and final sigma alike across JS and native matchers.",
+      "text": "Σ σ ς",
+      "query": "σ",
+      "options": {},
+      "contextChars": 0,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 0,
+          "endOffset": 1,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "",
+            "match": "Σ",
+            "after": ""
+          }
+        },
+        {
+          "startOffset": 2,
+          "endOffset": 3,
+          "excerpt": {
+            "prefix": true,
+            "suffix": true,
+            "before": "",
+            "match": "σ",
+            "after": ""
+          }
+        },
+        {
+          "startOffset": 4,
+          "endOffset": 5,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "",
+            "match": "ς",
             "after": ""
           }
         }
@@ -163,6 +356,113 @@
             "suffix": false,
             "before": "o_ ",
             "match": "co",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "whole-word-apostrophe-joiners",
+      "description": "Straight and curly apostrophes join neighboring letters, so a partial contraction is not a whole word.",
+      "text": "don don't don’t done don",
+      "query": "don",
+      "options": {
+        "wholeWord": true
+      },
+      "contextChars": 0,
+      "nativeSupported": false,
+      "expectedMatches": [
+        {
+          "startOffset": 0,
+          "endOffset": 3,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "",
+            "match": "don",
+            "after": ""
+          }
+        },
+        {
+          "startOffset": 21,
+          "endOffset": 24,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "",
+            "match": "don",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "whole-word-combining-mark-boundary",
+      "description": "Combining marks remain part of their grapheme and cannot create a whole-word boundary inside it.",
+      "text": "क कि क",
+      "query": "क",
+      "options": {
+        "matchCase": true,
+        "wholeWord": true
+      },
+      "contextChars": 0,
+      "nativeSupported": false,
+      "expectedMatches": [
+        {
+          "startOffset": 0,
+          "endOffset": 1,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "",
+            "match": "क",
+            "after": ""
+          }
+        },
+        {
+          "startOffset": 5,
+          "endOffset": 6,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "",
+            "match": "क",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "whole-word-cjk-substring-policy",
+      "description": "Literal whole-word search is substring search for unsegmented CJK scripts.",
+      "text": "日本語検索と検索",
+      "query": "検索",
+      "options": {
+        "matchCase": true,
+        "wholeWord": true
+      },
+      "contextChars": 0,
+      "nativeSupported": false,
+      "expectedMatches": [
+        {
+          "startOffset": 3,
+          "endOffset": 5,
+          "excerpt": {
+            "prefix": true,
+            "suffix": true,
+            "before": "",
+            "match": "検索",
+            "after": ""
+          }
+        },
+        {
+          "startOffset": 6,
+          "endOffset": 8,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "",
+            "match": "検索",
             "after": ""
           }
         }

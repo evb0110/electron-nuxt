@@ -180,7 +180,7 @@ function lazyVoid<TPath extends TBrowserPlatformVoidMethodPath>(
 }
 
 export const lazyBrowserPlatformApi = createLazyBrowserPlatformApiGenerated({
-    lazyAsync: lazyAsync as (path: readonly string[]) => unknown,
-    lazyEvent: lazyEvent as (path: readonly string[]) => unknown,
-    lazyVoid: lazyVoid as (path: readonly string[]) => unknown,
+    lazyAsync,
+    lazyEvent,
+    lazyVoid,
 });

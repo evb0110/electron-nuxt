@@ -27,7 +27,7 @@ import {
     resolveQualityProfileSettings,
 } from '@app/modules/ocr-panel/runtime/ocrPopupSettings';
 
-type TOcrViewState = 'configure' | 'running' | 'results' | 'error';
+type TOcrViewState = 'configure' | 'running' | 'applying' | 'results' | 'error';
 
 export interface IOcrPopupCompletePayload extends IOcrSearchablePdfResult {
     sourceWorkingCopyPath: TDocumentRef;
@@ -133,6 +133,9 @@ export const useOcrPopupPresenter = ({
         if (progress.value.isRunning) {
             return 'running';
         }
+        if (pendingAppliedOcrRequestId.value !== null) {
+            return 'applying';
+        }
         if (hasResults.value) {
             return 'results';
         }
@@ -154,7 +157,11 @@ export const useOcrPopupPresenter = ({
         && !progress.value.isRunning
         && hasSelectedAvailableLanguage.value
         && Boolean(pdfDocument.value)
-        && Boolean(workingCopyPath.value),
+        && Boolean(workingCopyPath.value)
+        && (
+            settings.value.supersessionPolicy !== 'replace-all'
+            || settings.value.replaceAllAcknowledged
+        ),
     );
     const showCustomRange = computed(() => settings.value.pageRange === 'custom');
     const progressStatusText = computed(() => {
@@ -168,6 +175,7 @@ export const useOcrPopupPresenter = ({
 
         return t(ocrProgressStageKeys[progress.value.phase], undefined);
     });
+    const applyingStatusText = computed(() => 'Applying OCR result…');
     const triggerTooltip = computed(() => {
         if (progress.value.isRunning) {
             return progressStatusText.value;
@@ -247,6 +255,8 @@ export const useOcrPopupPresenter = ({
             qualityProfile: settings.value.qualityProfile,
             preprocessingMode: settings.value.preprocessingMode,
             pageSegmentationMode: settings.value.pageSegmentationMode,
+            supersessionPolicy: settings.value.supersessionPolicy,
+            replaceAllAcknowledged: settings.value.replaceAllAcknowledged,
             hasWorkingCopy: Boolean(workingCopyPath.value),
             error: effectiveError.value,
             hasResults: hasResults.value,
@@ -290,6 +300,10 @@ export const useOcrPopupPresenter = ({
             `draftPageSegmentationMode=${settings.value.pageSegmentationMode ?? '-'}`,
             `activeRunPageSegmentationMode=${activeRunSettings.value?.pageSegmentationMode ?? '-'}`,
             `lastCompletedPageSegmentationMode=${lastCompletedRunSettings.value?.pageSegmentationMode ?? '-'}`,
+            `draftSupersessionPolicy=${settings.value.supersessionPolicy}`,
+            `draftReplaceAllAcknowledged=${settings.value.replaceAllAcknowledged}`,
+            `activeSupersessionPolicy=${activeRunSettings.value?.supersessionPolicy ?? '-'}`,
+            `completedSupersessionPolicy=${lastCompletedRunSettings.value?.supersessionPolicy ?? '-'}`,
             `uiError=${effectiveError.value}`,
             '',
             '--- debug:log stream ---',
@@ -437,9 +451,21 @@ export const useOcrPopupPresenter = ({
             void loadLanguages();
             return;
         }
+        if (progress.value.isRunning) {
+            void nextTick(() => {
+                isOpen.value = true;
+            });
+            return;
+        }
 
         if (!progress.value.isRunning) {
             resetCompletedOcrState();
+            if (settings.value.replaceAllAcknowledged) {
+                settings.value = {
+                    ...settings.value,
+                    replaceAllAcknowledged: false,
+                };
+            }
         }
     });
 
@@ -457,6 +483,15 @@ export const useOcrPopupPresenter = ({
         );
         if (nextSettings !== settings.value) {
             settings.value = nextSettings;
+        }
+    });
+
+    watch(() => settings.value.supersessionPolicy, (policy) => {
+        if (policy !== 'replace-all' && settings.value.replaceAllAcknowledged) {
+            settings.value = {
+                ...settings.value,
+                replaceAllAcknowledged: false,
+            };
         }
     });
 
@@ -481,15 +516,21 @@ export const useOcrPopupPresenter = ({
         }
 
         pendingAppliedOcrRequestId.value = null;
+        showSuccessState.value = true;
+        stopSuccessStateReset();
+        startSuccessStateReset();
+    });
+
+    watch(effectiveError, (nextError) => {
+        if (nextError !== null && pendingAppliedOcrRequestId.value !== null) {
+            pendingAppliedOcrRequestId.value = null;
+        }
     });
 
     watch(() => results.value.searchablePdfResult, (searchablePdfResult) => {
         const sourceWorkingCopyPath = activeOcrSourcePath.value;
         const sourcePageToRestore = activeOcrSourcePage.value ?? currentPage.value;
         if (searchablePdfResult && sourceWorkingCopyPath) {
-            showSuccessState.value = true;
-            stopSuccessStateReset();
-            startSuccessStateReset();
             pendingAppliedOcrRequestId.value = searchablePdfResult.requestId;
             events.onOcrComplete({
                 ...searchablePdfResult,
@@ -526,6 +567,7 @@ export const useOcrPopupPresenter = ({
         copyLogsTooltip,
         showSuccessState,
         progressStatusText,
+        applyingStatusText,
         triggerTooltip,
         hasResultWarning,
         resultStatusText,

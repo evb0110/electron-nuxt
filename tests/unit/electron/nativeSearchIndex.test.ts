@@ -19,8 +19,9 @@ import {
     persistNativeSearchIndex,
 } from '@electron/search/nativeSearchIndex';
 import type { IPdfSearchIndex } from '@electron/search/indexBuilder';
+import {requireDocumentRevisionToken} from '@contracts';
 
-const DOCUMENT_REVISION = 'revision-token';
+const DOCUMENT_REVISION = requireDocumentRevisionToken('revision-token');
 
 describe('native search index sidecar', () => {
     let tempDir: string;

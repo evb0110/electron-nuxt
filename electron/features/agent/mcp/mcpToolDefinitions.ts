@@ -4,6 +4,8 @@ import type {
     IMcpToolDefinition,
 } from '@electron/features/agent/mcp/mcpDefinitionTypes';
 import { AGENT_CAPABILITY_DOMAINS } from '@contracts/agent';
+import { Validator } from '@cfworker/json-schema';
+import { AGENT_CAPABILITY_TEMPLATES } from '@electron/features/agent/mcp/agentCapabilityTemplates';
 
 const WINDOW_ID_SCHEMA = {
     type: 'number',
@@ -62,17 +64,16 @@ const RESOURCE_URI_SCHEMA = {
     type: 'string',
     description: 'EVB resource URI such as evb://document/{tabId}/annotations, /bookmarks, /page-labels, or /toc.',
 };
-const ACTION_INPUT_SCHEMA = {
+const ACTION_INPUT_SCHEMA = {oneOf: AGENT_CAPABILITY_TEMPLATES.map(capability => ({
     type: 'object',
     properties: {
         windowId: WINDOW_ID_SCHEMA,
         tabId: TAB_ID_SCHEMA,
-        id: CAPABILITY_ID_SCHEMA,
-        input: {
-            type: 'object',
-            description: 'Capability-specific input object.',
-            additionalProperties: true,
+        id: {
+            ...CAPABILITY_ID_SCHEMA,
+            const: capability.id,
         },
+        input: capability.inputSchema,
         dryRun: {
             type: 'boolean',
             description: 'Validate and preview without mutating visible app state when supported.',
@@ -80,7 +81,7 @@ const ACTION_INPUT_SCHEMA = {
     },
     required: ['id'],
     additionalProperties: false,
-};
+}))};
 
 export const MCP_TOOLS = [
     {
@@ -365,6 +366,35 @@ export const MCP_TOOLS = [
         annotations: UI_NAVIGATION_ANNOTATIONS,
     },
 ] as const satisfies readonly IMcpToolDefinition[];
+
+const schemaValidators = new WeakMap<Record<string, unknown>, Validator>();
+
+export function validateJsonObjectAgainstSchema(label: string, value: unknown, schema: Record<string, unknown>) {
+    let validator = schemaValidators.get(schema);
+    if (!validator) {
+        validator = new Validator(schema, '2020-12', false);
+        schemaValidators.set(schema, validator);
+    }
+    const result = validator.validate(value);
+    if (!result.valid) {
+        const details = result.errors
+            .slice(0, 3)
+            .map(error => `${error.instanceLocation || '/'} ${error.error}`)
+            .join('; ');
+        throw new Error(`${label} did not match its advertised schema: ${details}`);
+    }
+    return value;
+}
+
+export function validateMcpToolArguments(name: string, value: unknown) {
+    const tool = MCP_TOOLS.find(candidate => candidate.name === name);
+    if (!tool) {
+        throw new Error(`Unknown tool: ${name}`);
+    }
+    const input = value === undefined ? {} : value;
+    const schema: Record<string, unknown> = tool.inputSchema;
+    return validateJsonObjectAgainstSchema(`${name} arguments`, input, schema);
+}
 
 export type TMcpToolCallerKind = 'internal' | 'external';
 

@@ -1,4 +1,5 @@
 import type { TRegisteredHandler } from '@tests/unit/electron/helpers/ipcRegistryHarness';
+import type * as PageIdentityStore from '@electron/file-access/pageIdentityStore';
 import {
     beforeEach,
     describe,
@@ -51,6 +52,7 @@ const mocks = vi.hoisted(() => ({
     getPdfPageCount: vi.fn(),
     reorderPages: vi.fn(),
     rotatePages: vi.fn(),
+    verifyPdfStructureStrict: vi.fn(),
     cropPages: vi.fn(),
     removeCropFromPages: vi.fn(),
     getPageGeometry: vi.fn(),
@@ -66,6 +68,9 @@ const mocks = vi.hoisted(() => ({
     assertWorkingCopyResyncAllowed: vi.fn(),
     assertWorkingCopyRevisionCurrent: vi.fn(),
     markWorkingCopyContentChanged: vi.fn(),
+    transitionWorkingCopyContentRevision: vi.fn(),
+    commitPageIdentityDelta: vi.fn(),
+    applyPageMetadataRemap: vi.fn(),
     allowOpenPath: vi.fn(),
     allowOpenPaths: vi.fn(),
     requireOpenPath: vi.fn((path: string) => path),
@@ -113,7 +118,13 @@ vi.mock('@electron/file-access/documentRevisionStore', () => ({
     assertWorkingCopyResyncAllowed: (...args: unknown[]) => mocks.assertWorkingCopyResyncAllowed(...args),
     assertWorkingCopyRevisionCurrent: (...args: unknown[]) => mocks.assertWorkingCopyRevisionCurrent(...args),
     markWorkingCopyContentChanged: (...args: unknown[]) => mocks.markWorkingCopyContentChanged(...args),
+    transitionWorkingCopyContentRevision: (...args: unknown[]) => mocks.transitionWorkingCopyContentRevision(...args),
 }));
+vi.mock('@electron/file-access/pageIdentityStore', async importOriginal => ({
+    ...await importOriginal<typeof PageIdentityStore>(),
+    commitPageIdentityDelta: (...args: unknown[]) => mocks.commitPageIdentityDelta(...args),
+}));
+vi.mock('@electron/features/page-ops/main/pageMetadataRemap', () => ({applyPageMetadataRemap: (...args: unknown[]) => mocks.applyPageMetadataRemap(...args)}));
 vi.mock('@electron/features/page-ops/main/qpdf', () => ({
     QPDF_OUTPUT_SUCCESS_EXIT_CODES: [
         0,
@@ -127,6 +138,7 @@ vi.mock('@electron/features/page-ops/main/qpdf', () => ({
     reorderPages: (...args: unknown[]) => mocks.reorderPages(...args),
     runQpdfCommand: (...args: unknown[]) => mocks.runCommand(...args),
     rotatePages: (...args: unknown[]) => mocks.rotatePages(...args),
+    verifyPdfStructureStrict: (...args: unknown[]) => mocks.verifyPdfStructureStrict(...args),
 }));
 vi.mock('@electron/features/page-ops/main/crop', () => ({
     cropPages: (...args: unknown[]) => mocks.cropPages(...args),
@@ -209,6 +221,25 @@ describe('registerPageOpsIpcAdapter', () => {
             mintedAt: 2,
             reason: 'page-ops',
         }));
+        mocks.transitionWorkingCopyContentRevision.mockImplementation(async (
+            workingPath: string,
+            reason: string,
+            commit: (revision: unknown) => Promise<void>,
+        ) => {
+            const revision = {
+                version: 1,
+                documentRef: workingPath,
+                authority: 'electron-working-copy',
+                token: 'drt1:test:after-page-op',
+                contentRevision: 2,
+                mintedAt: 2,
+                reason,
+            };
+            await commit(revision);
+            return revision;
+        });
+        mocks.commitPageIdentityDelta.mockResolvedValue(undefined);
+        mocks.applyPageMetadataRemap.mockResolvedValue(undefined);
         mocks.writeFile.mockResolvedValue(undefined);
         mocks.open.mockResolvedValue({
             close: vi.fn(async () => undefined),
@@ -224,6 +255,7 @@ describe('registerPageOpsIpcAdapter', () => {
         mocks.getPdfPageCount.mockResolvedValue(3);
         mocks.reorderPages.mockResolvedValue({pageCount: 1});
         mocks.rotatePages.mockResolvedValue(undefined);
+        mocks.verifyPdfStructureStrict.mockResolvedValue(undefined);
         mocks.cropPages.mockResolvedValue(undefined);
         mocks.removeCropFromPages.mockResolvedValue(undefined);
         mocks.getPageGeometry.mockResolvedValue(null);
@@ -258,7 +290,7 @@ describe('registerPageOpsIpcAdapter', () => {
             3,
         ], REVISION_OPTIONS) as Promise<{
             success: boolean;
-            pageCount: number 
+            pageCount: number
         }>;
         const second = handler({sender: {id: 1}}, '/tmp/same.pdf', [
             3,
@@ -266,7 +298,7 @@ describe('registerPageOpsIpcAdapter', () => {
             1,
         ], REVISION_OPTIONS) as Promise<{
             success: boolean;
-            pageCount: number 
+            pageCount: number
         }>;
 
         await flushQueuedMutationStart();
@@ -519,6 +551,10 @@ describe('registerPageOpsIpcAdapter', () => {
     it('continues processing same-path queue after a mutation failure', async () => {
         const firstGate = createDeferred();
         let invocation = 0;
+        mocks.getPdfPageCount
+            .mockResolvedValueOnce(3)
+            .mockResolvedValueOnce(3)
+            .mockResolvedValueOnce(2);
 
         mocks.deletePages.mockImplementation(async () => {
             invocation += 1;
@@ -870,6 +906,41 @@ describe('registerPageOpsIpcAdapter', () => {
 
         await expect(handler({sender: {id: 1}}, '/tmp/a.pdf', [1], 3, 90, REVISION_OPTIONS)).resolves.toMatchObject({success: true});
 
-        expect(mocks.markWorkingCopyContentChanged).toHaveBeenCalledWith('/tmp/a.pdf', 'page-ops', 1);
+        expect(mocks.transitionWorkingCopyContentRevision).toHaveBeenCalled();
+    });
+
+    it('applies the renderer metadata snapshot through the structural identity delta', async () => {
+        const handler = getHandler('page-ops:reorder');
+        const metadataSnapshot = {
+            pageLabels: [
+                'i',
+                '1',
+                '2',
+            ],
+            bookmarks: [],
+            untitledBookmarkLabel: 'Untitled',
+        };
+
+        await expect(handler({sender: {id: 1}}, '/tmp/a.pdf', [
+            3,
+            1,
+            2,
+        ], {
+            ...REVISION_OPTIONS,
+            metadataSnapshot,
+        })).resolves.toMatchObject({success: true});
+
+        expect(mocks.applyPageMetadataRemap).toHaveBeenCalledWith(expect.objectContaining({
+            workingCopyPath: '/tmp/a.pdf',
+            metadataSnapshot,
+            delta: {
+                previousPageCount: 3,
+                pages: [
+                    {fromPageNumber: 3},
+                    {fromPageNumber: 1},
+                    {fromPageNumber: 2},
+                ],
+            },
+        }));
     });
 });

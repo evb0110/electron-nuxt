@@ -113,7 +113,7 @@ const emit = defineEmits<{
     'save-as': [];
     print: [];
     'print-current-page': [];
-    'combine-images': [];
+    'combine-files': [];
     'export-docx': [];
     'export-images': [];
     'export-multi-page-tiff': [];
@@ -132,7 +132,7 @@ const emitMenuCommand = {
     'save-as': () => emit('save-as'),
     print: () => emit('print'),
     'print-current-page': () => emit('print-current-page'),
-    'combine-images': () => emit('combine-images'),
+    'combine-files': () => emit('combine-files'),
     'export-docx': () => emit('export-docx'),
     'export-images': () => emit('export-images'),
     'export-multi-page-tiff': () => emit('export-multi-page-tiff'),
@@ -145,6 +145,7 @@ const emitMenuCommand = {
 
 const shortcutLabels = useShortcutLabels();
 const hasInteractiveDocument = computed(() => hasPdf && documentBusy !== true);
+const hasExportableRasterSource = computed(() => (hasPdf || isDjvuMode) && documentBusy !== true);
 const isPrintCommandDisabled = computed(() => isReaderPrintCommandDisabled({
     hasInteractiveDocument: hasInteractiveDocument.value,
     canPrint,
@@ -156,7 +157,8 @@ const isExportDocxCommandDisabled = computed(() => !hasInteractiveDocument.value
     || !canExportDocx
     || isAnySaving
     || isHistoryBusy
-    || isExportingDocx);
+    || isExportingDocx
+    || isDjvuMode);
 const menuContentOptions = {
     side: 'bottom' as const,
     align: 'start' as const,
@@ -193,7 +195,7 @@ const appMenuItems = computed(() => {
         createCommandItem('repair-save', t('menu.repairAndSave'), 'i-ph-magic-wand', {disabled: !hasInteractiveDocument.value || !canRepairSave || isAnySaving || isHistoryBusy || isDjvuMode}),
         createCommandItem('optimize-pdf-for-interaction', t('menu.optimizePdfForInteraction'), 'i-ph-gauge', {disabled: !hasInteractiveDocument.value || !canOptimizePdf || isAnySaving || isHistoryBusy || isDjvuMode}),
         createCommandItem('save-as', t('menu.saveAs'), getReaderCommandMenuIcon('save-as'), {
-            disabled: !hasInteractiveDocument.value || !canSaveAs || isAnySaving || isHistoryBusy || isDjvuMode,
+            disabled: !hasInteractiveDocument.value || !canSaveAs || isAnySaving || isHistoryBusy,
             shortcut: shortcutLabels.value.saveAs,
         }),
         createCommandItem(
@@ -211,14 +213,14 @@ const appMenuItems = computed(() => {
             slot: 'print-current-page',
         }),
         { type: 'separator' },
-        createCommandItem('combine-images', t('menu.combineFiles'), 'i-ph-stack-plus'),
+        createCommandItem('combine-files', t('menu.combineFiles'), 'i-ph-stack-plus'),
         { type: 'separator' },
         createCommandItem('export-docx', t('menu.exportDocx'), getReaderCommandMenuIcon('export-docx'), {
             disabled: isExportDocxCommandDisabled.value,
             shortcut: shortcutLabels.value.exportDocx,
         }),
-        createCommandItem('export-images', t('menu.exportImages'), 'i-ph-image', {disabled: !hasInteractiveDocument.value}),
-        createCommandItem('export-multi-page-tiff', t('menu.exportMultiPageTiff'), 'i-ph-images', {disabled: !hasInteractiveDocument.value}),
+        createCommandItem('export-images', t('menu.exportImages'), 'i-ph-image', {disabled: !hasExportableRasterSource.value}),
+        createCommandItem('export-multi-page-tiff', t('menu.exportMultiPageTiff'), 'i-ph-images', {disabled: !hasExportableRasterSource.value}),
     ];
 
     if (canUseDjvu && isDjvuMode) {

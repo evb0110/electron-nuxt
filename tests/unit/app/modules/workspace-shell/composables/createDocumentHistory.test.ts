@@ -14,12 +14,13 @@ import {
     createMissingRevisionError,
     createStaleRevisionError,
 } from '@contracts/documentMutationErrors';
+import {requireDocumentRevisionToken} from '@contracts';
 
 function createHistoryHarness() {
     const state = createDocumentSessionState({ isDesktopRuntime: ref(false) });
     state.workingCopyPath.value = '/tmp/work.pdf';
     state.originalPath.value = '/tmp/original.pdf';
-    state.documentRevisionToken.value = 'revision-before-restore';
+    state.documentRevisionToken.value = requireDocumentRevisionToken('revision-before-restore');
 
     const documentFiles = {writeFile: vi.fn(async () => true)};
     const documentWorkingCopy = {
@@ -57,6 +58,37 @@ function createHistoryHarness() {
 }
 
 describe('createDocumentHistory', () => {
+    it('publishes file checkpoints directly to the workspace command sink', async () => {
+        const {history} = createHistoryHarness();
+        const registrations: Array<{
+            source: string;
+            estimatedBytes?: number;
+            undo: () => Promise<boolean>;
+            cmd: () => Promise<boolean>;
+        }> = [];
+        const reset = vi.fn();
+        history.setWorkspaceCommandSink({
+            register: command => registrations.push(command as typeof registrations[number]),
+            reset,
+        });
+        await history.resetHistory(new Uint8Array([1]), {reuseSnapshot: true});
+        await history.pushHistorySnapshot(new Uint8Array([
+            2,
+            3,
+        ]), {reuseSnapshot: true});
+
+        expect(registrations).toHaveLength(1);
+        expect(registrations[0]).toMatchObject({
+            source: 'file',
+            estimatedBytes: 2,
+        });
+        await expect(registrations[0]?.undo()).resolves.toBe(true);
+        await expect(registrations[0]?.cmd()).resolves.toBe(true);
+
+        history.incrementSessionVersion();
+        expect(reset).toHaveBeenCalledWith();
+    });
+
     it('keeps the undo cursor unchanged when restoring bytes fails', async () => {
         const {
             documentFiles,
@@ -87,8 +119,62 @@ describe('createDocumentHistory', () => {
         expect(documentFiles.writeFile).toHaveBeenCalledWith(
             '/tmp/work.pdf',
             new Uint8Array([1]),
-            { expectedDocumentRevisionToken: 'revision-before-restore' },
+            { expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-restore') },
         );
+    });
+
+    it('restores byte-identical checkpoints through an undo and redo round trip', async () => {
+        const {
+            documentFiles,
+            history,
+            state,
+        } = createHistoryHarness();
+        const before = new Uint8Array([
+            37,
+            80,
+            68,
+            70,
+            45,
+            49,
+            46,
+            55,
+            10,
+            1,
+            2,
+            3,
+        ]);
+        const after = new Uint8Array([
+            37,
+            80,
+            68,
+            70,
+            45,
+            49,
+            46,
+            55,
+            10,
+            9,
+            8,
+            7,
+        ]);
+        await history.resetHistory(before, {reuseSnapshot: true});
+        await history.pushHistorySnapshot(after, {reuseSnapshot: true});
+
+        await expect(history.undo()).resolves.toBe(true);
+        expect(documentFiles.writeFile).toHaveBeenLastCalledWith(
+            '/tmp/work.pdf',
+            before,
+            {expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-restore')},
+        );
+        expect(state.pdfData.value).toEqual(before);
+
+        await expect(history.redo()).resolves.toBe(true);
+        expect(documentFiles.writeFile).toHaveBeenLastCalledWith(
+            '/tmp/work.pdf',
+            after,
+            {expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-restore')},
+        );
+        expect(state.pdfData.value).toEqual(after);
     });
 
     it('propagates missing revision rejection when byte history restore has no token', async () => {
@@ -122,8 +208,8 @@ describe('createDocumentHistory', () => {
         await history.pushHistorySnapshot(new Uint8Array([2]), { reuseSnapshot: true });
         documentFiles.writeFile.mockRejectedValueOnce(createStaleRevisionError({
             documentRef: '/tmp/work.pdf',
-            expectedRevision: 'revision-before-restore',
-            actualRevision: 'revision-after-edit',
+            expectedRevision: requireDocumentRevisionToken('revision-before-restore'),
+            actualRevision: requireDocumentRevisionToken('revision-after-edit'),
         }));
 
         await expect(history.undo()).rejects.toMatchObject({ code: 'STALE_REVISION' });
@@ -131,7 +217,7 @@ describe('createDocumentHistory', () => {
         expect(documentFiles.writeFile).toHaveBeenCalledWith(
             '/tmp/work.pdf',
             new Uint8Array([1]),
-            { expectedDocumentRevisionToken: 'revision-before-restore' },
+            { expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-restore') },
         );
     });
 
@@ -139,7 +225,7 @@ describe('createDocumentHistory', () => {
         const state = createDocumentSessionState({ isDesktopRuntime: ref(true) });
         state.workingCopyPath.value = '/tmp/work.pdf';
         state.originalPath.value = '/tmp/original.pdf';
-        state.documentRevisionToken.value = 'revision-before-restore';
+        state.documentRevisionToken.value = requireDocumentRevisionToken('revision-before-restore');
 
         const createWorkingCopyFromPath = vi.fn()
             .mockResolvedValueOnce('/tmp/history-baseline.pdf')

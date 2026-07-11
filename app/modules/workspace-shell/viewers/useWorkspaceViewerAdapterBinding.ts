@@ -11,6 +11,12 @@ import type {
 } from '@app/modules/pdf-viewer/public';
 import type { TPdfRasterDisplayProfile } from '@app/types/pdfRasterDisplayProfile';
 import type { IWorkspaceViewerAdapter } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
+import type { IDocumentSourceCapabilities } from '@app/utils/document-viewer/source/documentPageSource';
+import type {
+    TFitMode,
+    TPdfViewMode,
+    TZoomMode,
+} from '@contracts/shared';
 
 type TReadableRef<T> = ComputedRef<T> | Ref<T>;
 
@@ -27,7 +33,7 @@ interface IWorkspaceViewerAdapterBindingOptions {
     currentPage: Ref<number>;
     djvuSourcePath: Ref<TDocumentRef | null>;
     dragMode: Ref<boolean>;
-    fitMode: Ref<unknown>;
+    fitMode: Ref<TFitMode>;
     isAnySaving: Ref<boolean>;
     isRenderActive: TReadableRef<boolean>;
     isWorkspaceLayoutResizing: TReadableRef<boolean>;
@@ -41,10 +47,11 @@ interface IWorkspaceViewerAdapterBindingOptions {
     djvuViewerRef: Ref<IDocumentViewerExpose | null>;
     documentRevisionToken: Ref<TDocumentRevisionToken | null>;
     sourcePdfData: Ref<Uint8Array | null> | ComputedRef<Uint8Array | null>;
-    viewMode: Ref<unknown>;
+    showSidebar: Ref<boolean>;
+    viewMode: Ref<TPdfViewMode>;
     workingCopyPath: Ref<TDocumentRef | null>;
     zoom: Ref<number>;
-    zoomMode: Ref<unknown>;
+    zoomMode: Ref<TZoomMode>;
     onAnnotationCommentClick: unknown;
     onAnnotationComments: unknown;
     onAnnotationContextMenu: unknown;
@@ -58,7 +65,7 @@ interface IWorkspaceViewerAdapterBindingOptions {
     onCurrentPageUpdate: (value: number) => void;
     onDocumentUpdate: (value: unknown) => void;
     onEffectiveZoomUpdate: (value: number) => void;
-    onFitModeUpdate: (value: unknown) => void;
+    onFitModeUpdate: (value: TFitMode) => void;
     onImagePlacementFinalize: unknown;
     onInitialVisualPending: () => void;
     onInitialVisualReady: () => void;
@@ -66,8 +73,9 @@ interface IWorkspaceViewerAdapterBindingOptions {
     onLoading: (value: boolean) => void;
     onNavigationFeedbackPageUpdate: (value: number | null) => void;
     onShapeContextMenu: unknown;
+    onSourceCapabilitiesUpdate: (capabilities: IDocumentSourceCapabilities) => void;
     onTotalPagesUpdate: (value: number) => void;
-    onZoomModeUpdate: (value: unknown) => void;
+    onZoomModeUpdate: (value: TZoomMode) => void;
     onZoomUpdate: (value: number) => void;
 }
 
@@ -94,6 +102,7 @@ export const useWorkspaceViewerAdapterBinding = (options: IWorkspaceViewerAdapte
     const activeViewerProps = computed<Record<string, unknown>>(() => {
         if (options.activeViewerAdapter.value?.id === 'pdf' && options.pdfSrc.value) {
             return {
+                sourceKind: 'pdf',
                 src: options.pdfSrc.value,
                 reloadSrc: options.pdfReloadSrc.value,
                 rasterDisplayProfile: options.pdfRasterDisplayProfile.value,
@@ -122,11 +131,20 @@ export const useWorkspaceViewerAdapterBinding = (options: IWorkspaceViewerAdapte
         }
 
         if (options.activeViewerAdapter.value?.id === 'native-pdf') {
-            return createNativeViewerProps(options.nativePdfSourcePath.value);
+            return {
+                ...createNativeViewerProps(options.nativePdfSourcePath.value),
+                sourceKind: 'pdf',
+                rendererKind: 'native-pdf',
+            };
         }
 
         if (options.activeViewerAdapter.value?.id === 'djvu') {
-            return createNativeViewerProps(options.djvuSourcePath.value);
+            return {
+                ...createNativeViewerProps(options.djvuSourcePath.value),
+                sourceKind: 'djvu',
+                rendererKind: 'page-source',
+                showSidebar: options.showSidebar.value,
+            };
         }
 
         return {};
@@ -135,13 +153,17 @@ export const useWorkspaceViewerAdapterBinding = (options: IWorkspaceViewerAdapte
     const activeViewerComponent = computed(() => options.activeViewerAdapter.value?.component ?? null);
 
     const nativeViewerListeners = {
+        'update:zoom': options.onZoomUpdate,
+        'update:zoomMode': options.onZoomModeUpdate,
         'update:effectiveZoom': options.onEffectiveZoomUpdate,
         'update:currentPage': options.onCurrentPageUpdate,
         'update:totalPages': options.onTotalPagesUpdate,
         'update:document': options.onDocumentUpdate,
         loading: options.onLoading,
+        loadError: options.onLoadError,
         initialVisualPending: options.onInitialVisualPending,
         initialVisualReady: options.onInitialVisualReady,
+        'update:sourceCapabilities': options.onSourceCapabilitiesUpdate,
     };
 
     const activeViewerListeners = computed<Record<string, unknown>>(() => {

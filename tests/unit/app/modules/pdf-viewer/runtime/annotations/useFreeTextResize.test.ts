@@ -159,4 +159,49 @@ describe('useFreeTextResize', () => {
         expect(selectedEditor.current).toBe(editor);
         scope.stop();
     });
+
+    it('records resize geometry and re-resolves the editor for undo after reload', () => {
+        vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1));
+        vi.stubGlobal('cancelAnimationFrame', vi.fn());
+        const scope = effectScope();
+        const {editor: staleEditor} = createFreeTextEditor();
+        staleEditor.id = 'free-text-1';
+        staleEditor.x = 0.1;
+        staleEditor.y = 0.2;
+        const {editor: rebuiltEditor} = createFreeTextEditor();
+        rebuiltEditor.id = 'free-text-1';
+        rebuiltEditor.x = 0.6;
+        rebuiltEditor.y = 0.7;
+        rebuiltEditor.width = 3;
+        rebuiltEditor.height = 4;
+        const registerHistoryCommand = vi.fn();
+        const manager = {getEditors: vi.fn(() => [rebuiltEditor])};
+        const resize = scope.run(() => useFreeTextResize({
+            getAnnotationUiManager: () => manager as never,
+            getNumPages: () => 1,
+            emitAnnotationModified: vi.fn(),
+            emitAnnotationSetting: vi.fn(),
+            scheduleAnnotationCommentsSync: vi.fn(),
+            registerHistoryCommand,
+        }));
+        if (!resize) throw new Error('Expected FreeText resize scope');
+        resize.ensureFreeTextEditorCanResize(staleEditor);
+
+        staleEditor._onResizing?.();
+        staleEditor.width = 2;
+        staleEditor.height = 2;
+        staleEditor._onResized?.();
+
+        const command = registerHistoryCommand.mock.calls[0]?.[0];
+        expect(command).toBeDefined();
+        command.undo();
+        expect(rebuiltEditor).toMatchObject({
+            x: 0.1,
+            y: 0.2,
+            width: 1,
+            height: 1,
+        });
+        expect(staleEditor.width).toBe(2);
+        scope.stop();
+    });
 });

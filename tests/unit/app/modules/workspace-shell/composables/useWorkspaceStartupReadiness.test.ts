@@ -78,7 +78,7 @@ describe('useWorkspaceStartupReadiness', () => {
         expect(readinessSource).not.toContain('querySelector');
         expect(readinessSource).not.toContain('hasRenderedStartupDocument');
         expect(readinessSource).not.toContain('requestAnimationFrame');
-        expect(readinessSource).not.toContain('showNativeDjvuViewer');
+        expect(readinessSource).not.toContain('showDjvuSource');
         expect(readinessSource).not.toContain('showNativePdfViewer');
     });
 

@@ -2,6 +2,7 @@ import { realpathSync } from 'fs';
 import { resolve } from 'path';
 import type { ILogger } from '@electron/utils/createLogger';
 import type { IOcrPendingResultFile } from '@electron/ocr/jobManager.types';
+import { runDetached } from '@electron/utils/runDetached';
 
 interface ICreatePendingResultFileStoreOptions {
     logger: ILogger;
@@ -95,9 +96,15 @@ export function createPendingResultFileStore(options: ICreatePendingResultFileSt
                 .find(entry => entry.webContentsId === webContentsId && entry.pdfPath === normalizedPath)
                 ?? null;
         },
-        track(scopedJobId: string, requestId: string, webContentsId: number, pdfPath: string, requiresCleanupAck: boolean) {
+        track(scopedJobId: string, requestId: string, webContentsId: number, pdfPath: string, resultSha256: string, requiresCleanupAck: boolean) {
             if (!requiresCleanupAck) {
-                void removeTrackedEntry(removePendingResultFileEntry(scopedJobId));
+                runDetached(
+                    () => removeTrackedEntry(removePendingResultFileEntry(scopedJobId)),
+                    {
+                        label: `remove unacknowledged OCR result ${requestId}`,
+                        logger: options.logger,
+                    },
+                );
                 return;
             }
 
@@ -110,7 +117,13 @@ export function createPendingResultFileStore(options: ICreatePendingResultFileSt
 
             const previousEntry = removePendingResultFileEntry(scopedJobId);
             if (previousEntry && previousEntry.pdfPath !== normalizedPath) {
-                void options.removeResultFile(previousEntry.pdfPath);
+                runDetached(
+                    () => options.removeResultFile(previousEntry.pdfPath),
+                    {
+                        label: `remove replaced OCR result ${requestId}`,
+                        logger: options.logger,
+                    },
+                );
             }
 
             const cleanupTimer = setTimeout(() => {
@@ -119,11 +132,17 @@ export function createPendingResultFileStore(options: ICreatePendingResultFileSt
                     return;
                 }
 
-                void removeTrackedEntry(pending).then((removed) => {
-                    if (removed) {
-                        options.logger.warn(`Cleaned up stale OCR result file for job "${requestId}" after acknowledgement timeout`);
-                    }
-                });
+                runDetached(
+                    async () => {
+                        if (await removeTrackedEntry(pending)) {
+                            options.logger.warn(`Cleaned up stale OCR result file for job "${requestId}" after acknowledgement timeout`);
+                        }
+                    },
+                    {
+                        label: `expire OCR result ${requestId}`,
+                        logger: options.logger,
+                    },
+                );
             }, options.ttlMs);
             cleanupTimer.unref?.();
 
@@ -132,6 +151,7 @@ export function createPendingResultFileStore(options: ICreatePendingResultFileSt
                 requestId,
                 webContentsId,
                 pdfPath: normalizedPath,
+                resultSha256,
                 createdAtMs: Date.now(),
                 cleanupTimer,
             });

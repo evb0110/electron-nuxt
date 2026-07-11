@@ -12,6 +12,7 @@ import type {
     TMenuEventCallback,
     TMenuEventUnsubscribe,
 } from '@contracts/electronApiCommon';
+import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
 
 export interface IWindowTabsApi {
     transfer: (request: IWindowTabTransferRequest) => Promise<IWindowTabTransferResult>;
@@ -27,6 +28,8 @@ export interface IWindowTabsCapability extends IWindowTabsApi {
     notifyRendererReady: () => void;
     claimPendingExternalOpenPaths: () => Promise<TDocumentRef[]>;
     acknowledgePendingExternalOpenPaths: (failedPaths: TDocumentRef[]) => Promise<void>;
+    saveWorkspaceCheckpoint: (checkpoint: IWorkspaceCheckpoint) => Promise<void>;
+    claimWorkspaceCheckpoint: () => Promise<IWorkspaceCheckpoint | null>;
     onMenuNewTab: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuCloseTab: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuSplitEditor: (callback: (direction: TPaneDirection) => void) => TMenuEventUnsubscribe;

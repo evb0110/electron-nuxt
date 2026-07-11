@@ -1,0 +1,46 @@
+import {
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
+import { createPagePreviewDocumentSource } from '@app/utils/document-viewer/source/createPagePreviewDocumentSource';
+
+describe('createPagePreviewDocumentSource', () => {
+    it('adapts native preview metrics and leased surfaces to IDocumentPageSource', async () => {
+        const revokeObjectURL = vi.fn();
+        const source = createPagePreviewDocumentSource({
+            documentRef: '/tmp/document.pdf',
+            pageSizes: [{
+                width: 612,
+                height: 792,
+            }],
+            previewSource: {
+                getPageSizes: vi.fn(async () => []),
+                renderPageObjectUrl: vi.fn(async () => ({
+                    objectUrl: 'blob:page-1',
+                    renderedPx: 306,
+                })),
+                revokeObjectURL,
+                terminate: vi.fn(),
+            },
+        });
+
+        await expect(source.getPageMetrics(1)).resolves.toEqual({
+            widthPoints: 612,
+            heightPoints: 792,
+            rotation: 0,
+        });
+        const lease = await source.renderPage({
+            pageNumber: 1,
+            widthPx: 306,
+            priority: 'navigation',
+            signal: new AbortController().signal,
+        });
+        expect(lease.surface).toBe('blob:page-1');
+        expect(lease.heightPx).toBe(396);
+        lease.release();
+        lease.release();
+        expect(revokeObjectURL).toHaveBeenCalledOnce();
+    });
+});

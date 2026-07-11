@@ -1,10 +1,14 @@
 import type { PageViewport } from 'pdfjs-dist';
 import type { IOcrWord } from '@contracts/shared';
-import type { IOcrIndexV3Page } from '@contracts/ocrIndex';
+
+interface IOcrPageRenderGeometry {render?: {imagePx: {
+    w: number;
+    h: number
+}};}
 
 export function transformOcrWordToViewport(
     word: IOcrWord,
-    ocrPageData: IOcrIndexV3Page,
+    ocrPageData: IOcrPageRenderGeometry,
     pageWidth: number,
     pageHeight: number,
     viewport: PageViewport,
@@ -14,7 +18,10 @@ export function transformOcrWordToViewport(
     width: number;
     height: number;
 } | null {
-    const imagePx = ocrPageData.render.imagePx;
+    const imagePx = ocrPageData.render?.imagePx;
+    if (!imagePx) {
+        return null;
+    }
 
     const sx = pageWidth / imagePx.w;
     const sy = pageHeight / imagePx.h;

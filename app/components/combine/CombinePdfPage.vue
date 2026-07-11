@@ -13,7 +13,7 @@
             data-combine-page
             :class="[
                 files.length > 0 ? 'has-files' : 'is-empty',
-                { 'is-dragging': isDraggingOver },
+                { 'is-dragging': isDraggingOver && !isCombining },
             ]"
             @dragenter.prevent="handleDragEnter"
             @dragover.prevent="handleDragOver"
@@ -81,6 +81,14 @@
                             {{ filesLabel }}
                         </p>
                     </div>
+                    <UButton
+                        v-if="pendingCombinedResult && !isCombining"
+                        color="neutral"
+                        variant="outline"
+                        icon="i-ph-floppy-disk"
+                        :label="t('toolbar.saveAs')"
+                        @click="savePendingAs"
+                    />
                     <UButton
                         v-if="files.length > 0"
                         color="neutral"
@@ -191,10 +199,18 @@
                 <footer class="combine-actions">
                     <p>{{ t('combinePdf.outputHint') }}</p>
                     <UButton
+                        v-if="isCombining"
+                        color="neutral"
+                        variant="outline"
+                        icon="i-ph-x"
+                        :label="t('common.cancel')"
+                        @click="cancelCombine"
+                    />
+                    <UButton
                         color="primary"
                         icon="i-ph-stack-plus"
                         :loading="isCombining"
-                        :label="isCombining ? t('combinePdf.combining') : t('combinePdf.combineCountAction', { count: files.length })"
+                        :label="isCombining ? t('combinePdf.combining') : pendingCombinedResult ? t('common.retry') : t('combinePdf.combineCountAction', { count: files.length })"
                         @click="combineFiles"
                     />
                 </footer>
@@ -209,23 +225,13 @@ import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import AppProgressBar from '@app/components/AppProgressBar.vue';
 import AppToolPageShell from '@app/components/AppToolPageShell.vue';
 import FileTypeIcon from '@app/components/icons/FileTypeIcon.vue';
+import {useCombinePdfQueue} from '@app/modules/combine/useCombinePdfQueue';
+import {useCombinePdfOperation} from '@app/modules/combine/useCombinePdfOperation';
 import { formatBytes } from '@app/utils/formatters';
-import { getErrorMessage } from '@app/utils/error';
-import { moveArrayItem } from '@app/utils/moveArrayItem';
-import {
-    combinePdfFiles as combinePdfInputFiles,
-    type ICombinePdfProgress,
-} from '@app/services/pdf/combinePdfFiles';
-import {
-    getDocumentKindFromPath,
-    isSupportedWorkspaceDocumentPath,
-    WORKSPACE_DOCUMENT_EXTENSIONS,
-} from '@app/utils/supportedDocumentPaths';
+import {getCombinePdfCapabilities} from '@app/services/pdf/combinePdfFiles';
+import {getDocumentKindFromPath} from '@app/utils/supportedDocumentPaths';
 import { createBrowserSafeId } from '@app/utils/browserSafe';
-import {
-    canMutateCombineFiles,
-    removeCompletedCombineSnapshot,
-} from '@app/services/pdf/combineOperationSnapshot';
+import {canMutateCombineFiles} from '@app/services/pdf/combineOperationSnapshot';
 
 type TCombineFileKind = 'pdf' | 'djvu' | 'image' | 'document';
 
@@ -234,7 +240,6 @@ interface ICombineFile {
     file: File;
     name: string;
     size: number;
-    signature: string;
     kind: TCombineFileKind;
 }
 
@@ -244,6 +249,7 @@ const emit = defineEmits<{
 }>();
 
 function closePage() {
+    cancelCombine();
     emit('close');
 }
 
@@ -251,10 +257,12 @@ const {
     showBack = true,
     showEyebrow = true,
     showHeader = true,
+    openResult = undefined,
 } = defineProps<{
     showBack?: boolean;
     showEyebrow?: boolean;
     showHeader?: boolean;
+    openResult?: ((result: TOpenFileResult) => Promise<boolean>) | undefined;
 }>();
 
 const { t } = useTypedI18n();
@@ -265,24 +273,16 @@ const files = ref<ICombineFile[]>([]);
 const reorderAnnouncement = ref('');
 const isDraggingOver = ref(false);
 const dragDepth = ref(0);
-const isCombining = ref(false);
-const progress = ref<ICombinePdfProgress | null>(null);
-const combineError = ref<string | null>(null);
-const lastRejectedCount = ref(0);
-const COMBINE_FILE_ACCEPT = WORKSPACE_DOCUMENT_EXTENSIONS.join(',');
+const combineCapabilities = getCombinePdfCapabilities();
+const COMBINE_FILE_ACCEPT = combineCapabilities.supportedExtensions.join(',');
 
 const filesLabel = computed(() => t('combinePdf.fileCount', { count: files.value.length }));
 
 function isSupportedCombineFile(file: File) {
-    return isSupportedWorkspaceDocumentPath(file.name);
-}
-
-function createFileSignature(file: File) {
-    return [
-        file.name,
-        file.size,
-        file.lastModified,
-    ].join(':');
+    const extension = file.name.toLocaleLowerCase().match(/\.[a-z0-9]+$/u)?.[0] ?? '';
+    return combineCapabilities.supportedExtensions.includes(extension)
+        && file.size > 0
+        && file.size <= combineCapabilities.maxInputBytes;
 }
 
 function toCombineFile(file: File): ICombineFile {
@@ -291,56 +291,35 @@ function toCombineFile(file: File): ICombineFile {
         file,
         name: file.name,
         size: file.size,
-        signature: createFileSignature(file),
         kind: getDocumentKindFromPath(file.name),
     };
 }
 
-function mergeCombineFiles(currentFiles: readonly ICombineFile[], fileList: FileList | File[]) {
-    return Array.from(fileList).reduce<{
-        files: ICombineFile[];
-        signatures: Set<string>;
-        rejected: number;
-    }>((result, file) => {
-        if (!isSupportedCombineFile(file)) {
-            return {
-                ...result,
-                rejected: result.rejected + 1,
-            };
-        }
+const {
+    isCombining,
+    progress,
+    combineError,
+    pendingCombinedResult,
+    combine: combineFiles,
+    cancel: cancelCombine,
+    savePendingAs,
+} = useCombinePdfOperation({
+    files,
+    ...(openResult ? {openResult} : {}),
+    emitOpenResult: result => emit('open-result', result),
+    translate: key => t(key as never),
+});
 
-        const signature = createFileSignature(file);
-        if (result.signatures.has(signature)) {
-            return result;
-        }
-
-        return {
-            files: [
-                ...result.files,
-                toCombineFile(file),
-            ],
-            signatures: new Set([
-                ...result.signatures,
-                signature,
-            ]),
-            rejected: result.rejected,
-        };
-    }, {
-        files: [...currentFiles],
-        signatures: new Set(currentFiles.map(file => file.signature)),
-        rejected: 0,
-    });
-}
-
+const queue = useCombinePdfQueue({
+    files,
+    isCombining,
+    isSupported: isSupportedCombineFile,
+    toQueueItem: toCombineFile,
+});
+const {lastRejectedCount} = queue;
 function addFiles(fileList: FileList | File[]) {
-    if (!canMutateCombineFiles(isCombining.value)) {
-        return;
-    }
     combineError.value = null;
-    const merged = mergeCombineFiles(files.value, fileList);
-
-    lastRejectedCount.value = merged.rejected;
-    files.value = merged.files;
+    queue.addFiles(fileList);
 }
 
 function openFileInput() {
@@ -366,11 +345,20 @@ function resetDragOverlay() {
 }
 
 function handleDragEnter() {
+    if (isCombining.value) {
+        return;
+    }
     dragDepth.value += 1;
     isDraggingOver.value = true;
 }
 
 function handleDragOver(event: DragEvent) {
+    if (isCombining.value) {
+        if (event.dataTransfer) {
+            event.dataTransfer.dropEffect = 'none';
+        }
+        return;
+    }
     if (event.dataTransfer) {
         event.dataTransfer.dropEffect = 'copy';
     }
@@ -419,20 +407,15 @@ useEventListener(dragCancelTarget, 'dragleave', handleWindowDragLeave);
 useEventListener(dragCancelTarget, 'keydown', handleDragCancelKeydown);
 
 function clearFiles() {
-    if (!canMutateCombineFiles(isCombining.value)) {
+    if (!queue.clearFiles()) {
         return;
     }
-    files.value = [];
-    lastRejectedCount.value = 0;
     combineError.value = null;
     progress.value = null;
 }
 
 function removeFile(index: number) {
-    if (!canMutateCombineFiles(isCombining.value)) {
-        return;
-    }
-    files.value = files.value.filter((_, fileIndex) => fileIndex !== index);
+    queue.removeFile(index);
 }
 
 function announceReorder(position: number) {
@@ -456,7 +439,9 @@ function moveFile(index: number, delta: -1 | 1) {
         return;
     }
 
-    files.value = moveArrayItem(files.value, index, targetIndex);
+    if (!queue.moveFile(index, targetIndex)) {
+        return;
+    }
     announceReorder(targetIndex);
 }
 
@@ -464,7 +449,9 @@ function handleReorder(fromIndex: number, toIndex: number) {
     if (!canMutateCombineFiles(isCombining.value)) {
         return;
     }
-    files.value = moveArrayItem(files.value, fromIndex, toIndex);
+    if (!queue.moveFile(fromIndex, toIndex)) {
+        return;
+    }
     announceReorder(toIndex);
 }
 
@@ -481,52 +468,7 @@ function startReorder(event: PointerEvent, index: number) {
     onReorderPointerDown(event, index);
 }
 
-function buildOutputName(operationFiles: readonly ICombineFile[]) {
-    if (operationFiles.length === 1) {
-        return operationFiles[0]!.name.replace(/\.[^.]+$/u, '.pdf');
-    }
-    return `combined-${Date.now()}.pdf`;
-}
-
-function handleCombineProgress(nextProgress: ICombinePdfProgress) {
-    progress.value = nextProgress;
-}
-
-async function combineFiles() {
-    if (files.value.length === 0 || isCombining.value) {
-        return;
-    }
-
-    const operationFiles = Object.freeze(files.value.map(file => Object.freeze({...file})));
-    isCombining.value = true;
-    combineError.value = null;
-    lastRejectedCount.value = 0;
-    progress.value = {
-        processed: 0,
-        total: operationFiles.length,
-        percent: 0,
-        elapsedMs: 0,
-        estimatedRemainingMs: null,
-    };
-
-    try {
-        const result = await combinePdfInputFiles({
-            files: operationFiles,
-            outputName: buildOutputName(operationFiles),
-            openErrorMessage: t('errors.file.open'),
-            onProgress: handleCombineProgress,
-        });
-        emit('open-result', result);
-        files.value = removeCompletedCombineSnapshot(files.value, operationFiles);
-        lastRejectedCount.value = 0;
-        combineError.value = null;
-        progress.value = null;
-    } catch (error) {
-        combineError.value = getErrorMessage(error) || t('errors.file.open');
-    } finally {
-        isCombining.value = false;
-    }
-}
+onBeforeUnmount(cancelCombine);
 </script>
 
 <style scoped>
@@ -656,7 +598,7 @@ async function combineFiles() {
 
 .combine-list-meta,
 .combine-actions p {
-    margin: 0.2rem 0 0;
+    margin: var(--app-space-xs) 0 0;
     color: var(--ui-text-muted);
     font-size: var(--app-text-size-secondary);
 }
@@ -710,7 +652,7 @@ async function combineFiles() {
 
 .combine-file-row.is-row-dragging {
     position: relative;
-    z-index: 1;
+    z-index: var(--app-z-local-raised);
     border-color: var(--ui-primary);
     background: var(--ui-bg-elevated);
     box-shadow: var(--shadow-popup);
@@ -806,7 +748,7 @@ async function combineFiles() {
         justify-content: flex-start;
         gap: var(--app-combine-compact-dropzone-gap);
         padding: var(--app-combine-compact-dropzone-padding);
-        border-width: 1.5px;
+        border-width: var(--app-combine-active-border-width);
         text-align: left;
     }
 

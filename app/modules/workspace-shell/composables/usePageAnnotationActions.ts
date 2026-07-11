@@ -14,22 +14,20 @@ import type {
     ITextMarkupAnnotationProperties,
     TAnnotationCommentsStatus,
     TAnnotationTool,
+    TShapeAnnotationPatch,
 } from '@app/types/annotations';
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacement';
 import {
     getShapeRect,
     resolveAnnotationCommentTextMarkupColor,
+    annotationIdForSummary,
 } from '@app/modules/pdf-viewer/public';
-import { commentsShareDeleteTarget as doCommentsShareDeleteTarget } from '@app/modules/workspace-shell/annotations/commentsShareDeleteTarget';
 import { getAnnotationPageNumber } from '@app/modules/workspace-shell/annotations/getAnnotationPageNumber';
-import { isFreshEditorNoteCreationForUndo } from '@app/modules/workspace-shell/annotations/isFreshEditorNoteCreationForUndo';
-import { isUndoableFreshEmptyEditorNote } from '@app/modules/workspace-shell/annotations/isUndoableFreshEmptyEditorNote';
 import { withOpenedAnnotationNoteCreationTimestamp } from '@app/modules/workspace-shell/annotations/withOpenedAnnotationNoteCreationTimestamp';
 import { pickPageAnnotationImageFile } from '@app/modules/workspace-shell/annotations/pickPageAnnotationImageFile';
 import { readPageAnnotationImageFileFromClipboard } from '@app/modules/workspace-shell/annotations/readPageAnnotationImageFileFromClipboard';
 import { resolveShapeAnnotationDefaultSettings } from '@app/modules/workspace-shell/annotations/resolveShapeAnnotationDefaultSettings';
 import { createPageAnnotationDeleteActions } from '@app/modules/workspace-shell/composables/createPageAnnotationDeleteActions';
-
 interface IPageAnnotationActionsDeps {
     pdfViewerRef: Ref<TPageAnnotationActionsPdfViewer | null>;
     annotationTool: Ref<TAnnotationTool>;
@@ -64,12 +62,12 @@ interface IPageAnnotationActionsDeps {
     }) => void;
     handleAnnotationToolChange: (tool: TAnnotationTool) => void;
     openAnnotationNoteWindow: (comment: IAnnotationCommentSummary) => void;
-    removeAnnotationNoteWindow: (stableKey: string) => void;
-    setAnnotationNoteWindowError: (stableKey: string, error: string | null) => void;
+    removeAnnotationNoteWindow: (annotationId: string) => void;
+    setAnnotationNoteWindowError: (annotationId: string, error: string | null) => void;
     isSameAnnotationComment: (a: IAnnotationCommentSummary, b: IAnnotationCommentSummary) => boolean;
     annotationNoteWindows: Ref<Array<{
-        comment: IAnnotationCommentSummary;
-        text?: string | undefined;
+        annotationId: string;
+        draftText: string;
         createdAtMs?: number | undefined;
     }>>;
     loadPdfFromData: (data: Uint8Array, opts?: {
@@ -78,11 +76,6 @@ interface IPageAnnotationActionsDeps {
     }) => Promise<void>;
     waitForPdfReload: (page: number) => Promise<void>;
     invalidateThumbnailPages?: (pages: number[]) => void;
-    removeAnnotationFromCache: (stableKey: string) => void;
-    restoreAnnotationToCache: (comment: IAnnotationCommentSummary) => void;
-    queuePendingEmbeddedAnnotationDelete: (comment: IAnnotationCommentSummary) => void;
-    unqueuePendingEmbeddedAnnotationDelete: (stableKey: string) => void;
-    isNativeFreeTextNoteSaved?: (comment: IAnnotationCommentSummary) => boolean;
     markPreservedAnnotationSourceDirty?: () => void;
     setPreservedAnnotationSourceDirty?: (dirty: boolean) => void;
     getAnnotationCommentsSnapshot?: () => IAnnotationCommentSummary[];
@@ -122,13 +115,11 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         openAnnotationNoteWindow,
         removeAnnotationNoteWindow,
         setAnnotationNoteWindowError,
-        isSameAnnotationComment,
         annotationNoteWindows,
         loadPdfFromData,
         waitForPdfReload,
         invalidateThumbnailPages,
-        removeAnnotationFromCache,
-        restoreAnnotationToCache,
+        isSameAnnotationComment,
         getEmbeddedMutationBaseData,
         embedPlacedImageToPage,
         runWithDocumentOperationLease = runWithoutDocumentOperationLease,
@@ -169,7 +160,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         x: 0,
         y: 0,
     });
-    const viewerContainer = computed(() => pdfViewerRef.value?.getViewerContainer() ?? null);
+    const viewerContainer = computed(() => pdfViewerRef.value?.getViewerContainer?.() ?? null);
     const windowTarget = computed(() => (
         typeof window !== 'undefined' && typeof window.addEventListener === 'function'
             ? window
@@ -185,7 +176,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
     }
 
     function updateShapePropertiesPopoverPosition(shape: IShapeAnnotation) {
-        const viewerContainer = pdfViewerRef.value?.getViewerContainer();
+        const viewerContainer = pdfViewerRef.value?.getViewerContainer?.();
         if (!viewerContainer) {
             return false;
         }
@@ -273,7 +264,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         if (!pdfViewerRef.value) {
             return;
         }
-        annotationActiveCommentStableKey.value = comment.stableKey;
+        annotationActiveCommentStableKey.value = annotationIdForSummary(comment);
         showSidebar.value = true;
         sidebarTab.value = 'annotations';
         dragMode.value = false;
@@ -281,7 +272,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
     }
 
     function handleAnnotationCommentClick(comment: IAnnotationCommentSummary) {
-        annotationActiveCommentStableKey.value = comment.stableKey;
+        annotationActiveCommentStableKey.value = annotationIdForSummary(comment);
         dragMode.value = false;
     }
 
@@ -291,43 +282,19 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         invalidateThumbnailPages?.([page]);
     }
 
-    function rerenderRestoredAnnotationPage(comment: IAnnotationCommentSummary) {
-        const page = getAnnotationPageNumber(comment);
-        const rerenderPromise = pdfViewerRef.value?.rerenderAnnotationPage?.(page);
-        if (!rerenderPromise) {
-            invalidateAnnotationPage(comment);
-            return;
-        }
-
-        invalidateThumbnailPages?.([page]);
-        void rerenderPromise.catch((error: unknown) => {
-            BrowserLogger.warn('annotations', 'Failed to rerender restored annotation page', {
-                error,
-                page,
-                stableKey: comment.stableKey,
-            });
-            pdfViewerRef.value?.invalidatePages([page]);
-        });
-    }
-
-    function commentsShareDeleteTarget(
-        left: IAnnotationCommentSummary,
-        right: IAnnotationCommentSummary,
-    ) {
-        return doCommentsShareDeleteTarget(left, right, isSameAnnotationComment);
-    }
-
-    function hasOpenAnnotationNoteWindow(comment: IAnnotationCommentSummary) {
-        return annotationNoteWindows.value.some(note => commentsShareDeleteTarget(note.comment, comment));
-    }
-
     function toAnnotationNoteWindowComment(note: {
-        comment: IAnnotationCommentSummary;
-        text?: string | undefined;
-    }) {
+        annotationId: string;
+        draftText: string;
+    }): IAnnotationCommentSummary | null {
+        const comment = getAnnotationCommentsSnapshot()?.find(candidate => (
+            annotationIdForSummary(candidate) === note.annotationId
+        ));
+        if (!comment) {
+            return null;
+        }
         return {
-            ...note.comment,
-            text: typeof note.text === 'string' ? note.text : note.comment.text,
+            ...comment,
+            text: note.draftText,
             hasNote: true,
         };
     }
@@ -336,31 +303,8 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         return deps.getAnnotationCommentsSnapshot?.() ?? null;
     }
 
-    function findLiveAnnotationNoteComment(comment: IAnnotationCommentSummary) {
-        const openNote = annotationNoteWindows.value.find(note =>
-            commentsShareDeleteTarget(toAnnotationNoteWindowComment(note), comment),
-        );
-        if (openNote) {
-            return toAnnotationNoteWindowComment(openNote);
-        }
-
-        return getAnnotationCommentsSnapshot()?.find(candidate =>
-            commentsShareDeleteTarget(candidate, comment),
-        ) ?? null;
-    }
-
     function isAnnotationCommentsSnapshotReady() {
         return deps.getAnnotationCommentsStatusSnapshot?.() === 'ready';
-    }
-
-    function removeAnnotationCacheKeys(stableKeys: Set<string>, removedStableKeys: Set<string>) {
-        stableKeys.forEach((stableKey) => {
-            if (removedStableKeys.has(stableKey)) {
-                return;
-            }
-            removedStableKeys.add(stableKey);
-            removeAnnotationFromCache(stableKey);
-        });
     }
 
     function shouldCloseRemainingNoteWindowsAfterExplicitDelete(
@@ -384,11 +328,12 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
 
     function closeRemainingAnnotationNoteWindows(stableKeys: Set<string>) {
         annotationNoteWindows.value.forEach((note) => {
-            if (stableKeys.has(note.comment.stableKey)) {
+            const comment = toAnnotationNoteWindowComment(note);
+            if (!comment || stableKeys.has(comment.stableKey)) {
                 return;
             }
-            stableKeys.add(note.comment.stableKey);
-            removeAnnotationNoteWindow(note.comment.stableKey);
+            stableKeys.add(comment.stableKey);
+            removeAnnotationNoteWindow(note.annotationId ?? annotationIdForSummary(comment));
         });
     }
 
@@ -397,84 +342,36 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         commentsBeforeDelete: IAnnotationCommentSummary[] | null = null,
     ) {
         const stableKeys = new Set<string>([comment.stableKey]);
-        const removedStableKeys = new Set<string>();
         annotationNoteWindows.value
-            .filter(note => commentsShareDeleteTarget(note.comment, comment))
+            .filter((note) => {
+                const noteComment = toAnnotationNoteWindowComment(note);
+                return Boolean(noteComment && isSameAnnotationComment(noteComment, comment)) || (
+                    note.annotationId
+                    ?? (noteComment ? annotationIdForSummary(noteComment) : null)
+                ) === annotationIdForSummary(comment);
+            })
             .forEach((note) => {
-                stableKeys.add(note.comment.stableKey);
-                removeAnnotationNoteWindow(note.comment.stableKey);
+                const noteComment = toAnnotationNoteWindowComment(note);
+                if (noteComment) stableKeys.add(noteComment.stableKey);
+                removeAnnotationNoteWindow(note.annotationId ?? annotationIdForSummary(noteComment ?? comment));
             });
 
-        removeAnnotationCacheKeys(stableKeys, removedStableKeys);
         if (shouldCloseRemainingNoteWindowsAfterExplicitDelete(commentsBeforeDelete)) {
             closeRemainingAnnotationNoteWindows(stableKeys);
-            removeAnnotationCacheKeys(stableKeys, removedStableKeys);
         }
 
         if (
-            annotationActiveCommentStableKey.value
-            && stableKeys.has(annotationActiveCommentStableKey.value)
+            annotationActiveCommentStableKey.value === annotationIdForSummary(comment)
         ) {
             annotationActiveCommentStableKey.value = null;
         }
     }
 
-    function registerFreshNoteCreationUndo(noteComment: IAnnotationCommentSummary) {
-        const viewer = pdfViewerRef.value;
-        if (!viewer?.registerAnnotationHistoryCommand) {
-            return;
-        }
-
-        let creationSnapshot = noteComment;
-        const refreshCreationSnapshot = () => {
-            creationSnapshot = findLiveAnnotationNoteComment(creationSnapshot) ?? creationSnapshot;
-            return creationSnapshot;
-        };
-
-        const undoCreate = () => {
-            const currentSnapshot = refreshCreationSnapshot();
-            viewer.removeAnnotationFromDom(currentSnapshot);
-            viewer.removeAnnotationFromInternalCache(currentSnapshot.stableKey);
-            removeDeletedAnnotationState(currentSnapshot);
-            invalidateAnnotationPage(currentSnapshot);
-        };
-        const redoCreate = () => {
-            restoreAnnotationToCache(creationSnapshot);
-            viewer.restoreAnnotationToInternalCache?.(creationSnapshot);
-            openAnnotationNoteWindow(creationSnapshot);
-            annotationActiveCommentStableKey.value = creationSnapshot.stableKey;
-            invalidateAnnotationPage(creationSnapshot);
-        };
-
-        viewer.registerAnnotationHistoryCommand({
-            cmd: redoCreate,
-            undo: undoCreate,
-        });
-    }
-
-    function queueFreshNoteCreationUndoRegistration(noteComment: IAnnotationCommentSummary) {
-        const schedule = typeof window !== 'undefined' && typeof window.setTimeout === 'function'
-            ? window.setTimeout.bind(window)
-            : setTimeout;
-        schedule(() => {
-            if (!hasOpenAnnotationNoteWindow(noteComment)) {
-                return;
-            }
-            registerFreshNoteCreationUndo(noteComment);
-        }, 0);
-    }
-
     function handleOpenAnnotationNote(comment: IAnnotationCommentSummary) {
         closeAnnotationContextMenu();
         const noteComment = withOpenedAnnotationNoteCreationTimestamp(comment);
-        const wasAlreadyOpen = hasOpenAnnotationNoteWindow(noteComment);
-        annotationActiveCommentStableKey.value = noteComment.stableKey;
-        restoreAnnotationToCache(noteComment);
-        pdfViewerRef.value?.restoreAnnotationToInternalCache?.(noteComment);
+        annotationActiveCommentStableKey.value = annotationIdForSummary(noteComment);
         openAnnotationNoteWindow(noteComment);
-        if (isFreshEditorNoteCreationForUndo(comment, noteComment, wasAlreadyOpen)) {
-            queueFreshNoteCreationUndoRegistration(noteComment);
-        }
         invalidateAnnotationPage(noteComment);
         dragMode.value = false;
     }
@@ -499,7 +396,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
 
     function updateTextMarkupPropertiesPopoverPosition(markup: ITextMarkupAnnotationProperties) {
         const markerRect = markup.markerRect;
-        const viewerContainer = pdfViewerRef.value?.getViewerContainer();
+        const viewerContainer = pdfViewerRef.value?.getViewerContainer?.();
         if (!markerRect || !viewerContainer) {
             return false;
         }
@@ -642,17 +539,10 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             ...annotationContextMenu.value,
             comment: nextComment,
         };
-        restoreAnnotationToCache(nextComment);
-        pdfViewerRef.value?.restoreAnnotationToInternalCache?.(nextComment);
         invalidateAnnotationPage(nextComment);
-        const nextSnapshot = [
-            ...(deps.getAnnotationCommentsSnapshot?.() ?? []).filter(candidate => candidate.stableKey !== nextComment.stableKey),
-            nextComment,
-        ];
-        const hasColorEdits = nextSnapshot.some(candidate => candidate.colorEdited === true);
         if (deps.setPreservedAnnotationSourceDirty) {
-            deps.setPreservedAnnotationSourceDirty(hasColorEdits);
-        } else if (hasColorEdits) {
+            deps.setPreservedAnnotationSourceDirty(colorEdited);
+        } else if (colorEdited) {
             deps.markPreservedAnnotationSourceDirty?.();
         }
         if (!didUpdate) {
@@ -729,7 +619,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
     }
 
     function updateShapeDefaultSettings(
-        updates: Partial<IShapeAnnotation>,
+        updates: TShapeAnnotationPatch,
         isInkShape: boolean | undefined,
     ) {
         const nextDefaults = resolveShapeAnnotationDefaultSettings(
@@ -742,7 +632,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         }
     }
 
-    function handleShapePropertyUpdate(updates: Partial<IShapeAnnotation>) {
+    function handleShapePropertyUpdate(updates: TShapeAnnotationPatch) {
         const id = pdfViewerRef.value?.selectedShapeId;
         if (!id) {
             return;
@@ -858,7 +748,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         pageY: number | null;
     }) {
         if (payload.comment) {
-            annotationActiveCommentStableKey.value = payload.comment.stableKey;
+            annotationActiveCommentStableKey.value = annotationIdForSummary(payload.comment);
         } else {
             annotationActiveCommentStableKey.value = null;
         }
@@ -1139,26 +1029,9 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         getAnnotationCommentsSnapshot,
         getDeleteErrorMessage: () => t('errors.annotation.delete'),
         invalidateAnnotationPage,
-        rerenderRestoredAnnotationPage,
-        removeAnnotationFromCache,
         removeDeletedAnnotationState,
-        restoreAnnotationToCache,
-        queuePendingEmbeddedAnnotationDelete: deps.queuePendingEmbeddedAnnotationDelete,
-        unqueuePendingEmbeddedAnnotationDelete: deps.unqueuePendingEmbeddedAnnotationDelete,
         setAnnotationNoteWindowError,
-        isNativeFreeTextNoteSaved: deps.isNativeFreeTextNoteSaved,
     });
-
-    async function undoLatestFreshAnnotationNoteCreation() {
-        const note = [...annotationNoteWindows.value]
-            .reverse()
-            .find(candidate => isUndoableFreshEmptyEditorNote(candidate));
-        if (!note) {
-            return false;
-        }
-        await handleDeleteAnnotationComment(note.comment);
-        return true;
-    }
 
     return {
         shapePropertiesPopover,
@@ -1192,7 +1065,6 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         serializeCurrentPdfForEmbeddedFallback,
         handleCopyAnnotationComment,
         handleDeleteAnnotationComment,
-        undoLatestFreshAnnotationNoteCreation,
         handleFinalizePlacedImage,
         insertImageFromFileAt,
         pasteImageFromClipboardAt,

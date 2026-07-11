@@ -8,7 +8,7 @@ import {
     isAbortError,
 } from '@electron/utils/abort';
 import { getErrorMessage } from '@electron/utils/error';
-import { collapseRepeatedPdfSearchPageText } from '@pdf-core';
+import { assembleSearchablePageText } from '@pdf-core';
 import type { IPageText } from '@electron/search/pageText';
 
 const log = createLogger('pdfTextExtractor');
@@ -166,7 +166,7 @@ export async function extractTextFromPdf(
 
         const pageTexts: IPageText[] = rangeOutputs.flatMap(range => range.texts.map((text, index) => ({
             pageNumber: range.firstPage + index,
-            text: collapseRepeatedPdfSearchPageText(text.trim()),
+            text: assembleSearchablePageText([{text: text.trim()}]).text,
         })));
 
         log.debug(`Extracted ${pageTexts.length} page segments from PDF`);

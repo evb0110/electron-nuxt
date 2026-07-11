@@ -10,7 +10,7 @@
 
 .workspace-host__placeholder {
     position: relative;
-    z-index: 0;
+    z-index: var(--app-z-base);
     display: flex;
     width: 100%;
     height: 100%;
@@ -20,7 +20,7 @@
 
 .workspace-host__workspace {
     position: relative;
-    z-index: 0;
+    z-index: var(--app-z-base);
     display: flex;
     width: 100%;
     height: 100%;
@@ -31,7 +31,7 @@
 .workspace-host__loading {
     position: absolute;
     inset: 0;
-    z-index: 30;
+    z-index: var(--app-z-workspace-overlay);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -43,11 +43,11 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.5rem;
+    gap: var(--app-space-3xl);
 }
 
 .workspace-host__loading-label {
     color: var(--ui-text-muted);
-    font-size: 0.875rem;
+    font-size: var(--app-text-size-body);
     line-height: 1.25rem;
 }

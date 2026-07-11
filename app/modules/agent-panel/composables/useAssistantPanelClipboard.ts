@@ -1,7 +1,8 @@
 import type { ComputedRef } from 'vue';
 import type { IAgentAssistantChatMessage } from '@contracts/agent';
 import type { TTranslateFn } from '@i18n-app';
-import { formatAssistantMessage } from '@app/modules/agent-panel/utils/formatAssistantMessage';
+import type {formatAssistantMessage} from '@app/modules/agent-panel/utils/formatAssistantMessage';
+import {createStreamingAssistantMessageFormatter} from '@app/modules/agent-panel/utils/formatAssistantMessage';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     defaultDocument,
@@ -18,6 +19,7 @@ export const useAssistantPanelClipboard = (options: {
     const markdownCache = shallowRef(new Map<string, {
         text: string;
         blocks: ReturnType<typeof formatAssistantMessage>;
+        formatter: ReturnType<typeof createStreamingAssistantMessageFormatter>;
     }>());
     const copiedMessageId = ref<string | null>(null);
     const panelRef = ref<HTMLElement | null>(null);
@@ -32,17 +34,22 @@ export const useAssistantPanelClipboard = (options: {
         const nextCache = new Map<string, {
             text: string;
             blocks: ReturnType<typeof formatAssistantMessage>;
+            formatter: ReturnType<typeof createStreamingAssistantMessageFormatter>;
         }>();
         messages.forEach((message) => {
             const cached = previousCache.get(message.id);
-            nextCache.set(message.id, cached?.text === message.text
-                ? cached
-                : {
-                    text: message.text,
-                    blocks: message.text.length > 0
-                        ? formatAssistantMessage(message.text)
-                        : EMPTY_MESSAGE_BLOCKS,
-                });
+            if (cached?.text === message.text) {
+                nextCache.set(message.id, cached);
+                return;
+            }
+            const formatter = cached?.formatter ?? createStreamingAssistantMessageFormatter();
+            nextCache.set(message.id, {
+                text: message.text,
+                blocks: message.text.length > 0
+                    ? formatter.format(message.text)
+                    : EMPTY_MESSAGE_BLOCKS,
+                formatter,
+            });
         });
         markdownCache.value = nextCache;
     }, {

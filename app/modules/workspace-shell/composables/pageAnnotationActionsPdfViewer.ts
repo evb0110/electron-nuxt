@@ -18,8 +18,6 @@ export type TPageAnnotationActionsPdfViewer = Pick<WorkspaceOrchestration.IPdfVi
     | 'selectedShapeId'
     | 'startCommentPlacement'
     | 'startImagePlacement'
-    | 'suppressAnnotationId'
-    | 'suppressAnnotationStableKey'
     | 'updateAnnotationComment'
     | 'updateSelectedTextMarkupAnnotationColor'
     | 'updateTextMarkupAnnotationColor'
@@ -30,6 +28,4 @@ export type TPageAnnotationActionsPdfViewer = Pick<WorkspaceOrchestration.IPdfVi
     | 'rerenderAnnotationPage'
     | 'restorePendingImagePlacement'
     | 'restoreAnnotationToInternalCache'
-    | 'unsuppressAnnotationId'
-    | 'unsuppressAnnotationStableKey'
 >>;

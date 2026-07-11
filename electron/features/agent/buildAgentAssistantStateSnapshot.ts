@@ -30,10 +30,7 @@ import {
     type IAssistantSelection,
     type IClaudeAssistantProviderInfo,
 } from '@electron/features/agent/assistantProviderStatus';
-import {
-    getAssistantTurnPhase,
-    getAssistantTurnProviderTurnId,
-} from '@electron/features/agent/assistantTurnLifecycle';
+import { getAssistantTurnProviderTurnId } from '@electron/features/agent/assistantTurnLifecycle';
 
 interface IBuildAgentAssistantStateSnapshotOptions {
     claudeInfo: IClaudeAssistantProviderInfo | null;
@@ -85,8 +82,8 @@ function buildAgentAssistantStatusSnapshot(options: IBuildAgentAssistantStateSna
     const sessionTurnMatchesScope = session
         ? options.isAssistantTurnActiveForScope(session, options.scope)
         : false;
-    const sessionTurnPhase = session && sessionTurnMatchesScope
-        ? getAssistantTurnPhase(session.turnOwner)
+    const sessionTurnPhase = session
+        ? session.turnPresentation.phase
         : 'idle';
     const sessionActiveTurnId = session && sessionTurnMatchesScope
         ? getAssistantTurnProviderTurnId(session.turnOwner)
@@ -159,6 +156,10 @@ function buildAgentAssistantStatusSnapshot(options: IBuildAgentAssistantStateSna
         turn: {
             id: sessionActiveTurnId,
             phase: sessionTurnPhase,
+            reasoning: session?.turnPresentation.reasoning ?? '',
+            toolActivity: session?.turnPresentation.toolActivity ?? [],
+            lastEventAtMs: session?.turnPresentation.lastEventAtMs ?? null,
+            usage: session?.turnPresentation.usage ?? null,
         },
         lastCheckedAt: new Date().toISOString(),
         ...(error

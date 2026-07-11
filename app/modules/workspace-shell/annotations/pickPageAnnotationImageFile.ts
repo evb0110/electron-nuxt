@@ -67,14 +67,21 @@ export async function pickPageAnnotationImageFile() {
     }
 
     try {
-        const bytes = await getDocumentFilesCapability().readFile(imagePath);
+        const documentFiles = getDocumentFilesCapability();
+        const nativeSourceHandle = typeof documentFiles.createManagedTempFileHandle === 'function'
+            ? await documentFiles.createManagedTempFileHandle(imagePath).catch(() => null)
+            : null;
+        const bytes = await documentFiles.readFile(imagePath);
         const fileBytes = Uint8Array.from(bytes);
         const mimeType = mimeTypeFromPath(imagePath);
         const fileName = imagePath.split(/[\\/]/).pop() ?? `image.${extensionForMimeType(mimeType)}`;
-        return new File([fileBytes], fileName, {
+        const file = new File([fileBytes], fileName, {
             type: mimeType,
             lastModified: Date.now(),
         });
+        return nativeSourceHandle
+            ? Object.assign(file, {nativeSourceHandle})
+            : file;
     } finally {
         if (isBrowserDocumentRef(imagePath)) {
             await getDocumentWorkingCopyCapability().cleanupFile(imagePath).catch(() => {});

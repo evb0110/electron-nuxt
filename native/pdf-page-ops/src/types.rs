@@ -1,35 +1,52 @@
-const VERSION: &str = env!("CARGO_PKG_VERSION");
-const PROTOCOL_VERSION: u32 = 1;
+use super::*;
 
-type Result<T> = std::result::Result<T, Box<dyn Error>>;
+pub(crate) const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub(crate) const PROTOCOL_VERSION: u32 = 1;
 
-#[derive(Clone, Copy)]
-struct CropMargins {
-    top: f64,
-    bottom: f64,
-    left: f64,
-    right: f64,
+pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
+
+pub(crate) fn domain_error(code: NativeErrorCode, message: impl Into<String>) -> Box<dyn Error> {
+    Box::new(NativeError::new(code, message))
+}
+
+pub(crate) fn reclassify_domain_error(
+    error: Box<dyn Error>,
+    fallback_code: NativeErrorCode,
+) -> Box<dyn Error> {
+    if error.downcast_ref::<NativeError>().is_some() {
+        error
+    } else {
+        domain_error(fallback_code, error.to_string())
+    }
 }
 
 #[derive(Clone, Copy)]
-struct PdfRect {
-    x1: f64,
-    y1: f64,
-    x2: f64,
-    y2: f64,
+pub(crate) struct CropMargins {
+    pub(crate) top: f64,
+    pub(crate) bottom: f64,
+    pub(crate) left: f64,
+    pub(crate) right: f64,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct PdfRect {
+    pub(crate) x1: f64,
+    pub(crate) y1: f64,
+    pub(crate) x2: f64,
+    pub(crate) y2: f64,
 }
 
 impl PdfRect {
-    fn width(self) -> f64 {
+    pub(crate) fn width(self) -> f64 {
         self.x2 - self.x1
     }
 
-    fn height(self) -> f64 {
+    pub(crate) fn height(self) -> f64 {
         self.y2 - self.y1
     }
 }
 
-enum Operation {
+pub(crate) enum Operation {
     Crop {
         pages_file: PathBuf,
         margins: CropMargins,
@@ -55,222 +72,240 @@ enum Operation {
     PageSizes,
 }
 
-struct Config {
-    operation: Operation,
-    input_path: PathBuf,
-    output_path: PathBuf,
+pub(crate) struct Config {
+    pub(crate) operation: Operation,
+    pub(crate) input_path: PathBuf,
+    pub(crate) output_path: PathBuf,
 }
 
 #[derive(Deserialize)]
-struct NoteTextUpdatesFile {
-    updates: Vec<NoteTextUpdate>,
+#[serde(deny_unknown_fields)]
+pub(crate) struct NoteTextUpdatesFile {
+    pub(crate) updates: Vec<NoteTextUpdate>,
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct NoteChangesFile {
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct NoteChangesFile {
     #[serde(default)]
-    updates: Vec<NoteTextUpdate>,
+    pub(crate) updates: Vec<NoteTextUpdate>,
     #[serde(default)]
-    free_text_notes: Vec<FreeTextNote>,
+    pub(crate) free_text_notes: Vec<FreeTextNote>,
     #[serde(default)]
-    deletes: Vec<AnnotationDelete>,
+    pub(crate) deletes: Vec<AnnotationDelete>,
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct NativeMutationsFile {
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct NativeMutationsFile {
     #[serde(default)]
-    updates: Vec<NoteTextUpdate>,
+    pub(crate) updates: Vec<NoteTextUpdate>,
     #[serde(default)]
-    free_text_notes: Vec<FreeTextNote>,
+    pub(crate) free_text_notes: Vec<FreeTextNote>,
     #[serde(default)]
-    deletes: Vec<AnnotationDelete>,
-    page_labels: Option<PageLabelsMutation>,
-    bookmarks: Option<BookmarksMutation>,
-    shapes: Option<ShapesMutation>,
-    markup: Option<MarkupMutation>,
+    pub(crate) deletes: Vec<AnnotationDelete>,
+    pub(crate) page_labels: Option<PageLabelsMutation>,
+    pub(crate) bookmarks: Option<BookmarksMutation>,
+    pub(crate) shapes: Option<ShapesMutation>,
+    pub(crate) markup: Option<MarkupMutation>,
     #[serde(default)]
-    placed_images: Vec<PlacedImage>,
+    pub(crate) placed_images: Vec<PlacedImage>,
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct NoteTextUpdate {
-    object_number: u32,
-    generation_number: u16,
-    text: String,
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct NoteTextUpdate {
+    pub(crate) object_number: u32,
+    pub(crate) generation_number: u16,
+    pub(crate) text: String,
 }
 
 #[derive(Clone, Copy, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct MarkerRect {
-    left: f64,
-    top: f64,
-    width: f64,
-    height: f64,
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct MarkerRect {
+    pub(crate) left: f64,
+    pub(crate) top: f64,
+    pub(crate) width: f64,
+    pub(crate) height: f64,
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct FreeTextNote {
-    page_index: u32,
-    stable_key: String,
-    text: String,
-    marker_rect: MarkerRect,
-    author: Option<String>,
-    color: Option<String>,
-    created_at: Option<u64>,
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct FreeTextNote {
+    pub(crate) page_index: u32,
+    pub(crate) stable_key: String,
+    pub(crate) text: String,
+    pub(crate) marker_rect: MarkerRect,
+    pub(crate) author: Option<String>,
+    pub(crate) color: Option<String>,
+    pub(crate) created_at: Option<u64>,
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PageLabelsMutation {
-    total_pages: u32,
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct PageLabelsMutation {
+    pub(crate) total_pages: u32,
     #[serde(default)]
-    ranges: Vec<PageLabelRange>,
+    pub(crate) ranges: Vec<PageLabelRange>,
 }
 
 #[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PageLabelRange {
-    start_page: u32,
-    style: Option<String>,
-    prefix: String,
-    start_number: u32,
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct PageLabelRange {
+    pub(crate) start_page: u32,
+    pub(crate) style: Option<String>,
+    pub(crate) prefix: String,
+    pub(crate) start_number: u32,
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct BookmarksMutation {
-    total_pages: u32,
-    untitled_label: String,
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct BookmarksMutation {
+    pub(crate) total_pages: u32,
+    pub(crate) untitled_label: String,
     #[serde(default)]
-    items: Vec<BookmarkEntry>,
+    pub(crate) items: Vec<BookmarkEntry>,
 }
 
 #[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct BookmarkEntry {
-    title: String,
-    page_index: Option<u32>,
-    page_y_ratio: Option<f64>,
-    named_dest: Option<String>,
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct BookmarkEntry {
+    pub(crate) title: String,
+    pub(crate) page_index: Option<u32>,
+    pub(crate) page_y_ratio: Option<f64>,
+    pub(crate) named_dest: Option<String>,
     #[serde(default)]
-    bold: bool,
+    pub(crate) bold: bool,
     #[serde(default)]
-    italic: bool,
-    color: Option<String>,
+    pub(crate) italic: bool,
+    pub(crate) color: Option<String>,
     #[serde(default)]
-    items: Vec<BookmarkEntry>,
+    pub(crate) items: Vec<BookmarkEntry>,
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ShapesMutation {
-    total_pages: u32,
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct ShapesMutation {
+    pub(crate) total_pages: u32,
     #[serde(default)]
-    rewrite_shape_state: bool,
+    pub(crate) rewrite_shape_state: bool,
     #[serde(default)]
-    shapes: Vec<ShapeAnnotation>,
+    pub(crate) shapes: Vec<ShapeAnnotation>,
     #[serde(default)]
-    deleted_annotation_ids: Vec<String>,
+    pub(crate) deleted_annotation_ids: Vec<String>,
     #[serde(default)]
-    deleted_stable_keys: Vec<String>,
+    pub(crate) deleted_stable_keys: Vec<String>,
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct MarkupMutation {
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct MarkupMutation {
     #[serde(default)]
-    overrides: Vec<(String, String)>,
+    pub(crate) overrides: Vec<(String, String)>,
     #[serde(default)]
-    hints: Vec<MarkupSubtypeHint>,
+    pub(crate) hints: Vec<MarkupSubtypeHint>,
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PlacedImage {
-    page_index: u32,
-    x: f64,
-    y: f64,
-    width: f64,
-    height: f64,
-    rotation_degrees: Option<f64>,
-    mime_type: String,
-    bytes: Vec<u8>,
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct PlacedImage {
+    pub(crate) page_index: u32,
+    pub(crate) x: f64,
+    pub(crate) y: f64,
+    pub(crate) width: f64,
+    pub(crate) height: f64,
+    pub(crate) rotation_degrees: Option<f64>,
+    pub(crate) mime_type: String,
+    pub(crate) bytes_path: PathBuf,
+    pub(crate) byte_length: u64,
+    pub(crate) sha256: String,
 }
 
 #[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct MarkupSubtypeHint {
-    subtype: String,
-    page_index: u32,
-    marker_rect: MarkerRect,
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct MarkupSubtypeHint {
+    pub(crate) subtype: String,
+    pub(crate) page_index: u32,
+    pub(crate) marker_rect: MarkerRect,
     #[serde(default)]
-    annotation_id: Option<String>,
+    pub(crate) annotation_id: Option<String>,
     #[serde(default)]
-    color: Option<String>,
+    pub(crate) color: Option<String>,
     #[serde(default)]
-    id: Option<String>,
+    pub(crate) id: Option<String>,
     #[serde(default)]
-    page_markup_index: Option<u32>,
+    pub(crate) page_markup_index: Option<u32>,
     #[serde(default)]
-    source: Option<String>,
+    pub(crate) source: Option<String>,
 }
 
 #[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ShapePoint {
-    x: f64,
-    y: f64,
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct ShapePoint {
+    pub(crate) x: f64,
+    pub(crate) y: f64,
 }
 
 #[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ShapeAnnotation {
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct ShapeAnnotation {
     #[serde(rename = "type")]
-    shape_type: String,
-    page_index: u32,
-    x: f64,
-    y: f64,
-    width: f64,
-    height: f64,
+    pub(crate) shape_type: String,
+    pub(crate) page_index: u32,
+    pub(crate) x: f64,
+    pub(crate) y: f64,
+    pub(crate) width: f64,
+    pub(crate) height: f64,
     #[serde(default)]
-    x2: Option<f64>,
+    pub(crate) x2: Option<f64>,
     #[serde(default)]
-    y2: Option<f64>,
-    color: String,
+    pub(crate) y2: Option<f64>,
+    pub(crate) color: String,
     #[serde(default)]
-    fill_color: Option<String>,
-    opacity: f64,
-    stroke_width: f64,
+    pub(crate) fill_color: Option<String>,
+    pub(crate) opacity: f64,
+    pub(crate) stroke_width: f64,
     #[serde(default)]
-    points: Vec<ShapePoint>,
+    pub(crate) points: Vec<ShapePoint>,
     #[serde(default)]
-    strokes: Vec<Vec<ShapePoint>>,
+    pub(crate) strokes: Vec<Vec<ShapePoint>>,
     #[serde(default)]
-    annotation_id: Option<String>,
+    pub(crate) annotation_id: Option<String>,
     #[serde(default)]
-    stable_key: Option<String>,
+    pub(crate) stable_key: Option<String>,
     #[serde(default)]
-    pdf_subtype: Option<String>,
+    pub(crate) pdf_subtype: Option<String>,
     #[serde(default)]
-    line_start_style: Option<String>,
+    pub(crate) line_start_style: Option<String>,
     #[serde(default)]
-    line_end_style: Option<String>,
+    pub(crate) line_end_style: Option<String>,
     #[serde(default)]
-    created_at: Option<u64>,
+    pub(crate) created_at: Option<u64>,
     #[serde(default)]
-    modified_at: Option<u64>,
+    pub(crate) modified_at: Option<u64>,
 }
 
 #[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct AnnotationDelete {
-    page_index: u32,
-    object_number: Option<u32>,
-    generation_number: Option<u16>,
-    stable_key: Option<String>,
-    created_at: Option<u64>,
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct AnnotationDelete {
+    pub(crate) page_index: u32,
+    pub(crate) object_number: Option<u32>,
+    pub(crate) generation_number: Option<u16>,
+    pub(crate) stable_key: Option<String>,
+    pub(crate) created_at: Option<u64>,
+}
+
+#[cfg(test)]
+mod protocol_schema_tests {
+    use super::*;
+
+    #[test]
+    fn canonical_mutation_fixture_round_trips_and_rejects_unknown_fields() {
+        let source = include_str!("../../protocol-fixtures/pdf-page-ops-save-mutations.json");
+        let parsed: NativeMutationsFile = serde_json::from_str(source).unwrap();
+        assert_eq!(parsed.placed_images.len(), 1);
+
+        let with_unknown = source.replacen("{", r#"{"unknownField":true,"#, 1);
+        assert!(serde_json::from_str::<NativeMutationsFile>(&with_unknown).is_err());
+    }
 }

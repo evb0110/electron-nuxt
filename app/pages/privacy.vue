@@ -88,57 +88,57 @@ useHead({
 <style scoped>
 .privacy-page {
     min-height: 100dvh;
-    padding: 3rem 1.25rem 5rem;
+    padding: var(--app-privacy-page-padding) var(--app-privacy-inline-padding) var(--app-privacy-responsive-padding);
     background: var(--ui-bg);
     color: var(--ui-text);
 }
 
 .privacy-document {
-    width: min(100%, 50rem);
+    width: min(100%, var(--app-privacy-document-max-width));
     margin: 0 auto;
 }
 
 .privacy-document header {
-    padding-bottom: 2rem;
+    padding-bottom: var(--app-privacy-footer-padding);
     border-bottom: 1px solid var(--ui-border);
 }
 
 .privacy-brand,
 .privacy-effective-date {
     color: var(--ui-text-muted);
-    font-size: 0.875rem;
+    font-size: var(--app-text-size-body);
 }
 
 .privacy-brand {
-    margin: 0 0 0.75rem;
+    margin: 0 0 var(--app-space-3xl);
     font-weight: 700;
 }
 
 .privacy-document h1 {
     margin: 0;
-    font-size: 2rem;
+    font-size: var(--app-privacy-title-size);
     line-height: 1.1;
 }
 
 .privacy-summary {
-    max-width: 42rem;
-    margin: 1rem 0 0;
+    max-width: var(--app-privacy-measure);
+    margin: var(--app-space-6xl) 0 0;
     color: var(--ui-text-muted);
-    font-size: 1.05rem;
+    font-size: var(--app-text-size-title-md);
     line-height: 1.6;
 }
 
 .privacy-effective-date {
-    margin: 1rem 0 0;
+    margin: var(--app-space-6xl) 0 0;
 }
 
 .privacy-document section {
-    padding-top: 2rem;
+    padding-top: var(--app-privacy-section-margin);
 }
 
 .privacy-document h2 {
-    margin: 0 0 0.65rem;
-    font-size: 1.2rem;
+    margin: 0 0 var(--app-space-lg);
+    font-size: var(--app-icon-size-lg);
 }
 
 .privacy-document p {
@@ -149,16 +149,16 @@ useHead({
 .privacy-document a {
     color: var(--ui-primary);
     text-decoration: underline;
-    text-underline-offset: 0.2rem;
+    text-underline-offset: var(--app-space-xs);
 }
 
 @media (width >= 48rem) {
     .privacy-page {
-        padding-top: 5rem;
+        padding-top: var(--app-privacy-responsive-padding);
     }
 
     .privacy-document h1 {
-        font-size: 3.25rem;
+        font-size: var(--app-privacy-title-size-wide);
     }
 }
 </style>

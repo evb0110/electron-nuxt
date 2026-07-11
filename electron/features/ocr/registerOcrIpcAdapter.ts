@@ -36,10 +36,23 @@ export function registerOcrIpcAdapter(
         service.createSearchablePdf(createOcrOperationContext(event), sourcePdfPath, pages, requestId, renderDpiOrOptions));
     registrar.handle(OCR_CHANNELS.cancel, (event, requestId) =>
         service.cancel(createOcrOperationContext(event), requestId));
+    registrar.handle(OCR_CHANNELS.getJobState, (event, requestId) =>
+        service.getJobState(createOcrOperationContext(event), requestId));
+    registrar.handle(OCR_CHANNELS.subscribeJob, (event, requestId) =>
+        service.subscribeJob(createOcrOperationContext(event), requestId));
+    registrar.handle(OCR_CHANNELS.reconnectJob, (event, requestId) =>
+        service.reconnectJob(createOcrOperationContext(event), requestId));
     registrar.handle(OCR_CHANNELS.acknowledgeResultFile, (event, requestId, pdfPath) =>
         service.acknowledgeResultFile(createOcrOperationContext(event), requestId, pdfPath));
     registrar.handle(OCR_CHANNELS.getLanguages, (event) =>
         service.getLanguages(createOcrOperationContext(event)));
+    registrar.handle(OCR_CHANNELS.resolveDocumentTextCatalog, (event, workingCopyPath, documentRevision, pageCount) =>
+        service.resolveDocumentTextCatalog(
+            createOcrOperationContext(event),
+            workingCopyPath,
+            documentRevision,
+            pageCount,
+        ));
     registrar.handle(OCR_CHANNELS.validateTools, (event) =>
         service.validateTools(createOcrOperationContext(event)));
     registrar.handle(OCR_CHANNELS.preprocessingValidate, (event) =>

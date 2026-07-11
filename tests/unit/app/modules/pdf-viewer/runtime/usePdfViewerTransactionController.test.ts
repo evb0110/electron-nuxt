@@ -55,13 +55,12 @@ describe('usePdfViewerTransactionController', () => {
         });
     });
 
-    it('commits visible range and current page only for the active transaction id', () => {
+    it('commits visible range only for the active transaction id', () => {
         const currentPage = ref(1);
         const visibleRange = ref({
             start: 1,
             end: 1,
         });
-        const emitCurrentPage = vi.fn();
         const controller = usePdfViewerTransactionController({
             navigationState: createNavigationState(),
             currentPage,
@@ -70,7 +69,6 @@ describe('usePdfViewerTransactionController', () => {
             viewMode: ref('single'),
             pdfDocument: shallowRef(null),
             userViewportInteractionEpoch: ref(0),
-            emitCurrentPage,
         });
 
         expect(controller.commitVisibleRange({
@@ -91,77 +89,6 @@ describe('usePdfViewerTransactionController', () => {
             end: 3,
         });
 
-        expect(controller.commitCurrentPage(4, {
-            previousPage: 1,
-            transactionId: 99,
-        })).toBe(false);
-        expect(currentPage.value).toBe(1);
-
-        expect(controller.commitCurrentPage(3, {
-            previousPage: 1,
-            transactionId: 7,
-        })).toBe(true);
-        expect(currentPage.value).toBe(3);
-        expect(emitCurrentPage).toHaveBeenCalledWith(3);
-    });
-
-    it('creates explicit producer render transactions and rejects stale requests after supersession', () => {
-        const controller = usePdfViewerTransactionController({
-            navigationState: createNavigationState({
-                status: 'idle',
-                targetPage: null,
-            }),
-            currentPage: ref(2),
-            visibleRange: ref({
-                start: 2,
-                end: 2,
-            }),
-            numPages: ref(10),
-            viewMode: ref('single'),
-            pdfDocument: shallowRef(null),
-            userViewportInteractionEpoch: ref(4),
-            getDocumentVersion: () => 12,
-        });
-
-        const zoomRequest = controller.beginRenderTransaction({
-            kind: 'zoom',
-            source: 'zoom-change',
-            page: 2,
-            range: {
-                start: 2,
-                end: 2,
-            },
-            renderVersion: 5,
-            preserveRenderedPages: true,
-            forceRerender: true,
-            priority: 'interactive',
-        });
-
-        expect(zoomRequest).toMatchObject({
-            transactionId: 1,
-            renderRequestId: 1,
-            documentVersion: 12,
-            renderVersion: 5,
-            source: 'zoom-change',
-            priority: 'interactive',
-        });
-        expect(zoomRequest && controller.isRenderRequestCurrent(zoomRequest)).toBe(true);
-
-        const resizeTransaction = controller.beginTransaction({
-            kind: 'resize',
-            source: 'resize-settle',
-            page: 3,
-        });
-
-        expect(resizeTransaction?.id).toBe(2);
-        expect(zoomRequest && controller.isRenderRequestCurrent(zoomRequest)).toBe(false);
-        expect(controller.transactionState.value.cancelled[0]).toMatchObject({
-            id: 1,
-            cancellation: {
-                reason: 'superseded',
-                supersededByTransactionId: 2,
-            },
-        });
     });
 
     it('does not let recovery producer transactions supersede active navigation', () => {
@@ -180,7 +107,7 @@ describe('usePdfViewerTransactionController', () => {
 
         const recoveryTransaction = controller.beginTransaction({
             kind: 'recovery',
-            source: 'mounted-page-recovery',
+            source: 'render-stall-recovery',
             page: 4,
         });
 
@@ -192,7 +119,50 @@ describe('usePdfViewerTransactionController', () => {
         });
     });
 
+    it('lets a newer navigation supersede an active zoom transaction', () => {
+        const navigationState = createNavigationState({
+            status: 'idle',
+            targetPage: null,
+        });
+        const controller = usePdfViewerTransactionController({
+            navigationState,
+            currentPage: ref(1),
+            visibleRange: ref({
+                start: 1,
+                end: 1,
+            }),
+            numPages: ref(10),
+            viewMode: ref('single'),
+            pdfDocument: shallowRef(null),
+            userViewportInteractionEpoch: ref(0),
+        });
+
+        expect(controller.beginTransaction({
+            kind: 'zoom',
+            source: 'zoom-change',
+            page: 1,
+        })).not.toBeNull();
+
+        navigationState.value = {
+            ...createNavigationState().value,
+            targetPage: 6,
+            txn: 12,
+        };
+
+        expect(controller.activeTransaction.value).toMatchObject({
+            id: 12,
+            kind: 'navigation',
+            target: {page: 6},
+        });
+        expect(controller.transactionState.value.active).toBeNull();
+        expect(controller.transactionState.value.cancelled.at(-1)).toMatchObject({
+            kind: 'zoom',
+            cancellation: {reason: 'superseded'},
+        });
+    });
+
     it('records cancellation metadata for active producer transactions', () => {
+        const executeCancellationEffects = vi.fn();
         const controller = usePdfViewerTransactionController({
             navigationState: createNavigationState({
                 status: 'idle',
@@ -207,6 +177,7 @@ describe('usePdfViewerTransactionController', () => {
             viewMode: ref('single'),
             pdfDocument: shallowRef(null),
             userViewportInteractionEpoch: ref(0),
+            executeCancellationEffects,
         });
 
         const transaction = controller.beginTransaction({
@@ -220,9 +191,12 @@ describe('usePdfViewerTransactionController', () => {
             reason: 'reload',
             cancelInFlightRenders: true,
             bumpRenderVersion: true,
-            clearTimers: true,
             preserveVisualContent: true,
         })).toBe(true);
+        expect(executeCancellationEffects).toHaveBeenCalledWith(expect.objectContaining({
+            cancelInFlightRenders: true,
+            bumpRenderVersion: true,
+        }));
         expect(controller.transactionState.value.renderVersion).toBe(1);
         expect(controller.transactionState.value.cancelled[0]).toMatchObject({
             id: 1,
@@ -321,9 +295,6 @@ describe('usePdfViewerTransactionController', () => {
             viewMode: 'single',
             continuousScroll: false,
             isResizing: false,
-        })).toEqual({
-            start: 6,
-            end: 6,
-        });
+        })).toBeNull();
     });
 });

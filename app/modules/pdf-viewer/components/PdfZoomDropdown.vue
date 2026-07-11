@@ -7,7 +7,7 @@
                 :shortcut="shortcutLabels.zoomOut"
                 :disabled="disabled || normalizedEffectiveZoom <= ZOOM.MIN"
                 grouped
-                icon-class="size-[1.1rem]"
+                icon-class="size-[var(--app-toolbar-icon-size)]"
                 @click="handleZoomOut"
             />
         </div>
@@ -116,7 +116,7 @@
                 :shortcut="shortcutLabels.zoomIn"
                 :disabled="disabled || normalizedEffectiveZoom >= ZOOM.MAX"
                 grouped
-                icon-class="size-[1.1rem]"
+                icon-class="size-[var(--app-toolbar-icon-size)]"
                 @click="handleZoomIn"
             />
         </div>
@@ -168,6 +168,8 @@ const emit = defineEmits<{
     'update:fitMode': [mode: TFitMode];
     'update:viewMode': [mode: TPdfViewMode];
     'update:open': [value: boolean];
+    'fit-width': [];
+    'fit-height': [];
 }>();
 
 const isOpen = computed({
@@ -271,9 +273,11 @@ function handleSetZoom(level: number) {
 }
 
 function handleSetFitMode(mode: TFitMode) {
-    emit('update:fitMode', mode);
-    emit('update:zoom', 1);
-    emit('update:zoomMode', mode === 'height' ? 'fit-height' : 'fit-width');
+    if (mode === 'height') {
+        emit('fit-height');
+    } else {
+        emit('fit-width');
+    }
     close();
 }
 
@@ -393,7 +397,7 @@ function selectCustomZoomInput(event: FocusEvent) {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 0.875rem;
+    font-size: var(--app-text-size-body);
     line-height: 1;
     font-family: var(--app-font-mono);
     font-variant-numeric: tabular-nums;
@@ -408,7 +412,7 @@ function selectCustomZoomInput(event: FocusEvent) {
 }
 
 .zoom-divider {
-    height: 1px;
+    height: var(--app-zoom-menu-separator-height);
     background-color: var(--app-toolbar-separator);
     margin: 0.375rem 0;
 }
@@ -424,13 +428,13 @@ function selectCustomZoomInput(event: FocusEvent) {
     display: flex;
     align-items: center;
     justify-content: center;
-    min-height: 1.875rem;
+    min-height: var(--app-zoom-control-min-height);
     padding: 0 0.375rem;
     border: 1px solid transparent;
     border-radius: 0.375rem;
     background: transparent;
     color: var(--app-toolbar-control-inactive-fg);
-    font-size: 0.8125rem;
+    font-size: var(--app-text-size-body-sm);
     font-variant-numeric: tabular-nums;
     cursor: pointer;
     transition: background-color 100ms ease, border-color 100ms ease, color 100ms ease;
@@ -489,7 +493,7 @@ function selectCustomZoomInput(event: FocusEvent) {
     background: transparent;
     border: none;
     text-align: center;
-    font-size: 0.8125rem;
+    font-size: var(--app-text-size-body-sm);
     font-variant-numeric: tabular-nums;
     color: var(--ui-text);
     padding: 0 0.875rem 0 0;
@@ -501,7 +505,7 @@ function selectCustomZoomInput(event: FocusEvent) {
     right: 0.375rem;
     top: 50%;
     transform: translateY(-50%);
-    font-size: 0.6875rem;
+    font-size: var(--app-text-size-micro);
     color: var(--ui-text-dimmed);
     pointer-events: none;
 }
@@ -519,8 +523,8 @@ function selectCustomZoomInput(event: FocusEvent) {
 }
 
 .zoom-toggle-icon {
-    width: 1rem;
-    height: 1rem;
+    width: var(--app-zoom-icon-size);
+    height: var(--app-zoom-icon-size);
     flex-shrink: 0;
 }
 
@@ -534,8 +538,8 @@ function selectCustomZoomInput(event: FocusEvent) {
     position: relative;
     display: inline-flex;
     flex-shrink: 0;
-    width: 1rem;
-    height: 1rem;
+    width: var(--app-zoom-icon-size);
+    height: var(--app-zoom-icon-size);
 }
 
 .zoom-badge {
@@ -548,11 +552,11 @@ function selectCustomZoomInput(event: FocusEvent) {
     min-width: 0.75rem;
     height: 0.75rem;
     padding: 0 0.125rem;
-    border-radius: 999px;
+    border-radius: var(--app-radius-full);
     border: 1px solid var(--ui-border);
     background: var(--ui-bg);
     color: var(--ui-text-muted);
-    font-size: 0.5625rem;
+    font-size: var(--app-text-size-tiny);
     line-height: 1;
     font-weight: 700;
 }

@@ -186,7 +186,7 @@ defineExpose<IPdfSearchBarExpose>({ focus });
 .search-toggle-group {
     display: inline-flex;
     align-items: stretch;
-    height: 1.5rem;
+    height: var(--app-control-height-xs);
     border: 1px solid var(--ui-border);
     border-radius: 0.375rem;
     overflow: hidden;
@@ -195,8 +195,8 @@ defineExpose<IPdfSearchBarExpose>({ focus });
 .search-toggle {
     min-width: auto;
     border-radius: 0;
-    padding-inline: 0.5rem;
-    font-size: 11px;
+    padding-inline: var(--app-sidebar-row-padding-inline);
+    font-size: var(--app-sidebar-caption-font-size);
     font-weight: 600;
 }
 
@@ -215,8 +215,8 @@ defineExpose<IPdfSearchBarExpose>({ focus });
 }
 
 .search-run-button {
-    height: 1.5rem;
-    font-size: 11px;
+    height: var(--app-control-height-xs);
+    font-size: var(--app-sidebar-caption-font-size);
     font-weight: 600;
 }
 </style>

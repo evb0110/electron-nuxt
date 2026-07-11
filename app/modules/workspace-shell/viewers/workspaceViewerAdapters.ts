@@ -13,19 +13,9 @@ import type {
     TWorkspaceViewerDocumentType,
 } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
 
-const NativePdfViewer = defineAsyncComponent(
-    () => import('@app/modules/native-pdf-viewer/public')
-        .then(componentModule => componentModule.NativePdfViewer),
-) as Component;
-
-const PdfViewer = defineAsyncComponent(
-    () => import('@app/modules/pdf-viewer/public/component-exports/pdfViewer')
-        .then(componentModule => componentModule.PdfViewer),
-) as Component;
-
-const DjvuViewer = defineAsyncComponent(
-    () => import('@app/modules/djvu-viewer/public')
-        .then(componentModule => componentModule.DjvuViewer),
+const DocumentViewerChassis = defineAsyncComponent(
+    () => import('@app/modules/workspace-shell/components/DocumentViewerChassis.vue')
+        .then(componentModule => componentModule.default),
 ) as Component;
 
 const PDF_VIEWER_CAPABILITIES: IWorkspaceViewerCapabilities = {
@@ -57,9 +47,12 @@ const DJVU_VIEWER_CAPABILITIES: IWorkspaceViewerCapabilities = {
     closeableDocument: true,
     conversionBanner: true,
     conversionDialog: true,
+    pdfMutationActions: true,
     print: true,
+    saveAs: true,
+    sidebar: true,
     continuousScroll: true,
-    viewMode: true,
+    viewMode: false,
 };
 
 function createDjvuLifecycleHooks(context: IWorkspaceViewerLifecycleContext): IWorkspaceViewerLifecycleHooks {
@@ -90,7 +83,7 @@ function createDjvuLifecycleHooks(context: IWorkspaceViewerLifecycleContext): IW
 export const WORKSPACE_VIEWER_ADAPTERS: readonly IWorkspaceViewerAdapter[] = [
     {
         id: 'pdf',
-        component: PdfViewer,
+        component: DocumentViewerChassis,
         documentTypes: [
             'pdf',
             'image',
@@ -99,13 +92,13 @@ export const WORKSPACE_VIEWER_ADAPTERS: readonly IWorkspaceViewerAdapter[] = [
     },
     {
         id: 'native-pdf',
-        component: NativePdfViewer,
+        component: DocumentViewerChassis,
         documentTypes: ['pdf'],
         capabilities: NATIVE_PDF_VIEWER_CAPABILITIES,
     },
     {
         id: 'djvu',
-        component: DjvuViewer,
+        component: DocumentViewerChassis,
         documentTypes: ['djvu'],
         capabilities: DJVU_VIEWER_CAPABILITIES,
         createLifecycleHooks: createDjvuLifecycleHooks,

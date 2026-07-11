@@ -45,7 +45,7 @@ describe('useDocumentWorkspaceDocumentRecord', () => {
                 isOpeningDocument: true,
                 isDjvuMode: false,
             },
-            viewState: {continuousScroll: true},
+            viewState: {continuousScroll: false},
         });
     });
 
@@ -79,6 +79,6 @@ describe('useDocumentWorkspaceDocumentRecord', () => {
             isDjvuMode: true,
             isOpeningDocument: true,
         });
-        expect(published.at(-1)?.viewState.continuousScroll).toBe(true);
+        expect(published.at(-1)?.viewState.continuousScroll).toBe(false);
     });
 });

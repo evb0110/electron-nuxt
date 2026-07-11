@@ -16,6 +16,7 @@ import type { IScrollSnapshot } from '@app/types/pdfUi';
 import type { IFileOperationsSaveAdapterPorts } from '@app/modules/workspace-shell/composables/file-operations/saveRolePorts';
 import { createStaleRevisionError } from '@contracts/documentMutationErrors';
 import { cast } from '@tests/helpers/cast';
+import {requireDocumentRevisionToken} from '@contracts';
 
 const fileOperationMocks = vi.hoisted((): {
     capturedDeps: unknown;
@@ -104,8 +105,6 @@ describe('usePageSaveOrchestration', () => {
             anchorPage: 42,
             anchorInsidePage: true,
             anchorOffsetRatio: 0.25,
-            anchorViewportX: 300,
-            anchorViewportY: 500,
             anchorContentXRatio: 0.375,
             anchorContentYRatio: 0.525,
             anchorPageXRatio: 0.5,
@@ -512,7 +511,7 @@ describe('usePageSaveOrchestration', () => {
         await orchestration.handleOcrComplete({
             requestId: 'ocr-1',
             pdfPath: '/tmp/ocr-1-merged.pdf',
-            sourceDocumentRevisionToken: 'source-revision-token',
+            sourceDocumentRevisionToken: requireDocumentRevisionToken('source-revision-token'),
             requiresCleanupAck: true,
             sourceWorkingCopyPath: '/tmp/work.pdf',
         });
@@ -530,7 +529,7 @@ describe('usePageSaveOrchestration', () => {
         expect(platformMocks.replaceWorkingCopyFromPath).toHaveBeenCalledWith(
             '/tmp/work.pdf',
             '/tmp/ocr-1-merged.pdf',
-            {expectedDocumentRevisionToken: 'source-revision-token'},
+            {expectedDocumentRevisionToken: requireDocumentRevisionToken('source-revision-token')},
         );
         expect(reloadWorkingCopyIntoHistory).toHaveBeenCalledWith({ markDirty: true });
         expect(platformMocks.acknowledgeResultFile).toHaveBeenCalledWith(
@@ -627,7 +626,7 @@ describe('usePageSaveOrchestration', () => {
         const completionPromise = orchestration.handleOcrComplete({
             requestId: 'ocr-1',
             pdfPath: '/tmp/ocr-1-merged.pdf',
-            sourceDocumentRevisionToken: 'source-revision-token',
+            sourceDocumentRevisionToken: requireDocumentRevisionToken('source-revision-token'),
             requiresCleanupAck: true,
             sourceWorkingCopyPath: '/tmp/work.pdf',
         });
@@ -716,7 +715,7 @@ describe('usePageSaveOrchestration', () => {
         await expect(orchestration.handleOcrComplete({
             requestId: 'ocr-1',
             pdfPath: '/tmp/ocr-1-merged.pdf',
-            sourceDocumentRevisionToken: 'source-revision-token',
+            sourceDocumentRevisionToken: requireDocumentRevisionToken('source-revision-token'),
             requiresCleanupAck: true,
             sourceWorkingCopyPath: '/tmp/work.pdf',
         })).resolves.toBeUndefined();
@@ -732,8 +731,8 @@ describe('usePageSaveOrchestration', () => {
     it('rejects OCR apply against an advanced revision and acknowledges the result artifact', async () => {
         platformMocks.replaceWorkingCopyFromPath.mockRejectedValueOnce(createStaleRevisionError({
             documentRef: '/tmp/work.pdf',
-            expectedRevision: 'source-revision-token',
-            actualRevision: 'revision-after-edit',
+            expectedRevision: requireDocumentRevisionToken('source-revision-token'),
+            actualRevision: requireDocumentRevisionToken('revision-after-edit'),
         }));
         const orchestration = usePageSaveOrchestration(cast({
             pdfData: ref(null),
@@ -805,7 +804,7 @@ describe('usePageSaveOrchestration', () => {
         await expect(orchestration.handleOcrComplete({
             requestId: 'ocr-1',
             pdfPath: '/tmp/ocr-1-merged.pdf',
-            sourceDocumentRevisionToken: 'source-revision-token',
+            sourceDocumentRevisionToken: requireDocumentRevisionToken('source-revision-token'),
             requiresCleanupAck: true,
             sourceWorkingCopyPath: '/tmp/work.pdf',
         })).resolves.toBeUndefined();
@@ -813,7 +812,7 @@ describe('usePageSaveOrchestration', () => {
         expect(platformMocks.replaceWorkingCopyFromPath).toHaveBeenCalledWith(
             '/tmp/work.pdf',
             '/tmp/ocr-1-merged.pdf',
-            { expectedDocumentRevisionToken: 'source-revision-token' },
+            { expectedDocumentRevisionToken: requireDocumentRevisionToken('source-revision-token') },
         );
         expect(platformMocks.acknowledgeResultFile).toHaveBeenCalledWith(
             'ocr-1',
@@ -898,7 +897,7 @@ describe('usePageSaveOrchestration', () => {
         await orchestration.handleOcrComplete({
             requestId: 'ocr-1',
             pdfPath: '/tmp/ocr-1-merged.pdf',
-            sourceDocumentRevisionToken: 'source-revision-token',
+            sourceDocumentRevisionToken: requireDocumentRevisionToken('source-revision-token'),
             requiresCleanupAck: false,
             sourceWorkingCopyPath: '/tmp/work.pdf',
         });
@@ -906,7 +905,7 @@ describe('usePageSaveOrchestration', () => {
         expect(platformMocks.replaceWorkingCopyFromPath).toHaveBeenCalledWith(
             '/tmp/work.pdf',
             '/tmp/ocr-1-merged.pdf',
-            {expectedDocumentRevisionToken: 'source-revision-token'},
+            {expectedDocumentRevisionToken: requireDocumentRevisionToken('source-revision-token')},
         );
         expect(platformMocks.acknowledgeResultFile).not.toHaveBeenCalled();
         expect(platformMocks.cleanupOcrTemp).not.toHaveBeenCalled();

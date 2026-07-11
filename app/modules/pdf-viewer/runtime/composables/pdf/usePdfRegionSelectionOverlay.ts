@@ -1,5 +1,6 @@
 import type { ILocalRect } from '@app/utils/document-viewer/region-geometry/regionGeometryTypes';
 import type { ISnipPointerPayload } from '@app/modules/pdf-viewer/engine/pdf-region-drag/snipPointerPayload';
+import { getEventCurrentTarget } from '@app/utils/getEventCurrentTarget';
 
 interface IRegionSelectionOverlayOptions {
     isActive: () => boolean;
@@ -23,7 +24,7 @@ export interface IRegionSelectionOverlayEmits {
 }
 
 function buildPointerPayload(event: PointerEvent): ISnipPointerPayload | null {
-    const target = event.currentTarget as HTMLElement | null;
+    const target = getEventCurrentTarget(event, HTMLElement);
     if (!target) {
         return null;
     }
@@ -47,7 +48,7 @@ export const usePdfRegionSelectionOverlay = (options: IRegionSelectionOverlayOpt
             return;
         }
 
-        (event.currentTarget as HTMLElement | null)?.setPointerCapture(event.pointerId);
+        getEventCurrentTarget(event, HTMLElement)?.setPointerCapture(event.pointerId);
         const payload = buildPointerPayload(event);
         if (payload) {
             options.onPointerStart(payload);

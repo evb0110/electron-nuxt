@@ -1,16 +1,12 @@
 import type { PageViewport } from 'pdfjs-dist';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { IOcrWord } from '@contracts/shared';
-import type {
-    IOcrIndexV3Page,
-    TOcrIndexRotation,
-} from '@contracts/ocrIndex';
+import type { TOcrIndexRotation } from '@contracts/ocrIndex';
+import type { IDocumentTextCatalogPage } from '@contracts/documentTextCatalog';
 import { createWordBoxOverlays } from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/createWordBoxOverlays';
 import { isOcrDebugEnabled } from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/isOcrDebugEnabled';
-import {
-    loadCachedOcrManifest,
-    loadCachedOcrPageData,
-} from '@app/modules/pdf-viewer/engine/ocr/ocrIndexArtifactLoader';
+import { loadSharedDocumentTextCatalog } from '@app/modules/pdf-viewer/engine/document-text-catalog/sharedDocumentTextCatalogCache';
 import { transformOcrWordToViewport } from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformOcrWordToViewport';
 import { transformWordBox } from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformWordBox';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -99,21 +95,18 @@ export const usePdfWordBoxes = () => {
 
     async function loadOcrPageData(
         workingCopyPath: TDocumentRef,
-        documentRevisionToken: string,
+        documentRevisionToken: TDocumentRevisionToken,
         pageNumber: number,
-    ): Promise<IOcrIndexV3Page | null> {
-        const manifest = await loadCachedOcrManifest(workingCopyPath, documentRevisionToken, 'ocr-debug');
-        if (!manifest) {
-            return null;
-        }
-        return loadCachedOcrPageData(workingCopyPath, documentRevisionToken, pageNumber, manifest, 'ocr-debug');
+    ): Promise<IDocumentTextCatalogPage | null> {
+        const snapshot = await loadSharedDocumentTextCatalog(workingCopyPath, documentRevisionToken);
+        return snapshot?.pages.find(page => page.pageNumber === pageNumber && page.source === 'evb-ocr') ?? null;
     }
 
     async function renderOcrDebugBoxes(
         pageContainer: HTMLElement,
         pageNumber: number,
         workingCopyPath: TDocumentRef | null,
-        documentRevisionToken: string | null,
+        documentRevisionToken: TDocumentRevisionToken | null,
         viewport: PageViewport,
         pageWidth: number,
         pageHeight: number,
@@ -131,7 +124,7 @@ export const usePdfWordBoxes = () => {
 
         const ocrPageData = await loadOcrPageData(workingCopyPath, documentRevisionToken, pageNumber);
 
-        if (!ocrPageData) {
+        if (!ocrPageData?.render) {
             BrowserLogger.debug('ocr-debug', `No OCR index found for page ${pageNumber}`);
             return;
         }
@@ -145,7 +138,7 @@ export const usePdfWordBoxes = () => {
         BrowserLogger.debug('ocr-debug', `Rendering ${words.length} OCR debug boxes for page ${pageNumber}`, {
             imagePx: ocrPageData.render.imagePx,
             dpi: ocrPageData.render.dpi,
-            rotation: ocrPageData.rotation,
+            rotation: 0,
             pageWidth,
             pageHeight,
             viewportWidth: viewport.width,
@@ -156,12 +149,6 @@ export const usePdfWordBoxes = () => {
         if (!debugLayer) {
             debugLayer = document.createElement('div');
             debugLayer.className = 'pdf-ocr-debug-layer';
-            debugLayer.style.cssText = `
-                position: absolute;
-                inset: 0;
-                pointer-events: none;
-                z-index: 10;
-            `;
             pageContainer.appendChild(debugLayer);
         }
 

@@ -195,4 +195,87 @@ describe('browserWindowTabsCapability', () => {
         await expect(resolveTargetWindows(secondModule.browserWindowTabsCapability)).resolves.toEqual([]);
         expect(MockBroadcastChannel.channels).toHaveLength(1);
     });
+
+    it('delegates incoming transfer decoding to the canonical contract decoder', async () => {
+        stubBrowserGlobals('http://localhost:3235/?evbWindowId=100');
+        const externalWindow = new MockBroadcastChannel(WINDOW_TABS_CHANNEL);
+        const { browserWindowTabsCapability } = await import('@app/platform/browserWindowTabs');
+        const callback = vi.fn();
+        browserWindowTabsCapability.onIncomingTransfer(callback);
+        browserWindowTabsCapability.notifyRendererReady();
+
+        const baseTransfer = {
+            schemaVersion: 1,
+            nonce: 'nonce-1',
+            transferId: 'transfer-1',
+            sourceWindowId: 200,
+            targetWindowId: 100,
+            tab: {
+                fileName: 'source.pdf',
+                originalPath: '/tmp/source.pdf',
+                originalBackend: 'browser',
+                isDirty: false,
+                isDjvu: false,
+                ignored: 'drop-me',
+            },
+            payload: {
+                kind: 'pdfSnapshot',
+                fileName: 'source.pdf',
+                originalPath: '/tmp/source.pdf',
+                originalBackend: 'browser',
+                snapshotPath: '/tmp/snapshot.pdf',
+                snapshotBackend: 'electron',
+                isDirty: false,
+                currentPage: 2,
+                totalPages: 3,
+                ignored: 'drop-me',
+            },
+            ignored: 'drop-me',
+        };
+
+        externalWindow.postMessage({
+            type: 'transfer',
+            transfer: baseTransfer,
+        });
+
+        expect(callback).toHaveBeenCalledWith({
+            schemaVersion: 1,
+            nonce: 'nonce-1',
+            transferId: 'transfer-1',
+            sourceWindowId: 200,
+            targetWindowId: 100,
+            tab: {
+                fileName: 'source.pdf',
+                originalPath: '/tmp/source.pdf',
+                originalBackend: 'browser',
+                isDirty: false,
+                isDjvu: false,
+            },
+            payload: {
+                kind: 'pdfSnapshot',
+                fileName: 'source.pdf',
+                originalPath: '/tmp/source.pdf',
+                originalBackend: 'browser',
+                snapshotPath: '/tmp/snapshot.pdf',
+                snapshotBackend: 'electron',
+                isDirty: false,
+                currentPage: 2,
+                totalPages: 3,
+            },
+        });
+
+        callback.mockClear();
+        externalWindow.postMessage({
+            type: 'transfer',
+            transfer: {
+                ...baseTransfer,
+                transferId: 'transfer-2',
+                tab: {
+                    ...baseTransfer.tab,
+                    originalBackend: 'bogus',
+                },
+            },
+        });
+        expect(callback).not.toHaveBeenCalled();
+    });
 });

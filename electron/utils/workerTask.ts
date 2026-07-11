@@ -7,6 +7,9 @@ import {
 import { isRecord } from '@contracts/runtimeGuards';
 import { isAbortError } from '@electron/utils/abort';
 import { getErrorMessage } from '@electron/utils/error';
+import { createLogger } from '@electron/utils/createLogger';
+
+const workerTaskLog = createLogger('worker-task');
 
 export interface IWorkerTaskErrorFrame {
     message: string;
@@ -239,6 +242,7 @@ interface IAttachWorkerHandlersOptions<T> {
     options: TRunResultWorkerTaskOptions<T>;
     resolve: (value: T) => void;
     reject: (reason: unknown) => void;
+    startedAt: number;
 }
 
 function attachWorkerHandlers<T>({
@@ -246,6 +250,7 @@ function attachWorkerHandlers<T>({
     options,
     resolve,
     reject,
+    startedAt,
 }: IAttachWorkerHandlersOptions<T>) {
     const {
         invalidPayloadMessage,
@@ -262,6 +267,7 @@ function attachWorkerHandlers<T>({
     let cooperativeCancelTimer: NodeJS.Timeout | null = null;
     let hasPendingCancelError = false;
     let pendingCancelError: unknown;
+    let firstMessageObserved = false;
 
     const cleanup = () => {
         if (timeout) {
@@ -323,9 +329,18 @@ function attachWorkerHandlers<T>({
 
     worker.once('online', () => {
         online = true;
+        workerTaskLog.debug(
+            `Worker online: path=${options.workerPath} onlineMs=${Math.round(performance.now() - startedAt)}`,
+        );
     });
 
     const handleMessage = (payload: unknown) => {
+        if (!firstMessageObserved) {
+            firstMessageObserved = true;
+            workerTaskLog.debug(
+                `Worker first message: path=${options.workerPath} firstMessageMs=${Math.round(performance.now() - startedAt)}`,
+            );
+        }
         if (onProgressMessage?.(payload)) {
             return;
         }
@@ -418,6 +433,7 @@ export async function runResultWorkerTask<T>(
     }
     return new Promise<T | unknown>((resolve, reject) => {
         let worker: Worker;
+        const startedAt = performance.now();
         try {
             worker = new Worker(workerPath, createWorkerOptions(workerData, options.resourceLimits));
         } catch (error) {
@@ -431,7 +447,8 @@ export async function runResultWorkerTask<T>(
             worker,
             options,
             resolve,
-            reject, 
+            reject,
+            startedAt,
         });
     });
 }
@@ -454,6 +471,7 @@ export function startStreamingWorkerTask<T>(
         throw createStartupError(`Worker unavailable at path: ${workerPath}`);
     }
     let worker: Worker;
+    const startedAt = performance.now();
     try {
         worker = new Worker(workerPath, createWorkerOptions(workerData, options.resourceLimits));
     } catch (error) {
@@ -464,11 +482,12 @@ export function startStreamingWorkerTask<T>(
             worker,
             options,
             resolve,
-            reject, 
+            reject,
+            startedAt,
         });
     });
     return {
         worker,
-        promise, 
+        promise,
     };
 }

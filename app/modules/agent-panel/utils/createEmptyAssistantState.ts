@@ -121,6 +121,10 @@ export function createEmptyAssistantState({
             turn: {
                 id: null,
                 phase: 'idle',
+                reasoning: '',
+                toolActivity: [],
+                lastEventAtMs: null,
+                usage: null,
             },
             lastCheckedAt: '',
         },

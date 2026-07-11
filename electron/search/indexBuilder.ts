@@ -1,33 +1,25 @@
-import { existsSync } from 'fs';
 import {
     rm,
     readFile,
     stat,
     writeFile,
 } from 'fs/promises';
-import {
-    isAbsolute,
-    join,
-    relative,
-    resolve,
-    sep,
-} from 'path';
 import { sortBy } from 'es-toolkit/array';
 import { range } from 'es-toolkit/math';
 import { isOcrWord } from '@contracts/shared';
 import { isRecord } from '@contracts/runtimeGuards';
 import type { IOcrWord } from '@contracts/shared';
-import type {
-    IOcrIndexV3Manifest,
-    IOcrIndexV3Page,
-    TOcrIndexRotation,
-} from '@contracts/ocrIndex';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type { TOcrIndexRotation } from '@contracts/ocrIndex';
+import {
+    parseDocumentRevisionToken,
+    type TDocumentRevisionToken,
+} from '@contracts/documentRevision';
 import {
     OCR_TEXT_LAYER_INDEX_SOURCE,
     OCR_TEXT_LAYER_INDEX_VERSION,
     buildOcrTextLayerIndexText,
 } from '@contracts/ocrText';
+import { assembleSearchablePageText } from '@contracts/search';
 import { extractTextFromPdf } from '@electron/search/extractTextFromPdf';
 import {
     extractTextWithPdfjs,
@@ -55,6 +47,7 @@ import type {
 } from '@electron/search/searchIndexTypes';
 import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
 import { assertWorkingCopyRevisionSidecarCurrent } from '@electron/file-access/documentRevisionSidecar';
+import {resolveDocumentTextCatalogSnapshot} from '@electron/ocr/documentTextCatalog';
 
 export type {
     IPageIndex,
@@ -107,11 +100,6 @@ interface IPageDataInput {
     rotation?: TOcrIndexRotation;
 }
 
-interface ILoadedOcrIndexPages {
-    pagesByNumber: Map<number, IPageIndex>;
-    pageCount: number;
-}
-
 function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) {
         throw abortErrorFromSignal(signal);
@@ -120,13 +108,6 @@ function throwIfAborted(signal?: AbortSignal) {
 
 function isPositiveInteger(value: unknown): value is number {
     return typeof value === 'number' && Number.isInteger(value) && value > 0;
-}
-
-function isExpectedPageNumber(
-    pageNumber: number,
-    expectedCount: number | undefined,
-) {
-    return pageNumber >= 1 && (!isPositiveInteger(expectedCount) || pageNumber <= expectedCount);
 }
 
 function finiteNumberOrUndefined(value: unknown) {
@@ -147,228 +128,12 @@ function ocrWordsOrUndefined(value: unknown) {
         : undefined;
 }
 
-function resolveManifestPagePath(
-    ocrDir: string,
-    relativePath: unknown,
-) {
-    if (typeof relativePath !== 'string' || relativePath.length === 0) {
+function parseDocumentRevisionStamp(value: unknown): { token: TDocumentRevisionToken } | null {
+    if (!isRecord(value)) {
         return null;
     }
-
-    const resolvedOcrDir = resolve(ocrDir);
-    const resolvedPath = resolve(resolvedOcrDir, relativePath);
-    const relativePathFromDir = relative(resolvedOcrDir, resolvedPath);
-    if (
-        relativePathFromDir === ''
-        || relativePathFromDir === '..'
-        || relativePathFromDir.startsWith(`..${sep}`)
-        || isAbsolute(relativePathFromDir)
-    ) {
-        return null;
-    }
-
-    return resolvedPath;
-}
-
-function hasDocumentRevisionStamp(value: unknown): value is { token: string } {
-    return isRecord(value)
-        && typeof value.token === 'string'
-        && value.token.length > 0;
-}
-
-function parseOcrManifestPayload(payload: unknown): IOcrIndexV3Manifest | null {
-    if (!isRecord(payload) || !isRecord(payload.source) || !isRecord(payload.pages)) {
-        return null;
-    }
-    if (
-        payload.version !== 3
-        || !hasDocumentRevisionStamp(payload.documentRevision)
-        || typeof payload.source.pdfPath !== 'string'
-        || !isPositiveInteger(payload.pageCount)
-    ) {
-        return null;
-    }
-    const pages: IOcrIndexV3Manifest['pages'] = {};
-    for (const [
-        rawPageNumber,
-        rawPageMapping,
-    ] of Object.entries(payload.pages)) {
-        const pageNumber = Number.parseInt(rawPageNumber, 10);
-        if (
-            Number.isInteger(pageNumber)
-            && pageNumber > 0
-            && isRecord(rawPageMapping)
-            && typeof rawPageMapping.path === 'string'
-        ) {
-            pages[pageNumber] = { path: rawPageMapping.path };
-        }
-    }
-    return {
-        version: 3,
-        documentRevision: {token: payload.documentRevision.token},
-        createdAt: finiteNumberOrUndefined(payload.createdAt) ?? Date.now(),
-        source: { pdfPath: payload.source.pdfPath },
-        pageCount: payload.pageCount,
-        pageBox: 'crop',
-        ocr: isRecord(payload.ocr)
-            ? {
-                engine: 'tesseract',
-                languages: Array.isArray(payload.ocr.languages) && payload.ocr.languages.every(item => typeof item === 'string')
-                    ? payload.ocr.languages
-                    : [],
-                renderDpi: finiteNumberOrUndefined(payload.ocr.renderDpi) ?? 0,
-            }
-            : {
-                engine: 'tesseract',
-                languages: [],
-                renderDpi: 0,
-            },
-        pages,
-    };
-}
-
-function parseOcrPagePayload(payload: unknown): IOcrIndexV3Page | null {
-    if (!isRecord(payload)) {
-        return null;
-    }
-    if (
-        !hasDocumentRevisionStamp(payload.documentRevision)
-        || (payload.pageNumber !== undefined && !isPositiveInteger(payload.pageNumber))
-    ) {
-        return null;
-    }
-    if (payload.text !== undefined && typeof payload.text !== 'string') {
-        return null;
-    }
-    const page: IOcrIndexV3Page = {
-        pageNumber: isPositiveInteger(payload.pageNumber) ? payload.pageNumber : 0,
-        documentRevision: {token: payload.documentRevision.token},
-        rotation: ocrRotationOrUndefined(payload.rotation) ?? 0,
-        render: {
-            dpi: isRecord(payload.render)
-                ? finiteNumberOrUndefined(payload.render.dpi) ?? 0
-                : 0,
-            imagePx: {
-                w: isRecord(payload.render) && isRecord(payload.render.imagePx)
-                    ? finiteNumberOrUndefined(payload.render.imagePx.w) ?? 0
-                    : 0,
-                h: isRecord(payload.render) && isRecord(payload.render.imagePx)
-                    ? finiteNumberOrUndefined(payload.render.imagePx.h) ?? 0
-                    : 0,
-            },
-        },
-        text: typeof payload.text === 'string' ? payload.text : '',
-        words: ocrWordsOrUndefined(payload.words) ?? [],
-    };
-    return page;
-}
-
-async function loadOcrIndexPages(
-    pdfPath: string,
-    expectedCount?: number,
-    onPageIndexed?: (page: IPageIndex) => void,
-    signal?: AbortSignal,
-): Promise<ILoadedOcrIndexPages | null> {
-    throwIfAborted(signal);
-    const ocrDir = `${pdfPath}.ocr`;
-    const manifestPath = join(ocrDir, 'manifest.json');
-
-    if (!existsSync(manifestPath)) {
-        return null;
-    }
-
-    try {
-        throwIfAborted(signal);
-        const manifestJson = await readFile(manifestPath, 'utf-8');
-        throwIfAborted(signal);
-        const parsedManifest: unknown = JSON.parse(manifestJson);
-        const manifest = parseOcrManifestPayload(parsedManifest);
-
-        if (!manifest) {
-            log.debug('OCR v3 manifest is invalid, skipping');
-            return null;
-        }
-
-        const pagesByNumber = new Map<number, IPageIndex>();
-
-        for (const [
-            pageNumStr,
-            pageInfo,
-        ] of Object.entries(manifest.pages)) {
-            throwIfAborted(signal);
-            const pageNum = parseInt(pageNumStr, 10);
-            if (!Number.isInteger(pageNum) || !isExpectedPageNumber(pageNum, expectedCount)) {
-                log.warn(`Skipping OCR page with invalid page number "${pageNumStr}" in manifest`);
-                continue;
-            }
-            const pagePath = resolveManifestPagePath(ocrDir, pageInfo.path);
-            if (!pagePath) {
-                log.warn(`Skipping OCR page ${pageNum} with invalid manifest path`);
-                continue;
-            }
-
-            if (existsSync(pagePath)) {
-                let pageJson = '';
-                try {
-                    pageJson = await readFile(pagePath, 'utf-8');
-                } catch (pageReadError) {
-                    if (isAbortError(pageReadError)) {
-                        throw pageReadError;
-                    }
-                    log.warn(`Skipping OCR page ${pageNum} with unreadable page data`);
-                    continue;
-                }
-                throwIfAborted(signal);
-                let pagePayload: unknown;
-                try {
-                    pagePayload = JSON.parse(pageJson);
-                } catch {
-                    log.warn(`Skipping OCR page ${pageNum} with invalid page JSON`);
-                    continue;
-                }
-                const pageData = parseOcrPagePayload(pagePayload);
-                if (!pageData) {
-                    log.warn(`Skipping OCR page ${pageNum} with invalid page data`);
-                    continue;
-                }
-                if (pageData.documentRevision.token !== manifest.documentRevision.token) {
-                    log.warn(`Skipping OCR page ${pageNum} with stale document revision`);
-                    continue;
-                }
-                if (pageData.pageNumber !== undefined && pageData.pageNumber !== pageNum) {
-                    log.warn(`Skipping OCR page ${pageNum} with mismatched page data ${pageData.pageNumber}`);
-                    continue;
-                }
-                const words = Array.isArray(pageData.words) ? pageData.words : [];
-                const text = words.length > 0
-                    ? buildOcrTextLayerIndexText(words)
-                    : pageData.text || '';
-                const indexedPage: IPageIndex = {
-                    pageNumber: pageNum,
-                    text,
-                    ...(pageData.render.imagePx.w > 0 ? { pageWidth: pageData.render.imagePx.w } : {}),
-                    ...(pageData.render.imagePx.h > 0 ? { pageHeight: pageData.render.imagePx.h } : {}),
-                    rotation: pageData.rotation,
-                    ...(words.length > 0 ? { words } : {}),
-                };
-                pagesByNumber.set(pageNum, indexedPage);
-                onPageIndexed?.(indexedPage);
-            }
-        }
-
-        log.debug(`Loaded OCR v3 index with ${pagesByNumber.size} pages from ${ocrDir}`);
-        return {
-            pagesByNumber,
-            pageCount: manifest.pageCount,
-        };
-    } catch (err) {
-        if (isAbortError(err)) {
-            throw err;
-        }
-        const errMsg = getErrorMessage(err);
-        log.debug(`Failed to load OCR v3 index: ${errMsg}`);
-        return null;
-    }
+    const token = parseDocumentRevisionToken(value.token);
+    return token === null ? null : {token};
 }
 
 function getIndexPath(pdfPath: string) {
@@ -429,12 +194,13 @@ function parseSearchIndexPayload(
     if (!isRecord(payload) || !Array.isArray(payload.pages)) {
         return null;
     }
+    const documentRevision = parseDocumentRevisionStamp(payload.documentRevision);
     if (
         payload.schemaVersion !== SEARCH_INDEX_SCHEMA_VERSION
-        || !hasDocumentRevisionStamp(payload.documentRevision)
+        || documentRevision === null
         || (
             expectedRevision !== undefined
-            && payload.documentRevision.token !== expectedRevision
+            && documentRevision.token !== expectedRevision
         )
     ) {
         return null;
@@ -455,7 +221,7 @@ function parseSearchIndexPayload(
 
     const normalizedIndex: IPdfSearchIndex = {
         schemaVersion: SEARCH_INDEX_SCHEMA_VERSION,
-        documentRevision: {token: payload.documentRevision.token},
+        documentRevision,
         pdfPath: payload.pdfPath,
         createdAt: createdAt ?? Date.now(),
         pages: normalizedPages,
@@ -968,7 +734,9 @@ function mergePageData(
         const textFromWords = page.words.length > 0
             ? buildOcrTextLayerIndexText(page.words)
             : '';
-        const textFromOcr = page.text?.trim() ?? '';
+        const textFromOcr = page.text
+            ? assembleSearchablePageText([{text: page.text.trim()}]).text
+            : '';
         const text = textFromWords || textFromOcr;
         const previous = nextPages.get(page.pageNumber);
         const indexedPage: IPageIndex = {
@@ -1041,7 +809,33 @@ export async function buildSearchIndex(
     }
     throwIfAborted(signal);
 
-    const ocrIndex = await loadOcrIndexPages(pdfPath, expectedCount, onPageIndexed, signal);
+    const catalogSnapshot = await resolveDocumentTextCatalogSnapshot(
+        pdfPath,
+        documentRevision,
+        expectedCount,
+    ).catch((error) => {
+        log.debug(`DocumentTextCatalog is unavailable for this revision: ${getErrorMessage(error)}`);
+        return null;
+    });
+    const ocrIndex = catalogSnapshot ? {
+        pageCount: catalogSnapshot.pageCount,
+        pagesByNumber: new Map(catalogSnapshot.pages.map(page => {
+            const indexedPage: IPageIndex = {
+                pageNumber: page.pageNumber,
+                text: page.text,
+                ...(page.words && page.words.length > 0 ? {words: page.words} : {}),
+                ...(page.render ? {
+                    pageWidth: page.render.imagePx.w,
+                    pageHeight: page.render.imagePx.h,
+                } : {}),
+            };
+            onPageIndexed?.(indexedPage);
+            return [
+                page.pageNumber,
+                indexedPage,
+            ] as const;
+        })),
+    } : null;
     const ocrPages = ocrIndex?.pagesByNumber;
     const effectiveExpectedCount = isPositiveInteger(expectedCount)
         ? expectedCount

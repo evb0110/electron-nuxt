@@ -2,17 +2,23 @@ import { getSystemCapability } from '@app/utils/getSystemCapability';
 
 export const PDF_SETTLED_MAX_CANVAS_PIXELS_DEFAULT = 2 ** 25;
 export const PDF_SETTLED_MAX_CANVAS_PIXELS_HIGH_MEMORY = 2 ** 26;
+export const PDF_SETTLED_MAX_CANVAS_PIXELS_WORKSTATION = 2 ** 27;
 export const PDF_BUFFER_PAGES_DEFAULT = 2;
+export const PDF_BUFFER_PAGES_WORKSTATION = 4;
 export const PDF_BUFFER_PAGES_LOW_MEMORY = 1;
 export const PDF_RENDER_CONCURRENCY_DEFAULT = 3;
 export const PDF_RENDER_CONCURRENCY_LOW_MEMORY = 2;
 export const PDF_RENDER_CONCURRENCY_LOW_CPU = 1;
+export const PDF_RENDER_CONCURRENCY_WORKSTATION_MAX = 6;
 export const PDF_PAGE_PROXY_CACHE_DEFAULT = 48;
+export const PDF_PAGE_PROXY_CACHE_WORKSTATION = 96;
 export const PDF_PAGE_PROXY_CACHE_LOW_MEMORY = 16;
 export const PDF_THUMBNAIL_CONCURRENCY_DEFAULT = 2;
 export const PDF_THUMBNAIL_CONCURRENCY_LOW_PROFILE = 1;
+export const PDF_THUMBNAIL_CONCURRENCY_WORKSTATION = 4;
 export const PDF_BUFFER_MAX_CANVAS_PIXELS_DEFAULT = 16_777_216;
 export const PDF_BUFFER_MAX_CANVAS_PIXELS_LOW_MEMORY = 8_388_608;
+export const PDF_BUFFER_MAX_CANVAS_PIXELS_WORKSTATION = 33_554_432;
 
 interface IPerformanceProfileNavigator extends Navigator {deviceMemory?: number;}
 
@@ -77,32 +83,50 @@ export function resolvePerformanceProfile(
     const highCanvasMemory = totalMemoryGiB !== null
         ? totalMemoryGiB >= 16
         : (deviceMemory ?? 0) >= 8;
+    const workstationMemory = totalMemoryGiB !== null && totalMemoryGiB >= 32;
     const lowCpu = (hardwareConcurrency ?? 4) <= 4;
-    const concurrentPdfRenders = lowCpu
-        ? PDF_RENDER_CONCURRENCY_LOW_CPU
-        : lowMemory
-            ? PDF_RENDER_CONCURRENCY_LOW_MEMORY
-            : PDF_RENDER_CONCURRENCY_DEFAULT;
+    const workstationCpu = hardwareConcurrency !== null && hardwareConcurrency >= 12;
+    const workstationProfile = workstationMemory && workstationCpu;
+    const concurrentPdfRenders = workstationProfile
+        ? Math.min(
+            PDF_RENDER_CONCURRENCY_WORKSTATION_MAX,
+            Math.max(PDF_RENDER_CONCURRENCY_DEFAULT + 1, Math.floor(hardwareConcurrency / 4)),
+        )
+        : lowCpu
+            ? PDF_RENDER_CONCURRENCY_LOW_CPU
+            : lowMemory
+                ? PDF_RENDER_CONCURRENCY_LOW_MEMORY
+                : PDF_RENDER_CONCURRENCY_DEFAULT;
 
     return {
         lowMemory,
         lowCpu,
-        pdfBufferPages: lowMemory
-            ? PDF_BUFFER_PAGES_LOW_MEMORY
-            : PDF_BUFFER_PAGES_DEFAULT,
+        pdfBufferPages: workstationProfile
+            ? PDF_BUFFER_PAGES_WORKSTATION
+            : lowMemory
+                ? PDF_BUFFER_PAGES_LOW_MEMORY
+                : PDF_BUFFER_PAGES_DEFAULT,
         concurrentPdfRenders,
-        maxCachedPdfPages: lowMemory
-            ? PDF_PAGE_PROXY_CACHE_LOW_MEMORY
-            : PDF_PAGE_PROXY_CACHE_DEFAULT,
-        thumbnailBaseConcurrency: lowMemory || lowCpu
-            ? PDF_THUMBNAIL_CONCURRENCY_LOW_PROFILE
-            : PDF_THUMBNAIL_CONCURRENCY_DEFAULT,
-        settledMaxCanvasPixels: highCanvasMemory
-            ? PDF_SETTLED_MAX_CANVAS_PIXELS_HIGH_MEMORY
-            : PDF_SETTLED_MAX_CANVAS_PIXELS_DEFAULT,
-        maxBufferCanvasPixels: lowMemory
-            ? PDF_BUFFER_MAX_CANVAS_PIXELS_LOW_MEMORY
-            : PDF_BUFFER_MAX_CANVAS_PIXELS_DEFAULT,
+        maxCachedPdfPages: workstationProfile
+            ? PDF_PAGE_PROXY_CACHE_WORKSTATION
+            : lowMemory
+                ? PDF_PAGE_PROXY_CACHE_LOW_MEMORY
+                : PDF_PAGE_PROXY_CACHE_DEFAULT,
+        thumbnailBaseConcurrency: workstationProfile
+            ? PDF_THUMBNAIL_CONCURRENCY_WORKSTATION
+            : lowMemory || lowCpu
+                ? PDF_THUMBNAIL_CONCURRENCY_LOW_PROFILE
+                : PDF_THUMBNAIL_CONCURRENCY_DEFAULT,
+        settledMaxCanvasPixels: workstationMemory
+            ? PDF_SETTLED_MAX_CANVAS_PIXELS_WORKSTATION
+            : highCanvasMemory
+                ? PDF_SETTLED_MAX_CANVAS_PIXELS_HIGH_MEMORY
+                : PDF_SETTLED_MAX_CANVAS_PIXELS_DEFAULT,
+        maxBufferCanvasPixels: workstationProfile
+            ? PDF_BUFFER_MAX_CANVAS_PIXELS_WORKSTATION
+            : lowMemory
+                ? PDF_BUFFER_MAX_CANVAS_PIXELS_LOW_MEMORY
+                : PDF_BUFFER_MAX_CANVAS_PIXELS_DEFAULT,
     };
 }
 

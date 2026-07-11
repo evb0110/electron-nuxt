@@ -194,10 +194,11 @@ describe('useWorkspaceViewState', () => {
         });
 
         expect(state.isAnnotationUndoContext.value).toBe(true);
-        expect(state.canUndo.value).toBe(true);
+        expect(state.canUndoAnnotation.value).toBe(true);
+        expect(state.canUndo.value).toBe(false);
 
         appAnnotationUndoDepth.value = 0;
-        expect(state.canUndo.value).toBe(false);
+        expect(state.canUndoAnnotation.value).toBe(false);
     });
 
     it('ignores stale PDF.js annotation undo state when file history can undo', () => {
@@ -232,6 +233,7 @@ describe('useWorkspaceViewState', () => {
         });
 
         expect(state.isAnnotationUndoContext.value).toBe(false);
+        expect(state.canUndoAnnotation.value).toBe(false);
         expect(state.canUndo.value).toBe(true);
     });
 
@@ -306,7 +308,8 @@ describe('useWorkspaceViewState', () => {
         });
 
         expect(state.isAnnotationUndoContext.value).toBe(true);
-        expect(state.canUndo.value).toBe(true);
+        expect(state.canUndoAnnotation.value).toBe(true);
+        expect(state.canUndo.value).toBe(false);
     });
 
     it('scrolls to an explicit bookmark target even when the page is already current', () => {

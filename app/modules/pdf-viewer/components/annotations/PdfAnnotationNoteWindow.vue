@@ -2,8 +2,9 @@
     <div
         ref="noteWindowRef"
         class="note-window"
+        :class="{'is-pane-sized': isPaneSizedPresentation}"
         :style="windowStyle"
-        :data-stable-key="comment.stableKey"
+        :data-annotation-id="annotationId"
         @mousedown="focusNote"
         @focusin="focusNote"
     >
@@ -62,15 +63,19 @@ import {
     useEventListener,
     useResizeObserver,
 } from '@vueuse/core';
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { IAnnotationNotePosition } from '@app/types/annotationNoteWindow';
 import { NOTE_WINDOW } from '@app/constants/pdfLayout';
 import type { IAnnotationNoteWindowBounds } from '@app/modules/pdf-viewer/engine/annotation-note-window-bounds/annotationNoteWindowBounds';
 import { clampAnnotationNoteWindowPosition } from '@app/modules/pdf-viewer/engine/annotation-note-window-bounds/clampAnnotationNoteWindowPosition';
 import { clampAnnotationNoteWindowSize } from '@app/modules/pdf-viewer/engine/annotation-note-window-bounds/clampAnnotationNoteWindowSize';
+import { createRafCoalescedCallback } from '@app/utils/createRafCoalescedCallback';
 
 interface IProps {
-    comment: IAnnotationCommentSummary;
+    annotationId: string;
+    pageNumber: number;
+    author: string | null;
+    createdAt: number | null;
+    modifiedAt: number | null;
     text: string;
     saving?: boolean;
     error?: string | null;
@@ -80,7 +85,11 @@ interface IProps {
 }
 
 const {
-    comment,
+    annotationId,
+    pageNumber,
+    author,
+    createdAt,
+    modifiedAt,
     text,
     saving = false,
     error = null,
@@ -144,9 +153,9 @@ const timeFormatter = new Intl.DateTimeFormat(undefined, {
 
 const { settings } = useSettings();
 
-const title = computed(() => t('noteWindow.popUpNote', { page: comment.pageNumber }));
+const title = computed(() => t('noteWindow.popUpNote', { page: pageNumber }));
 const authorText = computed(() => {
-    const commentAuthor = comment.author?.trim();
+    const commentAuthor = author?.trim();
     if (commentAuthor) {
         return commentAuthor;
     }
@@ -156,7 +165,7 @@ const authorText = computed(() => {
         : t('noteWindow.unknownAuthor');
 });
 const timestampText = computed(() => {
-    const timestamp = comment.modifiedAt ?? comment.createdAt ?? null;
+    const timestamp = modifiedAt ?? createdAt;
     if (!timestamp) {
         return t('noteWindow.noDate');
     }
@@ -168,8 +177,14 @@ const windowStyle = computed(() => ({
     top: `${offsetY.value}px`,
     width: `${width.value}px`,
     height: `${height.value}px`,
+    minWidth: `${Math.min(NOTE_WINDOW.MIN_WIDTH, width.value)}px`,
+    minHeight: `${Math.min(NOTE_WINDOW.MIN_HEIGHT, height.value)}px`,
     zIndex: String(zIndex),
 }));
+const isPaneSizedPresentation = computed(() => (
+    width.value < NOTE_WINDOW.MIN_WIDTH
+    || height.value < NOTE_WINDOW.MIN_HEIGHT
+));
 const boundsRootElement = computed(() => boundsRoot ?? null);
 const documentElement = computed(() => (
     typeof document !== 'undefined'
@@ -252,7 +267,9 @@ function startFocusGuard(durationMs = NOTE_WINDOW_FOCUS_GUARD_DURATION_MS) {
         if (!input) {
             return;
         }
-        const activeElement = document.activeElement as HTMLElement | null;
+        const activeElement = document.activeElement instanceof HTMLElement
+            ? document.activeElement
+            : null;
         if (shouldReclaimFocus(activeElement)) {
             await focusTextInput();
         }
@@ -381,11 +398,18 @@ function handlePointerMove(event: MouseEvent) {
     emitPositionUpdate();
 }
 
-function stopDrag() {
+const noteDragMove = createRafCoalescedCallback(handlePointerMove);
+
+function stopDrag(event?: MouseEvent) {
     if (!isDragging.value) {
         return;
     }
 
+    if (event) {
+        noteDragMove.flush(event);
+    } else {
+        noteDragMove.flushPending();
+    }
     isDragging.value = false;
     dragWindowTarget.value = undefined;
     emitPositionUpdate();
@@ -442,7 +466,7 @@ useEventListener(
     'resize',
     handleViewportResize,
 );
-useEventListener(dragWindowTarget, 'mousemove', handlePointerMove);
+useEventListener(dragWindowTarget, 'mousemove', noteDragMove.schedule);
 useEventListener(dragWindowTarget, 'mouseup', stopDrag);
 
 useResizeObserver(noteWindowRef, (entries) => {
@@ -501,7 +525,7 @@ watch(
 );
 
 watch(
-    () => comment.stableKey,
+    () => annotationId,
     () => {
         if (syncPosition(position)) {
             emitPositionUpdate();
@@ -551,11 +575,9 @@ watch(
     --note-shadow: var(--app-pdf-note-shadow);
 
     position: fixed;
-    z-index: var(--app-pdf-note-window-z-index);
-    width: min(var(--app-pdf-note-window-default-width), calc(100vw - var(--app-pdf-note-window-viewport-gutter)));
-    height: min(var(--app-pdf-note-window-default-height), calc(100vh - var(--app-pdf-note-window-viewport-gutter)));
-    min-width: min(var(--app-pdf-note-window-min-width), calc(100vw - var(--app-pdf-note-window-viewport-gutter)));
-    min-height: min(var(--app-pdf-note-window-min-height), calc(100vh - var(--app-pdf-note-window-viewport-gutter)));
+    z-index: auto;
+    min-width: 0;
+    min-height: 0;
     border: 1px solid var(--note-border);
     background: var(--note-bg);
     box-shadow: var(--note-shadow);
@@ -565,13 +587,22 @@ watch(
     overflow: hidden;
 }
 
+.note-window.is-pane-sized {
+    resize: none;
+    border-radius: var(--app-radius-lg);
+}
+
+.note-window.is-pane-sized .note-window__title {
+    flex-wrap: wrap;
+}
+
 .note-window__title {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 0.5rem;
+    gap: var(--app-pdf-note-title-gap);
     border-bottom: 1px solid var(--note-title-border);
-    padding: 0.4rem 0.5rem 0.35rem;
+    padding: var(--app-pdf-note-title-padding);
     cursor: move;
     user-select: none;
     background: var(--note-title-bg);
@@ -580,17 +611,17 @@ watch(
 .note-window__title-main {
     min-width: 0;
     display: grid;
-    gap: 0.12rem;
+    gap: var(--app-pdf-note-title-main-gap);
 }
 
 .note-window__summary {
-    font-size: 0.98rem;
+    font-size: var(--app-pdf-note-summary-font-size);
     color: var(--note-text-heading);
     line-height: 1.25;
 }
 
 .note-window__meta {
-    font-size: 0.88rem;
+    font-size: var(--app-pdf-note-meta-font-size);
     color: var(--note-text-secondary);
     white-space: nowrap;
     overflow: hidden;
@@ -600,17 +631,17 @@ watch(
 .note-window__title-side {
     display: grid;
     justify-items: end;
-    gap: 0.18rem;
+    gap: var(--app-pdf-note-title-side-gap);
 }
 
 .note-window__actions {
     display: inline-flex;
     align-items: center;
-    gap: 0.28rem;
+    gap: var(--app-pdf-note-actions-gap);
 }
 
 .note-window__date {
-    font-size: 0.86rem;
+    font-size: var(--app-pdf-note-date-font-size);
     color: var(--note-text-dim);
     white-space: nowrap;
 }
@@ -619,8 +650,8 @@ watch(
     border: 1px solid var(--note-btn-border);
     background: var(--note-btn-bg);
     color: var(--note-btn-color);
-    width: 1.45rem;
-    height: 1.45rem;
+    width: var(--app-pdf-note-action-size);
+    height: var(--app-pdf-note-action-size);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -631,8 +662,8 @@ watch(
     border: 1px solid var(--note-delete-border);
     background: var(--note-delete-bg);
     color: var(--note-delete-color);
-    width: 1.45rem;
-    height: 1.45rem;
+    width: var(--app-pdf-note-action-size);
+    height: var(--app-pdf-note-action-size);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -646,23 +677,23 @@ watch(
     background: transparent;
     color: var(--note-text);
     line-height: 1.45;
-    font-size: 1.02rem;
+    font-size: var(--app-pdf-note-textarea-font-size);
     resize: none;
     outline: none;
-    padding: 0.52rem;
+    padding: var(--app-pdf-note-textarea-padding);
 }
 
 .note-window__status {
     margin: 0;
-    font-size: 0.68rem;
+    font-size: var(--app-pdf-note-status-font-size);
     color: var(--note-text-status);
-    padding: 0 0.52rem 0.3rem;
+    padding: var(--app-pdf-note-status-padding);
 }
 
 .note-window__error {
     margin: 0;
-    font-size: 0.7rem;
+    font-size: var(--app-pdf-note-error-font-size);
     color: var(--note-delete-color);
-    padding: 0 0.52rem 0.35rem;
+    padding: var(--app-pdf-note-error-padding);
 }
 </style>

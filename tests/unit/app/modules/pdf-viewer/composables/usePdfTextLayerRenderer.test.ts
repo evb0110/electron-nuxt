@@ -10,7 +10,9 @@ import {
 import { ref } from 'vue';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { cast } from '@tests/helpers/cast';
-import { toPageIndex } from '@contracts/pageNumbers';
+import { requirePageIndex } from '@contracts/pageNumbers';
+import {requireDocumentRevisionToken} from '@contracts';
+import {createTestPdfViewportWritePort} from '@tests/helpers/createTestPdfViewportWritePort';
 
 type THighlightPageMock = (
     textLayer: HTMLElement,
@@ -88,9 +90,15 @@ vi.mock('@app/modules/pdf-viewer/engine/search/pdfSearchHighlightCss', () => ({
     isHighlightDebugVerboseEnabled: () => false,
 }));
 
-const TEST_DOCUMENT_REVISION = 'revision-token';
+const TEST_DOCUMENT_REVISION = requireDocumentRevisionToken('revision-token');
 
-const { usePdfTextLayerRenderer } = await import('@app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer');
+const { usePdfTextLayerRenderer: usePdfTextLayerRendererProduction } = await import('@app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer');
+const usePdfTextLayerRenderer = (
+    options: Omit<Parameters<typeof usePdfTextLayerRendererProduction>[0], 'viewportWritePort'>,
+) => usePdfTextLayerRendererProduction({
+    ...options,
+    viewportWritePort: createTestPdfViewportWritePort().port,
+});
 
 function domRectLike(options: {
     top: number;
@@ -237,7 +245,7 @@ describe('usePdfTextLayerRenderer', () => {
         const pageMatches = new Map([[
             0,
             {
-                pageIndex: toPageIndex(0),
+                pageIndex: requirePageIndex(0),
                 pageText: 'foo foo',
                 searchQuery: 'foo',
                 matches: [{
@@ -269,7 +277,7 @@ describe('usePdfTextLayerRenderer', () => {
         const renderer = usePdfTextLayerRenderer({
             searchPageMatches: ref(pageMatches),
             currentSearchMatch: ref({
-                pageIndex: toPageIndex(0),
+                pageIndex: requirePageIndex(0),
                 matchIndex: 0,
                 startOffset: 4,
                 endOffset: 7,
@@ -312,7 +320,7 @@ describe('usePdfTextLayerRenderer', () => {
             [
                 40,
                 {
-                    pageIndex: toPageIndex(40),
+                    pageIndex: requirePageIndex(40),
                     pageText: '',
                     searchQuery: 'what',
                     matches: [{
@@ -325,7 +333,7 @@ describe('usePdfTextLayerRenderer', () => {
             [
                 43,
                 {
-                    pageIndex: toPageIndex(43),
+                    pageIndex: requirePageIndex(43),
                     pageText: '',
                     searchQuery: 'what',
                     matches: [{
@@ -381,7 +389,7 @@ describe('usePdfTextLayerRenderer', () => {
         const pageMatches = new Map([[
             0,
             {
-                pageIndex: toPageIndex(0),
+                pageIndex: requirePageIndex(0),
                 pageText: '',
                 searchQuery: 'roma',
                 matches: [{
@@ -395,7 +403,7 @@ describe('usePdfTextLayerRenderer', () => {
         const renderer = usePdfTextLayerRenderer({
             searchPageMatches: ref(pageMatches),
             currentSearchMatch: ref({
-                pageIndex: toPageIndex(0),
+                pageIndex: requirePageIndex(0),
                 matchIndex: 0,
                 startOffset: 0,
                 endOffset: 4,
@@ -431,7 +439,7 @@ describe('usePdfTextLayerRenderer', () => {
         const pageMatches = new Map([[
             0,
             {
-                pageIndex: toPageIndex(0),
+                pageIndex: requirePageIndex(0),
                 pageText: 'roma',
                 searchQuery: 'roma',
                 matches: [{
@@ -445,7 +453,7 @@ describe('usePdfTextLayerRenderer', () => {
         const renderer = usePdfTextLayerRenderer({
             searchPageMatches: ref(pageMatches),
             currentSearchMatch: ref({
-                pageIndex: toPageIndex(0),
+                pageIndex: requirePageIndex(0),
                 matchIndex: 0,
                 startOffset: 0,
                 endOffset: 4,
@@ -489,7 +497,7 @@ describe('usePdfTextLayerRenderer', () => {
         const pageMatches = new Map([[
             0,
             {
-                pageIndex: toPageIndex(0),
+                pageIndex: requirePageIndex(0),
                 pageText: 'История',
                 searchQuery: 'история',
                 signatureToken: 'page-0-geometry',
@@ -512,7 +520,7 @@ describe('usePdfTextLayerRenderer', () => {
         const renderer = usePdfTextLayerRenderer({
             searchPageMatches: ref(pageMatches),
             currentSearchMatch: ref({
-                pageIndex: toPageIndex(0),
+                pageIndex: requirePageIndex(0),
                 matchIndex: 0,
                 pageMatchIndex: 0,
                 startOffset: 0,
@@ -576,7 +584,7 @@ describe('usePdfTextLayerRenderer', () => {
         const pageMatches = new Map([[
             0,
             {
-                pageIndex: toPageIndex(0),
+                pageIndex: requirePageIndex(0),
                 pageText: 'historia historia',
                 searchQuery: 'historia',
                 signatureToken: 'page-0-two-matches',
@@ -595,7 +603,7 @@ describe('usePdfTextLayerRenderer', () => {
             },
         ]]);
         const currentSearchMatch = ref({
-            pageIndex: toPageIndex(0),
+            pageIndex: requirePageIndex(0),
             matchIndex: 0,
             pageMatchIndex: 0,
             startOffset: 0,
@@ -647,7 +655,7 @@ describe('usePdfTextLayerRenderer', () => {
             {} as HTMLCanvasElement,
         );
         currentSearchMatch.value = {
-            pageIndex: toPageIndex(0),
+            pageIndex: requirePageIndex(0),
             matchIndex: 1,
             pageMatchIndex: 1,
             startOffset: 9,
@@ -671,7 +679,7 @@ describe('usePdfTextLayerRenderer', () => {
         const pageMatches = new Map([[
             0,
             {
-                pageIndex: toPageIndex(0),
+                pageIndex: requirePageIndex(0),
                 pageText: 'История',
                 searchQuery: 'история',
                 matches: [{
@@ -684,7 +692,7 @@ describe('usePdfTextLayerRenderer', () => {
         const renderer = usePdfTextLayerRenderer({
             searchPageMatches: ref(pageMatches),
             currentSearchMatch: ref({
-                pageIndex: toPageIndex(0),
+                pageIndex: requirePageIndex(0),
                 matchIndex: 0,
                 pageMatchIndex: 0,
                 startOffset: 0,
@@ -739,7 +747,7 @@ describe('usePdfTextLayerRenderer', () => {
         const pageMatches = new Map([[
             0,
             {
-                pageIndex: toPageIndex(0),
+                pageIndex: requirePageIndex(0),
                 pageText: 'История',
                 searchQuery: 'история',
                 matches: [{
@@ -761,7 +769,7 @@ describe('usePdfTextLayerRenderer', () => {
         const renderer = usePdfTextLayerRenderer({
             searchPageMatches: ref(pageMatches),
             currentSearchMatch: ref({
-                pageIndex: toPageIndex(0),
+                pageIndex: requirePageIndex(0),
                 matchIndex: 0,
                 pageMatchIndex: 0,
                 startOffset: 0,

@@ -19,7 +19,6 @@ import {
 import { getRecentFiles } from '@electron/recentFiles';
 import { te } from '@electron/te';
 import { createLogger } from '@electron/utils/createLogger';
-import { normalizeNonEmptyStringPaths } from '@contracts/shared';
 import type { TOpenBatchProgressOperation } from '@contracts/electronApiDocuments';
 import { getErrorMessage } from '@electron/utils/error';
 import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
@@ -41,6 +40,27 @@ import type {
 
 const logger = createLogger('documents-dialogs');
 const MAX_DIRECT_OPEN_BATCH_PATHS = 512;
+const activeBatchCombines = new Map<string, AbortController>();
+
+function getBatchCombineKey(senderId: number, requestId: string) {
+    return `${senderId}:${requestId}`;
+}
+
+export function handleCancelOpenDocumentDirectBatch(
+    context: IDocumentsWebContentsContext,
+    requestId: string,
+) {
+    const normalizedRequestId = normalizeOptionalIpcRequestId(requestId);
+    if (!normalizedRequestId) {
+        return false;
+    }
+    const controller = activeBatchCombines.get(getBatchCombineKey(context.sender.id, normalizedRequestId));
+    if (!controller) {
+        return false;
+    }
+    controller.abort(new DOMException('PDF combine was canceled.', 'AbortError'));
+    return true;
+}
 
 function createOpenBatchProgressReporter(
     sender: Electron.WebContents,
@@ -66,7 +86,7 @@ function createOpenBatchProgressReporter(
 }
 
 async function allowRecentFileOpenPath(filePath: string, owner: Electron.WebContents) {
-    const normalizedPath = filePath.trim();
+    const normalizedPath = filePath;
     const recentFiles = await getRecentFiles();
     if (!recentFiles.some(file => file.originalPath === normalizedPath)) {
         return null;
@@ -79,7 +99,7 @@ export async function handleOpenPdfDirect(
     context: IDocumentsWebContentsContext,
     filePath: unknown,
 ): Promise<TOpenFileResult | null> {
-    if (typeof filePath !== 'string' || filePath.trim() === '') {
+    if (typeof filePath !== 'string' || filePath.length === 0) {
         logger.warn('openDocumentDirect received empty path');
         return null;
     }
@@ -111,6 +131,7 @@ export async function handleOpenPdfDirectBatch(
     context: IDocumentsWebContentsContext,
     filePaths: unknown,
     requestId?: string,
+    batchOptions?: {forceCombine?: boolean},
 ): Promise<TOpenFileResult | null> {
     if (!Array.isArray(filePaths) || filePaths.length === 0) {
         return null;
@@ -120,14 +141,34 @@ export async function handleOpenPdfDirectBatch(
     }
 
     try {
-        const normalizedPaths = normalizeNonEmptyStringPaths(filePaths)
+        const normalizedPaths = filePaths.filter((path): path is string => typeof path === 'string' && path.length > 0)
             .map(path => requireOpenPath(path, context.sender));
 
         const normalizedRequestId = normalizeOptionalIpcRequestId(requestId) ?? '';
+        const abortController = batchOptions?.forceCombine && normalizedRequestId
+            ? new AbortController()
+            : null;
+        const combineKey = abortController
+            ? getBatchCombineKey(context.sender.id, normalizedRequestId)
+            : null;
+        if (combineKey && abortController) {
+            activeBatchCombines.get(combineKey)?.abort(new Error('Superseded PDF combine request'));
+            activeBatchCombines.set(combineKey, abortController);
+        }
         const options = normalizedRequestId
             ? {onCombineProgress: createOpenBatchProgressReporter(context.sender, normalizedRequestId, 'document-open')}
             : {};
-        return await openInputPaths(normalizedPaths, options, context.sender);
+        try {
+            return await openInputPaths(normalizedPaths, {
+                ...options,
+                forceCombine: batchOptions?.forceCombine === true,
+                ...(abortController ? {signal: abortController.signal} : {}),
+            }, context.sender);
+        } finally {
+            if (combineKey && activeBatchCombines.get(combineKey) === abortController) {
+                activeBatchCombines.delete(combineKey);
+            }
+        }
     } catch (err) {
         logger.error(`Failed to create working copy from batch: ${getErrorMessage(err)}`);
         throw errorWithDetails(te('errors.file.open'), err);

@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {requireDocumentRevisionToken} from '@contracts';
 
 const mocks = vi.hoisted(() => ({
     rm: vi.fn(),
@@ -25,7 +26,7 @@ vi.mock('@electron/search/indexBuilder', () => ({
 }));
 
 const PDF_PATH = '/tmp/poisoned.pdf';
-const DOCUMENT_REVISION = 'revision-token';
+const DOCUMENT_REVISION = requireDocumentRevisionToken('revision-token');
 
 function createAbortError() {
     const error = new Error('The operation was aborted');

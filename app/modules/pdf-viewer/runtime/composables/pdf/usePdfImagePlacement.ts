@@ -9,6 +9,7 @@ import type {
     IPdfImagePlacementRectUpdate,
     IPdfPlacedImageFinalizePayload,
 } from '@app/types/pdfImagePlacement';
+import type {IManagedTempFileHandle} from '@contracts/electronApiDocuments';
 
 interface IUsePdfImagePlacementOptions {
     viewerContainer: Ref<HTMLElement | null>;
@@ -234,6 +235,7 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
         const placementRect = getInitialImagePlacementRect(target, initialDimensions);
 
         clearPendingImagePlacement({ invalidatePendingStarts: false });
+        const nativeSourceHandle = (file as File & {nativeSourceHandle?: IManagedTempFileHandle}).nativeSourceHandle;
         pendingImagePlacement.value = {
             ...placementRect,
             rotationDegrees: 0,
@@ -241,6 +243,9 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
             fileName: file.name,
             mimeType: file.type || 'image/png',
             bytes,
+            ...(nativeSourceHandle
+                ? {nativeSourceHandle}
+                : {}),
         };
         isPendingImagePlacementFinalizing.value = false;
         return true;
@@ -293,6 +298,7 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
             fileName: placement.fileName,
             mimeType: placement.mimeType,
             bytes: placement.bytes.slice(),
+            ...(placement.nativeSourceHandle ? {nativeSourceHandle: placement.nativeSourceHandle} : {}),
             targetPixelWidth: targetPixels.width,
             targetPixelHeight: targetPixels.height,
         });

@@ -205,7 +205,7 @@ function onSelectModel(model: string) {
     gap: 0.3rem;
     max-width: 100%;
     min-width: 0;
-    height: 1.85rem;
+    height: var(--app-assistant-control-height);
     padding: 0 var(--app-space-3xl);
     border: 1px solid var(--app-toolbar-group-border);
     border-radius: var(--app-radius-md);
@@ -241,7 +241,7 @@ function onSelectModel(model: string) {
 
 .assistant-model-switcher-provider-icon {
     flex: 0 0 auto;
-    font-size: 0.95rem;
+    font-size: var(--app-text-size-control);
 }
 
 .assistant-model-switcher-indicator {
@@ -282,7 +282,7 @@ function onSelectModel(model: string) {
     justify-content: center;
     gap: var(--app-space-md);
     min-width: 0;
-    min-height: 1.85rem;
+    min-height: var(--app-assistant-control-height);
     padding: 0 0.5rem;
     border: 1px solid transparent;
     border-radius: var(--app-radius-sm);
@@ -330,7 +330,7 @@ function onSelectModel(model: string) {
 
 .assistant-model-switcher-tab-icon {
     flex: 0 0 auto;
-    font-size: 0.95rem;
+    font-size: var(--app-text-size-control);
 }
 
 .assistant-model-switcher-section {
@@ -351,7 +351,7 @@ function onSelectModel(model: string) {
     align-items: center;
     justify-content: space-between;
     gap: var(--app-space-3xl);
-    min-height: 2.55rem;
+    min-height: var(--app-assistant-switcher-option-min-height);
     min-width: 0;
     padding: var(--app-space-sm) var(--app-space-3xl);
     border-radius: var(--app-radius-sm);

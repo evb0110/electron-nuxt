@@ -19,7 +19,7 @@ export function registerImageExportIpcAdapter(
 ) {
     registrar.handle(
         IMAGE_EXPORT_CHANNELS.exportImages,
-        (event, workingCopyPath: string, pageNumbers?: number[], requestId?: string) =>
+        (event, workingCopyPath: string, pageNumbers?: number[], requestId?: string, sourceKind?: 'pdf' | 'djvu') =>
             service.exportImages(
                 {
                     sender: event.sender,
@@ -29,11 +29,12 @@ export function registerImageExportIpcAdapter(
                 workingCopyPath,
                 pageNumbers,
                 requestId,
+                sourceKind,
             ),
     );
     registrar.handle(
         IMAGE_EXPORT_CHANNELS.exportMultiPageTiff,
-        (event, workingCopyPath: string, pageNumbers?: number[], requestId?: string) =>
+        (event, workingCopyPath: string, pageNumbers?: number[], requestId?: string, sourceKind?: 'pdf' | 'djvu') =>
             service.exportMultiPageTiff(
                 {
                     sender: event.sender,
@@ -43,6 +44,7 @@ export function registerImageExportIpcAdapter(
                 workingCopyPath,
                 pageNumbers,
                 requestId,
+                sourceKind,
             ),
     );
     registrar.handle(

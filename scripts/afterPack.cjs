@@ -1,4 +1,5 @@
 const fs = require('fs');
+const crypto = require('crypto');
 const path = require('path');
 
 const projectRoot = path.resolve(__dirname, '..');
@@ -65,6 +66,7 @@ const REQUIRED_PLATFORM_EXTRA_RESOURCE_ROOTS = [
         stagedRootSegments: ['djvulibre'],
     },
     {
+        binaryName: 'evb-pdf-image-combine',
         label: 'PDF image combine native tool',
         sourceRootSegments: [
             '.tmp',
@@ -73,6 +75,7 @@ const REQUIRED_PLATFORM_EXTRA_RESOURCE_ROOTS = [
         stagedRootSegments: ['pdf-image-combine'],
     },
     {
+        binaryName: 'evb-pdf-page-ops',
         label: 'PDF page ops native tool',
         sourceRootSegments: [
             '.tmp',
@@ -81,6 +84,7 @@ const REQUIRED_PLATFORM_EXTRA_RESOURCE_ROOTS = [
         stagedRootSegments: ['pdf-page-ops'],
     },
     {
+        binaryName: 'evb-pdf-search',
         label: 'PDF search native tool',
         sourceRootSegments: [
             '.tmp',
@@ -89,6 +93,41 @@ const REQUIRED_PLATFORM_EXTRA_RESOURCE_ROOTS = [
         stagedRootSegments: ['pdf-search'],
     },
 ];
+const SUPPORTED_CHROMIUM_LOCALES = {
+    darwin: new Set([
+        'de',
+        'en',
+        'es',
+        'fr',
+        'it',
+        'nl',
+        'pt_BR',
+        'pt_PT',
+        'ru',
+    ]),
+    linux: new Set([
+        'de',
+        'en-US',
+        'es',
+        'fr',
+        'it',
+        'nl',
+        'pt-BR',
+        'pt-PT',
+        'ru',
+    ]),
+    win32: new Set([
+        'de',
+        'en-US',
+        'es',
+        'fr',
+        'it',
+        'nl',
+        'pt-BR',
+        'pt-PT',
+        'ru',
+    ]),
+};
 
 function archName(arch) {
     switch (arch) {
@@ -144,7 +183,11 @@ function requiredExtraResourcesForContext(context, {
     }));
 
     for (const entry of REQUIRED_PLATFORM_EXTRA_RESOURCE_ROOTS) {
+        const binaryExtension = context.electronPlatformName === 'win32' ? '.exe' : '';
         entries.push({
+            identityRelativePath: entry.binaryName
+                ? path.join('bin', `${entry.binaryName}${binaryExtension}`)
+                : null,
             label: `${entry.label} (${tag})`,
             sourcePath: path.join(root, ...entry.sourceRootSegments, tag),
             stagedPath: path.join(resourcesDir, ...entry.stagedRootSegments, tag),
@@ -183,6 +226,26 @@ function assertRequiredExtraResources(context, options) {
 
         if (!hasExpectedPathType(entry.stagedPath, entry.type)) {
             missing.push(`packaged ${entry.label}: ${entry.stagedPath}`);
+            continue;
+        }
+
+        if (entry.identityRelativePath !== null && entry.identityRelativePath !== undefined) {
+            const sourceBinaryPath = path.join(entry.sourcePath, entry.identityRelativePath);
+            const packagedBinaryPath = path.join(entry.stagedPath, entry.identityRelativePath);
+            if (!hasExpectedPathType(sourceBinaryPath, 'file')) {
+                missing.push(`source ${entry.label} binary: ${sourceBinaryPath}`);
+                continue;
+            }
+            if (!hasExpectedPathType(packagedBinaryPath, 'file')) {
+                missing.push(`packaged ${entry.label} binary: ${packagedBinaryPath}`);
+                continue;
+            }
+
+            const sourceHash = crypto.createHash('sha256').update(fs.readFileSync(sourceBinaryPath)).digest('hex');
+            const packagedHash = crypto.createHash('sha256').update(fs.readFileSync(packagedBinaryPath)).digest('hex');
+            if (sourceHash !== packagedHash) {
+                missing.push(`packaged ${entry.label} binary differs from staged build: ${packagedBinaryPath}`);
+            }
         }
     }
 
@@ -208,49 +271,67 @@ function nativeToolsDirForContext(context) {
     return resourcesDirForContext(context);
 }
 
-function isPageProcessingRequired(context) {
-    return context.electronPlatformName === 'darwin' && process.env.EVB_INCLUDE_PAGE_PROCESSOR === '1';
+function chromiumLocaleDirectoryForContext(context) {
+    if (context.electronPlatformName === 'darwin') {
+        return path.join(
+            appPathForContext(context),
+            'Contents',
+            'Frameworks',
+            'Electron Framework.framework',
+            'Versions',
+            'A',
+            'Resources',
+        );
+    }
+
+    return path.join(resourcesDirForContext(context), 'locales');
 }
 
-function shouldCopyPageProcessingResources() {
-    return process.env.EVB_INCLUDE_PAGE_PROCESSOR === '1';
-}
-
-function copyPageProcessingResources(context) {
-    if (!shouldCopyPageProcessingResources()) {
-        return;
+function pruneChromiumLocales(context) {
+    const platform = context.electronPlatformName;
+    const keep = SUPPORTED_CHROMIUM_LOCALES[platform];
+    if (!keep) {
+        throw new Error(`[afterPack] Unsupported Chromium locale platform: ${platform}`);
+    }
+    const localeDirectory = chromiumLocaleDirectoryForContext(context);
+    if (!fs.existsSync(localeDirectory)) {
+        throw new Error(`[afterPack] Chromium locale directory is missing: ${localeDirectory}`);
     }
 
-    const arch = archName(context.arch);
-    if (arch === null) {
-        if (isPageProcessingRequired(context)) {
-            throw new Error(`[afterPack] Unsupported required page-processing arch: ${context.arch}`);
+    const present = new Set();
+    let removed = 0;
+    for (const entry of fs.readdirSync(localeDirectory, {withFileTypes: true})) {
+        const locale = platform === 'darwin'
+            ? (entry.isDirectory() && entry.name.endsWith('.lproj')
+                ? entry.name.slice(0, -'.lproj'.length)
+                : null)
+            : (entry.isFile() && entry.name.endsWith('.pak')
+                ? entry.name.slice(0, -'.pak'.length)
+                : null);
+        if (locale === null) {
+            continue;
         }
-        console.warn('[afterPack] Skipping optional page-processing resources for unsupported arch:', context.arch);
-        return;
-    }
-
-    const tag = `${context.electronPlatformName}-${arch}`;
-    const src = path.resolve(__dirname, '..', 'resources', 'page-processing', tag);
-    if (!fs.existsSync(src)) {
-        if (isPageProcessingRequired(context)) {
-            throw new Error(`[afterPack] Required page-processing resources not found: ${src}`);
+        const baseLocale = platform === 'darwin'
+            ? locale.replace(/_(?:FEMININE|MASCULINE|NEUTER)$/u, '')
+            : locale;
+        if (keep.has(baseLocale)) {
+            if (baseLocale === locale) {
+                present.add(locale);
+            }
+            continue;
         }
-        console.log('[afterPack] Optional page-processing resources not found:', src);
-        return;
+        fs.rmSync(path.join(localeDirectory, entry.name), {
+            force: true,
+            recursive: true,
+        });
+        removed++;
     }
 
-    const dst = path.join(nativeToolsDirForContext(context), 'page-processing', tag);
-    fs.rmSync(dst, {
-        force: true,
-        recursive: true,
-    });
-    fs.mkdirSync(path.dirname(dst), {recursive: true});
-    fs.cpSync(src, dst, {
-        recursive: true,
-        verbatimSymlinks: true,
-    });
-    console.log('[afterPack] Copied page-processing resources:', dst);
+    const missing = [...keep].filter(locale => !present.has(locale));
+    if (missing.length > 0) {
+        throw new Error(`[afterPack] Required Chromium locales are missing for ${platform}: ${missing.join(', ')}`);
+    }
+    console.log(`[afterPack] Pruned ${removed} unused Chromium locale packs; retained ${keep.size}`);
 }
 
 function removeEmptyDir(dir) {
@@ -311,14 +392,50 @@ function moveMacNativeToolResources(context) {
     }
 }
 
+function makeTreeOwnerWritable(rootPath) {
+    if (!fs.existsSync(rootPath)) {
+        return;
+    }
+
+    const pending = [rootPath];
+    while (pending.length > 0) {
+        const currentPath = pending.pop();
+        const stat = fs.lstatSync(currentPath);
+        if (stat.isSymbolicLink()) {
+            continue;
+        }
+
+        // ShipIt removes quarantine metadata from the unpacked update before it
+        // swaps the application bundle. A read-only native binary or dylib makes
+        // that operation fail with EACCES and causes the old version to relaunch.
+        // Preserve executable bits while ensuring the bundle owner may update
+        // metadata. This runs before afterSign, so signatures cover final modes.
+        const requiredMode = stat.isDirectory() ? 0o300 : 0o200;
+        const nextMode = stat.mode | requiredMode;
+        if (nextMode !== stat.mode) {
+            fs.chmodSync(currentPath, nextMode);
+        }
+
+        if (stat.isDirectory()) {
+            for (const child of fs.readdirSync(currentPath)) {
+                pending.push(path.join(currentPath, child));
+            }
+        }
+    }
+}
+
 exports.default = async function afterPack(context) {
     assertRequiredExtraResources(context);
-    copyPageProcessingResources(context);
+    pruneChromiumLocales(context);
     moveMacNativeToolResources(context);
 
     if (context.electronPlatformName !== 'darwin') {
         return;
     }
+
+    const nativeToolsDir = nativeToolsDirForContext(context);
+    makeTreeOwnerWritable(nativeToolsDir);
+    console.log('[afterPack] Made macOS native tools owner-writable for ShipIt updates:', nativeToolsDir);
 
     const src = path.resolve(__dirname, '..', 'resources', 'icon.icns');
     const dst = path.join(appPathForContext(context), 'Contents', 'Resources', 'icon.icns');
@@ -332,4 +449,6 @@ exports.default = async function afterPack(context) {
     console.log('[afterPack] Restored original icon.icns (bypassing app-builder alpha corruption)');
 };
 exports.assertRequiredExtraResources = assertRequiredExtraResources;
+exports.makeTreeOwnerWritable = makeTreeOwnerWritable;
+exports.pruneChromiumLocales = pruneChromiumLocales;
 exports.requiredExtraResourcesForContext = requiredExtraResourcesForContext;

@@ -3,6 +3,7 @@ import { runOcrCommand } from '@electron/ocr/worker/runOcrCommand';
 import type { TWorkerLog } from '@electron/ocr/worker/types';
 import { getErrorMessage } from '@electron/utils/error';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
+import type { IOcrDiagnostic } from '@contracts/electronApiOcr';
 
 const OCR_PREPROCESS_TIMEOUT_MS = parseIntegerEnv('EVB_OCR_PREPROCESS_TIMEOUT_MS', 30_000, 1_000);
 const OCR_UNPAPER_PROBE_TIMEOUT_MS = parseIntegerEnv('EVB_OCR_UNPAPER_PROBE_TIMEOUT_MS', 10_000, 1_000);
@@ -75,13 +76,25 @@ export async function tryPreprocessOcrImage(
     outputPath: string,
     log: TWorkerLog,
     signal: AbortSignal,
+    onDiagnostic?: (diagnostic: IOcrDiagnostic) => void,
 ) {
     if (!unpaperBinary) {
-        log('warn', 'OCR preprocessing requested, but unpaper is not bundled for this platform');
+        const message = 'OCR preprocessing requested, but unpaper is not bundled for this platform';
+        log('warn', message);
+        onDiagnostic?.({
+            code: 'OCR_PREPROCESSING_UNAVAILABLE',
+            severity: 'warning',
+            message,
+        });
         return inputPath;
     }
 
     if (!await probeUnpaperBinary(unpaperBinary, log, signal)) {
+        onDiagnostic?.({
+            code: 'OCR_PREPROCESSING_UNAVAILABLE',
+            severity: 'warning',
+            message: 'OCR preprocessing is unavailable because unpaper is not runnable; using raw page render',
+        });
         return inputPath;
     }
 
@@ -101,7 +114,13 @@ export async function tryPreprocessOcrImage(
             log: createOptionalPreprocessingLog(log),
         });
         if (!await isNonEmptyFile(outputPath)) {
-            log('warn', 'OCR preprocessing did not produce a usable image; using raw page render');
+            const message = 'OCR preprocessing did not produce a usable image; using raw page render';
+            log('warn', message);
+            onDiagnostic?.({
+                code: 'OCR_PREPROCESSING_FAILED',
+                severity: 'warning',
+                message,
+            });
             return inputPath;
         }
         return outputPath;
@@ -109,7 +128,13 @@ export async function tryPreprocessOcrImage(
         if (signal.aborted) {
             throw error;
         }
-        log('warn', `OCR preprocessing failed; using raw page render: ${getErrorMessage(error)}`);
+        const message = `OCR preprocessing failed; using raw page render: ${getErrorMessage(error)}`;
+        log('warn', message);
+        onDiagnostic?.({
+            code: 'OCR_PREPROCESSING_FAILED',
+            severity: 'warning',
+            message,
+        });
         return inputPath;
     }
 }

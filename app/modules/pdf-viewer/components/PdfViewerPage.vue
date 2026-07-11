@@ -94,6 +94,7 @@ const {
 } = defineProps<IProps>();
 const emit = defineEmits<{
     'page-container-mounted': [page: number];
+    'page-container-unmounted': [page: number];
     'update-placed-image-rect': [payload: IPdfImagePlacementRectUpdate];
     'finalize-placed-image': [];
     'cancel-placed-image': [];
@@ -185,5 +186,6 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
     clearPdfSelectionForLayerTeardown({ target: pageContainer.value });
+    emit('page-container-unmounted', page);
 });
 </script>

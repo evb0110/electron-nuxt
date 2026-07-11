@@ -1,11 +1,23 @@
-use serde::Serialize;
+use evb_native_support::{NativeError, NativeErrorCode, NativeErrorEnvelope};
+use memmap2::{Mmap, MmapOptions};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::env;
 use std::error::Error;
-use std::fmt;
+#[cfg(test)]
 use std::fs;
+use std::fs::File;
+use std::io::{self, BufRead, BufReader, Write};
 use std::path::PathBuf;
+#[cfg(test)]
 use std::process;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
+use std::thread;
 use unicode_casefold::{Locale, UnicodeCaseFold, Variant};
+use unicode_normalization::{char::canonical_combining_class, UnicodeNormalization};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const PROTOCOL_VERSION: u32 = 1;
@@ -13,17 +25,30 @@ const MAGIC: &[u8; 8] = b"EVBSIDX2";
 const SCHEMA_VERSION: u32 = 2;
 const HEADER_SIZE: usize = 64;
 const PAGE_RECORD_SIZE: usize = 24;
+const MAX_SERVICE_WORKERS: usize = 4;
 
-#[derive(Debug)]
-struct CliError(String);
-
-impl fmt::Display for CliError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.0)
-    }
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ErrorEnvelope {
+    code: NativeErrorCode,
+    message: String,
 }
 
-impl Error for CliError {}
+fn invalid_request(message: impl Into<String>) -> NativeError {
+    NativeError::new(NativeErrorCode::InvalidRequest, message)
+}
+
+fn corrupt_index(message: impl Into<String>) -> NativeError {
+    NativeError::new(NativeErrorCode::CorruptXref, message)
+}
+
+fn too_large(message: impl Into<String>) -> NativeError {
+    NativeError::new(NativeErrorCode::TooLarge, message)
+}
+
+fn native_failure(message: impl Into<String>) -> NativeError {
+    NativeError::new(NativeErrorCode::NativeFailure, message)
+}
 
 #[derive(Debug, Clone)]
 struct PageRecord {
@@ -36,10 +61,27 @@ struct PageRecord {
 struct SearchIndex {
     page_count: u32,
     records: Vec<PageRecord>,
-    data: Vec<u8>,
+    data: SearchIndexData,
 }
 
 #[derive(Debug)]
+enum SearchIndexData {
+    Mapped(Mmap),
+    #[cfg(test)]
+    Owned(Vec<u8>),
+}
+
+impl AsRef<[u8]> for SearchIndexData {
+    fn as_ref(&self) -> &[u8] {
+        match self {
+            Self::Mapped(data) => data,
+            #[cfg(test)]
+            Self::Owned(data) => data,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 struct SearchOptions {
     index_path: PathBuf,
     query: String,
@@ -87,111 +129,123 @@ fn usage() -> &'static str {
     "Usage: evb-pdf-search search --index <path> --query <text> --document-revision <token> [--limit <n>] [--context <n>] [--match-case] [--page-count <n>]"
 }
 
-fn read_u32_le(bytes: &[u8], offset: usize) -> Result<u32, CliError> {
+fn read_u32_le(bytes: &[u8], offset: usize) -> Result<u32, NativeError> {
     let end = offset
         .checked_add(4)
-        .ok_or_else(|| CliError("Native search index offset overflow".to_string()))?;
+        .ok_or_else(|| too_large("Native search index offset overflow".to_string()))?;
     let slice = bytes
         .get(offset..end)
-        .ok_or_else(|| CliError("Native search index ended unexpectedly".to_string()))?;
+        .ok_or_else(|| corrupt_index("Native search index ended unexpectedly".to_string()))?;
     let array: [u8; 4] = slice
         .try_into()
-        .map_err(|_| CliError("Invalid native search index u32 field".to_string()))?;
+        .map_err(|_| native_failure("Invalid native search index u32 field".to_string()))?;
     Ok(u32::from_le_bytes(array))
 }
 
-fn read_u64_le(bytes: &[u8], offset: usize) -> Result<u64, CliError> {
+fn read_u64_le(bytes: &[u8], offset: usize) -> Result<u64, NativeError> {
     let end = offset
         .checked_add(8)
-        .ok_or_else(|| CliError("Native search index offset overflow".to_string()))?;
+        .ok_or_else(|| too_large("Native search index offset overflow".to_string()))?;
     let slice = bytes
         .get(offset..end)
-        .ok_or_else(|| CliError("Native search index ended unexpectedly".to_string()))?;
+        .ok_or_else(|| corrupt_index("Native search index ended unexpectedly".to_string()))?;
     let array: [u8; 8] = slice
         .try_into()
-        .map_err(|_| CliError("Invalid native search index u64 field".to_string()))?;
+        .map_err(|_| native_failure("Invalid native search index u64 field".to_string()))?;
     Ok(u64::from_le_bytes(array))
 }
 
-fn usize_from_u64(value: u64, label: &str) -> Result<usize, CliError> {
+fn usize_from_u64(value: u64, label: &str) -> Result<usize, NativeError> {
     usize::try_from(value).map_err(|_| {
-        CliError(format!(
+        native_failure(format!(
             "Native search index {label} does not fit this platform"
         ))
     })
 }
 
 fn load_index(path: &PathBuf, expected_revision: &str) -> Result<SearchIndex, Box<dyn Error>> {
-    let data = fs::read(path)?;
-    if data.len() < HEADER_SIZE {
-        return Err(Box::new(CliError(
+    let file = File::open(path)?;
+    // SAFETY: the mapping is read-only and retained by SearchIndex. Index files
+    // are immutable revision-keyed sidecars and are replaced atomically.
+    let mapped = unsafe { MmapOptions::new().map(&file)? };
+    load_index_data(SearchIndexData::Mapped(mapped), expected_revision)
+}
+
+fn load_index_data(
+    data: SearchIndexData,
+    expected_revision: &str,
+) -> Result<SearchIndex, Box<dyn Error>> {
+    let bytes = data.as_ref();
+    if bytes.len() < HEADER_SIZE {
+        return Err(Box::new(native_failure(
             "Native search index is too small".to_string(),
         )));
     }
-    if data.get(0..8) != Some(&MAGIC[..]) {
-        return Err(Box::new(CliError(
+    if bytes.get(0..8) != Some(&MAGIC[..]) {
+        return Err(Box::new(native_failure(
             "Native search index magic mismatch".to_string(),
         )));
     }
 
-    let schema_version = read_u32_le(&data, 8)?;
+    let schema_version = read_u32_le(bytes, 8)?;
     if schema_version != SCHEMA_VERSION {
-        return Err(Box::new(CliError(format!(
+        return Err(Box::new(native_failure(format!(
             "Unsupported native search index schema version {schema_version}",
         ))));
     }
 
-    let header_size = usize::try_from(read_u32_le(&data, 12)?)
-        .map_err(|_| CliError("Native search index header size is too large".to_string()))?;
+    let header_size = usize::try_from(read_u32_le(bytes, 12)?)
+        .map_err(|_| too_large("Native search index header size is too large".to_string()))?;
     if header_size != HEADER_SIZE {
-        return Err(Box::new(CliError(
+        return Err(Box::new(native_failure(
             "Native search index header size mismatch".to_string(),
         )));
     }
 
-    let page_count = read_u32_le(&data, 16)?;
-    let page_record_count = read_u32_le(&data, 20)?;
-    let revision_token_byte_length = usize::try_from(read_u32_le(&data, 28)?)
-        .map_err(|_| CliError("Native search index revision token is too large".to_string()))?;
+    let page_count = read_u32_le(bytes, 16)?;
+    let page_record_count = read_u32_le(bytes, 20)?;
+    let revision_token_byte_length = usize::try_from(read_u32_le(bytes, 28)?)
+        .map_err(|_| too_large("Native search index revision token is too large".to_string()))?;
     let revision_token_byte_offset =
-        usize_from_u64(read_u64_le(&data, 32)?, "revision token byte offset")?;
-    let page_table_offset = usize_from_u64(read_u64_le(&data, 40)?, "page table offset")?;
-    let text_data_offset = usize_from_u64(read_u64_le(&data, 48)?, "text data offset")?;
+        usize_from_u64(read_u64_le(bytes, 32)?, "revision token byte offset")?;
+    let page_table_offset = usize_from_u64(read_u64_le(bytes, 40)?, "page table offset")?;
+    let text_data_offset = usize_from_u64(read_u64_le(bytes, 48)?, "text data offset")?;
     let revision_token_end = revision_token_byte_offset
         .checked_add(revision_token_byte_length)
         .ok_or_else(|| {
-            CliError("Native search index revision token offset overflow".to_string())
+            too_large("Native search index revision token offset overflow".to_string())
         })?;
     if revision_token_byte_length == 0
         || revision_token_byte_offset < HEADER_SIZE
         || revision_token_end > page_table_offset
     {
-        return Err(Box::new(CliError(
+        return Err(Box::new(native_failure(
             "Native search index revision token is invalid".to_string(),
         )));
     }
     let revision_token = std::str::from_utf8(
-        data.get(revision_token_byte_offset..revision_token_end)
+        bytes
+            .get(revision_token_byte_offset..revision_token_end)
             .ok_or_else(|| {
-                CliError("Native search index revision token is truncated".to_string())
+                corrupt_index("Native search index revision token is truncated".to_string())
             })?,
     )?;
     if revision_token != expected_revision {
-        return Err(Box::new(CliError(
+        return Err(Box::new(native_failure(
             "Native search index document revision mismatch".to_string(),
         )));
     }
 
     let page_record_count_usize = usize::try_from(page_record_count)
-        .map_err(|_| CliError("Native search index page count is too large".to_string()))?;
+        .map_err(|_| too_large("Native search index page count is too large".to_string()))?;
     let table_size = page_record_count_usize
         .checked_mul(PAGE_RECORD_SIZE)
-        .ok_or_else(|| CliError("Native search index table is too large".to_string()))?;
+        .ok_or_else(|| too_large("Native search index table is too large".to_string()))?;
     let minimum_size = page_table_offset
         .checked_add(table_size)
-        .ok_or_else(|| CliError("Native search index table offset overflow".to_string()))?;
-    if text_data_offset < minimum_size || data.len() < text_data_offset {
-        return Err(Box::new(CliError(
+        .ok_or_else(|| too_large("Native search index table offset overflow".to_string()))?;
+    if text_data_offset < minimum_size || bytes.len() < text_data_offset {
+        return Err(Box::new(native_failure(
             "Native search index page table is truncated".to_string(),
         )));
     }
@@ -199,14 +253,14 @@ fn load_index(path: &PathBuf, expected_revision: &str) -> Result<SearchIndex, Bo
     let mut records = Vec::with_capacity(page_record_count_usize);
     for record_index in 0..page_record_count_usize {
         let record_offset = page_table_offset + record_index * PAGE_RECORD_SIZE;
-        let page_number = read_u32_le(&data, record_offset)?;
-        let byte_offset = usize_from_u64(read_u64_le(&data, record_offset + 8)?, "byte offset")?;
-        let byte_len = usize_from_u64(read_u64_le(&data, record_offset + 16)?, "byte length")?;
-        let byte_end = byte_offset
-            .checked_add(byte_len)
-            .ok_or_else(|| CliError("Native search index page text offset overflow".to_string()))?;
-        if byte_offset < text_data_offset || byte_end > data.len() {
-            return Err(Box::new(CliError(
+        let page_number = read_u32_le(bytes, record_offset)?;
+        let byte_offset = usize_from_u64(read_u64_le(bytes, record_offset + 8)?, "byte offset")?;
+        let byte_len = usize_from_u64(read_u64_le(bytes, record_offset + 16)?, "byte length")?;
+        let byte_end = byte_offset.checked_add(byte_len).ok_or_else(|| {
+            too_large("Native search index page text offset overflow".to_string())
+        })?;
+        if byte_offset < text_data_offset || byte_end > bytes.len() {
+            return Err(Box::new(native_failure(
                 "Native search index page text is truncated".to_string(),
             )));
         }
@@ -226,27 +280,28 @@ fn load_index(path: &PathBuf, expected_revision: &str) -> Result<SearchIndex, Bo
 
 impl SearchIndex {
     fn page_text(&self, record: &PageRecord) -> Result<&str, Box<dyn Error>> {
-        let end = record
-            .offset
-            .checked_add(record.byte_len)
-            .ok_or_else(|| CliError("Native search index page text offset overflow".to_string()))?;
-        Ok(std::str::from_utf8(&self.data[record.offset..end])?)
+        let end = record.offset.checked_add(record.byte_len).ok_or_else(|| {
+            too_large("Native search index page text offset overflow".to_string())
+        })?;
+        Ok(std::str::from_utf8(
+            &self.data.as_ref()[record.offset..end],
+        )?)
     }
 }
 
 fn parse_usize(value: Option<String>, label: &str) -> Result<usize, Box<dyn Error>> {
-    let raw = value.ok_or_else(|| CliError(format!("Missing value for {label}")))?;
+    let raw = value.ok_or_else(|| invalid_request(format!("Missing value for {label}")))?;
     let parsed = raw
         .parse::<usize>()
-        .map_err(|_| CliError(format!("Invalid numeric value for {label}: {raw}")))?;
+        .map_err(|_| invalid_request(format!("Invalid numeric value for {label}: {raw}")))?;
     Ok(parsed)
 }
 
 fn parse_u32(value: Option<String>, label: &str) -> Result<u32, Box<dyn Error>> {
-    let raw = value.ok_or_else(|| CliError(format!("Missing value for {label}")))?;
+    let raw = value.ok_or_else(|| invalid_request(format!("Missing value for {label}")))?;
     let parsed = raw
         .parse::<u32>()
-        .map_err(|_| CliError(format!("Invalid numeric value for {label}: {raw}")))?;
+        .map_err(|_| invalid_request(format!("Invalid numeric value for {label}: {raw}")))?;
     Ok(parsed)
 }
 
@@ -264,15 +319,14 @@ fn parse_search_options(
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--index" => {
-                index_path =
-                    Some(PathBuf::from(args.next().ok_or_else(|| {
-                        CliError("Missing value for --index".to_string())
-                    })?));
+                index_path = Some(PathBuf::from(args.next().ok_or_else(|| {
+                    invalid_request("Missing value for --index".to_string())
+                })?));
             }
             "--query" => {
                 query = Some(
                     args.next()
-                        .ok_or_else(|| CliError("Missing value for --query".to_string()))?,
+                        .ok_or_else(|| invalid_request("Missing value for --query".to_string()))?,
                 );
             }
             "--limit" => {
@@ -289,29 +343,30 @@ fn parse_search_options(
             }
             "--document-revision" => {
                 document_revision = Some(args.next().ok_or_else(|| {
-                    CliError("Missing value for --document-revision".to_string())
+                    invalid_request("Missing value for --document-revision".to_string())
                 })?);
             }
             "--help" | "-h" => {
-                return Err(Box::new(CliError(usage().to_string())));
+                return Err(Box::new(invalid_request(usage().to_string())));
             }
             _ => {
-                return Err(Box::new(CliError(format!(
+                return Err(Box::new(invalid_request(format!(
                     "Unknown search argument: {arg}"
                 ))));
             }
         }
     }
 
-    let query = query.ok_or_else(|| CliError("Missing required --query".to_string()))?;
+    let query = query.ok_or_else(|| invalid_request("Missing required --query".to_string()))?;
     if query.is_empty() {
-        return Err(Box::new(CliError(
+        return Err(Box::new(invalid_request(
             "Search query must not be empty".to_string(),
         )));
     }
 
     Ok(SearchOptions {
-        index_path: index_path.ok_or_else(|| CliError("Missing required --index".to_string()))?,
+        index_path: index_path
+            .ok_or_else(|| invalid_request("Missing required --index".to_string()))?,
         query,
         limit,
         context_chars,
@@ -319,7 +374,7 @@ fn parse_search_options(
         page_count,
         document_revision: document_revision
             .filter(|revision| !revision.is_empty())
-            .ok_or_else(|| CliError("Missing required --document-revision".to_string()))?,
+            .ok_or_else(|| invalid_request("Missing required --document-revision".to_string()))?,
     })
 }
 
@@ -349,6 +404,102 @@ fn simple_case_fold(value: &str) -> String {
     value
         .case_fold_with(Variant::Simple, Locale::NonTurkic)
         .collect()
+}
+
+#[derive(Debug)]
+struct NormalizedCharSpan {
+    normalized_start: usize,
+    normalized_end: usize,
+    original_start: usize,
+    original_end: usize,
+}
+
+#[derive(Debug)]
+struct NormalizedText {
+    text: String,
+    spans: Vec<NormalizedCharSpan>,
+}
+
+fn fold_search_ligature(character: char) -> Option<&'static str> {
+    match character {
+        '\u{fb00}' => Some("ff"),
+        '\u{fb01}' => Some("fi"),
+        '\u{fb02}' => Some("fl"),
+        '\u{fb03}' => Some("ffi"),
+        '\u{fb04}' => Some("ffl"),
+        '\u{fb05}' | '\u{fb06}' => Some("st"),
+        _ => None,
+    }
+}
+
+fn normalize_search_fragment(value: &str) -> String {
+    let mut folded = String::with_capacity(value.len());
+    for character in value.chars() {
+        if let Some(replacement) = fold_search_ligature(character) {
+            folded.push_str(replacement);
+        } else {
+            folded.push(character);
+        }
+    }
+    folded.nfc().collect()
+}
+
+impl NormalizedText {
+    fn new(value: &str) -> Self {
+        let mut text = String::with_capacity(value.len());
+        let mut spans = Vec::with_capacity(value.chars().count());
+        let mut group_start = 0usize;
+        let mut group = String::new();
+
+        let append_group = |group: &str,
+                            original_start: usize,
+                            original_end: usize,
+                            text: &mut String,
+                            spans: &mut Vec<NormalizedCharSpan>| {
+            let normalized = normalize_search_fragment(group);
+            for character in normalized.chars() {
+                let normalized_start = text.len();
+                text.push(character);
+                spans.push(NormalizedCharSpan {
+                    normalized_start,
+                    normalized_end: text.len(),
+                    original_start,
+                    original_end,
+                });
+            }
+        };
+
+        for (byte_offset, character) in value.char_indices() {
+            if !group.is_empty() && canonical_combining_class(character) == 0 {
+                append_group(&group, group_start, byte_offset, &mut text, &mut spans);
+                group.clear();
+                group_start = byte_offset;
+            } else if group.is_empty() {
+                group_start = byte_offset;
+            }
+            group.push(character);
+        }
+        if !group.is_empty() {
+            append_group(&group, group_start, value.len(), &mut text, &mut spans);
+        }
+
+        Self { text, spans }
+    }
+
+    fn original_byte_range(&self, start: usize, end: usize) -> Option<(usize, usize)> {
+        let start_span = self
+            .spans
+            .binary_search_by_key(&start, |span| span.normalized_start)
+            .ok()?;
+        let end_span = self
+            .spans
+            .binary_search_by_key(&end, |span| span.normalized_end)
+            .ok()?;
+        Some((
+            self.spans[start_span].original_start,
+            self.spans[end_span].original_end,
+        ))
+    }
 }
 
 fn fold_text_with_spans(value: &str) -> FoldedText {
@@ -518,12 +669,11 @@ impl PageTextMap {
         }
     }
 
-    fn utf16_offset_for_byte(&self, byte_offset: usize) -> usize {
-        let index = self
-            .byte_offsets
-            .binary_search(&byte_offset)
-            .expect("match offsets are character boundaries");
-        self.utf16_offsets[index]
+    fn utf16_offset_for_byte(&self, byte_offset: usize) -> Result<usize, NativeError> {
+        let index = self.byte_offsets.binary_search(&byte_offset).map_err(|_| {
+            corrupt_index("Search match offset is not a character boundary".to_string())
+        })?;
+        Ok(self.utf16_offsets[index])
     }
 
     fn byte_index_for_utf16_offset(&self, target_offset: usize) -> usize {
@@ -621,29 +771,51 @@ fn search_index_with_work_count(
     index: &SearchIndex,
     options: &SearchOptions,
 ) -> Result<(SearchResponse, usize), Box<dyn Error>> {
+    search_index_with_cancel(index, options, None)
+}
+
+fn search_index_with_cancel(
+    index: &SearchIndex,
+    options: &SearchOptions,
+    canceled: Option<&AtomicBool>,
+) -> Result<(SearchResponse, usize), Box<dyn Error>> {
     let total_pages = options.page_count.unwrap_or(index.page_count);
     let mut results = Vec::new();
     let mut truncated = false;
     let mut matches_examined = 0usize;
+    let normalized_query = normalize_search_fragment(&options.query);
 
     'pages: for record in &index.records {
+        if canceled.is_some_and(|flag| flag.load(Ordering::Relaxed)) {
+            return Err(Box::new(native_failure("Search canceled".to_string())));
+        }
         if record.page_number == 0 || record.page_number > total_pages {
             continue;
         }
 
         let text = index.page_text(record)?;
+        let normalized_text = NormalizedText::new(text);
         let mut text_map: Option<PageTextMap> = None;
-        let mut page_match_index = 0usize;
-        for (start_byte, end_byte) in MatchScanner::new(text, &options.query, options.match_case) {
+        for (page_match_index, (normalized_start, normalized_end)) in
+            MatchScanner::new(&normalized_text.text, &normalized_query, options.match_case)
+                .enumerate()
+        {
+            if canceled.is_some_and(|flag| flag.load(Ordering::Relaxed)) {
+                return Err(Box::new(native_failure("Search canceled".to_string())));
+            }
             matches_examined += 1;
             if results.len() >= options.limit {
                 truncated = true;
                 break 'pages;
             }
 
+            let (start_byte, end_byte) = normalized_text
+                .original_byte_range(normalized_start, normalized_end)
+                .ok_or_else(|| corrupt_index("Normalized search match offset is invalid"))?;
+
             let text_map = text_map.get_or_insert_with(|| PageTextMap::new(text));
-            let start_offset = text_map.utf16_offset_for_byte(start_byte);
-            let end_offset = text_map.utf16_offset_for_byte(end_byte);
+            let start_offset = text_map.utf16_offset_for_byte(start_byte)?;
+            let end_offset = text_map.utf16_offset_for_byte(end_byte)?;
             results.push(SearchMatch {
                 page_number: record.page_number,
                 page_match_index,
@@ -652,7 +824,7 @@ fn search_index_with_work_count(
                 end_offset,
                 excerpt: build_excerpt(
                     text,
-                    &text_map,
+                    text_map,
                     start_byte,
                     end_byte,
                     start_offset,
@@ -660,7 +832,6 @@ fn search_index_with_work_count(
                     options.context_chars,
                 ),
             });
-            page_match_index += 1;
         }
     }
 
@@ -674,9 +845,231 @@ fn search_index_with_work_count(
     ))
 }
 
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "kebab-case", deny_unknown_fields)]
+enum ServiceRequest {
+    Search {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        #[serde(rename = "indexPath")]
+        index_path: PathBuf,
+        query: String,
+        #[serde(rename = "documentRevision")]
+        document_revision: String,
+        #[serde(default = "default_search_limit")]
+        limit: usize,
+        #[serde(rename = "contextChars", default = "default_context_chars")]
+        context_chars: usize,
+        #[serde(rename = "matchCase", default)]
+        match_case: bool,
+        #[serde(rename = "pageCount")]
+        page_count: Option<u32>,
+    },
+    Cancel {
+        #[serde(rename = "requestId")]
+        request_id: String,
+    },
+}
+
+fn default_search_limit() -> usize {
+    500
+}
+
+fn default_context_chars() -> usize {
+    24
+}
+
+#[derive(Serialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+enum ServiceResponse<'a> {
+    Ready {
+        #[serde(rename = "protocolVersion")]
+        protocol_version: u32,
+    },
+    Result {
+        #[serde(rename = "requestId")]
+        request_id: &'a str,
+        result: &'a SearchResponse,
+    },
+    Canceled {
+        #[serde(rename = "requestId")]
+        request_id: &'a str,
+    },
+    Error {
+        #[serde(rename = "requestId")]
+        request_id: &'a str,
+        error: ErrorEnvelope,
+    },
+}
+
+type ServiceIndexCache = Arc<Mutex<HashMap<(PathBuf, String), Arc<SearchIndex>>>>;
+type ServiceCancellationMap = Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>;
+type ServiceOutput = Arc<Mutex<io::Stdout>>;
+
+fn write_service_response(
+    output: &ServiceOutput,
+    response: &ServiceResponse<'_>,
+) -> Result<(), Box<dyn Error>> {
+    let mut output = output
+        .lock()
+        .map_err(|_| native_failure("Search service output lock poisoned".to_string()))?;
+    serde_json::to_writer(&mut *output, response)?;
+    output.write_all(b"\n")?;
+    output.flush()?;
+    Ok(())
+}
+
+fn get_cached_index(
+    cache: &ServiceIndexCache,
+    path: &PathBuf,
+    revision: &str,
+) -> Result<Arc<SearchIndex>, Box<dyn Error>> {
+    let key = (path.clone(), revision.to_string());
+    if let Some(index) = cache
+        .lock()
+        .map_err(|_| native_failure("Search index cache lock poisoned".to_string()))?
+        .get(&key)
+        .cloned()
+    {
+        return Ok(index);
+    }
+    let index = Arc::new(load_index(path, revision)?);
+    let mut cache = cache
+        .lock()
+        .map_err(|_| native_failure("Search index cache lock poisoned".to_string()))?;
+    cache.retain(|(cached_path, _), _| cached_path != path);
+    cache.insert(key, Arc::clone(&index));
+    Ok(index)
+}
+
+fn run_service() -> Result<(), Box<dyn Error>> {
+    let cache: ServiceIndexCache = Arc::new(Mutex::new(HashMap::new()));
+    let cancellations: ServiceCancellationMap = Arc::new(Mutex::new(HashMap::new()));
+    let output = Arc::new(Mutex::new(io::stdout()));
+    write_service_response(
+        &output,
+        &ServiceResponse::Ready {
+            protocol_version: PROTOCOL_VERSION,
+        },
+    )?;
+    let mut workers: Vec<thread::JoinHandle<()>> = Vec::new();
+
+    for line in BufReader::new(io::stdin()).lines() {
+        let line = line?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let request = match serde_json::from_str::<ServiceRequest>(&line) {
+            Ok(request) => request,
+            Err(error) => {
+                write_service_response(
+                    &output,
+                    &ServiceResponse::Error {
+                        request_id: "",
+                        error: ErrorEnvelope {
+                            code: NativeErrorCode::InvalidRequest,
+                            message: format!("Invalid search service frame: {error}"),
+                        },
+                    },
+                )?;
+                continue;
+            }
+        };
+        match request {
+            ServiceRequest::Cancel { request_id } => {
+                if let Some(flag) = cancellations
+                    .lock()
+                    .map_err(|_| native_failure("Search cancellation lock poisoned".to_string()))?
+                    .get(&request_id)
+                {
+                    flag.store(true, Ordering::Relaxed);
+                }
+            }
+            ServiceRequest::Search {
+                request_id,
+                index_path,
+                query,
+                document_revision,
+                limit,
+                context_chars,
+                match_case,
+                page_count,
+            } => {
+                if workers.len() >= MAX_SERVICE_WORKERS {
+                    let worker = workers.remove(0);
+                    let _ = worker.join();
+                }
+                let canceled = Arc::new(AtomicBool::new(false));
+                cancellations
+                    .lock()
+                    .map_err(|_| native_failure("Search cancellation lock poisoned".to_string()))?
+                    .insert(request_id.clone(), Arc::clone(&canceled));
+                let cache = Arc::clone(&cache);
+                let cancellations = Arc::clone(&cancellations);
+                let output = Arc::clone(&output);
+                workers.push(thread::spawn(move || {
+                    let options = SearchOptions {
+                        index_path: index_path.clone(),
+                        query,
+                        limit,
+                        context_chars,
+                        match_case,
+                        page_count,
+                        document_revision: document_revision.clone(),
+                    };
+                    let result = std::panic::catch_unwind(|| {
+                        get_cached_index(&cache, &index_path, &document_revision).and_then(
+                            |index| {
+                                search_index_with_cancel(&index, &options, Some(&canceled))
+                                    .map(|value| value.0)
+                            },
+                        )
+                    });
+                    let response = match &result {
+                        Err(_) => ServiceResponse::Error {
+                            request_id: &request_id,
+                            error: ErrorEnvelope {
+                                code: NativeErrorCode::Panic,
+                                message: "Native search worker panicked".to_string(),
+                            },
+                        },
+                        Ok(Ok(result)) => ServiceResponse::Result {
+                            request_id: &request_id,
+                            result,
+                        },
+                        Ok(Err(_)) if canceled.load(Ordering::Relaxed) => {
+                            ServiceResponse::Canceled {
+                                request_id: &request_id,
+                            }
+                        }
+                        Ok(Err(error)) => {
+                            let envelope = NativeErrorEnvelope::from_error(error.as_ref());
+                            ServiceResponse::Error {
+                                request_id: &request_id,
+                                error: ErrorEnvelope {
+                                    code: envelope.code,
+                                    message: envelope.message,
+                                },
+                            }
+                        }
+                    };
+                    let _ = write_service_response(&output, &response);
+                    if let Ok(mut map) = cancellations.lock() {
+                        map.remove(&request_id);
+                    }
+                }));
+            }
+        }
+    }
+    for worker in workers {
+        let _ = worker.join();
+    }
+    Ok(())
+}
+
 fn run_cli(mut args: impl Iterator<Item = String>) -> Result<(), Box<dyn Error>> {
     let Some(command) = args.next() else {
-        return Err(Box::new(CliError(usage().to_string())));
+        return Err(Box::new(invalid_request(usage().to_string())));
     };
 
     match command.as_str() {
@@ -688,6 +1081,7 @@ fn run_cli(mut args: impl Iterator<Item = String>) -> Result<(), Box<dyn Error>>
             println!("evb-pdf-search {VERSION}");
             Ok(())
         }
+        "serve" => run_service(),
         "search" => {
             let options = parse_search_options(args)?;
             let index = load_index(&options.index_path, &options.document_revision)?;
@@ -695,16 +1089,15 @@ fn run_cli(mut args: impl Iterator<Item = String>) -> Result<(), Box<dyn Error>>
             println!("{}", serde_json::to_string(&response)?);
             Ok(())
         }
-        "--help" | "-h" => Err(Box::new(CliError(usage().to_string()))),
-        _ => Err(Box::new(CliError(format!("Unknown command: {command}")))),
+        "--help" | "-h" => Err(Box::new(invalid_request(usage().to_string()))),
+        _ => Err(Box::new(invalid_request(format!(
+            "Unknown command: {command}"
+        )))),
     }
 }
 
 fn main() {
-    if let Err(error) = run_cli(env::args().skip(1)) {
-        eprintln!("{error}");
-        process::exit(1);
-    }
+    evb_native_support::run_cli_caught(|| run_cli(env::args().skip(1)));
 }
 
 #[cfg(test)]
@@ -771,8 +1164,18 @@ mod tests {
         SearchIndex {
             page_count: pages.len() as u32,
             records,
-            data,
+            data: SearchIndexData::Owned(data),
         }
+    }
+
+    #[test]
+    fn honors_search_cancellation_between_matches() {
+        let index = test_index(&[(1, "alpha alpha alpha")]);
+        let canceled = AtomicBool::new(true);
+        let error = search_index_with_cancel(&index, &options("alpha"), Some(&canceled))
+            .expect_err("canceled search must stop");
+
+        assert!(error.to_string().contains("canceled"));
     }
 
     const TEST_DOCUMENT_REVISION: &str = "revision-token";
@@ -1022,8 +1425,8 @@ mod tests {
             &text_map,
             start_byte,
             end_byte,
-            text_map.utf16_offset_for_byte(start_byte),
-            text_map.utf16_offset_for_byte(end_byte),
+            text_map.utf16_offset_for_byte(start_byte).unwrap(),
+            text_map.utf16_offset_for_byte(end_byte).unwrap(),
             10,
         );
 

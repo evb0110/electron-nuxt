@@ -8,14 +8,13 @@
             :set-viewer-container="handleViewerContainerRef"
             :viewer-class="viewerClass"
             :container-style="containerStyle"
-            :pages-to-render="pagesToRender"
+            :virtual-page-segments="virtualPageSegments"
             :should-show-skeleton="shouldShowPageSkeleton"
             :is-spread-single="isSpreadSingle"
             :is-buffered-page="isPageBuffered"
             :is-rendered-page="isPageRenderedForClass"
             :is-shape-overlay-visual-ready-page="isPageVisualReadyForShapeOverlay"
             :get-page-placeholder-style="getPagePlaceholderStyle"
-            :top-virtual-spacer-style="topVirtualSpacerStyle"
             :bottom-virtual-spacer-style="bottomVirtualSpacerStyle"
             :pending-image-placement="pendingImagePlacement"
             :is-pending-image-placement-finalizing="isPendingImagePlacementFinalizing"
@@ -30,6 +29,7 @@
             @contextmenu="handleViewerContextMenu"
             @selectstart="handleSelectStart"
             @page-container-mounted="handlePageContainerMounted"
+            @page-container-unmounted="handlePageContainerUnmounted"
             @update-placed-image-rect="updatePendingImagePlacementRect"
             @finalize-placed-image="requestPendingImagePlacementFinalize"
             @cancel-placed-image="clearPendingImagePlacement"
@@ -106,14 +106,13 @@ const {
     annotationUiManager,
     viewerClass,
     containerStyle,
-    pagesToRender,
+    virtualPageSegments,
     shouldShowPageSkeleton,
     isSpreadSingle,
     isPageBuffered,
     isPageRenderedForClass,
     isPageVisualReadyForShapeOverlay,
     getPagePlaceholderStyle,
-    topVirtualSpacerStyle,
     bottomVirtualSpacerStyle,
     pendingImagePlacement,
     isPendingImagePlacementFinalizing,
@@ -128,6 +127,7 @@ const {
     handleViewerContextMenu,
     handleSelectStart,
     handlePageContainerMounted,
+    handlePageContainerUnmounted,
     updatePendingImagePlacementRect,
     requestPendingImagePlacementFinalize,
     clearPendingImagePlacement,

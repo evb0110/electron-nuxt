@@ -9,6 +9,7 @@ import {
     getDocumentMutationErrorPayload,
     isMissingRevisionError,
 } from '@contracts/documentMutationErrors';
+import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 
 const mocks = vi.hoisted(() => ({
     assertWorkingCopyMutationAllowed: vi.fn(),
@@ -58,7 +59,7 @@ describe('documentMutationGuards', () => {
 
         await expect(assertQueuedWorkingCopyMutationPreconditions(
             workingPath,
-            'revision-before-save',
+            requireDocumentRevisionToken('revision-before-save'),
         )).resolves.toBeUndefined();
 
         expect(mocks.assertWorkingCopyMutationAllowed).toHaveBeenCalledWith(workingPath);

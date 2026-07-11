@@ -6,6 +6,7 @@ import {
     vi,
 } from 'vitest';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import {requireDocumentRevisionToken} from '@contracts';
 
 const trackMock = vi.hoisted(() => vi.fn());
 const toastAddMock = vi.hoisted(() => vi.fn());
@@ -14,8 +15,10 @@ const createDocxFromTextAsyncMock = vi.hoisted(() => vi.fn(async () => new Uint8
     2,
     3,
 ])));
-const loadOcrTextMock = vi.hoisted(() => vi.fn<() => Promise<string | null>>(async () => null));
-const extractPdfTextMock = vi.hoisted(() => vi.fn<() => Promise<string | null>>(async () => 'pdf text'));
+const loadDocumentTextCatalogPagesMock = vi.hoisted(() => vi.fn<() => Promise<Array<{
+    pageNumber: number;
+    text: string;
+}> | null>>(async () => null));
 const documentFilesMock = vi.hoisted(() => ({
     saveDocxAs: vi.fn(async () => '/tmp/export.docx'),
     writeDocxFile: vi.fn(async () => {}),
@@ -32,7 +35,7 @@ const legacyDocumentsMock = vi.hoisted(() => ({
         throw new Error('Legacy documents.cleanupFile should not be used for DOCX export');
     }),
 }));
-const TEST_DOCUMENT_REVISION = 'revision-token';
+const TEST_DOCUMENT_REVISION = requireDocumentRevisionToken('revision-token');
 
 vi.mock('@app/utils/platformDocuments', () => ({
     getDocumentsCapability: () => legacyDocumentsMock,
@@ -41,8 +44,7 @@ vi.mock('@app/utils/platformDocuments', () => ({
 }));
 vi.mock('@app/composables/useAnalytics', () => ({useAnalytics: () => ({track: trackMock})}));
 vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
-vi.mock('@app/utils/ocr/loadOcrText', () => ({ loadOcrText: loadOcrTextMock }));
-vi.mock('@app/utils/ocr/extractPdfText', () => ({ extractPdfText: extractPdfTextMock }));
+vi.mock('@app/utils/ocr/loadOcrText', () => ({loadDocumentTextCatalogPages: loadDocumentTextCatalogPagesMock}));
 vi.mock('@app/utils/docx', () => ({createDocxFromTextAsync: createDocxFromTextAsyncMock}));
 vi.stubGlobal('useToast', () => ({ add: toastAddMock }));
 
@@ -57,13 +59,12 @@ describe('useDocxExport', () => {
             callOrder.push('save');
             return '/tmp/export.docx';
         });
-        loadOcrTextMock.mockImplementationOnce(async () => {
-            callOrder.push('loadOcrText');
-            return null;
-        });
-        extractPdfTextMock.mockImplementationOnce(async () => {
-            callOrder.push('extractPdfText');
-            return 'pdf text';
+        loadDocumentTextCatalogPagesMock.mockImplementationOnce(async () => {
+            callOrder.push('loadCatalog');
+            return [{
+                pageNumber: 1,
+                text: 'catalog text',
+            }];
         });
         const { useDocxExport } = await import('@app/composables/useDocxExport');
         const exportState = useDocxExport();
@@ -78,13 +79,10 @@ describe('useDocxExport', () => {
         expect(result).toBe(true);
         expect(callOrder).toEqual([
             'save',
-            'loadOcrText',
-            'extractPdfText',
+            'loadCatalog',
         ]);
-        expect(loadOcrTextMock).toHaveBeenCalledTimes(1);
-        expect(loadOcrTextMock).toHaveBeenCalledWith('/tmp/work.pdf', TEST_DOCUMENT_REVISION);
-        expect(extractPdfTextMock).toHaveBeenCalledTimes(1);
-        expect(createDocxFromTextAsyncMock).toHaveBeenCalledWith('pdf text', true);
+        expect(loadDocumentTextCatalogPagesMock).toHaveBeenCalledWith('/tmp/work.pdf', TEST_DOCUMENT_REVISION, undefined);
+        expect(createDocxFromTextAsyncMock).toHaveBeenCalledWith('catalog text', true);
         expect(documentFilesMock.saveDocxAs).toHaveBeenCalledWith('/tmp/work.pdf');
         expect(documentFilesMock.writeDocxFile).toHaveBeenCalledWith(
             '/tmp/export.docx',
@@ -113,8 +111,7 @@ describe('useDocxExport', () => {
 
     it('does not cleanup filesystem output paths when no DOCX text is available', async () => {
         documentFilesMock.saveDocxAs.mockResolvedValueOnce('/tmp/empty.docx');
-        loadOcrTextMock.mockResolvedValueOnce(null);
-        extractPdfTextMock.mockResolvedValueOnce(null);
+        loadDocumentTextCatalogPagesMock.mockResolvedValueOnce(null);
 
         const { useDocxExport } = await import('@app/composables/useDocxExport');
         const exportState = useDocxExport();
@@ -137,8 +134,7 @@ describe('useDocxExport', () => {
 
     it('cleans up browser output refs when no DOCX text is available', async () => {
         documentFilesMock.saveDocxAs.mockResolvedValueOnce('browser://documents/output/empty.docx');
-        loadOcrTextMock.mockResolvedValueOnce(null);
-        extractPdfTextMock.mockResolvedValueOnce(null);
+        loadDocumentTextCatalogPagesMock.mockResolvedValueOnce(null);
 
         const { useDocxExport } = await import('@app/composables/useDocxExport');
         const exportState = useDocxExport();

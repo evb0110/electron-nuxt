@@ -11,9 +11,11 @@ import {
     DOCUMENTS_EVENT_CHANNELS,
 } from '@electron/features/documents/contract';
 import { createDocumentsPreloadFileClient } from '@electron/features/documents/createDocumentsPreloadFileClient';
-import { toPageIndex } from '@contracts/pageNumbers';
+import { requirePageIndex } from '@contracts/pageNumbers';
 import { PDF_NATIVE_MUTATION_LIMITS } from '@contracts/nativePdfMutations';
 import { MAX_DOCUMENT_ALLOCATION_BYTES } from '@contracts/electronApiDocuments';
+import {requireDocumentRevisionToken} from '@contracts';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 
 class FakeMessagePort {
     readonly close = vi.fn();
@@ -48,7 +50,7 @@ class FakeMessagePort {
     }
 }
 
-interface INativeMutationInvokePayload {placedImages: Array<{bytes: unknown}>}
+interface INativeMutationInvokePayload {placedImages: Array<{source: unknown}>}
 
 interface IWorkingCopyExpectationInvokePayload {
     byteLength: number;
@@ -67,7 +69,7 @@ interface INativeBookmarkTestItem {
 
 function createNativeFreeTextNote() {
     return {
-        pageIndex: toPageIndex(0),
+        pageIndex: requirePageIndex(0),
         stableKey: 'uid:0:pdfjs_internal_editor_0',
         text: 'Editor note',
         markerRect: {
@@ -105,7 +107,7 @@ function createDeepNativeBookmarkItems(depth: number) {
 function createNativeShape() {
     return {
         type: 'rectangle' as const,
-        pageIndex: toPageIndex(0),
+        pageIndex: requirePageIndex(0),
         x: 0.1,
         y: 0.2,
         width: 0.3,
@@ -118,23 +120,25 @@ function createNativeShape() {
 
 function createNativePlacedImage() {
     return {
-        pageIndex: toPageIndex(0),
+        pageIndex: requirePageIndex(0),
         x: 0.1,
         y: 0.2,
         width: 0.3,
         height: 0.2,
         rotationDegrees: 0,
         mimeType: 'image/jpeg' as const,
-        bytes: new Uint8Array([
-            0xFF,
-            0xD8,
-            0xFF,
-        ]),
+        source: {
+            path: '/tmp/image.jpg',
+            size: 3,
+            sha256: 'a'.repeat(64),
+            leaseId: 'image-lease',
+            revision: null,
+        },
     };
 }
 
 describe('createDocumentsPreloadFileClient', () => {
-    const revisionOptions = { expectedDocumentRevisionToken: 'revision-before-save' };
+    const revisionOptions = { expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-save') };
 
     afterEach(() => {
         vi.unstubAllGlobals();
@@ -285,7 +289,7 @@ describe('createDocumentsPreloadFileClient', () => {
         } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
-        await expect(client.repairPdf?.('/tmp/working.pdf', revisionOptions)).resolves.toBe(validation);
+        await expect(client.repairPdf?.('/tmp/working.pdf', revisionOptions)).resolves.toStrictEqual(validation);
 
         expect(ipcRenderer.invoke).toHaveBeenCalledWith(
             DOCUMENTS_CHANNELS.fileRepairPdf,
@@ -307,7 +311,7 @@ describe('createDocumentsPreloadFileClient', () => {
         } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
-        await expect(client.saveFileStructured('/tmp/working.pdf', revisionOptions)).resolves.toBe(result);
+        await expect(client.saveFileStructured('/tmp/working.pdf', revisionOptions)).resolves.toStrictEqual(result);
 
         expect(ipcRenderer.invoke).toHaveBeenCalledWith(
             DOCUMENTS_CHANNELS.fileSaveStructured,
@@ -347,14 +351,14 @@ describe('createDocumentsPreloadFileClient', () => {
             postMessage: vi.fn(),
         } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
-        const revisionOptions = { expectedDocumentRevisionToken: 'revision-before-optimize-copy' };
+        const revisionOptions = { expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-optimize-copy') };
 
         await expect(client.optimizePdfAsCopy?.(
             '/tmp/working.pdf',
             { preset: 'smallScanned' },
             'request-1',
             revisionOptions,
-        )).resolves.toBe(result);
+        )).resolves.toStrictEqual(result);
 
         expect(ipcRenderer.invoke).toHaveBeenCalledWith(
             DOCUMENTS_CHANNELS.fileOptimizePdfAsCopy,
@@ -391,7 +395,7 @@ describe('createDocumentsPreloadFileClient', () => {
             '/tmp/working.pdf',
             { preset: 'lossless' },
             'request-1',
-            { expectedDocumentRevisionToken: '' },
+            { expectedDocumentRevisionToken: '' as TDocumentRevisionToken },
         )).toThrow('optimizePdfAsCopy.revisionOptions.expectedDocumentRevisionToken must be a non-empty string');
 
         expect(ipcRenderer.invoke).not.toHaveBeenCalled();
@@ -470,7 +474,7 @@ describe('createDocumentsPreloadFileClient', () => {
             {size: '100'},
         ]) {
             await expect(client.statFile('/tmp/working.pdf')).rejects.toThrow(
-                'Invalid IPC response for file:stat',
+                'invalid file stat',
             );
         }
 
@@ -498,8 +502,8 @@ describe('createDocumentsPreloadFileClient', () => {
         }
         const valid = {
             version: 1,
-            token: 'revision-2',
-            previousToken: 'revision-1',
+            token: requireDocumentRevisionToken('revision-2'),
+            previousToken: requireDocumentRevisionToken('revision-1'),
             documentRef: '/tmp/working.pdf',
             authority: 'electron-working-copy',
             contentRevision: 2,
@@ -554,7 +558,7 @@ describe('createDocumentsPreloadFileClient', () => {
         } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
-        await expect(client.getPdfNativePageSizes?.('/tmp/huge.pdf')).resolves.toBe(pageSizes);
+        await expect(client.getPdfNativePageSizes?.('/tmp/huge.pdf')).resolves.toStrictEqual(pageSizes);
         await expect(client.cancelPdfNativePagePreview?.(' preview-1 ')).resolves.toEqual(cancelResult);
         await expect(client.renderPdfNativePagePreview?.(
             '/tmp/huge.pdf',
@@ -563,7 +567,7 @@ describe('createDocumentsPreloadFileClient', () => {
                 targetWidthPx: 900.8,
                 previewRequestId: ' preview-2 ',
             },
-        )).resolves.toBe(preview);
+        )).resolves.toStrictEqual(preview);
 
         expect(ipcRenderer.invoke).toHaveBeenCalledWith(
             DOCUMENTS_CHANNELS.pdfNativePageSizes,
@@ -882,7 +886,7 @@ describe('createDocumentsPreloadFileClient', () => {
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
         const freeTextNotes = [{
-            pageIndex: toPageIndex(0),
+            pageIndex: requirePageIndex(0),
             stableKey: 'uid:0:pdfjs_internal_editor_0',
             text: 'Editor note',
             markerRect: {
@@ -903,12 +907,12 @@ describe('createDocumentsPreloadFileClient', () => {
                 freeTextNotes,
                 deletes: [
                     {
-                        pageIndex: toPageIndex(0),
+                        pageIndex: requirePageIndex(0),
                         objectNumber: 3856,
                         generationNumber: 0,
                     },
                     {
-                        pageIndex: toPageIndex(0),
+                        pageIndex: requirePageIndex(0),
                         stableKey: 'uid:0:pdfjs_internal_editor_0',
                         createdAt: 1781009077000,
                     },
@@ -991,7 +995,7 @@ describe('createDocumentsPreloadFileClient', () => {
                     shapes: [{
                         id: 'shape-1',
                         type: 'rectangle',
-                        pageIndex: toPageIndex(0),
+                        pageIndex: requirePageIndex(0),
                         x: 0.1,
                         y: 0.2,
                         width: 0.3,
@@ -1014,7 +1018,7 @@ describe('createDocumentsPreloadFileClient', () => {
                     ]],
                     hints: [{
                         subtype: 'Squiggly',
-                        pageIndex: toPageIndex(0),
+                        pageIndex: requirePageIndex(0),
                         markerRect: {
                             left: 0.1,
                             top: 0.2,
@@ -1114,23 +1118,19 @@ describe('createDocumentsPreloadFileClient', () => {
             byteLength: 3,
             sha256: 'a'.repeat(64),
         };
-        const imageBytes = new Uint8Array([
-            0xFF,
-            0xD8,
-            0xFF,
-        ]);
+        const imageSource = createNativePlacedImage().source;
 
         await expect(client.applyPdfNativeMutationsToWorkingCopy!(
             '/tmp/working.pdf',
             {placedImages: [{
-                pageIndex: toPageIndex(0),
+                pageIndex: requirePageIndex(0),
                 x: 0.1,
                 y: 0.2,
                 width: 0.3,
                 height: 0.2,
                 rotationDegrees: 15,
                 mimeType: 'image/jpeg',
-                bytes: imageBytes,
+                source: imageSource,
             }]},
             'D:20260609133855+03\'00\'',
             expectedBase,
@@ -1143,7 +1143,7 @@ describe('createDocumentsPreloadFileClient', () => {
             {placedImages: [expect.objectContaining({
                 pageIndex: 0,
                 mimeType: 'image/jpeg',
-                bytes: imageBytes,
+                source: imageSource,
             })]},
             'D:20260609133855+03\'00\'',
             expectedBase,
@@ -1155,7 +1155,8 @@ describe('createDocumentsPreloadFileClient', () => {
             throw new Error('Expected native mutation IPC call');
         }
         const mutations = firstCall[2];
-        expect(mutations.placedImages[0]?.bytes).toBeInstanceOf(Uint8Array);
+        expect(mutations.placedImages[0]).not.toHaveProperty('bytes');
+        expect(mutations.placedImages[0]?.source).toEqual(imageSource);
     });
 
     it('rejects shared native mutation limit violations before IPC', () => {

@@ -329,8 +329,8 @@
             background: var(--ui-bg-muted) !important;
             color: var(--ui-text) !important;
             border: 1px solid var(--ui-border) !important;
-            border-radius: 8px !important;
-            padding: 8px 10px !important;
+            border-radius: var(--app-pdfjs-signature-control-radius) !important;
+            padding: var(--app-pdfjs-signature-control-padding) !important;
         }
     }
 
@@ -400,8 +400,8 @@
     .highlightButton.basic::before {
         content: "" !important;
         display: block !important;
-        width: 16px !important;
-        height: 16px !important;
+        width: var(--app-pdfjs-editor-icon-size) !important;
+        height: var(--app-pdfjs-editor-icon-size) !important;
         background-color: var(--editor-toolbar-fg-color) !important;
         -webkit-mask-repeat: no-repeat !important;
         mask-repeat: no-repeat !important;

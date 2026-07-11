@@ -3,6 +3,18 @@ import { useEventListener } from '@vueuse/core';
 import { clamp } from 'es-toolkit/math';
 import { SIDEBAR } from '@app/constants/pdfLayout';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { createRafCoalescedCallback } from '@app/utils/createRafCoalescedCallback';
+
+export function resolveSidebarEffectiveMaxWidth(containerWidth: number) {
+    if (!Number.isFinite(containerWidth)) {
+        return SIDEBAR.MAX_WIDTH;
+    }
+
+    return Math.max(
+        SIDEBAR.MIN_WIDTH,
+        Math.min(SIDEBAR.MAX_WIDTH, containerWidth - SIDEBAR.MIN_VIEWER_WIDTH),
+    );
+}
 
 export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
     const { showSidebar } = deps;
@@ -11,18 +23,18 @@ export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
     const lastOpenSidebarWidth = ref(SIDEBAR.DEFAULT_WIDTH);
     const isPointerResizingSidebar = ref(false);
     const isResizingSidebar = computed(() => isPointerResizingSidebar.value);
+    const containerWidth = ref(Number.POSITIVE_INFINITY);
+    const effectiveMaxWidth = computed(() => resolveSidebarEffectiveMaxWidth(containerWidth.value));
 
     let resizeStartX = 0;
     let resizeStartWidth = 0;
     const sidebarWrapperStyle = computed(() => ({
         width: `${sidebarWidth.value + SIDEBAR.RESIZER_WIDTH}px`,
-        minWidth: `${sidebarWidth.value + SIDEBAR.RESIZER_WIDTH}px`,
+        minWidth: '0',
     }));
 
     function cleanupSidebarResizeListeners() {
-        // Pointer listeners are registered for the composable lifetime and gate
-        // themselves on `isResizingSidebar`, so there is nothing transient to
-        // tear down between resize sessions.
+        sidebarResize.cancel();
     }
 
     function handleSidebarResize(event: PointerEvent) {
@@ -32,7 +44,7 @@ export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
         const deltaX = event.clientX - resizeStartX;
         const nextWidth = resizeStartWidth + deltaX;
 
-        const clampedWidth = clamp(nextWidth, SIDEBAR.MIN_WIDTH, SIDEBAR.MAX_WIDTH);
+        const clampedWidth = clamp(nextWidth, SIDEBAR.MIN_WIDTH, effectiveMaxWidth.value);
 
         if (Math.round(clampedWidth) !== Math.round(sidebarWidth.value)) {
             BrowserLogger.diagnostic('pdf-nav', `[sidebar-resize] width ${Math.round(sidebarWidth.value)}->${Math.round(clampedWidth)}`, {
@@ -46,11 +58,18 @@ export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
         lastOpenSidebarWidth.value = clampedWidth;
     }
 
-    function stopSidebarResize() {
+    const sidebarResize = createRafCoalescedCallback(handleSidebarResize);
+
+    function stopSidebarResize(event?: PointerEvent) {
         if (!isPointerResizingSidebar.value) {
             return;
         }
 
+        if (event) {
+            sidebarResize.flush(event);
+        } else {
+            sidebarResize.flushPending();
+        }
         isPointerResizingSidebar.value = false;
         cleanupSidebarResizeListeners();
     }
@@ -76,7 +95,7 @@ export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
     useEventListener(
         typeof window !== 'undefined' ? window : undefined,
         'pointermove',
-        handleSidebarResize,
+        sidebarResize.schedule,
     );
     useEventListener(
         typeof window !== 'undefined' ? window : undefined,
@@ -100,7 +119,7 @@ export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
         if (isOpen) {
             const width = Math.min(
                 Math.max(lastOpenSidebarWidth.value, SIDEBAR.DEFAULT_WIDTH),
-                SIDEBAR.MAX_WIDTH,
+                effectiveMaxWidth.value,
             );
             sidebarWidth.value = width;
             lastOpenSidebarWidth.value = width;
@@ -123,10 +142,18 @@ export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
         });
     });
 
+    function setSidebarContainerWidth(width: number) {
+        containerWidth.value = width;
+        sidebarWidth.value = Math.min(sidebarWidth.value, effectiveMaxWidth.value);
+        lastOpenSidebarWidth.value = Math.min(lastOpenSidebarWidth.value, effectiveMaxWidth.value);
+    }
+
     return {
         sidebarWidth,
         sidebarWrapperStyle,
         isResizingSidebar,
+        effectiveMaxWidth,
+        setSidebarContainerWidth,
         startSidebarResize,
         cleanupSidebarResizeListeners,
     };

@@ -9,9 +9,9 @@ import {
     useOcrTextContent,
     usePageContextMenu,
     usePdfHistory,
-    isNoteEligibleComment,
 } from '@app/modules/pdf-viewer/public';
 import { usePageAnnotationActions } from '@app/modules/workspace-shell/composables/usePageAnnotationActions';
+import {deleteAnnotationById} from '@app/modules/workspace-shell/annotations/deleteAnnotationById';
 import { usePageSaveOrchestration } from '@app/modules/workspace-shell/composables/usePageSaveOrchestration';
 import { useShutdownSaveFlushReporting } from '@app/modules/workspace-shell/composables/useShutdownSaveFlushReporting';
 import { useWorkspaceDocumentControls } from '@app/modules/workspace-shell/composables/useWorkspaceDocumentControls';
@@ -21,9 +21,7 @@ import { useWorkspaceInteractionControls } from '@app/modules/workspace-shell/co
 import { useWorkspaceFileLifecycleController } from '@app/modules/workspace-shell/composables/useWorkspaceFileLifecycleController';
 import { useWorkspaceSidebarSearchSyncController } from '@app/modules/workspace-shell/composables/useWorkspaceSidebarSearchSyncController';
 import { useWorkspaceAnnotationSession } from '@app/modules/workspace-shell/composables/useWorkspaceAnnotationSession';
-import { mergeWorkspaceAnnotationComments } from '@app/modules/workspace-shell/annotations/mergeWorkspaceAnnotationComments';
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { IDjvuProgress } from '@contracts/electronApiDjvu';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type {
     IRecentFile,
@@ -32,13 +30,12 @@ import type {
 } from '@contracts/shared';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { getDocumentPdfCapability } from '@app/utils/platformDocuments';
-import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/useWorkspaceViewState';
 import { useDocxExport } from '@app/composables/useDocxExport';
 import { useWorkspacePrint } from '@app/modules/workspace-shell/composables/useWorkspacePrint';
 import { useMetadataSession } from '@app/modules/workspace-shell/composables/useMetadataSession';
 import { useDocumentOperationLease } from '@app/modules/workspace-shell/composables/useDocumentOperationLease';
-import { serializePrintableSourceData } from '@app/modules/workspace-shell/serialization/serializePrintableSourceData';
+import { createPageMutationAnnotationMaterializer } from '@app/modules/workspace-shell/composables/createPageMutationAnnotationMaterializer';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
 import { getDjvuCapability } from '@app/utils/getDjvuCapability';
@@ -46,12 +43,21 @@ import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { WORKSPACE_PAGE_NAVIGATION_LOCK_MS } from '@app/modules/workspace-shell/workspacePageNavigationLockMs';
 import { useWorkspaceActiveViewerAdapter } from '@app/modules/workspace-shell/viewers/useWorkspaceActiveViewerAdapter';
 import type { IAnalyticsDocumentScope } from '@app/composables/useAnalytics';
+import type {
+    IDocumentPageSource,
+    IDocumentSourceCapabilities,
+} from '@app/utils/document-viewer/source/documentPageSource';
+import {
+    createDocumentSession,
+    ensurePdfProjection,
+} from '@app/utils/document-viewer/session/documentSession';
 
 interface IWorkspaceOrchestrationDeps {
     analyticsDocumentScope?: IAnalyticsDocumentScope | undefined;
     isActive: Ref<boolean>;
     initialViewState?: ITabViewSessionState | null;
     pendingDocumentPath?: TReadableRef<TDocumentRef | null> | undefined;
+    sourceCapabilities: Ref<IDocumentSourceCapabilities>;
     emit: {
         (e: 'open-in-new-tab', result: TDocumentRef | TOpenFileResult): void;
         (e: 'request-close-tab'): void;
@@ -64,9 +70,7 @@ interface IWorkspacePrintSubmitPayload {
     viewMode: TPdfViewMode;
     orientation: TPrintOrientation;
 }
-
 type TReadableRef<T> = ComputedRef<T> | Ref<T>;
-
 const INVISIBLE_NOTE_PLACEHOLDER_RE = /[\u200B\uFEFF]/gu;
 const WORKSPACE_PAGE_NAVIGATION_TARGET_SETTLE_MS = 200;
 
@@ -74,32 +78,27 @@ function createDjvuPrintRequestId() {
     return globalThis.crypto?.randomUUID?.()
         ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
-
 function createDjvuPrintAbortError() {
     const error = new Error('Print preparation was canceled');
     error.name = 'AbortError';
     return error;
 }
-
 function throwIfDjvuPrintAborted(signal: AbortSignal | undefined) {
     if (signal?.aborted) {
         throw createDjvuPrintAbortError();
     }
 }
-
-function readExposedNumber(value: unknown) {
-    if (typeof value === 'number' && Number.isFinite(value)) {
-        return value;
-    }
-    if (!value || typeof value !== 'object' || !('value' in value)) {
-        return 0;
-    }
-    const refValue = (value as { value?: unknown }).value;
-    return typeof refValue === 'number' && Number.isFinite(refValue)
-        ? refValue
-        : 0;
+function createPrintProjectionSource(kind: 'pdf' | 'djvu', documentRef: TDocumentRef): IDocumentPageSource {
+    const unavailable = () => Promise.reject(new Error('Print projection source cannot render pages'));
+    return {
+        kind,
+        documentRef,
+        pageCount: 0,
+        getPageMetrics: unavailable,
+        renderPage: unavailable,
+        dispose() {},
+    };
 }
-
 export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => {
     const {
         isActive,
@@ -145,10 +144,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         trySaveEmbeddedNoteTextUpdates,
         saveWorkingCopyAs,
         markDirty,
-        fileHistoryMutationVersion,
-        fileHistorySessionVersion,
-        undo,
-        redo,
+        setWorkspaceCommandSink,
     } = fileLifecycle;
     const toast = useToast();
     function notifyMissingRecentFile(file: IRecentFile) {
@@ -196,25 +192,11 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     const isSavingAs = ref(false);
     const isHistoryBusy = ref(false);
     const documentOperationLease = useDocumentOperationLease();
-    const annotationHistoryMutationVersion = computed(() => (
-        readExposedNumber(pdfViewerRef.value?.annotationHistoryMutationVersion)
-    ));
-    const annotationHistoryResetVersion = computed(() => (
-        readExposedNumber(pdfViewerRef.value?.annotationHistoryResetVersion)
-    ));
-
     const metadataSession = useMetadataSession({
         pdfDocument,
         totalPages,
         markDirty,
-        fileHistoryMutationVersion,
-        fileHistorySessionVersion,
-        annotationHistoryMutationVersion,
-        annotationHistoryResetVersion,
-        undoFile: undo,
-        redoFile: redo,
-        undoAnnotation: () => pdfViewerRef.value?.undoAnnotation?.() === true,
-        redoAnnotation: () => pdfViewerRef.value?.redoAnnotation?.() === true,
+        setWorkspaceCommandSink,
     });
     const {
         pageLabelState,
@@ -223,7 +205,22 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         consumePreservedSourceReloadMetadata,
         preserveMetadataForNextSourceReload,
         workspaceUndoTimeline,
+        workspaceCommandSink,
     } = metadataSession;
+    watch(
+        pdfViewerRef,
+        (viewer, previousViewer) => {
+            if (previousViewer && previousViewer !== viewer) {
+                previousViewer.setWorkspaceCommandSink?.(null);
+                workspaceCommandSink.reset('annotation');
+            }
+            viewer?.setWorkspaceCommandSink?.(workspaceCommandSink);
+        },
+        {
+            flush: 'post',
+            immediate: true,
+        },
+    );
     const {
         pageLabels,
         pageLabelRanges,
@@ -291,31 +288,15 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         removeAnnotationNoteWindow,
         setAnnotationNoteWindowError,
         isSameAnnotationComment,
-        consumePendingEmbeddedTextUpdates,
-        restorePendingEmbeddedTextUpdates,
         applyAnnotationComments: applyAnnotationCommentsFromSession,
     } = annotationSession;
 
-    const pendingEmbeddedAnnotationDeletes = shallowRef(new Map<string, IAnnotationCommentSummary>());
-    function getPendingEmbeddedMutationVersion() {
-        const version = pdfViewerRef.value?.pendingEmbeddedMutationVersion;
-        return version === undefined ? 0 : unref(version);
-    }
-
-    function getPendingEmbeddedAnnotationDeletesSnapshot() {
-        getPendingEmbeddedMutationVersion();
-        return pdfViewerRef.value?.getPendingEmbeddedMutationSnapshot?.().pendingEmbeddedAnnotationDeletes
-            ?? Array.from(pendingEmbeddedAnnotationDeletes.value.values());
-    }
-
-    const pendingEmbeddedAnnotationDeleteCount = computed(() => getPendingEmbeddedAnnotationDeletesSnapshot().length);
-    const nativeSavedFreeTextNoteStableKeys = shallowRef(new Set<string>());
+    const pendingEmbeddedAnnotationDeleteCount = computed(() => 0);
     const undoableOpenEmptyEditorNoteCount = computed(() => (
         annotationNoteWindows.value.some((note) => {
-            const comment = note.comment;
-            const noteText = typeof note.text === 'string' ? note.text : comment.text;
-            return comment.source === 'editor'
-                && isNoteEligibleComment(comment)
+            const noteText = note.draftText;
+            return note.source === 'editor'
+                && note.hasNote
                 && noteText.replace(INVISIBLE_NOTE_PLACEHOLDER_RE, '').trim().length === 0;
         })
             ? 1
@@ -324,108 +305,11 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     const appAnnotationUndoDepth = computed(() => (
         pendingEmbeddedAnnotationDeleteCount.value + undoableOpenEmptyEditorNoteCount.value
     ));
-    const thumbnailHiddenAnnotationIds = computed(() => {
-        const ids = new Set<string>();
-        getPendingEmbeddedAnnotationDeletesSnapshot().forEach((comment) => {
-            const stableRef = comment.stableKey.trim().match(/^ann:\d+:(\d+R(?:\d+)?)$/iu)?.[1] ?? null;
-            [
-                comment.annotationId,
-                comment.uid,
-                comment.id,
-                stableRef,
-            ].forEach((candidate) => {
-                const normalizedId = normalizePdfJsAnnotationId(candidate);
-                if (normalizedId) {
-                    ids.add(normalizedId);
-                }
-            });
-        });
-        return [...ids];
-    });
+    const thumbnailHiddenAnnotationIds = computed<string[]>(() => []);
     const preservedAnnotationSourceDirty = ref(false);
 
     function applyAnnotationComments(comments: IAnnotationCommentSummary[]) {
-        applyAnnotationCommentsFromSession(mergeWorkspaceAnnotationComments({
-            incomingComments: comments,
-            previousComments: annotationComments.value,
-            openNotes: annotationNoteWindows.value,
-            isSameAnnotationComment,
-        }));
-    }
-
-    function queuePendingEmbeddedAnnotationDelete(comment: IAnnotationCommentSummary) {
-        pendingEmbeddedAnnotationDeletes.value = new Map([
-            ...pendingEmbeddedAnnotationDeletes.value,
-            [
-                comment.stableKey,
-                comment,
-            ],
-        ]);
-    }
-
-    function unqueuePendingEmbeddedAnnotationDelete(stableKey: string) {
-        if (!pendingEmbeddedAnnotationDeletes.value.has(stableKey)) {
-            return;
-        }
-        const nextDeletes = new Map(pendingEmbeddedAnnotationDeletes.value);
-        nextDeletes.delete(stableKey);
-        pendingEmbeddedAnnotationDeletes.value = nextDeletes;
-    }
-
-    function consumePendingEmbeddedAnnotationDeletes() {
-        if (pendingEmbeddedAnnotationDeletes.value.size === 0) {
-            return null;
-        }
-
-        const deletions = Array.from(pendingEmbeddedAnnotationDeletes.value.values());
-        pendingEmbeddedAnnotationDeletes.value = new Map();
-        return deletions;
-    }
-
-    function restorePendingEmbeddedAnnotationDeletes(deletions: IAnnotationCommentSummary[] | null | undefined) {
-        if (!deletions?.length) {
-            return;
-        }
-        pendingEmbeddedAnnotationDeletes.value = new Map([
-            ...pendingEmbeddedAnnotationDeletes.value,
-            ...deletions.map(comment => [
-                comment.stableKey,
-                comment,
-            ] as const),
-        ]);
-    }
-
-    function updateNativeSavedFreeTextNoteStableKeys(mutator: (stableKeys: Set<string>) => void) {
-        const nextStableKeys = new Set(nativeSavedFreeTextNoteStableKeys.value);
-        mutator(nextStableKeys);
-        nativeSavedFreeTextNoteStableKeys.value = nextStableKeys;
-    }
-
-    function markNativeFreeTextNotesSaved(notes: Array<{ stableKey: string }>) {
-        updateNativeSavedFreeTextNoteStableKeys((stableKeys) => {
-            notes.forEach((note) => {
-                const stableKey = note.stableKey.trim();
-                if (stableKey) {
-                    stableKeys.add(stableKey);
-                }
-            });
-        });
-    }
-
-    function markNativeFreeTextNotesDeleted(deletes: Array<{ stableKey?: string | null }>) {
-        updateNativeSavedFreeTextNoteStableKeys((stableKeys) => {
-            deletes.forEach((deleteRequest) => {
-                const stableKey = deleteRequest.stableKey?.trim();
-                if (stableKey) {
-                    stableKeys.delete(stableKey);
-                }
-            });
-        });
-    }
-
-    function isNativeFreeTextNoteSaved(comment: IAnnotationCommentSummary) {
-        const stableKey = comment.stableKey?.trim();
-        return Boolean(stableKey && nativeSavedFreeTextNoteStableKeys.value.has(stableKey));
+        applyAnnotationCommentsFromSession(comments);
     }
 
     function markPreservedAnnotationSourceDirty() {
@@ -451,8 +335,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     }
 
     watch(workingCopyPath, () => {
-        pendingEmbeddedAnnotationDeletes.value = new Map();
-        nativeSavedFreeTextNoteStableKeys.value = new Set();
         preservedAnnotationSourceDirty.value = false;
     });
 
@@ -490,7 +372,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         workingCopyPath,
         originalPath,
         documentRevisionToken,
-        annotationComments,
         totalPages,
         pageLabelsDirty,
         pageLabelRanges,
@@ -504,8 +385,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         hasLivePdfJsAnnotationChanges,
         hasSavedPdfJsAnnotationBaselineChanges,
         hasPreservedAnnotationSourceChanges,
-        markNativeFreeTextNotesSaved,
-        markNativeFreeTextNotesDeleted,
         markAnnotationSaved: markAnnotationSavedAndClearPreservedSource,
         getAnnotationSaveStateToken,
         markPageLabelsSaved,
@@ -527,10 +406,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         saveWorkingCopyAs,
         optimizePdfOnSaveAs: computed(() => appSettings.value.optimizePdfOnSaveAs),
         persistAllAnnotationNotes: (force) => persistAllAnnotationNotes(force),
-        consumePendingEmbeddedTextUpdates: () => consumePendingEmbeddedTextUpdates(),
-        restorePendingEmbeddedTextUpdates: updates => restorePendingEmbeddedTextUpdates(updates),
-        consumePendingEmbeddedAnnotationDeletes: () => consumePendingEmbeddedAnnotationDeletes(),
-        restorePendingEmbeddedAnnotationDeletes: deletions => restorePendingEmbeddedAnnotationDeletes(deletions),
         clearAnnotationHistory: () => pdfViewerRef.value?.clearAnnotationHistory?.(),
         loadRecentFiles: () => {
             void loadRecentFiles();
@@ -549,6 +424,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         isExportingDocx,
         canSave,
         embedPlacedImageToPage,
+        getSourcePdfData,
         serializePdfForSave,
         saveForExternalRead,
     } = pageSaveOrchestration;
@@ -567,6 +443,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
 
     const exportControls = useWorkspaceExport({
         workingCopyPath,
+        sourceKind: computed(() => isDjvuMode.value ? 'djvu' : 'pdf'),
+        sourcePath: computed(() => isDjvuMode.value ? djvuSourcePath.value : workingCopyPath.value),
         totalPages,
         ensureWorkingCopyFreshForRead,
     });
@@ -692,9 +570,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         documentViewerRef,
     });
     const {
-        isAnnotationUndoContext,
-        canUndoAnnotation,
-        canRedoAnnotation,
         canUndo,
         canRedo,
     } = viewState;
@@ -707,9 +582,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         isHistoryBusy,
         canUndo,
         canRedo,
-        canUndoAnnotation,
-        canRedoAnnotation,
-        isAnnotationUndoContext,
         nextUndoSource: workspaceUndoTimeline.nextUndoSource,
         nextRedoSource: workspaceUndoTimeline.nextRedoSource,
         workingCopyPath,
@@ -726,7 +598,20 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pdfSrc,
     });
     const hasOpenDocument = computed(() => hasPdf.value || activeViewerAdapter.value?.capabilities.closeableDocument === true);
-    const canMutatePages = computed(() => activeViewerAdapter.value?.capabilities.pdfMutationActions === true);
+    const canMutatePages = computed(() => deps.sourceCapabilities.value.pageEdits);
+    const materializeAnnotationsForPageMutation = createPageMutationAnnotationMaterializer({
+        annotationDirty,
+        hasAnnotationChanges,
+        hasLivePdfJsAnnotationChanges,
+        hasSavedPdfJsAnnotationBaselineChanges,
+        pendingEmbeddedAnnotationDeleteCount,
+        preservedAnnotationSourceDirty,
+        workingCopyPath,
+        pdfViewerRef,
+        currentPage,
+        waitForPdfReload,
+        loadPdfFromData,
+    });
     const annotationActions = usePageAnnotationActions({
         pdfViewerRef,
         annotationTool,
@@ -751,18 +636,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         loadPdfFromData,
         waitForPdfReload,
         invalidateThumbnailPages: requestThumbnailInvalidation,
-        removeAnnotationFromCache: (stableKey) => {
-            annotationComments.value = annotationComments.value.filter(comment => comment.stableKey !== stableKey);
-        },
-        restoreAnnotationToCache: (comment) => {
-            annotationComments.value = [
-                ...annotationComments.value.filter(candidate => candidate.stableKey !== comment.stableKey),
-                comment,
-            ];
-        },
-        queuePendingEmbeddedAnnotationDelete,
-        unqueuePendingEmbeddedAnnotationDelete,
-        isNativeFreeTextNoteSaved,
         markPreservedAnnotationSourceDirty,
         setPreservedAnnotationSourceDirty,
         getAnnotationCommentsSnapshot: () => annotationComments.value,
@@ -776,13 +649,9 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pasteImageFromClipboardAt,
         shapePropertiesPopover,
         closeShapeProperties,
-        undoLatestFreshAnnotationNoteCreation,
     } = annotationActions;
 
     async function handleUndo() {
-        if (await undoLatestFreshAnnotationNoteCreation()) {
-            return;
-        }
         await pdfHistory.handleUndo();
     }
 
@@ -811,6 +680,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         originalPath: statusOriginalPath,
         workingCopyPath,
         documentRevisionToken,
+        pageLabels,
+        bookmarkItems,
         currentPage,
         effectiveZoom,
         canSave,
@@ -827,6 +698,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         closePageContextMenu,
         handleExportImages,
         ensureHistoryBaselineForExternalMutation,
+        materializeAnnotationsForPageMutation,
         reloadWorkingCopyIntoHistory,
         preparePdfReloadWaiter,
         clearOcrCache: (path) => clearOcrCache(path),
@@ -862,20 +734,18 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         const printTransaction = await pdfViewerRef.value?.runSaveTransaction({
             mode: 'print',
             forcePdfjsMaterialize: true,
+            serializeResult: true,
+            includeManagedShapes: true,
+            rewriteShapeState: true,
+            source: {
+                getSourcePdfData,
+                serializePdfForSave,
+            },
         });
-        const rawData = printTransaction?.serializedBytes
+        return printTransaction?.serializedBytes
             ?? printTransaction?.baseBytes
             ?? pdfData.value
             ?? await readWorkingCopyBytes();
-        if (!rawData) {
-            return null;
-        }
-
-        return serializePrintableSourceData(rawData, {
-            serializePdfForSave,
-            pendingTexts: printTransaction?.pendingEmbeddedTextUpdates ?? null,
-            pendingDeletes: printTransaction?.pendingEmbeddedAnnotationDeletes ?? null,
-        });
     }
 
     async function ensurePrintReady() {
@@ -884,25 +754,21 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         }
         return persistAllAnnotationNotes(true);
     }
-
     async function getQuickPrintPageMetrics() {
         const viewer = pdfViewerRef.value;
         const total = totalPages.value;
         if (!viewer || total <= 0) {
             return null;
         }
-
         const samplePages = uniq([
             1,
             clamp(currentPage.value, 1, total),
             Math.max(1, Math.ceil(total / 2)),
             total,
         ]).sort((left, right) => left - right);
-
         for (const pageNumber of samplePages) {
             await viewer.ensurePageMetricsInRange?.(pageNumber, pageNumber);
         }
-
         const metrics = viewer.getPageMetricsSnapshot?.() ?? [];
         const sampledMetrics = samplePages.flatMap((pageNumber) => {
             const metric = metrics[pageNumber - 1] ?? null;
@@ -916,13 +782,10 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             ) {
                 return [metric];
             }
-
             return [];
         });
-
         return sampledMetrics.length === samplePages.length ? sampledMetrics : null;
     }
-
     async function renderLoadedPdfPagesForBrowserPrint(
         targetDocument: IBrowserPrintDocument,
         pageNumbers: number[],
@@ -932,10 +795,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         if (!viewer?.renderLoadedPdfPagesForBrowserPrint) {
             throw new Error('Loaded PDF printing is unavailable');
         }
-
         await viewer.renderLoadedPdfPagesForBrowserPrint(targetDocument, pageNumbers, options);
     }
-
     async function printDjvuSource(
         payload: IWorkspacePrintSubmitPayload,
         options?: {
@@ -947,7 +808,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         if (!isDjvuMode.value || !sourcePath) {
             throw new Error('DjVu printing is unavailable');
         }
-
         const requestId = createDjvuPrintRequestId();
         const jobId = `djvu-print-${requestId}`;
         let cancelRequested = false;
@@ -955,45 +815,56 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             cancelRequested = true;
             void getDjvuCapability().cancel(jobId).catch(() => undefined);
         };
-        let didNotifyNativePrintHandoff = false;
-        const notifyNativePrintHandoff = () => {
-            if (didNotifyNativePrintHandoff) {
-                return;
-            }
-            didNotifyNativePrintHandoff = true;
-            options?.onNativePrintHandoffStart?.();
-        };
-        const handleProgress = (progress: IDjvuProgress) => {
-            if (progress.jobId === jobId && progress.phase === 'printing') {
-                notifyNativePrintHandoff();
-            }
-        };
-
         throwIfDjvuPrintAborted(options?.signal);
         options?.signal?.addEventListener('abort', cancelPrint, { once: true });
-        const unsubscribeProgress = getDjvuCapability().onProgress(handleProgress);
         try {
-            const result = await getDjvuCapability().printDjvuPath(sourcePath, {
-                ...payload,
-                requestId,
-                pdfStrategy: 'compact-djvu-aware',
-                ...(fileName.value ? { fileName: fileName.value } : {}),
+            const printSession = createDocumentSession({
+                id: `${String(sourcePath)}:${requestId}`,
+                originalRef: sourcePath,
+                source: createPrintProjectionSource('djvu', sourcePath),
+                capabilities: deps.sourceCapabilities.value,
             });
-            if (options?.signal?.aborted || cancelRequested) {
-                throw createDjvuPrintAbortError();
-            }
-            if (result.canceled) {
-                return;
-            }
-            if (!result.success) {
-                throw new Error(result.error ?? 'DjVu print preparation failed');
-            }
+            const projectionSignal = options?.signal ?? new AbortController().signal;
+            await ensurePdfProjection(printSession, {build: async () => {
+                const result = await getDjvuCapability().printDjvuPath(sourcePath, {
+                    ...payload,
+                    requestId,
+                    pdfStrategy: 'compact-djvu-aware',
+                    ...(fileName.value ? { fileName: fileName.value } : {}),
+                });
+                if (options?.signal?.aborted || cancelRequested || result.canceled) {
+                    throw createDjvuPrintAbortError();
+                }
+                if (!result.success) {
+                    throw new Error(result.error ?? 'DjVu print preparation failed');
+                }
+                const outputState = await getDjvuCapability().getJobState(result.jobId ?? jobId);
+                if (
+                    outputState?.operation !== 'djvu-print'
+                        || (outputState.status !== 'handoff' && outputState.status !== 'completed')
+                        || !('artifactPath' in outputState)
+                        || !outputState.artifactPath
+                ) {
+                    throw new Error('DjVu print completed without an accepted output-service handoff');
+                }
+                return {
+                    documentRef: outputState.artifactPath,
+                    source: createPrintProjectionSource('pdf', outputState.artifactPath),
+                    capabilities: {
+                        annotations: true,
+                        directImageExport: true,
+                        outline: true,
+                        pageEdits: true,
+                        search: true,
+                        text: true,
+                    },
+                };
+            }}, 'print', projectionSignal);
+            options?.onNativePrintHandoffStart?.();
         } finally {
-            unsubscribeProgress();
             options?.signal?.removeEventListener('abort', cancelPrint);
         }
     }
-
     const workspacePrint = useWorkspacePrint({
         totalPages,
         currentPage,
@@ -1011,7 +882,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         renderLoadedPdfPagesForBrowserPrint,
         printDjvuSource,
     });
-
     const interactionControls = useWorkspaceInteractionControls({
         isActive,
         appSettings,
@@ -1023,7 +893,10 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         effectiveZoom,
         zoomMode,
         pdfSrc,
-        canPrint: computed(() => activeViewerAdapter.value?.capabilities.print === true),
+        canPrint: computed(() => (
+            activeViewerAdapter.value?.capabilities.print === true
+            && (hasPdf.value || deps.sourceCapabilities.value.directImageExport)
+        )),
         canSave,
         showSettings,
         annotationTool,
@@ -1061,11 +934,9 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         loadPdfFromPath,
         runWithDocumentOperationLease: documentOperationLease.runExclusive,
     });
-
     useWorkspaceDocumentLifecycleEffects({
         pendingDjvu,
         openDjvuFile,
-        loadPdfFromPath,
         currentPage,
         totalPages,
         pdfDocument,
@@ -1111,13 +982,17 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             void loadRecentFiles();
         },
     });
-
     return {
         fileLifecycle,
         viewerShell: sidebarSearch,
         annotationSession: {
             ...annotationSession,
             ...annotationActions,
+            handleDeleteAnnotationById: (annotationId: string) => deleteAnnotationById(
+                annotationComments.value,
+                annotationId,
+                annotationActions.handleDeleteAnnotationComment,
+            ),
             applyAnnotationComments,
             thumbnailHiddenAnnotationIds,
             handleInsertImageFromFile: () => insertImageFromFileAt(currentPage.value, 0.5, 0.5),

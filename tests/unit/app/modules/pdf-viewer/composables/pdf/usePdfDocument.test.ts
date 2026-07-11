@@ -761,13 +761,17 @@ describe('usePdfDocument range loading', () => {
         const range = (pdfjsState.getDocument.mock.calls[0]?.[0] as { range?: MockPdfDataRangeTransport } | undefined)?.range;
         expect(documentState.pdfDocument.value).not.toBeNull();
 
-        electronApi.documentFiles.readFileRange.mockRejectedValue(new Error('post-load read failed'));
+        const postLoadReadError = new Error('post-load read failed');
+        electronApi.documentFiles.readFileRange.mockRejectedValue(postLoadReadError);
         range?.requestDataRange?.(1024 * 1024, (1024 * 1024) + 512);
 
         await vi.waitFor(() => {
             expect(documentState.pdfDocument.value).toBeNull();
+            expect(documentState.loadState.value.status).toBe('failed');
         });
 
+        expect(documentState.loadError.value).toBe(postLoadReadError);
+        expect(documentState.isLoading.value).toBe(false);
         expect(documentState.numPages.value).toBe(0);
         expect(taskDestroy).toHaveBeenCalledTimes(1);
         expect(documentDestroy).toHaveBeenCalledTimes(1);

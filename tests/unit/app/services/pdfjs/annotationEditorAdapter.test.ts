@@ -280,6 +280,37 @@ describe('annotationEditorAdapter', () => {
         expect(afterRedo).toHaveBeenCalledWith(editor);
     });
 
+    it('re-resolves an editor before undo and redo after a document reload', () => {
+        const staleRemove = vi.fn();
+        const currentRemove = vi.fn();
+        const currentRebuild = vi.fn();
+        const addCommands = vi.fn();
+        const staleEditor = {
+            id: 'stable-annotation-id',
+            remove: staleRemove,
+        } as IPdfjsEditor;
+        const currentEditor = {
+            id: 'stable-annotation-id',
+            remove: currentRemove,
+            _uiManager: {rebuild: currentRebuild},
+        } as IPdfjsEditor;
+        const layer = {
+            div: {} as HTMLElement,
+            addCommands,
+            createAndAddNewEditor: vi.fn(),
+        };
+
+        expect(addUndoableEditorToLayer(layer, staleEditor, {resolveEditor: () => currentEditor})).toBe(true);
+
+        const command = addCommands.mock.calls[0]?.[0];
+        command.undo();
+        command.cmd();
+
+        expect(staleRemove).not.toHaveBeenCalled();
+        expect(currentRemove).toHaveBeenCalledOnce();
+        expect(currentRebuild).toHaveBeenCalledWith(currentEditor);
+    });
+
     it('creates annotation editors through the layer factory with normalized point data', () => {
         const div = document.createElement('div');
         Object.defineProperty(div, 'getBoundingClientRect', {

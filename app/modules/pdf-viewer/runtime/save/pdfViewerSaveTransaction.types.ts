@@ -1,14 +1,12 @@
-import type {
-    IAnnotationCommentSummary,
-    TMarkupSubtype,
-} from '@app/types/annotations';
+import type {TMarkupSubtype} from '@app/types/annotations';
 import type {
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
     TPdfSaveMode,
 } from '@app/types/pdfContracts';
 import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
-import type { INativePdfMutationPlan } from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationPlanTypes';
+import type { INativePdfMutationProjection } from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
+import type {ISerializationPlan} from '@app/modules/pdf-viewer/serialization/serializationPlan';
 
 export type TPdfViewerSaveTransactionMode =
     | 'persist'
@@ -22,7 +20,7 @@ export type TPdfViewerSaveTransactionSource =
     | 'source-replay'
     | 'pdfjs-materialize'
     | 'serialized-rewrite'
-    | 'native-mutation-plan';
+    | 'native-mutation-projection';
 
 export type TPdfViewerAnnotationSaveRoute =
     | 'source-clean'
@@ -70,12 +68,10 @@ export interface IPdfViewerSaveTransactionDirtyState {
 }
 
 export interface IPdfViewerSaveTransactionSerializationOptions {
+    annotationSerializationPlan?: ISerializationPlan;
     forceRewrite?: boolean;
     includeShapes?: boolean;
     rewriteShapeState?: boolean;
-    annotationCommentsSnapshot?: IAnnotationCommentSummary[];
-    pendingTexts?: Map<string, string> | null;
-    pendingDeletes?: IAnnotationCommentSummary[] | null;
 }
 
 export interface IPdfViewerSaveTransactionSource {
@@ -87,6 +83,7 @@ export interface IPdfViewerSaveTransactionSource {
 }
 
 export interface IPdfViewerSaveTransactionRequest {
+    annotationSerializationPlan?: ISerializationPlan;
     mode: TPdfViewerSaveTransactionMode;
     saveMode?: TPdfSaveMode;
     saveFlowMode?: 'save' | 'save_as';
@@ -96,10 +93,6 @@ export interface IPdfViewerSaveTransactionRequest {
     rewriteShapeState?: boolean;
     planOnly?: boolean;
     serializeResult?: boolean;
-    consumePendingEmbeddedMutations?: boolean;
-    annotationCommentsSnapshot?: IAnnotationCommentSummary[];
-    pendingEmbeddedTextUpdates?: Map<string, string> | null;
-    pendingEmbeddedAnnotationDeletes?: IAnnotationCommentSummary[] | null;
     markupSubtypeOverrides?: Map<string, TMarkupSubtype> | undefined;
     markupSubtypeHints?: IMarkupSubtypeHint[] | undefined;
     nativeCapabilities?: IPdfViewerSaveTransactionNativeCapabilities;
@@ -108,22 +101,11 @@ export interface IPdfViewerSaveTransactionRequest {
     source?: IPdfViewerSaveTransactionSource;
 }
 
-export interface IPdfViewerPendingEmbeddedMutationSnapshot {
-    pendingEmbeddedTextUpdates: Map<string, string>;
-    pendingEmbeddedAnnotationDeletes: IAnnotationCommentSummary[];
-}
-
-export interface IPdfViewerConsumedPendingEmbeddedMutations {
-    pendingEmbeddedTextUpdates: Map<string, string>;
-    pendingEmbeddedAnnotationDeletes: IAnnotationCommentSummary[];
-    restore(): void;
-    commit(): void;
-}
-
 export interface IPdfViewerSaveTransactionSerializedResult {
     finalBytes: Uint8Array;
     saveMode: TPdfSaveMode;
     source: TPdfViewerSaveTransactionSource;
+    changedObjectRefs: readonly string[];
 }
 
 export interface IPdfViewerSaveTransactionResult {
@@ -131,11 +113,9 @@ export interface IPdfViewerSaveTransactionResult {
     baseBytes: Uint8Array | null;
     serializedBytes: Uint8Array | null;
     serializedResult: IPdfViewerSaveTransactionSerializedResult | null;
-    nativeMutationPlan: INativePdfMutationPlan | null;
+    nativeMutationProjection: INativePdfMutationProjection | null;
     annotationSavePlan: IPdfViewerAnnotationSavePlan;
-    annotationCommentsSnapshot: IAnnotationCommentSummary[];
-    pendingEmbeddedTextUpdates: Map<string, string>;
-    pendingEmbeddedAnnotationDeletes: IAnnotationCommentSummary[];
-    restoreConsumedPendingEmbeddedMutations(): void;
-    commitConsumedPendingEmbeddedMutations(): void;
+    verifyAnnotationSave?(bytes: Uint8Array): Promise<void>;
+    assertAnnotationSaveCurrent?(): Promise<void> | void;
+    commitAnnotationSave?(): void;
 }

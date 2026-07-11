@@ -18,7 +18,10 @@ import {
 
 const BASE_MARGIN = 20;
 
-export interface IFitScalePageOptions { page?: number | null | undefined; }
+export interface IFitScalePageOptions {
+    page?: number | null | undefined;
+    preview?: boolean | undefined;
+}
 
 export const usePdfScale = (
     zoom: MaybeRefOrGetter<number>,
@@ -33,7 +36,9 @@ export const usePdfScale = (
     currentPage: MaybeRefOrGetter<number>,
 ) => {
     const fitWidthScale = ref(1);
+    const previewFitScale = ref<number | null>(null);
     const lastFitScaleSignature = ref<string | null>(null);
+    const lastPreviewFitScaleSignature = ref<string | null>(null);
 
     const effectiveScale = computed(() => resolvePdfZoomScale({
         zoomMode: toValue(zoomMode),
@@ -41,6 +46,11 @@ export const usePdfScale = (
         manualZoom: toValue(zoom),
         fitScale: fitWidthScale.value,
     }).effectiveScale);
+    const layoutScale = computed(() => (
+        toValue(zoomMode) !== 'custom' && previewFitScale.value !== null
+            ? previewFitScale.value
+            : effectiveScale.value
+    ));
 
     const containerStyle = computed(() => {
         return {
@@ -215,7 +225,10 @@ export const usePdfScale = (
             totalPages,
         });
 
-        if (lastFitScaleSignature.value === fitScaleSignature) {
+        const signature = options?.preview
+            ? lastPreviewFitScaleSignature
+            : lastFitScaleSignature;
+        if (signature.value === fitScaleSignature) {
             BrowserLogger.diagnostic('pdf-nav', `[scale] skipped computeFitWidthScale: dimensions unchanged mode=${mode}`, {
                 rawSize,
                 availableSize,
@@ -225,13 +238,14 @@ export const usePdfScale = (
             return false;
         }
 
-        lastFitScaleSignature.value = fitScaleSignature;
+        signature.value = fitScaleSignature;
 
         const newScale = clampFitScale(availableSize / baseDimension);
 
-        if (Math.abs(newScale - fitWidthScale.value) < 0.001) {
+        const targetScale = options?.preview ? previewFitScale : fitWidthScale;
+        if (Math.abs(newScale - (targetScale.value ?? fitWidthScale.value)) < 0.001) {
             BrowserLogger.diagnostic('pdf-nav', `[scale] skipped computeFitWidthScale: delta below epsilon mode=${mode}`, {
-                currentScale: fitWidthScale.value,
+                currentScale: targetScale.value ?? fitWidthScale.value,
                 newScale,
                 availableSize,
                 baseDimension,
@@ -257,8 +271,17 @@ export const usePdfScale = (
             previousScale: fitWidthScale.value,
             nextScale: newScale,
         });
-        fitWidthScale.value = newScale;
+        targetScale.value = newScale;
+        if (!options?.preview) {
+            previewFitScale.value = null;
+            lastPreviewFitScaleSignature.value = null;
+        }
         return true;
+    }
+
+    function clearPreviewFitScale() {
+        previewFitScale.value = null;
+        lastPreviewFitScaleSignature.value = null;
     }
 
     function isFitWidthScaleCurrent(container: HTMLElement | null, options?: IFitScalePageOptions) {
@@ -298,19 +321,24 @@ export const usePdfScale = (
 
     function invalidateScaleCache() {
         lastFitScaleSignature.value = null;
+        lastPreviewFitScaleSignature.value = null;
     }
 
     function resetScale() {
         fitWidthScale.value = 1;
+        clearPreviewFitScale();
         invalidateScaleCache();
     }
 
     return {
         fitWidthScale,
+        previewFitScale: readonly(previewFitScale),
         effectiveScale,
+        layoutScale,
         containerStyle,
         scaledMargin,
         computeFitWidthScale,
+        clearPreviewFitScale,
         isFitWidthScaleCurrent,
         invalidateScaleCache,
         resetScale,

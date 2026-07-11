@@ -1,0 +1,264 @@
+// @vitest-environment happy-dom
+
+import {
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
+import type { IPagePreviewSource } from '@app/utils/document-viewer/pagePreviewSource';
+import { createDjvuPageSource } from '@app/utils/document-viewer/source/createDjvuPageSource';
+import {
+    createDocumentSession,
+    ensurePdfProjection,
+} from '@app/utils/document-viewer/session/documentSession';
+import { createWorkspaceSurfaceBudgetController } from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
+import { createDocumentAnnotationSidecar } from '@app/utils/document-viewer/providers/createDocumentAnnotationSidecar';
+
+describe('document page sources', () => {
+    it('persists app-owned DjVu annotations independently of the immutable source', () => {
+        window.localStorage.clear();
+        const first = createDocumentAnnotationSidecar('/library/book.djvu');
+        first.upsert({
+            id: 'durable-note',
+            pageNumber: 2,
+            payload: {label: 'Review'},
+        });
+
+        const reopened = createDocumentAnnotationSidecar('/library/book.djvu');
+        expect(reopened.getPageAnnotations(2)).toEqual([{
+            id: 'durable-note',
+            pageNumber: 2,
+            payload: {label: 'Review'},
+        }]);
+        expect(createDocumentAnnotationSidecar('/library/other.djvu').getPageAnnotations(2)).toEqual([]);
+
+        reopened.remove('durable-note');
+        expect(createDocumentAnnotationSidecar('/library/book.djvu').getPageAnnotations(2)).toEqual([]);
+    });
+    it('normalizes DjVu pixel geometry to points using each page DPI', async () => {
+        const previewSource = {
+            getPageSizes: vi.fn().mockResolvedValue([
+                {
+                    width: 1_200,
+                    height: 1_800,
+                    dpi: 300,
+                },
+                {
+                    width: 600,
+                    height: 900,
+                    dpi: 150,
+                },
+            ]),
+            renderPageObjectUrl: vi.fn(),
+            revokeObjectURL: vi.fn(),
+            terminate: vi.fn(),
+        } satisfies IPagePreviewSource;
+        const source = await createDjvuPageSource(
+            'book.djvu',
+            previewSource,
+            createWorkspaceSurfaceBudgetController(),
+        );
+
+        expect(await source.getPageMetrics(1)).toEqual({
+            widthPoints: 288,
+            heightPoints: 432,
+            rotation: 0,
+        });
+        expect(await source.getPageMetrics(2)).toEqual({
+            widthPoints: 288,
+            heightPoints: 432,
+            rotation: 0,
+        });
+        source.dispose();
+    });
+
+    it('exposes leased raster, thumbnail, text, outline, and annotation providers', async () => {
+        const previewSource = {
+            getPageSizes: vi.fn().mockResolvedValue([{
+                width: 1_200,
+                height: 1_800,
+                dpi: 300,
+            }]),
+            getPageText: vi.fn().mockResolvedValue('DjVu page text'),
+            getOutline: vi.fn().mockResolvedValue([{
+                title: 'Chapter',
+                pageNumber: 1,
+                children: [],
+            }]),
+            renderPageObjectUrl: vi.fn().mockResolvedValue({
+                objectUrl: 'blob:page-1',
+                renderedPx: 200,
+            }),
+            revokeObjectURL: vi.fn(),
+            terminate: vi.fn(),
+        } satisfies IPagePreviewSource;
+        const source = await createDjvuPageSource(
+            'book.djvu',
+            previewSource,
+            createWorkspaceSurfaceBudgetController(),
+        );
+        const controller = new AbortController();
+
+        expect(await source.textProvider?.getPageText(1, controller.signal)).toBe('DjVu page text');
+        expect(await source.outlineProvider?.getOutline(controller.signal)).toEqual([{
+            title: 'Chapter',
+            pageNumber: 1,
+            children: [],
+        }]);
+        source.annotationProvider?.upsert({
+            id: 'note',
+            pageNumber: 1,
+            payload: {text: 'hello'},
+        });
+        expect(source.annotationProvider?.getPageAnnotations(1)).toEqual([{
+            id: 'note',
+            pageNumber: 1,
+            payload: {text: 'hello'},
+        }]);
+        expect(source.annotationProvider?.remove('note')).toBe(true);
+
+        const thumbnail = await source.thumbnailProvider!.renderThumbnail({
+            pageNumber: 1,
+            widthPx: 200,
+            priority: 'navigation',
+            signal: controller.signal,
+        });
+        expect(thumbnail).toMatchObject({
+            surface: 'blob:page-1',
+            widthPx: 200,
+            heightPx: 300,
+        });
+        thumbnail.release();
+        expect(previewSource.revokeObjectURL).toHaveBeenCalledWith('blob:page-1');
+        source.dispose();
+        expect(previewSource.terminate).toHaveBeenCalledOnce();
+    });
+
+    it('revokes a DjVu decoded surface immediately when it cannot be admitted under pressure', async () => {
+        const previewSource = {
+            getPageSizes: vi.fn().mockResolvedValue([{
+                width: 1_200,
+                height: 1_800,
+                dpi: 300,
+            }]),
+            renderPageObjectUrl: vi.fn().mockResolvedValue({
+                objectUrl: 'blob:oversized-page',
+                renderedPx: 200,
+            }),
+            revokeObjectURL: vi.fn(),
+            terminate: vi.fn(),
+        } satisfies IPagePreviewSource;
+        const source = await createDjvuPageSource(
+            'book.djvu',
+            previewSource,
+            createWorkspaceSurfaceBudgetController(100),
+        );
+
+        await expect(source.renderPage({
+            pageNumber: 1,
+            widthPx: 200,
+            priority: 'prefetch',
+            signal: new AbortController().signal,
+        })).rejects.toThrow('DjVu preview evicted under memory pressure');
+        expect(previewSource.revokeObjectURL).toHaveBeenCalledWith('blob:oversized-page');
+        source.dispose();
+    });
+
+    it('atomically swaps a session source after a projection is ready', async () => {
+        const oldSource = {
+            kind: 'djvu' as const,
+            documentRef: 'book.djvu',
+            pageCount: 1,
+            getPageMetrics: vi.fn(),
+            renderPage: vi.fn(),
+            dispose: vi.fn(),
+        };
+        const pdfSource = {
+            ...oldSource,
+            kind: 'pdf' as const,
+            documentRef: 'book.pdf',
+        };
+        const capabilities = {
+            annotations: false,
+            directImageExport: true,
+            outline: false,
+            pageEdits: false,
+            search: false,
+            text: false,
+        };
+        const session = createDocumentSession({
+            id: 'session',
+            originalRef: 'book.djvu',
+            source: oldSource,
+            capabilities,
+        });
+
+        await ensurePdfProjection(session, {build: vi.fn().mockResolvedValue({
+            documentRef: 'book.pdf',
+            source: pdfSource,
+            capabilities: {
+                ...capabilities,
+                pageEdits: true,
+            },
+        })}, 'edit', new AbortController().signal);
+
+        expect(session.source).toBe(pdfSource);
+        expect(session.capabilities.pageEdits).toBe(true);
+        expect(session.projection.status).toBe('ready');
+        expect(oldSource.dispose).toHaveBeenCalledOnce();
+    });
+
+    it('passes the print projection reason through the builder before swapping sources', async () => {
+        const oldSource = {
+            kind: 'djvu' as const,
+            documentRef: 'book.djvu',
+            pageCount: 1,
+            getPageMetrics: vi.fn(),
+            renderPage: vi.fn(),
+            dispose: vi.fn(),
+        };
+        const pdfSource = {
+            ...oldSource,
+            kind: 'pdf' as const,
+            documentRef: 'print.pdf',
+        };
+        const capabilities = {
+            annotations: false,
+            directImageExport: true,
+            outline: false,
+            pageEdits: false,
+            search: false,
+            text: false,
+        };
+        const session = createDocumentSession({
+            id: 'print-session',
+            originalRef: 'book.djvu',
+            source: oldSource,
+            capabilities,
+        });
+        const build = vi.fn().mockResolvedValue({
+            documentRef: 'print.pdf',
+            source: pdfSource,
+            capabilities: {
+                ...capabilities,
+                pageEdits: true,
+            },
+        });
+        const signal = new AbortController().signal;
+
+        await ensurePdfProjection(session, {build}, 'print', signal);
+
+        expect(build).toHaveBeenCalledWith({
+            session,
+            reason: 'print',
+            signal,
+        });
+        expect(session.projection).toEqual({
+            status: 'ready',
+            reason: 'print',
+            documentRef: 'print.pdf',
+        });
+        expect(session.source).toBe(pdfSource);
+    });
+});

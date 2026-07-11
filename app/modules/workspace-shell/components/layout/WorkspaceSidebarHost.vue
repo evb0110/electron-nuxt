@@ -1,5 +1,5 @@
 <template>
-    <main class="workspace-main">
+    <main ref="workspaceMainRef" class="workspace-main">
         <div
             v-if="showSidebar"
             class="sidebar-wrapper"
@@ -23,6 +23,7 @@
 
 <script setup lang="ts">
 import type { CSSProperties } from 'vue';
+import { useResizeObserver } from '@vueuse/core';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
 const {
@@ -36,7 +37,18 @@ const {
     resizeAriaLabel: string;
 }>();
 
-const emit = defineEmits<{'resize-start': [event: PointerEvent];}>();
+const emit = defineEmits<{
+    'resize-start': [event: PointerEvent];
+    'container-resize': [width: number];
+}>();
+const workspaceMainRef = useTemplateRef<HTMLElement>('workspaceMainRef');
+
+useResizeObserver(workspaceMainRef, (entries) => {
+    const width = entries[0]?.contentRect.width;
+    if (width !== undefined) {
+        emit('container-resize', width);
+    }
+});
 
 function handleResizeStart(event: PointerEvent) {
     emit('resize-start', event);
@@ -109,10 +121,11 @@ watch(
     display: flex;
     height: 100%;
     min-width: 0;
+    max-width: max(0px, calc(100% - var(--app-sidebar-min-viewer-width)));
 }
 
 .sidebar-resizer {
-    width: 6px;
+    width: var(--app-editor-sash-width);
     cursor: col-resize;
     position: relative;
     flex-shrink: 0;

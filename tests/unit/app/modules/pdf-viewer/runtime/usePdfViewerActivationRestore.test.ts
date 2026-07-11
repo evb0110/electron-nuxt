@@ -1,236 +1,95 @@
 // @vitest-environment happy-dom
 
 import {
-    afterEach,
-    beforeEach,
+    computed,
+    ref,
+    shallowRef,
+} from 'vue';
+import {
     describe,
     expect,
     it,
     vi,
 } from 'vitest';
-import {
-    computed,
-    ref,
-    shallowRef,
-} from 'vue';
 import { usePdfViewerActivationRestore } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfViewerActivationRestore';
 import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import { cast } from '@tests/helpers/cast';
 
-type TActivationRestoreOptions = Parameters<typeof usePdfViewerActivationRestore>[0];
-type TActivationRestoreTransactionController = NonNullable<
-    TActivationRestoreOptions['transactionController']
->;
-
-function createViewerContainer(renderedCanvasPage: number | null = null) {
-    const container = document.createElement('div');
-    Object.defineProperty(container, 'getBoundingClientRect', {
-        configurable: true,
-        value: () => ({
-            bottom: 600,
-            height: 600,
-            left: 0,
-            right: 800,
-            top: 0,
-            width: 800,
-            x: 0,
-            y: 0,
-            toJSON: () => ({}),
-        }),
-    });
-    const originalQuerySelector = container.querySelector.bind(container);
-    vi.spyOn(container, 'querySelector').mockImplementation((selector: string) => {
-        const match = selector.match(/data-page="(\d+)"/);
-        const page = match ? Number.parseInt(match[1] ?? '', 10) : null;
-        if (page !== null && page === renderedCanvasPage && selector.includes('.page_canvas canvas')) {
-            return document.createElement('canvas');
-        }
-        return originalQuerySelector(selector);
-    });
-    return container;
-}
-
-function createHarness(options?: {
-    currentPage?: number;
-    visibleRange?: {
-        start: number;
-        end: number
-    };
-    renderedCanvasPage?: number | null;
-    transactionController?: TActivationRestoreTransactionController;
-}) {
-    const pdfDocument = shallowRef<PDFDocumentProxy | null>(
-        cast<PDFDocumentProxy>({ fingerprint: 'doc-a' }),
-    );
-    const renderVisiblePages = vi.fn(async () => {});
-    const applySearchHighlights = vi.fn();
-    const visibleRange = ref(options?.visibleRange ?? {
+function createHarness() {
+    const documentA = cast<PDFDocumentProxy>({fingerprint: 'a'});
+    const pdfDocument = shallowRef<PDFDocumentProxy | null>(documentA);
+    const isActive = ref(true);
+    const visibleRange = ref({
         start: 1,
         end: 2,
     });
+    const renderVisiblePages = vi.fn(async () => {});
+    const scrollToPage = vi.fn();
+    const applySearchHighlights = vi.fn();
     const restore = usePdfViewerActivationRestore({
-        viewerContainer: ref(createViewerContainer(options?.renderedCanvasPage ?? null)),
+        viewerContainer: ref(document.createElement('div')),
         pdfDocument,
-        isActive: computed(() => true),
+        isActive: computed(() => isActive.value),
         isLoading: ref(false),
-        numPages: ref(4),
-        currentPage: ref(options?.currentPage ?? 2),
+        numPages: ref(8),
+        currentPage: ref(6),
         visibleRange,
         viewMode: computed(() => 'facing'),
-        getVisiblePageRange: vi.fn(() => visibleRange.value),
+        getVisiblePageRange: () => visibleRange.value,
         updateVisibleRange: vi.fn(),
-        scrollToPage: vi.fn(),
+        scrollToPage,
         renderVisiblePages,
-        isPageRendered: vi.fn(() => false),
         applySearchHighlights,
-        transactionController: options?.transactionController,
     });
     return {
         applySearchHighlights,
+        isActive,
         pdfDocument,
         renderVisiblePages,
         restore,
-        visibleRange,
+        scrollToPage,
     };
 }
 
 describe('usePdfViewerActivationRestore', () => {
-    beforeEach(() => {
-        vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
-            callback(performance.now());
-            return 1;
-        });
+    it('resumes through one semantic scroll and one normal render demand', async () => {
+        const harness = createHarness();
+        const runId = harness.restore.nextActivationRestoreRunId();
+
+        await harness.restore.renderActiveDocumentAfterActivation(runId);
+
+        expect(harness.scrollToPage).toHaveBeenCalledOnce();
+        expect(harness.scrollToPage).toHaveBeenCalledWith(6);
+        expect(harness.renderVisiblePages).toHaveBeenCalledOnce();
+        expect(harness.renderVisiblePages).toHaveBeenCalledWith({
+            start: 5,
+            end: 6,
+        }, {preserveRenderedPages: true});
+        expect(harness.applySearchHighlights).toHaveBeenCalledOnce();
     });
 
-    afterEach(() => {
-        vi.restoreAllMocks();
+    it('fences a late completion after a newer activation run', async () => {
+        const harness = createHarness();
+        let finish!: () => void;
+        harness.renderVisiblePages.mockImplementationOnce(() => new Promise<void>((resolve) => {
+            finish = resolve;
+        }));
+        const oldRun = harness.restore.nextActivationRestoreRunId();
+        const pending = harness.restore.renderActiveDocumentAfterActivation(oldRun);
+        harness.restore.nextActivationRestoreRunId();
+        finish();
+        await pending;
+
+        expect(harness.applySearchHighlights).not.toHaveBeenCalled();
     });
 
-    it('force-renders the current facing row when only the sibling has content', async () => {
-        const {
-            applySearchHighlights,
-            renderVisiblePages,
-            restore,
-        } = createHarness({ renderedCanvasPage: 1 });
-        const runId = restore.nextActivationRestoreRunId();
-
-        await restore.renderActiveDocumentAfterActivation(runId);
-
-        expect(renderVisiblePages).toHaveBeenNthCalledWith(1, {
-            start: 1,
-            end: 2,
-        }, { preserveRenderedPages: true });
-        expect(renderVisiblePages).toHaveBeenNthCalledWith(2, {
-            start: 1,
-            end: 2,
-        }, {
-            preserveRenderedPages: true,
-            forceRerender: true,
-            bufferOverride: 0,
+    it('fences a late completion after the document changes', async () => {
+        const harness = createHarness();
+        harness.renderVisiblePages.mockImplementationOnce(async () => {
+            harness.pdfDocument.value = cast<PDFDocumentProxy>({fingerprint: 'b'});
         });
-        expect(applySearchHighlights).toHaveBeenCalledOnce();
-    });
-
-    it('does not continue activation restore after the document changes', async () => {
-        const {
-            applySearchHighlights,
-            pdfDocument,
-            renderVisiblePages,
-            restore,
-        } = createHarness();
-        renderVisiblePages.mockImplementationOnce(async () => {
-            pdfDocument.value = cast<PDFDocumentProxy>({ fingerprint: 'doc-b' });
-        });
-        const runId = restore.nextActivationRestoreRunId();
-
-        await restore.renderActiveDocumentAfterActivation(runId);
-
-        expect(renderVisiblePages).toHaveBeenCalledTimes(1);
-        expect(applySearchHighlights).not.toHaveBeenCalled();
-    });
-
-    it('runs activation restore rendering through a recovery transaction', async () => {
-        const visibleRange = ref({
-            start: 1,
-            end: 2,
-        });
-        const transactionController: TActivationRestoreTransactionController = {
-            beginTransaction: vi.fn(() => ({ id: 91 })),
-            advanceTransaction: vi.fn(() => true),
-            cancelActiveTransaction: vi.fn(() => true),
-            isTransactionCurrent: vi.fn(() => true),
-            commitVisibleRange: vi.fn((range) => {
-                visibleRange.value = range;
-                return true;
-            }),
-        };
-        const {
-            renderVisiblePages,
-            restore,
-        } = createHarness({
-            visibleRange: visibleRange.value,
-            transactionController,
-        });
-        const runId = restore.nextActivationRestoreRunId();
-
-        await restore.renderActiveDocumentAfterActivation(runId);
-
-        expect(transactionController.beginTransaction).toHaveBeenCalledWith({
-            kind: 'recovery',
-            source: 'activation-restore',
-            page: 2,
-            range: {
-                start: 1,
-                end: 2,
-            },
-            anchor: 'top',
-        });
-        expect(transactionController.commitVisibleRange).toHaveBeenCalledWith({
-            start: 1,
-            end: 2,
-        }, { transactionId: 91 });
-        expect(transactionController.advanceTransaction).toHaveBeenCalledWith(91, 'render-requested');
-        expect(transactionController.advanceTransaction).toHaveBeenCalledWith(91, 'settled');
-        expect(transactionController.cancelActiveTransaction).not.toHaveBeenCalled();
-        expect(renderVisiblePages).toHaveBeenCalledTimes(2);
-    });
-
-    it('restores a visible pane when authoritative work denies recovery admission', async () => {
-        const transactionController: TActivationRestoreTransactionController = {
-            beginTransaction: vi.fn(() => null),
-            advanceTransaction: vi.fn(() => true),
-            cancelActiveTransaction: vi.fn(() => true),
-            isTransactionCurrent: vi.fn(() => true),
-            commitVisibleRange: vi.fn(() => true),
-        };
-        const {
-            applySearchHighlights,
-            renderVisiblePages,
-            restore,
-        } = createHarness({ transactionController });
-        const runId = restore.nextActivationRestoreRunId();
-
-        await restore.renderActiveDocumentAfterActivation(runId);
-
-        expect(transactionController.beginTransaction).toHaveBeenCalledOnce();
-        expect(transactionController.commitVisibleRange).toHaveBeenCalledWith({
-            start: 1,
-            end: 2,
-        }, undefined);
-        expect(transactionController.advanceTransaction).not.toHaveBeenCalled();
-        expect(transactionController.cancelActiveTransaction).not.toHaveBeenCalled();
-        expect(renderVisiblePages).toHaveBeenNthCalledWith(1, {
-            start: 1,
-            end: 2,
-        }, { preserveRenderedPages: true });
-        expect(renderVisiblePages).toHaveBeenNthCalledWith(2, {
-            start: 1,
-            end: 2,
-        }, {
-            preserveRenderedPages: true,
-            forceRerender: true,
-            bufferOverride: 0,
-        });
-        expect(applySearchHighlights).toHaveBeenCalledOnce();
+        const runId = harness.restore.nextActivationRestoreRunId();
+        await harness.restore.renderActiveDocumentAfterActivation(runId);
+        expect(harness.applySearchHighlights).not.toHaveBeenCalled();
     });
 });

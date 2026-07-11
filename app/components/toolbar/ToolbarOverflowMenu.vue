@@ -32,7 +32,7 @@
 
         <template #facing-first-single-leading>
             <span class="overflow-menu-icon overflow-menu-icon--facing-first-single">
-                <UIcon name="i-ph-book-open" class="size-[1.125rem]" />
+                <UIcon name="i-ph-book-open" class="size-[var(--app-toolbar-icon-size)]" />
                 <span class="overflow-menu-icon-badge">1</span>
             </span>
         </template>
@@ -106,6 +106,10 @@ interface IProps {
     showDocumentSection?: boolean
     canCombineFiles?: boolean
     canPrint?: boolean
+    canSave?: boolean
+    canSaveAs?: boolean
+    canUndo?: boolean
+    canRedo?: boolean
     canPrintCurrentPage?: boolean
     canConvertToPdf?: boolean
     canToggleContinuousScroll?: boolean
@@ -114,6 +118,8 @@ interface IProps {
     isPreparingCurrentPagePrint?: boolean
     isAnySaving?: boolean
     isHistoryBusy?: boolean
+    isSaving?: boolean
+    isSavingAs?: boolean
 }
 
 const {
@@ -122,6 +128,10 @@ const {
     canConvertToPdf,
     canCrop,
     canPrint = true,
+    canSave = false,
+    canSaveAs = false,
+    canUndo = false,
+    canRedo = false,
     canPrintCurrentPage,
     canQuickNote,
     canToggleSidebar,
@@ -145,6 +155,8 @@ const {
     isPreparingPrint,
     isAnySaving = false,
     isHistoryBusy = false,
+    isSaving = false,
+    isSavingAs = false,
     open,
     showDocumentSection,
     showSidebar,
@@ -154,6 +166,11 @@ const {
 
 const emit = defineEmits<{
     'update:open': [value: boolean];
+    save: [];
+    'save-as': [];
+    print: [];
+    undo: [];
+    redo: [];
     'open-ocr': [];
     'toggle-sidebar': [];
     'fit-width': [];
@@ -167,12 +184,17 @@ const emit = defineEmits<{
     'quick-note': [];
     'toggle-fullscreen': [];
     'open-settings': [];
-    'combine-images': [];
+    'combine-files': [];
     'print-current-page': [];
     'convert-to-pdf': [];
 }>();
 
 const emitMenuCommand = {
+    save: () => emit('save'),
+    'save-as': () => emit('save-as'),
+    print: () => emit('print'),
+    undo: () => emit('undo'),
+    redo: () => emit('redo'),
     'open-ocr': () => emit('open-ocr'),
     'toggle-sidebar': () => emit('toggle-sidebar'),
     'fit-width': () => emit('fit-width'),
@@ -185,7 +207,7 @@ const emitMenuCommand = {
     'quick-note': () => emit('quick-note'),
     'toggle-fullscreen': () => emit('toggle-fullscreen'),
     'open-settings': () => emit('open-settings'),
-    'combine-images': () => emit('combine-images'),
+    'combine-files': () => emit('combine-files'),
     'print-current-page': () => emit('print-current-page'),
     'convert-to-pdf': () => emit('convert-to-pdf'),
 } satisfies Record<TToolbarOverflowMenuCommand, () => void>;
@@ -224,11 +246,19 @@ const overflowMenuUi = {
     itemTrailing: 'overflow-menu-trailing',
 };
 
-const hasDocumentItems = computed(() => (
+const hasRelocatedFileItems = computed(() => (
+    shouldShowRelocatedCommand('save')
+    || shouldShowRelocatedCommand('save-as')
+    || shouldShowRelocatedCommand('print')
+));
+const hasDocumentItems = computed(() => hasRelocatedFileItems.value || (
     showDocumentSection === true
     && (canCombineFiles === true
         || canPrintCurrentPage === true
         || canConvertToPdf === true)
+));
+const hasEditItems = computed(() => (
+    shouldShowRelocatedCommand('undo') || shouldShowRelocatedCommand('redo')
 ));
 
 const hasToolItems = computed(() => (
@@ -254,6 +284,7 @@ const hasShellItems = computed(() => shouldShowMenuCommand('settings'));
 const overflowMenuItems = computed(() => {
     const items: TToolbarOverflowMenuItem[] = [];
     appendMenuSection(items, t('menu.file'), buildDocumentItems());
+    appendMenuSection(items, t('menu.edit'), buildEditItems());
     appendMenuSection(items, t('toolbar.annotations'), buildToolItems());
     appendMenuSection(items, t('menu.view'), buildViewItems());
     appendMenuSection(items, t('toolbar.moreTools'), buildShellItems());
@@ -288,8 +319,23 @@ function buildDocumentItems() {
         return items;
     }
 
+    const saveDisabled = !hasInteractiveDocument.value || !canSave || isAnySaving || isHistoryBusy || isDjvuMode;
+    const saveAsDisabled = !hasInteractiveDocument.value || !canSaveAs || isAnySaving || isHistoryBusy || isDjvuMode;
+
+    if (shouldShowRelocatedCommand('save')) {
+        items.push(createReaderCommandItem('save', 'save', t('toolbar.save'), {disabled: saveDisabled || isSaving}));
+    }
+
+    if (shouldShowRelocatedCommand('save-as')) {
+        items.push(createReaderCommandItem('save-as', 'save-as', t('toolbar.saveAs'), {disabled: saveAsDisabled || isSavingAs}));
+    }
+
+    if (shouldShowRelocatedCommand('print')) {
+        items.push(createReaderCommandItem('print', 'print', t('toolbar.print'), {disabled: isPrintCommandDisabled.value}));
+    }
+
     if (canCombineFiles === true) {
-        items.push(createCommandItem('combine-images', t('menu.combineFiles'), 'i-ph-stack-plus'));
+        items.push(createCommandItem('combine-files', t('menu.combineFiles'), 'i-ph-stack-plus'));
     }
 
     if (canPrintCurrentPage === true) {
@@ -301,6 +347,24 @@ function buildDocumentItems() {
 
     if (canConvertToPdf === true) {
         items.push(createCommandItem('convert-to-pdf', t('menu.convertToPdf'), 'i-ph-arrows-clockwise', {disabled: !hasInteractiveDocument.value}));
+    }
+
+    return items;
+}
+
+function buildEditItems() {
+    const items: IToolbarOverflowMenuCommandItem[] = [];
+
+    if (!hasEditItems.value) {
+        return items;
+    }
+
+    const historyDisabled = !hasInteractiveDocument.value || isHistoryBusy || isAnySaving || isDjvuMode;
+    if (shouldShowRelocatedCommand('undo')) {
+        items.push(createReaderCommandItem('undo', 'undo', t('toolbar.undo'), {disabled: historyDisabled || !canUndo}));
+    }
+    if (shouldShowRelocatedCommand('redo')) {
+        items.push(createReaderCommandItem('redo', 'redo', t('toolbar.redo'), {disabled: historyDisabled || !canRedo}));
     }
 
     return items;
@@ -545,6 +609,11 @@ function shouldShowMenuCommand(command: TReaderCommandId, requiredCollapseTier =
     }
 
     return collapseTier >= requiredCollapseTier;
+}
+
+function shouldShowRelocatedCommand(command: TReaderCommandId) {
+    return isReaderCommandInMenu(surface, command)
+        && (!isReaderCommandInline(surface, command) || collapseTier >= 4);
 }
 </script>
 

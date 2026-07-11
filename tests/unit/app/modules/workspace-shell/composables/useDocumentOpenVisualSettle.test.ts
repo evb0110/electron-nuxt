@@ -19,7 +19,7 @@ interface IHarnessOverrides {
     pdfDocument?: unknown;
     pdfError?: unknown;
     pdfSrc?: unknown;
-    showNativeDjvuViewer?: boolean;
+    showDjvuSource?: boolean;
     showNativePdfViewer?: boolean;
     totalPages?: number;
 }
@@ -33,7 +33,7 @@ function createHarness(overrides: IHarnessOverrides = {}) {
     const isLoading = ref(overrides.isLoading ?? false);
     const pdfError = ref(overrides.pdfError ?? null);
     const djvuError = ref(overrides.djvuError ?? null);
-    const showNativeDjvuViewer = ref(overrides.showNativeDjvuViewer ?? false);
+    const showDjvuSource = ref(overrides.showDjvuSource ?? false);
     const showNativePdfViewer = ref(overrides.showNativePdfViewer ?? false);
     const markAnnotationCommentsLoading = vi.fn();
 
@@ -47,7 +47,7 @@ function createHarness(overrides: IHarnessOverrides = {}) {
         isLoading,
         pdfError,
         djvuError,
-        showNativeDjvuViewer,
+        showDjvuSource,
         showNativePdfViewer,
         markAnnotationCommentsLoading,
     });
@@ -62,7 +62,7 @@ function createHarness(overrides: IHarnessOverrides = {}) {
         pdfError,
         pdfSrc,
         settle,
-        showNativeDjvuViewer,
+        showDjvuSource,
         showNativePdfViewer,
         totalPages,
     };
@@ -115,7 +115,7 @@ describe('useDocumentOpenVisualSettle', () => {
         ],
         [
             'native DjVu',
-            'showNativeDjvuViewer' as const,
+            'showDjvuSource' as const,
         ],
     ])('does not settle %s on viewer selection alone', async (_label, viewerFlag) => {
         const harness = createHarness({
@@ -139,7 +139,7 @@ describe('useDocumentOpenVisualSettle', () => {
         ],
         [
             'native DjVu',
-            'showNativeDjvuViewer' as const,
+            'showDjvuSource' as const,
         ],
     ])('keeps %s pending after initial visual readiness while loading continues', async (_label, viewerFlag) => {
         const harness = createHarness({
@@ -171,7 +171,7 @@ describe('useDocumentOpenVisualSettle', () => {
     it('rejects timeout waits without resolving the pending visual waiter', async () => {
         vi.useFakeTimers();
         const harness = createHarness({
-            showNativeDjvuViewer: true,
+            showDjvuSource: true,
             isLoading: true,
             totalPages: 1,
         });

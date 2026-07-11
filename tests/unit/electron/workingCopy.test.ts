@@ -22,12 +22,14 @@ import {
 } from 'path';
 import { tmpdir } from 'os';
 import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
+import {requireDocumentRevisionToken} from '@contracts';
 
 let tempRoot = '';
 
 vi.mock('electron', () => ({ app: { getPath: vi.fn((_name: string) => tempRoot) } }));
 
 vi.mock('@electron/utils/decryptPdfFileIfNeeded', () => ({ decryptPdfFileIfNeeded: vi.fn(async () => undefined) }));
+vi.mock('@electron/pdf/pdfPageCount', () => ({getPdfPageCount: vi.fn(async () => 1)}));
 
 describe('workingCopy', () => {
     beforeEach(() => {
@@ -36,10 +38,27 @@ describe('workingCopy', () => {
     });
 
     afterEach(() => {
+        vi.useRealTimers();
         rmSync(tempRoot, {
             force: true,
             recursive: true,
         });
+    });
+
+    it('prunes retired working-copy metadata after its TTL without requiring a later lookup', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-07-10T00:00:00.000Z'));
+        const {
+            getRetiredWorkingCopyOriginalCountForTests,
+            rememberRetiredWorkingCopyOriginal,
+        } = await import('@electron/file-access/workingCopyStore');
+
+        rememberRetiredWorkingCopyOriginal('/tmp/retired.pdf', '/tmp/original.pdf');
+        expect(getRetiredWorkingCopyOriginalCountForTests()).toBe(1);
+
+        await vi.advanceTimersByTimeAsync(10 * 60 * 1_000);
+
+        expect(getRetiredWorkingCopyOriginalCountForTests()).toBe(0);
     });
 
     it('recreates an active working copy directory from the original file', async () => {
@@ -267,7 +286,7 @@ describe('workingCopy', () => {
         await setWorkingCopyOriginalPath(workingPath, originalPath);
 
         const context = {senderId: 1};
-        await expect(handleFileSaveStructured(context, workingPath, {expectedDocumentRevisionToken: 'revision-before-missing-save'})).resolves.toMatchObject({
+        await expect(handleFileSaveStructured(context, workingPath, {expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-missing-save')})).resolves.toMatchObject({
             ok: false,
             reason: 'working-copy-missing',
         });

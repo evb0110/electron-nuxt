@@ -38,3 +38,12 @@ export {
     parseRetryAfterMs,
     shouldRetryReleaseFetch,
 } from '@evb/releaseSelection/latestReleaseRetry';
+
+export {
+    normalizeCanaryPercent,
+    parseReleaseTagList,
+    selectReleaseForRollout,
+} from '@evb/releaseSelection/releaseRolloutPolicy';
+export type {
+    IReleaseRolloutPolicy, IRolloutRelease,
+} from '@evb/releaseSelection/releaseRolloutPolicy';

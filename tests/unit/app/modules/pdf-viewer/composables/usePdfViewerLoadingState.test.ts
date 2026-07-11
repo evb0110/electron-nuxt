@@ -126,4 +126,46 @@ describe('usePdfViewerLoadingState', () => {
             scope.stop();
         }
     });
+
+    it('restores the loading overlay for a direct source replacement until the new document paints', async () => {
+        const scope = effectScope();
+        try {
+            let hasRenderedCanvas = true;
+            const container = document.createElement('div');
+            vi.spyOn(container, 'querySelector')
+                .mockImplementation(() => (hasRenderedCanvas ? document.createElement('canvas') : null));
+            const sourceA = new Blob([new Uint8Array([1])], {type: 'application/pdf'});
+            const sourceB = new Blob([new Uint8Array([2])], {type: 'application/pdf'});
+            const documentA = {} as PDFDocumentProxy;
+            const documentB = {} as PDFDocumentProxy;
+            const src = shallowRef(sourceA);
+            const pdfDocument = shallowRef<PDFDocumentProxy | null>(documentA);
+
+            const state = scope.run(() => usePdfViewerLoadingState({
+                src: computed(() => src.value),
+                isLoading: ref(false),
+                pdfDocument,
+                viewerContainer: ref<HTMLElement | null>(container),
+            }));
+
+            await nextTick();
+            expect(state?.isViewerLoadingOverlayVisible.value).toBe(false);
+
+            src.value = sourceB;
+            await nextTick();
+            expect(state?.isViewerLoadingOverlayVisible.value).toBe(true);
+
+            hasRenderedCanvas = false;
+            pdfDocument.value = documentB;
+            await nextTick();
+            expect(state?.isViewerLoadingOverlayVisible.value).toBe(true);
+
+            hasRenderedCanvas = true;
+            triggerObservedMutation?.();
+            await nextTick();
+            expect(state?.isViewerLoadingOverlayVisible.value).toBe(false);
+        } finally {
+            scope.stop();
+        }
+    });
 });

@@ -215,10 +215,11 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
 
     watch(
         [
-            selectedPages,
+            () => selectedPages.value.join(','),
             totalPages,
         ],
-        ([pages]) => {
+        () => {
+            const pages = selectedPages.value;
             const normalized = normalizeSelectedPageNumbers(pages, totalPages.value);
             if (!arePageNumberListsEqual(normalized, pages)) {
                 onSelectedPagesChange(normalized);
@@ -226,10 +227,7 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
 
             syncInternalSelection(normalized);
         },
-        {
-            immediate: true,
-            deep: true,
-        },
+        {immediate: true},
     );
 
     return {

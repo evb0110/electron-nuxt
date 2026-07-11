@@ -1,0 +1,67 @@
+import {
+    describe,
+    expect,
+    it,
+} from 'vitest';
+import { createDocumentPageSlotRegistry } from '@app/utils/document-viewer/page-slots/createDocumentPageSlotRegistry';
+import { createDocumentViewerRenderCoordinator } from '@app/utils/document-viewer/chassis/createDocumentViewerRenderCoordinator';
+
+describe('document viewer render coordinator', () => {
+    it('makes feature replacement transactional across equal page numbers', async () => {
+        const coordinator = createDocumentViewerRenderCoordinator(createDocumentPageSlotRegistry());
+        const outgoing = coordinator.createSession('pdf:1');
+        const incoming = coordinator.createSession('djvu:2');
+        const incomingReady = incoming.pageSlots.whenMounted(5, new AbortController().signal);
+        const oldGeneration = outgoing.beginPageRender(5, false);
+        const newGeneration = incoming.beginPageRender(5, true);
+
+        incoming.pageSlots.markMounted(5);
+        outgoing.dispose();
+
+        await expect(incomingReady).resolves.toBeUndefined();
+        expect(incoming.pageSlots.isMounted(5)).toBe(true);
+        expect(outgoing.commitPageRender(5, oldGeneration)).toBe(false);
+        expect(incoming.commitPageRender(5, newGeneration)).toBe(true);
+        expect(incoming.getPageVisual(5)).toBe('fresh');
+    });
+
+    it('keeps viewport and destination windows disjoint on long jumps', () => {
+        const session = createDocumentViewerRenderCoordinator(createDocumentPageSlotRegistry())
+            .createSession('pdf:jump');
+        expect(session.resolveMountedPages({
+            currentPage: 1,
+            destinationPage: 500,
+            pageCount: 600,
+            radius: 1,
+        })).toEqual([
+            1,
+            2,
+            499,
+            500,
+            501,
+        ]);
+    });
+
+    it('owns render scheduling and rejects a completion after session replacement', async () => {
+        const coordinator = createDocumentViewerRenderCoordinator(createDocumentPageSlotRegistry());
+        const outgoing = coordinator.createSession('pdf:render-old');
+        let finish!: (value: string) => void;
+        const pending = outgoing.runPageRender(3, false, () => new Promise<string>((resolve) => {
+            finish = resolve;
+        }));
+        outgoing.dispose();
+        const incoming = coordinator.createSession('djvu:render-new');
+        const latest = incoming.runPageRender(3, false, async () => 'new');
+        finish('old');
+
+        await expect(pending).resolves.toMatchObject({
+            committed: false,
+            value: 'old',
+        });
+        await expect(latest).resolves.toMatchObject({
+            committed: true,
+            value: 'new',
+        });
+        expect(incoming.getPageVisual(3)).toBe('fresh');
+    });
+});

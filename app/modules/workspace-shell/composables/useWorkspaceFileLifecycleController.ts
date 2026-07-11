@@ -6,6 +6,7 @@ import { useWorkspaceFileSwitch } from '@app/modules/workspace-shell/composables
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { createWorkspaceViewerLifecycleHooks } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import type { IAnalyticsDocumentScope } from '@app/composables/useAnalytics';
+import type { TPdfProjectionReason } from '@app/utils/document-viewer/session/documentSession';
 
 interface IUseWorkspaceFileLifecycleControllerOptions { analyticsDocumentScope?: IAnalyticsDocumentScope | undefined; }
 
@@ -53,6 +54,7 @@ export const useWorkspaceFileLifecycleController = (
         canRedo: canRedoFile,
         fileHistoryMutationVersion,
         fileHistorySessionVersion,
+        setWorkspaceCommandSink,
         undo,
         redo,
     } = usePdfFile({analyticsDocumentScope: options.analyticsDocumentScope});
@@ -65,11 +67,12 @@ export const useWorkspaceFileLifecycleController = (
         loadingProgress: djvuLoadingProgress,
         showBanner: djvuShowBanner,
         showConvertDialog,
-        viewingError: djvuError,
+        sourceError: djvuError,
         openingPath: djvuOpeningPath,
         openDjvuFile,
         invalidatePendingDjvuOpen,
         convertToPdf: djvuConvertToPdf,
+        ensurePdfProjectionForAction: ensureDjvuPdfProjectionForAction,
         cancelActiveJobs: cancelDjvuJobs,
         cleanupDjvuTemp,
         exitDjvuMode,
@@ -111,6 +114,13 @@ export const useWorkspaceFileLifecycleController = (
         pdfStrategy: TDjvuPdfExportStrategy,
     ) {
         return djvuConvertToPdf(subsample, preserveBookmarks, pdfStrategy, openFileDirectWithViewerLifecycle);
+    }
+
+    function ensureDjvuPdfProjection(
+        reason: TPdfProjectionReason,
+        signal: AbortSignal,
+    ) {
+        return ensureDjvuPdfProjectionForAction(reason, openFileDirectWithViewerLifecycle, signal);
     }
 
     function handleDjvuCancel() {
@@ -170,6 +180,7 @@ export const useWorkspaceFileLifecycleController = (
         canRedoFile,
         fileHistoryMutationVersion,
         fileHistorySessionVersion,
+        setWorkspaceCommandSink,
         undo,
         redo,
 
@@ -186,6 +197,7 @@ export const useWorkspaceFileLifecycleController = (
         openConvertDialog,
         djvuDismissBanner,
         handleDjvuConvert,
+        ensureDjvuPdfProjection,
         handleDjvuCancel,
 
         recentFiles,

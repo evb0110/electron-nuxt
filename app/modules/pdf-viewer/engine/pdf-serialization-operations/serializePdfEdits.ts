@@ -11,7 +11,8 @@ import { applyShapeAnnotations } from '@app/modules/pdf-viewer/engine/serializat
 import type { IPdfSerializationSavePayload } from '@app/modules/pdf-viewer/engine/pdf-serialization-operations/pdfSerializationSavePayload';
 
 function hasSaveWork(payload: IPdfSerializationSavePayload) {
-    return Boolean(payload.forceRewrite)
+    return (payload.canonicalAnnotationProgram?.length ?? 0) > 0
+        || Boolean(payload.forceRewrite)
         || payload.markupSubtypeOverrides.length > 0
         || payload.markupSubtypeHints.length > 0
         || payload.rewriteShapeState

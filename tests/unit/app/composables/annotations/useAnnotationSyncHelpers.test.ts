@@ -15,7 +15,7 @@ import { buildPdfAnnotationCommentSummary } from '@app/modules/pdf-viewer/engine
 import { buildPopupIndex } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/buildPopupIndex';
 import { collectPagePdfSnapshotEntries } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/collectPagePdfSnapshotEntries';
 import { collectPdfAnnotationNamesByPage } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/collectPdfAnnotationNamesByPage';
-import { computeSummaryStableKey } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/computeSummaryStableKey';
+import { computeSummaryStableKey } from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
 import { loadPdfPageAnnotations } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/loadPdfPageAnnotations';
 import { pickLatestAnnotationTimestamp } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/pickLatestAnnotationTimestamp';
 import { resolveCombinedAnnotationText } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/resolveCombinedAnnotationText';
@@ -85,11 +85,11 @@ const __test__ = {
 const computeStableKey = vi.fn((params: {
     pageIndex: number;
     id: string;
-    source: string;
+    source: 'editor' | 'pdf' | 'shape';
     uid?: string | null;
     annotationId?: string | null;
     annotationName?: string | null | undefined;
-}) => `${params.source}:${params.pageIndex}:${params.id}`);
+}) => `src:${params.source}:${params.pageIndex}:${params.id}` as const);
 
 const resolveKindLabel = vi.fn((subtype: string | null | undefined) => `kind:${subtype ?? 'null'}`);
 
@@ -471,7 +471,7 @@ describe('useAnnotationSync helpers / buildPdfAnnotationCommentSummary', () => {
         expect(summary.uid).toBeNull();
         expect(summary.annotationId).toBe('a-1');
         expect(summary.kindLabel).toBe('kind:Highlight');
-        expect(summary.stableKey).toBe('pdf:4:a-1');
+        expect(summary.stableKey).toBe('src:pdf:4:a-1');
     });
 
     it('prefers the PDF annotation /NM name for stable identity', () => {
@@ -532,7 +532,7 @@ describe('useAnnotationSync helpers / buildPdfAnnotationCommentSummary', () => {
         expect(summary.text).toBe('real note');
     });
 
-    it('marks hasNote=true for FreeText with linked popup', () => {
+    it('does not treat a regular-size FreeText editor with a popup as a point note', () => {
         const summary = __test__.buildPdfAnnotationCommentSummary(
             {
                 id: 'a-3',
@@ -557,10 +557,10 @@ describe('useAnnotationSync helpers / buildPdfAnnotationCommentSummary', () => {
             summaryDeps,
         );
 
-        expect(summary.hasNote).toBe(true);
+        expect(summary.hasNote).toBe(false);
     });
 
-    it('shrinks large FreeText popup rects into point-like note anchors', () => {
+    it('treats a FreeText popup at the inclusive point-note threshold as a note', () => {
         const summary = __test__.buildPdfAnnotationCommentSummary(
             {
                 id: 'freetext-1',
@@ -568,8 +568,8 @@ describe('useAnnotationSync helpers / buildPdfAnnotationCommentSummary', () => {
                 rect: [
                     100,
                     500,
-                    220,
-                    620,
+                    112,
+                    516,
                 ],
                 contents: 'note',
                 popupRef: 'popup-1',
@@ -592,10 +592,46 @@ describe('useAnnotationSync helpers / buildPdfAnnotationCommentSummary', () => {
         );
 
         expect(summary.hasNote).toBe(true);
-        expect(summary.markerRect?.width).toBeLessThanOrEqual(0.02);
-        expect(summary.markerRect?.height).toBeLessThanOrEqual(0.02);
+        expect(summary.markerRect?.width).toBeCloseTo(0.02, 12);
+        expect(summary.markerRect?.height).toBeCloseTo(0.02, 12);
         expect(summary.markerRect?.left).toBeCloseTo(100 / 600, 5);
-        expect(summary.markerRect?.top).toBeCloseTo(1 - (620 / 800), 5);
+        expect(summary.markerRect?.top).toBeCloseTo(1 - (516 / 800), 5);
+    });
+
+    it('rejects a FreeText popup just above the point-note threshold', () => {
+        const summary = __test__.buildPdfAnnotationCommentSummary(
+            {
+                id: 'freetext-above-threshold',
+                subtype: 'FreeText',
+                rect: [
+                    100,
+                    500,
+                    112.0006,
+                    516.0008,
+                ],
+                contents: 'note',
+                popupRef: 'popup-above-threshold',
+            },
+            {
+                id: 'popup-above-threshold',
+                subtype: 'Popup',
+                contents: 'note',
+            },
+            1,
+            0,
+            [
+                0,
+                0,
+                600,
+                800,
+            ],
+            0,
+            summaryDeps,
+        );
+
+        expect(summary.hasNote).toBe(false);
+        expect(summary.markerRect?.width).toBeGreaterThan(0.02);
+        expect(summary.markerRect?.height).toBeGreaterThan(0.02);
     });
 
     it('keeps regular FreeText rects when there is no linked popup', () => {

@@ -9,11 +9,9 @@ import type {
     TPdfViewMode,
     TZoomMode,
 } from '@app/types/pdfContracts';
-import type {
-    IPageRange,
-    IScrollSnapshot,
-} from '@app/types/pdfUi';
+import type { IPageRange } from '@app/types/pdfUi';
 import { PDF_RERENDER_SOURCE } from '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol';
+import type { TPdfRerenderSource } from '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol';
 
 
 interface IUsePdfViewerFitWidthControllerOptions {
@@ -31,7 +29,6 @@ interface IUsePdfViewerFitWidthControllerOptions {
     numPages: Ref<number>;
     pageMetricsVersion: Ref<number>;
     visibleRange: Ref<IPageRange>;
-    captureViewerScrollSnapshot: () => IScrollSnapshot | null;
     computeFitWidthScale: (container: HTMLElement | null) => boolean;
     isFitWidthScaleCurrent: (container: HTMLElement | null) => boolean;
     syncHorizontalScrollForZoomMode: () => void;
@@ -40,9 +37,7 @@ interface IUsePdfViewerFitWidthControllerOptions {
         getRange: () => IPageRange,
         options: {
             preserveExistingPages?: boolean;
-            anchorSnapshot?: IScrollSnapshot | null;
-            disableHorizontalAnchorRestore?: boolean;
-            rerenderSource?: string;
+            rerenderSource?: TPdfRerenderSource;
             renderBufferOverride?: number;
         },
     ) => Promise<void>;
@@ -55,7 +50,6 @@ export const usePdfViewerFitWidthController = (options: IUsePdfViewerFitWidthCon
             return false;
         }
 
-        const anchorSnapshot = options.captureViewerScrollSnapshot();
         const updated = options.computeFitWidthScale(options.viewerContainer.value);
         if (!updated) {
             options.syncHorizontalScrollForZoomMode();
@@ -67,8 +61,6 @@ export const usePdfViewerFitWidthController = (options: IUsePdfViewerFitWidthCon
             () => ({ ...options.visibleRange.value }),
             {
                 preserveExistingPages: true,
-                anchorSnapshot,
-                disableHorizontalAnchorRestore: true,
                 rerenderSource: PDF_RERENDER_SOURCE.FitWidthExplicit,
                 renderBufferOverride: 0,
             },

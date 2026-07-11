@@ -45,48 +45,6 @@ export function resolveThumbnailItemHeightFromAspect(
     return resolveThumbnailItemHeightFromCanvasHeight(renderWidth * aspectRatio);
 }
 
-export function resolveThumbnailItemHeights(
-    totalPages: number,
-    aspectRatios: Array<number | null>,
-    renderWidth: number,
-) {
-    if (totalPages <= 0) {
-        return [] as number[];
-    }
-
-    return Array.from({length: totalPages}, (_, index) =>
-        resolveThumbnailItemHeightFromAspect(aspectRatios[index], renderWidth),
-    );
-}
-
-export function resolveThumbnailPageTops(
-    itemHeights: number[],
-    gap = THUMBNAIL_GAP,
-) {
-    const tops: number[] = [];
-    let offset = 0;
-    for (let index = 0; index < itemHeights.length; index += 1) {
-        tops[index] = offset;
-        offset += itemHeights[index] ?? DEFAULT_THUMBNAIL_ITEM_HEIGHT;
-        if (index < itemHeights.length - 1) {
-            offset += gap;
-        }
-    }
-    return tops;
-}
-
-export function resolveThumbnailContentHeight(
-    totalPages: number,
-    tops: number[],
-    itemHeights: number[],
-) {
-    if (totalPages <= 0) {
-        return 0;
-    }
-    const lastPageIndex = totalPages - 1;
-    return (tops[lastPageIndex] ?? 0) + (itemHeights[lastPageIndex] ?? DEFAULT_THUMBNAIL_ITEM_HEIGHT);
-}
-
 export function resolvePageAtScrollOffset(
     offset: number,
     totalPages: number,

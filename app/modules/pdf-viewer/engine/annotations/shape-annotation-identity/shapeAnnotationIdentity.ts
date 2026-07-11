@@ -1,4 +1,7 @@
-import type { IShapeAnnotation } from '@app/types/annotations';
+import type {
+    IShapeAnnotation,
+    TAnnotationStableKey,
+} from '@app/types/annotations';
 import { normalizeManagedShapeStableKey } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/normalizeManagedShapeStableKey';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 
@@ -12,7 +15,7 @@ export function getNormalizedShapeStableKey(shape: Pick<IShapeAnnotation, 'stabl
     return normalizeManagedShapeStableKey(shape.stableKey);
 }
 
-export function computeShapeCommentStableKey(shape: TShapeIdentityInput) {
+export function computeShapeCommentStableKey(shape: TShapeIdentityInput): TAnnotationStableKey {
     const sourceKey = shape.stableKey ?? shape.annotationId ?? shape.id;
     return `shape:${shape.pageIndex}:${sourceKey}`;
 }

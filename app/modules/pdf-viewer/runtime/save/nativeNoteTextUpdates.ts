@@ -11,8 +11,8 @@ import type {
 } from '@contracts/electronApiDocuments';
 import type {
     INativePdfMutationBuildResult,
-    INativePdfMutationPlanCommonInput,
-} from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationPlanTypes';
+    INativePdfMutationProjectionCommonInput,
+} from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
 
 const NATIVE_NOTE_TEXT_UPDATE_SUBTYPES = new Set([
     'text',
@@ -60,7 +60,7 @@ function isNativeNoteTextUpdateSubtype(comment: IAnnotationCommentSummary) {
     return NATIVE_NOTE_TEXT_UPDATE_SUBTYPES.has(normalizedSubtype);
 }
 
-export interface IBuildNativeNoteTextUpdatesForSaveInput extends INativePdfMutationPlanCommonInput {annotationCommentsSnapshot: IAnnotationCommentSummary[];}
+export interface IBuildNativeNoteTextUpdatesForSaveInput extends INativePdfMutationProjectionCommonInput {canonicalComments: IAnnotationCommentSummary[];}
 
 export function buildNativeNoteTextUpdatesForSave(
     opts: IBuildNativeNoteTextUpdatesForSaveInput,
@@ -99,7 +99,7 @@ export function buildNativeNoteTextUpdatesForSave(
         });
     }
 
-    const commentsByStableKey = buildNativeNoteTextCommentLookup(opts.annotationCommentsSnapshot);
+    const commentsByStableKey = buildNativeNoteTextCommentLookup(opts.canonicalComments);
     const updatesByRef = new Map<string, IPdfNoteTextUpdate>();
     const updates: IPdfNoteTextUpdate[] = [];
     for (const [
@@ -152,7 +152,7 @@ export function buildNativeNoteTextUpdatesForSave(
 
 export function arePendingTextsCoveredByNativeChanges(opts: {
     pendingTexts: Map<string, string> | null;
-    annotationCommentsSnapshot: IAnnotationCommentSummary[];
+    canonicalComments: IAnnotationCommentSummary[];
     nativeNoteTextUpdates: IPdfNoteTextUpdate[] | null;
     nativeFreeTextNotes: IPdfNativeFreeTextNote[] | null;
 }) {
@@ -171,7 +171,7 @@ export function arePendingTextsCoveredByNativeChanges(opts: {
             `${update.objectNumber}R${update.generationNumber}`,
         ),
     );
-    const commentsByStableKey = buildNativeNoteTextCommentLookup(opts.annotationCommentsSnapshot);
+    const commentsByStableKey = buildNativeNoteTextCommentLookup(opts.canonicalComments);
 
     for (const [
         stableKey,

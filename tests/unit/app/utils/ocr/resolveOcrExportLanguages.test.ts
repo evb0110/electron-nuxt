@@ -14,6 +14,8 @@ function settings(selectedLanguages: string[]): IOcrSettings {
         qualityProfile: 'balanced',
         preprocessingMode: 'off',
         pageSegmentationMode: null,
+        supersessionPolicy: 'missing-only',
+        replaceAllAcknowledged: false,
     };
 }
 

@@ -43,11 +43,16 @@ import { initRecentFilesCache } from '@electron/recentFiles';
 import {
     performDjvuViewingShutdownCleanup,
     shutdownDjvuConversions,
+    pruneStaleDjvuArtifactJobs,
 } from '@electron/features/djvu/public';
 import { shutdownLocalMcpServer } from '@electron/features/agent/mcpServer';
 import { syncAgentMcpServerWithSettings } from '@electron/features/agent/codexMcpIntegration';
 import { shutdownAgentAssistant } from '@electron/features/agent/codexAssistant';
-import { shutdownOcrJobManager } from '@electron/ocr/jobManager';
+import {
+    recoverOcrJobManager,
+    shutdownOcrJobManager,
+} from '@electron/ocr/jobManager';
+import {searchWorkerService} from '@electron/features/search/public';
 import {
     createWindow,
     hasWindows,
@@ -88,8 +93,17 @@ import {
     drainCriticalMainOperations,
 } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import { sweepStaleManagedScratchTempDirs } from '@electron/utils/managedScratchTemp';
+import {
+    configureProcessSafeMode,
+    createProcessDeathRecovery,
+} from '@electron/processDeathRecovery';
+import { markPendingUpdateHealthy } from '@electron/updateHealthMarker';
+import { runDetached } from '@electron/utils/runDetached';
+import { createUnhandledRejectionRecovery } from '@electron/unhandledRejectionRecovery';
+import { clearWorkspaceCheckpoint } from '@electron/workspaceCheckpointStore';
 
 app.setName(app.isPackaged ? 'EVB Viewer' : 'EVB Viewer Dev');
+configureProcessSafeMode(app, process.argv);
 configureMacKeychainAccess(app);
 registerAppProtocolScheme();
 if (process.platform === 'win32') {
@@ -107,6 +121,14 @@ if (automationUserDataDir) {
 resetSettingsCacheAfterUserDataPathChange();
 
 const logger = createLogger('main');
+const processDeathRecovery = createProcessDeathRecovery({
+    app,
+    argv: process.argv,
+    logger,
+});
+app.on('child-process-gone', (_event, details) => {
+    processDeathRecovery.handleChildProcessGone(details);
+});
 const macOpenFileRouter = createMacOpenFileRouter({ logger });
 // Keep fatal shutdown opt-in for unhandled rejections: many promise failures are
 // feature-local and should not crash the entire public app.
@@ -148,12 +170,38 @@ function isIgnorableUnhandledRejection(reason: unknown) {
     return false;
 }
 
+const recoverUnhandledRejectionSubsystem = createUnhandledRejectionRecovery({async recover(subsystem) {
+    logger.error(`Restarting ${subsystem} subsystem after repeated unhandled promise rejections`);
+    if (subsystem === 'ocr') {
+        await recoverOcrJobManager();
+    } else if (subsystem === 'search') {
+        searchWorkerService.cleanupAll('unhandled rejection threshold');
+    } else if (subsystem === 'agent') {
+        await shutdownAgentAssistant();
+    } else if (subsystem === 'djvu') {
+        await shutdownDjvuConversions();
+        performDjvuViewingShutdownCleanup();
+    } else if (subsystem === 'documents') {
+        await closeCachedRangeReadHandles();
+    }
+}});
+
 process.on('unhandledRejection', (reason) => {
     logger.error(`Unhandled promise rejection in main process: ${reason instanceof Error ? reason.stack ?? reason.message : String(reason)}`);
-    if (!FATAL_UNHANDLED_REJECTION_ENABLED || isIgnorableUnhandledRejection(reason)) {
+    if (isIgnorableUnhandledRejection(reason)) {
         return;
     }
-    requestFatalShutdown('Unhandled promise rejection requires fatal shutdown');
+    if (FATAL_UNHANDLED_REJECTION_ENABLED) {
+        requestFatalShutdown('Unhandled promise rejection requires fatal shutdown');
+        return;
+    }
+    runDetached(
+        () => recoverUnhandledRejectionSubsystem(reason),
+        {
+            label: 'recover subsystem after unhandled rejection threshold',
+            logger,
+        },
+    );
 });
 process.on('uncaughtException', (error) => {
     requestFatalShutdown(`Uncaught exception in main process: ${error.stack ?? error.message}`);
@@ -345,15 +393,23 @@ async function performShutdownCleanup() {
         },
         {
             label: 'ocr-job-manager',
-            run: () => shutdownOcrJobManager(), 
+            run: () => shutdownOcrJobManager(),
         },
         {
             label: 'range-read-handles',
             run: () => closeCachedRangeReadHandles(),
         },
         {
+            label: 'workspace-checkpoint',
+            run: () => shutdownCoordinator?.isFatalShutdownInProgress()
+                ? undefined
+                : clearWorkspaceCheckpoint(),
+        },
+        {
             label: 'working-copies',
-            run: () => clearAllWorkingCopies({skipPaths: workingCopyCleanupSkipPaths}), 
+            run: () => shutdownCoordinator?.isFatalShutdownInProgress()
+                ? undefined
+                : clearAllWorkingCopies({skipPaths: workingCopyCleanupSkipPaths}),
         },
     ]);
 }
@@ -396,7 +452,19 @@ void runInitSequence({
     installHostEnvironmentDisplayWatcher,
     logger,
     logStartupPhase: startupTrace.log,
-    markWindowRendererReady,
+    markWindowRendererReady: (windowId) => {
+        markWindowRendererReady(windowId);
+        if (windowId !== getRegisteredMainWindow()?.id) {
+            return;
+        }
+        runDetached(
+            () => markPendingUpdateHealthy(app.getVersion()),
+            {
+                label: 'mark current update healthy',
+                logger,
+            },
+        );
+    },
     markWindowTabTransferNotReady,
     markWindowTabTransferReady,
     markWindowTabTransferWindowClosed,
@@ -410,6 +478,7 @@ void runInitSequence({
     sweepStaleDefaultAppTempPdfs,
     sweepStaleManagedScratchTempDirs,
     sweepStaleOcrTempArtifacts,
+    pruneStaleDjvuArtifactJobs,
 })
     .then(() => syncAgentMcpServerWithSettings())
     .catch((error) => {

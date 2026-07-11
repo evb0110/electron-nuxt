@@ -97,7 +97,10 @@
 </template>
 
 <script setup lang="ts">
-import type { IShapeAnnotation } from '@app/types/annotations';
+import type {
+    IShapeAnnotation,
+    TShapeAnnotationPatch,
+} from '@app/types/annotations';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 
 const { t } = useTypedI18n();
@@ -121,7 +124,7 @@ const propertiesSliderUi = {
 };
 
 const emit = defineEmits<{
-    update: [updates: Partial<IShapeAnnotation>];
+    update: [updates: TShapeAnnotationPatch];
     close: [];
     delete: [];
 }>();
@@ -254,7 +257,7 @@ const opacityModel = computed({
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 6px 6px 6px 10px;
+    padding: var(--app-pdf-annotation-properties-header-padding);
     border-bottom: 1px solid var(--ui-border);
 }
 
@@ -278,7 +281,7 @@ const opacityModel = computed({
     justify-content: center;
     gap: 0.5rem;
     width: 100%;
-    min-height: 2rem;
+    min-height: var(--app-control-height-sm);
     padding: 0.45rem 0.75rem;
     border: 1px solid color-mix(in oklab, var(--ui-error) 24%, var(--ui-border) 76%);
     border-radius: 0.5rem;
@@ -289,7 +292,7 @@ const opacityModel = computed({
             color-mix(in oklab, var(--ui-bg-elevated) 84%, var(--ui-error) 16%)
         );
     color: var(--app-pdf-context-menu-danger-fg);
-    font-size: 0.75rem;
+    font-size: var(--app-text-size-kicker);
     font-weight: 600;
     letter-spacing: 0.01em;
     cursor: pointer;
@@ -339,7 +342,7 @@ const opacityModel = computed({
     justify-self: start;
     width: var(--app-pdf-annotation-properties-color-size);
     height: var(--app-pdf-annotation-properties-color-size);
-    padding: 1px;
+    padding: var(--app-pdf-annotation-properties-color-padding);
     border: 1px solid var(--ui-border);
     border-radius: var(--app-radius-xs);
     cursor: pointer;
@@ -369,7 +372,7 @@ const opacityModel = computed({
 
 .annotation-properties-checkbox :deep([data-slot="label"]) {
     color: var(--ui-text-muted);
-    font-size: 11px;
+    font-size: var(--app-text-size-micro);
     font-weight: 400;
     line-height: 1.25;
 }
@@ -380,8 +383,8 @@ const opacityModel = computed({
 }
 
 .annotation-properties-range :deep(.annotation-properties-range-track) {
-    height: 4px;
-    border-radius: 2px;
+    height: var(--app-range-track-height);
+    border-radius: var(--app-space-3xs);
     background: var(--ui-border);
 }
 
@@ -390,8 +393,8 @@ const opacityModel = computed({
 }
 
 .annotation-properties-range :deep(.annotation-properties-range-thumb) {
-    width: 12px;
-    height: 12px;
+    width: var(--app-pdf-annotation-properties-range-thumb-size);
+    height: var(--app-pdf-annotation-properties-range-thumb-size);
     border-radius: 50%;
     border: 2px solid var(--app-sidebar-bg);
     background: var(--ui-text);
@@ -400,9 +403,9 @@ const opacityModel = computed({
 
 .annotation-properties-value {
     flex-shrink: 0;
-    min-width: 44px;
+    min-width: var(--app-pdf-annotation-properties-value-min-width);
     text-align: right;
-    font-size: 11px;
+    font-size: var(--app-text-size-micro);
     color: var(--ui-text-muted);
     font-variant-numeric: tabular-nums;
 }

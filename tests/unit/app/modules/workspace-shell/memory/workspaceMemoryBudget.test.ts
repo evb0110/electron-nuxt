@@ -49,6 +49,20 @@ describe('workspace memory budget', () => {
         });
     });
 
+    it('derives bounded raster and free-memory reserves from physical memory', () => {
+        expect(resolveWorkspaceMemoryBudget({environment: { totalMemoryBytes: 4 * GIB }})).toMatchObject({
+            maxRasterSurfaceBytes: 0.24 * GIB,
+            systemFreeReserveBytes: 1 * GIB,
+        });
+        expect(resolveWorkspaceMemoryBudget({environment: {
+            totalMemoryBytes: 64 * GIB,
+            hardwareConcurrency: 24,
+        }})).toMatchObject({
+            maxRasterSurfaceBytes: 1536 * MIB,
+            systemFreeReserveBytes: 4 * GIB,
+        });
+    });
+
     it('keeps balanced devices distinct from low and high tiers', () => {
         expect(resolveWorkspaceMemoryDeviceTier({
             lowMemory: false,

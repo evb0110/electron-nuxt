@@ -1,7 +1,11 @@
 import type { TDocumentRef } from '@contracts/documentRef';
-import { isRecord } from '@contracts/runtimeGuards';
+import type { Tagged } from 'type-fest';
+import {
+    isOneOf,
+    isRecord,
+} from '@contracts/runtimeGuards';
 
-export type TDocumentRevisionToken = string;
+export type TDocumentRevisionToken = Tagged<string, 'DocumentRevisionToken'>;
 export type TDocumentRevisionAuthority = 'electron-working-copy' | 'browser-document-store';
 
 export type TDocumentRevisionChangeReason =
@@ -15,7 +19,7 @@ export type TDocumentRevisionChangeReason =
     | 'browser-handle-refresh'
     | 'unknown';
 
-const DOCUMENT_REVISION_CHANGE_REASONS = new Set<TDocumentRevisionChangeReason>([
+const DOCUMENT_REVISION_CHANGE_REASONS = [
     'open',
     'write',
     'replace-working-copy',
@@ -25,9 +29,27 @@ const DOCUMENT_REVISION_CHANGE_REASONS = new Set<TDocumentRevisionChangeReason>(
     'native-mutation',
     'browser-handle-refresh',
     'unknown',
-]);
+] as const satisfies readonly TDocumentRevisionChangeReason[];
 const DOCUMENT_REVISION_TOKEN_MAX_LENGTH = 512;
 const DOCUMENT_REVISION_REF_MAX_LENGTH = 32_768;
+
+export function parseDocumentRevisionToken(value: unknown): TDocumentRevisionToken | null {
+    if (typeof value !== 'string') {
+        return null;
+    }
+    const normalized = value.trim();
+    return normalized.length > 0 && normalized.length <= DOCUMENT_REVISION_TOKEN_MAX_LENGTH
+        ? normalized as TDocumentRevisionToken
+        : null;
+}
+
+export function requireDocumentRevisionToken(value: unknown): TDocumentRevisionToken {
+    const parsed = parseDocumentRevisionToken(value);
+    if (parsed === null) {
+        throw new TypeError('Document revision token must be a non-empty string');
+    }
+    return parsed;
+}
 
 export interface IDocumentRevisionStamp {token: TDocumentRevisionToken;}
 
@@ -47,9 +69,7 @@ export interface IDocumentRevisionChangedEvent extends IDocumentRevisionInfo {
 export function isDocumentRevisionInfo(value: unknown): value is IDocumentRevisionInfo {
     return isRecord(value)
         && value.version === 1
-        && typeof value.token === 'string'
-        && value.token.length > 0
-        && value.token.length <= DOCUMENT_REVISION_TOKEN_MAX_LENGTH
+        && parseDocumentRevisionToken(value.token) !== null
         && typeof value.documentRef === 'string'
         && value.documentRef.length > 0
         && value.documentRef.length <= DOCUMENT_REVISION_REF_MAX_LENGTH
@@ -64,16 +84,15 @@ export function isDocumentRevisionInfo(value: unknown): value is IDocumentRevisi
 
 export function decodeDocumentRevisionChangedEvent(value: unknown): IDocumentRevisionChangedEvent | null {
     const candidate = isRecord(value) ? value : null;
+    const previousToken = candidate?.previousToken === undefined
+        ? undefined
+        : parseDocumentRevisionToken(candidate.previousToken);
     if (
         candidate === null
         || !isDocumentRevisionInfo(candidate)
         || typeof candidate.reason !== 'string'
-        || !DOCUMENT_REVISION_CHANGE_REASONS.has(candidate.reason as TDocumentRevisionChangeReason)
-        || (candidate.previousToken !== undefined && (
-            typeof candidate.previousToken !== 'string'
-            || candidate.previousToken.length === 0
-            || candidate.previousToken.length > DOCUMENT_REVISION_TOKEN_MAX_LENGTH
-        ))
+        || !isOneOf(DOCUMENT_REVISION_CHANGE_REASONS, candidate.reason)
+        || previousToken === null
     ) {
         return null;
     }
@@ -84,7 +103,7 @@ export function decodeDocumentRevisionChangedEvent(value: unknown): IDocumentRev
         authority: candidate.authority,
         contentRevision: candidate.contentRevision,
         mintedAt: candidate.mintedAt,
-        reason: candidate.reason as TDocumentRevisionChangeReason,
-        ...(candidate.previousToken === undefined ? {} : {previousToken: candidate.previousToken}),
+        reason: candidate.reason,
+        ...(previousToken === undefined ? {} : {previousToken}),
     };
 }

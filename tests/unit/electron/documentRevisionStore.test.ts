@@ -20,6 +20,7 @@ import {
 import { tmpdir } from 'os';
 import type * as NodeCrypto from 'node:crypto';
 import type * as DocumentRevisionSidecarModule from '@electron/file-access/documentRevisionSidecar';
+import {requireDocumentRevisionToken} from '@contracts';
 
 let tempRoot = '';
 
@@ -105,6 +106,41 @@ describe('documentRevisionStore', () => {
             });
     });
 
+    it('publishes a transition revision only after its commit succeeds', async () => {
+        const originalPath = join(tempRoot, 'transition-original.pdf');
+        const workingPath = join(tempRoot, 'pdf-work-transition', 'transition.pdf');
+        mkdirSync(dirname(workingPath), {recursive: true});
+        writeFileSync(originalPath, new Uint8Array([1]));
+        writeFileSync(workingPath, new Uint8Array([2]));
+        const {setWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
+        const {
+            ensureWorkingCopyRevision,
+            getWorkingCopyRevision,
+            transitionWorkingCopyContentRevision,
+        } = await import('@electron/file-access/documentRevisionStore');
+        await setWorkingCopyOriginalPath(workingPath, originalPath, 7);
+        const initial = await ensureWorkingCopyRevision(workingPath, 7);
+
+        await expect(transitionWorkingCopyContentRevision(
+            workingPath,
+            'ocr-apply',
+            async () => { throw new Error('catalog commit failed'); },
+            7,
+        )).rejects.toThrow('catalog commit failed');
+        await expect(getWorkingCopyRevision(workingPath, 7)).resolves.toMatchObject({token: initial.token});
+
+        const committed = await transitionWorkingCopyContentRevision(
+            workingPath,
+            'ocr-apply',
+            async nextRevision => {
+                expect(nextRevision.contentRevision).toBe(2);
+            },
+            7,
+        );
+        expect(committed.previousToken).toBe(initial.token);
+        expect(committed.contentRevision).toBe(2);
+    });
+
     it('marks content changes and clears derived artifacts', async () => {
         const originalPath = join(tempRoot, 'artifact-original.pdf');
         const workingPath = join(tempRoot, 'pdf-work-artifacts', 'artifact-original.pdf');
@@ -161,7 +197,7 @@ describe('documentRevisionStore', () => {
             version: 1 as const,
             documentRef: workingPath,
             authority: 'electron-working-copy' as const,
-            token: 'drt1:journal:2:pending',
+            token: requireDocumentRevisionToken('drt1:journal:2:pending'),
             contentRevision: revision.contentRevision + 1,
             mintedAt: Date.now(),
             updatedAt: Date.now(),
@@ -265,14 +301,14 @@ describe('documentRevisionStore', () => {
             version: 1 as const,
             documentRef: workingPath,
             authority: 'electron-working-copy' as const,
-            token: 'drt1:journal:3:current',
+            token: requireDocumentRevisionToken('drt1:journal:3:current'),
             contentRevision: 3,
             mintedAt: Date.now(),
             updatedAt: Date.now(),
         };
         const staleSidecar = {
             ...newerSidecar,
-            token: 'drt1:journal:2:stale',
+            token: requireDocumentRevisionToken('drt1:journal:2:stale'),
             contentRevision: 2,
         };
         await writeWorkingCopyRevisionSidecar(workingPath, newerSidecar);

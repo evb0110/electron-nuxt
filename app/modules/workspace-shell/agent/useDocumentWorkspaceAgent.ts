@@ -163,7 +163,6 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
         hasPdf,
         isAnySaving,
         isDjvuMode,
-        isSameAnnotationComment,
         markAnnotationDirty,
         ocrPopupOpen,
         ocrPopupRef,
@@ -188,6 +187,7 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
         totalPages,
         updateAnnotationNoteText,
         viewMode,
+        viewerCapabilities,
         waitForDocumentOpenSettled,
         workingCopyPath,
         zoom,
@@ -216,8 +216,6 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
     const annotationsAgent = createDocumentAgentAnnotations({
         annotationComments,
         currentPage,
-        isSameAnnotationComment,
-        sortedAnnotationNoteWindows,
     });
 
     const {
@@ -692,10 +690,8 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
             },
         },
         ...createDocumentAgentAnnotationNoteActions({
-            annotationComments,
             findAgentAnnotationComment,
             handleOpenAnnotationNote,
-            isSameAnnotationComment,
             markAnnotationDirty,
             normalizeAgentAnnotationComment,
             pdfViewerRef,
@@ -940,6 +936,14 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
             ids: ['view.toggle_continuous_scroll'],
             parse: parseEmptyAgentActionInput,
             run() {
+                if (!viewerCapabilities.value.continuousScroll) {
+                    return {
+                        ok: false,
+                        unsupported: true,
+                        reason: 'viewer-capability-unsupported',
+                        capability: 'continuousScroll',
+                    };
+                }
                 continuousScroll.value = !continuousScroll.value;
                 return {continuousScroll: continuousScroll.value};
             },
@@ -948,6 +952,14 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
             ids: ['view.set_mode'],
             parse: parseAgentViewModeInput,
             run(mode: ReturnType<typeof parseAgentViewModeInput>) {
+                if (!viewerCapabilities.value.viewMode) {
+                    return {
+                        ok: false,
+                        unsupported: true,
+                        reason: 'viewer-capability-unsupported',
+                        capability: 'viewMode',
+                    };
+                }
                 viewMode.value = mode;
                 return {viewMode: viewMode.value};
             },

@@ -36,6 +36,7 @@
             @open-combine="handleOpenCombine"
             @toggle-fullscreen="handleToggleFullscreen"
             @update-split-ratio="handleUpdateSplitRatio"
+            @update-layout-resizing="emit('update-layout-resizing', $event)"
         />
     </div>
 </template>
@@ -105,6 +106,7 @@ const emit = defineEmits<{
     'open-combine': [];
     'toggle-fullscreen': [];
     'update-split-ratio': [splitId: string, ratio: number];
+    'update-layout-resizing': [value: boolean];
 }>();
 
 function handleActivatePane(paneId: string) {

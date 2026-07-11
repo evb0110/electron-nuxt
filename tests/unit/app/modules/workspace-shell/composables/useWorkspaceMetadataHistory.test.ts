@@ -2,6 +2,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import { ref } from 'vue';
 import { useWorkspaceMetadataHistory } from '@app/modules/workspace-shell/composables/useWorkspaceMetadataHistory';
@@ -43,6 +44,47 @@ function createHistory() {
 }
 
 describe('useWorkspaceMetadataHistory', () => {
+    it('publishes each metadata edit directly to the workspace command sink', () => {
+        const registrations: Array<{
+            source: string;
+            undo: () => Promise<boolean> | boolean;
+            cmd: () => Promise<boolean> | boolean
+        }> = [];
+        const reset = vi.fn();
+        const bookmarkItems = ref<IPdfBookmarkEntry[]>([]);
+        const history = useWorkspaceMetadataHistory({
+            bookmarkItems,
+            bookmarksDirty: ref(false),
+            pageLabels: ref<string[] | null>(null),
+            pageLabelRanges: ref<IPdfPageLabelRange[]>([]),
+            pageLabelsDirty: ref(false),
+            totalPages: ref(1),
+            commandSink: {
+                register: command => registrations.push(command as typeof registrations[number]),
+                reset,
+            },
+        });
+        history.resetToCurrentState();
+        bookmarkItems.value = [{
+            title: 'Direct command',
+            pageIndex: 0,
+            namedDest: null,
+            bold: false,
+            italic: false,
+            color: null,
+            items: [],
+        }];
+        history.recordCurrentState();
+
+        expect(reset).toHaveBeenCalledWith('metadata');
+        expect(registrations).toHaveLength(1);
+        expect(registrations[0]?.source).toBe('metadata');
+        expect(registrations[0]?.undo()).toBe(true);
+        expect(bookmarkItems.value).toEqual([]);
+        expect(registrations[0]?.cmd()).toBe(true);
+        expect(bookmarkItems.value[0]?.title).toBe('Direct command');
+    });
+
     it('tracks bookmark and page label snapshots with undo/redo', () => {
         const {
             bookmarkItems,

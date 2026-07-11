@@ -6,11 +6,17 @@ import {
 } from '@contracts/djvuConversionPolicy';
 
 export const DJVU_COMPACT_DJVU_AWARE_PRESET_VALUE = 'compact-djvu-aware' as const;
+export const DJVU_COMPACT_BALANCED_PRESET_VALUE = 'compact-balanced' as const;
+export const DJVU_COMPACT_SMALL_PRESET_VALUE = 'compact-small' as const;
+export const DJVU_COMPACT_ARCHIVAL_PRESET_VALUE = 'compact-archival' as const;
 
 export type TDjvuConvertDialogDirectPresetValue = `direct-${number}`;
 export type TDjvuConvertDialogPresetValue =
     | TDjvuConvertDialogDirectPresetValue
-    | typeof DJVU_COMPACT_DJVU_AWARE_PRESET_VALUE;
+    | typeof DJVU_COMPACT_DJVU_AWARE_PRESET_VALUE
+    | typeof DJVU_COMPACT_BALANCED_PRESET_VALUE
+    | typeof DJVU_COMPACT_SMALL_PRESET_VALUE
+    | typeof DJVU_COMPACT_ARCHIVAL_PRESET_VALUE;
 export type TDjvuConvertDialogPdfStrategy = Exclude<TDjvuPdfExportStrategy, 'auto'>;
 
 export interface IDjvuConvertDialogSelection {
@@ -34,9 +40,14 @@ export function resolveDjvuConvertDialogSelection(
     value: TDjvuConvertDialogPresetValue,
     fallbackSubsample = 1,
 ): IDjvuConvertDialogSelection {
-    if (value === DJVU_COMPACT_DJVU_AWARE_PRESET_VALUE) {
+    if (value === DJVU_COMPACT_DJVU_AWARE_PRESET_VALUE
+        || value === DJVU_COMPACT_SMALL_PRESET_VALUE
+        || value === DJVU_COMPACT_BALANCED_PRESET_VALUE
+        || value === DJVU_COMPACT_ARCHIVAL_PRESET_VALUE) {
         return {
-            subsample: 1,
+            subsample: value === DJVU_COMPACT_SMALL_PRESET_VALUE
+                ? 4
+                : value === DJVU_COMPACT_BALANCED_PRESET_VALUE ? 2 : 1,
             pdfStrategy: 'compact-djvu-aware',
         };
     }

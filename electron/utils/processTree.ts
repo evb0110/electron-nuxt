@@ -4,6 +4,7 @@ import { delay } from 'es-toolkit/promise';
 
 interface ITerminateProcessTreeOptions {
     graceMs?: number;
+    isTargetAlive?: () => boolean;
     platform?: NodeJS.Platform;
     preferProcessGroup?: boolean;
     taskkillTimeoutMs?: number;
@@ -152,18 +153,19 @@ export async function terminateProcessTree(
     options: ITerminateProcessTreeOptions = {},
 ) {
     const graceMs = options.graceMs ?? DEFAULT_GRACE_MS;
+    const isTargetAlive = options.isTargetAlive ?? (() => true);
     const platform = options.platform ?? process.platform;
     const preferProcessGroup = options.preferProcessGroup ?? false;
     const taskkillTimeoutMs = options.taskkillTimeoutMs ?? DEFAULT_TASKKILL_TIMEOUT_MS;
 
-    if (!isPidAlive(pid)) {
+    if (!isTargetAlive() || !isPidAlive(pid)) {
         return;
     }
 
     if (platform === 'win32') {
         await runTaskkill(pid, false, taskkillTimeoutMs);
         const exitedGracefully = await waitForExit(pid, graceMs);
-        if (!exitedGracefully && isPidAlive(pid)) {
+        if (!exitedGracefully && isTargetAlive() && isPidAlive(pid)) {
             await runTaskkill(pid, true, taskkillTimeoutMs);
             const forceKillWaitMs = clamp(Math.floor(graceMs / 2), 250, 2_000);
             await waitForExit(pid, forceKillWaitMs);
@@ -178,7 +180,7 @@ export async function terminateProcessTree(
     const stillAlive = preferProcessGroup
         ? isProcessGroupAlive(pid)
         : isPidAlive(pid);
-    if (exitedGracefully || !stillAlive) {
+    if (exitedGracefully || !stillAlive || !isTargetAlive()) {
         return;
     }
 

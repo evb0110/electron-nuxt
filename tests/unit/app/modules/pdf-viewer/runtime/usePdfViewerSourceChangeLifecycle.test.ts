@@ -20,6 +20,7 @@ function createSource(content: string): TPdfSource {
 describe('usePdfViewerSourceChangeLifecycle', () => {
     it('keeps saving source changes from clearing history while still forwarding source cleanup', async () => {
         const src = ref<TPdfSource | null>(createSource('first'));
+        const documentKey = ref<string | null>('working-copy-a');
         const isAnySaving = ref(false);
         const clearAnnotationHistory = vi.fn();
         const clearPendingImagePlacement = vi.fn();
@@ -29,6 +30,7 @@ describe('usePdfViewerSourceChangeLifecycle', () => {
         try {
             scope.run(() => usePdfViewerSourceChangeLifecycle({
                 src: computed(() => src.value),
+                documentKey: computed(() => documentKey.value),
                 isAnySaving: computed(() => isAnySaving.value),
                 clearAnnotationHistory,
                 clearPendingImagePlacement,
@@ -39,7 +41,7 @@ describe('usePdfViewerSourceChangeLifecycle', () => {
             src.value = secondSource;
             await nextTick();
 
-            expect(clearAnnotationHistory).toHaveBeenCalledOnce();
+            expect(clearAnnotationHistory).not.toHaveBeenCalled();
             expect(clearPendingImagePlacement).toHaveBeenCalledOnce();
             expect(handleAnnotationSourceChanged).toHaveBeenCalledWith(
                 secondSource,
@@ -48,6 +50,7 @@ describe('usePdfViewerSourceChangeLifecycle', () => {
 
             clearAnnotationHistory.mockClear();
             const thirdSource = createSource('third');
+            documentKey.value = 'working-copy-b';
             isAnySaving.value = true;
             src.value = thirdSource;
             await nextTick();
@@ -58,6 +61,32 @@ describe('usePdfViewerSourceChangeLifecycle', () => {
                 thirdSource,
                 secondSource,
             );
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('clears annotation commands only when the logical document changes', async () => {
+        const src = ref<TPdfSource | null>(createSource('first'));
+        const documentKey = ref<string | null>('working-copy-a');
+        const clearAnnotationHistory = vi.fn();
+        const scope = effectScope();
+
+        try {
+            scope.run(() => usePdfViewerSourceChangeLifecycle({
+                src: computed(() => src.value),
+                documentKey: computed(() => documentKey.value),
+                isAnySaving: computed(() => false),
+                clearAnnotationHistory,
+                clearPendingImagePlacement: vi.fn(),
+                handleAnnotationSourceChanged: vi.fn(),
+            }));
+
+            documentKey.value = 'working-copy-b';
+            src.value = createSource('second-document');
+            await nextTick();
+
+            expect(clearAnnotationHistory).toHaveBeenCalledOnce();
         } finally {
             scope.stop();
         }

@@ -14,7 +14,7 @@
 .agent-assistant-resizer {
     position: absolute;
     inset: 0 auto 0 0;
-    z-index: 2;
+    z-index: var(--app-z-local-overlay);
     width: var(--app-editor-sash-size, 6px);
     cursor: col-resize;
     user-select: none;
@@ -54,8 +54,8 @@
 
 .agent-assistant-title-icon {
     flex: 0 0 auto;
-    width: 1.05rem;
-    height: 1.05rem;
+    width: var(--app-assistant-heading-icon-size);
+    height: var(--app-assistant-heading-icon-size);
     color: var(--ui-text-muted);
 }
 
@@ -79,10 +79,10 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 1.75rem;
-    min-width: 1.75rem;
-    height: 1.75rem;
-    min-height: 1.75rem;
+    width: var(--app-assistant-action-size);
+    min-width: var(--app-assistant-action-size);
+    height: var(--app-assistant-action-size);
+    min-height: var(--app-assistant-action-size);
     padding: 0;
     border: 1px solid transparent;
     border-radius: var(--app-radius-md);
@@ -144,16 +144,16 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 2.5rem;
-    height: 2.5rem;
+    width: var(--app-assistant-avatar-size);
+    height: var(--app-assistant-avatar-size);
     border: 1px solid var(--ui-border);
     border-radius: var(--app-radius-full);
     background: var(--ui-bg);
 }
 
 .agent-assistant-glyph-icon {
-    width: 1.25rem;
-    height: 1.25rem;
+    width: var(--app-assistant-status-icon-size);
+    height: var(--app-assistant-status-icon-size);
     color: var(--ui-primary);
 }
 
@@ -164,7 +164,7 @@
 .agent-assistant-placeholder h2 {
     margin: 0;
     color: var(--ui-text);
-    font-size: 0.95rem;
+    font-size: var(--app-text-size-control);
     font-weight: var(--app-font-weight-heading);
     letter-spacing: -0.01em;
 }
@@ -311,8 +311,8 @@
 
 .agent-assistant-message-image-button {
     display: block;
-    width: 4.5rem;
-    height: 4.5rem;
+    width: var(--app-combine-dropzone-art-size);
+    height: var(--app-combine-dropzone-art-size);
     padding: 0;
     overflow: hidden;
     border: 1px solid var(--ui-border);
@@ -388,7 +388,7 @@
 
 .agent-assistant-message-heading[data-level="1"],
 .agent-assistant-message-heading[data-level="2"] {
-    font-size: 0.95rem;
+    font-size: var(--app-text-size-control);
 }
 
 .agent-assistant-message-strong {
@@ -410,7 +410,7 @@
 
 .agent-assistant-message-list {
     margin: 0;
-    padding-inline-start: 1.1rem;
+    padding-inline-start: var(--app-assistant-message-indent);
     color: inherit;
 }
 
@@ -449,7 +449,7 @@
 
 .agent-assistant-message-inline-code {
     padding: 0 var(--app-space-sm);
-    font-size: 0.78em;
+    font-size: var(--app-text-scale-inline-meta);
 }
 
 .agent-assistant-message-code-block {
@@ -464,6 +464,28 @@
 
 .agent-assistant-message-code-block code {
     font: inherit;
+}
+
+.agent-assistant-code-token.is-comment {
+    color: var(--ui-text-muted);
+    font-style: italic;
+}
+
+.agent-assistant-code-token.is-keyword {
+    color: color-mix(in oklab, var(--ui-primary) 82%, var(--ui-text));
+    font-weight: 650;
+}
+
+.agent-assistant-code-token.is-literal {
+    color: color-mix(in oklab, var(--ui-success) 72%, var(--ui-text));
+}
+
+.agent-assistant-code-token.is-number {
+    color: color-mix(in oklab, var(--ui-warning) 72%, var(--ui-text));
+}
+
+.agent-assistant-code-token.is-operator {
+    color: color-mix(in oklab, var(--ui-primary) 64%, var(--ui-text));
 }
 
 .agent-assistant-message.is-system .agent-assistant-message-inline-code,
@@ -487,10 +509,10 @@
 
 .agent-assistant-message-copy {
     flex: 0 0 auto;
-    width: 1.5rem;
-    min-width: 1.5rem;
-    height: 1.5rem;
-    min-height: 1.5rem;
+    width: var(--app-assistant-inline-action-size);
+    min-width: var(--app-assistant-inline-action-size);
+    height: var(--app-assistant-inline-action-size);
+    min-height: var(--app-assistant-inline-action-size);
     margin-top: 0.15rem;
     color: var(--ui-text-muted);
     user-select: none;
@@ -575,7 +597,7 @@
 .agent-assistant-image-preview-backdrop {
     position: absolute;
     inset: 0;
-    z-index: 0;
+    z-index: var(--app-z-local-base);
     padding: 0;
     border: 0;
     background: transparent;
@@ -584,7 +606,7 @@
 
 .agent-assistant-image-preview-content {
     position: relative;
-    z-index: 1;
+    z-index: var(--app-z-local-raised);
     display: flex;
     max-width: min(var(--app-assistant-image-preview-max-viewport-width), var(--app-assistant-image-preview-max-width));
     max-height: var(--app-assistant-image-preview-content-max-height);
@@ -621,13 +643,13 @@
     position: absolute;
     top: 0.5rem;
     right: 0.5rem;
-    z-index: 2;
+    z-index: var(--app-z-local-overlay);
 }
 
 .agent-assistant-image-preview-nav {
     position: absolute;
     top: 50%;
-    z-index: 2;
+    z-index: var(--app-z-local-overlay);
     transform: translateY(-50%);
 }
 
@@ -645,11 +667,12 @@
     }
 }
 
+
 @media (width <= 50rem) {
     .agent-assistant-panel {
         position: absolute;
         inset: var(--app-tabbar-height) 0 0 auto;
-        z-index: 30;
+        z-index: var(--app-z-local-loading);
         width: min(100vw, var(--app-assistant-panel-default-width));
         flex: none;
         max-width: none;
@@ -659,4 +682,35 @@
     .agent-assistant-resizer {
         display: none;
     }
+}
+
+.agent-assistant-reasoning,
+.agent-assistant-tool-activity {
+    margin: 0.4rem 0;
+    color: var(--ui-text-muted);
+    font-size: var(--app-text-size-meta);
+}
+
+.agent-assistant-message-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.agent-assistant-message-table td {
+    padding: 0.25rem 0.4rem;
+    border: 1px solid var(--ui-border);
+}
+
+.agent-assistant-reasoning pre {
+    margin: 0.35rem 0 0;
+    max-height: var(--app-assistant-message-max-height);
+    overflow: auto;
+    white-space: pre-wrap;
+    font: inherit;
+}
+
+.agent-assistant-tool-activity {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
 }

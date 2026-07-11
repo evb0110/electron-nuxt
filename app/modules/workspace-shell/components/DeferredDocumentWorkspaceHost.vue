@@ -1,7 +1,7 @@
 <template>
     <div class="workspace-host">
         <div
-            v-if="workspaceRequested && DocumentWorkspace"
+            v-if="workspaceRequested && DocumentWorkspace && !hasWorkspaceChunkLoadError"
             v-show="!isPlaceholderVisible"
             class="workspace-host__workspace"
         >
@@ -41,6 +41,7 @@
                 :open-in-progress="isOpenUiBusy"
                 :start-section="startSection"
                 can-combine-files
+                :open-combine-result="handleOpenCombineResultFromPlaceholder"
                 @update:start-section="handleStartSectionUpdate"
                 @open-file="handleOpenFileFromUi"
                 @open-recent="handleOpenRecentFromPlaceholder"
@@ -49,7 +50,6 @@
                 @clear-recent="handleClearRecentFromPlaceholder"
                 @open-settings="handleOpenSettings"
                 @combine-files="handleOpenCombine"
-                @open-combine-result="handleOpenCombineResultFromPlaceholder"
             />
         </div>
 
@@ -58,27 +58,12 @@
             :path="pendingDocumentPath"
         />
 
-        <div
+        <DocumentWorkspaceFailurePanel
             v-if="isHostErrorVisible"
-            class="workspace-host__loading"
-            role="alert"
-            aria-live="assertive"
-        >
-            <div class="flex max-w-sm flex-col items-center gap-3 px-4 text-center">
-                <span class="text-sm font-medium text-[var(--ui-text-highlighted)]">
-                    {{ t('errors.workspace.loadTitle') }}
-                </span>
-                <p class="text-sm text-[var(--ui-text-muted)]">
-                    {{ workspaceLoadErrorDescription }}
-                </p>
-                <UButton
-                    color="neutral"
-                    variant="outline"
-                    :label="t('common.retry')"
-                    @click="handleRetryWorkspaceMount"
-                />
-            </div>
-        </div>
+            :description="workspaceLoadErrorDescription"
+            @close="handleRequestCloseTab"
+            @retry="handleRetryWorkspaceMount"
+        />
 
         <div
             v-if="isHostLoaderVisible"
@@ -112,6 +97,8 @@ import { useRecentFiles } from '@app/composables/useRecentFiles';
 import AppSpinner from '@app/components/AppSpinner.vue';
 import { PdfEmptyState } from '@app/modules/pdf-viewer/public/component-exports/pdfEmptyState';
 import WorkspaceHostDocumentOpenFallback from '@app/modules/workspace-shell/components/WorkspaceHostDocumentOpenFallback.vue';
+import DocumentWorkspaceFailurePanel from '@app/modules/workspace-shell/components/DocumentWorkspaceFailurePanel.vue';
+import { handleDocumentWorkspaceCrash } from '@app/modules/workspace-shell/checkpoint/handleDocumentWorkspaceCrash';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
 import { resolveWorkspaceRequestedState } from '@app/modules/workspace-shell/host/resolveWorkspaceRequestedState';
 import { shouldPreloadWorkspaceOnHostMount } from '@app/modules/workspace-shell/host/shouldPreloadWorkspaceOnHostMount';
@@ -191,7 +178,6 @@ const {
     isWorkspaceLayoutResizing?: boolean | undefined;
 }>();
 const { t } = useTypedI18n();
-
 const emit = defineEmits<IDeferredWorkspaceHostEmits>();
 
 
@@ -511,6 +497,20 @@ function handleRetryWorkspaceMount() {
     workspaceRequested.value = true;
     void preloadWorkspaceComponent('manual-retry');
 }
+
+onErrorCaptured((error, instance, info) => {
+    handleDocumentWorkspaceCrash(error, instance?.$options.name ?? null, info, {
+        tabId,
+        failActiveTransaction: () => {
+            const transaction = activeDocumentSession.value.snapshot.value.activeTransaction;
+            if (transaction) activeDocumentSession.value.finishTransaction(transaction.id, 'failed');
+        },
+        releaseWorkspace: handleWorkspaceExposeReleased,
+        resetWorkspaceLoad: () => { workspaceLoadPromise = null; },
+        setError: value => { workspaceChunkLoadError.value = value; },
+    });
+    return false;
+});
 
 function shouldSeedPendingTabHint(target: TTabUpdate | null | undefined) {
     return shouldSeedPendingTabHintForDocumentOpen({

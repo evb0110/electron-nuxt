@@ -62,6 +62,9 @@ describe('useMenuSync', () => {
             canRepairSave: false,
             canOptimizePdf: false,
             canPrint: false,
+            interactive: false,
+            canContinuousScroll: false,
+            continuousScroll: false,
         });
         expect(mocks.setMenuTabCount).toHaveBeenCalledWith(1);
 
@@ -82,6 +85,9 @@ describe('useMenuSync', () => {
             canRepairSave: false,
             canOptimizePdf: false,
             canPrint: false,
+            interactive: true,
+            canContinuousScroll: false,
+            continuousScroll: false,
         });
         expect(mocks.setMenuTabCount).toHaveBeenLastCalledWith(2);
         expect(mocks.legacySetMenuDocumentState).not.toHaveBeenCalled();
@@ -116,6 +122,9 @@ describe('useMenuSync', () => {
             canRepairSave: true,
             canOptimizePdf: true,
             canPrint: false,
+            interactive: true,
+            canContinuousScroll: false,
+            continuousScroll: false,
         });
 
         activeDocumentRecord.value = createWorkspaceDocumentRecord({
@@ -134,6 +143,9 @@ describe('useMenuSync', () => {
             canRepairSave: true,
             canOptimizePdf: true,
             canPrint: false,
+            interactive: true,
+            canContinuousScroll: false,
+            continuousScroll: false,
         });
     });
 
@@ -167,6 +179,9 @@ describe('useMenuSync', () => {
             canRepairSave: false,
             canOptimizePdf: false,
             canPrint: false,
+            interactive: true,
+            canContinuousScroll: false,
+            continuousScroll: false,
         });
 
         activeDocumentRecord.value = createWorkspaceDocumentRecord({
@@ -188,6 +203,9 @@ describe('useMenuSync', () => {
             canRepairSave: false,
             canOptimizePdf: false,
             canPrint: false,
+            interactive: true,
+            canContinuousScroll: false,
+            continuousScroll: false,
         });
     });
 
@@ -219,6 +237,9 @@ describe('useMenuSync', () => {
             canRepairSave: true,
             canOptimizePdf: false,
             canPrint: false,
+            interactive: true,
+            canContinuousScroll: false,
+            continuousScroll: false,
         });
 
         activeDocumentRecord.value = createWorkspaceDocumentRecord({
@@ -237,7 +258,51 @@ describe('useMenuSync', () => {
             canRepairSave: true,
             canOptimizePdf: true,
             canPrint: false,
+            interactive: true,
+            canContinuousScroll: false,
+            continuousScroll: false,
         });
+    });
+
+    it('syncs document readiness and continuous-scroll capability independently from the tab hint', async () => {
+        const activeDocumentRecord = ref(createWorkspaceDocumentRecord({toolbarSnapshot: {
+            hasPdf: true,
+            isOpeningDocument: true,
+            continuousScroll: true,
+            viewerCapabilities: {
+                ...createDefaultWorkspaceViewerCapabilities(),
+                continuousScroll: true,
+            },
+        }}));
+
+        useMenuSync({
+            activeDocumentRecord,
+            activeTabId: ref<string | null>('tab-1'),
+            tabs: ref([{
+                id: 'tab-1',
+                fileName: 'example.pdf',
+                originalPath: null,
+                isDirty: false,
+                isDjvu: false,
+            }]),
+        });
+        await nextTick();
+
+        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith(expect.objectContaining({
+            hasDocument: true,
+            interactive: false,
+            canContinuousScroll: true,
+            continuousScroll: true,
+        }));
+
+        activeDocumentRecord.value = createWorkspaceDocumentRecord({toolbarSnapshot: {
+            ...activeDocumentRecord.value.toolbarSnapshot,
+            isOpeningDocument: false,
+            totalPages: 4,
+        }});
+        await nextTick();
+
+        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith(expect.objectContaining({interactive: true}));
     });
 
     it('resolves hasPdf from boolean, ref, or null workspace', () => {

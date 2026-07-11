@@ -21,6 +21,19 @@ export type TDjvuPdfExportStrategy = 'direct' | 'compact-djvu-aware' | 'auto';
 
 export type TDjvuPdfResolvedExportStrategy = 'direct' | 'compact-djvu-aware';
 
+export type TDjvuCompactFidelityPreset = 'small' | 'balanced' | 'archival';
+
+export function resolveDjvuCompactFidelityPreset(subsample: number | undefined): TDjvuCompactFidelityPreset {
+    const normalized = normalizeDjvuPdfSubsample(subsample);
+    if (normalized >= 4) {
+        return 'small';
+    }
+    if (normalized >= 2) {
+        return 'balanced';
+    }
+    return 'archival';
+}
+
 export const DJVU_PDF_CONVERSION_PRESET_SUBSAMPLES = [
     1,
     2,

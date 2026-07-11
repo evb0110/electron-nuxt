@@ -417,6 +417,7 @@ export function addUndoableEditorToLayer(
     editor: IPdfjsEditor | null,
     options: {
         skipAppHistory?: boolean;
+        resolveEditor?: () => IPdfjsEditor | null;
         beforeUndo?: (editor: IPdfjsEditor) => void;
         afterRedo?: (editor: IPdfjsEditor) => void;
     } = {},
@@ -436,12 +437,14 @@ export function addUndoableEditorToLayer(
         addCommands.call(target, {
             ...(options.skipAppHistory ? { __evbSkipAppHistory: true } : {}),
             cmd: () => {
-                rebuildEditorForHistory(target, editor);
-                options.afterRedo?.(editor);
+                const currentEditor = options.resolveEditor?.() ?? editor;
+                rebuildEditorForHistory(currentEditor.parent ?? target, currentEditor);
+                options.afterRedo?.(currentEditor);
             },
             undo: () => {
-                options.beforeUndo?.(editor);
-                removeEditorForHistory(editor);
+                const currentEditor = options.resolveEditor?.() ?? editor;
+                options.beforeUndo?.(currentEditor);
+                removeEditorForHistory(currentEditor);
             },
             mustExec: false,
         });

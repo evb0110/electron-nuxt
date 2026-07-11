@@ -112,9 +112,6 @@ describe('resolveWorkspaceTabUpdate', () => {
 interface IWorkspaceUiSyncTestDeps {
     pendingDjvu: Ref<string | null>;
     openDjvuFile: TWorkspaceUiSyncDeps['openDjvuFile'];
-    loadPdfFromPath: TWorkspaceUiSyncDeps['loadPdfFromPath'];
-    currentPage: Ref<number>;
-    pdfViewerRef: Ref<{ scrollToPage: (page: number) => void } | null>;
     originalPath: Ref<string | null>;
     closeFile: TWorkspaceUiSyncDeps['closeFile'];
     showSettings: Ref<boolean>;
@@ -126,9 +123,6 @@ function createWatcherDeps(overrides: Partial<IWorkspaceUiSyncTestDeps> = {}): I
     return {
         pendingDjvu: ref<string | null>(null),
         openDjvuFile: vi.fn(async () => {}),
-        loadPdfFromPath: vi.fn(async () => {}),
-        currentPage: ref(1),
-        pdfViewerRef: ref(null),
         originalPath: ref<string | null>(null),
         closeFile: vi.fn(async () => {}),
         showSettings: ref(false),
@@ -151,11 +145,10 @@ describe('useWorkspaceUiSyncWatchers', () => {
         expect(deps.openDjvuFile).toHaveBeenCalledTimes(1);
         expect(deps.openDjvuFile).toHaveBeenCalledWith(
             '/docs/test.djvu',
-            deps.loadPdfFromPath,
-            expect.any(Function),
-            expect.any(Function),
-            expect.any(Function),
-            deps.closeFile,
+            {
+                closeActiveDocument: deps.closeFile,
+                setOriginalPath: expect.any(Function),
+            },
         );
     });
 

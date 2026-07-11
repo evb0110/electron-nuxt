@@ -38,6 +38,13 @@ export {
 } from '@pdf-core/safePdfLookup';
 export { writePdfBookmarkOutlines } from '@pdf-core/writePdfBookmarkOutlines';
 export {
+    applyCombinedPdfPageLabels,
+    inspectPdfCombineCatalog,
+    offsetPdfCombineBookmarks,
+    PDF_COMBINE_CATALOG_POLICY,
+} from '@pdf-core/pdfCombineCatalog';
+export type {IPdfCombinePageLabelRange} from '@pdf-core/pdfCombineCatalog';
+export {
     DEFAULT_TIFF_DECODE_LIMITS,
     DEFAULT_TIFF_DECODE_MAX_FRAMES,
     DEFAULT_TIFF_DECODE_MAX_PIXELS,
@@ -55,6 +62,8 @@ export type {
 } from '@pdf-core/pdfjsTextGeometry';
 export { collectSearchMatchWords } from '@pdf-core/collectSearchMatchWords';
 export type {
+    INormalizedPdfSearchRequest,
+    INormalizedPdfSearchWarmIndexRequest,
     IPdfSearchExcerpt,
     IPdfSearchUtf16Range,
     IResolvedSearchMatchOptions,
@@ -65,10 +74,21 @@ export {
     assertSafePdfSearchRegex,
     buildPdfSearchExcerpt,
     buildPdfSearchRegex,
+    assembleSearchablePageText,
     collapseRepeatedPdfSearchPageText,
     escapeSearchRegex,
     findPdfSearchMatches,
     iteratePdfSearchMatches,
+    mapAssembledSearchablePageTextRange,
+    normalizeSearchText,
+    normalizeOptionalSearchPageCount,
+    normalizeOptionalSearchRequestId,
+    normalizePdfSearchRequestPayload,
+    normalizePdfSearchWarmIndexPayload,
+    SEARCH_DOCUMENT_REVISION_TOKEN_MAX_LENGTH,
+    SEARCH_PAGE_COUNT_DEFAULT_MAX,
+    SEARCH_PDF_PATH_MAX_LENGTH,
+    SEARCH_REQUEST_ID_MAX_LENGTH,
     validateSearchQuery,
 } from '@pdf-core/pdfSearchCore';
 export {

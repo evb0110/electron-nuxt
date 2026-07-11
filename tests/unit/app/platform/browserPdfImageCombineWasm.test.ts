@@ -92,6 +92,7 @@ function decodeV4FirstPageSpec(request: Uint8Array) {
 }
 
 function createWasmExportsMock(options: {
+    allocReturnsZero?: boolean;
     allocThrows?: boolean;
     buildResultCode?: number;
     output?: Uint8Array;
@@ -131,6 +132,9 @@ function createWasmExportsMock(options: {
             evb_pdf_image_combine_alloc: vi.fn((len: number) => {
                 if (options.allocThrows) {
                     throw new Error('alloc failed');
+                }
+                if (options.allocReturnsZero) {
+                    return 0;
                 }
                 const pointer = cursor;
                 cursor += len + 16;
@@ -179,12 +183,18 @@ describe('tryCombineImageInputsWithWasm', () => {
             ]),
         }]);
 
-        expect(result).toEqual(new Uint8Array([
-            9,
-            8,
-            7,
-        ]));
-        expect(fetchMock).toHaveBeenCalledWith('https://viewer.test/wasm/evb-pdf-image-combine.wasm');
+        expect(result).toEqual({
+            status: 'success',
+            data: new Uint8Array([
+                9,
+                8,
+                7,
+            ]),
+        });
+        expect(fetchMock).toHaveBeenCalledWith(
+            'https://viewer.test/wasm/evb-pdf-image-combine.wasm',
+            {signal: expect.any(AbortSignal)},
+        );
         expect(instantiateMock).toHaveBeenCalledTimes(1);
         expect(wasmMock.free).toHaveBeenCalledTimes(1);
         const request = wasmMock.capturedRequest();
@@ -246,11 +256,14 @@ describe('tryCombineImageInputsWithWasm', () => {
             },
         }]});
 
-        expect(result).toEqual(new Uint8Array([
-            4,
-            5,
-            6,
-        ]));
+        expect(result).toEqual({
+            status: 'success',
+            data: new Uint8Array([
+                4,
+                5,
+                6,
+            ]),
+        });
         const request = wasmMock.capturedRequest();
         const view = new DataView(request.buffer, request.byteOffset, request.byteLength);
         expect(new TextDecoder().decode(request.slice(0, 4))).toBe('EPIC');
@@ -288,11 +301,11 @@ describe('tryCombineImageInputsWithWasm', () => {
             data: new Uint8Array([1]),
         }]);
 
-        expect(result).toBeNull();
+        expect(result).toEqual({status: 'unsupported'});
         expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it('falls back when the WASM export rejects the image payload', async () => {
+    it('fails closed when the WASM export rejects the image payload', async () => {
         const wasmMock = createWasmExportsMock({buildResultCode: -1});
         vi.stubGlobal('fetch', createFetchMock());
         vi.stubGlobal('WebAssembly', {
@@ -306,7 +319,10 @@ describe('tryCombineImageInputsWithWasm', () => {
             data: new Uint8Array([1]),
         }]);
 
-        expect(result).toBeNull();
+        expect(result).toMatchObject({
+            status: 'fatal',
+            error: expect.any(Error),
+        });
         expect(wasmMock.free).toHaveBeenCalledTimes(1);
         expect(loggerWarn).toHaveBeenCalledWith(
             'browser-wasm',
@@ -318,7 +334,7 @@ describe('tryCombineImageInputsWithWasm', () => {
         );
     });
 
-    it('falls back when WASM allocation throws before a pointer is available', async () => {
+    it('fails closed when WASM allocation throws before a pointer is available', async () => {
         const wasmMock = createWasmExportsMock({allocThrows: true});
         vi.stubGlobal('fetch', createFetchMock());
         vi.stubGlobal('WebAssembly', {
@@ -332,7 +348,31 @@ describe('tryCombineImageInputsWithWasm', () => {
             data: new Uint8Array([1]),
         }]);
 
-        expect(result).toBeNull();
+        expect(result).toMatchObject({
+            status: 'fatal',
+            error: expect.any(Error),
+        });
+        expect(wasmMock.free).not.toHaveBeenCalled();
+    });
+
+    it('fails closed when WASM allocation returns address zero', async () => {
+        const wasmMock = createWasmExportsMock({allocReturnsZero: true});
+        vi.stubGlobal('fetch', createFetchMock());
+        vi.stubGlobal('WebAssembly', {
+            ...wasmGlobalMockBase,
+            instantiate: vi.fn(async () => ({instance: {exports: wasmMock.exports}})),
+        });
+        const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
+
+        const result = await tryCombineImageInputsWithWasm([{
+            fileName: 'scan.png',
+            data: new Uint8Array([1]),
+        }]);
+
+        expect(result).toMatchObject({
+            status: 'fatal',
+            error: expect.any(Error),
+        });
         expect(wasmMock.free).not.toHaveBeenCalled();
     });
 });

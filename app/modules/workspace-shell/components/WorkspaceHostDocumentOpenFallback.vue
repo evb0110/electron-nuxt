@@ -100,7 +100,7 @@ onMounted(() => {
 .workspace-host-document-open-fallback {
     position: absolute;
     inset: 0;
-    z-index: 20;
+    z-index: var(--app-z-banner);
     display: flex;
     flex-direction: column;
     width: 100%;

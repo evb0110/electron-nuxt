@@ -11,9 +11,10 @@ import {
     type IDocumentsInvokeMap,
 } from '@electron/features/documents/contract';
 import {
+    createCodecIpcInvoker,
     createTypedIpcEventSubscriber,
-    createTypedIpcInvoker,
 } from '@electron/preload/ipcClient';
+import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
 import type {
     TMenuEventCallback,
     TMenuEventUnsubscribe,
@@ -38,6 +39,7 @@ type TNoArgDocumentMenuSubscriptions = Pick<
     | 'onMenuActualSize'
     | 'onMenuFitWidth'
     | 'onMenuFitHeight'
+    | 'onMenuToggleContinuousScroll'
     | 'onMenuViewModeSingle'
     | 'onMenuViewModeFacing'
     | 'onMenuViewModeFacingFirstSingle'
@@ -60,7 +62,7 @@ export function createDocumentsPreloadMenuClient(
     ipcRenderer: IpcRenderer,
 ): IDocumentsMenuCapability {
     const eventSubscriber = createTypedIpcEventSubscriber<IDocumentsEventMap>(ipcRenderer);
-    const invoke = createTypedIpcInvoker<IDocumentsInvokeMap>(ipcRenderer);
+    const invoke = createCodecIpcInvoker<IDocumentsInvokeMap>(ipcRenderer, DOCUMENTS_IPC_CODECS);
     const onNoArg = (channel: TNoArgDocumentMenuChannel) =>
         (callback: TMenuEventCallback): TMenuEventUnsubscribe => eventSubscriber.onNoArg(channel, callback);
     const noArgMenuSubscriptions = {
@@ -81,6 +83,7 @@ export function createDocumentsPreloadMenuClient(
         onMenuActualSize: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuActualSize),
         onMenuFitWidth: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuFitWidth),
         onMenuFitHeight: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuFitHeight),
+        onMenuToggleContinuousScroll: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuToggleContinuousScroll),
         onMenuViewModeSingle: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuViewModeSingle),
         onMenuViewModeFacing: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuViewModeFacing),
         onMenuViewModeFacingFirstSingle: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuViewModeFacingFirstSingle),
@@ -97,13 +100,13 @@ export function createDocumentsPreloadMenuClient(
 
     const onOpenDocumentDirectBatchProgress = (
         callback: (progress: TOpenDocumentDirectBatchProgress) => void,
-    ): TMenuEventUnsubscribe => eventSubscriber.onPayload(
+    ): TMenuEventUnsubscribe => eventSubscriber.onPayloadUnchecked(
         DOCUMENTS_EVENT_CHANNELS.openDocumentDirectBatchProgress,
         callback,
     );
     const onPdfOptimizeProgress = (
         callback: (progress: IPdfOptimizeProgress) => void,
-    ): TMenuEventUnsubscribe => eventSubscriber.onPayload(
+    ): TMenuEventUnsubscribe => eventSubscriber.onPayloadUnchecked(
         DOCUMENTS_EVENT_CHANNELS.pdfOptimizeProgress,
         callback,
     );
@@ -116,9 +119,9 @@ export function createDocumentsPreloadMenuClient(
         onPdfOptimizeProgress,
         ...noArgMenuSubscriptions,
         onMenuOpenRecentFile: (callback: (filePath: string) => void): TMenuEventUnsubscribe =>
-            eventSubscriber.onPayload(DOCUMENTS_EVENT_CHANNELS.menuOpenRecentFile, callback),
+            eventSubscriber.onPayloadUnchecked(DOCUMENTS_EVENT_CHANNELS.menuOpenRecentFile, callback),
         onMenuOpenExternalPaths: (callback: (paths: string[]) => void): TMenuEventUnsubscribe =>
-            eventSubscriber.onPayload(DOCUMENTS_EVENT_CHANNELS.menuOpenExternalPaths, callback),
+            eventSubscriber.onPayloadUnchecked(DOCUMENTS_EVENT_CHANNELS.menuOpenExternalPaths, callback),
         onOpenDocumentDirectBatchProgress,
         onOpenPdfDirectBatchProgress: onOpenDocumentDirectBatchProgress,
     };

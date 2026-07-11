@@ -6,14 +6,20 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { clearPdfSelectionForLayerTeardown } from '@app/modules/pdf-viewer/engine/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
 import { pdfViewerDomClasses } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/pdfViewerDomClasses';
+import type {
+    IPdfPageNumberStateMap,
+    IPdfPageNumberStateSet,
+    TPdfPageRenderState,
+} from '@app/modules/pdf-viewer/runtime/rendering/pdfPageRenderState';
 
 interface IUsePdfRendererCleanupControllerOptions {
     container: Ref<HTMLElement | null>;
     currentPage: Ref<number>;
-    renderedPages: Set<number>;
-    staleRenderedPages: Set<number>;
-    renderingPages: Map<number, number>;
-    renderingPageRequestIds: Map<number, number>;
+    pageRenderState: TPdfPageRenderState;
+    renderedPages: IPdfPageNumberStateSet;
+    staleRenderedPages: IPdfPageNumberStateSet;
+    renderingPages: IPdfPageNumberStateMap;
+    renderingPageRequestIds: IPdfPageNumberStateMap;
     missingRenderTargetRetries: Map<number, number>;
     pageCanvases: Map<number, HTMLCanvasElement>;
     textLayerCleanupFns: Map<number, () => void>;
@@ -29,6 +35,8 @@ interface IUsePdfRendererCleanupControllerOptions {
     getTrackedPageNumbersForCleanup: () => Set<number>;
     evictPage: (pageNumber: number) => void;
     cleanupPageCache: () => void;
+    releasePageCanvasSurface: (pageNumber: number) => void;
+    releaseAllSurfaceResources: () => void;
     onRenderedPageStateChanged?: (() => void) | undefined;
     invalidatePendingSearchRequests: () => void;
 }
@@ -37,6 +45,7 @@ export const usePdfRendererCleanupController = (options: IUsePdfRendererCleanupC
     const {
         container: containerRef,
         currentPage,
+        pageRenderState,
         renderedPages,
         staleRenderedPages,
         renderingPages,
@@ -56,6 +65,8 @@ export const usePdfRendererCleanupController = (options: IUsePdfRendererCleanupC
         getTrackedPageNumbersForCleanup,
         evictPage,
         cleanupPageCache,
+        releasePageCanvasSurface,
+        releaseAllSurfaceResources,
         onRenderedPageStateChanged,
         invalidatePendingSearchRequests,
     } = options;
@@ -95,6 +106,7 @@ export const usePdfRendererCleanupController = (options: IUsePdfRendererCleanupC
             pageCanvases.delete(pageNumber);
             didChangeRenderedState = true;
         }
+        releasePageCanvasSurface(pageNumber);
 
         didChangeRenderedState = renderedPages.delete(pageNumber) || didChangeRenderedState;
         didChangeRenderedState = staleRenderedPages.delete(pageNumber) || didChangeRenderedState;
@@ -118,6 +130,7 @@ export const usePdfRendererCleanupController = (options: IUsePdfRendererCleanupC
             );
 
             if (canvasHost) {
+                zeroCanvasDescendants(canvasHost);
                 canvasHost.innerHTML = '';
             }
 
@@ -130,10 +143,12 @@ export const usePdfRendererCleanupController = (options: IUsePdfRendererCleanupC
             }
 
             if (annotationLayerDiv) {
+                zeroCanvasDescendants(annotationLayerDiv);
                 annotationLayerDiv.innerHTML = '';
             }
 
             if (annotationEditorLayerDiv) {
+                zeroCanvasDescendants(annotationEditorLayerDiv);
                 annotationEditorLayerDiv.innerHTML = '';
             }
 
@@ -199,10 +214,8 @@ export const usePdfRendererCleanupController = (options: IUsePdfRendererCleanupC
         }
 
         pageCanvases.clear();
-        renderedPages.clear();
-        staleRenderedPages.clear();
-        renderingPages.clear();
-        renderingPageRequestIds.clear();
+        releaseAllSurfaceResources();
+        pageRenderState.clearAll();
         missingRenderTargetRetries.clear();
         textLayerCleanupFns.clear();
         annotationLayerRenderer.clearAllLayers();
@@ -227,3 +240,13 @@ export const usePdfRendererCleanupController = (options: IUsePdfRendererCleanupC
         cleanupAllPages,
     };
 };
+
+function zeroCanvasDescendants(root: HTMLElement) {
+    if (typeof root.querySelectorAll !== 'function') {
+        return;
+    }
+    for (const canvas of root.querySelectorAll<HTMLCanvasElement>('canvas')) {
+        canvas.width = 0;
+        canvas.height = 0;
+    }
+}

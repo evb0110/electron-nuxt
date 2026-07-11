@@ -73,7 +73,6 @@ export const usePdfViewerViewportLifecycle = (options: IUsePdfViewerViewportLife
     function handleViewportScroll(event: Event) {
         options.syncHorizontalScrollForZoomMode();
         options.handleViewerScroll(event);
-        options.syncHorizontalScrollForZoomMode();
     }
 
     watch(

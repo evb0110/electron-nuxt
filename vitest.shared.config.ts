@@ -14,7 +14,7 @@ const vitestProjectNames = {
     unitElectron: 'unit-electron',
     unitScripts: 'unit-scripts',
     unitPolicy: 'unit-policy',
-    bundleIntegrity: 'bundle-integrity',
+    electronBundleStaticIntegrity: 'electron-bundle-static-integrity',
     electronE2ERegression: 'e2e-regression',
     electronE2EBlockingSmoke: 'e2e-blocking-smoke',
     electronE2EDrawShapes: 'e2e-draw-shapes',
@@ -23,7 +23,7 @@ const vitestProjectNames = {
     electronE2EQuarantine: 'e2e-quarantine',
 } as const;
 
-const bundleIntegrityTestFiles = ['tests/unit/electron/bundleIntegrity.test.ts'];
+const electronBundleStaticIntegrityTestFiles = ['tests/unit/electron/bundleIntegrity.test.ts'];
 const landingUnitTestFiles = ['tests/unit/landing/**/*.test.ts'];
 const unitPolicyTestFiles = [
     'tests/unit/scripts/*Policy.test.ts',
@@ -84,7 +84,7 @@ function createUnitTestProject(
             name,
             include,
             exclude: [
-                ...bundleIntegrityTestFiles,
+                ...electronBundleStaticIntegrityTestFiles,
                 ...landingUnitTestFiles,
                 ...exclude,
             ],
@@ -98,8 +98,8 @@ function createBundleIntegrityTestProject() {
     return {
         resolve: vitestResolveConfig,
         test: {
-            name: vitestProjectNames.bundleIntegrity,
-            include: bundleIntegrityTestFiles,
+            name: vitestProjectNames.electronBundleStaticIntegrity,
+            include: electronBundleStaticIntegrityTestFiles,
             globals: false,
             setupFiles: unitTestSetupFiles,
         },

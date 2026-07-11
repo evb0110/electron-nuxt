@@ -1,0 +1,124 @@
+import type { Ref } from 'vue';
+import type { TDocumentRef } from '@contracts/documentRef';
+import type {
+    IWorkspaceCheckpoint,
+    IWorkspaceCheckpointTab,
+} from '@contracts/workspaceCheckpoint';
+import type { ITab } from '@app/types/tabs';
+import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
+
+interface IRestoreWorkspaceCheckpointOptions {
+    tabs: Ref<ITab[]>;
+    workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
+    restoreGraph: (checkpoint: IWorkspaceCheckpoint) => void;
+    openPathInReservedTab: (tabId: string, path: TDocumentRef) => Promise<boolean>;
+    activateTab: (tabId: string) => void;
+}
+
+function getRestoreRef(tab: IWorkspaceCheckpointTab) {
+    return tab.workingCopyRef ?? tab.sourceRef;
+}
+
+function findRestoredWorkspace(
+    checkpointTab: IWorkspaceCheckpointTab,
+    options: IRestoreWorkspaceCheckpointOptions,
+) {
+    for (const [
+        tabId,
+        workspace,
+    ] of options.workspaceRefs.value) {
+        const tab = options.tabs.value.find(candidate => candidate.id === tabId);
+        try {
+            const state = workspace.getAutomationStateSnapshot();
+            if (
+                (checkpointTab.workingCopyRef && state.workingCopyPath === checkpointTab.workingCopyRef)
+                || (checkpointTab.sourceRef && state.originalPath === checkpointTab.sourceRef)
+                || (checkpointTab.sourceRef && tab?.originalPath === checkpointTab.sourceRef)
+            ) {
+                return {
+                    tabId,
+                    workspace,
+                };
+            }
+        } catch {
+            // A deferred workspace may not have attached its real expose yet.
+        }
+    }
+    return null;
+}
+
+async function applyViewState(tab: IWorkspaceCheckpointTab, workspace: IWorkspaceExpose) {
+    await workspace.waitForDocumentOpenSettled();
+    const toolbar = workspace.getToolbarSnapshot();
+    if (
+        tab.continuousScroll != null
+        && toolbar.viewerCapabilities.continuousScroll
+        && toolbar.continuousScroll !== tab.continuousScroll
+    ) {
+        workspace.handleToggleContinuousScroll();
+    }
+    if (tab.viewMode != null && toolbar.viewerCapabilities.viewMode) {
+        if (tab.viewMode === 'single') {
+            workspace.handleViewModeSingle();
+        } else if (tab.viewMode === 'facing') {
+            workspace.handleViewModeFacing();
+        } else {
+            workspace.handleViewModeFacingFirstSingle();
+        }
+    }
+    if (tab.currentPage !== null) {
+        workspace.handleGoToPage(tab.currentPage);
+    }
+    if (tab.zoomMode === 'fit-width') {
+        workspace.handleFitWidth();
+    } else if (tab.zoomMode === 'fit-height') {
+        workspace.handleFitHeight();
+    } else if (tab.zoom !== null) {
+        workspace.setCustomZoomFromDisplay(tab.zoom);
+    }
+}
+
+export async function restoreWorkspaceCheckpoint(
+    checkpoint: IWorkspaceCheckpoint,
+    options: IRestoreWorkspaceCheckpointOptions,
+) {
+    options.restoreGraph(checkpoint);
+    await nextTick();
+    const failedPaths: TDocumentRef[] = [];
+    await Promise.all(checkpoint.tabs.map(async (tab) => {
+        const restoreRef = getRestoreRef(tab);
+        if (!restoreRef) {
+            return;
+        }
+        try {
+            if (!await options.openPathInReservedTab(tab.tabId, restoreRef)) {
+                failedPaths.push(restoreRef);
+            }
+        } catch {
+            failedPaths.push(restoreRef);
+        }
+    }));
+    await nextTick();
+    const activeCheckpointTab = checkpoint.tabs.find(tab => tab.tabId === checkpoint.activeTabId) ?? null;
+    let restoredActiveTabId: string | null = null;
+    for (const checkpointTab of checkpoint.tabs) {
+        const workspace = options.workspaceRefs.value.get(checkpointTab.tabId) ?? null;
+        const restored = workspace
+            ? {
+                tabId: checkpointTab.tabId,
+                workspace,
+            }
+            : findRestoredWorkspace(checkpointTab, options);
+        if (!restored) {
+            continue;
+        }
+        await applyViewState(checkpointTab, restored.workspace);
+        if (checkpointTab === activeCheckpointTab) {
+            restoredActiveTabId = restored.tabId;
+        }
+    }
+    if (restoredActiveTabId) {
+        options.activateTab(restoredActiveTabId);
+    }
+    return failedPaths;
+}

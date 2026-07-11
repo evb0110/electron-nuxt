@@ -2,9 +2,12 @@ import {
     availableParallelism,
     totalmem,
 } from 'os';
-import { partition } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 import { createLogger } from '@electron/utils/createLogger';
+import {
+    mainJobBroker,
+    type IJobBrokerLease,
+} from '@electron/resources/jobBroker';
 
 const log = createLogger('ocr-resource-governor');
 
@@ -33,14 +36,7 @@ interface IOcrResourceLease {
     token: string;
     jobId: string;
     slotCost: number;
-}
-
-interface IQueuedResourceRequest {
-    request: IOcrResourceRequest;
-    effectiveDpi: number;
-    slotCost: number;
-    resolve: (lease: IOcrResourceLease & { effectiveDpi: number }) => void;
-    reject: (error: Error) => void;
+    brokerLease?: IJobBrokerLease | undefined;
 }
 
 function removeLease(
@@ -113,25 +109,14 @@ function getMemorySlotCount(memoryBytes: number, renderedPageBytes: number) {
     );
 }
 
-function capDpiForPixelBudget(request: IOcrResourceRequest) {
+function assertRenderedPixelAdmission(request: IOcrResourceRequest) {
     const requestedPixels = estimateRenderedPixels(request.requestedDpi, request);
     if (requestedPixels <= MAX_RENDERED_PIXELS) {
-        return request.requestedDpi;
+        return;
     }
-
-    const {
-        widthIn,
-        heightIn,
-    } = getPageDimensions(request);
-    const pageAreaIn = widthIn * heightIn;
-    const estimatedMaxDpi = pageAreaIn > 0
-        ? Math.floor(Math.sqrt(MAX_RENDERED_PIXELS / pageAreaIn))
-        : 1;
-    let effectiveDpi = clamp(estimatedMaxDpi, 1, request.requestedDpi);
-    while (effectiveDpi > 1 && estimateRenderedPixels(effectiveDpi, request) > MAX_RENDERED_PIXELS) {
-        effectiveDpi -= 1;
-    }
-    return effectiveDpi;
+    throw new RangeError(
+        `OCR page ${request.pageNumber} at ${request.requestedDpi} DPI requires ${requestedPixels} rendered pixels; maximum is ${MAX_RENDERED_PIXELS}. Choose a lower quality setting explicitly.`,
+    );
 }
 
 function getGlobalSlotBudget() {
@@ -166,50 +151,40 @@ function getPageSlotCost(effectiveDpi: number, request: IOcrResourceRequest) {
 
 class OcrResourceGovernor {
     private activeLeases = new Map<string, IOcrResourceLease>();
-    private queue: IQueuedResourceRequest[] = [];
     private tokenCounter = 0;
 
     async acquire(request: IOcrResourceRequest) {
-        const effectiveDpi = capDpiForPixelBudget(request);
+        assertRenderedPixelAdmission(request);
+        const effectiveDpi = request.requestedDpi;
         const slotCost = getPageSlotCost(effectiveDpi, request);
 
-        if (effectiveDpi < request.requestedDpi) {
-            log.debug(
-                `[${request.jobId}] Reducing OCR render DPI for page ${request.pageNumber} from ${request.requestedDpi} to ${effectiveDpi}; estimated pixels would exceed ${MAX_RENDERED_PIXELS}`,
-            );
-        }
-
-        if (this.queue.length === 0 && this.canGrant(slotCost)) {
-            return {
-                ...this.createLease(request.jobId, slotCost),
-                effectiveDpi,
-            };
-        }
-
-        return new Promise<IOcrResourceLease & { effectiveDpi: number }>((resolve, reject) => {
-            this.queue.push({
-                request: {
-                    ...request,
-                    requestedDpi: effectiveDpi,
-                },
-                effectiveDpi,
-                slotCost,
-                resolve,
-                reject,
-            });
-            log.debug(
-                `[${request.jobId}] Queued OCR resource request for page ${request.pageNumber}; activeSlots=${this.getActiveSlotCost()}/${getGlobalSlotBudget()}, requestCost=${slotCost}, queued=${this.queue.length}`,
-            );
-            this.dispatch();
+        const brokerLease = await mainJobBroker.acquire({
+            ownerId: request.jobId,
+            kind: 'ocr-page',
+            priority: 'user',
+            perOwnerLimit: getGlobalSlotBudget(),
+            resources: {
+                cpuTokens: slotCost,
+                estimatedResidentBytes: estimateRenderedBytes(effectiveDpi, request),
+                nativeProcesses: 1,
+                ioWeight: 1,
+            },
         });
+        const lease = this.createLease(request.jobId, slotCost);
+        lease.brokerLease = brokerLease;
+        return {
+            ...lease,
+            effectiveDpi,
+        };
     }
 
     release(token: string) {
-        if (!this.activeLeases.has(token)) {
+        const lease = this.activeLeases.get(token);
+        if (!lease) {
             return false;
         }
+        lease.brokerLease?.release();
         this.activeLeases = removeLease(this.activeLeases, candidate => candidate === token);
-        this.dispatch();
         return true;
     }
 
@@ -222,21 +197,24 @@ class OcrResourceGovernor {
     }
 
     releaseJob(jobId: string) {
+        for (const lease of this.activeLeases.values()) {
+            if (lease.jobId === jobId) {
+                lease.brokerLease?.release();
+            }
+        }
         this.activeLeases = removeLease(this.activeLeases, (_token, lease) => lease.jobId === jobId);
+        mainJobBroker.cancelOwner(jobId, `OCR resource request cancelled for job ${jobId}`);
 
-        this.settleQueuedRequests(
-            item => item.request.jobId === jobId,
-            `OCR resource request cancelled for job ${jobId}`,
-        );
-        this.dispatch();
     }
 
     reset() {
+        const ownerIds = new Set<string>();
+        for (const lease of this.activeLeases.values()) {
+            lease.brokerLease?.release();
+            ownerIds.add(lease.jobId);
+        }
+        ownerIds.forEach(ownerId => mainJobBroker.cancelOwner(ownerId, 'OCR resource governor reset'));
         this.activeLeases.clear();
-        this.settleQueuedRequests(
-            () => true,
-            'OCR resource governor reset',
-        );
     }
 
     private createLease(jobId: string, slotCost: number): IOcrResourceLease {
@@ -251,44 +229,11 @@ class OcrResourceGovernor {
         return lease;
     }
 
-    private dispatch() {
-        while (this.queue.length > 0) {
-            const grantableIndex = this.queue.findIndex(item => this.canGrant(item.slotCost));
-            if (grantableIndex < 0) {
-                return;
-            }
-            const [next] = this.queue.splice(grantableIndex, 1);
-            if (!next) {
-                return;
-            }
-            next.resolve({
-                ...this.createLease(next.request.jobId, next.slotCost),
-                effectiveDpi: next.effectiveDpi,
-            });
-        }
-    }
-
-    private canGrant(candidateSlotCost: number) {
-        return candidateSlotCost > 0
-            && this.getActiveSlotCost() + candidateSlotCost <= getGlobalSlotBudget();
-    }
-
     private getActiveSlotCost() {
         return Array.from(this.activeLeases.values())
             .reduce((total, lease) => total + lease.slotCost, 0);
     }
 
-    private settleQueuedRequests(
-        predicate: (item: IQueuedResourceRequest) => boolean,
-        reason: string,
-    ) {
-        const [
-            matching,
-            remaining,
-        ] = partition(this.queue, predicate);
-        matching.forEach(item => item.reject(new Error(reason)));
-        this.queue = remaining;
-    }
 }
 
 export const ocrResourceGovernor = new OcrResourceGovernor();

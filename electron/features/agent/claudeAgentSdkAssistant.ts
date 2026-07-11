@@ -30,6 +30,7 @@ import {
 import type {
     IAgentAssistantImageAttachment,
     IAgentAssistantModelOption,
+    IAgentAssistantTokenUsage,
     TAgentAssistantEffort,
     TAgentAssistantKnownEffort,
     TAgentAssistantSpeedMode,
@@ -51,6 +52,11 @@ import {
 } from '@electron/features/agent/codexAssistantConfig';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import {
+    extractAssistantToolUses,
+    extractClaudeTokenUsage,
+    type IClaudeAssistantToolActivity,
+} from '@electron/features/agent/claudeAssistantStreamPresentation';
 
 const logger = createLogger('agent-claude-assistant');
 const CLAUDE_EFFORT_LEVEL_BY_ASSISTANT_EFFORT = {
@@ -207,6 +213,9 @@ export interface IClaudeAgentAssistantCallbacks {
     onInitialized(info: IClaudeAgentAssistantInit): void;
     onTurnStarted(turnId: string): void;
     onAssistantDelta(turnId: string | null, messageId: string, delta: string): void;
+    onReasoningDelta(turnId: string | null, delta: string): void;
+    onToolActivity(turnId: string | null, activity: IClaudeAssistantToolActivity): void;
+    onUsage(turnId: string | null, usage: IAgentAssistantTokenUsage): void;
     onAssistantMessage(turnId: string | null, messageId: string, text: string, pending: boolean): void;
     onTurnCompleted(turnId: string | null): void;
     onError(turnId: string | null, message: string): void;
@@ -770,6 +779,16 @@ function extractTextDelta(message: SDKPartialAssistantMessage) {
         : '';
 }
 
+function extractThinkingDelta(message: SDKPartialAssistantMessage) {
+    const event = message.event;
+    if (!isRecord(event) || event.type !== 'content_block_delta' || !isRecord(event.delta)) {
+        return '';
+    }
+    return event.delta.type === 'thinking_delta' && typeof event.delta.thinking === 'string'
+        ? event.delta.thinking
+        : '';
+}
+
 function getResultErrorsText(message: SDKResultMessage) {
     return 'errors' in message && Array.isArray(message.errors)
         ? message.errors.join(' ').toLowerCase()
@@ -864,6 +883,7 @@ export class ClaudeAgentAssistantSession {
     private account: AccountInfo | null = null;
     private modelOptions: readonly IAgentAssistantModelOption[] | null = null;
     private toolCount = 0;
+    private readonly activeToolNames = new Map<string, string>();
 
     constructor(private readonly options: IClaudeAgentAssistantSessionOptions) {
         this.currentModel = normalizeClaudeAssistantModel(options.model);
@@ -1063,6 +1083,10 @@ export class ClaudeAgentAssistantSession {
         }
 
         if (message.type === 'stream_event') {
+            const thinkingDelta = extractThinkingDelta(message);
+            if (thinkingDelta) {
+                this.options.callbacks.onReasoningDelta(this.currentTurnId, thinkingDelta);
+            }
             const delta = extractTextDelta(message);
             if (delta && this.currentAssistantMessageId) {
                 this.options.callbacks.onAssistantDelta(this.currentTurnId, this.currentAssistantMessageId, delta);
@@ -1070,7 +1094,33 @@ export class ClaudeAgentAssistantSession {
             return;
         }
 
+        if (message.type === 'tool_progress') {
+            this.activeToolNames.set(message.tool_use_id, message.tool_name);
+            this.options.callbacks.onToolActivity(this.currentTurnId, {
+                toolId: message.tool_use_id,
+                name: message.tool_name,
+                phase: 'running',
+            });
+            return;
+        }
+
+        if (message.type === 'tool_use_summary') {
+            for (const toolId of message.preceding_tool_use_ids) {
+                this.options.callbacks.onToolActivity(this.currentTurnId, {
+                    toolId,
+                    name: this.activeToolNames.get(toolId) ?? 'tool',
+                    phase: 'completed',
+                });
+                this.activeToolNames.delete(toolId);
+            }
+            return;
+        }
+
         if (message.type === 'assistant') {
+            for (const activity of extractAssistantToolUses(message)) {
+                this.activeToolNames.set(activity.toolId, activity.name);
+                this.options.callbacks.onToolActivity(this.currentTurnId, activity);
+            }
             const text = extractAssistantText(message);
             if (text && this.currentAssistantMessageId) {
                 this.options.callbacks.onAssistantMessage(this.currentTurnId, this.currentAssistantMessageId, text, true);
@@ -1079,6 +1129,19 @@ export class ClaudeAgentAssistantSession {
         }
 
         if (message.type === 'result') {
+            const failed = getResultErrorMessage(message) !== null;
+            for (const [
+                toolId,
+                name,
+            ] of this.activeToolNames) {
+                this.options.callbacks.onToolActivity(this.currentTurnId, {
+                    toolId,
+                    name,
+                    phase: failed ? 'failed' : 'completed',
+                });
+            }
+            this.activeToolNames.clear();
+            this.options.callbacks.onUsage(this.currentTurnId, extractClaudeTokenUsage(message));
             const error = getResultErrorMessage(message);
             if (error) {
                 this.options.callbacks.onError(this.currentTurnId, error);

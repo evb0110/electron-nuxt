@@ -7,6 +7,7 @@ import {
     clampDpi,
     pixelsToPdfPoints,
     readImageDpi,
+    readJpegExifOrientation,
     readTiffFrameDpi,
 } from '@electron/image/imageDpi';
 
@@ -154,6 +155,58 @@ describe('readTiffFrameDpi', () => {
 describe('pixelsToPdfPoints', () => {
     it('converts image pixels to PDF points', () => {
         expect(pixelsToPdfPoints(300, 300)).toBe(72);
+    });
+});
+
+describe('readJpegExifOrientation', () => {
+    it.each([
+        3,
+        6,
+        8,
+    ] as const)('reads orientation %i from a little-endian EXIF IFD', (orientation) => {
+        const jpeg = bytes([
+            0xff,
+            0xd8,
+            0xff,
+            0xe1,
+            0x00,
+            0x22,
+            0x45,
+            0x78,
+            0x69,
+            0x66,
+            0x00,
+            0x00,
+            0x49,
+            0x49,
+            0x2a,
+            0x00,
+            0x08,
+            0x00,
+            0x00,
+            0x00,
+            0x01,
+            0x00,
+            0x12,
+            0x01,
+            0x03,
+            0x00,
+            0x01,
+            0x00,
+            0x00,
+            0x00,
+            orientation,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0xff,
+            0xda,
+        ]);
+        expect(readJpegExifOrientation(jpeg)).toBe(orientation);
     });
 });
 

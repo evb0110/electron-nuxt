@@ -12,6 +12,7 @@ interface IPdfViewerForShortcuts {deleteSelectedShape: () => void;}
 
 interface IPageShortcutsDeps {
     isActive: Ref<boolean>;
+    hasInteractiveDocument?: Ref<boolean>;
     pdfSrc: Ref<TPdfSource | null>;
     canPrint: Ref<boolean>;
     canSave: Ref<boolean>;
@@ -70,6 +71,7 @@ function targetAsElement(target: EventTarget | null) {
 export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) => {
     const {
         isActive,
+        hasInteractiveDocument,
         pdfSrc,
         canPrint,
         annotationTool,
@@ -82,6 +84,7 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
         closeShapeProperties,
         openSearch,
     } = deps;
+    const interactiveDocument = hasInteractiveDocument ?? computed(() => Boolean(pdfSrc.value));
 
     function handleEscape() {
         if (shapePropertiesPopoverVisible.value) {
@@ -255,7 +258,7 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
             }
         }
 
-        if (!hasMod || !pdfSrc.value) {
+        if (!hasMod || !interactiveDocument.value) {
             editableBlocked.value = isEditingText(event.target);
             if (editableBlocked.value) {
                 return;
@@ -298,7 +301,7 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
     // and useMagicKeys exposes keys via an index signature.
     const canFire = computed(() => isActive.value && !editableBlocked.value);
     const hasMod = computed(() => (keys.ctrl?.value ?? false) || (keys.meta?.value ?? false));
-    const modReady = computed(() => canFire.value && hasMod.value && !(keys.alt?.value ?? false) && !!pdfSrc.value);
+    const modReady = computed(() => canFire.value && hasMod.value && !(keys.alt?.value ?? false) && interactiveDocument.value);
 
     // Letter shortcuts — reactive via whenever
     whenever(() => modReady.value && (keys.b?.value ?? false), () => deps.handleToggleSidebar());

@@ -3,10 +3,10 @@ import type {
     IAnnotationMarkerRect,
 } from '@app/types/annotations';
 import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
+import { annotationIdForSummary } from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
 
 interface IUsePdfViewerPortalAnnotationHandlersOptions {
     activeCommentStableKey: { value: string | null };
-    suppressAnnotationId: (annotationId: string) => void;
     removeAnnotationFromDom: (comment: IAnnotationCommentSummary) => void;
     refreshHiddenAnnotationPage: (comment: IAnnotationCommentSummary) => void;
     emitAnnotationOpenNote: (comment: IAnnotationCommentSummary) => void;
@@ -28,9 +28,6 @@ interface IUsePdfViewerPortalAnnotationHandlersOptions {
 
 export const usePdfViewerPortalAnnotationHandlers = (options: IUsePdfViewerPortalAnnotationHandlersOptions) => {
     function removeAnnotationFromDom(comment: IAnnotationCommentSummary) {
-        if (comment.annotationId) {
-            options.suppressAnnotationId(comment.annotationId);
-        }
         options.removeAnnotationFromDom(comment);
         options.refreshHiddenAnnotationPage(comment);
     }
@@ -47,13 +44,13 @@ export const usePdfViewerPortalAnnotationHandlers = (options: IUsePdfViewerPorta
 
     function handleMarkerOpenNote(comment: IAnnotationCommentSummary) {
         prepareMarkerInteraction();
-        options.activeCommentStableKey.value = comment.stableKey;
+        options.activeCommentStableKey.value = annotationIdForSummary(comment);
         options.emitAnnotationOpenNote(comment);
     }
 
     function handleMarkerContextMenu(comment: IAnnotationCommentSummary, event: MouseEvent) {
         prepareMarkerInteraction();
-        options.activeCommentStableKey.value = comment.stableKey;
+        options.activeCommentStableKey.value = annotationIdForSummary(comment);
         options.emitAnnotationContextMenu(options.buildAnnotationContextMenuPayload(
             comment,
             event.clientX,

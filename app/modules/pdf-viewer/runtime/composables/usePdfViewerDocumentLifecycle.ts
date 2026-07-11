@@ -22,11 +22,9 @@ import { tracePdfAnnotationSaveDom } from '@app/modules/pdf-viewer/engine/pdf-an
 import { tracePdfAnnotationSaveEvent } from '@app/modules/pdf-viewer/engine/pdf-annotation-save-trace/tracePdfAnnotationSaveEvent';
 import {
     usePdfViewerPreservedVisibleContent,
-    type IPreservedScrollPosition,
     type IPreservedVisibleContentRequest,
     type IPreservedVisibleContentState,
 } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerPreservedVisibleContent';
-import { usePdfViewerInitialRenderRecovery } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerInitialRenderRecovery';
 import { resolveCustomReloadZoomMultiplier } from '@app/modules/pdf-viewer/runtime/reload-zoom/resolveCustomReloadZoomMultiplier';
 import type {
     IPdfViewerTransactionCancellation,
@@ -84,14 +82,6 @@ interface IReloadTransactionController {
         range: IPageRange,
         options?: { transactionId?: number | undefined },
     ) => boolean;
-    commitCurrentPage: (
-        page: number,
-        options?: {
-            emitCurrentPage?: boolean | undefined;
-            previousPage?: number | undefined;
-            transactionId?: number | undefined;
-        },
-    ) => boolean;
 }
 
 interface ICommentSyncLike {
@@ -117,6 +107,7 @@ interface IUsePdfViewerDocumentLifecycleOptions {
     basePageHeight: Ref<number | null>;
     annotationUiManager: ShallowRef<AnnotationEditorUIManager | null>;
     annotationCommentsCache: Ref<IAnnotationCommentSummary[]>;
+    clearAnnotationProjection?: (() => void) | undefined;
     activeCommentStableKey: Ref<string | null>;
     pdfDocument: Ref<PDFDocumentProxy | null>;
     numPages: Ref<number>;
@@ -144,7 +135,7 @@ interface IUsePdfViewerDocumentLifecycleOptions {
     reRenderVisiblePagesAndSyncCurrentPage: () => Promise<void>;
     syncCurrentPageFromViewport: (options?: {
         source?: string;
-        stabilize?: boolean 
+        stabilize?: boolean
     }) => Promise<void>;
     getUserViewportInteractionEpoch?: (() => number) | undefined;
     applySearchHighlights: () => void;
@@ -207,19 +198,6 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
         viewerContainer: options.viewerContainer,
         currentPage: options.currentPage,
     });
-    const { scheduleRecoverInitialRender } = usePdfViewerInitialRenderRecovery({
-        viewerContainer: options.viewerContainer,
-        pdfDocument: options.pdfDocument,
-        numPages: options.numPages,
-        isLoading: options.isLoading,
-        computeFitWidthScale: options.computeFitWidthScale,
-        updateVisibleRange: options.updateVisibleRange,
-        reRenderVisiblePagesAndSyncCurrentPage: options.reRenderVisiblePagesAndSyncCurrentPage,
-        renderVisiblePages: options.renderVisiblePages,
-        getVisibleRange: options.getVisibleRange,
-        syncCurrentPageFromViewport: options.syncCurrentPageFromViewport,
-    });
-
     function beginReloadTransaction(plan: IReloadPlan) {
         const range = {
             start: plan.resolvedPageToRestore,
@@ -299,24 +277,13 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
             reason,
             cancelInFlightRenders: true,
             bumpRenderVersion: reason === 'document-changed' || reason === 'reload',
-            clearTimers: true,
             preserveVisualContent,
         };
     }
 
     function commitReloadCurrentPage(page: number, transactionId: number | null) {
-        const didCommit = options.transactionController?.commitCurrentPage(
-            page,
-            {
-                ...(transactionId !== null ? { transactionId } : {}),
-                emitCurrentPage: false,
-            },
-        );
-        if (didCommit !== undefined) {
-            return didCommit;
-        }
-        options.currentPage.value = page;
-        return true;
+        return transactionId === null
+            || options.transactionController?.isTransactionCurrent(transactionId) !== false;
     }
 
     function commitReloadVisibleRange(range: IPageRange, transactionId: number | null) {
@@ -376,7 +343,7 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
 
     function clearAnnotationCacheForEmptySource() {
         options.commentSync.incrementSyncToken();
-        options.annotationCommentsCache.value = [];
+        options.clearAnnotationProjection?.();
         options.activeCommentStableKey.value = null;
         options.emit('annotation-comments', []);
     }
@@ -562,10 +529,7 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
     function schedulePostInitialLoadWork(
         activeLoadToken: number,
         documentVersion: number,
-        optionsToSchedule: {
-            computeSkeletonInsets?: boolean;
-            recoverInitialRender?: boolean;
-        } = {},
+        optionsToSchedule: {computeSkeletonInsets?: boolean;} = {},
     ) {
         runGuardedTask(
             async () => {
@@ -579,9 +543,6 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
                 }
                 options.applySearchHighlights();
                 options.commentSync.scheduleAnnotationCommentsSync(true);
-                if (optionsToSchedule.recoverInitialRender) {
-                    scheduleRecoverInitialRender();
-                }
             },
             {
                 category: 'background-diagnostic',
@@ -780,10 +741,11 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
             settleVisualReloadTransition,
             false,
         );
-        schedulePostInitialLoadWork(activeLoadToken, documentVersion, {
-            computeSkeletonInsets: !plan.isSelectiveReload,
-            recoverInitialRender: true,
-        });
+        schedulePostInitialLoadWork(
+            activeLoadToken,
+            documentVersion,
+            {computeSkeletonInsets: !plan.isSelectiveReload},
+        );
 
         if (!visualReloadTransitionHandledByWarmRender) {
             settleVisualReloadTransition('load-complete');
@@ -792,34 +754,30 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
         return true;
     }
 
-    function capturePreservedScrollPosition(plan: IReloadPlan): IPreservedScrollPosition | null {
+    function restorePreservedPage(plan: IReloadPlan) {
         if (!plan.shouldPreserveVisibleContent) {
-            return null;
-        }
-
-        return plan.preservedVisibleContent?.scrollPosition ?? null;
-    }
-
-    function restorePreservedScrollPosition(
-        plan: IReloadPlan,
-        position: IPreservedScrollPosition | null,
-    ) {
-        if (!plan.shouldPreserveVisibleContent || !position) {
             return;
         }
-
-        const container = options.viewerContainer.value;
-        if (!container) {
-            return;
-        }
-
-        container.scrollLeft = position.left;
-        container.scrollTop = position.top;
+        const anchor = plan.preservedVisibleContent?.semanticAnchor;
+        options.scrollToPage(plan.resolvedPageToRestore, {
+            navigationSource: 'restore',
+            preferExactDom: true,
+            ...(anchor
+                ? {
+                    pageYRatio: anchor.yRatio,
+                    markerRect: {
+                        left: anchor.xRatio,
+                        top: anchor.yRatio,
+                        width: 0,
+                        height: 0,
+                    },
+                }
+                : {}),
+        });
     }
 
     async function renderInitialLoadedPage(
         plan: IReloadPlan,
-        preservedScrollPosition: IPreservedScrollPosition | null,
         transactionId: number | null,
     ) {
         const initialRange = {
@@ -828,7 +786,6 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
         } satisfies IPageRange;
 
         if (plan.shouldPreserveVisibleContent) {
-            restorePreservedScrollPosition(plan, preservedScrollPosition);
             const currentPageContainer = options.viewerContainer.value
                 ?.querySelector<HTMLElement>(`.page_container[data-page="${options.currentPage.value}"]`);
             tracePdfAnnotationSaveDom(
@@ -847,7 +804,7 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
                 currentPageContainer,
                 { pageNumber: options.currentPage.value },
             );
-            restorePreservedScrollPosition(plan, preservedScrollPosition);
+            restorePreservedPage(plan);
             schedulePreservedVisualSnapshotRelease(plan, 'preserved-render-visible-done');
             return;
         }
@@ -920,7 +877,6 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
             );
             const visualReload = createVisualReloadTransition(plan.shouldPinReloadPage);
             const settleVisualReloadTransition = visualReload.settle;
-            const preservedScrollPosition = capturePreservedScrollPosition(plan);
 
             pinReloadRecoveryPageIfNeeded(plan);
             const {
@@ -974,7 +930,6 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
                 );
                 return;
             }
-            restorePreservedScrollPosition(plan, preservedScrollPosition);
             if (!plan.shouldPreserveVisibleContent) {
                 await options.ensurePageMetricsInRange(
                     resolveMetricHydrationStartPage(plan, isReload),
@@ -992,7 +947,6 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
             }
 
             await nextTick();
-            restorePreservedScrollPosition(plan, preservedScrollPosition);
             await options.beforeInitialRender?.();
             if (!isActiveLoadedDocument(activeLoadToken, loaded.version)) {
                 releasePlanPreservedVisualSnapshotNow(plan, 'before-initial-render-superseded');
@@ -1069,7 +1023,7 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
                 }
             }
             try {
-                await renderInitialLoadedPage(plan, preservedScrollPosition, reloadTransactionId);
+                await renderInitialLoadedPage(plan, reloadTransactionId);
                 if (!isActiveLoadedDocument(activeLoadToken, loaded.version)) {
                     releasePlanPreservedVisualSnapshotNow(plan, 'initial-render-superseded');
                     settleVisualReloadTransition('initial-render-superseded');
@@ -1186,7 +1140,6 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
         isLoadFromSourceActive: readonly(isLoadFromSourceActive),
         invalidateDocumentLoad,
         preserveNextSourceReloadVisibleContent,
-        scheduleRecoverInitialRender,
         scheduleLoadFromSource,
     };
 };

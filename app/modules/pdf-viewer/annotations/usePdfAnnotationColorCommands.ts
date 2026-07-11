@@ -4,9 +4,10 @@ import type {
     IAnnotationCommentSummary,
     ITextMarkupAnnotationProperties,
 } from '@app/types/annotations';
+import { computeSummaryStableKey } from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
 import type { TAnnotationOrchestrator } from '@app/modules/pdf-viewer/runtime/annotations/annotationOrchestrator';
 import type { usePdfAnnotationCommentModel } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationCommentModel';
-import { getStoredAnnotationEditor } from '@app/services/pdfjs/annotationEditorMutation';
+import { getStoredAnnotationEditor } from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { resetLivePdfJsAnnotationStorageModifiedIds } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
 
@@ -96,7 +97,12 @@ export const usePdfAnnotationColorCommands = (options: IUsePdfAnnotationColorCom
     function toSelectedTextMarkupComment(markup: ITextMarkupAnnotationProperties): IAnnotationCommentSummary {
         return {
             id: markup.id,
-            stableKey: markup.id,
+            stableKey: computeSummaryStableKey({
+                id: markup.id,
+                pageIndex: markup.pageIndex,
+                source: 'editor',
+                annotationId: markup.id,
+            }),
             pageIndex: markup.pageIndex,
             pageNumber: markup.pageIndex + 1,
             text: '',

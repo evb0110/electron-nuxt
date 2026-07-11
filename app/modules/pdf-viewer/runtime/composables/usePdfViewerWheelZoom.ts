@@ -3,8 +3,6 @@ import type {
     Ref,
 } from 'vue';
 import { clamp } from 'es-toolkit/math';
-import { captureScrollSnapshot } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/captureScrollSnapshot';
-import { restoreScrollFromSnapshot } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/restoreScrollFromSnapshot';
 import { summarizeViewerMetrics } from '@app/modules/pdf-viewer/engine/pdf-viewer-metrics/summarizeViewerMetrics';
 import { ZOOM } from '@app/constants/pdfLayout';
 import { clampPdfManualZoom } from '@app/modules/pdf-viewer/runtime/zoom/resolvePdfZoomScale';
@@ -52,13 +50,19 @@ interface IUsePdfViewerWheelZoomOptions {
     singlePageScroll: {
         suppressSnapFor: (ms: number) => void;
         handleWheel: (event: WheelEvent) => boolean;
-        handleScroll: () => void;
+        handleScroll: (event?: Event) => void;
+        consumeAuthorityScroll?: () => boolean;
         cancelProgrammaticNavigation: () => void;
         isProgrammaticNavigationActive?: Ref<boolean>;
         shouldCancelProgrammaticNavigationForViewportScroll?: () => boolean;
     };
     cancelPendingSearchScroll: () => void;
     markUserViewportInteraction?: (() => void) | undefined;
+    submitZoomIntent: (intent: {
+        zoom: number;
+        x: number;
+        y: number
+    }) => void;
     isSnipActive: () => boolean;
     emit: IWheelEmit;
 }
@@ -104,6 +108,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         singlePageScroll,
         cancelPendingSearchScroll,
         markUserViewportInteraction,
+        submitZoomIntent,
         isSnipActive,
         emit,
     } = options;
@@ -166,7 +171,6 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
     const {
         pendingZoomViewportAnchor,
         zoomSnapSuppressed,
-        pendingImmediateZoomRestoreIntent,
         getActiveWheelZoomSession,
         ensureWheelZoomSession,
         markExpectedZoomScroll,
@@ -341,7 +345,6 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
     }
 
     function setPendingZoomAnchors(
-        container: HTMLElement,
         debugId: number,
         sessionId: number,
         zoomLockOperationId: number | null,
@@ -349,19 +352,6 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         anchorY: number,
         nowMs: number,
     ) {
-        const snapshotForImmediateRestore = captureScrollSnapshot(container, {
-            anchorViewportX: anchorX,
-            anchorViewportY: anchorY,
-        });
-        if (snapshotForImmediateRestore) {
-            pendingImmediateZoomRestoreIntent.value = {
-                id: debugId,
-                sessionId,
-                snapshot: snapshotForImmediateRestore,
-                capturedAtMs: nowMs,
-            };
-        }
-
         pendingZoomViewportAnchor.value = {
             id: debugId,
             sessionId,
@@ -370,25 +360,6 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
             y: anchorY,
             capturedAtMs: nowMs,
         };
-    }
-
-    function clearAppliedPendingImmediateZoomRestoreIntent(
-        sessionId: number,
-        nextEffectiveZoom: number,
-        nextZoom: number,
-    ) {
-        const pendingIntent = pendingImmediateZoomRestoreIntent.value;
-        if (!pendingIntent || pendingIntent.sessionId !== sessionId) {
-            return;
-        }
-        if (
-            Math.abs(effectiveScale.value - nextEffectiveZoom) >= 0.001
-            && Math.abs(zoom.value - nextZoom) >= 0.001
-        ) {
-            return;
-        }
-
-        pendingImmediateZoomRestoreIntent.value = null;
     }
 
     function suppressSinglePageSnapForWheelZoom() {
@@ -714,11 +685,6 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
 
         const previousEmittedZoom = session.lastEmittedZoom;
         if (Math.abs(zoomTarget.nextEffectiveZoom - previousEmittedZoom) < 0.001) {
-            clearAppliedPendingImmediateZoomRestoreIntent(
-                session.id,
-                zoomTarget.nextEffectiveZoom,
-                zoomTarget.nextZoom,
-            );
             BrowserLogger.diagnosticThrottled(
                 'pdf-zoom-debug',
                 'wheel-zoom-ignored-no-change',
@@ -739,7 +705,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
             return true;
         }
         updateWheelZoomSessionAfterEmit(session, zoomTarget.nextEffectiveZoom, nowMs);
-        setPendingZoomAnchors(container, debugId, session.id, zoomLockOperationId, anchorX, anchorY, nowMs);
+        setPendingZoomAnchors(debugId, session.id, zoomLockOperationId, anchorX, anchorY, nowMs);
         BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'wheel-zoom-emit', wheelDetailLogThrottleMs, `[wheel-zoom] emit id=${debugId}`, {
             id: debugId,
             sessionId: session.id,
@@ -765,6 +731,11 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         }
         emit('update:effectiveZoom', zoomTarget.nextEffectiveZoom);
         emit('update:zoom', zoomTarget.nextZoom);
+        submitZoomIntent({
+            zoom: zoomTarget.nextZoom,
+            x: anchorX,
+            y: anchorY,
+        });
         markExpectedZoomScroll(wheelZoomExpectedScrollWindowMs, {
             operationId: zoomLockOperationId,
             reason: 'wheel-zoom-emitted',
@@ -806,6 +777,10 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
     }
 
     function handleViewerScroll(event: Event) {
+        if (singlePageScroll.consumeAuthorityScroll?.()) {
+            singlePageScroll.handleScroll();
+            return;
+        }
         const context = createViewerScrollContext();
         logViewerScroll(event, context);
         warnUnexpectedScrollDriftIfNeeded(context);
@@ -836,40 +811,8 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
             }
         }
 
-        singlePageScroll.handleScroll();
+        singlePageScroll.handleScroll(event);
     }
-
-    watch(
-        () => zoom.value,
-        (nextZoom, previousZoom) => {
-            const pendingIntent = pendingImmediateZoomRestoreIntent.value;
-            if (!pendingIntent) {
-                return;
-            }
-            const container = viewerContainer.value;
-            if (!container) {
-                pendingImmediateZoomRestoreIntent.value = null;
-                return;
-            }
-
-            restoreScrollFromSnapshot(container, pendingIntent.snapshot, {
-                restoreHorizontal: true,
-                restoreVertical: true,
-                preferPageAnchor: true,
-                allowVerticalRatioFallback: false,
-            });
-            BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'wheel-zoom-immediate-restore', wheelDetailLogThrottleMs, `[wheel-zoom] immediate-restore id=${pendingIntent.id}`, {
-                id: pendingIntent.id,
-                sessionId: pendingIntent.sessionId,
-                capturedAtMs: pendingIntent.capturedAtMs,
-                previousZoom,
-                nextZoom,
-                viewer: summarizeViewerStateForLog(),
-            });
-            pendingImmediateZoomRestoreIntent.value = null;
-        },
-        { flush: 'post' },
-    );
 
     onScopeDispose(() => {
         cleanupWheelZoomSession();

@@ -108,9 +108,8 @@ const settingsRadioGroupUi = {
     label: 'w-full text-center text-xs font-medium',
 };
 const localeSelectContent = [
-    'max-h-[min(24rem,var(--reka-combobox-content-available-height,24rem))]',
+    'settings-locale-select-content',
     'w-auto min-w-(--reka-combobox-trigger-width)',
-    'max-w-[min(24rem,var(--reka-combobox-content-available-width,24rem))]',
 ].join(' ');
 const localeSelectUi = { content: localeSelectContent };
 const themeOptions = computed(() => [

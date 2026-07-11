@@ -5,6 +5,7 @@ import type {
 import { BrowserWindow } from 'electron';
 import { existsSync } from 'fs';
 import { isAbsolute } from 'path';
+import type { Entries } from 'type-fest';
 import type {
     IIpcMainRegistrar,
     TIpcMainInvokeHandler,
@@ -81,7 +82,7 @@ function assertDocumentsIpcChannelAliasesAreExplicit() {
     for (const [
         key,
         channel,
-    ] of Object.entries(DOCUMENTS_CHANNELS) as Array<[keyof typeof DOCUMENTS_CHANNELS, string]>) {
+    ] of Object.entries(DOCUMENTS_CHANNELS) as Entries<typeof DOCUMENTS_CHANNELS>) {
         const keys = keysByChannel.get(channel) ?? [];
         keys.push(key);
         keysByChannel.set(channel, keys);
@@ -377,9 +378,14 @@ export function registerDocumentsIpcAdapter(
         ...[
             filePaths,
             requestId,
+            options,
         ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.openDocumentDirectBatch>
     ) =>
-        service.openDocumentDirectBatch(createWebContentsContext(event), filePaths, requestId));
+        service.openDocumentDirectBatch(createWebContentsContext(event), filePaths, requestId, options));
+    register(DOCUMENTS_CHANNELS.cancelOpenDocumentDirectBatch, (
+        event: IpcMainInvokeEvent,
+        ...[requestId]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.cancelOpenDocumentDirectBatch>
+    ) => service.cancelOpenDocumentDirectBatch(createWebContentsContext(event), requestId));
     register(DOCUMENTS_CHANNELS.createWorkingCopyFromData, (
         event: IpcMainInvokeEvent,
         ...[
@@ -445,6 +451,14 @@ export function registerDocumentsIpcAdapter(
         ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileReadRange>
     ) =>
         service.readFileRange(createSenderIdContext(event), filePath, offset, length));
+    register(DOCUMENTS_CHANNELS.fileCreateManagedHandle, (
+        event: IpcMainInvokeEvent,
+        ...[filePath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileCreateManagedHandle>
+    ) => service.createManagedTempFileHandle(createSenderIdContext(event), filePath));
+    register(DOCUMENTS_CHANNELS.fileReleaseManagedHandle, (
+        event: IpcMainInvokeEvent,
+        ...[leaseId]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileReleaseManagedHandle>
+    ) => service.releaseManagedTempFileHandle(createSenderIdContext(event), leaseId));
     register(DOCUMENTS_CHANNELS.pdfNativePageSizes, (
         event: IpcMainInvokeEvent,
         ...[filePath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.pdfNativePageSizes>
@@ -652,6 +666,19 @@ export function registerDocumentsIpcAdapter(
             expectedBase,
             options,
         ));
+    register(DOCUMENTS_CHANNELS.fileCommitStagedPdfNativeMutations, (
+        event: IpcMainInvokeEvent,
+        ...[
+            workingPath,
+            stagedOutput,
+            options,
+        ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileCommitStagedPdfNativeMutations>
+    ) => service.commitStagedPdfNativeMutations(
+        createSenderIdContext(event),
+        workingPath,
+        stagedOutput,
+        options,
+    ));
     register(DOCUMENTS_CHANNELS.fileSavePdfDataBegin, (
         event: IpcMainInvokeEvent,
         ...[

@@ -90,7 +90,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                     scripts: [
                         'test:rust',
                         'test:coverage',
-                        'test:bundle-integrity',
+                        'test:electron-bundle-static-integrity',
                     ],
                 },
             ],

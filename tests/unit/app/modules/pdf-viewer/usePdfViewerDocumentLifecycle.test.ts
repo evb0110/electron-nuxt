@@ -498,8 +498,10 @@ describe('usePdfViewerDocumentLifecycle', () => {
         await flushLifecycleTasks();
 
         expect(loadPdf).toHaveBeenCalledWith(expect.any(Blob), { preservePageStructure: true });
-        expect(viewerContainer.scrollLeft).toBe(45);
-        expect(viewerContainer.scrollTop).toBe(1234);
+        // Scroll restoration is owned by the viewport authority. A lifecycle reload
+        // must not write the DOM scroll position behind that authority's back.
+        expect(viewerContainer.scrollLeft).toBe(88);
+        expect(viewerContainer.scrollTop).toBe(999);
         expect(cleanupRenderedPages).not.toHaveBeenCalled();
         expect(destroyAnnotationEditor).not.toHaveBeenCalled();
         expect(renderVisiblePages).toHaveBeenCalledWith(
@@ -513,7 +515,11 @@ describe('usePdfViewerDocumentLifecycle', () => {
                 forceRerender: true,
             },
         );
-        expect(scrollToPage).not.toHaveBeenCalled();
+        expect(scrollToPage).toHaveBeenCalledTimes(1);
+        expect(scrollToPage).toHaveBeenCalledWith(3, {
+            navigationSource: 'restore',
+            preferExactDom: true,
+        });
         expect(updateVisibleRange).not.toHaveBeenCalled();
         expect(ensurePageMetricsInRange).not.toHaveBeenCalled();
         expect(getPage).not.toHaveBeenCalled();
@@ -731,10 +737,6 @@ describe('usePdfViewerDocumentLifecycle', () => {
             advanceTransaction: vi.fn(() => true),
             cancelActiveTransaction: vi.fn(() => true),
             isTransactionCurrent: vi.fn(() => true),
-            commitCurrentPage: vi.fn((page) => {
-                currentPage.value = page;
-                return true;
-            }),
             commitVisibleRange: vi.fn((range) => {
                 visibleRange.value = range;
                 return true;
@@ -818,10 +820,6 @@ describe('usePdfViewerDocumentLifecycle', () => {
                 holdProgrammaticNavigationMs: 900,
             },
         });
-        expect(transactionController.commitCurrentPage).toHaveBeenCalledWith(7, {
-            transactionId: 51,
-            emitCurrentPage: false,
-        });
         expect(transactionController.commitVisibleRange).toHaveBeenCalledWith({
             start: 7,
             end: 8,
@@ -857,10 +855,6 @@ describe('usePdfViewerDocumentLifecycle', () => {
                 return true;
             }),
             isTransactionCurrent: vi.fn(() => transactionCurrent),
-            commitCurrentPage: vi.fn((page) => {
-                currentPage.value = page;
-                return true;
-            }),
             commitVisibleRange: vi.fn((range) => {
                 visibleRange.value = range;
                 return true;
@@ -938,7 +932,6 @@ describe('usePdfViewerDocumentLifecycle', () => {
                 reason: 'document-changed',
                 cancelInFlightRenders: true,
                 bumpRenderVersion: true,
-                clearTimers: true,
                 preserveVisualContent: false,
             },
             61,

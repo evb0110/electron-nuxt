@@ -13,11 +13,11 @@ export const IMAGE_EXPORT_EVENT_CHANNELS = {progress: 'pdfExport:progress'} as c
 
 export interface IImageExportInvokeMap {
     [IMAGE_EXPORT_CHANNELS.exportImages]: {
-        args: [workingCopyPath: string, pageNumbers?: number[], requestId?: string];
+        args: [workingCopyPath: string, pageNumbers: number[] | undefined, requestId: string | undefined, sourceKind: 'pdf' | 'djvu' | undefined];
         result: Awaited<ReturnType<IImageExportCapability['exportPdfToImages']>>;
     };
     [IMAGE_EXPORT_CHANNELS.exportMultiPageTiff]: {
-        args: [workingCopyPath: string, pageNumbers?: number[], requestId?: string];
+        args: [workingCopyPath: string, pageNumbers: number[] | undefined, requestId: string | undefined, sourceKind: 'pdf' | 'djvu' | undefined];
         result: Awaited<ReturnType<IImageExportCapability['exportPdfToMultiPageTiff']>>;
     };
     [IMAGE_EXPORT_CHANNELS.subscribeProgress]: {

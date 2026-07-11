@@ -1,7 +1,7 @@
 import type { IShapeAnnotation } from '@app/types/annotations';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import type { IPdfNativeShapeAnnotation } from '@contracts/electronApiDocuments';
-import { toPageIndex } from '@contracts/pageNumbers';
+import { requirePageIndex } from '@contracts/pageNumbers';
 import {
     PDF_ANNOTATION_LINE_END_STYLES,
     PDF_ANNOTATION_SHAPE_PDF_SUBTYPES,
@@ -93,7 +93,7 @@ export function toNativeShapeAnnotation(shape: IShapeAnnotation): IPdfNativeShap
     const nativeShape: IPdfNativeShapeAnnotation = {
         id: shape.id,
         type: shape.type,
-        pageIndex: toPageIndex(shape.pageIndex),
+        pageIndex: requirePageIndex(shape.pageIndex),
         x: shape.x,
         y: shape.y,
         width: shape.width,

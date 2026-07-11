@@ -81,16 +81,29 @@ export const usePdfViewerLoadingState = (options: IUsePdfViewerLoadingStateOptio
             pdfDocument,
         ],
         async ([
-            hasSrc,
+            source,
             loading,
             document,
+        ], [
+            previousSource,
+            ,
+            previousDocument,
         ]) => {
-            if (!hasSrc || loading || !document) {
+            const sourceChanged = source !== previousSource;
+            if (sourceChanged || !source || loading || !document) {
                 hasCompletedInitialRenderForCurrentSource.value = false;
+            }
+            if (!source || loading || !document) {
+                return;
+            }
+            if (sourceChanged && document === previousDocument) {
                 return;
             }
 
             await nextTick();
+            if (src.value !== source || pdfDocument.value !== document) {
+                return;
+            }
             markInitialRenderCompleteIfReady();
         },
         { immediate: true },

@@ -34,15 +34,25 @@ import {
     MCP_RESOURCE_TEMPLATES,
     MCP_TOOLS,
     createMcpToolsForCaller,
-    type IAgentCapabilityTemplate,
+    validateMcpToolArguments,
+    validateJsonObjectAgainstSchema,
     type IMcpResourceDefinition,
 } from '@electron/features/agent/mcp/mcpDefinitions';
-import { createMcpToolResult } from '@electron/features/agent/mcp/createMcpToolResult';
+import {
+    createMcpToolExecutionErrorResult,
+    createMcpToolResult,
+} from '@electron/features/agent/mcp/createMcpToolResult';
 import type {
     ILocalMcpServerIdentity,
     IProcessMcpRequestOptions,
     TMcpCallerKind,
 } from '@electron/features/agent/mcp/mcpServerCoreTypes';
+import {
+    enforceCapabilityPolicy,
+    enforceReadActionToolPolicy,
+    getMcpCallerKind,
+} from '@electron/features/agent/mcp/mcpToolPolicy';
+export { ASSISTANT_MCP_TOOL_HANDLER_NAMES } from '@electron/features/agent/mcp/mcpToolPolicy';
 export type {
     ILocalMcpServerDescriptor,
     ILocalMcpServerIdentity,
@@ -58,10 +68,6 @@ interface IJsonRpcRequest {
     method?: unknown;
     params?: unknown;
 }
-
-
-
-
 function createInitializeMetadata(identity: ILocalMcpServerIdentity) {
     return {evb: {
         appName: identity.appName,
@@ -358,32 +364,6 @@ function createActionParams(params: unknown) {
     };
 }
 
-function getMcpCallerKind(options: IProcessMcpRequestOptions): TMcpCallerKind {
-    return options.callerKind ?? 'internal';
-}
-
-function enforceCapabilityPolicy(template: IAgentCapabilityTemplate, options: IProcessMcpRequestOptions) {
-    const callerKind = getMcpCallerKind(options);
-    const decision = template.policy[callerKind];
-    if (decision === 'allow') {
-        return;
-    }
-
-    if (decision === 'confirm') {
-        throw new Error(`Capability ${template.id} requires explicit user confirmation for ${callerKind} MCP callers.`);
-    }
-
-    throw new Error(`Capability ${template.id} is not allowed for ${callerKind} MCP callers.`);
-}
-
-function enforceReadActionToolPolicy(template: IAgentCapabilityTemplate) {
-    if (template.risk === 'read') {
-        return;
-    }
-
-    throw new Error(`Capability ${template.id} is ${template.risk}; use evb_run_action for non-read capabilities.`);
-}
-
 async function runAgentActionTool(
     params: unknown,
     options: IProcessMcpRequestOptions,
@@ -399,6 +379,9 @@ async function runAgentActionTool(
         enforceReadActionToolPolicy(template);
     }
     enforceCapabilityPolicy(template, options);
+
+    const capabilityInput = getOptionalActionInput(params) ?? {};
+    validateJsonObjectAgainstSchema(`Capability ${id} input`, capabilityInput, template.inputSchema);
 
     const windowId = getOptionalWindowId(params);
     const actionParams = createActionParams(params);
@@ -946,8 +929,23 @@ export async function processMcpRequest(
                 return createErrorResponse(id, -32602, 'tools/call requires params.name.');
             }
 
-            const result = await callTool(toolName, params.arguments, options);
-            return createResultResponse(id, result);
+            try {
+                const argumentsForValidation = (
+                    (toolName === 'evb_run_action' || toolName === 'evb_read_action')
+                    && isRecord(params.arguments)
+                    && typeof params.arguments.id === 'string'
+                )
+                    ? {
+                        ...params.arguments,
+                        id: getRequiredCapabilityId(params.arguments),
+                    }
+                    : params.arguments;
+                validateMcpToolArguments(toolName, argumentsForValidation);
+                const result = await callTool(toolName, params.arguments, options);
+                return createResultResponse(id, result);
+            } catch (error) {
+                return createResultResponse(id, createMcpToolExecutionErrorResult(error, params.arguments));
+            }
         }
 
         if (method === 'resources/list') {

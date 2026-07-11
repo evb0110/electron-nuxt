@@ -563,7 +563,7 @@ useEventListener(window, 'keydown', (event) => {
     gap: var(--app-space-sm);
     padding: 0 var(--app-space-3xl) 0 var(--app-space-9xl);
     min-width: 0;
-    max-width: 12.5rem;
+    max-width: var(--app-tab-max-width);
     height: 100%;
     border: none;
     background: transparent;
@@ -582,13 +582,18 @@ useEventListener(window, 'keydown', (event) => {
     background: var(--app-tab-hover-bg);
 }
 
+.tab.is-active,
+.tab.is-dirty {
+    padding-right: calc(var(--app-tab-close-size, 1.25rem) + var(--app-space-3xl));
+}
+
 .tab.is-active {
     color: var(--ui-text);
     background: var(--app-tab-active-bg);
     border-top-left-radius: var(--app-tab-active-radius);
     border-top-right-radius: var(--app-tab-active-radius);
-    margin-bottom: -1px;
-    z-index: 1;
+    margin-bottom: var(--app-tab-active-overlap);
+    z-index: var(--app-z-local-raised);
 }
 
 .tab + .tab::before {
@@ -597,7 +602,7 @@ useEventListener(window, 'keydown', (event) => {
     left: 0;
     top: 28%;
     bottom: 28%;
-    width: 1px;
+    width: var(--app-divider-width);
     background: var(--app-tab-divider);
     pointer-events: none;
     transition: opacity var(--app-transition-quick);
@@ -619,6 +624,8 @@ useEventListener(window, 'keydown', (event) => {
 }
 
 .tab-close {
+    position: absolute;
+    right: var(--app-space-3xl);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -713,14 +720,14 @@ useEventListener(window, 'keydown', (event) => {
 }
 
 .tab.is-dragging {
-    z-index: 10;
+    z-index: var(--app-z-local-sticky);
     opacity: 0.7;
 }
 
 .tab-context-menu-anchor {
     position: fixed;
-    width: 1px;
-    height: 1px;
+    width: var(--app-divider-width);
+    height: var(--app-hairline-height);
     padding: 0;
     border: 0;
     opacity: 0;

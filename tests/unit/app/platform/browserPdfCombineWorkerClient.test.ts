@@ -65,9 +65,14 @@ class FakeWorker {
 
         queueMicrotask(() => {
             const data = new Uint8Array([
-                9,
-                8,
-                7,
+                0x25,
+                0x50,
+                0x44,
+                0x46,
+                0x2d,
+                0x31,
+                0x2e,
+                0x37,
             ]);
             const event = {data: {
                 id: request.id,
@@ -130,9 +135,14 @@ describe('browserPdfCombineWorkerClient', () => {
         ]});
 
         expect(result.data).toEqual(new Uint8Array([
-            9,
-            8,
-            7,
+            0x25,
+            0x50,
+            0x44,
+            0x46,
+            0x2d,
+            0x31,
+            0x2e,
+            0x37,
         ]));
         const worker = FakeWorker.lastInstance;
         expect(worker?.postMessageCalls).toHaveLength(1);
@@ -179,5 +189,21 @@ describe('browserPdfCombineWorkerClient', () => {
 
         await vi.advanceTimersByTimeAsync(15_000);
         expect(terminateSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('terminates active work when the request is aborted', async () => {
+        FakeWorker.responder = () => undefined;
+        const terminateSpy = vi.spyOn(FakeWorker.prototype, 'terminate');
+        const {runBrowserPdfCombineWorkerRequest} = await import('@app/platform/browser-api/browserPdfCombineWorkerClient');
+        const controller = new AbortController();
+        const pending = runBrowserPdfCombineWorkerRequest('combinePdfs', {inputs: [{
+            fileName: 'first.pdf',
+            data: new Uint8Array([1]),
+        }]}, controller.signal);
+
+        controller.abort(new DOMException('Canceled', 'AbortError'));
+
+        await expect(pending).rejects.toMatchObject({name: 'AbortError'});
+        expect(terminateSpy).toHaveBeenCalled();
     });
 });

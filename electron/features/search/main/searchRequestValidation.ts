@@ -14,7 +14,11 @@ export function validateSearchQuery(query: string, options: {
     wholeWord?: boolean | undefined;
     useRegex?: boolean | undefined;
 }) {
-    validateSharedSearchQuery(query, options);
+    validateSharedSearchQuery(query, {
+        ...(options.matchCase === undefined ? {} : {matchCase: options.matchCase}),
+        ...(options.wholeWord === undefined ? {} : {wholeWord: options.wholeWord}),
+        ...(options.useRegex === undefined ? {} : {useRegex: options.useRegex}),
+    });
 }
 
 export function parseOptionalSearchPageCount(raw: unknown) {

@@ -7,52 +7,61 @@ import {
     DOCUMENTS_CHANNELS,
     type IDocumentsInvokeMap,
 } from '@electron/features/documents/contract';
-import { registerAgentIpcAdapter } from '@electron/features/agent/registerAgentIpcAdapter';
-import {
-    AGENT_CHANNELS,
-    type IAgentInvokeMap,
-} from '@electron/features/agent/contract';
+import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
+import {AGENT_CHANNELS} from '@electron/features/agent/contract';
+import { AGENT_IPC_CODECS } from '@electron/features/agent/agentIpcCodecs';
 import type { IAgentService } from '@electron/features/agent/ports';
-import { registerImageExportIpcAdapter } from '@electron/features/image-export/registerImageExportIpcAdapter';
-import {
-    IMAGE_EXPORT_CHANNELS,
-    type IImageExportInvokeMap,
-} from '@electron/features/image-export/contract';
-import { registerOcrIpcAdapter } from '@electron/features/ocr/registerOcrIpcAdapter';
-import {
-    OCR_CHANNELS,
-    type IOcrInvokeMap,
-} from '@electron/features/ocr/contract';
-import { registerSearchIpcAdapter } from '@electron/features/search/registerSearchIpcAdapter';
-import {
-    SEARCH_CHANNELS,
-    type ISearchInvokeMap,
-} from '@electron/features/search/contract';
-import { registerDjvuIpcAdapter } from '@electron/features/djvu/registerDjvuIpcAdapter';
-import {
-    DJVU_CHANNELS,
-    type IDjvuInvokeMap,
-} from '@electron/features/djvu/contract';
-import { registerPageOpsIpcAdapter } from '@electron/features/page-ops/registerPageOpsIpcAdapter';
-import {
-    PAGE_OPS_CHANNELS,
-    type IPageOpsInvokeMap,
-} from '@electron/features/page-ops/contract';
+import {IMAGE_EXPORT_CHANNELS} from '@electron/features/image-export/contract';
+import { IMAGE_EXPORT_IPC_CODECS } from '@electron/features/image-export/imageExportIpcCodecs';
+import {OCR_CHANNELS} from '@electron/features/ocr/contract';
+import { OCR_IPC_CODECS } from '@electron/features/ocr/ocrIpcCodecs';
+import {SEARCH_CHANNELS} from '@electron/features/search/contract';
+import { SEARCH_IPC_CODECS } from '@electron/features/search/searchIpcCodecs';
+import {DJVU_CHANNELS} from '@electron/features/djvu/contract';
+import { DJVU_IPC_CODECS } from '@electron/features/djvu/djvuIpcCodecs';
+import { PAGE_OPS_IPC_CODECS } from '@electron/features/page-ops/pageOpsIpcCodecs';
+import {PAGE_OPS_CHANNELS} from '@electron/features/page-ops/contract';
 import {
     createChannelSet,
     createValidatedIpcMainEventRegistrar,
     createValidatedIpcMainRegistrar,
 } from '@electron/platform-ipc/validatedIpcRegistrar';
-import {
-    AGENT_IPC_ARGUMENT_VALIDATION_POLICY,
-    DJVU_IPC_ARGUMENT_VALIDATION_POLICY,
-    DOCUMENTS_IPC_ARGUMENT_VALIDATION_POLICY,
-    IMAGE_EXPORT_IPC_ARGUMENT_VALIDATION_POLICY,
-    OCR_IPC_ARGUMENT_VALIDATION_POLICY,
-    SEARCH_IPC_ARGUMENT_VALIDATION_POLICY,
-} from '@electron/platform-ipc/ipcInvokeArgumentValidationPolicy';
 
 const DOCUMENTS_CHANNEL_SET = createChannelSet(DOCUMENTS_CHANNELS);
+
+type TDeferredHandler = (event: Electron.IpcMainInvokeEvent, ...args: never[]) => unknown;
+
+function registerLazyValidatedFeature(
+    ipcMain: Electron.IpcMain,
+    channels: Record<string, string>,
+    codecs: Record<string, {
+        decodeArgs: (args: readonly unknown[]) => unknown[];
+        decodeResult: (value: unknown) => unknown;
+    }>,
+    load: (registrar: {handle: (channel: string, handler: TDeferredHandler) => void;}) => Promise<void>,
+) {
+    const handlers = new Map<string, TDeferredHandler>();
+    let loading: Promise<void> | null = null;
+    const ensureLoaded = async () => {
+        loading ??= load({handle: (channel, handler) => {
+            if (handlers.has(channel)) throw new Error(`Duplicate lazy IPC handler: ${channel}`);
+            handlers.set(channel, handler);
+        }});
+        await loading;
+    };
+    const registrar = createValidatedIpcMainRegistrar(ipcMain, {
+        allowedChannels: createChannelSet(channels),
+        codecs: codecs as never,
+    });
+    for (const channel of Object.values(channels)) {
+        registrar.handle(channel, async (event, ...args: unknown[]) => {
+            await ensureLoaded();
+            const handler = handlers.get(channel);
+            if (!handler) throw new Error(`Lazy IPC feature did not register channel: ${channel}`);
+            return handler(event, ...args as never[]);
+        });
+    }
+}
 
 export interface IFeatureIpcAdapterOptions { agentService: IAgentService; }
 
@@ -63,35 +72,35 @@ export function registerFeatureIpcAdapters(
     registerDocumentsIpcAdapter(
         createValidatedIpcMainRegistrar<IDocumentsInvokeMap>(ipcMain, {
             allowedChannels: DOCUMENTS_CHANNEL_SET,
-            argumentValidation: DOCUMENTS_IPC_ARGUMENT_VALIDATION_POLICY,
+            codecs: DOCUMENTS_IPC_CODECS,
         }),
         undefined,
         {eventRegistrar: createValidatedIpcMainEventRegistrar(ipcMain, {allowedChannels: DOCUMENTS_CHANNEL_SET})},
     );
     registerDocumentRevisionEventBridge();
     registerDocumentRevisionInvalidationEffects();
-    registerAgentIpcAdapter(
-        createValidatedIpcMainRegistrar<IAgentInvokeMap>(ipcMain, {
-            allowedChannels: createChannelSet(AGENT_CHANNELS),
-            argumentValidation: AGENT_IPC_ARGUMENT_VALIDATION_POLICY,
-        }),
-        options.agentService,
-    );
-    registerImageExportIpcAdapter(createValidatedIpcMainRegistrar<IImageExportInvokeMap>(ipcMain, {
-        allowedChannels: createChannelSet(IMAGE_EXPORT_CHANNELS),
-        argumentValidation: IMAGE_EXPORT_IPC_ARGUMENT_VALIDATION_POLICY,
-    }));
-    registerPageOpsIpcAdapter(createValidatedIpcMainRegistrar<IPageOpsInvokeMap>(ipcMain, {allowedChannels: createChannelSet(PAGE_OPS_CHANNELS)}));
-    registerOcrIpcAdapter(createValidatedIpcMainRegistrar<IOcrInvokeMap>(ipcMain, {
-        allowedChannels: createChannelSet(OCR_CHANNELS),
-        argumentValidation: OCR_IPC_ARGUMENT_VALIDATION_POLICY,
-    }));
-    registerSearchIpcAdapter(createValidatedIpcMainRegistrar<ISearchInvokeMap>(ipcMain, {
-        allowedChannels: createChannelSet(SEARCH_CHANNELS),
-        argumentValidation: SEARCH_IPC_ARGUMENT_VALIDATION_POLICY,
-    }));
-    registerDjvuIpcAdapter(createValidatedIpcMainRegistrar<IDjvuInvokeMap>(ipcMain, {
-        allowedChannels: createChannelSet(DJVU_CHANNELS),
-        argumentValidation: DJVU_IPC_ARGUMENT_VALIDATION_POLICY,
-    }));
+    registerLazyValidatedFeature(ipcMain, AGENT_CHANNELS, AGENT_IPC_CODECS, async registrar => {
+        const {registerAgentIpcAdapter} = await import('@electron/features/agent/registerAgentIpcAdapter');
+        registerAgentIpcAdapter(registrar as never, options.agentService);
+    });
+    registerLazyValidatedFeature(ipcMain, IMAGE_EXPORT_CHANNELS, IMAGE_EXPORT_IPC_CODECS, async registrar => {
+        const {registerImageExportIpcAdapter} = await import('@electron/features/image-export/registerImageExportIpcAdapter');
+        registerImageExportIpcAdapter(registrar as never);
+    });
+    registerLazyValidatedFeature(ipcMain, PAGE_OPS_CHANNELS, PAGE_OPS_IPC_CODECS, async registrar => {
+        const {registerPageOpsIpcAdapter} = await import('@electron/features/page-ops/registerPageOpsIpcAdapter');
+        registerPageOpsIpcAdapter(registrar as never);
+    });
+    registerLazyValidatedFeature(ipcMain, OCR_CHANNELS, OCR_IPC_CODECS, async registrar => {
+        const {registerOcrIpcAdapter} = await import('@electron/features/ocr/registerOcrIpcAdapter');
+        registerOcrIpcAdapter(registrar as never);
+    });
+    registerLazyValidatedFeature(ipcMain, SEARCH_CHANNELS, SEARCH_IPC_CODECS, async registrar => {
+        const {registerSearchIpcAdapter} = await import('@electron/features/search/registerSearchIpcAdapter');
+        registerSearchIpcAdapter(registrar as never);
+    });
+    registerLazyValidatedFeature(ipcMain, DJVU_CHANNELS, DJVU_IPC_CODECS, async registrar => {
+        const {registerDjvuIpcAdapter} = await import('@electron/features/djvu/registerDjvuIpcAdapter');
+        registerDjvuIpcAdapter(registrar as never);
+    });
 }

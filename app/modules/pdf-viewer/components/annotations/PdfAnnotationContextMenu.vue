@@ -4,7 +4,7 @@
         :visible="menu.visible"
         :style="style"
         variant="grid"
-        min-width="246px"
+        min-width="var(--app-context-menu-preferred-width)"
     >
         <template v-if="menu.comment">
             <p class="pdf-context-menu__section-title">
@@ -320,7 +320,7 @@ function pasteImageFromClipboard() {
     display: inline-block;
     width: 0.55rem;
     height: 0.55rem;
-    border-radius: 2px;
+    border-radius: var(--app-space-3xs);
     flex-shrink: 0;
     border: 1px solid var(--app-pdf-context-menu-swatch-border);
 }
@@ -339,13 +339,13 @@ function pasteImageFromClipboard() {
 
 .annotation-context-menu-color-swatches {
     display: grid;
-    grid-template-columns: repeat(9, 1.35rem);
+    grid-template-columns: repeat(9, var(--app-annotation-context-swatch-size));
     gap: 0.3rem;
 }
 
 .annotation-context-menu-color-button {
-    width: 1.35rem;
-    height: 1.35rem;
+    width: var(--app-annotation-context-swatch-size);
+    height: var(--app-annotation-context-swatch-size);
     padding: 0;
     border: 1px solid color-mix(in oklab, var(--app-pdf-color-swatch-border) 45%, transparent);
     border-radius: 0.3rem;

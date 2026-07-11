@@ -10,6 +10,11 @@ import type {
     TAnnotationTool as TContractAnnotationTool,
     TDrawableShapeTool,
 } from '@contracts/annotations';
+import type { IPdfNativeShapeAnnotation } from '@contracts/electronApiDocuments';
+import type {
+    Except,
+    TaggedUnion,
+} from 'type-fest';
 export {
     ANNOTATION_TOOLS,
     DRAWABLE_SHAPE_TOOLS,
@@ -30,17 +35,23 @@ export type TShapeResizeHandle = 'nw' | 'ne' | 'sw' | 'se';
 
 export type IShapePoint = IPoint2D;
 
-export interface IShapeAnnotation {
+type TEditorShapeOverrides =
+    | 'annotationId'
+    | 'fillColor'
+    | 'id'
+    | 'lineEndStyle'
+    | 'lineStartStyle'
+    | 'pageIndex'
+    | 'pdfSubtype'
+    | 'points'
+    | 'stableKey'
+    | 'strokes'
+    | 'x2'
+    | 'y2';
+
+export interface IShapeAnnotation extends Omit<IPdfNativeShapeAnnotation, TEditorShapeOverrides> {
     id: string;
-    type: TShapeType;
     pageIndex: number;
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    color: string;
-    opacity: number;
-    strokeWidth: number;
     x2?: number;
     y2?: number;
     fillColor?: string | undefined;
@@ -55,6 +66,23 @@ export interface IShapeAnnotation {
     createdAt?: number | null;
     modifiedAt?: number | null;
 }
+
+export type TAnnotationStableKey =
+    | `nm:${string}`
+    | `ann:${number}:${string}`
+    | `uid:${number}:${string}`
+    | `src:${'editor' | 'pdf' | 'shape'}:${number}:${string}`
+    | `shape:${number}:${string}`;
+
+export type TImmutableShapeKey = 'id' | 'pageIndex';
+export type TShapeAnnotationPatch = Partial<Except<IShapeAnnotation, TImmutableShapeKey>>;
+
+export type TAnnotationSettingChange = {
+    [K in keyof IAnnotationSettings]: {
+        key: K;
+        value: IAnnotationSettings[K];
+    };
+}[keyof IAnnotationSettings];
 
 export interface IAnnotationSettings {
     highlightColor: string;
@@ -111,9 +139,10 @@ export interface ILinkAnnotation {
     rect: IAnnotationMarkerRect;
 }
 
-export interface IAnnotationCommentSummary {
+interface IAnnotationCommentSummaryFields {
+    appAnnotationId?: string;
     id: string;
-    stableKey: string;
+    stableKey: TAnnotationStableKey;
     sortIndex?: number | null;
     pageIndex: number;
     pageNumber: number;
@@ -133,7 +162,12 @@ export interface IAnnotationCommentSummary {
     uid: string | null;
     annotationId: string | null;
     annotationName?: string | null | undefined;
-    source: 'editor' | 'pdf' | 'shape';
     hasNote?: boolean;
     markerRect?: IAnnotationMarkerRect | null | undefined;
 }
+
+export type IAnnotationCommentSummary = TaggedUnion<'source', {
+    editor: { [Key in keyof IAnnotationCommentSummaryFields]: IAnnotationCommentSummaryFields[Key] };
+    pdf: { [Key in keyof IAnnotationCommentSummaryFields]: IAnnotationCommentSummaryFields[Key] };
+    shape: { [Key in keyof IAnnotationCommentSummaryFields]: IAnnotationCommentSummaryFields[Key] };
+}>;

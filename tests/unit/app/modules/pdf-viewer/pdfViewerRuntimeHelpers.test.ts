@@ -43,16 +43,6 @@ describe('resolveResizeAnchorPage', () => {
         })).toBe(6);
     });
 
-    it('can prefer the captured snapshot page for viewport-preserving resizes', () => {
-        expect(resolveResizeAnchorPage({
-            totalPages: 12,
-            mostVisiblePage: 5,
-            snapshotAnchorPage: 6,
-            currentPage: 4,
-            preferSnapshotAnchorPage: true,
-        })).toBe(6);
-    });
-
     it('falls back to the current page when other anchor candidates are unavailable', () => {
         expect(resolveResizeAnchorPage({
             totalPages: 12,

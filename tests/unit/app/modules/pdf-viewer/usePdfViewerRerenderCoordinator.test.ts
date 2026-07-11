@@ -22,7 +22,6 @@ import { cast } from '@tests/helpers/cast';
 function createResizeAnchor(page: number): IResizeAnchorContext {
     return {
         page,
-        snapshot: null,
         capturedAtMs: Date.now(),
         transitionToken: 1,
         visibleRange: {
@@ -176,7 +175,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
 
         expect(reRenderAllVisiblePages).toHaveBeenCalledWith(
             expect.any(Function),
-            expect.objectContaining({disableHorizontalAnchorRestore: false}),
+            expect.objectContaining({rerenderSource: 'view-mode'}),
         );
         expect(scrollToPage).not.toHaveBeenCalled();
         expect(syncHorizontalScrollForZoomMode).toHaveBeenCalled();
@@ -237,8 +236,6 @@ describe('usePdfViewerRerenderCoordinator', () => {
         await nextTick();
 
         expect(buildResizeAnchorContext).toHaveBeenCalledWith({
-            anchorViewportX: null,
-            anchorViewportY: null,
             preferredAnchorPage: 157,
             trustPreferredAnchorPage: true,
         });
@@ -282,8 +279,6 @@ describe('usePdfViewerRerenderCoordinator', () => {
         await nextTick();
 
         expect(buildResizeAnchorContext).toHaveBeenCalledWith({
-            anchorViewportX: 80,
-            anchorViewportY: 120,
             preferredAnchorPage: 157,
             trustPreferredAnchorPage: false,
         });
@@ -396,7 +391,6 @@ describe('usePdfViewerRerenderCoordinator', () => {
             const scrollToPage = vi.fn(() => true);
             const syncCurrentPageFromViewport = vi.fn(async () => {});
             const buildResizeAnchorContext = vi.fn(() => createResizeAnchor(currentPage.value));
-            const setCurrentPageFitRerenderTransitionActive = vi.fn();
             const ensurePageMetricsInRange = vi.fn(async () => true);
             const setupPagePlaceholders = vi.fn();
 
@@ -418,7 +412,6 @@ describe('usePdfViewerRerenderCoordinator', () => {
                 setupPagePlaceholders,
                 scrollToPage,
                 getMostVisiblePage: vi.fn(() => 2),
-                setCurrentPageFitRerenderTransitionActive,
             }));
 
             currentPage.value = 2;
@@ -442,8 +435,6 @@ describe('usePdfViewerRerenderCoordinator', () => {
                 expect.any(Function),
                 expect.objectContaining({
                     rerenderSource: 'fit-height-current-page',
-                    disableVerticalAnchorRestore: true,
-                    disablePageAnchorRestore: true,
                     renderBufferOverride: 0,
                 }),
             );
@@ -453,10 +444,6 @@ describe('usePdfViewerRerenderCoordinator', () => {
                 suppressRenderAfterSnap: true,
             });
             expect(scrollToPage).toHaveBeenCalledOnce();
-            expect(setCurrentPageFitRerenderTransitionActive.mock.calls).toEqual([
-                [true],
-                [false],
-            ]);
         } finally {
             vi.useRealTimers();
         }
@@ -507,7 +494,6 @@ describe('usePdfViewerRerenderCoordinator', () => {
             const pagedNavigationTargetPage = ref<number | null>(null);
             const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
             const scrollToPage = vi.fn();
-            const setCurrentPageFitRerenderTransitionActive = vi.fn();
             const computeFitWidthScale = vi.fn(() => false);
 
             usePdfViewerRerenderCoordinator(createDeps({
@@ -523,7 +509,6 @@ describe('usePdfViewerRerenderCoordinator', () => {
                 scrollToPage,
                 ensurePageMetricsInRange: vi.fn(async () => true),
                 computeFitWidthScale,
-                setCurrentPageFitRerenderTransitionActive,
             }));
 
             currentPage.value = 4;
@@ -547,16 +532,12 @@ describe('usePdfViewerRerenderCoordinator', () => {
                     renderBufferOverride: 0,
                 }),
             );
-            expect(setCurrentPageFitRerenderTransitionActive.mock.calls).toEqual([
-                [true],
-                [false],
-            ]);
         } finally {
             vi.useRealTimers();
         }
     });
 
-    it('consumes a fit-height paged target render when the target becomes the current page', async () => {
+    it('rerenders fit-height after a settled paged target loses transaction authority', async () => {
         vi.useFakeTimers();
         try {
             const currentPage = ref(1);
@@ -589,12 +570,11 @@ describe('usePdfViewerRerenderCoordinator', () => {
             currentPage.value = 4;
             await flushCurrentPageFitRerender();
 
-            expect(reRenderAllVisiblePages).toHaveBeenCalledOnce();
-            expect(reRenderAllVisiblePages.mock.calls.some(([
-                , options,
-            ]) => (
-                options?.rerenderSource === 'fit-height-current-page'
-            ))).toBe(false);
+            expect(reRenderAllVisiblePages).toHaveBeenCalledTimes(2);
+            expect(reRenderAllVisiblePages).toHaveBeenLastCalledWith(
+                expect.any(Function),
+                expect.objectContaining({rerenderSource: 'fit-height-current-page'}),
+            );
         } finally {
             vi.useRealTimers();
         }
@@ -654,7 +634,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
         }
     });
 
-    it('consumes a fit-width paged target render when the target becomes the current page', async () => {
+    it('rerenders fit-width after a settled paged target loses transaction authority', async () => {
         vi.useFakeTimers();
         try {
             const currentPage = ref(1);
@@ -687,9 +667,13 @@ describe('usePdfViewerRerenderCoordinator', () => {
             currentPage.value = 4;
             await flushCurrentPageFitRerender();
 
-            expect(reRenderAllVisiblePages).toHaveBeenCalledOnce();
-            expect(syncCurrentPageFromViewport).not.toHaveBeenCalledWith(
-                expect.objectContaining({ source: 'fit-width-current-page' }),
+            expect(reRenderAllVisiblePages).toHaveBeenCalledTimes(2);
+            expect(reRenderAllVisiblePages).toHaveBeenLastCalledWith(
+                expect.any(Function),
+                expect.objectContaining({rerenderSource: 'fit-width-current-page'}),
+            );
+            expect(syncCurrentPageFromViewport).toHaveBeenCalledWith(
+                expect.objectContaining({source: 'fit-width-current-page'}),
             );
         } finally {
             vi.useRealTimers();
@@ -705,7 +689,6 @@ describe('usePdfViewerRerenderCoordinator', () => {
             const reRenderAllVisiblePages = vi.fn<TReRenderAllVisiblePagesMock>(async () => {
                 await renderBlocker.promise;
             });
-            const setCurrentPageFitRerenderTransitionActive = vi.fn();
 
             usePdfViewerRerenderCoordinator(createDeps({
                 currentPage,
@@ -716,7 +699,6 @@ describe('usePdfViewerRerenderCoordinator', () => {
                 scrollToPage: vi.fn(() => true),
                 ensurePageMetricsInRange: vi.fn(async () => true),
                 computeFitWidthScale: vi.fn(() => true),
-                setCurrentPageFitRerenderTransitionActive,
             }));
 
             currentPage.value = 4;
@@ -726,16 +708,11 @@ describe('usePdfViewerRerenderCoordinator', () => {
             await nextTick();
 
             expect(reRenderAllVisiblePages).toHaveBeenCalledOnce();
-            expect(setCurrentPageFitRerenderTransitionActive.mock.calls).toEqual([[true]]);
 
             renderBlocker.resolve();
             await Promise.resolve();
             await nextTick();
 
-            expect(setCurrentPageFitRerenderTransitionActive.mock.calls).toEqual([
-                [true],
-                [false],
-            ]);
         } finally {
             vi.useRealTimers();
         }
@@ -825,8 +802,6 @@ describe('usePdfViewerRerenderCoordinator', () => {
             expect.any(Function),
             expect.objectContaining({
                 rerenderSource: 'zoom-mode',
-                disableVerticalAnchorRestore: true,
-                disablePageAnchorRestore: true,
                 renderBufferOverride: 0,
             }),
         );
@@ -881,8 +856,6 @@ describe('usePdfViewerRerenderCoordinator', () => {
             expect.any(Function),
             expect.objectContaining({
                 rerenderSource: 'zoom-mode',
-                disableVerticalAnchorRestore: true,
-                disablePageAnchorRestore: true,
                 renderBufferOverride: 0,
             }),
         );
@@ -955,7 +928,6 @@ describe('usePdfViewerRerenderCoordinator', () => {
             const buildResizeAnchorContext = vi.fn((options?: IBuildResizeAnchorContextOptions) => {
                 return createResizeAnchor(options?.preferredAnchorPage ?? currentPage.value);
             });
-            const setCurrentPageFitRerenderTransitionActive = vi.fn();
             const ensurePageMetricsInRange = vi.fn(async () => true);
 
             usePdfViewerRerenderCoordinator(createDeps({
@@ -973,7 +945,6 @@ describe('usePdfViewerRerenderCoordinator', () => {
                 ensurePageMetricsInRange,
                 computeFitWidthScale,
                 getMostVisiblePage: vi.fn(() => currentPage.value),
-                setCurrentPageFitRerenderTransitionActive,
             }));
 
             currentPage.value = 30;
@@ -1001,10 +972,6 @@ describe('usePdfViewerRerenderCoordinator', () => {
             expect(syncCurrentPageFromViewport).toHaveBeenCalledWith(
                 expect.objectContaining({ source: 'fit-width-current-page' }),
             );
-            expect(setCurrentPageFitRerenderTransitionActive.mock.calls).toEqual([
-                [true],
-                [false],
-            ]);
         } finally {
             vi.useRealTimers();
         }
@@ -1059,134 +1026,6 @@ describe('usePdfViewerRerenderCoordinator', () => {
             );
             expect(syncCurrentPageFromViewport).toHaveBeenCalledWith(
                 expect.objectContaining({ source: 'fit-width-current-page' }),
-            );
-        } finally {
-            vi.useRealTimers();
-        }
-    });
-
-    it('keeps the current page as the anchor when sidebar resizing settles', async () => {
-        vi.useFakeTimers();
-        try {
-            const isResizing = ref(true);
-            const buildResizeAnchorContext = vi.fn(() => createResizeAnchor(4));
-            const scheduleResizeAwareRerender = vi.fn();
-            const beginResizeTransition = vi.fn(() => 7);
-            const transactionController = {
-                beginTransaction: vi.fn(() => cast({ id: 21 })),
-                advanceTransaction: vi.fn(() => true),
-                isTransactionCurrent: vi.fn(() => true),
-            };
-
-            usePdfViewerRerenderCoordinator(createDeps({
-                currentPage: ref(4),
-                visibleRange: ref({
-                    start: 4,
-                    end: 5,
-                }),
-                zoomMode: computed(() => 'fit-width' as const),
-                isResizing: computed(() => isResizing.value),
-                continuousScroll: computed(() => true),
-                getVisibleRange: () => ({
-                    start: 4,
-                    end: 5,
-                }),
-                buildResizeAnchorContext,
-                scheduleResizeAwareRerender,
-                computeFitWidthScale: vi.fn(() => true),
-                getMostVisiblePage: vi.fn(() => 4),
-                beginResizeTransition,
-                transactionController,
-            }));
-
-            isResizing.value = false;
-            await nextTick();
-            await vi.advanceTimersByTimeAsync(25);
-            await nextTick();
-
-            expect(buildResizeAnchorContext).toHaveBeenCalledWith({
-                preferredAnchorPage: 4,
-                trustPreferredAnchorPage: true,
-            });
-            expect(beginResizeTransition).toHaveBeenCalledWith('resize-settle', 4);
-            expect(transactionController.beginTransaction).toHaveBeenCalledWith({
-                kind: 'resize',
-                source: 'resize-settle',
-                page: 4,
-                range: {
-                    start: 4,
-                    end: 4,
-                },
-                anchor: 'center',
-            });
-            expect(scheduleResizeAwareRerender).toHaveBeenCalledWith(
-                're-render visible pages after resize settle',
-                expect.objectContaining({
-                    source: 'resize-settle',
-                    transactionId: 21,
-                    resizeAnchor: expect.objectContaining({
-                        page: 4,
-                        transitionToken: 7,
-                    }),
-                }),
-            );
-        } finally {
-            vi.useRealTimers();
-        }
-    });
-
-    it('uses the pending paged target as the anchor when sidebar resizing settles', async () => {
-        vi.useFakeTimers();
-        try {
-            const isResizing = ref(true);
-            const pagedNavigationTargetPage = ref<number | null>(8);
-            const buildResizeAnchorContext = vi.fn((options?: IBuildResizeAnchorContextOptions) => {
-                return createResizeAnchor(options?.preferredAnchorPage ?? 4);
-            });
-            const scheduleResizeAwareRerender = vi.fn();
-            const beginResizeTransition = vi.fn(() => 9);
-
-            usePdfViewerRerenderCoordinator(createDeps({
-                currentPage: ref(4),
-                pagedNavigationTargetPage,
-                visibleRange: ref({
-                    start: 4,
-                    end: 5,
-                }),
-                zoomMode: computed(() => 'fit-width' as const),
-                isResizing: computed(() => isResizing.value),
-                continuousScroll: computed(() => true),
-                getVisibleRange: () => ({
-                    start: 4,
-                    end: 5,
-                }),
-                buildResizeAnchorContext,
-                scheduleResizeAwareRerender,
-                computeFitWidthScale: vi.fn(() => true),
-                getMostVisiblePage: vi.fn(() => 4),
-                beginResizeTransition,
-            }));
-
-            isResizing.value = false;
-            await nextTick();
-            await vi.advanceTimersByTimeAsync(25);
-            await nextTick();
-
-            expect(buildResizeAnchorContext).toHaveBeenCalledWith({
-                forcePreferredAnchorPage: true,
-                preferredAnchorPage: 8,
-                trustPreferredAnchorPage: true,
-            });
-            expect(beginResizeTransition).toHaveBeenCalledWith('resize-settle', 8);
-            expect(scheduleResizeAwareRerender).toHaveBeenCalledWith(
-                're-render visible pages after resize settle',
-                expect.objectContaining({
-                    source: 'resize-settle',
-                    resizeAnchor: expect.objectContaining({
-                        page: 8,
-                        transitionToken: 9,
-                    }),
-                }),
             );
         } finally {
             vi.useRealTimers();
@@ -1350,7 +1189,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
         );
     });
 
-    it('disables horizontal snapshot restore and clamps horizontal scroll in fit-width mode', async () => {
+    it('clamps horizontal scroll after fit-width rerenders', async () => {
         const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
         const syncHorizontalScrollForZoomMode = vi.fn(() => true);
 
@@ -1381,15 +1220,12 @@ describe('usePdfViewerRerenderCoordinator', () => {
 
         expect(reRenderAllVisiblePages).toHaveBeenCalledWith(
             expect.any(Function),
-            expect.objectContaining({
-                disableHorizontalAnchorRestore: true,
-                rerenderSource: 'resize-settle',
-            }),
+            expect.objectContaining({rerenderSource: 'resize-settle'}),
         );
         expect(syncHorizontalScrollForZoomMode).toHaveBeenCalled();
     });
 
-    it('preserves horizontal snapshot restore in fit-width when the active page does not fit', async () => {
+    it('still completes fit-width rerenders when horizontal clamping reports no change', async () => {
         const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
         const syncHorizontalScrollForZoomMode = vi.fn(() => false);
 
@@ -1420,11 +1256,9 @@ describe('usePdfViewerRerenderCoordinator', () => {
 
         expect(reRenderAllVisiblePages).toHaveBeenCalledWith(
             expect.any(Function),
-            expect.objectContaining({
-                disableHorizontalAnchorRestore: false,
-                rerenderSource: 'resize-settle',
-            }),
+            expect.objectContaining({rerenderSource: 'resize-settle'}),
         );
+        expect(syncHorizontalScrollForZoomMode).toHaveBeenCalled();
     });
 
     it('advances resize rerender transactions through render and settle', async () => {

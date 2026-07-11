@@ -1,29 +1,24 @@
 import type {
-    ComputedRef,
-    Ref,
-} from 'vue';
-import type {
     IAnnotationCommentSummary,
+    IAnnotationMarkerRect,
     IShapeAnnotation,
-    IShapePoint,
+    TShapeAnnotationPatch,
     ITextMarkupAnnotationProperties,
-    TDrawableShapeType,
     TMarkupSubtype,
 } from '@app/types/annotations';
+import type {IPageIdentityDelta} from '@contracts/electronApiPageOps';
+import type { IShapeAnnotationConstructionOptions } from '@app/types/shapeAnnotationConstructionOptions';
 import type { ICropSelectionResult } from '@app/types/crop';
 import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
-import type {
-    IPdfPageMetric,
-    IScrollSnapshot,
-} from '@app/types/pdfUi';
+import type { IPdfPageMetric } from '@app/types/pdfUi';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
 import type { IPdfPagePreviewEntry } from '@app/modules/pdf-viewer/engine/pdf-page-preview/pdfPagePreviewTypes';
 import type {
-    IPdfViewerPendingEmbeddedMutationSnapshot,
     IPdfViewerSaveTransactionRequest,
     IPdfViewerSaveTransactionResult,
 } from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
+import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
 
 export type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
 export type TAgentTextMarkupKind = 'highlight' | 'underline' | 'strikethrough' | 'squiggly';
@@ -63,22 +58,7 @@ export interface ICreatePointNoteAnnotationResult {
     reason?: string | undefined;
 }
 
-export interface ICreateShapeAnnotationOptions {
-    pageNumber: number;
-    tool: TDrawableShapeType;
-    x: number;
-    y: number;
-    width?: number | undefined;
-    height?: number | undefined;
-    x2?: number | undefined;
-    y2?: number | undefined;
-    points?: IShapePoint[] | undefined;
-    strokes?: IShapePoint[][] | undefined;
-    color?: string | undefined;
-    fillColor?: string | null | undefined;
-    opacity?: number | undefined;
-    strokeWidth?: number | undefined;
-}
+export interface ICreateShapeAnnotationOptions extends IShapeAnnotationConstructionOptions {pageNumber: number;}
 
 export interface ICreateShapeAnnotationResult {
     created: boolean;
@@ -95,20 +75,13 @@ export interface IDocumentViewerExpose {
     scrollToPage: (page: number, options?: IScrollToPageOptions) => void;
     cancelProgrammaticNavigation?: () => void;
     getUserViewportInteractionEpoch?: () => number;
-    captureScrollSnapshot?: () => IScrollSnapshot | null;
-    restoreScrollSnapshot?: (
-        snapshot: IScrollSnapshot | null,
-        options?: { fallbackPage?: number | null; },
-    ) => void;
     invalidatePages?: (pages: number[]) => void;
+    remapPageIdentityDelta?: (delta: IPageIdentityDelta) => void;
     requestScrollToCurrentResult?: () => void;
 }
 
 export interface IPdfViewerLoadExpose {
-    preserveNextSourceReloadVisibleContent?: (request?: {
-        scrollSnapshot?: IScrollSnapshot | null;
-        pageToRestore?: number | null;
-    }) => void;
+    preserveNextSourceReloadVisibleContent?: (request?: {pageToRestore?: number | null;}) => void;
     applyFitWidthToCurrentPage?: () => Promise<boolean>;
     waitForViewerLoadSettled?: () => Promise<void>;
     ensurePageMetricsInRange?: (startPage: number, endPage: number) => Promise<boolean>;
@@ -151,9 +124,10 @@ export interface IPdfViewerBrowserPrintExpose {renderLoadedPdfPagesForBrowserPri
 ) => Promise<void>;}
 
 export interface IPdfViewerAnnotationCommandExpose {
-    annotationHistoryMutationVersion?: number | Ref<number> | ComputedRef<number> | undefined;
-    annotationHistoryResetVersion?: number | Ref<number> | ComputedRef<number> | undefined;
+    annotationHistoryMutationVersion?: number | undefined;
+    annotationHistoryResetVersion?: number | undefined;
     clearAnnotationHistory?: () => void;
+    setWorkspaceCommandSink?: (sink: IWorkspaceCommandSink | null) => void;
     highlightSelection: () => Promise<boolean>;
     commentSelection: () => Promise<boolean>;
     createTextMarkupFromText: (
@@ -182,26 +156,13 @@ export interface IPdfViewerAnnotationCommandExpose {
 }
 
 export interface IPdfViewerAnnotationCommentExpose {
-    pendingEmbeddedMutationVersion?: number | Ref<number> | ComputedRef<number> | undefined;
     focusAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<void>;
     updateAnnotationComment: (comment: IAnnotationCommentSummary, text: string) => boolean;
+    moveAnnotationMarker: (comment: IAnnotationCommentSummary, rect: IAnnotationMarkerRect) => boolean;
     deleteAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<boolean>;
     getAnnotationCommentsSnapshot?: () => IAnnotationCommentSummary[];
     rerenderAnnotationPage: (pageNumber: number) => Promise<boolean>;
-    queuePendingEmbeddedTextUpdate?: (
-        comment: IAnnotationCommentSummary,
-        text: string,
-        stableKey?: string | null | undefined,
-    ) => boolean;
-    clearPendingEmbeddedTextUpdate?: (stableKey: string) => void;
-    migratePendingEmbeddedTextUpdate?: (previousKey: string, nextKey: string) => void;
-    queuePendingEmbeddedAnnotationDelete?: (comment: IAnnotationCommentSummary) => boolean;
-    unqueuePendingEmbeddedAnnotationDelete?: (stableKey: string) => void;
-    getPendingEmbeddedMutationSnapshot?: () => IPdfViewerPendingEmbeddedMutationSnapshot;
-    suppressAnnotationId: (id: string) => void;
-    unsuppressAnnotationId?: (id: string) => void;
-    suppressAnnotationStableKey: (stableKey: string) => void;
-    unsuppressAnnotationStableKey?: (stableKey: string) => void;
+    deleteEmbeddedAnnotationDeferred?: (comment: IAnnotationCommentSummary) => boolean;
     removeAnnotationFromDom: (comment: IAnnotationCommentSummary) => void;
     removeAnnotationFromInternalCache: (stableKey: string) => void;
     restoreAnnotationToInternalCache?: (comment: IAnnotationCommentSummary) => void;
@@ -222,9 +183,9 @@ export interface IPdfViewerShapeExpose {
     clearShapes: () => void;
     clearSelectedShape: () => void;
     deleteSelectedShape: () => void;
-    hasShapes: boolean | Ref<boolean> | ComputedRef<boolean>;
+    hasShapes: boolean;
     selectedShapeId: string | null;
-    updateShape: (id: string, updates: Partial<IShapeAnnotation>) => void;
+    updateShape: (id: string, updates: TShapeAnnotationPatch) => void;
     getSelectedShape: () => IShapeAnnotation | null;
 }
 

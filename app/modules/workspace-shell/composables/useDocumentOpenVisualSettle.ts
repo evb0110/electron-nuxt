@@ -13,7 +13,7 @@ interface IUseDocumentOpenVisualSettleOptions {
     isLoading: Ref<boolean>;
     pdfError: Ref<unknown>;
     djvuError: Ref<unknown>;
-    showNativeDjvuViewer: Ref<boolean>;
+    showDjvuSource: Ref<boolean>;
     showNativePdfViewer?: Ref<boolean>;
     markAnnotationCommentsLoading: () => void;
 }
@@ -46,7 +46,7 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
             return true;
         }
 
-        if (options.showNativeDjvuViewer.value || options.showNativePdfViewer?.value) {
+        if (options.showDjvuSource.value || options.showNativePdfViewer?.value) {
             return Boolean(
                 !options.isLoading.value
                 && initialDocumentVisualReady.value,
@@ -132,7 +132,7 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
             totalPages: options.totalPages.value,
             pageLabelsResolved: options.pageLabelsResolved.value,
             isLoading: options.isLoading.value,
-            showNativeDjvuViewer: options.showNativeDjvuViewer.value,
+            showDjvuSource: options.showDjvuSource.value,
             showNativePdfViewer: options.showNativePdfViewer?.value ?? false,
             hasPdfError: Boolean(options.pdfError.value),
             hasDjvuError: Boolean(options.djvuError.value),
@@ -147,7 +147,7 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
         options.isLoading,
         options.pdfError,
         options.djvuError,
-        options.showNativeDjvuViewer,
+        options.showDjvuSource,
         ...(options.showNativePdfViewer ? [options.showNativePdfViewer] : []),
         initialDocumentVisualReady,
     ], () => {

@@ -2,7 +2,7 @@ import type {
     IAnnotationCommentSummary,
     IAnnotationEditorState,
     IAnnotationModifiedPayload,
-    IAnnotationSettings,
+    TAnnotationSettingChange,
 } from '@app/types/annotations';
 import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacement';
@@ -31,10 +31,7 @@ export interface IPdfViewerEventAdapter {
     annotationOpenNote(comment: IAnnotationCommentSummary): void;
     annotationContextMenu(payload: IAnnotationContextMenuPayload): void;
     annotationToolAutoReset(): void;
-    annotationSetting(payload: {
-        key: keyof IAnnotationSettings;
-        value: IAnnotationSettings[keyof IAnnotationSettings];
-    }): void;
+    annotationSetting(payload: TAnnotationSettingChange): void;
     annotationCommentClick(comment: IAnnotationCommentSummary): void;
     annotationToolCancel(): void;
     annotationNotePlacementChange(active: boolean): void;

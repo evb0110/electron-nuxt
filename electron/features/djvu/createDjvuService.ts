@@ -7,39 +7,43 @@ import {
     handleDjvuGetInfo,
     handleDjvuGetPageSizes,
     handleDjvuOpenForViewingOperation,
+    handleDjvuStartOpenForViewingOperation,
+    handleDjvuAwaitOpenJobOperation,
+    handleDjvuStartConvertToPdfOperation,
+    handleDjvuAwaitConvertJobOperation,
     handleDjvuPrintPathOperation,
     handleDjvuReleaseViewingPath,
     handleDjvuRenderPagePreview,
 } from '@electron/features/djvu/main/djvuOperations';
-import { subscribeDjvuProgress } from '@electron/features/djvu/main/pdfExport';
+import {
+    getDjvuOutputJobState,
+    subscribeDjvuOutputJob,
+    subscribeDjvuProgress,
+} from '@electron/features/djvu/main/pdfExport';
 import type { IDjvuService } from '@electron/features/djvu/ports';
 
 export function createDjvuService(): IDjvuService {
     return {
-        openForViewing: (context, djvuPath) =>
-            handleDjvuOpenForViewingOperation(context, djvuPath),
+        startOpenForViewing: handleDjvuStartOpenForViewingOperation,
+        awaitOpenJob: handleDjvuAwaitOpenJobOperation,
+        openForViewing: handleDjvuOpenForViewingOperation,
         releaseViewingPath: (context, djvuPath) => {
             handleDjvuReleaseViewingPath(context, djvuPath);
             return Promise.resolve();
         },
-        convertToPdf: (context, djvuPath, outputPath, options) =>
-            handleDjvuConvertToPdfOperation(context, djvuPath, outputPath, options),
-        printDjvuPath: (context, djvuPath, options) =>
-            handleDjvuPrintPathOperation(context, djvuPath, options),
-        cancel: (context, jobId) =>
-            handleDjvuCancelOperation(context, jobId),
-        cancelPagePreview: (context, requestId) =>
-            handleDjvuCancelPagePreview(context, requestId),
-        getInfo: (context, djvuPath) =>
-            handleDjvuGetInfo(context, djvuPath),
-        getPageSizes: (context, djvuPath) =>
-            handleDjvuGetPageSizes(context, djvuPath),
-        renderPagePreview: (context, djvuPath, pageNumber, options) =>
-            handleDjvuRenderPagePreview(context, djvuPath, pageNumber, options),
-        estimateSizes: (context, djvuPath) =>
-            handleDjvuEstimateSizes(context, djvuPath),
-        cleanupTemp: (context, tempPdfPath) =>
-            handleDjvuCleanupTemp(context, tempPdfPath),
+        convertToPdf: handleDjvuConvertToPdfOperation,
+        startConvertToPdf: handleDjvuStartConvertToPdfOperation,
+        awaitConvertJob: handleDjvuAwaitConvertJobOperation,
+        printDjvuPath: handleDjvuPrintPathOperation,
+        cancel: handleDjvuCancelOperation,
+        getJobState: (_context, jobId) => Promise.resolve(getDjvuOutputJobState(jobId)),
+        subscribeJob: (context, jobId) => Promise.resolve(subscribeDjvuOutputJob(context, jobId)),
+        cancelPagePreview: handleDjvuCancelPagePreview,
+        getInfo: handleDjvuGetInfo,
+        getPageSizes: handleDjvuGetPageSizes,
+        renderPagePreview: handleDjvuRenderPagePreview,
+        estimateSizes: handleDjvuEstimateSizes,
+        cleanupTemp: handleDjvuCleanupTemp,
         subscribeProgress: context => subscribeDjvuProgress(context),
     };
 }

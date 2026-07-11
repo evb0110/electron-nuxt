@@ -14,6 +14,7 @@ import {
 } from '@app/services/pdfjs/annotationEditorAdapter';
 import type { getAnnotationEditorLayer } from '@app/services/pdfjs/annotationEditorAdapter';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { getPdfjsEditorFacadeState } from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
 
 interface IHighlightMarkupSubtypeResolver {
     setEditorMarkupSubtypeOverride: (editor: IPdfjsEditor, pageIndex: number, subtype: TMarkupSubtype) => void;
@@ -44,8 +45,9 @@ function errorToLogText(error: unknown) {
 }
 
 function getEditorMarkupBoxes(editor: IPdfjsEditor) {
-    if (editor.__evbMarkupBoxes?.length) {
-        return editor.__evbMarkupBoxes;
+    const editorState = getPdfjsEditorFacadeState(editor);
+    if (editorState.markupBoxes?.length) {
+        return editorState.markupBoxes;
     }
     if (
         Number.isFinite(editor.x)
@@ -105,8 +107,9 @@ function createReplacementMarkupEditor(
     if (!replacementEditor) {
         return;
     }
-    replacementEditor.__evbMarkupBoxes = cloneHighlightBoxes(boxes);
-    replacementEditor.__evbMarkupSubtypeColor = sourceEditor.__evbMarkupSubtypeColor ?? null;
+    const replacementState = getPdfjsEditorFacadeState(replacementEditor);
+    replacementState.markupBoxes = cloneHighlightBoxes(boxes);
+    replacementState.markupSubtypeColor = getPdfjsEditorFacadeState(sourceEditor).markupSubtypeColor ?? null;
     markupSubtype.setEditorMarkupSubtypeOverride(replacementEditor, pageIndex, subtype);
 }
 

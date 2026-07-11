@@ -7,8 +7,8 @@ import type {
     IWindowTabTransferAck,
     IWindowTabTransferRequest,
     IWindowTabTransferResult,
-    TSplitPayload,
 } from '@contracts/windowTabs';
+import { decodeWindowTabIncomingTransfer } from '@contracts/windowTabsValidation';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
 const WINDOW_TABS_CHANNEL = 'evb-viewer:browserWindowTabs';
@@ -114,76 +114,23 @@ function isPositiveWindowId(value: unknown): value is number {
     return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 }
 
-function isOptionalPositiveInteger(value: unknown): value is number | undefined {
-    return value === undefined || (typeof value === 'number' && Number.isSafeInteger(value) && value > 0);
-}
-
-function isNonNegativeInteger(value: unknown): value is number {
-    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
-}
-
-function isNullableString(value: unknown): value is string | null {
-    return value === null || typeof value === 'string';
-}
-
-function isOptionalNullableString(value: unknown): value is string | null | undefined {
-    return value === undefined || isNullableString(value);
-}
-
-function isTransferredTabState(value: unknown): value is IWindowTabIncomingTransfer['tab'] {
-    return isRecord(value)
-        && isNullableString(value.fileName)
-        && isNullableString(value.originalPath)
-        && isOptionalNullableString(value.documentInstanceId)
-        && typeof value.isDirty === 'boolean'
-        && typeof value.isDjvu === 'boolean';
-}
-
-function isSplitPayload(value: unknown): value is TSplitPayload {
-    if (!isRecord(value) || typeof value.kind !== 'string') {
-        return false;
+function decodeBrowserTransferEnvelope(value: unknown): TBrowserTransferEnvelope | null {
+    if (
+        !isRecord(value)
+        || value.schemaVersion !== TRANSFER_MESSAGE_SCHEMA_VERSION
+        || typeof value.nonce !== 'string'
+    ) {
+        return null;
     }
 
-    if (value.kind === 'empty') {
-        return true;
-    }
-
-    if (value.kind === 'djvu') {
-        return typeof value.sourcePath === 'string';
-    }
-
-    return value.kind === 'pdfSnapshot'
-        && typeof value.fileName === 'string'
-        && isNullableString(value.originalPath)
-        && typeof value.snapshotPath === 'string'
-        && typeof value.isDirty === 'boolean'
-        && isOptionalPositiveInteger(value.currentPage)
-        && isOptionalPositiveInteger(value.totalPages);
-}
-
-function isTransferSession(value: unknown): value is IWindowTabIncomingTransfer['session'] {
-    return value === undefined
-        || (
-            isRecord(value)
-            && typeof value.sessionId === 'string'
-            && value.sessionId.trim().length > 0
-            && isNonNegativeInteger(value.sessionRevision)
-            && isNullableString(value.documentRef)
-            && isOptionalNullableString(value.documentInstanceId)
-            && (value.documentRevisionToken === undefined || typeof value.documentRevisionToken === 'string')
-        );
-}
-
-function isBrowserTransferEnvelope(value: unknown): value is TBrowserTransferEnvelope {
-    return isRecord(value)
-        && value.schemaVersion === TRANSFER_MESSAGE_SCHEMA_VERSION
-        && typeof value.nonce === 'string'
-        && typeof value.transferId === 'string'
-        && isPositiveWindowId(value.sourceWindowId)
-        && isPositiveWindowId(value.targetWindowId)
-        && isTransferredTabState(value.tab)
-        && isSplitPayload(value.payload)
-        && isTransferSession(value.session);
+    const transfer = decodeWindowTabIncomingTransfer(value);
+    return transfer
+        ? {
+            ...transfer,
+            schemaVersion: TRANSFER_MESSAGE_SCHEMA_VERSION,
+            nonce: value.nonce,
+        }
+        : null;
 }
 
 function isBrowserTransferAckEnvelope(value: unknown): value is TBrowserTransferAckEnvelope {
@@ -226,13 +173,13 @@ function parseBrowserWindowTabsMessage(data: unknown): TBrowserWindowTabsMessage
                     windowId: data.windowId,
                 }
                 : null;
-        case 'transfer':
-            return isBrowserTransferEnvelope(data.transfer)
-                ? {
-                    type: 'transfer',
-                    transfer: data.transfer,
-                }
-                : null;
+        case 'transfer': {
+            const transfer = decodeBrowserTransferEnvelope(data.transfer);
+            return transfer ? {
+                type: 'transfer',
+                transfer,
+            } : null;
+        }
         case 'ack':
             return isPositiveWindowId(data.windowId) && isBrowserTransferAckEnvelope(data.ack)
                 ? {
@@ -791,6 +738,8 @@ export function syncBrowserWindowTitle() {
 }
 
 export const browserWindowTabsCapability: IWindowTabsCapability = {
+    async saveWorkspaceCheckpoint() {},
+    claimWorkspaceCheckpoint: () => Promise.resolve(null),
     async transfer(request: IWindowTabTransferRequest) {
         initializeBrowserWindowTabs();
         if (!ensureChannel()) {

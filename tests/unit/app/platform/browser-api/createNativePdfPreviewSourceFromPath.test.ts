@@ -10,6 +10,7 @@ import type {
     IPdfNativePagePreview,
 } from '@contracts/electronApiDocuments';
 import { createNativePdfPreviewSourceFromPath } from '@app/platform/browser-api/createNativePdfPreviewSourceFromPath';
+import { workspaceSurfaceBudgetController } from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
 
 describe('createNativePdfPreviewSourceFromPath', () => {
     afterEach(() => {
@@ -93,5 +94,40 @@ describe('createNativePdfPreviewSourceFromPath', () => {
 
         await expect(renderPromise).rejects.toThrow('Native PDF preview canceled');
         expect(documentFiles.cancelPdfNativePagePreview).toHaveBeenCalledWith('pdf-native-preview:2:1');
+    });
+
+    it('leases decoded native preview surfaces until their object URLs are released', async () => {
+        const documentFiles: Pick<
+            IDocumentsFileIoCapability,
+            'cancelPdfNativePagePreview' | 'getPdfNativePageSizes' | 'renderPdfNativePagePreview'
+        > = {
+            cancelPdfNativePagePreview: vi.fn(async () => ({canceled: false})),
+            getPdfNativePageSizes: vi.fn(async () => []),
+            renderPdfNativePagePreview: vi.fn(async () => ({
+                bytes: new Uint8Array([
+                    1,
+                    2,
+                    3,
+                ]),
+                width: 40,
+                height: 25,
+            })),
+        };
+        vi.stubGlobal('URL', {
+            createObjectURL: vi.fn(() => 'blob:leased-preview'),
+            revokeObjectURL: vi.fn(),
+        });
+        const before = workspaceSurfaceBudgetController.getSnapshot();
+        const source = createNativePdfPreviewSourceFromPath('/tmp/leased-preview.pdf', documentFiles);
+
+        const rendered = await source.renderPageObjectUrl(1);
+
+        const leased = workspaceSurfaceBudgetController.getSnapshot();
+        expect(leased.reservedBytesByCategory['native-preview'])
+            .toBe(before.reservedBytesByCategory['native-preview'] + 40 * 25 * 4);
+        source.revokeObjectURL(rendered.objectUrl);
+        expect(workspaceSurfaceBudgetController.getSnapshot().reservedBytesByCategory['native-preview'])
+            .toBe(before.reservedBytesByCategory['native-preview']);
+        expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:leased-preview');
     });
 });

@@ -76,6 +76,7 @@ export const useWorkspaceSearchSidebar = (options: IWorkspaceSearchSidebarOption
         sidebarWrapperStyle,
         isResizingSidebar,
         startSidebarResize,
+        setSidebarContainerWidth,
         cleanupSidebarResizeListeners,
     } = useSidebarResize({ showSidebar });
 
@@ -107,6 +108,7 @@ export const useWorkspaceSearchSidebar = (options: IWorkspaceSearchSidebarOption
         sidebarWrapperStyle,
         isResizingSidebar,
         startSidebarResize,
+        setSidebarContainerWidth,
         cleanupSidebarResizeListeners,
     };
 };

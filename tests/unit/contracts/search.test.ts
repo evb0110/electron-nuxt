@@ -9,6 +9,7 @@ import * as pdfSearchCore from '@pdf-core';
 
 const {
     buildPdfSearchExcerpt,
+    assembleSearchablePageText,
     collapseRepeatedPdfSearchPageText,
     collectSearchMatchWords,
     findPdfSearchMatches,
@@ -16,6 +17,50 @@ const {
 } = pdfSearchCore;
 
 describe('contracts search compatibility exports', () => {
+    it('defines all eight search option combinations exactly once', () => {
+        const optionKeys = contractsSearch.SEARCH_OPTION_SEMANTICS.map(options => (
+            `${Number(options.matchCase)}${Number(options.wholeWord)}${Number(options.useRegex)}`
+        ));
+
+        expect(optionKeys).toHaveLength(8);
+        expect(new Set(optionKeys).size).toBe(8);
+    });
+
+    it('owns the shared limits and strictly decodes the search wire shape', () => {
+        expect(contractsSearch.SEARCH_RESULT_LIMIT).toBe(500);
+        expect(contractsSearch.SEARCH_EXCERPT_CONTEXT_CHARS).toBe(56);
+        const response = {
+            results: [{
+                pageNumber: 1,
+                pageMatchIndex: 0,
+                matchIndex: 0,
+                startOffset: 2,
+                endOffset: 5,
+                excerpt: {
+                    prefix: false,
+                    suffix: false,
+                    before: 'a ',
+                    match: 'foo',
+                    after: ' b',
+                },
+            }],
+            truncated: false,
+        };
+
+        expect(contractsSearch.SEARCH_WIRE_CODEC.decodeResponse(response)).toEqual(response);
+        expect(contractsSearch.SEARCH_WIRE_CODEC.decodeResult({
+            ...response.results[0],
+            startOffset: Number.NaN,
+        })).toBeNull();
+        expect(contractsSearch.SEARCH_WIRE_CODEC.decodeResponse({
+            ...response,
+            results: [{
+                ...response.results[0],
+                pageNumber: 2,
+            }],
+        }, 1)).toBeNull();
+    });
+
     it('keeps compatibility helpers behaviorally aligned with pdf-core', () => {
         const options = {
             matchCase: false,
@@ -75,7 +120,61 @@ describe('collapseRepeatedPdfSearchPageText', () => {
     });
 });
 
+describe('assembleSearchablePageText', () => {
+    it('joins adjacent PDF.js items with stable separators and line breaks', () => {
+        const assembled = assembleSearchablePageText([
+            {text: 'hello'},
+            {
+                text: 'world',
+                separatorAfter: 'line',
+            },
+            {text: 'again'},
+        ]);
+        expect(assembled).toMatchObject({
+            text: 'hello world\nagain',
+            itemOffsets: [
+                {
+                    itemIndex: 0,
+                    startOffset: 0,
+                    endOffset: 5,
+                },
+                {
+                    itemIndex: 1,
+                    startOffset: 5,
+                    endOffset: 12,
+                },
+                {
+                    itemIndex: 2,
+                    startOffset: 12,
+                    endOffset: 17,
+                },
+            ],
+        });
+        expect(assembled.sourceOffsets).toHaveLength(17);
+    });
+
+    it('preserves source Unicode offsets while joining line hyphenation', () => {
+        expect(assembleSearchablePageText([
+            {
+                text: 'Cafe\u0301 ex-',
+                separatorAfter: 'line',
+            },
+            {text: '\uFB01le'},
+        ]).text).toBe('Cafe\u0301 ex\uFB01le');
+    });
+});
+
 describe('findPdfSearchMatches', () => {
+    it('maps normalized matches back to source UTF-16 offsets', () => {
+        expect(findPdfSearchMatches('Cafe\u0301 and \uFB01le', 'café')).toEqual([{
+            startOffset: 0,
+            endOffset: 5,
+        }]);
+        expect(findPdfSearchMatches('Cafe\u0301 and \uFB01le', 'file')).toEqual([{
+            startOffset: 10,
+            endOffset: 13,
+        }]);
+    });
     it('ignores zero-width regex matches without looping forever', () => {
         expect(findPdfSearchMatches('aaa', /(?=a)/gu)).toEqual([]);
     });

@@ -9,7 +9,7 @@
             <UIcon
                 v-if="state === 'success'"
                 name="i-ph-check-circle"
-                class="size-4 text-[var(--ui-success)]"
+                class="app-progress-chip-success-icon size-4"
                 aria-hidden="true"
             />
             <AppSpinner v-else size="sm" tone="muted" />
@@ -17,10 +17,10 @@
                 <p class="m-0 text-xs font-medium text-default">
                     {{ title }}
                 </p>
-                <p v-if="detail" class="m-0 text-[11px] text-muted">
+                <p v-if="detail" class="app-progress-chip-detail m-0 text-muted">
                     {{ detail }}
                 </p>
-                <p v-if="subDetail" class="m-0 text-[11px] text-dimmed">
+                <p v-if="subDetail" class="app-progress-chip-detail m-0 text-dimmed">
                     {{ subDetail }}
                 </p>
             </div>
@@ -68,11 +68,39 @@ const progressValue = computed(() => {
 });
 
 const containerClass = computed(() => {
-    const offsetClass = offsetBottom === 'high' ? 'bottom-28' : 'bottom-12';
+    const offsetClass = offsetBottom === 'high'
+        ? 'app-progress-chip--offset-high'
+        : 'app-progress-chip--offset-low';
     return [
-        'pointer-events-none absolute right-4 z-50 w-60',
+        'app-progress-chip pointer-events-none absolute',
         'rounded-md border border-default bg-default/95 px-3 py-2 shadow-lg',
         offsetClass,
     ].join(' ');
 });
 </script>
+
+<style scoped>
+.app-progress-chip {
+    z-index: var(--app-z-progress);
+    inset-inline-end: var(--app-space-12xl);
+    inline-size: var(--app-progress-bar-width);
+    max-inline-size: calc(100% - (2 * var(--app-space-12xl)));
+    box-sizing: border-box;
+}
+
+.app-progress-chip--offset-low {
+    inset-block-end: var(--app-progress-chip-offset-low);
+}
+
+.app-progress-chip--offset-high {
+    inset-block-end: var(--app-progress-chip-offset-high);
+}
+
+.app-progress-chip-success-icon {
+    color: var(--ui-success);
+}
+
+.app-progress-chip-detail {
+    font-size: var(--app-text-size-micro);
+}
+</style>

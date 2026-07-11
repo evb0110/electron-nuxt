@@ -1,16 +1,20 @@
 import type {
     IDjvuCapability,
     IDjvuProgress,
-    IDjvuViewingErrorEvent,
-    IDjvuViewingReadyEvent,
 } from '@contracts/electronApiDjvu';
 
 export const DJVU_CHANNELS = {
+    startOpenForViewing: 'djvu:open:start',
+    awaitOpenJob: 'djvu:open:await',
     openForViewing: 'djvu:openForViewing',
     releaseViewingPath: 'djvu:releaseViewingPath',
     convertToPdf: 'djvu:convertToPdf',
+    startConvertToPdf: 'djvu:convert:start',
+    awaitConvertJob: 'djvu:convert:await',
     printDjvuPath: 'djvu:printDjvuPath',
     cancel: 'djvu:cancel',
+    getJobState: 'djvu:job:getState',
+    subscribeJob: 'djvu:job:subscribe',
     cancelPagePreview: 'djvu:cancelPagePreview',
     getInfo: 'djvu:getInfo',
     getPageSizes: 'djvu:getPageSizes',
@@ -22,12 +26,18 @@ export const DJVU_CHANNELS = {
 
 export const DJVU_EVENT_CHANNELS = {
     progress: 'djvu:progress',
-    viewingReady: 'djvu:viewingReady',
-    viewingError: 'djvu:viewingError',
     menuConvertToPdf: 'menu:convertToPdf',
 } as const;
 
 export interface IDjvuInvokeMap {
+    [DJVU_CHANNELS.startOpenForViewing]: {
+        args: Parameters<IDjvuCapability['startOpenForViewing']>;
+        result: Awaited<ReturnType<IDjvuCapability['startOpenForViewing']>>;
+    };
+    [DJVU_CHANNELS.awaitOpenJob]: {
+        args: Parameters<IDjvuCapability['awaitOpenJob']>;
+        result: Awaited<ReturnType<IDjvuCapability['awaitOpenJob']>>;
+    };
     [DJVU_CHANNELS.openForViewing]: {
         args: [djvuPath: string];
         result: Awaited<ReturnType<IDjvuCapability['openForViewing']>>;
@@ -40,6 +50,14 @@ export interface IDjvuInvokeMap {
         args: [djvuPath: string, outputPath: string, options: Parameters<IDjvuCapability['convertToPdf']>[2]];
         result: Awaited<ReturnType<IDjvuCapability['convertToPdf']>>;
     };
+    [DJVU_CHANNELS.startConvertToPdf]: {
+        args: Parameters<IDjvuCapability['startConvertToPdf']>;
+        result: Awaited<ReturnType<IDjvuCapability['startConvertToPdf']>>;
+    };
+    [DJVU_CHANNELS.awaitConvertJob]: {
+        args: Parameters<IDjvuCapability['awaitConvertJob']>;
+        result: Awaited<ReturnType<IDjvuCapability['awaitConvertJob']>>;
+    };
     [DJVU_CHANNELS.printDjvuPath]: {
         args: [djvuPath: string, options: Parameters<IDjvuCapability['printDjvuPath']>[1]];
         result: Awaited<ReturnType<IDjvuCapability['printDjvuPath']>>;
@@ -47,6 +65,14 @@ export interface IDjvuInvokeMap {
     [DJVU_CHANNELS.cancel]: {
         args: [jobId: string];
         result: Awaited<ReturnType<IDjvuCapability['cancel']>>;
+    };
+    [DJVU_CHANNELS.getJobState]: {
+        args: [jobId: string];
+        result: Awaited<ReturnType<IDjvuCapability['getJobState']>>;
+    };
+    [DJVU_CHANNELS.subscribeJob]: {
+        args: [jobId: string];
+        result: Awaited<ReturnType<IDjvuCapability['subscribeJob']>>;
     };
     [DJVU_CHANNELS.cancelPagePreview]: {
         args: [requestId: string];
@@ -84,7 +110,5 @@ export interface IDjvuInvokeMap {
 
 export interface IDjvuEventMap {
     [DJVU_EVENT_CHANNELS.progress]: IDjvuProgress;
-    [DJVU_EVENT_CHANNELS.viewingReady]: IDjvuViewingReadyEvent;
-    [DJVU_EVENT_CHANNELS.viewingError]: IDjvuViewingErrorEvent;
     [DJVU_EVENT_CHANNELS.menuConvertToPdf]: undefined;
 }

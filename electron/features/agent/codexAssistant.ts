@@ -1,4 +1,7 @@
-import * as electron from 'electron';
+import {
+    shell,
+    type BrowserWindow,
+} from 'electron';
 import { sanitizeAllowedExternalUrl } from '@contracts/externalUrl';
 import { config } from '@electron/config';
 import type {
@@ -36,6 +39,7 @@ import {
     normalizeClaudeAssistantModel,
     type IClaudeAgentAssistantInit,
 } from '@electron/features/agent/claudeAgentSdkAssistant';
+import { createClaudeTurnPresentationCallbacks } from '@electron/features/agent/createClaudeTurnPresentationCallbacks';
 import {
     ASSISTANT_IMAGE_ONLY_PROMPT,
     ASSISTANT_MCP_SERVER_NAME,
@@ -82,32 +86,33 @@ import {
 import { getActiveAssistantMcpSessionScope } from '@electron/features/agent/assistantMcpSessionScope';
 import { buildAgentAssistantStateSnapshot } from '@electron/features/agent/buildAgentAssistantStateSnapshot';
 import { createAssistantSessionTurnCoordinator } from '@electron/features/agent/createAssistantSessionTurnCoordinator';
+import {
+    startAssistantHeartbeat,
+    waitForBoundedAssistantInterrupt,
+} from '@electron/features/agent/assistantTurnLiveness';
 import { createAssistantAppServerNotificationController } from '@electron/features/agent/createAssistantAppServerNotificationController';
+import { createAssistantEventPublisher } from '@electron/features/agent/createAssistantEventPublisher';
 import { resolveAssistantPresetInstructions } from '@electron/features/agent/assistantPresetWorkflows';
 import {
     rememberAssistantReturnWindow,
     type TAssistantReturnWindow,
 } from '@electron/features/agent/assistantReturnWindow';
 import {
+    abortActiveEmbeddedMcpRequests,
     shutdownEmbeddedMcpServer,
     startEmbeddedMcpServer,
 } from '@electron/features/agent/mcpServer';
-import { sendAgentAssistantEvent } from '@electron/features/agent/main/agentRendererEvents';
 import { loadSettings } from '@electron/settings';
 import { te } from '@electron/te';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
-
 const logger = createLogger('agent-codex-assistant');
-
 export interface IAgentAssistantSendMessageOptions { windowId?: number | null; }
-
 let codexAssistantModels: readonly TCodexAssistantModelOption[] = CODEX_ASSISTANT_FALLBACK_MODELS;
 let claudeAssistantModels: readonly IAgentAssistantModelOption[] = CLAUDE_AGENT_MODELS;
 const providerRuntimeStates = createAssistantProviderRuntimeStates();
 const codexProviderRuntime = getAssistantProviderRuntimeState(providerRuntimeStates, 'codex');
 const claudeProviderRuntime = getAssistantProviderRuntimeState(providerRuntimeStates, 'claude');
-
 let claudeInfoCache: IClaudeAssistantProviderInfo | null = null;
 let pendingLoginId: string | null = null;
 let authReturnWindow: TAssistantReturnWindow = null;
@@ -130,7 +135,6 @@ const sessionStore = createAssistantChatSessionStore({
         publishAssistantEvent(event, session.scope, session);
     },
 });
-
 const runtimeLifecycle = createAssistantRuntimeLifecycle({
     providerRuntime: codexProviderRuntime,
     sessionStore,
@@ -152,7 +156,6 @@ const runtimeLifecycle = createAssistantRuntimeLifecycle({
     handleExit: handleAppServerExit,
     logger,
 });
-
 const {
     claimSessionTurn,
     completeSessionTurn,
@@ -163,35 +166,6 @@ const {
     supersedeSessionTurn,
     supersedeSessionTurnWithError,
 } = createAssistantSessionTurnCoordinator({ sessionStore });
-
-const appServerNotifications = createAssistantAppServerNotificationController({
-    addMessage,
-    appendAssistantDelta,
-    clearLoginState: () => {
-        authReturnWindow = null;
-        pendingLoginId = null;
-    },
-    clearRuntimeForExit: () => runtimeLifecycle.clearRuntimeForExit(),
-    codexProviderRuntime,
-    completeSessionTurn,
-    currentCodexSelection,
-    errorSessionTurn,
-    getActiveChatSession: () => getActiveChatSession('codex'),
-    getAuthReturnWindow: () => authReturnWindow,
-    getChatSessionByThreadId,
-    getRememberedScope: () => sessionStore.getRememberedScope(),
-    logger,
-    markSessionTurnRunning,
-    noFocus: config.automation.noFocus,
-    publishAssistantEvent,
-    publishState,
-    reconcileFailedTurnMessages,
-    refreshAuthStateAndRuntimeAvailability,
-    sessionStore,
-    supersedeSessionTurn,
-    upsertAssistantMessage,
-});
-
 function ensureSharedEmbeddedMcp() {
     return startEmbeddedMcpServer();
 }
@@ -317,7 +291,6 @@ function currentCodexSelection(): IAssistantSelection {
         ),
     };
 }
-
 function getSessionForStatus(scope: IAgentAssistantChatScope | null, selection: IAssistantSelection) {
     return getChatSession(scope, selection);
 }
@@ -349,44 +322,49 @@ function currentState(
     });
 }
 
-function shouldAttachStateToAssistantEvent(event: IAgentAssistantEvent) {
-    return event.state !== undefined
-        || event.type === 'state'
-        || event.type === 'message'
-        || event.type === 'turn-started'
-        || event.type === 'turn-completed'
-        || event.type === 'error';
-}
+const {
+    publishAssistantEvent,
+    publishState,
+} = createAssistantEventPublisher({
+    currentState,
+    getDefaultScope: sessionStore.getRememberedScope,
+    getDefaultSelection: sessionStore.getRememberedSelection,
+});
 
-function publishAssistantEvent(
-    event: IAgentAssistantEvent,
-    scope: IAgentAssistantChatScope | null = sessionStore.getRememberedScope(),
-    selection: IAssistantSelection = sessionStore.getRememberedSelection(),
-) {
-    const normalizedEvent = withAssistantErrorEnvelope(event);
-    const payload = {
-        ...normalizedEvent,
-        ...(shouldAttachStateToAssistantEvent(normalizedEvent)
-            ? { state: normalizedEvent.state ?? currentState(scope, selection) }
-            : {}),
-    } satisfies IAgentAssistantEvent;
-    for (const window of electron.BrowserWindow.getAllWindows()) {
-        if (window.isDestroyed() || window.webContents.isDestroyed()) {
-            continue;
-        }
-        sendAgentAssistantEvent(window, payload);
-    }
-}
+const appServerNotifications = createAssistantAppServerNotificationController({
+    addMessage,
+    appendAssistantDelta,
+    clearLoginState: () => {
+        authReturnWindow = null;
+        pendingLoginId = null;
+    },
+    clearRuntimeForExit: () => runtimeLifecycle.clearRuntimeForExit(),
+    codexProviderRuntime,
+    completeSessionTurn,
+    currentCodexSelection,
+    errorSessionTurn,
+    getActiveChatSession: () => getActiveChatSession('codex'),
+    getAuthReturnWindow: () => authReturnWindow,
+    getChatSessionByThreadId,
+    getRememberedScope: () => sessionStore.getRememberedScope(),
+    logger,
+    markSessionTurnRunning,
+    noFocus: config.automation.noFocus,
+    publishAssistantEvent,
+    publishState,
+    reconcileFailedTurnMessages,
+    refreshAuthStateAndRuntimeAvailability,
+    sessionStore,
+    supersedeSessionTurn,
+    upsertAssistantMessage,
+});
 
-function publishState(
-    scope: IAgentAssistantChatScope | null = sessionStore.getRememberedScope(),
-    selection: IAssistantSelection = sessionStore.getRememberedSelection(),
-) {
-    publishAssistantEvent({
-        type: 'state',
-        state: currentState(scope, selection),
-    }, scope, selection);
-}
+startAssistantHeartbeat({
+    sessions: sessionStore.listSessions,
+    isActive: session => isAssistantTurnActive(session.turnOwner),
+    recordBoundary: sessionStore.recordTurnBoundary,
+    publish: (event, session) => publishAssistantEvent(event, session.scope, session),
+});
 
 function addMessage(
     session: IAssistantChatSession,
@@ -638,8 +616,12 @@ function shouldDropClaudeCallback(session: IAssistantChatSession, turnId: string
         || !matchesProviderTurn(session.turnOwner, turnId)
         || !isActiveTurnScopeCurrent(session);
 }
-
 function createClaudeCallbacks(session: IAssistantChatSession) {
+    const presentationCallbacks = createClaudeTurnPresentationCallbacks({
+        session,
+        shouldDrop: turnId => shouldDropClaudeCallback(session, turnId),
+        publish: event => publishAssistantEvent(event, session.scope, session),
+    });
     return {
         onInitialized: (info: IClaudeAgentAssistantInit) => {
             session.providerThreadId = info.sessionId;
@@ -664,6 +646,8 @@ function createClaudeCallbacks(session: IAssistantChatSession) {
             sessionStore.setActiveSession(session);
             markSessionTurnRunning(session, session.turnOwner.generation, turnId);
             claudeProviderRuntime.runtimeState = 'busy';
+            session.turnPresentation.phase = 'thinking';
+            session.turnPresentation.lastEventAtMs = Date.now();
             publishAssistantEvent({
                 type: 'turn-started',
                 turnId,
@@ -676,8 +660,25 @@ function createClaudeCallbacks(session: IAssistantChatSession) {
             if (claudeProviderRuntime.runtimeState === 'busy') {
                 markSessionTurnRunning(session, session.turnOwner.generation, getAssistantTurnProviderTurnId(session.turnOwner));
             }
+            session.turnPresentation.phase = 'streaming';
+            session.turnPresentation.lastEventAtMs = Date.now();
             appendAssistantDelta(session, messageId, delta);
         },
+        onReasoningDelta: (turnId: string | null, delta: string) => {
+            if (shouldDropClaudeCallback(session, turnId)) {
+                return;
+            }
+            session.turnPresentation.phase = 'thinking';
+            session.turnPresentation.reasoning += delta;
+            session.turnPresentation.lastEventAtMs = Date.now();
+            publishAssistantEvent({
+                type: 'reasoning-delta',
+                reasoningDelta: delta,
+                phase: 'thinking',
+                lastEventAtMs: session.turnPresentation.lastEventAtMs,
+            }, session.scope, session);
+        },
+        ...presentationCallbacks,
         onAssistantMessage: (turnId: string | null, messageId: string, text: string, pending: boolean) => {
             if (shouldDropClaudeCallback(session, turnId)) {
                 return;
@@ -698,7 +699,6 @@ function createClaudeCallbacks(session: IAssistantChatSession) {
         },
     };
 }
-
 async function ensureClaudeAssistantSession(
     session: IAssistantChatSession,
     model: string,
@@ -709,7 +709,6 @@ async function ensureClaudeAssistantSession(
         await shutdownAgentAssistant();
         throw new Error(createAssistantDisabledError());
     }
-
     const claudeInfo = await refreshClaudeInfo();
     if (!claudeInfo.installed || !claudeInfo.executablePath) {
         const error = claudeInfo.error ?? 'Claude Agent SDK is not available.';
@@ -718,12 +717,10 @@ async function ensureClaudeAssistantSession(
         publishState(session.scope, session);
         throw new Error(error);
     }
-
     const normalizedModel = normalizeClaudeAssistantModel(model);
     const normalizedEffort = normalizeAssistantEffort(codexAssistantModels, 'claude', normalizedModel, effort);
     const normalizedSpeedMode = normalizeAssistantSpeedMode(codexAssistantModels, 'claude', normalizedModel, speedMode);
     const desiredFastMode = shouldUseClaudeAssistantFastMode(normalizedModel, normalizedSpeedMode);
-
     if (session.claudeSession) {
         // The model can change in-session (setModel), but effort and flag settings
         // are fixed at query() start. Keep local message history and rebuild only
@@ -745,7 +742,6 @@ async function ensureClaudeAssistantSession(
         session.providerThreadId = null;
         supersedeSessionTurn(session);
     }
-
     claudeProviderRuntime.runtimeState = 'starting';
     delete claudeProviderRuntime.lastError;
     publishState(session.scope, session);
@@ -773,7 +769,6 @@ async function ensureClaudeAssistantSession(
     publishState(session.scope, session);
     return session.claudeSession;
 }
-
 export async function getAgentAssistantState(
     request?: IAgentAssistantStateRequest,
 ): Promise<IAgentAssistantState> {
@@ -860,7 +855,7 @@ export async function installAgentAssistantCodex(): Promise<IAgentAssistantInsta
 
 export async function startAgentAssistantLogin(
     request: IAgentAssistantLoginRequest,
-    parentWindow?: electron.BrowserWindow | null,
+    parentWindow?: BrowserWindow | null,
 ): Promise<IAgentAssistantLoginResult> {
     try {
         const currentRuntime = await ensureAssistantRuntime();
@@ -882,7 +877,7 @@ export async function startAgentAssistantLogin(
         const verificationUrl = typeof response.verificationUrl === 'string' ? response.verificationUrl : undefined;
         const urlToOpen = authUrl ?? verificationUrl;
         if (urlToOpen) {
-            await electron.shell.openExternal(sanitizeAllowedExternalUrl(urlToOpen));
+            await shell.openExternal(sanitizeAllowedExternalUrl(urlToOpen));
         }
         publishState();
         return {
@@ -1201,13 +1196,16 @@ export async function interruptAgentAssistant(
     const requestedSession = getRequestChatSession(request);
     const selection = resolveAssistantSelection(codexAssistantModels, request);
     const session = requestedSession ?? getActiveChatSession(selection.provider);
+    abortActiveEmbeddedMcpRequests(session?.scopeBinding ?? null, 'Assistant turn interrupted by the user.');
     if (session?.provider === 'claude') {
         if (session.claudeSession && isAssistantTurnActive(session.turnOwner)) {
             claudeProviderRuntime.runtimeState = 'busy';
             interruptSessionTurn(session);
             publishState(session.scope, session);
-            await session.claudeSession.interrupt().catch((error: unknown) => {
+            await waitForBoundedAssistantInterrupt(session.claudeSession.interrupt()).catch((error: unknown) => {
                 logger.warn(`Failed to interrupt Claude assistant turn: ${getErrorMessage(error)}`);
+                session.turnPresentation.phase = 'stalled';
+                session.turnPresentation.lastEventAtMs = Date.now();
             });
             // interrupt() -> completeTurn() -> markClaudeTurnCompleted already resets
             // runtimeState and emits the turn-completed event.
@@ -1230,15 +1228,17 @@ export async function interruptAgentAssistant(
         codexProviderRuntime.runtimeState = 'busy';
         publishState(session.scope, session);
         try {
-            await currentRuntime.client.request('turn/interrupt', {
+            await waitForBoundedAssistantInterrupt(currentRuntime.client.request('turn/interrupt', {
                 threadId: session.providerThreadId,
                 turnId: activeTurnId,
-            });
+            }));
         } catch (error) {
             const message = getErrorMessage(error);
             logger.warn(`Failed to interrupt assistant turn: ${message}`);
             codexProviderRuntime.lastError = message;
             session.lastError = message;
+            session.turnPresentation.phase = 'stalled';
+            session.turnPresentation.lastEventAtMs = Date.now();
         }
     }
     if (session && codexInterruptRequested) {

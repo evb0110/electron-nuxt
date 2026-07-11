@@ -3,8 +3,11 @@ import type {
     IAnnotationCommentSummary,
     TAnnotationCommentsStatus,
 } from '@app/types/annotations';
-import type { IAnnotationNoteWindowState } from '@app/types/annotationNoteWindow';
-import { normalizeMarkerRect } from '@app/modules/pdf-viewer/public';
+import type { IAnnotationNoteWindowViewModel } from '@app/types/annotationNoteWindow';
+import {
+    normalizeMarkerRect,
+    annotationIdForSummary,
+} from '@app/modules/pdf-viewer/public';
 import type { TDocumentRef } from '@contracts/documentRef';
 
 interface ICreateDocumentAgentResourcesOptions {
@@ -26,7 +29,7 @@ interface ICreateDocumentAgentResourcesOptions {
     isAnySaving: Ref<boolean>;
     normalizeAgentAnnotationComment: (comment: IAnnotationCommentSummary) => Record<string, unknown>;
     originalPath: Ref<TDocumentRef | null>;
-    sortedAnnotationNoteWindows: Ref<IAnnotationNoteWindowState[]>;
+    sortedAnnotationNoteWindows: Ref<IAnnotationNoteWindowViewModel[]>;
     tabId: string;
     totalPages: Ref<number>;
     workingCopyPath: Ref<TDocumentRef | null>;
@@ -114,9 +117,9 @@ export function createDocumentAgentResources(options: ICreateDocumentAgentResour
         }
 
         if (resourceKind === 'notes') {
-            const openNoteByStableKey = new Map(
+            const openNoteByAnnotationId = new Map(
                 sortedAnnotationNoteWindows.value.map(note => [
-                    note.comment.stableKey,
+                    note.annotationId,
                     note,
                 ] as const),
             );
@@ -124,21 +127,21 @@ export function createDocumentAgentResources(options: ICreateDocumentAgentResour
                 .filter(comment => (
                     comment.hasNote === true
                     || comment.text.trim().length > 0
-                    || openNoteByStableKey.has(comment.stableKey)
+                    || openNoteByAnnotationId.has(annotationIdForSummary(comment))
                 ))
                 .map((comment) => {
-                    const openNote = openNoteByStableKey.get(comment.stableKey) ?? null;
-                    const openNoteMarkerRect = normalizeMarkerRect(openNote?.comment.markerRect);
+                    const openNote = openNoteByAnnotationId.get(annotationIdForSummary(comment)) ?? null;
+                    const openNoteMarkerRect = normalizeMarkerRect(openNote?.markerRect);
                     const normalizedComment = normalizeAgentAnnotationComment(comment);
                     return {
                         ...normalizedComment,
                         markerRect: openNoteMarkerRect ?? normalizedComment.markerRect,
-                        text: openNote?.text ?? comment.text,
+                        text: openNote?.draftText ?? comment.text,
                         isOpen: openNote !== null,
                         isMinimized: openNote?.isMinimized ?? false,
                         saving: openNote?.saving ?? false,
                         error: openNote?.error ?? null,
-                        saveMode: openNote?.saveMode ?? null,
+                        saveMode: openNote?.pendingEmbeddedSave ? 'embedded' : 'auto',
                     };
                 });
             return {

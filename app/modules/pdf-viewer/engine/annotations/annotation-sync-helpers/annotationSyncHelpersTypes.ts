@@ -1,4 +1,4 @@
-import type { TComputeSummaryStableKey } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/computeSummaryStableKey';
+import type { TComputeSummaryStableKey } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 import type { TPageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/pageRotation';
 import type {
     IPdfTextPreviewItem,

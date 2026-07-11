@@ -115,7 +115,7 @@ const repeatParagraphs = computed(() => {
 .pdf-page-skeleton {
     position: absolute;
     inset: 0;
-    border-radius: 2px;
+    border-radius: var(--app-pdf-page-skeleton-radius);
     box-shadow: var(--shadow-sm);
     background:
         linear-gradient(
@@ -129,12 +129,12 @@ const repeatParagraphs = computed(() => {
     overflow: hidden;
     pointer-events: none;
     box-sizing: border-box;
-    z-index: 7;
+    z-index: var(--app-z-pdf-page-skeleton);
 }
 
 .inner {
     position: relative;
-    gap: 0.9rem;
+    gap: var(--app-pdf-page-skeleton-gap);
     width: 100%;
     max-width: 100%;
     height: 100%;
@@ -145,11 +145,11 @@ const repeatParagraphs = computed(() => {
 
 .inner > * {
     position: relative;
-    z-index: 1;
+    z-index: var(--app-z-pdf-native-pending-image);
 }
 
 .header {
-    margin-bottom: 0.5rem;
+    margin-bottom: var(--app-pdf-page-skeleton-header-margin);
 }
 
 .title-line,
@@ -163,35 +163,35 @@ const repeatParagraphs = computed(() => {
 
 .title-line {
     width: 60%;
-    height: 1.2rem;
+    height: var(--app-pdf-page-skeleton-title-height);
     background: color-mix(in oklab, var(--ui-text-muted) 24%, var(--ui-bg-muted) 76%);
 }
 
 .subtitle-line {
     width: 42%;
-    height: 0.95rem;
+    height: var(--app-pdf-page-skeleton-subtitle-height);
     opacity: 0.8;
 }
 
 .paragraph {
-    gap: 0.65rem;
+    gap: var(--app-pdf-page-skeleton-paragraph-gap);
 }
 
 .line {
     width: 100%;
-    height: 0.95rem;
+    height: var(--app-pdf-page-skeleton-line-height);
 }
 
 .paragraph .line:nth-child(1) {
-    height: 1.05rem;
+    height: var(--app-pdf-page-skeleton-line-tall-height);
 }
 
 .paragraph .line:nth-child(2) {
-    height: 0.95rem;
+    height: var(--app-pdf-page-skeleton-line-height);
 }
 
 .paragraph .line:nth-child(3) {
-    height: 0.85rem;
+    height: var(--app-pdf-page-skeleton-line-short-height);
 }
 
 .is-short {
@@ -199,23 +199,23 @@ const repeatParagraphs = computed(() => {
 }
 
 .formula-block {
-    margin-top: 0.55rem;
+    margin-top: var(--app-pdf-page-skeleton-formula-margin);
 }
 
 .formula {
     width: 100%;
-    height: 1.3rem;
+    height: var(--app-pdf-page-skeleton-formula-height);
 }
 
 .formula-inline-row {
     display: flex;
-    gap: 0.55rem;
-    margin-top: 0.45rem;
+    gap: var(--app-pdf-page-skeleton-inline-gap);
+    margin-top: var(--app-pdf-page-skeleton-inline-margin);
 }
 
 .formula-inline {
     flex: 1;
-    height: 0.95rem;
+    height: var(--app-pdf-page-skeleton-line-height);
 }
 
 @keyframes pdf-page-skeleton-pulse {

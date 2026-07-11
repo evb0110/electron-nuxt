@@ -15,6 +15,7 @@ export interface IImageExportService {
         workingCopyPath: string,
         pageNumbers?: number[],
         requestId?: string,
+        sourceKind?: 'pdf' | 'djvu',
     ) => Promise<{
         success: boolean;
         canceled?: boolean;
@@ -25,6 +26,7 @@ export interface IImageExportService {
         workingCopyPath: string,
         pageNumbers?: number[],
         requestId?: string,
+        sourceKind?: 'pdf' | 'djvu',
     ) => Promise<{
         success: boolean;
         canceled?: boolean;

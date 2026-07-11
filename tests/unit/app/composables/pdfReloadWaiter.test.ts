@@ -9,264 +9,115 @@ import {
     ref,
     shallowRef,
 } from 'vue';
-import { capturePdfReloadSnapshot } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/capturePdfReloadSnapshot';
-import { createPdfReloadWaiter } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/createPdfReloadWaiter';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import { createPdfReloadWaiter } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/createPdfReloadWaiter';
+import { resolvePdfReloadPage } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/resolvePdfReloadPage';
 import { cast } from '@tests/helpers/cast';
 
-afterEach(() => {
-    vi.useRealTimers();
-});
+afterEach(() => vi.useRealTimers());
 
-describe('capturePdfReloadSnapshot', () => {
-    it('prefers the captured anchor page over the fallback page', () => {
-        const result = capturePdfReloadSnapshot({
-            scrollToPage: vi.fn(),
-            captureScrollSnapshot: () => ({
-                width: 100,
-                height: 200,
-                centerX: 50,
-                centerY: 80,
-                anchorPage: 7,
-            }),
-        }, 3);
-
-        expect(result.pageToRestore).toBe(7);
-        expect(result.scrollSnapshot?.anchorPage).toBe(7);
+describe('resolvePdfReloadPage', () => {
+    it('normalizes the semantic page target', () => {
+        expect(resolvePdfReloadPage(3.8)).toBe(3);
+        expect(resolvePdfReloadPage(0)).toBe(1);
     });
 });
 
 describe('createPdfReloadWaiter', () => {
-    it('restores the provided scroll snapshot after the PDF document reloads', async () => {
+    it('restores the semantic page after the document reloads', async () => {
         const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ id: 'before' }));
-        const restoreScrollSnapshot = vi.fn();
-
+        const scrollToPage = vi.fn();
         const waiter = createPdfReloadWaiter({
             pdfDocument,
-            pdfViewerRef: ref({
-                scrollToPage: vi.fn(),
-                restoreScrollSnapshot,
-            }),
+            pdfViewerRef: ref({scrollToPage}),
             resetSearchCache: vi.fn(),
             pageToRestore: 5,
-            scrollSnapshot: {
-                width: 300,
-                height: 400,
-                centerX: 120,
-                centerY: 220,
-                anchorPage: 5,
-            },
         });
 
         pdfDocument.value = cast({ id: 'after' });
         await waiter.promise;
-
-        expect(restoreScrollSnapshot).toHaveBeenCalledWith(
-            expect.objectContaining({ anchorPage: 5 }),
-            { fallbackPage: 5 },
-        );
+        expect(scrollToPage).toHaveBeenCalledWith(5);
     });
 
-    it('uses page-only restoration when scroll snapshot capture is disabled', async () => {
+    it('can wait for reload completion without restoring the viewport', async () => {
         const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ id: 'before' }));
         const scrollToPage = vi.fn();
-        const restoreScrollSnapshot = vi.fn();
-
-        const waiter = createPdfReloadWaiter({
-            pdfDocument,
-            pdfViewerRef: ref({
-                scrollToPage,
-                restoreScrollSnapshot,
-            }),
-            resetSearchCache: vi.fn(),
-            pageToRestore: 6,
-            captureScrollSnapshot: false,
-        });
-
-        pdfDocument.value = cast({ id: 'after' });
-        await waiter.promise;
-
-        expect(scrollToPage).toHaveBeenCalledWith(6);
-        expect(restoreScrollSnapshot).not.toHaveBeenCalled();
-    });
-
-    it('can wait for reload completion without restoring scroll', async () => {
-        const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ id: 'before' }));
-        const scrollToPage = vi.fn();
-        const restoreScrollSnapshot = vi.fn();
         const resetSearchCache = vi.fn();
-
         const waiter = createPdfReloadWaiter({
             pdfDocument,
-            pdfViewerRef: ref({
-                scrollToPage,
-                restoreScrollSnapshot,
-            }),
+            pdfViewerRef: ref({scrollToPage}),
             resetSearchCache,
             pageToRestore: 8,
-            scrollSnapshot: {
-                width: 300,
-                height: 400,
-                centerX: 120,
-                centerY: 220,
-                anchorPage: 8,
-            },
             restoreScroll: false,
         });
 
         pdfDocument.value = cast({ id: 'after' });
         await waiter.promise;
-
-        expect(resetSearchCache).toHaveBeenCalledTimes(1);
+        expect(resetSearchCache).toHaveBeenCalledOnce();
         expect(scrollToPage).not.toHaveBeenCalled();
-        expect(restoreScrollSnapshot).not.toHaveBeenCalled();
     });
 
-    it('waits for the viewer load-settle hook before restoring scroll state', async () => {
+    it('waits for viewer settle before restoring the page', async () => {
         const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ id: 'before' }));
-        const restoreScrollSnapshot = vi.fn();
-        let resolveViewerSettle = () => {};
-        const viewerSettlePromise = new Promise<void>((resolve) => {
-            resolveViewerSettle = resolve;
-        });
-
-        const waiter = createPdfReloadWaiter({
-            pdfDocument,
-            pdfViewerRef: ref({
-                scrollToPage: vi.fn(),
-                restoreScrollSnapshot,
-                waitForViewerLoadSettled: () => viewerSettlePromise,
-            }),
-            resetSearchCache: vi.fn(),
-            pageToRestore: 4,
-            scrollSnapshot: {
-                width: 300,
-                height: 400,
-                centerX: 120,
-                centerY: 220,
-                anchorPage: 4,
-            },
-        });
-
-        pdfDocument.value = cast({ id: 'after' });
-        await Promise.resolve();
-
-        expect(restoreScrollSnapshot).not.toHaveBeenCalled();
-
-        resolveViewerSettle();
-        await waiter.promise;
-
-        expect(restoreScrollSnapshot).toHaveBeenCalledWith(
-            expect.objectContaining({ anchorPage: 4 }),
-            { fallbackPage: 4 },
-        );
-    });
-
-    it('continues restore when the viewer load-settle hook times out', async () => {
-        vi.useFakeTimers();
-        const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ id: 'before' }));
-        const restoreScrollSnapshot = vi.fn();
-        const resetSearchCache = vi.fn();
-
-        const waiter = createPdfReloadWaiter({
-            pdfDocument,
-            pdfViewerRef: ref({
-                scrollToPage: vi.fn(),
-                restoreScrollSnapshot,
-                waitForViewerLoadSettled: () => new Promise<void>(() => {}),
-            }),
-            resetSearchCache,
-            pageToRestore: 4,
-            scrollSnapshot: {
-                width: 300,
-                height: 400,
-                centerX: 120,
-                centerY: 220,
-                anchorPage: 4,
-            },
-        });
-
-        pdfDocument.value = cast({ id: 'after' });
-        await Promise.resolve();
-
-        expect(restoreScrollSnapshot).not.toHaveBeenCalled();
-
-        await vi.advanceTimersByTimeAsync(30000);
-        await waiter.promise;
-
-        expect(resetSearchCache).toHaveBeenCalledTimes(1);
-        expect(restoreScrollSnapshot).toHaveBeenCalledWith(
-            expect.objectContaining({ anchorPage: 4 }),
-            { fallbackPage: 4 },
-        );
-    });
-
-    it('skips stale scroll restoration after user viewport interaction during reload settle', async () => {
-        const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ id: 'before' }));
-        const restoreScrollSnapshot = vi.fn();
         const scrollToPage = vi.fn();
-        let viewportEpoch = 1;
-        let resolveViewerSettle = () => {};
-        const viewerSettlePromise = new Promise<void>((resolve) => {
-            resolveViewerSettle = resolve;
+        let settle = () => {};
+        const settled = new Promise<void>((resolve) => {
+            settle = resolve;
         });
-
         const waiter = createPdfReloadWaiter({
             pdfDocument,
             pdfViewerRef: ref({
                 scrollToPage,
-                restoreScrollSnapshot,
-                waitForViewerLoadSettled: () => viewerSettlePromise,
-                getUserViewportInteractionEpoch: () => viewportEpoch,
+                waitForViewerLoadSettled: () => settled,
             }),
             resetSearchCache: vi.fn(),
             pageToRestore: 4,
-            scrollSnapshot: {
-                width: 300,
-                height: 400,
-                centerX: 120,
-                centerY: 220,
-                anchorPage: 4,
-            },
         });
 
         pdfDocument.value = cast({ id: 'after' });
         await Promise.resolve();
-
-        viewportEpoch = 2;
-        resolveViewerSettle();
-        await waiter.promise;
-
-        expect(restoreScrollSnapshot).not.toHaveBeenCalled();
         expect(scrollToPage).not.toHaveBeenCalled();
+        settle();
+        await waiter.promise;
+        expect(scrollToPage).toHaveBeenCalledWith(4);
     });
 
-    it('contains restore failures and falls back to page restore', async () => {
+    it('skips stale restoration after user viewport interaction', async () => {
         const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ id: 'before' }));
         const scrollToPage = vi.fn();
-
+        let epoch = 1;
+        let settle = () => {};
+        const settled = new Promise<void>((resolve) => {
+            settle = resolve;
+        });
         const waiter = createPdfReloadWaiter({
             pdfDocument,
             pdfViewerRef: ref({
                 scrollToPage,
-                restoreScrollSnapshot: vi.fn(() => {
-                    throw new Error('restore failed');
-                }),
+                waitForViewerLoadSettled: () => settled,
+                getUserViewportInteractionEpoch: () => epoch,
             }),
+            resetSearchCache: vi.fn(),
+            pageToRestore: 4,
+        });
+
+        pdfDocument.value = cast({ id: 'after' });
+        await Promise.resolve();
+        epoch = 2;
+        settle();
+        await waiter.promise;
+        expect(scrollToPage).not.toHaveBeenCalled();
+    });
+
+    it('contains page restoration failures', async () => {
+        const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ id: 'before' }));
+        const waiter = createPdfReloadWaiter({
+            pdfDocument,
+            pdfViewerRef: ref({scrollToPage: vi.fn(() => { throw new Error('restore failed'); })}),
             resetSearchCache: vi.fn(),
             pageToRestore: 9,
-            scrollSnapshot: {
-                width: 300,
-                height: 400,
-                centerX: 120,
-                centerY: 220,
-                anchorPage: 9,
-            },
         });
-
         pdfDocument.value = cast({ id: 'after' });
-
         await expect(waiter.promise).resolves.toBeUndefined();
-        expect(scrollToPage).toHaveBeenCalledWith(9);
     });
 });

@@ -160,11 +160,13 @@ export function verifyWindowsPeDependencies({
     systemDllPattern,
 }) {
     const allowedMachineSet = new Set(allowedMachines);
-    const bundledDlls = new Set(
-        files
-            .filter(file => /\.dll$/iu.test(file))
-            .map(file => path.basename(file).toLowerCase()),
-    );
+    const bundledDllsByDirectory = new Map();
+    for (const file of files.filter(file => /\.dll$/iu.test(file))) {
+        const directory = path.resolve(path.dirname(file));
+        const names = bundledDllsByDirectory.get(directory) ?? new Set();
+        names.add(path.basename(file).toLowerCase());
+        bundledDllsByDirectory.set(directory, names);
+    }
     const errors = [];
 
     if (files.length === 0) {
@@ -186,10 +188,11 @@ export function verifyWindowsPeDependencies({
 
         for (const dependency of info.imports) {
             const dependencyName = dependency.toLowerCase();
+            const localBundledDlls = bundledDllsByDirectory.get(path.resolve(path.dirname(file))) ?? new Set();
             if (systemDllPattern.test(dependencyName)) {
                 continue;
             }
-            if (!bundledDlls.has(dependencyName) && !bundledDlls.has(`lib${dependencyName}`)) {
+            if (!localBundledDlls.has(dependencyName) && !localBundledDlls.has(`lib${dependencyName}`)) {
                 errors.push(`Error: Missing bundled DLL dependency "${dependency}" for ${file}`);
             }
         }

@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {requireDocumentRevisionToken} from '@contracts';
 
 const mocks = vi.hoisted(() => ({
     addRecentFile: vi.fn(async () => undefined),
@@ -66,7 +67,7 @@ describe('handleOptimizePdfAsCopy', () => {
             '/tmp/work.pdf',
             {preset: 'lossless'},
             'request-1',
-            {expectedDocumentRevisionToken: 'rev-before-optimize'},
+            {expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-before-optimize')},
         )).resolves.toMatchObject({path: '/tmp/optimized.pdf'});
 
         expect(mocks.assertQueuedWorkingCopyMutationPreconditions).toHaveBeenCalledWith(

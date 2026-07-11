@@ -1,7 +1,105 @@
-import type { TPlatformBackend } from '@contracts/platformManifest';
+import type { IAgentCapability } from '@contracts/agentCapability';
+import type { IDjvuCapability } from '@contracts/electronApiDjvu';
+import type {
+    IDocumentsCapability,
+    IDocumentsFileIoCapability,
+    IImageExportCapability,
+    IDocumentsMenuCapability,
+    IDocumentsOpenCapability,
+    IDocumentsPdfCapability,
+    IDocumentsPickerCapability,
+    IDocumentsRecentFilesCapability,
+    IDocumentsWindowCapability,
+    IDocumentsWorkingCopyCapability,
+} from '@contracts/electronApiDocuments';
+import type { IHostCapability } from '@contracts/electronApiHost';
+import type { IOcrCapability } from '@contracts/electronApiOcr';
+import type { IPageOpsCapability } from '@contracts/electronApiPageOps';
+import type { ISystemCapability } from '@contracts/electronApiSystem';
+import type { IUpdatesCapability } from '@contracts/electronApiUpdates';
+import type { IWindowTabsCapability } from '@contracts/electronApiWindowTabs';
+import type {
+    TPlatformBackend,
+    IPlatformRuntimeManifest,
+} from '@contracts/platformManifest';
+import type { ISearchCapability } from '@contracts/searchCapability';
+import type { ISettingsCapability } from '@contracts/settingsCapability';
+import type { IShellCapability } from '@contracts/shellCapability';
+import type {
+    Get,
+    Join,
+    Paths,
+} from 'type-fest';
 
 export type TPlatformMethodKind = 'async' | 'event' | 'sync' | 'void';
 export type TBrowserPlatformLazyMode = 'forwarded' | 'direct';
+
+interface IPlatformApiShape {
+    manifest: IPlatformRuntimeManifest;
+    documents: IDocumentsCapability;
+    documentPicker?: IDocumentsPickerCapability;
+    documentOpen?: IDocumentsOpenCapability;
+    documentWorkingCopy?: IDocumentsWorkingCopyCapability;
+    documentFiles?: IDocumentsFileIoCapability;
+    documentPdf?: IDocumentsPdfCapability;
+    documentRecentFiles?: IDocumentsRecentFilesCapability;
+    documentWindow?: IDocumentsWindowCapability;
+    documentMenu?: IDocumentsMenuCapability;
+    pageOps: IPageOpsCapability;
+    imageExport: IImageExportCapability;
+    ocr: IOcrCapability;
+    search: ISearchCapability;
+    djvu: IDjvuCapability;
+    settings: ISettingsCapability;
+    system: ISystemCapability;
+    updates: IUpdatesCapability;
+    windowTabs: IWindowTabsCapability;
+    shell: IShellCapability;
+    host: IHostCapability;
+    agent: IAgentCapability;
+}
+
+type TPlatformApiPath = Extract<Paths<IPlatformApiShape, {maxRecursionDepth: 4}>, string>;
+type TPlatformPath = readonly string[];
+type TVoidResult = ReturnType<() => void>;
+type TPlatformMethodAtPath<TPath extends TPlatformPath> = NonNullable<Get<IPlatformApiShape, Extract<
+    Join<TPath, '.'>,
+    TPlatformApiPath
+>, {strict: false}>>;
+type TPlatformMethodKindAtPath<TPath extends TPlatformPath> =
+    TPlatformMethodAtPath<TPath> extends (...args: never[]) => infer TResult
+        ? TResult extends PromiseLike<unknown>
+            ? 'async'
+            : TResult extends (...args: never[]) => void
+                ? 'event'
+                : TResult extends TVoidResult
+                    ? 'void'
+                    : 'sync'
+        : never;
+
+type TConventionMethodKind<TPath extends TPlatformPath> = Join<TPath, '.'> extends
+    | 'documentPicker.getPathForFile'
+    | 'documentPicker.getPathsForFiles'
+    | 'documents.getPathForFile'
+    | 'documents.getPathsForFiles'
+    | 'system.getMemoryInfo'
+    ? 'sync'
+    : TPath extends readonly [...string[], infer TMethodName extends string]
+        ? TMethodName extends `on${string}`
+            ? 'event'
+            : TMethodName extends 'notifyRendererReady' | 'rendererLog'
+                ? 'void'
+                : 'async'
+        : never;
+type TVerifiedMethodPath<TPath extends TPlatformPath> = Join<TPath, '.'> extends TPlatformApiPath
+    ? TPlatformMethodAtPath<TPath> extends (...args: never[]) => unknown
+        ? TConventionMethodKind<TPath> extends TPlatformMethodKindAtPath<TPath>
+            ? TPlatformMethodKindAtPath<TPath> extends TConventionMethodKind<TPath>
+                ? TPath
+                : never
+            : never
+        : never
+    : never;
 
 export interface IPlatformMethodDescriptor {
     path: readonly string[];
@@ -43,6 +141,53 @@ const requiredInBrowser = {
     electron: false,
 } as const satisfies Record<TPlatformBackend, boolean>;
 
+type TDocumentSplitRoot = Extract<keyof IPlatformApiShape, `document${string}`>;
+interface IDocumentCapabilityMirror {
+    splitRoot: TDocumentSplitRoot;
+    paths: ReadonlyArray<readonly string[]>;
+}
+
+type TVerifiedMethodPaths<TPaths extends readonly TPlatformPath[]> = {
+    readonly [TIndex in keyof TPaths]: TPaths[TIndex] extends TPlatformPath
+        ? TVerifiedMethodPath<TPaths[TIndex]>
+        : never;
+};
+
+function defineMethodPaths<const TPaths extends readonly TPlatformPath[]>(
+    paths: TPaths & TVerifiedMethodPaths<TPaths>,
+): TPaths {
+    return paths;
+}
+
+type TVerifiedDocumentCapabilityMirror<TMirror extends IDocumentCapabilityMirror> =
+    TMirror extends {
+        splitRoot: infer TSplitRoot extends TDocumentSplitRoot;
+        paths: infer TPaths extends readonly TPlatformPath[];
+    }
+        ? {
+            splitRoot: TSplitRoot;
+            paths: TPaths & {
+                readonly [TIndex in keyof TPaths]: TPaths[TIndex] extends TPlatformPath
+                    ? TVerifiedMethodPath<readonly [TSplitRoot, ...TPaths[TIndex]]> extends never
+                        ? never
+                        : TVerifiedMethodPath<readonly ['documents', ...TPaths[TIndex]]> extends never
+                            ? never
+                            : TPaths[TIndex]
+                    : never;
+            };
+        }
+        : never;
+
+function defineDocumentCapabilityMirrors<const TMirrors extends readonly IDocumentCapabilityMirror[]>(
+    mirrors: TMirrors & {
+        readonly [TIndex in keyof TMirrors]: TMirrors[TIndex] extends IDocumentCapabilityMirror
+            ? TVerifiedDocumentCapabilityMirror<TMirrors[TIndex]>
+            : never;
+    },
+): TMirrors {
+    return mirrors;
+}
+
 const requiredTopLevelCapabilityPaths = [
     ['pageOps'],
     ['imageExport'],
@@ -55,7 +200,7 @@ const requiredTopLevelCapabilityPaths = [
     ['host'],
 ] as const;
 
-const documentCapabilityMirrors = [
+const documentCapabilityMirrors = defineDocumentCapabilityMirrors([
     {
         splitRoot: 'documentPicker',
         paths: [
@@ -121,6 +266,7 @@ const documentCapabilityMirrors = [
             ['savePdfNoteChanges'],
             ['savePdfNativeMutations'],
             ['applyPdfNativeMutationsToWorkingCopy'],
+            ['commitStagedPdfNativeMutations'],
         ],
     },
     {
@@ -183,6 +329,7 @@ const documentCapabilityMirrors = [
             ['onMenuActualSize'],
             ['onMenuFitWidth'],
             ['onMenuFitHeight'],
+            ['onMenuToggleContinuousScroll'],
             ['onMenuViewModeSingle'],
             ['onMenuViewModeFacing'],
             ['onMenuViewModeFacingFirstSingle'],
@@ -201,10 +348,11 @@ const documentCapabilityMirrors = [
             ['onOpenPdfDirectBatchProgress'],
         ],
     },
-] as const;
+] as const);
 
 const optionalDocumentMethodNames = new Set<string>([
     'applyPdfNativeMutationsToWorkingCopy',
+    'commitStagedPdfNativeMutations',
     'cancelPdfNativePagePreview',
     'createCombinedPdfFromFiles',
     'getPdfNativePageSizes',
@@ -220,79 +368,12 @@ const optionalDocumentMethodNames = new Set<string>([
     'showItemInFolderStructured',
 ]);
 
-const eventMethodNames = new Set<string>([
-    'onAssistantEvent',
-    'onCommandCancelRequest',
-    'onCommandRequest',
-    'onComplete',
-    'onDebugLog',
-    'onDocumentRevisionChanged',
-    'onEnvironmentChange',
-    'onIncomingTransfer',
-    'onMenuActualSize',
-    'onMenuCheckForUpdates',
-    'onMenuClearRecentFiles',
-    'onMenuCloseTab',
-    'onMenuConvertToPdf',
-    'onMenuCopyTabToPane',
-    'onMenuDeletePages',
-    'onMenuExportDocx',
-    'onMenuExportImages',
-    'onMenuExportMultiPageTiff',
-    'onMenuExtractPages',
-    'onMenuFitHeight',
-    'onMenuFitWidth',
-    'onMenuFocusEditorPane',
-    'onMenuInsertImageFromFile',
-    'onMenuInsertPages',
-    'onMenuMoveTabToPane',
-    'onMenuNewTab',
-    'onMenuOpenExternalPaths',
-    'onMenuOpenPdf',
-    'onMenuOpenRecentFile',
-    'onMenuOpenSettings',
-    'onMenuOptimizePdfForInteraction',
-    'onMenuPasteImageFromClipboard',
-    'onMenuPrint',
-    'onMenuPrintCurrentPage',
-    'onMenuRedo',
-    'onMenuRepairSave',
-    'onMenuRotateCcw',
-    'onMenuRotateCw',
-    'onMenuSave',
-    'onMenuSaveAs',
-    'onMenuSplitEditor',
-    'onMenuToggleAssistant',
-    'onMenuUndo',
-    'onMenuViewModeFacing',
-    'onMenuViewModeFacingFirstSingle',
-    'onMenuViewModeSingle',
-    'onMenuZoomIn',
-    'onMenuZoomOut',
-    'onOpenDocumentDirectBatchProgress',
-    'onOpenPdfDirectBatchProgress',
-    'onPdfOptimizeProgress',
-    'onProgress',
-    'onShutdownSaveFlushRequest',
-    'onStatus',
-    'onViewingError',
-    'onViewingReady',
-    'onWindowAction',
-    'onWorkspaceSnapshotRequest',
-    'onZenModeChange',
-]);
-
-const voidMethodNames = new Set<string>([
-    'notifyRendererReady',
-    'rendererLog',
-]);
-
 function resolveMethodKind(path: readonly string[]): TPlatformMethodKind {
     const methodName = path.at(-1);
-    if (methodName !== undefined && eventMethodNames.has(methodName)) {
+    if (methodName?.startsWith('on')) {
         return 'event';
     }
-    if (methodName !== undefined && voidMethodNames.has(methodName)) {
+    if (methodName === 'notifyRendererReady' || methodName === 'rendererLog') {
         return 'void';
     }
     if (path.join('.') === 'system.getMemoryInfo') {
@@ -325,7 +406,7 @@ function isOptionalDocumentPath(path: readonly string[]) {
 
 function createMethodDescriptor(
     path: readonly string[],
-    overrides: Partial<Omit<IPlatformMethodDescriptor, 'path' | 'kind' | 'browserLazy'>> = {},
+    overrides: Partial<Omit<IPlatformMethodDescriptor, 'path' | 'kind' | 'browserLazy' | 'aliasOf'>> & { aliasOf?: TPlatformPath } = {},
 ): IPlatformMethodDescriptor {
     return {
         path,
@@ -337,6 +418,12 @@ function createMethodDescriptor(
     };
 }
 
+function defineCapabilities(
+    capabilities: readonly IPlatformCapabilityDescriptor[],
+): readonly IPlatformCapabilityDescriptor[] {
+    return capabilities;
+}
+
 function createDocumentMethodDescriptors() {
     return documentCapabilityMirrors.flatMap(({
         splitRoot,
@@ -346,11 +433,11 @@ function createDocumentMethodDescriptors() {
             const legacyPath = [
                 'documents',
                 ...path,
-            ];
+            ] as const;
             const splitPath = [
                 splitRoot,
                 ...path,
-            ];
+            ] as const;
             return [
                 createMethodDescriptor(splitPath),
                 createMethodDescriptor(legacyPath, {aliasOf: splitPath}),
@@ -359,7 +446,7 @@ function createDocumentMethodDescriptors() {
     );
 }
 
-const otherMethodPaths = [
+const otherMethodPaths = defineMethodPaths([
     [
         'pageOps',
         'delete',
@@ -422,7 +509,23 @@ const otherMethodPaths = [
     ],
     [
         'ocr',
+        'getJobState',
+    ],
+    [
+        'ocr',
+        'subscribeJob',
+    ],
+    [
+        'ocr',
+        'reconnectJob',
+    ],
+    [
+        'ocr',
         'getLanguages',
+    ],
+    [
+        'ocr',
+        'resolveDocumentTextCatalog',
     ],
     [
         'ocr',
@@ -480,11 +583,27 @@ const otherMethodPaths = [
     ],
     [
         'djvu',
+        'startOpenForViewing',
+    ],
+    [
+        'djvu',
+        'awaitOpenJob',
+    ],
+    [
+        'djvu',
         'openForViewing',
     ],
     [
         'djvu',
         'releaseViewingPath',
+    ],
+    [
+        'djvu',
+        'startConvertToPdf',
+    ],
+    [
+        'djvu',
+        'awaitConvertJob',
     ],
     [
         'djvu',
@@ -497,6 +616,14 @@ const otherMethodPaths = [
     [
         'djvu',
         'cancel',
+    ],
+    [
+        'djvu',
+        'getJobState',
+    ],
+    [
+        'djvu',
+        'subscribeJob',
     ],
     [
         'djvu',
@@ -525,14 +652,6 @@ const otherMethodPaths = [
     [
         'djvu',
         'onProgress',
-    ],
-    [
-        'djvu',
-        'onViewingReady',
-    ],
-    [
-        'djvu',
-        'onViewingError',
     ],
     [
         'djvu',
@@ -637,6 +756,14 @@ const otherMethodPaths = [
     [
         'windowTabs',
         'acknowledgePendingExternalOpenPaths',
+    ],
+    [
+        'windowTabs',
+        'saveWorkspaceCheckpoint',
+    ],
+    [
+        'windowTabs',
+        'claimWorkspaceCheckpoint',
     ],
     [
         'windowTabs',
@@ -746,10 +873,10 @@ const otherMethodPaths = [
         'host',
         'onZenModeChange',
     ],
-] as const;
+] as const);
 
 export const PLATFORM_API_DESCRIPTOR = {
-    capabilities: [
+    capabilities: defineCapabilities([
         {
             path: ['documents'],
             required: requiredEverywhere,
@@ -895,7 +1022,7 @@ export const PLATFORM_API_DESCRIPTOR = {
                 'structuredSaveResult',
             ],
         },
-    ],
+    ]),
     methods: [
         ...createDocumentMethodDescriptors(),
         ...otherMethodPaths.map(path => createMethodDescriptor(path)),

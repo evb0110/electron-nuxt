@@ -4,9 +4,17 @@ import {
     it,
     vi,
 } from 'vitest';
-import { usePdfScroll } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
+import { usePdfScroll as usePdfScrollProduction } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import { buildPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/buildPageLayoutMetrics';
 import { cast } from '@tests/helpers/cast';
+import {createTestPdfViewportWritePort} from '@tests/helpers/createTestPdfViewportWritePort';
+
+const usePdfScroll = (
+    options: Omit<Parameters<typeof usePdfScrollProduction>[0], 'viewportWritePort'> = {},
+) => usePdfScrollProduction({
+    ...options,
+    viewportWritePort: createTestPdfViewportWritePort().port,
+});
 
 function createContainerStub(options?: {
     clientWidth?: number;
@@ -127,6 +135,9 @@ describe('usePdfScroll page layout fallback', () => {
 
         expect(scroll.getMostVisiblePage(container, 5)).toBe(3);
         expect(scroll.updateCurrentPage(container, 5)).toBe(3);
+        expect(scroll.currentPage.value).toBe(1);
+        const authorityPage = ref(3);
+        scroll.bindCurrentPageProjection(authorityPage);
         expect(scroll.currentPage.value).toBe(3);
     });
 
@@ -166,7 +177,7 @@ describe('usePdfScroll page layout fallback', () => {
         expect(getScrollTop()).toBe(740);
     });
 
-    it('reapplies marker scroll when a layout-scrolled target page mounts', () => {
+    it('does not install a DOM reapply authority after a layout navigation', () => {
         const originalMutationObserver = globalThis.MutationObserver;
         const mutationCallbackRef: { current: MutationCallback | null } = { current: null };
         let mountedPage: HTMLElement | null = null;
@@ -207,13 +218,6 @@ describe('usePdfScroll page layout fallback', () => {
             disconnect = vi.fn();
         }
 
-        const getMutationCallback = () => {
-            if (!mutationCallbackRef.current) {
-                throw new Error('Expected marker scroll reapply to arm a mutation observer');
-            }
-            return mutationCallbackRef.current;
-        };
-
         Object.defineProperty(globalThis, 'MutationObserver', {
             configurable: true,
             value: FakeMutationObserver,
@@ -251,9 +255,8 @@ describe('usePdfScroll page layout fallback', () => {
             expect(scrollTop).not.toBe(1_300);
 
             mountedPage = mountedTarget;
-            getMutationCallback()([], cast<MutationObserver>({}));
-
-            expect(scrollTop).toBe(1_300);
+            expect(mutationCallbackRef.current).toBeNull();
+            expect(scrollTop).not.toBe(1_300);
         } finally {
             if (originalMutationObserver) {
                 Object.defineProperty(globalThis, 'MutationObserver', {
@@ -266,7 +269,7 @@ describe('usePdfScroll page layout fallback', () => {
         }
     });
 
-    it('disconnects marker reapply observers when page layout scope is reset', () => {
+    it('does not create marker observers that require reset cleanup', () => {
         const originalMutationObserver = globalThis.MutationObserver;
         const originalResizeObserver = globalThis.ResizeObserver;
         const mutationDisconnect = vi.fn();
@@ -333,8 +336,8 @@ describe('usePdfScroll page layout fallback', () => {
             scroll.scrollToPage(container, 2, 2, 20, { markerRect });
             scroll.setPageLayoutMetrics(null);
 
-            expect(mutationDisconnect).toHaveBeenCalledOnce();
-            expect(resizeDisconnect).toHaveBeenCalledOnce();
+            expect(mutationDisconnect).not.toHaveBeenCalled();
+            expect(resizeDisconnect).not.toHaveBeenCalled();
         } finally {
             if (originalMutationObserver) {
                 Object.defineProperty(globalThis, 'MutationObserver', {
@@ -355,7 +358,7 @@ describe('usePdfScroll page layout fallback', () => {
         }
     });
 
-    it('clears marker reapply observers when exact DOM navigation misses its target', () => {
+    it('keeps exact navigation free of marker observer ownership', () => {
         const originalMutationObserver = globalThis.MutationObserver;
         const originalResizeObserver = globalThis.ResizeObserver;
         const mutationDisconnect = vi.fn();
@@ -425,8 +428,8 @@ describe('usePdfScroll page layout fallback', () => {
                 preferExactDom: true,
             });
 
-            expect(mutationDisconnect).toHaveBeenCalledOnce();
-            expect(resizeDisconnect).toHaveBeenCalledOnce();
+            expect(mutationDisconnect).not.toHaveBeenCalled();
+            expect(resizeDisconnect).not.toHaveBeenCalled();
         } finally {
             if (originalMutationObserver) {
                 Object.defineProperty(globalThis, 'MutationObserver', {

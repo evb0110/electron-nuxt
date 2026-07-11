@@ -1,5 +1,6 @@
 import { BrowserWindow } from 'electron';
 import { OCR_EVENT_CHANNELS } from '@electron/features/ocr/contract';
+import type { IOcrEventMap } from '@electron/features/ocr/contract';
 import { toScopedOcrJobId } from '@electron/ocr/jobManagerProtocol';
 import type {
     IOcrPreparingJob,
@@ -13,18 +14,19 @@ import type { IOcrPdfPageRequest } from '@electron/ocr/worker/types';
 import { createLogger } from '@electron/utils/createLogger';
 import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import { getErrorMessage } from '@electron/utils/error';
-import { sendToLiveWindow } from '@electron/utils/sendToLiveWindow';
+import { sendPlatformEvent } from '@electron/utils/sendPlatformEvent';
+import { documentOutputService } from '@electron/output/documentOutputService';
 
 const log = createLogger('ocr-ipc');
 
 const progressPumpsBySenderId = new Map<number, ReturnType<typeof createIpcProgressPump<IOcrProgress>>>();
 
-export function safeSendToWindow(
+export function safeSendToWindow<TChannel extends Extract<keyof IOcrEventMap, string>>(
     window: BrowserWindow | null | undefined,
-    channel: typeof OCR_EVENT_CHANNELS[keyof typeof OCR_EVENT_CHANNELS],
-    ...args: unknown[]
+    channel: TChannel,
+    payload: IOcrEventMap[TChannel],
 ) {
-    sendToLiveWindow(window, channel, args, (err: unknown) => {
+    sendPlatformEvent<IOcrEventMap, TChannel>(window, channel, payload, (err: unknown) => {
         log.debug(`Failed to send IPC message to channel "${channel}": ${getErrorMessage(err)}`);
     });
 }
@@ -102,6 +104,26 @@ export function enqueueOcrProgress(
     if (senderId === null) {
         return;
     }
+    if (!documentOutputService.getState(scopedJobId)) {
+        documentOutputService.start({
+            jobId: scopedJobId,
+            operation: 'ocr-projection',
+            sourceKind: 'pdf',
+            initialPhase: progress.phase ?? 'queued',
+        });
+    }
+    const percent = progress.phaseProgress
+        ?? (progress.totalPages > 0 ? (progress.processedCount / progress.totalPages) * 100 : 0);
+    documentOutputService.update(scopedJobId, {
+        phase: progress.phase ?? 'recognizing',
+        percent,
+        current: progress.processedCount,
+        total: progress.totalPages,
+        ...(progress.error ? {error: progress.error} : {}),
+    });
+    if (progress.status === 'success') documentOutputService.finish(scopedJobId, 'completed');
+    if (progress.status === 'failed') documentOutputService.finish(scopedJobId, 'failed', progress.error);
+    if (progress.status === 'canceled') documentOutputService.finish(scopedJobId, 'canceled', progress.error);
     getOcrProgressPump(senderId).enqueue(progress);
 }
 

@@ -31,7 +31,7 @@ describe('createPendingResultFileStore', () => {
             removeResultFile,
         });
 
-        store.track('42:ocr-1', 'ocr-1', 42, '/tmp/ocr-1.pdf', false);
+        store.track('42:ocr-1', 'ocr-1', 42, '/tmp/ocr-1.pdf', 'sha256-ocr-1', false);
 
         expect(store.find(42, 'ocr-1')).toBeNull();
         expect(findPendingOcrResultFileForPath(42, '/tmp/ocr-1.pdf')).toBeNull();
@@ -48,13 +48,14 @@ describe('createPendingResultFileStore', () => {
             removeResultFile,
         });
 
-        store.track('42:ocr-1', 'ocr-1', 42, '/tmp/ocr-1.pdf', true);
+        store.track('42:ocr-1', 'ocr-1', 42, '/tmp/ocr-1.pdf', 'sha256-ocr-1', true);
 
         await expect(store.acknowledge(42, 'ocr-1', '/tmp/ocr-1.pdf')).resolves.toEqual({
             cleaned: false,
             error: 'Failed to delete pending OCR result file',
         });
         expect(store.find(42, 'ocr-1')).not.toBeNull();
+        expect(store.find(42, 'ocr-1')?.resultSha256).toBe('sha256-ocr-1');
         expect(findPendingOcrResultFileForPath(42, '/tmp/ocr-1.pdf')).not.toBeNull();
 
         await expect(store.acknowledge(42, 'ocr-1', '/tmp/ocr-1.pdf')).resolves.toEqual({ cleaned: true });
@@ -74,7 +75,7 @@ describe('createPendingResultFileStore', () => {
         const rendererPath = '/var/folders/app/T/evb-viewer/ocr-1-merged.pdf';
         const canonicalPath = resolve('/private/var/folders/app/T/evb-viewer/ocr-1-merged.pdf');
 
-        store.track('42:ocr-1', 'ocr-1', 42, rendererPath, true);
+        store.track('42:ocr-1', 'ocr-1', 42, rendererPath, 'sha256-alias-result', true);
 
         expect(store.find(42, 'ocr-1')?.pdfPath).toBe(canonicalPath);
         expect(findPendingOcrResultFileForPath(42, rendererPath)?.pdfPath).toBe(canonicalPath);
@@ -96,13 +97,13 @@ describe('createPendingResultFileStore', () => {
             removeResultFile,
         });
 
-        store.track('42:ocr-1', 'ocr-1', 42, '/tmp/ocr-old.pdf', true);
+        store.track('42:ocr-1', 'ocr-1', 42, '/tmp/ocr-old.pdf', 'sha256-old', true);
         const evictionPromise = store.evictStale(Date.now() + 1_000);
         await vi.waitFor(() => {
             expect(removeResultFile).toHaveBeenCalledWith(resolve('/tmp/ocr-old.pdf'));
         });
 
-        store.track('42:ocr-1', 'ocr-1', 42, '/tmp/ocr-new.pdf', true);
+        store.track('42:ocr-1', 'ocr-1', 42, '/tmp/ocr-new.pdf', 'sha256-new', true);
         if (!removeResolver.current) {
             throw new Error('removeResultFile promise was not created');
         }
@@ -110,5 +111,6 @@ describe('createPendingResultFileStore', () => {
         await evictionPromise;
 
         expect(store.find(42, 'ocr-1')?.pdfPath).toBe(resolve('/tmp/ocr-new.pdf'));
+        expect(store.find(42, 'ocr-1')?.resultSha256).toBe('sha256-new');
     });
 });

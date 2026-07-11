@@ -3,6 +3,15 @@ export interface IIpcInvokeSpec<TArgs extends unknown[] = unknown[], TResult = u
     result: TResult;
 }
 
+export interface IIpcCodec<TSpec extends IIpcInvokeSpec> {
+    decodeArgs: (value: readonly unknown[]) => TSpec['args'];
+    decodeResult: (value: unknown) => TSpec['result'];
+}
+
+export type TIpcCodecMap<TMap extends {[TChannel in keyof TMap]: IIpcInvokeSpec}> = {
+    [TChannel in keyof TMap]: IIpcCodec<TMap[TChannel]>;
+};
+
 export type TIpcMainInvokeHandler<
     TArgs extends unknown[] = unknown[],
     TResult = unknown,

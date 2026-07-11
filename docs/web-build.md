@@ -8,7 +8,7 @@
 - `pnpm build:desktop`
 - `pnpm preview`
 - `pnpm lint && pnpm typecheck && pnpm build`
-- `pnpm run test:bundle-integrity:no-build`
+- `pnpm run test:electron-bundle-static-integrity:no-build`
 - `pnpm exec vitest run --project unit-policy tests/unit/scripts/releasePolicy.test.ts`
 - `pnpm run validate:changed`
 - `pnpm run fallow:changed`
@@ -21,7 +21,7 @@
 - `build:desktop` adds the Electron bundles on top of the Nuxt web build for local packaging and release flows.
 - Vercel builds emit Nitro output into `.vercel/output`; local desktop flows keep using `nuxt-output/`.
 - `pnpm lint && pnpm typecheck && pnpm build` is the current web-scope verification batch and is independent of the separate `landing/` app. `lint` owns ESLint, stylelint, and the fast static checks; slower static report/assets checks are split into `pnpm run check:static:reports` and `pnpm run check:static:assets`.
-- After a desktop build has produced `dist-electron/`, `pnpm run test:bundle-integrity:no-build` runs the bundle-integrity assertions without forcing another build. Use `pnpm run test:bundle-integrity` when you want the script-managed build, prune, and hygiene wrapper.
+- After a desktop build has produced `dist-electron/`, `pnpm run test:electron-bundle-static-integrity:no-build` runs static bundle assertions without forcing another build. Use `pnpm run test:electron-bundle-static-integrity` when you want the script-managed build, prune, and hygiene wrapper.
 - Browser Rust/WASM artifacts are prebuilt under `public/wasm/`; web deploys verify and serve those artifacts but do not rebuild them remotely.
 
 ## Current Scope

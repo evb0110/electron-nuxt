@@ -61,7 +61,10 @@
         v-else-if="splitNode"
         ref="splitContainerRef"
         class="editor-split"
-        :class="splitNode.orientation === 'horizontal' ? 'is-horizontal' : 'is-vertical'"
+        :class="[
+            splitNode.orientation === 'horizontal' ? 'is-horizontal' : 'is-vertical',
+            {'is-ultra-compact': splitRatioBounds.ultraCompact},
+        ]"
     >
         <div
             v-if="!zenMode || firstPaneHasZenActiveTab"
@@ -103,6 +106,7 @@
                 @open-combine="handleOpenCombine"
                 @toggle-fullscreen="handleToggleFullscreen"
                 @update-split-ratio="handleUpdateSplitRatio"
+                @update-layout-resizing="handleUpdateLayoutResizing"
             />
         </div>
 
@@ -154,6 +158,7 @@
                 @open-combine="handleOpenCombine"
                 @toggle-fullscreen="handleToggleFullscreen"
                 @update-split-ratio="handleUpdateSplitRatio"
+                @update-layout-resizing="handleUpdateLayoutResizing"
             />
         </div>
     </div>
@@ -161,7 +166,11 @@
 
 <script setup lang="ts">
 
-import { useEventListener } from '@vueuse/core';
+import {
+    useEventListener,
+    useResizeObserver,
+} from '@vueuse/core';
+import { createRafCoalescedCallback } from '@app/utils/createRafCoalescedCallback';
 import { keyBy } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 import type { ITab } from '@app/types/tabs';
@@ -187,6 +196,7 @@ import type {
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import type { IWorkspaceDocumentSessionController } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
+import {resolveEditorPaneSplitBounds} from '@app/modules/workspace-shell/layout/resolveEditorPaneSplitBounds';
 
 defineOptions({name: 'EditorPanesGrid'});
 
@@ -244,12 +254,25 @@ const emit = defineEmits<{
     'open-combine': [];
     'toggle-fullscreen': [];
     'update-split-ratio': [splitId: string, ratio: number];
+    'update-layout-resizing': [value: boolean];
 }>();
 
 const splitContainerRef = ref<HTMLElement | null>(null);
+const splitAxisSize = ref(0);
 const hasMultiplePanes = computed(() => panes.length > 1);
 const leafNode = computed(() => (node.type === 'leaf' ? node : null));
 const splitNode = computed<IEditorLayoutSplitNode | null>(() => (node.type === 'split' ? node : null));
+const splitRatioBounds = computed(() => resolveEditorPaneSplitBounds(splitAxisSize.value));
+useResizeObserver(splitContainerRef, ([entry]) => {
+    const split = splitNode.value;
+    if (!entry || !split) {
+        splitAxisSize.value = 0;
+        return;
+    }
+    splitAxisSize.value = split.orientation === 'horizontal'
+        ? entry.contentRect.width
+        : entry.contentRect.height;
+});
 const paneById = computed(() => {
     return new Map(Object.entries(keyBy(panes, pane => pane.paneId)));
 });
@@ -292,7 +315,12 @@ const firstPaneStyle = computed(() => {
         return {flexBasis: '100%'};
     }
 
-    return {flexBasis: `${clamp(splitNode.value.ratio, 0.15, 0.85) * 100}%`};
+    const ratio = clamp(
+        splitNode.value.ratio,
+        splitRatioBounds.value.minRatio,
+        splitRatioBounds.value.maxRatio,
+    );
+    return {flexBasis: `${ratio * 100}%`};
 });
 const firstPaneHasZenActiveTab = computed(() => (
     Boolean(splitNode.value && nodeContainsTab(splitNode.value.first, zenActiveTabId))
@@ -492,18 +520,31 @@ function handleUpdateSplitRatio(splitId: string, ratio: number) {
     emit('update-split-ratio', splitId, ratio);
 }
 
+function handleUpdateLayoutResizing(value: boolean) {
+    emit('update-layout-resizing', value);
+}
+
 function handlePanePointerDown(paneId: string) {
     emit('activate-pane', paneId);
 }
 
 let moveListener: ((event: PointerEvent) => void) | null = null;
 let upListener: ((event: PointerEvent) => void) | null = null;
+let isSplitResizing = false;
 const resizeWindowTarget = shallowRef<Window | undefined>();
+const coalescedResizeMove = createRafCoalescedCallback((event: PointerEvent) => {
+    moveListener?.(event);
+});
 
 function clearResizeListeners() {
+    coalescedResizeMove.cancel();
     resizeWindowTarget.value = undefined;
     moveListener = null;
     upListener = null;
+    if (isSplitResizing) {
+        isSplitResizing = false;
+        emit('update-layout-resizing', false);
+    }
 }
 
 function startResize(event: PointerEvent, splitId: string, orientation: TPaneOrientation) {
@@ -513,16 +554,20 @@ function startResize(event: PointerEvent, splitId: string, orientation: TPaneOri
     }
 
     const startRect = container.getBoundingClientRect();
+    const axisSize = orientation === 'horizontal' ? startRect.width : startRect.height;
+    const ratioBounds = resolveEditorPaneSplitBounds(axisSize);
+    isSplitResizing = true;
+    emit('update-layout-resizing', true);
 
     moveListener = (nextEvent: PointerEvent) => {
         if (orientation === 'horizontal') {
             const raw = (nextEvent.clientX - startRect.left) / startRect.width;
-            emit('update-split-ratio', splitId, raw);
+            emit('update-split-ratio', splitId, clamp(raw, ratioBounds.minRatio, ratioBounds.maxRatio));
             return;
         }
 
         const raw = (nextEvent.clientY - startRect.top) / startRect.height;
-        emit('update-split-ratio', splitId, raw);
+        emit('update-split-ratio', splitId, clamp(raw, ratioBounds.minRatio, ratioBounds.maxRatio));
     };
 
     upListener = () => {
@@ -547,12 +592,14 @@ function handleSplitResizePointerDown(event: PointerEvent) {
 }
 
 useEventListener(resizeWindowTarget, 'pointermove', (event: PointerEvent) => {
-    moveListener?.(event);
+    coalescedResizeMove.schedule(event);
 });
 useEventListener(resizeWindowTarget, 'pointerup', (event: PointerEvent) => {
+    coalescedResizeMove.flush(event);
     upListener?.(event);
 });
 useEventListener(resizeWindowTarget, 'pointercancel', (event: PointerEvent) => {
+    coalescedResizeMove.flush(event);
     upListener?.(event);
 });
 

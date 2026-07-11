@@ -18,12 +18,15 @@ import { createHash } from 'crypto';
 import {
     appendFile,
     copyFile,
+    readFile,
     unlink,
+    writeFile,
 } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { createOriginalFileContentFingerprintSync } from '@electron/file-access/workingCopyOriginalFileExpectation';
 import { PDF_NATIVE_MUTATION_LIMITS } from '@contracts/nativePdfMutations';
+import {requireDocumentRevisionToken} from '@contracts';
 
 const mocks = vi.hoisted(() => ({
     runNativeToolCommand: vi.fn(),
@@ -41,8 +44,14 @@ const mocks = vi.hoisted(() => ({
     assertWorkingCopyMutationAllowed: vi.fn(),
     assertWorkingCopyResyncAllowed: vi.fn(),
     assertWorkingCopyRevisionCurrent: vi.fn(),
+    transitionWorkingCopyContentRevision: vi.fn(),
     markWorkingCopyContentChanged: vi.fn(),
     markWorkingCopySyncRequired: vi.fn(),
+    resolveManagedTempFileHandle: vi.fn(async (_context: unknown, handle: unknown) => handle),
+    createManagedTempFileHandle: vi.fn(),
+    releaseManagedTempFileHandle: vi.fn((_context: unknown, _leaseId: string) => true),
+    transitionOriginalAndWorkingCopyRevision: vi.fn(),
+    commitPdfTempFile: vi.fn(),
 }));
 
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
@@ -63,6 +72,7 @@ vi.mock('@electron/file-access/documentRevisionStore', () => ({
     assertWorkingCopyMutationAllowed: (...args: unknown[]) => mocks.assertWorkingCopyMutationAllowed(...args),
     assertWorkingCopyResyncAllowed: (...args: unknown[]) => mocks.assertWorkingCopyResyncAllowed(...args),
     assertWorkingCopyRevisionCurrent: (...args: unknown[]) => mocks.assertWorkingCopyRevisionCurrent(...args),
+    transitionWorkingCopyContentRevision: (...args: unknown[]) => mocks.transitionWorkingCopyContentRevision(...args),
     markWorkingCopyContentChanged: (...args: unknown[]) => mocks.markWorkingCopyContentChanged(...args),
     markWorkingCopySyncRequired: (...args: unknown[]) => mocks.markWorkingCopySyncRequired(...args),
 }));
@@ -71,6 +81,13 @@ vi.mock('@electron/utils/atomicReplace', () => ({
     makeSiblingTempPath: (...args: [string]) => mocks.makeSiblingTempPath(...args),
 }));
 vi.mock('@electron/file-access/workingCopyDirectory', () => ({copyFileCopyOnWrite: (...args: [string, string]) => mocks.copyFileCopyOnWrite(...args)}));
+vi.mock('@electron/features/documents/main/managedTempFileHandles', () => ({
+    createManagedTempFileHandle: (...args: unknown[]) => mocks.createManagedTempFileHandle(...args),
+    releaseManagedTempFileHandle: (context: unknown, leaseId: string) => mocks.releaseManagedTempFileHandle(context, leaseId),
+    resolveManagedTempFileHandle: (context: unknown, handle: unknown) => mocks.resolveManagedTempFileHandle(context, handle),
+}));
+vi.mock('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision', () => ({transitionOriginalAndWorkingCopyRevision: (...args: unknown[]) => mocks.transitionOriginalAndWorkingCopyRevision(...args)}));
+vi.mock('@electron/features/documents/main/commitPdfTempFile', () => ({commitPdfTempFile: (...args: unknown[]) => mocks.commitPdfTempFile(...args)}));
 
 function createOriginalFileExpectationForTest(originalPath: string) {
     const originalStat = statSync(originalPath);
@@ -152,18 +169,20 @@ function createNativePlacedImage() {
         height: 0.2,
         rotationDegrees: 0,
         mimeType: 'image/jpeg' as const,
-        bytes: new Uint8Array([
-            0xFF,
-            0xD8,
-            0xFF,
-        ]),
+        source: {
+            path: '/tmp/image.jpg',
+            size: 3,
+            sha256: 'a'.repeat(64),
+            leaseId: 'image-lease',
+            revision: null,
+        },
     };
 }
 
 describe('handleNativeNoteTextSave', () => {
     let tempRoot = '';
     const context = {senderId: 42};
-    const revisionOptions = {expectedDocumentRevisionToken: 'revision-before-native-mutation'};
+    const revisionOptions = {expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-native-mutation')};
 
     beforeEach(() => {
         vi.clearAllMocks();
@@ -174,8 +193,70 @@ describe('handleNativeNoteTextSave', () => {
         mocks.ensureWorkingCopyDirectory.mockResolvedValue(true);
         mocks.assertWorkingCopyMutationAllowed.mockReturnValue(undefined);
         mocks.assertWorkingCopyRevisionCurrent.mockResolvedValue(undefined);
+        mocks.transitionWorkingCopyContentRevision.mockImplementation(async (
+            workingCopyPath: string,
+            reason: string,
+            commit: (revision: unknown) => Promise<void>,
+        ) => {
+            const previousBytes = await readFile(workingCopyPath);
+            const revision = {
+                token: requireDocumentRevisionToken('revision-after-native-mutation'),
+                version: 1,
+                documentRef: workingCopyPath,
+                authority: 'electron-working-copy',
+                contentRevision: 2,
+                mintedAt: Date.now(),
+                reason,
+            };
+            try {
+                await commit(revision);
+            } catch (error) {
+                await writeFile(workingCopyPath, previousBytes);
+                throw error;
+            }
+            return revision;
+        });
         mocks.markWorkingCopyContentChanged.mockResolvedValue(undefined);
         mocks.markWorkingCopySyncRequired.mockReturnValue(undefined);
+        mocks.commitPdfTempFile.mockImplementation(async (sourcePath: string, targetPath: string) => {
+            await copyFile(sourcePath, targetPath);
+            await unlink(sourcePath).catch(() => undefined);
+        });
+        mocks.createManagedTempFileHandle.mockImplementation(async (_context: unknown, path: string) => {
+            const bytes = await readFile(path);
+            return {
+                path,
+                size: bytes.byteLength,
+                sha256: createHash('sha256').update(bytes).digest('hex'),
+                leaseId: 'staged-native-output',
+                revision: null,
+            };
+        });
+        mocks.transitionOriginalAndWorkingCopyRevision.mockImplementation(async (input: {
+            workingCopyPath: string;
+            originalPath: string;
+            assertOriginalCurrent?: () => Promise<boolean>;
+            publishOriginal: () => Promise<void>;
+            afterWorkingCopySync?: () => Promise<void>;
+        }) => {
+            if (input.assertOriginalCurrent && !await input.assertOriginalCurrent()) {
+                return null;
+            }
+            const originalBefore = await readFile(input.originalPath);
+            const workingBefore = await readFile(input.workingCopyPath);
+            try {
+                await input.publishOriginal();
+                await copyFile(input.originalPath, input.workingCopyPath);
+                await input.afterWorkingCopySync?.();
+            } catch (error) {
+                await Promise.all([
+                    writeFile(input.originalPath, originalBefore),
+                    writeFile(input.workingCopyPath, workingBefore),
+                ]);
+                throw error;
+            }
+            return {token: requireDocumentRevisionToken('revision-after-native-mutation')};
+        });
         mocks.getWorkingCopyOriginalFileExpectation.mockImplementation((workingPath: string, senderWebContentsId?: number) => {
             const original = mocks.getWorkingCopyOriginalPath(workingPath, senderWebContentsId);
             return original?.originalPath
@@ -256,7 +337,7 @@ describe('handleNativeNoteTextSave', () => {
         expect(readFileSyncUtf8(latestWorkingPath)).toBe('latest-before');
     });
 
-    it('reports applied when post-commit working-copy sync fails after replacing the original', async () => {
+    it('rolls back both targets when post-commit working-copy sync fails', async () => {
         const requestedWorkingPath = join(tempRoot, 'requested-working.pdf');
         const originalPath = join(tempRoot, 'original.pdf');
         const tempPath = `${originalPath}.tmp`;
@@ -281,16 +362,13 @@ describe('handleNativeNoteTextSave', () => {
             text: 'Updated note',
         }], 'D:20260609133855+03\'00\'', revisionOptions);
 
-        expect(result).toMatchObject({
-            applied: true,
-            syncError: 'sync failed',
-            validation: {
-                isValid: true,
-                tool: 'native',
-            },
+        expect(result).toEqual({
+            applied: false,
+            validation: null,
         });
         expect(mocks.atomicReplace).toHaveBeenCalledWith(tempPath, originalPath);
-        expect(readFileSyncUtf8(originalPath)).toContain('% native incremental update');
+        expect(readFileSyncUtf8(originalPath)).toBe('original-before');
+        expect(readFileSyncUtf8(requestedWorkingPath)).toBe('working-before');
     });
 
     it('runs the native note changes append command for FreeText note upserts', async () => {
@@ -718,11 +796,7 @@ describe('handleNativeNoteTextSave', () => {
                 height: 0.2,
                 rotationDegrees: 0,
                 mimeType: 'image/jpeg',
-                bytes: new Uint8Array([
-                    0xFF,
-                    0xD8,
-                    0xFF,
-                ]),
+                source: createNativePlacedImage().source,
             }]},
             'D:20260609133855+03\'00\'',
             {
@@ -741,6 +815,70 @@ describe('handleNativeNoteTextSave', () => {
         await expect(savePromise).resolves.toMatchObject({applied: false});
         expect(mocks.runNativeToolCommand).not.toHaveBeenCalled();
         expect(readFileSyncUtf8(workingPath)).toBe('changed-before-native');
+    });
+
+    it('stages native output without exposing it and commits the verified artifact once', async () => {
+        const workingPath = join(tempRoot, 'staged-working.pdf');
+        const originalPath = join(tempRoot, 'staged-original.pdf');
+        writeFileSync(workingPath, 'base-before');
+        writeFileSync(originalPath, 'base-before');
+        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
+        mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(workingPath);
+        mocks.runNativeToolCommand.mockImplementation(async (_binaryPath: string, args: string[]) => {
+            const outputIndex = args.indexOf('--output') + 1;
+            const outputPath = args[outputIndex];
+            if (!outputPath) throw new Error('missing output path');
+            await appendFile(outputPath, '\n% staged mutation');
+        });
+        const {
+            handleCommitStagedPdfNativeMutations,
+            handleNativePdfMutationsApplyToWorkingCopy,
+        } = await import('@electron/features/documents/main/nativePdfMutationSaveHandlers');
+
+        const staged = await handleNativePdfMutationsApplyToWorkingCopy(
+            context,
+            workingPath,
+            {placedImages: [createNativePlacedImage()]},
+            'D:20260609133855+03\'00\'',
+            {
+                byteLength: Buffer.byteLength('base-before'),
+                sha256: createHash('sha256').update('base-before').digest('hex'),
+            },
+            revisionOptions,
+        );
+
+        expect(staged).toMatchObject({
+            applied: true,
+            validation: {isValid: true},
+            stagedOutput: {leaseId: 'staged-native-output'},
+        });
+        expect(readFileSyncUtf8(workingPath)).toBe('base-before');
+        expect(readFileSyncUtf8(originalPath)).toBe('base-before');
+        expect(staged.stagedOutput && readFileSyncUtf8(staged.stagedOutput.path)).toContain('% staged mutation');
+
+        const committed = await handleCommitStagedPdfNativeMutations(
+            context,
+            workingPath,
+            staged.stagedOutput,
+            {
+                ...revisionOptions,
+                changedObjectRefs: ['44 0 R'],
+            },
+        );
+
+        expect(committed).toMatchObject({
+            applied: true,
+            validation: {isValid: true},
+        });
+        expect(readFileSyncUtf8(workingPath)).toContain('% staged mutation');
+        expect(readFileSyncUtf8(originalPath)).toContain('% staged mutation');
+        expect(mocks.transitionOriginalAndWorkingCopyRevision).toHaveBeenCalledOnce();
+        expect(mocks.commitPdfTempFile).toHaveBeenCalledWith(
+            expect.stringContaining('staged-original.pdf.tmp'),
+            originalPath,
+            {changedObjectRefs: ['44 0 R']},
+        );
+        expect(mocks.releaseManagedTempFileHandle).toHaveBeenCalledWith(context, 'staged-native-output');
     });
 
     it('rejects shared native mutation limit violations before native execution', async () => {
@@ -862,11 +1000,7 @@ describe('handleNativeNoteTextSave', () => {
                 height: 0.2,
                 rotationDegrees: 0,
                 mimeType: 'image/jpeg',
-                bytes: new Uint8Array([
-                    0xFF,
-                    0xD8,
-                    0xFF,
-                ]),
+                source: createNativePlacedImage().source,
             }]},
             'D:20260609133855+03\'00\'',
             undefined,

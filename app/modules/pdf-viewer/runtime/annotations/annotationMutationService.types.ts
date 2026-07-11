@@ -1,11 +1,10 @@
-import type { Ref } from 'vue';
 import type {
     IAnnotationCommentSummary,
     IAnnotationMarkerRect,
 } from '@app/types/annotations';
-import type { IPdfjsEditor } from '@app/types/pdfjs';
 import type { ITextMarkupColorMutationResult } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationColorCommands';
 import type { IAnnotationMutationVisualEffectsState } from '@app/modules/pdf-viewer/runtime/annotations/annotationMutationVisualEffects.types';
+import type { AnnotationId } from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
 
 export type TAnnotationMutationSource =
     | 'user'
@@ -48,22 +47,6 @@ export interface IAnnotationMoveMarkerInput {
     rect: IAnnotationMarkerRect;
 }
 
-export interface IAnnotationSuppressionTarget {
-    annotationId?: string | null | undefined;
-    stableKey?: string | null | undefined;
-}
-
-export interface IAnnotationPendingEmbeddedTextUpdateInput {
-    comment: IAnnotationCommentSummary;
-    text: string;
-    stableKey?: string | null | undefined;
-}
-
-export interface IAnnotationPendingEmbeddedMutationSnapshot {
-    pendingEmbeddedTextUpdates: Map<string, string>;
-    pendingEmbeddedAnnotationDeletes: IAnnotationCommentSummary[];
-}
-
 export interface IAnnotationMarkerMoveOptions {
     markEditorPending?: (
         updated: IAnnotationCommentSummary,
@@ -73,15 +56,7 @@ export interface IAnnotationMarkerMoveOptions {
     markModified?: () => void;
 }
 
-export interface IConsumedAnnotationEmbeddedMutations {
-    pendingEmbeddedTextUpdates: Map<string, string>;
-    pendingEmbeddedAnnotationDeletes: IAnnotationCommentSummary[];
-    restore(): void;
-    commit(): void;
-}
-
 export interface IAnnotationMutationService {
-    pendingEmbeddedMutationVersion: Ref<number>;
     visualEffects: IAnnotationMutationVisualEffectsState;
     updateComment(input: IAnnotationUpdateCommentInput, context: IAnnotationMutationContext): boolean;
     deleteAnnotation(input: IAnnotationDeleteInput, context: IAnnotationMutationContext): Promise<boolean>;
@@ -92,19 +67,12 @@ export interface IAnnotationMutationService {
     enqueueAnnotationDomRemoval(comment: IAnnotationCommentSummary): void;
     removeAnnotationFromInternalCache(stableKey: string, context: IAnnotationMutationContext): void;
     clearPendingMarkerMoves(): void;
-    suppressAnnotation(target: IAnnotationSuppressionTarget): void;
-    unsuppressAnnotation(target: IAnnotationSuppressionTarget): void;
-    queuePendingEmbeddedTextUpdate(input: IAnnotationPendingEmbeddedTextUpdateInput): boolean;
-    clearPendingEmbeddedTextUpdate(stableKey: string): void;
-    migratePendingEmbeddedTextUpdate(previousKey: string, nextKey: string): void;
-    queuePendingEmbeddedAnnotationDelete(comment: IAnnotationCommentSummary): boolean;
-    unqueuePendingEmbeddedAnnotationDelete(stableKey: string): void;
-    getPendingEmbeddedMutationSnapshot(): IAnnotationPendingEmbeddedMutationSnapshot;
+    deleteEmbeddedAnnotationDeferred(comment: IAnnotationCommentSummary): boolean;
     flushForSave(): Promise<unknown>;
-    consumePendingEmbeddedMutations(): IConsumedAnnotationEmbeddedMutations;
 }
 
 export interface IUseAnnotationMutationServiceOptions {
+    runHistoryTransaction?: <T>(action: () => T) => T;
     updateAnnotationComment: (comment: IAnnotationCommentSummary, text: string) => boolean;
     deleteAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<boolean>;
     updateSelectedTextMarkupAnnotationColor: (color: string) => ITextMarkupColorMutationResult;
@@ -119,16 +87,12 @@ export interface IUseAnnotationMutationServiceOptions {
         markerRect: IAnnotationMarkerRect,
         options?: IAnnotationMarkerMoveOptions,
     ) => boolean;
-    findEditorForComment: (comment: IAnnotationCommentSummary) => IPdfjsEditor | null;
-    addPendingCommentEditorKey: (key: string) => void;
-    getEditorPendingKey: (editor: IPdfjsEditor, pageIndex: number) => string;
+    findEditorForComment: (comment: IAnnotationCommentSummary) => object | null;
     markModified: () => void;
-    suppressManagedAnnotationId: (annotationId: string) => void;
-    unsuppressManagedAnnotationId: (annotationId: string) => void;
-    suppressCommentAnnotationId: (annotationId: string) => void;
-    unsuppressCommentAnnotationId: (annotationId: string) => void;
-    suppressAnnotationStableKey: (stableKey: string) => void;
-    unsuppressAnnotationStableKey: (stableKey: string) => void;
     flushAnnotationCommentsForSave: () => Promise<unknown>;
-    consumePendingEmbeddedMutations?: () => IConsumedAnnotationEmbeddedMutations;
+    resolveCanonicalAnnotationId?: (comment: IAnnotationCommentSummary) => AnnotationId | null;
+    setCanonicalNoteText?: (id: AnnotationId, text: string) => void;
+    deleteCanonicalAnnotation?: (id: AnnotationId) => void;
+    setCanonicalColor?: (id: AnnotationId, color: string) => void;
+    moveCanonicalAnchor?: (id: AnnotationId, rect: IAnnotationMarkerRect) => void;
 }

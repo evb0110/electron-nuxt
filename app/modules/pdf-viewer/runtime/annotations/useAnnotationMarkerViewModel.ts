@@ -12,6 +12,7 @@ import { resolveDetachedMarkerPlacement } from '@app/modules/pdf-viewer/engine/a
 import { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
 import type { IDetachedMarkerOccupied } from '@app/modules/pdf-viewer/engine/annotations/annotation-marker-geometry/annotationMarkerGeometryTypes';
 import { FOCUS_PULSE_MS } from '@app/constants/timeouts';
+import { annotationIdForSummary } from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
 
 interface IUseAnnotationMarkerViewModelOptions {
     viewerContainer: Ref<HTMLElement | null>;
@@ -57,7 +58,7 @@ function pickPrimaryComment(
     activeKey: string | null,
 ): IAnnotationCommentSummary {
     if (activeKey) {
-        const active = comments.find(c => c.stableKey === activeKey);
+        const active = comments.find(comment => annotationIdForSummary(comment) === activeKey);
         if (active) {
             return active;
         }
@@ -145,7 +146,7 @@ function computeMarkersByPage(
                 clustered: cluster.comments,
                 leftPercent,
                 topPercent,
-                isActive: cluster.comments.some(c => c.stableKey === activeKey),
+                isActive: cluster.comments.some(comment => annotationIdForSummary(comment) === activeKey),
                 preview: buildPreview(primary, labels),
                 ariaLabel: buildAriaLabel(primary, cluster.comments.length, labels),
             });

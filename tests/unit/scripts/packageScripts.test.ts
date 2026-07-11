@@ -248,6 +248,7 @@ describe('package scripts', () => {
 
         expect(scriptCommands(packageJson, 'validate')).toEqual([
             'pnpm run lint',
+            'pnpm run check:layout-tokens',
             'pnpm run check:static:reports',
             'pnpm run check:static:assets',
             'pnpm run check:architecture:source-size',
@@ -266,7 +267,7 @@ describe('package scripts', () => {
             'typecheck:server',
         ]);
         expect(scripts['typecheck:packages']).toBe('node scripts/run-workspace-package-typecheck.mjs');
-        expect(scripts['test:coverage']).toBe('pnpm run test:coverage:run && pnpm run check:coverage-ratchet');
+        expect(scripts['test:coverage']).toBe('pnpm run test:coverage:run && pnpm run check:coverage:zero-execution');
         expect(scripts['release:verify']).toBe('node scripts/release/verify-local.mjs');
         expectSelectsSplitUnitProjects(packageJson, 'test');
         expectSelectsSplitUnitProjects(packageJson, 'test:unit');
@@ -274,19 +275,18 @@ describe('package scripts', () => {
         expectSelectsSplitUnitProjects(packageJson, 'test:changed');
         expect(scripts['test:coverage:run']).toContain('--coverage');
         expect(scripts['test:changed']).toContain('--changed');
-        expect(scriptCommands(packageJson, 'test:bundle-integrity')).toEqual([
+        expect(scriptCommands(packageJson, 'test:electron-bundle-static-integrity')).toEqual([
             'pnpm run build:electron',
-            'pnpm run test:bundle-integrity:no-build',
+            'pnpm run test:electron-bundle-static-integrity:no-build',
             'node scripts/prune-build-artifacts.mjs',
             'pnpm run check:build-artifacts:hygiene',
         ]);
-        expect(scripts['test:bundle-integrity:no-build']).toBe('vitest run --project bundle-integrity');
+        expect(scripts['test:electron-bundle-static-integrity:no-build']).toBe('vitest run --project electron-bundle-static-integrity');
         expect(scripts['release:artifacts']).toBe('HUSKY=0 node scripts/release/build-artifacts.mjs');
         expect(scripts['db:generate']).toBe('pnpm --dir landing exec drizzle-kit generate --config ../drizzle.config.ts');
         expect(scripts['db:migrate']).toBe('pnpm --dir landing exec drizzle-kit migrate --config ../drizzle.config.ts');
         expect(scripts['db:check']).toBe('pnpm --dir landing exec drizzle-kit check --config ../drizzle.config.ts');
-        expect(scripts['check:coverage-ratchet']).toBe('pnpm exec tsx scripts/checkCoverageRatchet.ts');
-        expect(scripts['check:coverage-ratchet:update']).toBe('pnpm exec tsx scripts/checkCoverageRatchet.ts --update-baseline');
+        expect(scripts['check:coverage:zero-execution']).toBe('pnpm exec tsx scripts/checkZeroExecutionCoverage.ts');
         expect(scripts['check:drizzle-schema']).toBe('node scripts/check-drizzle-schema.mjs');
         expect(scripts['check:electron-builder:asar-unpack']).toBe('node scripts/check-electron-builder-asar-unpack.mjs');
         expect(scripts['check:generated-native-resources:host']).toBe('node scripts/check-generated-native-resources.mjs --host');
@@ -303,8 +303,13 @@ describe('package scripts', () => {
             'check:architecture:dep-graph',
             'check:architecture:boundaries',
             'check:architecture:source-size',
+            'check:architecture:viewer-core-ledger',
         ]);
+        expect(scripts['check:architecture:viewer-core-ledger']).toBe(
+            'node scripts/check-viewer-core-coordination-ledger.mjs',
+        );
         expect(scriptRunTargets(packageJson, 'check:architecture:all')).toContain('check:architecture:source-size');
+        expect(scriptRunTargets(packageJson, 'check:architecture:all')).toContain('check:architecture:viewer-core-ledger');
         expect(scriptCommands(packageJson, 'test:e2e:electron')).toEqual([
             'pnpm run build:electron',
             'pnpm run test:e2e:electron:regression:no-build',

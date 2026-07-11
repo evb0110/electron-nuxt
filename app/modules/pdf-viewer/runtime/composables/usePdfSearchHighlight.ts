@@ -8,7 +8,6 @@ import {
     getCachedTextLayerIndex,
     highlightTextRunInPdfjsStyle,
     resetTextLayerMappedText,
-    scrollToHighlight,
 } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
 import type {
     IHighlightMatchRange,
@@ -25,6 +24,7 @@ import {
 } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightCss';
 import type { ICssHighlightState } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightCss';
 import { buildVisualMatchesWithCurrent } from '@app/modules/pdf-viewer/engine/search/buildVisualMatchesWithCurrent';
+import { assembleSearchablePageText } from '@pdf-core';
 
 const HIGHLIGHT_CLASS = 'pdf-search-highlight';
 const HIGHLIGHT_CURRENT_CLASS = 'pdf-search-highlight--current';
@@ -157,7 +157,13 @@ export const usePdfSearchHighlight = () => {
             runs,
         } = getCachedTextLayerIndex(textLayerDiv);
 
-        const matchesWithCurrent = buildVisualMatchesWithCurrent(pageMatches, currentMatch, layerText);
+        const assembledLayerText = assembleSearchablePageText(runs.map(run => ({text: run.kind === 'br' ? '\n' : run.text})));
+        const matchesWithCurrent = buildVisualMatchesWithCurrent(
+            pageMatches,
+            currentMatch,
+            layerText,
+            assembledLayerText,
+        );
 
         if (matchesWithCurrent.length === 0) {
             return createHighlightResult();
@@ -186,7 +192,6 @@ export const usePdfSearchHighlight = () => {
     return {
         clearHighlights,
         highlightPage,
-        scrollToHighlight,
         getCurrentMatchRanges,
         HIGHLIGHT_CLASS,
         HIGHLIGHT_CURRENT_CLASS,

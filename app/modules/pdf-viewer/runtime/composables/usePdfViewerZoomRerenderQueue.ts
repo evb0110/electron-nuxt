@@ -20,6 +20,7 @@ import type {
     TPdfViewerTransactionState,
 } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
 import type { TZoomInteractionLockOperationId } from '@app/modules/pdf-viewer/runtime/zoom/pdfViewerZoomTypes';
+import { PDF_RESIZE_DEFERRED_BEHIND_ZOOM_MAX_MS } from '@app/constants/timeouts';
 
 const ZOOM_QUEUE_LOG_THROTTLE_MS = 420;
 const ZOOM_RERENDER_DEFER_WHILE_GESTURE_MS = 80;
@@ -91,9 +92,11 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
     let zoomGestureLowResRerenderUsed = false;
     let zoomSettleCheckTimer: ReturnType<typeof setTimeout> | null = null;
     let deferredResizeSyncAfterZoom: {
+        capturedAtMs: number;
         stage: string;
         syncOptions: ICurrentPageSyncOptions;
     } | null = null;
+    let deferredResizeMaxTimer: ReturnType<typeof setTimeout> | null = null;
     let lastReportedZoomBusy = false;
     let activeZoomRerenderLockOperationId: TZoomInteractionLockOperationId | null = null;
     let activeZoomTransactionId: number | null = null;
@@ -140,7 +143,6 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
             reason,
             cancelInFlightRenders: true,
             bumpRenderVersion: reason === 'zoom',
-            clearTimers: true,
             preserveVisualContent: true,
         }, activeZoomTransactionId);
         activeZoomTransactionId = null;
@@ -316,9 +318,32 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
         );
         if (isResizePdfRerenderSource(source) && isZoomRerenderBusy()) {
             deferredResizeSyncAfterZoom = {
+                capturedAtMs: Date.now(),
                 stage,
                 syncOptions,
             };
+            if (deferredResizeMaxTimer !== null) {
+                clearTimeout(deferredResizeMaxTimer);
+            }
+            deferredResizeMaxTimer = setTimeout(() => {
+                deferredResizeMaxTimer = null;
+                const deferred = deferredResizeSyncAfterZoom;
+                if (!deferred || !isDocumentReadyForZoomRerender()) {
+                    return;
+                }
+                deferredResizeSyncAfterZoom = null;
+                BrowserLogger.diagnostic('pdf-nav', '[resize-settle] bounded zoom deferral elapsed; forcing current resize demand', {
+                    deferredForMs: Date.now() - deferred.capturedAtMs,
+                    maxDeferredMs: PDF_RESIZE_DEFERRED_BEHIND_ZOOM_MAX_MS,
+                    stage: deferred.stage,
+                    zoomBusy: isZoomRerenderBusy(),
+                });
+                runGuardedTask(() => reRenderVisiblePagesAndSyncCurrentPage(deferred.syncOptions), {
+                    category: 'user-visible-operation',
+                    scope: 'pdf-viewer',
+                    message: `Failed to ${deferred.stage} (bounded zoom deferral)`,
+                });
+            }, PDF_RESIZE_DEFERRED_BEHIND_ZOOM_MAX_MS);
             BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'zoom-queue-defer-resize', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-queue] deferred resize rerender while zoom busy', {
                 stage,
                 source,
@@ -335,8 +360,16 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
     }
 
     function cancelDeferredResizeRerender(reason: string) {
+        if (deferredResizeMaxTimer !== null) {
+            clearTimeout(deferredResizeMaxTimer);
+            deferredResizeMaxTimer = null;
+        }
         const deferred = deferredResizeSyncAfterZoom;
         deferredResizeSyncAfterZoom = null;
+        if (deferredResizeMaxTimer !== null) {
+            clearTimeout(deferredResizeMaxTimer);
+            deferredResizeMaxTimer = null;
+        }
         if (!deferred?.syncOptions.resizeAnchor) {
             return;
         }
@@ -359,6 +392,7 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
         deferredResizeSyncAfterZoom = null;
         BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'zoom-queue-flush-deferred-resize', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-queue] flush deferred resize rerender', {
             source,
+            deferredForMs: Date.now() - deferred.capturedAtMs,
             stage: deferred.stage,
             syncSource: normalizePdfRerenderSource(deferred.syncOptions.source),
         });

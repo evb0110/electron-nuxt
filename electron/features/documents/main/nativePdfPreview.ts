@@ -21,6 +21,8 @@ import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { cancelNativeCommandGroup } from '@electron/native-tools/runNativeCommand';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import { abortErrorFromSignal } from '@electron/utils/abort';
+import { mainJobBroker } from '@electron/resources/jobBroker';
+import type { IJobBrokerLease } from '@electron/resources/jobBroker';
 
 const PDFINFO_TIMEOUT_MS = 20_000;
 const PDF_RENDER_TIMEOUT_MS = 30_000;
@@ -36,6 +38,7 @@ const DEFAULT_PAGE_SIZE_RE = /^Page size:\s+([0-9.]+)\s+x\s+([0-9.]+)\s+pts\b/im
 const PAGE_SIZE_RE = /^Page\s+(\d+)\s+size:\s+([0-9.]+)\s+x\s+([0-9.]+)\s+pts\b/gimu;
 
 const activePreviewAborters = new Map<string, (reason: string) => void>();
+const activePreviewPromises = new Map<string, Promise<IPdfNativePagePreview>>();
 
 function parsePositiveFiniteNumber(value: string | undefined) {
     const parsed = Number.parseFloat(value ?? '');
@@ -48,7 +51,7 @@ function withPopplerEnv(
 ): IRunNativeToolCommandOptions {
     return env ? {
         ...options,
-        env, 
+        env,
     } : options;
 }
 
@@ -66,7 +69,7 @@ function parseDefaultPageSize(pdfInfoOutput: string): IPdfNativePageSize | null 
     const height = parsePositiveFiniteNumber(match?.[2]);
     return width && height ? {
         width,
-        height, 
+        height,
     } : null;
 }
 
@@ -97,7 +100,7 @@ export function parsePdfInfoPageSizes(
         }
         sizes[pageNumber - 1] = {
             width,
-            height, 
+            height,
         };
     }
 
@@ -317,13 +320,12 @@ export function handleCancelPdfNativePagePreview(
     return Promise.resolve({canceled});
 }
 
-export async function handlePdfNativePagePreview(
+async function runPdfNativePagePreview(
     context: IDocumentsSenderIdContext,
-    filePath: unknown,
+    resolvedPath: string,
     pageNumber: unknown,
     options?: IPdfNativePagePreviewOptions,
 ): Promise<IPdfNativePagePreview> {
-    const resolvedPath = await resolvePdfPath(context, filePath);
     const page = Number(pageNumber);
     if (!Number.isSafeInteger(page) || page < 1) {
         throw new Error(`Invalid PDF page number: ${String(pageNumber)}`);
@@ -343,6 +345,7 @@ export async function handlePdfNativePagePreview(
         }
     };
     if (previewRequestId) {
+        cancelActivePreviewRequest(ownerId, previewRequestId, 'Native PDF preview request superseded');
         activePreviewAborters.set(
             getPreviewAborterKey(ownerId, previewRequestId),
             cancelPreview,
@@ -365,8 +368,22 @@ export async function handlePdfNativePagePreview(
     });
     mainOperation.signal.addEventListener('abort', handleMainAbort, { once: true });
     let tempDir: string | null = null;
+    let resourceLease: IJobBrokerLease | null = null;
 
     try {
+        resourceLease = await mainJobBroker.acquire({
+            ownerId: String(ownerId),
+            kind: 'native-pdf-preview',
+            priority: 'visible',
+            perOwnerLimit: 2,
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: Math.max(16 * 1024 * 1024, targetWidthPx * targetWidthPx * 16),
+                nativeProcesses: 1,
+                ioWeight: 1,
+            },
+            signal: abortController.signal,
+        });
         tempDir = await mkdtemp(join(tmpdir(), 'evb-pdf-native-preview-'));
         const outputPrefix = join(tempDir, 'page');
         const outputPath = `${outputPrefix}.png`;
@@ -407,7 +424,10 @@ export async function handlePdfNativePagePreview(
         };
     } finally {
         if (previewRequestId) {
-            activePreviewAborters.delete(getPreviewAborterKey(ownerId, previewRequestId));
+            const aborterKey = getPreviewAborterKey(ownerId, previewRequestId);
+            if (activePreviewAborters.get(aborterKey) === cancelPreview) {
+                activePreviewAborters.delete(aborterKey);
+            }
         }
         if (tempDir !== null) {
             await rm(tempDir, {
@@ -418,5 +438,30 @@ export async function handlePdfNativePagePreview(
         mainOperation.signal.removeEventListener('abort', handleMainAbort);
         unregisterSenderCleanup();
         mainOperation.complete();
+        resourceLease?.release();
     }
+}
+
+export async function handlePdfNativePagePreview(
+    context: IDocumentsSenderIdContext,
+    filePath: unknown,
+    pageNumber: unknown,
+    options?: IPdfNativePagePreviewOptions,
+): Promise<IPdfNativePagePreview> {
+    const resolvedPath = await resolvePdfPath(context, filePath);
+    const page = Number(pageNumber);
+    const targetWidthPx = normalizePreviewTargetWidth(options);
+    const requestId = normalizePreviewRequestId(options) ?? 'unscoped';
+    const dedupeKey = `${getPreviewRequestOwnerId(context)}\0${requestId}\0${resolvedPath}\0${page}\0${targetWidthPx}`;
+    const existing = activePreviewPromises.get(dedupeKey);
+    if (existing) {
+        return existing;
+    }
+    const previewPromise = runPdfNativePagePreview(context, resolvedPath, pageNumber, options);
+    activePreviewPromises.set(dedupeKey, previewPromise);
+    return previewPromise.finally(() => {
+        if (activePreviewPromises.get(dedupeKey) === previewPromise) {
+            activePreviewPromises.delete(dedupeKey);
+        }
+    });
 }

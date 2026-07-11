@@ -314,6 +314,20 @@ export default {
         'currentPage': 'Aktuelle Seite ({page})',
         'customRange': 'Benutzerdefinierter Bereich',
         'customRangePlaceholder': 'z. B. 1-5, 8, 10-12',
+        'supersession': {
+            'label': 'Existing text',
+            'options': {
+                'missing-only': 'OCR missing text only',
+                'replace-evb': 'Re-OCR EVB text',
+                'replace-all': 'Replace all hidden OCR',
+            },
+            'descriptions': {
+                'missing-only': 'Keep existing text and OCR only pages without text.',
+                'replace-evb': 'Replace only the active EVB OCR generation.',
+                'replace-all': 'Replace EVB and foreign hidden OCR; visible native text stays untouched.',
+            },
+            'replaceAllAcknowledgement': 'I understand that foreign hidden OCR on selected pages will be removed and replaced.',
+        },
         'qualityProfile': {
             'label': 'Qualität',
             'options': {
@@ -353,6 +367,18 @@ export default {
         },
         'settingHelpAria': 'Über {setting}',
         'languages': 'Sprachen',
+        'languageModelState': {
+            'installed': 'Installiert',
+            'downloading': 'Wird heruntergeladen',
+            'missing': 'Download beim Start',
+        },
+        'diagnostic': {
+            'preprocessingUnavailable': 'Page {page}: scan cleanup is unavailable; the original image was used.',
+            'preprocessingFailed': 'Page {page}: scan cleanup failed; the original image was used.',
+            'preprocessingGeometryChanged': 'Page {page}: scan cleanup changed page geometry; the original image was used.',
+            'sourceDpiLimited': 'Page {page}: source resolution limited the effective OCR DPI.',
+            'existingTextSkipped': 'Page {page}: existing text was preserved.',
+        },
         'preparing': 'OCR wird vorbereitet...',
         'progressStage': {
             'modelPrep': 'OCR-Sprachmodelle werden vorbereitet...',
@@ -645,9 +671,6 @@ export default {
             other: '{count} Dateien in Warteschlange',
         }),
         'clear': 'Leeren',
-        'emptyTitle': 'Keine Dateien ausgewählt',
-        'emptyDescription': 'Legen Sie Dateien links ab oder wählen Sie sie von Ihrem Computer aus.',
-        'combineAction': 'Zu PDF zusammenführen',
         'combineCountAction': plural({
             one: '{count} Datei zusammenführen',
             other: '{count} Dateien zusammenführen',
@@ -1085,6 +1108,8 @@ export default {
             'emptyPdf': 'Die PDF-Datei ist leer (0 Byte)',
             'folderEmpty': 'Im ausgewählten Ordner wurden keine unterstützten Dokumente gefunden',
             'save': 'Datei konnte nicht gespeichert werden',
+            'browserStorageTitle': 'Browserspeicher ist nicht verfügbar',
+            'browserStorageDescription': '„{name}“ ist im Arbeitsspeicher geöffnet, erscheint nach dem Neuladen aber nicht wieder.',
         },
         'export': {
             'images': 'Bilderexport fehlgeschlagen',
@@ -1214,5 +1239,20 @@ export default {
         'scopeSelected': 'Ausgewählte Seiten ({count})',
         'apply': 'Zuschnitt anwenden',
         'removeCrop': 'Zuschnitt entfernen',
+    },
+    'documentSourceSidebar': {
+        'navLabel': 'Dokumentnavigation',
+        'loadingOutline': 'Gliederung wird geladen…',
+        'noOutline': 'Keine Gliederung',
+        'searchPlaceholder': 'Dokument durchsuchen',
+        'searchAction': 'Suchen',
+        'searching': 'Suche läuft…',
+        'noResults': 'Keine Ergebnisse',
+        'goToPage': 'Zu Seite {page} wechseln',
+        'page': 'Seite {page}',
+        'addNoteOnPage': 'Notiz auf Seite {page} hinzufügen',
+        'noAnnotations': 'Keine Anmerkungen auf dieser Seite',
+        'note': 'Notiz',
+        'deleteAnnotation': 'Anmerkung {id} löschen',
     },
 };

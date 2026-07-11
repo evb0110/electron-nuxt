@@ -8,8 +8,8 @@ import {
     pageNumberToPageIndex,
     parsePageIndex,
     parsePageNumber,
-    toPageIndex,
-    toPageNumber,
+    requirePageIndex,
+    requirePageNumber,
 } from '@contracts/pageNumbers';
 
 describe('page number contracts', () => {
@@ -82,8 +82,8 @@ describe('page number contracts', () => {
     });
 
     it('round-trips page index and page number conversions', () => {
-        expect(pageIndexToPageNumber(toPageIndex(0))).toBe(1);
-        expect(pageNumberToPageIndex(toPageNumber(1))).toBe(0);
-        expect(pageNumberToPageIndex(pageIndexToPageNumber(toPageIndex(4)))).toBe(4);
+        expect(pageIndexToPageNumber(requirePageIndex(0))).toBe(1);
+        expect(pageNumberToPageIndex(requirePageNumber(1))).toBe(0);
+        expect(pageNumberToPageIndex(pageIndexToPageNumber(requirePageIndex(4)))).toBe(4);
     });
 });

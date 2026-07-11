@@ -40,7 +40,7 @@ const skeletonContentHeight = 760;
     box-sizing: border-box;
     width: calc(100% - 2rem);
     aspect-ratio: 1 / 1.409;
-    margin-top: 1rem;
+    margin-top: var(--app-workspace-transition-content-offset);
     overflow: hidden;
     border: 1px solid var(--ui-border);
     border-radius: var(--app-radius-lg);

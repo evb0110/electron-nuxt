@@ -7,17 +7,21 @@ import {
 } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { encode } from 'fast-png';
 import type {
     IDjvuPagePreview,
     IDjvuPagePreviewOptions,
     IDjvuPageSize,
 } from '@contracts/electronApiDjvu';
 import { getDjvuResolution } from '@electron/djvu/metadata';
-import { parseNetpbm } from '@electron/djvu/netpbm';
 import { buildDjvuRuntimeEnv } from '@electron/djvu/paths';
 import { getDjvuNativeToolPaths } from '@electron/djvu/nativeToolPaths';
 import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
+import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
+import {
+    isNativePdfImageCombineDisabled,
+    resolveNativePdfImageCombinePath,
+} from '@electron/image/tryCreatePdfWithNativeImageCombiner';
+import { probeNativeNetpbm } from '@electron/features/djvu/main/probeNativeNetpbm';
 import { convertDjvuPageToImage } from '@electron/features/djvu/main/ddjvuConversion';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 
@@ -278,6 +282,7 @@ export async function renderDjvuPagePreview(
 
     const tempDir = await mkdtemp(join(tmpdir(), 'djvu-preview-'));
     const ppmPath = join(tempDir, `page-${pageNumber}-${randomUUID()}.ppm`);
+    const pngPath = join(tempDir, `page-${pageNumber}-${randomUUID()}.png`);
 
     try {
         throwIfAborted(lifecycleOptions.signal);
@@ -306,25 +311,28 @@ export async function renderDjvuPagePreview(
 
         await assertPreviewNetpbmReadSafe(ppmPath);
         throwIfAborted(lifecycleOptions.signal);
-        const ppmBytes = await readFile(ppmPath);
-        throwIfAborted(lifecycleOptions.signal);
-        const {
-            width,
-            height,
-            channels,
-            pixels,
-        } = parseNetpbm(ppmBytes);
-        const pngBytes = encode({
-            width,
-            height,
-            data: pixels,
-            channels,
-        });
-        return {
-            bytes: pngBytes,
-            width,
-            height,
-        };
+        const nativeEncoderPath = isNativePdfImageCombineDisabled() ? null : resolveNativePdfImageCombinePath();
+        const nativeProbe = await probeNativeNetpbm(nativeEncoderPath, ppmPath);
+        if (nativeEncoderPath && nativeProbe) {
+            await runNativeToolCommand(nativeEncoderPath, [
+                '--output',
+                pngPath,
+                '--format',
+                'png',
+                '--',
+                ppmPath,
+            ], {
+                commandLabel: 'evb-pdf-image-combine(djvu-preview)',
+                ...(lifecycleOptions.signal ? {signal: lifecycleOptions.signal} : {}),
+                timeoutMs: 60_000,
+            });
+            return {
+                bytes: await readFile(pngPath),
+                height: nativeProbe.height,
+                width: nativeProbe.width,
+            };
+        }
+        throw new Error('Native DjVu preview encoding is unavailable; the large Netpbm fallback is intentionally disabled');
     } finally {
         await rm(tempDir, {
             recursive: true,

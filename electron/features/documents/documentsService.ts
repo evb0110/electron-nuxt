@@ -9,7 +9,9 @@ import type {
 } from '@contracts/pdfConformance';
 import type {
     IDocumentMutationRevisionOptions,
+    IManagedTempFileHandle,
     IPdfNativeMutationSet,
+    IPdfNativeStagedCommitOptions,
     IPdfNativeNoteChanges,
     IPdfNativeSaveResult,
     IPdfNativeNoteTextSaveResult,
@@ -60,8 +62,19 @@ export interface IDocumentsService {
     openImageDialog: (context: IDocumentsDialogContext) => Promise<string | null>;
     openDocumentDirect: (context: IDocumentsWebContentsContext, filePath: string) => Promise<TOpenFileResult | null>;
     openPdfDirect: (context: IDocumentsWebContentsContext, filePath: string) => Promise<TOpenFileResult | null>;
-    openDocumentDirectBatch: (context: IDocumentsWebContentsContext, filePaths: string[], requestId?: string) => Promise<TOpenFileResult | null>;
-    openPdfDirectBatch: (context: IDocumentsWebContentsContext, filePaths: string[], requestId?: string) => Promise<TOpenFileResult | null>;
+    openDocumentDirectBatch: (
+        context: IDocumentsWebContentsContext,
+        filePaths: string[],
+        requestId?: string,
+        options?: {forceCombine?: boolean},
+    ) => Promise<TOpenFileResult | null>;
+    openPdfDirectBatch: (
+        context: IDocumentsWebContentsContext,
+        filePaths: string[],
+        requestId?: string,
+        options?: {forceCombine?: boolean},
+    ) => Promise<TOpenFileResult | null>;
+    cancelOpenDocumentDirectBatch: (context: IDocumentsWebContentsContext, requestId: string) => boolean;
     createWorkingCopyFromData: (
         context: IDocumentsSenderIdContext,
         fileName: string,
@@ -101,6 +114,8 @@ export interface IDocumentsService {
     readFile: (context: IDocumentsSenderIdContext, filePath: string) => Promise<Uint8Array>;
     statFile: (context: IDocumentsSenderIdContext, filePath: string) => Promise<{ size: number }>;
     readFileRange: (context: IDocumentsSenderIdContext, filePath: string, offset: number, length: number) => Promise<Uint8Array>;
+    createManagedTempFileHandle: (context: IDocumentsSenderIdContext, filePath: string) => Promise<IManagedTempFileHandle>;
+    releaseManagedTempFileHandle: (context: IDocumentsSenderIdContext, leaseId: string) => boolean;
     getPdfNativePageSizes: (
         context: IDocumentsSenderIdContext,
         filePath: string,
@@ -210,6 +225,12 @@ export interface IDocumentsService {
         expectedBase: IPdfNativeWorkingCopyExpectation,
         options?: IPdfSerializedSaveOptions,
     ) => Promise<IPdfNativeSaveResult>;
+    commitStagedPdfNativeMutations: (
+        context: IDocumentsSenderIdContext,
+        workingPath: string,
+        stagedOutput: IManagedTempFileHandle,
+        options?: IPdfNativeStagedCommitOptions,
+    ) => Promise<IPdfNativeSaveResult>;
     beginSavePdfData: (
         context: IDocumentsWebContentsContext,
         workingPath: string,
@@ -229,6 +250,9 @@ export interface IDocumentsService {
             canSaveAs?: boolean;
             canRepairSave?: boolean;
             canOptimizePdf?: boolean;
+            interactive?: boolean;
+            canContinuousScroll?: boolean;
+            continuousScroll?: boolean;
         },
     ) => void;
     setMenuTabCount: (context: IDocumentsWindowContext, tabCount: number) => void;

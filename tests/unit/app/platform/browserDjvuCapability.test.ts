@@ -5,6 +5,7 @@ import {
 } from 'vitest';
 import {
     resolveBrowserDjvuCompactExportPlan,
+    resolveBrowserDjvuConversionPreflight,
     resolveBrowserDjvuPdfRenderConcurrency,
     resolveBrowserDjvuPdfRenderSettings,
 } from '@app/platform/browser-api/browserDjvuCapability';
@@ -100,6 +101,48 @@ describe('browserDjvuCapability', () => {
             strategy: 'direct-fallback',
             estimatedPageSpecBytes: 3_000_256,
             maxPageSpecBytes: 1_000_000,
+            fallbackReason: 'memory-budget',
+        });
+    });
+
+    it('uses the bookmark-capable streaming path when compact export must preserve bookmarks', () => {
+        expect(resolveBrowserDjvuCompactExportPlan([{
+            width: 100,
+            height: 100,
+            dpi: 300,
+        }], 40_000, true)).toEqual({
+            strategy: 'direct-fallback',
+            estimatedPageSpecBytes: 30_256,
+            maxPageSpecBytes: 40_000,
+            fallbackReason: 'bookmarks',
+        });
+    });
+
+    it('reports browser conversion boundaries before raster rendering starts', () => {
+        expect(resolveBrowserDjvuConversionPreflight(Array.from({length: 500}, () => ({
+            width: 8_000,
+            height: 10_000,
+            dpi: 300,
+        })))).toMatchObject({
+            allowed: true,
+            maxPagePixels: 80_000_000,
+            maxPages: 500,
+        });
+        expect(resolveBrowserDjvuConversionPreflight(Array.from({length: 501}, () => ({
+            width: 100,
+            height: 100,
+            dpi: 300,
+        })))).toMatchObject({
+            allowed: false,
+            reason: 'page-count',
+        });
+        expect(resolveBrowserDjvuConversionPreflight([{
+            width: 10_000,
+            height: 8_001,
+            dpi: 300,
+        }])).toMatchObject({
+            allowed: false,
+            reason: 'page-pixels',
         });
     });
 });

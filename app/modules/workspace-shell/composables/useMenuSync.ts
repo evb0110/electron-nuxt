@@ -18,6 +18,9 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
         canSaveAs: boolean;
         canRepairSave: boolean;
         canOptimizePdf: boolean;
+        interactive: boolean;
+        canContinuousScroll: boolean;
+        continuousScroll: boolean;
     } | null = null;
     let lastSyncedMenuTabCount: number | null = null;
 
@@ -28,6 +31,10 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
         const canSaveAs = shellState.activeWorkspaceCanSaveAs.value;
         const canRepairSave = shellState.activeWorkspaceCanRepairSave.value;
         const canOptimizePdf = shellState.activeWorkspaceCanOptimizePdf.value;
+        const interactive = shellState.activeWorkspaceInteractive.value;
+        const toolbar = deps.activeDocumentRecord.value?.toolbarSnapshot;
+        const canContinuousScroll = toolbar?.viewerCapabilities.continuousScroll === true;
+        const continuousScroll = toolbar?.continuousScroll ?? false;
         if (
             lastSyncedMenuDocumentState?.hasDocument === hasDocument
             && lastSyncedMenuDocumentState.canPrint === canPrint
@@ -35,6 +42,9 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
             && lastSyncedMenuDocumentState.canSaveAs === canSaveAs
             && lastSyncedMenuDocumentState.canRepairSave === canRepairSave
             && lastSyncedMenuDocumentState.canOptimizePdf === canOptimizePdf
+            && lastSyncedMenuDocumentState.interactive === interactive
+            && lastSyncedMenuDocumentState.canContinuousScroll === canContinuousScroll
+            && lastSyncedMenuDocumentState.continuousScroll === continuousScroll
         ) {
             return;
         }
@@ -45,6 +55,9 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
             canSaveAs,
             canRepairSave,
             canOptimizePdf,
+            interactive,
+            canContinuousScroll,
+            continuousScroll,
         };
         const setMenuDocumentState = getDocumentMenuCapability().setMenuDocumentState;
         if (!setMenuDocumentState) {
@@ -57,6 +70,9 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
             canSaveAs,
             canRepairSave,
             canOptimizePdf,
+            interactive,
+            canContinuousScroll,
+            continuousScroll,
         }), {
             category: 'background-diagnostic',
             scope: 'menu-sync',

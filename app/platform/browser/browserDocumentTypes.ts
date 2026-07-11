@@ -1,3 +1,5 @@
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+
 export type TBrowserDocumentStorageMode =
     | 'inline'
     | 'handle'
@@ -26,6 +28,8 @@ export interface IBrowserPersistedDocumentRecord {
 }
 
 export interface IBrowserDocumentEntry extends IBrowserPersistedDocumentRecord {
+    /** Volatile runtime state: persistence failed, so unloading would lose the document. */
+    memoryOnly?: boolean;
     pendingLoad: Promise<void> | null;
     retention: 'durable' | 'transient';
     saveName?: string;
@@ -64,7 +68,7 @@ export interface ICreateStoredDocumentOptions {
 
 export interface IWriteDocumentOptions {
     unloadAfterPersist?: boolean;
-    expectedDocumentRevisionToken?: string | null;
+    expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
     skipDocumentRevisionCheckForBootstrap?: boolean;
 }
 

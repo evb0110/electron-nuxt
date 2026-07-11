@@ -1,7 +1,7 @@
 export function shouldRenderPageWithPreservedState(options: {
     pageNumber: number;
-    renderedPages: ReadonlySet<number>;
-    staleRenderedPages: ReadonlySet<number>;
+    renderedPages: {has: (pageNumber: number) => boolean};
+    staleRenderedPages: {has: (pageNumber: number) => boolean};
     forceRerender: boolean;
     hasMountedCanvas: (pageNumber: number) => boolean;
 }) {

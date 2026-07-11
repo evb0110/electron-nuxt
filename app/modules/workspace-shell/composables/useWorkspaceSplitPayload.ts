@@ -8,7 +8,6 @@ import type {
     IWorkspaceDocumentViewerSplitPort,
     IWorkspacePdfViewerSplitPort,
 } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { TPdfSource } from '@app/types/pdfUi';
 import { getDocumentWorkingCopyCapability } from '@app/utils/platformDocuments';
 import { resolveDocumentRefBackend } from '@app/utils/documentRef';
@@ -34,8 +33,6 @@ interface IUseWorkspaceSplitPayloadOptions {
         options?: {
             includeShapes?: boolean;
             rewriteShapeState?: boolean;
-            pendingTexts?: Map<string, string> | null;
-            pendingDeletes?: IAnnotationCommentSummary[] | null;
         },
     ) => Promise<Uint8Array>;
     openFileWithViewerLifecycle: (result: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
@@ -111,17 +108,25 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
             const viewerTransaction = await options.pdfViewerRef.value?.runSaveTransaction({
                 mode: 'snapshot',
                 forcePdfjsMaterialize: true,
+                ...(options.serializePdfForSave ? {
+                    serializeResult: true,
+                    includeManagedShapes: true,
+                    rewriteShapeState: true,
+                    source: {
+                        getSourcePdfData: async () => {
+                            if (options.pdfData.value) {
+                                return options.pdfData.value;
+                            }
+                            return options.workingCopyPath.value
+                                ? readDocumentBytes(options.workingCopyPath.value)
+                                : null;
+                        },
+                        serializePdfForSave: options.serializePdfForSave,
+                    },
+                } : {}),
             });
             const viewerSnapshot = viewerTransaction?.serializedBytes ?? viewerTransaction?.baseBytes ?? null;
             if (viewerSnapshot) {
-                if (viewerTransaction && options.serializePdfForSave) {
-                    return options.serializePdfForSave(viewerSnapshot, {
-                        includeShapes: true,
-                        rewriteShapeState: true,
-                        pendingTexts: viewerTransaction.pendingEmbeddedTextUpdates,
-                        pendingDeletes: viewerTransaction.pendingEmbeddedAnnotationDeletes,
-                    });
-                }
                 return viewerSnapshot;
             }
 

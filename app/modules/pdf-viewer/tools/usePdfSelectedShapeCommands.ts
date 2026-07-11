@@ -1,6 +1,8 @@
 import type { Ref } from 'vue';
-import type { IShapeAnnotation } from '@app/types/annotations';
-import type { IPdfAppAnnotationHistoryCommand } from '@app/modules/pdf-viewer/tools/usePdfShapeHistory';
+import type {
+    IShapeAnnotation,
+    TShapeAnnotationPatch,
+} from '@app/types/annotations';
 import { cloneShape } from '@app/modules/pdf-viewer/engine/shapes/cloneShape';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
@@ -10,13 +12,8 @@ export const usePdfSelectedShapeCommands = (options: {
     isAnySaving: Ref<boolean>;
     getShapeById: (id: string) => IShapeAnnotation | null;
     selectShape: (id: string | null) => void;
-    updateShape: (id: string, updates: Partial<IShapeAnnotation>) => void;
-    deleteShape: (id: string) => void;
-    deleteShapeByReference: (shape: IShapeAnnotation) => void;
-    addShape: (shape: IShapeAnnotation) => void;
-    applyShapeUpdateWithHistory: (previousShape: IShapeAnnotation, nextShape: IShapeAnnotation) => void;
-    handleDeletedShape: (shape: IShapeAnnotation) => void;
-    registerHistoryCommand: (command: IPdfAppAnnotationHistoryCommand) => void;
+    executeShapeUpdate: (previousShape: IShapeAnnotation, nextShape: IShapeAnnotation) => void;
+    executeShapeDelete: (shape: IShapeAnnotation) => void;
     notifyShapeCommentsChanged: () => void;
     markModified: () => void;
 }) => {
@@ -32,7 +29,7 @@ export const usePdfSelectedShapeCommands = (options: {
         options.selectShape(null);
     }
 
-    function updateSelectedShape(id: string, updates: Partial<IShapeAnnotation>) {
+    function updateSelectedShape(id: string, updates: TShapeAnnotationPatch) {
         const previousShape = options.getShapeById(id);
         if (!previousShape) {
             return;
@@ -53,8 +50,7 @@ export const usePdfSelectedShapeCommands = (options: {
             ...updates,
         });
 
-        options.updateShape(id, updates);
-        options.applyShapeUpdateWithHistory(cloneShape(previousShape), nextShape);
+        options.executeShapeUpdate(cloneShape(previousShape), nextShape);
         options.notifyShapeCommentsChanged();
     }
 
@@ -78,24 +74,8 @@ export const usePdfSelectedShapeCommands = (options: {
             hasShapes: options.hasShapes.value,
         }));
 
-        options.deleteShape(id);
-        options.handleDeletedShape(deletedShape);
+        options.executeShapeDelete(deletedShape);
         options.markModified();
-
-        options.registerHistoryCommand({
-            cmd: () => {
-                options.deleteShapeByReference(deletedShape);
-                options.handleDeletedShape(deletedShape);
-                options.markModified();
-                options.notifyShapeCommentsChanged();
-            },
-            undo: () => {
-                options.addShape(deletedShape);
-                options.selectShape(id);
-                options.markModified();
-                options.notifyShapeCommentsChanged();
-            },
-        });
         options.notifyShapeCommentsChanged();
 
         return true;

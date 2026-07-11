@@ -1,3 +1,4 @@
+use evb_native_support::{NativeErrorCode, NativeErrorEnvelope};
 use std::{cell::RefCell, mem, slice, str};
 
 use crate::{
@@ -15,6 +16,8 @@ const PAGE_KIND_IMAGE: u32 = 1;
 const PAGE_KIND_MASK: u32 = 2;
 const PAGE_KIND_LAYERED: u32 = 3;
 const PAGE_KIND_LAYERED_COLOR: u32 = 4;
+const MAX_REQUEST_BYTES: usize = 256 * 1024 * 1024;
+const MAX_OUTPUT_BYTES: usize = 512 * 1024 * 1024;
 
 thread_local! {
     static LAST_OUTPUT: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
@@ -39,7 +42,10 @@ struct RequestHeader {
 
 #[no_mangle]
 pub extern "C" fn evb_pdf_image_combine_alloc(len: usize) -> *mut u8 {
-    let mut buffer = Vec::<u8>::with_capacity(len);
+    let mut buffer = Vec::<u8>::new();
+    if buffer.try_reserve_exact(len).is_err() {
+        return std::ptr::null_mut();
+    }
     let pointer = buffer.as_mut_ptr();
     mem::forget(buffer);
     pointer
@@ -58,21 +64,50 @@ pub unsafe extern "C" fn evb_pdf_image_combine_build_pdf(
     request_len: usize,
 ) -> i32 {
     clear_last_result();
+    if request_pointer.is_null() || request_len == 0 || request_len > MAX_REQUEST_BYTES {
+        set_error_envelope(NativeErrorEnvelope {
+            code: NativeErrorCode::TooLarge,
+            message: "Image-combine WASM request exceeds the admission ceiling".to_string(),
+        });
+        return -1;
+    }
     let request = slice::from_raw_parts(request_pointer, request_len);
-    match build_pdf_from_request(request) {
-        Ok(output) => {
+    match std::panic::catch_unwind(|| build_pdf_from_request(request)) {
+        Ok(Ok(output)) if output.len() <= MAX_OUTPUT_BYTES => {
             LAST_OUTPUT.with(|slot| {
                 *slot.borrow_mut() = output;
             });
             0
         }
-        Err(error) => {
-            LAST_ERROR.with(|slot| {
-                *slot.borrow_mut() = error.to_string().into_bytes();
+        Ok(Ok(_)) => {
+            set_error_envelope(NativeErrorEnvelope {
+                code: NativeErrorCode::TooLarge,
+                message: "Image-combine WASM output exceeds the admission ceiling".to_string(),
+            });
+            -1
+        }
+        Ok(Err(error)) => {
+            set_error_envelope(NativeErrorEnvelope::from_error(error.as_ref()));
+            -1
+        }
+        Err(_) => {
+            set_error_envelope(NativeErrorEnvelope {
+                code: NativeErrorCode::Panic,
+                message: "Native image combine panicked".to_string(),
             });
             -1
         }
     }
+}
+
+fn set_last_error(message: &str) {
+    LAST_ERROR.with(|slot| {
+        *slot.borrow_mut() = message.as_bytes().to_vec();
+    });
+}
+
+fn set_error_envelope(envelope: NativeErrorEnvelope) {
+    set_last_error(&envelope.to_json());
 }
 
 #[no_mangle]

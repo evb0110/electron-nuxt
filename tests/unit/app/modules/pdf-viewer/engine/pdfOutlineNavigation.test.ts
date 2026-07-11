@@ -1,40 +1,11 @@
 import {
-    afterEach,
     describe,
     expect,
     it,
     vi,
 } from 'vitest';
 import { navigateToBookmarkDestination } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/navigateToBookmarkDestination';
-import { resolveBookmarkDestinationTarget } from '@app/utils/pdfOutlineHelpers';
-import type * as PdfOutlineHelpers from '@app/utils/pdfOutlineHelpers';
 import type { IBookmarkItem } from '@app/types/pdfOutline';
-import type { PDFDocumentProxy } from '@app/types/pdfContracts';
-import { cast } from '@tests/helpers/cast';
-
-vi.mock('@app/utils/pdfOutlineHelpers', async (importOriginal) => {
-    const actual = await importOriginal<typeof PdfOutlineHelpers>();
-    return {
-        ...actual,
-        resolveBookmarkDestinationTarget: vi.fn(),
-    };
-});
-
-interface IDeferred<T> {
-    promise: Promise<T>;
-    resolve: (value: T) => void;
-}
-
-function createDeferred<T>(): IDeferred<T> {
-    let resolve!: (value: T) => void;
-    const promise = new Promise<T>((innerResolve) => {
-        resolve = innerResolve;
-    });
-    return {
-        promise,
-        resolve,
-    };
-}
 
 function createBookmark(overrides: Partial<IBookmarkItem>): IBookmarkItem {
     return {
@@ -51,165 +22,66 @@ function createBookmark(overrides: Partial<IBookmarkItem>): IBookmarkItem {
 }
 
 describe('navigateToBookmarkDestination', () => {
-    afterEach(() => {
-        vi.clearAllMocks();
-    });
-
-    it('ignores a stale async destination after a newer bookmark request starts', async () => {
-        const firstDestination = createDeferred<{
-            page: number;
-            pageYRatio?: number
-        } | null>();
-        const secondDestination = createDeferred<{
-            page: number;
-            pageYRatio?: number
-        } | null>();
-        vi.mocked(resolveBookmarkDestinationTarget)
-            .mockReturnValueOnce(firstDestination.promise)
-            .mockReturnValueOnce(secondDestination.promise);
-
-        let currentRequestId = 1;
+    it('emits one unresolved named destination for the authority', () => {
         const emitGoToPage = vi.fn();
-        const pdfDocument = cast<PDFDocumentProxy>({});
-        const firstNavigation = navigateToBookmarkDestination({
+        navigateToBookmarkDestination({
             item: createBookmark({
-                dest: 'first-dest',
-                id: 'first',
-                pageIndex: 0,
-            }),
-            pdfDocument,
-            navigationRequestId: 1,
-            isBookmarkNavigationRequestCurrent: requestId => requestId === currentRequestId,
-            emitGoToPage,
-        });
-
-        currentRequestId = 2;
-        const secondNavigation = navigateToBookmarkDestination({
-            item: createBookmark({
-                dest: 'second-dest',
-                id: 'second',
+                dest: 'chapter',
                 pageIndex: 4,
             }),
-            pdfDocument,
+            pdfDocument: null,
             navigationRequestId: 2,
-            isBookmarkNavigationRequestCurrent: requestId => requestId === currentRequestId,
+            isBookmarkNavigationRequestCurrent: id => id === 2,
             emitGoToPage,
         });
-
-        expect(emitGoToPage).toHaveBeenNthCalledWith(1, 1, {
-            navigationSource: 'bookmark',
-            preferExactDom: true,
-            pageYRatio: 0,
-        });
-        expect(emitGoToPage).toHaveBeenNthCalledWith(2, 5, {
-            navigationSource: 'bookmark',
-            preferExactDom: true,
-            pageYRatio: 0,
-        });
-
-        firstDestination.resolve({
-            page: 9,
-            pageYRatio: 0.5,
-        });
-        await firstNavigation;
-        secondDestination.resolve(null);
-        await secondNavigation;
-
-        expect(emitGoToPage).toHaveBeenCalledTimes(2);
+        expect(emitGoToPage).toHaveBeenCalledOnce();
+        expect(emitGoToPage).toHaveBeenCalledWith(5, {navigationRequest: {
+            target: {
+                kind: 'named-dest',
+                destination: 'chapter',
+            },
+            alignment: 'page-top',
+            readiness: 'page-canvas',
+            source: 'bookmark',
+            supersession: 'latest-wins',
+        }});
     });
 
-    it('replays an equivalent resolved destination so virtualized pages can snap exactly after render', async () => {
-        vi.mocked(resolveBookmarkDestinationTarget).mockResolvedValue({
-            page: 5,
-            pageYRatio: 0.25,
-        });
-
+    it('emits a page target when the bookmark has no named destination', () => {
         const emitGoToPage = vi.fn();
-        await navigateToBookmarkDestination({
-            item: createBookmark({
-                dest: 'chapter-dest',
-                id: 'chapter',
-                pageIndex: 4,
-                pageYRatio: 0.25,
-            }),
-            pdfDocument: cast<PDFDocumentProxy>({}),
-            navigationRequestId: 1,
-            isBookmarkNavigationRequestCurrent: requestId => requestId === 1,
-            emitGoToPage,
-        });
-
-        expect(emitGoToPage).toHaveBeenNthCalledWith(1, 5, {
-            navigationSource: 'bookmark',
-            preferExactDom: true,
-            pageYRatio: 0.25,
-        });
-        expect(emitGoToPage).toHaveBeenNthCalledWith(2, 5, {
-            navigationSource: 'bookmark',
-            preferExactDom: true,
-            pageYRatio: 0.25,
-        });
-        expect(emitGoToPage).toHaveBeenCalledTimes(2);
-    });
-
-    it('marks page-index immediate navigation as bookmark-originated', async () => {
-        const emitGoToPage = vi.fn();
-
-        await navigateToBookmarkDestination({
-            item: createBookmark({
-                id: 'page-index-only',
-                pageIndex: 6,
-            }),
+        navigateToBookmarkDestination({
+            item: createBookmark({pageIndex: 6}),
             pdfDocument: null,
             navigationRequestId: 1,
-            isBookmarkNavigationRequestCurrent: requestId => requestId === 1,
+            isBookmarkNavigationRequestCurrent: () => true,
             emitGoToPage,
         });
-
-        expect(emitGoToPage).toHaveBeenCalledWith(7, {
-            navigationSource: 'bookmark',
-            pageYRatio: 0,
-            preferExactDom: true,
-        });
+        expect(emitGoToPage).toHaveBeenCalledWith(7, {navigationRequest: expect.objectContaining({
+            target: {
+                kind: 'page',
+                page: 7,
+            },
+            source: 'bookmark',
+        })});
     });
 
-    it('keeps defensive page-index fallback bookmark-originated and exact', async () => {
+    it('does not emit stale or invalid requests', () => {
         const emitGoToPage = vi.fn();
-        const isCurrent = vi.fn()
-            .mockReturnValueOnce(false)
-            .mockReturnValueOnce(true);
-
-        await navigateToBookmarkDestination({
-            item: createBookmark({
-                id: 'fallback',
-                pageIndex: 2,
-            }),
+        const common = {
             pdfDocument: null,
             navigationRequestId: 1,
-            isBookmarkNavigationRequestCurrent: isCurrent,
             emitGoToPage,
+        };
+        navigateToBookmarkDestination({
+            ...common,
+            item: createBookmark({dest: 'stale'}),
+            isBookmarkNavigationRequestCurrent: () => false,
         });
-
-        expect(emitGoToPage).toHaveBeenCalledWith(3, {
-            navigationSource: 'bookmark',
-            pageYRatio: 0,
-            preferExactDom: true,
+        navigateToBookmarkDestination({
+            ...common,
+            item: createBookmark({pageIndex: Number.NaN}),
+            isBookmarkNavigationRequestCurrent: () => true,
         });
-    });
-
-    it('does not emit a defensive fallback for non-finite page indexes', async () => {
-        const emitGoToPage = vi.fn();
-
-        await navigateToBookmarkDestination({
-            item: createBookmark({
-                id: 'nan-page',
-                pageIndex: Number.NaN,
-            }),
-            pdfDocument: null,
-            navigationRequestId: 1,
-            isBookmarkNavigationRequestCurrent: requestId => requestId === 1,
-            emitGoToPage,
-        });
-
         expect(emitGoToPage).not.toHaveBeenCalled();
     });
 });

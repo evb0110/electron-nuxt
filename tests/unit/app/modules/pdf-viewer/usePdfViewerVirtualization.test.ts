@@ -323,6 +323,38 @@ describe('usePdfViewerVirtualization', () => {
         expect(virtualization.pagesToRender.value.length).toBeLessThan(2_000);
     });
 
+    it('keeps far continuous-navigation demands disjoint and distance-independent', () => {
+        const virtualization = usePdfViewerVirtualization({
+            bufferPages: computed(() => 2),
+            viewMode: computed(() => 'single'),
+            numPages: ref(1_000),
+            currentPage: ref(1),
+            continuousScroll: computed(() => true),
+            basePageWidth: ref(300),
+            basePageHeight: ref(100),
+            pageMetrics: ref(Array.from({length: 1_000}, () => ({
+                width: 300,
+                height: 100,
+            }))),
+            pageMetricsVersion: ref(0),
+            effectiveScale: ref(1),
+            scaledMargin: ref(20),
+            visibleRange: ref({
+                start: 1,
+                end: 2,
+            }),
+            navigationAnchorPage: ref(928),
+            resizeTransitionAnchorPage: ref(null),
+            zoomVirtualizationFreeze: ref(null),
+        });
+
+        expect(virtualization.virtualPageSegments.value).toHaveLength(2);
+        expect(virtualization.pagesToRender.value).toContain(1);
+        expect(virtualization.pagesToRender.value).toContain(928);
+        expect(virtualization.pagesToRender.value.length).toBeLessThan(60);
+        expect(virtualization.pagesToRender.value).not.toContain(500);
+    });
+
     it('ignores a zoom freeze that would hide the active navigation anchor', () => {
         const navigationAnchorPage = ref(10);
         const zoomVirtualizationFreeze = ref({

@@ -126,16 +126,18 @@ function onDeselect() {
 .page-selection-bar {
     display: flex;
     align-items: center;
-    gap: 0.25rem;
-    padding: 0.375rem 0.5rem;
+    flex-wrap: wrap;
+    gap: var(--app-sidebar-row-gap);
+    padding: var(--app-sidebar-row-padding-block) var(--app-sidebar-content-padding);
     border-bottom: 1px solid var(--app-sidebar-border);
     background: var(--app-pdf-page-selection-bar-bg);
     flex-shrink: 0;
 }
 
 .page-selection-bar-label {
-    font-size: 0.6875rem;
-    font-weight: 600;
+    flex: 1 1 7rem;
+    font-size: var(--app-sidebar-caption-font-size);
+    font-weight: var(--app-font-weight-semibold);
     color: var(--ui-text);
     white-space: nowrap;
     overflow: hidden;
@@ -146,7 +148,8 @@ function onDeselect() {
 .page-selection-bar-actions {
     display: flex;
     align-items: center;
-    gap: 2px;
+    flex: 0 0 auto;
+    gap: var(--app-space-3xs);
     margin-left: auto;
 }
 
@@ -154,10 +157,10 @@ function onDeselect() {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 1.625rem;
-    height: 1.625rem;
+    width: var(--app-sidebar-action-size);
+    height: var(--app-sidebar-action-size);
     border: 1px solid transparent;
-    border-radius: 0.3125rem;
+    border-radius: var(--app-action-radius);
     background: transparent;
     color: var(--ui-text-muted);
     cursor: pointer;
@@ -187,22 +190,22 @@ function onDeselect() {
 }
 
 .page-selection-bar-icon {
-    width: 1rem;
-    height: 1rem;
+    width: var(--app-icon-size-md);
+    height: var(--app-icon-size-md);
 }
 
 .page-selection-bar-deselect {
     display: inline-flex;
     align-items: center;
-    height: 1.625rem;
-    padding: 0 0.5rem;
-    margin-left: 0.25rem;
+    min-height: var(--app-sidebar-action-size);
+    padding: 0 var(--app-space-3xl);
+    margin-left: auto;
     border: 1px solid var(--ui-border);
-    border-radius: 0.3125rem;
+    border-radius: var(--app-action-radius);
     background: var(--ui-bg);
     color: var(--ui-text);
-    font-size: 0.6875rem;
-    font-weight: 500;
+    font-size: var(--app-sidebar-caption-font-size);
+    font-weight: var(--app-font-weight-medium);
     cursor: pointer;
     white-space: nowrap;
     flex-shrink: 0;

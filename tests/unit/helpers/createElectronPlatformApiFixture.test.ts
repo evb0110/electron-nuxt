@@ -9,6 +9,7 @@ import {
     PLATFORM_API_DESCRIPTOR,
 } from '@contracts/platformApi';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import type { TPlatformApiFixtureOverrides } from '@tests/helpers/createPlatformApiFixture';
 
 function readPath(root: unknown, path: readonly string[]) {
     let value = root;
@@ -23,6 +24,10 @@ function readPath(root: unknown, path: readonly string[]) {
 
 function formatPath(path: readonly string[]) {
     return path.join('.');
+}
+
+function asFixtureOverrides(value: unknown): TPlatformApiFixtureOverrides {
+    return value as TPlatformApiFixtureOverrides;
 }
 
 describe('createElectronPlatformApiFixture', () => {
@@ -61,5 +66,28 @@ describe('createElectronPlatformApiFixture', () => {
         expect(api.documents.openDocumentDialog).toBe(openDocumentDialog);
         expect(api.documentPicker?.openDocumentDialog).toBe(openDocumentDialog);
         expect(api.documents.recentFiles.remove).toEqual(expect.any(Function));
+    });
+
+    it('generates electron native optional methods from the platform manifest', () => {
+        const api = createElectronPlatformApiFixture();
+
+        expect(api.documentFiles?.repairPdf).toEqual(expect.any(Function));
+        expect(api.documentFiles?.getPdfNativePageSizes).toEqual(expect.any(Function));
+        expect(api.documentFiles?.cancelPdfNativePagePreview).toEqual(expect.any(Function));
+        expect(api.documents.renderPdfNativePagePreview).toEqual(expect.any(Function));
+    });
+
+    it('rejects overrides that remove a required manifest method', () => {
+        const overrides = asFixtureOverrides({documents: {readFile: undefined}});
+
+        expect(() => createElectronPlatformApiFixture(overrides))
+            .toThrow('Missing platform API fixture method documentFiles.readFile');
+    });
+
+    it('rejects unsupported default calls instead of silently resolving undefined', async () => {
+        const api = createElectronPlatformApiFixture();
+
+        await expect(api.shell.openExternal('https://example.test'))
+            .rejects.toThrow('Unsupported platform API fixture call: shell.openExternal');
     });
 });

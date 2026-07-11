@@ -169,6 +169,9 @@ import {
 } from '@contracts/djvuConversionPolicy';
 import {
     DJVU_COMPACT_DJVU_AWARE_PRESET_VALUE,
+    DJVU_COMPACT_ARCHIVAL_PRESET_VALUE,
+    DJVU_COMPACT_BALANCED_PRESET_VALUE,
+    DJVU_COMPACT_SMALL_PRESET_VALUE,
     createDirectDjvuConvertDialogPresetValue,
     resolveDjvuConvertDialogSelection,
     resolveRecommendedAdvancedDirectPresetValue,
@@ -220,7 +223,7 @@ interface IResolvedPreset {
 const info = ref<IInfo | null>(null);
 const estimates = ref<IDjvuSizeEstimate[]>([]);
 const estimatesLoading = ref(false);
-const selectedPresetValue = ref<TDjvuConvertDialogPresetValue>(DJVU_COMPACT_DJVU_AWARE_PRESET_VALUE);
+const selectedPresetValue = ref<TDjvuConvertDialogPresetValue>(DJVU_COMPACT_BALANCED_PRESET_VALUE);
 const preserveBookmarks = ref(true);
 const advancedRasterOpen = ref(false);
 const recommendedRadioGroupUi = {
@@ -239,15 +242,33 @@ const advancedRadioGroupUi = {
 } as const;
 
 const selectedConversion = computed(() => resolveDjvuConvertDialogSelection(selectedPresetValue.value));
-const recommendedPresets = computed<IResolvedPreset[]>(() => [{
-    value: DJVU_COMPACT_DJVU_AWARE_PRESET_VALUE,
-    subsample: 1,
-    pdfStrategy: 'compact-djvu-aware',
-    label: t('djvu.convertDialog.sourceDetailCompact'),
-    description: t('djvu.convertDialog.sourceDetailCompactDescription'),
-    note: t('djvu.convertDialog.sourceDetailCompactSizeNote'),
-    isRecommended: true,
-}]);
+const recommendedPresets = computed<IResolvedPreset[]>(() => [
+    {
+        value: DJVU_COMPACT_SMALL_PRESET_VALUE,
+        subsample: 4,
+        pdfStrategy: 'compact-djvu-aware',
+        label: t('djvu.convertDialog.compact'),
+        description: t('djvu.convertDialog.quarterResolution'),
+        note: t('djvu.convertDialog.sourceDetailCompactSizeNote'),
+    },
+    {
+        value: DJVU_COMPACT_BALANCED_PRESET_VALUE,
+        subsample: 2,
+        pdfStrategy: 'compact-djvu-aware',
+        label: t('djvu.convertDialog.sourceDetailCompact'),
+        description: t('djvu.convertDialog.sourceDetailCompactDescription'),
+        note: t('djvu.convertDialog.sourceDetailCompactSizeNote'),
+        isRecommended: true,
+    },
+    {
+        value: DJVU_COMPACT_ARCHIVAL_PRESET_VALUE,
+        subsample: 1,
+        pdfStrategy: 'compact-djvu-aware',
+        label: t('djvu.convertDialog.fullQuality'),
+        description: t('djvu.convertDialog.original'),
+        note: t('djvu.convertDialog.sourceDetailCompactSizeNote'),
+    },
+]);
 const advancedDirectPresets = computed<IResolvedPreset[]>(() => {
     const estimateBySubsample = new Map(estimates.value.map(estimate => [
         estimate.subsample,
@@ -368,7 +389,7 @@ watch(open, async (isOpen, _wasOpen, onCleanup) => {
         isCurrentRequest = false;
     });
 
-    selectedPresetValue.value = DJVU_COMPACT_DJVU_AWARE_PRESET_VALUE;
+    selectedPresetValue.value = DJVU_COMPACT_BALANCED_PRESET_VALUE;
     advancedRasterOpen.value = false;
     preserveBookmarks.value = true;
     info.value = null;

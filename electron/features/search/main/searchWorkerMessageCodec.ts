@@ -1,4 +1,5 @@
 import { SEARCH_RESULT_LIMIT } from '@electron/config/constants';
+import { SEARCH_WIRE_CODEC } from '@contracts/search';
 import type {
     ISearchResponse,
     TSearchWorkerOutboundMessage,
@@ -7,9 +8,6 @@ import {
     isFiniteWorkerMessageNumber,
     isWorkerMessageRecord,
 } from '@electron/utils/workerMessage';
-import { parsePageNumber } from '@contracts/pageNumbers';
-import { isOcrWord } from '@contracts/shared';
-import type { TOcrIndexRotation } from '@contracts/ocrIndex';
 
 type TSearchMatch = ISearchResponse['results'][number];
 
@@ -18,45 +16,11 @@ const SEARCH_OUTBOUND_EXCERPT_TEXT_MAX_CHARS = 4_096;
 const SEARCH_OUTBOUND_WORD_LIMIT = 2_048;
 const SEARCH_OUTBOUND_WORD_TEXT_MAX_CHARS = 4_096;
 
-function parseSearchExcerpt(value: unknown) {
-    if (!isWorkerMessageRecord(value)) {
-        return null;
-    }
-    if (
-        typeof value.prefix !== 'boolean'
-        || typeof value.suffix !== 'boolean'
-        || typeof value.before !== 'string'
-        || typeof value.match !== 'string'
-        || typeof value.after !== 'string'
-    ) {
-        return null;
-    }
-    return {
-        prefix: value.prefix,
-        suffix: value.suffix,
-        before: value.before,
-        match: value.match,
-        after: value.after,
-    };
-}
-
 function parseNonNegativeWorkerInteger(value: unknown) {
     if (!isFiniteWorkerMessageNumber(value) || !Number.isSafeInteger(value) || value < 0) {
         return null;
     }
     return value;
-}
-
-function parsePositiveWorkerNumber(value: unknown) {
-    return isFiniteWorkerMessageNumber(value) && value > 0
-        ? value
-        : undefined;
-}
-
-function parseOcrRotation(value: unknown): TOcrIndexRotation | undefined {
-    return value === 0 || value === 90 || value === 180 || value === 270
-        ? value
-        : undefined;
 }
 
 function trimSearchTextSegment(value: string, maxLength: number, fromEnd = false) {
@@ -132,46 +96,7 @@ export function capSearchResponse(
 }
 
 function parseSearchMatch(value: unknown, pageCount?: number) {
-    if (!isWorkerMessageRecord(value)) {
-        return null;
-    }
-    const excerpt = parseSearchExcerpt(value.excerpt);
-    if (!excerpt) {
-        return null;
-    }
-    const pageNumber = isFiniteWorkerMessageNumber(value.pageNumber)
-        ? parsePageNumber(value.pageNumber, pageCount)
-        : null;
-    const pageMatchIndex = parseNonNegativeWorkerInteger(value.pageMatchIndex);
-    const matchIndex = parseNonNegativeWorkerInteger(value.matchIndex);
-    const startOffset = parseNonNegativeWorkerInteger(value.startOffset);
-    const endOffset = parseNonNegativeWorkerInteger(value.endOffset);
-    if (
-        pageNumber === null
-        || pageMatchIndex === null
-        || matchIndex === null
-        || startOffset === null
-        || endOffset === null
-        || endOffset < startOffset
-    ) {
-        return null;
-    }
-    const words = Array.isArray(value.words) && value.words.every(isOcrWord) ? value.words : undefined;
-    const pageWidth = parsePositiveWorkerNumber(value.pageWidth);
-    const pageHeight = parsePositiveWorkerNumber(value.pageHeight);
-    const rotation = parseOcrRotation(value.rotation);
-    return {
-        pageNumber,
-        pageMatchIndex,
-        matchIndex,
-        startOffset,
-        endOffset,
-        excerpt,
-        ...(words !== undefined ? { words } : {}),
-        ...(pageWidth !== undefined ? { pageWidth } : {}),
-        ...(pageHeight !== undefined ? { pageHeight } : {}),
-        ...(rotation !== undefined ? { rotation } : {}),
-    };
+    return SEARCH_WIRE_CODEC.decodeResult(value, pageCount);
 }
 
 function parseSearchResponse(value: unknown, pageCount?: number) {

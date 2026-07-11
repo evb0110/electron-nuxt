@@ -8,7 +8,7 @@ import type {
     IAnnotationCommentSummary,
     TAnnotationCommentsStatus,
 } from '@app/types/annotations';
-import type { IAnnotationNoteWindowState } from '@app/types/annotationNoteWindow';
+import type { IAnnotationNoteWindowViewModel } from '@app/types/annotationNoteWindow';
 import type {
     IRecentFile,
     TFitMode,
@@ -236,7 +236,7 @@ export interface IWorkspaceAutomationStateSnapshot {
         pendingEmbeddedAnnotationDeleteCount: number;
     };
     originalPath: TDocumentRef | null;
-    sortedAnnotationNoteWindows: IAnnotationNoteWindowState[];
+    sortedAnnotationNoteWindows: IAnnotationNoteWindowViewModel[];
     workingCopyPath: TDocumentRef | null;
 }
 

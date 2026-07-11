@@ -247,4 +247,42 @@ describe('usePageDragDrop', () => {
         expect(dragDrop.draggedPages.value).toEqual([]);
         expect(dragDrop.dropInsertIndex.value).toBeNull();
     });
+
+    it('flushes the mouseup position before committing a page reorder', async () => {
+        const {
+            container,
+            windowTarget,
+        } = createDragEventTarget();
+        const onReorder = vi.fn();
+        const dragDrop = usePageDragDrop({
+            containerRef: ref(container),
+            totalPages: ref(3),
+            selectedPages: ref([]),
+            resolveDropIndex: clientY => clientY >= 100 ? 3 : 1,
+            onReorder,
+        });
+
+        dragDrop.handleMouseDown(new MouseEvent('mousedown', {
+            button: 0,
+            clientX: 0,
+            clientY: 0,
+        }), 1);
+        await nextTick();
+        windowTarget.dispatchEvent(new MouseEvent('mousemove', {
+            buttons: 1,
+            clientX: 20,
+            clientY: 10,
+        }));
+        windowTarget.dispatchEvent(new MouseEvent('mouseup', {
+            buttons: 0,
+            clientX: 20,
+            clientY: 100,
+        }));
+
+        expect(onReorder).toHaveBeenCalledExactlyOnceWith([
+            2,
+            3,
+            1,
+        ]);
+    });
 });

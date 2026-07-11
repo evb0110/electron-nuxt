@@ -32,6 +32,7 @@ interface IUsePdfShapeContextDeps {
     annotationSettings: ComputedRef<IAnnotationSettings | null>;
     onShapeCreated: (shape: IShapeAnnotation) => void;
     onShapeUpdated: (previousShape: IShapeAnnotation, nextShape: IShapeAnnotation) => void;
+    onShapePreviewed: (shape: IShapeAnnotation) => void;
     onShapeContextMenu: (payload: IShapeContextMenuPayload) => void;
 }
 
@@ -44,6 +45,7 @@ export const usePdfShapeContext = (deps: IUsePdfShapeContextDeps) => {
         annotationSettings,
         onShapeCreated,
         onShapeUpdated,
+        onShapePreviewed,
         onShapeContextMenu,
     } = deps;
 
@@ -183,7 +185,7 @@ export const usePdfShapeContext = (deps: IUsePdfShapeContextDeps) => {
             shapeComposable.continueDrawing(coords.x, coords.y);
         },
         handleFinishDrawing() {
-            const shape = shapeComposable.finishDrawing();
+            const shape = shapeComposable.finishDrawingDraft();
             if (shape) {
                 onShapeCreated(shape);
             }
@@ -223,7 +225,7 @@ export const usePdfShapeContext = (deps: IUsePdfShapeContextDeps) => {
             const deltaX = coords.x - dragState.origin.x;
             const deltaY = coords.y - dragState.origin.y;
             const nextShape = translateShape(dragState.baselineShape, deltaX, deltaY);
-            shapeComposable.updateShape(dragState.shapeId, nextShape);
+            onShapePreviewed(nextShape);
         },
         handleFinishDraggingShape() {
             if (!dragState) {
@@ -279,7 +281,7 @@ export const usePdfShapeContext = (deps: IUsePdfShapeContextDeps) => {
                 resizeState.baselineBounds,
                 nextBounds,
             );
-            shapeComposable.updateShape(resizeState.shapeId, nextShape);
+            onShapePreviewed(nextShape);
         },
         handleFinishResizingShape() {
             if (!resizeState) {

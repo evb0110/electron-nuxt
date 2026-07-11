@@ -69,7 +69,6 @@ const reloadCancellation: IDocumentViewportTransactionCancellation = {
     reason: 'reload',
     cancelInFlightRenders: true,
     bumpRenderVersion: true,
-    clearTimers: true,
     preserveVisualContent: true,
 };
 

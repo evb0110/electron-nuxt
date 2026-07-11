@@ -6,8 +6,8 @@ import { parsePageIndex } from '@contracts/pageNumbers';
 import { isReplayableEditorOnlyFreeTextNote } from '@app/modules/pdf-viewer/runtime/save/nativeFreeTextNotes';
 import type {
     INativePdfMutationBuildResult,
-    INativePdfMutationPlanCommonInput,
-} from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationPlanTypes';
+    INativePdfMutationProjectionCommonInput,
+} from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
 
 function parseAnnotationRefFromStableKey(stableKey: string) {
     return parsePdfAnnotationStableKeyRef(stableKey)?.ref ?? null;
@@ -20,7 +20,7 @@ function resolveNativeAnnotationDeleteRef(comment: IAnnotationCommentSummary) {
         ?? parsePdfJsAnnotationRef(comment.id);
 }
 
-export type IBuildNativeAnnotationDeletesForSaveInput = INativePdfMutationPlanCommonInput;
+export type IBuildNativeAnnotationDeletesForSaveInput = INativePdfMutationProjectionCommonInput;
 
 export function buildNativeAnnotationDeletesForSave(
     opts: IBuildNativeAnnotationDeletesForSaveInput,

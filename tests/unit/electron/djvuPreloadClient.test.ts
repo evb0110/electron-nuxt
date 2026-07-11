@@ -40,12 +40,8 @@ describe('createDjvuPreloadClient', () => {
         const { createDjvuPreloadClient }: typeof DjvuPreloadClientModule = await import('@electron/features/djvu/createDjvuPreloadClient');
         const client = createDjvuPreloadClient(cast<IpcRenderer>(ipcRenderer));
         const progressCallback = vi.fn();
-        const readyCallback = vi.fn();
-        const errorCallback = vi.fn();
 
         client.onProgress(progressCallback);
-        client.onViewingReady(readyCallback);
-        client.onViewingError(errorCallback);
         listeners.get(DJVU_EVENT_CHANNELS.progress)?.({}, {
             jobId: 'djvu-1',
             phase: 'converting',
@@ -74,20 +70,6 @@ describe('createDjvuPreloadClient', () => {
             percent: 100,
             status: 'invalid',
         });
-        listeners.get(DJVU_EVENT_CHANNELS.viewingReady)?.({}, {
-            pdfPath: '/tmp/view.pdf',
-            isPartial: true,
-            jobId: 'view-1',
-        });
-        listeners.get(DJVU_EVENT_CHANNELS.viewingReady)?.({}, {
-            pdfPath: '/tmp/view.pdf',
-            isPartial: 'yes',
-        });
-        listeners.get(DJVU_EVENT_CHANNELS.viewingError)?.({}, {
-            error: 'failed',
-            jobId: 'view-1',
-        });
-        listeners.get(DJVU_EVENT_CHANNELS.viewingError)?.({}, {error: 42});
 
         expect(progressCallback).toHaveBeenCalledTimes(3);
         expect(progressCallback).toHaveBeenNthCalledWith(1, {
@@ -106,17 +88,6 @@ describe('createDjvuPreloadClient', () => {
             percent: 100,
             status: 'failed',
             error: 'failed',
-        });
-        expect(readyCallback).toHaveBeenCalledOnce();
-        expect(readyCallback).toHaveBeenCalledWith({
-            pdfPath: '/tmp/view.pdf',
-            isPartial: true,
-            jobId: 'view-1',
-        });
-        expect(errorCallback).toHaveBeenCalledOnce();
-        expect(errorCallback).toHaveBeenCalledWith({
-            error: 'failed',
-            jobId: 'view-1',
         });
     });
 });

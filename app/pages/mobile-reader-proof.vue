@@ -107,6 +107,8 @@
                     :compact-level="2"
                     @update:effective-zoom="effectiveZoom = $event"
                     @update:open="zoomDropdownOpen = $event"
+                    @fit-width="handleFitWidth"
+                    @fit-height="handleFitHeight"
                 />
             </template>
         </PdfToolbar>

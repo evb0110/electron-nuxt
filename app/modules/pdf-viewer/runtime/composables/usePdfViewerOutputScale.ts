@@ -4,6 +4,10 @@ function readWindowOutputScale() {
         : 1;
 }
 
+export function shouldDeferPdfDprRerenderForResize(isResizing: boolean) {
+    return isResizing;
+}
+
 export const usePdfViewerOutputScale = () => {
     const outputScale = ref(readWindowOutputScale());
     let mediaQuery: MediaQueryList | null = null;

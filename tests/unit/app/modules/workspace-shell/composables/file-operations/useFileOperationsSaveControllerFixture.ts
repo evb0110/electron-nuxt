@@ -5,6 +5,7 @@ import {
 import {
     ref,
     shallowRef,
+    type Ref,
 } from 'vue';
 import type {
     IAnnotationCommentSummary,
@@ -13,6 +14,12 @@ import type {
 import type { IFileOperationsSaveAdapterPorts } from '@app/modules/workspace-shell/composables/file-operations/saveRolePorts';
 import { useFileOperationsSaveController as useFileOperationsSaveControllerPublic } from '@app/modules/workspace-shell/composables/file-operations/useFileOperationsSaveController';
 import { usePdfViewerSaveTransaction } from '@app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction';
+import {
+    asAnnotationId,
+    deriveAnnotationId,
+    type AnnotationEntity,
+} from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
+import {buildSerializationPlan} from '@app/modules/pdf-viewer/serialization/serializationPlan';
 import { cast } from '@tests/helpers/cast';
 
 export const toastAddMock = vi.fn();
@@ -32,7 +39,12 @@ type TFileOperationsSaveControllerTestDeps =
     & IFileOperationsSaveAdapterPorts['viewer']['shapes']
     & IFileOperationsSaveAdapterPorts['viewer']['shapeState']
     & IFileOperationsSaveAdapterPorts['lifecycle']
-    & NonNullable<IFileOperationsSaveAdapterPorts['operationLease']>;
+    & NonNullable<IFileOperationsSaveAdapterPorts['operationLease']>
+    & {
+        canonicalAnnotationComments: Ref<IAnnotationCommentSummary[]>;
+        captureCanonicalPendingTextUpdates: () => Map<string, string> | null;
+        captureCanonicalPendingAnnotationDeletes: () => IAnnotationCommentSummary[] | null;
+    };
 export type TPdfNativeMutationSave = NonNullable<NonNullable<
     IFileOperationsSaveAdapterPorts['persistence']['nativeMutations']
 >['trySavePdfNativeMutations']>;
@@ -89,6 +101,84 @@ export function useFileOperationsSaveController(deps: TFileOperationsSaveControl
     return useFileOperationsSaveControllerPublic(createSaveControllerPorts(deps));
 }
 
+function canonicalEntityFromSummary(
+    summary: IAnnotationCommentSummary,
+    pendingTexts: ReadonlyMap<string, string>,
+    deleted = false,
+): AnnotationEntity {
+    const id = summary.appAnnotationId
+        ? asAnnotationId(summary.appAnnotationId)
+        : deriveAnnotationId('save-controller-fixture', summary.stableKey);
+    const identity = {
+        id,
+        ...(summary.annotationId ? {pdfRef: summary.annotationId} : {}),
+        ...(summary.annotationName ? {pdfName: summary.annotationName} : {}),
+        ...(summary.uid ? {pdfjsUid: summary.uid} : {}),
+        ...(summary.id ? {elementId: summary.id} : {}),
+    };
+    const text = pendingTexts.get(summary.stableKey) ?? summary.text;
+    const common = {
+        identity,
+        pageIndex: summary.pageIndex,
+        revision: 1,
+        persistedRevision: 0,
+        deleted,
+        createdAt: summary.createdAt ?? null,
+        modifiedAt: summary.modifiedAt ?? null,
+        author: summary.author ?? null,
+    } as const;
+    if (
+        summary.subtype === 'Highlight'
+        || summary.subtype === 'Underline'
+        || summary.subtype === 'Squiggly'
+        || summary.subtype === 'StrikeOut'
+    ) {
+        return {
+            ...common,
+            kind: 'text-markup',
+            subtype: summary.subtype,
+            text,
+            geometry: summary.markerRect ? [summary.markerRect] : [],
+            color: summary.color ?? null,
+            opacity: summary.opacity ?? null,
+        };
+    }
+    return {
+        ...common,
+        kind: 'sticky-note',
+        text,
+        anchor: summary.markerRect ?? {
+            left: 0.1,
+            top: 0.1,
+            width: 0.0016,
+            height: 0.0016,
+        },
+        color: summary.color ?? null,
+    };
+}
+
+function buildCanonicalAnnotationPlan(deps: TFileOperationsSaveControllerTestDeps) {
+    const pendingTexts = deps.captureCanonicalPendingTextUpdates() ?? new Map<string, string>();
+    const pendingDeletes = deps.captureCanonicalPendingAnnotationDeletes() ?? [];
+    const live = deps.canonicalAnnotationComments.value.map(summary => (
+        canonicalEntityFromSummary(summary, pendingTexts)
+    ));
+    const deleted = pendingDeletes.map(summary => canonicalEntityFromSummary(summary, pendingTexts, true));
+    const entities = [
+        ...live,
+        ...deleted,
+    ];
+    return buildSerializationPlan({
+        documentRevisionToken: deps.documentRevisionToken.value,
+        epoch: 1,
+        entityBaselineHash: 'save-controller-fixture',
+        revisions: new Map(entities.map(entity => [
+            entity.identity.id,
+            entity.revision,
+        ])),
+    }, entities, entities);
+}
+
 export function createDeps(overrides: Partial<Parameters<typeof useFileOperationsSaveController>[0]> = {}) {
     const resetModified = vi.fn();
     const saveFile = vi.fn(async (_data: Uint8Array) => ({
@@ -114,7 +204,7 @@ export function createDeps(overrides: Partial<Parameters<typeof useFileOperation
         workingCopyPath: ref('/tmp/work.pdf'),
         documentRevisionToken: ref('rev-1'),
         annotationDirty: ref(false),
-        annotationComments: ref([]),
+        canonicalAnnotationComments: ref([]),
         pageLabelsDirty: ref(false),
         bookmarksDirty: ref(false),
         pdfDocument: shallowRef(cast({ annotationStorage: { resetModified } })),
@@ -148,10 +238,8 @@ export function createDeps(overrides: Partial<Parameters<typeof useFileOperation
             5,
         ])),
         persistAllAnnotationNotes: vi.fn(async (_force: boolean) => true),
-        consumePendingEmbeddedTextUpdates: vi.fn(() => null),
-        restorePendingEmbeddedTextUpdates: vi.fn(),
-        consumePendingEmbeddedAnnotationDeletes: vi.fn(() => null),
-        restorePendingEmbeddedAnnotationDeletes: vi.fn(),
+        captureCanonicalPendingTextUpdates: vi.fn(() => null),
+        captureCanonicalPendingAnnotationDeletes: vi.fn(() => null),
         annotationNoteWindowsCount: ref(0),
         loadRecentFiles: vi.fn(),
         markShapeStateSaved: vi.fn(),
@@ -162,11 +250,20 @@ export function createDeps(overrides: Partial<Parameters<typeof useFileOperation
         ...overrides,
     });
     if (!overrides.runSaveTransaction) {
+        const hasCanonicalAnnotationPlan = overrides.canonicalAnnotationComments !== undefined
+            || overrides.captureCanonicalPendingTextUpdates !== undefined
+            || overrides.captureCanonicalPendingAnnotationDeletes !== undefined;
         const transaction = usePdfViewerSaveTransaction({
             materializePdfJsDocumentForInternalUse: deps.saveDocument,
             ...(deps.commitPdfEditorsForSave ? {commitPdfEditorsForSave: deps.commitPdfEditorsForSave} : {}),
             getPdfDocument: () => deps.pdfDocument.value,
-            getAnnotationCommentsSnapshot: () => deps.getAnnotationCommentsSnapshot?.() ?? deps.annotationComments.value,
+            ...(hasCanonicalAnnotationPlan
+                ? {prepareAnnotationSave: () => ({
+                    plan: buildCanonicalAnnotationPlan(deps),
+                    verify: vi.fn(async () => undefined),
+                    commit: vi.fn(),
+                })}
+                : {}),
             getMarkupSubtypeOverrides: () => deps.getMarkupSubtypeOverrides?.(),
             getMarkupSubtypeHints: () => deps.getMarkupSubtypeHints?.(),
             getAllShapes: () => deps.getAllShapes?.() ?? [],

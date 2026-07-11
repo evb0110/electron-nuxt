@@ -743,7 +743,7 @@ const {
     inset: 0;
     width: 100%;
     height: 100%;
-    z-index: 6;
+    z-index: var(--app-z-pdf-shape-layer);
     pointer-events: none;
 }
 

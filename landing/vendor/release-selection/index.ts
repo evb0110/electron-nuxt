@@ -38,3 +38,12 @@ export {
     parseRetryAfterMs,
     shouldRetryReleaseFetch,
 } from './latestReleaseRetry';
+
+export {
+    normalizeCanaryPercent,
+    parseReleaseTagList,
+    selectReleaseForRollout,
+} from './releaseRolloutPolicy';
+export type {
+    IReleaseRolloutPolicy, IRolloutRelease,
+} from './releaseRolloutPolicy';

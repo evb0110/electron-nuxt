@@ -46,10 +46,10 @@
         </div>
         <div
             v-if="runtimeErrorReports.length > 0"
-            class="fixed bottom-4 right-4 z-40 w-[min(32rem,calc(100vw-2rem))]"
+            class="runtime-error-reports fixed bottom-4 right-4 z-40"
         >
             <div
-                class="max-h-[min(32rem,calc(100vh-2rem))] overflow-hidden rounded-lg border border-default bg-default p-4 shadow-[var(--shadow-popup)]"
+                class="runtime-error-reports-card overflow-hidden rounded-lg border border-default bg-default p-4 shadow-[var(--shadow-popup)]"
             >
                 <div class="flex items-start gap-3">
                     <UIcon name="i-ph-x-circle" class="mt-0.5 size-5 shrink-0 text-[color:var(--ui-error)]" />
@@ -71,7 +71,7 @@
                         </p>
                         <div
                             v-if="showRuntimeErrorDetails"
-                            class="mt-3 max-h-[min(22rem,calc(100vh-12rem))] space-y-3 overflow-y-auto pr-1"
+                            class="runtime-error-report-details mt-3 space-y-3 overflow-y-auto pr-1"
                         >
                             <div
                                 v-for="report in runtimeErrorReports"
@@ -165,10 +165,11 @@ import {
     BROWSER_THEME_COOKIE_KEY,
 } from '@app/utils/browserSettingsPersistence';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
+import { markStartupMetricOnce } from '@app/utils/startupMetrics';
+import {onBrowserDocumentPersistenceWarning} from '@app/platform/browser/browserDocumentPersistenceWarnings';
 import {
     preloadDocumentWorkspace,
     shouldPreloadWorkspaceDuringStartup,
-    warmupDesktopViewerChunks,
 } from '@app/modules/workspace-shell/public';
 import {
     isElectronUserAgent,
@@ -188,6 +189,8 @@ const {
     setPreferenceFromSettings,
 } = useUiScale();
 const hostEnvironmentUnsubscribers: Array<() => void> = [];
+const toast = useToast();
+let themeRepaintRevision = 0;
 const {
     hasUsableInitialSnapshot: hasUsableInitialRecentFilesSnapshot,
     loadRecentFiles,
@@ -303,7 +306,26 @@ function guardStartupWarmup(promise: Promise<unknown>, title: string) {
     void promise.catch(error => reportStartupWarmupFailure(title, error));
 }
 
+watch(() => colorMode.value, async () => {
+    if (!import.meta.client) {
+        return;
+    }
+    const revision = ++themeRepaintRevision;
+    await nextTick();
+    await waitForVisualFrames();
+    if (revision !== themeRepaintRevision) {
+        return;
+    }
+
+    // Hidden workspace tabs are retained with v-show. Some Chromium builds can
+    // leave their composited layers painted in the prior color scheme until a
+    // layout event occurs, so make the theme commit an explicit layout epoch.
+    document.documentElement.getBoundingClientRect();
+    window.dispatchEvent(new Event('resize'));
+});
+
 onBeforeUnmount(() => {
+    themeRepaintRevision += 1;
     while (hostEnvironmentUnsubscribers.length > 0) {
         const unsubscribe = hostEnvironmentUnsubscribers.pop();
         try {
@@ -346,8 +368,10 @@ async function preloadStartupContent() {
     }
 
     const warmupStartedAt = performance.now();
-    const shouldBlockOnRecentFiles = isDesktopRuntime.value;
-    const shouldBlockOnWorkspacePreload = isDesktopRuntime.value;
+    // The interactive shell is the startup critical path. Recents and the
+    // document workspace hydrate behind it and publish their own readiness.
+    const shouldBlockOnRecentFiles = false;
+    const shouldBlockOnWorkspacePreload = false;
     BrowserLogger.debug('loader', 'Startup content warmup started', {
         hasUsableInitialRecentFilesSnapshot: hasUsableInitialRecentFilesSnapshot.value,
         isDesktopRuntime: isDesktopRuntime.value,
@@ -386,11 +410,6 @@ async function preloadStartupContent() {
         } else {
             guardStartupWarmup(workspacePreload, 'Workspace preload failed');
         }
-    }
-
-    const viewerChunksWarmup = warmupDesktopViewerChunks({ isDesktopRuntime: isDesktopRuntime.value });
-    if (viewerChunksWarmup) {
-        guardStartupWarmup(viewerChunksWarmup, 'Viewer chunk warmup failed');
     }
 
     const results = await Promise.allSettled(warmupTasks.map(task => task.promise));
@@ -455,6 +474,20 @@ installViteReloadDiagnostics();
 onMounted(async () => {
     const mountTime = Date.now();
     try {
+        hostEnvironmentUnsubscribers.push(onBrowserDocumentPersistenceWarning(({
+            fileName,
+            error,
+        }) => {
+            BrowserLogger.warn('browser-storage', 'Document remains available only in memory', {
+                fileName,
+                error,
+            });
+            toast.add({
+                color: 'warning',
+                title: t('errors.file.browserStorageTitle'),
+                description: t('errors.file.browserStorageDescription', {name: fileName}),
+            });
+        }));
         const bridgeResolution = await waitForPreferredDesktopPlatformBridge({
             routePath: route.path,
             desktopRuntime: isDesktopRuntime.value,
@@ -482,6 +515,7 @@ onMounted(async () => {
         }
         await nextTick();
         await waitForVisualFrames();
+        markStartupMetricOnce('evb:shell-interactive');
     } catch (error) {
         BrowserLogger.error('loader', 'App bootstrap failed', error);
         setFatalRuntimeError('startup', error, 'app-bootstrap');
@@ -500,6 +534,18 @@ onMounted(async () => {
 <style scoped>
 .copy-report-button {
     transform-origin: center;
+}
+
+.runtime-error-reports {
+    width: min(var(--app-runtime-report-width), calc(100vw - var(--app-runtime-report-viewport-gutter)));
+}
+
+.runtime-error-reports-card {
+    max-height: min(var(--app-runtime-report-max-height), calc(100vh - var(--app-runtime-report-viewport-gutter)));
+}
+
+.runtime-error-report-details {
+    max-height: min(var(--app-runtime-report-details-max-height), calc(100vh - var(--app-runtime-report-details-viewport-reserve)));
 }
 
 .copy-report-button--success {

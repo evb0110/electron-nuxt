@@ -33,6 +33,7 @@ import {
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
+import { quarantineCorruptFile } from '@electron/utils/quarantineCorruptFile';
 
 const logger = createLogger('recentFiles');
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
@@ -263,17 +264,32 @@ async function loadBootstrapRecentFilesData(): Promise<IRecentFilesData | null> 
 
 async function loadRecentFilesData(): Promise<IRecentFilesData> {
     const storagePath = getStoragePath();
+    let content: string;
     try {
-        const content = await readFile(storagePath, 'utf-8');
-        const parsed: unknown = JSON.parse(content);
-        return normalizeRecentFilesData(parsed);
+        content = await readFile(storagePath, 'utf-8');
     } catch (err) {
         if (isErrnoException(err) && err.code === 'ENOENT') {
             const bootstrapData = await loadBootstrapRecentFilesData();
             return bootstrapData ?? emptyRecentFilesData();
         }
-        logger.error(`Failed to load recent files: ${getErrorMessage(err)}`);
+        logger.error(`Failed to read recent files: ${getErrorMessage(err)}`);
         return emptyRecentFilesData();
+    }
+
+    try {
+        const parsed: unknown = JSON.parse(content);
+        return normalizeRecentFilesData(parsed);
+    } catch (err) {
+        logger.error(`Failed to load recent files: ${getErrorMessage(err)}`);
+        const emptyData = emptyRecentFilesData();
+        try {
+            const quarantinePath = await quarantineCorruptFile(storagePath);
+            await saveRecentFilesData(emptyData);
+            logger.warn(`Quarantined corrupt recent-files state at ${quarantinePath ?? storagePath}`);
+        } catch (recoveryError) {
+            logger.error(`Failed to recover corrupt recent files: ${getErrorMessage(recoveryError)}`);
+        }
+        return emptyData;
     }
 }
 

@@ -1,6 +1,7 @@
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { IOcrLanguage } from '@contracts/shared';
+import type { IDocumentTextSnapshot } from '@contracts/documentTextCatalog';
 
 export type TOcrErrorCode =
     | 'OCR_INVALID_PAYLOAD'
@@ -27,6 +28,28 @@ export interface IOcrErrorEnvelope {
 
 export interface IOcrErrorEnvelopeCarrier {errorEnvelope?: IOcrErrorEnvelope;}
 
+export type TOcrDiagnosticCode =
+    | 'OCR_PREPROCESSING_UNAVAILABLE'
+    | 'OCR_PREPROCESSING_FAILED'
+    | 'OCR_PREPROCESSING_GEOMETRY_CHANGED'
+    | 'OCR_SOURCE_DPI_LIMITED'
+    | 'OCR_EXISTING_TEXT_SKIPPED';
+
+export const OCR_DIAGNOSTIC_CODES = [
+    'OCR_PREPROCESSING_UNAVAILABLE',
+    'OCR_PREPROCESSING_FAILED',
+    'OCR_PREPROCESSING_GEOMETRY_CHANGED',
+    'OCR_SOURCE_DPI_LIMITED',
+    'OCR_EXISTING_TEXT_SKIPPED',
+] as const satisfies readonly TOcrDiagnosticCode[];
+
+export interface IOcrDiagnostic {
+    code: TOcrDiagnosticCode;
+    severity: 'info' | 'warning';
+    message: string;
+    pageNumber?: number;
+}
+
 export interface IOcrRecognizeRequest {
     pageNumber: number;
     imageData: Uint8Array;
@@ -37,12 +60,22 @@ export interface IOcrRecognizeRequest {
 
 export type TOcrQualityProfile = 'balanced' | 'accurate' | 'poor-scan';
 export type TOcrPreprocessingMode = 'off' | 'clean';
+export type TOcrTextSupersessionPolicy = 'missing-only' | 'replace-evb' | 'replace-all';
+export type TOcrPageTextClassification =
+    | 'native-text'
+    | 'foreign-hidden-ocr'
+    | 'evb-current-generation'
+    | 'no-text';
 
 export interface IOcrSearchablePdfOptions {
     renderDpi?: number;
     qualityProfile?: TOcrQualityProfile;
     preprocessingMode?: TOcrPreprocessingMode;
     pageSegmentationMode?: number;
+    /** Defaults to missing-only. replace-all requires an explicit UI acknowledgement. */
+    supersessionPolicy?: TOcrTextSupersessionPolicy;
+    /** Required when supersessionPolicy is replace-all. */
+    replaceAllAcknowledged?: boolean;
 }
 
 export interface IOcrRecognizeResult extends IOcrErrorEnvelopeCarrier {
@@ -118,8 +151,30 @@ export interface IOcrCompleteResult extends IOcrErrorEnvelopeCarrier {
     success: boolean;
     pdfPath?: TDocumentRef;
     sourceDocumentRevisionToken?: TDocumentRevisionToken;
+    resultSha256?: string;
     requiresCleanupAck?: boolean;
     errors: string[];
+    diagnostics?: IOcrDiagnostic[];
+}
+
+export type TOcrJobProjectionPhase = TOcrProgressPhase
+    | 'queued'
+    | 'recognizing'
+    | 'applying'
+    | 'cancel-requested';
+
+export interface IOcrJobProjectionState {
+    jobId: string;
+    requestId: string;
+    status: 'queued' | 'running' | 'handoff' | 'completed' | 'canceled' | 'failed';
+    phase: TOcrJobProjectionPhase;
+    percent: number;
+    current?: number;
+    total?: number;
+    error?: string;
+    updatedAtMs: number;
+    supersessionPolicy?: TOcrTextSupersessionPolicy;
+    replaceAllAcknowledged?: boolean;
 }
 
 export interface IPreprocessingValidationResult extends IOcrErrorEnvelopeCarrier {
@@ -140,6 +195,8 @@ export interface IOcrToolValidationResult extends IOcrErrorEnvelopeCarrier {
             found: boolean;
             path: string;
             languages?: string[];
+            /** Supported models not installed yet; resolved through the on-demand model flow. */
+            onDemandLanguages?: string[];
         };
         pdftoppm: {
             found: boolean;
@@ -177,7 +234,15 @@ export interface IOcrCapability {
         requestId: string,
     ) => Promise<IOcrRecognizeBatchResult>;
     cancel: (requestId: string) => Promise<IOcrCancelResult>;
+    getJobState: (requestId: string) => Promise<IOcrJobProjectionState | null>;
+    subscribeJob: (requestId: string) => Promise<IOcrJobProjectionState | null>;
+    reconnectJob: (requestId: string) => Promise<IOcrJobProjectionState | null>;
     getLanguages: () => Promise<IOcrLanguage[]>;
+    resolveDocumentTextCatalog: (
+        workingCopyPath: TDocumentRef,
+        documentRevision: TDocumentRevisionToken,
+        pageCount?: number,
+    ) => Promise<IDocumentTextSnapshot>;
     validateTools: () => Promise<IOcrToolValidationResult>;
     installLanguages: (languages: string[], requestId: string) => Promise<IOcrJobStartResult>;
     acknowledgeResultFile: (requestId: string, pdfPath?: TDocumentRef) => Promise<IOcrResultFileAckResult>;

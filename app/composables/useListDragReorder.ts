@@ -1,5 +1,6 @@
 import type { Ref } from 'vue';
 import { useEventListener } from '@vueuse/core';
+import { getEventCurrentTarget } from '@app/utils/getEventCurrentTarget';
 
 export interface IListDragSlot {
     top: number;
@@ -115,7 +116,7 @@ export const useListDragReorder = (
             if (i === dragIndex.value) continue;
 
             const el = rowElements[i]!;
-            el.style.transition = 'transform 200ms ease';
+            el.style.transition = 'transform var(--app-transition-reorder)';
             if (isBetween(i, dragIndex.value, targetIndex)) {
                 const direction = targetIndex > dragIndex.value ? -1 : 1;
                 el.style.transform = `translateY(${direction * rowStride}px)`;
@@ -191,7 +192,10 @@ export const useListDragReorder = (
             return;
         }
 
-        const el = e.currentTarget as HTMLElement;
+        const el = getEventCurrentTarget(e, HTMLElement);
+        if (!el) {
+            return;
+        }
         el.setPointerCapture(e.pointerId);
 
         pointerStartY = e.clientY;

@@ -5,6 +5,7 @@ import { normalizePageRotation } from '@app/modules/pdf-viewer/engine/annotation
 import { toMarkerRectFromEditorRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/toMarkerRectFromEditorRect';
 import { toMarkerRectFromEditor } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/toMarkerRectFromEditor';
 import { getOptionalNumber } from '@app/services/pdfjs/runtime';
+import { getPdfjsEditorFacadeState } from '@app/modules/pdf-viewer/engine/annotations/bridge/getPdfjsEditorFacadeState';
 
 const PENDING_ANCHOR_DISTANCE_THRESHOLD = 0.14;
 
@@ -25,7 +26,7 @@ export function resolveEditorMarkerRect(editor: IPdfjsEditor) {
     const markerRectFromEditor = directEditorRect
         ? toMarkerRectFromEditorRect(directEditorRect, editorRotation)
         : toMarkerRectFromEditor(editor);
-    const pendingAnchorRect = normalizeMarkerRect(editor.__evbPendingAnchorRect ?? null);
+    const pendingAnchorRect = normalizeMarkerRect(getPdfjsEditorFacadeState(editor).pendingAnchorRect ?? null);
     const markerDistanceFromPending = markerRectCenterDistance(markerRectFromEditor, pendingAnchorRect);
     const hasPointSizedPendingAnchor = Boolean(
         pendingAnchorRect

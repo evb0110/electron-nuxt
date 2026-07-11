@@ -3,13 +3,13 @@ import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { IRecentFile } from '@contracts/shared';
 import type { TSplitPayload } from '@contracts/windowTabs';
 import type { IWorkspaceDocumentSessionController } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
+import type { IDocumentOpenIntent } from '@app/modules/workspace-shell/document-sessions/documentOpenIntent';
 import type { TWorkspaceCommandTarget } from '@app/modules/workspace-shell/document-sessions/workspaceCommandTarget';
 import {
     createDefaultWorkspaceToolbarSnapshot,
     type IWorkspaceAgentCommandContext,
     type IWorkspaceExpose,
 } from '@app/types/workspaceExpose';
-import type { TTabUpdate } from '@app/types/tabs';
 import { buildPendingTabDocumentHint } from '@app/modules/workspace-shell/tabs/buildPendingTabDocumentHint';
 import {
     createWorkspaceExposeCommandHandlers,
@@ -22,12 +22,6 @@ import {
     type TWorkspaceExposeCommandRunner,
     type TWorkspaceExposeMethod,
 } from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
-
-interface IDocumentOpenIntent {
-    action: string;
-    commandTarget?: TWorkspaceCommandTarget;
-    target?: TTabUpdate | null;
-}
 
 interface ICreateDeferredWorkspaceExposeProxyDeps {
     documentSession?: IWorkspaceDocumentSessionController | null | undefined;

@@ -2,10 +2,10 @@ import {
     parentPort,
     workerData,
 } from 'worker_threads';
-import type {
-    ICropWorkerCancelMessage,
-    TCropWorkerInput,
-    TCropWorkerResult,
+import type {TCropWorkerResult} from '@electron/features/page-ops/main/cropWorkerProtocol';
+import {
+    decodeCropWorkerControlMessage,
+    decodeCropWorkerInput,
 } from '@electron/features/page-ops/main/cropWorkerProtocol';
 import {
     cropPagesLocal,
@@ -15,18 +15,12 @@ import {
 import { createWorkerTaskErrorFrame } from '@electron/utils/workerTask';
 import { getErrorMessage } from '@electron/utils/error';
 
-function getInput(): TCropWorkerInput {
-    const input = workerData as TCropWorkerInput | undefined;
-    if (!input || typeof input !== 'object' || typeof input.type !== 'string') {
+function getInput() {
+    const input = decodeCropWorkerInput(workerData);
+    if (!input) {
         throw new Error('Invalid crop worker payload');
     }
     return input;
-}
-
-function isCancelMessage(message: unknown): message is ICropWorkerCancelMessage {
-    return Boolean(message)
-        && typeof message === 'object'
-        && (message as {type?: unknown}).type === 'cancel';
 }
 
 async function run() {
@@ -36,7 +30,7 @@ async function run() {
 
     const abortController = new AbortController();
     parentPort.on('message', (message: unknown) => {
-        if (isCancelMessage(message)) {
+        if (decodeCropWorkerControlMessage(message)) {
             abortController.abort(new DOMException('Crop worker canceled', 'AbortError'));
         }
     });
@@ -68,8 +62,6 @@ async function run() {
                     ),
                 } satisfies TCropWorkerResult);
                 break;
-            default:
-                throw new Error(`Unsupported crop worker task: ${(input as { type: string }).type}`);
         }
     } catch (error) {
         parentPort.postMessage({

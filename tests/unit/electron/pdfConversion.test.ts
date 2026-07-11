@@ -5,6 +5,9 @@ import {
     it,
     vi,
 } from 'vitest';
+import type * as PdfLibModule from 'pdf-lib';
+import type * as PdfCoreModule from '@pdf-core';
+import type * as DjvuPublicModule from '@electron/features/djvu/public';
 
 interface IMockDjvuConvertSuccess {
     success: true;
@@ -41,11 +44,8 @@ const mocks = vi.hoisted(() => {
         _options?: unknown,
     ) => false);
     const getDjvuPageCount = vi.fn(async () => 2);
-    const convertDjvuToPdfFile = vi.fn(async (
-        _inputPath: string,
-        _outputPath: string,
-        _jobId: string,
-        _options?: unknown,
+    const buildCompactDjvuAwarePdfFromDjvu = vi.fn(async (
+        _options: { jobId: string },
     ): Promise<IMockDjvuConvertSuccess> => ({
         success: true,
         outputPath: '/tmp/pdf-combine-djvu-test/output.pdf',
@@ -84,7 +84,7 @@ const mocks = vi.hoisted(() => {
         nativeAssembler,
         nativeFileAssembler,
         getDjvuPageCount,
-        convertDjvuToPdfFile,
+        buildCompactDjvuAwarePdfFromDjvu,
         cancelConversion,
         create,
         load,
@@ -186,10 +186,17 @@ vi.mock('fs/promises', () => ({
     writeFile: mocks.writeFile,
 }));
 
-vi.mock('pdf-lib', () => ({PDFDocument: {
-    create: mocks.create,
-    load: mocks.load,
-}}));
+vi.mock('pdf-lib', async (importOriginal) => ({
+    ...await importOriginal<typeof PdfLibModule>(),
+    PDFDocument: {
+        create: mocks.create,
+        load: mocks.load,
+    },
+}));
+vi.mock('@pdf-core', async (importOriginal) => ({
+    ...await importOriginal<typeof PdfCoreModule>(),
+    writePdfBookmarkOutlines: vi.fn(() => true),
+}));
 
 vi.mock('electron', () => ({
     app: {isPackaged: false},
@@ -211,11 +218,28 @@ vi.mock('@electron/utils/atomicReplace', () => ({
     makeSiblingTempPath: mocks.makeSiblingTempPath,
 }));
 
-vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({
-    cancelConversion: mocks.cancelConversion,
-    convertDjvuToPdfFile: mocks.convertDjvuToPdfFile,
+vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({cancelConversion: mocks.cancelConversion}));
+vi.mock('@electron/features/djvu/main/pagePreview', () => ({getDjvuPageSizesForViewing: vi.fn(async () => [
+    {
+        width: 1200,
+        height: 1600,
+        dpi: 300,
+    },
+    {
+        width: 1200,
+        height: 1600,
+        dpi: 300,
+    },
+])}));
+vi.mock('@electron/features/djvu/public', async (importOriginal) => ({
+    ...await importOriginal<typeof DjvuPublicModule>(),
+    buildCompactDjvuAwarePdfFromDjvu: mocks.buildCompactDjvuAwarePdfFromDjvu,
 }));
-vi.mock('@electron/djvu/metadata', () => ({getDjvuPageCount: mocks.getDjvuPageCount}));
+vi.mock('@electron/djvu/metadata', () => ({
+    getDjvuPageCount: mocks.getDjvuPageCount,
+    getDjvuOutline: vi.fn(async () => ''),
+    getDjvuResolution: vi.fn(async () => 300),
+}));
 
 vi.mock('@electron/image/tryCreatePdfFromInputPathsNative', () => ({
     tryCreatePdfFromInputPathsNative: (
@@ -243,7 +267,7 @@ describe('createPdfFromInputPaths worker fallback', () => {
         mocks.rm.mockResolvedValue(undefined);
         mocks.atomicReplace.mockResolvedValue(undefined);
         mocks.makeSiblingTempPath.mockReturnValue('/tmp/.staged-output.tmp');
-        mocks.convertDjvuToPdfFile.mockResolvedValue({
+        mocks.buildCompactDjvuAwarePdfFromDjvu.mockResolvedValue({
             success: true,
             outputPath: '/tmp/pdf-combine-djvu-test/output.pdf',
             fileSize: 1024,
@@ -469,15 +493,14 @@ describe('createPdfFromInputPaths worker fallback', () => {
             9,
         ]);
         expect(mocks.workerCtor).not.toHaveBeenCalled();
-        expect(mocks.convertDjvuToPdfFile).toHaveBeenCalledWith(
-            '/tmp/scan.djvu',
-            expect.stringMatching(/^\/tmp\/pdf-combine-djvu-test\/.+\.pdf$/u),
-            expect.stringMatching(/^pdf-combine-djvu-/u),
-            {
-                subsample: 1,
-                pageCount: 2,
-            },
-        );
+        expect(mocks.buildCompactDjvuAwarePdfFromDjvu).toHaveBeenCalledWith(expect.objectContaining({
+            djvuPath: '/tmp/scan.djvu',
+            outputPath: expect.stringMatching(/^\/tmp\/pdf-combine-djvu-test\/.+\.pdf$/u),
+            jobId: expect.stringMatching(/^pdf-combine-djvu-/u),
+            pageCount: 2,
+            sourceDpi: 300,
+            qualityPreset: 'balanced',
+        }));
         expect(mocks.rm).toHaveBeenCalledWith('/tmp/pdf-combine-djvu-test', {
             recursive: true,
             force: true,
@@ -488,15 +511,15 @@ describe('createPdfFromInputPaths worker fallback', () => {
     it('cancels the generated DjVu local combine job when the supplied signal aborts', async () => {
         const controller = new AbortController();
         let resolveConversion: (value: IMockDjvuConvertSuccess) => void = () => {};
-        mocks.convertDjvuToPdfFile.mockImplementationOnce(async () => new Promise<IMockDjvuConvertSuccess>((resolve) => {
+        mocks.buildCompactDjvuAwarePdfFromDjvu.mockImplementationOnce(async () => new Promise<IMockDjvuConvertSuccess>((resolve) => {
             resolveConversion = resolve;
         }));
 
         const combinePromise = createPdfFromInputPaths(['/tmp/scan.djvu'], {signal: controller.signal});
-        for (let attempt = 0; attempt < 20 && mocks.convertDjvuToPdfFile.mock.calls.length === 0; attempt += 1) {
+        for (let attempt = 0; attempt < 20 && mocks.buildCompactDjvuAwarePdfFromDjvu.mock.calls.length === 0; attempt += 1) {
             await new Promise(resolve => setImmediate(resolve));
         }
-        const jobId = mocks.convertDjvuToPdfFile.mock.calls[0]?.[2];
+        const jobId = mocks.buildCompactDjvuAwarePdfFromDjvu.mock.calls[0]?.[0]?.jobId;
         expect(jobId).toEqual(expect.stringMatching(/^pdf-combine-djvu-/u));
 
         controller.abort(new Error('combine canceled'));

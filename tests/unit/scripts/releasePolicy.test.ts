@@ -838,7 +838,7 @@ describe('release policy', () => {
         expect(releaseCriticalTestGate?.scripts).toEqual([
             'test:rust',
             'test:coverage',
-            'test:bundle-integrity',
+            'test:electron-bundle-static-integrity',
         ]);
         expect(releaseCriticalTestGate?.scripts.every(scriptName => scriptName.startsWith('test:'))).toBe(true);
         expect(scriptNames.every(scriptName => Boolean(packageScripts[scriptName]))).toBe(true);
@@ -932,6 +932,15 @@ describe('release policy', () => {
             '--field',
             'target_ref=abc123',
         ]);
+    });
+
+    it('reports release promotion gates by their actual verified outcomes', () => {
+        const workflow = readFileSync(resolve(process.cwd(), '.github/workflows/release.yml'), 'utf8');
+        expect(workflow).toContain('Report release gate outcomes');
+        expect(workflow).toContain('Updater metadata path policy');
+        expect(workflow).toContain('Downloaded asset presence and SHA-256 parity');
+        expect(workflow).toContain('Verified draft promotion');
+        expect(workflow).toContain('steps.uploaded_assets.outcome');
     });
 
     it('keeps standalone release verification split into check and package gates', () => {
@@ -1179,14 +1188,14 @@ describe('release policy', () => {
         });
     });
 
-    it('keeps bundle integrity reusable without rebuilding after build output exists', () => {
+    it('keeps Electron bundle static integrity reusable without rebuilding after build output exists', () => {
         const scripts = getPackageScripts();
 
-        expect(scripts['test:bundle-integrity']).toBe(
-            'pnpm run build:electron && pnpm run test:bundle-integrity:no-build && node scripts/prune-build-artifacts.mjs && pnpm run check:build-artifacts:hygiene',
+        expect(scripts['test:electron-bundle-static-integrity']).toBe(
+            'pnpm run build:electron && pnpm run test:electron-bundle-static-integrity:no-build && node scripts/prune-build-artifacts.mjs && pnpm run check:build-artifacts:hygiene',
         );
-        expect(scripts['test:bundle-integrity:no-build']).toBe(
-            'vitest run --project bundle-integrity',
+        expect(scripts['test:electron-bundle-static-integrity:no-build']).toBe(
+            'vitest run --project electron-bundle-static-integrity',
         );
     });
 

@@ -10,6 +10,8 @@ import type {
     TPdfViewMode,
     TZoomMode,
 } from '@app/types/pdfContracts';
+import { createPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
+import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
 
 interface IUsePdfViewerRuntimeOptions {
     viewerContainer: Ref<HTMLElement | null>;
@@ -20,6 +22,7 @@ interface IUsePdfViewerRuntimeOptions {
     continuousScroll: Ref<boolean>;
     emitEffectiveZoom: (value: number) => void;
     summarizeViewerStateForLog: () => unknown;
+    viewportWritePort?: IPdfViewportWritePort | undefined;
 }
 
 export const usePdfViewerRuntime = (options: IUsePdfViewerRuntimeOptions) => {
@@ -36,7 +39,10 @@ export const usePdfViewerRuntime = (options: IUsePdfViewerRuntimeOptions) => {
 
     const viewportPin = useViewportPagePin({ summarizeViewerStateForLog: options.summarizeViewerStateForLog });
 
-    const scroll = usePdfScroll({ getPinnedMostVisiblePage: () => viewportPin.getPinnedViewportPage() });
+    const scroll = usePdfScroll({
+        getPinnedMostVisiblePage: () => viewportPin.getPinnedViewportPage(),
+        viewportWritePort: options.viewportWritePort ?? createPdfViewportWritePort(),
+    });
 
     const scale = usePdfScale(
         options.zoom,

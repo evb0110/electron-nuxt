@@ -1,0 +1,38 @@
+[package]
+name = "evb-pdf-image-combine-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+evb-pdf-image-combine = { path = ".." }
+
+[workspace]
+
+[[bin]]
+name = "png"
+path = "fuzz_targets/png.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "jpeg"
+path = "fuzz_targets/jpeg.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "tiff"
+path = "fuzz_targets/tiff.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "netpbm"
+path = "fuzz_targets/netpbm.rs"
+test = false
+doc = false

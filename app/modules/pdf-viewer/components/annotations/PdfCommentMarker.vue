@@ -19,6 +19,7 @@
             :style="dragStyle"
             :aria-label="labelText"
             :data-stable-key="annotation.stableKey"
+            :data-annotation-id="annotationIdForSummary(annotation)"
             :data-comment-count="clustered.length > 1 ? String(clustered.length) : undefined"
             @click.prevent.stop="handleClick"
             @contextmenu.prevent="handleContextMenu"
@@ -45,6 +46,7 @@ import type {
 } from '@app/types/annotations';
 import { clamp } from 'es-toolkit/math';
 import { useEventListener } from '@vueuse/core';
+import { annotationIdForSummary } from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
 
 const DRAG_THRESHOLD = 5;
 const DEFAULT_POINT_MARKER_SIZE = 0.0016;
@@ -430,8 +432,8 @@ onBeforeUnmount(() => {
     position: absolute;
     left: calc(v-bind('leftPercent + "%"'));
     top: calc(v-bind('topPercent + "%"'));
-    width: 1.3rem;
-    height: 1.3rem;
+    width: var(--app-note-anchor-size);
+    height: var(--app-note-anchor-size);
     border: 1px solid color-mix(in srgb, var(--ui-warning) 62%, var(--ui-border) 38%);
     border-radius: var(--app-radius-full);
     transform: translate(-50%, -50%);
@@ -485,10 +487,10 @@ onBeforeUnmount(() => {
 
 .pdf-comment-marker-badge {
     position: absolute;
-    right: -6px;
-    top: -6px;
-    min-width: 12px;
-    height: 12px;
+    right: calc(var(--app-space-lg) * -1);
+    top: calc(var(--app-space-lg) * -1);
+    min-width: var(--app-pdf-annotation-properties-range-thumb-size);
+    height: var(--app-pdf-annotation-properties-range-thumb-size);
     border-radius: var(--app-radius-full);
     border: 1.5px solid var(--app-pdf-comment-marker-badge-border);
     background: var(--app-pdf-comment-marker-badge-bg);
@@ -496,7 +498,7 @@ onBeforeUnmount(() => {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 6.5px;
+    font-size: var(--app-text-size-marker);
     font-weight: 700;
     line-height: 1;
     padding: 0 3px;

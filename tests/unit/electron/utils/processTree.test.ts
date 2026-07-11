@@ -83,6 +83,34 @@ describePosix('terminateProcessTree (posix)', () => {
         expect(killCalls.some(call => call.pid === pid && call.signal === 'SIGTERM')).toBe(true);
         expect(killCalls.some(call => call.signal === 'SIGKILL')).toBe(false);
     });
+
+    it('does not signal a reused pid after the original target exits', async () => {
+        const pid = makeTestPid(4343);
+        let originalTargetAlive = true;
+        const killCalls: Array<{
+            pid: number;
+            signal: NodeJS.Signals | 0 | undefined
+        }> = [];
+        vi.spyOn(processTreeRuntime, 'kill').mockImplementation(((targetPid, signal?: NodeJS.Signals | 0) => {
+            killCalls.push({
+                pid: targetPid,
+                signal,
+            });
+            if (signal === 'SIGTERM') {
+                originalTargetAlive = false;
+            }
+            return true;
+        }) as typeof processTreeRuntime.kill);
+
+        await terminateProcessTree(pid, {
+            graceMs: 0,
+            isTargetAlive: () => originalTargetAlive,
+            preferProcessGroup: true,
+        });
+
+        expect(killCalls.some(call => call.signal === 'SIGTERM')).toBe(true);
+        expect(killCalls.some(call => call.signal === 'SIGKILL')).toBe(false);
+    });
 });
 
 describe('terminateProcessTree (win32 taskkill)', () => {

@@ -10,6 +10,7 @@ import { ref } from 'vue';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { usePdfRendererSinglePageController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererSinglePageController';
 import { PDF_PAGE_RENDER_TIMEOUT_MS } from '@app/constants/timeouts';
+import { createPdfPageRenderState } from '@app/modules/pdf-viewer/runtime/rendering/pdfPageRenderState';
 
 function createPageRoot() {
     document.body.replaceChildren();
@@ -114,6 +115,7 @@ describe('usePdfRendererSinglePageController', () => {
             } as const)),
             getViewportForAnnotationEditorLayer: vi.fn(() => ({}) as never),
             scheduleOcrDebugForPage: vi.fn(),
+            markPageCanvasSurfaceEvictable: vi.fn(),
             logNonCriticalStageError: vi.fn(),
         });
 
@@ -134,7 +136,7 @@ describe('usePdfRendererSinglePageController', () => {
 
         expect(canvasHost.children).toHaveLength(0);
         expect(pageClassAdd).not.toHaveBeenCalledWith('page_container--rendered');
-        expect(cleanupPageIfCurrentRender).toHaveBeenCalledWith(1, 1, 1);
+        expect(cleanupPageIfCurrentRender).not.toHaveBeenCalled();
         expect(pageLease.release).toHaveBeenCalled();
         expect(renderingPages.has(1)).toBe(false);
     });
@@ -144,15 +146,17 @@ describe('usePdfRendererSinglePageController', () => {
         const pdfPage = { cleanup: vi.fn() } as PDFPageProxy & {cleanup: ReturnType<typeof vi.fn>};
         const pageLease = createPageLease(pdfPage);
         const cleanupPageIfCurrentRender = vi.fn();
+        const pageRenderState = createPdfPageRenderState();
         const controller = usePdfRendererSinglePageController({
             isActive: true,
             effectiveScale: 1,
             annotationUiManager: null,
             getContainerRoot: () => root,
+            pageRenderState,
             renderedPages: new Set<number>(),
             staleRenderedPages: new Set<number>(),
-            renderingPages: new Map(),
-            renderingPageRequestIds: new Map(),
+            renderingPages: pageRenderState.renderingPages,
+            renderingPageRequestIds: pageRenderState.renderingPageRequestIds,
             activeRenderTasks: new Map(),
             getRenderVersion: () => 1,
             getRenderDocumentToken: () => 'doc-1',
@@ -187,6 +191,7 @@ describe('usePdfRendererSinglePageController', () => {
             } as const)),
             getViewportForAnnotationEditorLayer: vi.fn(() => ({}) as never),
             scheduleOcrDebugForPage: vi.fn(),
+            markPageCanvasSurfaceEvictable: vi.fn(),
             logNonCriticalStageError: vi.fn(),
         });
 
@@ -207,9 +212,15 @@ describe('usePdfRendererSinglePageController', () => {
 
         expect(cleanupPageIfCurrentRender).toHaveBeenCalledWith(1, 1, 1);
         expect(pageLease.release).toHaveBeenCalled();
+        expect(pageRenderState.getSlot(1)).toEqual(expect.objectContaining({
+            visual: 'none',
+            job: 'failed',
+            version: 1,
+            requestId: 1,
+        }));
     });
 
-    it('retries a cancelled current-page render without reusing its settled transaction request', async () => {
+    it('does not retry a cancelled render outside the transaction coordinator', async () => {
         const { root } = createPageRoot();
         const pdfPage = { cleanup: vi.fn() } as PDFPageProxy & {cleanup: ReturnType<typeof vi.fn>};
         const pageLease = createPageLease(pdfPage);
@@ -258,6 +269,7 @@ describe('usePdfRendererSinglePageController', () => {
             } as const)),
             getViewportForAnnotationEditorLayer: vi.fn(() => ({}) as never),
             scheduleOcrDebugForPage: vi.fn(),
+            markPageCanvasSurfaceEvictable: vi.fn(),
             logNonCriticalStageError: vi.fn(),
         });
 
@@ -278,13 +290,7 @@ describe('usePdfRendererSinglePageController', () => {
         );
         await Promise.resolve();
 
-        expect(scheduleRenderForSinglePage.mock.calls).toEqual([[
-            1,
-            {
-                preserveRenderedPages: true,
-                bufferOverride: 0,
-            },
-        ]]);
+        expect(scheduleRenderForSinglePage).not.toHaveBeenCalled();
     });
 
     it('uses the invocation scale for standalone annotation-editor layer renders', async () => {
@@ -340,6 +346,7 @@ describe('usePdfRendererSinglePageController', () => {
             renderAnnotationEditorLayer,
             getViewportForAnnotationEditorLayer,
             scheduleOcrDebugForPage: vi.fn(),
+            markPageCanvasSurfaceEvictable: vi.fn(),
             logNonCriticalStageError: vi.fn(),
         });
 
@@ -400,6 +407,7 @@ describe('usePdfRendererSinglePageController', () => {
             renderAnnotationEditorLayer,
             getViewportForAnnotationEditorLayer: vi.fn(() => ({}) as never),
             scheduleOcrDebugForPage: vi.fn(),
+            markPageCanvasSurfaceEvictable: vi.fn(),
             logNonCriticalStageError: vi.fn(),
         });
 
@@ -461,6 +469,7 @@ describe('usePdfRendererSinglePageController', () => {
                 renderAnnotationEditorLayer,
                 getViewportForAnnotationEditorLayer: vi.fn(() => ({}) as never),
                 scheduleOcrDebugForPage: vi.fn(),
+                markPageCanvasSurfaceEvictable: vi.fn(),
                 logNonCriticalStageError,
             });
 

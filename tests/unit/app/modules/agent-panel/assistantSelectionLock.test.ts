@@ -12,19 +12,35 @@ const idleState: IAssistantSelectionLockState = {
     turn: {
         id: null,
         phase: 'idle',
+        reasoning: '',
+        toolActivity: [],
+        lastEventAtMs: null,
+        usage: null,
     },
 };
 const startingTurn = {
     id: null,
-    phase: 'starting' as const,
+    phase: 'queued' as const,
+    reasoning: '',
+    toolActivity: [],
+    lastEventAtMs: Date.now(),
+    usage: null,
 };
 const runningTurn = {
     id: 'turn-1',
-    phase: 'running' as const,
+    phase: 'thinking' as const,
+    reasoning: '',
+    toolActivity: [],
+    lastEventAtMs: Date.now(),
+    usage: null,
 };
 const interruptingTurn = {
     id: 'turn-1',
     phase: 'interrupting' as const,
+    reasoning: '',
+    toolActivity: [],
+    lastEventAtMs: Date.now(),
+    usage: null,
 };
 
 describe('assistantSelectionLock', () => {
@@ -70,7 +86,11 @@ describe('assistantSelectionLock', () => {
             runtimeState: 'error',
             turn: {
                 id: null,
-                phase: 'error',
+                phase: 'failed',
+                reasoning: '',
+                toolActivity: [],
+                lastEventAtMs: Date.now(),
+                usage: null,
             },
         })).toBe(false);
     });

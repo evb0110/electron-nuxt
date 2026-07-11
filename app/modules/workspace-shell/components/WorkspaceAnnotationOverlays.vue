@@ -1,27 +1,34 @@
 <template>
     <PdfAnnotationNoteWindow
         v-for="note in visibleAnnotationNoteWindows"
-        :key="note.comment.stableKey"
-        :comment="note.comment"
-        :text="note.text"
+        :key="note.annotationId"
+        :annotation-id="note.annotationId"
+        :page-number="note.pageNumber"
+        :author="note.author"
+        :created-at="note.createdAt"
+        :modified-at="note.modifiedAt"
+        :text="note.draftText"
         :saving="note.saving"
         :error="note.error"
-        :position="annotationNotePositions[note.comment.stableKey] ?? null"
-        :z-index="90 + note.order"
+        :position="annotationNotePositions[note.annotationId] ?? null"
+        :z-index="NOTE_WINDOW.ACTIVE_Z_INDEX_BASE + Math.min(
+            Math.max(0, note.order),
+            NOTE_WINDOW.ACTIVE_Z_INDEX_SLOTS - 1,
+        )"
         :bounds-root="annotationViewportRoot ?? null"
-        @update:text="handleNoteTextUpdate(note.comment.stableKey, $event)"
-        @update:position="handleNotePositionUpdate(note.comment.stableKey, $event)"
-        @minimize="handleMinimizeNote(note.comment.stableKey)"
-        @delete="handleDeleteComment(note.comment)"
-        @focus="handleFocusNote(note.comment.stableKey)"
+        @update:text="handleNoteTextUpdate(note.annotationId, $event)"
+        @update:position="handleNotePositionUpdate(note.annotationId, $event)"
+        @minimize="handleMinimizeNote(note.annotationId)"
+        @delete="handleDeleteAnnotation(note.annotationId)"
+        @focus="handleFocusNote(note.annotationId)"
     />
     <template
         v-for="note in anchoredAnnotationNoteWindows"
-        :key="`anchor-${note.comment.stableKey}`"
+        :key="`anchor-${note.annotationId}`"
     >
         <Teleport
-            v-if="minimizedIndicatorTargets[note.comment.stableKey]"
-            :to="minimizedIndicatorTargets[note.comment.stableKey]"
+            v-if="minimizedIndicatorTargets[note.annotationId]"
+            :to="minimizedIndicatorTargets[note.annotationId]"
         >
             <AppTooltip
                 :text="getMinimizedNotePreview(note)"
@@ -48,18 +55,18 @@
     </template>
     <template
         v-for="note in openNoteAnchors"
-        :key="`open-anchor-${note.comment.stableKey}`"
+        :key="`open-anchor-${note.annotationId}`"
     >
         <Teleport
-            v-if="openNoteAnchorTargets[note.comment.stableKey]"
-            :to="openNoteAnchorTargets[note.comment.stableKey]"
+            v-if="openNoteAnchorTargets[note.annotationId]"
+            :to="openNoteAnchorTargets[note.annotationId]"
         >
             <button
-                v-show="!openAnchorHiddenKeys.has(note.comment.stableKey)"
+                v-show="!openAnchorHiddenKeys.has(note.annotationId)"
                 type="button"
                 class="pdf-note-open-anchor"
                 :style="getMinimizedIndicatorStyle(note)"
-                :data-stable-key="note.comment.stableKey"
+                :data-annotation-id="note.annotationId"
                 :aria-label="t('annotations.openNote')"
                 @mousedown.prevent
             >
@@ -74,13 +81,13 @@
     >
         <path
             v-for="line in connectorLines"
-            :key="`connector-halo-${line.stableKey}`"
+            :key="`connector-halo-${line.annotationId}`"
             :d="line.path"
             class="pdf-note-connector-halo"
         />
         <path
             v-for="line in connectorLines"
-            :key="`connector-${line.stableKey}`"
+            :key="`connector-${line.annotationId}`"
             :d="line.path"
             class="pdf-note-connector-path"
         />
@@ -139,7 +146,6 @@
 </template>
 
 <script setup lang="ts">
-
 import { PdfAnnotationContextMenu } from '@app/modules/pdf-viewer/public/component-exports/pdfAnnotationContextMenu';
 import { PdfAnnotationNoteWindow } from '@app/modules/pdf-viewer/public/component-exports/pdfAnnotationNoteWindow';
 import { PdfAnnotationProperties } from '@app/modules/pdf-viewer/public/component-exports/pdfAnnotationProperties';
@@ -154,6 +160,7 @@ import type {
     IShapeAnnotation,
     ITextMarkupAnnotationProperties,
     TAnnotationTool,
+    TShapeAnnotationPatch,
 } from '@app/types/annotations';
 import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
 import {
@@ -161,7 +168,10 @@ import {
     escapeCssAttr,
 } from '@app/modules/pdf-viewer/public';
 import type { IAnnotationNotePosition } from '@app/types/annotationNoteWindow';
-import { NOTE_WINDOW } from '@app/constants/pdfLayout';
+import {
+    NOTE_WINDOW,
+    resolveNoteWindowAnchorZIndex,
+} from '@app/constants/pdfLayout';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { clamp } from 'es-toolkit/math';
 import {
@@ -181,14 +191,22 @@ const FREE_TEXT_NOTE_SUBTYPES = new Set([
 ]);
 
 interface IAnnotationNoteWindowEntry {
-    comment: IAnnotationCommentSummary;
-    text: string;
+    annotationId: string;
+    pageIndex: number;
+    pageNumber: number;
+    author: string | null;
+    createdAt: number | null;
+    modifiedAt: number | null;
+    markerRect: IAnnotationCommentSummary['markerRect'];
+    subtype: string | null;
+    source: IAnnotationCommentSummary['source'];
+    hasNote: boolean;
+    draftText: string;
     saving: boolean;
     error: string | null;
     order: number;
     isMinimized: boolean;
 }
-
 const {
     annotationNotePositions,
     annotationViewportRoot = undefined,
@@ -227,7 +245,7 @@ const visibleAnnotationNoteWindows = computed(() =>
 );
 const openNoteAnchors = computed(() => {
     return visibleAnnotationNoteWindows.value.filter((note) =>
-        isFloatingIndicatorEligible(note.comment)
+        isFloatingIndicatorEligible(note)
         && Boolean(getNoteMarkerRect(note)),
     );
 });
@@ -241,7 +259,7 @@ const openAnchorHiddenKeys = computed<Set<string>>(() => {
     const hidden = new Set<string>();
     for (const note of openNoteAnchors.value) {
         if (inlineIdentityMatchesNote(renderedInlineAnchorIdentity.value, note)) {
-            hidden.add(note.comment.stableKey);
+            hidden.add(note.annotationId);
         }
     }
     return hidden;
@@ -249,7 +267,7 @@ const openAnchorHiddenKeys = computed<Set<string>>(() => {
 const anchoredAnnotationNoteWindows = computed(() => {
     return sortedAnnotationNoteWindows.filter((note) => (
         note.isMinimized
-        && isFloatingIndicatorEligible(note.comment)
+        && isFloatingIndicatorEligible(note)
         && Boolean(getNoteMarkerRect(note))
         && !inlineIdentityMatchesNote(renderedInlineAnchorIdentity.value, note)
     ));
@@ -266,9 +284,7 @@ function refreshIndicatorDom() {
 }
 
 interface IInlineTriggerIdentity {
-    stableKeys: Set<string>;
     annotationIds: Set<string>;
-    uids: Set<string>;
     markerPoints: Array<{
         pageNumber: number;
         x: number;
@@ -278,21 +294,6 @@ interface IInlineTriggerIdentity {
 
 interface IViewportDomSnapshot { pageContainers: Map<number, HTMLElement> }
 
-function parseStableKeyIdentity(stableKey: string) {
-    const [
-        kind,
-        pagePart,
-        ...rest
-    ] = stableKey.split(':');
-    const id = rest.join(':').trim();
-    const pageIndex = Number.isFinite(Number(pagePart)) ? Number(pagePart) : null;
-    return {
-        kind: kind?.trim().toLowerCase() ?? '',
-        id,
-        pageIndex,
-    };
-}
-
 function isInlineNoteSubtype(subtype: string) {
     return INLINE_NOTE_SUBTYPES.has(subtype);
 }
@@ -301,12 +302,12 @@ function isFreeTextNoteSubtype(subtype: string) {
     return FREE_TEXT_NOTE_SUBTYPES.has(subtype);
 }
 
-function resolveKnownFloatingEligibility(comment: IAnnotationCommentSummary, subtype: string) {
-    if (isTextMarkupSubtype(comment.subtype) && comment.hasNote) {
+function resolveKnownFloatingEligibility(note: IAnnotationNoteWindowEntry, subtype: string) {
+    if (isTextMarkupSubtype(note.subtype) && note.hasNote) {
         return true;
     }
     if (isInlineNoteSubtype(subtype)) {
-        return comment.hasNote;
+        return note.hasNote;
     }
     if (isFreeTextNoteSubtype(subtype)) {
         return true;
@@ -314,16 +315,16 @@ function resolveKnownFloatingEligibility(comment: IAnnotationCommentSummary, sub
     return null;
 }
 
-function isFloatingIndicatorEligible(comment: IAnnotationCommentSummary) {
-    const subtype = (comment.subtype ?? '').trim().toLowerCase();
+function isFloatingIndicatorEligible(note: IAnnotationNoteWindowEntry) {
+    const subtype = (note.subtype ?? '').trim().toLowerCase();
     if (subtype === 'link') {
         return false;
     }
-    const knownEligibility = resolveKnownFloatingEligibility(comment, subtype);
+    const knownEligibility = resolveKnownFloatingEligibility(note, subtype);
     if (knownEligibility !== null) {
         return knownEligibility;
     }
-    return comment.source === 'editor' && !comment.annotationId;
+    return note.source === 'editor';
 }
 
 function collectViewportDomSnapshot(viewportRoot: HTMLElement | null | undefined): IViewportDomSnapshot | null {
@@ -343,26 +344,9 @@ function collectViewportDomSnapshot(viewportRoot: HTMLElement | null | undefined
     return { pageContainers };
 }
 
-function addStableKeyIdentity(identity: IInlineTriggerIdentity, stableKey: string) {
-    identity.stableKeys.add(stableKey);
-    const parsed = parseStableKeyIdentity(stableKey);
-    if (!parsed.id) {
-        return;
-    }
-    if (parsed.kind === 'ann') {
-        identity.annotationIds.add(parsed.id);
-        return;
-    }
-    if (parsed.kind === 'uid') {
-        identity.uids.add(parsed.id);
-    }
-}
-
 function createEmptyInlineTriggerIdentity(): IInlineTriggerIdentity {
     return {
-        stableKeys: new Set<string>(),
         annotationIds: new Set<string>(),
-        uids: new Set<string>(),
         markerPoints: [],
     };
 }
@@ -376,11 +360,11 @@ function collectRenderedInlineAnchorIdentity(snapshot: IViewportDomSnapshot | nu
     snapshot.pageContainers.forEach((pageContainer, pageNumber) => {
         const pageRect = pageContainer.getBoundingClientRect();
         pageContainer
-            .querySelectorAll<HTMLElement>('.pdf-comment-marker-button[data-stable-key]')
+            .querySelectorAll<HTMLElement>('.pdf-comment-marker-button[data-annotation-id]')
             .forEach((markerElement) => {
-                const stableKey = markerElement.dataset.stableKey;
-                if (stableKey) {
-                    addStableKeyIdentity(identity, stableKey);
+                const annotationId = markerElement.dataset.annotationId;
+                if (annotationId) {
+                    identity.annotationIds.add(annotationId);
                 }
 
                 const markerRect = markerElement.getBoundingClientRect();
@@ -404,39 +388,11 @@ function collectRenderedInlineAnchorIdentity(snapshot: IViewportDomSnapshot | nu
     return identity;
 }
 
-function hasStringInSet(value: string | null | undefined, set: Set<string>) {
-    const normalized = value?.trim() ?? '';
-    return normalized.length > 0 && set.has(normalized);
-}
-
 function identityHasDirectMatch(
     inlineIdentity: IInlineTriggerIdentity,
     note: IAnnotationNoteWindowEntry,
 ) {
-    return Boolean(
-        hasStringInSet(note.comment.stableKey, inlineIdentity.stableKeys)
-        || hasStringInSet(note.comment.annotationId, inlineIdentity.annotationIds)
-        || hasStringInSet(note.comment.uid, inlineIdentity.uids),
-    );
-}
-
-function hasDerivedStableKey(set: Set<string>, kind: 'ann' | 'uid', pageIndex: number, id: string | null | undefined) {
-    const normalizedId = id?.trim() ?? '';
-    return normalizedId.length > 0 && set.has(`${kind}:${pageIndex}:${normalizedId}`);
-}
-
-function identityHasDerivedStableKey(
-    inlineIdentity: IInlineTriggerIdentity,
-    note: IAnnotationNoteWindowEntry,
-) {
-    const pageIndex = note.comment.pageIndex;
-    if (!Number.isFinite(pageIndex)) {
-        return false;
-    }
-    return (
-        hasDerivedStableKey(inlineIdentity.stableKeys, 'ann', pageIndex, note.comment.annotationId)
-        || hasDerivedStableKey(inlineIdentity.stableKeys, 'uid', pageIndex, note.comment.uid)
-    );
+    return inlineIdentity.annotationIds.has(note.annotationId);
 }
 
 function hasNearbyInlineMarker(
@@ -450,7 +406,7 @@ function hasNearbyInlineMarker(
     const noteAnchorX = clamp(markerRect.left + markerRect.width, 0, 1);
     const noteAnchorY = clamp(markerRect.top, 0, 1);
     return inlineIdentity.markerPoints.some((point) => (
-        point.pageNumber === note.comment.pageNumber
+        point.pageNumber === note.pageNumber
         && Math.hypot(point.x - noteAnchorX, point.y - noteAnchorY) <= 0.08
     ));
 }
@@ -461,7 +417,6 @@ function inlineIdentityMatchesNote(
 ) {
     return (
         identityHasDirectMatch(inlineIdentity, note)
-        || identityHasDerivedStableKey(inlineIdentity, note)
         || hasNearbyInlineMarker(inlineIdentity, note)
     );
 }
@@ -485,16 +440,16 @@ function mapAnnotationNotesToPageTargets(notes: TAnnotationNotePageTargetSource[
     }
     const targets: Record<string, HTMLElement> = {};
     notes.forEach((note) => {
-        const pageContainer = snapshot.pageContainers.get(note.comment.pageNumber);
+        const pageContainer = snapshot.pageContainers.get(note.pageNumber);
         if (pageContainer) {
-            targets[note.comment.stableKey] = pageContainer;
+            targets[note.annotationId] = pageContainer;
         }
     });
     return targets;
 }
 
 interface IConnectorLine {
-    stableKey: string;
+    annotationId: string;
     path: string;
 }
 
@@ -531,11 +486,11 @@ function getMarkerPointFromElement(markerElement: HTMLElement): IConnectorMarker
     };
 }
 
-function getRenderedMarkerCenter(pageContainer: HTMLElement, stableKey: string) {
-    const escapedKey = escapeCssAttr(stableKey);
+function getRenderedMarkerCenter(pageContainer: HTMLElement, annotationId: string) {
+    const escapedId = escapeCssAttr(annotationId);
     const markerSelectors = [
-        `.pdf-comment-marker-button[data-stable-key="${escapedKey}"]`,
-        `.pdf-note-open-anchor[data-stable-key="${escapedKey}"]`,
+        `.pdf-comment-marker-button[data-annotation-id="${escapedId}"]`,
+        `.pdf-note-open-anchor[data-annotation-id="${escapedId}"]`,
     ];
 
     for (const selector of markerSelectors) {
@@ -619,22 +574,22 @@ function getMarkerCenter(
     note: IAnnotationNoteWindowEntry,
     snapshot: IViewportDomSnapshot,
 ): IConnectorMarkerPoint | null {
-    const pageContainer = snapshot.pageContainers.get(note.comment.pageNumber) ?? null;
+    const pageContainer = snapshot.pageContainers.get(note.pageNumber) ?? null;
     if (!pageContainer) {
         return null;
     }
 
-    return getRenderedMarkerCenter(pageContainer, note.comment.stableKey)
+    return getRenderedMarkerCenter(pageContainer, note.annotationId)
         ?? getMarkerAnchorInPage(pageContainer, note);
 }
 
-function getRenderedNoteRect(stableKey: string): INoteViewportRect | null {
+function getRenderedNoteRect(annotationId: string): INoteViewportRect | null {
     if (typeof document === 'undefined') {
         return null;
     }
-    const escapedKey = escapeCssAttr(stableKey);
+    const escapedId = escapeCssAttr(annotationId);
     const noteElement = document.querySelector<HTMLElement>(
-        `.note-window[data-stable-key="${escapedKey}"]`,
+        `.note-window[data-annotation-id="${escapedId}"]`,
     );
     const rect = noteElement?.getBoundingClientRect() ?? null;
     if (!rect || rect.width <= 0 || rect.height <= 0) {
@@ -658,10 +613,10 @@ function getStoredNoteRect(position: IAnnotationNotePosition) {
 }
 
 function getNoteViewportRect(
-    stableKey: string,
+    annotationId: string,
     position: IAnnotationNotePosition,
 ) {
-    return getRenderedNoteRect(stableKey) ?? getStoredNoteRect(position);
+    return getRenderedNoteRect(annotationId) ?? getStoredNoteRect(position);
 }
 
 function getNoteConnectorAnchor(
@@ -739,8 +694,8 @@ function computeConnectorLines(): IConnectorLine[] {
     }
     const lines: IConnectorLine[] = [];
     for (const note of openNoteAnchors.value) {
-        const stableKey = note.comment.stableKey;
-        const position = annotationNotePositions[stableKey];
+        const {annotationId} = note;
+        const position = annotationNotePositions[note.annotationId];
         if (!position) {
             continue;
         }
@@ -750,12 +705,12 @@ function computeConnectorLines(): IConnectorLine[] {
             continue;
         }
 
-        const noteRect = getNoteViewportRect(stableKey, position);
+        const noteRect = getNoteViewportRect(note.annotationId, position);
         const noteAnchor = getNoteConnectorAnchor(noteRect, marker);
         const markerStart = getConnectorStart(marker, noteAnchor);
 
         lines.push({
-            stableKey,
+            annotationId,
             path: `M ${markerStart.x} ${markerStart.y} L ${noteAnchor.x} ${noteAnchor.y}`,
         });
     }
@@ -763,14 +718,14 @@ function computeConnectorLines(): IConnectorLine[] {
 }
 
 function getNoteMarkerRect(note: IAnnotationNoteWindowEntry) {
-    return normalizeMarkerRect(note.comment.markerRect);
+    return normalizeMarkerRect(note.markerRect);
 }
 
 function getNoteRenderSignature(note: IAnnotationNoteWindowEntry) {
     const rect = getNoteMarkerRect(note);
     return [
-        note.comment.stableKey,
-        note.comment.pageNumber,
+        note.annotationId,
+        note.pageNumber,
         rect?.left ?? '',
         rect?.top ?? '',
         rect?.width ?? '',
@@ -781,10 +736,10 @@ function getNoteRenderSignature(note: IAnnotationNoteWindowEntry) {
 function getNotePositionSignature() {
     return Object.entries(annotationNotePositions)
         .map(([
-            stableKey,
+            annotationId,
             position,
         ]) => [
-            stableKey,
+            annotationId,
             position.x,
             position.y,
             position.width ?? '',
@@ -806,12 +761,12 @@ function getMinimizedIndicatorStyle(note: IAnnotationNoteWindowEntry) {
     return {
         left: `${leftPercent}%`,
         top: `${topPercent}%`,
-        zIndex: String(25 + note.order),
+        zIndex: String(resolveNoteWindowAnchorZIndex(note.order)),
     };
 }
 
 function getMinimizedNotePreview(note: IAnnotationNoteWindowEntry) {
-    const text = (note.text || note.comment.text || '').trim();
+    const text = note.draftText.trim();
     if (!text) {
         return t('annotations.emptyNote');
     }
@@ -830,8 +785,8 @@ function handleAnchorPointerEvent(
     }
     logAnchor('anchor pointer event', () => ({
         eventName,
-        stableKey: note.comment.stableKey,
-        pageNumber: note.comment.pageNumber,
+        annotationId: note.annotationId,
+        pageNumber: note.pageNumber,
         markerRect: getNoteMarkerRect(note),
         preview: getMinimizedNotePreview(note),
         isMinimized: note.isMinimized,
@@ -840,33 +795,33 @@ function handleAnchorPointerEvent(
 
 function handleAnchorClick(note: IAnnotationNoteWindowEntry) {
     logAnchor('anchor clicked', () => ({
-        stableKey: note.comment.stableKey,
-        pageNumber: note.comment.pageNumber,
+        annotationId: note.annotationId,
+        pageNumber: note.pageNumber,
         markerRect: getNoteMarkerRect(note),
         isMinimized: note.isMinimized,
     }));
-    emit('restore-note', note.comment.stableKey);
+    emit('restore-note', note.annotationId);
 }
 
-function handleNoteTextUpdate(stableKey: string, text: string) {
-    emit('update-note-text', stableKey, text);
+function handleNoteTextUpdate(annotationId: string, text: string) {
+    emit('update-note-text', annotationId, text);
 }
 
-function handleNotePositionUpdate(stableKey: string, position: IAnnotationNotePosition) {
-    emit('update-note-position', stableKey, position);
+function handleNotePositionUpdate(annotationId: string, position: IAnnotationNotePosition) {
+    emit('update-note-position', annotationId, position);
     scheduleConnectorRefreshBurst(2);
 }
 
-function handleMinimizeNote(stableKey: string) {
-    emit('minimize-note', stableKey);
+function handleMinimizeNote(annotationId: string) {
+    emit('minimize-note', annotationId);
 }
 
-function handleDeleteComment(comment: IAnnotationCommentSummary) {
-    emit('delete-comment', comment);
+function handleDeleteAnnotation(annotationId: string) {
+    emit('delete-annotation', annotationId);
 }
 
-function handleFocusNote(stableKey: string) {
-    emit('focus-note', stableKey);
+function handleFocusNote(annotationId: string) {
+    emit('focus-note', annotationId);
 }
 
 function handleContextOpenNote() {
@@ -945,7 +900,7 @@ function handlePageInvertSelection() {
     emit('page-invert-selection');
 }
 
-function handleShapeUpdate(updates: Partial<IShapeAnnotation>) {
+function handleShapeUpdate(updates: TShapeAnnotationPatch) {
     emit('shape-update', updates);
 }
 
@@ -1106,12 +1061,12 @@ watch(
 );
 
 const emit = defineEmits<{
-    'update-note-text': [stableKey: string, text: string];
-    'update-note-position': [stableKey: string, position: IAnnotationNotePosition];
-    'minimize-note': [stableKey: string];
-    'restore-note': [stableKey: string];
-    'delete-comment': [comment: IAnnotationCommentSummary];
-    'focus-note': [stableKey: string];
+    'update-note-text': [annotationId: string, text: string];
+    'update-note-position': [annotationId: string, position: IAnnotationNotePosition];
+    'minimize-note': [annotationId: string];
+    'restore-note': [annotationId: string];
+    'delete-annotation': [annotationId: string];
+    'focus-note': [annotationId: string];
     'context-open-note': [];
     'context-copy-text': [];
     'context-copy-selection-text': [];
@@ -1131,7 +1086,7 @@ const emit = defineEmits<{
     'page-insert-after': [];
     'page-select-all': [];
     'page-invert-selection': [];
-    'shape-update': [updates: Partial<IShapeAnnotation>];
+    'shape-update': [updates: TShapeAnnotationPatch];
     'shape-close': [];
     'shape-delete': [];
     'text-markup-color-update': [color: string];
@@ -1142,8 +1097,8 @@ const emit = defineEmits<{
 <style scoped>
 .pdf-note-minimized-indicator {
     position: absolute;
-    width: 1.3rem;
-    height: 1.3rem;
+    width: var(--app-note-anchor-size);
+    height: var(--app-note-anchor-size);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1175,8 +1130,8 @@ const emit = defineEmits<{
 
 .pdf-note-open-anchor {
     position: absolute;
-    width: 1.3rem;
-    height: 1.3rem;
+    width: var(--app-note-anchor-size);
+    height: var(--app-note-anchor-size);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1188,7 +1143,7 @@ const emit = defineEmits<{
     transform: translate(-50%, -50%);
     opacity: 0.92;
     pointer-events: none;
-    z-index: 25;
+    z-index: var(--app-note-anchor-z-index);
 }
 
 .pdf-note-connector-svg {
@@ -1196,7 +1151,7 @@ const emit = defineEmits<{
     inset: 0;
     width: 100vw;
     height: 100vh;
-    z-index: 24;
+    z-index: var(--app-note-connector-z-index);
     overflow: visible;
 }
 

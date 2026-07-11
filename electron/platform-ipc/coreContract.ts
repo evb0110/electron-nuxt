@@ -14,6 +14,7 @@ import type {
     IWindowTabTransferResult,
     TWindowTabsAction,
 } from '@contracts/windowTabs';
+import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
 
 export const CORE_IPC_CHANNELS = {
     settingsGet: 'settings:get',
@@ -28,6 +29,8 @@ export const CORE_IPC_CHANNELS = {
     rendererReady: 'app:rendererReady',
     claimPendingExternalOpenPaths: 'app:claimPendingExternalOpenPaths',
     acknowledgePendingExternalOpenPaths: 'app:acknowledgePendingExternalOpenPaths',
+    workspaceCheckpointSave: 'workspace:checkpointSave',
+    workspaceCheckpointClaim: 'workspace:checkpointClaim',
     tabsTransfer: 'tabs:transfer',
     tabsTransferAck: 'tabs:transferAck',
     tabsListTargets: 'tabs:listTargets',
@@ -106,6 +109,14 @@ export interface ICoreInvokeMap {
     [CORE_IPC_CHANNELS.acknowledgePendingExternalOpenPaths]: {
         args: [failedPaths: string[]];
         result: TNoIpcResult;
+    };
+    [CORE_IPC_CHANNELS.workspaceCheckpointSave]: {
+        args: [checkpoint: IWorkspaceCheckpoint];
+        result: TNoIpcResult;
+    };
+    [CORE_IPC_CHANNELS.workspaceCheckpointClaim]: {
+        args: [];
+        result: IWorkspaceCheckpoint | null;
     };
     [CORE_IPC_CHANNELS.tabsTransfer]: {
         args: [request: IWindowTabTransferRequest];

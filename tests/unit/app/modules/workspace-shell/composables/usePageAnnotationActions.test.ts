@@ -18,6 +18,7 @@ import type {
     TAnnotationCommentsStatus,
     TAnnotationTool,
 } from '@app/types/annotations';
+import {annotationIdForSummary} from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacement';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import { usePageAnnotationActions } from '@app/modules/workspace-shell/composables/usePageAnnotationActions';
@@ -27,13 +28,14 @@ const { resolveAnnotationCommentTextMarkupColor } = vi.hoisted(() => ({resolveAn
 
 vi.mock('@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/resolveAnnotationCommentTextMarkupColor', () => ({resolveAnnotationCommentTextMarkupColor}));
 
-function createComment(stableKey: string): IAnnotationCommentSummary {
+function createComment(stableKeySeed: string): IAnnotationCommentSummary {
     return {
-        id: stableKey,
-        stableKey,
+        appAnnotationId: `anno-${stableKeySeed}`,
+        id: stableKeySeed,
+        stableKey: `ann:0:${stableKeySeed}`,
         pageIndex: 0,
         pageNumber: 1,
-        text: `comment-${stableKey}`,
+        text: `comment-${stableKeySeed}`,
         author: null,
         modifiedAt: null,
         color: null,
@@ -178,12 +180,10 @@ function createHarness() {
         updateAnnotationComment: vi.fn(() => true),
         deleteAnnotationComment: vi.fn(async (_comment: IAnnotationCommentSummary) => true),
         registerAnnotationHistoryCommand: vi.fn(),
-        suppressAnnotationId: vi.fn(),
-        suppressAnnotationStableKey: vi.fn(),
-        unsuppressAnnotationId: vi.fn(),
-        unsuppressAnnotationStableKey: vi.fn(),
         removeAnnotationFromDom: vi.fn(),
         removeAnnotationFromInternalCache: vi.fn(),
+        deleteEmbeddedAnnotationDeferred: vi.fn(() => true),
+        undeleteEmbeddedAnnotationDeferred: vi.fn(),
         updateSelectedTextMarkupAnnotationColor: vi.fn(() => true),
         updateTextMarkupAnnotationColor: vi.fn(() => true),
         selectedShapeId: null as string | null,
@@ -198,18 +198,13 @@ function createHarness() {
                 9,
             ]),
             serializedResult: null,
-            nativeMutationPlan: null,
+            nativeMutationProjection: null,
             annotationSavePlan: {
                 route: 'source-clean' as const,
                 expectedCost: 'small' as const,
                 reason: 'no-live-pdfjs-annotation-work' as const,
                 unreplayableLiveAnnotationIds: [],
             },
-            annotationCommentsSnapshot: [],
-            pendingEmbeddedTextUpdates: new Map(),
-            pendingEmbeddedAnnotationDeletes: [],
-            restoreConsumedPendingEmbeddedMutations: vi.fn(),
-            commitConsumedPendingEmbeddedMutations: vi.fn(),
         })),
         saveDocument: vi.fn(async () => new Uint8Array([
             9,
@@ -268,8 +263,8 @@ function createHarness() {
         setAnnotationNoteWindowError: vi.fn(),
         isSameAnnotationComment: vi.fn((a: IAnnotationCommentSummary, b: IAnnotationCommentSummary) => a.stableKey === b.stableKey),
         annotationNoteWindows: ref<Array<{
-            comment: IAnnotationCommentSummary;
-            text?: string | undefined;
+            annotationId: string;
+            draftText: string;
             createdAtMs?: number | undefined;
         }>>([]),
         loadPdfFromData: vi.fn(async (_data: Uint8Array, _opts?: {
@@ -280,8 +275,8 @@ function createHarness() {
         invalidateThumbnailPages: vi.fn(),
         removeAnnotationFromCache: vi.fn(),
         restoreAnnotationToCache: vi.fn(),
-        queuePendingEmbeddedAnnotationDelete: vi.fn(),
-        unqueuePendingEmbeddedAnnotationDelete: vi.fn(),
+        deleteEmbeddedAnnotationDeferred: vi.fn(),
+        undeleteEmbeddedAnnotationDeferred: vi.fn(),
         isNativeFreeTextNoteSaved: vi.fn(() => false),
         markPreservedAnnotationSourceDirty: vi.fn(),
         setPreservedAnnotationSourceDirty: vi.fn(),
@@ -328,7 +323,6 @@ describe('usePageAnnotationActions', () => {
         try {
             const {
                 deps,
-                viewer,
                 actions,
             } = createHarness();
             const comment = createComment('new-editor-note');
@@ -340,19 +334,17 @@ describe('usePageAnnotationActions', () => {
             actions.handleOpenAnnotationNote(comment);
 
             const expected = expect.objectContaining({
-                stableKey: 'new-editor-note',
+                stableKey: 'ann:0:new-editor-note',
                 createdAt: new Date('2026-05-26T12:00:00Z').getTime(),
             });
-            expect(deps.restoreAnnotationToCache).toHaveBeenCalledWith(expected);
-            expect(viewer.restoreAnnotationToInternalCache).toHaveBeenCalledWith(expected);
             expect(deps.openAnnotationNoteWindow).toHaveBeenCalledWith(expected);
-            expect(deps.annotationActiveCommentStableKey.value).toBe('new-editor-note');
+            expect(deps.annotationActiveCommentStableKey.value).toBe('anno-new-editor-note');
         } finally {
             vi.useRealTimers();
         }
     });
 
-    it('registers a fresh editor note as its own undoable annotation command', () => {
+    it('leaves fresh editor note history to the canonical annotation command path', () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-05-26T12:00:00Z'));
         try {
@@ -369,36 +361,23 @@ describe('usePageAnnotationActions', () => {
 
             actions.handleOpenAnnotationNote(comment);
             const noteComment = deps.openAnnotationNoteWindow.mock.calls[0]?.[0];
-            deps.annotationNoteWindows.value = [{ comment: noteComment! }];
+            deps.annotationNoteWindows.value = [{
+                annotationId: annotationIdForSummary(noteComment!),
+                draftText: noteComment!.text,
+            }];
             vi.runOnlyPendingTimers();
 
             expect(noteComment).toEqual(expect.objectContaining({
-                stableKey: 'fresh-editor-note',
+                stableKey: 'ann:0:fresh-editor-note',
                 createdAt: new Date('2026-05-26T12:00:00Z').getTime(),
             }));
-            const command = viewer.registerAnnotationHistoryCommand.mock.calls[0]?.[0];
-            expect(command).toBeDefined();
-
-            command!.undo();
-
-            expect(deps.removeAnnotationNoteWindow).toHaveBeenCalledWith('fresh-editor-note');
-            expect(viewer.removeAnnotationFromDom).toHaveBeenCalledWith(noteComment);
-            expect(viewer.removeAnnotationFromInternalCache).toHaveBeenCalledWith('fresh-editor-note');
-            expect(deps.removeAnnotationFromCache).toHaveBeenCalledWith('fresh-editor-note');
-            expect(deps.invalidateThumbnailPages).toHaveBeenCalledWith([1]);
-
-            command!.cmd();
-
-            expect(deps.restoreAnnotationToCache).toHaveBeenLastCalledWith(noteComment);
-            expect(viewer.restoreAnnotationToInternalCache).toHaveBeenLastCalledWith(noteComment);
-            expect(deps.openAnnotationNoteWindow).toHaveBeenLastCalledWith(noteComment);
-            expect(deps.annotationActiveCommentStableKey.value).toBe('fresh-editor-note');
+            expect(viewer.registerAnnotationHistoryCommand).not.toHaveBeenCalled();
         } finally {
             vi.useRealTimers();
         }
     });
 
-    it('registers fresh note undo after the open note identity is synchronized', () => {
+    it('does not add a second command after note identity synchronization', () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-05-26T12:00:00Z'));
         try {
@@ -422,21 +401,19 @@ describe('usePageAnnotationActions', () => {
 
             actions.handleOpenAnnotationNote(comment);
             const noteComment = deps.openAnnotationNoteWindow.mock.calls[0]?.[0] as IAnnotationCommentSummary;
-            deps.annotationNoteWindows.value = [{ comment: {
-                ...noteComment,
-                id: 'actual-editor',
-                uid: 'actual-editor',
-                stableKey: 'uid:0:actual-editor',
-            } }];
+            deps.annotationNoteWindows.value = [{
+                draftText: '',
+                annotationId: annotationIdForSummary(noteComment),
+            }];
             vi.runOnlyPendingTimers();
 
-            expect(viewer.registerAnnotationHistoryCommand).toHaveBeenCalledOnce();
+            expect(viewer.registerAnnotationHistoryCommand).not.toHaveBeenCalled();
         } finally {
             vi.useRealTimers();
         }
     });
 
-    it('redoes a fresh editor note with the latest saved note text and identity', () => {
+    it('does not capture mutable note-window state in an executor closure', () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-05-26T12:00:00Z'));
         try {
@@ -469,85 +446,21 @@ describe('usePageAnnotationActions', () => {
                 modifiedAt: Date.now() + 1_000,
             };
             deps.annotationNoteWindows.value = [{
-                comment: savedComment,
-                text: 'Saved note text',
+                draftText: 'Saved note text',
+                annotationId: annotationIdForSummary(savedComment),
             }];
             vi.runOnlyPendingTimers();
 
-            const command = viewer.registerAnnotationHistoryCommand.mock.calls[0]?.[0];
-            expect(command).toBeDefined();
-
-            command!.undo();
-
-            expect(viewer.removeAnnotationFromDom).toHaveBeenCalledWith(savedComment);
-            expect(viewer.removeAnnotationFromInternalCache).toHaveBeenCalledWith('uid:0:actual-editor');
-            expect(deps.removeAnnotationNoteWindow).toHaveBeenCalledWith('uid:0:actual-editor');
-
-            command!.cmd();
-
-            expect(deps.restoreAnnotationToCache).toHaveBeenLastCalledWith(savedComment);
-            expect(viewer.restoreAnnotationToInternalCache).toHaveBeenLastCalledWith(savedComment);
-            expect(deps.openAnnotationNoteWindow).toHaveBeenLastCalledWith(savedComment);
-            expect(deps.annotationActiveCommentStableKey.value).toBe('uid:0:actual-editor');
+            expect(viewer.registerAnnotationHistoryCommand).not.toHaveBeenCalled();
         } finally {
             vi.useRealTimers();
         }
     });
 
-    it('undoes the latest fresh empty editor note directly', async () => {
-        vi.useFakeTimers();
-        vi.setSystemTime(new Date('2026-05-26T12:00:00Z'));
-        try {
-            const {
-                deps,
-                viewer,
-                actions,
-            } = createHarness();
-            const highlight = createComment('highlight');
-            highlight.source = 'editor';
-            highlight.subtype = 'Highlight';
-            const note = createComment('fresh-note');
-            note.source = 'editor';
-            note.subtype = 'FreeText';
-            note.hasNote = true;
-            note.text = '\u200B';
-            note.createdAt = Date.now();
-            deps.annotationNoteWindows.value = [
-                { comment: highlight },
-                { comment: note },
-            ];
+    it('does not expose a parallel fresh-note undo fallback outside app history', () => {
+        const {actions} = createHarness();
 
-            const undone = await actions.undoLatestFreshAnnotationNoteCreation();
-
-            expect(undone).toBe(true);
-            expect(viewer.deleteAnnotationComment).toHaveBeenCalledWith(note);
-            expect(viewer.deleteAnnotationComment).not.toHaveBeenCalledWith(highlight);
-            expect(deps.removeAnnotationNoteWindow).toHaveBeenCalledWith('fresh-note');
-            expect(deps.removeAnnotationFromCache).toHaveBeenCalledWith('fresh-note');
-        } finally {
-            vi.useRealTimers();
-        }
-    });
-
-    it('can undo an empty editor note before PDF.js reports a creation timestamp', async () => {
-        const {
-            deps,
-            viewer,
-            actions,
-        } = createHarness();
-        const note = createComment('untimestamped-note');
-        note.source = 'editor';
-        note.subtype = 'FreeText';
-        note.hasNote = true;
-        note.text = '\u200B';
-        note.createdAt = null;
-        note.modifiedAt = null;
-        deps.annotationNoteWindows.value = [{ comment: note }];
-
-        const undone = await actions.undoLatestFreshAnnotationNoteCreation();
-
-        expect(undone).toBe(true);
-        expect(viewer.deleteAnnotationComment).toHaveBeenCalledWith(note);
+        expect(actions).not.toHaveProperty('undoLatestFreshAnnotationNoteCreation');
     });
 
     it('starts quick note placement without creating a selection-based note', async () => {
@@ -784,16 +697,6 @@ describe('usePageAnnotationActions', () => {
             expect(deps.annotationContextMenu.value.comment?.color).toBe('#ef4444');
             expect(deps.annotationContextMenu.value.comment?.colorEdited).toBe(true);
             expect(deps.annotationSettings.value[settingsKey]).toBe('#ef4444');
-            expect(deps.restoreAnnotationToCache).toHaveBeenCalledWith(expect.objectContaining({
-                stableKey: comment.stableKey,
-                color: '#ef4444',
-                colorEdited: true,
-            }));
-            expect(viewer.restoreAnnotationToInternalCache).toHaveBeenCalledWith(expect.objectContaining({
-                stableKey: comment.stableKey,
-                color: '#ef4444',
-                colorEdited: true,
-            }));
             expect(deps.loadPdfFromData).not.toHaveBeenCalled();
             expect(viewer.registerAnnotationHistoryCommand).toHaveBeenCalledOnce();
             const historyCommand = viewer.registerAnnotationHistoryCommand.mock.calls[0]?.[0];
@@ -806,11 +709,6 @@ describe('usePageAnnotationActions', () => {
                 }),
                 '#22c55e',
             );
-            expect(deps.restoreAnnotationToCache).toHaveBeenLastCalledWith(expect.objectContaining({
-                stableKey: comment.stableKey,
-                color: '#22c55e',
-                colorEdited: false,
-            }));
             historyCommand?.cmd();
             expect(viewer.updateTextMarkupAnnotationColor).toHaveBeenLastCalledWith(
                 expect.objectContaining({
@@ -1156,15 +1054,21 @@ describe('usePageAnnotationActions', () => {
         commentA.source = 'editor';
         commentB.source = 'editor';
         deps.annotationNoteWindows.value = [
-            { comment: commentA },
-            { comment: commentB },
+            {
+                annotationId: annotationIdForSummary(commentA),
+                draftText: commentA.text,
+            },
+            {
+                annotationId: annotationIdForSummary(commentB),
+                draftText: commentB.text,
+            },
         ];
 
         const gate = deferred<undefined>();
         const deleteOrder: string[] = [];
         viewer.deleteAnnotationComment.mockImplementation(async (comment: IAnnotationCommentSummary) => {
             deleteOrder.push(comment.stableKey);
-            if (comment.stableKey === 'a') {
+            if (comment.stableKey === 'ann:0:a') {
                 await gate.promise;
             }
             return true;
@@ -1174,7 +1078,7 @@ describe('usePageAnnotationActions', () => {
         const deleteB = actions.handleDeleteAnnotationComment(commentB);
 
         await waitForCondition(() => deleteOrder.length === 1);
-        expect(deleteOrder).toEqual(['a']);
+        expect(deleteOrder).toEqual(['ann:0:a']);
 
         gate.resolve(undefined);
         await Promise.all([
@@ -1183,14 +1087,14 @@ describe('usePageAnnotationActions', () => {
         ]);
 
         expect(deleteOrder).toEqual([
-            'a',
-            'b',
+            'ann:0:a',
+            'ann:0:b',
         ]);
-        expect(deps.removeAnnotationNoteWindow).toHaveBeenCalledWith('a');
-        expect(deps.removeAnnotationNoteWindow).toHaveBeenCalledWith('b');
+        expect(deps.removeAnnotationNoteWindow).toHaveBeenCalledWith('anno-a');
+        expect(deps.removeAnnotationNoteWindow).toHaveBeenCalledWith('anno-b');
     });
 
-    it('ignores duplicate delete requests for the same annotation while the first is pending', async () => {
+    it('serializes repeated delete commands without a parallel pending-key authority', async () => {
         const {
             deps,
             viewer,
@@ -1198,7 +1102,10 @@ describe('usePageAnnotationActions', () => {
         } = createHarness();
         const comment = createComment('rapid-delete-note');
         comment.source = 'editor';
-        deps.annotationNoteWindows.value = [{ comment }];
+        deps.annotationNoteWindows.value = [{
+            annotationId: annotationIdForSummary(comment),
+            draftText: comment.text,
+        }];
         const gate = deferred<boolean>();
         viewer.deleteAnnotationComment.mockImplementation(async () => gate.promise);
 
@@ -1212,8 +1119,8 @@ describe('usePageAnnotationActions', () => {
             deleteB,
         ]);
 
-        expect(viewer.deleteAnnotationComment).toHaveBeenCalledTimes(1);
-        expect(deps.removeAnnotationNoteWindow).toHaveBeenCalledWith(comment.stableKey);
+        expect(viewer.deleteAnnotationComment).toHaveBeenCalledTimes(2);
+        expect(deps.removeAnnotationNoteWindow).toHaveBeenCalledWith(comment.appAnnotationId);
     });
 
     it('uses the embedded delete path directly for PDF-backed highlights', async () => {
@@ -1230,14 +1137,11 @@ describe('usePageAnnotationActions', () => {
         await actions.handleDeleteAnnotationComment(comment);
 
         expect(viewer.deleteAnnotationComment).not.toHaveBeenCalled();
-        expect(viewer.suppressAnnotationStableKey).toHaveBeenCalledWith(comment.stableKey);
-        expect(viewer.suppressAnnotationId).toHaveBeenCalledWith('12R');
         expect(viewer.removeAnnotationFromDom).toHaveBeenCalledWith(comment);
         expect(viewer.removeAnnotationFromInternalCache).toHaveBeenCalledWith(comment.stableKey);
-        expect(deps.removeAnnotationFromCache).toHaveBeenCalledWith(comment.stableKey);
         expect(deps.invalidateThumbnailPages).toHaveBeenCalledWith([1]);
-        expect(deps.queuePendingEmbeddedAnnotationDelete).toHaveBeenCalledWith(comment);
-        expect(viewer.registerAnnotationHistoryCommand).toHaveBeenCalledOnce();
+        expect(viewer.deleteEmbeddedAnnotationDeferred).toHaveBeenCalledWith(comment);
+        expect(viewer.registerAnnotationHistoryCommand).not.toHaveBeenCalled();
     });
 
     it('closes remaining note windows when an explicit delete drains the annotation cache', async () => {
@@ -1260,18 +1164,16 @@ describe('usePageAnnotationActions', () => {
             width: 0.01,
             height: 0.01,
         }});
-        let comments = [comment];
-        deps.getAnnotationCommentsSnapshot.mockImplementation(() => comments);
-        deps.removeAnnotationFromCache.mockImplementation((stableKey: string) => {
-            comments = comments.filter(candidate => candidate.stableKey !== stableKey);
-        });
-        deps.annotationNoteWindows.value = [{ comment: openNote }];
-        deps.annotationActiveCommentStableKey.value = openNote.stableKey;
+        deps.getAnnotationCommentsSnapshot.mockReturnValue([comment]);
+        deps.annotationNoteWindows.value = [{
+            annotationId: annotationIdForSummary(openNote),
+            draftText: openNote.text,
+        }];
+        deps.annotationActiveCommentStableKey.value = openNote.appAnnotationId ?? null;
 
         await actions.handleDeleteAnnotationComment(comment);
 
-        expect(deps.removeAnnotationNoteWindow).toHaveBeenCalledWith(openNote.stableKey);
-        expect(deps.removeAnnotationFromCache).toHaveBeenCalledWith(openNote.stableKey);
+        expect(deps.removeAnnotationNoteWindow).toHaveBeenCalledWith(openNote.appAnnotationId);
         expect(deps.annotationActiveCommentStableKey.value).toBeNull();
     });
 
@@ -1284,15 +1186,17 @@ describe('usePageAnnotationActions', () => {
         const openNote = createEditorOpenNote(comment);
         deps.getAnnotationCommentsSnapshot.mockReturnValue([]);
         deps.getAnnotationCommentsStatusSnapshot.mockReturnValue('ready');
-        deps.annotationNoteWindows.value = [{ comment: openNote }];
+        deps.annotationNoteWindows.value = [{
+            annotationId: annotationIdForSummary(openNote),
+            draftText: openNote.text,
+        }];
 
         await actions.handleDeleteAnnotationComment(comment);
 
-        expect(deps.removeAnnotationNoteWindow).toHaveBeenCalledWith(openNote.stableKey);
-        expect(deps.removeAnnotationFromCache).toHaveBeenCalledWith(openNote.stableKey);
+        expect(deps.removeAnnotationNoteWindow).toHaveBeenCalledWith(openNote.appAnnotationId);
     });
 
-    it('keeps unmatched note windows through an explicit delete during a loading sync gap', async () => {
+    it('closes a canonically matched note window during a loading sync gap', async () => {
         const {
             deps,
             actions,
@@ -1301,21 +1205,22 @@ describe('usePageAnnotationActions', () => {
         const openNote = createEditorOpenNote(comment);
         deps.getAnnotationCommentsSnapshot.mockReturnValue([]);
         deps.getAnnotationCommentsStatusSnapshot.mockReturnValue('loading');
-        deps.annotationNoteWindows.value = [{ comment: openNote }];
+        deps.annotationNoteWindows.value = [{
+            annotationId: annotationIdForSummary(openNote),
+            draftText: openNote.text,
+        }];
 
         await actions.handleDeleteAnnotationComment(comment);
 
-        expect(deps.removeAnnotationNoteWindow).not.toHaveBeenCalledWith(openNote.stableKey);
-        expect(deps.removeAnnotationFromCache).not.toHaveBeenCalledWith(openNote.stableKey);
+        expect(deps.removeAnnotationNoteWindow).toHaveBeenCalledWith(openNote.appAnnotationId);
     });
 
     it('resolves embedded refs from stable keys before suppressing and queueing deletes', async () => {
         const {
-            deps,
             viewer,
             actions,
         } = createHarness();
-        const comment = createComment('ann:0:12R0');
+        const comment = createComment('12R0');
         comment.source = 'editor';
         comment.annotationId = null;
         comment.subtype = 'Highlight';
@@ -1323,9 +1228,7 @@ describe('usePageAnnotationActions', () => {
         await actions.handleDeleteAnnotationComment(comment);
 
         expect(viewer.deleteAnnotationComment).not.toHaveBeenCalled();
-        expect(viewer.suppressAnnotationStableKey).toHaveBeenCalledWith(comment.stableKey);
-        expect(viewer.suppressAnnotationId).toHaveBeenCalledWith('12R');
-        expect(deps.queuePendingEmbeddedAnnotationDelete).toHaveBeenCalledWith(expect.objectContaining({
+        expect(viewer.deleteEmbeddedAnnotationDeferred).toHaveBeenCalledWith(expect.objectContaining({
             stableKey: comment.stableKey,
             annotationId: '12R',
         }));
@@ -1334,7 +1237,6 @@ describe('usePageAnnotationActions', () => {
 
     it('lets PDF.js own newly-created editor highlight deletes', async () => {
         const {
-            deps,
             viewer,
             actions,
         } = createHarness();
@@ -1346,14 +1248,11 @@ describe('usePageAnnotationActions', () => {
         await actions.handleDeleteAnnotationComment(comment);
 
         expect(viewer.deleteAnnotationComment).toHaveBeenCalledWith(comment);
-        expect(viewer.suppressAnnotationStableKey).not.toHaveBeenCalled();
-        expect(viewer.suppressAnnotationId).not.toHaveBeenCalled();
-        expect(deps.queuePendingEmbeddedAnnotationDelete).not.toHaveBeenCalled();
+        expect(viewer.deleteEmbeddedAnnotationDeferred).not.toHaveBeenCalled();
     });
 
-    it('queues native stable-key deletes for saved editor FreeText notes after viewer delete', async () => {
+    it('lets the canonical viewer delete editor FreeText notes', async () => {
         const {
-            deps,
             viewer,
             actions,
         } = createHarness();
@@ -1369,19 +1268,14 @@ describe('usePageAnnotationActions', () => {
             width: 0.0016,
             height: 0.0016,
         };
-        deps.isNativeFreeTextNoteSaved.mockReturnValue(true);
-
         await actions.handleDeleteAnnotationComment(comment);
 
         expect(viewer.deleteAnnotationComment).toHaveBeenCalledWith(comment);
-        expect(viewer.suppressAnnotationStableKey).toHaveBeenCalledWith(comment.stableKey);
-        expect(deps.queuePendingEmbeddedAnnotationDelete).toHaveBeenCalledWith(comment);
-        expect(viewer.removeAnnotationFromInternalCache).toHaveBeenCalledWith(comment.stableKey);
+        expect(viewer.deleteEmbeddedAnnotationDeferred).not.toHaveBeenCalled();
     });
 
     it('lets PDF.js own unsaved editor FreeText deletes', async () => {
         const {
-            deps,
             viewer,
             actions,
         } = createHarness();
@@ -1401,13 +1295,11 @@ describe('usePageAnnotationActions', () => {
         await actions.handleDeleteAnnotationComment(comment);
 
         expect(viewer.deleteAnnotationComment).toHaveBeenCalledWith(comment);
-        expect(viewer.suppressAnnotationStableKey).not.toHaveBeenCalled();
-        expect(deps.queuePendingEmbeddedAnnotationDelete).not.toHaveBeenCalled();
+        expect(viewer.deleteEmbeddedAnnotationDeferred).not.toHaveBeenCalled();
     });
 
     it('lets the viewer own shape annotation deletes even when they have embedded refs', async () => {
         const {
-            deps,
             viewer,
             actions,
         } = createHarness();
@@ -1419,9 +1311,7 @@ describe('usePageAnnotationActions', () => {
         await actions.handleDeleteAnnotationComment(comment);
 
         expect(viewer.deleteAnnotationComment).toHaveBeenCalledWith(comment);
-        expect(viewer.suppressAnnotationStableKey).not.toHaveBeenCalled();
-        expect(viewer.suppressAnnotationId).not.toHaveBeenCalled();
-        expect(deps.queuePendingEmbeddedAnnotationDelete).not.toHaveBeenCalled();
+        expect(viewer.deleteEmbeddedAnnotationDeferred).not.toHaveBeenCalled();
     });
 
     it('does not invent an embedded delete when a runtime editor highlight cannot be deleted by PDF.js', async () => {
@@ -1439,18 +1329,15 @@ describe('usePageAnnotationActions', () => {
         await actions.handleDeleteAnnotationComment(comment);
 
         expect(viewer.deleteAnnotationComment).toHaveBeenCalledWith(comment);
-        expect(viewer.suppressAnnotationStableKey).not.toHaveBeenCalled();
-        expect(viewer.suppressAnnotationId).not.toHaveBeenCalled();
-        expect(deps.queuePendingEmbeddedAnnotationDelete).not.toHaveBeenCalled();
+        expect(viewer.deleteEmbeddedAnnotationDeferred).not.toHaveBeenCalled();
         expect(deps.setAnnotationNoteWindowError).toHaveBeenCalledWith(
             comment.stableKey,
             'errors.annotation.delete',
         );
     });
 
-    it('registers undo for deferred embedded deletes', async () => {
+    it('leaves deferred delete history to the canonical store', async () => {
         const {
-            deps,
             viewer,
             actions,
         } = createHarness();
@@ -1460,17 +1347,8 @@ describe('usePageAnnotationActions', () => {
 
         await actions.handleDeleteAnnotationComment(comment);
 
-        const command = viewer.registerAnnotationHistoryCommand.mock.calls[0]?.[0];
-        expect(command).toBeDefined();
-
-        command.undo();
-
-        expect(deps.unqueuePendingEmbeddedAnnotationDelete).toHaveBeenCalledWith(comment.stableKey);
-        expect(viewer.unsuppressAnnotationStableKey).toHaveBeenCalledWith(comment.stableKey);
-        expect(viewer.unsuppressAnnotationId).toHaveBeenCalledWith('12R');
-        expect(deps.restoreAnnotationToCache).toHaveBeenCalledWith(comment);
-        expect(viewer.invalidatePages).toHaveBeenCalledWith([comment.pageNumber]);
-        expect(deps.invalidateThumbnailPages).toHaveBeenCalledWith([comment.pageNumber]);
+        expect(viewer.deleteEmbeddedAnnotationDeferred).toHaveBeenCalledWith(comment);
+        expect(viewer.registerAnnotationHistoryCommand).not.toHaveBeenCalled();
     });
 
     it('defers embedded stamp deletes and refreshes the hidden annotation page without reloading', async () => {
@@ -1491,11 +1369,9 @@ describe('usePageAnnotationActions', () => {
         expect(deps.loadPdfFromData).not.toHaveBeenCalled();
         expect(deps.waitForPdfReload).not.toHaveBeenCalled();
         expect(deps.getEmbeddedMutationBaseData).not.toHaveBeenCalled();
-        expect(viewer.suppressAnnotationStableKey).toHaveBeenCalledWith(comment.stableKey);
-        expect(viewer.suppressAnnotationId).toHaveBeenCalledWith('12R');
         expect(viewer.removeAnnotationFromDom).toHaveBeenCalledWith(comment);
-        expect(deps.queuePendingEmbeddedAnnotationDelete).toHaveBeenCalledWith(comment);
-        expect(viewer.registerAnnotationHistoryCommand).toHaveBeenCalledOnce();
+        expect(viewer.deleteEmbeddedAnnotationDeferred).toHaveBeenCalledWith(comment);
+        expect(viewer.registerAnnotationHistoryCommand).not.toHaveBeenCalled();
     });
 
     it('does not serialize planned embedded mutation bytes before embedded stamp delete save', async () => {
@@ -1519,12 +1395,11 @@ describe('usePageAnnotationActions', () => {
         expect(viewer.saveDocument).not.toHaveBeenCalled();
         expect(deps.getEmbeddedMutationBaseData).not.toHaveBeenCalled();
         expect(deps.loadPdfFromData).not.toHaveBeenCalled();
-        expect(deps.queuePendingEmbeddedAnnotationDelete).toHaveBeenCalledWith(comment);
+        expect(viewer.deleteEmbeddedAnnotationDeferred).toHaveBeenCalledWith(comment);
     });
 
     it('marks embedded delete dirty when viewer delete could not resolve the note locally', async () => {
         const {
-            deps,
             viewer,
             actions,
         } = createHarness();
@@ -1533,8 +1408,7 @@ describe('usePageAnnotationActions', () => {
 
         await actions.handleDeleteAnnotationComment(comment);
 
-        expect(viewer.suppressAnnotationStableKey).toHaveBeenCalledWith(comment.stableKey);
-        expect(deps.queuePendingEmbeddedAnnotationDelete).toHaveBeenCalledWith(comment);
+        expect(viewer.deleteEmbeddedAnnotationDeferred).toHaveBeenCalledWith(comment);
     });
 
     it('reloads current page from serialized data for embedded fallback', async () => {

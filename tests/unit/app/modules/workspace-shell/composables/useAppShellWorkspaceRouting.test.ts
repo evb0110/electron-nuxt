@@ -624,7 +624,7 @@ describe('useAppShellWorkspaceRouting', () => {
             originalPath: '/docs/reference.djvu',
         };
 
-        await routing.openResultInAppropriateTab(result);
+        const opened = await routing.openResultInAppropriateTab(result);
 
         expect(routingOptions.createTab).toHaveBeenCalledWith(
             expect.objectContaining({ initial: expect.objectContaining({
@@ -634,6 +634,7 @@ describe('useAppShellWorkspaceRouting', () => {
             }) }),
         );
         expect(createdWorkspaces.get('tab-2')?.openResult).toHaveBeenCalledWith(result);
+        expect(opened).toBe(true);
     });
 
     it('removes a startup-created tab when its direct open reports failure', async () => {

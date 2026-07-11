@@ -54,10 +54,16 @@ vi.mock('@app/utils/platformDocuments', () => ({
 }));
 vi.mock('@app/composables/useAnalytics', () => ({useAnalytics: () => ({track: trackMock})}));
 
-function createComposable(options: {ensureWorkingCopyFreshForRead?: () => Promise<boolean>;} = {}) {
+function createComposable(options: {
+    ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
+    sourceKind?: 'pdf' | 'djvu';
+    sourcePath?: string;
+} = {}) {
     const scope = effectScope();
     const state = scope.run(() => useWorkspaceExport({
         workingCopyPath: ref('/tmp/work.pdf'),
+        ...(options.sourceKind ? {sourceKind: ref(options.sourceKind)} : {}),
+        ...(options.sourcePath ? {sourcePath: ref(options.sourcePath)} : {}),
         totalPages: ref(5),
         ...(options.ensureWorkingCopyFreshForRead ? { ensureWorkingCopyFreshForRead: options.ensureWorkingCopyFreshForRead } : {}),
     }));
@@ -424,7 +430,72 @@ describe('useWorkspaceExport', () => {
             await exportPromise;
 
             expect(ensureWorkingCopyFreshForRead).toHaveBeenCalledOnce();
-            expect(exportImagesMock).toHaveBeenCalledWith('/tmp/work.pdf', [1], expect.any(String));
+            expect(exportImagesMock).toHaveBeenCalledWith('/tmp/work.pdf', [1], expect.any(String), 'pdf');
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('exports DjVu pages directly without trying to persist a PDF working copy', async () => {
+        const ensureWorkingCopyFreshForRead = vi.fn(async () => true);
+        exportImagesMock.mockResolvedValueOnce({
+            success: true,
+            outputPaths: ['/tmp/page-1.png'],
+        });
+        const {
+            scope,
+            state,
+        } = createComposable({
+            ensureWorkingCopyFreshForRead,
+            sourceKind: 'djvu',
+            sourcePath: '/tmp/source.djvu',
+        });
+
+        try {
+            const exportPromise = state.handleExportImages([1]);
+            state.handleExportScopeDialogSubmit({pageNumbers: [1]});
+            await exportPromise;
+
+            expect(ensureWorkingCopyFreshForRead).not.toHaveBeenCalled();
+            expect(exportImagesMock).toHaveBeenCalledWith('/tmp/source.djvu', [1], expect.any(String), 'djvu');
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('exports a multi-page TIFF directly from the DjVu source', async () => {
+        exportTiffMock.mockResolvedValueOnce({
+            success: true,
+            outputPath: '/tmp/pages.tiff',
+        });
+        const {
+            scope,
+            state,
+        } = createComposable({
+            sourceKind: 'djvu',
+            sourcePath: '/tmp/source.djvu',
+        });
+
+        try {
+            const exportPromise = state.handleExportMultiPageTiff([
+                1,
+                3,
+            ]);
+            state.handleExportScopeDialogSubmit({pageNumbers: [
+                1,
+                3,
+            ]});
+            await exportPromise;
+
+            expect(exportTiffMock).toHaveBeenCalledWith(
+                '/tmp/source.djvu',
+                [
+                    1,
+                    3,
+                ],
+                expect.any(String),
+                'djvu',
+            );
         } finally {
             scope.stop();
         }

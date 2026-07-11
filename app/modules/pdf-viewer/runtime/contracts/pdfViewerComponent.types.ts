@@ -4,6 +4,7 @@ import type {
     IAnnotationEditorState,
     IAnnotationModifiedPayload,
     IAnnotationSettings,
+    TAnnotationSettingChange,
     TAnnotationTool,
 } from '@app/types/annotations';
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacement';
@@ -70,10 +71,7 @@ export interface IPdfViewerEmit {
     (e: 'annotation-open-note', comment: IAnnotationCommentSummary): void;
     (e: 'annotation-context-menu', payload: IAnnotationContextMenuPayload): void;
     (e: 'annotation-tool-auto-reset'): void;
-    (e: 'annotation-setting', payload: {
-        key: keyof IAnnotationSettings;
-        value: IAnnotationSettings[keyof IAnnotationSettings]
-    }): void;
+    (e: 'annotation-setting', payload: TAnnotationSettingChange): void;
     (e: 'annotation-comment-click', comment: IAnnotationCommentSummary): void;
     (e: 'annotation-tool-cancel'): void;
     (e: 'annotation-note-placement-change', active: boolean): void;

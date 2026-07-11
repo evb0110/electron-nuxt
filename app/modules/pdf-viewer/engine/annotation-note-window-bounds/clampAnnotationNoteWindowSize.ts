@@ -14,11 +14,13 @@ export function clampAnnotationNoteWindowSize(
         };
     }
 
-    const maxWidth = Math.max(NOTE_WINDOW.MIN_WIDTH, bounds.width - (NOTE_WINDOW.MARGIN * 2));
-    const maxHeight = Math.max(NOTE_WINDOW.MIN_HEIGHT, bounds.height - (NOTE_WINDOW.MARGIN * 2));
+    const maxWidth = Math.max(1, Math.round(bounds.width - (NOTE_WINDOW.MARGIN * 2)));
+    const maxHeight = Math.max(1, Math.round(bounds.height - (NOTE_WINDOW.MARGIN * 2)));
+    const minWidth = Math.min(NOTE_WINDOW.MIN_WIDTH, maxWidth);
+    const minHeight = Math.min(NOTE_WINDOW.MIN_HEIGHT, maxHeight);
 
     return {
-        width: clamp(Math.round(nextWidth), NOTE_WINDOW.MIN_WIDTH, maxWidth),
-        height: clamp(Math.round(nextHeight), NOTE_WINDOW.MIN_HEIGHT, maxHeight),
+        width: clamp(Math.round(nextWidth), minWidth, maxWidth),
+        height: clamp(Math.round(nextHeight), minHeight, maxHeight),
     };
 }

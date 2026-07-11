@@ -6,8 +6,8 @@ import type { IPdfNativeFreeTextNote } from '@contracts/electronApiDocuments';
 import { parsePageIndex } from '@contracts/pageNumbers';
 import type {
     INativePdfMutationBuildResult,
-    INativePdfMutationPlanCommonInput,
-} from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationPlanTypes';
+    INativePdfMutationProjectionCommonInput,
+} from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
 
 export function isReplayableEditorOnlyFreeTextNote(comment: IAnnotationCommentSummary) {
     const subtype = comment.subtype?.trim().toLowerCase();
@@ -39,7 +39,7 @@ export function toNativeFreeTextNote(comment: IAnnotationCommentSummary): IPdfNa
     };
 }
 
-export interface IBuildNativeFreeTextNotesForSaveInput extends INativePdfMutationPlanCommonInput {annotationCommentsSnapshot: IAnnotationCommentSummary[];}
+export interface IBuildNativeFreeTextNotesForSaveInput extends INativePdfMutationProjectionCommonInput {canonicalComments: IAnnotationCommentSummary[];}
 
 export function buildNativeFreeTextNotesForSave(
     opts: IBuildNativeFreeTextNotesForSaveInput,
@@ -67,7 +67,7 @@ export function buildNativeFreeTextNotesForSave(
     if (opts.forceRewrite) {
         return skip('rewrite-forced');
     }
-    const candidates = opts.annotationCommentsSnapshot
+    const candidates = opts.canonicalComments
         .filter(isReplayableEditorOnlyFreeTextNote)
         .flatMap((comment) => {
             const note = toNativeFreeTextNote(comment);

@@ -190,7 +190,7 @@ watch(
 }
 
 .native-pdf-page-image--pending {
-    z-index: 1;
+    z-index: var(--app-z-pdf-native-pending-image);
 }
 
 .native-pdf-page-placeholder {
@@ -200,18 +200,18 @@ watch(
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 0.75rem;
+    gap: var(--app-native-pdf-placeholder-gap);
     background: color-mix(in oklab, var(--ui-bg) 92%, var(--ui-bg-muted) 8%);
 }
 
 .native-pdf-page-number {
     position: absolute;
-    right: 0.75rem;
-    bottom: 0.75rem;
+    right: var(--app-native-pdf-page-number-offset);
+    bottom: var(--app-native-pdf-page-number-offset);
     border-radius: var(--app-radius-full);
     background: color-mix(in oklab, var(--ui-bg-elevated) 88%, transparent);
-    padding: 0.125rem 0.5rem;
-    font-size: 0.75rem;
+    padding: var(--app-native-pdf-page-number-padding);
+    font-size: var(--app-native-pdf-page-number-font-size);
     color: var(--ui-text-muted);
     backdrop-filter: blur(6px);
 }

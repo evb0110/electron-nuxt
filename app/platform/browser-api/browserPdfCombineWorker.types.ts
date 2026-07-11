@@ -245,7 +245,7 @@ function parseBrowserPdfCombineWasmImagePreprocessing(
 
     let pageSizes: IBrowserPdfCombinePageSize[] | undefined;
     if (value.pageSizes !== undefined) {
-        if (!Array.isArray(value.pageSizes)) {
+        if (!Array.isArray(value.pageSizes) || value.pageSizes.length > 500) {
             return null;
         }
         pageSizes = [];
@@ -260,7 +260,7 @@ function parseBrowserPdfCombineWasmImagePreprocessing(
 
     let pageSpecs: IBrowserPdfCombineWasmPageSpec[] | undefined;
     if (value.pageSpecs !== undefined) {
-        if (!Array.isArray(value.pageSpecs) || value.pageSpecs.length === 0) {
+        if (!Array.isArray(value.pageSpecs) || value.pageSpecs.length === 0 || value.pageSpecs.length > 500) {
             return null;
         }
         pageSpecs = [];
@@ -302,6 +302,8 @@ export function parseBrowserPdfCombineWorkerRequest(value: unknown): TBrowserPdf
         || value.type !== 'combinePdfs'
         || !isRecord(value.payload)
         || !Array.isArray(value.payload.inputs)
+        || value.payload.inputs.length === 0
+        || value.payload.inputs.length > 500
     ) {
         return null;
     }

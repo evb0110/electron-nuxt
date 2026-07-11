@@ -6,7 +6,7 @@ import {randomUUID} from 'node:crypto';
 import type { IPdfSearchResponse } from '@contracts/search';
 import type { ISearchMatchOptions } from '@pdf-core';
 import type { IAgentTabSnapshot } from '@contracts/agent';
-import { toPageNumber } from '@contracts/pageNumbers';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import { createLogger } from '@electron/utils/createLogger';
 import {
     parseOptionalSearchPageCount,
@@ -436,7 +436,7 @@ function searchBoundedPageTexts(
             totalAvailableResults += 1;
             if (results.length < maxResults) {
                 results.push({
-                    pageNumber: toPageNumber(page.page),
+                    pageNumber: requirePageNumber(page.page),
                     pageMatchIndex,
                     matchIndex,
                     startOffset: match.startOffset,

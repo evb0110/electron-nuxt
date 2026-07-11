@@ -75,7 +75,13 @@ function createOptions() {
     const activeWorkspace = ref(cast<IWorkspaceExpose>(workspace));
 
     return {
-        tabs: ref([{id: 'tab-1'}]),
+        tabs: ref([{
+            id: 'tab-1',
+            fileName: null,
+            originalPath: null,
+            isDirty: false,
+            isDjvu: false,
+        }]),
         workspaceRefs: ref(new Map<string, IWorkspaceExpose>([[
             'tab-1',
             activeWorkspace.value,
@@ -91,6 +97,8 @@ function createOptions() {
         openPathInAppropriateTab: vi.fn(),
         openPathsInAppropriateTab: vi.fn(),
         beginOpenPathsInAppropriateTab: vi.fn(),
+        restoreWorkspaceCheckpointGraph: vi.fn(),
+        openPathInReservedTab: vi.fn(),
         clearRecentFiles: vi.fn(),
         loadRecentFiles: vi.fn(),
         openSettings: vi.fn(),
@@ -287,7 +295,13 @@ describe('useTabsShellBindings', () => {
 
         expect(installedApi?.getActiveToolbarSnapshot()?.currentPage).toBe(1);
 
-        options.tabs.value.push({id: 'tab-2'});
+        options.tabs.value.push({
+            id: 'tab-2',
+            fileName: null,
+            originalPath: null,
+            isDirty: false,
+            isDjvu: false,
+        });
         options.activeTabId.value = 'tab-2';
         options.activeWorkspace.value = secondWorkspace;
         options.workspaceRefs.value.set('tab-2', secondWorkspace);

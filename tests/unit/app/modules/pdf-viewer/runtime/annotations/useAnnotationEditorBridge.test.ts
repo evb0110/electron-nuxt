@@ -15,6 +15,7 @@ import {
 } from 'vue';
 import { shouldIgnoreEditorEvent } from '@app/modules/pdf-viewer/engine/annotations/annotation-editor-event-guards/shouldIgnoreEditorEvent';
 import { updateEditorDefaultParams } from '@app/services/pdfjs/annotationEditorAdapter';
+import { getPdfjsEditorFacadeState } from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
 import type {
     IAnnotationCommentSummary,
     IAnnotationEditorState,
@@ -26,56 +27,39 @@ import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 import { cast } from '@tests/helpers/cast';
 
-const annotationUiManagerInstances: FakeAnnotationEditorUIManager[] = [];
-
-class FakeAnnotationEditorUIManager {
-    __addToAnnotationStorageSpy = vi.fn((editor?: {
-        __assignAnnotationElementIdOnStorage?: boolean;
-        annotationElementId?: string | null;
-    }) => {
-        if (editor?.__assignAnnotationElementIdOnStorage) {
-            editor.annotationElementId = 'generated-annotation-id';
-        }
-    });
-    addToAnnotationStorage = this.__addToAnnotationStorageSpy;
-    __addCommandsSpy = vi.fn();
-    addCommands = this.__addCommandsSpy;
-    addEditListeners = vi.fn();
-    copy = vi.fn();
-    cut = vi.fn();
-    destroy = vi.fn();
-    delete = vi.fn();
-    getEditors = vi.fn(() => []);
-    keydown = vi.fn();
-    keyup = vi.fn();
-    onPageChanging = vi.fn();
-    onScaleChanging = vi.fn();
-    paste = vi.fn(async () => {});
-    redo = vi.fn();
-    removeEditListeners = vi.fn();
-    registerEditorTypes = vi.fn();
-    undo = vi.fn();
-    unselectAll = vi.fn();
-    updateParams = vi.fn();
-    __setSelectedSpy = vi.fn();
-
-    setSelected = this.__setSelectedSpy;
-
-    get currentLayer() {
-        return null;
+const {
+    annotationUiManagerInstances,
+    FakeAnnotationEditorLayer,
+    FakeAnnotationEditorUIManager,
+} = vi.hoisted(() => {
+    const instances: unknown[] = [];
+    class HoistedAnnotationEditorUIManager {
+        __addToAnnotationStorageSpy = vi.fn((editor?: {
+            __assignAnnotationElementIdOnStorage?: boolean;
+            annotationElementId?: string | null;
+        }) => {
+            if (editor?.__assignAnnotationElementIdOnStorage) editor.annotationElementId = 'generated-annotation-id';
+        });
+        addToAnnotationStorage = this.__addToAnnotationStorageSpy;
+        __addCommandsSpy = vi.fn();
+        addCommands = this.__addCommandsSpy;
+        addEditListeners = vi.fn(); copy = vi.fn(); cut = vi.fn(); destroy = vi.fn(); delete = vi.fn();
+        getEditors = vi.fn(() => []); keydown = vi.fn(); keyup = vi.fn(); onPageChanging = vi.fn();
+        onScaleChanging = vi.fn(); paste = vi.fn(async () => {}); redo = vi.fn(); removeEditListeners = vi.fn();
+        registerEditorTypes = vi.fn(); undo = vi.fn(); unselectAll = vi.fn(); updateParams = vi.fn();
+        __setSelectedSpy = vi.fn(); setSelected = this.__setSelectedSpy;
+        get currentLayer() { return null; }
+        constructor(..._args: unknown[]) { instances.push(this); }
     }
+    class HoistedAnnotationEditorLayer { disable() {} destroy() {} }
+    return {
+        annotationUiManagerInstances: instances as HoistedAnnotationEditorUIManager[],
+        FakeAnnotationEditorLayer: HoistedAnnotationEditorLayer,
+        FakeAnnotationEditorUIManager: HoistedAnnotationEditorUIManager,
+    };
+});
 
-    constructor(..._args: unknown[]) {
-        annotationUiManagerInstances.push(this);
-    }
-}
-
-class FakeAnnotationEditorLayer {
-    disable() {}
-    destroy() {}
-}
-
-function asAnnotationEditorUIManager(uiManager: FakeAnnotationEditorUIManager) {
+function asAnnotationEditorUIManager(uiManager: InstanceType<typeof FakeAnnotationEditorUIManager>) {
     return cast<AnnotationEditorUIManager>(uiManager);
 }
 
@@ -90,6 +74,10 @@ class FakeEventBus {
 
     off(name: string, listener: (event: unknown) => void) {
         this.listeners.get(name)?.delete(listener);
+    }
+
+    dispatch(name: string, event: unknown) {
+        this.listeners.get(name)?.forEach(listener => listener(event));
     }
 }
 
@@ -169,7 +157,7 @@ async function createBridgeHarness(
     const emitAnnotationModified = vi.fn();
     const emitAnnotationState = vi.fn<(state: IAnnotationEditorState) => void>();
     const emitAnnotationOpenNote = vi.fn<(comment: IAnnotationCommentSummary) => void>();
-    const recordPdfjsHistoryCommand = vi.fn();
+    const recordPdfjsExecutorCommand = vi.fn();
     const annotationTool = ref<TAnnotationTool>(tool);
     const pendingAnnotationTool = ref<TAnnotationTool>(tool);
     const maybeAutoResetAnnotationTool = vi.fn(() => {
@@ -221,7 +209,7 @@ async function createBridgeHarness(
         emitAnnotationModified,
         emitAnnotationState,
         emitAnnotationOpenNote,
-        recordPdfjsHistoryCommand,
+        recordPdfjsExecutorCommand,
     });
 
     bridge.initAnnotationEditor();
@@ -230,14 +218,19 @@ async function createBridgeHarness(
     if (!(uiManager instanceof FakeAnnotationEditorUIManager)) {
         throw new Error('Expected FakeAnnotationEditorUIManager instance');
     }
+    const eventBus = bridge.annotationEventBus.value;
+    if (!(eventBus instanceof FakeEventBus)) {
+        throw new Error('Expected FakeEventBus instance');
+    }
 
     return {
         emitAnnotationModified,
         emitAnnotationState,
         markupSubtype,
-        recordPdfjsHistoryCommand,
+        recordPdfjsExecutorCommand,
         scheduleAnnotationCommentsSync,
         uiManager,
+        eventBus,
     };
 }
 
@@ -383,10 +376,10 @@ describe('useAnnotationEditorBridge', () => {
         expect(applyPresentation.mock.calls.map(call => call[1])).not.toContain('Underline');
     });
 
-    it('registers PDF.js undo history for new text markup editors created through storage', async () => {
+    it('keeps new text markup creation out of the parallel PDF.js undo stack', async () => {
         const {
             markupSubtype,
-            recordPdfjsHistoryCommand,
+            recordPdfjsExecutorCommand,
             uiManager,
         } = await createBridgeHarness('underline', { markupSubtype: { toolToMarkupSubtype: { underline: 'Underline' } } });
         const remove = vi.fn();
@@ -408,28 +401,14 @@ describe('useAnnotationEditorBridge', () => {
 
         uiManager.addToAnnotationStorage(editor);
 
-        expect(uiManager.__addCommandsSpy).toHaveBeenCalledTimes(1);
+        expect(uiManager.__addCommandsSpy).not.toHaveBeenCalled();
         expect(parentAddCommands).not.toHaveBeenCalled();
-        expect(recordPdfjsHistoryCommand).toHaveBeenCalledTimes(1);
-        expect(recordPdfjsHistoryCommand).toHaveBeenCalledWith({ overwriteIfSameType: true });
-        expect(editor.__evbCreationHistoryRegistered).toBe(true);
+        expect(recordPdfjsExecutorCommand).not.toHaveBeenCalled();
+        expect(getPdfjsEditorFacadeState(editor).creationHistoryRegistered).toBeUndefined();
         expect(editor.annotationElementId).toBe('generated-annotation-id');
-
-        const command = uiManager.__addCommandsSpy.mock.calls[0]?.[0];
-        expect(command).toMatchObject({
-            __evbSkipAppHistory: true,
-            mustExec: false,
-        });
-        const clearMarkupSubtypeEditorClass = vi.mocked(markupSubtype.clearMarkupSubtypeEditorClass);
-        const applyEditorMarkupSubtypePresentation = vi.mocked(markupSubtype.applyEditorMarkupSubtypePresentation);
-        command.undo();
-        expect(clearMarkupSubtypeEditorClass.mock.calls[0]?.[0]).toBe(editor);
-        applyEditorMarkupSubtypePresentation.mockClear();
-        command.cmd();
-
-        expect(remove).toHaveBeenCalledOnce();
-        expect(rebuild.mock.calls[0]?.[0]).toBe(editor);
-        expect(applyEditorMarkupSubtypePresentation.mock.calls.some(call => call[1] === 'Underline')).toBe(true);
+        expect(remove).not.toHaveBeenCalled();
+        expect(rebuild).not.toHaveBeenCalled();
+        expect(markupSubtype.clearMarkupSubtypeEditorClass).not.toHaveBeenCalled();
     });
 
     it('installs a default-param updater for toolbar settings', async () => {
@@ -453,5 +432,27 @@ describe('useAnnotationEditorBridge', () => {
 
         expect(emitAnnotationModified).toHaveBeenCalledOnce();
         expect(scheduleAnnotationCommentsSync).toHaveBeenCalledWith();
+    });
+
+    it('decodes PDF.js state events before updating internal state', async () => {
+        const {
+            emitAnnotationState,
+            eventBus,
+        } = await createBridgeHarness('text');
+
+        eventBus.dispatch('annotationeditorstateschanged', {details: {
+            isEditing: true,
+            isEmpty: 'false',
+            hasSomethingToUndo: true,
+            unexpected: true,
+        }});
+
+        expect(emitAnnotationState).toHaveBeenLastCalledWith({
+            isEditing: true,
+            isEmpty: true,
+            hasSomethingToUndo: true,
+            hasSomethingToRedo: false,
+            hasSelectedEditor: false,
+        });
     });
 });

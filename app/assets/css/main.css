@@ -79,6 +79,8 @@
     --app-tab-new-width: 3rem;
     --app-tab-new-block-inset: 0.125rem;
     --app-tab-new-radius: 0.75rem;
+    --app-tab-max-width: 12.5rem;
+    --app-tab-active-overlap: -1px;
     --app-statusbar-button-size: 1.75rem;
     --app-statusbar-icon-size: 0.95rem;
     --app-statusbar-height: 1.9rem;
@@ -91,16 +93,56 @@
     --app-statusbar-divider-offset: -0.5rem;
     --app-statusbar-divider-height: 0.76rem;
     --app-statusbar-action-size: 1.1rem;
+    --app-statusbar-divider-width: var(--app-divider-width);
     --app-statusbar-folder-radius: var(--app-radius-xs);
     --app-statusbar-folder-icon-size: 0.82rem;
     --app-statusbar-save-dot-size: 0.56rem;
     --app-statusbar-pulse-opacity: 0.72;
     --app-outline-toolbar-button-size: 1.75rem;
-    --app-progress-overlay-z-index: 50;
+
+    /* Global layer scale. Component-internal stacking stays local and is never
+       compared with these application-chrome layers. */
+    --app-z-base: 0;
+    --app-z-raised: 10;
+    --app-z-banner: 20;
+    --app-z-workspace-overlay: 30;
+    --app-z-floating-chrome: 40;
+    --app-z-progress: 50;
+    --app-z-modal: 60;
+    --app-z-preview: 70;
+    --app-z-popover: 80;
+    --app-z-menu: 90;
+    --app-z-toast: 100;
+
+    /* Component-local slots. These values are meaningful only inside an
+       isolated/positioned component stacking context. */
+    --app-z-local-base: 0;
+    --app-z-local-raised: 1;
+    --app-z-local-overlay: 2;
+    --app-z-local-sticky: 10;
+    --app-z-local-loading: 30;
+
+    /* PDF page-local layer order. Keep page content below interaction tools. */
+    --app-z-pdf-canvas-layer: var(--app-z-local-base);
+    --app-z-pdf-native-pending-image: var(--app-z-local-raised);
+    --app-z-pdf-text-layer: var(--app-z-local-raised);
+    --app-z-pdf-link-layer: 2;
+    --app-z-pdf-annotation-editor-layer: 3;
+    --app-z-pdf-comment-marker-layer: 4;
+    --app-z-pdf-comment-tooltip: 5;
+    --app-z-pdf-shape-layer: 6;
+    --app-z-pdf-comment-popup: var(--app-z-pdf-shape-layer);
+    --app-z-pdf-page-skeleton: 7;
+    --app-z-pdf-image-placement: 8;
+    --app-z-pdf-debug-layer: var(--app-z-local-sticky);
+    --app-z-pdf-selection-overlay: var(--app-z-progress);
+    --app-progress-overlay-z-index: var(--app-z-progress);
     --app-progress-card-gap: var(--app-space-9xl);
     --app-progress-card-padding: 2rem 3rem;
     --app-progress-card-radius: var(--app-radius-3xl);
     --app-progress-bar-width: 15rem;
+    --app-progress-chip-offset-low: 3rem;
+    --app-progress-chip-offset-high: 7rem;
     --app-space-3xs: 0.125rem;
     --app-space-2xs: 0.15rem;
     --app-space-xs: 0.2rem;
@@ -133,6 +175,10 @@
     --app-radius-surface: 0.65rem;
     --app-radius-full: 999px;
     --app-text-size-micro: 0.6875rem;
+    --app-text-size-marker: 0.40625rem;
+    --app-text-size-tiny: 0.5625rem;
+    --app-text-size-menu-shortcut: 0.64rem;
+    --app-text-size-compact: 0.68rem;
     --app-text-size-badge: 0.7rem;
     --app-text-size-caption: 0.72rem;
     --app-text-size-fine: 0.74rem;
@@ -142,6 +188,9 @@
     --app-text-size-body-sm: 0.8125rem;
     --app-text-size-body: 0.875rem;
     --app-text-size-ui: 0.9rem;
+    --app-text-size-control: 0.95rem;
+    --app-text-size-panel-title: 0.9375rem;
+    --app-text-scale-inline-meta: 0.78em;
     --app-text-size-title-sm: 1rem;
     --app-text-size-title-md: 1.05rem;
     --app-text-size-title-lg: 1.35rem;
@@ -151,6 +200,8 @@
     --app-transition-fast: 0.1s ease;
     --app-transition-quick: 0.12s ease;
     --app-transition-standard: 0.15s ease;
+    --app-transition-reorder: 0.2s ease;
+    --app-combine-active-border-width: 1.5px;
     --app-line-height-tight: 1;
     --app-line-height-snug: 1.18;
     --app-line-height-text: 1.35;
@@ -163,9 +214,47 @@
     --app-document-icon-width: 2rem;
     --app-document-icon-height: 2.25rem;
     --app-control-height-sm: 2rem;
+    --app-control-height-xs: 1.5rem;
+    --app-control-height-md: 2.25rem;
+    --app-control-height-lg: 2.5rem;
     --app-control-radius: var(--app-radius-lg);
     --app-action-size-sm: 1.6rem;
     --app-action-radius: var(--app-radius-sm);
+    --app-divider-width: 1px;
+    --app-hairline-height: 1px;
+    --app-drop-indicator-height: 2px;
+    --app-range-track-height: 4px;
+    --app-note-anchor-size: 1.3rem;
+    --app-note-connector-z-index: 24;
+    --app-note-anchor-z-index: 25;
+    --app-annotation-list-min-height: 5rem;
+    --app-annotation-editor-height: 6.5rem;
+    --app-annotation-editor-margin: var(--app-space-3xl);
+    --app-annotation-small-action-size: 1.35rem;
+    --app-annotation-preview-height: 4.7rem;
+    --app-annotation-color-control-size: var(--app-control-height-xs);
+    --app-annotation-color-swatch-size: 0.875rem;
+    --app-annotation-action-size: 1.75rem;
+    --app-annotation-input-min-height: 1.9rem;
+    --app-annotation-touch-target-min-width: 2.75rem;
+    --app-outline-loading-icon-height: 1.125rem;
+    --app-outline-row-gap: var(--app-space-sm);
+    --app-outline-row-radius: var(--app-radius-md);
+    --app-outline-row-inset: var(--app-space-sm);
+    --app-outline-drop-indicator-radius: var(--app-radius-full);
+    --app-outline-expand-icon-width: var(--app-space-9xl);
+    --app-outline-action-size: var(--app-space-15xl);
+    --app-outline-action-radius: var(--app-radius-xs);
+    --app-outline-action-padding: var(--app-space-xs);
+    --app-outline-row-indent: var(--app-space-12xl);
+    --app-thumbnail-row-gap: var(--app-space-sm);
+    --app-thumbnail-row-radius: var(--app-radius-xs);
+    --app-thumbnail-badge-size: var(--app-space-15xl);
+    --app-thumbnail-badge-radius: var(--app-space-3xs);
+    --app-thumbnail-min-label-height: 1rem;
+    --app-thumbnail-drop-offset: var(--app-space-md);
+    --app-thumbnail-drop-inset: var(--app-space-3xl);
+    --app-thumbnail-drop-radius: 1px;
     --app-opacity-disabled: 0.5;
     --app-opacity-muted: 0.6;
     --app-opacity-subtle: 0.65;
@@ -181,6 +270,28 @@
     --app-floating-panel-viewport-width: calc(100vw - var(--app-floating-panel-viewport-gutter));
     --app-floating-panel-max-width: 28rem;
     --app-floating-panel-max-inline-size: min(var(--app-floating-panel-max-width), var(--app-floating-panel-viewport-width));
+    --app-context-menu-preferred-width: 13rem;
+    --app-context-menu-separator-gap: var(--app-divider-width);
+    --app-settings-dialog-width: 52rem;
+    --app-settings-select-max-size: 24rem;
+    --app-runtime-report-width: 32rem;
+    --app-runtime-report-max-height: 32rem;
+    --app-runtime-report-details-max-height: 22rem;
+    --app-runtime-report-viewport-gutter: 2rem;
+    --app-runtime-report-details-viewport-reserve: 12rem;
+    --app-sidebar-content-padding: var(--app-space-3xl);
+    --app-sidebar-row-padding-block: var(--app-space-2xl);
+    --app-sidebar-row-padding-inline: var(--app-space-9xl);
+    --app-sidebar-row-gap: var(--app-space-md);
+    --app-sidebar-action-size: var(--app-action-size-sm);
+    --app-sidebar-tab-font-size: var(--app-text-size-kicker);
+    --app-sidebar-row-font-size: var(--app-text-size-body-sm);
+    --app-sidebar-caption-font-size: var(--app-text-size-caption);
+    --app-sidebar-outline-depth-indent: var(--app-space-12xl);
+    --app-sidebar-min-viewer-width: 20rem;
+    --app-document-source-sidebar-width: 16.25rem;
+    --app-document-source-thumbnail-width: 8.25rem;
+    --app-document-source-thumbnail-min-height: 4.5rem;
     --app-tooltip-max-inline-size: min(22rem, var(--app-floating-panel-viewport-width));
     --app-overlay-viewport-gutter: 2rem;
     --app-overlay-viewport-width: calc(100vw - var(--app-overlay-viewport-gutter));
@@ -188,8 +299,9 @@
     --app-install-hint-padding: var(--app-space-sm) var(--app-space-sm) var(--app-space-sm) var(--app-space-3xl);
     --app-install-hint-link-padding: var(--app-space-3xs) 0;
     --app-install-hint-divider-height: var(--app-icon-size-xs);
+    --app-install-hint-divider-width: 1px;
     --app-install-hint-block-end: 2.5rem;
-    --app-install-hint-inline-end: 1rem;
+    --app-install-hint-inline-start: 1rem;
     --app-install-hint-max-inline-size: var(--app-overlay-viewport-width);
     --app-tool-page-padding: var(--app-space-12xl) clamp(var(--app-space-12xl), 2.4vw, 2rem);
     --app-tool-page-header-gap: var(--app-space-10xl);
@@ -199,6 +311,31 @@
     --app-tool-page-title-font-size: var(--app-text-size-title-lg);
     --app-tool-page-description-margin-top: var(--app-space-md);
     --app-tool-page-description-font-size: var(--app-text-size-ui);
+    --app-empty-state-margin: 2rem;
+    --app-initial-surface-offset: var(--app-space-12xl);
+    --app-panel-empty-padding: var(--app-space-16xl);
+    --app-panel-empty-icon-size: var(--app-control-height-xs);
+    --app-panel-empty-max-width: 22rem;
+    --app-search-virtual-row-height: 5.25rem;
+    --app-search-progress-height: 3px;
+    --app-sidebar-content-min-height: 5rem;
+    --app-crop-dialog-input-width: 7.5rem;
+    --app-zoom-menu-separator-height: var(--app-hairline-height);
+    --app-zoom-control-min-height: 1.875rem;
+    --app-zoom-icon-size: var(--app-space-12xl);
+    --app-annotation-context-swatch-size: 1.35rem;
+    --app-document-source-badge-radius: var(--app-radius-xs);
+    --app-workspace-transition-content-offset: var(--app-space-12xl);
+    --app-editor-sash-width: var(--app-space-lg);
+    --app-privacy-page-padding: 3rem;
+    --app-privacy-inline-padding: 1.25rem;
+    --app-privacy-footer-padding: 2rem;
+    --app-privacy-document-max-width: 50rem;
+    --app-privacy-measure: 42rem;
+    --app-privacy-section-margin: var(--app-space-12xl);
+    --app-privacy-responsive-padding: 5rem;
+    --app-privacy-title-size: 2rem;
+    --app-privacy-title-size-wide: 3.25rem;
 
     --ui-primary: var(--color-brand-700);
     --ui-primary-hover: var(--color-brand-800);
@@ -403,14 +540,30 @@
     --app-tab-context-menu-min-width: 13.125rem;
     --app-assistant-panel-default-width: 24rem;
     --app-assistant-panel-max-viewport-width: 45vw;
-    --app-assistant-image-preview-z-index: 100;
+    --app-assistant-empty-icon-size: 3.75rem;
+    --app-assistant-install-card-min-height: 4.25rem;
+    --app-assistant-composer-min-height: 2.45rem;
+    --app-assistant-model-control-width: 8.5rem;
+    --app-assistant-speed-control-width: 5.25rem;
+    --app-assistant-control-height: 1.85rem;
+    --app-assistant-send-button-size: var(--app-control-height-sm);
+    --app-assistant-heading-icon-size: var(--app-space-13xl);
+    --app-assistant-action-size: 1.75rem;
+    --app-assistant-avatar-size: var(--app-control-height-lg);
+    --app-assistant-status-icon-size: var(--app-space-15xl);
+    --app-assistant-message-indent: var(--app-space-14xl);
+    --app-assistant-inline-action-size: var(--app-control-height-xs);
+    --app-assistant-message-max-height: 12rem;
+    --app-assistant-switcher-option-min-height: 2.55rem;
+    --app-assistant-provider-icon-size: 1em;
+    --app-assistant-image-preview-z-index: var(--app-z-preview);
     --app-assistant-image-preview-padding: var(--app-space-16xl);
     --app-assistant-image-preview-max-viewport-width: 92vw;
     --app-assistant-image-preview-content-max-height: 92vh;
     --app-assistant-image-preview-image-max-height: 86vh;
     --app-assistant-image-preview-max-width: 72rem;
     --app-assistant-image-preview-control-offset: var(--app-space-12xl);
-    --app-pdf-annotation-properties-z-index: 200;
+    --app-pdf-annotation-properties-z-index: var(--app-z-popover);
     --app-pdf-annotation-properties-width: 20rem;
     --app-pdf-annotation-properties-min-width: 15rem;
     --app-pdf-annotation-properties-max-inline-size: var(--app-floating-panel-viewport-width);
@@ -420,19 +573,92 @@
     --app-pdf-annotation-properties-title-letter-spacing: 0.5px;
     --app-pdf-annotation-properties-body-padding: 8px 10px;
     --app-pdf-annotation-properties-color-size: 28px;
-    --app-pdf-annotation-style-popover-z-index: 1400;
+    --app-pdf-annotation-properties-header-padding: 6px 6px 6px 10px;
+    --app-pdf-annotation-properties-color-padding: 1px;
+    --app-pdf-annotation-properties-range-thumb-size: 12px;
+    --app-pdf-annotation-properties-value-min-width: 44px;
+    --app-pdf-annotation-style-popover-z-index: var(--app-z-menu);
     --app-pdf-annotation-style-popover-width: 18rem;
-    --app-pdf-context-menu-z-index: 70;
-    --app-pdf-initial-surface-z-index: 50;
-    --app-workspace-transition-overlay-z-index: 60;
+    --app-pdf-context-menu-z-index: var(--app-z-menu);
+    --app-pdf-initial-surface-z-index: var(--app-z-progress);
+    --app-workspace-transition-overlay-z-index: var(--app-z-modal);
     --app-pdf-zoom-menu-width: 22rem;
-    --app-pdf-note-window-z-index: 55;
     --app-pdf-note-window-viewport-gutter: 18px;
-    --app-pdf-note-window-default-width: 380px;
-    --app-pdf-note-window-default-height: 360px;
-    --app-pdf-note-window-min-width: 260px;
-    --app-pdf-note-window-min-height: 240px;
     --app-z-pdf-image-placement-virtual-cursor: 2147483647;
+    --app-native-pdf-placeholder-gap: var(--app-space-9xl);
+    --app-native-pdf-page-number-offset: var(--app-space-9xl);
+    --app-native-pdf-page-number-padding: var(--app-space-3xs) var(--app-space-3xl);
+    --app-native-pdf-page-number-font-size: var(--app-text-size-kicker);
+    --app-pdf-image-placement-virtual-cursor-size: 24px;
+    --app-pdf-image-placement-resizer-size: 0.9rem;
+    --app-pdf-image-placement-resizer-hit-inset: -0.35rem;
+    --app-pdf-image-placement-rotate-handle-size: 1.1rem;
+    --app-pdf-image-placement-rotate-handle-top: -2.95rem;
+    --app-pdf-image-placement-rotate-stem-width: 2px;
+    --app-pdf-image-placement-rotate-stem-height: 1.9rem;
+    --app-pdf-image-placement-controls-offset: 0.6rem;
+    --app-pdf-image-placement-action-padding: 0.28rem var(--app-space-8xl);
+    --app-pdf-page-skeleton-radius: 2px;
+    --app-pdf-page-skeleton-gap: 0.9rem;
+    --app-pdf-page-skeleton-header-margin: 0.5rem;
+    --app-pdf-page-skeleton-title-height: 1.2rem;
+    --app-pdf-page-skeleton-subtitle-height: 0.95rem;
+    --app-pdf-page-skeleton-paragraph-gap: 0.65rem;
+    --app-pdf-page-skeleton-line-tall-height: 1.05rem;
+    --app-pdf-page-skeleton-line-height: 0.95rem;
+    --app-pdf-page-skeleton-line-short-height: 0.85rem;
+    --app-pdf-page-skeleton-formula-margin: 0.55rem;
+    --app-pdf-page-skeleton-formula-height: 1.3rem;
+    --app-pdf-page-skeleton-inline-gap: 0.55rem;
+    --app-pdf-page-skeleton-inline-margin: 0.45rem;
+    --app-pdf-note-title-gap: var(--app-space-3xl);
+    --app-pdf-note-title-padding: var(--app-space-xl) var(--app-space-3xl) var(--app-space-md);
+    --app-pdf-note-title-main-gap: 0.12rem;
+    --app-pdf-note-summary-font-size: 0.98rem;
+    --app-pdf-note-meta-font-size: 0.88rem;
+    --app-pdf-note-title-side-gap: 0.18rem;
+    --app-pdf-note-actions-gap: 0.28rem;
+    --app-pdf-note-date-font-size: 0.86rem;
+    --app-pdf-note-action-size: 1.45rem;
+    --app-pdf-note-textarea-font-size: 1.02rem;
+    --app-pdf-note-textarea-padding: 0.52rem;
+    --app-pdf-note-status-font-size: var(--app-text-size-compact);
+    --app-pdf-note-status-padding: 0 var(--app-pdf-note-textarea-padding) 0.3rem;
+    --app-pdf-note-error-font-size: var(--app-text-size-badge);
+    --app-pdf-note-error-padding: 0 var(--app-pdf-note-textarea-padding) var(--app-space-md);
+    --app-pdf-comment-tooltip-max-width: 260px;
+    --app-pdf-comment-tooltip-padding: 8px 12px;
+    --app-pdf-comment-tooltip-radius: 6px;
+    --app-pdf-comment-tooltip-font-size: 12px;
+    --app-pdf-comment-tooltip-arrow-inline-offset: 14px;
+    --app-pdf-comment-tooltip-arrow-block-offset: -6px;
+    --app-pdf-comment-popup-min-width: 180px;
+    --app-pdf-comment-popup-max-width: 280px;
+    --app-pdf-comment-popup-padding: 12px 14px;
+    --app-pdf-comment-popup-radius: 8px;
+    --app-pdf-comment-popup-arrow-block-offset: -8px;
+    --app-pdf-comment-popup-arrow-inline-offset: 16px;
+    --app-pdf-comment-body-font-size: 13px;
+    --app-pdf-comment-input-min-height: 84px;
+    --app-pdf-comment-input-margin: 8px;
+    --app-pdf-comment-input-radius: 8px;
+    --app-pdf-comment-control-font-size: 12px;
+    --app-pdf-comment-input-padding: 6px 8px;
+    --app-pdf-comment-actions-gap: 6px;
+    --app-pdf-comment-actions-margin: 10px;
+    --app-pdf-comment-button-radius: 4px;
+    --app-pdf-comment-button-padding: 4px 10px;
+    --app-pdf-comment-button-min-height: 26px;
+    --app-pdf-search-highlight-radius: 2px;
+    --app-pdf-search-highlight-fragment-radius: 1px;
+    --app-pdf-virtual-spacer-width: 1px;
+    --app-pdf-page-radius: 2px;
+    --app-pdf-annotation-editor-margin: 1px auto -3px;
+    --app-pdf-annotation-handle-size: 6px;
+    --app-pdf-annotation-handle-radius: 2px;
+    --app-pdfjs-signature-control-radius: 8px;
+    --app-pdfjs-signature-control-padding: 8px 10px;
+    --app-pdfjs-editor-icon-size: 16px;
 
     /* File-type badge palette (for FileTypeIcon) */
     --app-file-icon-pdf-fill: oklch(98% 0.012 30);
@@ -593,6 +819,15 @@
     --comment-close-button-icon: var(--pdfjs-comment-close-icon);
     --editor-toolbar-highlight-image: var(--pdfjs-highlight-icon);
     --editor-toolbar-delete-image: var(--pdfjs-delete-icon);
+}
+
+.settings-locale-select-content {
+    max-width: min(var(--app-settings-select-max-size), var(--reka-combobox-content-available-width, var(--app-settings-select-max-size)));
+    max-height: min(var(--app-settings-select-max-size), var(--reka-combobox-content-available-height, var(--app-settings-select-max-size)));
+}
+
+.app-sidebar-tab-trigger-fluid {
+    flex: 0 1 auto;
 }
 
 .dark {
@@ -780,6 +1015,13 @@
 }
 
 .app-scrollbar {
+    scrollbar-color: var(--app-scrollbar-thumb) var(--app-scrollbar-track);
+}
+
+.app-panel-scroll {
+    min-height: 0;
+    overflow: auto;
+    scrollbar-gutter: stable;
     scrollbar-color: var(--app-scrollbar-thumb) var(--app-scrollbar-track);
 }
 

@@ -1,5 +1,9 @@
 export { DOCUMENTS_EVENT_CHANNELS } from '@electron/features/documents/contract';
-export { normalizeIpcWritePayload } from '@electron/features/documents/main/documentFileWriteAtomic';
+export {
+    copyFileAtomic,
+    normalizeIpcWritePayload,
+    writeFileAtomic,
+} from '@electron/file-access/documentFileWriteAtomic';
 export { validatePdfFile } from '@electron/features/documents/main/pdfConformance';
 export {
     attachSerializedPdfPersistencePort,

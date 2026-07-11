@@ -4,6 +4,7 @@ import type { ICropMargins } from '@app/types/crop';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 import type {
     IPageOpsMutationOptions,
     IPageOpsResult,
@@ -86,7 +87,10 @@ function didPageOperationSucceed(outcome: TPageOperationOutcome) {
 export const usePageOperations = (deps: {
     workingCopyPath: Ref<TDocumentRef | null>;
     documentRevisionToken?: Ref<TDocumentRevisionToken | null>;
+    pageLabels?: Ref<string[] | null>;
+    bookmarkItems?: Ref<IPdfBookmarkEntry[]>;
     ensureHistoryBaselineForExternalMutation: () => Promise<boolean>;
+    materializeAnnotationsForPageMutation?: () => Promise<boolean>;
     reloadWorkingCopyIntoHistory: (opts?: { markDirty?: boolean }) => Promise<boolean>;
     clearOcrCache: (path: TDocumentRef) => void;
     resetSearchCache: () => void;
@@ -103,7 +107,10 @@ export const usePageOperations = (deps: {
     const {
         workingCopyPath,
         documentRevisionToken,
+        pageLabels,
+        bookmarkItems,
         ensureHistoryBaselineForExternalMutation,
+        materializeAnnotationsForPageMutation,
         reloadWorkingCopyIntoHistory,
         clearOcrCache,
         resetSearchCache,
@@ -140,7 +147,20 @@ export const usePageOperations = (deps: {
 
     function capturePageMutationOptions(): IPageOpsMutationOptions | undefined {
         const token = documentRevisionToken?.value;
-        return token ? {expectedDocumentRevisionToken: token} : undefined;
+        const metadataSnapshot = pageLabels && bookmarkItems
+            ? {
+                pageLabels: pageLabels.value ? [...pageLabels.value] : null,
+                bookmarks: structuredClone(toRaw(bookmarkItems.value)),
+                untitledBookmarkLabel: t('bookmarks.untitled', undefined),
+            }
+            : undefined;
+        if (!token && !metadataSnapshot) {
+            return undefined;
+        }
+        return {
+            ...(token ? {expectedDocumentRevisionToken: token} : {}),
+            ...(metadataSnapshot ? {metadataSnapshot} : {}),
+        };
     }
 
     function runDeletePageOp(
@@ -261,6 +281,21 @@ export const usePageOperations = (deps: {
                 if (options.shouldReload && ensureWorkingCopyFreshForRead) {
                     const isFresh = await ensureWorkingCopyFreshForRead();
                     if (!isFresh) {
+                        return recordOutcome<TResult>({
+                            status: 'blocked',
+                            reason: 'preflight',
+                        });
+                    }
+                    if (workingCopyPath.value !== path) {
+                        return recordOutcome<TResult>({
+                            status: 'stale',
+                            phase: 'before-run',
+                        });
+                    }
+                }
+                if (options.shouldReload && materializeAnnotationsForPageMutation) {
+                    const didMaterialize = await materializeAnnotationsForPageMutation();
+                    if (!didMaterialize) {
                         return recordOutcome<TResult>({
                             status: 'blocked',
                             reason: 'preflight',

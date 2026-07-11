@@ -29,7 +29,6 @@ export function resolveResizeAnchorPage(input: {
     mostVisiblePage: number | null;
     snapshotAnchorPage: number | null;
     currentPage: number;
-    preferSnapshotAnchorPage?: boolean | undefined;
 }) {
     const currentPage = normalizeResizeAnchorPage(
         input.currentPage,
@@ -43,13 +42,6 @@ export function resolveResizeAnchorPage(input: {
         input.snapshotAnchorPage,
         input.totalPages,
     );
-
-    if (input.preferSnapshotAnchorPage) {
-        return snapshotAnchorPage
-            ?? mostVisiblePage
-            ?? currentPage
-            ?? 1;
-    }
 
     const hasViewportCandidate = mostVisiblePage !== null || snapshotAnchorPage !== null;
     const shouldTrustCurrentPage = currentPage !== null

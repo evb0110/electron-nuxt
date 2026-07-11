@@ -1,19 +1,17 @@
 import type {IpcRenderer} from 'electron';
 import type {
-    IPdfSearchExcerpt,
     IPdfSearchRequestOptions,
     IPdfSearchResponse,
     IPdfSearchProgress,
     IPdfSearchResult,
     ISearchPreloadClient,
 } from '@contracts/search';
-import type { TOcrIndexRotation } from '@contracts/ocrIndex';
+import { SEARCH_WIRE_CODEC } from '@contracts/search';
 import {
     normalizeOptionalSearchRequestId,
     normalizePdfSearchRequestPayload,
     normalizePdfSearchWarmIndexPayload,
 } from '@electron/features/search/searchRequestPayload';
-import { toPageNumber } from '@contracts/pageNumbers';
 import {
     isFiniteNumber,
     isRecord,
@@ -24,9 +22,10 @@ import {
     type ISearchEventMap,
     type ISearchInvokeMap,
 } from '@electron/features/search/contract';
+import { SEARCH_IPC_CODECS } from '@electron/features/search/searchIpcCodecs';
 import {
+    createCodecIpcInvoker,
     createTypedIpcEventSubscriber,
-    createTypedIpcInvoker,
 } from '@electron/preload/ipcClient';
 
 const SEARCH_NATIVE_IPC_TIMEOUT_MS = 30 * 60 * 1000;
@@ -35,72 +34,6 @@ const SEARCH_INVOKE_TIMEOUT_MS_BY_CHANNEL = {
     [SEARCH_CHANNELS.warmIndex]: SEARCH_NATIVE_IPC_TIMEOUT_MS,
 } as const;
 
-
-function isOcrRotation(value: unknown): value is TOcrIndexRotation {
-    return value === 0 || value === 90 || value === 180 || value === 270;
-}
-
-function decodeSearchExcerpt(value: unknown): IPdfSearchExcerpt | null {
-    if (
-        !isRecord(value)
-        || typeof value.prefix !== 'boolean'
-        || typeof value.suffix !== 'boolean'
-        || typeof value.before !== 'string'
-        || typeof value.match !== 'string'
-        || typeof value.after !== 'string'
-    ) {
-        return null;
-    }
-    return {
-        prefix: value.prefix,
-        suffix: value.suffix,
-        before: value.before,
-        match: value.match,
-        after: value.after,
-    };
-}
-
-function decodeSearchResult(value: unknown): IPdfSearchResult | null {
-    if (
-        !isRecord(value)
-        || !isFiniteNumber(value.pageNumber)
-        || !isFiniteNumber(value.pageMatchIndex)
-        || !isFiniteNumber(value.matchIndex)
-        || !isFiniteNumber(value.startOffset)
-        || !isFiniteNumber(value.endOffset)
-    ) {
-        return null;
-    }
-    const excerpt = decodeSearchExcerpt(value.excerpt);
-    if (!excerpt) {
-        return null;
-    }
-    if (value.words !== undefined && !Array.isArray(value.words)) {
-        return null;
-    }
-    if (value.pageWidth !== undefined && !isFiniteNumber(value.pageWidth)) {
-        return null;
-    }
-    if (value.pageHeight !== undefined && !isFiniteNumber(value.pageHeight)) {
-        return null;
-    }
-    if (value.rotation !== undefined && !isOcrRotation(value.rotation)) {
-        return null;
-    }
-
-    return {
-        pageNumber: toPageNumber(value.pageNumber),
-        pageMatchIndex: value.pageMatchIndex,
-        matchIndex: value.matchIndex,
-        startOffset: value.startOffset,
-        endOffset: value.endOffset,
-        excerpt,
-        ...(value.words === undefined ? {} : {words: value.words as NonNullable<IPdfSearchResult['words']>}),
-        ...(value.pageWidth === undefined ? {} : {pageWidth: value.pageWidth}),
-        ...(value.pageHeight === undefined ? {} : {pageHeight: value.pageHeight}),
-        ...(value.rotation === undefined ? {} : {rotation: value.rotation}),
-    };
-}
 
 function decodeSearchProgress(payload: unknown): IPdfSearchProgress | null {
     if (
@@ -143,7 +76,7 @@ function decodeSearchProgress(payload: unknown): IPdfSearchProgress | null {
         const resultsStartIndex = typeof rawResultsStartIndex === 'number'
             ? rawResultsStartIndex
             : undefined;
-        const results = payload.results.map(decodeSearchResult);
+        const results = payload.results.map(result => SEARCH_WIRE_CODEC.decodeResult(result));
         if (results.some(result => result === null)) {
             return null;
         }
@@ -171,7 +104,7 @@ function decodeSearchProgress(payload: unknown): IPdfSearchProgress | null {
 }
 
 export function createSearchPreloadClient(ipcRenderer: IpcRenderer): ISearchPreloadClient {
-    const invoke = createTypedIpcInvoker<ISearchInvokeMap>(ipcRenderer, {invokeTimeoutMsByChannel: SEARCH_INVOKE_TIMEOUT_MS_BY_CHANNEL});
+    const invoke = createCodecIpcInvoker<ISearchInvokeMap>(ipcRenderer, SEARCH_IPC_CODECS, {invokeTimeoutMsByChannel: SEARCH_INVOKE_TIMEOUT_MS_BY_CHANNEL});
     const eventSubscriber = createTypedIpcEventSubscriber<ISearchEventMap>(ipcRenderer);
 
     return {

@@ -16,7 +16,10 @@ import type {
     IPdfPageMatches,
     IPdfSearchMatch,
 } from '@app/types/pdfUi';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TPdfRasterDisplayProfile } from '@app/types/pdfRasterDisplayProfile';
+import type { IPdfPageSlotRegistry } from '@app/modules/pdf-viewer/runtime/page-slots/pdfPageSlotRegistry';
+import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
 
 interface IUsePdfViewerRenderingRuntimeOptions {
     viewerContainer: Ref<HTMLElement | null>;
@@ -53,7 +56,7 @@ interface IUsePdfViewerRenderingRuntimeOptions {
     currentSearchMatch: ComputedRef<IPdfSearchMatch | null>;
     currentSearchMatchNavigationId: ComputedRef<number>;
     workingCopyPath: ComputedRef<string | null>;
-    documentRevisionToken: ComputedRef<string | null>;
+    documentRevisionToken: ComputedRef<TDocumentRevisionToken | null>;
     onRenderStall: (payload: IPageRenderStallPayload) => void;
     onPageCanvasMounted: (pageNumber: number) => void;
     onPageRendered: (pageNumber: number) => void;
@@ -61,6 +64,8 @@ interface IUsePdfViewerRenderingRuntimeOptions {
     isVisibleRenderRangeCurrent?: ((visibleRange: IPageRange) => boolean) | undefined;
     onRenderedPageStateChanged: () => void;
     renderedPageStateVersion: Ref<number>;
+    pageSlots?: IPdfPageSlotRegistry | undefined;
+    viewportWritePort: IPdfViewportWritePort;
 }
 
 export const usePdfViewerRenderingRuntime = (options: IUsePdfViewerRenderingRuntimeOptions) => {
@@ -94,12 +99,14 @@ export const usePdfViewerRenderingRuntime = (options: IUsePdfViewerRenderingRunt
         currentSearchMatchNavigationId: options.currentSearchMatchNavigationId,
         workingCopyPath: options.workingCopyPath,
         documentRevisionToken: options.documentRevisionToken,
+        viewportWritePort: options.viewportWritePort,
         onRenderStall: options.onRenderStall,
         onPageCanvasMounted: options.onPageCanvasMounted,
         onPageRendered: options.onPageRendered,
         onAnnotationLayersRendered: options.onAnnotationLayersRendered,
         isVisibleRenderRangeCurrent: options.isVisibleRenderRangeCurrent,
         onRenderedPageStateChanged: options.onRenderedPageStateChanged,
+        ...(options.pageSlots ? {pageSlots: options.pageSlots} : {}),
     });
 
     function cleanupRenderedPages() {

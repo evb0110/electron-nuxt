@@ -1,6 +1,7 @@
 use crate::{binary::read_u16_be, Result, CM_PER_INCH};
 
 const JPEG_APP0_MARKER: u8 = 0xE0;
+const JPEG_APP2_MARKER: u8 = 0xE2;
 const JPEG_START_OF_SCAN_MARKER: u8 = 0xDA;
 
 #[derive(Debug)]
@@ -9,6 +10,7 @@ pub(crate) struct JpegMetadata {
     pub(crate) height: u32,
     pub(crate) components: u8,
     pub(crate) dpi: Option<u32>,
+    pub(crate) icc_profile: Option<Vec<u8>>,
 }
 
 pub(crate) fn parse_jpeg_metadata(bytes: &[u8]) -> Result<JpegMetadata> {
@@ -22,6 +24,7 @@ pub(crate) fn parse_jpeg_metadata(bytes: &[u8]) -> Result<JpegMetadata> {
     let mut frame_component_ids = None;
     let mut saw_scan = false;
     let mut pending_marker = None;
+    let mut icc_chunks: Vec<(u8, u8, Vec<u8>)> = Vec::new();
 
     loop {
         let marker = match pending_marker.take() {
@@ -69,6 +72,16 @@ pub(crate) fn parse_jpeg_metadata(bytes: &[u8]) -> Result<JpegMetadata> {
 
         if marker == JPEG_APP0_MARKER {
             dpi = dpi.or_else(|| read_jfif_dpi(bytes, offset, segment_length));
+        }
+        if marker == JPEG_APP2_MARKER && segment_length >= 16 {
+            let payload = &bytes[offset + 2..segment_end];
+            if payload.starts_with(b"ICC_PROFILE\0") {
+                let sequence = payload[12];
+                let total = payload[13];
+                if sequence > 0 && total > 0 && sequence <= total {
+                    icc_chunks.push((sequence, total, payload[14..].to_vec()));
+                }
+            }
         }
 
         if is_jpeg_sof_marker(marker) {
@@ -119,12 +132,38 @@ pub(crate) fn parse_jpeg_metadata(bytes: &[u8]) -> Result<JpegMetadata> {
     }
 
     let (width, height, components) = dimensions.ok_or("Missing JPEG dimensions")?;
+    let icc_profile = assemble_icc_profile(icc_chunks)?;
     Ok(JpegMetadata {
         width,
         height,
         components,
         dpi,
+        icc_profile,
     })
+}
+
+fn assemble_icc_profile(mut chunks: Vec<(u8, u8, Vec<u8>)>) -> Result<Option<Vec<u8>>> {
+    if chunks.is_empty() {
+        return Ok(None);
+    }
+    let expected = chunks[0].1;
+    if chunks.len() != expected as usize || chunks.iter().any(|chunk| chunk.1 != expected) {
+        return Err("Incomplete JPEG ICC profile".into());
+    }
+    chunks.sort_by_key(|chunk| chunk.0);
+    if chunks.iter().enumerate().any(|(index, chunk)| chunk.0 as usize != index + 1) {
+        return Err("Invalid JPEG ICC profile sequence".into());
+    }
+    let total_len = chunks.iter().try_fold(0usize, |total, chunk| total.checked_add(chunk.2.len()))
+        .ok_or("JPEG ICC profile is too large")?;
+    if total_len > 16 * 1024 * 1024 {
+        return Err("JPEG ICC profile exceeds the 16 MiB safety limit".into());
+    }
+    let mut profile = Vec::with_capacity(total_len);
+    for (_, _, chunk) in chunks {
+        profile.extend_from_slice(&chunk);
+    }
+    Ok(Some(profile))
 }
 
 fn read_jpeg_marker(bytes: &[u8], offset: &mut usize) -> Result<u8> {

@@ -10,14 +10,11 @@ Usage: scripts/check-native-tools-source-matrix.sh [--all]
 
 Default mode:
 - Validate native tool resources for the current host platform/arch
-- Skip optional page-processor folders unless EVB_CHECK_OPTIONAL_PAGE_PROCESSOR=1
-  is set; they are dormant and not part of the standard release gate
 
 --all mode:
 - Validate source readiness for the full release matrix. Generated non-host
   native tool folders may be absent locally when a CI bundling script owns that
-  target. Optional page-processor folders are still skipped unless explicitly
-  opted in.
+  target.
   Other host resources are still required unless
   EVB_NATIVE_TOOLS_ALLOW_HOST_CI_GEN=1 is set for a pre-bundle CI quality gate.
 EOF
@@ -83,15 +80,6 @@ resolve_host_tag() {
 
 host_tag="$(resolve_host_tag)"
 allow_host_ci_gen="${EVB_NATIVE_TOOLS_ALLOW_HOST_CI_GEN:-0}"
-check_optional_page_processor="${EVB_CHECK_OPTIONAL_PAGE_PROCESSOR:-0}"
-case "$check_optional_page_processor" in
-  0|1)
-    ;;
-  *)
-    echo "Error: EVB_CHECK_OPTIONAL_PAGE_PROCESSOR must be 0 or 1 (got: $check_optional_page_processor)" >&2
-    exit 1
-    ;;
-esac
 
 has_ci_bundler_for_tag() {
   local tag="$1"
@@ -149,30 +137,6 @@ check_dir_for_tag() {
     mark_missing "$path" "$label" "$tag"
   else
     echo "  OK      $label: $path"
-  fi
-}
-
-check_page_processor_for_tag() {
-  local tag="$1"
-  local platform="${tag%-*}"
-  local exe_suffix=""
-  if [ "$platform" = "win32" ]; then
-    exe_suffix=".exe"
-  fi
-
-  local root="resources/page-processing/$tag"
-  if [ "$check_optional_page_processor" != "1" ]; then
-    echo "  SKIP    page-processor: optional dormant tool not release-critical for $tag"
-    return
-  fi
-
-  if [ -d "$root" ]; then
-    check_file_for_tag "$root/bin/page-processor/page-processor$exe_suffix" "page-processor" "$tag"
-    if [ "$platform" = "darwin" ]; then
-      check_dir_for_tag "$root/bin/page-processor/_internal" "page-processor PyInstaller _internal" "$tag"
-    fi
-  else
-    echo "  SKIP    page-processor: optional dormant tool not bundled for $tag"
   fi
 }
 
@@ -253,7 +217,6 @@ check_tag() {
     esac
   done < "$manifest_entries_file"
 
-  check_page_processor_for_tag "$tag"
 }
 
 if [ "$check_all" -eq 1 ]; then

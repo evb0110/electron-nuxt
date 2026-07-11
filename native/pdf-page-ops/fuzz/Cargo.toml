@@ -1,0 +1,26 @@
+[package]
+name = "evb-pdf-page-ops-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+evb-pdf-page-ops = { path = ".." }
+
+[workspace]
+
+[[bin]]
+name = "xref-table"
+path = "fuzz_targets/xref_table.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "xref-stream"
+path = "fuzz_targets/xref_stream.rs"
+test = false
+doc = false

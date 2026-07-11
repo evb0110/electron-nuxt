@@ -180,7 +180,7 @@ async function rebuildElectronBundlesIfStale() {
     }
 }
 
-describe('electron bundle integrity', () => {
+describe('Electron bundle static integrity', () => {
     beforeAll(async () => {
         await rebuildElectronBundlesIfStale();
     }, 180_000);

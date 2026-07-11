@@ -240,7 +240,12 @@ export function getAssistantTurnProviderTurnId(owner: TAssistantTurnOwnerState) 
 }
 
 export function getAssistantTurnPhase(owner: TAssistantTurnOwnerState): TAgentAssistantTurnPhase {
-    return owner.phase;
+    switch (owner.phase) {
+        case 'starting': return 'queued';
+        case 'running': return 'streaming';
+        case 'error': return 'failed';
+        default: return owner.phase;
+    }
 }
 
 export function getAssistantTurnScope(owner: TAssistantTurnOwnerState) {
@@ -252,8 +257,11 @@ export function buildAssistantSessionScopeBindingFingerprint(
 ) {
     return JSON.stringify({
         provider: binding?.provider ?? null,
+        scopeKey: binding?.scopeKey ?? null,
+        tabId: binding?.tabId === '' ? null : binding?.tabId ?? null,
         documentSessionKey: binding?.documentSessionKey ?? binding?.scopeKey ?? null,
         documentInstanceId: binding?.documentInstanceId ?? binding?.commandTarget?.documentInstanceId ?? null,
+        documentRef: binding?.documentRef ?? binding?.commandTarget?.documentRef ?? null,
         documentRevisionToken: binding?.commandTarget?.documentRevisionToken
             ?? binding?.documentIdentity?.token
             ?? null,

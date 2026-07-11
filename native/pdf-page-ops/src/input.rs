@@ -1,4 +1,6 @@
-fn parse_margin(value: &str, label: &str) -> Result<f64> {
+use super::*;
+
+pub(crate) fn parse_margin(value: &str, label: &str) -> Result<f64> {
     let parsed = value.parse::<f64>()?;
     if !parsed.is_finite() || parsed < 0.0 {
         return Err(format!("Invalid {label} margin").into());
@@ -6,7 +8,7 @@ fn parse_margin(value: &str, label: &str) -> Result<f64> {
     Ok(parsed)
 }
 
-fn read_pages_file(path: &PathBuf) -> Result<Vec<u32>> {
+pub(crate) fn read_pages_file(path: &PathBuf) -> Result<Vec<u32>> {
     let contents = fs::read_to_string(path)?;
     let mut pages = Vec::new();
     for (index, line) in contents.lines().enumerate() {
@@ -28,7 +30,7 @@ fn read_pages_file(path: &PathBuf) -> Result<Vec<u32>> {
     Ok(pages)
 }
 
-fn read_note_text_updates(path: &PathBuf) -> Result<Vec<NoteTextUpdate>> {
+pub(crate) fn read_note_text_updates(path: &PathBuf) -> Result<Vec<NoteTextUpdate>> {
     let contents = fs::read_to_string(path)?;
     let parsed: NoteTextUpdatesFile = serde_json::from_str(&contents)?;
     if parsed.updates.is_empty() {
@@ -42,7 +44,7 @@ fn read_note_text_updates(path: &PathBuf) -> Result<Vec<NoteTextUpdate>> {
     Ok(parsed.updates)
 }
 
-fn validate_free_text_notes(notes: &[FreeTextNote]) -> Result<()> {
+pub(crate) fn validate_free_text_notes(notes: &[FreeTextNote]) -> Result<()> {
     for note in notes {
         if note.stable_key.trim().is_empty() {
             return Err("Invalid FreeText note stable key".into());
@@ -52,7 +54,7 @@ fn validate_free_text_notes(notes: &[FreeTextNote]) -> Result<()> {
     Ok(())
 }
 
-fn validate_annotation_deletes(deletes: &[AnnotationDelete]) -> Result<()> {
+pub(crate) fn validate_annotation_deletes(deletes: &[AnnotationDelete]) -> Result<()> {
     for delete in deletes {
         let has_ref = delete.object_number.is_some() || delete.generation_number.is_some();
         let has_valid_ref = matches!(
@@ -63,14 +65,14 @@ fn validate_annotation_deletes(deletes: &[AnnotationDelete]) -> Result<()> {
             .stable_key
             .as_deref()
             .is_some_and(|stable_key| !stable_key.trim().is_empty());
-        if (has_ref && !has_valid_ref) || (!has_valid_ref && !has_stable_key) {
+        if (!has_stable_key || has_ref) && !has_valid_ref {
             return Err("Annotation delete must include a valid object ref or stable key".into());
         }
     }
     Ok(())
 }
 
-fn validate_marker_rect(rect: MarkerRect) -> Result<()> {
+pub(crate) fn validate_marker_rect(rect: MarkerRect) -> Result<()> {
     if !rect.left.is_finite()
         || !rect.top.is_finite()
         || !rect.width.is_finite()
@@ -87,7 +89,7 @@ fn validate_marker_rect(rect: MarkerRect) -> Result<()> {
     Ok(())
 }
 
-fn read_note_changes(path: &PathBuf) -> Result<NoteChangesFile> {
+pub(crate) fn read_note_changes(path: &PathBuf) -> Result<NoteChangesFile> {
     let contents = fs::read_to_string(path)?;
     let parsed: NoteChangesFile = serde_json::from_str(&contents)?;
     if parsed.updates.is_empty() && parsed.free_text_notes.is_empty() && parsed.deletes.is_empty() {
@@ -103,7 +105,7 @@ fn read_note_changes(path: &PathBuf) -> Result<NoteChangesFile> {
     Ok(parsed)
 }
 
-fn validate_page_labels_mutation(page_labels: &PageLabelsMutation) -> Result<()> {
+pub(crate) fn validate_page_labels_mutation(page_labels: &PageLabelsMutation) -> Result<()> {
     if page_labels.total_pages == 0 {
         return Err("Invalid page-label page count".into());
     }
@@ -120,16 +122,19 @@ fn validate_page_labels_mutation(page_labels: &PageLabelsMutation) -> Result<()>
     Ok(())
 }
 
-fn count_bookmark_items(items: &[BookmarkEntry]) -> usize {
+pub(crate) fn count_bookmark_items(items: &[BookmarkEntry]) -> usize {
     items
         .iter()
         .map(|item| 1 + count_bookmark_items(&item.items))
         .sum()
 }
 
-fn validate_bookmark_items(items: &[BookmarkEntry], depth: usize) -> Result<()> {
+pub(crate) fn validate_bookmark_items(items: &[BookmarkEntry], depth: usize) -> Result<()> {
     if depth > 64 {
-        return Err("Bookmark tree is too deeply nested".into());
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            "Bookmark tree is too deeply nested",
+        ));
     }
     for item in items {
         if let Some(color) = item.color.as_deref() {
@@ -142,28 +147,31 @@ fn validate_bookmark_items(items: &[BookmarkEntry], depth: usize) -> Result<()> 
     Ok(())
 }
 
-fn validate_bookmarks_mutation(bookmarks: &BookmarksMutation) -> Result<()> {
+pub(crate) fn validate_bookmarks_mutation(bookmarks: &BookmarksMutation) -> Result<()> {
     if bookmarks.total_pages == 0 {
         return Err("Invalid bookmark page count".into());
     }
     if count_bookmark_items(&bookmarks.items) > 5_000 {
-        return Err("Too many bookmark items".into());
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            "Too many bookmark items",
+        ));
     }
     validate_bookmark_items(&bookmarks.items, 0)
 }
 
-fn is_unit_number(value: f64) -> bool {
+pub(crate) fn is_unit_number(value: f64) -> bool {
     value.is_finite() && (0.0..=1.0).contains(&value)
 }
 
-fn validate_shape_point(point: &ShapePoint) -> Result<()> {
+pub(crate) fn validate_shape_point(point: &ShapePoint) -> Result<()> {
     if !is_unit_number(point.x) || !is_unit_number(point.y) {
         return Err("Invalid shape point".into());
     }
     Ok(())
 }
 
-fn validate_shape_points(points: &[ShapePoint], min_len: usize) -> Result<()> {
+pub(crate) fn validate_shape_points(points: &[ShapePoint], min_len: usize) -> Result<()> {
     if points.len() < min_len {
         return Err("Shape has too few points".into());
     }
@@ -173,7 +181,7 @@ fn validate_shape_points(points: &[ShapePoint], min_len: usize) -> Result<()> {
     Ok(())
 }
 
-fn validate_shape_geometry(shape: &ShapeAnnotation) -> Result<()> {
+pub(crate) fn validate_shape_geometry(shape: &ShapeAnnotation) -> Result<()> {
     if !matches!(
         shape.shape_type.as_str(),
         "rectangle" | "circle" | "line" | "arrow" | "polyline" | "polygon"
@@ -258,7 +266,7 @@ fn validate_shape_geometry(shape: &ShapeAnnotation) -> Result<()> {
     Ok(())
 }
 
-fn validate_shapes_mutation(shapes: &ShapesMutation) -> Result<()> {
+pub(crate) fn validate_shapes_mutation(shapes: &ShapesMutation) -> Result<()> {
     if shapes.total_pages == 0 {
         return Err("Invalid shape page count".into());
     }
@@ -266,7 +274,10 @@ fn validate_shapes_mutation(shapes: &ShapesMutation) -> Result<()> {
         || shapes.deleted_annotation_ids.len() > 4_096
         || shapes.deleted_stable_keys.len() > 4_096
     {
-        return Err("Too many shape mutations".into());
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            "Too many shape mutations",
+        ));
     }
     let mut point_count = 0usize;
     for shape in &shapes.shapes {
@@ -276,23 +287,29 @@ fn validate_shapes_mutation(shapes: &ShapesMutation) -> Result<()> {
         point_count += shape.points.len();
         point_count += shape.strokes.iter().map(Vec::len).sum::<usize>();
         if point_count > 20_000 {
-            return Err("Too many shape points".into());
+            return Err(domain_error(
+                NativeErrorCode::TooLarge,
+                "Too many shape points",
+            ));
         }
         validate_shape_geometry(shape)?;
     }
     Ok(())
 }
 
-fn is_supported_markup_subtype(subtype: &str) -> bool {
+pub(crate) fn is_supported_markup_subtype(subtype: &str) -> bool {
     matches!(
         subtype,
         "Highlight" | "Underline" | "StrikeOut" | "Squiggly"
     )
 }
 
-fn validate_markup_mutation(markup: &MarkupMutation) -> Result<()> {
+pub(crate) fn validate_markup_mutation(markup: &MarkupMutation) -> Result<()> {
     if markup.overrides.len() > 4_096 || markup.hints.len() > MAX_MARKUP_SUBTYPE_HINTS {
-        return Err("Too many text-markup mutations".into());
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            "Too many text-markup mutations",
+        ));
     }
     if markup.overrides.is_empty() && markup.hints.is_empty() {
         return Err("Text-markup mutation must include at least one rewrite".into());
@@ -320,16 +337,22 @@ fn validate_markup_mutation(markup: &MarkupMutation) -> Result<()> {
         .flatten()
         {
             if value.len() > 2_048 {
-                return Err("Text-markup hint string is too long".into());
+                return Err(domain_error(
+                    NativeErrorCode::TooLarge,
+                    "Text-markup hint string is too long",
+                ));
             }
         }
     }
     Ok(())
 }
 
-fn validate_placed_images(images: &[PlacedImage]) -> Result<()> {
+pub(crate) fn validate_placed_images(images: &[PlacedImage]) -> Result<()> {
     if images.len() > 16 {
-        return Err("Too many placed image mutations".into());
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            "Too many placed image mutations",
+        ));
     }
     for image in images {
         if !image.mime_type.eq_ignore_ascii_case("image/jpeg") {
@@ -347,14 +370,12 @@ fn validate_placed_images(images: &[PlacedImage]) -> Result<()> {
         {
             return Err("Invalid placed image rotation".into());
         }
-        if image.bytes.is_empty() || image.bytes.len() > 128 * 1024 * 1024 {
-            return Err("Invalid placed image byte length".into());
-        }
+        read_validated_placed_image_bytes(image)?;
     }
     Ok(())
 }
 
-fn read_native_mutations(path: &PathBuf) -> Result<NativeMutationsFile> {
+pub(crate) fn read_native_mutations(path: &PathBuf) -> Result<NativeMutationsFile> {
     let contents = fs::read_to_string(path)?;
     let parsed: NativeMutationsFile = serde_json::from_str(&contents)?;
     if parsed.updates.is_empty()

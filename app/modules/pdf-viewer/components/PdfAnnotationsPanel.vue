@@ -262,8 +262,8 @@ function placeNote() {
 .notes-panel {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
-    padding: 0.75rem;
+    gap: var(--app-sidebar-row-gap);
+    padding: var(--app-sidebar-content-padding);
     min-height: 100%;
     height: 100%;
     overflow: visible;
@@ -279,7 +279,7 @@ function placeNote() {
 .annotation-tool-options {
     display: flex;
     align-items: center;
-    min-height: 1.5rem;
+    min-height: var(--app-control-height-xs);
 }
 
 .style-popover-virtual-trigger {
@@ -291,8 +291,8 @@ function placeNote() {
 
 .annotation-style-editor-cache {
     position: absolute;
-    width: 1px;
-    height: 1px;
+    width: var(--app-divider-width);
+    height: var(--app-hairline-height);
     overflow: hidden;
     opacity: 0;
     pointer-events: none;
@@ -301,12 +301,12 @@ function placeNote() {
 .annotation-style-popover {
     display: flex;
     flex-direction: column;
-    gap: 0.55rem;
+    gap: var(--app-sidebar-row-gap);
     position: relative;
     z-index: var(--app-pdf-annotation-style-popover-z-index);
     width: min(var(--app-pdf-annotation-style-popover-width), var(--app-overlay-viewport-width));
     max-width: var(--app-overlay-viewport-width);
-    padding: 0.625rem;
+    padding: var(--app-sidebar-content-padding);
     border: 1px solid var(--ui-border);
     border-radius: 0.625rem;
     background: var(--ui-bg);
@@ -317,12 +317,12 @@ function placeNote() {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.5rem;
+    gap: var(--app-sidebar-row-gap);
 }
 
 .annotation-style-popover-title {
     color: var(--ui-text-highlighted);
-    font-size: 0.68rem;
+    font-size: var(--app-sidebar-caption-font-size);
     font-weight: 700;
     letter-spacing: 0.03em;
     line-height: 1.2;
@@ -334,8 +334,8 @@ function placeNote() {
     align-items: center;
     justify-content: center;
     flex: 0 0 auto;
-    width: 1.25rem;
-    height: 1.25rem;
+    width: var(--app-sidebar-action-size);
+    height: var(--app-sidebar-action-size);
     border: 1px solid transparent;
     border-radius: 0.35rem;
     background: transparent;
@@ -350,7 +350,7 @@ function placeNote() {
 }
 
 .annotation-style-popover-close-icon {
-    width: 0.75rem;
-    height: 0.75rem;
+    width: var(--app-icon-size-xs);
+    height: var(--app-icon-size-xs);
 }
 </style>

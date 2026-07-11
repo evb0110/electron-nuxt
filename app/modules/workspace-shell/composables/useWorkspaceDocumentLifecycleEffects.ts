@@ -16,7 +16,6 @@ interface IWorkspaceDocumentLifecycleEffectsOptions extends IDocumentTransitionD
     documentRevisionInfo: Ref<IDocumentRevisionInfo | null>;
     documentRevisionToken: Ref<TDocumentRevisionToken | null>;
     openDjvuFile: TOpenDjvuFile;
-    loadPdfFromPath: (path: TDocumentRef) => Promise<void>;
     pdfViewerRef: Ref<{
         scrollToPage: (page: number) => void;
         clearShapes: () => void;
@@ -35,7 +34,6 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         documentRevisionInfo,
         documentRevisionToken,
         openDjvuFile,
-        loadPdfFromPath,
         currentPage,
         pdfViewerRef,
         originalPath,
@@ -126,9 +124,6 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
     useWorkspaceUiSyncWatchers({
         pendingDjvu,
         openDjvuFile,
-        loadPdfFromPath,
-        currentPage,
-        pdfViewerRef,
         originalPath,
         closeFile,
         showSettings,

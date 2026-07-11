@@ -1,0 +1,55 @@
+import {
+    describe,
+    expect,
+    it,
+} from 'vitest';
+import {
+    captureDocumentZoomAnchor,
+    resolveDocumentZoomAnchorScroll,
+} from '@app/utils/document-viewer/zoomAnchor';
+
+describe('document zoom anchor', () => {
+    it('preserves the page-relative viewport center across reflow', () => {
+        const viewport = {
+            clientHeight: 400,
+            clientWidth: 500,
+            scrollLeft: 0,
+            scrollTop: 600,
+        };
+        const anchor = captureDocumentZoomAnchor(viewport, [
+            {
+                top: 16,
+                width: 400,
+                height: 1_000,
+            },
+            {
+                top: 1_032,
+                width: 400,
+                height: 1_000,
+            },
+        ]);
+        expect(anchor).toMatchObject({
+            pageIndex: 0,
+            yRatio: 0.784,
+        });
+
+        const restored = resolveDocumentZoomAnchorScroll(viewport, [
+            {
+                top: 16,
+                width: 800,
+                height: 2_000,
+            },
+            {
+                top: 2_032,
+                width: 800,
+                height: 2_000,
+            },
+        ], anchor);
+        expect(restored).toEqual({
+            left: 150,
+            top: 1_384,
+        });
+        expect(viewport.scrollTop).toBe(600);
+        expect(viewport.scrollLeft).toBe(0);
+    });
+});

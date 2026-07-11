@@ -281,37 +281,25 @@
                                             <pre
                                                 v-if="block.kind === 'code'"
                                                 class="agent-assistant-message-code-block"
-                                            ><code>{{ block.code }}</code></pre>
+                                            ><AssistantHighlightedCode :code="block.code" :language="block.language" /></pre>
+                                            <table
+                                                v-else-if="block.kind === 'table'"
+                                                class="agent-assistant-message-table"
+                                            >
+                                                <tbody>
+                                                    <tr v-for="(row, rowIndex) in block.rows" :key="rowIndex">
+                                                        <td v-for="(cell, cellIndex) in row" :key="cellIndex">
+                                                            <AssistantMessageSegments :segments="cell" />
+                                                        </td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
                                             <p
                                                 v-else-if="block.kind === 'heading'"
                                                 class="agent-assistant-message-heading"
                                                 :data-level="block.level"
                                             >
-                                                <template
-                                                    v-for="(segment, segmentIndex) in block.segments"
-                                                    :key="`${message.id}-${blockIndex}-${segmentIndex}`"
-                                                >
-                                                    <code
-                                                        v-if="segment.kind === 'code'"
-                                                        class="agent-assistant-message-inline-code"
-                                                    >{{ segment.text }}</code>
-                                                    <strong
-                                                        v-else-if="segment.kind === 'strong'"
-                                                        class="agent-assistant-message-strong"
-                                                    >{{ segment.text }}</strong>
-                                                    <em
-                                                        v-else-if="segment.kind === 'emphasis'"
-                                                        class="agent-assistant-message-emphasis"
-                                                    >{{ segment.text }}</em>
-                                                    <a
-                                                        v-else-if="segment.kind === 'link'"
-                                                        class="agent-assistant-message-link"
-                                                        :href="segment.href"
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                    >{{ segment.text }}</a>
-                                                    <span v-else>{{ segment.text }}</span>
-                                                </template>
+                                                <AssistantMessageSegments :segments="block.segments" />
                                             </p>
                                             <template v-else-if="block.kind === 'list'">
                                                 <ol
@@ -322,31 +310,7 @@
                                                         v-for="(item, itemIndex) in block.items"
                                                         :key="`${message.id}-${blockIndex}-${itemIndex}`"
                                                     >
-                                                        <template
-                                                            v-for="(segment, segmentIndex) in item"
-                                                            :key="`${message.id}-${blockIndex}-${itemIndex}-${segmentIndex}`"
-                                                        >
-                                                            <code
-                                                                v-if="segment.kind === 'code'"
-                                                                class="agent-assistant-message-inline-code"
-                                                            >{{ segment.text }}</code>
-                                                            <strong
-                                                                v-else-if="segment.kind === 'strong'"
-                                                                class="agent-assistant-message-strong"
-                                                            >{{ segment.text }}</strong>
-                                                            <em
-                                                                v-else-if="segment.kind === 'emphasis'"
-                                                                class="agent-assistant-message-emphasis"
-                                                            >{{ segment.text }}</em>
-                                                            <a
-                                                                v-else-if="segment.kind === 'link'"
-                                                                class="agent-assistant-message-link"
-                                                                :href="segment.href"
-                                                                target="_blank"
-                                                                rel="noopener noreferrer"
-                                                            >{{ segment.text }}</a>
-                                                            <span v-else>{{ segment.text }}</span>
-                                                        </template>
+                                                        <AssistantMessageSegments :segments="item" />
                                                     </li>
                                                 </ol>
                                                 <ul
@@ -357,31 +321,7 @@
                                                         v-for="(item, itemIndex) in block.items"
                                                         :key="`${message.id}-${blockIndex}-${itemIndex}`"
                                                     >
-                                                        <template
-                                                            v-for="(segment, segmentIndex) in item"
-                                                            :key="`${message.id}-${blockIndex}-${itemIndex}-${segmentIndex}`"
-                                                        >
-                                                            <code
-                                                                v-if="segment.kind === 'code'"
-                                                                class="agent-assistant-message-inline-code"
-                                                            >{{ segment.text }}</code>
-                                                            <strong
-                                                                v-else-if="segment.kind === 'strong'"
-                                                                class="agent-assistant-message-strong"
-                                                            >{{ segment.text }}</strong>
-                                                            <em
-                                                                v-else-if="segment.kind === 'emphasis'"
-                                                                class="agent-assistant-message-emphasis"
-                                                            >{{ segment.text }}</em>
-                                                            <a
-                                                                v-else-if="segment.kind === 'link'"
-                                                                class="agent-assistant-message-link"
-                                                                :href="segment.href"
-                                                                target="_blank"
-                                                                rel="noopener noreferrer"
-                                                            >{{ segment.text }}</a>
-                                                            <span v-else>{{ segment.text }}</span>
-                                                        </template>
+                                                        <AssistantMessageSegments :segments="item" />
                                                     </li>
                                                 </ul>
                                             </template>
@@ -389,31 +329,7 @@
                                                 v-else-if="block.kind === 'blockquote'"
                                                 class="agent-assistant-message-blockquote"
                                             >
-                                                <template
-                                                    v-for="(segment, segmentIndex) in block.segments"
-                                                    :key="`${message.id}-${blockIndex}-${segmentIndex}`"
-                                                >
-                                                    <code
-                                                        v-if="segment.kind === 'code'"
-                                                        class="agent-assistant-message-inline-code"
-                                                    >{{ segment.text }}</code>
-                                                    <strong
-                                                        v-else-if="segment.kind === 'strong'"
-                                                        class="agent-assistant-message-strong"
-                                                    >{{ segment.text }}</strong>
-                                                    <em
-                                                        v-else-if="segment.kind === 'emphasis'"
-                                                        class="agent-assistant-message-emphasis"
-                                                    >{{ segment.text }}</em>
-                                                    <a
-                                                        v-else-if="segment.kind === 'link'"
-                                                        class="agent-assistant-message-link"
-                                                        :href="segment.href"
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                    >{{ segment.text }}</a>
-                                                    <span v-else>{{ segment.text }}</span>
-                                                </template>
+                                                <AssistantMessageSegments :segments="block.segments" />
                                             </blockquote>
                                             <hr
                                                 v-else-if="block.kind === 'rule'"
@@ -423,31 +339,7 @@
                                                 v-else
                                                 class="agent-assistant-message-text"
                                             >
-                                                <template
-                                                    v-for="(segment, segmentIndex) in block.segments"
-                                                    :key="`${message.id}-${blockIndex}-${segmentIndex}`"
-                                                >
-                                                    <code
-                                                        v-if="segment.kind === 'code'"
-                                                        class="agent-assistant-message-inline-code"
-                                                    >{{ segment.text }}</code>
-                                                    <strong
-                                                        v-else-if="segment.kind === 'strong'"
-                                                        class="agent-assistant-message-strong"
-                                                    >{{ segment.text }}</strong>
-                                                    <em
-                                                        v-else-if="segment.kind === 'emphasis'"
-                                                        class="agent-assistant-message-emphasis"
-                                                    >{{ segment.text }}</em>
-                                                    <a
-                                                        v-else-if="segment.kind === 'link'"
-                                                        class="agent-assistant-message-link"
-                                                        :href="segment.href"
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                    >{{ segment.text }}</a>
-                                                    <span v-else>{{ segment.text }}</span>
-                                                </template>
+                                                <AssistantMessageSegments :segments="block.segments" />
                                             </p>
                                         </template>
                                     </template>
@@ -477,13 +369,16 @@
                             </div>
                         </article>
 
-                        <div
-                            v-if="isTurnActive"
-                            class="agent-assistant-turn-progress"
-                        >
-                            <UIcon name="i-ph-circle-notch" class="agent-assistant-working-icon is-spinning" />
-                            <span>{{ turnStatusText }}</span>
-                        </div>
+                        <AssistantTurnStatus
+                            :active="isTurnActive"
+                            :can-retry="canRetryAssistantError"
+                            :reasoning="turnReasoning"
+                            :stalled="isTurnStalled"
+                            :status-text="turnStatusText"
+                            :tools="turnToolActivity"
+                            :usage="turnUsage"
+                            @retry="retryLastAssistantMessage"
+                        />
                     </div>
 
                     <form
@@ -593,7 +488,7 @@
                                 </div>
                                 <div class="agent-assistant-composer-submit-actions">
                                     <UButton
-                                        v-if="isSending"
+                                        v-if="isTurnActive"
                                         :aria-label="t('assistant.stop')"
                                         icon="i-ph-stop-circle"
                                         color="neutral"
@@ -804,6 +699,9 @@ import type { IAgentAssistantPanelControllerProps } from '@app/modules/agent-pan
 import AssistantEffortSwitcher from '@app/modules/agent-panel/components/AssistantEffortSwitcher.vue';
 import AssistantModelSwitcher from '@app/modules/agent-panel/components/AssistantModelSwitcher.vue';
 import AssistantSpeedSwitcher from '@app/modules/agent-panel/components/AssistantSpeedSwitcher.vue';
+import AssistantMessageSegments from '@app/modules/agent-panel/components/AssistantMessageSegments.vue';
+import AssistantHighlightedCode from '@app/modules/agent-panel/components/AssistantHighlightedCode.vue';
+import AssistantTurnStatus from '@app/modules/agent-panel/components/AssistantTurnStatus.vue';
 import { createAgentAssistantPanelControllerProps } from '@app/modules/agent-panel/composables/createAgentAssistantPanelControllerProps';
 import { useAgentAssistantPanelController } from '@app/modules/agent-panel/composables/useAgentAssistantPanelController';
 
@@ -836,6 +734,7 @@ const {
     availableEfforts,
     availableSpeedModes,
     canResetChat,
+    canRetryAssistantError,
     canSend,
     closeExpandedImage,
     composerError,
@@ -877,6 +776,7 @@ const {
     isSending,
     isSwitchingAssistant,
     isTurnActive,
+    isTurnStalled,
     loginMode,
     messagesRef,
     navigateExpandedImage,
@@ -885,6 +785,7 @@ const {
     placeholderText,
     presetLabel,
     removeComposerImage,
+    retryLastAssistantMessage,
     renderedMessages,
     roleLabel,
     selectedEffort,
@@ -898,6 +799,9 @@ const {
     status,
     t,
     turnStatusText,
+    turnReasoning,
+    turnToolActivity,
+    turnUsage,
     updateEffort,
     updateModel,
     updateProvider,
@@ -907,5 +811,4 @@ const {
 </script>
 
 <style scoped src="./AgentAssistantPanel.shell.css"></style>
-
 <style scoped src="./AgentAssistantPanel.composer.css"></style>

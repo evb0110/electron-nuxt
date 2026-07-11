@@ -234,7 +234,7 @@ function readDjvuWheelMetricSampleFromPage(): IDjvuWheelMetricSample {
             const rect = candidate.getBoundingClientRect();
             const style = window.getComputedStyle(candidate);
             return (
-                Boolean(candidate.querySelector('.djvu-viewer-container'))
+                Boolean(candidate.querySelector('[data-testid="document-page-source-viewer"]'))
                 &&
                 style.display !== 'none'
                 && style.visibility !== 'hidden'
@@ -243,11 +243,11 @@ function readDjvuWheelMetricSampleFromPage(): IDjvuWheelMetricSample {
                 && rect.height > 100
             );
         }) ?? null;
-    const viewer = visibleHost?.querySelector<HTMLElement>('.djvu-viewer-container') ?? null;
+    const surface = visibleHost?.querySelector<HTMLElement>('[data-testid="document-page-source-viewer"]') ?? null;
+    const viewer = surface?.closest<HTMLElement>('[data-document-viewer-chassis-viewport]') ?? null;
     const viewerRect = viewer?.getBoundingClientRect() ?? null;
-    const surface = viewer?.querySelector<HTMLElement>('.djvu-continuous-surface') ?? null;
-    const pageShells = Array.from(viewer?.querySelectorAll<HTMLElement>('.djvu-page-shell') ?? []);
-    const virtualSpacers = Array.from(viewer?.querySelectorAll<HTMLElement>('.djvu-page-virtual-spacer') ?? []);
+    const pageShells = Array.from(surface?.querySelectorAll<HTMLElement>('[data-testid="document-page-source-page"]') ?? []);
+    const virtualSpacers: HTMLElement[] = [];
     const pageNumbers = pageShells
         .map(pageElement => Number.parseInt(pageElement.dataset.pageNumber ?? '', 10))
         .filter(Number.isFinite);
@@ -308,7 +308,7 @@ function readDjvuWheelMetricSampleFromPage(): IDjvuWheelMetricSample {
                     ?? '',
                 10,
             ) || null,
-        imageCount: viewer?.querySelectorAll('.djvu-page-shell img').length ?? 0,
+        imageCount: surface?.querySelectorAll('[data-testid="document-page-source-image"]').length ?? 0,
         mountedRange: pageNumbers.length > 0 ? `${pageNumbers[0]}-${pageNumbers.at(-1)}` : 'empty',
         maxVisibleGapPx: Math.round(maxVisibleGapPx),
         pageNumbers,
@@ -400,8 +400,9 @@ async function configureDjvuWheelMetricStart(
         { timeoutMs: 20_000 },
     );
     await waitForFunctionInPage(session.page, (pageNumber: number) => {
-        const viewer = document.querySelector<HTMLElement>('.djvu-viewer-container');
-        const startPage = viewer?.querySelector<HTMLElement>(`.djvu-page-shell[data-page-number="${pageNumber}"]`);
+        const surface = document.querySelector<HTMLElement>('[data-testid="document-page-source-viewer"]');
+        const viewer = surface?.closest<HTMLElement>('[data-document-viewer-chassis-viewport]');
+        const startPage = surface?.querySelector<HTMLElement>(`[data-testid="document-page-source-page"][data-page-number="${pageNumber}"]`);
         return Boolean(
             viewer
             && viewer.scrollTop > 0
@@ -418,7 +419,8 @@ async function configureDjvuWheelMetricStart(
 async function collectDjvuWheelMetricSamples(session: IElectronE2ESession) {
     const samples: IDjvuWheelMetricSample[] = [await readDjvuWheelMetricSample(session)];
     const viewerCenter = await session.page.evaluate(() => {
-        const viewer = document.querySelector<HTMLElement>('.djvu-viewer-container');
+        const surface = document.querySelector<HTMLElement>('[data-testid="document-page-source-viewer"]');
+        const viewer = surface?.closest<HTMLElement>('[data-document-viewer-chassis-viewport]');
         if (!viewer) {
             throw new Error('DjVu viewer container was not found');
         }
@@ -450,7 +452,8 @@ async function collectDjvuProjectedScrollMetricSamples(session: IElectronE2ESess
 
     for (let index = 0; index < DJVU_PROJECTED_SCROLL_STEPS; index += 1) {
         await session.page.evaluate((deltaY: number) => {
-            const viewer = document.querySelector<HTMLElement>('.djvu-viewer-container');
+            const surface = document.querySelector<HTMLElement>('[data-testid="document-page-source-viewer"]');
+            const viewer = surface?.closest<HTMLElement>('[data-document-viewer-chassis-viewport]');
             if (!viewer) {
                 throw new Error('DjVu viewer container was not found');
             }

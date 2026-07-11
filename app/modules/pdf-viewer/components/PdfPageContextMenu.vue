@@ -4,7 +4,7 @@
         :visible="menu.visible"
         :style="style"
         variant="grid"
-        min-width="208px"
+        min-width="var(--app-context-menu-preferred-width)"
     >
         <p class="pdf-context-menu__section-title">
             {{ menuTitle }}

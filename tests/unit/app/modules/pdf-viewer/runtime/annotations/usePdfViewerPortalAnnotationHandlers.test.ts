@@ -10,8 +10,9 @@ import { cast } from '@tests/helpers/cast';
 
 function createComment(): IAnnotationCommentSummary {
     return {
+        appAnnotationId: 'anno-command-1',
         id: 'ann-1',
-        stableKey: 'stable-1',
+        stableKey: 'ann:0:stable-1',
         pageIndex: 0,
         pageNumber: 1,
         text: 'note',
@@ -37,7 +38,6 @@ function createHandlers(options?: {
 
     const handlers = usePdfViewerPortalAnnotationHandlers({
         activeCommentStableKey,
-        suppressAnnotationId: vi.fn(),
         removeAnnotationFromDom: vi.fn(),
         refreshHiddenAnnotationPage: vi.fn(),
         emitAnnotationOpenNote,
@@ -78,7 +78,7 @@ describe('usePdfViewerPortalAnnotationHandlers', () => {
 
         expect(cancelAnnotationTool).toHaveBeenCalledOnce();
         expect(cancelCommentPlacement).toHaveBeenCalledOnce();
-        expect(activeCommentStableKey.value).toBe('stable-1');
+        expect(activeCommentStableKey.value).toBe('anno-command-1');
         expect(emitAnnotationOpenNote).toHaveBeenCalledWith(comment);
     });
 

@@ -139,6 +139,10 @@ function createStatus(overrides: Partial<IAgentAssistantStatus> = {}): IAgentAss
         turn: {
             id: null,
             phase: 'idle',
+            reasoning: '',
+            toolActivity: [],
+            lastEventAtMs: null,
+            usage: null,
         },
         lastCheckedAt: '2026-06-02T00:00:00.000Z',
         ...overrides,

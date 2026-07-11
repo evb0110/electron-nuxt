@@ -6,6 +6,7 @@ import {
 import {
     existsSync,
     readFileSync,
+    writeFileSync,
 } from 'fs';
 import { join } from 'path';
 import { app } from 'electron';
@@ -21,6 +22,10 @@ import {
     atomicReplace,
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
+import {
+    quarantineCorruptFile,
+    quarantineCorruptFileSync,
+} from '@electron/utils/quarantineCorruptFile';
 
 const logger = createLogger('settings');
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
@@ -74,11 +79,25 @@ async function readSettingsFromStorage(storagePath: string) {
         return cacheSettings(DEFAULT_SETTINGS);
     }
 
+    let content: string;
     try {
-        const content = await readFile(storagePath, 'utf-8');
+        content = await readFile(storagePath, 'utf-8');
+    } catch (err) {
+        logger.error(`Failed to read settings: ${getErrorMessage(err)}`);
+        return cacheSettings(DEFAULT_SETTINGS);
+    }
+
+    try {
         return cacheSettings(parseSettingsPayload(content));
     } catch (err) {
         logger.error(`Failed to load settings: ${getErrorMessage(err)}`);
+        try {
+            const quarantinePath = await quarantineCorruptFile(storagePath);
+            await writeSettingsAtomically(storagePath, DEFAULT_SETTINGS);
+            logger.warn(`Quarantined corrupt settings at ${quarantinePath ?? storagePath}`);
+        } catch (recoveryError) {
+            logger.error(`Failed to recover corrupt settings: ${getErrorMessage(recoveryError)}`);
+        }
         return cacheSettings(DEFAULT_SETTINGS);
     }
 }
@@ -137,11 +156,25 @@ function loadSettingsSync(): ISettingsData {
         return cacheSettings(DEFAULT_SETTINGS);
     }
 
+    let content: string;
     try {
-        const content = readFileSync(storagePath, 'utf-8');
+        content = readFileSync(storagePath, 'utf-8');
+    } catch (err) {
+        logger.error(`Failed to read settings: ${getErrorMessage(err)}`);
+        return cacheSettings(DEFAULT_SETTINGS);
+    }
+
+    try {
         return cacheSettings(parseSettingsPayload(content));
     } catch (err) {
         logger.error(`Failed to load settings: ${getErrorMessage(err)}`);
+        try {
+            const quarantinePath = quarantineCorruptFileSync(storagePath);
+            writeFileSync(storagePath, JSON.stringify(DEFAULT_SETTINGS, null, 2), 'utf-8');
+            logger.warn(`Quarantined corrupt settings at ${quarantinePath ?? storagePath}`);
+        } catch (recoveryError) {
+            logger.error(`Failed to recover corrupt settings: ${getErrorMessage(recoveryError)}`);
+        }
         return cacheSettings(DEFAULT_SETTINGS);
     }
 }

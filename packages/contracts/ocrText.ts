@@ -1,4 +1,5 @@
 import type { IOcrWord } from '@contracts/shared';
+import { assembleSearchablePageText } from '@contracts/search';
 
 export const OCR_TEXT_LAYER_INDEX_SOURCE = 'ocr-v2-text-layer';
 export const OCR_TEXT_LAYER_INDEX_VERSION = 1;
@@ -29,10 +30,8 @@ export function isLastOcrWordInLine(
 }
 
 export function buildOcrTextLayerIndexText(words: readonly IOcrWord[]) {
-    return words
-        .map((word, index) => (
-            buildOcrTextLayerItemText(word)
-            + (isLastOcrWordInLine(words, index) ? '\n' : '')
-        ))
-        .join('');
+    return assembleSearchablePageText(words.map((word, index) => ({
+        text: buildOcrTextLayerItemText(word),
+        separatorAfter: isLastOcrWordInLine(words, index) ? 'line' : 'none',
+    }))).text;
 }

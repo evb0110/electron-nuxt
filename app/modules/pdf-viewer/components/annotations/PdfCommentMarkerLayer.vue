@@ -53,7 +53,7 @@ function moveMarker(comment: IAnnotationCommentSummary, markerRect: IAnnotationM
 .pdf-comment-marker-layer-vue {
     position: absolute;
     inset: 0;
-    z-index: 4;
+    z-index: var(--app-z-pdf-comment-marker-layer);
     pointer-events: none;
 }
 </style>

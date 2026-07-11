@@ -18,14 +18,18 @@ import {
 } from '@electron/features/page-ops/main/tempOutput';
 import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
 import { createManagedScratchTempDir } from '@electron/utils/managedScratchTemp';
+import {
+    getPdfPageCount,
+    QPDF_OUTPUT_SUCCESS_EXIT_CODES,
+    QPDF_TIMEOUT_MS,
+} from '@electron/pdf/pdfPageCount';
 
 const log = createLogger('page-ops-qpdf');
-export const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
-// qpdf exits with 3 when it completed the write but found warnings in the input.
-export const QPDF_OUTPUT_SUCCESS_EXIT_CODES = [
-    0,
-    3,
-];
+export {
+    getPdfPageCount,
+    QPDF_OUTPUT_SUCCESS_EXIT_CODES,
+    QPDF_TIMEOUT_MS,
+};
 
 export interface IQpdfOperationOptions {
     signal?: AbortSignal;
@@ -121,23 +125,18 @@ export async function runQpdfCommand(args: string[], options: Parameters<typeof 
     }
 }
 
-export async function getPdfPageCount(pdfPath: string, options: IQpdfOperationOptions = {}) {
-    const result = await runNativeToolCommand(getQpdfBinary(), [
-        '--show-npages',
+/** Strict reopen/xref gate: warning-corrupt output is not promotable. */
+export async function verifyPdfStructureStrict(pdfPath: string, options: IQpdfOperationOptions = {}) {
+    await runNativeToolCommand(getQpdfBinary(), [
+        '--check',
         pdfPath,
     ], {
         timeoutMs: QPDF_TIMEOUT_MS,
-        allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
-        commandLabel: 'qpdf(page-count)',
-        ...(options.signal ? { signal: options.signal } : {}),
-        ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
+        allowedExitCodes: [0],
+        commandLabel: 'qpdf(strict-structure-check)',
+        ...(options.signal ? {signal: options.signal} : {}),
+        ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
     });
-    const pageCount = Number.parseInt(result.stdout.trim(), 10);
-    if (!Number.isSafeInteger(pageCount) || pageCount < 1) {
-        throw new Error('Failed to read PDF page count');
-    }
-
-    return pageCount;
 }
 
 async function replaceQpdfOutput(tempPath: string, targetPath: string) {

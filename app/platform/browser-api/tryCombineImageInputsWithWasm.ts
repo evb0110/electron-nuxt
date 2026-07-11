@@ -8,6 +8,7 @@ import type {
 import { getBrowserFileExtension } from '@app/platform/browser-api/browserPlatformHelpers';
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { loadWasmWithDeadline } from '@app/platform/browser-api/loadWasmWithDeadline';
 
 interface IPdfImageCombineWasmExports {
     memory: WebAssembly.Memory;
@@ -61,6 +62,17 @@ const WASM_LAYER_IMAGE_EXTENSIONS = new Set([
 const WASM_MASK_EXTENSIONS = new Set(['.pbm']);
 
 let wasmExportsPromise: Promise<IPdfImageCombineWasmExports | null> | null = null;
+
+export type TBrowserPdfCombineWasmOutcome =
+    | {
+        status: 'success';
+        data: Uint8Array
+    }
+    | {status: 'unsupported' | 'unavailable'}
+    | {
+        status: 'fatal';
+        error: Error
+    };
 
 function isWasmNumberFunction(value: WebAssembly.ExportValue | undefined): value is (...args: number[]) => number {
     return typeof value === 'function';
@@ -244,14 +256,9 @@ function resolveWasmUrl() {
 }
 
 async function loadPdfImageCombineWasm() {
-    wasmExportsPromise ??= (async () => {
+    const pending = wasmExportsPromise ?? (async () => {
         try {
-            const response = await fetch(resolveWasmUrl());
-            if (!response.ok) {
-                return null;
-            }
-            const bytes = await response.arrayBuffer();
-            const instantiated = await WebAssembly.instantiate(bytes, {});
+            const instantiated = await loadWasmWithDeadline(resolveWasmUrl());
             const instance = 'instance' in instantiated
                 ? instantiated.instance
                 : instantiated;
@@ -260,8 +267,13 @@ async function loadPdfImageCombineWasm() {
             return null;
         }
     })();
+    wasmExportsPromise = pending;
 
-    return wasmExportsPromise;
+    const loaded = await pending;
+    if (!loaded && wasmExportsPromise === pending) {
+        wasmExportsPromise = null;
+    }
+    return loaded;
 }
 
 function getEncodedName(input: IBrowserPdfCombineInput, encoder: TextEncoder) {
@@ -472,17 +484,20 @@ function logWasmFailure(resultCode: number, exports: IPdfImageCombineWasmExports
     });
 }
 
+const PDF_IMAGE_COMBINE_WASM_MAX_REQUEST_BYTES = 256 * 1024 * 1024;
+const PDF_IMAGE_COMBINE_WASM_MAX_OUTPUT_BYTES = 512 * 1024 * 1024;
+
 export async function tryCombineImageInputsWithWasm(
     inputs: IBrowserPdfCombineInput[],
     options?: IBrowserPdfCombineWasmImagePreprocessing,
-): Promise<Uint8Array | null> {
+): Promise<TBrowserPdfCombineWasmOutcome> {
     if (!canUsePdfImageCombineWasm(inputs, options)) {
-        return null;
+        return {status: 'unsupported'};
     }
 
     const exports = await loadPdfImageCombineWasm();
     if (!exports) {
-        return null;
+        return {status: 'unavailable'};
     }
 
     let pointer: number | null = null;
@@ -490,23 +505,48 @@ export async function tryCombineImageInputsWithWasm(
     try {
         const request = buildWasmRequest(inputs, options);
         requestLength = request.byteLength;
+        if (requestLength === 0 || requestLength > PDF_IMAGE_COMBINE_WASM_MAX_REQUEST_BYTES) {
+            return {
+                status: 'fatal',
+                error: new Error('ERR_BROWSER_PDF_COMBINE_REQUEST_TOO_LARGE'),
+            };
+        }
         pointer = exports.evb_pdf_image_combine_alloc(requestLength);
+        if (pointer === 0) {
+            pointer = null;
+            return {
+                status: 'fatal',
+                error: new Error('ERR_BROWSER_PDF_COMBINE_OUT_OF_MEMORY'),
+            };
+        }
         new Uint8Array(exports.memory.buffer, pointer, requestLength).set(request);
         const resultCode = exports.evb_pdf_image_combine_build_pdf(pointer, requestLength);
         if (resultCode !== 0) {
             logWasmFailure(resultCode, exports);
-            return null;
+            return {
+                status: 'fatal',
+                error: new Error(readWasmError(exports) ?? `ERR_BROWSER_PDF_COMBINE_WASM:${resultCode}`),
+            };
         }
 
         const outputPointer = exports.evb_pdf_image_combine_output_ptr();
         const outputLen = exports.evb_pdf_image_combine_output_len();
-        if (outputLen === 0) {
-            return null;
+        if (outputLen === 0 || outputLen > PDF_IMAGE_COMBINE_WASM_MAX_OUTPUT_BYTES) {
+            return {
+                status: 'fatal',
+                error: new Error('ERR_BROWSER_PDF_COMBINE_INVALID_OUTPUT'),
+            };
         }
 
-        return toTransferableUint8Array(copyWasmBytes(exports, outputPointer, outputLen));
-    } catch {
-        return null;
+        return {
+            status: 'success',
+            data: toTransferableUint8Array(copyWasmBytes(exports, outputPointer, outputLen)),
+        };
+    } catch (error) {
+        return {
+            status: 'fatal',
+            error: error instanceof Error ? error : new Error(String(error)),
+        };
     } finally {
         if (pointer !== null) {
             exports.evb_pdf_image_combine_free(pointer, requestLength);

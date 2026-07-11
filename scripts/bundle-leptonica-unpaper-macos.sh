@@ -1,6 +1,6 @@
 #!/bin/bash
 # Bundle Leptonica and minimal Unpaper for macOS
-# Prerequisites: Tesseract already bundled, Meson + pkg-config + sphinx-doc installed
+# Prerequisites: Tesseract already bundled, build tools, Meson, pkg-config, and sphinx-doc
 # Usage: ./scripts/bundle-leptonica-unpaper-macos.sh
 set -e
 
@@ -74,6 +74,7 @@ echo "=========================================="
 
 UNPAPER_BUILD_DIR="/tmp/unpaper-build-macos-$$"
 UNPAPER_INSTALL_DIR="$UNPAPER_BUILD_DIR/install"
+FFMPEG_INSTALL_DIR="$UNPAPER_BUILD_DIR/ffmpeg-install"
 
 mkdir -p "$UNPAPER_BUILD_DIR"
 cd "$UNPAPER_BUILD_DIR"
@@ -97,6 +98,13 @@ if [ "$ACTUAL_UNPAPER_COMMIT" != "$UNPAPER_COMMIT" ]; then
   echo "Error: Pinned unpaper tag resolved to $ACTUAL_UNPAPER_COMMIT, expected $UNPAPER_COMMIT"
   exit 1
 fi
+
+# Unpaper 7 requires libavformat/libavcodec/libavutil, but the Homebrew FFmpeg
+# closure includes dozens of unrelated video codecs. Build only the PNM
+# reader/writer surface used by OCR preprocessing.
+"$SCRIPT_DIR/build-minimal-ffmpeg-for-unpaper.sh" "$UNPAPER_BUILD_DIR/ffmpeg-build" "$FFMPEG_INSTALL_DIR"
+export PKG_CONFIG_PATH="$FFMPEG_INSTALL_DIR/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+export LDFLAGS="-Wl,-rpath,$FFMPEG_INSTALL_DIR/lib ${LDFLAGS:-}"
 
 # Configure Meson build with minimal dependencies
 # Note: Unpaper can optionally use ImageMagick, but we skip it for minimal footprint
@@ -139,6 +147,18 @@ cp "$UNPAPER_INSTALL_DIR/bin/unpaper" "$DEST/bin/"
 chmod +x "$DEST/bin/unpaper"
 echo "✓ Unpaper binary copied to $DEST/bin/unpaper"
 
+mkdir -p "$DEST/lib"
+for ffmpeg_library_name in libavcodec libavformat libavutil; do
+  ffmpeg_lib="$(find "$FFMPEG_INSTALL_DIR/lib" -maxdepth 1 \( -type f -o -type l \) \
+    -name "${ffmpeg_library_name}.*.dylib" -print \
+    | awk -F/ -v name="$ffmpeg_library_name" '$NF ~ ("^" name "\\.[0-9]+\\.dylib$") {print; exit}')"
+  if [ -z "$ffmpeg_lib" ]; then
+    echo "Error: Minimal FFmpeg did not install a canonical $ffmpeg_library_name SONAME"
+    exit 1
+  fi
+  cp -L "$ffmpeg_lib" "$DEST/lib/$(basename "$ffmpeg_lib")"
+done
+
 # Step 3: Resolve and bundle dependencies recursively
 echo ""
 echo "=========================================="
@@ -168,7 +188,7 @@ copy_deps_recursive() {
         dep_name="$(basename "$dep")"
 
         local dep_source=""
-        if [[ "$dep" == "$BREW/"* ]] && [ -f "$dep" ]; then
+        if [ -f "$dep" ]; then
           dep_source="$dep"
         else
           dep_source="$(find "$BREW" -type f -name "$dep_name" -print -quit 2>/dev/null || true)"
@@ -211,6 +231,17 @@ fix_lib_paths() {
     dep_name="$(basename "$dep")"
     install_name_tool -change "$dep" "@loader_path/$dep_name" "$lib" 2>/dev/null || true
   done
+
+
+  local bundled_deps
+  bundled_deps="$(otool -L "$lib" 2>/dev/null | awk 'NR > 1 {print $1}' || true)"
+  for dep in $bundled_deps; do
+    local dep_name
+    dep_name="$(basename "$dep")"
+    if [ -f "$DEST/lib/$dep_name" ]; then
+      install_name_tool -change "$dep" "@loader_path/$dep_name" "$lib" 2>/dev/null || true
+    fi
+  done
 }
 
 fix_bin_paths() {
@@ -231,6 +262,17 @@ fix_bin_paths() {
     dep_name="$(basename "$dep")"
     install_name_tool -change "$dep" "@executable_path/../lib/$dep_name" "$bin" 2>/dev/null || true
   done
+
+
+  local bundled_deps
+  bundled_deps="$(otool -L "$bin" 2>/dev/null | awk 'NR > 1 {print $1}' || true)"
+  for dep in $bundled_deps; do
+    local dep_name
+    dep_name="$(basename "$dep")"
+    if [ -f "$DEST/lib/$dep_name" ]; then
+      install_name_tool -change "$dep" "@executable_path/../lib/$dep_name" "$bin" 2>/dev/null || true
+    fi
+  done
 }
 
 copy_deps_recursive "$DEST/lib" "$DEST/bin/unpaper" "$DEST/lib/"*.dylib
@@ -250,12 +292,30 @@ for lib in "$DEST/lib/"*.dylib; do
 done
 fix_bin_paths "$DEST/bin/unpaper"
 
-unresolved="$(otool -L "$DEST/bin/unpaper" 2>/dev/null | grep "$BREW/" || true)"
+unresolved="$(otool -L "$DEST/bin/unpaper" 2>/dev/null | grep -E "$BREW/|$FFMPEG_INSTALL_DIR/" || true)"
 if [ -n "$unresolved" ]; then
   echo "Error: Unresolved Homebrew references remain in unpaper:"
   echo "$unresolved" | sed 's/^/  /'
   exit 1
 fi
+
+unexpected_ffmpeg_closure="$(find "$DEST/lib" -maxdepth 1 -type f \
+  \( -name 'libav*' -o -name 'libx26*' -o -name 'libaom*' -o -name 'libSvt*' \
+     -o -name 'librav1e*' -o -name 'libvpx*' -o -name 'libdav1d*' -o -name 'libvmaf*' \) \
+  ! -name 'libavcodec.*.dylib' ! -name 'libavformat.*.dylib' ! -name 'libavutil.*.dylib' -print)"
+if [ -n "$unexpected_ffmpeg_closure" ]; then
+  echo "Error: Unexpected video-codec closure leaked into the unpaper bundle:"
+  echo "$unexpected_ffmpeg_closure" | sed 's/^/  /'
+  exit 1
+fi
+
+linked_av_libraries="$(otool -L "$DEST/bin/unpaper" 2>/dev/null | awk 'NR > 1 {print $1}' | xargs -n1 basename | grep '^libav' || true)"
+for required_av_library in libavcodec libavformat libavutil; do
+  if ! echo "$linked_av_libraries" | grep -q "^${required_av_library}\."; then
+    echo "Error: Minimal unpaper is missing required $required_av_library linkage"
+    exit 1
+  fi
+done
 
 echo "✓ All unpaper dependencies are bundled and relinked"
 

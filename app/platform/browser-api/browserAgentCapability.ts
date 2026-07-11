@@ -123,6 +123,10 @@ export function createBrowserAssistantState(): IAgentAssistantState {
             turn: {
                 id: null,
                 phase: 'idle',
+                reasoning: '',
+                toolActivity: [],
+                lastEventAtMs: null,
+                usage: null,
             },
             lastCheckedAt: new Date().toISOString(),
         },

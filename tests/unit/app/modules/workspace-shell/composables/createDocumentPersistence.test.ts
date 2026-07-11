@@ -8,10 +8,11 @@ import {
 import { ref } from 'vue';
 import { createDocumentPersistence } from '@app/modules/workspace-shell/composables/document-session/createDocumentPersistence';
 import { createDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/createDocumentSessionState';
-import { toPageIndex } from '@contracts/pageNumbers';
+import { requirePageIndex } from '@contracts/pageNumbers';
 import type { TTranslateFn } from '@i18n-app';
+import {requireDocumentRevisionToken} from '@contracts';
 
-const TEST_DOCUMENT_REVISION_TOKEN = 'drt1:test:persistence-base';
+const TEST_DOCUMENT_REVISION_TOKEN = requireDocumentRevisionToken('drt1:test:persistence-base');
 
 const mocks = vi.hoisted(() => {
     const createBroadFacadeTripwire = (method: string, capability = 'document files') => vi.fn(() => {
@@ -20,6 +21,8 @@ const mocks = vi.hoisted(() => {
 
     return {
         documentFilesCapability: {
+            applyPdfNativeMutationsToWorkingCopy: vi.fn(),
+            commitStagedPdfNativeMutations: vi.fn(),
             optimizePdfAsCopy: vi.fn(),
             optimizePdfForInteraction: vi.fn(),
             repairPdf: vi.fn(),
@@ -48,6 +51,7 @@ const mocks = vi.hoisted(() => {
             writeFile: createBroadFacadeTripwire('writeFile'),
         },
         savePdfBytesToWorkingCopy: vi.fn(),
+        readDocumentBytes: vi.fn(),
         shouldRefreshWorkingCopyAfterSaveAs: vi.fn(),
     };
 });
@@ -59,6 +63,7 @@ vi.mock('@app/utils/platformDocuments', () => ({
     shouldRefreshWorkingCopyAfterSaveAs: mocks.shouldRefreshWorkingCopyAfterSaveAs,
 }));
 vi.mock('@app/services/pdf-file/savePdfBytesToWorkingCopy', () => ({savePdfBytesToWorkingCopy: mocks.savePdfBytesToWorkingCopy}));
+vi.mock('@app/utils/documentBytes', () => ({readDocumentBytes: mocks.readDocumentBytes}));
 
 function createPersistenceHarness() {
     const state = createDocumentSessionState({ isDesktopRuntime: ref(false) });
@@ -123,6 +128,8 @@ describe('createDocumentPersistence', () => {
             warnings: [],
         };
         Object.assign(mocks.documentFilesCapability, {
+            applyPdfNativeMutationsToWorkingCopy: vi.fn(),
+            commitStagedPdfNativeMutations: vi.fn(),
             savePdfNativeMutations: vi.fn(),
             savePdfNoteChanges: vi.fn(),
             savePdfNoteTextUpdates: vi.fn(),
@@ -148,6 +155,27 @@ describe('createDocumentPersistence', () => {
             applied: true,
             validation: validPdfResult,
         });
+        const stagedOutput = {
+            path: '/tmp/staged-native.pdf',
+            size: 3,
+            sha256: 'a'.repeat(64),
+            leaseId: 'staged-native-lease',
+            revision: TEST_DOCUMENT_REVISION_TOKEN,
+        };
+        mocks.documentFilesCapability.applyPdfNativeMutationsToWorkingCopy.mockResolvedValue({
+            applied: true,
+            validation: validPdfResult,
+            stagedOutput,
+        });
+        mocks.documentFilesCapability.commitStagedPdfNativeMutations.mockResolvedValue({
+            applied: true,
+            validation: validPdfResult,
+        });
+        mocks.readDocumentBytes.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
         mocks.documentFilesCapability.savePdfNoteChanges.mockResolvedValue({
             applied: true,
             validation: validPdfResult,
@@ -388,12 +416,22 @@ describe('createDocumentPersistence', () => {
         });
 
         expect(result?.success).toBe(true);
-        expect(mocks.documentFilesCapability.savePdfNativeMutations).toHaveBeenCalledWith(
+        expect(mocks.documentFilesCapability.applyPdfNativeMutationsToWorkingCopy).toHaveBeenCalledWith(
             '/tmp/old-working.pdf',
             mutations,
             'D:20260628123456+03\'00\'',
+            expect.objectContaining({byteLength: 3}),
             {expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN},
         );
+        expect(mocks.documentFilesCapability.commitStagedPdfNativeMutations).toHaveBeenCalledWith(
+            '/tmp/old-working.pdf',
+            expect.objectContaining({leaseId: 'staged-native-lease'}),
+            {
+                expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN,
+                changedObjectRefs: ['10 0 R'],
+            },
+        );
+        expect(mocks.documentFilesCapability.savePdfNativeMutations).not.toHaveBeenCalled();
         expect(mocks.documentFilesCapability.savePdfNoteChanges).not.toHaveBeenCalled();
         expect(mocks.documentFilesCapability.savePdfNoteTextUpdates).not.toHaveBeenCalled();
         expectBroadFilePersistenceFacadeNotUsed();
@@ -403,8 +441,8 @@ describe('createDocumentPersistence', () => {
     it('prefers generic native mutations over legacy note-change saves', async () => {
         const { persistence } = createPersistenceHarness();
         const freeTextNotes = [{
-            pageIndex: toPageIndex(0),
-            stableKey: 'generic-free-text-1',
+            pageIndex: requirePageIndex(0),
+            stableKey: 'ann:0:generic-free-text-1',
             text: 'Generic free text note',
             markerRect: {
                 left: 0.1,
@@ -422,12 +460,19 @@ describe('createDocumentPersistence', () => {
         });
 
         expect(result?.success).toBe(true);
-        expect(mocks.documentFilesCapability.savePdfNativeMutations).toHaveBeenCalledWith(
+        expect(mocks.documentFilesCapability.applyPdfNativeMutationsToWorkingCopy).toHaveBeenCalledWith(
             '/tmp/old-working.pdf',
             mutations,
             'D:20260628123526+03\'00\'',
+            expect.objectContaining({byteLength: 3}),
             {expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN},
         );
+        expect(mocks.documentFilesCapability.commitStagedPdfNativeMutations).toHaveBeenCalledWith(
+            '/tmp/old-working.pdf',
+            expect.objectContaining({leaseId: 'staged-native-lease'}),
+            {expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN},
+        );
+        expect(mocks.documentFilesCapability.savePdfNativeMutations).not.toHaveBeenCalled();
         expect(mocks.documentFilesCapability.savePdfNoteChanges).not.toHaveBeenCalled();
         expect(mocks.documentFilesCapability.savePdfNoteTextUpdates).not.toHaveBeenCalled();
         expectBroadFilePersistenceFacadeNotUsed();
@@ -441,7 +486,11 @@ describe('createDocumentPersistence', () => {
             generationNumber: 0,
             text: 'Legacy text update',
         }];
-        Object.assign(mocks.documentFilesCapability, { savePdfNativeMutations: undefined });
+        Object.assign(mocks.documentFilesCapability, {
+            applyPdfNativeMutationsToWorkingCopy: undefined,
+            commitStagedPdfNativeMutations: undefined,
+            savePdfNativeMutations: undefined,
+        });
 
         const result = await persistence.trySavePdfNativeMutations({ updates }, {
             saveMode: 'incremental',
@@ -464,8 +513,8 @@ describe('createDocumentPersistence', () => {
     it('falls back to legacy note-change native saves through the split file IO capability', async () => {
         const { persistence } = createPersistenceHarness();
         const freeTextNotes = [{
-            pageIndex: toPageIndex(0),
-            stableKey: 'free-text-1',
+            pageIndex: requirePageIndex(0),
+            stableKey: 'ann:0:free-text-1',
             text: 'Free text note',
             markerRect: {
                 left: 0.1,
@@ -475,11 +524,15 @@ describe('createDocumentPersistence', () => {
             },
         }];
         const deletes = [{
-            pageIndex: toPageIndex(1),
+            pageIndex: requirePageIndex(1),
             objectNumber: 12,
             generationNumber: 0,
         }];
-        Object.assign(mocks.documentFilesCapability, { savePdfNativeMutations: undefined });
+        Object.assign(mocks.documentFilesCapability, {
+            applyPdfNativeMutationsToWorkingCopy: undefined,
+            commitStagedPdfNativeMutations: undefined,
+            savePdfNativeMutations: undefined,
+        });
 
         const result = await persistence.trySavePdfNativeMutations({
             freeTextNotes,
@@ -511,6 +564,8 @@ describe('createDocumentPersistence', () => {
             persistence,
         } = createPersistenceHarness();
         Object.assign(mocks.documentFilesCapability, {
+            applyPdfNativeMutationsToWorkingCopy: undefined,
+            commitStagedPdfNativeMutations: undefined,
             savePdfNativeMutations: undefined,
             savePdfNoteChanges: undefined,
             savePdfNoteTextUpdates: undefined,

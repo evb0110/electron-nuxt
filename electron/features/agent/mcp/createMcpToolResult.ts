@@ -1,4 +1,5 @@
 import { isRecord } from '@contracts/runtimeGuards';
+import { getErrorMessage } from '@electron/utils/error';
 
 interface IMcpToolTextContent {
     type: 'text';
@@ -63,4 +64,29 @@ export function createMcpToolResult(data: unknown) {
         content,
         structuredContent,
     };
+}
+
+function createMcpToolErrorResult(
+    code: string,
+    message: string,
+    capabilityId: string | null,
+) {
+    const structuredContent = {
+        code,
+        message,
+        capabilityId,
+    };
+    return {
+        content: [{
+            type: 'text' as const,
+            text: JSON.stringify(structuredContent, null, 2),
+        }],
+        isError: true,
+        structuredContent,
+    };
+}
+
+export function createMcpToolExecutionErrorResult(error: unknown, params: unknown) {
+    const capabilityId = isRecord(params) && typeof params.id === 'string' ? params.id : null;
+    return createMcpToolErrorResult('tool_execution_failed', getErrorMessage(error), capabilityId);
 }

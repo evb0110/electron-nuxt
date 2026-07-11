@@ -58,9 +58,9 @@ function activate() {
 .pdf-search-result {
     width: 100%;
     border: 1px solid transparent;
-    border-radius: 6px;
+    border-radius: var(--app-radius-md);
     text-align: left;
-    padding: 8px 12px;
+    padding: var(--app-sidebar-row-padding-block) var(--app-sidebar-row-padding-inline);
     cursor: pointer;
     background: transparent;
     transition: background-color $ease-standard;
@@ -84,21 +84,21 @@ function activate() {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
+    gap: var(--app-sidebar-row-gap);
 }
 
 .pdf-search-result-page {
-    font-size: 13px;
+    font-size: var(--app-sidebar-row-font-size);
     font-weight: 500;
 }
 
 .pdf-search-result-match {
-    font-size: 11px;
+    font-size: var(--app-sidebar-caption-font-size);
     color: var(--ui-text-muted);
 }
 
 .pdf-search-result-snippet {
-    font-size: 12px;
+    font-size: var(--app-sidebar-caption-font-size);
     line-height: 1.45;
     color: var(--ui-text-muted);
     overflow: hidden;

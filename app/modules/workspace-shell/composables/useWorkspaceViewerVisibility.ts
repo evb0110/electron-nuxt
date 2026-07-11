@@ -35,11 +35,11 @@ export const useWorkspaceViewerVisibility = (options: IWorkspaceViewerVisibility
     });
     const showNativePdfViewer = computed(() => activeViewerAdapter.value?.id === 'native-pdf');
     const showStandardPdfViewer = computed(() => activeViewerAdapter.value?.id === 'pdf');
-    const showNativeDjvuViewer = computed(() => activeViewerAdapter.value?.id === 'djvu');
+    const showDjvuSource = computed(() => activeViewerAdapter.value?.id === 'djvu');
     const showNativePreviewViewer = computed(() => !activeViewerCapabilities.value?.sidebar && Boolean(activeViewerAdapter.value));
     const isDjvuOpening = computed(() => (
         Boolean(options.djvuOpeningPath.value)
-        && !showNativeDjvuViewer.value
+        && !showDjvuSource.value
     ));
     const isDocumentOpenPlaceholderVisible = computed(() => (
         options.pendingDocumentOpen.value
@@ -57,7 +57,7 @@ export const useWorkspaceViewerVisibility = (options: IWorkspaceViewerVisibility
         options.hasPdf.value
         || options.pendingDocumentOpen.value
         || showNativePdfViewer.value
-        || showNativeDjvuViewer.value
+        || showDjvuSource.value
         || isDjvuOpening.value
         || options.hasQueuedSplitRestore.value
         || options.isRestoringSplitPayload.value
@@ -86,7 +86,7 @@ export const useWorkspaceViewerVisibility = (options: IWorkspaceViewerVisibility
         nativePdfSourcePath,
         showNativePdfViewer,
         showStandardPdfViewer,
-        showNativeDjvuViewer,
+        showDjvuSource,
         showNativePreviewViewer,
         isDjvuOpening,
         isDocumentOpenPlaceholderVisible,

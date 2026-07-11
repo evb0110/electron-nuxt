@@ -509,8 +509,9 @@ function clearAll() {
 }
 
 watch(
-    () => selectedPages,
-    (pages) => {
+    () => selectedPages.join(','),
+    () => {
+        const pages = selectedPages;
         if (pendingSelectionSyncCount.value > 0) {
             pendingSelectionSyncCount.value -= 1;
             return;
@@ -534,7 +535,6 @@ watch(
         const nextRangeText = formatPageRange(selectionRange.value);
         setPageRangeInputSilently(nextRangeText);
     },
-    { deep: true },
 );
 
 watch(
@@ -570,17 +570,17 @@ watch(
 .pdf-sidebar-pages-panel {
     flex-shrink: 0;
     border-top: 1px solid var(--ui-border);
-    padding: 0.625rem 0.75rem;
+    padding: var(--app-sidebar-content-padding);
     background: inherit;
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: var(--app-sidebar-row-gap);
 }
 
 .pdf-sidebar-pages-collapsible {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: var(--app-sidebar-row-gap);
 }
 
 .pdf-sidebar-pages-disclosure {
@@ -588,13 +588,13 @@ watch(
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 0.5rem;
+    gap: var(--app-sidebar-row-gap);
     border: 1px solid var(--ui-border);
     border-radius: 0.375rem;
     background: transparent;
     color: var(--ui-text);
-    padding: 0.375rem 0.5rem;
-    font-size: 0.75rem;
+    padding: var(--app-sidebar-row-padding-block) var(--app-sidebar-row-padding-inline);
+    font-size: var(--app-sidebar-caption-font-size);
     font-weight: 600;
     cursor: pointer;
     white-space: nowrap;
@@ -603,7 +603,7 @@ watch(
 .pdf-sidebar-pages-disclosure-main {
     display: inline-flex;
     align-items: center;
-    gap: 0.375rem;
+    gap: var(--app-sidebar-row-gap);
     min-width: 0;
 }
 
@@ -622,13 +622,13 @@ watch(
 }
 
 .pdf-sidebar-pages-editor {
-    gap: 0.625rem;
+    gap: var(--app-sidebar-row-gap);
     padding-top: 0.375rem;
 }
 
 .pdf-sidebar-pages-title {
     margin: 0;
-    font-size: 0.875rem;
+    font-size: var(--app-sidebar-row-font-size);
     font-weight: 700;
     color: inherit;
 }
@@ -639,14 +639,14 @@ watch(
 
 .pdf-sidebar-pages-label,
 :deep(.pdf-sidebar-pages-label) {
-    font-size: 0.675rem;
+    font-size: var(--app-sidebar-caption-font-size);
     color: var(--ui-text-muted);
     text-transform: uppercase;
     letter-spacing: 0.04em;
 }
 
 .pdf-sidebar-pages-selection-text {
-    font-size: 0.75rem;
+    font-size: var(--app-sidebar-caption-font-size);
     color: var(--ui-text-muted);
     line-height: 1.3;
     min-width: 0;
@@ -657,7 +657,7 @@ watch(
 
 .pdf-sidebar-pages-clear-button {
     flex-shrink: 0;
-    font-size: 0.7rem;
+    font-size: var(--app-sidebar-caption-font-size);
     padding: 0;
 }
 
@@ -677,7 +677,7 @@ watch(
 
 .pdf-sidebar-pages-error {
     margin: 0;
-    font-size: 0.7rem;
+    font-size: var(--app-sidebar-caption-font-size);
     color: var(--ui-error);
 }
 </style>

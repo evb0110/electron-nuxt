@@ -8,11 +8,8 @@ import type {
     ISearchMatch,
     ISearchResponse,
 } from '@electron/search/protocol';
-import type {
-    IPdfSearchExcerpt,
-    IResolvedSearchMatchOptions,
-} from '@pdf-core';
-import { toPageNumber } from '@contracts/pageNumbers';
+import type { IResolvedSearchMatchOptions } from '@pdf-core';
+import { SEARCH_WIRE_CODEC } from '@contracts/search';
 import {
     EXCERPT_CONTEXT_CHARS,
     SEARCH_RESULT_LIMIT,
@@ -32,8 +29,12 @@ import {
     type IPdfSearchIndex,
 } from '@electron/search/indexBuilder';
 import { collectSearchMatchWords } from '@pdf-core';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import {
+    parseDocumentRevisionToken,
+    type TDocumentRevisionToken,
+} from '@contracts/documentRevision';
 import { createLogger } from '@electron/utils/createLogger';
+import { tryRunPersistentNativeSearch } from '@electron/search/tryRunPersistentNativeSearch';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const isPackaged = __dirname.includes('app.asar');
@@ -192,8 +193,8 @@ async function loadNativeSearchIndexMetadata(
         if (revisionBytesRead !== revisionTokenByteLength) {
             return null;
         }
-        const documentRevision = revisionBuffer.toString('utf8');
-        if (documentRevision !== expectedRevision) {
+        const documentRevision = parseDocumentRevisionToken(revisionBuffer.toString('utf8'));
+        if (documentRevision === null || documentRevision !== expectedRevision) {
             return null;
         }
 
@@ -246,65 +247,10 @@ async function isNativeSearchIndexFresh(
     };
 }
 
-function parseNativeSearchExcerpt(value: unknown): IPdfSearchExcerpt | null {
-    if (!isRecord(value)) {
-        return null;
-    }
-    if (
-        typeof value.prefix !== 'boolean'
-        || typeof value.suffix !== 'boolean'
-        || typeof value.before !== 'string'
-        || typeof value.match !== 'string'
-        || typeof value.after !== 'string'
-    ) {
-        return null;
-    }
-    return {
-        prefix: value.prefix,
-        suffix: value.suffix,
-        before: value.before,
-        match: value.match,
-        after: value.after,
-    };
-}
-
 function parseFiniteInteger(value: unknown) {
     return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
         ? value
         : null;
-}
-
-function parseNativeSearchMatch(value: unknown): ISearchMatch | null {
-    if (!isRecord(value)) {
-        return null;
-    }
-    const excerpt = parseNativeSearchExcerpt(value.excerpt);
-    const pageNumber = parseFiniteInteger(value.pageNumber);
-    const pageMatchIndex = parseFiniteInteger(value.pageMatchIndex);
-    const matchIndex = parseFiniteInteger(value.matchIndex);
-    const startOffset = parseFiniteInteger(value.startOffset);
-    const endOffset = parseFiniteInteger(value.endOffset);
-    if (
-        !excerpt
-        || pageNumber === null
-        || pageNumber < 1
-        || pageMatchIndex === null
-        || matchIndex === null
-        || startOffset === null
-        || endOffset === null
-        || endOffset < startOffset
-    ) {
-        return null;
-    }
-
-    return {
-        pageNumber: toPageNumber(pageNumber),
-        pageMatchIndex,
-        matchIndex,
-        startOffset,
-        endOffset,
-        excerpt,
-    };
 }
 
 function parseNativeSearchResponse(value: unknown): INativeSearchResult | null {
@@ -319,7 +265,7 @@ function parseNativeSearchResponse(value: unknown): INativeSearchResult | null {
 
     const results: ISearchMatch[] = [];
     for (const result of value.results) {
-        const parsedResult = parseNativeSearchMatch(result);
+        const parsedResult = SEARCH_WIRE_CODEC.decodeResult(result, pageCount);
         if (!parsedResult) {
             return null;
         }
@@ -442,13 +388,31 @@ export async function tryRunNativeSearch(options: INativeSearchOptions): Promise
         commandOptions.signal = options.signal;
     }
 
-    const result = await runNativeToolCommand(
-        binaryPath,
-        createNativeSearchArgs(freshIndex.indexPath, options),
-        commandOptions,
-    );
-
-    const parsed: unknown = JSON.parse(result.stdout ?? '');
+    let parsed: unknown = null;
+    try {
+        parsed = await tryRunPersistentNativeSearch(binaryPath, {
+            contextChars: EXCERPT_CONTEXT_CHARS,
+            documentRevision: options.documentRevision,
+            indexPath: freshIndex.indexPath,
+            limit: SEARCH_RESULT_LIMIT,
+            matchCase: options.matchCase,
+            ...(options.pageCount === undefined ? {} : {pageCount: options.pageCount}),
+            query: options.query,
+        }, {
+            ...(options.signal === undefined ? {} : {signal: options.signal}),
+            timeoutMs: NATIVE_SEARCH_TIMEOUT_MS,
+        });
+    } catch (error) {
+        log.warn(`Persistent native search failed; using one-shot fallback: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (parsed === null) {
+        const result = await runNativeToolCommand(
+            binaryPath,
+            createNativeSearchArgs(freshIndex.indexPath, options),
+            commandOptions,
+        );
+        parsed = JSON.parse(result.stdout ?? '');
+    }
     const nativeResult = parseNativeSearchResponse(parsed);
     if (nativeResult) {
         log.debug(

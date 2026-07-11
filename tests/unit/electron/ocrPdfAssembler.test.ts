@@ -27,7 +27,10 @@ import {
     rgb,
     StandardFonts,
 } from 'pdf-lib';
-import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import {
+    getDocument,
+    Util,
+} from 'pdfjs-dist/legacy/build/pdf.mjs';
 import {
     assembleSearchablePdf,
     sanitizeOcrContentStreamForEmbedding,
@@ -35,21 +38,57 @@ import {
 } from '@electron/ocr/worker/pdfAssembler';
 import { createPdfjsNodeDocumentOptions } from '@electron/search/createPdfjsNodeDocumentOptions';
 
+const QPDF_TEST_BINARY = process.env.EVB_QPDF_PATH ?? 'qpdf';
+
 async function addHiddenTextLayer(
     pdf: PDFDocument,
     page: ReturnType<PDFDocument['addPage']>,
     text: string,
+    position: {
+        x: number;
+        y: number
+    } = {
+        x: 20,
+        y: 100,
+    },
 ) {
     const font = await pdf.embedFont(StandardFonts.Helvetica);
     const fontName = page.node.newFontDictionary('OcrFont', font.ref);
     const encodedText = font.encodeText(text).toString();
     const stream = [
         'BT',
-        `3 Tr 1 0 0 1 20 100 Tm ${fontName} 12 Tf ${encodedText} Tj`,
+        `3 Tr 1 0 0 1 ${position.x} ${position.y} Tm ${fontName} 12 Tf ${encodedText} Tj`,
         'ET',
         '',
     ].join('\n');
     page.node.addContentStream(pdf.context.register(pdf.context.flateStream(stream)));
+}
+
+async function extractTextViewportPositions(filePath: string) {
+    const pdf = await getDocument({
+        data: new Uint8Array(await readFile(filePath)),
+        ...createPdfjsNodeDocumentOptions(),
+    }).promise;
+    try {
+        const page = await pdf.getPage(1);
+        const viewport = page.getViewport({scale: 1});
+        const content = await page.getTextContent();
+        return Object.fromEntries(content.items.flatMap((item) => {
+            if (!('str' in item) || !item.str.trim()) {
+                return [];
+            }
+            const transformed = Util.transform(viewport.transform, item.transform);
+            return [[
+                item.str.trim(),
+                {
+                    x: transformed[4],
+                    y: transformed[5],
+                },
+            ]];
+        }));
+    } finally {
+        await pdf.destroy();
+    }
 }
 
 async function createPdfWithVisibleAndHiddenText(filePath: string, spec: {
@@ -270,7 +309,7 @@ describe('assembleSearchablePdf', () => {
         ocrPages.set(1, ocrPath);
 
         const outputPath = await assembleSearchablePdf(
-            'qpdf-not-used',
+            QPDF_TEST_BINARY,
             originalPath,
             ocrPages,
             1,
@@ -297,7 +336,7 @@ describe('assembleSearchablePdf', () => {
         ocrPages.set(1, ocrPath);
 
         const outputPath = await assembleSearchablePdf(
-            'qpdf-not-used',
+            QPDF_TEST_BINARY,
             originalPath,
             ocrPages,
             1,
@@ -349,7 +388,7 @@ describe('assembleSearchablePdf', () => {
         ocrPages.set(2, secondOcrPath);
 
         const outputPath = await assembleSearchablePdf(
-            'qpdf-not-used',
+            QPDF_TEST_BINARY,
             originalPath,
             ocrPages,
             2,
@@ -382,7 +421,7 @@ describe('assembleSearchablePdf', () => {
         const secondOcrPages = new Map<number, string>();
         secondOcrPages.set(1, secondOcrPath);
         const firstOutputPath = await assembleSearchablePdf(
-            'qpdf-not-used',
+            QPDF_TEST_BINARY,
             originalPath,
             firstOcrPages,
             1,
@@ -392,7 +431,7 @@ describe('assembleSearchablePdf', () => {
             path => path,
         );
         const secondOutputPath = await assembleSearchablePdf(
-            'qpdf-not-used',
+            QPDF_TEST_BINARY,
             firstOutputPath,
             secondOcrPages,
             1,
@@ -451,7 +490,7 @@ describe('assembleSearchablePdf', () => {
         ocrPages.set(2, ocrPath);
 
         const outputPath = await assembleSearchablePdf(
-            'qpdf-not-used',
+            QPDF_TEST_BINARY,
             originalPath,
             ocrPages,
             3,
@@ -495,7 +534,7 @@ describe('assembleSearchablePdf', () => {
         ocrPages.set(1, ocrPath);
 
         const outputPath = await assembleSearchablePdf(
-            'qpdf-not-used',
+            QPDF_TEST_BINARY,
             originalPath,
             ocrPages,
             1,
@@ -511,33 +550,70 @@ describe('assembleSearchablePdf', () => {
         expect(firstPageContent).toContain('EVB_VIEWER_OCR_LAYER_BEGIN');
     });
 
-    it('rejects rotated pages instead of silently placing a misaligned OCR layer', async () => {
-        tempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-assembler-'));
-        const originalPath = join(tempDir, 'rotated-original.pdf');
-        const ocrPath = join(tempDir, 'ocr.pdf');
-        const originalPdf = await PDFDocument.create();
-        const page = originalPdf.addPage([
-            200,
-            300,
-        ]);
-        page.setRotation(degrees(90));
-        await writeFile(originalPath, await originalPdf.save());
-        await createPdfWithVisibleAndHiddenText(ocrPath, { hiddenText: 'ROTATED OCR' });
+    it.each([
+        0,
+        90,
+        180,
+        270,
+    ] as const)(
+        'preserves OCR word-box geometry on a real PDF fixture rotated %i degrees',
+        async (rotation) => {
+            tempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-assembler-'));
+            const originalPath = join(tempDir, `rotated-${rotation}-original.pdf`);
+            const ocrPath = join(tempDir, `rotated-${rotation}-ocr.pdf`);
+            const originalPdf = await PDFDocument.create();
+            const page = originalPdf.addPage([
+                200,
+                300,
+            ]);
+            page.setRotation(degrees(rotation));
+            await writeFile(originalPath, await originalPdf.save());
+            const ocrPdf = await PDFDocument.create();
+            const isQuarterTurn = rotation === 90 || rotation === 270;
+            const ocrPage = ocrPdf.addPage(isQuarterTurn ? [
+                300,
+                200,
+            ] : [
+                200,
+                300,
+            ]);
+            await addHiddenTextLayer(ocrPdf, ocrPage, 'ALPHA', {
+                x: 24,
+                y: 42,
+            });
+            await addHiddenTextLayer(ocrPdf, ocrPage, 'BETA', {
+                x: isQuarterTurn ? 210 : 110,
+                y: isQuarterTurn ? 132 : 232,
+            });
+            await writeFile(ocrPath, await ocrPdf.save());
+            const expectedPositions = await extractTextViewportPositions(ocrPath);
 
-        const ocrPages = new Map<number, string>();
-        ocrPages.set(1, ocrPath);
+            const ocrPages = new Map<number, string>();
+            ocrPages.set(1, ocrPath);
 
-        await expect(assembleSearchablePdf(
-            'qpdf-not-used',
-            originalPath,
-            ocrPages,
-            1,
-            tempDir,
-            'rotated-session',
-            vi.fn(),
-            path => path,
-        )).rejects.toThrow('Cannot safely add OCR text layer to rotated PDF page');
-    });
+            const outputPath = await assembleSearchablePdf(
+                QPDF_TEST_BINARY,
+                originalPath,
+                ocrPages,
+                1,
+                tempDir,
+                `rotated-${rotation}-session`,
+                vi.fn(),
+                path => path,
+            );
+            const actualPositions = await extractTextViewportPositions(outputPath);
+            expect(Object.keys(actualPositions).sort()).toEqual([
+                'ALPHA',
+                'BETA',
+            ]);
+            for (const word of [
+                'ALPHA',
+                'BETA',
+            ]) {
+                expect(actualPositions[word]?.x).toBeCloseTo(expectedPositions[word]?.x ?? NaN, 4);
+                expect(actualPositions[word]?.y).toBeCloseTo(expectedPositions[word]?.y ?? NaN, 4);
+            }
+        });
 });
 
 describe('stripTesseractImageLayer', () => {

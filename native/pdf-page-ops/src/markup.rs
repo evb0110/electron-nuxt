@@ -1,22 +1,24 @@
+use super::*;
+
 #[derive(Clone)]
-struct TextMarkupQuad {
-    bottom: f64,
-    center_y: f64,
-    index: usize,
-    left: f64,
-    right: f64,
-    top: f64,
+pub(crate) struct TextMarkupQuad {
+    pub(crate) bottom: f64,
+    pub(crate) center_y: f64,
+    pub(crate) index: usize,
+    pub(crate) left: f64,
+    pub(crate) right: f64,
+    pub(crate) top: f64,
 }
 
-struct TextMarkupQuadLineGroup {
-    average_height: f64,
-    bottom: f64,
-    center_y: f64,
-    quads: Vec<TextMarkupQuad>,
-    top: f64,
+pub(crate) struct TextMarkupQuadLineGroup {
+    pub(crate) average_height: f64,
+    pub(crate) bottom: f64,
+    pub(crate) center_y: f64,
+    pub(crate) quads: Vec<TextMarkupQuad>,
+    pub(crate) top: f64,
 }
 
-fn mean(values: impl Iterator<Item = f64>) -> f64 {
+pub(crate) fn mean(values: impl Iterator<Item = f64>) -> f64 {
     let mut total = 0.0;
     let mut count = 0.0;
     for value in values {
@@ -30,7 +32,7 @@ fn mean(values: impl Iterator<Item = f64>) -> f64 {
     }
 }
 
-fn to_text_markup_quads(values: &[f64]) -> Option<Vec<TextMarkupQuad>> {
+pub(crate) fn to_text_markup_quads(values: &[f64]) -> Option<Vec<TextMarkupQuad>> {
     let mut quads = Vec::new();
     for (index, chunk) in values.chunks_exact(8).enumerate() {
         let xs = [chunk[0], chunk[2], chunk[4], chunk[6]];
@@ -57,7 +59,7 @@ fn to_text_markup_quads(values: &[f64]) -> Option<Vec<TextMarkupQuad>> {
     Some(quads)
 }
 
-fn add_quad_to_line_group(group: &mut TextMarkupQuadLineGroup, quad: TextMarkupQuad) {
+pub(crate) fn add_quad_to_line_group(group: &mut TextMarkupQuadLineGroup, quad: TextMarkupQuad) {
     group.quads.push(quad);
     group.bottom = group
         .quads
@@ -73,7 +75,7 @@ fn add_quad_to_line_group(group: &mut TextMarkupQuadLineGroup, quad: TextMarkupQ
     group.average_height = mean(group.quads.iter().map(|item| item.top - item.bottom));
 }
 
-fn normalize_markup_quad_points(values: &[f64]) -> Option<Vec<f64>> {
+pub(crate) fn normalize_markup_quad_points(values: &[f64]) -> Option<Vec<f64>> {
     let mut quads = to_text_markup_quads(values)?;
     if quads.is_empty() {
         return None;
@@ -140,7 +142,9 @@ fn normalize_markup_quad_points(values: &[f64]) -> Option<Vec<f64>> {
     Some(normalized)
 }
 
-fn ensure_markup_quad_points(candidate: &MarkupAnnotationCandidate) -> Option<(Vec<f64>, bool)> {
+pub(crate) fn ensure_markup_quad_points(
+    candidate: &MarkupAnnotationCandidate,
+) -> Option<(Vec<f64>, bool)> {
     if let Some(values) = &candidate.quad_points {
         let normalized = normalize_markup_quad_points(values)?;
         let changed = normalized
@@ -153,7 +157,7 @@ fn ensure_markup_quad_points(candidate: &MarkupAnnotationCandidate) -> Option<(V
     Some((rect_to_fallback_quad_points(rect), true))
 }
 
-fn number_to_content(value: f64) -> String {
+pub(crate) fn number_to_content(value: f64) -> String {
     let rounded = value.round();
     if (value - rounded).abs() < 0.000_001 {
         return format!("{rounded:.0}");
@@ -165,7 +169,7 @@ fn number_to_content(value: f64) -> String {
         .to_string()
 }
 
-fn build_squiggly_appearance_stream(
+pub(crate) fn build_squiggly_appearance_stream(
     values: &[f64],
     rect: PdfRect,
     color: RgbColor,
@@ -245,11 +249,11 @@ fn build_squiggly_appearance_stream(
     Some(Stream::new(dict, content.into_bytes()))
 }
 
-fn quad_points_object(values: &[f64]) -> Object {
+pub(crate) fn quad_points_object(values: &[f64]) -> Object {
     Object::Array(values.iter().map(|value| number_object(*value)).collect())
 }
 
-fn apply_markup_rewrite_to_object(
+pub(crate) fn apply_markup_rewrite_to_object(
     document: &mut Document,
     candidate: &MarkupAnnotationCandidate,
     target_subtype: &str,
@@ -319,7 +323,7 @@ fn apply_markup_rewrite_to_object(
     Ok(true)
 }
 
-fn create_markup_candidate(
+pub(crate) fn create_markup_candidate(
     document: &Document,
     page_view: PdfRect,
     page_rotation: i64,
@@ -342,9 +346,9 @@ fn create_markup_candidate(
     })
 }
 
-fn build_markup_inputs(
-    markup: &MarkupMutation,
-) -> Result<(HashMap<String, String>, HashMap<u32, Vec<MarkupHintState>>)> {
+pub(crate) type MarkupInputs = (HashMap<String, String>, HashMap<u32, Vec<MarkupHintState>>);
+
+pub(crate) fn build_markup_inputs(markup: &MarkupMutation) -> Result<MarkupInputs> {
     let overrides = markup
         .overrides
         .iter()
@@ -360,11 +364,11 @@ fn build_markup_inputs(
     Ok((overrides, hints_by_page))
 }
 
-fn rewrite_page_markup_subtypes(
+pub(crate) fn rewrite_page_markup_subtypes(
     document: &mut Document,
     candidates: &[MarkupAnnotationCandidate],
     overrides: &HashMap<String, String>,
-    page_hints: &mut Vec<MarkupHintState>,
+    page_hints: &mut [MarkupHintState],
 ) -> Result<bool> {
     let mut rewritten = false;
     let mut unmatched_candidates = Vec::new();
@@ -430,7 +434,7 @@ fn rewrite_page_markup_subtypes(
     Ok(rewritten)
 }
 
-fn apply_markup_rewrite_to_incremental_object(
+pub(crate) fn apply_markup_rewrite_to_incremental_object(
     incremental: &mut IncrementalDocument,
     candidate: &MarkupAnnotationCandidate,
     target_subtype: &str,
@@ -445,11 +449,11 @@ fn apply_markup_rewrite_to_incremental_object(
     )
 }
 
-fn rewrite_page_markup_subtypes_incremental(
+pub(crate) fn rewrite_page_markup_subtypes_incremental(
     incremental: &mut IncrementalDocument,
     candidates: &[MarkupAnnotationCandidate],
     overrides: &HashMap<String, String>,
-    page_hints: &mut Vec<MarkupHintState>,
+    page_hints: &mut [MarkupHintState],
 ) -> Result<bool> {
     let mut rewritten = false;
     let mut unmatched_candidates = Vec::new();
@@ -518,7 +522,10 @@ fn rewrite_page_markup_subtypes_incremental(
     Ok(rewritten)
 }
 
-fn apply_markup_mutations(document: &mut Document, markup: &MarkupMutation) -> Result<()> {
+pub(crate) fn apply_markup_mutations(
+    document: &mut Document,
+    markup: &MarkupMutation,
+) -> Result<()> {
     let (overrides, mut hints_by_page) = build_markup_inputs(markup)?;
     let page_map = document.get_pages();
     let mut modified = false;
@@ -555,7 +562,7 @@ fn apply_markup_mutations(document: &mut Document, markup: &MarkupMutation) -> R
     Ok(())
 }
 
-fn apply_markup_mutations_incremental(
+pub(crate) fn apply_markup_mutations_incremental(
     incremental: &mut IncrementalDocument,
     markup: &MarkupMutation,
 ) -> Result<()> {

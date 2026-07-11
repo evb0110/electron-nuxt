@@ -3,9 +3,12 @@ import {
     parsePdfJsAnnotationRef,
     type IPdfAnnotationRef,
 } from '@app/utils/pdfAnnotationRefs';
+import type { TAnnotationStableKey } from '@app/types/annotations';
+
+type TPdfAnnotationStableKey = Extract<TAnnotationStableKey, `ann:${string}`>;
 
 export interface IPdfAnnotationStableKey {
-    stableKey: string;
+    stableKey: TPdfAnnotationStableKey;
     pageIndex: number;
     annotationId: string;
 }
@@ -43,7 +46,7 @@ export function parsePdfAnnotationStableKey(
     }
 
     return {
-        stableKey: trimmed,
+        stableKey: `ann:${pageIndex}:${annotationId}`,
         pageIndex,
         annotationId,
     };
@@ -66,7 +69,7 @@ export function parsePdfAnnotationStableKeyRef(
     }
 
     return {
-        stableKey: trimmed,
+        stableKey: `ann:${pageIndex}:${refText}`,
         pageIndex,
         annotationId: refText,
         ref,

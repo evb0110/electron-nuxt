@@ -1,7 +1,4 @@
-const SEARCH_RESULT_LIMIT = 5000;
-const SEARCH_EXCERPT_CONTEXT_CHARS = 30;
-
 export {
     SEARCH_EXCERPT_CONTEXT_CHARS,
     SEARCH_RESULT_LIMIT,
-};
+} from '@contracts/search';

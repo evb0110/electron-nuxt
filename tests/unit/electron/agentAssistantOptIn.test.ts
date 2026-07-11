@@ -21,6 +21,7 @@ import type {
 } from '@contracts/agent';
 import type * as CodexAssistantModule from '@electron/features/agent/codexAssistant';
 import { cast } from '@tests/helpers/cast';
+import {requireDocumentRevisionToken} from '@contracts';
 
 const mocks = vi.hoisted(() => ({
     loadSettings: vi.fn(async () => ({assistantPanelEnabled: false})),
@@ -29,6 +30,7 @@ const mocks = vi.hoisted(() => ({
     spawn: vi.fn(),
     assistantDisabledMessage: 'Enable EVB Assistant in Settings to use assistant chat.',
     startEmbeddedMcpServer: vi.fn(),
+    abortActiveEmbeddedMcpRequests: vi.fn(),
     shutdownEmbeddedMcpServer: vi.fn(async () => undefined),
     openExternal: vi.fn(),
     initializeGate: null as null | {
@@ -305,6 +307,7 @@ vi.mock('@electron/features/agent/codexCli', () => ({
 }));
 
 vi.mock('@electron/features/agent/mcpServer', () => ({
+    abortActiveEmbeddedMcpRequests: mocks.abortActiveEmbeddedMcpRequests,
     getEmbeddedMcpServerDescriptor: vi.fn(() => null),
     isEmbeddedMcpServerRunning: vi.fn(() => false),
     shutdownEmbeddedMcpServer: mocks.shutdownEmbeddedMcpServer,
@@ -392,6 +395,8 @@ describe('agent assistant opt-in gating', () => {
     });
 
     afterEach(async () => {
+        const {shutdownAgentAssistant}: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        await shutdownAgentAssistant();
         vi.useRealTimers();
         vi.unstubAllEnvs();
         await rm(mocks.userDataPath, {
@@ -446,7 +451,7 @@ describe('agent assistant opt-in gating', () => {
                 name: 'evb_viewer_embedded',
                 url: 'http://127.0.0.1:9876',
             },
-            token: 'test-mcp-token',
+            token: requireDocumentRevisionToken('test-mcp-token'),
         });
         mocks.codexAccountReadMode = 'error';
         mocks.codexAuthStatusMode = 'signed-in';
@@ -478,7 +483,7 @@ describe('agent assistant opt-in gating', () => {
                 name: 'evb_viewer_embedded',
                 url: 'http://127.0.0.1:9876',
             },
-            token: 'test-mcp-token',
+            token: requireDocumentRevisionToken('test-mcp-token'),
         });
         mocks.codexAccountReadMode = 'error';
         mocks.codexAuthStatusMode = 'error';
@@ -510,7 +515,7 @@ describe('agent assistant opt-in gating', () => {
                 name: 'evb_viewer_embedded',
                 url: 'http://127.0.0.1:9876',
             },
-            token: 'test-mcp-token',
+            token: requireDocumentRevisionToken('test-mcp-token'),
         });
         mocks.initializeGate = createInitializeGate();
         const process = new FakeCodexAppServerProcess();
@@ -560,7 +565,7 @@ describe('agent assistant opt-in gating', () => {
                 name: 'evb_viewer_embedded',
                 url: 'http://127.0.0.1:9876',
             },
-            token: 'test-mcp-token',
+            token: requireDocumentRevisionToken('test-mcp-token'),
         });
         mocks.spawn.mockImplementation(() => new FakeCodexAppServerProcess());
 
@@ -616,7 +621,7 @@ describe('agent assistant opt-in gating', () => {
                 name: 'evb_viewer_embedded',
                 url: 'http://127.0.0.1:9876',
             },
-            token: 'test-mcp-token',
+            token: requireDocumentRevisionToken('test-mcp-token'),
         });
         const process = new FakeCodexAppServerProcess();
         mocks.spawn.mockImplementation(() => process);
@@ -665,7 +670,7 @@ describe('agent assistant opt-in gating', () => {
                 name: 'evb_viewer_embedded',
                 url: 'http://127.0.0.1:9876',
             },
-            token: 'test-mcp-token',
+            token: requireDocumentRevisionToken('test-mcp-token'),
         });
         const process = new FakeCodexAppServerProcess();
         mocks.spawn.mockImplementation(() => process);
@@ -681,7 +686,7 @@ describe('agent assistant opt-in gating', () => {
         })).resolves.toMatchObject({ ok: true });
 
         const runningState = await getAgentAssistantState({ scope: documentScope });
-        expect(runningState.status.turn.phase).toBe('running');
+        expect(runningState.status.turn.phase).toBe('thinking');
 
         const secondResult = await sendAgentAssistantMessage({
             text: 'Second message after setup',
@@ -703,7 +708,7 @@ describe('agent assistant opt-in gating', () => {
                 version: 1,
                 documentRef: '/tmp/revision-shift.pdf',
                 authority: 'electron-working-copy',
-                token: 'revision-1',
+                token: requireDocumentRevisionToken('revision-1'),
                 contentRevision: 1,
                 mintedAt: 1,
             },
@@ -712,7 +717,7 @@ describe('agent assistant opt-in gating', () => {
             ...documentScopeV1,
             documentIdentity: {
                 ...documentScopeV1.documentIdentity,
-                token: 'revision-2',
+                token: requireDocumentRevisionToken('revision-2'),
                 contentRevision: 2,
                 mintedAt: 2,
             },
@@ -731,7 +736,7 @@ describe('agent assistant opt-in gating', () => {
                 name: 'evb_viewer_embedded',
                 url: 'http://127.0.0.1:9876',
             },
-            token: 'test-mcp-token',
+            token: requireDocumentRevisionToken('test-mcp-token'),
         });
         const process = new FakeCodexAppServerProcess();
         mocks.spawn.mockImplementation(() => process);
@@ -764,12 +769,12 @@ describe('agent assistant opt-in gating', () => {
         });
         for (let attempt = 0; attempt < 20; attempt += 1) {
             const currentState = await getAgentAssistantState({scope: documentScopeV2});
-            if (currentState.status.turn.phase === 'idle') {
+            if (currentState.status.turn.phase === 'done') {
                 break;
             }
             await settleAsyncTicks();
         }
-        expect((await getAgentAssistantState({scope: documentScopeV2})).status.turn.phase).toBe('idle');
+        expect((await getAgentAssistantState({scope: documentScopeV2})).status.turn.phase).toBe('done');
 
         await expect(sendAgentAssistantMessage({
             text: 'replacement turn retry',
@@ -799,7 +804,7 @@ describe('agent assistant opt-in gating', () => {
                 name: 'evb_viewer_embedded',
                 url: 'http://127.0.0.1:9876',
             },
-            token: 'test-mcp-token',
+            token: requireDocumentRevisionToken('test-mcp-token'),
         });
         const process = new FakeCodexAppServerProcess();
         mocks.spawn.mockImplementation(() => process);
@@ -812,7 +817,7 @@ describe('agent assistant opt-in gating', () => {
         });
 
         expect(result.ok).toBe(true);
-        expect(result.state.status.turn.phase).toBe('idle');
+        expect(result.state.status.turn.phase).toBe('done');
         expect(result.state.messages.map(message => message.text)).toContain('Early answer');
     });
 
@@ -837,7 +842,7 @@ describe('agent assistant opt-in gating', () => {
                 name: 'evb_viewer_embedded',
                 url: 'http://127.0.0.1:9876',
             },
-            token: 'test-mcp-token',
+            token: requireDocumentRevisionToken('test-mcp-token'),
         });
         const process = new FakeCodexAppServerProcess();
         mocks.spawn.mockImplementation(() => process);
@@ -851,7 +856,7 @@ describe('agent assistant opt-in gating', () => {
 
         expect(result.ok).toBe(true);
         expect(result.state.status.runtimeState).toBe('ready');
-        expect(result.state.status.turn.phase).toBe('idle');
+        expect(result.state.status.turn.phase).toBe('done');
         expect(result.state.messages).toContainEqual(expect.objectContaining({
             role: 'assistant',
             text: 'Done before turn response',
@@ -880,7 +885,7 @@ describe('agent assistant opt-in gating', () => {
                 name: 'evb_viewer_embedded',
                 url: 'http://127.0.0.1:9876',
             },
-            token: 'test-mcp-token',
+            token: requireDocumentRevisionToken('test-mcp-token'),
         });
         const process = new FakeCodexAppServerProcess();
         mocks.spawn.mockImplementation(() => process);
@@ -914,7 +919,7 @@ describe('agent assistant opt-in gating', () => {
         await settleAsyncTicks();
 
         const completedState = await getAgentAssistantState({ scope: documentScope });
-        expect(completedState.status.turn.phase).toBe('idle');
+        expect(completedState.status.turn.phase).toBe('done');
     });
 
     it('ignores no-thread Codex completion while a new turn is starting', async () => {
@@ -938,7 +943,7 @@ describe('agent assistant opt-in gating', () => {
                 name: 'evb_viewer_embedded',
                 url: 'http://127.0.0.1:9876',
             },
-            token: 'test-mcp-token',
+            token: requireDocumentRevisionToken('test-mcp-token'),
         });
         const process = new FakeCodexAppServerProcess();
         mocks.spawn.mockImplementation(() => process);
@@ -966,7 +971,7 @@ describe('agent assistant opt-in gating', () => {
         await settleAsyncTicks();
 
         const state = await getAgentAssistantState({ scope: documentScope });
-        expect(state.status.turn.phase).toBe('starting');
+        expect(state.status.turn.phase).toBe('queued');
 
         mocks.turnStartGate.resolve();
         mocks.turnStartGate = null;
@@ -995,7 +1000,7 @@ describe('agent assistant opt-in gating', () => {
                 name: 'evb_viewer_embedded',
                 url: 'http://127.0.0.1:9876',
             },
-            token: 'test-mcp-token',
+            token: requireDocumentRevisionToken('test-mcp-token'),
         });
         const process = new FakeCodexAppServerProcess();
         mocks.spawn.mockImplementation(() => process);
@@ -1060,7 +1065,7 @@ describe('agent assistant opt-in gating', () => {
                 name: 'evb_viewer_embedded',
                 url: 'http://127.0.0.1:9876',
             },
-            token: 'test-mcp-token',
+            token: requireDocumentRevisionToken('test-mcp-token'),
         });
         const processes: FakeCodexAppServerProcess[] = [];
         mocks.spawn.mockImplementation(() => {
@@ -1130,7 +1135,7 @@ describe('agent assistant opt-in gating', () => {
                 name: 'evb_viewer_embedded',
                 url: 'http://127.0.0.1:9876',
             },
-            token: 'test-mcp-token',
+            token: requireDocumentRevisionToken('test-mcp-token'),
         });
         mocks.spawn.mockImplementation(() => new FakeCodexAppServerProcess());
 
@@ -1188,7 +1193,7 @@ describe('agent assistant opt-in gating', () => {
                 name: 'evb_viewer_embedded',
                 url: 'http://127.0.0.1:9876',
             },
-            token: 'test-mcp-token',
+            token: requireDocumentRevisionToken('test-mcp-token'),
         });
         mocks.spawn.mockImplementation(() => new FakeCodexAppServerProcess());
 
@@ -1215,7 +1220,7 @@ describe('agent assistant opt-in gating', () => {
                 name: 'evb_viewer_embedded',
                 url: 'http://127.0.0.1:9876',
             },
-            token: 'test-mcp-token',
+            token: requireDocumentRevisionToken('test-mcp-token'),
         });
         mocks.spawn.mockImplementation(() => new FakeCodexAppServerProcess());
         const send = vi.fn<(channel: string, event: IAgentAssistantEvent) => void>();
@@ -1266,7 +1271,7 @@ describe('agent assistant opt-in gating', () => {
                 name: 'evb_viewer_embedded',
                 url: 'http://127.0.0.1:9876',
             },
-            token: 'test-mcp-token',
+            token: requireDocumentRevisionToken('test-mcp-token'),
         });
         const process = new FakeCodexAppServerProcess();
         mocks.spawn.mockImplementation(() => process);
@@ -1305,7 +1310,7 @@ describe('agent assistant opt-in gating', () => {
         await vi.waitFor(() => {
             progressEvent = send.mock.calls
                 .map((call) => call[1])
-                .find(event => event.type === 'turn-progress');
+                .find(event => event.type === 'turn-progress' && event.progress !== undefined);
             expect(progressEvent).toMatchObject({
                 type: 'turn-progress',
                 progress: 'Tool evb_read_action running',

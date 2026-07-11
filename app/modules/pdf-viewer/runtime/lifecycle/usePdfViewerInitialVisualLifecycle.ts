@@ -1,5 +1,6 @@
 import type { Ref } from 'vue';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { markStartupMetricOnce } from '@app/utils/startupMetrics';
 
 interface IUsePdfViewerInitialVisualLifecycleOptions {
     renderedPageStateVersion: Ref<number>;
@@ -87,6 +88,7 @@ export const usePdfViewerInitialVisualLifecycle = (options: IUsePdfViewerInitial
             }
 
             scheduledInitialVisualReadyToken = null;
+            markStartupMetricOnce('evb:first-page-painted');
             emitInitialVisualReady({ pageNumber });
             BrowserLogger.debug('loader', 'PDF viewer initial visual ready', {
                 token,

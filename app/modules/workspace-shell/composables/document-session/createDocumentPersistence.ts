@@ -5,11 +5,13 @@ import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
     IDocumentMutationRevisionOptions,
+    IPdfNativeStagedCommitOptions,
     IPdfNativeAnnotationDelete,
     IPdfNativeFreeTextNote,
     IPdfNativeMutationSet,
     IPdfNoteTextUpdate,
     IPdfOptimizeOptions,
+    IPdfSerializedSaveOptions,
 } from '@contracts/electronApiDocuments';
 import { isStaleRevisionError } from '@contracts/documentMutationErrors';
 import type { IDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/createDocumentSessionState';
@@ -21,6 +23,7 @@ import { savePdfBytesToWorkingCopy } from '@app/services/pdf-file/savePdfBytesTo
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { readDocumentBytes } from '@app/utils/documentBytes';
 import { getErrorMessage } from '@app/utils/error';
+import { runDetached } from '@app/utils/asyncGuard';
 import {
     getDocumentFilesCapability,
     getDocumentWorkingCopyCapability,
@@ -67,6 +70,76 @@ function createDocumentMutationRevisionOptions(
     return { expectedDocumentRevisionToken };
 }
 
+const MAX_TARGETED_PDF_OBJECT_REFS = 128;
+const CANONICAL_PDF_OBJECT_REF_PATTERN = /(?:^|\D)(\d+)\s+(\d+)\s+R(?:$|\D)/i;
+const COMPACT_PDF_OBJECT_REF_PATTERN = /(?:^|\D)(\d+)R(\d+)?(?:$|\D)/i;
+
+function collectChangedPdfObjectRefs(mutations: IPdfNativeMutationSet): string[] {
+    const refs = new Set<string>();
+    const add = (objectNumber: unknown, generationNumber: unknown) => {
+        if (
+            refs.size >= MAX_TARGETED_PDF_OBJECT_REFS
+            || typeof objectNumber !== 'number'
+            || typeof generationNumber !== 'number'
+            || !Number.isSafeInteger(objectNumber)
+            || !Number.isSafeInteger(generationNumber)
+            || objectNumber < 1
+            || generationNumber < 0
+        ) {
+            return;
+        }
+        refs.add(`${objectNumber} ${generationNumber} R`);
+    };
+    const addStableKey = (value: unknown) => {
+        if (typeof value !== 'string' || refs.size >= MAX_TARGETED_PDF_OBJECT_REFS) {
+            return;
+        }
+        const normalizedValue = value.trim();
+        const canonicalMatch = CANONICAL_PDF_OBJECT_REF_PATTERN.exec(normalizedValue);
+        if (canonicalMatch) {
+            add(Number(canonicalMatch[1]), Number(canonicalMatch[2]));
+            return;
+        }
+        const compactMatch = COMPACT_PDF_OBJECT_REF_PATTERN.exec(normalizedValue);
+        if (compactMatch) {
+            add(Number(compactMatch[1]), Number(compactMatch[2] ?? 0));
+        }
+    };
+    for (const update of mutations.updates ?? []) add(update.objectNumber, update.generationNumber);
+    // Deleted refs are expected to resolve to qpdf's `null`; the presence gate
+    // applies only to objects that must survive in the new xref.
+    for (const [key] of mutations.markup?.overrides ?? []) addStableKey(key);
+    return [...refs];
+}
+
+function createNativeStagedCommitOptions(
+    expectedDocumentRevisionToken: TDocumentRevisionToken | null | undefined,
+    mutations: IPdfNativeMutationSet,
+): IPdfNativeStagedCommitOptions | undefined {
+    const revision = createDocumentMutationRevisionOptions(expectedDocumentRevisionToken);
+    if (!revision) {
+        return undefined;
+    }
+    const changedObjectRefs = collectChangedPdfObjectRefs(mutations);
+    return {
+        ...revision,
+        ...(changedObjectRefs.length ? {changedObjectRefs} : {}),
+    };
+}
+
+class NativeMutationPreExposeError extends Error {}
+
+async function createNativeWorkingCopyExpectation(path: TDocumentRef) {
+    const bytes = await readDocumentBytes(path);
+    const hashBytes = new Uint8Array(bytes.byteLength);
+    hashBytes.set(bytes);
+    const digest = await crypto.subtle.digest('SHA-256', hashBytes);
+    return {
+        byteLength: bytes.byteLength,
+        sha256: Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join(''),
+    };
+}
+
 export function createDocumentPersistence(
     state: IDocumentSessionState,
     deps: ICreateDocumentPersistenceDeps,
@@ -80,9 +153,19 @@ export function createDocumentPersistence(
     }
 
     function resolveDocumentMutationRevisionOptions(
-        opts?: {expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined},
-    ) {
-        return createDocumentMutationRevisionOptions(resolveDocumentMutationRevisionToken(opts));
+        opts?: {
+            expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined;
+            changedObjectRefs?: string[];
+        },
+    ): IPdfSerializedSaveOptions | undefined {
+        const revision = createDocumentMutationRevisionOptions(resolveDocumentMutationRevisionToken(opts));
+        if (!revision) {
+            return undefined;
+        }
+        return {
+            ...revision,
+            ...(opts?.changedObjectRefs?.length ? {changedObjectRefs: opts.changedObjectRefs} : {}),
+        };
     }
 
     async function commitPersistedPdfState(
@@ -317,6 +400,7 @@ export function createDocumentPersistence(
             preserveLoadedSource?: boolean;
             expectedWorkingPath?: TDocumentRef | null;
             expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined;
+            changedObjectRefs?: string[];
         },
     ): Promise<IPdfPersistResult> {
         const requestedSaveMode = opts?.saveMode ?? 'rewrite';
@@ -336,13 +420,17 @@ export function createDocumentPersistence(
                     saveMode: 'save_as_rewrite',
                     expectedWorkingPath: workingPath,
                     expectedDocumentRevisionToken,
+                    ...(opts?.changedObjectRefs?.length ? {changedObjectRefs: opts.changedObjectRefs} : {}),
                 });
             }
 
             const validation = await savePdfBytesToWorkingCopy(
                 workingPath,
                 data,
-                createDocumentMutationRevisionOptions(expectedDocumentRevisionToken),
+                resolveDocumentMutationRevisionOptions({
+                    expectedDocumentRevisionToken,
+                    ...(opts?.changedObjectRefs?.length ? {changedObjectRefs: opts.changedObjectRefs} : {}),
+                }),
             );
             if (!state.isActiveWorkingCopy(workingPath)) {
                 BrowserLogger.debug('workspace', 'Skipped stale PDF save completion', {
@@ -576,7 +664,14 @@ export function createDocumentPersistence(
                             saveMode: requestedSaveMode,
                         });
                         if (!state.isActiveWorkingCopy(nextWorkingPath)) {
-                            void getDocumentWorkingCopyCapability().cleanupFile(nextWorkingPath);
+                            runDetached(
+                                () => getDocumentWorkingCopyCapability().cleanupFile(nextWorkingPath),
+                                {
+                                    category: 'background-diagnostic',
+                                    scope: 'workspace',
+                                    message: 'Failed to cleanup stale optimized working copy',
+                                },
+                            );
                         }
                         return createStalePersistResult(requestedSaveMode, true);
                     }
@@ -624,6 +719,8 @@ export function createDocumentPersistence(
             expectedWorkingPath?: TDocumentRef | null;
             expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined;
             modifiedAt: string;
+            verifyBeforeExpose?: (bytes: Uint8Array) => Promise<void>;
+            assertBeforeExpose?: () => Promise<void> | void;
             freeTextNotes?: IPdfNativeFreeTextNote[];
             deletes?: IPdfNativeAnnotationDelete[];
         },
@@ -643,6 +740,8 @@ export function createDocumentPersistence(
             expectedWorkingPath?: TDocumentRef | null;
             expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined;
             modifiedAt: string;
+            verifyBeforeExpose?: (bytes: Uint8Array) => Promise<void>;
+            assertBeforeExpose?: () => Promise<void> | void;
         },
     ): Promise<IPdfPersistResult | null> {
         const documentFiles = getDocumentFilesCapability();
@@ -667,7 +766,8 @@ export function createDocumentPersistence(
         ) {
             return null;
         }
-        const canUseGenericNativeMutations = typeof documentFiles.savePdfNativeMutations === 'function';
+        const canUseGenericNativeMutations = typeof documentFiles.applyPdfNativeMutationsToWorkingCopy === 'function'
+            && typeof documentFiles.commitStagedPdfNativeMutations === 'function';
         const canUseLegacyNativeNoteText = (
             !hasPageLabels
             && !hasBookmarks
@@ -751,14 +851,37 @@ export function createDocumentPersistence(
             const result = await measurePdfPersistPhase(
                 phaseTimings,
                 'native-ipc',
-                () => {
+                async () => {
                     if (canUseGenericNativeMutations) {
-                        return documentFiles.savePdfNativeMutations!(
+                        const expectedBase = await createNativeWorkingCopyExpectation(workingPath);
+                        const applied = await documentFiles.applyPdfNativeMutationsToWorkingCopy!(
                             workingPath,
                             mutations,
                             opts.modifiedAt,
+                            expectedBase,
                             createDocumentMutationRevisionOptions(expectedDocumentRevisionToken),
                         );
+                        if (!applied.applied || !applied.validation?.isValid) {
+                            return applied;
+                        }
+                        if (!applied.stagedOutput) {
+                            throw new NativeMutationPreExposeError('Native mutation did not return an immutable staged output');
+                        }
+                        try {
+                            await opts.assertBeforeExpose?.();
+                        } catch (error) {
+                            await documentFiles.releaseManagedTempFileHandle?.(applied.stagedOutput.leaseId);
+                            throw new NativeMutationPreExposeError(getErrorMessage(error));
+                        }
+                        const committed = await documentFiles.commitStagedPdfNativeMutations!(
+                            workingPath,
+                            applied.stagedOutput,
+                            createNativeStagedCommitOptions(expectedDocumentRevisionToken, mutations),
+                        );
+                        if (!committed.applied || !committed.validation?.isValid) {
+                            throw new NativeMutationPreExposeError('Targeted native mutation validation failed before commit');
+                        }
+                        return committed;
                     }
                     if (canUseLegacyNativeNoteChanges) {
                         return documentFiles.savePdfNoteChanges!(workingPath, {
@@ -825,6 +948,9 @@ export function createDocumentPersistence(
             logRendererTimings('applied');
             return createPersistResult(true, requestedSaveMode, false);
         } catch (saveError) {
+            if (saveError instanceof NativeMutationPreExposeError) {
+                throw saveError;
+            }
             if (isStaleRevisionError(saveError)) {
                 throw saveError;
             }
@@ -853,6 +979,7 @@ export function createDocumentPersistence(
             expectedWorkingPath?: TDocumentRef | null;
             expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined;
             optimizeLossless?: boolean;
+            changedObjectRefs?: string[];
         },
     ): Promise<IPdfPersistResult> {
         const requestedSaveMode = opts?.saveMode ?? 'save_as_rewrite';

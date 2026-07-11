@@ -314,6 +314,20 @@ export default {
         'currentPage': 'Página actual ({page})',
         'customRange': 'Rango personalizado',
         'customRangePlaceholder': 'ej., 1-5, 8, 10-12',
+        'supersession': {
+            'label': 'Existing text',
+            'options': {
+                'missing-only': 'OCR missing text only',
+                'replace-evb': 'Re-OCR EVB text',
+                'replace-all': 'Replace all hidden OCR',
+            },
+            'descriptions': {
+                'missing-only': 'Keep existing text and OCR only pages without text.',
+                'replace-evb': 'Replace only the active EVB OCR generation.',
+                'replace-all': 'Replace EVB and foreign hidden OCR; visible native text stays untouched.',
+            },
+            'replaceAllAcknowledgement': 'I understand that foreign hidden OCR on selected pages will be removed and replaced.',
+        },
         'qualityProfile': {
             'label': 'Calidad',
             'options': {
@@ -353,6 +367,18 @@ export default {
         },
         'settingHelpAria': 'Acerca de {setting}',
         'languages': 'Idiomas',
+        'languageModelState': {
+            'installed': 'Instalado',
+            'downloading': 'Descargando',
+            'missing': 'Se descarga al iniciar',
+        },
+        'diagnostic': {
+            'preprocessingUnavailable': 'Page {page}: scan cleanup is unavailable; the original image was used.',
+            'preprocessingFailed': 'Page {page}: scan cleanup failed; the original image was used.',
+            'preprocessingGeometryChanged': 'Page {page}: scan cleanup changed page geometry; the original image was used.',
+            'sourceDpiLimited': 'Page {page}: source resolution limited the effective OCR DPI.',
+            'existingTextSkipped': 'Page {page}: existing text was preserved.',
+        },
         'preparing': 'Preparando OCR...',
         'progressStage': {
             'modelPrep': 'Preparando modelos de idioma OCR...',
@@ -645,9 +671,6 @@ export default {
             other: '{count} archivos en cola',
         }),
         'clear': 'Borrar',
-        'emptyTitle': 'No hay archivos seleccionados',
-        'emptyDescription': 'Suelte archivos a la izquierda o elíjalos desde el ordenador.',
-        'combineAction': 'Combinar en PDF',
         'combineCountAction': plural({
             one: 'Combinar {count} archivo',
             other: 'Combinar {count} archivos',
@@ -1085,6 +1108,8 @@ export default {
             'emptyPdf': 'El archivo PDF está vacío (0 bytes)',
             'folderEmpty': 'No se encontraron documentos compatibles en la carpeta seleccionada',
             'save': 'No se pudo guardar el archivo',
+            'browserStorageTitle': 'El almacenamiento del navegador no está disponible',
+            'browserStorageDescription': '“{name}” está abierto en memoria, pero no volverá a aparecer tras recargar.',
         },
         'export': {
             'images': 'No se pudieron exportar las imágenes',
@@ -1214,5 +1239,20 @@ export default {
         'scopeSelected': 'Páginas seleccionadas ({count})',
         'apply': 'Aplicar recorte',
         'removeCrop': 'Quitar recorte',
+    },
+    'documentSourceSidebar': {
+        'navLabel': 'Navegación del documento',
+        'loadingOutline': 'Cargando esquema…',
+        'noOutline': 'Sin esquema',
+        'searchPlaceholder': 'Buscar en el documento',
+        'searchAction': 'Buscar',
+        'searching': 'Buscando…',
+        'noResults': 'Sin resultados',
+        'goToPage': 'Ir a la página {page}',
+        'page': 'Página {page}',
+        'addNoteOnPage': 'Añadir nota en la página {page}',
+        'noAnnotations': 'No hay anotaciones en esta página',
+        'note': 'Nota',
+        'deleteAnnotation': 'Eliminar anotación {id}',
     },
 };

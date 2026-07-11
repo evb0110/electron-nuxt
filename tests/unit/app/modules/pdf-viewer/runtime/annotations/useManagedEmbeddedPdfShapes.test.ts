@@ -14,7 +14,7 @@ import type { IShapeAnnotation } from '@app/types/annotations';
 import { useAnnotationShapes } from '@app/modules/pdf-viewer/tools/useAnnotationShapes';
 import { importEmbeddedShapeAnnotations } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
 import {
-    type IManagedEmbeddedPdfShapeStore,
+    type IManagedEmbeddedPdfShapeProjectionPort,
     useManagedEmbeddedPdfShapes,
 } from '@app/modules/pdf-viewer/runtime/annotations/useManagedEmbeddedPdfShapes';
 
@@ -166,7 +166,7 @@ function createEmbeddedInkShape(overrides: Partial<IShapeAnnotation>): IShapeAnn
     };
 }
 
-function createManagedShapeStorePort(overrides: Partial<IManagedEmbeddedPdfShapeStore> = {}): IManagedEmbeddedPdfShapeStore {
+function createManagedShapeStorePort(overrides: Partial<IManagedEmbeddedPdfShapeProjectionPort> = {}): IManagedEmbeddedPdfShapeProjectionPort {
     return {
         hasShapes: ref(false),
         deletedEmbeddedAnnotationIds: ref(new Set<string>()),
@@ -191,7 +191,7 @@ function createManagedShapeStorePort(overrides: Partial<IManagedEmbeddedPdfShape
 
 describe('useManagedEmbeddedPdfShapes', () => {
     it('adopts same-source saved shape metadata without rerendering the visible canvas', async () => {
-        const shapeComposable = useAnnotationShapes() satisfies IManagedEmbeddedPdfShapeStore;
+        const shapeComposable = useAnnotationShapes() satisfies IManagedEmbeddedPdfShapeProjectionPort;
         const importEmbeddedShapesMock = vi.mocked(importEmbeddedShapeAnnotations);
         importEmbeddedShapesMock.mockReset();
         importEmbeddedShapesMock
@@ -235,7 +235,6 @@ describe('useManagedEmbeddedPdfShapes', () => {
             }),
             bufferPages: ref(0),
             shapeComposable,
-            suppressCommentAnnotationId: vi.fn(),
             logger: {
                 debug: vi.fn(),
                 warn: vi.fn(),
@@ -304,7 +303,6 @@ describe('useManagedEmbeddedPdfShapes', () => {
             }),
             bufferPages: ref(0),
             shapeComposable: createManagedShapeStorePort(),
-            suppressCommentAnnotationId: vi.fn(),
             logger: {
                 debug: vi.fn(),
                 warn: vi.fn(),
@@ -358,7 +356,6 @@ describe('useManagedEmbeddedPdfShapes', () => {
             }),
             bufferPages: ref(0),
             shapeComposable,
-            suppressCommentAnnotationId: vi.fn(),
             logger: {
                 debug: vi.fn(),
                 warn: vi.fn(),
@@ -419,7 +416,6 @@ describe('useManagedEmbeddedPdfShapes', () => {
             }),
             bufferPages: ref(0),
             shapeComposable,
-            suppressCommentAnnotationId: vi.fn(),
             logger: {
                 debug: vi.fn(),
                 warn: vi.fn(),

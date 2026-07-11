@@ -13,7 +13,6 @@ import {
 } from 'vue';
 import type { Ref } from 'vue';
 import { usePdfRenderViewModel } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRenderViewModel';
-import { PDF_VIEWER_PAGE_SKELETON_DELAY_MS } from '@app/constants/timeouts';
 import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import type { TPdfSource } from '@app/types/pdfUi';
 import { cast } from '@tests/helpers/cast';
@@ -55,7 +54,6 @@ function createHarness(options?: {
         isPageRenderedForClass: options?.isPageRenderedForClass ?? vi.fn(() => false),
         isPageRendering: options?.isPageRendering ?? vi.fn(() => false),
         hasMountedPageCanvas: options?.hasMountedPageCanvas ?? vi.fn(() => false),
-        shouldShowSkeletonImmediately: options?.shouldShowSkeletonImmediately,
         shouldShowSkeleton: options?.shouldShowSkeleton ?? vi.fn(() => false),
         visibleRange,
         pagedNavigationTargetPage: options?.pagedNavigationTargetPage,
@@ -202,7 +200,6 @@ describe('usePdfRenderViewModel', () => {
                 throw new Error('Failed to create PDF render view model');
             }
 
-            vi.advanceTimersByTime(PDF_VIEWER_PAGE_SKELETON_DELAY_MS);
             expect(viewModel.shouldShowPageSkeleton(1)).toBe(true);
 
             hasMountedCanvas.value = true;
@@ -233,7 +230,6 @@ describe('usePdfRenderViewModel', () => {
                 throw new Error('Failed to create PDF render view model');
             }
 
-            vi.advanceTimersByTime(PDF_VIEWER_PAGE_SKELETON_DELAY_MS);
             expect(viewModel.shouldShowPageSkeleton(1)).toBe(false);
 
             isRendered.value = true;
@@ -257,7 +253,6 @@ describe('usePdfRenderViewModel', () => {
                 throw new Error('Failed to create PDF render view model');
             }
 
-            vi.advanceTimersByTime(PDF_VIEWER_PAGE_SKELETON_DELAY_MS);
             expect(viewModel.shouldShowPageSkeleton(1)).toBe(true);
 
             scope.stop();
@@ -325,7 +320,6 @@ describe('usePdfRenderViewModel', () => {
                 throw new Error('Failed to create PDF render view model');
             }
 
-            vi.advanceTimersByTime(PDF_VIEWER_PAGE_SKELETON_DELAY_MS);
             expect(viewModel.shouldShowPageSkeleton(1)).toBe(true);
 
             scope.stop();
@@ -351,7 +345,6 @@ describe('usePdfRenderViewModel', () => {
                 throw new Error('Failed to create PDF render view model');
             }
 
-            vi.advanceTimersByTime(PDF_VIEWER_PAGE_SKELETON_DELAY_MS);
             expect(viewModel.shouldShowPageSkeleton(1)).toBe(false);
 
             scope.stop();
@@ -360,7 +353,7 @@ describe('usePdfRenderViewModel', () => {
         }
     });
 
-    it('keeps immediate navigation skeletons visible even when a canvas is mounted', () => {
+    it('never overlays a navigation skeleton on a usable canvas', () => {
         vi.useFakeTimers();
         try {
             const pagedNavigationTargetPage = ref<number | null>(1);
@@ -371,14 +364,13 @@ describe('usePdfRenderViewModel', () => {
                 hasMountedPageCanvas: () => true,
                 pagedNavigationTargetPage,
                 shouldShowSkeleton: () => true,
-                shouldShowSkeletonImmediately: page => pagedNavigationTargetPage.value === page,
             });
 
             if (!viewModel) {
                 throw new Error('Failed to create PDF render view model');
             }
 
-            expect(viewModel.shouldShowPageSkeleton(1)).toBe(true);
+            expect(viewModel.shouldShowPageSkeleton(1)).toBe(false);
 
             scope.stop();
         } finally {
@@ -386,7 +378,7 @@ describe('usePdfRenderViewModel', () => {
         }
     });
 
-    it('keeps immediate recovery skeletons visible even when an orphan canvas is mounted', () => {
+    it('never overlays a recovery skeleton on an orphaned usable canvas', () => {
         vi.useFakeTimers();
         try {
             const {
@@ -396,14 +388,13 @@ describe('usePdfRenderViewModel', () => {
                 hasMountedPageCanvas: () => true,
                 isPageRendering: () => false,
                 shouldShowSkeleton: () => true,
-                shouldShowSkeletonImmediately: page => page === 1,
             });
 
             if (!viewModel) {
                 throw new Error('Failed to create PDF render view model');
             }
 
-            expect(viewModel.shouldShowPageSkeleton(1)).toBe(true);
+            expect(viewModel.shouldShowPageSkeleton(1)).toBe(false);
 
             scope.stop();
         } finally {

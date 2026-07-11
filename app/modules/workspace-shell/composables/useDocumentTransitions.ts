@@ -8,6 +8,7 @@ import type { TPdfSource } from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TPdfSidebarTab } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { annotationIdForSummary } from '@app/modules/pdf-viewer/public';
 
 export interface IDocumentTransitionDeps {
     pdfSrc: Ref<TPdfSource | null>;
@@ -232,7 +233,7 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
     watch(annotationComments, comments => {
         if (
             annotationActiveCommentStableKey.value
-            && !comments.some(comment => comment.stableKey === annotationActiveCommentStableKey.value)
+            && !comments.some(comment => annotationIdForSummary(comment) === annotationActiveCommentStableKey.value)
         ) {
             annotationActiveCommentStableKey.value = null;
         }

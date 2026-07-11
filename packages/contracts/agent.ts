@@ -42,10 +42,40 @@ export type TAgentMcpCodexRegistrationState = 'configured' | 'missing' | 'mismat
 export type TAgentAssistantInstallState = 'installed' | 'missing' | 'unsupported';
 export type TAgentAssistantAuthState = 'signed-in' | 'signed-out' | 'login-pending' | 'unknown';
 export type TAgentAssistantRuntimeState = 'stopped' | 'starting' | 'ready' | 'busy' | 'error';
-export type TAgentAssistantTurnPhase = 'idle' | 'starting' | 'running' | 'interrupting' | 'error';
+export const AGENT_ASSISTANT_TURN_PHASES = [
+    'idle',
+    'queued',
+    'thinking',
+    'streaming',
+    'tool-running',
+    'finalizing',
+    'done',
+    'failed',
+    'cancelled',
+    'stalled',
+    'interrupting',
+] as const;
+export type TAgentAssistantTurnPhase = typeof AGENT_ASSISTANT_TURN_PHASES[number];
 export type TAgentAssistantLoginMode = 'chatgpt' | 'device-code';
-export type TAgentAssistantMessageRole = 'user' | 'assistant' | 'system';
-export type TAgentAssistantEventType = 'state' | 'message' | 'message-delta' | 'turn-started' | 'turn-progress' | 'turn-completed' | 'install-progress' | 'error';
+export const AGENT_ASSISTANT_MESSAGE_ROLES = [
+    'user',
+    'assistant',
+    'system',
+] as const;
+export type TAgentAssistantMessageRole = typeof AGENT_ASSISTANT_MESSAGE_ROLES[number];
+export const AGENT_ASSISTANT_EVENT_TYPES = [
+    'state',
+    'message',
+    'message-delta',
+    'reasoning-delta',
+    'heartbeat',
+    'turn-started',
+    'turn-progress',
+    'turn-completed',
+    'install-progress',
+    'error',
+] as const;
+export type TAgentAssistantEventType = typeof AGENT_ASSISTANT_EVENT_TYPES[number];
 export type TAgentAssistantChatScopeKind = 'document';
 export const ASSISTANT_PROVIDER_IDS = [
     'codex',
@@ -329,15 +359,17 @@ export interface IAgentMcpIntegrationUpdateResult {
     error?: string;
 }
 
-export type TAgentAssistantErrorCode =
-    | 'AUTH_REQUIRED'
-    | 'INSTALL_MISSING'
-    | 'LOGIN_CANCELLED'
-    | 'USER_INTERRUPTED'
-    | 'MODEL_UNAVAILABLE'
-    | 'RUNTIME_UNAVAILABLE'
-    | 'PROVIDER_RATE_LIMITED'
-    | 'INTERNAL';
+export const AGENT_ASSISTANT_ERROR_CODES = [
+    'AUTH_REQUIRED',
+    'INSTALL_MISSING',
+    'LOGIN_CANCELLED',
+    'USER_INTERRUPTED',
+    'MODEL_UNAVAILABLE',
+    'RUNTIME_UNAVAILABLE',
+    'PROVIDER_RATE_LIMITED',
+    'INTERNAL',
+] as const;
+export type TAgentAssistantErrorCode = typeof AGENT_ASSISTANT_ERROR_CODES[number];
 
 export interface IAgentAssistantErrorEnvelope {
     code: TAgentAssistantErrorCode;
@@ -433,8 +465,11 @@ export function buildAgentAssistantScopeFingerprint(
 ) {
     return JSON.stringify({
         provider,
+        scopeKey: scope?.key ?? null,
+        tabId: scope?.tabId ?? null,
         documentSessionKey: scope?.documentSessionKey ?? scope?.key ?? null,
         documentInstanceId: scope?.documentInstanceId ?? scope?.commandTarget?.documentInstanceId ?? null,
+        documentRef: scope?.documentRef ?? scope?.commandTarget?.documentRef ?? null,
         documentRevisionToken: getAgentAssistantScopeRevisionToken(scope),
     });
 }
@@ -475,6 +510,24 @@ export interface IAgentAssistantStatus {
 export interface IAgentAssistantTurnState {
     id: string | null;
     phase: TAgentAssistantTurnPhase;
+    reasoning: string;
+    toolActivity: IAgentAssistantToolActivity[];
+    lastEventAtMs: number | null;
+    usage: IAgentAssistantTokenUsage | null;
+}
+
+export interface IAgentAssistantTokenUsage {
+    inputTokens: number;
+    outputTokens: number;
+    cachedInputTokens?: number;
+}
+
+export interface IAgentAssistantToolActivity {
+    toolId: string;
+    name: string;
+    phase: 'running' | 'completed' | 'failed';
+    startedAtMs: number;
+    completedAtMs?: number;
 }
 
 export interface IAgentAssistantChatMessage {
@@ -570,8 +623,21 @@ export interface IAgentAssistantEvent {
     message?: IAgentAssistantChatMessage;
     messageId?: string;
     delta?: string;
+    reasoningDelta?: string;
     turnId?: string;
+    phase?: TAgentAssistantTurnPhase;
+    toolActivity?: IAgentAssistantToolActivity;
+    lastEventAtMs?: number;
     progress?: string;
     error?: string;
     errorEnvelope?: IAgentAssistantErrorEnvelope;
+    /** Immutable identity of the document-bound turn that produced this event. */
+    binding?: IAgentAssistantEventBinding;
+}
+
+export interface IAgentAssistantEventBinding {
+    scopeFingerprint: string;
+    sessionKey: string;
+    turnGeneration: number;
+    windowId: number;
 }

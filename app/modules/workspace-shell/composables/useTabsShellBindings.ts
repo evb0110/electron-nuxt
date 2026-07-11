@@ -27,6 +27,12 @@ import { getWindowTabsCapability } from '@app/utils/platformWindowTabs';
 import { shouldHandleRendererMenuAccelerators } from '@app/utils/shouldHandleRendererMenuAccelerators';
 import { guardAsync } from '@app/utils/asyncGuard';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
+import type { ITab } from '@app/types/tabs';
+import { restoreWorkspaceCheckpoint } from '@app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint';
+import {
+    warmupDesktopViewerChunkForPaths,
+    warmupDesktopViewerChunks,
+} from '@app/modules/workspace-shell/host/warmupDesktopViewerChunks';
 import {
     invokeWorkspaceExposeCommand,
     isWorkspaceExposeCommandName,
@@ -55,12 +61,14 @@ const RENDERER_DOCUMENT_SHORTCUT_COMMANDS: Record<TRendererDocumentCommandShortc
 };
 
 interface IUseTabsShellBindingsOptions extends ITabsMenuBindingDeps {
-    tabs: Ref<Array<{ id: string }>>;
+    tabs: Ref<ITab[]>;
     workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
     documentRecordsByTabId: Ref<Record<string, IWorkspaceDocumentRecord>>;
     isStartupOpenClaimPending: Ref<boolean>;
     activateTab: (tabId: string) => void;
     beginOpenPathsInAppropriateTab: (paths: TDocumentRef[]) => Promise<TDocumentRef[]>;
+    restoreWorkspaceCheckpointGraph: Parameters<typeof restoreWorkspaceCheckpoint>[1]['restoreGraph'];
+    openPathInReservedTab: Parameters<typeof restoreWorkspaceCheckpoint>[1]['openPathInReservedTab'];
 }
 
 export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
@@ -79,6 +87,8 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         openPathInAppropriateTab,
         openPathsInAppropriateTab,
         beginOpenPathsInAppropriateTab,
+        restoreWorkspaceCheckpointGraph,
+        openPathInReservedTab,
         clearRecentFiles,
         loadRecentFiles,
         openSettings,
@@ -459,6 +469,26 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             menuCleanups.push(...registeredMenuCleanups);
             traceRendererStartup('tabs shell menu bindings registered');
 
+            const workspaceCheckpoint = typeof windowTabsCapability.claimWorkspaceCheckpoint === 'function'
+                ? await windowTabsCapability.claimWorkspaceCheckpoint()
+                : null;
+            if (isDisposed) {
+                return;
+            }
+            if (workspaceCheckpoint) {
+                traceRendererStartup('tabs shell restoring workspace checkpoint', {tabCount: workspaceCheckpoint.tabs.length});
+                await restoreWorkspaceCheckpoint(workspaceCheckpoint, {
+                    tabs,
+                    workspaceRefs,
+                    restoreGraph: restoreWorkspaceCheckpointGraph,
+                    openPathInReservedTab,
+                    activateTab,
+                });
+                if (isDisposed) {
+                    return;
+                }
+            }
+
             const startupExternalPaths = await windowTabsCapability.claimPendingExternalOpenPaths();
             if (isDisposed) {
                 return;
@@ -466,12 +496,17 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             dispatchStartupOpenClaimed(startupExternalPaths.length);
             if (startupExternalPaths.length > 0) {
                 traceRendererStartup('tabs shell claimed startup external paths', {pathCount: startupExternalPaths.length});
+                await warmupDesktopViewerChunkForPaths({
+                    isDesktopRuntime: shouldPreferDesktopPlatform(route.path),
+                    paths: startupExternalPaths,
+                });
                 const failedPaths = await beginOpenPathsInAppropriateTab(startupExternalPaths);
                 await windowTabsCapability.acknowledgePendingExternalOpenPaths(failedPaths);
                 if (isDisposed) {
                     return;
                 }
             }
+            void warmupDesktopViewerChunks({isDesktopRuntime: shouldPreferDesktopPlatform(route.path)})?.catch(error => BrowserLogger.warn('tabs-shell', 'Background viewer warmup failed', error));
             isStartupOpenClaimPending.value = false;
             await nextTick();
             if (isDisposed) {

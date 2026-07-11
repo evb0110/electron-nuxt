@@ -27,6 +27,7 @@ import {
     SearchIpcError,
     toSearchIpcError,
 } from '@electron/features/search/main/searchErrors';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -94,7 +95,7 @@ function normalizeSearchOperationContext(context: ISearchSenderContext): ISearch
 
 async function resolveSearchDocumentRevision(
     resolvedPdfPath: string,
-    parsedDocumentRevision: string | undefined,
+    parsedDocumentRevision: TDocumentRevisionToken | undefined,
     senderId: number,
 ) {
     return parsedDocumentRevision ?? (await getWorkingCopyRevision(resolvedPdfPath, senderId)).token;

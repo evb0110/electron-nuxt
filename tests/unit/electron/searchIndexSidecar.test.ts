@@ -26,8 +26,9 @@ import {
     persistCompactSearchIndex,
 } from '@electron/search/searchIndexSidecar';
 import { OCR_TEXT_LAYER_INDEX_VERSION } from '@contracts/ocrText';
+import {requireDocumentRevisionToken} from '@contracts';
 
-const DOCUMENT_REVISION = 'revision-token';
+const DOCUMENT_REVISION = requireDocumentRevisionToken('revision-token');
 
 describe('compact search index sidecar', () => {
     let tempDir: string;

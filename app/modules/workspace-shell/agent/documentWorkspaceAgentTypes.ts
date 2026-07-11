@@ -13,9 +13,10 @@ import type {
     TAnnotationCommentsStatus,
     TAnnotationTool,
 } from '@app/types/annotations';
-import type { IAnnotationNoteWindowState } from '@app/types/annotationNoteWindow';
+import type { IAnnotationNoteWindowViewModel } from '@app/types/annotationNoteWindow';
 import type { IOcrPopupAgentExpose } from '@app/types/ocrAgent';
 import type { IWorkspacePdfViewerAgentPort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
+import type { IWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
 
 export type {
     IAgentOcrRunOptions,
@@ -47,7 +48,7 @@ export interface IUseDocumentWorkspaceAgentOptions {
     continuousScroll: Ref<boolean>;
     currentPage: Ref<number>;
     documentIdentity: Ref<IDocumentRevisionInfo | null>;
-    fitMode: Ref<unknown>;
+    fitMode: Ref<TWorkspaceAgentFitMode>;
     handleActualSize: () => void;
     handleAnnotationFocusComment: (comment: IAnnotationCommentSummary) => Promise<void>;
     handleAnnotationToolChange: (tool: TAnnotationTool) => void;
@@ -97,12 +98,13 @@ export interface IUseDocumentWorkspaceAgentOptions {
     showConvertDialog: Ref<boolean>;
     showSidebar: Ref<boolean>;
     sidebarTab: Ref<TWorkspaceAgentSidebarTab>;
-    sortedAnnotationNoteWindows: Ref<IAnnotationNoteWindowState[]>;
+    sortedAnnotationNoteWindows: Ref<IAnnotationNoteWindowViewModel[]>;
     t: TWorkspaceAgentTranslate;
     tabId: string;
     totalPages: Ref<number>;
     updateAnnotationNoteText: (stableKey: string, text: string) => void;
     viewMode: Ref<TPdfViewMode>;
+    viewerCapabilities: Ref<IWorkspaceViewerCapabilities>;
     waitForDocumentOpenSettled: () => Promise<void>;
     workingCopyPath: Ref<TDocumentRef | null>;
     zoom: Ref<number>;

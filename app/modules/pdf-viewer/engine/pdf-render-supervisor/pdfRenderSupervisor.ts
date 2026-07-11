@@ -3,7 +3,7 @@ import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 export type TPdfRenderSupervisorWatchdogCause =
     | 'page-stage-timeout'
     | 'render-stall-recovery'
-    | 'mounted-page-recovery'
+    | 'render-cancelled-retry'
     | 'navigation-paged-settle'
     | 'navigation-search-settle'
     | 'navigation-continuous-render'

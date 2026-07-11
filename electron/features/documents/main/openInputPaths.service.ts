@@ -26,13 +26,13 @@ import {
 } from '@electron/file-access/openPathCapabilities';
 import { te } from '@electron/te';
 import { createLogger } from '@electron/utils/createLogger';
-import { normalizeNonEmptyStringPaths } from '@contracts/shared';
 import { addRecentInputs } from '@electron/features/documents/main/addRecentInputs.service';
 import { normalizePossiblyEncodedExistingPath } from '@electron/utils/normalizePossiblyEncodedExistingPath';
 import type { TOpenFileResult } from '@electron/features/documents/contract';
 import type { TOpenPathOwner } from '@electron/features/documents/main/openPathOwner';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import { abortErrorFromSignal } from '@electron/utils/abort';
+import { mainJobBroker } from '@electron/resources/jobBroker';
 
 const logger = createLogger('documents-open-service');
 const MAX_OPEN_INPUT_PATHS = 512;
@@ -40,6 +40,7 @@ const MAX_OPEN_INPUT_PATHS = 512;
 interface IOpenInputPathsOptions {
     onCombineProgress?: (progress: ICreatePdfFromInputPathsProgress) => void;
     signal?: AbortSignal;
+    forceCombine?: boolean;
 }
 
 interface IOpenInputPathsAbortLifecycle {
@@ -169,7 +170,7 @@ export async function openInputPaths(
     options: IOpenInputPathsOptions = {},
     owner?: TOpenPathOwner,
 ): Promise<TOpenFileResult | null> {
-    const normalizedPaths = normalizeNonEmptyStringPaths(paths)
+    const normalizedPaths = paths.filter(path => typeof path === 'string' && path.length > 0)
         .map(path => normalizePossiblyEncodedExistingPath(path) ?? path);
     logger.debug(`openInputPaths normalized ${normalizedPaths.length} path(s): ${formatPathListForLog(normalizedPaths)}`);
     if (normalizedPaths.length === 0) {
@@ -188,7 +189,7 @@ export async function openInputPaths(
     allowOpenPaths(normalizedPaths, owner);
 
     const djvuPaths = normalizedPaths.filter(path => isDjvuPath(path));
-    if (djvuPaths.length > 0 && normalizedPaths.length === 1 && djvuPaths.length === 1) {
+    if (!options.forceCombine && djvuPaths.length > 0 && normalizedPaths.length === 1 && djvuPaths.length === 1) {
         const djvuPath = djvuPaths[0]!;
         const trustedDjvuPath = requireOpenPath(djvuPath, owner);
         logger.debug(`openInputPaths resolved DjVu path: ${djvuPath}`);
@@ -200,7 +201,7 @@ export async function openInputPaths(
         };
     }
 
-    if (normalizedPaths.length === 1 && isPdfPath(normalizedPaths[0]!)) {
+    if (!options.forceCombine && normalizedPaths.length === 1 && isPdfPath(normalizedPaths[0]!)) {
         const originalPath = normalizedPaths[0]!;
         logger.debug(`openInputPaths creating working copy for PDF: ${originalPath}`);
         const workingPath = await createWorkingCopy(requireOpenPath(originalPath, owner), getOwnerWebContentsId(owner));
@@ -215,6 +216,7 @@ export async function openInputPaths(
     const outputPath = buildCombinedPdfOutputPath(normalizedPaths);
     const tempDir = await mkdtemp(join(tmpdir(), 'pdf-combine-open-'));
     let lifecycle: IOpenInputPathsAbortLifecycle | null = null;
+    let brokerLease: Awaited<ReturnType<typeof mainJobBroker.acquire>> | null = null;
     let workingPath: string;
     try {
         lifecycle = createOpenInputPathsAbortLifecycle(
@@ -223,6 +225,22 @@ export async function openInputPaths(
             options.signal,
         );
         const { signal } = lifecycle;
+        brokerLease = await mainJobBroker.acquire({
+            ownerId: `pdf-combine:${getOwnerWebContentsId(owner) ?? 'main'}`,
+            kind: 'pdf-combine',
+            priority: 'user',
+            perOwnerLimit: 1,
+            signal,
+            resources: {
+                // Admission lease only. Conversion sub-pipelines acquire the
+                // concrete CPU/memory/native resources they need, avoiding a
+                // nested-lease deadlock on minimum-capacity hosts.
+                cpuTokens: 0,
+                estimatedResidentBytes: 0,
+                nativeProcesses: 0,
+                ioWeight: 0,
+            },
+        });
         const tempOutputPath = join(tempDir, basename(outputPath));
         throwIfAborted(signal);
         await createPdfFileFromInputPaths(
@@ -247,6 +265,7 @@ export async function openInputPaths(
             recursive: true,
             force: true,
         }).catch(() => undefined);
+        brokerLease?.release();
         lifecycle?.cleanup();
     }
 

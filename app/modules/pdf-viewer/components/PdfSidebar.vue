@@ -1,47 +1,13 @@
 <template>
-    <aside
+    <AppSidebarShell
         v-show="isOpen"
         class="pdf-sidebar"
         :style="sidebarStyle"
+        :model-value="activeTab"
+        :tabs="localizedTabs"
+        :outer-scroll="activeTab !== 'bookmarks' && activeTab !== 'search'"
+        @update:model-value="handleShellTabUpdate"
     >
-        <UTabs
-            v-model="activeTab"
-            :items="tabs"
-            :content="false"
-            variant="link"
-            color="primary"
-            size="sm"
-            :ui="{
-                root: 'gap-0',
-                list: 'gap-1 px-2 py-1.5 mb-0 rounded-none bg-transparent border-b border-[var(--app-sidebar-border)]',
-                indicator: 'hidden',
-                trigger: 'flex-1 min-w-0 justify-center gap-1.5 h-7 px-1.5 py-0 rounded-md border border-transparent text-[11.5px] font-semibold tracking-[0.01em] whitespace-nowrap data-[state=active]:bg-[var(--app-control-active-bg)] data-[state=active]:border-[var(--app-control-active-border)] data-[state=active]:text-default data-[state=inactive]:text-muted data-[state=inactive]:hover:bg-[var(--app-sidebar-control-hover-bg)] data-[state=inactive]:hover:text-default',
-                leadingIcon: 'size-3.5 shrink-0',
-            }"
-            class="shrink-0"
-        >
-            <template #leading="{ item }">
-                <AppTooltip
-                    v-if="isCompact"
-                    :text="item.title"
-                    :delay-duration="300"
-                >
-                    <UIcon
-                        :name="item.icon"
-                        class="size-3.5 shrink-0"
-                    />
-                </AppTooltip>
-                <UIcon
-                    v-else
-                    :name="item.icon"
-                    class="size-3.5 shrink-0"
-                />
-            </template>
-        </UTabs>
-        <div
-            class="pdf-sidebar-content relative min-h-0 flex-1 overflow-hidden overflow-y-auto [&>*]:w-full app-scrollbar"
-            :class="{ 'pdf-sidebar-content-bookmarks': activeTab === 'bookmarks' }"
-        >
             <PdfAnnotationsPanel
                 v-show="activeTab === 'annotations'"
                 :tool="annotationTool"
@@ -74,7 +40,7 @@
                     @delete-pages="deleteSelectedPages"
                     @deselect="clearPageSelection"
                 />
-                <div class="pdf-sidebar-pages-thumbnails app-scrollbar">
+                <div class="pdf-sidebar-pages-thumbnails app-scrollbar app-panel-scroll">
                     <PdfThumbnails
                         :pdf-document="pdfDocument"
                         :current-page="currentPage"
@@ -86,7 +52,6 @@
                         :annotation-comments="annotationComments"
                         :annotation-settings="annotationSettings"
                         :is-active="isOpen && activeTab === 'thumbnails'"
-                        :page-preview-provider="thumbnailPagePreviewProvider"
                         @go-to-page="goToPage"
                         @update:selected-pages="handleSelectedPagesUpdate"
                         @page-context-menu="openPageContextMenu"
@@ -122,7 +87,7 @@
                 v-show="activeTab === 'search'"
                 class="flex h-full min-h-0 flex-col"
             >
-                <div class="sticky top-0 z-[1] border-b border-[var(--ui-border)] bg-inherit">
+                <div class="sticky top-0 z-1 border-b border-[var(--ui-border)] bg-inherit">
                     <PdfSearchBar
                         ref="searchBarRef"
                         v-model="searchQueryProxy"
@@ -134,7 +99,7 @@
                         @previous="previousSearchResult"
                     />
                 </div>
-                <div class="flex min-h-0 flex-col">
+                <div class="flex min-h-0 flex-1 flex-col">
                     <PdfSearchResults
                         :results="searchResults"
                         :current-result-index="currentResultIndex"
@@ -150,8 +115,7 @@
                     />
                 </div>
             </div>
-        </div>
-    </aside>
+    </AppSidebarShell>
 </template>
 
 <script setup lang="ts">
@@ -173,7 +137,6 @@ import type {
     TAnnotationCommentsStatus,
     TAnnotationTool,
 } from '@app/types/annotations';
-import type { IPdfPagePreviewEntry } from '@app/modules/pdf-viewer/engine/pdf-page-preview/pdfPagePreviewTypes';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import type { TPdfSidebarTab } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
 import PdfAnnotationsPanel from '@app/modules/pdf-viewer/components/PdfAnnotationsPanel.vue';
@@ -183,6 +146,7 @@ import PdfSearchBar from '@app/modules/pdf-viewer/components/PdfSearchBar.vue';
 import PdfSearchResults from '@app/modules/pdf-viewer/components/PdfSearchResults.vue';
 import PdfSidebarPageNumbering from '@app/modules/pdf-viewer/components/PdfSidebarPageNumbering.vue';
 import PdfThumbnails from '@app/modules/pdf-viewer/components/PdfThumbnails.vue';
+import AppSidebarShell from '@app/components/sidebar/AppSidebarShell.vue';
 
 interface IProps {
     isOpen: boolean;
@@ -227,7 +191,6 @@ interface IProps {
         pages: number[];
     } | null | undefined;
     thumbnailHiddenAnnotationIds?: string[] | undefined;
-    thumbnailPagePreviewProvider?: ((page: number) => IPdfPagePreviewEntry | null) | null | undefined;
 }
 
 const { t } = useTypedI18n();
@@ -264,7 +227,6 @@ const {
     searchResults,
     selectedThumbnailPages: selectedThumbnailPagesProp,
     thumbnailHiddenAnnotationIds = undefined,
-    thumbnailPagePreviewProvider = null,
     submittedSearchQuery = undefined,
     thumbnailInvalidationRequest = undefined,
     totalMatches,
@@ -512,8 +474,6 @@ interface IPdfSidebarTabItem {
     title: string;
 }
 
-const COMPACT_THRESHOLD = 340;
-const isCompact = computed(() => (width ?? 240) < COMPACT_THRESHOLD);
 
 const allTabs: IPdfSidebarTabItem[] = [
     {
@@ -542,37 +502,33 @@ const allTabs: IPdfSidebarTabItem[] = [
     },
 ];
 
-const tabs = computed<IPdfSidebarTabItem[]>(() => {
+const localizedTabs = computed<IPdfSidebarTabItem[]>(() => {
     const items = isDjvuMode
         ? allTabs.filter((tab) => tab.value !== 'annotations')
         : allTabs;
 
     return items.map((tab) => ({
         ...tab,
-        label: isCompact.value ? '' : t(`sidebar.${tab.value === 'thumbnails' ? 'pages' : tab.value}`),
+        label: t(`sidebar.${tab.value === 'thumbnails' ? 'pages' : tab.value}`),
         title: t(`sidebar.${tab.value === 'thumbnails' ? 'pages' : tab.value}`),
     }));
 });
+function handleShellTabUpdate(value: string) {
+    activeTab.value = value as TPdfSidebarTab;
+}
 
 const sidebarStyle = computed(() => {
     const sidebarWidth = width ?? 240;
 
     return {
         width: `${sidebarWidth}px`,
-        minWidth: `${sidebarWidth}px`,
+        maxWidth: '100%',
+        minWidth: '0',
     };
 });
 </script>
 
 <style scoped>
-.pdf-sidebar {
-    display: flex;
-    height: 100%;
-    flex-direction: column;
-    overflow: hidden;
-    background: var(--app-sidebar-bg);
-}
-
 .pdf-sidebar-pages {
     display: flex;
     flex-direction: column;
@@ -582,11 +538,8 @@ const sidebarStyle = computed(() => {
 
 .pdf-sidebar-pages-thumbnails {
     flex: 1;
-    min-height: 80px;
+    min-height: var(--app-sidebar-content-min-height);
     overflow: hidden;
 }
 
-.pdf-sidebar-content-bookmarks {
-    overflow-y: hidden;
-}
 </style>

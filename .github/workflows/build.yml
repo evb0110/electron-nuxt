@@ -90,7 +90,7 @@ jobs:
       - name: Bundle native tools (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install tesseract poppler qpdf djvulibre ffmpeg meson pkg-config sphinx-doc
+          brew install tesseract poppler qpdf djvulibre meson pkg-config sphinx-doc
           SPHINX_BIN="$(brew --prefix sphinx-doc)/bin"
           echo "$SPHINX_BIN" >> "$GITHUB_PATH"
           export PATH="$SPHINX_BIN:$PATH"
@@ -293,11 +293,38 @@ jobs:
         shell: bash
         run: node scripts/release/assert-packaged-app-contents.mjs
 
+      - name: Record Windows packaged-app provenance
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          unpacked_dir="win-unpacked"
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            unpacked_dir="win-arm64-unpacked"
+          fi
+          node scripts/release/build-provenance.mjs create direct "${{ matrix.arch }}" \
+            "release/${unpacked_dir}/resources/app.asar" \
+            "release/EVB-Viewer-${version}-win-${{ matrix.arch }}-provenance.json"
+
+      - name: Verify packaged Linux x64 core PDF journey
+        if: runner.os == 'Linux' && matrix.arch == 'x64'
+        shell: bash
+        run: xvfb-run -a pnpm run test:packaged-core-pdf-smoke -- --executable release/linux-unpacked/evb-viewer
+
+      - name: Verify packaged Windows x64 core PDF journey
+        if: runner.os == 'Windows' && matrix.arch == 'x64'
+        shell: bash
+        run: pnpm run test:packaged-core-pdf-smoke -- --executable "release/win-unpacked/EVB Viewer.exe"
+
+      - name: Verify packaged macOS arm64 core PDF journey
+        if: runner.os == 'macOS' && matrix.arch == 'arm64'
+        shell: bash
+        run: pnpm run test:packaged-core-pdf-smoke -- --executable "release/mac-arm64/EVB Viewer.app/Contents/MacOS/EVB Viewer"
+
       - name: Verify packaged startup
         if: runner.os == 'macOS'
         shell: bash
-        # Only macOS has packaged startup verification right now; Linux/Windows
-        # still rely on smoke coverage plus host-specific checks.
+        # Keep the fast startup marker alongside the stronger macOS arm64 core-PDF journey.
         run: bash scripts/verify-packaged-startup.sh "${{ matrix.platform }}" "${{ matrix.arch }}"
 
       - name: Prune updater metadata on unsupported updater targets
@@ -336,4 +363,5 @@ jobs:
             release/*.deb
             release/latest*.yml
             release/*.blockmap
+            release/*-provenance.json
           if-no-files-found: error

@@ -6,8 +6,11 @@ import {
     it,
     vi,
 } from 'vitest';
-import type { ICombinePdfProgress } from '@app/services/pdf/combinePdfFiles';
-import { combinePdfFiles } from '@app/services/pdf/combinePdfFiles';
+import type {
+    ICombinePdfProgress ,
+    CombinePdfError,
+} from '@app/services/pdf/combinePdfFiles';
+import {combinePdfFiles} from '@app/services/pdf/combinePdfFiles';
 
 interface IMenuProgress {
     operation: 'document-open';
@@ -35,7 +38,10 @@ const mocks = vi.hoisted(() => {
             getPathsForFiles: vi.fn(),
             createCombinedPdfFromFiles: vi.fn(),
         },
-        documentOpen: { openDocumentDirectBatch: vi.fn() },
+        documentOpen: {
+            openDocumentDirectBatch: vi.fn(),
+            cancelOpenDocumentDirectBatch: vi.fn(async () => true),
+        },
         documentMenu: { onOpenDocumentDirectBatchProgress },
         documentWorkingCopy: { createWorkingCopyFromData: vi.fn() },
         legacyDocuments: {
@@ -62,7 +68,10 @@ vi.mock('@app/utils/platformDocuments', () => ({
 }));
 
 function createFile(name: string) {
-    return { name } as File;
+    return {
+        name,
+        size: 1,
+    } as File;
 }
 
 describe('combinePdfFiles', () => {
@@ -139,7 +148,7 @@ describe('combinePdfFiles', () => {
         expect(mocks.documentOpen.openDocumentDirectBatch).toHaveBeenCalledWith([
             '/tmp/first.pdf',
             '/tmp/second.pdf',
-        ], 'combine-request-1');
+        ], 'combine-request-1', {forceCombine: true});
         expect(mocks.documentMenu.onOpenDocumentDirectBatchProgress).toHaveBeenCalledOnce();
         expect(mocks.stopProgress).toHaveBeenCalledOnce();
         expect(onProgress).toHaveBeenNthCalledWith(1, {
@@ -207,5 +216,87 @@ describe('combinePdfFiles', () => {
             combinedBytes,
         );
         expect(mocks.legacyDocuments.createWorkingCopyFromData).not.toHaveBeenCalled();
+    });
+
+    it('keeps fallback progress monotonic and reserves 100 percent for completion', async () => {
+        const onProgress = vi.fn<(progress: ICombinePdfProgress) => void>();
+        mocks.documentPicker.getPathsForFiles.mockReturnValue(['/tmp/first.pdf']);
+        mocks.documentOpen.openDocumentDirectBatch.mockImplementation(async (_paths: string[], requestId: string) => {
+            for (const percent of [
+                80,
+                20,
+                100,
+            ]) {
+                mocks.progress.handler?.({
+                    operation: 'document-open',
+                    requestId,
+                    processed: 1,
+                    total: 1,
+                    percent,
+                    elapsedMs: percent,
+                    estimatedRemainingMs: null,
+                });
+            }
+            return {
+                kind: 'pdf',
+                originalPath: '/tmp/combined.pdf',
+                workingPath: '/tmp/combined-working.pdf',
+                isGenerated: true,
+            };
+        });
+
+        await combinePdfFiles({
+            files: [{file: createFile('first.pdf')}],
+            outputName: 'combined.pdf',
+            openErrorMessage: 'open failed',
+            onProgress,
+        });
+
+        expect(onProgress.mock.calls.map(([progress]) => progress.percent)).toEqual([
+            80,
+            80,
+            95,
+            100,
+        ]);
+    });
+
+    it('routes renderer cancellation to the active Electron combine request', async () => {
+        const controller = new AbortController();
+        mocks.documentPicker.getPathsForFiles.mockReturnValue(['/tmp/first.pdf']);
+        let rejectOpen: ((error: Error) => void) | null = null;
+        mocks.documentOpen.openDocumentDirectBatch.mockImplementation(() => new Promise((_resolve, reject) => {
+            rejectOpen = reject;
+        }));
+        mocks.documentOpen.cancelOpenDocumentDirectBatch.mockImplementation(async () => {
+            rejectOpen?.(new DOMException('Canceled', 'AbortError'));
+            return true;
+        });
+        const pending = combinePdfFiles({
+            files: [{file: createFile('first.pdf')}],
+            outputName: 'combined.pdf',
+            openErrorMessage: 'open failed',
+            signal: controller.signal,
+        });
+        await Promise.resolve();
+
+        controller.abort(new DOMException('Canceled', 'AbortError'));
+
+        await expect(pending).rejects.toMatchObject({code: 'canceled'});
+        expect(mocks.documentOpen.cancelOpenDocumentDirectBatch).toHaveBeenCalledWith('combine-request-1');
+    });
+
+    it('rejects oversized browser inputs with a structured limit code before starting work', async () => {
+        mocks.hasElectronAPI.mockReturnValue(false);
+        const oversized = {
+            name: 'huge.png',
+            size: (32 * 1024 * 1024) + 1,
+        } as File;
+
+        await expect(combinePdfFiles({
+            files: [{file: oversized}],
+            outputName: 'combined.pdf',
+            openErrorMessage: 'open failed',
+        })).rejects.toEqual(expect.objectContaining<Partial<CombinePdfError>>({code: 'limit'}));
+        expect(mocks.documentPicker.createCombinedPdfFromFiles).not.toHaveBeenCalled();
     });
 });

@@ -69,7 +69,7 @@ vi.mock('@app/composables/useDjvu', () => ({useDjvu: () => ({
     }),
     showBanner: ref(true),
     showConvertDialog: ref(false),
-    viewingError: ref(null),
+    sourceError: ref(null),
     openingPath: ref(null),
     openDjvuFile: vi.fn(),
     invalidatePendingDjvuOpen: vi.fn(),

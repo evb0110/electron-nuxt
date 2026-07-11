@@ -6,8 +6,11 @@ import {
     getAssetExtension,
     isInstallerAsset,
     normalizeInstallers,
+    normalizeCanaryPercent,
+    parseReleaseTagList,
     parseUserAgent,
     recommendInstaller,
+    selectReleaseForRollout,
     type ILatestReleaseResponse,
     type IReleaseInstaller,
 } from '@releaseSelection';
@@ -23,6 +26,8 @@ interface IGithubReleaseAsset {
 }
 
 interface IGithubRelease {
+    draft?: boolean
+    prerelease?: boolean
     tag_name: string
     name: string
     published_at: string
@@ -66,11 +71,28 @@ export default defineEventHandler(async (event): Promise<ILatestReleaseResponse>
     }
 
     async function fetchLatestRelease(): Promise<IGithubRelease> {
-        return $fetch<IGithubRelease>(`${githubApiBase}/repos/${githubOwner}/${githubRepo}/releases/latest`, {
+        const releases = await $fetch<IGithubRelease[]>(`${githubApiBase}/repos/${githubOwner}/${githubRepo}/releases`, {
             headers,
+            query: {per_page: 30},
             retry: 0,
             timeout: 8_000,
         });
+        const stableTags = parseReleaseTagList(String(config.releaseStableTags || ''));
+        const selected = selectReleaseForRollout(releases, {
+            canaryPercent: normalizeCanaryPercent(String(config.releaseCanaryPercent || '0')),
+            canaryTag: String(config.releaseCanaryTag || '').trim() || null,
+            stableTags,
+            withdrawnTags: new Set(parseReleaseTagList(String(config.releaseWithdrawnTags || ''))),
+        }, getHeader(event, 'x-forwarded-for') ?? getHeader(event, 'user-agent') ?? 'anonymous');
+        if (!selected) {
+            throw createError({
+                statusCode: 503,
+                statusMessage: stableTags.length > 0
+                    ? 'No configured stable release is currently available'
+                    : 'No public release is currently available',
+            });
+        }
+        return selected;
     }
 
     let releaseResult: {

@@ -13,7 +13,7 @@ import {
 function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
     return {
         id: 'comment-1',
-        stableKey: 'stable-comment-1',
+        stableKey: 'ann:0:stable-comment-1',
         pageIndex: 0,
         pageNumber: 1,
         text: 'Sample note text',

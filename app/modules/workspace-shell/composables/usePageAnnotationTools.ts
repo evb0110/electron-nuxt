@@ -7,6 +7,7 @@ import type {
     IShapeAnnotation,
     TAnnotationCommentsStatus,
     TAnnotationTool,
+    TShapeAnnotationPatch,
 } from '@app/types/annotations';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { isShapeTool } from '@app/modules/pdf-viewer/public';
@@ -16,7 +17,7 @@ interface IPdfViewerForAnnotationTools {
     clearSelectedShape: () => void;
     selectedShapeId: string | null;
     getSelectedShape: () => (IShapeAnnotation & { pdfSubtype?: string | null | undefined }) | null;
-    updateShape: (id: string, updates: Partial<IShapeAnnotation>) => void;
+    updateShape: (id: string, updates: TShapeAnnotationPatch) => void;
 }
 
 interface IPageAnnotationToolsDeps {

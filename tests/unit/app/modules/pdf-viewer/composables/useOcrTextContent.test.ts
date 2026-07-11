@@ -7,14 +7,37 @@ import {
     vi,
 } from 'vitest';
 import type { PageViewport } from 'pdfjs-dist';
+import {requireDocumentRevisionToken} from '@contracts';
+import type { IOcrWord } from '@contracts/shared';
 
-const mockDocuments = {
-    fileExists: vi.fn(),
-    readTextFile: vi.fn(),
-};
-vi.mock('@app/utils/platformDocuments', () => ({ getDocumentFilesCapability: () => mockDocuments }));
+const resolveDocumentTextCatalog = vi.hoisted(() => vi.fn());
+vi.mock('@app/utils/getOcrCapability', () => ({getOcrCapability: () => ({resolveDocumentTextCatalog})}));
+vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {warn: vi.fn()}}));
 
-const TEST_DOCUMENT_REVISION = 'revision-token';
+const TEST_DOCUMENT_REVISION = requireDocumentRevisionToken('revision-token');
+
+function createSnapshot(words: IOcrWord[]) {
+    return {
+        documentRevision: TEST_DOCUMENT_REVISION,
+        pageCount: 1,
+        pages: [{
+            pageNumber: 1,
+            text: words.map(word => word.text).join(' '),
+            words,
+            source: 'evb-ocr',
+            languages: ['eng'],
+            render: {
+                dpi: 300,
+                imagePx: {
+                    w: 100,
+                    h: 100,
+                },
+            },
+            contentDigest: 'page-digest',
+        }],
+        contentDigest: 'snapshot-digest',
+    };
+}
 
 function createViewport(): PageViewport {
     return {
@@ -43,29 +66,21 @@ function createViewport(): PageViewport {
             pageWidth: 100,
             pageHeight: 100,
         },
-        clone() {
-            return createViewport();
-        },
-        convertToViewportPoint() {
-            return [
-                0,
-                0,
-            ];
-        },
-        convertToViewportRectangle() {
-            return [
-                0,
-                0,
-                0,
-                0,
-            ];
-        },
-        convertToPdfPoint() {
-            return [
-                0,
-                0,
-            ];
-        },
+        clone: createViewport,
+        convertToViewportPoint: () => [
+            0,
+            0,
+        ],
+        convertToViewportRectangle: () => [
+            0,
+            0,
+            0,
+            0,
+        ],
+        convertToPdfPoint: () => [
+            0,
+            0,
+        ],
     };
 }
 
@@ -73,48 +88,13 @@ describe('useOcrTextContent', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
-        mockDocuments.fileExists.mockResolvedValue(true);
-        mockDocuments.readTextFile.mockImplementation(async (path: string) => {
-            if (path.endsWith('manifest.json')) {
-                return JSON.stringify({
-                    version: 3,
-                    documentRevision: {token: TEST_DOCUMENT_REVISION},
-                    createdAt: 1,
-                    source: {pdfPath: '/tmp/doc.pdf'},
-                    pageCount: 1,
-                    pageBox: 'crop',
-                    ocr: {
-                        engine: 'tesseract',
-                        languages: ['eng'],
-                        renderDpi: 300,
-                    },
-                    pages: {1: {path: 'page-1.json'}},
-                });
-            }
-            if (path.endsWith('page-1.json')) {
-                return JSON.stringify({
-                    pageNumber: 1,
-                    documentRevision: {token: TEST_DOCUMENT_REVISION},
-                    rotation: 0,
-                    render: {
-                        dpi: 300,
-                        imagePx: {
-                            w: 100,
-                            h: 100,
-                        },
-                    },
-                    text: 'hello world',
-                    words: [{
-                        text: 'hello',
-                        x: 10,
-                        y: 10,
-                        width: 20,
-                        height: 10,
-                    }],
-                });
-            }
-            throw new Error(`Unexpected path: ${path}`);
-        });
+        resolveDocumentTextCatalog.mockResolvedValue(createSnapshot([{
+            text: 'hello',
+            x: 10,
+            y: 10,
+            width: 20,
+            height: 10,
+        }]));
         vi.stubGlobal('document', {createElement: () => ({getContext: () => ({
             font: '',
             measureText: () => ({
@@ -124,158 +104,72 @@ describe('useOcrTextContent', () => {
         })})});
     });
 
-    afterEach(() => {
-        vi.unstubAllGlobals();
-    });
+    afterEach(() => vi.unstubAllGlobals());
 
-    it('shares manifest and page caches across composable callers and clears by path', async () => {
+    it('shares canonical snapshots across composable callers and clears by path', async () => {
         const {useOcrTextContent} = await import('@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent');
-
         const first = useOcrTextContent();
         const second = useOcrTextContent();
-        const viewport = createViewport();
 
         await expect(first.hasOcrData('/tmp/doc.pdf', TEST_DOCUMENT_REVISION)).resolves.toBe(true);
-        await expect(first.getOcrTextContent('/tmp/doc.pdf', TEST_DOCUMENT_REVISION, 1, viewport)).resolves.not.toBeNull();
-        await expect(second.getOcrTextContent('/tmp/doc.pdf', TEST_DOCUMENT_REVISION, 1, viewport)).resolves.not.toBeNull();
-
-        expect(mockDocuments.fileExists).toHaveBeenCalledTimes(2);
-        expect(mockDocuments.readTextFile).toHaveBeenCalledTimes(2);
+        await expect(first.getOcrTextContent('/tmp/doc.pdf', TEST_DOCUMENT_REVISION, 1, createViewport())).resolves.not.toBeNull();
+        await expect(second.getOcrTextContent('/tmp/doc.pdf', TEST_DOCUMENT_REVISION, 1, createViewport())).resolves.not.toBeNull();
+        expect(resolveDocumentTextCatalog).toHaveBeenCalledTimes(1);
 
         first.clearCache('/tmp/doc.pdf');
-
         await expect(second.hasOcrData('/tmp/doc.pdf', TEST_DOCUMENT_REVISION)).resolves.toBe(true);
-        expect(mockDocuments.fileExists).toHaveBeenCalledTimes(3);
-        expect(mockDocuments.readTextFile).toHaveBeenCalledTimes(3);
+        expect(resolveDocumentTextCatalog).toHaveBeenCalledTimes(2);
     });
 
     it('uses the visual line box when OCR words in the same line have different heights', async () => {
-        mockDocuments.readTextFile.mockImplementation(async (path: string) => {
-            if (path.endsWith('manifest.json')) {
-                return JSON.stringify({
-                    version: 3,
-                    documentRevision: {token: TEST_DOCUMENT_REVISION},
-                    createdAt: 1,
-                    source: {pdfPath: '/tmp/mixed.pdf'},
-                    pageCount: 1,
-                    pageBox: 'crop',
-                    ocr: {
-                        engine: 'tesseract',
-                        languages: ['eng'],
-                        renderDpi: 300,
-                    },
-                    pages: {1: {path: 'page-1.json'}},
-                });
-            }
-            if (path.endsWith('page-1.json')) {
-                return JSON.stringify({
-                    pageNumber: 1,
-                    documentRevision: {token: TEST_DOCUMENT_REVISION},
-                    rotation: 0,
-                    render: {
-                        dpi: 300,
-                        imagePx: {
-                            w: 100,
-                            h: 100,
-                        },
-                    },
-                    text: 'small TALL',
-                    words: [
-                        {
-                            text: 'small',
-                            x: 10,
-                            y: 20,
-                            width: 20,
-                            height: 10,
-                        },
-                        {
-                            text: 'TALL',
-                            x: 35,
-                            y: 12,
-                            width: 25,
-                            height: 30,
-                        },
-                    ],
-                });
-            }
-            throw new Error(`Unexpected path: ${path}`);
-        });
-
+        resolveDocumentTextCatalog.mockResolvedValue(createSnapshot([
+            {
+                text: 'small',
+                x: 10,
+                y: 20,
+                width: 20,
+                height: 10,
+            },
+            {
+                text: 'TALL',
+                x: 35,
+                y: 12,
+                width: 25,
+                height: 30,
+            },
+        ]));
         const {useOcrTextContent} = await import('@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent');
         const textContent = await useOcrTextContent().getOcrTextContent(
-            '/tmp/mixed.pdf',
-            TEST_DOCUMENT_REVISION,
-            1,
-            createViewport(),
+            '/tmp/mixed.pdf', TEST_DOCUMENT_REVISION, 1, createViewport(),
         );
 
         expect(textContent?.items).toHaveLength(2);
         expect(textContent?.items[0]?.height).toBe(30);
-        expect(textContent?.items[0]?.transform[3]).toBe(30);
-        expect(textContent?.items[1]?.height).toBe(30);
         expect(textContent?.items[1]?.transform[3]).toBe(30);
     });
 
     it('reuses the resolved ascent ratio for all OCR text items', async () => {
         const createElement = vi.fn(() => ({getContext: () => null}));
         vi.stubGlobal('document', {createElement});
-        mockDocuments.readTextFile.mockImplementation(async (path: string) => {
-            if (path.endsWith('manifest.json')) {
-                return JSON.stringify({
-                    version: 3,
-                    documentRevision: {token: TEST_DOCUMENT_REVISION},
-                    createdAt: 1,
-                    source: {pdfPath: '/tmp/fallback.pdf'},
-                    pageCount: 1,
-                    pageBox: 'crop',
-                    ocr: {
-                        engine: 'tesseract',
-                        languages: ['eng'],
-                        renderDpi: 300,
-                    },
-                    pages: {1: {path: 'page-1.json'}},
-                });
-            }
-            if (path.endsWith('page-1.json')) {
-                return JSON.stringify({
-                    pageNumber: 1,
-                    documentRevision: {token: TEST_DOCUMENT_REVISION},
-                    rotation: 0,
-                    render: {
-                        dpi: 300,
-                        imagePx: {
-                            w: 100,
-                            h: 100,
-                        },
-                    },
-                    text: 'hello world',
-                    words: [
-                        {
-                            text: 'hello',
-                            x: 10,
-                            y: 10,
-                            width: 20,
-                            height: 10,
-                        },
-                        {
-                            text: 'world',
-                            x: 35,
-                            y: 10,
-                            width: 20,
-                            height: 10,
-                        },
-                    ],
-                });
-            }
-            throw new Error(`Unexpected path: ${path}`);
-        });
-
+        resolveDocumentTextCatalog.mockResolvedValue(createSnapshot([
+            {
+                text: 'hello',
+                x: 10,
+                y: 10,
+                width: 20,
+                height: 10,
+            },
+            {
+                text: 'world',
+                x: 35,
+                y: 10,
+                width: 20,
+                height: 10,
+            },
+        ]));
         const {useOcrTextContent} = await import('@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent');
         const textContent = await useOcrTextContent().getOcrTextContent(
-            '/tmp/fallback.pdf',
-            TEST_DOCUMENT_REVISION,
-            1,
-            createViewport(),
+            '/tmp/fallback.pdf', TEST_DOCUMENT_REVISION, 1, createViewport(),
         );
 
         expect(textContent?.items).toHaveLength(2);

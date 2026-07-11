@@ -46,7 +46,7 @@
                 @save-as="handleToolbarSaveAs"
                 @print="handlePrint"
                 @print-current-page="handlePrintCurrentPage"
-                @combine-images="handleOpenCombine"
+                @combine-files="handleOpenCombine"
                 @export-docx="handleToolbarExportDocx"
                 @ocr-export-docx="handleExportDocx"
                 @export-images="handleExportImages()"
@@ -54,8 +54,8 @@
                 @convert-to-pdf="openConvertDialog"
                 @undo="handleToolbarUndo"
                 @redo="handleToolbarRedo"
-                @insert-image-from-file="annotationSession.handleInsertImageFromFile"
-                @paste-image-from-clipboard="annotationSession.handlePasteImageFromClipboard"
+                @insert-image-from-file="handleInsertImageFromFile"
+                @paste-image-from-clipboard="handlePasteImageFromClipboard"
                 @delete-pages="handleDeletePages"
                 @extract-pages="handleExtractPages"
                 @rotate-cw="handleRotateCw"
@@ -76,7 +76,6 @@
                 @ocr-complete="handleOcrComplete"
             />
         </WorkspaceToolbarHost>
-
         <WorkspaceDocumentAlerts
             :pdf-error="pdfError"
             :show-djvu-conversion-ui="showDjvuConversionUi"
@@ -90,13 +89,13 @@
             @convert="openConvertDialog"
             @dismiss="djvuDismissBanner"
         />
-
         <WorkspaceSidebarHost
             :show-sidebar="Boolean(showStandardPdfViewer && showSidebar)"
             :sidebar-wrapper-style="sidebarWrapperStyle"
             :is-resizing-sidebar="isResizingSidebar"
             :resize-aria-label="t('sidebar.resize')"
             @resize-start="startSidebarResize"
+            @container-resize="setSidebarContainerWidth"
         >
             <template #sidebar>
                 <PdfSidebar
@@ -136,7 +135,6 @@
                     :selected-thumbnail-pages="selectedThumbnailPages"
                     :thumbnail-invalidation-request="thumbnailInvalidationRequest"
                     :thumbnail-hidden-annotation-ids="thumbnailHiddenAnnotationIds"
-                    :thumbnail-page-preview-provider="pdfViewerRef?.getPagePreview ?? null"
                     @search="handleSearchWhenDocumentReady"
                     @next="handleSearchNext"
                     @previous="handleSearchPrevious"
@@ -191,6 +189,7 @@
                         :open-in-progress="pendingDocumentOpen"
                         :start-section="startSection"
                         can-combine-files
+                        :open-combine-result="documentControls.handleOpenFileWithResult"
                         @update:start-section="handleStartSectionUpdate"
                         @open-file="documentControls.handleOpenFileFromUi"
                         @open-folder="documentControls.handleOpenFolderFromUi"
@@ -200,7 +199,6 @@
                         @clear-recent="clearRecentFiles"
                         @open-settings="handleOpenSettings"
                         @combine-files="handleOpenCombine"
-                        @open-combine-result="documentControls.handleOpenFileWithResult"
                     />
                 </template>
             </WorkspaceViewerHost>
@@ -255,7 +253,7 @@
             @update-note-position="updateAnnotationNotePosition"
             @minimize-note="minimizeAnnotationNote"
             @restore-note="restoreAnnotationNote"
-            @delete-comment="annotationSession.handleDeleteAnnotationComment"
+            @delete-annotation="annotationSession.handleDeleteAnnotationById"
             @focus-note="bringAnnotationNoteToFront"
             @context-open-note="annotationSession.openContextMenuNote"
             @context-copy-text="annotationSession.copyContextMenuNoteText"
@@ -344,7 +342,6 @@ import { PdfEmptyState } from '@app/modules/pdf-viewer/public/component-exports/
 import { PdfSidebar } from '@app/modules/pdf-viewer/public/component-exports/pdfSidebar';
 import { PdfStatusBar } from '@app/modules/pdf-viewer/public/component-exports/pdfStatusBar';
 import { useAnalytics } from '@app/composables/useAnalytics';
-import { bucketPageCount } from '@app/utils/analytics';
 import { createWorkspaceExpose } from '@app/modules/workspace-shell/expose/createWorkspaceExpose';
 import WorkspaceAnnotationOverlays from '@app/modules/workspace-shell/components/WorkspaceAnnotationOverlays.vue';
 import WorkspaceDocumentAlerts from '@app/modules/workspace-shell/components/WorkspaceDocumentAlerts.vue';
@@ -371,6 +368,7 @@ import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composa
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
 import type { IWorkspaceSplitCacheSessionState } from '@app/modules/workspace-shell/composables/workspaceSplitTypes';
 import { useWorkspaceViewerVisibility } from '@app/modules/workspace-shell/composables/useWorkspaceViewerVisibility';
+import { useDocumentWorkspaceViewerPresentation } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceViewerPresentation';
 import { useDocumentWorkspaceVisualOpeningState } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceVisualOpeningState';
 import { useDocumentTransitionSkeletonLease } from '@app/modules/workspace-shell/composables/useDocumentTransitionSkeletonLease';
 import { useDocumentWorkspaceDocumentRecord } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceDocumentRecord';
@@ -387,7 +385,6 @@ import type {
     IWorkspaceToolbarSnapshot,
 } from '@app/types/workspaceExpose';
 import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
-import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     getDocumentMenuCapability,
     getDocumentWindowCapability,
@@ -402,9 +399,12 @@ import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/stat
 import type { IWorkspaceDocumentSessionController } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
 import { useWorkspaceViewerAdapterBinding } from '@app/modules/workspace-shell/viewers/useWorkspaceViewerAdapterBinding';
 import { emitAutomationEvent } from '@app/modules/workspace-shell/automation/automationReadinessEvents';
-
+import {
+    useDjvuProjectionActions,
+    useWorkspaceSourceCapabilityProjection,
+} from '@app/modules/workspace-shell/composables/useDjvuProjectionActions';
+import { createWorkspaceViewerUpdateHandlers } from '@app/modules/workspace-shell/viewers/createWorkspaceViewerUpdateHandlers';
 const DjvuConversionOverlay = defineAsyncComponent(() => import('@app/modules/djvu-viewer/public').then(componentModule => componentModule.DjvuConversionOverlay));
-
 const {
     fullscreenSupported,
     isActive,
@@ -459,23 +459,10 @@ const emit = defineEmits<{
     'expose-ready': [expose: IWorkspaceExpose];
     'expose-released': [];
 }>();
-
-function handleStartSectionUpdate(section: TStartSection) {
-    emit('update:start-section', section);
-}
-
-function handleOpenSettings() {
-    emit('open-settings');
-}
-
-function handleOpenCombine() {
-    emit('open-combine');
-}
-
-function handleToggleFullscreen() {
-    emit('toggle-fullscreen');
-}
-
+const handleStartSectionUpdate = (section: TStartSection) => emit('update:start-section', section);
+const handleOpenSettings = () => emit('open-settings');
+const handleOpenCombine = () => emit('open-combine');
+const handleToggleFullscreen = () => emit('toggle-fullscreen');
 const { t } = useTypedI18n();
 const analytics = useAnalytics();
 const analyticsDocumentScope = analytics.createDocumentScope(
@@ -520,11 +507,20 @@ watch(
     { immediate: true },
 );
 
+const documentSourceCapabilities = ref({
+    annotations: false,
+    directImageExport: false,
+    outline: false,
+    pageEdits: false,
+    search: false,
+    text: false,
+});
 const orchestration = useWorkspaceOrchestration({
     analyticsDocumentScope,
     isActive: isActiveRef,
     initialViewState,
     pendingDocumentPath: pendingDocumentStatusPath,
+    sourceCapabilities: documentSourceCapabilities,
     emit,
 });
 
@@ -565,6 +561,7 @@ const {
     openConvertDialog,
     djvuDismissBanner,
     handleDjvuConvert,
+    ensureDjvuPdfProjection,
     handleDjvuCancel,
     openBatchProgress,
     recentFiles,
@@ -625,6 +622,7 @@ const {
     sidebarWrapperStyle,
     isResizingSidebar,
     startSidebarResize,
+    setSidebarContainerWidth,
     cleanupSidebarResizeListeners,
 } = viewerShell;
 const isExternalWorkspaceLayoutResizingRef = toRef(() => isExternalWorkspaceLayoutResizing === true);
@@ -717,8 +715,8 @@ const {
     handleRepairSave,
     handleOptimizePdfForInteraction: handleOptimizePdfForInteractionDirect,
     handleOptimizePdfAsCopy,
-    handleSaveAs,
-    handleExportDocx,
+    handleSaveAs: handleSaveAsDirect,
+    handleExportDocx: handleExportDocxDirect,
     handleOcrComplete,
     docxExportError,
     isAnySaving,
@@ -772,7 +770,7 @@ const {
     handleZoomIn,
     handleZoomOut,
     handleActualSize,
-    handleDropdownOpen,
+    handleDropdownOpen: handleDropdownOpenDirect,
     captureSplitPayload,
     restoreSplitPayload,
 } = interactionControls;
@@ -835,7 +833,7 @@ const {
     nativePdfSourcePath,
     showNativePdfViewer,
     showStandardPdfViewer,
-    showNativeDjvuViewer,
+    showDjvuSource,
     showNativePreviewViewer,
     isDocumentOpenPlaceholderVisible,
     isOpeningDocumentForToolbar,
@@ -861,6 +859,7 @@ const {
     pdfSrc,
     showSidebar,
 });
+useWorkspaceSourceCapabilityProjection(activeViewerAdapter, documentSourceCapabilities);
 
 const {
     scheduleStartupOpenVisualReady,
@@ -883,7 +882,7 @@ const {
     isLoading,
     pdfError,
     djvuError,
-    showNativeDjvuViewer,
+    showDjvuSource,
     showNativePdfViewer,
     markAnnotationCommentsLoading,
 });
@@ -898,6 +897,25 @@ const {
     pendingDocumentOpen,
     pdfError,
 });
+const {
+    handleCurrentPage: handleViewerCurrentPageUpdate,
+    handleTotalPages: handleViewerTotalPagesUpdate,
+} = createWorkspaceViewerUpdateHandlers({
+    analytics: analyticsDocumentScope,
+    tabId,
+    pdfSrc,
+    currentPage,
+    totalPages,
+    showSidebar,
+    sidebarTab,
+    isLoading,
+    continuousScroll,
+    fitMode,
+    viewMode,
+    zoom,
+    viewerRef: documentViewerRef,
+    shouldAcceptPage: shouldAcceptViewerCurrentPageUpdate,
+});
 
 const {
     activeViewerComponent,
@@ -906,6 +924,9 @@ const {
     bindActiveViewerRef,
 } = useWorkspaceViewerAdapterBinding({
     activeViewerAdapter,
+    onSourceCapabilitiesUpdate: (capabilities) => {
+        documentSourceCapabilities.value = capabilities;
+    },
     annotationCursorMode,
     annotationKeepActive,
     annotationSettings,
@@ -930,6 +951,7 @@ const {
     nativePdfViewerRef,
     djvuViewerRef,
     sourcePdfData: viewerSourcePdfData,
+    showSidebar,
     viewMode,
     workingCopyPath,
     documentRevisionToken,
@@ -948,7 +970,7 @@ const {
     onCurrentPageUpdate: handleViewerCurrentPageUpdate,
     onDocumentUpdate: value => { pdfDocument.value = value as typeof pdfDocument.value; },
     onEffectiveZoomUpdate: value => { effectiveZoom.value = value; },
-    onFitModeUpdate: value => { fitMode.value = value as typeof fitMode.value; },
+    onFitModeUpdate: value => { fitMode.value = value; },
     onImagePlacementFinalize: annotationSession.handleFinalizePlacedImage,
     onInitialVisualPending: handleDocumentInitialVisualPending,
     onInitialVisualReady: handleDocumentInitialVisualReadyWithAutomationEvent,
@@ -957,7 +979,7 @@ const {
     onNavigationFeedbackPageUpdate: value => { navigationFeedbackPage.value = value; },
     onShapeContextMenu: annotationSession.handleShapeContextMenu,
     onTotalPagesUpdate: handleViewerTotalPagesUpdate,
-    onZoomModeUpdate: value => { zoomMode.value = value as typeof zoomMode.value; },
+    onZoomModeUpdate: value => { zoomMode.value = value; },
     onZoomUpdate: value => { zoom.value = value; },
 });
 
@@ -987,65 +1009,32 @@ const {
     isAnySaving,
     t,
 });
-const showWorkspaceViewerDocument = computed(() => (
-    showStandardPdfViewer.value
-    || showNativePdfViewer.value
-    || showNativeDjvuViewer.value
-));
-const activeViewerMounted = computed(() => Boolean(documentViewerRef.value));
-const hasPendingViewerSource = computed(() => (
-    Boolean(pdfSrc.value)
-    || Boolean(nativePdfSourcePath.value)
-    || Boolean(djvuSourcePath.value)
-));
-const showPendingViewerMountSkeleton = computed(() => (
-    Boolean(activeViewerAdapter.value)
-    && hasPendingViewerSource.value
-    && !activeViewerMounted.value
-));
-const showPendingDocumentOpenSkeleton = computed(() => (
-    (
-        isDocumentOpenPlaceholderVisible.value
-        || showPendingViewerMountSkeleton.value
-    )
-    && !showWorkspaceViewerDocument.value
-    && !pdfError.value
-    && !djvuError.value
-));
-const showWorkspaceTransitionSkeleton = computed(() => (
-    showDocumentTransitionSkeleton.value
-    || showPendingViewerMountSkeleton.value
-    || showPendingDocumentOpenSkeleton.value
-));
-const hasDjvuBannerOpeningContext = computed(() => (
-    pendingDjvuDocumentOpen.value
-    || Boolean(djvuOpeningPath.value)
-    || isDjvuMode.value
-    || showNativeDjvuViewer.value
-));
-const djvuBannerOpening = computed(() => (
-    hasDjvuBannerOpeningContext.value
-    && !djvuError.value
-    && (
-        pendingDjvuDocumentOpen.value
-        || Boolean(djvuOpeningPath.value)
-        || showWorkspaceTransitionSkeleton.value
-        || (
-            showNativeDjvuViewer.value
-            && !initialDocumentVisualReady.value
-        )
-    )
-));
-const showDjvuConversionUi = computed(() => (
-    canUseDjvu
-    && (
-        activeViewerCapabilities.value?.conversionBanner === true
-        || activeViewerCapabilities.value?.conversionDialog === true
-        || pendingDjvuDocumentOpen.value
-        || Boolean(djvuOpeningPath.value)
-        || conversionState.value.isConverting
-    )
-));
+const {
+    djvuBannerOpening,
+    showDjvuConversionUi,
+    showWorkspaceTransitionSkeleton,
+    showWorkspaceViewerDocument,
+} = useDocumentWorkspaceViewerPresentation({
+    activeViewerAdapter,
+    activeViewerCapabilities: computed(() => activeViewerCapabilities.value ?? null),
+    canUseDjvu,
+    conversionState,
+    djvuError,
+    djvuOpeningPath,
+    djvuSourcePath,
+    documentViewerRef,
+    initialDocumentVisualReady,
+    isDjvuMode,
+    isDocumentOpenPlaceholderVisible,
+    nativePdfSourcePath,
+    pdfError,
+    pdfSrc,
+    pendingDjvuDocumentOpen,
+    showDocumentTransitionSkeleton,
+    showDjvuSource,
+    showNativePdfViewer,
+    showStandardPdfViewer,
+});
 const {
     handleOptimizeDialogOpenChange,
     handleOptimizeDialogSubmit,
@@ -1065,27 +1054,31 @@ const {
         });
     },
 });
-async function revealRecentFile(file: IRecentFile) {
-    try {
-        await getDocumentWindowCapability().showItemInFolder(file.originalPath);
-    } catch {
-        // Best-effort; ignore failures (path may have moved or permissions changed).
-    }
-}
+const revealRecentFile = (file: IRecentFile) => getDocumentWindowCapability()
+    .showItemInFolder(file.originalPath)
+    .catch(() => undefined);
 
-function handleViewerTotalPagesUpdate(value: number) {
-    // Suppress split-restore totalPages=0 until the viewer emits the parsed count.
-    if (value === 0 && Boolean(pdfSrc.value)) {
-        return;
-    }
-    totalPages.value = value;
-    if (value > 0) {
-        analyticsDocumentScope.merge({
-            pageCountBucket: bucketPageCount(value),
-            totalPages: value,
-        });
-    }
-}
+const {
+    ensureEditProjection,
+    handleDropdownOpen,
+    handleExportDocx,
+    handleInsertImageFromFile,
+    handlePasteImageFromClipboard,
+    handleQuickNoteAction,
+    handleSaveAs,
+    runEdit: runPdfEditAction,
+} = useDjvuProjectionActions({
+    isDjvuMode,
+    currentPage,
+    documentViewerRef,
+    ensureProjection: reason => ensureDjvuPdfProjection(reason, new AbortController().signal),
+    saveAs: handleSaveAsDirect,
+    exportDocx: handleExportDocxDirect,
+    handleDropdownOpen: handleDropdownOpenDirect,
+    insertImageFromFile: annotationSession.handleInsertImageFromFile,
+    pasteImageFromClipboard: annotationSession.handlePasteImageFromClipboard,
+    createQuickNote: annotationSession.handleQuickNoteAction,
+});
 
 const {
     canExportDocx,
@@ -1120,8 +1113,8 @@ const {
     handleUndo,
     handleRedo,
     handleCaptureRegion,
-    handleCrop,
-    handleQuickNoteAction: annotationSession.handleQuickNoteAction,
+    handleCrop: () => runPdfEditAction(handleCrop),
+    handleQuickNoteAction,
     handleFitMode,
     handleAnnotationToolChange,
     enableDragMode,
@@ -1209,55 +1202,10 @@ const {
 } = useDocumentWorkspacePageOperationHandlers({
     documentControls,
     handleExportImages,
+    ensurePdfProjectionForEdit: ensureEditProjection,
     selectedThumbnailPages,
     totalPages,
 });
-
-function handleViewerCurrentPageUpdate(page: number) {
-    const previousPage = currentPage.value;
-    const viewer = documentViewerRef.value?.getViewerContainer?.() ?? null;
-    if (!shouldAcceptViewerCurrentPageUpdate(page)) {
-        BrowserLogger.diagnostic('pdf-nav', `[workspace-page-update] ignored stale viewer page ${previousPage}->${page}`, {
-            previousPage,
-            ignoredPage: page,
-            sidebarOpen: showSidebar.value,
-            sidebarTab: sidebarTab.value,
-            totalPages: totalPages.value,
-            isLoading: isLoading.value,
-            continuousScroll: continuousScroll.value,
-            fitMode: fitMode.value,
-            viewMode: viewMode.value,
-            zoom: zoom.value,
-            viewerScrollTop: viewer ? Math.round(viewer.scrollTop) : null,
-            viewerScrollLeft: viewer ? Math.round(viewer.scrollLeft) : null,
-        });
-        return;
-    }
-    BrowserLogger.diagnostic('pdf-nav', `[workspace-page-update] viewer->workspace ${previousPage}->${page}`, {
-        previousPage,
-        nextPage: page,
-        changed: page !== previousPage,
-        sidebarOpen: showSidebar.value,
-        sidebarTab: sidebarTab.value,
-        totalPages: totalPages.value,
-        isLoading: isLoading.value,
-        continuousScroll: continuousScroll.value,
-        fitMode: fitMode.value,
-        viewMode: viewMode.value,
-        zoom: zoom.value,
-        viewerScrollTop: viewer ? Math.round(viewer.scrollTop) : null,
-        viewerScrollLeft: viewer ? Math.round(viewer.scrollLeft) : null,
-    });
-    currentPage.value = page;
-    void nextTick().then(() => {
-        emitAutomationEvent('navigation-idle', {
-            page,
-            previousPage,
-            tabId,
-            totalPages: totalPages.value,
-        });
-    });
-}
 
 function handleDocumentInitialVisualReadyWithAutomationEvent() {
     handleDocumentInitialVisualReady();
@@ -1404,6 +1352,7 @@ const {
     closeShapeProperties: annotationSession.closeShapeProperties,
     closeTextMarkupProperties: annotationSession.closeTextMarkupProperties,
     continuousScroll,
+    viewerCapabilities: computed(() => activeViewerCapabilities.value ?? createDefaultWorkspaceViewerCapabilities()),
     currentPage,
     documentIdentity: documentRevisionInfo,
     fitMode,
@@ -1413,7 +1362,9 @@ const {
     handleBookmarksChange,
     updateTextMarkupColorWithHistory: annotationSession.updateTextMarkupColorWithHistory,
     handleDeleteAnnotationComment: annotationSession.handleDeleteAnnotationComment,
-    handleDropdownOpen,
+    handleDropdownOpen: (dropdown, isOpen) => {
+        handleDropdownOpen(dropdown, isOpen);
+    },
     handleExportDocx,
     handleExportImages,
     handleExportMultiPageTiff,
@@ -1429,7 +1380,7 @@ const {
     handlePageRotate: documentControls.handlePageRotate,
     handlePrint,
     handlePrintCurrentPage,
-    handleQuickNoteAction: annotationSession.handleQuickNoteAction,
+    handleQuickNoteAction,
     handleSave,
     handleSaveAs,
     handleZoomIn,
@@ -1530,8 +1481,8 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     handleCaptureRegion: () => { void handleCaptureRegion(); },
     handleCrop: () => { void handleToolbarCrop(); },
     handleQuickNote: () => { void annotationSession.handleQuickNoteAction(); },
-    handleInsertImageFromFile: async () => { await annotationSession.handleInsertImageFromFile(); },
-    handlePasteImageFromClipboard: async () => { await annotationSession.handlePasteImageFromClipboard(); },
+    handleInsertImageFromFile,
+    handlePasteImageFromClipboard,
     selectedThumbnailPages,
     pageOpsDelete: documentControls.pageOpsDelete,
     pageOpsExtract: documentControls.pageOpsExtract,

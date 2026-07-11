@@ -12,6 +12,7 @@ import { parseCssRgbColor } from '@app/modules/pdf-viewer/engine/text-markup-col
 import { rgbToHex } from '@app/modules/pdf-viewer/engine/text-markup-color/rgbToHex';
 import { toOpaqueHighlightDisplayColor } from '@app/modules/pdf-viewer/engine/text-markup-color/toOpaqueHighlightDisplayColor';
 import { collectTextMarkupElementCandidates } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/collectTextMarkupElementCandidates';
+import { parseMarkupSubtype } from '@contracts/annotations';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 
@@ -39,27 +40,6 @@ interface IReconcileTextMarkupVisualOverlaysOptions {
     requireColorEdited: boolean;
     resolveColor: (comment: IAnnotationCommentSummary) => string | null;
     resolveHighlightOpacity?: ((comment: IAnnotationCommentSummary) => number | null | undefined) | undefined;
-}
-
-function normalizeTextMarkupSubtype(subtype: string | null | undefined) {
-    return (subtype ?? '').trim().toLowerCase();
-}
-
-function toTextMarkupSubtype(subtype: string | null | undefined): TMarkupSubtype | null {
-    const normalized = normalizeTextMarkupSubtype(subtype);
-    if (normalized === 'highlight') {
-        return 'Highlight';
-    }
-    if (normalized === 'underline') {
-        return 'Underline';
-    }
-    if (normalized === 'squiggly') {
-        return 'Squiggly';
-    }
-    if (normalized === 'strikeout') {
-        return 'StrikeOut';
-    }
-    return null;
 }
 
 function getEditedTextMarkupVisualKey(comment: IAnnotationCommentSummary) {
@@ -401,7 +381,7 @@ export function reconcileTextMarkupVisualOverlays(
 
         pageComments.forEach((comment) => {
             const color = options.resolveColor(comment)?.trim();
-            const subtype = toTextMarkupSubtype(comment.subtype);
+            const subtype: TMarkupSubtype | null = parseMarkupSubtype(comment.subtype);
             const rect = normalizeMarkerRect(comment.markerRect);
             if (!color || !subtype || !rect) {
                 return;

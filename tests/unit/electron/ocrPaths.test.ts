@@ -26,6 +26,7 @@ vi.mock('child_process', () => ({spawn: vi.fn()}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
 vi.mock('@electron/utils/platformArch', () => ({resolvePlatformArchTag: () => 'darwin-arm64'}));
 vi.mock('@electron/ocr/languageModels', () => ({
+    TESSDATA_BEST_REF: 'test-tessdata-resource-version',
     ensureRuntimeTessdataSeeded: () => mocks.ensureRuntimeTessdataSeeded(),
     getRuntimeTessdataDir: () => '/repo/resources/tesseract/tessdata',
 }));
@@ -161,6 +162,9 @@ describe('getOcrToolPaths resource base resolution', () => {
                 },
             },
         });
+        const probeCount = mocks.runNativeToolCommand.mock.calls.length;
+        await validateOcrTools();
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledTimes(probeCount);
     });
 
     it('reports missing binaries and missing tessdata without probing versions', async () => {
@@ -225,18 +229,37 @@ describe('getOcrToolPaths resource base resolution', () => {
         });
     });
 
-    it('rejects tessdata directories missing canonical registry languages', async () => {
+    it('accepts packaged defaults and reports other supported models as on demand', async () => {
         mocks.readdirSync.mockReturnValue([
             'eng.traineddata',
-            'fra.traineddata',
+            'rus.traineddata',
         ]);
         const { validateOcrTools } = await import('@electron/ocr/paths');
 
         const result = await validateOcrTools();
 
+        expect(result.valid).toBe(true);
+        expect(result.errors).toEqual([]);
+        expect(result.tools.tessdata).toMatchObject({
+            languages: [
+                'eng',
+                'rus',
+            ],
+            onDemandLanguages: expect.arrayContaining([
+                'ara',
+                'fra',
+                'tur',
+            ]),
+        });
+    });
+
+    it('rejects tessdata directories missing a bundled default', async () => {
+        mocks.readdirSync.mockReturnValue(['eng.traineddata']);
+        const { validateOcrTools } = await import('@electron/ocr/paths');
+
+        const result = await validateOcrTools();
+
         expect(result.valid).toBe(false);
-        expect(result.errors).toContainEqual(expect.stringContaining('Missing registry language models in tessdata:'));
-        expect(result.errors.join('\n')).toContain('ara');
-        expect(result.errors.join('\n')).toContain('tur');
+        expect(result.errors).toContain('Missing bundled language models in tessdata: rus');
     });
 });

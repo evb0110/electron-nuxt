@@ -39,9 +39,13 @@ export function shouldPreferDesktopPlatform(
     routePath: string | null | undefined,
     desktopRuntime = false,
     electronApiAvailable = hasElectronAPI(),
-    electronUserAgent = isElectronUserAgent(),
+    _electronUserAgent = isElectronUserAgent(),
 ) {
-    return electronApiAvailable || desktopRuntime || electronUserAgent || isElectronRoutePath(routePath);
+    // An Electron-shaped user agent is not a capability boundary. Embedded
+    // browsers and automation hosts commonly expose it without installing the
+    // preload bridge; only an explicit desktop route/runtime or a real bridge
+    // may select the desktop platform.
+    return electronApiAvailable || desktopRuntime || isElectronRoutePath(routePath);
 }
 
 export function resolveInitialDesktopRuntime(routePath: string | null | undefined, electronApiAvailable = hasElectronAPI()) {

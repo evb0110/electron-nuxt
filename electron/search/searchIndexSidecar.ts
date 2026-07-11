@@ -14,50 +14,47 @@ import {
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import {
+    COMPACT_SEARCH_INDEX_HEADER_SIZE,
+    COMPACT_SEARCH_INDEX_MAGIC,
+    COMPACT_SEARCH_INDEX_PAGE_RECORD_SIZE,
+    COMPACT_SEARCH_INDEX_SCHEMA_VERSION,
+    COMPACT_SEARCH_INDEX_SOURCE_KIND_GENERIC,
+    COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER,
+    createCompactSearchIndexEncoding,
+    getCompactSearchIndexPath,
+    type ICompactSearchIndexPage,
+    type ICompactSearchIndexPageRecord,
+    type ICompactSearchIndexPayload,
+    type ICompactSearchIndexTextSource,
+} from '@contracts/searchIndexSidecar';
 
-export const COMPACT_SEARCH_INDEX_SCHEMA_VERSION = 2;
-export const COMPACT_SEARCH_INDEX_MAGIC = 'EVBSIDX2';
-export const COMPACT_SEARCH_INDEX_HEADER_SIZE = 64;
-export const COMPACT_SEARCH_INDEX_PAGE_RECORD_SIZE = 24;
-export const COMPACT_SEARCH_INDEX_SOURCE_KIND_GENERIC = 0;
-export const COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER = 1;
+export {
+    COMPACT_SEARCH_INDEX_HEADER_SIZE,
+    COMPACT_SEARCH_INDEX_MAGIC,
+    COMPACT_SEARCH_INDEX_PAGE_RECORD_SIZE,
+    COMPACT_SEARCH_INDEX_SCHEMA_VERSION,
+    COMPACT_SEARCH_INDEX_SOURCE_KIND_GENERIC,
+    COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER,
+    getCompactSearchIndexPath,
+};
+export type {
+    ICompactSearchIndexPage,
+    ICompactSearchIndexPayload,
+    ICompactSearchIndexTextSource,
+};
 
-const MAX_UINT32 = 0xFFFFFFFF;
 const MAX_UINT16 = 0xFFFF;
 const MAX_COMPACT_SEARCH_INDEX_PAGE_RECORDS = 1_000_000;
 const MAX_COMPACT_SEARCH_INDEX_PAGE_TEXT_BYTES = 32 * 1024 * 1024;
 const MAX_COMPACT_SEARCH_INDEX_TOTAL_TEXT_BYTES = 1024 * 1024 * 1024;
 const log = createLogger('search-index-sidecar');
 
-export interface ICompactSearchIndexTextSource {
-    kind: number;
-    version: number;
-}
-
-export interface ICompactSearchIndexPage {
-    pageNumber: number;
-    text: string;
-}
-
-export interface ICompactSearchIndexPayload {
-    documentRevision: TDocumentRevisionToken;
-    pageCount: number;
-    pages: readonly ICompactSearchIndexPage[];
-    textSource?: ICompactSearchIndexTextSource;
-}
-
 export interface ICompactSearchIndex {
     documentRevision: TDocumentRevisionToken;
     pageCount: number;
     pages: ICompactSearchIndexPage[];
     textSource: ICompactSearchIndexTextSource;
-}
-
-interface ICompactSearchIndexPageRecord {
-    pageNumber: number;
-    textUtf16Length: number;
-    byteOffset: bigint;
-    byteLength: bigint;
 }
 
 interface ILoadCompactSearchIndexOptions {
@@ -74,33 +71,8 @@ function throwIfAborted(signal?: AbortSignal) {
     }
 }
 
-function isUInt32(value: number) {
-    return Number.isSafeInteger(value) && value >= 0 && value <= MAX_UINT32;
-}
-
-function assertUInt32(value: number, label: string) {
-    if (!isUInt32(value)) {
-        throw new Error(`${label} must fit in an unsigned 32-bit integer`);
-    }
-}
-
-function assertUInt16(value: number, label: string) {
-    if (!Number.isSafeInteger(value) || value < 0 || value > MAX_UINT16) {
-        throw new Error(`${label} must fit in an unsigned 16-bit integer`);
-    }
-}
-
 function isPositiveInteger(value: unknown): value is number {
     return typeof value === 'number' && Number.isInteger(value) && value > 0;
-}
-
-function encodeTextSource(textSource: ICompactSearchIndexTextSource | undefined) {
-    if (!textSource) {
-        return 0;
-    }
-    assertUInt16(textSource.kind, 'textSource.kind');
-    assertUInt16(textSource.version, 'textSource.version');
-    return textSource.kind + textSource.version * 0x10000;
 }
 
 function decodeTextSource(value: number): ICompactSearchIndexTextSource {
@@ -119,92 +91,6 @@ function textSourcesMatch(
             actual.kind === required.kind
             && actual.version === required.version
         );
-}
-
-function normalizePages(
-    pages: readonly ICompactSearchIndexPage[],
-    signal?: AbortSignal,
-) {
-    const normalizedPages = [...pages].sort((a, b) => a.pageNumber - b.pageNumber);
-    const seenPageNumbers = new Set<number>();
-
-    for (const page of normalizedPages) {
-        throwIfAborted(signal);
-        assertUInt32(page.pageNumber, 'pageNumber');
-        if (page.pageNumber <= 0) {
-            throw new Error('pageNumber must be positive');
-        }
-        if (seenPageNumbers.has(page.pageNumber)) {
-            throw new Error(`Duplicate pageNumber in compact search index: ${page.pageNumber}`);
-        }
-        if (typeof page.text !== 'string') {
-            throw new Error('page text must be a string');
-        }
-        assertUInt32(page.text.length, 'textUtf16Length');
-        seenPageNumbers.add(page.pageNumber);
-    }
-
-    return normalizedPages;
-}
-
-function createHeaderAndRecords(
-    payload: ICompactSearchIndexPayload,
-    pages: readonly ICompactSearchIndexPage[],
-    signal?: AbortSignal,
-) {
-    if (!payload.documentRevision) {
-        throw new Error('documentRevision is required for compact search index');
-    }
-    assertUInt32(payload.pageCount, 'pageCount');
-    assertUInt32(pages.length, 'pageRecordCount');
-
-    const revisionTokenBytes = Buffer.from(payload.documentRevision, 'utf8');
-    assertUInt32(revisionTokenBytes.byteLength, 'revisionTokenByteLength');
-    const tableSize = pages.length * COMPACT_SEARCH_INDEX_PAGE_RECORD_SIZE;
-    const pageTableOffset = COMPACT_SEARCH_INDEX_HEADER_SIZE + revisionTokenBytes.byteLength;
-    const textDataOffset = pageTableOffset + tableSize;
-    let nextByteOffset = BigInt(textDataOffset);
-
-    const records: ICompactSearchIndexPageRecord[] = pages.map((page) => {
-        throwIfAborted(signal);
-        const byteLength = BigInt(Buffer.byteLength(page.text, 'utf8'));
-        const byteOffset = nextByteOffset;
-        nextByteOffset += byteLength;
-        return {
-            pageNumber: page.pageNumber,
-            textUtf16Length: page.text.length,
-            byteOffset,
-            byteLength,
-        };
-    });
-
-    const headerAndTable = Buffer.alloc(textDataOffset);
-    headerAndTable.write(COMPACT_SEARCH_INDEX_MAGIC, 0, 'ascii');
-    headerAndTable.writeUInt32LE(COMPACT_SEARCH_INDEX_SCHEMA_VERSION, 8);
-    headerAndTable.writeUInt32LE(COMPACT_SEARCH_INDEX_HEADER_SIZE, 12);
-    headerAndTable.writeUInt32LE(payload.pageCount, 16);
-    headerAndTable.writeUInt32LE(records.length, 20);
-    headerAndTable.writeUInt32LE(encodeTextSource(payload.textSource), 24);
-    headerAndTable.writeUInt32LE(revisionTokenBytes.byteLength, 28);
-    headerAndTable.writeBigUInt64LE(BigInt(COMPACT_SEARCH_INDEX_HEADER_SIZE), 32);
-    headerAndTable.writeBigUInt64LE(BigInt(pageTableOffset), 40);
-    headerAndTable.writeBigUInt64LE(BigInt(textDataOffset), 48);
-    headerAndTable.writeBigUInt64LE(0n, 56);
-    revisionTokenBytes.copy(headerAndTable, COMPACT_SEARCH_INDEX_HEADER_SIZE);
-
-    records.forEach((record, recordIndex) => {
-        throwIfAborted(signal);
-        const offset = pageTableOffset + recordIndex * COMPACT_SEARCH_INDEX_PAGE_RECORD_SIZE;
-        headerAndTable.writeUInt32LE(record.pageNumber, offset);
-        headerAndTable.writeUInt32LE(record.textUtf16Length, offset + 4);
-        headerAndTable.writeBigUInt64LE(record.byteOffset, offset + 8);
-        headerAndTable.writeBigUInt64LE(record.byteLength, offset + 16);
-    });
-
-    return {
-        headerAndTable,
-        records,
-    };
 }
 
 async function writeBufferAt(
@@ -257,11 +143,11 @@ async function writeCompactSearchIndexPayload(
     payload: ICompactSearchIndexPayload,
     signal?: AbortSignal,
 ) {
-    const pages = normalizePages(payload.pages, signal);
     const {
         headerAndTable,
+        pages,
         records,
-    } = createHeaderAndRecords(payload, pages, signal);
+    } = createCompactSearchIndexEncoding(payload, () => throwIfAborted(signal));
 
     const file = await open(targetPath, 'w');
     try {
@@ -414,10 +300,6 @@ function recordsFitLoadBudget(records: readonly ICompactSearchIndexPageRecord[])
         }
     }
     return true;
-}
-
-export function getCompactSearchIndexPath(pdfPath: string) {
-    return `${pdfPath}.index.evb-search-v2.bin`;
 }
 
 export async function persistCompactSearchIndex(

@@ -21,6 +21,7 @@ import {
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { createStaleRevisionError } from '@contracts/documentMutationErrors';
+import {requireDocumentRevisionToken} from '@contracts';
 
 const mocks = vi.hoisted(() => ({
     showSaveDialog: vi.fn(),
@@ -148,7 +149,7 @@ function deferred<T>() {
 describe('handleSavePdfAs', () => {
     let tempRoot = '';
     const sender = {id: 42};
-    const revisionOptions = { expectedDocumentRevisionToken: 'revision-before-save' };
+    const revisionOptions = { expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-save') };
     const dialogContext = {
         parentWindow: null,
         sender,
@@ -409,7 +410,7 @@ describe('handleSavePdfAs', () => {
         mocks.assertWorkingCopyRevisionCurrent.mockRejectedValueOnce(createStaleRevisionError({
             documentRef: workingPath,
             expectedRevision: revisionOptions.expectedDocumentRevisionToken,
-            actualRevision: 'revision-after-edit',
+            actualRevision: requireDocumentRevisionToken('revision-after-edit'),
         }));
 
         const { handleSavePdfAs } = await import('@electron/features/documents/main/documentSaveDialogHandlers');
@@ -605,7 +606,7 @@ describe('handleSavePdfAs', () => {
         });
         mocks.assertWorkingCopyRevisionCurrent.mockRejectedValueOnce(createStaleRevisionError({
             documentRef: workingPath,
-            expectedRevision: 'revision-before-save',
+            expectedRevision: requireDocumentRevisionToken('revision-before-save'),
         }));
 
         const { handleSavePdfDataAs } = await import('@electron/features/documents/main/documentSaveDialogHandlers');
@@ -615,7 +616,7 @@ describe('handleSavePdfAs', () => {
             workingPath,
             new Uint8Array(Buffer.from('new-pdf')),
             undefined,
-            { expectedDocumentRevisionToken: 'revision-before-save' },
+            { expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-save') },
         )).rejects.toMatchObject({code: 'STALE_REVISION'});
         expect(readFileSyncUtf8(workingPath)).toBe('old-working');
         expect(readFileSyncUtf8(targetPath)).toBe('old-target');

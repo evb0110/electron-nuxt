@@ -2,7 +2,11 @@ import type {
     IPdfPageMatches,
     IPdfSearchMatch,
 } from '@app/types/pdfUi';
-import { findPdfSearchMatches } from '@pdf-core';
+import {
+    assembleSearchablePageText,
+    mapAssembledSearchablePageTextRange,
+} from '@pdf-core';
+import type { IAssembledSearchablePageText } from '@contracts/search';
 import type { IHighlightMatchRange } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
 
 interface IVisualSearchMatch {
@@ -15,76 +19,22 @@ interface IVisualSearchMatch {
 
 function buildBackendVisualMatches(
     pageMatches: IPdfPageMatches,
-    layerTextLength: number,
+    assembledLayerText: IAssembledSearchablePageText,
 ): IVisualSearchMatch[] {
     return pageMatches.matches
-        .map((match, index): IVisualSearchMatch => ({
-            start: match.start,
-            end: match.end,
-            matchIndex: match.matchIndex,
-            pageMatchIndex: index,
-            canUseBackendIdentity: true,
-        }))
-        .filter(match => match.end > match.start && match.end <= layerTextLength);
-}
-
-function buildLayerSearchVisualMatches(
-    pageMatches: IPdfPageMatches,
-    layerText: string,
-): IVisualSearchMatch[] {
-    const query = pageMatches.searchQuery.trim();
-    if (!query) {
-        return [];
-    }
-
-    try {
-        const matches = findPdfSearchMatches(layerText, query, {
-            matchCase: Boolean(pageMatches.searchOptions?.matchCase),
-            wholeWord: Boolean(pageMatches.searchOptions?.wholeWord),
-            useRegex: Boolean(pageMatches.searchOptions?.useRegex),
+        .flatMap((match, index): IVisualSearchMatch[] => {
+            const mapped = mapAssembledSearchablePageTextRange(assembledLayerText, {
+                startOffset: match.start,
+                endOffset: match.end,
+            });
+            return mapped ? [{
+                start: mapped.startOffset,
+                end: mapped.endOffset,
+                matchIndex: match.matchIndex,
+                pageMatchIndex: index,
+                canUseBackendIdentity: true,
+            }] : [];
         });
-        const canUseBackendIdentity = matches.length === pageMatches.matches.length;
-
-        return matches.map((match, index): IVisualSearchMatch => ({
-            start: match.startOffset,
-            end: match.endOffset,
-            matchIndex: canUseBackendIdentity
-                ? pageMatches.matches[index]?.matchIndex ?? index
-                : index,
-            pageMatchIndex: index,
-            canUseBackendIdentity,
-        }));
-    } catch {
-        return [];
-    }
-}
-
-function isLiteralOffsetCompatible(
-    layerText: string,
-    match: IVisualSearchMatch,
-    pageMatches: IPdfPageMatches,
-) {
-    if (pageMatches.searchOptions?.useRegex) {
-        return true;
-    }
-
-    const actual = layerText.slice(match.start, match.end);
-    const expected = pageMatches.searchQuery;
-    return pageMatches.searchOptions?.matchCase
-        ? actual === expected
-        : actual.toLowerCase() === expected.toLowerCase();
-}
-
-function shouldUseLayerSearchMatches(
-    backendMatches: IVisualSearchMatch[],
-    pageMatches: IPdfPageMatches,
-    layerText: string,
-) {
-    if (backendMatches.length !== pageMatches.matches.length) {
-        return true;
-    }
-
-    return backendMatches.some(match => !isLiteralOffsetCompatible(layerText, match, pageMatches));
 }
 
 function isCurrentVisualMatch(
@@ -172,14 +122,8 @@ export function buildVisualMatchesWithCurrent(
     pageMatches: IPdfPageMatches,
     currentMatch: IPdfSearchMatch | null,
     layerText: string,
+    assembledLayerText = assembleSearchablePageText([{text: layerText}]),
 ): IHighlightMatchRange[] {
-    const backendMatches = buildBackendVisualMatches(pageMatches, layerText.length);
-    const layerSearchMatches = shouldUseLayerSearchMatches(backendMatches, pageMatches, layerText)
-        ? buildLayerSearchVisualMatches(pageMatches, layerText)
-        : [];
-    const visualMatches = layerSearchMatches.length > 0
-        ? layerSearchMatches
-        : backendMatches;
-
-    return markVisualMatchesWithCurrent(visualMatches, pageMatches, currentMatch);
+    const backendMatches = buildBackendVisualMatches(pageMatches, assembledLayerText);
+    return markVisualMatchesWithCurrent(backendMatches, pageMatches, currentMatch);
 }

@@ -8,6 +8,7 @@ import type {
     IOcrCancelResult,
     IOcrErrorEnvelope,
     IOcrSearchablePdfOptions,
+    IOcrDiagnostic,
 } from '@contracts/electronApiOcr';
 import { createDocxFromText } from '@app/utils/docx';
 import { OCR_TIMEOUT_MS } from '@app/constants/timeouts';
@@ -61,9 +62,12 @@ export const useOcr = () => {
         qualityProfile: 'balanced',
         preprocessingMode: 'off',
         pageSegmentationMode: null,
+        supersessionPolicy: 'missing-only',
+        replaceAllAcknowledged: false,
     });
     const progress = ref<IOcrUiProgress>({
         isRunning: false,
+        status: 'idle',
         phase: 'preparing',
         currentPage: 0,
         totalPages: 0,
@@ -104,16 +108,19 @@ export const useOcr = () => {
         clearCancelCleanupTimer();
         completeCleanup?.();
         completeCleanup = null;
+        progress.value.isRunning = false;
+        progress.value.status = 'cancelled';
     }
 
     function cleanupRunState(options: {
         keepCompleteListener?: boolean;
-        keepActiveRequestId?: boolean 
+        keepActiveRequestId?: boolean
     } = {}) {
         if (options.keepActiveRequestId !== true) {
             ocrRunLifecycle.clearActiveRequest();
         }
         progress.value.isRunning = false;
+        progress.value.status = 'idle';
         activeRunSettings.value = null;
         progressCleanup?.();
         progressCleanup = null;
@@ -195,6 +202,8 @@ export const useOcr = () => {
             keepCompleteListener: true,
             keepActiveRequestId: true,
         });
+        progress.value.isRunning = true;
+        progress.value.status = 'cancel-requested';
     }
 
     const {
@@ -238,6 +247,8 @@ export const useOcr = () => {
             qualityProfile: source.qualityProfile,
             preprocessingMode: source.preprocessingMode,
             pageSegmentationMode: source.pageSegmentationMode,
+            supersessionPolicy: source.supersessionPolicy,
+            replaceAllAcknowledged: source.replaceAllAcknowledged,
         };
     }
 
@@ -253,6 +264,8 @@ export const useOcr = () => {
             qualityProfile: source.qualityProfile,
             preprocessingMode: source.preprocessingMode,
             pageSegmentationMode: source.pageSegmentationMode,
+            supersessionPolicy: source.supersessionPolicy,
+            replaceAllAcknowledged: source.replaceAllAcknowledged,
         };
     }
 
@@ -268,6 +281,7 @@ export const useOcr = () => {
         activeRunSettings.value = cloneOcrSettings(runSettings);
         progress.value = {
             isRunning: true,
+            status: 'running',
             phase: 'preparing',
             currentPage: pages[0] ?? 1,
             totalPages: pages.length,
@@ -365,6 +379,10 @@ export const useOcr = () => {
         const options: IOcrSearchablePdfOptions = {
             qualityProfile: runSettings.qualityProfile,
             preprocessingMode: runSettings.preprocessingMode,
+            supersessionPolicy: runSettings.supersessionPolicy,
+            ...(runSettings.supersessionPolicy === 'replace-all'
+                ? {replaceAllAcknowledged: runSettings.replaceAllAcknowledged}
+                : {}),
         };
         if (runSettings.pageSegmentationMode !== null) {
             options.pageSegmentationMode = runSettings.pageSegmentationMode;
@@ -373,7 +391,8 @@ export const useOcr = () => {
     }
 
     function applyOcrResponseErrors(response: TOcrCompleteResult, requestId: string) {
-        if (response.errors.length === 0 && response.errorEnvelope === undefined) {
+        const diagnosticWarnings = response.diagnostics?.filter(diagnostic => diagnostic.severity === 'warning') ?? [];
+        if (response.errors.length === 0 && response.errorEnvelope === undefined && diagnosticWarnings.length === 0) {
             return;
         }
 
@@ -388,10 +407,31 @@ export const useOcr = () => {
             return;
         }
 
+        if (response.errors.length === 0 && diagnosticWarnings.length > 0) {
+            error.value = uniq(diagnosticWarnings.map(localizeOcrDiagnostic)).join('; ');
+            return;
+        }
+
         const localizedErrors = response.errors.map(err =>
             localizeOcrError(err, 'errors.ocr.createSearchablePdf'),
         );
         error.value = uniq(localizedErrors).join('; ');
+    }
+
+    function localizeOcrDiagnostic(diagnostic: IOcrDiagnostic) {
+        const params = {page: diagnostic.pageNumber ?? 0};
+        switch (diagnostic.code) {
+            case 'OCR_PREPROCESSING_UNAVAILABLE':
+                return t('ocr.diagnostic.preprocessingUnavailable', params);
+            case 'OCR_PREPROCESSING_FAILED':
+                return t('ocr.diagnostic.preprocessingFailed', params);
+            case 'OCR_PREPROCESSING_GEOMETRY_CHANGED':
+                return t('ocr.diagnostic.preprocessingGeometryChanged', params);
+            case 'OCR_SOURCE_DPI_LIMITED':
+                return t('ocr.diagnostic.sourceDpiLimited', params);
+            case 'OCR_EXISTING_TEXT_SKIPPED':
+                return t('ocr.diagnostic.existingTextSkipped', params);
+        }
     }
 
     function storeOcrPdfResult(

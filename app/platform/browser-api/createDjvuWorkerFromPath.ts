@@ -10,14 +10,26 @@ import {
 } from '@app/platform/browserDocumentStore';
 import {
     loadDjvuJs,
+    type IDjvuContentsItem,
     type IDjvuPageSize,
 } from '@app/platform/browser-api/djvujsLoader';
+import type { IPagePreviewOutlineItem } from '@app/utils/document-viewer/pagePreviewSource';
 import { getValidatedElectronPlatformApi } from '@app/utils/electronPlatformBridge';
 
 const DJVU_READ_CHUNK_BYTES = 4 * 1024 * 1024;
+const DJVU_BROWSER_WORKER_MAX_SOURCE_BYTES = 192 * 1024 * 1024;
 const DJVU_DESKTOP_DJVUJS_PREVIEW_MAX_BYTES = 96 * 1024 * 1024;
 
 interface IDjvuWorkerReadOptions {signal?: AbortSignal;}
+
+type TBrowserDjvuWorker = Awaited<ReturnType<typeof createDjvuWorkerFromPath>>;
+
+interface ISharedBrowserDjvuWorker {
+    refs: number;
+    worker: Promise<TBrowserDjvuWorker>;
+}
+
+const sharedViewingWorkers = new Map<TDocumentRef, ISharedBrowserDjvuWorker>();
 
 type TDjvuDocumentFileReader = Pick<IDocumentsFileIoCapability, 'statFile' | 'readFile' | 'readFileRange'>;
 
@@ -44,6 +56,9 @@ async function readBrowserDocumentBytes(
 ) {
     throwIfCanceled(options.signal);
     const { size } = await browserDocumentStore.stat(path);
+    if (size > DJVU_BROWSER_WORKER_MAX_SOURCE_BYTES) {
+        throw new Error('Browser DjVu processing is limited to 192MB source files. Use the Electron app for this archival job.');
+    }
     throwIfCanceled(options.signal);
     if (size <= 0) {
         return new Uint8Array();
@@ -203,6 +218,40 @@ export async function createDjvuWorkerFromPath(
     }
 
     return worker;
+}
+
+export async function retainBrowserDjvuViewingWorker(path: TDocumentRef) {
+    if (!isBrowserDocumentRef(path)) {
+        throw new Error('Shared DjVu viewing workers are only available for browser documents');
+    }
+    let entry = sharedViewingWorkers.get(path);
+    if (!entry) {
+        entry = {
+            refs: 0,
+            worker: createDjvuWorkerFromPath(path),
+        };
+        sharedViewingWorkers.set(path, entry);
+    }
+    entry.refs += 1;
+    try {
+        return await entry.worker;
+    } catch (error) {
+        releaseBrowserDjvuViewingWorker(path);
+        throw error;
+    }
+}
+
+export function releaseBrowserDjvuViewingWorker(path: TDocumentRef) {
+    const entry = sharedViewingWorkers.get(path);
+    if (!entry) {
+        return;
+    }
+    entry.refs -= 1;
+    if (entry.refs > 0) {
+        return;
+    }
+    sharedViewingWorkers.delete(path);
+    void entry.worker.then(worker => worker.terminate()).catch(() => undefined);
 }
 
 function createPngObjectUrl(bytes: Uint8Array) {
@@ -379,7 +428,10 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
         };
     }
 
-    const worker = await createDjvuWorkerFromPath(djvuPath);
+    const isSharedBrowserWorker = isBrowserDocumentRef(djvuPath);
+    const worker = isSharedBrowserWorker
+        ? await retainBrowserDjvuViewingWorker(djvuPath)
+        : await createDjvuWorkerFromPath(djvuPath);
     let terminated = false;
     let nextPreviewRequestId = 0;
     let fallbackRenderQueue = Promise.resolve();
@@ -435,12 +487,23 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
             throw new Error('DjVu conversion canceled');
         }
     };
+    const mapOutline = async (items: IDjvuContentsItem[]): Promise<IPagePreviewOutlineItem[]> => Promise.all(
+        items.map(async item => ({
+            title: item.description,
+            pageNumber: await worker.doc.getPageNumberByUrl(item.url).run(),
+            children: await mapOutline(item.children ?? []),
+        })),
+    );
 
     return {
         cancelPagePreview(pageNumber: number) {
             latestPreviewRequestIdsByPage.delete(pageNumber);
         },
         getPageSizes: (): Promise<IDjvuPageSize[]> => worker.doc.getPagesSizes().run(),
+        getPageText: (pageNumber: number) => worker.doc.getPage(pageNumber).getText().run(),
+        async getOutline() {
+            return mapOutline(await worker.doc.getContents().run() ?? []);
+        },
         async renderPageObjectUrl(
             pageNumber: number,
             options?: IDjvuPagePreviewOptions,
@@ -488,7 +551,11 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
                 }
             }
             fallbackWindowObjectUrls.clear();
-            worker.terminate();
+            if (isSharedBrowserWorker) {
+                releaseBrowserDjvuViewingWorker(djvuPath);
+            } else {
+                worker.terminate();
+            }
         },
     };
 }

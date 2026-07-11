@@ -31,10 +31,20 @@ body,
     --app-install-hint-gap: 0.25rem;
     --app-install-hint-padding: 0.25rem 0.25rem 0.25rem 0.5rem;
     --app-install-hint-block-end: 2.5rem;
-    --app-install-hint-inline-end: 1rem;
+    --app-install-hint-inline-start: 1rem;
     --app-install-hint-max-inline-size: calc(100vw - 2rem);
+    --app-install-hint-divider-width: 1px;
+    --app-install-hint-divider-height: 14px;
+    --app-divider-width: 1px;
+    --app-control-height-xs: 1.5rem;
+    --app-control-height-lg: 2.5rem;
+    --app-content-width-xs: 18rem;
+    --app-critical-empty-padding: 2rem 1rem;
     --app-radius-full: 999px;
     --app-opacity-subtle: 0.65;
+
+    /* Critical-shell subset of the semantic global layer scale in main.css. */
+    --app-z-floating-chrome: 40;
     --shadow-popup: 0 6px 18px rgb(0 0 0 / 0.12), 0 2px 6px rgb(0 0 0 / 0.06);
 }
 
@@ -108,9 +118,9 @@ body {
 .browser-install-hint {
     position: fixed;
     top: auto;
-    bottom: var(--app-install-hint-block-end);
-    right: var(--app-install-hint-inline-end);
-    z-index: 35;
+    inset-block-end: var(--app-install-hint-block-end);
+    inset-inline-start: var(--app-install-hint-inline-start);
+    z-index: var(--app-z-floating-chrome);
     display: inline-flex;
     align-items: center;
     gap: var(--app-install-hint-gap);
@@ -139,8 +149,8 @@ body {
 }
 
 .browser-install-divider {
-    width: 1px;
-    height: 14px;
+    width: var(--app-install-hint-divider-width);
+    height: var(--app-install-hint-divider-height);
     background: var(--ui-border);
     flex: 0 0 auto;
 }
@@ -204,8 +214,8 @@ body {
 }
 
 .toolbar-separator {
-    width: 1px;
-    height: 1.5rem;
+    width: var(--app-divider-width);
+    height: var(--app-control-height-xs);
     flex: 0 0 auto;
     background: var(--ui-border);
 }
@@ -229,7 +239,7 @@ body {
 .tab-bar {
     display: flex;
     align-items: stretch;
-    min-height: 2.5rem;
+    min-height: var(--app-control-height-lg);
     border-bottom: 1px solid var(--ui-border);
     background: var(--app-chrome);
     overflow: hidden;
@@ -245,7 +255,7 @@ body {
     align-items: center;
     gap: 0.5rem;
     min-width: 0;
-    max-width: 18rem;
+    max-width: var(--app-content-width-xs);
     padding: 0 0.5rem 0 0.75rem;
     border-right: 1px solid var(--ui-border);
 }
@@ -310,7 +320,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 2rem 1rem;
+    padding: var(--app-critical-empty-padding);
     overflow: auto;
 }
 

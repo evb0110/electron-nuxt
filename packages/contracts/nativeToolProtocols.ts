@@ -29,3 +29,5 @@ export const GENERATED_RUST_NATIVE_TOOL_PROTOCOLS = [
         stagingName: 'pdf-search',
     },
 ] as const satisfies readonly IGeneratedRustNativeToolProtocol[];
+
+export const SEARCH_NATIVE_PROTOCOL_VERSION = GENERATED_RUST_NATIVE_TOOL_PROTOCOLS[2].protocolVersion;

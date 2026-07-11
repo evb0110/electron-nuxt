@@ -4,8 +4,12 @@ import {
 } from 'fs';
 import type { App } from 'electron';
 import * as electron from 'electron';
-import { ensureRuntimeTessdataSeeded } from '@electron/ocr/languageModels';
+import {
+    ensureRuntimeTessdataSeeded,
+    TESSDATA_BEST_REF,
+} from '@electron/ocr/languageModels';
 import { AVAILABLE_OCR_LANGUAGE_CODES } from '@electron/ocr/availableLanguages';
+import { BUNDLED_OCR_LANGUAGE_CODES } from '@contracts/ocrLanguages';
 import type { IOcrToolValidationResult } from '@contracts/electronApiOcr';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { getErrorMessage } from '@electron/utils/error';
@@ -28,6 +32,8 @@ export interface IOcrToolPaths extends IOcrNativeToolPaths {
     popplerFontConfigDir?: string;
     qpdf: string;
 }
+
+const toolValidationByResourceVersion = new Map<string, Promise<IOcrToolValidationResult>>();
 
 function isElectronAppPackaged() {
     return (electron as {app?: Pick<App, 'isPackaged'>}).app?.isPackaged === true;
@@ -143,7 +149,7 @@ function getAvailableLanguages(tessdataPath: string): string[] {
     }
 }
 
-function getMissingRegistryLanguages(languages: string[] | undefined): string[] {
+function getMissingSupportedLanguages(languages: string[] | undefined): string[] {
     const languageSet = new Set(languages ?? []);
     return Array.from(AVAILABLE_OCR_LANGUAGE_CODES)
         .filter(languageCode => !languageSet.has(languageCode))
@@ -184,24 +190,32 @@ async function validateTesseractTool(path: string, errors: string[]) {
 function validateTessdata(path: string, errors: string[]) {
     const found = existsSync(path);
     const languages = found ? getAvailableLanguages(path) : undefined;
-    const missingRegistryLanguages = found ? getMissingRegistryLanguages(languages) : [];
+    const languageSet = new Set(languages ?? []);
+    const missingBundledLanguages = found
+        ? BUNDLED_OCR_LANGUAGE_CODES.filter(languageCode => !languageSet.has(languageCode))
+        : [];
+    const onDemandLanguages = found ? getMissingSupportedLanguages(languages) : [];
     if (!found) {
         errors.push(`Tessdata directory not found: ${path}`);
     } else if (languages && languages.length === 0) {
         errors.push(`No language models found in tessdata: ${path}`);
-    } else if (missingRegistryLanguages.length > 0) {
-        errors.push(`Missing registry language models in tessdata: ${missingRegistryLanguages.join(', ')}`);
+    } else if (missingBundledLanguages.length > 0) {
+        errors.push(`Missing bundled language models in tessdata: ${missingBundledLanguages.join(', ')}`);
     }
     const result: {
         found: boolean;
         languages?: string[];
+        onDemandLanguages?: string[];
         complete: boolean;
     } = {
         found,
-        complete: found && missingRegistryLanguages.length === 0 && Boolean(languages?.length),
+        complete: found && missingBundledLanguages.length === 0 && Boolean(languages?.length),
     };
     if (languages !== undefined) {
         result.languages = languages;
+    }
+    if (onDemandLanguages.length > 0) {
+        result.onDemandLanguages = onDemandLanguages;
     }
     return result;
 }
@@ -238,8 +252,7 @@ function validatePopplerRuntime(paths: IOcrToolPaths, errors: string[]) {
     return result;
 }
 
-export async function validateOcrTools(): Promise<IOcrToolValidationResult> {
-    const paths = await getOcrToolPaths();
+async function validateOcrToolsUncached(paths: IOcrToolPaths): Promise<IOcrToolValidationResult> {
     const errors: string[] = [];
 
     const tesseract = await validateTesseractTool(paths.tesseract, errors);
@@ -302,6 +315,9 @@ export async function validateOcrTools(): Promise<IOcrToolValidationResult> {
     if (tessdata.languages !== undefined) {
         tools.tessdata.languages = tessdata.languages;
     }
+    if (tessdata.onDemandLanguages !== undefined) {
+        tools.tessdata.onDemandLanguages = tessdata.onDemandLanguages;
+    }
     if (popplerRuntime.dataDir !== undefined) {
         tools.popplerRuntime.dataDir = popplerRuntime.dataDir;
     }
@@ -314,4 +330,26 @@ export async function validateOcrTools(): Promise<IOcrToolValidationResult> {
         tools,
         errors,
     };
+}
+
+export async function validateOcrTools(): Promise<IOcrToolValidationResult> {
+    const paths = await getOcrToolPaths();
+    const installedLanguages = getAvailableLanguages(paths.tessdata).sort().join(',');
+    const resourceVersion = [
+        TESSDATA_BEST_REF,
+        process.platform,
+        process.arch,
+        paths.tesseract,
+        paths.pdftoppm,
+        paths.pdftotext,
+        paths.qpdf,
+        installedLanguages,
+    ].join('|');
+    let validation = toolValidationByResourceVersion.get(resourceVersion);
+    if (!validation) {
+        validation = validateOcrToolsUncached(paths);
+        toolValidationByResourceVersion.set(resourceVersion, validation);
+        void validation.catch(() => toolValidationByResourceVersion.delete(resourceVersion));
+    }
+    return validation;
 }

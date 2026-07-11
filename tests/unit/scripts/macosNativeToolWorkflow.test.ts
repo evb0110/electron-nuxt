@@ -104,41 +104,11 @@ function runSourceMatrixAsLinuxX64Host() {
             encoding: 'utf8',
             env: {
                 ...process.env,
-                EVB_CHECK_OPTIONAL_PAGE_PROCESSOR: '0',
                 EVB_NATIVE_TOOLS_ALLOW_HOST_CI_GEN: '1',
                 PATH: `${binDir}:${process.env.PATH ?? ''}`,
             },
         },
     );
-}
-
-function runSourceMatrixWithInvalidPageProcessorOptIn() {
-    try {
-        execFileSync(
-            '/bin/bash',
-            [sourceMatrixScriptPath],
-            {
-                encoding: 'utf8',
-                env: {
-                    ...process.env,
-                    EVB_CHECK_OPTIONAL_PAGE_PROCESSOR: 'true',
-                },
-                stdio: [
-                    'ignore',
-                    'pipe',
-                    'pipe',
-                ],
-            },
-        );
-    } catch (error: unknown) {
-        if (error && typeof error === 'object' && 'stderr' in error) {
-            return String(error.stderr);
-        }
-
-        throw error;
-    }
-
-    throw new Error('Expected source matrix to reject invalid page-processor opt-in value');
 }
 
 describe('macOS native tool workflow', () => {
@@ -179,9 +149,29 @@ describe('macOS native tool workflow', () => {
         expect(ciBrewPackages).toEqual(expect.arrayContaining(unpaperBuildPackages));
         expect(bundleUnpaper).toContain('sphinx-build is required');
         expect(bundleUnpaper).toContain('brew --prefix sphinx-doc');
+        expect(ciBrewPackages).not.toContain('ffmpeg');
+        expect(localBrewPackages).not.toContain('ffmpeg');
+        expect(bundleUnpaper).toContain('build-minimal-ffmpeg-for-unpaper.sh');
+        expect(bundleUnpaper).toContain('Unexpected video-codec closure leaked into the unpaper bundle');
         expect(workflow).not.toContain('bash scripts/bundle-page-processor-macos.sh');
         expect(intelWorkflow).not.toContain('bash scripts/bundle-page-processor-macos.sh');
         expect(bundleAll).not.toContain('"$SCRIPT_DIR/bundle-page-processor-macos.sh"');
+    });
+
+    it('pins a PNM-only FFmpeg build for unpaper instead of the video-codec closure', async () => {
+        const minimalFfmpeg = await readProjectFile('scripts/build-minimal-ffmpeg-for-unpaper.sh');
+        expect(minimalFfmpeg).toContain('resolve_path()');
+        expect(minimalFfmpeg).toContain('refusing unsafe FFmpeg build cleanup target');
+        expect(minimalFfmpeg).toContain('rm -rf -- "$SOURCE_DIR" "$INSTALL_PREFIX"');
+
+        expect(minimalFfmpeg).toContain('FFMPEG_COMMIT="db69d06eeeab4f46da15030a80d539efb4503ca8"');
+        expect(minimalFfmpeg).toContain('--disable-everything');
+        expect(minimalFfmpeg).toContain('--enable-decoder=pam,pbm,pgm,pgmyuv,ppm');
+        expect(minimalFfmpeg).toContain('--enable-encoder=pam,pbm,pgm,pgmyuv,ppm');
+        expect(minimalFfmpeg).toContain('--enable-demuxer=image2,image2pipe');
+        expect(minimalFfmpeg).toContain('--enable-muxer=image2,image2pipe');
+        expect(minimalFfmpeg).not.toContain('--enable-libx264');
+        expect(minimalFfmpeg).not.toContain('--enable-libaom');
     });
 
     it('keeps the standalone optional page-processor bundler on PyInstaller onedir with a real fixture smoke', async () => {
@@ -260,6 +250,7 @@ describe('macOS native tool workflow', () => {
         expect(afterPack).toContain('function nativeToolsDirForContext(context)');
         expect(afterPack).toContain('Contents\', \'MacOS\', \'native-tools\'');
         expect(afterPack).toContain('moveMacNativeToolResources(context)');
+        expect(afterPack).toContain('makeTreeOwnerWritable(nativeToolsDir)');
         expect(afterSign).toContain('const nativeToolsDir = path.join(appPath, \'Contents\', \'MacOS\', \'native-tools\');');
         expect(verifier).toContain('find "$release_dir" -path "*/Contents/MacOS/native-tools"');
         expect(verifier).toContain('check_file "$native_tool_root/djvulibre/$platform_arch/bin/djvused$exe_suffix"');
@@ -270,7 +261,18 @@ describe('macOS native tool workflow', () => {
         expect(verifier).toContain('run_macos_packaged_tool_smoke "evb-pdf-image-combine-compact-manifest" "$native_tool_root/pdf-image-combine/$platform_arch/bin/evb-pdf-image-combine" --compact-manifest');
     });
 
-    it('keeps page-processor release resources opt-in until every platform has parity', async () => {
+    it('keeps the packaged native-tool payload writable for ShipIt quarantine removal', async () => {
+        const afterPack = await readProjectFile('scripts/afterPack.cjs');
+        const packagedVerifier = await readProjectFile('scripts/verify-packaged-native-tools.sh');
+
+        expect(afterPack).toContain('const requiredMode = stat.isDirectory() ? 0o300 : 0o200');
+        expect(afterPack).toContain('fs.chmodSync(currentPath, nextMode)');
+        expect(packagedVerifier).toContain('ShipIt cannot remove quarantine metadata');
+        expect(packagedVerifier).toContain('! -perm -u+w');
+        expect(packagedVerifier).toContain('\\( -type f -o -type d \\)');
+    });
+
+    it('keeps dormant Python page processing outside the shipping surface', async () => {
         const electronBuilder = await readProjectFile('electron-builder.yml');
         const afterPack = await readProjectFile('scripts/afterPack.cjs');
         const afterSign = await readProjectFile('scripts/afterSign.cjs');
@@ -278,16 +280,10 @@ describe('macOS native tool workflow', () => {
         const verifier = await readProjectFile('scripts/verify-packaged-native-tools.sh');
 
         expect(electronBuilder).not.toContain('from: resources/page-processing/');
-        expect(afterPack).toContain('function isPageProcessingRequired(context)');
-        expect(afterPack).toContain('return context.electronPlatformName === \'darwin\' && process.env.EVB_INCLUDE_PAGE_PROCESSOR === \'1\';');
-        expect(afterPack).toContain('function shouldCopyPageProcessingResources()');
-        expect(afterPack).toContain('return process.env.EVB_INCLUDE_PAGE_PROCESSOR === \'1\';');
-        expect(afterPack).toContain('copyPageProcessingResources(context)');
-        expect(afterPack).toContain('nativeToolsDirForContext(context), \'page-processing\', tag');
-        expect(afterPack).toContain('Required page-processing resources not found');
-        expect(afterPack).toContain('Optional page-processing resources not found');
+        expect(afterPack).not.toContain('EVB_INCLUDE_PAGE_PROCESSOR');
+        expect(afterPack).not.toContain('page-processing');
         expect(afterPack).toContain('verbatimSymlinks: true');
-        expect(afterSign).toContain('path.join(nativeToolsDir, \'page-processing\')');
+        expect(afterSign).not.toContain('path.join(nativeToolsDir, \'page-processing\')');
         expect(afterSign).toContain('const HARDENED_RUNTIME_ENTITLEMENTS');
         expect(afterSign).toContain('filePath.endsWith(\'.so\')');
         // Every re-signed Mach-O executable (native tools + Electron/Squirrel helpers)
@@ -302,31 +298,12 @@ describe('macOS native tool workflow', () => {
         expect(sourceMatrix).not.toContain('&& [ -f "scripts/bundle-page-processor-macos.sh" ]');
         expect(sourceMatrix).toContain('nativeResourceManifestCli.ts');
         expect(sourceMatrix).toContain('source-matrix "$tag"');
-        expect(sourceMatrix).toContain('EVB_CHECK_OPTIONAL_PAGE_PROCESSOR=1');
-        expect(sourceMatrix).toContain('check_optional_page_processor="${EVB_CHECK_OPTIONAL_PAGE_PROCESSOR:-0}"');
-        expect(sourceMatrix).toContain('EVB_CHECK_OPTIONAL_PAGE_PROCESSOR must be 0 or 1');
-        expect(sourceMatrix).toContain('check_file_for_tag "$root/bin/page-processor/page-processor$exe_suffix" "page-processor" "$tag"');
-        expect(sourceMatrix).toContain('check_dir_for_tag "$root/bin/page-processor/_internal" "page-processor PyInstaller _internal" "$tag"');
+        expect(sourceMatrix).not.toContain('page-processing');
         expect(sourceMatrix).toContain('echo "  CI-GEN  $label: $path"');
-        expect(sourceMatrix).toContain('SKIP    page-processor: optional dormant tool not release-critical for $tag');
-        expect(sourceMatrix).toContain('SKIP    page-processor: optional dormant tool not bundled for $tag');
         expect(verifier).not.toContain('page_processor_required_for_platform()');
-        expect(verifier).toContain('page_processor_root="$native_tool_root/page-processing/$platform_arch"');
-        expect(verifier).toContain('page_processor_binary="$page_processor_root/bin/page-processor/page-processor$exe_suffix"');
-        expect(verifier).toContain('page_processor_internal_dir="$page_processor_root/bin/page-processor/_internal"');
-        expect(verifier).toContain('check_dir "$page_processor_internal_dir" "page-processor PyInstaller _internal directory"');
-        expect(verifier).toContain('check_no_absolute_symlinks "$page_processor_internal_dir" "page-processor PyInstaller _internal directory"');
+        expect(verifier).not.toContain('page_processor_root');
         expect(verifier).toContain('Absolute symlink in $label');
         expect(verifier).not.toContain('Missing required page-processor packaged resources');
-        expect(verifier).toContain('Skipping optional dormant page-processor packaged resource check for $platform_arch');
-        expect(verifier).toContain('run_macos_packaged_tool_smoke "page-processor" "$page_processor_binary" --version');
-        expect(verifier).toContain('if [ -f "$page_processor_binary" ]; then');
-    });
-
-    it('rejects typoed optional page-processor source-matrix opt-in values', () => {
-        const stderr = runSourceMatrixWithInvalidPageProcessorOptIn();
-
-        expect(stderr).toContain('Error: EVB_CHECK_OPTIONAL_PAGE_PROCESSOR must be 0 or 1 (got: true)');
     });
 
     it('verifies macOS packaged native tool architectures against the release target', async () => {

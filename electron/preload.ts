@@ -18,7 +18,8 @@ import {
     DOCUMENTS_CHANNELS,
     type IDocumentsInvokeMap,
 } from '@electron/features/documents/contract';
-import { createTypedIpcInvoker } from '@electron/preload/ipcClient';
+import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
+import { createCodecIpcInvoker } from '@electron/preload/ipcClient';
 const preloadAlreadyInstalled = markPreloadInstalled();
 if (preloadAlreadyInstalled) {
     console.debug('[Preload] Re-exposing bridge for duplicate installation (fast reload detected)');
@@ -71,7 +72,7 @@ contextBridge.exposeInMainWorld('electronAPI', electronApi);
 tracePreload('electronAPI exposed to renderer');
 
 if (isRendererAutomationFileOpenHelperEnabled()) {
-    const invokeDocuments = createTypedIpcInvoker<IDocumentsInvokeMap>(ipcRenderer);
+    const invokeDocuments = createCodecIpcInvoker<IDocumentsInvokeMap>(ipcRenderer, DOCUMENTS_IPC_CODECS);
     contextBridge.exposeInMainWorld('__allowRendererFileOpenForAutomation', (filePath: string) => {
         const path = typeof filePath === 'string' ? filePath : '';
         const automationFileOpenToken = globalThis.crypto.randomUUID();

@@ -1,10 +1,4 @@
-import pdfjsRuntime, {
-    AnnotationEditorLayer,
-    AnnotationEditorType,
-    AnnotationEditorUIManager as RuntimeAnnotationEditorUIManager,
-    AnnotationLayer,
-    DrawLayer,
-} from '@app/services/pdfjs/runtimeLib';
+import { AnnotationEditorType } from '@app/services/pdfjs/runtimeLib';
 import type {
     AnnotationEditorUIManager,
     PDFDocumentProxy,
@@ -34,7 +28,14 @@ import { schedulePdfLayerVisualSnapshotRelease } from '@app/modules/pdf-viewer/e
 import { tracePdfAnnotationSaveDom } from '@app/modules/pdf-viewer/engine/pdf-annotation-save-trace/tracePdfAnnotationSaveDom';
 import { tracePdfAnnotationSaveEvent } from '@app/modules/pdf-viewer/engine/pdf-annotation-save-trace/tracePdfAnnotationSaveEvent';
 import { clearPdfSelectionForLayerTeardown } from '@app/modules/pdf-viewer/engine/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
-import { createPdfAnnotationEditorCompatibilityAdapter } from '@app/services/pdfjs/annotationEditorCompatibility';
+import { createPdfAnnotationEditorCompatibilityAdapter } from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
+import {
+    createPdfjsAnnotationLayer,
+    createPdfjsDrawLayer,
+    createPdfjsEditorLayer,
+    getPdfjsEditorCompatibilityRuntime,
+    renderPdfjsAnnotationLayer,
+} from '@app/services/pdfjs/pdfViewerFacade';
 import { getOptionalFunction } from '@app/services/pdfjs/runtime';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getShellCapability } from '@app/utils/getShellCapability';
@@ -77,11 +78,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
 }) => {
     const compatibilityAdapter = createPdfAnnotationEditorCompatibilityAdapter({
         failInDev: import.meta.dev,
-        runtime: {
-            version: pdfjsRuntime.version,
-            AnnotationEditorLayer,
-            AnnotationEditorUIManager: RuntimeAnnotationEditorUIManager,
-        },
+        runtime: getPdfjsEditorCompatibilityRuntime(),
     });
     const annotationEditorLayers = new Map<number, TAnnotationEditorLayer>();
     const drawLayers = new Map<number, TDrawLayer>();
@@ -548,16 +545,13 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 executeSetOCGState: () => {},
             } satisfies IPdfjsLinkService;
 
-            const annotationLayerInstance = new AnnotationLayer({
+            const annotationLayerInstance = createPdfjsAnnotationLayer({
                 div: annotationLayerDiv as HTMLDivElement,
                 page: pdfPage,
                 viewport,
-                accessibilityManager: null,
                 annotationCanvasMap: annotationCanvasMap ?? null,
-                annotationEditorUIManager: annotationUiManager,
-                structTreeLayer: null,
-                commentManager: null,
-                linkService: simpleLinkService as never,
+                annotationEditorUiManager: annotationUiManager,
+                linkService: simpleLinkService,
                 annotationStorage,
             });
             if (!shouldContinueLayerRender(options)) {
@@ -583,12 +577,12 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                     if (!shouldContinueLayerRender(options)) {
                         return;
                     }
-                    await annotationLayerInstance.render({
+                    await renderPdfjsAnnotationLayer(annotationLayerInstance, {
                         annotations: visibleAnnotations,
                         viewport,
                         div: annotationLayerDiv as HTMLDivElement,
                         page: pdfPage,
-                        linkService: simpleLinkService as never,
+                        linkService: simpleLinkService,
                         renderForms: false,
                         annotationStorage,
                     });
@@ -652,7 +646,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             return {
                 ok: true,
                 rendered: false,
-                reason: 'stale', 
+                reason: 'stale',
             } satisfies TAnnotationEditorLayerRenderResult;
         }
         let shouldWaitForDrawLayerVisuals =
@@ -729,7 +723,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 return {
                     ok: true,
                     rendered: false,
-                    reason: 'stale', 
+                    reason: 'stale',
                 } satisfies TAnnotationEditorLayerRenderResult;
             }
             if (!annotationUiManager) {
@@ -742,7 +736,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 return {
                     ok: true,
                     rendered: false,
-                    reason: 'no-ui-manager', 
+                    reason: 'no-ui-manager',
                 } satisfies TAnnotationEditorLayerRenderResult;
             }
             if (quarantinedHiddenAnnotationGuards.has(annotationUiManager)) {
@@ -786,7 +780,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 return {
                     ok: true,
                     rendered: false,
-                    reason: 'quarantined', 
+                    reason: 'quarantined',
                 } satisfies TAnnotationEditorLayerRenderResult;
             }
 
@@ -796,7 +790,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 return {
                     ok: true,
                     rendered: false,
-                    reason: 'stale', 
+                    reason: 'stale',
                 } satisfies TAnnotationEditorLayerRenderResult;
             }
             if (willReplaceAnnotationEditorLayer(pageNumber, signatures)) {
@@ -879,7 +873,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 return {
                     ok: true,
                     rendered: false,
-                    reason: 'stale', 
+                    reason: 'stale',
                 } satisfies TAnnotationEditorLayerRenderResult;
             }
             if (!shouldContinueLayerRender(options)) {
@@ -887,7 +881,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 return {
                     ok: true,
                     rendered: false,
-                    reason: 'stale', 
+                    reason: 'stale',
                 } satisfies TAnnotationEditorLayerRenderResult;
             }
 
@@ -909,7 +903,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             clearAnnotationEditorLayerFailure(pageNumber);
             return {
                 ok: true,
-                rendered: true, 
+                rendered: true,
             } satisfies TAnnotationEditorLayerRenderResult;
         } catch (error) {
             const isIntentionalCancellation = (
@@ -1062,7 +1056,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         container: HTMLElement,
         pageNumber: number,
     ) {
-        const drawLayer = drawLayers.get(pageNumber) ?? new DrawLayer();
+        const drawLayer = drawLayers.get(pageNumber) ?? createPdfjsDrawLayer();
         const canvasHost = container.querySelector<HTMLDivElement>('.page_canvas');
         if (canvasHost) {
             drawLayer.setParent(canvasHost);
@@ -1106,19 +1100,14 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         } = params;
         const l10n = toValue(deps.annotationL10n) ?? fallbackL10n;
         const textLayerRef = compatibilityAdapter.normalizeTextLayer(textLayerDiv);
-        const activeLayer = compatibilityAdapter.wrapEditorLayer(editorLayer ?? new AnnotationEditorLayer({
-            mode: {},
+        const activeLayer = compatibilityAdapter.wrapEditorLayer(editorLayer ?? createPdfjsEditorLayer({
             uiManager: annotationUiManager,
             div: annotationEditorLayerDiv as HTMLDivElement,
-            structTreeLayer: null as never,
-            enabled: true,
-            accessibilityManager: undefined,
             pageIndex: pageNumber - 1,
-            l10n: l10n as never,
+            l10n,
             viewport: pageMetrics.editorViewport,
             annotationLayer: annotationLayerInstance ?? undefined,
-            // pdfjs-dist type declarations lag runtime shape; runtime expects a textLayer carrying a `div` reference.
-            textLayer: textLayerRef as never,
+            textLayer: textLayerRef,
             drawLayer,
         }));
 

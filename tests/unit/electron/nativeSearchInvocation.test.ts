@@ -6,6 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {requireDocumentRevisionToken} from '@contracts';
 
 const mocks = vi.hoisted(() => ({
     open: vi.fn(),
@@ -13,6 +14,7 @@ const mocks = vi.hoisted(() => ({
     stat: vi.fn(),
     loadSearchIndex: vi.fn(),
     resolveNativeToolPath: vi.fn(),
+    tryRunPersistentNativeSearch: vi.fn(),
 }));
 
 vi.mock('fs/promises', () => ({
@@ -29,7 +31,9 @@ vi.mock('@electron/search/indexBuilder', () => ({
     loadSearchIndex: (...args: unknown[]) => mocks.loadSearchIndex(...args),
 }));
 
-const DOCUMENT_REVISION = 'revision-token';
+vi.mock('@electron/search/tryRunPersistentNativeSearch', () => ({tryRunPersistentNativeSearch: (...args: unknown[]) => mocks.tryRunPersistentNativeSearch(...args)}));
+
+const DOCUMENT_REVISION = requireDocumentRevisionToken('revision-token');
 
 function createNativeSearchHeader({
     pageCount = 1,
@@ -111,10 +115,80 @@ describe('native search invocation', () => {
             }),
             stderr: '',
         });
+        mocks.tryRunPersistentNativeSearch.mockResolvedValue(null);
     });
 
     afterEach(() => {
         vi.unstubAllEnvs();
+    });
+
+    it('routes only the two literal non-whole-word option combinations to native', async () => {
+        const {isNativeSearchSupportedOptions} = await import('@electron/search/nativeSearch');
+        const combinations = [
+            false,
+            true,
+        ].flatMap(matchCase => (
+            [
+                false,
+                true,
+            ].flatMap(wholeWord => (
+                [
+                    false,
+                    true,
+                ].map(useRegex => ({
+                    matchCase,
+                    wholeWord,
+                    useRegex,
+                }))
+            ))
+        ));
+
+        expect(combinations.filter(options => isNativeSearchSupportedOptions({
+            ...options,
+            query: 'needle',
+        }))).toEqual([
+            {
+                matchCase: false,
+                wholeWord: false,
+                useRegex: false,
+            },
+            {
+                matchCase: true,
+                wholeWord: false,
+                useRegex: false,
+            },
+        ]);
+    });
+
+    it.each([
+        '/tmp/doc.pdf',
+        '/tmp/doc.pdf.ocr/manifest.json',
+    ])('rejects a native sidecar older than the %s source', async (freshSourcePath) => {
+        mocks.stat.mockImplementation(async (path: string) => {
+            if (path === freshSourcePath) {
+                return {mtimeMs: 300};
+            }
+            if (path === '/tmp/doc.pdf') {
+                return {mtimeMs: 100};
+            }
+            if (path === '/tmp/doc.pdf.index.evb-search-v2.bin') {
+                return {mtimeMs: 200};
+            }
+            throw new Error(`Unexpected stat path: ${path}`);
+        });
+        const {tryRunNativeSearch} = await import('@electron/search/nativeSearch');
+
+        await expect(tryRunNativeSearch({
+            pdfPath: '/tmp/doc.pdf',
+            documentRevision: DOCUMENT_REVISION,
+            query: 'needle',
+            matchCase: false,
+            wholeWord: false,
+            useRegex: false,
+            pageCount: 1,
+        })).resolves.toBeNull();
+        expect(mocks.tryRunPersistentNativeSearch).not.toHaveBeenCalled();
+        expect(mocks.runNativeToolCommand).not.toHaveBeenCalled();
     });
 
     it('runs native search with bounded stdout and truncation rejection', async () => {
@@ -163,6 +237,23 @@ describe('native search invocation', () => {
                 signal: controller.signal,
             },
         );
+    });
+
+    it('falls back to the one-shot binary when the persistent service fails', async () => {
+        mocks.tryRunPersistentNativeSearch.mockRejectedValueOnce(new Error('service crashed'));
+        const { tryRunNativeSearch } = await import('@electron/search/nativeSearch');
+
+        await expect(tryRunNativeSearch({
+            pdfPath: '/tmp/doc.pdf',
+            documentRevision: DOCUMENT_REVISION,
+            query: 'needle',
+            matchCase: false,
+            wholeWord: false,
+            useRegex: false,
+            pageCount: 1,
+        })).resolves.toMatchObject({totalPages: 1});
+
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledOnce();
     });
 
     it('runs native search when the legacy JSON index has text but no word geometry', async () => {

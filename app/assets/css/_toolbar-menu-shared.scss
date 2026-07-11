@@ -11,7 +11,7 @@
 }
 
 .toolbar-menu-divider {
-    height: 1px;
+    height: var(--app-hairline-height);
     margin: var(--app-space-sm) 0;
     background-color: var(--app-toolbar-separator);
 }

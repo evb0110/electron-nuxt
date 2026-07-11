@@ -1,8 +1,10 @@
 import { createRequire } from 'node:module';
 import {
+    chmod,
     mkdir,
     mkdtemp,
     rm,
+    stat,
     writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -26,6 +28,7 @@ interface IAfterPackContext {
 }
 
 interface IRequiredExtraResource {
+    identityRelativePath?: string | null;
     label: string;
     sourcePath: string;
     stagedPath: string;
@@ -34,6 +37,8 @@ interface IRequiredExtraResource {
 }
 
 interface IAfterPackModule {
+    makeTreeOwnerWritable: (rootPath: string) => void;
+    pruneChromiumLocales: (context: IAfterPackContext) => void;
     assertRequiredExtraResources: (context: IAfterPackContext, options?: {
         projectRoot?: string;
         resourcesDir?: string;
@@ -47,6 +52,8 @@ interface IAfterPackModule {
 const requireScript = createRequire(import.meta.url);
 const {
     assertRequiredExtraResources,
+    makeTreeOwnerWritable,
+    pruneChromiumLocales,
     requiredExtraResourcesForContext,
 } = requireScript(path.join(process.cwd(), 'scripts/afterPack.cjs')) as IAfterPackModule;
 
@@ -73,10 +80,13 @@ async function createRequiredPath(filePath: string, type: TRequiredExtraResource
 }
 
 async function createRequiredPaths(entries: IRequiredExtraResource[], side: 'source' | 'staged') {
-    await Promise.all(entries.map(entry => createRequiredPath(
-        side === 'source' ? entry.sourcePath : entry.stagedPath,
-        entry.type,
-    )));
+    await Promise.all(entries.map(async (entry) => {
+        const rootPath = side === 'source' ? entry.sourcePath : entry.stagedPath;
+        await createRequiredPath(rootPath, entry.type);
+        if (entry.identityRelativePath) {
+            await createRequiredPath(path.join(rootPath, entry.identityRelativePath), 'file');
+        }
+    }));
 }
 
 function captureErrorMessage(action: () => void) {
@@ -90,6 +100,138 @@ function captureErrorMessage(action: () => void) {
 }
 
 describe('afterPack extraResources preflight', () => {
+    it.each([
+        {
+            platform: 'darwin',
+            retained: [
+                'de',
+                'en',
+                'es',
+                'fr',
+                'it',
+                'nl',
+                'pt_BR',
+                'pt_PT',
+                'ru',
+            ],
+            removed: 'ja',
+        },
+        {
+            platform: 'linux',
+            retained: [
+                'de',
+                'en-US',
+                'es',
+                'fr',
+                'it',
+                'nl',
+                'pt-BR',
+                'pt-PT',
+                'ru',
+            ],
+            removed: 'ja',
+        },
+        {
+            platform: 'win32',
+            retained: [
+                'de',
+                'en-US',
+                'es',
+                'fr',
+                'it',
+                'nl',
+                'pt-BR',
+                'pt-PT',
+                'ru',
+            ],
+            removed: 'ja',
+        },
+    ])('prunes Chromium locales to the nine supported product locales on $platform', async (fixture) => {
+        const tempRoot = await mkdtemp(path.join(tmpdir(), 'evb-after-pack-locales-'));
+        const resourcesDir = fixture.platform === 'darwin'
+            ? path.join(tempRoot, 'EVB Viewer.app', 'Contents', 'Resources')
+            : path.join(tempRoot, 'resources');
+        const context = createContext(fixture.platform, 'arm64', resourcesDir);
+        context.appOutDir = tempRoot;
+        const localeRoot = fixture.platform === 'darwin'
+            ? path.join(
+                tempRoot,
+                'EVB Viewer.app',
+                'Contents',
+                'Frameworks',
+                'Electron Framework.framework',
+                'Versions',
+                'A',
+                'Resources',
+            )
+            : path.join(resourcesDir, 'locales');
+
+        try {
+            for (const locale of [
+                ...fixture.retained,
+                fixture.removed,
+                ...(fixture.platform === 'darwin' ? ['en_FEMININE'] : []),
+            ]) {
+                const localePath = fixture.platform === 'darwin'
+                    ? path.join(localeRoot, `${locale}.lproj`, 'locale.pak')
+                    : path.join(localeRoot, `${locale}.pak`);
+                await mkdir(path.dirname(localePath), {recursive: true});
+                await writeFile(localePath, locale, 'utf8');
+            }
+
+            pruneChromiumLocales(context);
+
+            for (const locale of fixture.retained) {
+                const localePath = fixture.platform === 'darwin'
+                    ? path.join(localeRoot, `${locale}.lproj`, 'locale.pak')
+                    : path.join(localeRoot, `${locale}.pak`);
+                await expect(stat(localePath)).resolves.toBeDefined();
+            }
+            if (fixture.platform === 'darwin') {
+                await expect(stat(path.join(localeRoot, 'en_FEMININE.lproj', 'locale.pak'))).resolves.toBeDefined();
+            }
+            const removedPath = fixture.platform === 'darwin'
+                ? path.join(localeRoot, `${fixture.removed}.lproj`)
+                : path.join(localeRoot, `${fixture.removed}.pak`);
+            await expect(stat(removedPath)).rejects.toMatchObject({code: 'ENOENT'});
+        } finally {
+            await rm(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('makes read-only updater payloads owner-writable without dropping executable bits', async () => {
+        const tempRoot = await mkdtemp(path.join(tmpdir(), 'evb-after-pack-permissions-'));
+        const readOnlyDirectoryPath = path.join(tempRoot, 'read-only');
+        const binaryPath = path.join(tempRoot, 'bin', 'tesseract');
+        const libraryPath = path.join(tempRoot, 'lib', 'libtesseract.dylib');
+
+        try {
+            await mkdir(path.dirname(binaryPath), {recursive: true});
+            await mkdir(path.dirname(libraryPath), {recursive: true});
+            await writeFile(binaryPath, 'binary');
+            await writeFile(libraryPath, 'library');
+            await mkdir(readOnlyDirectoryPath);
+            await chmod(binaryPath, 0o555);
+            await chmod(libraryPath, 0o444);
+            await chmod(readOnlyDirectoryPath, 0o555);
+
+            makeTreeOwnerWritable(tempRoot);
+
+            expect((await stat(binaryPath)).mode & 0o777).toBe(0o755);
+            expect((await stat(libraryPath)).mode & 0o777).toBe(0o644);
+            expect((await stat(readOnlyDirectoryPath)).mode & 0o777).toBe(0o755);
+        } finally {
+            await chmod(tempRoot, 0o700).catch(() => undefined);
+            await rm(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
     it('maps every required platform extraResource for the target tag', () => {
         const entries = requiredExtraResourcesForContext(
             createContext('darwin', 'arm64', '/app/EVB Viewer.app/Contents/Resources'),
@@ -200,6 +342,15 @@ describe('afterPack extraResources preflight', () => {
             await createRequiredPaths(entries, 'staged');
 
             expect(() => assertRequiredExtraResources(context, {projectRoot: tempRoot})).not.toThrow();
+
+            const pdfSearch = entries.find(entry => entry.label.startsWith('PDF search native tool'))!;
+            await writeFile(
+                path.join(pdfSearch.stagedPath, pdfSearch.identityRelativePath!),
+                'stale-binary',
+                'utf8',
+            );
+            const mismatchMessage = captureErrorMessage(() => assertRequiredExtraResources(context, {projectRoot: tempRoot}));
+            expect(mismatchMessage).toContain('packaged PDF search native tool (win32-arm64) binary differs from staged build');
         } finally {
             await rm(tempRoot, {
                 force: true,

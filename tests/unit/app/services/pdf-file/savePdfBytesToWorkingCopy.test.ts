@@ -7,6 +7,7 @@ import {
     vi,
 } from 'vitest';
 import { savePdfBytesToWorkingCopy } from '@app/services/pdf-file/savePdfBytesToWorkingCopy';
+import {requireDocumentRevisionToken} from '@contracts';
 
 const mocks = vi.hoisted(() => ({
     documentFiles: {
@@ -37,7 +38,7 @@ vi.mock('@app/utils/platformDocuments', () => ({
     getDocumentsCapability: () => mocks.legacyDocuments,
 }));
 
-const SERIALIZED_SAVE_OPTIONS = { expectedDocumentRevisionToken: 'drt1:test:serialized-base' };
+const SERIALIZED_SAVE_OPTIONS = { expectedDocumentRevisionToken: requireDocumentRevisionToken('drt1:test:serialized-base') };
 
 describe('savePdfBytesToWorkingCopy', () => {
     beforeEach(() => {

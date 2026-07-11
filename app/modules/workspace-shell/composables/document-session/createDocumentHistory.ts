@@ -17,6 +17,7 @@ import { appendHistoryEntry } from '@app/services/pdf-file/appendHistoryEntry';
 import { areByteArraysEqual } from '@app/utils/areByteArraysEqual';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getDocumentRefBaseName } from '@app/utils/documentRef';
+import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
 
 export interface IPdfLoadedState {
     pdfData: Uint8Array | null;
@@ -55,7 +56,8 @@ interface ICreateDocumentHistoryDeps {
 }
 
 const MAX_HISTORY_ENTRIES = 20;
-const MAX_HISTORY_BYTES = 200 * 1024 * 1024;
+// Annotation commands use the other 16 MiB half of the app-wide 32 MiB undo cap.
+const MAX_FILE_HISTORY_BYTES = 16 * 1024 * 1024;
 const MAX_IN_MEMORY_HISTORY_SNAPSHOT_BYTES = 8 * 1024 * 1024;
 
 function createDocumentMutationRevisionOptions(
@@ -76,6 +78,11 @@ export function createDocumentHistory(
     const historyCleanIndex = ref(-1);
     const fileHistoryMutationVersion = ref(0);
     const fileHistorySessionVersion = ref(0);
+    let workspaceCommandSink: IWorkspaceCommandSink | null = null;
+
+    function setWorkspaceCommandSink(sink: IWorkspaceCommandSink | null) {
+        workspaceCommandSink = sink;
+    }
 
     function createByteHistoryEntry(
         snapshot: Uint8Array,
@@ -387,11 +394,19 @@ export function createDocumentHistory(
             historyCleanIndex: historyCleanIndex.value,
         }, entry, {
             maxEntries: MAX_HISTORY_ENTRIES,
-            maxBytes: MAX_HISTORY_BYTES,
+            maxBytes: MAX_FILE_HISTORY_BYTES,
         });
 
         replaceHistory(nextState.history, nextState.historyIndex, nextState.historyCleanIndex);
         fileHistoryMutationVersion.value += 1;
+        workspaceCommandSink?.register({
+            source: 'file',
+            undo,
+            cmd: redo,
+            canUndo: () => canUndo.value,
+            canRedo: () => canRedo.value,
+            estimatedBytes: entry.kind === 'bytes' ? entry.snapshot.byteLength : entry.size,
+        });
         syncDirtyFromHistory();
     }
 
@@ -507,6 +522,7 @@ export function createDocumentHistory(
 
     function incrementSessionVersion() {
         fileHistorySessionVersion.value += 1;
+        workspaceCommandSink?.reset();
     }
 
     function getHistoryDebugState() {
@@ -533,6 +549,7 @@ export function createDocumentHistory(
         redo,
         reloadWorkingCopyIntoHistory,
         resetHistory,
+        setWorkspaceCommandSink,
         syncDirtyFromHistory,
         undo,
     };

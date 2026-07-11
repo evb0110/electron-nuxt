@@ -10,7 +10,6 @@ import type {
     IAppUpdateStatus,
     TAppUpdateCheckOrigin,
 } from '@contracts/electronApiUpdates';
-import type { ILatestReleaseResponse } from '@contracts';
 import { config } from '@electron/config';
 import {
     loadSettings,
@@ -24,6 +23,14 @@ import {
     normalizeVersion,
 } from '@electron/updates/versionCompare';
 import { checkMacCodeSignature } from '@electron/updates/checkMacCodeSignature';
+import { decodeLatestReleaseTag } from '@electron/updates/decodeLatestReleaseTag';
+import {
+    getSuppressedUpdateVersion,
+    markUpdateInstallPending,
+    recordPendingUpdateStartup,
+    UPDATE_STARTUP_FAILURE_THRESHOLD,
+} from '@electron/updateHealthMarker';
+import { runDetached } from '@electron/utils/runDetached';
 
 const { autoUpdater } = electronUpdater;
 
@@ -219,8 +226,8 @@ async function fetchLatestMetadataVersion() {
         throw new Error(`Metadata endpoint responded with ${response.status}`);
     }
 
-    const payload = await response.json() as Partial<ILatestReleaseResponse>;
-    const latestTag = normalizeVersion(payload.release?.tag);
+    const payload: unknown = await response.json();
+    const latestTag = normalizeVersion(decodeLatestReleaseTag(payload));
     if (!latestTag) {
         throw new Error('Metadata endpoint did not return release.tag');
     }
@@ -491,6 +498,13 @@ async function shouldRunUpdaterCheck() {
         return false;
     }
 
+    const suppressedVersion = await getSuppressedUpdateVersion(currentVersion);
+    if (suppressedVersion === latestVersion) {
+        logger.error(`Suppressing update ${latestVersion} after repeated startup failures; install a newer candidate or update manually`);
+        pendingVersion = null;
+        return false;
+    }
+
     try {
         if (!await hasUpdaterMetadataForVersion(latestVersion)) {
             logger.info(`Release ${latestVersion} has no ${getUpdaterMetadataAssetName()} updater feed; skipping in-app updater check`);
@@ -655,6 +669,34 @@ export function initializeUpdates(onStatus: (status: IAppUpdateStatus) => void) 
     }
     initialized = true;
 
+    const currentVersion = getCurrentVersion();
+    if (currentVersion) {
+        runDetached(
+            async () => {
+                const marker = await recordPendingUpdateStartup(currentVersion);
+                if (marker && !marker.installationApplied) {
+                    const message = `Update ${marker.pendingVersion} could not be installed; version ${currentVersion} was relaunched`;
+                    logger.error(message);
+                    updateStatus({
+                        phase: 'error',
+                        origin: 'manual',
+                        version: marker.pendingVersion,
+                        percent: null,
+                        message,
+                    });
+                } else if (marker && marker.startupAttempts >= UPDATE_STARTUP_FAILURE_THRESHOLD) {
+                    logger.error(
+                        `Update ${currentVersion} failed to reach renderer readiness on ${marker.startupAttempts} consecutive startups`,
+                    );
+                }
+            },
+            {
+                label: 'record pending update startup',
+                logger,
+            },
+        );
+    }
+
     setAutoUpdaterListeners();
 
     if (!isUpdaterRuntimeSupported()) {
@@ -720,6 +762,11 @@ export async function installDownloadedUpdate() {
         await writeSkippedVersion(null);
     } catch (error) {
         logger.warn(`Failed to clear skipped update version before install: ${getErrorMessage(error)}`);
+    }
+    try {
+        await markUpdateInstallPending(downloadedVersion);
+    } catch (error) {
+        logger.warn(`Failed to write update health marker before install: ${getErrorMessage(error)}`);
     }
     requestUpdateInstallShutdown(() => {
         autoUpdater.quitAndInstall(false, true);

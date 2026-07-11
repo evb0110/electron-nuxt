@@ -37,7 +37,11 @@ export interface IManagedEmbeddedPdfShapeStateSnapshot {
     selectedShapeId: string | null;
 }
 
-export interface IManagedEmbeddedPdfShapeStore {
+/**
+ * Rendering/persistence projection port. It owns no annotation semantics;
+ * canonical shape identity, revisions and tombstones live in AnnotationStore.
+ */
+export interface IManagedEmbeddedPdfShapeProjectionPort {
     hasShapes: { readonly value: boolean };
     deletedEmbeddedAnnotationIds: { readonly value: Set<string> };
     getAllShapes: () => IShapeAnnotation[];
@@ -58,8 +62,7 @@ interface IUseManagedEmbeddedPdfShapesOptions {
     sourcePdfFileSize: Ref<number | null>;
     visibleRange: Ref<IManagedEmbeddedPdfShapesPageRange>;
     bufferPages: Ref<number>;
-    shapeComposable: IManagedEmbeddedPdfShapeStore;
-    suppressCommentAnnotationId: (annotationId: string) => void;
+    shapeComposable: IManagedEmbeddedPdfShapeProjectionPort;
     logger: IManagedEmbeddedPdfShapesLogger;
     runGuardedTask: (
         task: () => Promise<unknown>,
@@ -84,7 +87,6 @@ export const useManagedEmbeddedPdfShapes = ({
     visibleRange,
     bufferPages,
     shapeComposable,
-    suppressCommentAnnotationId,
     logger,
     runGuardedTask,
     nextTick: waitForNextTick,
@@ -128,17 +130,9 @@ export const useManagedEmbeddedPdfShapes = ({
         });
         return ids;
     });
-    const visuallySuppressedAnnotationIds = ref<Set<string>>(new Set());
-
     const forceHiddenEmbeddedAnnotationIds = computed(() => {
         const ids = new Set<string>();
         shapeComposable.deletedEmbeddedAnnotationIds.value.forEach((id) => {
-            const normalizedId = normalizePdfJsAnnotationId(id);
-            if (normalizedId) {
-                ids.add(normalizedId);
-            }
-        });
-        visuallySuppressedAnnotationIds.value.forEach((id) => {
             const normalizedId = normalizePdfJsAnnotationId(id);
             if (normalizedId) {
                 ids.add(normalizedId);
@@ -159,47 +153,6 @@ export const useManagedEmbeddedPdfShapes = ({
         // cannot briefly appear zoom-scaled before the overlay is mounted.
         return new Set(hiddenEmbeddedAnnotationIds.value);
     });
-
-    function suppressAnnotationId(annotationId: string) {
-        suppressCommentAnnotationId(annotationId);
-        const normalizedId = normalizePdfJsAnnotationId(annotationId);
-        if (!normalizedId || visuallySuppressedAnnotationIds.value.has(normalizedId)) {
-            return;
-        }
-
-        visuallySuppressedAnnotationIds.value = new Set([
-            ...visuallySuppressedAnnotationIds.value,
-            normalizedId,
-        ]);
-        tracePdfAnnotationSaveEvent('managed-embedded-shapes:suppress-annotation-id', () => ({
-            annotationId,
-            normalizedId,
-            visuallySuppressed: Array.from(visuallySuppressedAnnotationIds.value).slice(0, 20),
-        }));
-    }
-
-    function unsuppressAnnotationId(annotationId: string) {
-        const normalizedId = normalizePdfJsAnnotationId(annotationId);
-        if (!normalizedId || !visuallySuppressedAnnotationIds.value.has(normalizedId)) {
-            return;
-        }
-        const nextIds = new Set(visuallySuppressedAnnotationIds.value);
-        nextIds.delete(normalizedId);
-        visuallySuppressedAnnotationIds.value = nextIds;
-        tracePdfAnnotationSaveEvent('managed-embedded-shapes:unsuppress-annotation-id', () => ({
-            annotationId,
-            normalizedId,
-            visuallySuppressed: Array.from(visuallySuppressedAnnotationIds.value).slice(0, 20),
-        }));
-    }
-
-    function clearVisuallySuppressedAnnotationIds() {
-        if (visuallySuppressedAnnotationIds.value.size === 0) {
-            return;
-        }
-        visuallySuppressedAnnotationIds.value = new Set();
-        tracePdfAnnotationSaveEvent('managed-embedded-shapes:clear-visually-suppressed-ids');
-    }
 
     function queueDeferredHiddenEmbeddedAnnotationDomSync() {
         if (disposed || isDeferredHiddenEmbeddedAnnotationDomSyncScheduled) {
@@ -816,9 +769,6 @@ export const useManagedEmbeddedPdfShapes = ({
         managedEmbeddedAnnotationIds,
         hiddenEmbeddedAnnotationIds,
         renderHiddenEmbeddedAnnotationIds,
-        suppressAnnotationId,
-        unsuppressAnnotationId,
-        clearVisuallySuppressedAnnotationIds,
         syncHiddenEmbeddedAnnotationDom,
         refreshHiddenAnnotationPage,
         refreshDeletedEmbeddedShape,

@@ -4,11 +4,13 @@ import {
     readFile,
     rm,
     stat,
+    statfs,
 } from 'fs/promises';
 import { randomUUID } from 'crypto';
 import { tmpdir } from 'os';
 import {
     extname,
+    dirname,
     join,
 } from 'path';
 import {
@@ -83,16 +85,13 @@ function isDjvuPath(inputPath: string) {
     return extension === '.djvu' || extension === '.djv';
 }
 
-function isNativeAssemblerSupportedPath(inputPath: string) {
-    return isPdfPath(inputPath)
-        || isDjvuPath(inputPath)
-        || isNativePdfImageCombineBitmapPath(inputPath);
-}
-
 function canUseNativePdfAssembler(inputPaths: string[]) {
     return !isNativePdfAssemblerDisabled()
         && inputPaths.length > 0
-        && inputPaths.every(isNativeAssemblerSupportedPath);
+        // qpdf page assembly does not merge source catalogs. PDF and DjVu
+        // inputs must use the shared metadata planner; this fast path is
+        // intentionally image-only.
+        && inputPaths.every(isNativePdfImageCombineBitmapPath);
 }
 
 function estimateRemainingMs(elapsedMs: number, processed: number, total: number) {
@@ -279,7 +278,7 @@ async function writePdfFromInputPathsNativeWithTempDir(
     tempDir: string,
     limits: INativePdfAssemblerResourceLimits,
     options?: INativePdfAssemblerOptions,
-): Promise<boolean> {
+): Promise<number | null> {
     try {
         throwIfAborted(options?.signal);
         const progress: IProgressState = {
@@ -310,7 +309,7 @@ async function writePdfFromInputPathsNativeWithTempDir(
                 options,
             );
             if (addedImagePages === null) {
-                return false;
+                return null;
             }
             pageCount += addedImagePages;
 
@@ -326,7 +325,7 @@ async function writePdfFromInputPathsNativeWithTempDir(
                 chunkPaths.push(convertedPath);
                 pageCount += sourcePageCount;
             } else {
-                return false;
+                return null;
             }
 
             progress.processed += 1;
@@ -341,15 +340,16 @@ async function writePdfFromInputPathsNativeWithTempDir(
             progress,
             pageCount,
             limits,
-            chunkPaths.length > 0,
+            true,
             options,
         );
         if (addedImagePages === null) {
-            return false;
+            return null;
         }
+        pageCount += addedImagePages;
 
         if (chunkPaths.length === 0) {
-            return false;
+            return null;
         }
 
         if (chunkPaths.length === 1) {
@@ -357,19 +357,36 @@ async function writePdfFromInputPathsNativeWithTempDir(
             await assertNonEmptyPdfOutput(outputPath, 'Assembling PDF inputs');
             throwIfAborted(options?.signal);
             emitProgress(progress, options, progress.total);
-            return true;
+            return pageCount;
         }
 
         await mergePdfChunks(chunkPaths, outputPath, options?.signal);
         throwIfAborted(options?.signal);
         emitProgress(progress, options, progress.total);
-        return true;
+        return pageCount;
     } catch (error) {
         if (options?.signal?.aborted || isAbortError(error)) {
             throw error;
         }
         log.warn(`Native PDF assembler failed, falling back to JS combine: ${getErrorMessage(error)}`);
-        return false;
+        return null;
+    }
+}
+
+async function assertNativeCombineDiskSpace(inputPaths: string[], outputPath: string, limits: INativePdfAssemblerResourceLimits) {
+    if (typeof statfs !== 'function') {
+        return;
+    }
+    const inputStats = await Promise.all(inputPaths.map(path => stat(path)));
+    const estimatedOutputBytes = Math.min(
+        limits.maxOutputBytes,
+        Math.max(16 * 1024 * 1024, inputStats.reduce((total, entry) => total + entry.size, 0) * 2),
+    );
+    const filesystem = await statfs(dirname(outputPath));
+    const availableBytes = Number(filesystem.bavail) * Number(filesystem.bsize);
+    const requiredBytes = estimatedOutputBytes * 2;
+    if (!Number.isFinite(availableBytes) || availableBytes < requiredBytes) {
+        throw new Error(`Insufficient disk space for PDF combine (requires ${requiredBytes} bytes)`);
     }
 }
 
@@ -382,7 +399,7 @@ export async function tryWritePdfFromInputPathsNative(
         return false;
     }
 
-    const normalizedOutputPath = typeof outputPath === 'string' ? outputPath.trim() : '';
+    const normalizedOutputPath = typeof outputPath === 'string' ? outputPath : '';
     if (!normalizedOutputPath) {
         return false;
     }
@@ -392,15 +409,26 @@ export async function tryWritePdfFromInputPathsNative(
     const limits = getResourceLimits(FILE_BACKED_NATIVE_ASSEMBLER_MAX_PAGES);
 
     try {
-        const wrote = await writePdfFromInputPathsNativeWithTempDir(
+        await assertNativeCombineDiskSpace(inputPaths, normalizedOutputPath, limits);
+        const expectedPageCount = await writePdfFromInputPathsNativeWithTempDir(
             inputPaths,
             stagedOutputPath,
             tempDir,
             limits,
             options,
         );
-        if (!wrote) {
+        if (expectedPageCount === null) {
             return false;
+        }
+
+        const outputStat = await stat(stagedOutputPath);
+        assertOutputLimit(outputStat.size, limits);
+        const outputPageCount = await getPdfPageCount(
+            stagedOutputPath,
+            options?.signal ? {signal: options.signal} : {},
+        );
+        if (outputPageCount !== expectedPageCount || outputPageCount < 1) {
+            throw new Error(`Combined PDF page-count postcondition failed: expected ${expectedPageCount}, got ${outputPageCount}`);
         }
 
         await atomicReplace(stagedOutputPath, normalizedOutputPath);
@@ -427,15 +455,19 @@ export async function tryCreatePdfFromInputPathsNative(
     const limits = getResourceLimits();
 
     try {
-        const ok = await writePdfFromInputPathsNativeWithTempDir(
+        const expectedPageCount = await writePdfFromInputPathsNativeWithTempDir(
             inputPaths,
             outputPath,
             tempDir,
             limits,
             options,
         );
-        if (!ok) {
+        if (expectedPageCount === null) {
             return null;
+        }
+        const outputPageCount = await getPdfPageCount(outputPath, options?.signal ? {signal: options.signal} : {});
+        if (outputPageCount !== expectedPageCount || outputPageCount < 1) {
+            throw new Error(`Combined PDF page-count postcondition failed: expected ${expectedPageCount}, got ${outputPageCount}`);
         }
         return await readLimitedPdfOutput(outputPath, limits);
     } catch (error) {

@@ -1,3 +1,4 @@
+use evb_native_support::{NativeErrorCode, NativeErrorEnvelope};
 use std::{cell::RefCell, mem, slice};
 
 use crate::{
@@ -21,6 +22,8 @@ const OP_GET_PAGE_GEOMETRY: u32 = 8;
 
 const RESPONSE_MUTATION: u32 = 1;
 const RESPONSE_GEOMETRY: u32 = 2;
+const MAX_REQUEST_BYTES: usize = 256 * 1024 * 1024;
+const MAX_OUTPUT_BYTES: usize = 512 * 1024 * 1024;
 
 thread_local! {
     static LAST_OUTPUT: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
@@ -62,21 +65,50 @@ pub unsafe extern "C" fn evb_pdf_page_ops_run(
     request_len: usize,
 ) -> i32 {
     clear_last_result();
+    if request_pointer.is_null() || request_len == 0 || request_len > MAX_REQUEST_BYTES {
+        set_error_envelope(NativeErrorEnvelope {
+            code: NativeErrorCode::TooLarge,
+            message: "Page-op WASM request exceeds the admission ceiling".to_string(),
+        });
+        return -1;
+    }
     let request = slice::from_raw_parts(request_pointer, request_len);
-    match run_request(request) {
-        Ok(output) => {
+    match std::panic::catch_unwind(|| run_request(request)) {
+        Ok(Ok(output)) if output.len() <= MAX_OUTPUT_BYTES => {
             LAST_OUTPUT.with(|slot| {
                 *slot.borrow_mut() = output;
             });
             0
         }
-        Err(error) => {
-            LAST_ERROR.with(|slot| {
-                *slot.borrow_mut() = error.to_string().into_bytes();
+        Ok(Ok(_)) => {
+            set_error_envelope(NativeErrorEnvelope {
+                code: NativeErrorCode::TooLarge,
+                message: "Page-op WASM output exceeds the admission ceiling".to_string(),
+            });
+            -1
+        }
+        Ok(Err(error)) => {
+            set_error_envelope(NativeErrorEnvelope::from_error(error.as_ref()));
+            -1
+        }
+        Err(_) => {
+            set_error_envelope(NativeErrorEnvelope {
+                code: NativeErrorCode::Panic,
+                message: "Native page operation panicked".to_string(),
             });
             -1
         }
     }
+}
+
+fn set_last_error(message: &str) {
+    LAST_ERROR.with(|slot| {
+        *slot.borrow_mut() = message.as_bytes().to_vec();
+    });
+}
+
+fn set_error_envelope(envelope: NativeErrorEnvelope) {
+    set_last_error(&envelope.to_json());
 }
 
 #[no_mangle]

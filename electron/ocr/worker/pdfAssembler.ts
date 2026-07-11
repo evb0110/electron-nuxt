@@ -3,7 +3,6 @@ import {
     stat,
     writeFile,
 } from 'fs/promises';
-import { join } from 'path';
 import { sortBy } from 'es-toolkit/array';
 import {
     decodePDFRawStream,
@@ -31,6 +30,7 @@ import {
     safePdfDictLookupDict,
     safePdfPageInheritableDict,
 } from '@pdf-core';
+import { assembleSearchablePdfStreaming } from '@electron/ocr/worker/assembleSearchablePdfStreaming';
 
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
 const TESSERACT_IMAGE_PAINT_RE = /^q\s+[\d.]+\s+0\s+0\s+[\d.]+\s+0\s+0\s+cm\s+\/Im\d+\s+Do\s+Q\r?\n/gm;
@@ -330,8 +330,8 @@ function appendOcrLayer(
     embeddedPage: Awaited<ReturnType<PDFDocument['embedPage']>>,
 ) {
     const rotation = ((page.getRotation().angle % 360) + 360) % 360;
-    if (rotation !== 0) {
-        throw new Error(`Cannot safely add OCR text layer to rotated PDF page (${rotation} degrees)`);
+    if (rotation !== 0 && rotation !== 90 && rotation !== 180 && rotation !== 270) {
+        throw new Error(`Cannot add OCR text layer to a non-right-angle PDF page rotation (${rotation} degrees)`);
     }
 
     const {
@@ -348,13 +348,52 @@ function appendOcrLayer(
     }));
     const xObjectToken = xObjectName.toString();
     const invisibleStateToken = invisibleStateName.toString();
-    const xScale = page.getWidth() / embeddedPage.width;
-    const yScale = page.getHeight() / embeddedPage.height;
+    const pageWidth = page.getWidth();
+    const pageHeight = page.getHeight();
+    const displayedWidth = rotation === 90 || rotation === 270 ? pageHeight : pageWidth;
+    const displayedHeight = rotation === 90 || rotation === 270 ? pageWidth : pageHeight;
+    const xScale = displayedWidth / embeddedPage.width;
+    const yScale = displayedHeight / embeddedPage.height;
+    const transform = rotation === 0
+        ? [
+            xScale,
+            0,
+            0,
+            yScale,
+            0,
+            0,
+        ]
+        : rotation === 90
+            ? [
+                0,
+                xScale,
+                -yScale,
+                0,
+                pageWidth,
+                0,
+            ]
+            : rotation === 180
+                ? [
+                    -xScale,
+                    0,
+                    0,
+                    -yScale,
+                    pageWidth,
+                    pageHeight,
+                ]
+                : [
+                    0,
+                    -xScale,
+                    yScale,
+                    0,
+                    0,
+                    pageHeight,
+                ];
     const stream = [
         `% ${OCR_LAYER_MARKER}_BEGIN`,
         'q',
         `${invisibleStateToken} gs`,
-        `${xScale} 0 0 ${yScale} 0 0 cm`,
+        `${transform.join(' ')} cm`,
         `${xObjectToken} Do`,
         'Q',
         `% ${OCR_LAYER_MARKER}_END`,
@@ -366,7 +405,7 @@ function appendOcrLayer(
 }
 
 export async function assembleSearchablePdf(
-    _qpdfBinary: string,
+    qpdfBinary: string,
     originalPdfPath: string,
     ocrPdfMap: Map<number, string>,
     pageCount: number,
@@ -391,35 +430,28 @@ export async function assembleSearchablePdf(
         throw new Error('No valid OCR pages were available to assemble');
     }
 
-    const originalPdfBytes = await readFile(originalPdfPath);
-    const pdf = await PDFDocument.load(originalPdfBytes, { ignoreEncryption: true });
-    const pages = pdf.getPages();
-    throwIfAborted(signal);
-
-    for (const [
-        pageNumber,
-        ocrPdfPath,
-    ] of ocrPageEntries) {
-        const page = pages[pageNumber - 1];
-        if (!page) {
-            continue;
-        }
-
-        removePreviousOcrLayer(page);
-        const ocrPdfBytes = await readFile(ocrPdfPath);
-        const ocrPdf = await PDFDocument.load(ocrPdfBytes, { ignoreEncryption: true });
-        const ocrPage = ocrPdf.getPage(0);
-        sanitizeOcrPageForEmbedding(ocrPage);
-        const embeddedOcrPage = await pdf.embedPage(ocrPage);
-        appendOcrLayer(page, embeddedOcrPage);
-        throwIfAborted(signal);
-    }
-
-    const replacementPdfPath = trackTempFile(join(tempDir, `${sessionId}-merged.pdf`));
-    await writeFile(replacementPdfPath, await pdf.save({ useObjectStreams: true }));
-    await assertNonEmptyFile(replacementPdfPath, 'Assembled OCR PDF');
+    const replacementPdfPath = await assembleSearchablePdfStreaming({
+        qpdfBinary,
+        originalPdfPath,
+        ocrPageEntries,
+        pageCount,
+        tempDir,
+        sessionId,
+        trackTempFile,
+        ...(signal ? {signal} : {}),
+        mutatePage: async (sourcePagePath, ocrPagePath, outputPath) => {
+            const pdf = await PDFDocument.load(await readFile(sourcePagePath), {ignoreEncryption: true});
+            const page = pdf.getPage(0);
+            removePreviousOcrLayer(page);
+            const ocrPdf = await PDFDocument.load(await readFile(ocrPagePath), {ignoreEncryption: true});
+            const ocrPage = ocrPdf.getPage(0);
+            sanitizeOcrPageForEmbedding(ocrPage);
+            appendOcrLayer(page, await pdf.embedPage(ocrPage));
+            throwIfAborted(signal);
+            await writeFile(outputPath, await pdf.save({useObjectStreams: true}));
+        },
+    });
     await assertReasonableOcrOutputSize(originalPdfPath, replacementPdfPath);
     throwIfAborted(signal);
-
     return replacementPdfPath;
 }

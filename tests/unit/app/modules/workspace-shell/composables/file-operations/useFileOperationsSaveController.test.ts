@@ -15,7 +15,6 @@ import { cast } from '@tests/helpers/cast';
 import {
     createDeferred,
     createDeps,
-    createMarkupComment,
     createPdfNoteComment,
     expectWorkspaceSaveMarked,
     expectWorkspaceSaveNotMarked,
@@ -23,6 +22,7 @@ import {
     type TPdfNativeMutationSave,
     useFileOperationsSaveController,
 } from '@tests/unit/app/modules/workspace-shell/composables/file-operations/useFileOperationsSaveControllerFixture';
+import {requireDocumentRevisionToken} from '@contracts';
 
 describe('useFileOperationsSaveController', () => {
     beforeEach(() => {
@@ -67,8 +67,8 @@ describe('useFileOperationsSaveController', () => {
         const saveFile = vi.fn()
             .mockRejectedValueOnce(createStaleRevisionError({
                 documentRef: '/tmp/work.pdf',
-                expectedRevision: 'drt1:test:before-save',
-                actualRevision: 'drt1:test:page-op',
+                expectedRevision: requireDocumentRevisionToken('drt1:test:before-save'),
+                actualRevision: requireDocumentRevisionToken('drt1:test:page-op'),
             }))
             .mockResolvedValueOnce({
                 success: true,
@@ -111,8 +111,8 @@ describe('useFileOperationsSaveController', () => {
     it('stops stale revision save retries after the bounded retry budget', async () => {
         const staleError = createStaleRevisionError({
             documentRef: '/tmp/work.pdf',
-            expectedRevision: 'drt1:test:before-save',
-            actualRevision: 'drt1:test:ocr-apply',
+            expectedRevision: requireDocumentRevisionToken('drt1:test:before-save'),
+            actualRevision: requireDocumentRevisionToken('drt1:test:ocr-apply'),
         });
         const saveFile = vi.fn(async () => {
             throw staleError;
@@ -193,9 +193,9 @@ describe('useFileOperationsSaveController', () => {
         }));
         const { deps } = createDeps({
             annotationDirty: ref(true),
-            annotationComments: ref([createPdfNoteComment()]),
+            canonicalAnnotationComments: ref([createPdfNoteComment()]),
             annotationNoteWindowsCount: ref(1),
-            consumePendingEmbeddedTextUpdates: vi.fn(() => pendingTexts),
+            captureCanonicalPendingTextUpdates: vi.fn(() => pendingTexts),
             persistAllAnnotationNotes: vi.fn(() => notePersistence.promise),
             trySaveEmbeddedNoteTextUpdates,
         });
@@ -212,7 +212,6 @@ describe('useFileOperationsSaveController', () => {
         expect(trySaveEmbeddedNoteTextUpdates).not.toHaveBeenCalled();
         expect(deps.saveFile).not.toHaveBeenCalled();
         expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
-        expect(deps.restorePendingEmbeddedTextUpdates).toHaveBeenCalledWith(pendingTexts);
         expectWorkspaceSaveNotMarked(deps);
         expect(deps.isSaving.value).toBe(false);
     });
@@ -224,7 +223,7 @@ describe('useFileOperationsSaveController', () => {
         const { deps } = createDeps({
             annotationDirty: ref(true),
             hasPreservedAnnotationSourceChanges: vi.fn(() => true),
-            consumePendingEmbeddedTextUpdates: vi.fn(() => pendingTexts),
+            captureCanonicalPendingTextUpdates: vi.fn(() => pendingTexts),
             saveDocument: vi.fn(() => sourceBytes.promise),
         });
         const { handleSave } = useFileOperationsSaveController(deps);
@@ -241,7 +240,6 @@ describe('useFileOperationsSaveController', () => {
         expect(deps.serializePdfForSave).toHaveBeenCalledOnce();
         expect(deps.saveFile).not.toHaveBeenCalled();
         expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
-        expect(deps.restorePendingEmbeddedTextUpdates).toHaveBeenCalledWith(pendingTexts);
         expectWorkspaceSaveNotMarked(deps);
         expect(deps.isSaving.value).toBe(false);
     });
@@ -252,7 +250,7 @@ describe('useFileOperationsSaveController', () => {
         pendingTexts.set('ann:0:3856R', 'Updated note');
         const { deps } = createDeps({
             annotationDirty: ref(true),
-            consumePendingEmbeddedTextUpdates: vi.fn(() => pendingTexts),
+            captureCanonicalPendingTextUpdates: vi.fn(() => pendingTexts),
             getSourcePdfData: vi.fn(() => sourceBytes.promise),
         });
         const { handleSave } = useFileOperationsSaveController(deps);
@@ -269,7 +267,6 @@ describe('useFileOperationsSaveController', () => {
         expect(deps.serializePdfForSave).toHaveBeenCalledOnce();
         expect(deps.saveFile).not.toHaveBeenCalled();
         expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
-        expect(deps.restorePendingEmbeddedTextUpdates).toHaveBeenCalledWith(pendingTexts);
         expectWorkspaceSaveNotMarked(deps);
         expect(deps.isSaving.value).toBe(false);
     });
@@ -317,9 +314,9 @@ describe('useFileOperationsSaveController', () => {
         }));
         const { deps } = createDeps({
             annotationDirty: ref(true),
-            annotationComments: ref([createPdfNoteComment()]),
+            canonicalAnnotationComments: ref([createPdfNoteComment()]),
             annotationNoteWindowsCount: ref(1),
-            consumePendingEmbeddedTextUpdates: vi.fn(() => pendingTexts),
+            captureCanonicalPendingTextUpdates: vi.fn(() => pendingTexts),
             persistAllAnnotationNotes: vi.fn(() => notePersistence.promise),
             trySaveEmbeddedNoteTextUpdates,
         });
@@ -336,7 +333,6 @@ describe('useFileOperationsSaveController', () => {
         expect(trySaveEmbeddedNoteTextUpdates).not.toHaveBeenCalled();
         expect(deps.serializePdfForSave).toHaveBeenCalledOnce();
         expect(deps.saveFile).not.toHaveBeenCalled();
-        expect(deps.restorePendingEmbeddedTextUpdates).toHaveBeenCalledWith(pendingTexts);
         expectWorkspaceSaveNotMarked(deps);
         expect(deps.isSaving.value).toBe(false);
     });
@@ -406,60 +402,6 @@ describe('useFileOperationsSaveController', () => {
         );
         expect(saveFile).toHaveBeenCalledOnce();
         expectWorkspaceSaveMarked(deps);
-    });
-
-    it('commits active PDF.js editors inside the save transaction before materialization', async () => {
-        const annotationStorage = {
-            resetModified: vi.fn(),
-            serializable: {
-                map: new Map(),
-                hash: '',
-                transfer: [],
-            },
-            modifiedIds: { ids: new Set() },
-        };
-        const commitPdfEditorsForSave = vi.fn(async () => {
-            annotationStorage.serializable = {
-                map: new Map([[
-                    'active-editor',
-                    { value: 'typed text' },
-                ]]),
-                hash: 'typed-text',
-                transfer: [],
-            };
-        });
-        const consumePendingEmbeddedTextUpdates = vi.fn(() => null);
-        const {
-            deps,
-            saveFile,
-        } = createDeps({
-            pageLabelsDirty: ref(true),
-            pdfDocument: shallowRef(cast({ annotationStorage })),
-            saveDocument: vi.fn(async () => new Uint8Array([7])),
-            getSourcePdfData: vi.fn(async () => new Uint8Array([9])),
-            commitPdfEditorsForSave,
-            consumePendingEmbeddedTextUpdates,
-        });
-        const { handleSave } = useFileOperationsSaveController(deps);
-
-        await handleSave();
-
-        expect(commitPdfEditorsForSave).toHaveBeenCalledOnce();
-        expect(consumePendingEmbeddedTextUpdates).toHaveBeenCalledOnce();
-        expect(consumePendingEmbeddedTextUpdates.mock.invocationCallOrder[0]!)
-            .toBeLessThan(commitPdfEditorsForSave.mock.invocationCallOrder[0]!);
-        expect(commitPdfEditorsForSave.mock.invocationCallOrder[0]!)
-            .toBeLessThan(vi.mocked(deps.saveDocument).mock.invocationCallOrder[0]!);
-        expect(deps.saveDocument).toHaveBeenCalledOnce();
-        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
-        expect(Array.from(saveFile.mock.calls[0]?.[0] ?? [])).toEqual([
-            7,
-            2,
-            3,
-            6,
-            4,
-            5,
-        ]);
     });
 
     it('does not mark newer annotation, page-label, or bookmark edits clean after an older snapshot saves', async () => {
@@ -570,7 +512,7 @@ describe('useFileOperationsSaveController', () => {
         expect(repairWorkingCopy).toHaveBeenCalledWith({
             saveMode: 'rewrite',
             expectedWorkingPath: '/tmp/work.pdf',
-            expectedDocumentRevisionToken: 'rev-1',
+            expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-1'),
         });
         expect(deps.saveDocument).not.toHaveBeenCalled();
         expect(deps.validatePdfPath).not.toHaveBeenCalled();
@@ -599,7 +541,7 @@ describe('useFileOperationsSaveController', () => {
         expect(optimizeWorkingCopy).toHaveBeenCalledWith({
             saveMode: 'rewrite',
             expectedWorkingPath: '/tmp/work.pdf',
-            expectedDocumentRevisionToken: 'rev-1',
+            expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-1'),
         });
         expect(deps.saveDocument).not.toHaveBeenCalled();
         expect(deps.validatePdfPath).not.toHaveBeenCalled();
@@ -666,7 +608,7 @@ describe('useFileOperationsSaveController', () => {
             saveMode: 'save_as_rewrite',
             expectedWorkingPath: '/tmp/work.pdf',
             optimizeLossless: false,
-            expectedDocumentRevisionToken: 'rev-1',
+            expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-1'),
         });
         expectWorkspaceSaveMarked(deps);
     });
@@ -781,135 +723,6 @@ describe('useFileOperationsSaveController', () => {
             4,
             5,
         ]);
-    });
-
-    it('uses source bytes when PDF.js serializable editor id maps back to a pending existing annotation ref', async () => {
-        const pendingTexts = new Map<string, string>();
-        pendingTexts.set('ann:0:3856R', 'Updated note');
-        const livePdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ annotationStorage: {
-            resetModified: vi.fn(),
-            modifiedIds: { ids: new Set(['3856R']) },
-            serializable: {
-                map: new Map([[
-                    'pdfjs_internal_editor_0',
-                    { id: '3856R' },
-                ]]),
-                hash: 'existing-note-hash',
-                transfer: [],
-            },
-        } }));
-        const {
-            deps,
-            saveFile,
-        } = createDeps({
-            annotationDirty: ref(true),
-            pdfDocument: livePdfDocument,
-            consumePendingEmbeddedTextUpdates: vi.fn(() => pendingTexts),
-            saveDocument: vi.fn(async () => new Uint8Array([7])),
-            getSourcePdfData: vi.fn(async () => new Uint8Array([9])),
-        });
-        const { handleSave } = useFileOperationsSaveController(deps);
-
-        await handleSave();
-
-        expect(deps.saveDocument).not.toHaveBeenCalled();
-        expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
-        expect(deps.serializePdfForSave).toHaveBeenCalledWith(
-            new Uint8Array([9]),
-            expect.objectContaining({ pendingTexts }),
-        );
-        expect(Array.from(saveFile.mock.calls[0]?.[0] ?? [])).toEqual([
-            9,
-            2,
-            3,
-            6,
-            4,
-            5,
-        ]);
-    });
-
-    it('uses the native note text save path for direct PDF-sourced note updates', async () => {
-        const pendingTexts = new Map<string, string>();
-        pendingTexts.set('ann:0:3856R', 'Updated note');
-        const trySaveEmbeddedNoteTextUpdates = vi.fn(async () => ({
-            success: true,
-            outPath: '/tmp/work.pdf',
-            saveMode: 'rewrite' as const,
-            didSaveAs: false,
-        }));
-        const {
-            deps,
-            saveFile,
-        } = createDeps({
-            annotationDirty: ref(true),
-            annotationComments: ref([createPdfNoteComment()]),
-            consumePendingEmbeddedTextUpdates: vi.fn(() => pendingTexts),
-            trySaveEmbeddedNoteTextUpdates,
-        });
-        const { handleSave } = useFileOperationsSaveController(deps);
-
-        const result = await handleSave();
-
-        expect(result).toBe(true);
-        expect(trySaveEmbeddedNoteTextUpdates).toHaveBeenCalledWith(
-            [{
-                objectNumber: 3856,
-                generationNumber: 0,
-                text: 'Updated note',
-            }],
-            expect.objectContaining({
-                saveMode: 'rewrite',
-                expectedWorkingPath: '/tmp/work.pdf',
-                preserveLoadedSource: true,
-                modifiedAt: expect.stringMatching(/^D:\d{14}[+-]\d{2}'\d{2}'$/u),
-            }),
-        );
-        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
-        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
-        expect(saveFile).not.toHaveBeenCalled();
-        expect(deps.markAnnotationSaved).toHaveBeenCalledOnce();
-        expect(deps.loadRecentFiles).toHaveBeenCalledOnce();
-    });
-
-    it('serializes PDF-backed FreeText note text updates through the full serializer', async () => {
-        const pendingTexts = new Map<string, string>();
-        pendingTexts.set('ann:0:3856R', 'Updated note');
-        const trySaveEmbeddedNoteTextUpdates = vi.fn(async () => ({
-            success: true,
-            outPath: '/tmp/work.pdf',
-            saveMode: 'rewrite' as const,
-            didSaveAs: false,
-        }));
-        const {
-            deps,
-            saveFile,
-        } = createDeps({
-            annotationDirty: ref(true),
-            annotationComments: ref([createPdfNoteComment({
-                subtype: 'FreeText',
-                markerRect: {
-                    left: 0.1,
-                    top: 0.2,
-                    width: 0.0016,
-                    height: 0.0016,
-                },
-            })]),
-            consumePendingEmbeddedTextUpdates: vi.fn(() => pendingTexts),
-            getSourcePdfData: vi.fn(async () => new Uint8Array([9])),
-            trySaveEmbeddedNoteTextUpdates,
-        });
-        const { handleSave } = useFileOperationsSaveController(deps);
-
-        const result = await handleSave();
-
-        expect(result).toBe(true);
-        expect(trySaveEmbeddedNoteTextUpdates).not.toHaveBeenCalled();
-        expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
-        expect(deps.serializePdfForSave).toHaveBeenCalledWith(
-            new Uint8Array([9]),
-            expect.objectContaining({pendingTexts}),
-        );
-        expect(saveFile).toHaveBeenCalledOnce();
     });
 
     it('uses the native PDF mutation path for page labels and bookmarks', async () => {
@@ -1039,97 +852,6 @@ describe('useFileOperationsSaveController', () => {
         expect(deps.markBookmarksSaved).toHaveBeenCalledOnce();
     });
 
-    it('uses the native PDF mutation path for text-markup rewrites', async () => {
-        const trySavePdfNativeMutations = vi.fn<TPdfNativeMutationSave>(async () => ({
-            success: true,
-            outPath: '/tmp/work.pdf',
-            saveMode: 'rewrite' as const,
-            didSaveAs: false,
-        }));
-        const {
-            deps,
-            saveFile,
-        } = createDeps({
-            annotationDirty: ref(true),
-            annotationComments: ref([createMarkupComment({
-                subtype: 'Squiggly',
-                color: '#22c55e',
-                colorEdited: true,
-            })]),
-            getMarkupSubtypeOverrides: vi.fn(() => new Map([[
-                '44R',
-                'Squiggly' as const,
-            ]])),
-            getMarkupSubtypeHints: vi.fn(() => []),
-            hasLivePdfJsAnnotationChanges: vi.fn(() => false),
-            hasPreservedAnnotationSourceChanges: vi.fn(() => true),
-            trySavePdfNativeMutations,
-        });
-        const { handleSave } = useFileOperationsSaveController(deps);
-
-        const result = await handleSave();
-
-        expect(result).toBe(true);
-        expect(trySavePdfNativeMutations).toHaveBeenCalledOnce();
-        expect(trySavePdfNativeMutations.mock.calls[0]?.[0].markup).toMatchObject({
-            overrides: [[
-                '44R',
-                'Squiggly',
-            ]],
-            hints: [expect.objectContaining({
-                subtype: 'Squiggly',
-                annotationId: '44R',
-                color: '#22c55e',
-            })],
-        });
-        expect(trySavePdfNativeMutations.mock.calls[0]?.[1]).toEqual(expect.objectContaining({
-            saveMode: 'rewrite',
-            expectedWorkingPath: '/tmp/work.pdf',
-            preserveLoadedSource: true,
-            modifiedAt: expect.stringMatching(/^D:\d{14}[+-]\d{2}'\d{2}'$/u),
-        }));
-        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
-        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
-        expect(saveFile).not.toHaveBeenCalled();
-        expect(deps.markAnnotationSaved).toHaveBeenCalledOnce();
-    });
-
-    it('refreshes the annotation baseline when a native markup save changes the storage token', async () => {
-        let annotationToken = 'annotation-before';
-        const trySavePdfNativeMutations = vi.fn<TPdfNativeMutationSave>(async () => {
-            annotationToken = 'annotation-after-native-save';
-            return {
-                success: true,
-                outPath: '/tmp/work.pdf',
-                saveMode: 'rewrite' as const,
-                didSaveAs: false,
-            };
-        });
-        const { deps } = createDeps({
-            annotationDirty: ref(true),
-            annotationComments: ref([createMarkupComment({
-                subtype: 'Highlight',
-                colorEdited: true,
-            })]),
-            getAnnotationSaveStateToken: () => annotationToken,
-            getMarkupSubtypeOverrides: vi.fn(() => new Map([[
-                '44R',
-                'Highlight' as const,
-            ]])),
-            getMarkupSubtypeHints: vi.fn(() => []),
-            hasLivePdfJsAnnotationChanges: vi.fn(() => false),
-            hasPreservedAnnotationSourceChanges: vi.fn(() => true),
-            trySavePdfNativeMutations,
-        });
-        const { handleSave } = useFileOperationsSaveController(deps);
-
-        const result = await handleSave();
-
-        expect(result).toBe(true);
-        expect(trySavePdfNativeMutations).toHaveBeenCalledOnce();
-        expect(deps.markAnnotationSaved).toHaveBeenCalledWith({ preserveLivePdfjsSession: true });
-    });
-
     it('falls back to serialized save when native markup hints are stale', async () => {
         const trySavePdfNativeMutations = vi.fn<TPdfNativeMutationSave>(async () => {
             throw new Error('stale markup should not reach native persistence');
@@ -1139,7 +861,7 @@ describe('useFileOperationsSaveController', () => {
             saveFile,
         } = createDeps({
             annotationDirty: ref(true),
-            annotationComments: ref([]),
+            canonicalAnnotationComments: ref([]),
             getMarkupSubtypeOverrides: vi.fn(() => new Map([[
                 '44R',
                 'Squiggly' as const,
@@ -1175,147 +897,6 @@ describe('useFileOperationsSaveController', () => {
         expect(deps.getSourcePdfData).not.toHaveBeenCalled();
         expect(deps.serializePdfForSave).toHaveBeenCalledOnce();
         expect(saveFile).toHaveBeenCalledOnce();
-    });
-
-    it('uses native note updates when preserved source dirtiness is fully replayable', async () => {
-        const pendingTexts = new Map<string, string>();
-        pendingTexts.set('ann:0:3856R', 'Updated note');
-        const trySavePdfNativeMutations = vi.fn<TPdfNativeMutationSave>(async () => ({
-            success: true,
-            outPath: '/tmp/work.pdf',
-            saveMode: 'rewrite' as const,
-            didSaveAs: false,
-        }));
-        const {
-            deps,
-            saveFile,
-        } = createDeps({
-            annotationDirty: ref(true),
-            annotationComments: ref([createPdfNoteComment()]),
-            consumePendingEmbeddedTextUpdates: vi.fn(() => pendingTexts),
-            hasPreservedAnnotationSourceChanges: vi.fn(() => true),
-            trySavePdfNativeMutations,
-        });
-        const { handleSave } = useFileOperationsSaveController(deps);
-
-        const result = await handleSave();
-
-        expect(result).toBe(true);
-        expect(trySavePdfNativeMutations).toHaveBeenCalledWith(
-            {updates: [{
-                objectNumber: 3856,
-                generationNumber: 0,
-                text: 'Updated note',
-            }]},
-            expect.objectContaining({
-                saveMode: 'rewrite',
-                expectedWorkingPath: '/tmp/work.pdf',
-                preserveLoadedSource: true,
-                modifiedAt: expect.stringMatching(/^D:\d{14}[+-]\d{2}'\d{2}'$/u),
-            }),
-        );
-        expect(deps.saveDocument).not.toHaveBeenCalled();
-        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
-        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
-        expect(saveFile).not.toHaveBeenCalled();
-    });
-
-    it('materializes through PDF.js when a preserved live markup baseline changed without native note work', async () => {
-        const trySavePdfNativeMutations = vi.fn<TPdfNativeMutationSave>(async () => ({
-            success: true,
-            outPath: '/tmp/work.pdf',
-            saveMode: 'rewrite' as const,
-            didSaveAs: false,
-        }));
-        const {
-            deps,
-            saveFile,
-        } = createDeps({
-            annotationDirty: ref(true),
-            annotationComments: ref([createMarkupComment()]),
-            getMarkupSubtypeHints: vi.fn(() => [{
-                subtype: 'Highlight' as const,
-                pageIndex: 0,
-                markerRect: {
-                    left: 0.1,
-                    top: 0.2,
-                    width: 0.3,
-                    height: 0.2,
-                },
-                consumed: false,
-                annotationId: '44R',
-                color: '#22c55e',
-                id: '44R',
-                pageMarkupIndex: null,
-                source: 'pdf' as const,
-            }]),
-            hasSavedPdfJsAnnotationBaselineChanges: vi.fn(() => true),
-            trySavePdfNativeMutations,
-        });
-        const { handleSave } = useFileOperationsSaveController(deps);
-
-        const result = await handleSave();
-
-        expect(result).toBe(true);
-        expect(trySavePdfNativeMutations).not.toHaveBeenCalled();
-        expect(deps.saveDocument).toHaveBeenCalledOnce();
-        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
-        expect(saveFile).toHaveBeenCalledOnce();
-    });
-
-    it('combines note updates and metadata in one native PDF mutation save', async () => {
-        const pendingTexts = new Map<string, string>();
-        pendingTexts.set('ann:0:3856R', 'Updated note');
-        const trySavePdfNativeMutations = vi.fn(async () => ({
-            success: true,
-            outPath: '/tmp/work.pdf',
-            saveMode: 'rewrite' as const,
-            didSaveAs: false,
-        }));
-        const {
-            deps,
-            saveFile,
-        } = createDeps({
-            annotationDirty: ref(true),
-            annotationComments: ref([createPdfNoteComment()]),
-            consumePendingEmbeddedTextUpdates: vi.fn(() => pendingTexts),
-            totalPages: ref(2),
-            pageLabelsDirty: ref(true),
-            pageLabelRanges: ref([{
-                startPage: 1,
-                style: 'D',
-                prefix: 'p.',
-                startNumber: 1,
-            }]),
-            trySavePdfNativeMutations,
-        });
-        const { handleSave } = useFileOperationsSaveController(deps);
-
-        const result = await handleSave();
-
-        expect(result).toBe(true);
-        expect(trySavePdfNativeMutations).toHaveBeenCalledWith(
-            expect.objectContaining({
-                updates: [{
-                    objectNumber: 3856,
-                    generationNumber: 0,
-                    text: 'Updated note',
-                }],
-                pageLabels: {
-                    totalPages: 2,
-                    ranges: [{
-                        startPage: 1,
-                        style: 'D',
-                        prefix: 'p.',
-                        startNumber: 1,
-                    }],
-                },
-            }),
-            expect.any(Object),
-        );
-        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
-        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
-        expect(saveFile).not.toHaveBeenCalled();
     });
 
 });

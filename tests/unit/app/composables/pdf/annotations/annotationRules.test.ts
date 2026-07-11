@@ -11,7 +11,7 @@ import type { IAnnotationCommentSummary } from '@app/types/annotations';
 function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
     return {
         id: 'id',
-        stableKey: 'key',
+        stableKey: 'ann:0:key',
         pageIndex: 0,
         pageNumber: 1,
         text: '',
@@ -140,7 +140,7 @@ describe('compareAnnotationCommentSummaries', () => {
         });
         const createdSecond = createComment({
             pageIndex: 0,
-            stableKey: 'second',
+            stableKey: 'ann:0:second',
             createdAt: 200,
             modifiedAt: 200,
         });
@@ -165,11 +165,11 @@ describe('compareAnnotationCommentSummaries', () => {
     it('falls back to stableKey comparison when all other fields match', () => {
         const left = createComment({
             pageIndex: 0,
-            stableKey: 'a',
+            stableKey: 'ann:0:a',
         });
         const right = createComment({
             pageIndex: 0,
-            stableKey: 'b',
+            stableKey: 'ann:0:b',
         });
         expect(compareAnnotationCommentSummaries(left, right)).toBeLessThan(0);
         expect(compareAnnotationCommentSummaries(right, left)).toBeGreaterThan(0);

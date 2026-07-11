@@ -1,11 +1,15 @@
 import { spawnSync } from 'node:child_process';
 import {
-    copyFile,
     mkdir,
     readFile,
 } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+    copyCargoArtifactVerified,
+    getCargoArtifactPath,
+    resolveCargoTargetDirectory,
+} from './cargo-artifacts.mjs';
 import {
     appendRustflags,
     getWasmArtifactByCrateName,
@@ -14,15 +18,15 @@ import {
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const artifact = getWasmArtifactByCrateName('pdf-page-ops');
-const sourcePath = path.join(
+const cargoTargetDirectory = resolveCargoTargetDirectory({
+    manifestPath: artifact.manifestPath,
     projectRoot,
-    'native',
-    artifact.crateName,
-    'target',
-    WASM_TARGET,
-    'release',
-    artifact.builtFileName,
-);
+});
+const sourcePath = getCargoArtifactPath({
+    fileName: artifact.builtFileName,
+    rustTarget: WASM_TARGET,
+    targetDirectory: cargoTargetDirectory,
+});
 const destinationPath = path.join(projectRoot, artifact.publicRelativePath);
 
 const cargoArgs = [
@@ -50,7 +54,7 @@ if (result.status !== 0) {
 }
 
 await mkdir(path.dirname(destinationPath), {recursive: true});
-await copyFile(sourcePath, destinationPath);
+await copyCargoArtifactVerified(sourcePath, destinationPath);
 
 const wasmBytes = await readFile(destinationPath);
 const wasmModule = new WebAssembly.Module(wasmBytes);

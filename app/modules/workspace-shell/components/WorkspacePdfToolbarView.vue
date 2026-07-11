@@ -79,7 +79,7 @@
                 @save-as="handleSaveAs"
                 @print="handlePrint"
                 @print-current-page="handlePrintCurrentPage"
-                @combine-images="handleCombineImages"
+                @combine-files="handleCombineImages"
                 @export-docx="handleExportDocx"
                 @export-images="handleExportImages"
                 @export-multi-page-tiff="handleExportMultiPageTiff"
@@ -105,7 +105,7 @@
                 :open="ocrPopupOpen"
                 :is-exporting-docx="ocrIsExportingDocx"
                 :external-error="ocrExternalError"
-                :disabled="snapshot.viewerCapabilities.conversionBanner || toolbarControlsDisabled"
+                :disabled="toolbarControlsDisabled || snapshot.isAnySaving || snapshot.isHistoryBusy"
                 :hide-trigger="isCollapsed(3)"
                 @update:open="handleOcrPopupOpenUpdate"
                 @update:running="handleOcrRunningUpdate"
@@ -126,6 +126,8 @@
                 :compact-level="compactLevel"
                 @update:effective-zoom="handleEffectiveZoomUpdate"
                 @update:open="handleZoomDropdownOpenUpdate"
+                @fit-width="handleFitWidth"
+                @fit-height="handleFitHeight"
             />
         </template>
         <template #page-dropdown="{ compactLevel }">
@@ -170,16 +172,27 @@
                 :show-document-section="isDesktopRuntime"
                 can-combine-files
                 :can-print="snapshot.viewerCapabilities.print"
+                :can-save="snapshot.canSave"
+                :can-save-as="snapshot.viewerCapabilities.saveAs"
+                :can-undo="snapshot.canUndo"
+                :can-redo="snapshot.canRedo"
                 can-print-current-page
                 :can-convert-to-pdf="canUseDjvu && snapshot.viewerCapabilities.conversionDialog"
                 :is-preparing-print="snapshot.isPreparingPrint"
                 :is-preparing-current-page-print="snapshot.isPreparingCurrentPagePrint"
                 :is-any-saving="snapshot.isAnySaving"
                 :is-history-busy="snapshot.isHistoryBusy"
+                :is-saving="snapshot.isSaving"
+                :is-saving-as="snapshot.isSavingAs"
                 :is-fullscreen="isFullscreen"
                 :fullscreen-supported="fullscreenSupported"
                 trigger-icon="i-ph-dots-three"
                 @update:open="handleOverflowMenuOpenUpdate"
+                @save="handleSave"
+                @save-as="handleSaveAs"
+                @print="handlePrint"
+                @undo="handleUndo"
+                @redo="handleRedo"
                 @capture-region="handleCaptureRegion"
                 @crop="handleCrop"
                 @open-ocr="handleOpenOcr"
@@ -192,7 +205,7 @@
                 @toggle-continuous-scroll="handleToggleContinuousScroll"
                 @quick-note="handleQuickNote"
                 @open-settings="handleOpenSettings"
-                @combine-images="handleCombineImages"
+                @combine-files="handleCombineImages"
                 @print-current-page="handlePrintCurrentPage"
                 @convert-to-pdf="handleConvertToPdf"
                 @toggle-fullscreen="handleToggleFullscreen"
@@ -304,7 +317,7 @@ const emit = defineEmits<{
     'save-as': [];
     'print': [];
     'print-current-page': [];
-    'combine-images': [];
+    'combine-files': [];
     'export-docx': [];
     'ocr-export-docx': [selectedLanguages: string[]];
     'export-images': [];
@@ -436,7 +449,7 @@ function handlePrintCurrentPage() {
 }
 
 function handleCombineImages() {
-    emit('combine-images');
+    emit('combine-files');
 }
 
 function handleExportDocx() {

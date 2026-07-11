@@ -1,6 +1,4 @@
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { TDocumentRef } from '@contracts/documentRef';
-import { mergeAnnotationCommentSaveSnapshot } from '@app/modules/pdf-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     createPostSaveReloadHandle,
@@ -8,8 +6,8 @@ import {
 } from '@app/modules/workspace-shell/composables/file-operations/postSaveReload';
 import type { IDocumentDirtyState } from '@app/modules/workspace-shell/composables/file-operations/saveDirtyState';
 import {
-    buildWorkspaceSavePlan,
-    type IWorkspaceSavePlan,
+    selectSerializationMechanism,
+    type ISerializationMechanismSelection,
 } from '@app/modules/workspace-shell/composables/file-operations/workspaceSavePlan';
 import type { ISaveStateSnapshot } from '@app/modules/workspace-shell/composables/file-operations/createFileOperationsSaveCompletion';
 import type {
@@ -33,15 +31,9 @@ export interface IFileOperationsSaveContextRequest {
 }
 
 export interface IFileOperationsSaveContext {
-    annotationCommentsSnapshot: IAnnotationCommentSummary[];
     dirtyState: IDocumentDirtyState;
-    savePlan: IWorkspaceSavePlan;
+    savePlan: ISerializationMechanismSelection;
     saveStateSnapshot: ISaveStateSnapshot;
-    hasPendingDeletes: boolean;
-    hasPendingTexts: boolean;
-    pendingDeletes: IAnnotationCommentSummary[] | null;
-    pendingTexts: Map<string, string> | null;
-    pendingChangesSource: 'viewer-service' | 'workspace-compat';
     reloadWaiter: IPostSaveReloadHandle;
     shapeStateDirty: boolean;
 }
@@ -52,8 +44,6 @@ export interface IFileOperationsSaveContextPorts {
     annotationEdits: Pick<
         IWorkspaceSaveEmbeddedAnnotationEditsPort,
         | 'annotationNoteWindowsCount'
-        | 'consumePendingEmbeddedAnnotationDeletes'
-        | 'consumePendingEmbeddedTextUpdates'
         | 'persistAllAnnotationNotes'
     >;
     viewer: Pick<IFileOperationsSaveViewerPorts, 'markup' | 'shapes'>;
@@ -69,14 +59,6 @@ export interface IFileOperationsSaveContextServices {
     ) => Promise<T>;
 }
 
-interface IPendingEmbeddedAnnotationChanges {
-    pendingTexts: Map<string, string> | null;
-    pendingDeletes: IAnnotationCommentSummary[] | null;
-    hasPendingTexts: boolean;
-    hasPendingDeletes: boolean;
-    source: 'viewer-service' | 'workspace-compat';
-}
-
 export function createFileOperationsSaveContext(
     ports: IFileOperationsSaveContextPorts,
     services: IFileOperationsSaveContextServices,
@@ -87,13 +69,6 @@ export function createFileOperationsSaveContext(
         viewer,
         lifecycle,
     } = ports;
-
-    function getAnnotationCommentsForSave() {
-        return mergeAnnotationCommentSaveSnapshot(
-            viewer.markup.getAnnotationCommentsSnapshot?.(),
-            state.annotations.annotationComments.value,
-        );
-    }
 
     async function persistOpenAnnotationNotes(abortMessage: string) {
         if (annotationEdits.annotationNoteWindowsCount.value <= 0) {
@@ -109,51 +84,18 @@ export function createFileOperationsSaveContext(
         return true;
     }
 
-    function consumePendingEmbeddedAnnotationChanges(): IPendingEmbeddedAnnotationChanges {
-        const viewerSnapshot = viewer.markup.getPendingEmbeddedMutationSnapshot?.();
-        if (viewerSnapshot) {
-            const pendingTexts = viewerSnapshot.pendingEmbeddedTextUpdates.size > 0
-                ? viewerSnapshot.pendingEmbeddedTextUpdates
-                : null;
-            const pendingDeletes = viewerSnapshot.pendingEmbeddedAnnotationDeletes.length > 0
-                ? viewerSnapshot.pendingEmbeddedAnnotationDeletes
-                : null;
-            return {
-                pendingTexts,
-                pendingDeletes,
-                hasPendingTexts: Boolean(pendingTexts && pendingTexts.size > 0),
-                hasPendingDeletes: Boolean(pendingDeletes && pendingDeletes.length > 0),
-                source: 'viewer-service',
-            };
-        }
-
-        const pendingTexts = annotationEdits.consumePendingEmbeddedTextUpdates();
-        const pendingDeletes = annotationEdits.consumePendingEmbeddedAnnotationDeletes();
-        return {
-            pendingTexts,
-            pendingDeletes,
-            hasPendingTexts: Boolean(pendingTexts && pendingTexts.size > 0),
-            hasPendingDeletes: Boolean(pendingDeletes && pendingDeletes.length > 0),
-            source: 'workspace-compat',
-        };
-    }
-
-    function collectDocumentDirtyState(options: {
-        hasPendingDeletes: boolean;
-        hasPendingTexts: boolean;
-        shapeStateDirty: boolean;
-    }): IDocumentDirtyState {
+    function collectDocumentDirtyState(shapeStateDirty: boolean): IDocumentDirtyState {
         return {
             annotationChanges: state.annotations.hasAnnotationChanges(),
             annotationDirty: state.annotations.annotationDirty.value,
             bookmarks: state.metadata.bookmarksDirty.value,
             livePdfJsAnnotations: state.annotations.hasLivePdfJsAnnotationChanges?.() ?? false,
             pageLabels: state.metadata.pageLabelsDirty.value,
-            pendingDeletes: options.hasPendingDeletes,
-            pendingTexts: options.hasPendingTexts,
+            pendingDeletes: false,
+            pendingTexts: false,
             preservedAnnotationSource: state.annotations.hasPreservedAnnotationSourceChanges?.() ?? false,
             savedPdfjsAnnotationBaseline: state.annotations.hasSavedPdfJsAnnotationBaselineChanges?.() ?? false,
-            shapes: options.shapeStateDirty,
+            shapes: shapeStateDirty,
         };
     }
 
@@ -166,14 +108,9 @@ export function createFileOperationsSaveContext(
             return null;
         }
         const saveStateSnapshot = services.captureSaveStateSnapshot();
-        const pendingChanges = consumePendingEmbeddedAnnotationChanges();
         const shapeStateDirty = viewer.shapes.hasShapeChanges?.() ?? false;
-        const dirtyState = collectDocumentDirtyState({
-            hasPendingTexts: pendingChanges.hasPendingTexts,
-            hasPendingDeletes: pendingChanges.hasPendingDeletes,
-            shapeStateDirty,
-        });
-        const savePlan = buildWorkspaceSavePlan({
+        const dirtyState = collectDocumentDirtyState(shapeStateDirty);
+        const savePlan = selectSerializationMechanism({
             mode: config.mode,
             shouldPreferWorkingCopy: config.shouldPreferWorkingCopy,
             canPersistNativeWorkingCopy: config.canPersistNativeWorkingCopy,
@@ -189,15 +126,9 @@ export function createFileOperationsSaveContext(
             hasManagedShapes: viewer.shapes.hasManagedShapes?.() ?? false,
         });
         const context: IFileOperationsSaveContext = {
-            annotationCommentsSnapshot: getAnnotationCommentsForSave(),
             dirtyState,
             savePlan,
             saveStateSnapshot,
-            hasPendingDeletes: pendingChanges.hasPendingDeletes,
-            hasPendingTexts: pendingChanges.hasPendingTexts,
-            pendingDeletes: pendingChanges.pendingDeletes,
-            pendingTexts: pendingChanges.pendingTexts,
-            pendingChangesSource: pendingChanges.source,
             reloadWaiter: createPostSaveReloadHandle(
                 lifecycle.preparePostSaveReload,
                 savePlan.livePdfjsAnnotationSession.canPreserve,
@@ -223,8 +154,6 @@ export function createFileOperationsSaveContext(
             bookmarksDirty: state.metadata.bookmarksDirty.value,
             hasAnnotationChanges: context.dirtyState.annotationChanges,
             hasShapeChanges: context.shapeStateDirty,
-            hasPendingTexts: context.hasPendingTexts,
-            hasPendingDeletes: context.hasPendingDeletes,
             hasLivePdfJsAnnotationChanges: context.dirtyState.livePdfJsAnnotations,
             forceSerialize: config.forceSerialize === true,
             forceRewrite: config.forceRewrite === true,
@@ -237,8 +166,5 @@ export function createFileOperationsSaveContext(
         }));
     }
 
-    return {
-        getAnnotationCommentsForSave,
-        prepareSaveContext,
-    };
+    return {prepareSaveContext};
 }

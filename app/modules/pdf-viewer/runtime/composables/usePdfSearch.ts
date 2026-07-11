@@ -33,6 +33,18 @@ import { createBrowserSafeId } from '@app/utils/browserSafe';
 
 interface IUsePdfSearchOptions { documentRevisionToken?: MaybeRefOrGetter<TDocumentRevisionToken | null | undefined>; }
 
+/**
+ * Unquoted UI queries retain the established trim behavior. Double quotes are an
+ * explicit affordance for matching intentional leading or trailing whitespace.
+ */
+function resolvePdfSearchQuery(query: string) {
+    const trimmed = query.trim();
+    if (trimmed.length >= 2 && trimmed.startsWith('"') && trimmed.endsWith('"')) {
+        return trimmed.slice(1, -1);
+    }
+    return trimmed;
+}
+
 function normalizeDocumentRevisionToken(token: TDocumentRevisionToken | null | undefined) {
     return typeof token === 'string' && token.length > 0 ? token : null;
 }
@@ -64,7 +76,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
     let progressCleanup: (() => void) | null = null;
     let activeRequestId: string | null = null;
 
-    const MIN_QUERY_LENGTH = 2;
+    const MIN_QUERY_LENGTH = 1;
 
     const totalMatches = computed(() => results.value.length);
     const hasPartialResults = computed(() => isSearching.value && (results.value.length > 0 || isTruncated.value));
@@ -396,7 +408,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         options: IResolvedSearchMatchOptions = searchOptions.value,
         requestedAt = Date.now(),
     ) {
-        if (!query.trim()) {
+        if (query.length === 0) {
             return;
         }
 
@@ -518,9 +530,9 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
             wholeWord: Boolean(options.wholeWord),
             useRegex: Boolean(options.useRegex),
         };
-        const trimmedQuery = query.trim();
+        const resolvedQuery = resolvePdfSearchQuery(query);
 
-        if (!trimmedQuery) {
+        if (!resolvedQuery) {
             clearSearch();
             return false;
         }
@@ -536,11 +548,11 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         }
         cleanupProgressListener();
 
-        if (trimmedQuery.length < MIN_QUERY_LENGTH) {
+        if (resolvedQuery.length < MIN_QUERY_LENGTH) {
             isSearching.value = false;
             isTruncated.value = false;
             searchError.value = null;
-            submittedSearchQuery.value = trimmedQuery;
+            submittedSearchQuery.value = resolvedQuery;
             results.value = [];
             pageMatches.value = new Map();
             currentResultIndex.value = -1;
@@ -558,7 +570,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
             scheduledResolvers.set(runId, resolve);
             const payload = {
                 runId,
-                query: trimmedQuery,
+                query: resolvedQuery,
                 pdfPath,
                 documentRevisionToken: normalizedDocumentRevisionToken,
                 options: { ...searchOptions.value },

@@ -27,6 +27,7 @@ export const DOCUMENTS_CHANNELS = {
     openPdfDirect: 'dialog:openPdfDirect',
     openDocumentDirectBatch: 'dialog:openPdfDirectBatch',
     openPdfDirectBatch: 'dialog:openPdfDirectBatch',
+    cancelOpenDocumentDirectBatch: 'dialog:openPdfDirectBatch:cancel',
     registerRendererFileOpenToken: 'dialog:registerRendererFileOpenToken',
     registerRendererFileOpenTokens: 'dialog:registerRendererFileOpenTokens',
     allowRendererFileOpen: 'dialog:allowRendererFileOpen',
@@ -41,6 +42,8 @@ export const DOCUMENTS_CHANNELS = {
     fileRead: 'file:read',
     fileStat: 'file:stat',
     fileReadRange: 'file:readRange',
+    fileCreateManagedHandle: 'file:createManagedHandle',
+    fileReleaseManagedHandle: 'file:releaseManagedHandle',
     pdfNativePageSizes: 'pdf:nativePageSizes',
     pdfNativePagePreviewCancel: 'pdf:nativePagePreview:cancel',
     pdfNativePagePreview: 'pdf:nativePagePreview',
@@ -69,6 +72,7 @@ export const DOCUMENTS_CHANNELS = {
     fileSavePdfNoteChanges: 'file:savePdfNoteChanges',
     fileSavePdfNativeMutations: 'file:savePdfNativeMutations',
     fileApplyPdfNativeMutationsToWorkingCopy: 'file:applyPdfNativeMutationsToWorkingCopy',
+    fileCommitStagedPdfNativeMutations: 'file:commitStagedPdfNativeMutations',
     fileCleanup: 'file:cleanup',
     fileCleanupOcrTemp: 'file:cleanupOcrTemp',
     windowSetTitle: 'window:setTitle',
@@ -98,6 +102,7 @@ export const DOCUMENTS_EVENT_CHANNELS = {
     menuActualSize: 'menu:actualSize',
     menuFitWidth: 'menu:fitWidth',
     menuFitHeight: 'menu:fitHeight',
+    menuToggleContinuousScroll: 'menu:toggleContinuousScroll',
     menuViewModeSingle: 'menu:viewModeSingle',
     menuViewModeFacing: 'menu:viewModeFacing',
     menuViewModeFacingFirstSingle: 'menu:viewModeFacingFirstSingle',
@@ -147,8 +152,12 @@ export interface IDocumentsInvokeMap {
         result: Awaited<ReturnType<IDocumentsFileCapability['openDocumentDirect']>>;
     };
     [DOCUMENTS_CHANNELS.openDocumentDirectBatch]: {
-        args: [paths: string[], requestId?: string];
+        args: [paths: string[], requestId?: string, options?: {forceCombine?: boolean}];
         result: Awaited<ReturnType<IDocumentsFileCapability['openDocumentDirectBatch']>>;
+    };
+    [DOCUMENTS_CHANNELS.cancelOpenDocumentDirectBatch]: {
+        args: [requestId: string];
+        result: boolean;
     };
     [DOCUMENTS_CHANNELS.registerRendererFileOpenToken]: {
         args: [token: string];
@@ -221,6 +230,14 @@ export interface IDocumentsInvokeMap {
     [DOCUMENTS_CHANNELS.fileReadRange]: {
         args: [path: string, offset: number, length: number];
         result: Awaited<ReturnType<IDocumentsFileCapability['readFileRange']>>;
+    };
+    [DOCUMENTS_CHANNELS.fileCreateManagedHandle]: {
+        args: [path: string];
+        result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['createManagedTempFileHandle']>>>;
+    };
+    [DOCUMENTS_CHANNELS.fileReleaseManagedHandle]: {
+        args: [leaseId: string];
+        result: boolean;
     };
     [DOCUMENTS_CHANNELS.pdfNativePageSizes]: {
         args: [path: string];
@@ -356,6 +373,14 @@ export interface IDocumentsInvokeMap {
         ];
         result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['applyPdfNativeMutationsToWorkingCopy']>>>;
     };
+    [DOCUMENTS_CHANNELS.fileCommitStagedPdfNativeMutations]: {
+        args: [
+            path: string,
+            stagedOutput: Parameters<NonNullable<IDocumentsFileCapability['commitStagedPdfNativeMutations']>>[1],
+            options?: IPdfSerializedSaveOptions,
+        ];
+        result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['commitStagedPdfNativeMutations']>>>;
+    };
     [DOCUMENTS_CHANNELS.fileCleanup]: {
         args: [path: string];
         result: undefined;
@@ -412,6 +437,7 @@ export interface IDocumentsEventMap {
     [DOCUMENTS_EVENT_CHANNELS.menuActualSize]: undefined;
     [DOCUMENTS_EVENT_CHANNELS.menuFitWidth]: undefined;
     [DOCUMENTS_EVENT_CHANNELS.menuFitHeight]: undefined;
+    [DOCUMENTS_EVENT_CHANNELS.menuToggleContinuousScroll]: undefined;
     [DOCUMENTS_EVENT_CHANNELS.menuViewModeSingle]: undefined;
     [DOCUMENTS_EVENT_CHANNELS.menuViewModeFacing]: undefined;
     [DOCUMENTS_EVENT_CHANNELS.menuViewModeFacingFirstSingle]: undefined;

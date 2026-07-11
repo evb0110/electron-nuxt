@@ -12,7 +12,7 @@ import { IPC_FILENAME_MAX_LENGTH } from '@electron/utils/ipcLimits';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
 
 const logger = createLogger('documents-dialogs');
-const MAX_WORKING_COPY_DATA_BYTES = 512 * 1024 * 1024;
+const MAX_WORKING_COPY_DATA_BYTES = 16 * 1024 * 1024;
 
 interface ITrustedOriginalPathOptions {
     sourcePath?: string;

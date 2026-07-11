@@ -701,22 +701,20 @@ watch(
 );
 
 watch(
-    () => ({
-        isDirty: props.bookmarksDirty ?? false,
-        items: props.bookmarkItems ?? [],
-    }),
-    ({
+    [
+        () => props.bookmarksDirty ?? false,
+        () => props.bookmarkItems,
+    ],
+    ([
         isDirty,
-        items,
-    }) => {
+        externalItems,
+    ]) => {
+        const items = externalItems ?? [];
         if (shouldApplyExternalBookmarkItems(isDirty)) {
             applyPendingBookmarkItems(items, { syncBaseline: !isDirty });
         }
     },
-    {
-        deep: true,
-        immediate: true,
-    },
+    {immediate: true},
 );
 
 watch(
@@ -751,7 +749,7 @@ onBeforeUnmount(() => {
 .pdf-bookmarks {
     height: 100%;
     min-height: 0;
-    padding: var(--app-space-9xl);
+    padding: var(--app-sidebar-content-padding);
 }
 
 .pdf-bookmarks-loading {
@@ -769,11 +767,12 @@ onBeforeUnmount(() => {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
+    scrollbar-gutter: stable;
     user-select: none;
 }
 
 .pdf-bookmarks-drop-end {
-    height: 18px;
+    height: var(--app-outline-loading-icon-height);
     margin-top: var(--app-space-3xs);
     border-radius: var(--app-radius-md);
 }

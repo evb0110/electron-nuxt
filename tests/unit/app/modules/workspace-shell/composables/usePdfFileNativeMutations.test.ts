@@ -9,7 +9,8 @@ import { ref } from 'vue';
 import { usePdfFile } from '@app/modules/workspace-shell/composables/usePdfFile';
 import type { IPdfConformanceProfile } from '@app/types/pdfContracts';
 import type { IPdfNativeMutationSet } from '@contracts/electronApiDocuments';
-import { toPageIndex } from '@contracts/pageNumbers';
+import { requirePageIndex } from '@contracts/pageNumbers';
+import {requireDocumentRevisionToken} from '@contracts';
 
 const analyticsMock = vi.hoisted(() => ({
     clearDocumentContext: vi.fn(),
@@ -27,6 +28,31 @@ const analyticsMock = vi.hoisted(() => ({
 }));
 
 const documentsMock = vi.hoisted(() => ({
+    applyPdfNativeMutationsToWorkingCopy: vi.fn(async () => ({
+        applied: true,
+        validation: {
+            isValid: true,
+            tool: 'qpdf' as const,
+            errors: [],
+            warnings: [],
+        },
+        stagedOutput: {
+            path: '/tmp/staged-native.pdf',
+            size: 4,
+            sha256: 'a'.repeat(64),
+            leaseId: 'staged-native-lease',
+            revision: null,
+        },
+    })),
+    commitStagedPdfNativeMutations: vi.fn(async () => ({
+        applied: true,
+        validation: {
+            isValid: true,
+            tool: 'qpdf' as const,
+            errors: [],
+            warnings: [],
+        },
+    })),
     readFile: vi.fn(async () => new Uint8Array([
         37,
         80,
@@ -83,7 +109,7 @@ describe('usePdfFile native mutations', () => {
             ]],
             hints: [{
                 subtype: 'Squiggly' as const,
-                pageIndex: toPageIndex(0),
+                pageIndex: requirePageIndex(0),
                 markerRect: {
                     left: 0.1,
                     top: 0.2,
@@ -101,7 +127,7 @@ describe('usePdfFile native mutations', () => {
 
         pdfFile.workingCopyPath.value = '/tmp/work.pdf';
         pdfFile.originalPath.value = '/tmp/source.pdf';
-        pdfFile.documentRevisionToken.value = 'drt1:test:markup-base';
+        pdfFile.documentRevisionToken.value = requireDocumentRevisionToken('drt1:test:markup-base');
         pdfFile.pdfConformanceProfile.value = UNSIGNED_PROFILE;
 
         const result = await pdfFile.trySavePdfNativeMutations(mutations, {
@@ -112,11 +138,17 @@ describe('usePdfFile native mutations', () => {
         });
 
         expect(result?.success).toBe(true);
-        expect(documentsMock.savePdfNativeMutations).toHaveBeenCalledWith(
+        expect(documentsMock.applyPdfNativeMutationsToWorkingCopy).toHaveBeenCalledWith(
             '/tmp/work.pdf',
             mutations,
             'D:20260609133855+03\'00\'',
-            {expectedDocumentRevisionToken: 'drt1:test:markup-base'},
+            expect.objectContaining({byteLength: 4}),
+            {expectedDocumentRevisionToken: requireDocumentRevisionToken('drt1:test:markup-base')},
+        );
+        expect(documentsMock.commitStagedPdfNativeMutations).toHaveBeenCalledWith(
+            '/tmp/work.pdf',
+            expect.objectContaining({leaseId: 'staged-native-lease'}),
+            expect.objectContaining({expectedDocumentRevisionToken: requireDocumentRevisionToken('drt1:test:markup-base')}),
         );
         expect(documentsMock.savePdfNoteChanges).not.toHaveBeenCalled();
         expect(documentsMock.savePdfNoteTextUpdates).not.toHaveBeenCalled();

@@ -70,6 +70,29 @@ describe('extractBrowserSearchPageText', () => {
         expect(cleanup).toHaveBeenCalledOnce();
     });
 
+    it('uses canonical joining and hyphenation while preserving source Unicode offsets', async () => {
+        const makeTextItem = (str: string, hasEOL = false): TextItem => ({
+            str,
+            hasEOL,
+            dir: 'ltr',
+            transform: [],
+            width: 0,
+            height: 0,
+            fontName: 'f1',
+        });
+        const page = {getTextContent: vi.fn(async (): Promise<TextContent> => ({
+            items: [
+                makeTextItem('Cafe\u0301'),
+                makeTextItem('ex-', true),
+                makeTextItem('\uFB01le'),
+            ],
+            styles: {},
+            lang: null,
+        }))};
+
+        await expect(extractBrowserSearchPageText(page)).resolves.toBe('Cafe\u0301 ex\uFB01le');
+    });
+
     it('collapses exact repeated hidden text streams before browser search indexes the page', async () => {
         const repeatedText = 'СЛОВАРЬ\nАРАБСКОЙ ХРЕСТОМАТИИ И КОРАНУ. СОСТАВИЛЪ ПРОФ. В. ГИРГАСЪ.\n';
         const makeTextItem = (str: string): TextItem => ({

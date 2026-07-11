@@ -16,7 +16,7 @@ const identity = {
 function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
     return {
         id: overrides.id ?? 'comment-1',
-        stableKey: overrides.stableKey ?? 'editor:0:comment-1',
+        stableKey: overrides.stableKey ?? 'src:editor:0:comment-1',
         sortIndex: overrides.sortIndex ?? null,
         pageIndex: overrides.pageIndex ?? 0,
         pageNumber: overrides.pageNumber ?? 1,
@@ -53,7 +53,7 @@ describe('annotationDeleteResolver', () => {
         });
         const farStableCandidate = createComment({
             id: 'pdf-1',
-            stableKey: 'pdf:0:pdf-1',
+            stableKey: 'src:pdf:0:pdf-1',
             uid: null,
             annotationId: 'pdf-1',
             source: 'pdf',
@@ -74,14 +74,14 @@ describe('annotationDeleteResolver', () => {
         })).toBeNull();
     });
 
-    it('resolves an exact-text stable ref when marker geometry is nearby', () => {
+    it('does not resolve an annotation from text and nearby geometry without an exact binding', () => {
         const target = createComment({
             uid: null,
             annotationId: null,
         });
         const nearbyStableCandidate = createComment({
             id: 'pdf-1',
-            stableKey: 'pdf:0:pdf-1',
+            stableKey: 'src:pdf:0:pdf-1',
             uid: null,
             annotationId: 'pdf-1',
             source: 'pdf',
@@ -99,7 +99,7 @@ describe('annotationDeleteResolver', () => {
             candidates: [nearbyStableCandidate],
             identity,
             findEditorForComment: vi.fn(() => null),
-        })).toBe(nearbyStableCandidate);
+        })).toBeNull();
     });
 
     it('does not use stable PDF fallback for far-away text matches', () => {
@@ -109,7 +109,7 @@ describe('annotationDeleteResolver', () => {
         });
         const farStableCandidate = createComment({
             id: 'pdf-1',
-            stableKey: 'pdf:0:pdf-1',
+            stableKey: 'src:pdf:0:pdf-1',
             uid: null,
             annotationId: 'pdf-1',
             source: 'pdf',

@@ -415,7 +415,7 @@ watch(() => initialMargins, () => {
 
 <style scoped>
 .crop-preview-container {
-    width: 120px;
+    width: var(--app-crop-dialog-input-width);
     flex-shrink: 0;
 }
 

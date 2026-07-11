@@ -3,7 +3,8 @@ import type {
     Ref,
     ShallowRef,
 } from 'vue';
-import type { AnnotationEditorUIManager } from 'pdfjs-dist';
+import type { TPdfjsAnnotationManager } from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
+import { annotationIdForSummary } from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
 import type { GenericL10n } from 'pdfjs-dist/web/pdf_viewer.mjs';
 import type {
     IAnnotationCommentSummary,
@@ -11,6 +12,7 @@ import type {
     IAnnotationSettings,
     ILinkAnnotation,
     TAnnotationTool,
+    TAnnotationSettingChange,
 } from '@app/types/annotations';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
@@ -25,6 +27,7 @@ import { useAnnotationHighlight } from '@app/modules/pdf-viewer/runtime/annotati
 import { useAnnotationCrud } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud';
 import { useFreeTextResize } from '@app/modules/pdf-viewer/runtime/annotations/useFreeTextResize';
 import { useAnnotationMarkerViewModel } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationMarkerViewModel';
+import type { IPdfAnnotationRenderingPort } from '@app/modules/pdf-viewer/runtime/annotations/createAttachablePdfAnnotationRenderingPort';
 
 interface IUseAnnotationOrchestratorOptions {
     viewerContainer: Ref<HTMLElement | null>;
@@ -36,7 +39,7 @@ interface IUseAnnotationOrchestratorOptions {
     annotationTool: ComputedRef<TAnnotationTool>;
     annotationKeepActive: ComputedRef<boolean>;
     annotationSettings: ComputedRef<IAnnotationSettings | null>;
-    annotationUiManager: ShallowRef<AnnotationEditorUIManager | null>;
+    annotationUiManager: ShallowRef<TPdfjsAnnotationManager | null>;
     annotationL10n: ShallowRef<GenericL10n | null>;
     annotationCommentsCache: Ref<IAnnotationCommentSummary[]>;
     activeCommentStableKey: Ref<string | null>;
@@ -44,29 +47,17 @@ interface IUseAnnotationOrchestratorOptions {
     authorName: Ref<string | null | undefined>;
     stopDrag: () => void;
     scrollToPage: (pageNumber: number, options?: IScrollToPageOptions) => void;
-    renderVisiblePages: (
-        range: {
-            start: number;
-            end: number 
-        },
-        options?: {
-            preserveRenderedPages?: boolean;
-            forceRerender?: boolean;
-            bufferOverride?: number;
-        },
-    ) => Promise<void>;
-    renderAnnotationEditorLayerForPage?: (pageNumber: number) => Promise<boolean>;
+    renderingPort: Pick<
+        IPdfAnnotationRenderingPort,
+        'renderVisiblePages' | 'renderAnnotationEditorLayerForPage'
+    >;
     updateVisibleRange: (container: HTMLElement | null, numPages: number) => void;
     emitAnnotationModified: () => void;
     emitAnnotationState: (state: IAnnotationEditorState) => void;
-    recordPdfjsHistoryCommand?: (params: {
-        type?: number;
-        overwriteIfSameType?: boolean;
+    recordPdfjsExecutorCommand?: (command: {
+        cmd: () => void;
+        undo: () => void;
     }) => void;
-    recordPdfjsHistoryClean?: (type: number) => void;
-    recordPdfjsHistoryUndo?: () => void;
-    recordPdfjsHistoryRedo?: () => void;
-    discardPdfjsHistory?: () => void;
     isPdfjsHistoryRouted?: () => boolean;
     routeAnnotationHistoryUndo?: () => boolean;
     routeAnnotationHistoryRedo?: () => boolean;
@@ -74,16 +65,41 @@ interface IUseAnnotationOrchestratorOptions {
     emitAnnotationOpenNote: (comment: IAnnotationCommentSummary) => void;
     emitAnnotationContextMenu: (payload: IAnnotationContextMenuPayload) => void;
     emitAnnotationToolAutoReset: () => void;
-    emitAnnotationSetting: (payload: {
-        key: keyof IAnnotationSettings;
-        value: IAnnotationSettings[keyof IAnnotationSettings];
-    }) => void;
+    emitAnnotationSetting: (payload: TAnnotationSettingChange) => void;
     emitAnnotationCommentClick: (comment: IAnnotationCommentSummary) => void;
     emitAnnotationToolCancel: () => void;
     emitAnnotationNotePlacementChange: (active: boolean) => void;
 }
 
-export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOptions) => {
+type TAnnotationToolState = ReturnType<typeof useAnnotationToolState>;
+type TAnnotationFreeTextResize = ReturnType<typeof useFreeTextResize>;
+
+export type TAnnotationEditorController = ReturnType<typeof useAnnotationEditorBridge> & {
+    markupSubtype: TAnnotationToolState;
+    toolManager: TAnnotationToolState;
+    freeTextResize: TAnnotationFreeTextResize;
+    setAnnotationTool: TAnnotationToolState['setAnnotationTool'];
+    applyAnnotationSettings: TAnnotationToolState['applyAnnotationSettings'];
+    updateModeWithRetry: TAnnotationToolState['updateModeWithRetry'];
+    getMarkupSubtypeOverrides: TAnnotationToolState['getMarkupSubtypeOverrides'];
+    getMarkupSubtypeHints: TAnnotationToolState['getMarkupSubtypeHints'];
+    ensureFreeTextEditorCanResize: TAnnotationFreeTextResize['ensureFreeTextEditorCanResize'];
+};
+
+export interface IAnnotationOrchestrator {
+    identity: ReturnType<typeof useAnnotationIdentity>;
+    editor: TAnnotationEditorController;
+    commentSync: ReturnType<typeof useAnnotationSync>;
+    inlineIndicators: ReturnType<typeof useAnnotationMarkerViewModel>['inlineIndicators'];
+    markersByPage: ReturnType<typeof useAnnotationMarkerViewModel>['markersByPage'];
+    linksByPage: ComputedRef<Record<number, ILinkAnnotation[]>>;
+    highlight: ReturnType<typeof useAnnotationHighlight>;
+    crud: ReturnType<typeof useAnnotationCrud>;
+}
+
+export const useAnnotationOrchestrator = (
+    options: IUseAnnotationOrchestratorOptions,
+): IAnnotationOrchestrator => {
     const { t } = useTypedI18n();
 
     const {
@@ -104,16 +120,11 @@ export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOpt
         authorName,
         stopDrag,
         scrollToPage,
-        renderVisiblePages,
-        renderAnnotationEditorLayerForPage,
+        renderingPort,
         updateVisibleRange,
         emitAnnotationModified,
         emitAnnotationState,
-        recordPdfjsHistoryCommand,
-        recordPdfjsHistoryClean,
-        recordPdfjsHistoryUndo,
-        recordPdfjsHistoryRedo,
-        discardPdfjsHistory,
+        recordPdfjsExecutorCommand,
         isPdfjsHistoryRouted,
         routeAnnotationHistoryUndo,
         routeAnnotationHistoryRedo,
@@ -130,7 +141,7 @@ export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOpt
     const identity = useAnnotationIdentity(annotationCommentsCache);
 
     const linkAnnotations = ref<ILinkAnnotation[]>([]);
-    const linksByPage = computed(() =>
+    const linksByPage = computed<Record<number, ILinkAnnotation[]>>(() =>
         groupBy(linkAnnotations.value, link => link.pageNumber),
     );
 
@@ -140,6 +151,7 @@ export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOpt
         emitAnnotationModified,
         emitAnnotationSetting,
         scheduleAnnotationCommentsSync: () => commentSync.scheduleAnnotationCommentsSync(),
+        ...(recordPdfjsExecutorCommand ? {registerHistoryCommand: recordPdfjsExecutorCommand} : {}),
     });
 
     const toolState = useAnnotationToolState({
@@ -181,14 +193,16 @@ export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOpt
         getStore: () => ({
             setAnnotations: (comments) => {
                 const appliedComments = emitAnnotationComments(comments) ?? comments;
-                annotationCommentsCache.value = appliedComments;
                 return appliedComments;
             },
             setLinkAnnotations: (links) => {
                 linkAnnotations.value = links;
             },
             setActiveKey: (key) => {
-                activeCommentStableKey.value = key;
+                const comment = key
+                    ? annotationCommentsCache.value.find(candidate => candidate.stableKey === key)
+                    : null;
+                activeCommentStableKey.value = comment ? annotationIdForSummary(comment) : null;
             },
         }),
         syncInlineCommentIndicators: inlineIndicators.syncInlineCommentIndicators,
@@ -211,18 +225,14 @@ export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOpt
         getFreeTextResize: () => freeTextResize,
         emitAnnotationModified,
         emitAnnotationState,
-        ...(recordPdfjsHistoryCommand ? { recordPdfjsHistoryCommand } : {}),
-        ...(recordPdfjsHistoryClean ? { recordPdfjsHistoryClean } : {}),
-        ...(recordPdfjsHistoryUndo ? { recordPdfjsHistoryUndo } : {}),
-        ...(recordPdfjsHistoryRedo ? { recordPdfjsHistoryRedo } : {}),
-        ...(discardPdfjsHistory ? { discardPdfjsHistory } : {}),
+        ...(recordPdfjsExecutorCommand ? { recordPdfjsExecutorCommand } : {}),
         ...(isPdfjsHistoryRouted ? { isPdfjsHistoryRouted } : {}),
         ...(routeAnnotationHistoryUndo ? { routeAnnotationHistoryUndo } : {}),
         ...(routeAnnotationHistoryRedo ? { routeAnnotationHistoryRedo } : {}),
         emitAnnotationOpenNote,
     });
 
-    const editor = {
+    const editor: TAnnotationEditorController = {
         ...bridge,
         markupSubtype: toolState,
         toolManager: toolState,
@@ -250,10 +260,10 @@ export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOpt
         emitAnnotationOpenNote,
         emitAnnotationNotePlacementChange,
         ensureAnnotationEditorLayerReady: async (pageNumber) => {
-            if (await renderAnnotationEditorLayerForPage?.(pageNumber)) {
+            if (await renderingPort.renderAnnotationEditorLayerForPage(pageNumber)) {
                 return;
             }
-            await renderVisiblePages(
+            await renderingPort.renderVisiblePages(
                 {
                     start: pageNumber,
                     end: pageNumber,
@@ -282,7 +292,7 @@ export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOpt
         getInlineIndicators: () => inlineIndicators,
         getHighlight: () => highlight,
         scrollToPage,
-        renderVisiblePages,
+        renderVisiblePages: renderingPort.renderVisiblePages,
         updateVisibleRange,
         emitAnnotationModified,
         emitAnnotationOpenNote,

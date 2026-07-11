@@ -91,7 +91,11 @@ function readRequiredString(value: unknown) {
 }
 
 function readRequiredNumber(value: unknown) {
-    return typeof value === 'number' ? value : null;
+    return typeof value === 'number'
+        && Number.isSafeInteger(value)
+        && value >= 0
+        ? value
+        : null;
 }
 
 function readPersistedDocumentRequiredFields(
@@ -133,7 +137,8 @@ function normalizePersistedSaveKind(
 function isFileSystemFileHandleLike(value: unknown): value is FileSystemFileHandle {
     return isRecord(value)
         && value.kind === 'file'
-        && typeof value.name === 'string';
+        && typeof value.name === 'string'
+        && typeof value.getFile === 'function';
 }
 
 function normalizePersistedSaveHandle(value: unknown): FileSystemFileHandle | null | undefined {
@@ -164,12 +169,16 @@ function normalizePersistedChunkLayout(
     value: Record<string, unknown>,
 ): IPersistedChunkLayout {
     const chunkCount =
-        typeof value.chunkCount === 'number' && value.chunkCount >= 0
-            ? Math.floor(value.chunkCount)
+        typeof value.chunkCount === 'number'
+        && Number.isSafeInteger(value.chunkCount)
+        && value.chunkCount >= 0
+            ? value.chunkCount
             : undefined;
     const chunkSize =
-        typeof value.chunkSize === 'number' && value.chunkSize > 0
-            ? Math.floor(value.chunkSize)
+        typeof value.chunkSize === 'number'
+        && Number.isSafeInteger(value.chunkSize)
+        && value.chunkSize > 0
+            ? value.chunkSize
             : undefined;
     const chunkGeneration =
         typeof value.chunkGeneration === 'string' && value.chunkGeneration.length > 0

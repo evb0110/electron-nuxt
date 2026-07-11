@@ -1,6 +1,7 @@
 import type { IOcrWord } from '@contracts/shared';
 import type {
     IOcrErrorEnvelope,
+    IOcrDiagnostic,
     IOcrSearchablePdfOptions,
     TOcrProgressPhase,
 } from '@contracts/electronApiOcr';
@@ -94,12 +95,15 @@ export type TOcrWorkerCompleteResult =
         success: true;
         pdfPath: string;
         sourceDocumentRevisionToken: TDocumentRevisionToken;
+        resultSha256: string;
         requiresCleanupAck: boolean;
         errors: string[];
+        diagnostics?: IOcrDiagnostic[];
     }
     | {
         success: false;
         errors: string[];
+        diagnostics?: IOcrDiagnostic[];
         errorEnvelope?: IOcrErrorEnvelope;
     };
 

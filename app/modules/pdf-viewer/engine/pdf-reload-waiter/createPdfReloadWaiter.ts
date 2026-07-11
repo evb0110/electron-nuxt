@@ -2,7 +2,6 @@ import type { Ref } from 'vue';
 import { until } from '@vueuse/core';
 import { delay } from 'es-toolkit/promise';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import type { IScrollSnapshot } from '@app/types/pdfUi';
 import type { IPdfReloadWaiterViewer } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/pdfReloadWaiterViewer';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
@@ -14,8 +13,6 @@ interface ICreatePdfReloadWaiterOptions {
     pdfViewerRef: Ref<IPdfReloadWaiterViewer | null>;
     resetSearchCache: () => void;
     pageToRestore: number;
-    scrollSnapshot?: IScrollSnapshot | null;
-    captureScrollSnapshot?: boolean;
     restoreScroll?: boolean;
 }
 
@@ -23,47 +20,14 @@ function logReloadWaiterRecovery(step: string, error: unknown) {
     BrowserLogger.warn('loader', `Recovered from PDF reload waiter ${step} failure`, { error });
 }
 
-function captureReloadScrollSnapshot(options: ICreatePdfReloadWaiterOptions, shouldRestoreScroll: boolean, captureScrollSnapshot: boolean) {
-    if (!shouldRestoreScroll || !captureScrollSnapshot) {
-        return null;
-    }
-
-    try {
-        return options.scrollSnapshot ?? options.pdfViewerRef.value?.captureScrollSnapshot?.() ?? null;
-    } catch (error) {
-        logReloadWaiterRecovery('scroll snapshot capture', error);
-        return null;
-    }
-}
-
 function restoreReloadScroll(
     viewer: IPdfReloadWaiterViewer | null,
-    scrollSnapshot: IScrollSnapshot | null,
     pageToRestore: number,
-    captureScrollSnapshot: boolean,
 ) {
-    if (!captureScrollSnapshot) {
-        try {
-            viewer?.scrollToPage(pageToRestore);
-        } catch (error) {
-            logReloadWaiterRecovery('page restore', error);
-        }
-        return;
-    }
-
-    if (viewer?.restoreScrollSnapshot) {
-        try {
-            viewer.restoreScrollSnapshot(scrollSnapshot, { fallbackPage: pageToRestore });
-            return;
-        } catch (error) {
-            logReloadWaiterRecovery('scroll snapshot restore', error);
-        }
-    }
-
     try {
         viewer?.scrollToPage(pageToRestore);
     } catch (error) {
-        logReloadWaiterRecovery('fallback page restore', error);
+        logReloadWaiterRecovery('page restore', error);
     }
 }
 
@@ -83,8 +47,6 @@ export function createPdfReloadWaiter(options: ICreatePdfReloadWaiterOptions) {
     const initialDoc = options.pdfDocument.value;
     const isCancelled = ref(false);
     const shouldRestoreScroll = options.restoreScroll !== false;
-    const captureScrollSnapshot = options.captureScrollSnapshot !== false;
-    const scrollSnapshot = captureReloadScrollSnapshot(options, shouldRestoreScroll, captureScrollSnapshot);
     const initialViewportInteractionEpoch = readUserViewportInteractionEpoch(options.pdfViewerRef.value);
 
     const promise = until(() => ({
@@ -157,7 +119,7 @@ export function createPdfReloadWaiter(options: ICreatePdfReloadWaiterOptions) {
                 });
                 return;
             }
-            restoreReloadScroll(viewer ?? null, scrollSnapshot, options.pageToRestore, captureScrollSnapshot);
+            restoreReloadScroll(viewer ?? null, options.pageToRestore);
         });
 
     return {

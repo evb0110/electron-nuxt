@@ -6,6 +6,7 @@ import {
     type IAgentEventMap,
     type IAgentInvokeMap,
 } from '@electron/features/agent/contract';
+import { AGENT_IPC_CODECS } from '@electron/features/agent/agentIpcCodecs';
 import {
     decodeAgentAssistantEvent,
     decodeAgentCommandCancelRequest,
@@ -13,12 +14,12 @@ import {
     decodeAgentWorkspaceSnapshotRequest,
 } from '@electron/preload/agentIpcDecoders';
 import {
+    createCodecIpcInvoker,
     createTypedIpcEventSubscriber,
-    createTypedIpcInvoker,
 } from '@electron/preload/ipcClient';
 
 export function createAgentPreloadClient(ipcRenderer: IpcRenderer): IAgentCapability {
-    const invoke = createTypedIpcInvoker<IAgentInvokeMap>(ipcRenderer);
+    const invoke = createCodecIpcInvoker<IAgentInvokeMap>(ipcRenderer, AGENT_IPC_CODECS);
     const eventSubscriber = createTypedIpcEventSubscriber<IAgentEventMap>(ipcRenderer);
 
     return {

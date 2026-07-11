@@ -124,7 +124,7 @@ function handleClick() {
 .toolbar-btn:focus-visible {
     box-shadow: inset 0 0 0 1px var(--app-toolbar-focus-ring);
     position: relative;
-    z-index: 1;
+    z-index: var(--app-z-local-raised);
 }
 
 .toolbar-btn:disabled {

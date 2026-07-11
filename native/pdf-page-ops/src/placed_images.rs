@@ -1,21 +1,49 @@
-struct JpegInfo {
-    width: u16,
-    height: u16,
-    components: u8,
+use super::*;
+use sha2::{Digest, Sha256};
+
+pub(crate) fn read_validated_placed_image_bytes(image: &PlacedImage) -> Result<Vec<u8>> {
+    let bytes = fs::read(&image.bytes_path)?;
+    let image_len = u64::try_from(bytes.len())?;
+    if image_len == 0 || image_len > 128 * 1024 * 1024 {
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            "Invalid placed image byte length",
+        ));
+    }
+    if image_len != image.byte_length {
+        return Err(domain_error(
+            NativeErrorCode::InvalidRequest,
+            "Placed image sidecar byte length does not match its manifest",
+        ));
+    }
+    let digest = format!("{:x}", Sha256::digest(&bytes));
+    if image.sha256.len() != 64 || !digest.eq_ignore_ascii_case(&image.sha256) {
+        return Err(domain_error(
+            NativeErrorCode::InvalidRequest,
+            "Placed image sidecar hash does not match its manifest",
+        ));
+    }
+    Ok(bytes)
 }
 
-struct PlacedImageGeometry {
-    rect: PdfRect,
-    bbox_width: f64,
-    bbox_height: f64,
-    image_x: f64,
-    image_y: f64,
-    width: f64,
-    height: f64,
-    rotation_degrees: f64,
+pub(crate) struct JpegInfo {
+    pub(crate) width: u16,
+    pub(crate) height: u16,
+    pub(crate) components: u8,
 }
 
-fn parse_jpeg_info(bytes: &[u8]) -> Result<JpegInfo> {
+pub(crate) struct PlacedImageGeometry {
+    pub(crate) rect: PdfRect,
+    pub(crate) bbox_width: f64,
+    pub(crate) bbox_height: f64,
+    pub(crate) image_x: f64,
+    pub(crate) image_y: f64,
+    pub(crate) width: f64,
+    pub(crate) height: f64,
+    pub(crate) rotation_degrees: f64,
+}
+
+pub(crate) fn parse_jpeg_info(bytes: &[u8]) -> Result<JpegInfo> {
     if bytes.len() < 4 || bytes[0] != 0xFF || bytes[1] != 0xD8 {
         return Err("Placed image is not a JPEG file".into());
     }
@@ -58,7 +86,10 @@ fn parse_jpeg_info(bytes: &[u8]) -> Result<JpegInfo> {
             let width = u16::from_be_bytes([bytes[segment_start + 3], bytes[segment_start + 4]]);
             let components = bytes[segment_start + 5];
             if precision != 8 || width == 0 || height == 0 || !matches!(components, 1 | 3) {
-                return Err("Unsupported JPEG color format".into());
+                return Err(domain_error(
+                    NativeErrorCode::UnsupportedFilter,
+                    "Unsupported JPEG color format",
+                ));
             }
             return Ok(JpegInfo {
                 width,
@@ -72,21 +103,25 @@ fn parse_jpeg_info(bytes: &[u8]) -> Result<JpegInfo> {
     Err("JPEG dimensions were not found".into())
 }
 
-fn is_jpeg_start_of_frame_marker(marker: u8) -> bool {
+pub(crate) fn is_jpeg_start_of_frame_marker(marker: u8) -> bool {
     matches!(
         marker,
         0xC0 | 0xC1 | 0xC2 | 0xC3 | 0xC5 | 0xC6 | 0xC7 | 0xC9 | 0xCA | 0xCB | 0xCD | 0xCE | 0xCF
     )
 }
 
-fn placed_image_annotation_name(image: &PlacedImage, index: usize, modified_at: &str) -> String {
+pub(crate) fn placed_image_annotation_name(
+    image: &PlacedImage,
+    index: usize,
+    modified_at: &str,
+) -> String {
     format!(
         "placed-image-native:{}:{}:{}",
         image.page_index, index, modified_at
     )
 }
 
-fn placed_image_geometry(
+pub(crate) fn placed_image_geometry(
     image: &PlacedImage,
     page_view: PdfRect,
     page_rotation: i64,
@@ -143,7 +178,7 @@ fn placed_image_geometry(
     })
 }
 
-fn pdf_content_number(value: f64) -> String {
+pub(crate) fn pdf_content_number(value: f64) -> String {
     let rounded = value.round();
     if (value - rounded).abs() < 0.000_001 {
         return format!("{rounded:.0}");
@@ -158,7 +193,7 @@ fn pdf_content_number(value: f64) -> String {
     formatted
 }
 
-fn build_jpeg_image_stream(image: &PlacedImage, info: &JpegInfo) -> Stream {
+pub(crate) fn build_jpeg_image_stream(bytes: Vec<u8>, info: &JpegInfo) -> Stream {
     let mut dict = Dictionary::new();
     dict.set("Type", Object::Name(b"XObject".to_vec()));
     dict.set("Subtype", Object::Name(b"Image".to_vec()));
@@ -173,10 +208,10 @@ fn build_jpeg_image_stream(image: &PlacedImage, info: &JpegInfo) -> Stream {
         }),
     );
     dict.set("Filter", Object::Name(b"DCTDecode".to_vec()));
-    Stream::new(dict, image.bytes.clone())
+    Stream::new(dict, bytes)
 }
 
-fn build_placed_image_appearance_stream(
+pub(crate) fn build_placed_image_appearance_stream(
     image_ref: ObjectId,
     geometry: &PlacedImageGeometry,
     image_name: &str,
@@ -229,7 +264,7 @@ fn build_placed_image_appearance_stream(
     Stream::new(dict, content)
 }
 
-fn build_placed_image_stamp_dict(
+pub(crate) fn build_placed_image_stamp_dict(
     image: &PlacedImage,
     geometry: &PlacedImageGeometry,
     appearance_ref: ObjectId,
@@ -257,7 +292,7 @@ fn build_placed_image_stamp_dict(
     dict
 }
 
-fn apply_placed_images(
+pub(crate) fn apply_placed_images(
     document: &mut Document,
     images: &[PlacedImage],
     modified_at: &str,
@@ -275,12 +310,16 @@ fn apply_placed_images(
         let page_id = resolve_page_id(&page_map, page_number)?;
         let page_view = resolve_page_view(document, page_id)?;
         let page_rotation = resolve_page_rotation(document, page_id)?;
-        let jpeg_info = parse_jpeg_info(&image.bytes)?;
+        let image_bytes = read_validated_placed_image_bytes(image)?;
+        let jpeg_info = parse_jpeg_info(&image_bytes)?;
         let geometry = placed_image_geometry(image, page_view, page_rotation)?;
-        let image_ref = document.add_object(build_jpeg_image_stream(image, &jpeg_info));
+        let image_ref = document.add_object(build_jpeg_image_stream(image_bytes, &jpeg_info));
         let image_name = format!("Im{}", image_ref.0);
-        let appearance_ref =
-            document.add_object(build_placed_image_appearance_stream(image_ref, &geometry, &image_name));
+        let appearance_ref = document.add_object(build_placed_image_appearance_stream(
+            image_ref,
+            &geometry,
+            &image_name,
+        ));
         let stamp_ref = document.new_object_id();
         let stamp_dict =
             build_placed_image_stamp_dict(image, &geometry, appearance_ref, index, modified_at);
@@ -290,7 +329,7 @@ fn apply_placed_images(
     Ok(())
 }
 
-fn apply_placed_images_incremental(
+pub(crate) fn apply_placed_images_incremental(
     incremental: &mut IncrementalDocument,
     images: &[PlacedImage],
     modified_at: &str,
@@ -308,19 +347,21 @@ fn apply_placed_images_incremental(
         let page_id = resolve_page_id(&page_map, page_number)?;
         let page_view = resolve_page_view(incremental.get_prev_documents(), page_id)?;
         let page_rotation = resolve_page_rotation(incremental.get_prev_documents(), page_id)?;
-        let jpeg_info = parse_jpeg_info(&image.bytes)?;
+        let image_bytes = read_validated_placed_image_bytes(image)?;
+        let jpeg_info = parse_jpeg_info(&image_bytes)?;
         let geometry = placed_image_geometry(image, page_view, page_rotation)?;
         let image_ref = incremental
             .new_document
-            .add_object(build_jpeg_image_stream(image, &jpeg_info));
+            .add_object(build_jpeg_image_stream(image_bytes, &jpeg_info));
         let image_name = format!("Im{}", image_ref.0);
-        let appearance_ref = incremental
-            .new_document
-            .add_object(build_placed_image_appearance_stream(
-                image_ref,
-                &geometry,
-                &image_name,
-            ));
+        let appearance_ref =
+            incremental
+                .new_document
+                .add_object(build_placed_image_appearance_stream(
+                    image_ref,
+                    &geometry,
+                    &image_name,
+                ));
         let stamp_ref = incremental.new_document.new_object_id();
         let stamp_dict =
             build_placed_image_stamp_dict(image, &geometry, appearance_ref, index, modified_at);

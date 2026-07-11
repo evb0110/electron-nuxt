@@ -3,8 +3,11 @@ import {
     handleOcrCancelValidated,
     handleOcrCreateSearchablePdf,
     handleOcrGetLanguages,
+    handleGetOcrJobState,
+    handleSubscribeOcrJob,
     handleOcrRecognize,
     handleOcrRecognizeBatch,
+    handleResolveDocumentTextCatalog,
     handleOcrValidateTools,
     subscribePlainOcrProgress,
 } from '@electron/features/ocr/main/ocrOperations';
@@ -47,22 +50,18 @@ function createPreprocessPageContext(context: IOcrOperationContext): TPreprocess
 
 export function createOcrService(): IOcrService {
     return {
-        recognize: (context, request) =>
-            handleOcrRecognize(context, request),
-        recognizeBatch: (context, pages, requestId) =>
-            handleOcrRecognizeBatch(context, pages, requestId),
-        createSearchablePdf: (context, sourcePdfPath, pages, requestId, renderDpiOrOptions) =>
-            handleOcrCreateSearchablePdf(context, sourcePdfPath, pages, requestId, renderDpiOrOptions),
-        cancel: (context, requestId) =>
-            handleOcrCancelValidated(context, requestId),
-        acknowledgeResultFile: (context, requestId, pdfPath) =>
-            handleOcrAcknowledgeResultFileValidated(context, requestId, pdfPath),
-        getLanguages: () =>
-            handleOcrGetLanguages(),
-        validateTools: () =>
-            handleOcrValidateTools(),
-        preprocessingValidate: () =>
-            handlePreprocessingValidate(),
+        recognize: handleOcrRecognize,
+        recognizeBatch: handleOcrRecognizeBatch,
+        createSearchablePdf: handleOcrCreateSearchablePdf,
+        cancel: handleOcrCancelValidated,
+        getJobState: handleGetOcrJobState,
+        subscribeJob: handleSubscribeOcrJob,
+        reconnectJob: handleSubscribeOcrJob,
+        acknowledgeResultFile: handleOcrAcknowledgeResultFileValidated,
+        getLanguages: handleOcrGetLanguages,
+        resolveDocumentTextCatalog: handleResolveDocumentTextCatalog,
+        validateTools: handleOcrValidateTools,
+        preprocessingValidate: handlePreprocessingValidate,
         preprocessPage: (context, imageData, usePreprocessing) =>
             handlePreprocessPage(createPreprocessPageContext(context), imageData, usePreprocessing),
         subscribeProgress: (context) => {

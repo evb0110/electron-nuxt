@@ -28,6 +28,7 @@ import {
     type IWorkspaceExpose,
     type IWorkspaceToolbarSnapshot,
 } from '@app/types/workspaceExpose';
+import {requireDocumentRevisionToken} from '@contracts';
 
 vi.mock('@app/composables/useRuntimeErrorReports', () => ({useRuntimeErrorReports: () => ({reportRuntimeError: vi.fn()})}));
 
@@ -38,7 +39,7 @@ function createDocumentRevision(
 ): IDocumentRevisionInfo {
     return {
         version: 1,
-        token,
+        token: requireDocumentRevisionToken(token),
         documentRef,
         authority: 'browser-document-store',
         contentRevision: mintedAt,

@@ -52,7 +52,7 @@
                 @update:current-page="shellToolbarCurrentPage = $event"
                 @open-file="handleFallbackToolbarOpenFile"
                 @open-settings="openSettingsPage"
-                @combine-images="openCombinePage"
+                @combine-files="openCombinePage"
                 @toggle-fullscreen="handleToggleFullscreen"
                 @set-view-mode="handleShellToolbarOverflowSetViewMode"
             />
@@ -82,7 +82,7 @@
                 :zen-active-tab-id="activeTabId"
                 :is-fullscreen="isFullscreen"
                 :fullscreen-supported="fullscreenSupported"
-                :is-workspace-layout-resizing="isAssistantPanelResizing"
+                :is-workspace-layout-resizing="isWorkspaceLayoutResizing"
                 @activate-pane="activatePane"
                 @activate-tab="activateTab"
                 @close-tab="handleCloseTab"
@@ -100,6 +100,7 @@
                 @open-combine="openCombinePage"
                 @toggle-fullscreen="handleToggleFullscreen"
                 @update-split-ratio="setSplitRatio"
+                @update-layout-resizing="isEditorPanesResizing = $event"
             />
             <AgentAssistantPanel
                 v-if="assistantPanelEnabled && assistantPanelOpen && !isFullscreen"
@@ -116,8 +117,8 @@
 
         <CombinePdfPage
             v-if="activeToolPage === 'combine'"
+            :open-result="handleCombineOpenResult"
             @close="closeToolPage"
-            @open-result="handleCombineOpenResult"
         />
 
         <div v-show="!activeToolPage" id="editor-global-status-host" class="editor-global-status-host" />
@@ -178,6 +179,8 @@ import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
 import { useEditorPanesManager } from '@app/modules/workspace-shell/composables/useEditorPanesManager';
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
+import { useAppShellResilience } from '@app/modules/workspace-shell/composables/useAppShellResilience';
+import { useAppShellToolPages } from '@app/modules/workspace-shell/composables/useAppShellToolPages';
 import { useWindowTabTransfers } from '@app/modules/workspace-shell/composables/useWindowTabTransfers';
 import { useBrowserInstallHint } from '@app/modules/workspace-shell/composables/useBrowserInstallHint';
 import { useDirectOpenAutomationDispatcherShell } from '@app/modules/workspace-shell/automation/directOpenAutomationDispatcher';
@@ -190,7 +193,6 @@ import type {
 import type { IAgentAssistantChatScope } from '@contracts/agent';
 import type { TStartSection } from '@app/types/startSection';
 import type { IHostZenModeState } from '@contracts/electronApiHost';
-import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { getHostCapability } from '@app/utils/getHostCapability';
@@ -207,12 +209,14 @@ import {
 traceRendererStartup('index.vue script setup start');
 useDirectOpenAutomationDispatcherShell();
 
+const editorPanesManager = useEditorPanesManager();
 const {
     panes,
     tabs,
     layout,
     activePaneId,
     activeTabId,
+    restoreWorkspaceCheckpointGraph,
     ensureAtLeastOneTab,
     getPaneById,
     getTabById,
@@ -228,7 +232,7 @@ const {
     focusPane,
     findDirectionalPane,
     moveTabToPane,
-} = useEditorPanesManager();
+} = editorPanesManager;
 
 ensureAtLeastOneTab();
 
@@ -263,6 +267,10 @@ const {
     isResizingPanel: isAssistantPanelResizing,
     startPanelResize: startAssistantPanelResize,
 } = useAssistantPanelResize();
+const isEditorPanesResizing = ref(false);
+const isWorkspaceLayoutResizing = computed(() => (
+    isAssistantPanelResizing.value || isEditorPanesResizing.value
+));
 const fullscreenSupported = ref(true);
 let zenModeRequestInFlight = false;
 const workspaceSplitCache = useWorkspaceSplitCache();
@@ -616,6 +624,7 @@ const {
     handleOpenInNewTab,
     openResultInAppropriateTab,
     openPathInAppropriateTab,
+    openPathInReservedTab,
     openPathsInAppropriateTab,
     beginOpenPathsInAppropriateTab,
     handleWindowTabsAction,
@@ -751,33 +760,27 @@ useAgentWorkspaceSnapshot({
     waitForWorkspace,
 });
 
-function openSettingsPage() {
-    activeToolPage.value = null;
-    const settingsTab = findEmptyTab() ?? createTab({
-        paneId: activePaneId.value,
-        activate: true,
-    });
+useAppShellResilience({
+    enabled: computed(() => isDesktopRuntime.value && !isStartupOpenClaimPending.value),
+    editorPanesManager,
+    workspaceRefs,
+    documentRecordsByTabId,
+});
 
-    setTabStartSection(settingsTab.id, 'settings');
-    activateTabById(settingsTab.id);
-}
-
-function openCombinePage() {
-    activeToolPage.value = 'combine';
-}
-
-function closeToolPage() {
-    activeToolPage.value = null;
-}
-
-function handleCombineOpenResult(result: TOpenFileResult) {
-    closeToolPage();
-    guardAsync(openResultInAppropriateTab(result), {
-        category: 'user-visible-operation',
-        scope: 'shell',
-        message: 'Failed to open combined PDF',
-    });
-}
+const {
+    closeToolPage,
+    handleCombineOpenResult,
+    openCombinePage,
+    openSettingsPage,
+} = useAppShellToolPages({
+    activePaneId,
+    activeToolPage,
+    activateTabById,
+    createTab,
+    findEmptyTab,
+    openResultInAppropriateTab,
+    setTabStartSection,
+});
 const {
     tabContextAvailabilityByPane,
     splitEditor,
@@ -885,6 +888,8 @@ useTabsShellBindings({
     openPathInAppropriateTab,
     openPathsInAppropriateTab,
     beginOpenPathsInAppropriateTab,
+    restoreWorkspaceCheckpointGraph,
+    openPathInReservedTab,
     clearRecentFiles,
     loadRecentFiles,
     isStartupOpenClaimPending,

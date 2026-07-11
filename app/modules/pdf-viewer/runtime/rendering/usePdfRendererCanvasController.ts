@@ -15,6 +15,7 @@ import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { runCoordinatedPdfPageRender } from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
 import type { IPdfRenderSupervisor } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
 import type { IPdfDocumentPageLease } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument';
+import type { IWorkspaceSurfaceLease } from '@app/utils/document-viewer/workspaceSurfaceBudget';
 
 interface IUsePdfRendererCanvasControllerOptions {
     canvasRenderer: ReturnType<typeof usePdfCanvasRenderer>;
@@ -26,6 +27,12 @@ interface IUsePdfRendererCanvasControllerOptions {
     getPage: (pageNumber: number) => Promise<IPdfDocumentPageLease>;
     cancelActiveRenderTask: (pageNumber: number) => void;
     cancelActiveRenderTaskIfCurrent: (pageNumber: number, version: number, requestId: number) => void;
+    reservePageCanvasSurface?: ((
+        pageNumber: number,
+        canvas: HTMLCanvasElement,
+        annotationCanvases?: Iterable<HTMLCanvasElement>,
+    ) => IWorkspaceSurfaceLease) | undefined;
+    replacePageCanvasSurfaceLease?: ((pageNumber: number, lease: IWorkspaceSurfaceLease) => void) | undefined;
     onRenderStall?: ((payload: IPageRenderStallPayload) => void) | undefined;
     renderSupervisor?: IPdfRenderSupervisor | undefined;
 }
@@ -41,10 +48,18 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
         getPage,
         cancelActiveRenderTask,
         cancelActiveRenderTaskIfCurrent,
+        reservePageCanvasSurface = () => ({
+            bytes: 0,
+            category: 'pdf-page-canvas',
+            scopeId: 'untracked',
+            release() {},
+        }),
+        replacePageCanvasSurfaceLease = (_pageNumber, lease) => lease.release(),
         onRenderStall,
         renderSupervisor,
     } = options;
     const queuedCanvasRenderAbortControllers = new Set<AbortController>();
+    type TPreparedCanvasRender = NonNullable<Awaited<ReturnType<typeof canvasRenderer.prepareCanvasRender>>> & {continuationPriority?: NonNullable<IRenderVisiblePagesOptions['continuationPriority']>;};
 
     function abortQueuedCanvasRenders() {
         for (const controller of queuedCanvasRenderAbortControllers) {
@@ -87,11 +102,12 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
         pageNumber: number,
         version: number,
         requestId: number,
-        preparedCanvasRender: NonNullable<Awaited<ReturnType<typeof canvasRenderer.prepareCanvasRender>>>,
+        preparedCanvasRender: TPreparedCanvasRender,
         shouldContinue: () => boolean,
     ) {
         const {
             startRender,
+            continuationPriority = 'visible',
             ...preparedRenderResult
         } = preparedCanvasRender;
         let renderStageTimedOut = false;
@@ -129,6 +145,10 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
                     pageNumber,
                     pdfPage,
                     priority: 100,
+                    continuation: {
+                        key: `viewer:${pageNumber}:${version}:${requestId}`,
+                        priority: continuationPriority,
+                    },
                     signal: renderAbortController.signal,
                     shouldStart: () => !renderStageTimedOut && getRenderVersion() === version && shouldContinue(),
                     startRender: () => {
@@ -303,7 +323,10 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
             return null;
         }
 
-        return preparedCanvasRender;
+        return {
+            ...preparedCanvasRender,
+            continuationPriority: renderOptions?.continuationPriority ?? 'visible',
+        } satisfies TPreparedCanvasRender;
     }
 
     async function renderPreparedCanvasForPage(
@@ -311,7 +334,7 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
         pageNumber: number,
         version: number,
         requestId: number,
-        preparedCanvasRender: NonNullable<Awaited<ReturnType<typeof canvasRenderer.prepareCanvasRender>>>,
+        preparedCanvasRender: TPreparedCanvasRender,
         shouldContinue: () => boolean,
     ) {
         try {
@@ -388,15 +411,26 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
             totalScaleFactor,
         );
         const previousCanvas = pageCanvases.get(pageNumber);
-        canvasRenderer.mountCanvas(
-            canvasHost,
+        const surfaceLease = reservePageCanvasSurface(
+            pageNumber,
             canvas,
-            previousCanvas,
+            renderResult.annotationCanvasMap?.values() ?? [],
         );
-        if (previousCanvas && previousCanvas !== canvas) {
-            canvasRenderer.cleanupCanvas(previousCanvas);
+        try {
+            canvasRenderer.mountCanvas(
+                canvasHost,
+                canvas,
+                previousCanvas,
+            );
+            if (previousCanvas && previousCanvas !== canvas) {
+                canvasRenderer.cleanupCanvas(previousCanvas);
+            }
+            pageCanvases.set(pageNumber, canvas);
+            replacePageCanvasSurfaceLease(pageNumber, surfaceLease);
+        } catch (error) {
+            surfaceLease.release();
+            throw error;
         }
-        pageCanvases.set(pageNumber, canvas);
     }
 
     return {

@@ -126,3 +126,10 @@ export async function clearWorkingCopyOcrArtifacts(workingCopyPath: string) {
         unlinkIfPresent(getCompactSearchIndexPath(workingCopyPath)),
     ]);
 }
+
+export async function clearWorkingCopySearchArtifacts(workingCopyPath: string) {
+    await Promise.all([
+        unlinkIfPresent(`${workingCopyPath}.index.json`),
+        unlinkIfPresent(getCompactSearchIndexPath(workingCopyPath)),
+    ]);
+}

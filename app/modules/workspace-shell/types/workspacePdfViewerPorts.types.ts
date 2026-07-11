@@ -26,9 +26,9 @@ export interface IWorkspacePdfViewerShortcutsPort extends Pick<IPdfViewerShapeEx
     'deleteSelectedShape'
 > {}
 
-export interface IWorkspacePdfViewerPageOpsPort extends Pick<IPdfViewerExpose,
-    'invalidatePages'
-> {}
+export interface IWorkspacePdfViewerPageOpsPort extends
+    Pick<IPdfViewerExpose, 'invalidatePages'>,
+    Pick<IPdfViewerSaveExpose, 'runSaveTransaction'> {}
 
 export interface IWorkspacePdfViewerAnnotationToolsPort extends
     Pick<IPdfViewerShapeExpose,
@@ -52,15 +52,13 @@ export interface IWorkspacePdfViewerAnnotationChangesPort extends
     > {}
 
 export interface IWorkspacePdfViewerAnnotationNotesPort extends Pick<IPdfViewerAnnotationCommentExpose,
-    'clearPendingEmbeddedTextUpdate'
-    | 'migratePendingEmbeddedTextUpdate'
-    | 'queuePendingEmbeddedTextUpdate'
-    | 'updateAnnotationComment'
+    'updateAnnotationComment'
 > {}
 
 export interface IWorkspacePdfViewerAgentAnnotationNotePort extends
     Pick<IPdfViewerAnnotationCommentExpose,
-        'updateAnnotationComment'
+        'moveAnnotationMarker'
+        | 'updateAnnotationComment'
     >,
     Pick<IPdfViewerAnnotationCommandExpose,
         'registerAnnotationHistoryCommand'

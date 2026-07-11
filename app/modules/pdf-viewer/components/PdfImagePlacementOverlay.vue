@@ -89,6 +89,7 @@ import type {
 } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/pdfImagePlacementSizingTypes';
 import { resizeImagePlacementRect } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/resizeImagePlacementRect';
 import { rotateImagePlacementRect } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/rotateImagePlacementRect';
+import { createRafCoalescedCallback } from '@app/utils/createRafCoalescedCallback';
 
 const {
     placement,
@@ -338,6 +339,7 @@ function startInteraction(
 }
 
 function stopInteraction() {
+    imagePlacementMove.cancel();
     const interaction = activeInteraction;
     if (
         interaction?.captureElement
@@ -460,14 +462,17 @@ function handleWindowPointerMove(event: PointerEvent) {
     applyResizeInteraction(interaction, event);
 }
 
+const imagePlacementMove = createRafCoalescedCallback(handleWindowPointerMove);
+
 function handleWindowPointerUp(event: PointerEvent) {
     if (!activeInteraction || event.pointerId !== activeInteraction.pointerId) {
         return;
     }
+    imagePlacementMove.flush(event);
     stopInteraction();
 }
 
-useEventListener(interactionWindowTarget, 'pointermove', handleWindowPointerMove);
+useEventListener(interactionWindowTarget, 'pointermove', imagePlacementMove.schedule);
 useEventListener(interactionWindowTarget, 'pointerup', handleWindowPointerUp);
 useEventListener(interactionWindowTarget, 'pointercancel', handleWindowPointerUp);
 
@@ -551,33 +556,24 @@ onBeforeUnmount(() => {
 }
 
 :global(.pdf-image-placement-virtual-cursor) {
-    --pdf-image-placement-virtual-cursor-size: 24px;
-
     position: fixed;
     pointer-events: none;
     z-index: var(--app-z-pdf-image-placement-virtual-cursor);
-    width: var(--pdf-image-placement-virtual-cursor-size);
-    height: var(--pdf-image-placement-virtual-cursor-size);
+    width: var(--app-pdf-image-placement-virtual-cursor-size);
+    height: var(--app-pdf-image-placement-virtual-cursor-size);
     transform: translate(
-        calc(var(--pdf-image-placement-virtual-cursor-size) * -0.5),
-        calc(var(--pdf-image-placement-virtual-cursor-size) * -0.5)
+        calc(var(--app-pdf-image-placement-virtual-cursor-size) * -0.5),
+        calc(var(--app-pdf-image-placement-virtual-cursor-size) * -0.5)
     );
     filter: drop-shadow(0 1px 2px var(--app-image-placement-shadow));
 }
 
 .pdf-image-placement {
-    --pdf-image-placement-resizer-size: 0.9rem;
-    --pdf-image-placement-resizer-offset: calc(var(--pdf-image-placement-resizer-size) * -0.5);
-    --pdf-image-placement-resizer-hit-inset: -0.35rem;
-    --pdf-image-placement-rotate-handle-size: 1.1rem;
-    --pdf-image-placement-rotate-handle-offset: calc(var(--pdf-image-placement-rotate-handle-size) * -0.5);
-    --pdf-image-placement-rotate-handle-top: -2.95rem;
-    --pdf-image-placement-rotate-stem-width: 2px;
-    --pdf-image-placement-rotate-stem-height: 1.9rem;
-    --pdf-image-placement-controls-offset-block-start: 0.6rem;
+    --pdf-image-placement-resizer-offset: calc(var(--app-pdf-image-placement-resizer-size) * -0.5);
+    --pdf-image-placement-rotate-handle-offset: calc(var(--app-pdf-image-placement-rotate-handle-size) * -0.5);
 
     position: absolute;
-    z-index: 8;
+    z-index: var(--app-z-pdf-image-placement);
     touch-action: none;
 }
 
@@ -621,8 +617,8 @@ onBeforeUnmount(() => {
 
 .pdf-image-placement__resizer {
     position: absolute;
-    width: var(--pdf-image-placement-resizer-size);
-    height: var(--pdf-image-placement-resizer-size);
+    width: var(--app-pdf-image-placement-resizer-size);
+    height: var(--app-pdf-image-placement-resizer-size);
     border: 1px solid var(--ui-bg);
     border-radius: var(--app-radius-full);
     background: var(--ui-primary);
@@ -633,7 +629,7 @@ onBeforeUnmount(() => {
 .pdf-image-placement__resizer::after {
     content: '';
     position: absolute;
-    inset: var(--pdf-image-placement-resizer-hit-inset);
+    inset: var(--app-pdf-image-placement-resizer-hit-inset);
 }
 
 .pdf-image-placement__resizer:disabled {
@@ -682,10 +678,10 @@ onBeforeUnmount(() => {
 
 .pdf-image-placement__rotate-handle {
     position: absolute;
-    top: var(--pdf-image-placement-rotate-handle-top);
+    top: var(--app-pdf-image-placement-rotate-handle-top);
     left: calc(50% + var(--pdf-image-placement-rotate-handle-offset));
-    width: var(--pdf-image-placement-rotate-handle-size);
-    height: var(--pdf-image-placement-rotate-handle-size);
+    width: var(--app-pdf-image-placement-rotate-handle-size);
+    height: var(--app-pdf-image-placement-rotate-handle-size);
     border: 1px solid var(--ui-bg);
     border-radius: var(--app-radius-full);
     background: color-mix(in oklab, var(--ui-bg) 18%, var(--ui-primary) 82%);
@@ -703,10 +699,10 @@ onBeforeUnmount(() => {
 .pdf-image-placement__rotate-handle::before {
     content: '';
     position: absolute;
-    left: calc(50% - (var(--pdf-image-placement-rotate-stem-width) * 0.5));
-    top: calc(100% - (var(--pdf-image-placement-rotate-stem-width) * 0.5));
-    width: var(--pdf-image-placement-rotate-stem-width);
-    height: var(--pdf-image-placement-rotate-stem-height);
+    left: calc(50% - (var(--app-pdf-image-placement-rotate-stem-width) * 0.5));
+    top: calc(100% - (var(--app-pdf-image-placement-rotate-stem-width) * 0.5));
+    width: var(--app-pdf-image-placement-rotate-stem-width);
+    height: var(--app-pdf-image-placement-rotate-stem-height);
     border-radius: var(--app-radius-full);
     background: color-mix(in oklab, var(--ui-primary) 76%, var(--ui-bg) 24%);
 }
@@ -722,7 +718,7 @@ onBeforeUnmount(() => {
 .pdf-image-placement__controls {
     position: absolute;
     left: 0;
-    top: calc(100% + var(--pdf-image-placement-controls-offset-block-start));
+    top: calc(100% + var(--app-pdf-image-placement-controls-offset));
     display: flex;
     gap: var(--app-space-2xl);
     align-items: center;
@@ -738,7 +734,7 @@ onBeforeUnmount(() => {
     border: 1px solid transparent;
     border-radius: var(--app-radius-full);
     min-height: 0;
-    padding: 0.28rem var(--app-space-8xl);
+    padding: var(--app-pdf-image-placement-action-padding);
     font-size: var(--app-text-size-fine);
     font-weight: var(--app-font-weight-semibold);
     line-height: 1.2;

@@ -53,6 +53,23 @@ describe('usePdfViewerPropModel', () => {
         expect(model.zoomMode.value).toBe('custom');
     });
 
+    it('uses one zoom-state authority when legacy mode props disagree', () => {
+        const props = reactive<IPdfViewerProps>({
+            src: null,
+            fitMode: 'height',
+            zoomMode: 'fit-width',
+            zoom: 1.75,
+        });
+        const model = usePdfViewerPropModel(props);
+
+        expect(model.zoomState.value).toEqual({
+            kind: 'fit',
+            axis: 'width',
+        });
+        expect(model.fitMode.value).toBe('width');
+        expect(model.zoomMode.value).toBe('fit-width');
+    });
+
     it('keeps invertColors as a public component prop instead of feature-model state', () => {
         const props = reactive<IPdfViewerProps>({
             src: null,

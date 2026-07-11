@@ -264,7 +264,7 @@ async function collectDomPressure(): Promise<IDomPressureSnapshot> {
                     canvasPixels: countCanvasPixels(host),
                     textSpans: host.querySelectorAll('.text-layer span, .textLayer span').length,
                     annotationLayerNodes: host.querySelectorAll('.annotation-layer *, .annotation-editor-layer *').length,
-                    djvuImages: host.querySelectorAll('.djvu-page-shell img').length,
+                    djvuImages: host.querySelectorAll('[data-testid="document-page-source-image"]').length,
                 };
             };
             const canvases = Array.from(document.querySelectorAll('canvas'));
@@ -279,7 +279,7 @@ async function collectDomPressure(): Promise<IDomPressureSnapshot> {
                 canvasPixels: canvases.reduce((total, canvas) => total + ((canvas.width || 0) * (canvas.height || 0)), 0),
                 textSpans: document.querySelectorAll('.text-layer span, .textLayer span').length,
                 annotationLayerNodes: document.querySelectorAll('.annotation-layer *, .annotation-editor-layer *').length,
-                djvuImages: document.querySelectorAll('.djvu-page-shell img').length,
+                djvuImages: document.querySelectorAll('[data-testid="document-page-source-image"]').length,
                 hosts,
             };
         })()

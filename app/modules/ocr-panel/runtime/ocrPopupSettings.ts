@@ -1,6 +1,7 @@
 import type {
     TOcrPreprocessingMode,
     TOcrQualityProfile,
+    TOcrTextSupersessionPolicy,
 } from '@contracts/electronApiOcr';
 import type { IAgentOcrRunOptions } from '@app/types/ocrAgent';
 import type {
@@ -24,6 +25,10 @@ function isOcrPreprocessingMode(value: unknown): value is TOcrPreprocessingMode 
 
 function isOcrPageSegmentationMode(value: unknown): value is number {
     return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 13;
+}
+
+function isOcrSupersessionPolicy(value: unknown): value is TOcrTextSupersessionPolicy {
+    return value === 'missing-only' || value === 'replace-evb' || value === 'replace-all';
 }
 
 export function normalizeSelectedOcrLanguages(selectedLanguages: string[]) {
@@ -62,6 +67,8 @@ export function cloneOcrSettingsSnapshot(value: IOcrSettings | null | undefined)
             qualityProfile: value.qualityProfile,
             preprocessingMode: value.preprocessingMode,
             pageSegmentationMode: value.pageSegmentationMode,
+            supersessionPolicy: value.supersessionPolicy,
+            replaceAllAcknowledged: value.replaceAllAcknowledged,
         }
         : null;
 }
@@ -90,6 +97,11 @@ export function applyAgentOcrOptionsToSettings(
     }
     if (isOcrPageSegmentationMode(options.pageSegmentationMode)) {
         nextSettings.pageSegmentationMode = options.pageSegmentationMode;
+    }
+    if (isOcrSupersessionPolicy(options.supersessionPolicy)) {
+        nextSettings.supersessionPolicy = options.supersessionPolicy;
+        nextSettings.replaceAllAcknowledged = options.supersessionPolicy === 'replace-all'
+            && options.replaceAllAcknowledged === true;
     }
 
     const languages = normalizeAgentLanguages(options.languages, availableLanguageCodes);

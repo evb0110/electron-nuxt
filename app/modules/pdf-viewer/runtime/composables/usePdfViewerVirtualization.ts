@@ -23,6 +23,14 @@ export interface IZoomVirtualizationFreeze {
     windowEnd: number;
 }
 
+export interface IPdfVirtualPageSegment {
+    end: number;
+    key: string;
+    pages: number[];
+    spacerBeforeStyle: Record<string, string> | null;
+    start: number;
+}
+
 interface IUsePdfViewerVirtualizationOptions {
     bufferPages: ComputedRef<number>;
     viewMode: ComputedRef<TPdfViewMode>;
@@ -380,6 +388,95 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         return range(renderStartPage, renderEndPage + 1);
     });
 
+    const virtualPageSegments = computed<IPdfVirtualPageSegment[]>(() => {
+        const pages = pagesToRender.value;
+        if (!virtualizedContinuousMode.value || pages.length === 0) {
+            const start = pages[0];
+            const end = pages.at(-1);
+            return start === undefined || end === undefined
+                ? []
+                : [{
+                    end,
+                    key: `${start}:${end}`,
+                    pages,
+                    spacerBeforeStyle: null,
+                    start,
+                }];
+        }
+
+        const layout = pageLayout.value;
+        if (!layout) {
+            return [{
+                end: pages.at(-1) ?? 0,
+                key: `${pages[0] ?? 0}:${pages.at(-1) ?? 0}`,
+                pages,
+                spacerBeforeStyle: null,
+                start: pages[0] ?? 0,
+            }];
+        }
+
+        const requestedWindows = activeZoomVirtualizationFreeze.value
+            ? [{
+                start: activeZoomVirtualizationFreeze.value.windowStart,
+                end: activeZoomVirtualizationFreeze.value.windowEnd,
+            }]
+            : [
+                {
+                    start: baseVirtualWindowStart.value,
+                    end: baseVirtualWindowEnd.value,
+                },
+                navigationAnchorWindow.value,
+                resizeTransitionWindow.value,
+            ].filter((window): window is {
+                start: number;
+                end: number;
+            } => window !== null);
+
+        const rowWindows = requestedWindows
+            .map((window) => ({
+                start: getPageRowBounds(layout, window.start)?.start ?? window.start,
+                end: getPageRowBounds(layout, window.end)?.end ?? window.end,
+            }))
+            .sort((left, right) => left.start - right.start);
+        const mergedWindows: Array<{
+            start: number;
+            end: number;
+        }> = [];
+        for (const window of rowWindows) {
+            const previous = mergedWindows.at(-1);
+            if (previous && window.start <= previous.end + 1) {
+                previous.end = Math.max(previous.end, window.end);
+            } else {
+                mergedWindows.push({...window});
+            }
+        }
+
+        return mergedWindows.map((window, index) => {
+            const previous = mergedWindows[index - 1];
+            let spacerHeight = getLeadingSpacerHeightForPage(layout, window.start);
+            if (previous) {
+                const previousPageIndex = previous.end - 1;
+                const previousRowIndex = layout.pageRowIndices[previousPageIndex] ?? 0;
+                const previousTop = layout.pageTops[previousPageIndex] ?? 0;
+                const previousHeight = layout.rowHeights[previousRowIndex] ?? 0;
+                const nextTop = layout.pageTops[window.start - 1] ?? previousTop + previousHeight;
+                spacerHeight = Math.max(0, nextTop - previousTop - previousHeight);
+            }
+            return {
+                ...window,
+                key: `${window.start}:${window.end}`,
+                pages: range(window.start, window.end + 1),
+                spacerBeforeStyle: spacerHeight > 0
+                    ? {height: `${spacerHeight}px`}
+                    : null,
+            };
+        });
+    });
+
+    const disjointPagesToRender = computed(() =>
+        virtualPageSegments.value.flatMap(segment => segment.pages),
+    );
+
     const virtualWindowStartPage = computed(() => {
         if (!virtualizedContinuousMode.value) {
             return pagedWindowBounds.value.start;
@@ -416,7 +513,8 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         virtualWindowEndPage,
         topVirtualSpacerStyle,
         bottomVirtualSpacerStyle,
-        pagesToRender,
+        pagesToRender: disjointPagesToRender,
+        virtualPageSegments,
         isPageBuffered,
     };
 };

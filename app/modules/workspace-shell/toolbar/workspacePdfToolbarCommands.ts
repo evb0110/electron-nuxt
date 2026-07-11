@@ -7,7 +7,7 @@ export const workspacePdfToolbarCommands = [
     'save-as',
     'print',
     'print-current-page',
-    'combine-images',
+    'combine-files',
     'export-docx',
     'export-images',
     'export-multi-page-tiff',

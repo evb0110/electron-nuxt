@@ -56,11 +56,13 @@ const validImage = {
     height: 0.2,
     rotationDegrees: 0,
     mimeType: 'image/jpeg',
-    bytes: new Uint8Array([
-        0xFF,
-        0xD8,
-        0xFF,
-    ]),
+    source: {
+        path: '/tmp/image.jpg',
+        size: 3,
+        sha256: 'a'.repeat(64),
+        leaseId: 'image-lease',
+        revision: null,
+    },
 };
 
 interface INativeBookmarkTestItem {
@@ -142,18 +144,11 @@ describe('native PDF mutation contracts', () => {
         };
 
         const preloadPayload = normalizePdfNativeMutationSet(rawMutations, 'mutations');
-        const nativeToolPayload = normalizePdfNativeMutationSet(rawMutations, 'mutations', {placedImageBytes: 'numberArray'});
-
-        expect(preloadPayload.placedImages?.[0]?.bytes).toBeInstanceOf(Uint8Array);
+        expect(preloadPayload.placedImages?.[0]?.source).toEqual(validImage.source);
         expect(preloadPayload.bookmarks?.items[0]).toMatchObject({
             pageIndex: 0,
             pageYRatio: 0.25,
         });
-        expect(nativeToolPayload.placedImages?.[0]?.bytes).toEqual([
-            0xFF,
-            0xD8,
-            0xFF,
-        ]);
     });
 
     it('enforces shared native mutation limits from the contracts source of truth', () => {
@@ -236,8 +231,8 @@ describe('native PDF mutation contracts', () => {
 
         expect(() => normalizePdfNativeMutationSet({placedImages: [{
             ...validImage,
-            bytes: [],
-        }]}, 'mutations', {placedImageBytes: 'numberArray'})).toThrow('non-empty image bytes');
+            source: null,
+        }]}, 'mutations')).toThrow('valid managed binary handle');
     });
 
     it('normalizes working-copy expectations with the shared SHA-256 guard', () => {

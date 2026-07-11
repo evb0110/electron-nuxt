@@ -160,6 +160,7 @@ fn build_tiff_pdf_page(
         height,
         dpi,
         color_space,
+        icc_profile: None,
         payload: ImagePayload::RawFlate {
             data: compressed,
             decode_params,

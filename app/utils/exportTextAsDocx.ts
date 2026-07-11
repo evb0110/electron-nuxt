@@ -6,8 +6,7 @@ import {
     getDocumentRefBaseName,
     isBrowserDocumentRef,
 } from '@app/utils/documentRef';
-import { extractPdfText } from '@app/utils/ocr/extractPdfText';
-import { loadOcrText } from '@app/utils/ocr/loadOcrText';
+import { loadDocumentTextCatalogPages } from '@app/utils/ocr/loadOcrText';
 import {
     getDocumentFilesCapability,
     getDocumentWorkingCopyCapability,
@@ -37,12 +36,15 @@ export async function exportTextAsDocx(params: {
         }
 
         try {
-            let text = params.workingCopyPath && params.documentRevisionToken
-                ? await loadOcrText(params.workingCopyPath, params.documentRevisionToken)
+            const catalogPages = params.workingCopyPath && params.documentRevisionToken
+                ? await loadDocumentTextCatalogPages(
+                    params.workingCopyPath,
+                    params.documentRevisionToken,
+                    params.pdfDocument?.numPages,
+                )
                 : null;
-            if (!text && params.pdfDocument) {
-                text = await extractPdfText(params.pdfDocument);
-            }
+            const catalogText = catalogPages?.map(page => page.text.trim()).filter(Boolean).join('\n\n');
+            const text = catalogText && catalogText.length > 0 ? catalogText : null;
             if (!text) {
                 params.setError(params.t('errors.ocr.noText'));
                 return false;

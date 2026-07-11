@@ -144,6 +144,23 @@ describe('openInputPaths', () => {
         expect(mocks.addRecentInputs).toHaveBeenCalledWith(['/tmp/source.pdf'], owner);
     });
 
+    it('always generates a new PDF for a forced single-PDF combine', async () => {
+        const owner = { id: 42 };
+        const { openInputPaths } = await import('@electron/features/documents/main/openInputPaths.service');
+
+        await expect(openInputPaths(
+            ['/tmp/source.pdf'],
+            {forceCombine: true},
+            owner as never,
+        )).resolves.toMatchObject({
+            kind: 'pdf',
+            isGenerated: true,
+            workingPath: '/tmp/working/combined.pdf',
+        });
+        expect(mocks.createPdfFileFromInputPaths).toHaveBeenCalledOnce();
+        expect(mocks.createWorkingCopy).not.toHaveBeenCalled();
+    });
+
     it('keeps adding single DjVu opens to recents', async () => {
         const owner = { id: 42 };
         const { openInputPaths } = await import('@electron/features/documents/main/openInputPaths.service');
@@ -155,6 +172,21 @@ describe('openInputPaths', () => {
         });
 
         expect(mocks.addRecentInputs).toHaveBeenCalledWith(['/tmp/source.djvu'], owner);
+    });
+
+    it('always generates a new PDF for a forced single-DjVu combine', async () => {
+        const owner = { id: 42 };
+        const { openInputPaths } = await import('@electron/features/documents/main/openInputPaths.service');
+
+        await expect(openInputPaths(
+            ['/tmp/source.djvu'],
+            {forceCombine: true},
+            owner as never,
+        )).resolves.toMatchObject({
+            kind: 'pdf',
+            isGenerated: true,
+        });
+        expect(mocks.createPdfFileFromInputPaths).toHaveBeenCalledOnce();
     });
 
     it('rejects oversized open batches before granting paths or creating temp files', async () => {

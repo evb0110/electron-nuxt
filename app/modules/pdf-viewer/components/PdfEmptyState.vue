@@ -256,8 +256,8 @@
                     :show-back="false"
                     :show-eyebrow="false"
                     :show-header="false"
+                    :open-result="openCombineResult"
                     @close="showRecentFiles"
-                    @open-result="handleCombineOpenResult"
                 />
                 <SettingsPage
                     v-else
@@ -343,6 +343,7 @@ const {
     openInProgress = false,
     canCombineFiles = false,
     startSection = 'recent',
+    openCombineResult = undefined,
 } = defineProps<{
     recentFiles: IRecentFile[];
     recentFilesResolved?: boolean | undefined;
@@ -350,6 +351,7 @@ const {
     openInProgress?: boolean | undefined;
     canCombineFiles?: boolean | undefined;
     startSection?: TStartSection | undefined;
+    openCombineResult?: (result: TOpenFileResult) => Promise<boolean>;
 }>();
 
 const emit = defineEmits<{
@@ -361,7 +363,6 @@ const emit = defineEmits<{
     'clear-recent': [];
     'open-settings': [];
     'combine-files': [];
-    'open-combine-result': [result: TOpenFileResult];
 }>();
 
 const { t } = useTypedI18n();
@@ -453,10 +454,6 @@ function removeRecent(file: IRecentFile) {
     emit('remove-recent', file);
 }
 
-function handleCombineOpenResult(result: TOpenFileResult) {
-    emit('open-combine-result', result);
-}
-
 function requestClearRecent() {
     if (recentFiles.length === 0) {
         return;
@@ -492,7 +489,7 @@ watch(() => startSection, (section) => {
 
 .batch-progress {
     width: min(100%, 38rem);
-    margin: 2rem auto;
+    margin: var(--app-empty-state-margin) auto;
     border: 1px solid var(--ui-border);
     border-radius: var(--app-radius-2xl);
     background: var(--ui-bg-elevated);
@@ -832,7 +829,7 @@ watch(() => startSection, (section) => {
 .recent-row--head {
     position: sticky;
     top: 0;
-    z-index: 1;
+    z-index: var(--app-z-local-raised);
     padding-block: var(--app-start-row-head-padding-block);
     background: color-mix(in oklab, var(--ui-bg) 92%, var(--ui-bg-muted) 8%);
 }

@@ -215,7 +215,10 @@ describe('browser page-ops WASM fast path', () => {
         expect(wasmCrop).not.toBeNull();
         expect(wasmRemoveCrop).not.toBeNull();
         expect(wasmGeometry).not.toBeNull();
-        expect(wasm.fetchMock).toHaveBeenCalledWith('https://viewer.test/wasm/evb-pdf-page-ops.wasm');
+        expect(wasm.fetchMock).toHaveBeenCalledWith(
+            'https://viewer.test/wasm/evb-pdf-page-ops.wasm',
+            {signal: expect.any(AbortSignal)},
+        );
 
         const pdfLibCore = await loadPdfLibCore();
         const pdfLibDelete = await pdfLibCore.deletePdfPages(basePdf, [2]);
@@ -263,7 +266,10 @@ describe('browser page-ops WASM fast path', () => {
             .rejects.toThrow('Invalid afterPage');
         await expect(core.getPageGeometryFromPdfBytes(basePdf, 1.5))
             .rejects.toThrow();
-        expect(core.fetchMock).toHaveBeenCalledWith('https://viewer.test/wasm/evb-pdf-page-ops.wasm');
+        expect(core.fetchMock).toHaveBeenCalledWith(
+            'https://viewer.test/wasm/evb-pdf-page-ops.wasm',
+            {signal: expect.any(AbortSignal)},
+        );
     });
 
     it('rejects browser fallback delete-all before saving a zero-page PDF', async () => {
@@ -322,5 +328,29 @@ describe('browser page-ops WASM fast path', () => {
                 type: 'deletePages',
             },
         );
+    });
+
+    it('falls back without touching linear memory when allocation returns address zero', async () => {
+        vi.resetModules();
+        vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
+        vi.stubGlobal('fetch', vi.fn(async () => ({
+            ok: true,
+            arrayBuffer: async () => new ArrayBuffer(8),
+        })));
+        const wasmMock = createFailingPageOpsWasmExports('unused');
+        wasmMock.exports.evb_pdf_page_ops_alloc.mockReturnValue(0);
+        vi.stubGlobal('WebAssembly', {
+            Memory: NativeWebAssembly.Memory,
+            instantiate: vi.fn(async () => ({instance: {exports: wasmMock.exports}})),
+        });
+        const {tryRunBrowserPageOpsWithWasm} = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
+        const basePdf = await createPdf({pageWidths: [200]});
+
+        await expect(tryRunBrowserPageOpsWithWasm('deletePages', {
+            data: basePdf,
+            pages: [1],
+        })).resolves.toBeNull();
+        expect(wasmMock.run).not.toHaveBeenCalled();
+        expect(wasmMock.free).not.toHaveBeenCalled();
     });
 });

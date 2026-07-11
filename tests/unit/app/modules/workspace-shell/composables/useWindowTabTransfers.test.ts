@@ -16,6 +16,10 @@ import { createWorkspaceDocumentSessionCore } from '@app/modules/workspace-shell
 import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { cast } from '@tests/helpers/cast';
 import type { ITab } from '@app/types/tabs';
+import {
+    requireDocumentInstanceId,
+    requireDocumentRevisionToken,
+} from '@contracts';
 
 const mocks = vi.hoisted(() => ({
     cleanupSplitPayloadSnapshot: vi.fn(async () => undefined),
@@ -131,7 +135,7 @@ describe('useWindowTabTransfers', () => {
         const session = createWorkspaceDocumentSessionCore({
             tabId: 'tab-1',
             sessionId: 'session-1',
-            createDocumentInstanceId: () => 'instance-1',
+            createDocumentInstanceId: () => requireDocumentInstanceId('instance-1'),
             initialRecord: createWorkspaceDocumentRecord({
                 tab,
                 documentIdentity: {
@@ -140,7 +144,7 @@ describe('useWindowTabTransfers', () => {
                     contentRevision: 4,
                     documentRef: '/tmp/sample.pdf',
                     mintedAt: 123,
-                    token: 'revision-token-1',
+                    token: requireDocumentRevisionToken('revision-token-1'),
                 },
             }),
         });
@@ -187,12 +191,12 @@ describe('useWindowTabTransfers', () => {
             sessionRevision: 0,
             documentRef: '/tmp/sample.pdf',
             documentBackend: 'electron',
-            documentInstanceId: 'instance-1',
-            documentRevisionToken: 'revision-token-1',
+            documentInstanceId: requireDocumentInstanceId('instance-1'),
+            documentRevisionToken: requireDocumentRevisionToken('revision-token-1'),
         }}));
         expect(mocks.transfer).toHaveBeenCalledWith(expect.objectContaining({tab: expect.objectContaining({
             originalBackend: 'electron',
-            documentInstanceId: 'instance-1',
+            documentInstanceId: requireDocumentInstanceId('instance-1'),
         })}));
     });
 
@@ -222,14 +226,14 @@ describe('useWindowTabTransfers', () => {
             contentRevision: 4,
             documentRef: '/tmp/sample.pdf',
             mintedAt: 123,
-            token: 'revision-token-1',
+            token: requireDocumentRevisionToken('revision-token-1'),
         } as const;
         const session = createWorkspaceDocumentSessionCore({
             tabId: 'tab-1',
             sessionId: 'session-1',
             createDocumentInstanceId: () => {
                 nextInstanceId += 1;
-                return `instance-${nextInstanceId}`;
+                return requireDocumentInstanceId(`instance-${nextInstanceId}`);
             },
             initialRecord: createWorkspaceDocumentRecord({
                 tab,
@@ -287,8 +291,8 @@ describe('useWindowTabTransfers', () => {
         await transfers.moveTabToWindow(2, 'tab-1');
 
         expect(mocks.transfer).toHaveBeenCalledWith(expect.objectContaining({session: expect.objectContaining({
-            documentInstanceId: 'instance-1',
-            documentRevisionToken: 'revision-token-1',
+            documentInstanceId: requireDocumentInstanceId('instance-1'),
+            documentRevisionToken: requireDocumentRevisionToken('revision-token-1'),
         })}));
         expect(workspace.handleCloseFileFromUi).not.toHaveBeenCalled();
         expect(handoffActiveTabBeforeClose).not.toHaveBeenCalled();
@@ -444,7 +448,7 @@ describe('useWindowTabTransfers', () => {
             const targetSession = createWorkspaceDocumentSessionCore({
                 tabId: tab.id,
                 sessionId: 'session-target',
-                createDocumentInstanceId: () => 'instance-b',
+                createDocumentInstanceId: () => requireDocumentInstanceId('instance-b'),
                 initialRecord: createWorkspaceDocumentRecord({
                     tab: {
                         ...tab,
@@ -457,7 +461,7 @@ describe('useWindowTabTransfers', () => {
                         contentRevision: 4,
                         documentRef: '/tmp/sample.pdf',
                         mintedAt: 123,
-                        token: 'revision-token-1',
+                        token: requireDocumentRevisionToken('revision-token-1'),
                     },
                 }),
             });
@@ -506,7 +510,7 @@ describe('useWindowTabTransfers', () => {
             tab: {
                 fileName: 'sample.pdf',
                 originalPath: '/tmp/sample.pdf',
-                documentInstanceId: 'instance-a',
+                documentInstanceId: requireDocumentInstanceId('instance-a'),
                 isDirty: true,
                 isDjvu: false,
             },
@@ -515,8 +519,8 @@ describe('useWindowTabTransfers', () => {
                 sessionId: 'session-source',
                 sessionRevision: 0,
                 documentRef: '/tmp/sample.pdf',
-                documentInstanceId: 'instance-a',
-                documentRevisionToken: 'revision-token-1',
+                documentInstanceId: requireDocumentInstanceId('instance-a'),
+                documentRevisionToken: requireDocumentRevisionToken('revision-token-1'),
             },
         });
 

@@ -414,12 +414,7 @@ describe('IPC registry sender trust', () => {
                 windowId: 42,
             },
             payload: { kind: 'empty' },
-        })).resolves.toEqual({
-            transferId: '',
-            success: false,
-            targetWindowId: 42,
-            error: 'Invalid transfer request payload.',
-        });
+        })).rejects.toThrow('Invalid IPC arguments for tabs:transfer');
 
         await expect(handler?.(event, {
             target: {
@@ -428,12 +423,7 @@ describe('IPC registry sender trust', () => {
             },
             tab: validTab,
             payload: { kind: 'unsupported' },
-        })).resolves.toEqual({
-            transferId: '',
-            success: false,
-            targetWindowId: 42,
-            error: 'Invalid transfer request payload.',
-        });
+        })).rejects.toThrow('Invalid IPC arguments for tabs:transfer');
 
         expect(mocks.requestWindowTabTransfer).not.toHaveBeenCalled();
     }, ipcRegistrySecurityImportTimeoutMs);

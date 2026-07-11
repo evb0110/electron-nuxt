@@ -1,3 +1,4 @@
+import { createPdfPageRenderState } from '@app/modules/pdf-viewer/runtime/rendering/pdfPageRenderState';
 import type {
     IActivePdfRenderTask,
     ICancelableRenderTask,
@@ -24,6 +25,11 @@ import { pdfViewerDomClasses } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import type { IPdfDocumentPageLease } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument';
+import type {
+    IPdfPageNumberStateMap,
+    IPdfPageNumberStateSet,
+    TPdfPageRenderState,
+} from '@app/modules/pdf-viewer/runtime/rendering/pdfPageRenderState';
 
 
 const TEXT_LAYER_FIRST_NAVIGATION_YIELD_MS = 50;
@@ -48,10 +54,11 @@ interface IUsePdfRendererSinglePageControllerOptions<TRenderResult> {
     effectiveScale: MaybeRefOrGetter<number>;
     annotationUiManager: MaybeRefOrGetter<unknown>;
     getContainerRoot: () => HTMLElement | null;
-    renderedPages: Set<number>;
-    staleRenderedPages: Set<number>;
-    renderingPages: Map<number, number>;
-    renderingPageRequestIds: Map<number, number>;
+    pageRenderState?: TPdfPageRenderState | undefined;
+    renderedPages: IPdfPageNumberStateSet;
+    staleRenderedPages: IPdfPageNumberStateSet;
+    renderingPages: IPdfPageNumberStateMap;
+    renderingPageRequestIds: IPdfPageNumberStateMap;
     activeRenderTasks: Map<number, IActivePdfRenderTask>;
     getRenderVersion: () => number;
     getRenderDocumentToken: () => string;
@@ -82,13 +89,19 @@ interface IUsePdfRendererSinglePageControllerOptions<TRenderResult> {
         scale: number,
         shouldContinue: () => boolean,
         renderOptions?: IRenderVisiblePagesOptions,
-    ) => Promise<(TRenderResult & { startRender: () => ICancelableRenderTask }) | null>;
+    ) => Promise<(TRenderResult & {
+        startRender: () => ICancelableRenderTask;
+        continuationPriority?: NonNullable<IRenderVisiblePagesOptions['continuationPriority']>;
+    }) | null>;
     renderPreparedCanvasForPage: (
         pdfPage: PDFPageProxy,
         pageNumber: number,
         version: number,
         requestId: number,
-        preparedCanvasRender: TRenderResult & { startRender: () => ICancelableRenderTask },
+        preparedCanvasRender: TRenderResult & {
+            startRender: () => ICancelableRenderTask;
+            continuationPriority?: NonNullable<IRenderVisiblePagesOptions['continuationPriority']>;
+        },
         shouldContinue: () => boolean,
     ) => Promise<TRenderResult | null>;
     applyContainerDimensions: (
@@ -103,6 +116,7 @@ interface IUsePdfRendererSinglePageControllerOptions<TRenderResult> {
         renderResult: TRenderResult,
         scale: number,
     ) => void;
+    markPageCanvasSurfaceEvictable: (pageNumber: number) => void;
     scheduleRenderForSinglePage: (
         pageNumber: number,
         optionsOverride: IRenderVisiblePagesOptions,
@@ -200,6 +214,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
         onRenderedPageStateChanged,
         logNonCriticalStageError,
     } = options;
+    const pageRenderState = options.pageRenderState ?? createPdfPageRenderState();
 
     function cleanupStaleMountedPageRender(
         pageNumber: number,
@@ -214,6 +229,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
     function finalizePageRender(
         pageNumber: number,
         version: number,
+        requestId: number,
         pageLease: IPdfPageRenderLease,
         pageContainer: HTMLElement,
         shouldContinue: () => boolean,
@@ -229,8 +245,10 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
         }
 
         pageLease.release();
-        renderedPages.add(pageNumber);
-        staleRenderedPages.delete(pageNumber);
+        if (!pageRenderState.commitCanvas(pageNumber, version, requestId)) {
+            return false;
+        }
+        options.markPageCanvasSurfaceEvictable(pageNumber);
         pageContainer.classList.add(pdfViewerDomClasses.renderedPageContainer);
         logPdfRenderTrace('renderer-finalize-page', {
             pageNumber,
@@ -373,7 +391,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
         renderContext.annotationLayerInstance =
             annotationRenderResult.annotationLayerInstance;
         scheduleOcrDebugForPage(pageNumber, renderContext);
-        finalizePageRender(pageNumber, version, pageLease, target.container, shouldContinue);
+        finalizePageRender(pageNumber, version, requestId, pageLease, target.container, shouldContinue);
     }
 
     async function yieldForSearchNavigation(
@@ -401,7 +419,10 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
         scale: number,
         target: ISinglePageRenderTarget,
         pageLease: IPdfPageRenderLease,
-        preparedCanvasRender: TRenderResult & { startRender: () => ICancelableRenderTask },
+        preparedCanvasRender: TRenderResult & {
+            startRender: () => ICancelableRenderTask;
+            continuationPriority?: NonNullable<IRenderVisiblePagesOptions['continuationPriority']>;
+        },
         requestId: number,
         documentToken: string,
         shouldContinue: () => boolean,
@@ -512,7 +533,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
         renderContext.annotationLayerInstance =
             annotationRenderResult.annotationLayerInstance;
         scheduleOcrDebugForPage(pageNumber, renderContext);
-        finalizePageRender(pageNumber, version, pageLease, target.container, shouldContinue);
+        finalizePageRender(pageNumber, version, requestId, pageLease, target.container, shouldContinue);
     }
 
     function scheduleCancelledPageRenderRetry(
@@ -537,7 +558,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
         }
 
         void waitForRenderLifecycleDelay({
-            cause: 'mounted-page-recovery',
+            cause: 'render-cancelled-retry',
             delayMs: 0,
             key: `cancelled-page-render-retry:${pageNumber}:${version}:${requestId}:${documentToken}`,
             metadata: {
@@ -602,6 +623,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
         if (isPageRenderTimeoutError(error)) {
             logPageRenderTimeout(error, version);
             cleanupPageIfCurrentRender(pageNumber, version, requestId);
+            pageRenderState.markRenderFailed(pageNumber, version, requestId);
             return;
         }
 
@@ -610,6 +632,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
             formatRenderError(error, pageNumber),
         );
         cleanupPageIfCurrentRender(pageNumber, version, requestId);
+        pageRenderState.markRenderFailed(pageNumber, version, requestId);
     }
 
     function clearSinglePageRenderTracking(
@@ -728,8 +751,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
             scale,
             page: summarizePageDom(pageNumber),
         });
-        renderingPages.set(pageNumber, version);
-        renderingPageRequestIds.set(pageNumber, requestId);
+        pageRenderState.beginRender(pageNumber, version, requestId, documentToken, scale);
         clearSelectionBeforePageLayerTeardown(pageNumber);
         let pageLease: IPdfPageRenderLease | null = null;
         try {

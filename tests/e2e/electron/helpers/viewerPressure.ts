@@ -50,8 +50,8 @@ export async function readWorkspacePressure(page: Page): Promise<IWorkspacePress
                     canvasPixels: countCanvasPixels(host),
                     textSpans: host.querySelectorAll('.text-layer span, .textLayer span').length,
                     annotationLayerNodes: host.querySelectorAll('.annotation-layer *, .annotation-editor-layer *, .annotationLayer *, .annotationEditorLayer *').length,
-                    djvuPageShells: host.querySelectorAll('.djvu-page-shell').length,
-                    djvuImages: host.querySelectorAll('.djvu-page-shell img').length,
+                    djvuPageShells: host.querySelectorAll('[data-testid="document-page-source-page"]').length,
+                    djvuImages: host.querySelectorAll('[data-testid="document-page-source-image"]').length,
                     emptyPlaceholders: host.querySelectorAll('.empty-state, .workspace-empty-state, [class*="empty"]').length,
                 };
             });
@@ -90,12 +90,12 @@ export async function waitForInactiveDocumentPressureToRelease(page: Page, timeo
                     active,
                     hasActiveContent: (
                         host.querySelectorAll('canvas').length > 0
-                        || host.querySelectorAll('.djvu-page-shell img').length > 0
+                        || host.querySelectorAll('[data-testid="document-page-source-image"]').length > 0
                     ),
                     canvases: host.querySelectorAll('canvas').length,
                     renderedPages: host.querySelectorAll('.page_container--rendered').length,
                     textSpans: host.querySelectorAll('.text-layer span, .textLayer span').length,
-                    djvuImages: host.querySelectorAll('.djvu-page-shell img').length,
+                    djvuImages: host.querySelectorAll('[data-testid="document-page-source-image"]').length,
                 };
             });
 

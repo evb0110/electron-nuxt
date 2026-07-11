@@ -16,7 +16,7 @@ export type TWorkspaceSavePersistenceRoute =
     | 'native-mutations-or-serialized'
     | 'serialized-rewrite';
 
-export interface IWorkspaceSavePlanConfig {
+export interface ISerializationMechanismConfig {
     mode: TDocumentSaveFlowMode;
     shouldPreferWorkingCopy: boolean;
     forceSerialize?: boolean;
@@ -25,7 +25,7 @@ export interface IWorkspaceSavePlanConfig {
     canAttemptNativeMutationSave: boolean;
 }
 
-export interface IWorkspaceSavePlanInput {
+export interface ISerializationMechanismInput {
     workingCopyPath: TDocumentRef | null;
     expectedOriginalPath: TDocumentRef | null;
     expectedWorkingPath: TDocumentRef | null;
@@ -34,7 +34,7 @@ export interface IWorkspaceSavePlanInput {
     hasManagedShapes: boolean;
 }
 
-export interface IWorkspaceSavePlan {
+export interface ISerializationMechanismSelection {
     flowMode: TDocumentSaveFlowMode;
     persistenceRoute: TWorkspaceSavePersistenceRoute;
     serialization: {
@@ -57,10 +57,10 @@ export interface IWorkspaceSavePlan {
     };
 }
 
-export function buildWorkspaceSavePlan(
-    config: IWorkspaceSavePlanConfig,
-    input: IWorkspaceSavePlanInput,
-): IWorkspaceSavePlan {
+export function selectSerializationMechanism(
+    config: ISerializationMechanismConfig,
+    input: ISerializationMechanismInput,
+): ISerializationMechanismSelection {
     const forcedByDirtyState = computeShouldSerializeFlag(input.dirtyState);
     const requestedByRepairOrOptimization = config.forceSerialize === true;
     const shouldSerialize = forcedByDirtyState || requestedByRepairOrOptimization;
@@ -108,8 +108,8 @@ export function buildWorkspaceSavePlan(
 }
 
 function resolveWorkspaceSavePersistenceRoute(
-    config: IWorkspaceSavePlanConfig,
-    input: IWorkspaceSavePlanInput,
+    config: ISerializationMechanismConfig,
+    input: ISerializationMechanismInput,
     derived: {
         forcedByDirtyState: boolean;
         includeManagedShapesForLiveSource: boolean;

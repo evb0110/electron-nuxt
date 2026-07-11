@@ -1,6 +1,4 @@
 const BROWSER_COMBINE_IMAGE_EXTENSIONS = new Set([
-    '.apng',
-    '.avif',
     '.bmp',
     '.gif',
     '.jpeg',

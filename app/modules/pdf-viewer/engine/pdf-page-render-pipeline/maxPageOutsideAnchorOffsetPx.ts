@@ -1,1 +1,0 @@
-export const MAX_PAGE_OUTSIDE_ANCHOR_OFFSET_PX = 320;

@@ -22,6 +22,11 @@ interface IWorkspaceMemoryBudgetBase {
     reclaimTargetBytes: number;
 }
 
+const RASTER_BUDGET_MIN_BYTES = 128 * MIB;
+const RASTER_BUDGET_MAX_BYTES = 1536 * MIB;
+const SYSTEM_FREE_RESERVE_MIN_BYTES = 1024 * MIB;
+const SYSTEM_FREE_RESERVE_MAX_BYTES = 4096 * MIB;
+
 export interface IResolveWorkspaceMemoryBudgetOptions {
     environment?: IPerformanceProfileEnvironment | undefined;
     performanceProfile?: IPerformanceProfile | undefined;
@@ -35,6 +40,8 @@ export interface IWorkspaceMemoryBudget {
     targetWarmViewers: number;
     maxCachedPdfPagesPerViewer: number;
     maxEstimatedWorkspaceBytes: number;
+    maxRasterSurfaceBytes: number;
+    systemFreeReserveBytes: number;
     reclaimTargetBytes: number;
 }
 
@@ -91,6 +98,17 @@ function resolvePressureAdjustedWarmViewers(baseWarmViewers: number, pressureLev
     return baseWarmViewers;
 }
 
+function clamp(value: number, minimum: number, maximum: number) {
+    return Math.min(maximum, Math.max(minimum, value));
+}
+
+function resolveTotalMemoryBytes(options: IResolveWorkspaceMemoryBudgetOptions) {
+    const totalMemoryBytes = options.environment?.totalMemoryBytes;
+    return typeof totalMemoryBytes === 'number' && Number.isFinite(totalMemoryBytes) && totalMemoryBytes > 0
+        ? totalMemoryBytes
+        : null;
+}
+
 export function resolveWorkspaceMemoryDeviceTier(
     performanceProfile: IPerformanceProfile,
 ): TWorkspaceMemoryDeviceTier {
@@ -111,6 +129,7 @@ export function resolveWorkspaceMemoryBudget(
     const deviceTier = resolveWorkspaceMemoryDeviceTier(performanceProfile);
     const pressureLevel = normalizeMemoryPressureLevel(options.pressure?.level);
     const base = BASE_BUDGETS[deviceTier];
+    const totalMemoryBytes = resolveTotalMemoryBytes(options);
     const maxWarmViewers = resolvePressureAdjustedWarmViewers(base.maxWarmViewers, pressureLevel);
 
     return {
@@ -120,6 +139,12 @@ export function resolveWorkspaceMemoryBudget(
         targetWarmViewers: maxWarmViewers,
         maxCachedPdfPagesPerViewer: performanceProfile.maxCachedPdfPages,
         maxEstimatedWorkspaceBytes: base.maxEstimatedWorkspaceBytes,
+        maxRasterSurfaceBytes: totalMemoryBytes === null
+            ? Math.min(base.maxEstimatedWorkspaceBytes, RASTER_BUDGET_MAX_BYTES)
+            : clamp(totalMemoryBytes * 0.06, RASTER_BUDGET_MIN_BYTES, RASTER_BUDGET_MAX_BYTES),
+        systemFreeReserveBytes: totalMemoryBytes === null
+            ? SYSTEM_FREE_RESERVE_MIN_BYTES
+            : clamp(totalMemoryBytes * 0.15, SYSTEM_FREE_RESERVE_MIN_BYTES, SYSTEM_FREE_RESERVE_MAX_BYTES),
         reclaimTargetBytes: pressureLevel === 'critical'
             ? base.reclaimTargetBytes * 2
             : base.reclaimTargetBytes,

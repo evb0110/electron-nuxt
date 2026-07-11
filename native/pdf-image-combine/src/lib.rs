@@ -37,15 +37,37 @@ use crate::{
 
 pub use crate::{
     image::JpegSizeGuardrail,
-    netpbm::PbmP4Image,
+    netpbm::{NetpbmProbe, PbmP4Image},
     pdf::{LayeredImagePayload, LayeredPdfImage, LayeredPdfPage, MaskPdfPage, PdfPageSize},
 };
+
+pub use crate::netpbm::probe_netpbm_path;
 
 pub const DEFAULT_DPI: u32 = 72;
 pub(crate) const METERS_PER_INCH: f64 = 0.0254;
 pub(crate) const CM_PER_INCH: f64 = 2.54;
 
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
+
+#[doc(hidden)]
+pub fn fuzz_parse_png(data: &[u8]) {
+    let _ = png::parse_png_reader(std::io::Cursor::new(data), 80_000_000);
+}
+
+#[doc(hidden)]
+pub fn fuzz_parse_jpeg(data: &[u8]) {
+    let _ = jpeg::parse_jpeg_metadata(data);
+}
+
+#[doc(hidden)]
+pub fn fuzz_parse_tiff(data: &[u8]) {
+    let _ = tiff_io::read_tiff_pdf_pages_from_bytes(data, 80_000_000, None, 64);
+}
+
+#[doc(hidden)]
+pub fn fuzz_parse_netpbm(data: &[u8]) {
+    let _ = netpbm::parse_pbm_p4(data);
+}
 
 pub struct ImageBytesInput<'a> {
     pub file_name: &'a str,
@@ -983,7 +1005,7 @@ mod tests {
 
         let mut progress = Vec::new();
         write_pdf_from_image_paths_with_progress(
-            &[input_path.clone()],
+            std::slice::from_ref(&input_path),
             &output_path,
             &PdfBuildOptions {
                 default_dpi: Some(72),

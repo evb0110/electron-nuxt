@@ -17,6 +17,7 @@ function createBindingHarness() {
     const isRenderActive = ref(false);
     const isWorkspaceLayoutResizing = ref(false);
     const pdfRasterDisplayProfile = ref<TPdfRasterDisplayProfile | null>(null);
+    const onSourceCapabilitiesUpdate = vi.fn();
     const binding = useWorkspaceViewerAdapterBinding({
         activeViewerAdapter: computed(() => activeViewerAdapter.value),
         annotationCursorMode: ref(null),
@@ -47,6 +48,7 @@ function createBindingHarness() {
         nativePdfViewerRef: ref(null),
         djvuViewerRef: ref(null),
         sourcePdfData: ref(null),
+        showSidebar: ref(true),
         viewMode: ref('single'),
         workingCopyPath: ref(null),
         documentRevisionToken: ref(null),
@@ -73,6 +75,7 @@ function createBindingHarness() {
         onLoading: vi.fn(),
         onNavigationFeedbackPageUpdate: vi.fn(),
         onShapeContextMenu: vi.fn(),
+        onSourceCapabilitiesUpdate,
         onTotalPagesUpdate: vi.fn(),
         onZoomModeUpdate: vi.fn(),
         onZoomUpdate: vi.fn(),
@@ -84,6 +87,7 @@ function createBindingHarness() {
         isRenderActive,
         isWorkspaceLayoutResizing,
         pdfRasterDisplayProfile,
+        onSourceCapabilitiesUpdate,
     };
 }
 
@@ -139,5 +143,26 @@ describe('useWorkspaceViewerAdapterBinding', () => {
         activeViewerAdapter.value = getWorkspaceViewerAdapter('djvu');
 
         expect(binding.activeViewerProps.value).not.toHaveProperty('isResizing');
+    });
+
+    it('forwards source capability updates from the active source viewer', () => {
+        const {
+            binding,
+            onSourceCapabilitiesUpdate,
+        } = createBindingHarness();
+        const capabilities = {
+            annotations: false,
+            directImageExport: true,
+            outline: true,
+            pageEdits: false,
+            search: true,
+            text: true,
+        };
+
+        const listener = binding.activeViewerListeners.value['update:sourceCapabilities'];
+        expect(listener).toBe(onSourceCapabilitiesUpdate);
+        (listener as (value: typeof capabilities) => void)(capabilities);
+
+        expect(onSourceCapabilitiesUpdate).toHaveBeenCalledWith(capabilities);
     });
 });

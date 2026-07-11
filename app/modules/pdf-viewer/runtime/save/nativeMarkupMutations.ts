@@ -7,7 +7,7 @@ import { collectMarkupSubtypeHints } from '@app/modules/pdf-viewer/engine/pdf-se
 import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import type { IPdfNativeMarkupSubtypeHint } from '@contracts/electronApiDocuments';
-import { toPageIndex } from '@contracts/pageNumbers';
+import { requirePageIndex } from '@contracts/pageNumbers';
 import { PDF_ANNOTATION_MARKUP_SUBTYPES } from '@contracts/annotations';
 import { isOneOf } from '@contracts/runtimeGuards';
 
@@ -67,7 +67,7 @@ export function toNativeMarkupHint(hint: IMarkupSubtypeHint): IPdfNativeMarkupSu
     }
     return {
         subtype: hint.subtype,
-        pageIndex: toPageIndex(hint.pageIndex),
+        pageIndex: requirePageIndex(hint.pageIndex),
         markerRect,
         annotationId: hint.annotationId ?? null,
         color: hint.color ?? null,
@@ -80,7 +80,7 @@ export function toNativeMarkupHint(hint: IMarkupSubtypeHint): IPdfNativeMarkupSu
 }
 
 export function buildNativeMarkupMutationForSave(opts: {
-    annotationCommentsSnapshot: IAnnotationCommentSummary[];
+    canonicalComments: IAnnotationCommentSummary[];
     annotationWorkDirty: boolean;
     markupSubtypeOverrides: Map<string, TMarkupSubtype> | undefined;
     markupSubtypeHints: IMarkupSubtypeHint[];
@@ -88,7 +88,7 @@ export function buildNativeMarkupMutationForSave(opts: {
     if (!opts.annotationWorkDirty) {
         return null;
     }
-    const currentMarkupHints = collectMarkupSubtypeHints(opts.annotationCommentsSnapshot);
+    const currentMarkupHints = collectMarkupSubtypeHints(opts.canonicalComments);
     const currentMarkupTargetKeys = buildCurrentMarkupTargetKeys(currentMarkupHints);
     const overrides: Array<readonly [string, TMarkupSubtype]> = [];
     for (const [

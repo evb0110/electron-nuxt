@@ -18,13 +18,13 @@ import type {
 } from '@app/types/pdfContracts';
 import type {
     IPageRange,
-    IScrollSnapshot,
     TPdfSource,
 } from '@app/types/pdfUi';
 import type { usePdfDocument } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument';
 import type { IFitScalePageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScale';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import type { TAnnotationOrchestrator } from '@app/modules/pdf-viewer/runtime/annotations/annotationOrchestrator';
+import type { TPdfRerenderSource } from '@app/modules/pdf-viewer/engine/pdf-rerender-protocol/pdfRerenderProtocol';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import { usePdfViewerDocumentLifecycle } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerDocumentLifecycle';
 import { usePdfViewerCurrentPageSync } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
@@ -47,6 +47,8 @@ import type {
     IZoomViewportAnchor,
 } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewerViewportTypes';
 import type { TZoomInteractionLockOperationId } from '@app/modules/pdf-viewer/runtime/zoom/pdfViewerZoomTypes';
+import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
+import type { IPdfSemanticAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
 
 type TPdfDocumentResult = ReturnType<typeof usePdfDocument>;
 type TPdfViewerRuntimeTransactionController = ReturnType<typeof usePdfViewerTransactionController>;
@@ -58,6 +60,9 @@ interface IZoomRerenderBusySignal {
 
 
 export interface IUsePdfViewerRuntimeLifecycleOptions {
+    viewportWritePort: IPdfViewportWritePort;
+    submitResizeIntent: (anchor?: IPdfSemanticAnchor | null) => void;
+    captureViewportAnchor?: (() => IPdfSemanticAnchor | null) | undefined;
     viewerContainer: Ref<HTMLElement | null>;
     src: ComputedRef<TPdfSource | null>;
     reloadSrc?: ComputedRef<TPdfSource | null> | undefined;
@@ -74,6 +79,7 @@ export interface IUsePdfViewerRuntimeLifecycleOptions {
     annotationSettings: ComputedRef<IAnnotationSettings | null>;
     annotationUiManager: ShallowRef<AnnotationEditorUIManager | null>;
     annotationCommentsCache: Ref<IAnnotationCommentSummary[]>;
+    clearAnnotationProjection?: (() => void) | undefined;
     activeCommentStableKey: Ref<string | null>;
     pdfDocumentResult: TPdfDocumentResult;
     annotations: TAnnotationOrchestrator;
@@ -99,6 +105,7 @@ export interface IUsePdfViewerRuntimeLifecycleOptions {
     basePageWidth: Ref<number | null>;
     basePageHeight: Ref<number | null>;
     computeFitWidthScale: (container: HTMLElement | null, options?: IFitScalePageOptions) => boolean;
+    clearPreviewFitScale?: (() => void) | undefined;
     syncHorizontalScrollForZoomMode?: () => boolean;
     invalidateScaleCache: () => void;
     resetScale: () => void;
@@ -122,11 +129,7 @@ export interface IUsePdfViewerRuntimeLifecycleOptions {
         getVisibleRange: () => IPageRange,
         options?: {
             preserveExistingPages?: boolean;
-            anchorSnapshot?: IScrollSnapshot | null;
-            disableHorizontalAnchorRestore?: boolean;
-            disableVerticalAnchorRestore?: boolean;
-            disablePageAnchorRestore?: boolean;
-            rerenderSource?: string;
+            rerenderSource?: TPdfRerenderSource;
             renderBufferOverride?: number | undefined;
             maxCanvasPixelsOverride?: number | undefined;
         },
@@ -177,7 +180,6 @@ export interface IUsePdfViewerRuntimeLifecycleOptions {
     ) => void;
     beginVisualReloadTransition: (reason: string) => number;
     endVisualReloadTransition: (token: number, reason: string) => void;
-    setCurrentPageFitRerenderTransitionActive?: ((active: boolean) => void) | undefined;
     transactionController?: TPdfViewerRuntimeTransactionController | undefined;
     emitLoadError?: ((error: unknown) => void) | undefined;
     emit: {
@@ -209,6 +211,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         annotationSettings,
         annotationUiManager,
         annotationCommentsCache,
+        clearAnnotationProjection,
         activeCommentStableKey,
         pdfDocumentResult,
         annotations,
@@ -219,6 +222,8 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         basePageWidth,
         basePageHeight,
         computeFitWidthScale,
+        clearPreviewFitScale,
+        captureViewportAnchor,
         syncHorizontalScrollForZoomMode,
         invalidateScaleCache,
         resetScale,
@@ -252,7 +257,6 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         pinCurrentPageDuringRecovery,
         beginVisualReloadTransition,
         endVisualReloadTransition,
-        setCurrentPageFitRerenderTransitionActive,
         transactionController,
         emitLoadError,
         emit,
@@ -445,6 +449,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         scheduleEndResizeTransition,
         cleanupResizeLifecycle,
     } = usePdfViewerResizeLifecycle({
+        submitResizeIntent: options.submitResizeIntent,
         viewerContainer,
         isLoading,
         isActive,
@@ -455,6 +460,8 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         visibleRange,
         numPages,
         computeFitWidthScale,
+        clearPreviewFitScale,
+        captureViewportAnchor,
         getMostVisiblePage,
         summarizeViewerMetricsForLog,
         summarizeVisiblePageSnapshotForLog,
@@ -464,10 +471,8 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
     });
 
     const {
-        isLoadFromSourceActive,
         invalidateDocumentLoad,
         preserveNextSourceReloadVisibleContent,
-        scheduleRecoverInitialRender,
         scheduleLoadFromSource,
     } = usePdfViewerDocumentLifecycle({
         viewerContainer,
@@ -482,6 +487,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         basePageHeight,
         annotationUiManager,
         annotationCommentsCache,
+        clearAnnotationProjection,
         activeCommentStableKey,
         pdfDocument,
         numPages,
@@ -580,7 +586,6 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         consumeZoomViewportAnchor,
         beginResizeTransition,
         consumeSuppressedZoomRerender,
-        setCurrentPageFitRerenderTransitionActive,
         transactionController,
     });
     rerenderVisiblePagesAndSyncCurrentPage = reRenderVisiblePagesAndSyncCurrentPageFromCoordinator;
@@ -657,7 +662,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         cleanupRenderedPages();
         editor.destroyAnnotationEditor();
         cleanupDocument();
-        annotationCommentsCache.value = [];
+        options.clearAnnotationProjection?.();
         activeCommentStableKey.value = null;
         emit('annotation-comments', []);
     });
@@ -678,7 +683,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
                 editor.destroyAnnotationEditor();
                 cleanupDocument();
                 emit('update:document', null);
-                annotationCommentsCache.value = [];
+                options.clearAnnotationProjection?.();
                 activeCommentStableKey.value = null;
                 emit('annotation-comments', []);
                 return;
@@ -700,13 +705,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
 
     watch(
         isEffectivelyLoading,
-        async (value, oldValue) => {
-            if (oldValue === true && value === false) {
-                if (!isLoadFromSourceActive.value) {
-                    await nextTick();
-                    scheduleRecoverInitialRender();
-                }
-            }
+        (value) => {
             emit('update:loading', value);
             emit('loading', value);
         },

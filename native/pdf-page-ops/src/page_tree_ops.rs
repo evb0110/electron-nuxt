@@ -1,29 +1,31 @@
-#[derive(Clone, Copy)]
-struct PageGeometry {
-    media_box: PdfRect,
-    crop_box: Option<PdfRect>,
-    rotation: i64,
-}
-
-struct PageMutationBytes {
-    data: Vec<u8>,
-    page_count: u32,
-}
+use super::*;
 
 #[derive(Clone, Copy)]
-struct PageCloneSource {
-    document_index: usize,
-    page_id: ObjectId,
+pub(crate) struct PageGeometry {
+    pub(crate) media_box: PdfRect,
+    pub(crate) crop_box: Option<PdfRect>,
+    pub(crate) rotation: i64,
 }
 
-struct PageCloneContext<'a> {
-    sources: Vec<&'a Document>,
-    target: Document,
-    pages_id: ObjectId,
-    object_map: HashMap<(usize, ObjectId), ObjectId>,
+pub(crate) struct PageMutationBytes {
+    pub(crate) data: Vec<u8>,
+    pub(crate) page_count: u32,
 }
 
-fn load_browser_pdf(data: &[u8]) -> Result<Document> {
+#[derive(Clone, Copy)]
+pub(crate) struct PageCloneSource {
+    pub(crate) document_index: usize,
+    pub(crate) page_id: ObjectId,
+}
+
+pub(crate) struct PageCloneContext<'a> {
+    pub(crate) sources: Vec<&'a Document>,
+    pub(crate) target: Document,
+    pub(crate) pages_id: ObjectId,
+    pub(crate) object_map: HashMap<(usize, ObjectId), ObjectId>,
+}
+
+pub(crate) fn load_browser_pdf(data: &[u8]) -> Result<Document> {
     let document = Document::load_mem(data)?;
     if document.is_encrypted() {
         return Err("Encrypted PDFs are not supported by browser page-op WASM".into());
@@ -31,17 +33,17 @@ fn load_browser_pdf(data: &[u8]) -> Result<Document> {
     Ok(document)
 }
 
-fn save_document_to_bytes(document: &mut Document) -> Result<Vec<u8>> {
+pub(crate) fn save_document_to_bytes(document: &mut Document) -> Result<Vec<u8>> {
     let mut output = Vec::new();
     document.save_to(&mut output)?;
     Ok(output)
 }
 
-fn page_count(document: &Document) -> u32 {
+pub(crate) fn page_count(document: &Document) -> u32 {
     document.get_pages().len() as u32
 }
 
-fn validate_browser_page_numbers(
+pub(crate) fn validate_browser_page_numbers(
     pages: &[u32],
     label: &str,
     document_page_count: u32,
@@ -71,7 +73,9 @@ fn validate_browser_page_numbers(
     if require_permutation {
         for page_number in 1..=document_page_count {
             if !page_set.contains(&page_number) {
-                return Err(format!("{label}: missing page {page_number} in reorder payload").into());
+                return Err(
+                    format!("{label}: missing page {page_number} in reorder payload").into(),
+                );
             }
         }
     }
@@ -79,27 +83,21 @@ fn validate_browser_page_numbers(
     Ok(page_set)
 }
 
-fn validate_browser_rotation_angle(angle: i64) -> Result<i64> {
+pub(crate) fn validate_browser_rotation_angle(angle: i64) -> Result<i64> {
     match angle {
         90 | 180 | 270 => Ok(angle),
         _ => Err("Invalid rotation angle".into()),
     }
 }
 
-fn rotate_browser_pages(
+pub(crate) fn rotate_browser_pages(
     document: &mut Document,
     pages: &[u32],
     angle: i64,
 ) -> Result<()> {
     let angle = validate_browser_rotation_angle(angle)?;
     let page_map = document.get_pages();
-    validate_browser_page_numbers(
-        pages,
-        "rotatePages",
-        page_map.len() as u32,
-        true,
-        false,
-    )?;
+    validate_browser_page_numbers(pages, "rotatePages", page_map.len() as u32, true, false)?;
 
     for page_number in pages {
         let page_id = resolve_page_id(&page_map, *page_number)?;
@@ -112,7 +110,7 @@ fn rotate_browser_pages(
     Ok(())
 }
 
-fn get_browser_page_geometry(
+pub(crate) fn get_browser_page_geometry(
     document: &Document,
     page_number: u32,
 ) -> Result<PageGeometry> {
@@ -131,7 +129,7 @@ fn get_browser_page_geometry(
     })
 }
 
-fn crop_browser_pdf_bytes(
+pub(crate) fn crop_browser_pdf_bytes(
     data: &[u8],
     pages: &[u32],
     margins: CropMargins,
@@ -147,7 +145,7 @@ fn crop_browser_pdf_bytes(
     })
 }
 
-fn remove_crop_browser_pdf_bytes(
+pub(crate) fn remove_crop_browser_pdf_bytes(
     data: &[u8],
     pages: &[u32],
 ) -> Result<PageMutationBytes> {
@@ -162,7 +160,7 @@ fn remove_crop_browser_pdf_bytes(
     })
 }
 
-fn rotate_browser_pdf_bytes(
+pub(crate) fn rotate_browser_pdf_bytes(
     data: &[u8],
     pages: &[u32],
     angle: i64,
@@ -176,12 +174,15 @@ fn rotate_browser_pdf_bytes(
     })
 }
 
-fn get_browser_page_geometry_from_bytes(data: &[u8], page_number: u32) -> Result<PageGeometry> {
+pub(crate) fn get_browser_page_geometry_from_bytes(
+    data: &[u8],
+    page_number: u32,
+) -> Result<PageGeometry> {
     let document = load_browser_pdf(data)?;
     get_browser_page_geometry(&document, page_number)
 }
 
-fn delete_browser_pdf_pages(data: &[u8], pages: &[u32]) -> Result<PageMutationBytes> {
+pub(crate) fn delete_browser_pdf_pages(data: &[u8], pages: &[u32]) -> Result<PageMutationBytes> {
     let document = load_browser_pdf(data)?;
     let source_pages = document.get_pages();
     let remove_pages = validate_browser_page_numbers(
@@ -206,7 +207,7 @@ fn delete_browser_pdf_pages(data: &[u8], pages: &[u32]) -> Result<PageMutationBy
     build_browser_page_subset_pdf(&[&document], &kept_pages)
 }
 
-fn extract_browser_pdf_pages(data: &[u8], pages: &[u32]) -> Result<PageMutationBytes> {
+pub(crate) fn extract_browser_pdf_pages(data: &[u8], pages: &[u32]) -> Result<PageMutationBytes> {
     let document = load_browser_pdf(data)?;
     let source_pages = document.get_pages();
     validate_browser_page_numbers(
@@ -228,7 +229,10 @@ fn extract_browser_pdf_pages(data: &[u8], pages: &[u32]) -> Result<PageMutationB
     build_browser_page_subset_pdf(&[&document], &selected_pages)
 }
 
-fn reorder_browser_pdf_pages(data: &[u8], new_order: &[u32]) -> Result<PageMutationBytes> {
+pub(crate) fn reorder_browser_pdf_pages(
+    data: &[u8],
+    new_order: &[u32],
+) -> Result<PageMutationBytes> {
     let document = load_browser_pdf(data)?;
     let source_pages = document.get_pages();
     validate_browser_page_numbers(
@@ -250,7 +254,7 @@ fn reorder_browser_pdf_pages(data: &[u8], new_order: &[u32]) -> Result<PageMutat
     build_browser_page_subset_pdf(&[&document], &ordered_pages)
 }
 
-fn insert_browser_pdf_pages(
+pub(crate) fn insert_browser_pdf_pages(
     data: &[u8],
     insertion_data: &[u8],
     after_page: u32,
@@ -288,7 +292,7 @@ fn insert_browser_pdf_pages(
     build_browser_page_subset_pdf(&[&destination, &insertion], &page_sequence)
 }
 
-fn build_browser_page_subset_pdf(
+pub(crate) fn build_browser_page_subset_pdf(
     sources: &[&Document],
     page_sequence: &[PageCloneSource],
 ) -> Result<PageMutationBytes> {
@@ -346,7 +350,7 @@ fn build_browser_page_subset_pdf(
     })
 }
 
-fn retained_single_source_index(
+pub(crate) fn retained_single_source_index(
     sources: &[&Document],
     page_sequence: &[PageCloneSource],
 ) -> Option<usize> {
@@ -373,7 +377,7 @@ fn retained_single_source_index(
         .then_some(source_index)
 }
 
-fn preserve_single_source_document_metadata(
+pub(crate) fn preserve_single_source_document_metadata(
     clone_context: &mut PageCloneContext,
     source_index: usize,
     catalog: &mut Dictionary,
@@ -411,8 +415,11 @@ fn preserve_single_source_document_metadata(
 }
 
 impl PageCloneContext<'_> {
-    fn clone_page(&mut self, source: PageCloneSource) -> Result<ObjectId> {
-        if let Some(new_id) = self.object_map.get(&(source.document_index, source.page_id)) {
+    pub(crate) fn clone_page(&mut self, source: PageCloneSource) -> Result<ObjectId> {
+        if let Some(new_id) = self
+            .object_map
+            .get(&(source.document_index, source.page_id))
+        {
             return Ok(*new_id);
         }
 
@@ -422,20 +429,42 @@ impl PageCloneContext<'_> {
 
         let source_document = self.source(source.document_index)?;
         let mut page = source_document.get_dictionary(source.page_id)?.clone();
-        materialize_page_inherited_object(source_document, source.page_id, &mut page, b"MediaBox", true)?;
-        materialize_page_inherited_object(source_document, source.page_id, &mut page, b"CropBox", false)?;
-        materialize_page_inherited_object(source_document, source.page_id, &mut page, b"Resources", false)?;
-        materialize_page_inherited_object(source_document, source.page_id, &mut page, b"Rotate", false)?;
+        materialize_page_inherited_object(
+            source_document,
+            source.page_id,
+            &mut page,
+            b"MediaBox",
+            true,
+        )?;
+        materialize_page_inherited_object(
+            source_document,
+            source.page_id,
+            &mut page,
+            b"CropBox",
+            false,
+        )?;
+        materialize_page_inherited_object(
+            source_document,
+            source.page_id,
+            &mut page,
+            b"Resources",
+            false,
+        )?;
+        materialize_page_inherited_object(
+            source_document,
+            source.page_id,
+            &mut page,
+            b"Rotate",
+            false,
+        )?;
         page.remove(b"Parent");
         page.set("Type", "Page");
 
-        let cloned_page = self.clone_object_references(
-            source.document_index,
-            Object::Dictionary(page),
-        )?;
+        let cloned_page =
+            self.clone_object_references(source.document_index, Object::Dictionary(page))?;
         let mut cloned_page = cloned_page
             .as_dict()
-            .map(Clone::clone)
+            .cloned()
             .map_err(|_| "Cloned page object was not a dictionary")?;
         cloned_page.set("Parent", self.pages_id);
         self.target
@@ -444,7 +473,7 @@ impl PageCloneContext<'_> {
         Ok(new_page_id)
     }
 
-    fn clone_indirect_object(
+    pub(crate) fn clone_indirect_object(
         &mut self,
         source_index: usize,
         object_id: ObjectId,
@@ -461,7 +490,7 @@ impl PageCloneContext<'_> {
         Ok(new_id)
     }
 
-    fn clone_object_references(
+    pub(crate) fn clone_object_references(
         &mut self,
         source_index: usize,
         object: Object,
@@ -487,7 +516,7 @@ impl PageCloneContext<'_> {
         }
     }
 
-    fn clone_dictionary_references(
+    pub(crate) fn clone_dictionary_references(
         &mut self,
         source_index: usize,
         dictionary: Dictionary,
@@ -502,7 +531,7 @@ impl PageCloneContext<'_> {
         Ok(cloned_dictionary)
     }
 
-    fn source(&self, source_index: usize) -> Result<&Document> {
+    pub(crate) fn source(&self, source_index: usize) -> Result<&Document> {
         self.sources
             .get(source_index)
             .copied()
@@ -510,7 +539,7 @@ impl PageCloneContext<'_> {
     }
 }
 
-fn materialize_page_inherited_object(
+pub(crate) fn materialize_page_inherited_object(
     document: &Document,
     page_id: ObjectId,
     page: &mut Dictionary,
@@ -533,7 +562,7 @@ fn materialize_page_inherited_object(
     Ok(())
 }
 
-fn resolve_inherited_object(
+pub(crate) fn resolve_inherited_object(
     document: &Document,
     page_id: ObjectId,
     key: &[u8],
@@ -561,6 +590,6 @@ fn resolve_inherited_object(
     Ok(None)
 }
 
-fn pdf_rects_equal(left: PdfRect, right: PdfRect) -> bool {
+pub(crate) fn pdf_rects_equal(left: PdfRect, right: PdfRect) -> bool {
     left.x1 == right.x1 && left.y1 == right.y1 && left.x2 == right.x2 && left.y2 == right.y2
 }

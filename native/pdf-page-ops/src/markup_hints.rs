@@ -1,51 +1,53 @@
+use super::*;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct RgbColor {
-    r: u8,
-    g: u8,
-    b: u8,
+pub(crate) struct RgbColor {
+    pub(crate) r: u8,
+    pub(crate) g: u8,
+    pub(crate) b: u8,
 }
 
 #[derive(Clone)]
-struct MarkupHintState {
-    annotation_ref: Option<String>,
-    color: Option<RgbColor>,
-    hint: MarkupSubtypeHint,
-    consumed: bool,
+pub(crate) struct MarkupHintState {
+    pub(crate) annotation_ref: Option<String>,
+    pub(crate) color: Option<RgbColor>,
+    pub(crate) hint: MarkupSubtypeHint,
+    pub(crate) consumed: bool,
 }
 
 #[derive(Clone)]
-struct MarkupAnnotationCandidate {
-    color: Option<RgbColor>,
-    marker_rect: Option<MarkerRect>,
-    object_id: ObjectId,
-    page_markup_index: u32,
-    quad_points: Option<Vec<f64>>,
-    rect: Option<PdfRect>,
-    ref_tag: String,
-    subtype: String,
+pub(crate) struct MarkupAnnotationCandidate {
+    pub(crate) color: Option<RgbColor>,
+    pub(crate) marker_rect: Option<MarkerRect>,
+    pub(crate) object_id: ObjectId,
+    pub(crate) page_markup_index: u32,
+    pub(crate) quad_points: Option<Vec<f64>>,
+    pub(crate) rect: Option<PdfRect>,
+    pub(crate) ref_tag: String,
+    pub(crate) subtype: String,
 }
 
-const MIN_MARKUP_SUBTYPE_HINT_IOU: f64 = 0.45;
-const DUPLICATE_MARKUP_SUBTYPE_HINT_IOU: f64 = 0.92;
-const EXPLICIT_REF_MATCH_SCORE: f64 = 100.0;
-const GEOMETRY_MATCH_WEIGHT: f64 = 10.0;
-const COLOR_MATCH_WEIGHT: f64 = 1.5;
-const PAGE_MARKUP_INDEX_MATCH_BONUS: f64 = 0.25;
-const PAGE_MARKUP_INDEX_MISMATCH_PENALTY: f64 = 0.08;
-const MAX_RGB_DISTANCE: f64 = 441.6729559300637;
-const HIGHLIGHT_DISPLAY_OPACITY: f64 = 0.35;
-const SQUIGGLY_APPEARANCE_STROKE_WIDTH: f64 = 1.0;
-const SQUIGGLY_APPEARANCE_MAX_AMPLITUDE: f64 = 2.0;
-const SQUIGGLY_APPEARANCE_MIN_AMPLITUDE: f64 = 0.6;
-const SQUIGGLY_APPEARANCE_AMPLITUDE_RATIO: f64 = 0.07;
-const MIN_POINT_MARKER_SIZE: f64 = 0.0016;
-const SAME_TEXT_MARKUP_LINE_CENTER_TOLERANCE_RATIO: f64 = 0.35;
-const MIN_TEXT_MARKUP_QUAD_HEIGHT: f64 = 0.01;
-const MAX_MARKUP_SUBTYPE_HINTS: usize = 512;
-const MARKUP_HINT_GRID_DIMENSION: u8 = 8;
-const MAX_MARKUP_HINT_COMPARISONS: usize = 65_536;
+pub(crate) const MIN_MARKUP_SUBTYPE_HINT_IOU: f64 = 0.45;
+pub(crate) const DUPLICATE_MARKUP_SUBTYPE_HINT_IOU: f64 = 0.92;
+pub(crate) const EXPLICIT_REF_MATCH_SCORE: f64 = 100.0;
+pub(crate) const GEOMETRY_MATCH_WEIGHT: f64 = 10.0;
+pub(crate) const COLOR_MATCH_WEIGHT: f64 = 1.5;
+pub(crate) const PAGE_MARKUP_INDEX_MATCH_BONUS: f64 = 0.25;
+pub(crate) const PAGE_MARKUP_INDEX_MISMATCH_PENALTY: f64 = 0.08;
+pub(crate) const MAX_RGB_DISTANCE: f64 = 441.6729559300637;
+pub(crate) const HIGHLIGHT_DISPLAY_OPACITY: f64 = 0.35;
+pub(crate) const SQUIGGLY_APPEARANCE_STROKE_WIDTH: f64 = 1.0;
+pub(crate) const SQUIGGLY_APPEARANCE_MAX_AMPLITUDE: f64 = 2.0;
+pub(crate) const SQUIGGLY_APPEARANCE_MIN_AMPLITUDE: f64 = 0.6;
+pub(crate) const SQUIGGLY_APPEARANCE_AMPLITUDE_RATIO: f64 = 0.07;
+pub(crate) const MIN_POINT_MARKER_SIZE: f64 = 0.0016;
+pub(crate) const SAME_TEXT_MARKUP_LINE_CENTER_TOLERANCE_RATIO: f64 = 0.35;
+pub(crate) const MIN_TEXT_MARKUP_QUAD_HEIGHT: f64 = 0.01;
+pub(crate) const MAX_MARKUP_SUBTYPE_HINTS: usize = 512;
+pub(crate) const MARKUP_HINT_GRID_DIMENSION: u8 = 8;
+pub(crate) const MAX_MARKUP_HINT_COMPARISONS: usize = 65_536;
 
-fn markup_subtype_pdf_name(subtype: &str) -> Option<&'static str> {
+pub(crate) fn markup_subtype_pdf_name(subtype: &str) -> Option<&'static str> {
     match subtype {
         "Highlight" => Some("Highlight"),
         "Underline" => Some("Underline"),
@@ -55,7 +57,7 @@ fn markup_subtype_pdf_name(subtype: &str) -> Option<&'static str> {
     }
 }
 
-fn canonical_markup_subtype(dict: &Dictionary) -> Option<String> {
+pub(crate) fn canonical_markup_subtype(dict: &Dictionary) -> Option<String> {
     match annotation_subtype(dict).as_str() {
         "highlight" => Some("Highlight".to_string()),
         "underline" => Some("Underline".to_string()),
@@ -65,14 +67,17 @@ fn canonical_markup_subtype(dict: &Dictionary) -> Option<String> {
     }
 }
 
-fn resolve_object<'a>(document: &'a Document, object: &'a Object) -> Option<&'a Object> {
+pub(crate) fn resolve_object<'a>(document: &'a Document, object: &'a Object) -> Option<&'a Object> {
     document
         .dereference(object)
         .ok()
         .map(|(_, resolved)| resolved)
 }
 
-fn object_to_markup_color_channel(value: f64, all_channels_are_unit_range: bool) -> Option<u8> {
+pub(crate) fn object_to_markup_color_channel(
+    value: f64,
+    all_channels_are_unit_range: bool,
+) -> Option<u8> {
     if !value.is_finite() {
         return None;
     }
@@ -84,7 +89,7 @@ fn object_to_markup_color_channel(value: f64, all_channels_are_unit_range: bool)
     Some(scaled.round().clamp(0.0, 255.0) as u8)
 }
 
-fn read_markup_color(document: &Document, dict: &Dictionary) -> Option<RgbColor> {
+pub(crate) fn read_markup_color(document: &Document, dict: &Dictionary) -> Option<RgbColor> {
     let object = dict.get(b"C").ok()?;
     let resolved = resolve_object(document, object)?;
     let values = resolved.as_array().ok()?;
@@ -104,7 +109,7 @@ fn read_markup_color(document: &Document, dict: &Dictionary) -> Option<RgbColor>
     })
 }
 
-fn read_pdf_rect_from_dict(document: &Document, dict: &Dictionary) -> Option<PdfRect> {
+pub(crate) fn read_pdf_rect_from_dict(document: &Document, dict: &Dictionary) -> Option<PdfRect> {
     let object = dict.get(b"Rect").ok()?;
     let resolved = resolve_object(document, object)?;
     let values = resolved.as_array().ok()?;
@@ -127,7 +132,7 @@ fn read_pdf_rect_from_dict(document: &Document, dict: &Dictionary) -> Option<Pdf
     Some(rect)
 }
 
-fn read_markup_quad_points(document: &Document, dict: &Dictionary) -> Option<Vec<f64>> {
+pub(crate) fn read_markup_quad_points(document: &Document, dict: &Dictionary) -> Option<Vec<f64>> {
     let object = dict.get(b"QuadPoints").ok()?;
     let resolved = resolve_object(document, object)?;
     let values = resolved.as_array().ok()?;
@@ -145,7 +150,7 @@ fn read_markup_quad_points(document: &Document, dict: &Dictionary) -> Option<Vec
     Some(result)
 }
 
-fn marker_point_from_pdf_point(
+pub(crate) fn marker_point_from_pdf_point(
     x: f64,
     y: f64,
     page_view: PdfRect,
@@ -161,7 +166,7 @@ fn marker_point_from_pdf_point(
     }
 }
 
-fn normalize_marker_rect_bounds(
+pub(crate) fn normalize_marker_rect_bounds(
     left: f64,
     top: f64,
     right: f64,
@@ -187,7 +192,7 @@ fn normalize_marker_rect_bounds(
     })
 }
 
-fn marker_rect_from_pdf_rect(
+pub(crate) fn marker_rect_from_pdf_rect(
     rect: PdfRect,
     page_view: PdfRect,
     page_rotation: i64,
@@ -227,7 +232,7 @@ fn marker_rect_from_pdf_rect(
     normalize_marker_rect_bounds(left, top, right, bottom)
 }
 
-fn marker_rect_iou(left: Option<MarkerRect>, right: Option<MarkerRect>) -> f64 {
+pub(crate) fn marker_rect_iou(left: Option<MarkerRect>, right: Option<MarkerRect>) -> f64 {
     let (Some(left), Some(right)) = (left, right) else {
         return 0.0;
     };
@@ -248,7 +253,7 @@ fn marker_rect_iou(left: Option<MarkerRect>, right: Option<MarkerRect>) -> f64 {
     intersection_area / union_area
 }
 
-fn parse_rgb_channel_token(token: &str) -> Option<u8> {
+pub(crate) fn parse_rgb_channel_token(token: &str) -> Option<u8> {
     let trimmed = token.trim();
     if let Some(percent) = trimmed.strip_suffix('%') {
         let parsed = percent.trim().parse::<f64>().ok()?;
@@ -264,7 +269,7 @@ fn parse_rgb_channel_token(token: &str) -> Option<u8> {
     Some(parsed.round().clamp(0.0, 255.0) as u8)
 }
 
-fn parse_css_rgb_color(value: Option<&str>) -> Option<RgbColor> {
+pub(crate) fn parse_css_rgb_color(value: Option<&str>) -> Option<RgbColor> {
     let trimmed = value?.trim();
     if trimmed.is_empty() {
         return None;
@@ -310,7 +315,10 @@ fn parse_css_rgb_color(value: Option<&str>) -> Option<RgbColor> {
     })
 }
 
-fn resolve_hint_target_color(target_subtype: &str, color: Option<&str>) -> Option<RgbColor> {
+pub(crate) fn resolve_hint_target_color(
+    target_subtype: &str,
+    color: Option<&str>,
+) -> Option<RgbColor> {
     let parsed = parse_css_rgb_color(color)?;
     if target_subtype != "Highlight" {
         return Some(parsed);
@@ -328,7 +336,7 @@ fn resolve_hint_target_color(target_subtype: &str, color: Option<&str>) -> Optio
     })
 }
 
-fn write_markup_color(dict: &mut Dictionary, color: RgbColor) {
+pub(crate) fn write_markup_color(dict: &mut Dictionary, color: RgbColor) {
     dict.set(
         "C",
         Object::Array(vec![
@@ -339,7 +347,7 @@ fn write_markup_color(dict: &mut Dictionary, color: RgbColor) {
     );
 }
 
-fn color_similarity(left: Option<RgbColor>, right: Option<RgbColor>) -> Option<f64> {
+pub(crate) fn color_similarity(left: Option<RgbColor>, right: Option<RgbColor>) -> Option<f64> {
     let (Some(left), Some(right)) = (left, right) else {
         return None;
     };
@@ -350,7 +358,7 @@ fn color_similarity(left: Option<RgbColor>, right: Option<RgbColor>) -> Option<f
     Some((1.0 - (distance / MAX_RGB_DISTANCE)).max(0.0))
 }
 
-fn hint_colors_conflict(left: &MarkupSubtypeHint, right: &MarkupSubtypeHint) -> bool {
+pub(crate) fn hint_colors_conflict(left: &MarkupSubtypeHint, right: &MarkupSubtypeHint) -> bool {
     match color_similarity(
         parse_css_rgb_color(left.color.as_deref()),
         parse_css_rgb_color(right.color.as_deref()),
@@ -360,27 +368,16 @@ fn hint_colors_conflict(left: &MarkupSubtypeHint, right: &MarkupSubtypeHint) -> 
     }
 }
 
-fn normalize_hint_annotation_ref(hint: &MarkupSubtypeHint) -> Option<String> {
+pub(crate) fn normalize_hint_annotation_ref(hint: &MarkupSubtypeHint) -> Option<String> {
     hint.annotation_id
         .as_deref()
         .and_then(normalize_pdfjs_annotation_id)
 }
 
-fn subtype_hints_share_identity(left: &MarkupSubtypeHint, right: &MarkupSubtypeHint) -> bool {
-    if left.subtype != right.subtype {
-        return false;
-    }
-    (left
-        .id
-        .as_deref()
-        .zip(right.id.as_deref())
-        .is_some_and(|(left_id, right_id)| left_id == right_id))
-        || normalize_hint_annotation_ref(left)
-            .zip(normalize_hint_annotation_ref(right))
-            .is_some_and(|(left_ref, right_ref)| left_ref == right_ref)
-}
-
-fn subtype_hints_share_geometry(left: &MarkupSubtypeHint, right: &MarkupSubtypeHint) -> bool {
+pub(crate) fn subtype_hints_share_geometry(
+    left: &MarkupSubtypeHint,
+    right: &MarkupSubtypeHint,
+) -> bool {
     left.page_index == right.page_index
         && left.subtype == right.subtype
         && !hint_colors_conflict(left, right)
@@ -388,7 +385,7 @@ fn subtype_hints_share_geometry(left: &MarkupSubtypeHint, right: &MarkupSubtypeH
             >= DUPLICATE_MARKUP_SUBTYPE_HINT_IOU
 }
 
-fn merge_subtype_hints(
+pub(crate) fn merge_subtype_hints(
     existing: &MarkupSubtypeHint,
     incoming: &MarkupSubtypeHint,
 ) -> MarkupSubtypeHint {
@@ -407,7 +404,7 @@ fn merge_subtype_hints(
     }
 }
 
-fn marker_rect_grid_cells(rect: MarkerRect) -> Vec<(u8, u8)> {
+pub(crate) fn marker_rect_grid_cells(rect: MarkerRect) -> Vec<(u8, u8)> {
     let grid_max = MARKUP_HINT_GRID_DIMENSION - 1;
     let cell = |coordinate: f64| {
         ((coordinate.clamp(0.0, 1.0) * f64::from(MARKUP_HINT_GRID_DIMENSION)).floor() as u8)
@@ -426,18 +423,19 @@ fn marker_rect_grid_cells(rect: MarkerRect) -> Vec<(u8, u8)> {
     cells
 }
 
-type MarkupHintGridKey = (u32, String, u8, u8);
+pub(crate) type MarkupHintGridKey = (u32, String, u8, u8);
 
-fn hint_grid_key(hint: &MarkupSubtypeHint, row: u8, column: u8) -> MarkupHintGridKey {
+pub(crate) fn hint_grid_key(hint: &MarkupSubtypeHint, row: u8, column: u8) -> MarkupHintGridKey {
     (hint.page_index, hint.subtype.clone(), row, column)
 }
 
-fn dedupe_markup_subtype_hints(hints: &[MarkupSubtypeHint]) -> Result<Vec<MarkupHintState>> {
+pub(crate) fn dedupe_markup_subtype_hints(
+    hints: &[MarkupSubtypeHint],
+) -> Result<Vec<MarkupHintState>> {
     if hints.len() > MAX_MARKUP_SUBTYPE_HINTS {
-        return Err(format!(
-            "Too many text-markup hints (maximum {MAX_MARKUP_SUBTYPE_HINTS})"
-        )
-        .into());
+        return Err(
+            format!("Too many text-markup hints (maximum {MAX_MARKUP_SUBTYPE_HINTS})").into(),
+        );
     }
 
     let mut deduped: Vec<MarkupSubtypeHint> = Vec::new();
@@ -527,7 +525,7 @@ fn dedupe_markup_subtype_hints(hints: &[MarkupSubtypeHint]) -> Result<Vec<Markup
         .collect())
 }
 
-fn can_use_geometry_only_subtype_hint(hint: &MarkupSubtypeHint) -> bool {
+pub(crate) fn can_use_geometry_only_subtype_hint(hint: &MarkupSubtypeHint) -> bool {
     hint.subtype == "Highlight"
         || match hint.source.as_deref() {
             Some(source) => source == "editor-live",
@@ -535,7 +533,7 @@ fn can_use_geometry_only_subtype_hint(hint: &MarkupSubtypeHint) -> bool {
         }
 }
 
-fn score_subtype_hint_for_candidate(
+pub(crate) fn score_subtype_hint_for_candidate(
     hint_state: &MarkupHintState,
     candidate: &MarkupAnnotationCandidate,
 ) -> Option<f64> {
@@ -576,18 +574,22 @@ fn score_subtype_hint_for_candidate(
     )
 }
 
-fn find_exact_ref_highlight_preservation_hint(
+pub(crate) fn find_exact_ref_highlight_preservation_hint(
     page_hints: &[MarkupHintState],
     candidate: &MarkupAnnotationCandidate,
     hints_by_ref: &HashMap<String, Vec<usize>>,
 ) -> Option<usize> {
-    hints_by_ref.get(&candidate.ref_tag)?.iter().copied().find(|index| {
-        let hint_state = &page_hints[*index];
-        !hint_state.consumed && hint_state.hint.subtype == "Highlight"
-    })
+    hints_by_ref
+        .get(&candidate.ref_tag)?
+        .iter()
+        .copied()
+        .find(|index| {
+            let hint_state = &page_hints[*index];
+            !hint_state.consumed && hint_state.hint.subtype == "Highlight"
+        })
 }
 
-fn find_best_exact_ref_hint_for_candidate(
+pub(crate) fn find_best_exact_ref_hint_for_candidate(
     page_hints: &[MarkupHintState],
     candidate: &MarkupAnnotationCandidate,
     hints_by_ref: &HashMap<String, Vec<usize>>,
@@ -603,14 +605,14 @@ fn find_best_exact_ref_hint_for_candidate(
         let Some(score) = score_subtype_hint_for_candidate(hint_state, candidate) else {
             continue;
         };
-        if best.map_or(true, |(_, best_score)| score > best_score) {
+        if best.is_none_or(|(_, best_score)| score > best_score) {
             best = Some((index, score));
         }
     }
     best.map(|(index, _)| index)
 }
 
-fn consume_exact_ref_hints(
+pub(crate) fn consume_exact_ref_hints(
     page_hints: &mut [MarkupHintState],
     candidate: &MarkupAnnotationCandidate,
     hints_by_ref: &HashMap<String, Vec<usize>>,
@@ -622,7 +624,9 @@ fn consume_exact_ref_hints(
     }
 }
 
-fn index_markup_hints_by_ref(page_hints: &[MarkupHintState]) -> HashMap<String, Vec<usize>> {
+pub(crate) fn index_markup_hints_by_ref(
+    page_hints: &[MarkupHintState],
+) -> HashMap<String, Vec<usize>> {
     let mut hints_by_ref: HashMap<String, Vec<usize>> = HashMap::new();
     for (index, hint_state) in page_hints.iter().enumerate() {
         if let Some(annotation_ref) = &hint_state.annotation_ref {
@@ -636,10 +640,10 @@ fn index_markup_hints_by_ref(page_hints: &[MarkupHintState]) -> HashMap<String, 
 }
 
 #[derive(Clone, Copy, Debug)]
-struct ScoredMarkupHintAssignment {
-    candidate_index: usize,
-    hint_index: usize,
-    score: f64,
+pub(crate) struct ScoredMarkupHintAssignment {
+    pub(crate) candidate_index: usize,
+    pub(crate) hint_index: usize,
+    pub(crate) score: f64,
 }
 
 impl PartialEq for ScoredMarkupHintAssignment {
@@ -667,7 +671,7 @@ impl Ord for ScoredMarkupHintAssignment {
     }
 }
 
-fn assign_subtype_hints_to_candidates(
+pub(crate) fn assign_subtype_hints_to_candidates(
     page_hints: &[MarkupHintState],
     candidates: &[MarkupAnnotationCandidate],
 ) -> Result<Vec<(usize, usize)>> {
@@ -725,7 +729,7 @@ fn assign_subtype_hints_to_candidates(
     Ok(assignments)
 }
 
-fn rect_to_fallback_quad_points(rect: PdfRect) -> Vec<f64> {
+pub(crate) fn rect_to_fallback_quad_points(rect: PdfRect) -> Vec<f64> {
     vec![
         rect.x1, rect.y2, rect.x2, rect.y2, rect.x1, rect.y1, rect.x2, rect.y1,
     ]

@@ -167,8 +167,8 @@ defineExpose<IPdfAnnotationToolbarExpose>({ getButtonEl });
     background: transparent;
     color: var(--ui-text-muted);
     flex: 0 0 2.5rem;
-    width: 2.5rem;
-    height: 2.5rem;
+    width: var(--app-control-height-lg);
+    height: var(--app-control-height-lg);
     cursor: pointer;
     transition:
         background-color 0.12s ease,
@@ -188,7 +188,7 @@ defineExpose<IPdfAnnotationToolbarExpose>({ getButtonEl });
 }
 
 .tool-button-icon {
-    font-size: 0.95rem;
+    font-size: var(--app-text-size-control);
 }
 
 </style>

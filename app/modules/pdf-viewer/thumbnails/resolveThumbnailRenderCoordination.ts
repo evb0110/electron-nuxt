@@ -1,5 +1,5 @@
 export const THUMBNAIL_BACKGROUND_RENDER_PRIORITY = 10;
-export const THUMBNAIL_CURRENT_PAGE_RENDER_PRIORITY = 100;
+export const THUMBNAIL_CURRENT_PAGE_RENDER_PRIORITY = 80;
 
 export interface IThumbnailRenderCoordination {
     owner: 'thumbnail' | 'thumbnail-current';

@@ -275,7 +275,6 @@ function resignBundledNativeToolPayloads(appPath, identity) {
     const nativeToolsDir = path.join(appPath, 'Contents', 'MacOS', 'native-tools');
     const toolRoots = [
         path.join(nativeToolsDir, 'djvulibre'),
-        path.join(nativeToolsDir, 'page-processing'),
         path.join(nativeToolsDir, 'poppler'),
         path.join(nativeToolsDir, 'pdf-image-combine'),
         path.join(nativeToolsDir, 'pdf-page-ops'),

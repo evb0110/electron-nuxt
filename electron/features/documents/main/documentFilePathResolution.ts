@@ -17,9 +17,9 @@ import { findWorkingCopyPathByOriginalPath } from '@electron/file-access/working
 import { isAllowedDjvuViewingPath } from '@electron/djvu/viewing';
 
 const MAX_IPC_READ_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_MAX_IPC_READ_BYTES ?? `${512 * 1024 * 1024}`, 10);
+    const parsed = Number.parseInt(process.env.EVB_MAX_IPC_READ_BYTES ?? `${16 * 1024 * 1024}`, 10);
     if (!Number.isFinite(parsed) || parsed < 1024) {
-        return 512 * 1024 * 1024;
+        return 16 * 1024 * 1024;
     }
     return parsed;
 })();

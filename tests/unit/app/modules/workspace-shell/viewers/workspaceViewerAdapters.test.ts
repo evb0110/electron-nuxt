@@ -83,10 +83,11 @@ describe('workspace viewer adapter registry', () => {
             closeableDocument: true,
             conversionBanner: true,
             conversionDialog: true,
-            pdfMutationActions: false,
+            pdfMutationActions: true,
             repairSave: false,
             save: false,
-            sidebar: false,
+            saveAs: true,
+            sidebar: true,
         });
     });
 

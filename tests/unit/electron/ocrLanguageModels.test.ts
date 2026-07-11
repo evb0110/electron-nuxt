@@ -15,9 +15,12 @@ const mocks = vi.hoisted(() => ({
     mkdir: vi.fn(),
     openSync: vi.fn(),
     readSync: vi.fn(),
+    readFileSync: vi.fn(),
     readdir: vi.fn(),
+    rename: vi.fn(),
     rm: vi.fn(),
     statSync: vi.fn(),
+    writeFile: vi.fn(),
     copyFile: vi.fn(),
     fileUrl: '/tmp/app.asar/dist/electron/ocr/languageModels.js',
     app: {
@@ -41,16 +44,17 @@ vi.mock('fs', () => ({
     existsSync: (path: string) => mocks.existsSync(path),
     openSync: (...args: unknown[]) => mocks.openSync(...args),
     readSync: (...args: unknown[]) => mocks.readSync(...args),
+    readFileSync: (...args: unknown[]) => mocks.readFileSync(...args),
     statSync: (...args: unknown[]) => mocks.statSync(...args),
 }));
 vi.mock('fs/promises', () => ({
     copyFile: (...args: unknown[]) => mocks.copyFile(...args),
     mkdir: (...args: unknown[]) => mocks.mkdir(...args),
     readdir: (...args: unknown[]) => mocks.readdir(...args),
-    rename: vi.fn(),
+    rename: (...args: unknown[]) => mocks.rename(...args),
     rm: (...args: unknown[]) => mocks.rm(...args),
     stat: vi.fn(),
-    writeFile: vi.fn(),
+    writeFile: (...args: unknown[]) => mocks.writeFile(...args),
 }));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 
@@ -89,6 +93,8 @@ describe('ensureRuntimeTessdataSeeded', () => {
             'notes.txt',
         ]);
         mocks.copyFile.mockResolvedValue(undefined);
+        mocks.rename.mockResolvedValue(undefined);
+        mocks.writeFile.mockResolvedValue(undefined);
     });
 
     afterEach(() => {
@@ -122,6 +128,31 @@ describe('ensureRuntimeTessdataSeeded', () => {
             '/tmp/resources/tesseract/tessdata/osd.traineddata',
             join(runtimeDir, 'osd.traineddata'),
         );
+        expect(mocks.writeFile).toHaveBeenCalledWith(
+            expect.stringMatching(/\.evb-seeded-e12c65a915945e4c28e237a9b52bc4a8f39a0cec-[a-f0-9]+\..+[.]tmp$/u),
+            expect.stringContaining('"bundledFiles":["eng.traineddata","osd.traineddata"]'),
+            {
+                encoding: 'utf8',
+                mode: 0o600,
+            },
+        );
+        expect(mocks.rename).toHaveBeenCalledWith(
+            expect.stringMatching(/[.]tmp$/u),
+            expect.stringContaining('.evb-seeded-e12c65a915945e4c28e237a9b52bc4a8f39a0cec'),
+        );
+    });
+
+    it('skips reseeding when the packaged resource version is current', async () => {
+        mocks.existsSync.mockImplementation((path: string) => (
+            path === '/tmp/resources/tesseract/tessdata'
+            || path.includes('.evb-seeded-e12c65a915945e4c28e237a9b52bc4a8f39a0cec')
+        ));
+        const {ensureRuntimeTessdataSeeded} = await import('@electron/ocr/languageModels');
+
+        await ensureRuntimeTessdataSeeded();
+
+        expect(mocks.readdir).toHaveBeenCalledOnce();
+        expect(mocks.copyFile).not.toHaveBeenCalled();
     });
 
     it('uses Electron userData as the packaged runtime tessdata base', async () => {

@@ -20,6 +20,10 @@ describe('DocumentWorkspace native initial visual contract', () => {
             join(process.cwd(), 'app/modules/workspace-shell/components/WorkspaceDocumentTransitionSkeleton.vue'),
             'utf8',
         );
+        const presentationSource = await readFile(
+            join(process.cwd(), 'app/modules/workspace-shell/composables/useDocumentWorkspaceViewerPresentation.ts'),
+            'utf8',
+        );
 
         const dynamicViewerBlock = workspaceSource.slice(
             workspaceSource.indexOf('<component'),
@@ -43,17 +47,17 @@ describe('DocumentWorkspace native initial visual contract', () => {
         expect(workspaceSource).toContain(':show-transition-overlay="showWorkspaceTransitionSkeleton"');
         expect(workspaceSource).toContain('useDocumentTransitionSkeletonLease');
         expect(workspaceSource).toContain('pendingDocumentStatusPath');
-        expect(workspaceSource).toContain('showPendingViewerMountSkeleton');
-        expect(workspaceSource).toContain('activeViewerMounted');
-        expect(workspaceSource).toContain('hasPendingViewerSource');
-        expect(workspaceSource).toContain('Boolean(activeViewerAdapter.value)');
-        expect(workspaceSource).toContain('Boolean(pdfSrc.value)');
-        expect(workspaceSource).toContain('Boolean(nativePdfSourcePath.value)');
-        expect(workspaceSource).toContain('Boolean(djvuSourcePath.value)');
-        expect(workspaceSource).toContain('&& hasPendingViewerSource.value');
-        expect(workspaceSource).toContain('isDocumentOpenPlaceholderVisible.value');
-        expect(workspaceSource).toContain('|| showPendingViewerMountSkeleton.value');
-        expect(workspaceSource).toContain('showPendingDocumentOpenSkeleton');
+        expect(workspaceSource).toContain('useDocumentWorkspaceViewerPresentation');
+        expect(presentationSource).toContain('showPendingViewerMountSkeleton');
+        expect(presentationSource).toContain('hasPendingViewerSource');
+        expect(presentationSource).toContain('Boolean(options.activeViewerAdapter.value)');
+        expect(presentationSource).toContain('Boolean(options.pdfSrc.value)');
+        expect(presentationSource).toContain('Boolean(options.nativePdfSourcePath.value)');
+        expect(presentationSource).toContain('Boolean(options.djvuSourcePath.value)');
+        expect(presentationSource).toContain('&& hasPendingViewerSource.value');
+        expect(presentationSource).toContain('options.isDocumentOpenPlaceholderVisible.value');
+        expect(presentationSource).toContain('|| showPendingViewerMountSkeleton.value');
+        expect(presentationSource).toContain('showPendingDocumentOpenSkeleton');
         expect(workspaceSource).toContain('<WorkspaceDocumentTransitionSkeleton v-if="showWorkspaceTransitionSkeleton" />');
         expect(viewerHostSource).not.toContain('WorkspaceDocumentOpeningSurface');
         expect(viewerHostSource).not.toContain('showOpeningSurface');
@@ -72,6 +76,7 @@ describe('DocumentWorkspace native initial visual contract', () => {
             workspaceSource,
             alertsSource,
             fallbackSource,
+            presentationSource,
         ] = await Promise.all([
             readFile(
                 join(process.cwd(), 'app/modules/workspace-shell/components/DocumentWorkspace.vue'),
@@ -85,16 +90,19 @@ describe('DocumentWorkspace native initial visual contract', () => {
                 join(process.cwd(), 'app/modules/workspace-shell/components/WorkspaceHostDocumentOpenFallback.vue'),
                 'utf8',
             ),
+            readFile(
+                join(process.cwd(), 'app/modules/workspace-shell/composables/useDocumentWorkspaceViewerPresentation.ts'),
+                'utf8',
+            ),
         ]);
 
         expect(workspaceSource).toContain('pendingDjvuDocumentOpen');
         expect(workspaceSource).toContain(':djvu-pending-open="pendingDjvuDocumentOpen"');
         expect(workspaceSource).toContain(':djvu-opening="djvuBannerOpening"');
-        expect(workspaceSource).toContain('const hasDjvuBannerOpeningContext = computed');
-        expect(workspaceSource).toContain('const djvuBannerOpening = computed');
-        expect(workspaceSource).toContain('showWorkspaceTransitionSkeleton.value');
-        expect(workspaceSource).toContain('!initialDocumentVisualReady.value');
-        expect(workspaceSource).toContain('getDocumentKindFromPath');
+        expect(presentationSource).toContain('const hasDjvuBannerOpeningContext = computed');
+        expect(presentationSource).toContain('const djvuBannerOpening = computed');
+        expect(presentationSource).toContain('showWorkspaceTransitionSkeleton.value');
+        expect(presentationSource).toContain('!options.initialDocumentVisualReady.value');
         expect(alertsSource).toContain('showDjvuConversionUi || djvuPendingOpen || djvuOpening');
         expect(alertsSource).toContain('djvuOpening || djvuShowBanner || djvuPendingOpen');
         expect(alertsSource).toContain(':is-opening="djvuOpening || djvuPendingOpen"');

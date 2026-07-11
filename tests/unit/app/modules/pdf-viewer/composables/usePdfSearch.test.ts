@@ -11,6 +11,8 @@ import {
     type Ref,
 } from 'vue';
 import { SEARCH_DEBOUNCE_MS } from '@app/constants/timeouts';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import {requireDocumentRevisionToken} from '@contracts';
 
 interface IPdfSearchTestExcerpt {
     after: string;
@@ -98,7 +100,7 @@ const mockSearch = {
 vi.mock('@app/utils/getSearchCapability', () => ({ getSearchCapability: () => mockSearch }));
 vi.mock('#imports', () => ({ useTypedI18n: () => ({ t: (key: string) => key }) }));
 
-async function createPdfSearch(options?: { documentRevisionToken?: Ref<string | null> }): Promise<IPdfSearchTestApi> {
+async function createPdfSearch(options?: { documentRevisionToken?: Ref<TDocumentRevisionToken | null> }): Promise<IPdfSearchTestApi> {
     const { usePdfSearch } = await import('@app/modules/pdf-viewer/runtime/composables/usePdfSearch');
     return usePdfSearch(options) as IPdfSearchTestApi;
 }
@@ -118,20 +120,33 @@ describe('usePdfSearch', () => {
         vi.useRealTimers();
     });
 
-    it('rejects too-short queries without calling backend search', async () => {
+    it('allows single-character queries', async () => {
         const search = await createPdfSearch();
 
-        const applied = await search.search('a', '/tmp/work.pdf');
+        const promise = search.search('a', '/tmp/work.pdf');
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        const applied = await promise;
 
-        expect(applied).toBe(false);
+        expect(applied).toBe(true);
         expect(search.results.value).toEqual([]);
         expect(search.currentResultIndex.value).toBe(-1);
         expect(search.isSearching.value).toBe(false);
         expect(search.submittedSearchQuery.value).toBe('a');
-        expect(mockSearch.run).not.toHaveBeenCalled();
+        expect(mockSearch.run).toHaveBeenCalledWith('/tmp/work.pdf', 'a', expect.any(Object));
     });
 
-    it('replaces the previous submitted query when the next submitted query is too short', async () => {
+    it('preserves leading and trailing spaces inside an explicitly quoted query', async () => {
+        const search = await createPdfSearch();
+
+        const promise = search.search('  " a "  ', '/tmp/work.pdf');
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await promise;
+
+        expect(mockSearch.run).toHaveBeenCalledWith('/tmp/work.pdf', ' a ', expect.any(Object));
+        expect(search.submittedSearchQuery.value).toBe(' a ');
+    });
+
+    it('replaces the previous submitted query with a single-character search', async () => {
         mockSearch.run.mockResolvedValue({
             results: [{
                 pageNumber: 1,
@@ -151,9 +166,15 @@ describe('usePdfSearch', () => {
         expect(search.submittedSearchQuery.value).toBe('alpha');
         expect(search.results.value).toHaveLength(1);
 
-        const applied = await search.search('a', '/tmp/work.pdf');
+        mockSearch.run.mockResolvedValue({
+            results: [],
+            truncated: false,
+        });
+        const nextSearch = search.search('a', '/tmp/work.pdf');
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        const applied = await nextSearch;
 
-        expect(applied).toBe(false);
+        expect(applied).toBe(true);
         expect(search.submittedSearchQuery.value).toBe('a');
         expect(search.results.value).toEqual([]);
     });
@@ -844,7 +865,7 @@ describe('usePdfSearch', () => {
     });
 
     it('passes the current document revision and ignores stale progress and results', async () => {
-        const documentRevisionToken = ref<string | null>('revision-a');
+        const documentRevisionToken = ref<TDocumentRevisionToken | null>(requireDocumentRevisionToken('revision-a'));
         let requestId = '';
         let progressListener: (progress: {
             requestId: string;
@@ -887,7 +908,7 @@ describe('usePdfSearch', () => {
         const searchPromise = search.search('alpha', '/tmp/work.pdf', 1);
         await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
 
-        documentRevisionToken.value = 'revision-b';
+        documentRevisionToken.value = requireDocumentRevisionToken('revision-b');
         progressListener({
             requestId,
             processed: 1,

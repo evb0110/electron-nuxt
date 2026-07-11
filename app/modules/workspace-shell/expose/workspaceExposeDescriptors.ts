@@ -347,6 +347,10 @@ export const workspaceExposeCommandRegistry = defineWorkspaceExposeCommandRegist
         group: 'view',
         real: 'passthrough',
         deferred: 'mountWaitSyncVoid',
+        menu: {
+            actionName: 'toggle-continuous-scroll',
+            register: 'onMenuToggleContinuousScroll',
+        },
     },
     {
         name: 'handleEnableDragMode',

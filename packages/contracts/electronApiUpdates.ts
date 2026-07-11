@@ -4,6 +4,7 @@ import type {
 } from '@contracts/electronApiCommon';
 import {
     isFiniteNumber,
+    isOneOf,
     isRecord,
 } from '@contracts/runtimeGuards';
 
@@ -18,7 +19,7 @@ export interface IAppUpdateStatus {
     message: string | null;
 }
 
-const APP_UPDATE_PHASES = new Set<TAppUpdatePhase>([
+const APP_UPDATE_PHASES = [
     'idle',
     'checking',
     'downloading',
@@ -26,7 +27,7 @@ const APP_UPDATE_PHASES = new Set<TAppUpdatePhase>([
     'no-update',
     'error',
     'unsupported',
-]);
+] as const satisfies readonly TAppUpdatePhase[];
 const APP_UPDATE_VERSION_MAX_LENGTH = 128;
 const APP_UPDATE_MESSAGE_MAX_LENGTH = 4_096;
 
@@ -34,7 +35,7 @@ export function decodeAppUpdateStatus(value: unknown): IAppUpdateStatus | null {
     if (
         !isRecord(value)
         || typeof value.phase !== 'string'
-        || !APP_UPDATE_PHASES.has(value.phase as TAppUpdatePhase)
+        || !isOneOf(APP_UPDATE_PHASES, value.phase)
         || (value.origin !== 'auto' && value.origin !== 'manual')
         || (value.version !== null && (
             typeof value.version !== 'string'
@@ -54,7 +55,7 @@ export function decodeAppUpdateStatus(value: unknown): IAppUpdateStatus | null {
     }
 
     return {
-        phase: value.phase as TAppUpdatePhase,
+        phase: value.phase,
         origin: value.origin,
         version: value.version,
         percent: value.percent,

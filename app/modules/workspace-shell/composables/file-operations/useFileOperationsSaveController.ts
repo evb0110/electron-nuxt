@@ -1,4 +1,3 @@
-import type {IAnnotationCommentSummary} from '@app/types/annotations';
 import type { TPdfSaveMode } from '@app/types/pdfContracts';
 import type { IPdfPersistResult } from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
@@ -259,18 +258,9 @@ export const useFileOperationsSaveController = (ports: IFileOperationsSaveAdapte
                         }
 
                         const saveSucceeded = await saveExecutor.executeSelectedSavePath(config, context);
-                        if (!saveSucceeded && context.pendingChangesSource === 'workspace-compat') {
-                            restorePendingEmbeddedAnnotationChanges(context.pendingTexts, context.pendingDeletes);
-                        }
                         saveSucceededForTelemetry = saveSucceeded;
                         return saveSucceeded;
                     } catch (error) {
-                        if (context?.pendingChangesSource === 'workspace-compat') {
-                            restorePendingEmbeddedAnnotationChanges(
-                                context.pendingTexts,
-                                context.pendingDeletes,
-                            );
-                        }
                         context?.reloadWaiter.cancelPending();
                         if (isStaleRevisionError(error) && attempt < MAX_STALE_REVISION_SAVE_RETRIES) {
                             BrowserLogger.debug('workspace', 'Retrying save after stale document revision', {
@@ -302,14 +292,6 @@ export const useFileOperationsSaveController = (ports: IFileOperationsSaveAdapte
                 config.saveIndicator.value = false;
             }
         });
-    }
-
-    function restorePendingEmbeddedAnnotationChanges(
-        pendingTexts: Map<string, string> | null,
-        pendingDeletes: IAnnotationCommentSummary[] | null,
-    ) {
-        annotationEdits.restorePendingEmbeddedTextUpdates?.(pendingTexts);
-        annotationEdits.restorePendingEmbeddedAnnotationDeletes?.(pendingDeletes);
     }
 
     function hasSaveOperationInProgress() {

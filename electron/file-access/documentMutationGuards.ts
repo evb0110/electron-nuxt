@@ -1,4 +1,7 @@
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import {
+    parseDocumentRevisionToken,
+    type TDocumentRevisionToken,
+} from '@contracts/documentRevision';
 import { createMissingRevisionError } from '@contracts/documentMutationErrors';
 import {
     assertWorkingCopyMutationAllowed,
@@ -13,10 +16,11 @@ export function normalizeExpectedDocumentRevisionToken(
     if (token === undefined || token === null) {
         return null;
     }
-    if (typeof token !== 'string' || token.trim().length === 0) {
+    const parsedToken = parseDocumentRevisionToken(token);
+    if (parsedToken === null) {
         throw new TypeError('expectedDocumentRevisionToken must be a non-empty string');
     }
-    return token.trim();
+    return parsedToken;
 }
 
 export async function assertQueuedWorkingCopyMutationPreconditions(

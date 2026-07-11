@@ -76,6 +76,7 @@ export const usePdfFile = (options: IUsePdfFileOptions = {}) => {
         redo,
         reloadWorkingCopyIntoHistory,
         resetHistory,
+        setWorkspaceCommandSink,
         syncDirtyFromHistory,
         undo,
     } = createDocumentHistory(sessionState, {
@@ -219,6 +220,7 @@ export const usePdfFile = (options: IUsePdfFileOptions = {}) => {
         canRedo,
         fileHistoryMutationVersion,
         fileHistorySessionVersion,
+        setWorkspaceCommandSink,
         undo,
         redo,
     };

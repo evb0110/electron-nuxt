@@ -1,7 +1,27 @@
 import { isRecord } from '@contracts/runtimeGuards';
+import { IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES } from '@contracts/electronApiDocuments';
 
 // fallow-ignore-next-line unused-export
-export const IPC_MAX_BINARY_PAYLOAD_BYTES = 512 * 1024 * 1024;
+export const IPC_MAX_BINARY_PAYLOAD_BYTES = IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES;
+const IPC_MAX_COLLECTION_ITEMS = 100_000;
+
+export function decodeBoundedArray(
+    value: unknown,
+    fieldName: string,
+    options: {
+        allowEmpty?: boolean;
+        maxItems?: number;
+    } = {},
+): unknown[] {
+    const maxItems = options.maxItems ?? IPC_MAX_COLLECTION_ITEMS;
+    if (!Array.isArray(value) || (!options.allowEmpty && value.length === 0)) {
+        throw new Error(`${fieldName} must be ${options.allowEmpty ? 'an' : 'a non-empty'} array`);
+    }
+    if (value.length > maxItems) {
+        throw new Error(`${fieldName} exceeds maximum item count (${maxItems})`);
+    }
+    return value;
+}
 
 export function decodeStringArg(args: readonly unknown[], index: number, fieldName: string): string {
     const value = args[index];
@@ -22,7 +42,6 @@ export function decodeOptionalStringArg(args: readonly unknown[], index: number,
     return value;
 }
 
-// fallow-ignore-next-line unused-export
 export function decodeBooleanArg(args: readonly unknown[], index: number, fieldName: string): boolean {
     const value = args[index];
     if (typeof value !== 'boolean') {
@@ -39,7 +58,6 @@ export function decodeSafeIntegerArg(args: readonly unknown[], index: number, fi
     return value;
 }
 
-// fallow-ignore-next-line unused-export
 export function decodeUint8ArrayArg(
     args: readonly unknown[],
     index: number,
@@ -57,11 +75,7 @@ export function decodeUint8ArrayArg(
 }
 
 export function decodePositiveIntegerArrayArg(args: readonly unknown[], index: number, fieldName: string): number[] {
-    const value = args[index];
-    if (!Array.isArray(value) || value.length === 0) {
-        throw new Error(`${fieldName} must be a non-empty array`);
-    }
-    const items = value as unknown[];
+    const items = decodeBoundedArray(args[index], fieldName);
     for (const item of items) {
         if (typeof item !== 'number' || !Number.isSafeInteger(item) || item < 1) {
             throw new Error(`${fieldName} must contain positive safe integers`);
@@ -71,22 +85,18 @@ export function decodePositiveIntegerArrayArg(args: readonly unknown[], index: n
 }
 
 export function decodeStringArrayArg(args: readonly unknown[], index: number, fieldName: string): string[] {
-    const value = args[index];
-    if (!Array.isArray(value)) {
-        throw new Error(`${fieldName} must be an array of non-empty strings`);
-    }
-    const items = value as unknown[];
+    const items = decodeBoundedArray(args[index], fieldName, {allowEmpty: true});
     if (items.some(item => typeof item !== 'string' || item.trim().length === 0)) {
         throw new Error(`${fieldName} must be an array of non-empty strings`);
     }
     return items as string[];
 }
 
-export function decodeOptionalObjectWithKeys<T extends Record<string, unknown>>(
+export function decodeOptionalObjectWithKeys(
     value: unknown,
     fieldName: string,
     allowedKeys: readonly string[],
-): T | undefined {
+) {
     if (value === undefined || value === null) {
         return undefined;
     }
@@ -99,18 +109,5 @@ export function decodeOptionalObjectWithKeys<T extends Record<string, unknown>>(
             throw new Error(`${fieldName} contains unsupported key "${key}"`);
         }
     }
-    return value as T;
-}
-
-// fallow-ignore-next-line unused-export
-export function decodeRecordArg<T extends Record<string, unknown>>(
-    args: readonly unknown[],
-    index: number,
-    fieldName: string,
-): T {
-    const value = args[index];
-    if (!isRecord(value)) {
-        throw new Error(`${fieldName} must be an object`);
-    }
-    return value as T;
+    return value;
 }

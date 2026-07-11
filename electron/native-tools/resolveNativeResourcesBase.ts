@@ -6,7 +6,6 @@ const DEFAULT_NATIVE_RESOURCE_ROOTS = [
     'poppler',
     'qpdf',
     'djvulibre',
-    'page-processing',
     'pdf-image-combine',
     'pdf-page-ops',
     'pdf-search',

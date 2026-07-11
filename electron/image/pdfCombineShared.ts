@@ -3,20 +3,38 @@ import {
     readFile,
     stat,
 } from 'fs/promises';
-import { extname } from 'path';
+import {
+    basename,
+    extname,
+} from 'path';
 import { encode } from 'fast-png';
 import {
+    degrees,
+    PDFName,
     PDFDocument,
-    type PDFImage,
 } from 'pdf-lib';
-import { iterateDecodedTiffFrames } from '@pdf-core';
+import type {
+    PDFImage,
+    PDFRawStream,
+} from 'pdf-lib';
+import {readImageIccProfile} from '@electron/image/readImageIccProfile';
+import {
+    iterateDecodedTiffFrames,
+    applyCombinedPdfPageLabels,
+    inspectPdfCombineCatalog,
+    writePdfBookmarkOutlines,
+} from '@pdf-core';
+import type {IPdfCombinePageLabelRange} from '@pdf-core';
+import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import {
     pixelsToPdfPoints,
     readImageDpi,
+    readJpegExifOrientation,
     readTiffFrameDpi,
 } from '@electron/image/imageDpi';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import { tryCreatePdfWithNativeImageCombiner } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
+import type { IImageDimensions } from '@electron/image/imageDimensions';
 
 export interface ICreateCombinedPdfProgress {
     processed: number;
@@ -29,7 +47,15 @@ export interface ICreateCombinedPdfProgress {
 interface ICreateCombinedPdfOptions {
     onProgress?: (progress: ICreateCombinedPdfProgress) => void;
     unsupportedFileError: (sourcePath: string) => string;
-    appendDjvuPages?: (targetPdf: PDFDocument, sourcePath: string) => Promise<number>;
+    appendDjvuPages?: (
+        targetPdf: PDFDocument,
+        sourcePath: string,
+    ) => Promise<number | {
+        pageCount: number;
+        bookmarks: IPdfBookmarkEntry[]
+    }>;
+    signal?: AbortSignal;
+    skipNativeImageCombiner?: boolean;
 }
 
 interface IPdfCombineResourceLimits {
@@ -74,11 +100,6 @@ const PNG_SIGNATURE = [
 const JPEG_START_OF_IMAGE = 0xd8;
 const JPEG_START_OF_SCAN = 0xda;
 const BITMAP_HEADER_PREFIX_BYTES = 64;
-
-interface IImageDimensions {
-    width: number;
-    height: number;
-}
 
 function getDefaultResourceLimits(): IPdfCombineResourceLimits {
     return { ...DEFAULT_RESOURCE_LIMITS };
@@ -396,28 +417,85 @@ function appendEmbeddedImagePage(
     targetPdf: PDFDocument,
     embeddedImage: PDFImage,
     dpi: number,
+    orientation: 1 | 3 | 6 | 8 = 1,
 ) {
-    const pageWidth = pixelsToPdfPoints(embeddedImage.width, dpi);
-    const pageHeight = pixelsToPdfPoints(embeddedImage.height, dpi);
+    const imageWidth = pixelsToPdfPoints(embeddedImage.width, dpi);
+    const imageHeight = pixelsToPdfPoints(embeddedImage.height, dpi);
+    const swapsDimensions = orientation === 6 || orientation === 8;
+    const pageWidth = swapsDimensions ? imageHeight : imageWidth;
+    const pageHeight = swapsDimensions ? imageWidth : imageHeight;
     const page = targetPdf.addPage([
         pageWidth,
         pageHeight,
     ]);
 
-    page.drawImage(embeddedImage, {
-        x: 0,
-        y: 0,
-        width: pageWidth,
-        height: pageHeight,
-    });
+    if (orientation === 3) {
+        page.drawImage(embeddedImage, {
+            x: imageWidth,
+            y: imageHeight,
+            width: imageWidth,
+            height: imageHeight,
+            rotate: degrees(180),
+        });
+    } else if (orientation === 6) {
+        page.drawImage(embeddedImage, {
+            x: imageHeight,
+            y: 0,
+            width: imageWidth,
+            height: imageHeight,
+            rotate: degrees(90),
+        });
+    } else if (orientation === 8) {
+        page.drawImage(embeddedImage, {
+            x: 0,
+            y: imageWidth,
+            width: imageWidth,
+            height: imageHeight,
+            rotate: degrees(-90),
+        });
+    } else {
+        page.drawImage(embeddedImage, {
+            x: 0,
+            y: 0,
+            width: imageWidth,
+            height: imageHeight,
+        });
+    }
 
     return 1;
 }
 
+function embedImageIccProfile(targetPdf: PDFDocument, image: PDFImage, profile: Uint8Array | undefined) {
+    if (!profile) {
+        return;
+    }
+    const isGray = profile.byteLength >= 20
+        && String.fromCharCode(...profile.subarray(16, 20)) === 'GRAY';
+    const stream = targetPdf.context.flateStream(profile, {
+        N: isGray ? 1 : 3,
+        Alternate: PDFName.of(isGray ? 'DeviceGray' : 'DeviceRGB'),
+    });
+    const streamRef = targetPdf.context.register(stream);
+    (targetPdf.context.lookup(image.ref) as PDFRawStream).dict.set(
+        PDFName.of('ColorSpace'),
+        targetPdf.context.obj([
+            PDFName.of('ICCBased'),
+            streamRef,
+        ]),
+    );
+}
+
 function normalizeCombineInputPaths(inputPaths: string[]): string[] {
     return inputPaths
-        .map((path) => path.trim())
         .filter((path) => path.length > 0);
+}
+
+function throwIfAborted(signal: AbortSignal | undefined) {
+    if (signal?.aborted) {
+        throw signal.reason instanceof Error
+            ? signal.reason
+            : new DOMException('PDF combine was canceled.', 'AbortError');
+    }
 }
 
 export function isImagePath(filePath: string) {
@@ -453,28 +531,48 @@ function createCombineProgress(
     };
 }
 
+function offsetSourceBookmarks(bookmarks: IPdfBookmarkEntry[], pageOffset: number): IPdfBookmarkEntry[] {
+    return bookmarks.map(bookmark => ({
+        ...bookmark,
+        pageIndex: typeof bookmark.pageIndex === 'number'
+            ? pageOffset + bookmark.pageIndex
+            : bookmark.pageIndex,
+        items: offsetSourceBookmarks(bookmark.items, pageOffset),
+    }));
+}
+
 async function appendPdfPages(
     targetPdf: PDFDocument,
     sourcePath: string,
     currentPageCount: number,
     limits: IPdfCombineResourceLimits,
+    signal?: AbortSignal,
 ) {
     await assertInputByteLimit(sourcePath, limits);
     const sourceBytes = await readFile(sourcePath);
+    throwIfAborted(signal);
     const sourcePdf = await PDFDocument.load(sourceBytes);
     const pageIndices = sourcePdf.getPageIndices();
     assertPageLimit(currentPageCount + pageIndices.length, limits);
 
+    const catalog = inspectPdfCombineCatalog(sourcePdf);
     if (pageIndices.length === 0) {
-        return 0;
+        return {
+            pageCount: 0,
+            ...catalog,
+        };
     }
 
     const copiedPages = await targetPdf.copyPages(sourcePdf, pageIndices);
     for (const page of copiedPages) {
+        throwIfAborted(signal);
         targetPdf.addPage(page);
     }
 
-    return copiedPages.length;
+    return {
+        pageCount: copiedPages.length,
+        ...catalog,
+    };
 }
 
 async function appendBitmapPage(
@@ -482,6 +580,7 @@ async function appendBitmapPage(
     sourcePath: string,
     currentPageCount: number,
     limits: IPdfCombineResourceLimits,
+    signal?: AbortSignal,
 ) {
     assertPageLimit(currentPageCount + 1, limits);
     await assertInputByteLimit(sourcePath, limits);
@@ -490,10 +589,14 @@ async function appendBitmapPage(
         assertKnownBitmapPixelLimit(await readBitmapHeaderPrefix(sourcePath), extension, sourcePath, limits);
     }
     const originalBytes = await readFile(sourcePath);
+    throwIfAborted(signal);
     if (!shouldFailClosedForBitmapHeader(extension)) {
         assertKnownBitmapPixelLimit(originalBytes, extension, sourcePath, limits);
     }
     const dpi = readImageDpi(originalBytes, extension);
+    const orientation = extension === '.jpg' || extension === '.jpeg'
+        ? readJpegExifOrientation(originalBytes)
+        : 1;
 
     let embeddedImage: PDFImage;
     if (extension === '.png') {
@@ -503,9 +606,11 @@ async function appendBitmapPage(
     } else {
         embeddedImage = await targetPdf.embedPng(await normalizeImageWithElectron(sourcePath));
     }
+    embedImageIccProfile(targetPdf, embeddedImage, readImageIccProfile(originalBytes, extension));
     assertPixelLimit(embeddedImage.width, embeddedImage.height, sourcePath, limits);
+    throwIfAborted(signal);
 
-    return appendEmbeddedImagePage(targetPdf, embeddedImage, dpi);
+    return appendEmbeddedImagePage(targetPdf, embeddedImage, dpi, orientation);
 }
 
 async function appendTiffPages(
@@ -513,6 +618,7 @@ async function appendTiffPages(
     sourcePath: string,
     currentPageCount: number,
     limits: IPdfCombineResourceLimits,
+    signal?: AbortSignal,
 ) {
     await assertInputByteLimit(sourcePath, limits);
     const tiffBytes = new Uint8Array(await readFile(sourcePath));
@@ -528,6 +634,7 @@ async function appendTiffPages(
             maxPixels: limits.maxImagePixels,
             sourceLabel: sourcePath,
         })) {
+        throwIfAborted(signal);
         assertPageLimit(currentPageCount + addedPages + 1, limits);
         if (addedPages >= limits.maxTiffFrames) {
             throw new Error(`TIFF frame count is capped at ${limits.maxTiffFrames}: ${sourcePath}`);
@@ -541,6 +648,7 @@ async function appendTiffPages(
             channels: 4,
         });
         const embeddedImage = await targetPdf.embedPng(pngBytes);
+        throwIfAborted(signal);
 
         appendEmbeddedImagePage(targetPdf, embeddedImage, dpi);
         addedPages += 1;
@@ -558,12 +666,13 @@ async function appendImagePages(
     sourcePath: string,
     currentPageCount: number,
     limits: IPdfCombineResourceLimits,
+    signal?: AbortSignal,
 ) {
     const extension = extname(sourcePath).toLowerCase();
     if (extension === '.tif' || extension === '.tiff') {
-        return appendTiffPages(targetPdf, sourcePath, currentPageCount, limits);
+        return appendTiffPages(targetPdf, sourcePath, currentPageCount, limits, signal);
     }
-    return appendBitmapPage(targetPdf, sourcePath, currentPageCount, limits);
+    return appendBitmapPage(targetPdf, sourcePath, currentPageCount, limits, signal);
 }
 
 export async function createCombinedPdf(
@@ -578,34 +687,60 @@ export async function createCombinedPdf(
     const limits = getDefaultResourceLimits();
     assertPageLimit(normalizedPaths.length, limits);
 
-    const nativeOptions = options.onProgress
-        ? {onProgress: options.onProgress}
-        : undefined;
-    const nativeImagePdf = await tryCreatePdfWithNativeImageCombiner(normalizedPaths, nativeOptions);
-    if (nativeImagePdf) {
-        assertOutputLimit(nativeImagePdf, limits);
-        return nativeImagePdf;
+    throwIfAborted(options.signal);
+    if (!options.skipNativeImageCombiner) {
+        const nativeOptions = {
+            ...(options.onProgress ? {onProgress: options.onProgress} : {}),
+            ...(options.signal ? {signal: options.signal} : {}),
+        };
+        const nativeImagePdf = await tryCreatePdfWithNativeImageCombiner(normalizedPaths, nativeOptions);
+        if (nativeImagePdf) {
+            assertOutputLimit(nativeImagePdf, limits);
+            return nativeImagePdf;
+        }
     }
 
     const targetPdf = await PDFDocument.create();
     let pageCount = 0;
+    const sourceOutlines: IPdfBookmarkEntry[] = [];
+    const pageLabelRanges: IPdfCombinePageLabelRange[] = [];
     const startedAt = Date.now();
 
     for (let index = 0; index < normalizedPaths.length; index++) {
+        throwIfAborted(options.signal);
         const sourcePath = normalizedPaths[index]!;
+        const firstPageIndex = pageCount;
+        let sourceBookmarks: IPdfBookmarkEntry[] = [];
         const extension = extname(sourcePath).toLowerCase();
 
         if (extension === '.pdf') {
-            pageCount += await appendPdfPages(targetPdf, sourcePath, pageCount, limits);
+            const appended = await appendPdfPages(targetPdf, sourcePath, pageCount, limits, options.signal);
+            sourceBookmarks = appended.bookmarks;
+            pageLabelRanges.push(...appended.pageLabels.map(range => ({
+                ...range,
+                pageIndex: firstPageIndex + range.pageIndex,
+            })));
+            pageCount += appended.pageCount;
         } else if (isDjvuPath(sourcePath) && options.appendDjvuPages) {
-            const addedPages = await options.appendDjvuPages(targetPdf, sourcePath);
+            const appended = await options.appendDjvuPages(targetPdf, sourcePath);
+            const addedPages = typeof appended === 'number' ? appended : appended.pageCount;
+            sourceBookmarks = typeof appended === 'number' ? [] : appended.bookmarks;
             assertPageLimit(pageCount + addedPages, limits);
             pageCount += addedPages;
         } else if (isImagePath(sourcePath)) {
-            pageCount += await appendImagePages(targetPdf, sourcePath, pageCount, limits);
+            pageCount += await appendImagePages(targetPdf, sourcePath, pageCount, limits, options.signal);
         } else {
             throw new Error(options.unsupportedFileError(sourcePath));
         }
+        sourceOutlines.push({
+            title: basename(sourcePath),
+            pageIndex: firstPageIndex,
+            namedDest: null,
+            bold: false,
+            italic: false,
+            color: null,
+            items: offsetSourceBookmarks(sourceBookmarks, firstPageIndex),
+        });
 
         if (options.onProgress) {
             options.onProgress(createCombineProgress(
@@ -616,11 +751,16 @@ export async function createCombinedPdf(
         }
     }
 
+    throwIfAborted(options.signal);
+
     if (pageCount === 0) {
         throw new Error('No pages were generated from the input files');
     }
+    writePdfBookmarkOutlines(targetPdf, sourceOutlines);
+    applyCombinedPdfPageLabels(targetPdf, pageLabelRanges);
 
     const outputBytes = await targetPdf.save();
+    throwIfAborted(options.signal);
     assertOutputLimit(outputBytes, limits);
     return outputBytes;
 }

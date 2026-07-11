@@ -58,7 +58,7 @@ describe('createOcrPreloadClient', () => {
             ],
         ]) {
             await expect(client.getLanguages()).rejects.toThrow(
-                `Invalid IPC response for ${OCR_CHANNELS.getLanguages}`,
+                'invalid OCR languages IPC result',
             );
         }
     });
@@ -69,7 +69,33 @@ describe('createOcrPreloadClient', () => {
                 if (channel === OCR_CHANNELS.validateTools) {
                     return {
                         valid: true,
-                        tools: {},
+                        tools: {
+                            tesseract: {
+                                found: true,
+                                path: '/tools/tesseract',
+                            },
+                            tessdata: {
+                                found: true,
+                                path: '/tools/tessdata',
+                                languages: ['eng'],
+                            },
+                            pdftoppm: {
+                                found: true,
+                                path: '/tools/pdftoppm',
+                            },
+                            pdftotext: {
+                                found: true,
+                                path: '/tools/pdftotext',
+                            },
+                            popplerRuntime: {
+                                dataDirFound: true,
+                                fontConfigDirFound: true,
+                            },
+                            qpdf: {
+                                found: true,
+                                path: '/tools/qpdf',
+                            },
+                        },
                         errors: [],
                     };
                 }
@@ -132,8 +158,15 @@ describe('createOcrPreloadClient', () => {
             success: true,
             pdfPath: '/tmp/out.pdf',
             sourceDocumentRevisionToken: 'source-revision-token',
+            resultSha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
             requiresCleanupAck: true,
             errors: [],
+            diagnostics: [{
+                code: 'OCR_SOURCE_DPI_LIMITED',
+                severity: 'info',
+                message: 'Source DPI was limited',
+                pageNumber: 1,
+            }],
         });
         listeners.get(OCR_EVENT_CHANNELS.complete)?.({}, {
             requestId: 'ocr-2',
@@ -180,6 +213,11 @@ describe('createOcrPreloadClient', () => {
             requestId: 'ocr-1',
             pdfPath: '/tmp/out.pdf',
             sourceDocumentRevisionToken: 'source-revision-token',
+            resultSha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            diagnostics: [expect.objectContaining({
+                code: 'OCR_SOURCE_DPI_LIMITED',
+                pageNumber: 1,
+            })],
         }));
         expect(completeCallback).toHaveBeenCalledWith(expect.objectContaining({
             requestId: 'ocr-3',

@@ -601,6 +601,25 @@ verify_tool "$DJVU_DIR/bin/ddjvu.exe" "ddjvu"
 verify_tool "$DJVU_DIR/bin/djvused.exe" "djvused"
 verify_tool "$DJVU_DIR/bin/djvudump.exe" "djvudump"
 
+# Treat the current large upstream Windows OCR distribution as an explicit,
+# measured budget. This prevents silent growth while a smaller source-built PE
+# payload remains an evidence-gated follow-up.
+node "$SCRIPT_DIR/release/windows-tesseract-payload-policy.mjs" "$TESSERACT_DIR/bin"
+
+windows_pe_files="$(mktemp)"
+find "$TESSERACT_DIR/bin" "$POPPLER_DIR/bin" "$QPDF_DIR/bin" "$DJVU_DIR/bin" \
+  -type f \( -iname '*.exe' -o -iname '*.dll' \) -print > "$windows_pe_files"
+if [ "${TARGET_ARCH:-x64}" = "arm64" ]; then
+  allowed_pe_machines="arm64"
+else
+  allowed_pe_machines="ia32,x64"
+fi
+node "$SCRIPT_DIR/release/windows-pe-dependencies.mjs" verify \
+  --allowed-machines "$allowed_pe_machines" \
+  --system-dll-pattern-file "$SCRIPT_DIR/win-system-dll-pattern.sh" \
+  --file-list "$windows_pe_files"
+rm -f "$windows_pe_files"
+
 if [ "$missing_count" -gt 0 ]; then
   echo ""
   echo "Error: Bundle verification failed ($missing_count required files missing)"

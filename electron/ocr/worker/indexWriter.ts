@@ -1,10 +1,15 @@
-import {randomUUID} from 'crypto';
 import {
+    createHash,
+    randomUUID,
+} from 'crypto';
+import {
+    cp,
     lstat,
     mkdir,
     readFile,
     realpath,
     rename,
+    rm,
     stat,
     unlink,
     writeFile,
@@ -25,13 +30,18 @@ import type {
     IOcrIndexV3Manifest,
     IOcrIndexV3Page,
 } from '@contracts/ocrIndex';
-import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
+import {
+    decodeOcrPage,
+    parseOcrIndexV3Manifest as decodeOcrIndexV3Manifest,
+} from '@contracts/ocrIndex';
+import type {
+    IDocumentRevisionInfo,
+    TDocumentRevisionToken,
+} from '@contracts/documentRevision';
 import {
     OCR_TEXT_LAYER_INDEX_VERSION,
     buildOcrTextLayerIndexText,
 } from '@contracts/ocrText';
-import { isOcrWord } from '@contracts/shared';
-import { isRecord } from '@contracts/runtimeGuards';
 import {
     COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER,
     loadCompactSearchIndex,
@@ -65,66 +75,8 @@ function isPathInsideAnyBaseDir(baseDirs: string[], candidatePath: string) {
     return baseDirs.some(baseDir => isPathInsideBaseDir(baseDir, candidatePath));
 }
 
-function isDocumentRevisionStamp(value: unknown): value is { token: string } {
-    return isRecord(value)
-        && typeof value.token === 'string'
-        && value.token.length > 0;
-}
-
 function parseOcrIndexV3Manifest(rawManifest: string): IOcrIndexV3Manifest | null {
-    const parsed: unknown = JSON.parse(rawManifest);
-    if (!isRecord(parsed) || !isRecord(parsed.pages) || !isRecord(parsed.source)) {
-        return null;
-    }
-    const pageCount = parsed.pageCount;
-    if (
-        parsed.version !== 3
-        || typeof parsed.source.pdfPath !== 'string'
-        || !isDocumentRevisionStamp(parsed.documentRevision)
-        || typeof pageCount !== 'number'
-        || !Number.isInteger(pageCount)
-        || pageCount <= 0
-    ) {
-        return null;
-    }
-    const pages: IOcrIndexV3Manifest['pages'] = {};
-    for (const [
-        rawPageNumber,
-        rawPageMapping,
-    ] of Object.entries(parsed.pages)) {
-        const pageNumber = parseManifestPageNumber(rawPageNumber);
-        if (
-            pageNumber !== null
-            && isRecord(rawPageMapping)
-            && typeof rawPageMapping.path === 'string'
-            && rawPageMapping.path.length > 0
-        ) {
-            pages[pageNumber] = { path: rawPageMapping.path };
-        }
-    }
-    const parsedOcr = isRecord(parsed.ocr) ? parsed.ocr : null;
-    const parsedLanguages = Array.isArray(parsedOcr?.languages)
-        ? parsedOcr.languages.filter(language => typeof language === 'string')
-        : [];
-    const parsedRenderDpi = typeof parsedOcr?.renderDpi === 'number' && Number.isFinite(parsedOcr.renderDpi)
-        ? parsedOcr.renderDpi
-        : 0;
-    return {
-        version: 3,
-        documentRevision: {token: parsed.documentRevision.token},
-        createdAt: typeof parsed.createdAt === 'number' && Number.isFinite(parsed.createdAt)
-            ? parsed.createdAt
-            : Date.now(),
-        source: { pdfPath: parsed.source.pdfPath },
-        pageCount,
-        pageBox: 'crop',
-        ocr: {
-            engine: 'tesseract',
-            languages: parsedLanguages,
-            renderDpi: parsedRenderDpi,
-        },
-        pages,
-    };
+    return decodeOcrIndexV3Manifest(JSON.parse(rawManifest), 'strict');
 }
 
 async function readExistingOcrIndexV3Manifest(ocrDir: string): Promise<IOcrIndexV3Manifest | null> {
@@ -215,17 +167,6 @@ async function renameIfPresent(sourcePath: string, targetPath: string) {
     }
 }
 
-async function writeUtf8FileAtomically(targetPath: string, content: string) {
-    const tempPath = createUniqueTempPath(targetPath);
-    try {
-        await writeFile(tempPath, content, 'utf-8');
-        await rename(tempPath, targetPath);
-    } catch (error) {
-        await unlinkIfPresent(tempPath);
-        throw error;
-    }
-}
-
 function assertValidOcrPageData(
     ocrPageData: readonly IOcrPageWithWords[],
     pageCount: number,
@@ -264,12 +205,6 @@ async function moveExistingFileAside(filePath: string) {
     }
 }
 
-function ocrWordsOrUndefined(value: unknown) {
-    return Array.isArray(value) && value.every(isOcrWord)
-        ? value
-        : undefined;
-}
-
 function buildOcrSearchText(page: Pick<IOcrPageWithWords, 'text' | 'words'>) {
     if (page.text.length > 0) {
         return page.text;
@@ -305,35 +240,25 @@ function resolveManifestPagePath(
 function parseOcrPageTextPayload(
     payload: unknown,
     expectedPageNumber: number,
-    expectedDocumentRevisionToken: string,
+    expectedDocumentRevisionToken: TDocumentRevisionToken,
 ) {
-    if (!isRecord(payload)) {
+    const page = decodeOcrPage(
+        payload,
+        expectedPageNumber,
+        expectedDocumentRevisionToken,
+        'repair-legacy',
+    );
+    if (!page) {
         return null;
     }
-    if (
-        !isDocumentRevisionStamp(payload.documentRevision)
-        || payload.documentRevision.token !== expectedDocumentRevisionToken
-        || (payload.pageNumber !== undefined && payload.pageNumber !== expectedPageNumber)
-    ) {
-        return null;
-    }
-    if (payload.text !== undefined && typeof payload.text !== 'string') {
-        return null;
-    }
-    if (typeof payload.text === 'string') {
-        return payload.text;
-    }
-    const words = ocrWordsOrUndefined(payload.words);
-    return words && words.length > 0
-        ? buildOcrTextLayerIndexText(words)
-        : '';
+    return page.text || (page.words.length > 0 ? buildOcrTextLayerIndexText(page.words) : '');
 }
 
 async function readOcrPageSearchText(
     ocrDir: string,
     pageMapping: { path: string },
     pageNumber: number,
-    documentRevisionToken: string,
+    documentRevisionToken: TDocumentRevisionToken,
 ) {
     const pagePath = resolveManifestPagePath(ocrDir, pageMapping.path);
     if (!pagePath) {
@@ -352,7 +277,7 @@ async function readOcrPageSearchText(
 
 async function seedSearchSidecarTextsFromExistingCompactIndex(
     workingCopyPath: string,
-    documentRevisionToken: string,
+    documentRevisionToken: TDocumentRevisionToken,
     pageCount: number,
     existingManifestMtimeMs: number | undefined,
 ) {
@@ -361,7 +286,7 @@ async function seedSearchSidecarTextsFromExistingCompactIndex(
         kind: COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER,
         version: OCR_TEXT_LAYER_INDEX_VERSION,
     };
-    const loadOptions: Parameters<typeof loadCompactSearchIndex>[1] = {
+    const loadOptions: NonNullable<Parameters<typeof loadCompactSearchIndex>[1]> = {
         documentRevision: documentRevisionToken,
         requiredTextSource,
     };
@@ -545,10 +470,23 @@ export async function writeOcrIndexV3(
     extractionDpi: number,
     log: TWorkerLog,
     signal?: AbortSignal,
+    stagedResultPdfPath?: string,
 ) {
     throwIfAborted(signal);
     assertValidOcrPageData(ocrPageData, pageCount);
-    const ocrDir = `${workingCopyPath}.ocr`;
+    const liveOcrDir = `${workingCopyPath}.ocr`;
+    const ocrDir = `${stagedResultPdfPath ?? workingCopyPath}.ocr`;
+    if (stagedResultPdfPath) {
+        await rm(ocrDir, {
+            recursive: true,
+            force: true,
+        });
+        await cp(liveOcrDir, ocrDir, {recursive: true}).catch((error: unknown) => {
+            if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'ENOENT') {
+                throw error;
+            }
+        });
+    }
     await mkdir(ocrDir, { recursive: true });
     const manifestPath = join(ocrDir, 'manifest.json');
     const existingManifest = await readExistingOcrIndexV3Manifest(ocrDir);
@@ -570,6 +508,7 @@ export async function writeOcrIndexV3(
         },
         pages: copyPreservedPageMappings(existingManifest, workingCopyPath, pageCount, ocrDir, documentRevision),
     };
+    const generation = randomUUID();
 
     const tempPaths = new Set<string>();
     const backups: Array<{
@@ -600,6 +539,15 @@ export async function writeOcrIndexV3(
                 },
                 text: pd.text,
                 words: pd.words,
+                canonicalText: {
+                    source: 'evb-ocr',
+                    generation,
+                    contentDigest: createHash('sha256').update(JSON.stringify({
+                        pageNumber: pd.pageNumber,
+                        text: pd.text,
+                        words: pd.words,
+                    })).digest('hex'),
+                },
             };
 
             const pagePath = join(ocrDir, pageFile);
@@ -632,15 +580,17 @@ export async function writeOcrIndexV3(
         await rename(tempManifestPath, manifestPath);
         tempPaths.delete(tempManifestPath);
         manifestCommitted = true;
-        await writeCompactSearchIndexForOcr(
-            workingCopyPath,
-            ocrDir,
-            manifest,
-            ocrPageData,
-            existingManifestMtimeMs,
-            log,
-            signal,
-        );
+        if (!stagedResultPdfPath) {
+            await writeCompactSearchIndexForOcr(
+                workingCopyPath,
+                ocrDir,
+                manifest,
+                ocrPageData,
+                existingManifestMtimeMs,
+                log,
+                signal,
+            );
+        }
         publishCommitted = true;
     } catch (error) {
         await Promise.all(Array.from(tempPaths, path => unlinkIfPresent(path)));
@@ -665,26 +615,4 @@ export async function writeOcrIndexV3(
     }
 
     log('debug', `Wrote OCR index v3 to ${ocrDir} with ${ocrPageData.length} pages`);
-}
-
-export async function writeOcrIndexV1(
-    indexPath: string,
-    ocrPageData: IOcrPageWithWords[],
-    pageCount: number,
-) {
-    const indexPageData = ocrPageData.map(pd => ({
-        pageNumber: pd.pageNumber,
-        words: pd.words,
-        text: pd.text,
-        pageWidth: pd.imageWidth,
-        pageHeight: pd.imageHeight,
-    }));
-
-    const indexContent = JSON.stringify({
-        version: 1,
-        pageCount,
-        pages: indexPageData,
-    });
-
-    await writeUtf8FileAtomically(`${indexPath}.index.json`, indexContent);
 }

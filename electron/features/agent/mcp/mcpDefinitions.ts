@@ -8,4 +8,6 @@ export {
     MCP_RESOURCE_TEMPLATES,
     MCP_TOOLS,
     createMcpToolsForCaller,
+    validateMcpToolArguments,
+    validateJsonObjectAgainstSchema,
 } from '@electron/features/agent/mcp/mcpToolDefinitions';

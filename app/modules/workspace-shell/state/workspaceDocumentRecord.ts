@@ -78,10 +78,7 @@ export function createWorkspaceDocumentRecord(
 }
 
 export function createPendingWorkspaceViewState(snapshot: IWorkspaceToolbarSnapshot): ITabViewSessionState {
-    return {
-        ...createTabViewSessionState(snapshot),
-        continuousScroll: true,
-    };
+    return createTabViewSessionState(snapshot);
 }
 
 export function createWorkspaceDocumentRecordFromTab(tab: ITab): IWorkspaceDocumentRecord {

@@ -6,6 +6,7 @@ import type {
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
 import type { ICropMargins } from '@contracts/shared';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { loadWasmWithDeadline } from '@app/platform/browser-api/loadWasmWithDeadline';
 
 interface IPdfPageOpsWasmExports {
     memory: WebAssembly.Memory;
@@ -17,6 +18,9 @@ interface IPdfPageOpsWasmExports {
     evb_pdf_page_ops_error_ptr(): number;
     evb_pdf_page_ops_error_len(): number;
 }
+
+const PDF_PAGE_OPS_WASM_MAX_REQUEST_BYTES = 256 * 1024 * 1024;
+const PDF_PAGE_OPS_WASM_MAX_OUTPUT_BYTES = 512 * 1024 * 1024;
 
 type TBrowserPageOpsWasmRequestType = TBrowserPageOpsWorkerRequestType;
 
@@ -105,12 +109,7 @@ function resolveWasmUrl() {
 async function loadPdfPageOpsWasm() {
     wasmExportsPromise ??= (async () => {
         try {
-            const response = await fetch(resolveWasmUrl());
-            if (!response.ok) {
-                return null;
-            }
-            const bytes = await response.arrayBuffer();
-            const instantiated = await WebAssembly.instantiate(bytes, {});
+            const instantiated = await loadWasmWithDeadline(resolveWasmUrl());
             const instance = 'instance' in instantiated
                 ? instantiated.instance
                 : instantiated;
@@ -400,7 +399,14 @@ export async function tryRunBrowserPageOpsWithWasm<K extends TBrowserPageOpsWasm
             payload,
         } as TBrowserPageOpsWasmRequest);
         requestByteLength = request.byteLength;
+        if (requestByteLength === 0 || requestByteLength > PDF_PAGE_OPS_WASM_MAX_REQUEST_BYTES) {
+            return null;
+        }
         pointer = exports.evb_pdf_page_ops_alloc(requestByteLength);
+        if (pointer === 0) {
+            pointer = null;
+            return null;
+        }
         new Uint8Array(exports.memory.buffer, pointer, request.byteLength).set(request);
         const resultCode = exports.evb_pdf_page_ops_run(pointer, request.byteLength);
         if (resultCode !== 0) {
@@ -410,7 +416,7 @@ export async function tryRunBrowserPageOpsWithWasm<K extends TBrowserPageOpsWasm
 
         const outputPointer = exports.evb_pdf_page_ops_output_ptr();
         const outputLen = exports.evb_pdf_page_ops_output_len();
-        if (outputLen === 0) {
+        if (outputLen === 0 || outputLen > PDF_PAGE_OPS_WASM_MAX_OUTPUT_BYTES) {
             return null;
         }
 

@@ -16,12 +16,12 @@ import {
     highlightTextRunInPdfjsStyle,
     registerTextLayerTextMapping,
 } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
-import { toPageIndex } from '@contracts/pageNumbers';
+import { requirePageIndex } from '@contracts/pageNumbers';
 
 describe('usePdfSearchHighlight', () => {
-    it('remaps stale backend offsets to the rendered text layer', () => {
+    it('keeps backend identity instead of re-finding matches in the rendered layer', () => {
         const pageMatches: IPdfPageMatches = {
-            pageIndex: toPageIndex(0),
+            pageIndex: requirePageIndex(0),
             pageText: '',
             searchQuery: 'alpha',
             searchOptions: {
@@ -43,7 +43,7 @@ describe('usePdfSearchHighlight', () => {
             ],
         };
         const currentMatch: IPdfSearchMatch = {
-            pageIndex: toPageIndex(0),
+            pageIndex: requirePageIndex(0),
             pageMatchIndex: 1,
             matchIndex: 1,
             startOffset: 0,
@@ -54,13 +54,13 @@ describe('usePdfSearchHighlight', () => {
 
         expect(result).toEqual([
             {
-                start: 0,
-                end: 5,
+                start: 6,
+                end: 11,
                 isCurrent: false,
             },
             {
-                start: 11,
-                end: 16,
+                start: 0,
+                end: 5,
                 isCurrent: true,
             },
         ]);
@@ -68,7 +68,7 @@ describe('usePdfSearchHighlight', () => {
 
     it('keeps compatible backend offsets instead of adding extra local matches', () => {
         const pageMatches: IPdfPageMatches = {
-            pageIndex: toPageIndex(0),
+            pageIndex: requirePageIndex(0),
             pageText: '',
             searchQuery: 'alpha',
             matches: [{
@@ -87,9 +87,9 @@ describe('usePdfSearchHighlight', () => {
         }]);
     });
 
-    it('uses offset proximity for the current layer-search fallback when match counts differ', () => {
+    it('drops unmappable backend ranges without inventing layer-local matches', () => {
         const pageMatches: IPdfPageMatches = {
-            pageIndex: toPageIndex(0),
+            pageIndex: requirePageIndex(0),
             pageText: '',
             searchQuery: 'alpha',
             searchOptions: {
@@ -111,7 +111,7 @@ describe('usePdfSearchHighlight', () => {
             ],
         };
         const currentMatch: IPdfSearchMatch = {
-            pageIndex: toPageIndex(0),
+            pageIndex: requirePageIndex(0),
             pageMatchIndex: 1,
             matchIndex: 11,
             startOffset: 12,
@@ -120,23 +120,31 @@ describe('usePdfSearchHighlight', () => {
 
         const result = buildVisualMatchesWithCurrent(pageMatches, currentMatch, 'alpha alpha alpha');
 
-        expect(result).toEqual([
-            {
+        expect(result).toEqual([{
+            start: 12,
+            end: 17,
+            isCurrent: true,
+        }]);
+    });
+
+    it('maps collapsed fake-bold text to one authoritative highlight set', () => {
+        const segment = 'alpha beta gamma delta '.repeat(8);
+        const pageMatches: IPdfPageMatches = {
+            pageIndex: requirePageIndex(0),
+            pageText: segment,
+            searchQuery: 'alpha',
+            matches: [{
+                matchIndex: 0,
                 start: 0,
                 end: 5,
-                isCurrent: false,
-            },
-            {
-                start: 6,
-                end: 11,
-                isCurrent: false,
-            },
-            {
-                start: 12,
-                end: 17,
-                isCurrent: true,
-            },
-        ]);
+            }],
+        };
+
+        expect(buildVisualMatchesWithCurrent(pageMatches, null, segment.repeat(2))).toEqual([{
+            start: 0,
+            end: 5,
+            isCurrent: false,
+        }]);
     });
 });
 

@@ -23,4 +23,13 @@ describe('linux Poppler packaging', () => {
         expect(verifyScript).toContain('check_dir "$native_tool_root/poppler/$platform_arch/etc/fonts" "fontconfig directory"');
         expect(verifyScript).toContain('check_file "$native_tool_root/poppler/$platform_arch/etc/fonts/fonts.conf" "fontconfig configuration"');
     });
+
+    it('builds Linux unpaper against the pinned minimal FFmpeg closure', async () => {
+        const bundleScript = await readFile(resolve(process.cwd(), 'scripts/bundle-tools-linux.sh'), 'utf8');
+
+        expect(bundleScript).not.toMatch(/^\s*unpaper \\$/mu);
+        expect(bundleScript).toContain('build-minimal-ffmpeg-for-unpaper.sh');
+        expect(bundleScript).toContain('Unexpected video-codec closure leaked into the Linux unpaper bundle');
+        expect(bundleScript).toContain('for required_av_library in libavcodec libavformat libavutil');
+    });
 });

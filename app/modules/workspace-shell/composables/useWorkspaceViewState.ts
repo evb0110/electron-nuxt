@@ -85,22 +85,16 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
         return true;
     });
     const canUndoAnnotation = computed(() => (
-        (
-            deps.annotationEditorState.value.hasSomethingToUndo
-            && deps.hasLivePdfJsAnnotationChanges.value
-        )
-        || deps.annotationEditorState.value.hasAppAnnotationUndoHistory === true
+        deps.annotationEditorState.value.hasAppAnnotationUndoHistory === true
         || deps.appAnnotationUndoDepth.value > 0
     ));
     const canRedoAnnotation = computed(() => (
-        (
-            deps.annotationEditorState.value.hasSomethingToRedo
-            && deps.hasLivePdfJsAnnotationChanges.value
-        )
-        || deps.annotationEditorState.value.hasAppAnnotationRedoHistory === true
+        deps.annotationEditorState.value.hasAppAnnotationRedoHistory === true
     ));
-    const canUndo = computed(() => canUndoAnnotation.value || deps.canUndoHistory.value);
-    const canRedo = computed(() => canRedoAnnotation.value || deps.canRedoHistory.value);
+    // The workspace command stack is the sole undo/redo authority. Annotation
+    // state remains exposed for context-sensitive UI, never as a second route.
+    const canUndo = computed(() => deps.canUndoHistory.value);
+    const canRedo = computed(() => deps.canRedoHistory.value);
 
     function handleFitMode(mode: TFitMode) {
         deps.documentViewerRef.value?.cancelProgrammaticNavigation?.();

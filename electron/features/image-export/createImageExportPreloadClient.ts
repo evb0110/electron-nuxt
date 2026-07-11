@@ -14,9 +14,10 @@ import {
     type IImageExportEventMap,
     type IImageExportInvokeMap,
 } from '@electron/features/image-export/index';
+import { IMAGE_EXPORT_IPC_CODECS } from '@electron/features/image-export/imageExportIpcCodecs';
 import {
+    createCodecIpcInvoker,
     createTypedIpcEventSubscriber,
-    createTypedIpcInvoker,
 } from '@electron/preload/ipcClient';
 
 const IMAGE_EXPORT_NATIVE_IPC_TIMEOUT_MS = 30 * 60 * 1000;
@@ -66,7 +67,7 @@ function decodeImageExportProgress(payload: unknown): IImageExportProgress | nul
 export function createImageExportPreloadClient(
     ipcRenderer: IpcRenderer,
 ): IImageExportCapability {
-    const invoke = createTypedIpcInvoker<IImageExportInvokeMap>(ipcRenderer, {invokeTimeoutMsByChannel: IMAGE_EXPORT_INVOKE_TIMEOUT_MS_BY_CHANNEL});
+    const invoke = createCodecIpcInvoker<IImageExportInvokeMap>(ipcRenderer, IMAGE_EXPORT_IPC_CODECS, {invokeTimeoutMsByChannel: IMAGE_EXPORT_INVOKE_TIMEOUT_MS_BY_CHANNEL});
     const eventSubscriber = createTypedIpcEventSubscriber<IImageExportEventMap>(ipcRenderer);
 
     return {
@@ -74,14 +75,16 @@ export function createImageExportPreloadClient(
             workingPath: TDocumentRef,
             pageNumbers?: number[],
             requestId?: string,
+            sourceKind?: 'pdf' | 'djvu',
         ) =>
-            invoke(IMAGE_EXPORT_CHANNELS.exportImages, workingPath, pageNumbers, requestId),
+            invoke(IMAGE_EXPORT_CHANNELS.exportImages, workingPath, pageNumbers, requestId, sourceKind),
         exportPdfToMultiPageTiff: (
             workingPath: TDocumentRef,
             pageNumbers?: number[],
             requestId?: string,
+            sourceKind?: 'pdf' | 'djvu',
         ) =>
-            invoke(IMAGE_EXPORT_CHANNELS.exportMultiPageTiff, workingPath, pageNumbers, requestId),
+            invoke(IMAGE_EXPORT_CHANNELS.exportMultiPageTiff, workingPath, pageNumbers, requestId, sourceKind),
         onProgress: (callback: (progress: IImageExportProgress) => void): (() => void) => {
             const unsubscribe = eventSubscriber.onDecodedPayload(IMAGE_EXPORT_EVENT_CHANNELS.progress, decodeImageExportProgress, callback);
             void invoke(IMAGE_EXPORT_CHANNELS.subscribeProgress);

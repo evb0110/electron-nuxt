@@ -6,7 +6,6 @@ import {
     vi,
 } from 'vitest';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
-import { MAX_DOCUMENT_ALLOCATION_BYTES } from '@contracts/electronApiDocuments';
 
 const mocks = vi.hoisted(() => ({
     stat: vi.fn(),
@@ -237,11 +236,11 @@ describe('createDjvuWorkerFromPath', () => {
         const { createDjvuWorkerFromPath } =
             await import('@app/platform/browser-api/createDjvuWorkerFromPath');
         const ref = 'browser://documents/source/oversized.djvu';
-        mocks.stat.mockResolvedValue({size: MAX_DOCUMENT_ALLOCATION_BYTES + 1});
+        mocks.stat.mockResolvedValue({size: (192 * 1024 * 1024) + 1});
 
         await expect(createDjvuWorkerFromPath(ref))
             .rejects
-            .toThrow(`no greater than ${MAX_DOCUMENT_ALLOCATION_BYTES} bytes`);
+            .toThrow('Browser DjVu processing is limited to 192MB source files');
         expect(mocks.readRange).not.toHaveBeenCalled();
         expect(mocks.createDocument).not.toHaveBeenCalled();
         expect(mocks.terminate).toHaveBeenCalledOnce();

@@ -107,6 +107,7 @@ export interface IRunInitSequenceOptions {
     sweepStaleDefaultAppTempPdfs(): Promise<unknown>;
     sweepStaleManagedScratchTempDirs?: () => Promise<unknown>;
     sweepStaleOcrTempArtifacts?: () => Promise<unknown>;
+    pruneStaleDjvuArtifactJobs?: () => Promise<unknown>;
 }
 
 function createStartupExternalOpenClaimTracker(options: Pick<IRunInitSequenceOptions, 'externalOpenManager' | 'logger'>): IStartupExternalOpenClaimTracker {
@@ -321,10 +322,15 @@ function bootCleanup(options: IRunInitSequenceOptions) {
         sweepStaleDefaultAppTempPdfs,
         sweepStaleManagedScratchTempDirs,
         sweepStaleOcrTempArtifacts,
+        pruneStaleDjvuArtifactJobs,
     } = options;
 
     void sweepStaleDefaultAppTempPdfs().catch((error: unknown) => {
         logger.warn(`Failed to sweep stale default-app temp PDFs: ${String(error)}`);
+    });
+
+    void pruneStaleDjvuArtifactJobs?.().catch((error: unknown) => {
+        logger.warn(`Failed to prune stale DjVu artifact jobs: ${getErrorMessage(error)}`);
     });
 
     void sweepStaleOcrTempArtifacts?.().catch((error: unknown) => {

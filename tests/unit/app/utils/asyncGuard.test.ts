@@ -7,6 +7,7 @@ import {
 } from 'vitest';
 import {
     guardAsync,
+    runDetached,
     runGuardedTask,
 } from '@app/utils/asyncGuard';
 
@@ -65,6 +66,25 @@ describe('asyncGuard', () => {
                 category: 'background-diagnostic',
                 error: expect.objectContaining({ message: 'sync boom' }),
             }),
+        );
+    });
+
+    it('contains failures from intentionally detached tasks', async () => {
+        runDetached(
+            () => Promise.reject(new Error('detached boom')),
+            {
+                category: 'background-diagnostic',
+                scope: 'detached-test',
+                message: 'Detached task failed',
+            },
+        );
+
+        await Promise.resolve();
+
+        expect(loggerSpies.error).toHaveBeenCalledWith(
+            'detached-test',
+            'Detached task failed',
+            expect.objectContaining({error: expect.objectContaining({message: 'detached boom'})}),
         );
     });
 

@@ -10,15 +10,16 @@ import {
 } from '@app/modules/pdf-viewer/thumbnails/resolveThumbnailRenderCoordination';
 
 describe('resolveThumbnailRenderCoordination', () => {
-    it('gives the current page thumbnail viewer-level priority', () => {
+    it('prioritizes the current page thumbnail below main-view rendering', () => {
         const coordination = resolveThumbnailRenderCoordination(7, 7);
 
-        expect(THUMBNAIL_CURRENT_PAGE_RENDER_PRIORITY).toBe(100);
+        expect(THUMBNAIL_CURRENT_PAGE_RENDER_PRIORITY).toBe(80);
         expect(coordination).toEqual({
             owner: 'thumbnail-current',
             priority: THUMBNAIL_CURRENT_PAGE_RENDER_PRIORITY,
         });
         expect(coordination.priority).toBeGreaterThan(THUMBNAIL_BACKGROUND_RENDER_PRIORITY);
+        expect(coordination.priority).toBeLessThan(100);
     });
 
     it('keeps background thumbnail prefetches low priority', () => {

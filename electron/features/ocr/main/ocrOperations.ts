@@ -32,22 +32,27 @@ import {
 } from '@electron/ocr/paths';
 import { runOcr } from '@electron/ocr/runOcr';
 import { createLogger } from '@electron/utils/createLogger';
+import { resolveDocumentTextCatalogSnapshot } from '@electron/ocr/documentTextCatalog';
+import { getOcrLanguageModelStates } from '@electron/ocr/languageModels';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import {
     forEachConcurrent,
     getOcrConcurrency,
     getSequentialProgressPage,
     getTesseractThreadLimit,
 } from '@electron/utils/concurrency';
-import {
-    OCR_QUEUE_MAX_BUFFERED_BYTES,
-    OCR_QUEUE_MAX_SIZE,
-    OCR_WORKER_POOL_SIZE,
-} from '@electron/ocr/jobManager.config';
+import { mainJobBroker } from '@electron/resources/jobBroker';
 import { resolveAllowedReadPath } from '@electron/utils/pathValidator';
 import { requireManagedWorkingCopyPath } from '@electron/file-access/workingCopyCreation';
 import { getErrorMessage } from '@electron/utils/error';
 import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import type { IOcrOperationContext } from '@electron/features/ocr/ports';
+import {
+    registerOcrJobProjectionPolicy,
+    getOcrJobProjection,
+    subscribeOcrJobProjection,
+} from '@electron/ocr/ocrJobProjection';
+import {toScopedOcrJobId} from '@electron/ocr/jobManagerProtocol';
 
 const log = createLogger('ocr-ipc');
 
@@ -58,103 +63,31 @@ class PlainOcrBackpressureError extends Error {
     }
 }
 
-class PlainOcrLimiter {
-    private activeCount = 0;
-    private queuedBytes = 0;
-    private readonly queue: Array<{
-        byteCost: number;
-        resolve: (release: () => void) => void;
-        reject: (error: Error) => void;
-        abortHandler: (() => void) | undefined;
-        signal: AbortSignal;
-    }> = [];
-
-    async run<T>(
-        byteCost: number,
-        signal: AbortSignal,
-        task: () => Promise<T>,
-    ): Promise<T> {
-        const release = await this.acquire(byteCost, signal);
-        try {
-            return await task();
-        } finally {
-            release();
-        }
-    }
-
-    private acquire(byteCost: number, signal: AbortSignal): Promise<() => void> {
-        if (signal.aborted) {
-            return Promise.reject(new Error('Tesseract aborted'));
-        }
-
-        if (this.queue.length === 0 && this.activeCount < OCR_WORKER_POOL_SIZE) {
-            return Promise.resolve(this.createLease());
-        }
-
-        if (this.queue.length >= OCR_QUEUE_MAX_SIZE) {
-            return Promise.reject(new PlainOcrBackpressureError(`OCR queue is full (${OCR_QUEUE_MAX_SIZE} jobs)`));
-        }
-        if (this.queuedBytes + byteCost > OCR_QUEUE_MAX_BUFFERED_BYTES) {
-            return Promise.reject(new PlainOcrBackpressureError(
-                `OCR queued image data exceeds maximum total size (${OCR_QUEUE_MAX_BUFFERED_BYTES} bytes)`,
-            ));
-        }
-
-        return new Promise<() => void>((resolve, reject) => {
-            const entry = {
-                byteCost,
-                resolve,
-                reject,
-                signal,
-                abortHandler: undefined as (() => void) | undefined,
-            };
-            entry.abortHandler = () => {
-                const index = this.queue.indexOf(entry);
-                if (index >= 0) {
-                    this.queue.splice(index, 1);
-                    this.queuedBytes -= byteCost;
-                }
-                reject(new Error('Tesseract aborted'));
-            };
-            this.queue.push(entry);
-            this.queuedBytes += byteCost;
-            signal.addEventListener('abort', entry.abortHandler, { once: true });
-        });
-    }
-
-    private createLease() {
-        this.activeCount += 1;
-        let released = false;
-        return () => {
-            if (released) {
-                return;
-            }
-            released = true;
-            this.activeCount = Math.max(0, this.activeCount - 1);
-            this.dispatch();
-        };
-    }
-
-    private dispatch() {
-        while (this.activeCount < OCR_WORKER_POOL_SIZE && this.queue.length > 0) {
-            const entry = this.queue.shift();
-            if (!entry) {
-                return;
-            }
-            this.queuedBytes -= entry.byteCost;
-            if (entry.abortHandler) {
-                entry.signal?.removeEventListener('abort', entry.abortHandler);
-            }
-            if (entry.signal?.aborted) {
-                entry.reject(new Error('Tesseract aborted'));
-                continue;
-            }
-            entry.resolve(this.createLease());
-        }
+async function runBrokerAdmittedPlainOcr<T>(
+    ownerId: string,
+    byteCost: number,
+    signal: AbortSignal,
+    task: () => Promise<T>,
+) {
+    const lease = await mainJobBroker.acquire({
+        ownerId,
+        kind: 'ocr-recognition',
+        priority: 'user',
+        perOwnerLimit: Math.max(1, getOcrConcurrency(Number.POSITIVE_INFINITY)),
+        resources: {
+            cpuTokens: 1,
+            estimatedResidentBytes: Math.max(16 * 1024 * 1024, byteCost * 4),
+            nativeProcesses: 1,
+            ioWeight: 1,
+        },
+        signal,
+    });
+    try {
+        return await task();
+    } finally {
+        lease.release();
     }
 }
-
-const plainOcrLimiter = new PlainOcrLimiter();
 const plainOcrBatchControllers = new Map<string, AbortController>();
 const plainOcrProgressPumpsBySenderId = new Map<number, ReturnType<typeof createIpcProgressPump<IOcrProgress>>>();
 const plainOcrProgressCleanupSenderIds = new Set<number>();
@@ -220,6 +153,32 @@ export function subscribePlainOcrProgress(context: IOcrOperationContext) {
             payload,
         ),
     });
+}
+
+export function handleGetOcrJobState(context: IOcrOperationContext, requestId: string) {
+    return getOcrJobProjection(context.senderId, validateCancelRequestId(requestId));
+}
+
+export function handleSubscribeOcrJob(context: IOcrOperationContext, requestId: string) {
+    const checkedRequestId = validateCancelRequestId(requestId);
+    const unsubscribe = subscribeOcrJobProjection(context.senderId, checkedRequestId, (state) => {
+        context.sender.send(OCR_EVENT_CHANNELS.progress, {
+            requestId: checkedRequestId,
+            currentPage: 0,
+            processedCount: state.current ?? 0,
+            totalPages: state.total ?? 0,
+            status: state.status === 'completed'
+                ? 'success'
+                : state.status === 'canceled'
+                    ? 'canceled'
+                    : state.status === 'failed'
+                        ? 'failed'
+                        : 'running',
+            ...(state.error ? {error: state.error} : {}),
+        });
+    });
+    context.sender.once('destroyed', unsubscribe);
+    return getOcrJobProjection(context.senderId, checkedRequestId);
 }
 
 function createOcrJobManagerContext(context: IOcrOperationContext): TOcrJobManagerContext {
@@ -313,7 +272,8 @@ export async function handleOcrRecognize(
         const request = validateRecognizeRequest(requestPayload);
         pageNumber = request.pageNumber;
         const imageBuffer = Buffer.from(request.imageData);
-        const result = await plainOcrLimiter.run(
+        const result = await runBrokerAdmittedPlainOcr(
+            `ocr-recognize:${context.senderId}`,
             imageBuffer.byteLength,
             senderAbort.signal,
             () => runOcr(imageBuffer, request.languages, {signal: senderAbort.signal}),
@@ -398,7 +358,8 @@ export async function handleOcrRecognizeBatch(
                 const imageBuffer = Buffer.from(page.imageData);
 
                 try {
-                    const result = await plainOcrLimiter.run(
+                    const result = await runBrokerAdmittedPlainOcr(
+                        `ocr-batch:${scopedBatchId}`,
                         imageBuffer.byteLength,
                         senderAbort.signal,
                         () => runOcr(imageBuffer, page.languages, {
@@ -456,8 +417,27 @@ export async function handleOcrRecognizeBatch(
     }
 }
 
-export function handleOcrGetLanguages() {
-    return AVAILABLE_OCR_LANGUAGES;
+export async function handleOcrGetLanguages() {
+    const modelStates = new Map(
+        (await getOcrLanguageModelStates()).map(item => [
+            item.code,
+            item.state,
+        ]),
+    );
+    return AVAILABLE_OCR_LANGUAGES.map(language => ({
+        ...language,
+        modelState: modelStates.get(language.code) ?? 'missing',
+    }));
+}
+
+export async function handleResolveDocumentTextCatalog(
+    context: IOcrOperationContext,
+    workingCopyPath: string,
+    documentRevision: TDocumentRevisionToken,
+    pageCount?: number,
+) {
+    const resolvedPath = await validateOcrSourcePdfPath(workingCopyPath, context.senderId);
+    return resolveDocumentTextCatalogSnapshot(resolvedPath, documentRevision, pageCount);
 }
 
 export async function handleOcrValidateTools() {
@@ -554,6 +534,11 @@ export async function handleOcrCreateSearchablePdf(
         jobId = payload.requestId;
         const validatedSourcePdfPath = await validateOcrSourcePdfPath(payload.sourcePdfPath, context.senderId);
         const jobManagerContext = createOcrJobManagerContext(context);
+        registerOcrJobProjectionPolicy(
+            toScopedOcrJobId(context.senderId, payload.requestId),
+            payload.options.supersessionPolicy ?? 'missing-only',
+            payload.options.replaceAllAcknowledged === true,
+        );
         const result = await handleOcrCreateSearchablePdfAsync(
             jobManagerContext,
             validatedSourcePdfPath,

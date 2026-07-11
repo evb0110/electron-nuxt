@@ -36,8 +36,8 @@ defineProps<{ provider: TAgentAssistantProviderId; }>();
 <style scoped>
 .assistant-provider-icon {
     display: inline-block;
-    width: 1em;
-    height: 1em;
+    width: var(--app-assistant-provider-icon-size);
+    height: var(--app-assistant-provider-icon-size);
     flex: 0 0 auto;
 }
 </style>

@@ -2,7 +2,10 @@
     <UModal
         v-model:open="open"
         :title="t('settings.title')"
-        :ui="{ footer: 'justify-end' }"
+        :ui="{
+            content: 'w-[min(var(--app-settings-dialog-width),var(--app-floating-panel-viewport-width))] max-w-none',
+            footer: 'justify-end',
+        }"
     >
         <template #description>
             <span class="sr-only">

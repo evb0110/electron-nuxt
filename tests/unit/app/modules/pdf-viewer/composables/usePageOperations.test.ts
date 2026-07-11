@@ -8,6 +8,8 @@ import {
 import { ref } from 'vue';
 import { usePageOperations } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageOperations';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import {requireDocumentRevisionToken} from '@contracts';
 
 const pageOpsApi = {
     delete: vi.fn(),
@@ -80,13 +82,14 @@ function deferred<T>() {
 }
 
 function createHarness(path: string | null = '/tmp/work.pdf', options: {
-    documentRevisionToken?: string | null;
+    documentRevisionToken?: TDocumentRevisionToken | null;
     ensureHistoryBaselineForExternalMutation?: () => Promise<boolean>;
+    materializeAnnotationsForPageMutation?: () => Promise<boolean>;
     ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
     runWithDocumentOperationLease?: <T>(kind: TDocumentOperationKind, operation: () => Promise<T>) => Promise<T>;
 } = {}) {
     const workingCopyPath = ref<string | null>(path);
-    const documentRevisionToken = ref<string | null>(options.documentRevisionToken ?? null);
+    const documentRevisionToken = ref<TDocumentRevisionToken | null>(options.documentRevisionToken ?? null);
     const ensureHistoryBaselineForExternalMutation = options.ensureHistoryBaselineForExternalMutation
         ? vi.fn(options.ensureHistoryBaselineForExternalMutation)
         : vi.fn(async () => true);
@@ -98,6 +101,9 @@ function createHarness(path: string | null = '/tmp/work.pdf', options: {
         workingCopyPath,
         documentRevisionToken,
         ensureHistoryBaselineForExternalMutation,
+        ...(options.materializeAnnotationsForPageMutation
+            ? {materializeAnnotationsForPageMutation: options.materializeAnnotationsForPageMutation}
+            : {}),
         reloadWorkingCopyIntoHistory,
         clearOcrCache,
         resetSearchCache,
@@ -124,6 +130,54 @@ beforeEach(() => {
 });
 
 describe('usePageOperations', () => {
+    it.each([
+        {
+            name: 'rotate',
+            api: 'rotate' as const,
+            invoke: (pageOps: ReturnType<typeof usePageOperations>) => pageOps.rotatePages([1], 3, 90),
+        },
+        {
+            name: 'delete',
+            api: 'delete' as const,
+            invoke: (pageOps: ReturnType<typeof usePageOperations>) => pageOps.deletePages([2], 3),
+        },
+        {
+            name: 'reorder',
+            api: 'reorder' as const,
+            invoke: (pageOps: ReturnType<typeof usePageOperations>) => pageOps.reorderPages([
+                3,
+                1,
+                2,
+            ]),
+        },
+    ])('materializes live annotations before $name and preserves the materialized reload frontier', async ({
+        api,
+        invoke,
+    }) => {
+        const callOrder: string[] = [];
+        const materializeAnnotationsForPageMutation = vi.fn(async () => {
+            callOrder.push('materialize-and-reload');
+            return true;
+        });
+        pageOpsApi[api].mockImplementation(async () => {
+            callOrder.push(api);
+            return {success: true};
+        });
+        const {
+            pageOps,
+            reloadWorkingCopyIntoHistory,
+        } = createHarness('/tmp/work.pdf', {materializeAnnotationsForPageMutation});
+
+        await expect(invoke(pageOps)).resolves.toBe(true);
+
+        expect(callOrder).toEqual([
+            'materialize-and-reload',
+            api,
+        ]);
+        expect(materializeAnnotationsForPageMutation).toHaveBeenCalledOnce();
+        expect(reloadWorkingCopyIntoHistory).toHaveBeenCalledWith({markDirty: true});
+    });
+
     it('runs mutating operations through shared progress/reload flow', async () => {
         const {
             pageOps,
@@ -468,7 +522,7 @@ describe('usePageOperations', () => {
                     4,
                 ],
                 10,
-                { expectedDocumentRevisionToken: 'rev-after-baseline' },
+                { expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-after-baseline') },
             ],
             invoke: (pageOps: ReturnType<typeof usePageOperations>) => pageOps.deletePages([
                 2,
@@ -486,7 +540,7 @@ describe('usePageOperations', () => {
                 ],
                 10,
                 90,
-                { expectedDocumentRevisionToken: 'rev-after-baseline' },
+                { expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-after-baseline') },
             ],
             invoke: (pageOps: ReturnType<typeof usePageOperations>) => pageOps.rotatePages([
                 2,
@@ -500,7 +554,7 @@ describe('usePageOperations', () => {
                 '/tmp/work.pdf',
                 10,
                 4,
-                { expectedDocumentRevisionToken: 'rev-after-baseline' },
+                { expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-after-baseline') },
             ],
             invoke: (pageOps: ReturnType<typeof usePageOperations>) => pageOps.insertPages(10, 4),
             name: 'insert blank',
@@ -513,7 +567,7 @@ describe('usePageOperations', () => {
                 4,
                 ['browser://documents/source.pdf'],
                 undefined,
-                { expectedDocumentRevisionToken: 'rev-after-baseline' },
+                { expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-after-baseline') },
             ],
             invoke: (pageOps: ReturnType<typeof usePageOperations>) => pageOps.insertFile(10, 4, ['browser://documents/source.pdf']),
             name: 'insert file',
@@ -527,7 +581,7 @@ describe('usePageOperations', () => {
                     1,
                     2,
                 ],
-                { expectedDocumentRevisionToken: 'rev-after-baseline' },
+                { expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-after-baseline') },
             ],
             invoke: (pageOps: ReturnType<typeof usePageOperations>) => pageOps.reorderPages([
                 3,
@@ -551,7 +605,7 @@ describe('usePageOperations', () => {
                     left: 6,
                     right: 4,
                 },
-                { expectedDocumentRevisionToken: 'rev-after-baseline' },
+                { expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-after-baseline') },
             ],
             invoke: (pageOps: ReturnType<typeof usePageOperations>) => pageOps.cropPages([
                 2,
@@ -573,7 +627,7 @@ describe('usePageOperations', () => {
                     4,
                 ],
                 10,
-                { expectedDocumentRevisionToken: 'rev-after-baseline' },
+                { expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-after-baseline') },
             ],
             invoke: (pageOps: ReturnType<typeof usePageOperations>) => pageOps.removeCrop([
                 2,
@@ -587,16 +641,16 @@ describe('usePageOperations', () => {
         invoke,
     }) => {
         const baselineGate = deferred<boolean>();
-        let updateRevisionToken: ((value: string) => void) | null = null;
+        let updateRevisionToken: ((value: TDocumentRevisionToken) => void) | null = null;
         const ensureWorkingCopyFreshForRead = vi.fn(async () => {
-            updateRevisionToken?.('rev-after-save');
+            updateRevisionToken?.(requireDocumentRevisionToken('rev-after-save'));
             return true;
         });
         const {
             pageOps,
             documentRevisionToken,
         } = createHarness('/tmp/work.pdf', {
-            documentRevisionToken: 'rev-before-save',
+            documentRevisionToken: requireDocumentRevisionToken('rev-before-save'),
             ensureWorkingCopyFreshForRead,
             ensureHistoryBaselineForExternalMutation: () => baselineGate.promise,
         });
@@ -611,7 +665,7 @@ describe('usePageOperations', () => {
 
         expect(pageOpSpy).not.toHaveBeenCalled();
 
-        documentRevisionToken.value = 'rev-after-baseline';
+        documentRevisionToken.value = requireDocumentRevisionToken('rev-after-baseline');
         baselineGate.resolve(true);
 
         await expect(operationPromise).resolves.toBe(true);

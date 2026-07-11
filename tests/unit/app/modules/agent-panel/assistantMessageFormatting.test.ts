@@ -3,7 +3,11 @@ import {
     expect,
     it,
 } from 'vitest';
-import { formatAssistantMessage } from '@app/modules/agent-panel/utils/formatAssistantMessage';
+import {
+    createStreamingAssistantMessageFormatter,
+    formatAssistantMessage,
+} from '@app/modules/agent-panel/utils/formatAssistantMessage';
+import { highlightAssistantCode } from '@app/modules/agent-panel/utils/highlightAssistantCode';
 
 describe('assistantMessageFormatting', () => {
     it('preserves plain text while splitting inline code spans', () => {
@@ -157,5 +161,62 @@ describe('assistantMessageFormatting', () => {
             language: 'json',
             code: '{"ok": true}',
         }]);
+    });
+
+    it('renders tables and incrementally preserves committed blocks while streaming', () => {
+        expect(formatAssistantMessage('| Name | State |\n| --- | --- |\n| OCR | Ready |')).toEqual([{
+            kind: 'table',
+            rows: [
+                [
+                    [{
+                        kind: 'text',
+                        text: 'Name',
+                    }],
+                    [{
+                        kind: 'text',
+                        text: 'State',
+                    }],
+                ],
+                [
+                    [{
+                        kind: 'text',
+                        text: 'OCR',
+                    }],
+                    [{
+                        kind: 'text',
+                        text: 'Ready',
+                    }],
+                ],
+            ],
+        }]);
+
+        const formatter = createStreamingAssistantMessageFormatter();
+        const first = formatter.format('First paragraph.\n\nSecond');
+        const second = formatter.format('First paragraph.\n\nSecond paragraph.');
+        expect(first).toHaveLength(2);
+        expect(second).toHaveLength(2);
+        expect(second[0]).toBe(first[0]);
+    });
+
+    it('syntax-highlights code as escaped text tokens without producing HTML', () => {
+        const source = 'const unsafe = "<img onerror=alert(1)>"; // safe text';
+        const tokens = highlightAssistantCode(source, 'ts');
+
+        expect(tokens.map(token => token.text).join('')).toBe(source);
+        expect(tokens).toEqual(expect.arrayContaining([
+            {
+                kind: 'keyword',
+                text: 'const',
+            },
+            {
+                kind: 'literal',
+                text: '"<img onerror=alert(1)>"',
+            },
+            {
+                kind: 'comment',
+                text: '// safe text',
+            },
+        ]));
+        expect(tokens.some(token => token.text.includes('<img'))).toBe(true);
     });
 });

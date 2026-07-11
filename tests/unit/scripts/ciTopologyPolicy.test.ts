@@ -115,12 +115,14 @@ describe('CI topology policy', () => {
         const packageJson = await readProjectFile('package.json');
         const prQuality = workflowJob(workflow, 'pr_quality');
 
-        expect(workflow).not.toContain('push:');
+        expect(workflow).toContain('push:');
+        expect(workflow).toContain('branches:');
+        expect(workflow).toContain('- main');
         expect(workflow).toContain('schedule:');
         expect(workflow).toContain('workflow_dispatch:');
         expect(workflow).toContain('pull_request:');
-        expect(workflow).toContain('name: Pull Request Quality Gates');
-        expect(prQuality).toContain('if: ${{ github.event_name == \'pull_request\' }}');
+        expect(workflow).toContain('name: Quality Gates');
+        expect(prQuality).toContain('if: ${{ github.event_name == \'pull_request\' || github.event_name == \'push\' }}');
         expect(prQuality).toContain('run: node scripts/ci-install-dependencies.mjs --frozen-lockfile');
         expect(prQuality).toContain('run: pnpm run lint');
         expect(prQuality).not.toContain('run: pnpm run check:static:reports');
@@ -130,6 +132,7 @@ describe('CI topology policy', () => {
         expect(packageJson).toContain('"lint:style": "stylelint \\"app/**/*.{vue,scss,css}\\""');
         expect(packageJson).toContain('"check:static:fast": "pnpm run check:platform-api-generated');
         expect(packageJson).toContain('pnpm run check:native-tool-protocols');
+        expect(packageJson).toContain('"validate": "pnpm run lint && pnpm run check:layout-tokens');
         expect(packageJson).toContain('"check:static:reports": "pnpm run check:platform-manifest-consumers"');
         expect(packageJson).toContain('"check:static:assets": "pnpm run check:web-deploy-source && pnpm run check:ocr-language-model-registry && pnpm run check:vendor-sync"');
         expect(prQuality).toContain('run: pnpm run typecheck');
@@ -143,7 +146,8 @@ describe('CI topology policy', () => {
         expect(prQuality).not.toContain('rustup target add');
         expect(prQuality).not.toContain('run: pnpm run build:strict');
         expect(prQuality).not.toContain('run: pnpm run build:strict:no-wasm-check');
-        expect(prQuality).not.toContain('run: pnpm run test:coverage');
+        expect(prQuality).toContain('run: pnpm run test:coverage');
+        expect(prQuality).toContain('if: ${{ github.event_name == \'push\' }}');
         expect(prQuality).not.toContain('run: pnpm run test:rust');
         expect(prQuality).not.toContain('run: pnpm run test:e2e');
         expect(prQuality).not.toContain('run: pnpm run test:e2e:electron:large');
@@ -160,18 +164,20 @@ describe('CI topology policy', () => {
         expect(packageJson).not.toMatch(/"gate:commit":\s*"[^"]*coverage/u);
     });
 
-    it('keeps native and landing PR checks path-filtered from checked-in policy', async () => {
+    it('keeps native and landing PR and push checks path-filtered from checked-in policy', async () => {
         const workflow = await readProjectFile('.github/workflows/ci.yml');
         const testsTsconfig = await readTsConfigJsonWithGlobs('tests/tsconfig.json');
         const sharedVitestConfig = await readProjectFile('vitest.shared.config.ts');
 
-        expect(workflow).not.toContain('github.event_name == \'push\'');
-        expect(workflow).toContain('name: Pull Request Changed Area Detection');
-        expect(workflowJob(workflow, 'pr_changed_areas')).toContain('run: node scripts/ci/classify-changed-areas.mjs');
+        expect(workflowJob(workflow, 'pr_changed_areas')).toContain('if: ${{ github.event_name == \'pull_request\' || github.event_name == \'push\' }}');
+        expect(workflow).toContain('name: Changed Area Detection');
+        expect(workflowJob(workflow, 'pr_changed_areas'))
+            .toContain('node scripts/ci/classify-changed-areas.mjs --base="$base_sha" --head="$head_sha"');
+        expect(workflowJob(workflow, 'pr_changed_areas')).toContain('PUSH_BEFORE_SHA: ${{ github.event.before }}');
         expect(workflowJob(workflow, 'pr_changed_areas')).toContain('fetch-depth: 0');
         expect(workflowJob(workflow, 'pr_changed_areas')).not.toContain('dorny/paths-filter');
         expect(workflowJob(workflow, 'pr_changed_areas')).not.toContain('native/**');
-        expect(workflow).toContain('name: Pull Request Native And Build Safety');
+        expect(workflow).toContain('name: Native And Build Safety');
         expect(workflowJob(workflow, 'pr_native_build_safety')).toContain('needs: pr_changed_areas');
         expect(workflowJob(workflow, 'pr_native_build_safety')).toContain('needs.pr_changed_areas.outputs.native_or_build == \'true\'');
         expect(workflowJob(workflow, 'pr_native_build_safety')).toContain('run: pnpm run test:rust');
@@ -182,7 +188,7 @@ describe('CI topology policy', () => {
         expect(workflowJob(workflow, 'manual_native')).toContain('if: ${{ github.event_name == \'workflow_dispatch\' }}');
         expect(workflowJob(workflow, 'manual_native')).toContain('run: pnpm run test:rust');
         expect(workflow).toContain('name: Landing Quality Gates');
-        expect(workflow).toContain('name: Pull Request Landing Quality Gates');
+        expect(workflow).toContain('name: Landing Quality Gates For Changed Sources');
         expect(workflowJob(workflow, 'pr_landing_quality')).toContain('needs.pr_changed_areas.outputs.landing == \'true\'');
         expect(workflowJob(workflow, 'pr_landing_quality')).toContain('run: pnpm --dir landing run check:vendor');
         expect(workflowJob(workflow, 'pr_landing_quality')).toContain('run: pnpm --dir landing run lint');
@@ -230,6 +236,13 @@ describe('CI topology policy', () => {
         expect(dmgNotarizationStep).toContain('bash scripts/release/import-macos-codesign-certificate.sh');
         expect(dmgNotarizationStep).toContain('node scripts/release/notarize-macos-dmgs.mjs release');
         expect(workflow).toContain('::error::Partial WIN_CSC_* secrets detected; set both WIN_CSC_LINK and WIN_CSC_KEY_PASSWORD or neither');
+        expect(workflow).toContain('name: Verify packaged Linux x64 core PDF journey');
+        expect(workflow).toContain('if: runner.os == \'Linux\' && matrix.arch == \'x64\'');
+        expect(workflow).toContain('xvfb-run -a pnpm run test:packaged-core-pdf-smoke -- --executable release/linux-unpacked/evb-viewer');
+        expect(workflow).toContain('pnpm run test:packaged-core-pdf-smoke -- --executable "release/win-unpacked/EVB Viewer.exe"');
+        expect(workflow).toContain('unpacked_dir="win-arm64-unpacked"');
+        expect(workflow).toContain('"release/${unpacked_dir}/resources/app.asar"');
+        expect(workflow).toContain('pnpm run test:packaged-core-pdf-smoke -- --executable "release/mac-arm64/EVB Viewer.app/Contents/MacOS/EVB Viewer"');
         expect(macSigningScript).toContain('if [ "${CI:-}" = "true" ]; then');
         expect(macSigningScript).toContain('::error::$message');
         expect(macSigningScript).toContain('Partial macOS signing credentials detected; set both CSC_LINK and CSC_KEY_PASSWORD or neither');
@@ -251,7 +264,11 @@ describe('CI topology policy', () => {
         expect(qualityJob).toContain('run: rustup target add wasm32-unknown-unknown');
         expect(qualityJob).toContain('EVB_NATIVE_TOOLS_ALLOW_HOST_CI_GEN: \'1\'');
         expect(qualityJob).toContain('run: pnpm run release:verify:checks');
-        expect(workflowJob(releaseWorkflow, 'publish')).toContain('gh release create "$RELEASE_TAG" artifacts/* --generate-notes --target "$TARGET_SHA"');
+        const publishJob = workflowJob(releaseWorkflow, 'publish');
+        expect(publishJob).toContain('gh release create "$RELEASE_TAG" artifacts/* --draft --generate-notes --target "$TARGET_SHA"');
+        expect(publishJob).toContain('gh release download "$RELEASE_TAG" --dir downloaded-assets');
+        expect(publishJob).toContain('sha256sum "$source"');
+        expect(publishJob).toContain('gh release edit "$RELEASE_TAG" --draft=false');
     });
 
     it('keeps artifact-only release builds reusable and non-publishing', async () => {
@@ -360,23 +377,30 @@ describe('CI topology policy', () => {
         const packageJson = await readProjectFile('package.json');
         const vitestConfig = await readProjectFile('vitest.config.ts');
         const sharedVitestConfig = await readProjectFile('vitest.shared.config.ts');
-        const baseline = await readProjectFile('coverage-baseline.json');
 
         expect(workflow).toContain('run: pnpm run test:coverage');
         expectNoExactRunStep(workflowJob(workflow, 'manual_quality'), 'pnpm run test:unit');
         expectNoExactRunStep(workflowJob(workflow, 'nightly_maintenance'), 'pnpm run test:unit');
-        expect(packageJson).toContain('"test:coverage": "pnpm run test:coverage:run && pnpm run check:coverage-ratchet"');
+        expect(packageJson).toContain('"test:coverage": "pnpm run test:coverage:run && pnpm run check:coverage:zero-execution"');
         expect(packageJson).toContain('"test:coverage:run": "vitest run --coverage --project unit-core --project unit-app --project unit-electron --project unit-scripts --project unit-policy"');
         expect(packageJson).not.toContain('"test:coverage:run": "vitest run --coverage --project unit"');
-        expect(packageJson).toContain('"check:coverage-ratchet": "pnpm exec tsx scripts/checkCoverageRatchet.ts"');
+        expect(packageJson).toContain('"check:coverage:zero-execution": "pnpm exec tsx scripts/checkZeroExecutionCoverage.ts"');
         expect(vitestConfig).toContain('provider: \'v8\'');
+        expect(vitestConfig).toContain('include: [');
+        expect(vitestConfig).toContain('\'electron/platform-ipc/**/*.ts\'');
+        expect(vitestConfig).toContain('\'packages/contracts/**/*.ts\'');
         expect(vitestConfig).toContain('\'json-summary\'');
         expect(vitestConfig).toContain('slowTestThreshold: unitSlowTestThresholdMs');
         expect(sharedVitestConfig).toContain('unitSlowTestThresholdMs = 300');
-        expect(vitestConfig).not.toContain('thresholds:');
+        expect(vitestConfig).toContain('thresholds:');
+        expect(vitestConfig).toContain('statements: 65');
+        expect(vitestConfig).toContain('branches: 66');
+        expect(vitestConfig).toContain('functions: 76');
+        expect(vitestConfig).toContain('lines: 66');
         expect(vitestConfig).not.toContain('explicitImportOnlyFiles');
         expect(vitestConfig).not.toContain('app/composables/page/**/*.ts');
-        expect(baseline).toContain('"tolerancePercentagePoints": 0.5');
+        expect(packageJson).not.toContain('coverage-ratchet');
+        expect(existsSync(path.join(process.cwd(), 'coverage-baseline.json'))).toBe(false);
     });
 
     it('keeps mock-based module tests in the unit tree', async () => {

@@ -1,8 +1,21 @@
-import type { TPageNumber } from '@contracts/pageNumbers';
+import {
+    parsePageNumber,
+    type TPageNumber,
+} from '@contracts/pageNumbers';
 import type { TOcrIndexRotation } from '@contracts/ocrIndex';
-import type { IOcrWord } from '@contracts/shared';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import {
+    isOcrWord,
+    type IOcrWord,
+} from '@contracts/shared';
+import {
+    parseDocumentRevisionToken,
+    type TDocumentRevisionToken,
+} from '@contracts/documentRevision';
 import { isRecord } from '@contracts/runtimeGuards';
+
+/** Shared user-visible search limits. Keep every runtime on these values. */
+export const SEARCH_RESULT_LIMIT = 500;
+export const SEARCH_EXCERPT_CONTEXT_CHARS = 56;
 
 export interface IPdfSearchExcerpt {
     prefix: boolean;
@@ -37,6 +50,99 @@ export interface IPdfSearchResponse {
     truncated: boolean;
     canceled?: boolean;
 }
+
+function decodeSearchExcerpt(value: unknown): IPdfSearchExcerpt | null {
+    if (
+        !isRecord(value)
+        || typeof value.prefix !== 'boolean'
+        || typeof value.suffix !== 'boolean'
+        || typeof value.before !== 'string'
+        || typeof value.match !== 'string'
+        || typeof value.after !== 'string'
+    ) {
+        return null;
+    }
+    return {
+        prefix: value.prefix,
+        suffix: value.suffix,
+        before: value.before,
+        match: value.match,
+        after: value.after,
+    };
+}
+
+function decodeSearchResult(value: unknown, pageCount?: number): IPdfSearchResult | null {
+    if (!isRecord(value)) {
+        return null;
+    }
+    const pageNumber = typeof value.pageNumber === 'number'
+        ? parsePageNumber(value.pageNumber, pageCount)
+        : null;
+    const excerpt = decodeSearchExcerpt(value.excerpt);
+    const isNonNegativeInteger = (candidate: unknown): candidate is number => (
+        typeof candidate === 'number'
+        && Number.isSafeInteger(candidate)
+        && candidate >= 0
+    );
+    if (
+        pageNumber === null
+        || !isNonNegativeInteger(value.pageMatchIndex)
+        || !isNonNegativeInteger(value.matchIndex)
+        || !isNonNegativeInteger(value.startOffset)
+        || !isNonNegativeInteger(value.endOffset)
+        || value.endOffset < value.startOffset
+        || excerpt === null
+        || (value.words !== undefined && (!Array.isArray(value.words) || !value.words.every(isOcrWord)))
+        || (value.pageWidth !== undefined && (typeof value.pageWidth !== 'number' || !Number.isFinite(value.pageWidth) || value.pageWidth <= 0))
+        || (value.pageHeight !== undefined && (typeof value.pageHeight !== 'number' || !Number.isFinite(value.pageHeight) || value.pageHeight <= 0))
+        || (value.rotation !== undefined && value.rotation !== 0 && value.rotation !== 90 && value.rotation !== 180 && value.rotation !== 270)
+    ) {
+        return null;
+    }
+    return {
+        pageNumber,
+        pageMatchIndex: value.pageMatchIndex,
+        matchIndex: value.matchIndex,
+        startOffset: value.startOffset,
+        endOffset: value.endOffset,
+        excerpt,
+        ...(value.words === undefined ? {} : {words: value.words}),
+        ...(value.pageWidth === undefined ? {} : {pageWidth: value.pageWidth}),
+        ...(value.pageHeight === undefined ? {} : {pageHeight: value.pageHeight}),
+        ...(value.rotation === undefined ? {} : {rotation: value.rotation}),
+    };
+}
+
+function decodeSearchResponse(value: unknown, pageCount?: number): IPdfSearchResponse | null {
+    if (
+        !isRecord(value)
+        || !Array.isArray(value.results)
+        || typeof value.truncated !== 'boolean'
+        || (value.canceled !== undefined && typeof value.canceled !== 'boolean')
+    ) {
+        return null;
+    }
+    const results: IPdfSearchResult[] = [];
+    for (const result of value.results) {
+        const decoded = decodeSearchResult(result, pageCount);
+        if (decoded === null) {
+            return null;
+        }
+        results.push(decoded);
+    }
+    return {
+        results,
+        truncated: value.truncated,
+        ...(value.canceled === undefined ? {} : {canceled: value.canceled}),
+    };
+}
+
+/** The sole runtime decoder for search results crossing worker, IPC, or native boundaries. */
+export const SEARCH_WIRE_CODEC = {
+    decodeExcerpt: decodeSearchExcerpt,
+    decodeResult: decodeSearchResult,
+    decodeResponse: decodeSearchResponse,
+} as const;
 
 export interface IPdfSearchProgress {
     requestId: string;
@@ -109,6 +215,58 @@ export interface IResolvedSearchMatchOptions {
     useRegex: boolean;
 }
 
+/** Exhaustive option semantics; consumers must not invent additional combinations. */
+export const SEARCH_OPTION_SEMANTICS = [
+    {
+        matchCase: false,
+        wholeWord: false,
+        useRegex: false,
+        matcher: 'literal-unicode-fold',
+    },
+    {
+        matchCase: true,
+        wholeWord: false,
+        useRegex: false,
+        matcher: 'literal-exact',
+    },
+    {
+        matchCase: false,
+        wholeWord: true,
+        useRegex: false,
+        matcher: 'literal-unicode-fold-boundary',
+    },
+    {
+        matchCase: true,
+        wholeWord: true,
+        useRegex: false,
+        matcher: 'literal-exact-boundary',
+    },
+    {
+        matchCase: false,
+        wholeWord: false,
+        useRegex: true,
+        matcher: 'regex-unicode-fold',
+    },
+    {
+        matchCase: true,
+        wholeWord: false,
+        useRegex: true,
+        matcher: 'regex-exact',
+    },
+    {
+        matchCase: false,
+        wholeWord: true,
+        useRegex: true,
+        matcher: 'regex-unicode-fold-boundary',
+    },
+    {
+        matchCase: true,
+        wholeWord: true,
+        useRegex: true,
+        matcher: 'regex-exact-boundary',
+    },
+] as const;
+
 export interface IPdfSearchRequestOptions extends ISearchMatchOptions {
     requestId?: string;
     pageCount?: number;
@@ -120,9 +278,198 @@ export const SEARCH_PDF_PATH_MAX_LENGTH = 4_096;
 export const SEARCH_PAGE_COUNT_DEFAULT_MAX = 20_000;
 export const SEARCH_QUERY_MAX_LENGTH = 2_048;
 export const SEARCH_REGEX_QUERY_MAX_LENGTH = 512;
+export const SEARCH_DOCUMENT_REVISION_TOKEN_MAX_LENGTH = 8_192;
+
+export type TSearchablePageTextSeparator = 'none' | 'space' | 'line';
+
+export interface ISearchablePageTextItem {
+    text: string;
+    separatorAfter?: TSearchablePageTextSeparator;
+}
+
+export interface ISearchablePageTextItemOffset {
+    itemIndex: number;
+    startOffset: TPdfSearchUtf16Offset;
+    endOffset: TPdfSearchUtf16Offset;
+}
+
+export interface IAssembledSearchablePageText {
+    text: string;
+    itemOffsets: ISearchablePageTextItemOffset[];
+    sourceOffsets: IPdfSearchUtf16Range[];
+}
+
+const SEARCH_LIGATURE_FOLDS: Readonly<Record<string, string>> = {
+    '\uFB00': 'ff',
+    '\uFB01': 'fi',
+    '\uFB02': 'fl',
+    '\uFB03': 'ffi',
+    '\uFB04': 'ffl',
+    '\uFB05': 'st',
+    '\uFB06': 'st',
+};
+
+interface INormalizedSearchText {
+    text: string;
+    sourceStarts: number[];
+    sourceEnds: number[];
+}
+
+/**
+ * Search normalization is deliberately narrower than NFKC: canonical Unicode
+ * composition plus the presentation ligatures commonly emitted by PDF fonts.
+ */
+export function normalizeSearchText(text: string) {
+    return Array.from(text, character => SEARCH_LIGATURE_FOLDS[character] ?? character)
+        .join('')
+        .normalize('NFC');
+}
+
+function normalizeSearchTextWithOffsets(text: string): INormalizedSearchText {
+    const normalizedParts: string[] = [];
+    const sourceStarts: number[] = [];
+    const sourceEnds: number[] = [];
+    const graphemePattern = /\P{M}\p{M}*|\p{M}+/gu;
+
+    for (const match of text.matchAll(graphemePattern)) {
+        const source = match[0];
+        const sourceStart = match.index;
+        const sourceEnd = sourceStart + source.length;
+        const normalized = normalizeSearchText(source);
+        normalizedParts.push(normalized);
+        for (let index = 0; index < normalized.length; index += 1) {
+            sourceStarts.push(sourceStart);
+            sourceEnds.push(sourceEnd);
+        }
+    }
+
+    return {
+        text: normalizedParts.join(''),
+        sourceStarts,
+        sourceEnds,
+    };
+}
+
+function joinSearchLineHyphenation(text: string) {
+    return text.replace(/\u00AD|-[\p{Zs}\t]*(?:\r\n?|\n)[\p{Zs}\t]*/gu, '');
+}
+
+/**
+ * Canonical assembly used by PDF.js items, word-box/OCR items and plain-text
+ * extractors. Adjacent non-whitespace items receive one separator, line-end
+ * hyphens are joined, and normalization/collapse policy is applied once.
+ */
+export function assembleSearchablePageText(
+    items: readonly ISearchablePageTextItem[],
+): IAssembledSearchablePageText {
+    const parts: string[] = [];
+    const owners: number[] = [];
+    const rawSourceStarts: number[] = [];
+    const rawSourceEnds: number[] = [];
+    let sourceCursor = 0;
+
+    const append = (value: string, owner: number, generated = false) => {
+        parts.push(value);
+        for (let index = 0; index < value.length; index += 1) {
+            owners.push(owner);
+            rawSourceStarts.push(sourceCursor + (generated ? 0 : index));
+            rawSourceEnds.push(sourceCursor + (generated ? 0 : index + 1));
+        }
+    };
+
+    items.forEach((item, itemIndex) => {
+        const previous = parts.at(-1)?.at(-1) ?? '';
+        const first = item.text.at(0) ?? '';
+        if (previous && first && !/\s/u.test(previous) && !/\s/u.test(first)) {
+            append(' ', itemIndex, true);
+        }
+        append(item.text, itemIndex);
+        sourceCursor += item.text.length;
+        const separator = item.separatorAfter ?? 'none';
+        const last = parts.at(-1)?.at(-1) ?? '';
+        if (separator === 'line' && last !== '\n') {
+            append('\n', itemIndex, true);
+        } else if (separator === 'space' && last && !/\s/u.test(last)) {
+            append(' ', itemIndex, true);
+        }
+    });
+
+    const rawText = parts.join('');
+    const sourceMappedText: INormalizedSearchText = {
+        text: rawText,
+        sourceStarts: rawSourceStarts,
+        sourceEnds: rawSourceEnds,
+    };
+    const sourceMappedOwners = owners;
+    const joinedText = joinSearchLineHyphenation(sourceMappedText.text);
+    const retainedOwners: number[] = [];
+    const retainedSourceStarts: number[] = [];
+    const retainedSourceEnds: number[] = [];
+    let normalizedOffset = 0;
+    const hyphenationPattern = /\u00AD|-[\p{Zs}\t]*(?:\r\n?|\n)[\p{Zs}\t]*/gu;
+    for (const match of sourceMappedText.text.matchAll(hyphenationPattern)) {
+        retainedOwners.push(...sourceMappedOwners.slice(normalizedOffset, match.index));
+        retainedSourceStarts.push(...sourceMappedText.sourceStarts.slice(normalizedOffset, match.index));
+        retainedSourceEnds.push(...sourceMappedText.sourceEnds.slice(normalizedOffset, match.index));
+        normalizedOffset = match.index + match[0].length;
+    }
+    retainedOwners.push(...sourceMappedOwners.slice(normalizedOffset));
+    retainedSourceStarts.push(...sourceMappedText.sourceStarts.slice(normalizedOffset));
+    retainedSourceEnds.push(...sourceMappedText.sourceEnds.slice(normalizedOffset));
+
+    const text = collapseRepeatedPdfSearchPageText(joinedText);
+    const finalOwners = retainedOwners.slice(0, text.length);
+    const sourceOffsets = retainedSourceStarts.slice(0, text.length).map((startOffset, index) => ({
+        startOffset,
+        endOffset: retainedSourceEnds[index] ?? startOffset,
+    }));
+    const itemOffsets = items.map((_item, itemIndex): ISearchablePageTextItemOffset => {
+        const startOffset = finalOwners.indexOf(itemIndex);
+        const lastOffset = finalOwners.lastIndexOf(itemIndex);
+        return {
+            itemIndex,
+            startOffset: startOffset < 0 ? 0 : startOffset,
+            endOffset: lastOffset < 0 ? 0 : lastOffset + 1,
+        };
+    });
+
+    return {
+        text,
+        itemOffsets,
+        sourceOffsets,
+    };
+}
+
+export function mapAssembledSearchablePageTextRange(
+    assembled: IAssembledSearchablePageText,
+    range: IPdfSearchUtf16Range,
+): IPdfSearchUtf16Range | null {
+    if (
+        range.startOffset < 0
+        || range.endOffset <= range.startOffset
+        || range.endOffset > assembled.text.length
+    ) {
+        return null;
+    }
+    const start = assembled.sourceOffsets[range.startOffset];
+    const end = assembled.sourceOffsets[range.endOffset - 1];
+    return start && end
+        ? {
+            startOffset: start.startOffset,
+            endOffset: end.endOffset,
+        }
+        : null;
+}
 
 export function escapeSearchRegex(value: string) {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+const SEARCH_WORD_CHARACTER_CLASS = '\\p{L}\\p{N}\\p{M}_\'’';
+const SEARCH_CJK_SCRIPT_PATTERN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+
+function applyWholeWordBoundary(pattern: string) {
+    return `(?<![${SEARCH_WORD_CHARACTER_CLASS}])(?:${pattern})(?![${SEARCH_WORD_CHARACTER_CLASS}])`;
 }
 
 export function buildPdfSearchRegex(
@@ -133,8 +480,12 @@ export function buildPdfSearchRegex(
         assertSafePdfSearchRegex(query, options);
     }
     const basePattern = options.useRegex ? query : escapeSearchRegex(query);
-    const pattern = options.wholeWord
-        ? `(?<![\\p{L}\\p{N}_])(?:${basePattern})(?![\\p{L}\\p{N}_])`
+    // CJK scripts normally have no whitespace-delimited word boundaries. For
+    // literal CJK queries, wholeWord therefore intentionally means substring.
+    const useBoundary = options.wholeWord
+        && (options.useRegex || !SEARCH_CJK_SCRIPT_PATTERN.test(query));
+    const pattern = useBoundary
+        ? applyWholeWordBoundary(basePattern)
         : basePattern;
     const flags = options.matchCase ? 'gu' : 'giu';
     return new RegExp(pattern, flags);
@@ -270,7 +621,7 @@ export function assertSafePdfSearchRegex(
     options: Pick<IResolvedSearchMatchOptions, 'matchCase' | 'wholeWord'>,
 ) {
     const pattern = options.wholeWord
-        ? `(?<![\\p{L}\\p{N}_])(?:${query})(?![\\p{L}\\p{N}_])`
+        ? applyWholeWordBoundary(query)
         : query;
     try {
         new RegExp(pattern, options.matchCase ? 'gu' : 'giu');
@@ -353,6 +704,23 @@ function normalizeSearchBooleanOption(raw: unknown) {
     return typeof raw === 'boolean' ? raw : undefined;
 }
 
+function normalizeOptionalSearchDocumentRevision(raw: unknown) {
+    if (raw === undefined || raw === null) {
+        return undefined;
+    }
+    if (typeof raw === 'string' && raw.trim().length === 0) {
+        return undefined;
+    }
+    if (typeof raw === 'string' && raw.trim().length > SEARCH_DOCUMENT_REVISION_TOKEN_MAX_LENGTH) {
+        throw new Error(`documentRevision exceeds maximum length (${SEARCH_DOCUMENT_REVISION_TOKEN_MAX_LENGTH})`);
+    }
+    const documentRevision = parseDocumentRevisionToken(raw);
+    if (documentRevision === null) {
+        throw new Error('documentRevision must be a valid document revision token');
+    }
+    return documentRevision;
+}
+
 export interface INormalizedPdfSearchRequest extends IPdfSearchRequestOptions {
     pdfPath: string;
     query: string;
@@ -373,6 +741,7 @@ export function normalizePdfSearchRequestPayload(
 
     const pageCount = normalizeOptionalSearchPageCount(raw.pageCount, options.pageCountMax);
     const requestId = normalizeOptionalSearchRequestId(raw.requestId);
+    const documentRevision = normalizeOptionalSearchDocumentRevision(raw.documentRevision);
     const matchCase = normalizeSearchBooleanOption(raw.matchCase);
     const wholeWord = normalizeSearchBooleanOption(raw.wholeWord);
     const useRegex = normalizeSearchBooleanOption(raw.useRegex);
@@ -387,6 +756,7 @@ export function normalizePdfSearchRequestPayload(
         query: raw.query,
         ...(pageCount === undefined ? {} : {pageCount}),
         ...(requestId === undefined ? {} : {requestId}),
+        ...(documentRevision === undefined ? {} : {documentRevision}),
         ...(matchCase === undefined ? {} : {matchCase}),
         ...(wholeWord === undefined ? {} : {wholeWord}),
         ...(useRegex === undefined ? {} : {useRegex}),
@@ -403,11 +773,13 @@ export function normalizePdfSearchWarmIndexPayload(
 
     const pageCount = normalizeOptionalSearchPageCount(raw.pageCount, options.pageCountMax);
     const requestId = normalizeOptionalSearchRequestId(raw.requestId);
+    const documentRevision = normalizeOptionalSearchDocumentRevision(raw.documentRevision);
 
     return {
         pdfPath: normalizeSearchPdfPath(raw.pdfPath),
         ...(pageCount === undefined ? {} : {pageCount}),
         ...(requestId === undefined ? {} : {requestId}),
+        ...(documentRevision === undefined ? {} : {documentRevision}),
     };
 }
 
@@ -464,8 +836,11 @@ export function* iteratePdfSearchMatches(
     matcherOrQuery: RegExp | string,
     options?: ISearchMatchOptions,
 ) {
+    const normalizedText = typeof matcherOrQuery === 'string'
+        ? normalizeSearchTextWithOffsets(text)
+        : null;
     const sourceMatcher = typeof matcherOrQuery === 'string'
-        ? buildPdfSearchRegex(matcherOrQuery, {
+        ? buildPdfSearchRegex(normalizeSearchText(matcherOrQuery), {
             matchCase: Boolean(options?.matchCase),
             wholeWord: Boolean(options?.wholeWord),
             useRegex: Boolean(options?.useRegex),
@@ -477,15 +852,17 @@ export function* iteratePdfSearchMatches(
     const matcher = new RegExp(sourceMatcher.source, flags);
 
     let match: RegExpExecArray | null;
-    while ((match = matcher.exec(text)) !== null) {
+    const matchedText = normalizedText?.text ?? text;
+    while ((match = matcher.exec(matchedText)) !== null) {
         const value = match[0] ?? '';
         if (value.length === 0) {
             matcher.lastIndex += 1;
             continue;
         }
+        const normalizedEndOffset = match.index + value.length;
         yield {
-            startOffset: match.index,
-            endOffset: match.index + value.length,
+            startOffset: normalizedText?.sourceStarts[match.index] ?? match.index,
+            endOffset: normalizedText?.sourceEnds[normalizedEndOffset - 1] ?? normalizedEndOffset,
         } satisfies IPdfSearchUtf16Range;
     }
 }

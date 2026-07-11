@@ -226,6 +226,8 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
         await activateTab(session, 0);
         await waitForPdfLoaded(session.page);
         await splitActiveDocument(session, 'right');
+        await openPdfInApp(session.page, firstFixturePath);
+        await waitForPdfLoaded(session.page);
         await waitForVisibleRenderedPdfHosts(session, 2);
 
         await activateTab(session, 0);

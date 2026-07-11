@@ -1,15 +1,16 @@
 import type { BrowserWindow } from 'electron';
+import type { IDjvuEventMap } from '@electron/features/djvu/contract';
 import { createLogger } from '@electron/utils/createLogger';
-import { sendToLiveWindow } from '@electron/utils/sendToLiveWindow';
+import { sendPlatformEvent } from '@electron/utils/sendPlatformEvent';
 
 const logger = createLogger('djvu-ipcShared');
 
-export function safeSendToWindow(
+export function safeSendToWindow<TChannel extends Extract<keyof IDjvuEventMap, string>>(
     window: BrowserWindow | null | undefined,
-    channel: string,
-    ...args: unknown[]
+    channel: TChannel,
+    payload: IDjvuEventMap[TChannel],
 ) {
-    sendToLiveWindow(window, channel, args, (error) => {
+    sendPlatformEvent<IDjvuEventMap, TChannel>(window, channel, payload, (error) => {
         logger.debug(`Failed to send IPC message "${channel}": ${String(error)}`);
     });
 }

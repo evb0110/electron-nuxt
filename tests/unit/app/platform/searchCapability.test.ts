@@ -80,6 +80,47 @@ class FakeIndex {
         });
         return cast<IDBRequest<IDBValidKey[]>>(request);
     }
+
+    public openCursor(_query?: IDBValidKey | IDBKeyRange | null, direction?: IDBCursorDirection) {
+        const request = new FakeIdbRequest<IDBCursorWithValue | null>();
+        const entries = Array.from(this.state.records.entries()).sort((first, second) => {
+            const firstValue = (first[1] as Record<string, unknown>)[this.keyPath];
+            const secondValue = (second[1] as Record<string, unknown>)[this.keyPath];
+            return Number(firstValue) - Number(secondValue);
+        });
+        if (direction === 'prev' || direction === 'prevunique') {
+            entries.reverse();
+        }
+        let index = 0;
+        const advance = () => queueMicrotask(() => {
+            const entry = entries[index];
+            if (!entry) {
+                request.result = null;
+                request.onsuccess?.(new Event('success'));
+                return;
+            }
+            const [
+                key,
+                value,
+            ] = entry;
+            request.result = cast<IDBCursorWithValue>({
+                key,
+                primaryKey: key,
+                value,
+                continue: () => {
+                    index += 1;
+                    advance();
+                },
+                delete: () => {
+                    this.state.records.delete(key);
+                    return new FakeIdbRequest<undefined>();
+                },
+            });
+            request.onsuccess?.(new Event('success'));
+        });
+        advance();
+        return cast<IDBRequest<IDBCursorWithValue | null>>(request);
+    }
 }
 
 class FakeObjectStore {
@@ -773,7 +814,7 @@ describe('createBrowserSearchCapability', () => {
         const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
         const { capability } = createBrowserSearchCapability();
 
-        await expect(capability.run('/tmp/test.pdf', '   ')).resolves.toEqual({
+        await expect(capability.run('/tmp/test.pdf', '')).resolves.toEqual({
             results: [],
             truncated: false,
         });
@@ -809,11 +850,15 @@ describe('createBrowserSearchCapability', () => {
         const progressUpdates: Array<{
             processed: number;
             resultCount: number;
+            resultsStartIndex?: number;
         }> = [];
         capability.onProgress((progress) => {
             progressUpdates.push({
                 processed: progress.processed,
                 resultCount: progress.results?.length ?? 0,
+                ...(progress.resultsStartIndex === undefined
+                    ? {}
+                    : {resultsStartIndex: progress.resultsStartIndex}),
             });
         });
         const result = await capability.run('/tmp/test.pdf', 'sign', { requestId: 'stream-search' });
@@ -825,10 +870,12 @@ describe('createBrowserSearchCapability', () => {
         expect(progressUpdates).toContainEqual({
             processed: 1,
             resultCount: 1,
+            resultsStartIndex: 0,
         });
         expect(progressUpdates).toContainEqual({
             processed: 2,
-            resultCount: 2,
+            resultCount: 1,
+            resultsStartIndex: 1,
         });
         expect(browserSearchWorkerClientMock.createBrowserSearchWorkerRequest).not.toHaveBeenCalled();
         expect(pdfjsModule.getDocument).toHaveBeenCalledOnce();

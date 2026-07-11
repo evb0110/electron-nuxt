@@ -13,6 +13,13 @@ type TMockSettings = Record<string, unknown>;
 type TMockSettingsUpdater = (
     settings: TMockSettings,
 ) => Partial<TMockSettings> | undefined | Promise<Partial<TMockSettings> | undefined>;
+interface IMockPendingUpdateStartup {
+    installationApplied: boolean;
+    installRequestedAt: number;
+    pendingVersion: string;
+    startupAttempts: number;
+    version: 1;
+}
 
 const mocks = vi.hoisted(() => {
     class TestEmitter {
@@ -58,6 +65,8 @@ const mocks = vi.hoisted(() => {
         autoUpdater,
         fetch: vi.fn(),
         loadSettings: vi.fn(async () => ({})),
+        markUpdateInstallPending: vi.fn(async () => {}),
+        recordPendingUpdateStartup: vi.fn<() => Promise<IMockPendingUpdateStartup | null>>(async () => null),
         logger: {
             error: vi.fn(),
             info: vi.fn(),
@@ -89,6 +98,12 @@ vi.mock('@electron/config', () => ({config: {updates: {
 vi.mock('@electron/settings', () => ({
     loadSettings: mocks.loadSettings,
     updateSettings: mocks.updateSettings,
+}));
+vi.mock('@electron/updateHealthMarker', () => ({
+    getSuppressedUpdateVersion: vi.fn().mockResolvedValue(null),
+    markUpdateInstallPending: mocks.markUpdateInstallPending,
+    recordPendingUpdateStartup: mocks.recordPendingUpdateStartup,
+    UPDATE_STARTUP_FAILURE_THRESHOLD: 3,
 }));
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
@@ -150,6 +165,9 @@ describe('updates robustness', () => {
         mocks.autoUpdater.quitAndInstall.mockReset();
         mocks.fetch.mockReset();
         mocks.loadSettings.mockReset();
+        mocks.markUpdateInstallPending.mockClear();
+        mocks.recordPendingUpdateStartup.mockReset();
+        mocks.recordPendingUpdateStartup.mockResolvedValue(null);
         mocks.updateSettings.mockReset();
         mocks.app.getVersion.mockReturnValue('1.0.0');
         mocks.loadSettings.mockResolvedValue({});
@@ -175,6 +193,28 @@ describe('updates robustness', () => {
         }
         vi.unstubAllGlobals();
         vi.useRealTimers();
+    });
+
+    it('surfaces a failed install when the old application version is relaunched', async () => {
+        mocks.recordPendingUpdateStartup.mockResolvedValue({
+            installationApplied: false,
+            installRequestedAt: Date.now(),
+            pendingVersion: '1.1.0',
+            startupAttempts: 1,
+            version: 1,
+        });
+
+        const updates = await loadUpdatesModule();
+        const statuses: Array<Record<string, unknown>> = [];
+        updates.initializeUpdates(status => statuses.push({ ...status }));
+        await flushPromises();
+
+        expect(statuses.at(-1)).toMatchObject({
+            message: 'Update 1.1.0 could not be installed; version 1.0.0 was relaunched',
+            origin: 'manual',
+            phase: 'error',
+            version: '1.1.0',
+        });
     });
 
     it('returns automatic no-update checks to idle state', async () => {
@@ -435,6 +475,7 @@ describe('updates robustness', () => {
 
         await expect(updates.installDownloadedUpdate()).resolves.toEqual({started: true});
         expect(mocks.updateSettings).toHaveBeenCalled();
+        expect(mocks.markUpdateInstallPending).toHaveBeenCalledWith('1.1.0');
         expect(mocks.autoUpdater.quitAndInstall).not.toHaveBeenCalled();
 
         const [install] = installAfterCleanup;
@@ -461,6 +502,28 @@ describe('updates robustness', () => {
         await flushPromises();
 
         await expect(updates.installDownloadedUpdate()).resolves.toEqual({started: true});
+        expect(mocks.autoUpdater.quitAndInstall).toHaveBeenCalledWith(false, true);
+    });
+
+    it('does not block installation when the diagnostic health marker cannot be written', async () => {
+        mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
+        mocks.markUpdateInstallPending.mockRejectedValueOnce(new Error('disk is read-only'));
+        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
+            mocks.autoUpdater.emit('checking-for-update');
+            mocks.autoUpdater.emit('update-available', { version: '1.1.0' });
+            mocks.autoUpdater.emit('update-downloaded', { version: '1.1.0' });
+        });
+
+        const updates = await loadUpdatesModule();
+
+        updates.initializeUpdates(() => undefined);
+        await updates.triggerManualUpdateCheck();
+        await flushPromises();
+
+        await expect(updates.installDownloadedUpdate()).resolves.toEqual({started: true});
+        expect(mocks.logger.warn).toHaveBeenCalledWith(
+            'Failed to write update health marker before install: disk is read-only',
+        );
         expect(mocks.autoUpdater.quitAndInstall).toHaveBeenCalledWith(false, true);
     });
 

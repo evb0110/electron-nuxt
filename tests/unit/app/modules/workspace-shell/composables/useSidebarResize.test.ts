@@ -83,6 +83,19 @@ describe('useSidebarResize', () => {
         expect(resize.sidebarWrapperStyle.value.width).toBe(`${SIDEBAR.MAX_WIDTH + SIDEBAR.RESIZER_WIDTH}px`);
     });
 
+    it('preserves the minimum viewer width inside a narrow split pane', async () => {
+        const showSidebar = ref(true);
+        const {
+            resolveSidebarEffectiveMaxWidth,
+            useSidebarResize,
+        } = await import('@app/modules/workspace-shell/composables/useSidebarResize');
+        const resize = useSidebarResize({ showSidebar });
+        resize.setSidebarContainerWidth(760);
+
+        expect(resolveSidebarEffectiveMaxWidth(760)).toBe(440);
+        expect(resize.effectiveMaxWidth.value).toBe(440);
+    });
+
     it('ignores resize starts while the sidebar is closed', async () => {
         const showSidebar = ref(false);
         const { useSidebarResize } = await import('@app/modules/workspace-shell/composables/useSidebarResize');

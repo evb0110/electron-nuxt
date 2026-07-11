@@ -1,16 +1,14 @@
-import { clamp } from 'es-toolkit/math';
-import { ZOOM } from '@app/constants/pdfLayout';
+import {
+    clampDocumentFitScale,
+    clampDocumentManualZoom,
+    type IDocumentZoomLimits,
+} from '@app/utils/document-viewer/zoomPolicy';
 import type {
     TFitMode,
     TZoomMode,
 } from '@app/types/pdfContracts';
 
-interface IZoomLimits {
-    manualMin: number;
-    manualMax: number;
-    fitMin: number;
-    fitMax: number;
-}
+type IZoomLimits = IDocumentZoomLimits;
 
 interface IResolvePdfZoomScaleInput {
     zoomMode: TZoomMode;
@@ -18,23 +16,6 @@ interface IResolvePdfZoomScaleInput {
     manualZoom: number;
     fitScale: number;
     limits?: Partial<IZoomLimits>;
-}
-
-function normalizePositiveNumber(value: number, fallback: number) {
-    return Number.isFinite(value) && value > 0 ? value : fallback;
-}
-
-function normalizeFiniteNumber(value: number, fallback: number) {
-    return Number.isFinite(value) ? value : fallback;
-}
-
-function resolveZoomLimits(limits?: Partial<IZoomLimits>): IZoomLimits {
-    return {
-        manualMin: normalizePositiveNumber(limits?.manualMin ?? ZOOM.MIN, ZOOM.MIN),
-        manualMax: normalizePositiveNumber(limits?.manualMax ?? ZOOM.MAX, ZOOM.MAX),
-        fitMin: normalizePositiveNumber(limits?.fitMin ?? ZOOM.FIT_MIN, ZOOM.FIT_MIN),
-        fitMax: normalizePositiveNumber(limits?.fitMax ?? ZOOM.MAX, ZOOM.MAX),
-    };
 }
 
 function normalizeFitIntent(zoomMode: TZoomMode, fitMode: TFitMode) {
@@ -48,21 +29,11 @@ function normalizeFitIntent(zoomMode: TZoomMode, fitMode: TFitMode) {
 }
 
 export function clampPdfManualZoom(level: number, limits?: Partial<IZoomLimits>) {
-    const resolvedLimits = resolveZoomLimits(limits);
-    return clamp(
-        normalizeFiniteNumber(level, 1),
-        resolvedLimits.manualMin,
-        resolvedLimits.manualMax,
-    );
+    return clampDocumentManualZoom(level, limits);
 }
 
 export function clampPdfFitScale(level: number, limits?: Partial<IZoomLimits>) {
-    const resolvedLimits = resolveZoomLimits(limits);
-    return clamp(
-        normalizeFiniteNumber(level, 1),
-        resolvedLimits.fitMin,
-        resolvedLimits.fitMax,
-    );
+    return clampDocumentFitScale(level, limits);
 }
 
 export function resolvePdfZoomScale(input: IResolvePdfZoomScaleInput) {

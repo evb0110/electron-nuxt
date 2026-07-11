@@ -4,6 +4,7 @@ import type {
 } from 'vue';
 import { uniq } from 'es-toolkit/array';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { markStartupMetricOnce } from '@app/utils/startupMetrics';
 import { buildPendingTabDocumentHint } from '@app/modules/workspace-shell/tabs/buildPendingTabDocumentHint';
 import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
 import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHasPdf';
@@ -344,11 +345,25 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
     }
 
     async function openResultInAppropriateTab(result: TOpenFileResult) {
-        await openDocumentInAppropriateTab(result);
+        return openDocumentInAppropriateTab(result);
     }
 
     async function openPathInAppropriateTab(path: TDocumentRef) {
         return openDocumentInAppropriateTab(path);
+    }
+
+    async function openPathInReservedTab(tabId: string, path: TDocumentRef) {
+        const tab = getTabById(tabId);
+        if (!tab) {
+            return false;
+        }
+        updateTab(tabId, buildPendingTabDocumentHint(path));
+        await nextTick();
+        const workspace = await resolveWorkspaceForTab(tabId);
+        if (!workspace) {
+            return false;
+        }
+        return openDocumentInWorkspace(workspace, path);
     }
 
     async function openPathsInAppropriateTab(paths: TDocumentRef[]) {
@@ -393,6 +408,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         if (normalizedPaths.length === 0) {
             return [];
         }
+        markStartupMetricOnce('evb:document-open-started');
 
         const startupOpenTasks: Array<Promise<void>> = [];
         const initialActiveWorkspace = activeWorkspace.value;
@@ -502,6 +518,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         handleOpenInNewTab,
         openResultInAppropriateTab,
         openPathInAppropriateTab,
+        openPathInReservedTab,
         openPathsInAppropriateTab,
         beginOpenPathsInAppropriateTab,
         handleWindowTabsAction,

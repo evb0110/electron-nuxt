@@ -36,6 +36,7 @@ export const browserDocumentsMenuCapability: IDocumentsMenuCapability = {
     onMenuActualSize: noopUnsubscribe,
     onMenuFitWidth: noopUnsubscribe,
     onMenuFitHeight: noopUnsubscribe,
+    onMenuToggleContinuousScroll: noopUnsubscribe,
     onMenuViewModeSingle: noopUnsubscribe,
     onMenuViewModeFacing: noopUnsubscribe,
     onMenuViewModeFacingFirstSingle: noopUnsubscribe,

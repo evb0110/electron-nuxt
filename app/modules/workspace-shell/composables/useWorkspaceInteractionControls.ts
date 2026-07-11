@@ -18,7 +18,6 @@ import type { ISettingsData } from '@contracts/shared';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import type {
     IAnnotationSettings,
-    IAnnotationCommentSummary,
     TAnnotationTool,
 } from '@app/types/annotations';
 import type {
@@ -27,6 +26,7 @@ import type {
     TZoomMode,
 } from '@app/types/pdfContracts';
 import type { TPdfSource } from '@app/types/pdfUi';
+import { runDetached } from '@app/utils/asyncGuard';
 
 interface IWorkspaceInteractionControlsOptions {
     isActive: Ref<boolean>;
@@ -51,8 +51,6 @@ interface IWorkspaceInteractionControlsOptions {
         options?: {
             includeShapes?: boolean;
             rewriteShapeState?: boolean;
-            pendingTexts?: Map<string, string> | null;
-            pendingDeletes?: IAnnotationCommentSummary[] | null;
         },
     ) => Promise<Uint8Array>;
     shapePropertiesPopoverVisible: ComputedRef<boolean>;
@@ -164,6 +162,7 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
 
     usePageShortcuts({
         isActive,
+        hasInteractiveDocument: computed(() => Boolean(pdfSrc.value ?? djvuSourcePath.value)),
         pdfSrc,
         canPrint: options.canPrint,
         canSave: options.canSave,
@@ -186,10 +185,18 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
             setCustomZoomFromDisplay(1);
         },
         handleSave: () => {
-            void handleSave();
+            runDetached(handleSave, {
+                category: 'user-visible-operation',
+                scope: 'workspace',
+                message: 'Failed to save document',
+            });
         },
         handlePrint: () => {
-            void options.handlePrint();
+            runDetached(async () => options.handlePrint(), {
+                category: 'user-visible-operation',
+                scope: 'workspace',
+                message: 'Failed to print document',
+            });
         },
         handleToggleSidebar: options.handleToggleSidebar,
     });
@@ -200,7 +207,11 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
         if (!pdfViewerRef.value || isDjvuMode.value) {
             return;
         }
-        void pdfViewerRef.value.captureRegionToClipboard();
+        runDetached(() => pdfViewerRef.value!.captureRegionToClipboard(), {
+            category: 'user-visible-operation',
+            scope: 'workspace',
+            message: 'Failed to capture PDF region',
+        });
     }
 
     function handleActualSize() {

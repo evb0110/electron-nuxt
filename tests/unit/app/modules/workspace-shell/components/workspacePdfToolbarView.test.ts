@@ -64,4 +64,15 @@ describe('workspace PDF toolbar wiring', () => {
         }
         expect(overflowMenu).toContain('disabled: isPrintCommandDisabled.value');
     });
+
+    it('has a compact, scroll-safe terminal toolbar tier', () => {
+        const toolbar = readWorkspaceFile('app/modules/pdf-viewer/components/PdfToolbar.vue');
+
+        expect(toolbar).toContain('const pageCompactLevel = computed');
+        expect(toolbar).toContain('const zoomCompactLevel = computed');
+        expect(toolbar).toContain('.toolbar[data-collapse-tier=\'5\'] .toolbar-section');
+        expect(toolbar).toContain('overflow-x: auto');
+        expect(toolbar).toContain('isCommandInline(\'settings\') && !isCollapsed(5)');
+        expect(toolbar).toContain('<AssistantToolbarToggle v-if="!isCollapsed(5)"');
+    });
 });

@@ -61,7 +61,7 @@ function createReadyRecord(fileName: string, originalPath: string, overrides: Pa
 }
 
 describe('useWorkspaceDocumentSessions', () => {
-    it('seeds document records and view state from tab hints', () => {
+    it('seeds pending document records without inventing a scroll-mode preference', () => {
         const sessions = useWorkspaceDocumentSessions({
             activeTabId: ref('tab-1'),
             tabs: ref([createTab({
@@ -78,7 +78,7 @@ describe('useWorkspaceDocumentSessions', () => {
             hasPdf: true,
             isOpeningDocument: true,
         });
-        expect(sessions.viewStateByTabId.value['tab-1']?.continuousScroll).toBe(true);
+        expect(sessions.viewStateByTabId.value['tab-1']?.continuousScroll).toBe(false);
     });
 
     it('projects workspace refs from attached session workspaces', async () => {

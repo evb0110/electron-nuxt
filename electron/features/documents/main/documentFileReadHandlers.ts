@@ -27,6 +27,8 @@ const ALLOWED_READ_EXTENSIONS = new Set([
 ]);
 const RANGE_READ_HANDLE_CACHE_LIMIT = 6;
 const RANGE_READ_HANDLE_IDLE_MS = 30_000;
+const RANGE_READ_GLOBAL_IN_FLIGHT_BYTES = 32 * 1024 * 1024;
+const RANGE_READ_PER_DOCUMENT_IN_FLIGHT_BYTES = 8 * 1024 * 1024;
 
 interface IRangeReadHandleCacheEntry {
     handle: FileHandle;
@@ -48,6 +50,66 @@ interface IRangeReadHandleLease {
 const rangeReadHandles = new Map<string, IRangeReadHandleCacheEntry>();
 const rangeReadHandleOpens = new Map<string, Promise<IRangeReadHandleCacheEntry>>();
 const rangeReadPathEpochs = new Map<string, number>();
+const pendingRangeReads = new Map<string, Promise<Uint8Array>>();
+const rangeReadBytesByPath = new Map<string, number>();
+let rangeReadGlobalBytes = 0;
+const rangeReadBudgetWaiters: Array<{
+    path: string;
+    bytes: number;
+    resolve: () => void;
+}> = [];
+
+function canReserveRangeRead(path: string, bytes: number) {
+    return rangeReadGlobalBytes + bytes <= RANGE_READ_GLOBAL_IN_FLIGHT_BYTES
+        && (rangeReadBytesByPath.get(path) ?? 0) + bytes <= RANGE_READ_PER_DOCUMENT_IN_FLIGHT_BYTES;
+}
+
+function reserveRangeRead(path: string, bytes: number) {
+    rangeReadGlobalBytes += bytes;
+    rangeReadBytesByPath.set(path, (rangeReadBytesByPath.get(path) ?? 0) + bytes);
+}
+
+function pumpRangeReadBudgetWaiters() {
+    for (let index = 0; index < rangeReadBudgetWaiters.length;) {
+        const waiter = rangeReadBudgetWaiters[index]!;
+        if (!canReserveRangeRead(waiter.path, waiter.bytes)) {
+            index += 1;
+            continue;
+        }
+        rangeReadBudgetWaiters.splice(index, 1);
+        reserveRangeRead(waiter.path, waiter.bytes);
+        waiter.resolve();
+    }
+}
+
+async function acquireRangeReadBudget(path: string, bytes: number) {
+    if (!canReserveRangeRead(path, bytes)) {
+        await new Promise<void>((resolve) => {
+            rangeReadBudgetWaiters.push({
+                path,
+                bytes,
+                resolve,
+            });
+        });
+    } else {
+        reserveRangeRead(path, bytes);
+    }
+    let released = false;
+    return () => {
+        if (released) {
+            return;
+        }
+        released = true;
+        rangeReadGlobalBytes -= bytes;
+        const remaining = (rangeReadBytesByPath.get(path) ?? bytes) - bytes;
+        if (remaining > 0) {
+            rangeReadBytesByPath.set(path, remaining);
+        } else {
+            rangeReadBytesByPath.delete(path);
+        }
+        pumpRangeReadBudgetWaiters();
+    };
+}
 
 function getRangeReadPathEpoch(resolvedPath: string) {
     return rangeReadPathEpochs.get(resolvedPath) ?? 0;
@@ -57,6 +119,12 @@ function advanceRangeReadPathEpoch(resolvedPath: string) {
     const nextEpoch = getRangeReadPathEpoch(resolvedPath) + 1;
     rangeReadPathEpochs.set(resolvedPath, nextEpoch);
     return nextEpoch;
+}
+
+function pruneRangeReadPathEpochIfUnused(resolvedPath: string) {
+    if (!rangeReadHandles.has(resolvedPath) && !rangeReadHandleOpens.has(resolvedPath)) {
+        rangeReadPathEpochs.delete(resolvedPath);
+    }
 }
 
 function closeRangeReadHandleEntryWhenUnused(entry: IRangeReadHandleCacheEntry) {
@@ -98,7 +166,8 @@ function scheduleRangeReadHandleIdleClose(
         if (currentEntry !== entry) {
             return;
         }
-        void requestRangeReadHandleClose(resolvedPath, entry);
+        void requestRangeReadHandleClose(resolvedPath, entry)
+            .finally(() => pruneRangeReadPathEpochIfUnused(resolvedPath));
     }, RANGE_READ_HANDLE_IDLE_MS);
     (entry.idleTimer as ReturnType<typeof setTimeout> & { unref?: () => void }).unref?.();
 }
@@ -238,7 +307,8 @@ function acquireRangeReadHandleEntry(
 
 onWorkingCopyMutationSettled((workingCopyPath) => {
     advanceRangeReadPathEpoch(workingCopyPath);
-    void closeCachedRangeReadHandle(workingCopyPath);
+    void closeCachedRangeReadHandle(workingCopyPath)
+        .finally(() => pruneRangeReadPathEpochIfUnused(workingCopyPath));
 });
 
 export async function closeCachedRangeReadHandles() {
@@ -262,11 +332,25 @@ export async function closeCachedRangeReadHandles() {
             return requestRangeReadHandleClose(resolvedPath, entry);
         }),
     );
+    for (const resolvedPath of rangeReadPathEpochs.keys()) {
+        pruneRangeReadPathEpochIfUnused(resolvedPath);
+    }
 }
 
 export async function clearCachedRangeReadHandlesForTests() {
     await closeCachedRangeReadHandles();
     rangeReadPathEpochs.clear();
+}
+
+export function getRangeReadCacheStatsForTests() {
+    return {
+        handles: rangeReadHandles.size,
+        pendingOpens: rangeReadHandleOpens.size,
+        pathEpochs: rangeReadPathEpochs.size,
+        pendingReads: pendingRangeReads.size,
+        inFlightBytes: rangeReadGlobalBytes,
+        budgetWaiters: rangeReadBudgetWaiters.length,
+    };
 }
 
 export async function handleFileRead(context: IDocumentsSenderIdContext, filePath: unknown) {
@@ -320,14 +404,31 @@ export async function handleFileReadRange(
 
     const want = Math.min(len, MAX_CHUNK);
 
-    const lease = await acquireRangeReadHandle(resolvedPath);
-    try {
-        const buf = Buffer.allocUnsafe(want);
-        const { bytesRead } = await lease.handle.read(buf, 0, want, off);
-        return new Uint8Array(buf.subarray(0, bytesRead));
-    } finally {
-        await lease.release();
+    const readKey = `${resolvedPath}\0${off}\0${want}\0${getRangeReadPathEpoch(resolvedPath)}`;
+    const existingRead = pendingRangeReads.get(readKey);
+    if (existingRead) {
+        return existingRead;
     }
+
+    const readPromise = (async () => {
+        const releaseBudget = await acquireRangeReadBudget(resolvedPath, want);
+        let lease: IRangeReadHandleLease | null = null;
+        try {
+            lease = await acquireRangeReadHandle(resolvedPath);
+            const buf = Buffer.allocUnsafe(want);
+            const { bytesRead } = await lease.handle.read(buf, 0, want, off);
+            return new Uint8Array(buf.subarray(0, bytesRead));
+        } finally {
+            await lease?.release();
+            releaseBudget();
+        }
+    })();
+    pendingRangeReads.set(readKey, readPromise);
+    return readPromise.finally(() => {
+        if (pendingRangeReads.get(readKey) === readPromise) {
+            pendingRangeReads.delete(readKey);
+        }
+    });
 }
 
 export async function handleFileReadText(

@@ -6,6 +6,11 @@
     }
 
     fn placed_jpeg_mutation() -> PlacedImage {
+        use sha2::{Digest, Sha256};
+
+        let bytes_path = temp_pdf_path("placed-image-jpeg");
+        let bytes = minimal_jpeg_bytes();
+        write(&bytes_path, &bytes).unwrap();
         PlacedImage {
             page_index: 0,
             x: 0.1,
@@ -14,8 +19,19 @@
             height: 0.2,
             rotation_degrees: Some(15.0),
             mime_type: "image/jpeg".to_string(),
-            bytes: minimal_jpeg_bytes(),
+            bytes_path,
+            byte_length: bytes.len() as u64,
+            sha256: format!("{:x}", Sha256::digest(&bytes)),
         }
+    }
+
+    #[test]
+    fn rejects_placed_image_sidecars_whose_manifest_no_longer_matches() {
+        let mut image = placed_jpeg_mutation();
+        image.sha256 = "0".repeat(64);
+        let error = validate_placed_images(&[image]).unwrap_err();
+        let native_error = error.downcast_ref::<NativeError>().unwrap();
+        assert_eq!(native_error.code, NativeErrorCode::InvalidRequest);
     }
 
     #[test]

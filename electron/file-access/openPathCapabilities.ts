@@ -2,9 +2,9 @@ import type { WebContents } from 'electron';
 import { sep } from 'path';
 import { createLogger } from '@electron/utils/createLogger';
 import { normalizePossiblyEncodedExistingPath } from '@electron/utils/normalizePossiblyEncodedExistingPath';
+import type { Tagged } from 'type-fest';
 
-declare const __openPathBrand: unique symbol;
-export type TOpenPath = string & { readonly [__openPathBrand]: true };
+export type TOpenPath = Tagged<string, 'OpenPath'>;
 
 const logger = createLogger('open-path-capabilities');
 interface IOpenPathGrant { expiresAtMs: number; }

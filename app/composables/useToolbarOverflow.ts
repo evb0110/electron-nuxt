@@ -5,6 +5,7 @@ import {
     useRafFn,
     useResizeObserver,
 } from '@vueuse/core';
+import { runDetached } from '@app/utils/asyncGuard';
 
 const MAX_COLLAPSE_TIER = 5;
 const OVERFLOW_TOLERANCE_PX = 0.5;
@@ -215,8 +216,13 @@ export const useToolbarOverflow = () => {
             return;
         }
 
-        void document.fonts?.ready.then(() => {
+        runDetached(async () => {
+            await document.fonts?.ready;
             scheduleRecalculation();
+        }, {
+            category: 'background-diagnostic',
+            scope: 'toolbar-overflow',
+            message: 'Failed to recalculate toolbar after fonts loaded',
         });
     });
 

@@ -10,24 +10,18 @@ import {
     PDFArray,
     PDFDict,
     PDFDocument,
-    PDFHexString,
     PDFName,
     PDFNumber,
     PDFRef,
-    PDFString,
 } from 'pdf-lib';
-import type {
-    IAnnotationCommentSummary,
-    IShapeAnnotation,
-} from '@app/types/annotations';
+import type { IShapeAnnotation } from '@app/types/annotations';
 import type { IDocumentsFileIoCapability } from '@contracts/electronApiDocuments';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { importEmbeddedShapeAnnotations } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
 import { useAnnotationShapes } from '@app/modules/pdf-viewer/tools/useAnnotationShapes';
 import { usePdfSerialization } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization';
-import { validatePdfSerializationStructure } from '@app/modules/pdf-viewer/engine/pdf-serialization-operations/validatePdfSerializationStructure';
-import type { IPdfSerializationSavePayload } from '@app/modules/pdf-viewer/engine/pdf-serialization-operations/pdfSerializationSavePayload';
 import { readDocumentBytes } from '@app/utils/documentBytes';
+import {requireDocumentRevisionToken} from '@contracts';
 
 vi.mock('@app/utils/documentBytes', () => ({ readDocumentBytes: vi.fn() }));
 
@@ -47,7 +41,7 @@ const ONE_PIXEL_PNG = Uint8Array.from(Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0ioAAAAASUVORK5CYII=',
     'base64',
 ));
-const TEST_DOCUMENT_REVISION_TOKEN = 'drt1:test:serialization-base';
+const TEST_DOCUMENT_REVISION_TOKEN = requireDocumentRevisionToken('drt1:test:serialization-base');
 
 beforeEach(() => {
     platformMocks.documentFilesCapability = {};
@@ -60,36 +54,12 @@ function createSerializationHarness(options: {workingCopyPath?: string | null;} 
         pdfData: ref(null),
         workingCopyPath: ref(options.workingCopyPath ?? null),
         documentRevisionToken: ref(TEST_DOCUMENT_REVISION_TOKEN),
-        annotationComments: ref([]),
         totalPages: ref(1),
         pageLabelsDirty: ref(false),
         pageLabelRanges: ref([]),
         getMarkupSubtypeOverrides: () => undefined,
         getAllShapes: () => [],
     });
-}
-
-function createEmptySerializationPayload(): IPdfSerializationSavePayload {
-    return {
-        forceRewrite: true,
-        markupSubtypeOverrides: [],
-        markupSubtypeHints: [],
-        rewriteShapeState: false,
-        shapes: [],
-        deletedShapeAnnotationIds: [],
-        deletedShapeStableKeys: [],
-        freeTextComments: [],
-        annotationComments: [],
-        pendingEmbeddedTextUpdates: [],
-        pendingEmbeddedAnnotationDeletes: [],
-        pageLabelsDirty: false,
-        pageLabelRanges: [],
-        totalPages: 1,
-        bookmarksDirty: false,
-        bookmarkItems: [],
-        untitledBookmarkLabel: '',
-        placedImage: null,
-    };
 }
 
 function getPageAnnotRefs(doc: PDFDocument, pageIndex = 0) {
@@ -127,13 +97,6 @@ function getRectNumbers(dict: PDFDict) {
         values.push(value.asNumber());
     }
     return values;
-}
-
-function getPdfTextValue(value: unknown) {
-    if (value instanceof PDFHexString || value instanceof PDFString) {
-        return value.decodeText();
-    }
-    return '';
 }
 
 async function createPdfDataWithFreeTextAnnotation() {
@@ -249,128 +212,6 @@ async function createPdfDataWithSinglePage() {
     return new Uint8Array(await doc.save());
 }
 
-describe('usePdfSerialization FreeText note comments', () => {
-    it('replays local editor-only Typewriter notes when the viewer snapshot has an invalid marker', async () => {
-        const source = await createBlankPdfData();
-        const localComment: IAnnotationCommentSummary = {
-            id: 'pdfjs_internal_editor_0',
-            stableKey: 'uid:0:pdfjs_internal_editor_0',
-            pageIndex: 0,
-            pageNumber: 1,
-            text: 'local editor note',
-            displayText: null,
-            previewText: null,
-            kindLabel: 'Inline Note',
-            subtype: 'Typewriter',
-            author: null,
-            createdAt: Date.now(),
-            modifiedAt: Date.now(),
-            color: '#000000',
-            uid: 'pdfjs_internal_editor_0',
-            annotationId: null,
-            source: 'editor',
-            hasNote: true,
-            markerRect: {
-                left: 0.72,
-                top: 0.24,
-                width: 0.0016,
-                height: 0.0016,
-            },
-        };
-        const snapshotComment = {
-            ...localComment,
-            text: '',
-            markerRect: {} as IAnnotationCommentSummary['markerRect'],
-        };
-        const serializer = usePdfSerialization({
-            pdfData: ref(source),
-            workingCopyPath: ref(null),
-            annotationComments: ref([localComment]),
-            totalPages: ref(1),
-            pageLabelsDirty: ref(false),
-            pageLabelRanges: ref([]),
-            getMarkupSubtypeOverrides: () => undefined,
-            getAnnotationCommentsSnapshot: () => [snapshotComment],
-            getAllShapes: () => [],
-        });
-
-        const saved = await serializer.serializePdfForSave(source);
-        const doc = await PDFDocument.load(saved, { updateMetadata: false });
-        const noteContents = getPageAnnotRefs(doc)
-            .map(ref => getAnnotDict(doc, ref))
-            .flatMap(dict => dict instanceof PDFDict ? [dict] : [])
-            .filter(dict => dict.get(PDFName.of('Subtype'))?.toString() === '/FreeText')
-            .map(dict => getPdfTextValue(dict.get(PDFName.of('Contents'))));
-
-        expect(noteContents).toContain(localComment.text);
-    });
-
-    it('fails full rewrite saves when an expected FreeText annotation is missing from the result', async () => {
-        const source = await createBlankPdfData();
-        const payload = createEmptySerializationPayload();
-        const missingComment: IAnnotationCommentSummary = {
-            id: '999R',
-            stableKey: 'ann:0:999R',
-            sortIndex: null,
-            pageIndex: 0,
-            pageNumber: 1,
-            text: 'persist me',
-            kindLabel: 'Inline Note',
-            subtype: 'FreeText',
-            author: null,
-            modifiedAt: null,
-            color: null,
-            uid: null,
-            annotationId: '999R',
-            annotationName: 'missing-freetext',
-            source: 'pdf',
-            hasNote: true,
-            markerRect: {
-                left: 0.1,
-                top: 0.1,
-                width: 0.001,
-                height: 0.001,
-            },
-        };
-        payload.freeTextComments = [missingComment];
-        payload.annotationComments = [missingComment];
-
-        const validation = await validatePdfSerializationStructure(source, source, payload);
-
-        expect(validation.ok).toBe(false);
-        expect(validation.failures).toEqual(expect.arrayContaining([expect.objectContaining({ check: 'freetext-note' })]));
-    });
-});
-
-describe('usePdfSerialization embedded annotation deletes', () => {
-    it('rejects unresolved queued embedded annotation deletes', async () => {
-        const source = await createBlankPdfData();
-        const serializer = createSerializationHarness();
-        const pendingDelete: IAnnotationCommentSummary = {
-            id: '999R',
-            stableKey: 'ann:0:999R',
-            sortIndex: null,
-            pageIndex: 0,
-            pageNumber: 1,
-            text: '',
-            kindLabel: 'Note',
-            subtype: 'Text',
-            author: null,
-            modifiedAt: null,
-            color: null,
-            uid: null,
-            annotationId: '999R',
-            source: 'pdf',
-            hasNote: true,
-            markerRect: null,
-        };
-
-        await expect(serializer.serializePdfForSave(source, { pendingDeletes: [pendingDelete] }))
-            .rejects
-            .toThrow('Unable to resolve embedded annotation deletes');
-    });
-});
-
 describe('usePdfSerialization embedPlacedImageToPage', () => {
     it('uses the native working-copy path for JPEG placed images when available', async () => {
         const baseBytes = new Uint8Array([1]);
@@ -382,7 +223,11 @@ describe('usePdfSerialization embedPlacedImageToPage', () => {
         ]);
         const nativeApply = deferred<Awaited<ReturnType<NonNullable<IDocumentsFileIoCapability['applyPdfNativeMutationsToWorkingCopy']>>>>();
         const applyPdfNativeMutationsToWorkingCopy = vi.fn<NonNullable<IDocumentsFileIoCapability['applyPdfNativeMutationsToWorkingCopy']>>(async () => nativeApply.promise);
-        platformMocks.documentFilesCapability = {applyPdfNativeMutationsToWorkingCopy};
+        const releaseManagedTempFileHandle = vi.fn(async () => true);
+        platformMocks.documentFilesCapability = {
+            applyPdfNativeMutationsToWorkingCopy,
+            releaseManagedTempFileHandle,
+        };
         vi.mocked(readDocumentBytes)
             .mockResolvedValueOnce(nativeBytes);
         const serializer = createSerializationHarness({workingCopyPath: '/tmp/work.pdf'});
@@ -404,6 +249,13 @@ describe('usePdfSerialization embedPlacedImageToPage', () => {
                 fileName: 'photo.jpg',
                 mimeType: 'image/jpeg',
                 bytes: imageBytes,
+                nativeSourceHandle: {
+                    path: '/tmp/photo.jpg',
+                    size: imageBytes.byteLength,
+                    sha256: 'a'.repeat(64),
+                    leaseId: 'photo-lease',
+                    revision: null,
+                },
                 targetPixelWidth: 180,
                 targetPixelHeight: 160,
             },
@@ -434,7 +286,7 @@ describe('usePdfSerialization embedPlacedImageToPage', () => {
                 height: 0.2,
                 rotationDegrees: 12,
                 mimeType: 'image/jpeg',
-                bytes: imageBytes,
+                source: expect.objectContaining({leaseId: 'photo-lease'}),
             })]},
             expect.stringMatching(/^D:\d{14}[+-]\d{2}'\d{2}'$/u),
             {
@@ -443,7 +295,8 @@ describe('usePdfSerialization embedPlacedImageToPage', () => {
             },
             {expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN},
         );
-        expect(applyPdfNativeMutationsToWorkingCopy.mock.calls[0]?.[1].placedImages?.[0]?.bytes).toBeInstanceOf(Uint8Array);
+        expect(applyPdfNativeMutationsToWorkingCopy.mock.calls[0]?.[1].placedImages?.[0]).not.toHaveProperty('bytes');
+        expect(releaseManagedTempFileHandle).toHaveBeenCalledWith('photo-lease');
         expect(readDocumentBytes).toHaveBeenNthCalledWith(1, '/tmp/work.pdf');
         expect(readDocumentBytes).toHaveBeenCalledTimes(1);
     });
@@ -459,7 +312,10 @@ describe('usePdfSerialization embedPlacedImageToPage', () => {
             applied: false,
             validation: null,
         }));
-        platformMocks.documentFilesCapability = {applyPdfNativeMutationsToWorkingCopy};
+        platformMocks.documentFilesCapability = {
+            applyPdfNativeMutationsToWorkingCopy,
+            releaseManagedTempFileHandle: vi.fn(async () => true),
+        };
         const serializer = createSerializationHarness({workingCopyPath: '/tmp/work.pdf'});
 
         await expect(serializer.embedPlacedImageToPage(
@@ -478,6 +334,13 @@ describe('usePdfSerialization embedPlacedImageToPage', () => {
                     0xD8,
                     0xFF,
                 ]),
+                nativeSourceHandle: {
+                    path: '/tmp/photo.jpg',
+                    size: 3,
+                    sha256: 'a'.repeat(64),
+                    leaseId: 'photo-lease',
+                    revision: null,
+                },
                 targetPixelWidth: 100,
                 targetPixelHeight: 80,
             },
@@ -647,7 +510,6 @@ describe('usePdfSerialization embedded shapes', () => {
         const serializer = usePdfSerialization({
             pdfData: ref(bytes),
             workingCopyPath: ref(null),
-            annotationComments: ref([]),
             totalPages: ref(1),
             pageLabelsDirty: ref(false),
             pageLabelRanges: ref([]),
@@ -713,7 +575,6 @@ describe('usePdfSerialization embedded shapes', () => {
         const serializer = usePdfSerialization({
             pdfData: ref(source),
             workingCopyPath: ref(null),
-            annotationComments: ref([]),
             totalPages: ref(1),
             pageLabelsDirty: ref(false),
             pageLabelRanges: ref([]),
@@ -797,7 +658,6 @@ describe('usePdfSerialization embedded shapes', () => {
         const firstSerializer = usePdfSerialization({
             pdfData: ref(source),
             workingCopyPath: ref(null),
-            annotationComments: ref([]),
             totalPages: ref(1),
             pageLabelsDirty: ref(false),
             pageLabelRanges: ref([]),
@@ -866,7 +726,6 @@ describe('usePdfSerialization embedded shapes', () => {
         const secondSerializer = usePdfSerialization({
             pdfData: ref(onceSaved),
             workingCopyPath: ref(null),
-            annotationComments: ref([]),
             totalPages: ref(1),
             pageLabelsDirty: ref(false),
             pageLabelRanges: ref([]),
@@ -985,7 +844,6 @@ describe('usePdfSerialization embedded shapes', () => {
         }) => usePdfSerialization({
             pdfData: ref(bytes),
             workingCopyPath: ref(null),
-            annotationComments: ref([]),
             totalPages: ref(1),
             pageLabelsDirty: ref(false),
             pageLabelRanges: ref([]),
@@ -1025,7 +883,6 @@ describe('usePdfSerialization embedded shapes', () => {
             const serializer = usePdfSerialization({
                 pdfData: ref(bytes),
                 workingCopyPath: ref(null),
-                annotationComments: ref([]),
                 totalPages: ref(1),
                 pageLabelsDirty: ref(false),
                 pageLabelRanges: ref([]),

@@ -1,13 +1,23 @@
 import type { IPdfViewerExpose } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
 import type { Ref } from 'vue';
+import type { Merge } from 'type-fest';
 
-type TPdfViewerPublicApiRefBackedKeys = 'isCapturingRegion' | 'isCropSelecting' | 'selectedShapeId';
+type TPdfViewerPublicApiRefBackedKeys =
+    | 'annotationHistoryMutationVersion'
+    | 'annotationHistoryResetVersion'
+    | 'hasShapes'
+    | 'isCapturingRegion'
+    | 'isCropSelecting'
+    | 'selectedShapeId';
 
-export type TPdfViewerPublicApiSource = Omit<IPdfViewerExpose, TPdfViewerPublicApiRefBackedKeys> & {
-    isCapturingRegion: boolean | Ref<boolean>;
-    isCropSelecting: boolean | Ref<boolean>;
-    selectedShapeId: string | null | Ref<string | null>;
+type TPdfViewerRefBackedSource = {
+    [TKey in TPdfViewerPublicApiRefBackedKeys]-?: Readonly<Ref<Exclude<IPdfViewerExpose[TKey], undefined>>>;
 };
+
+export type TPdfViewerPublicApiSource = Merge<
+    Omit<IPdfViewerExpose, TPdfViewerPublicApiRefBackedKeys>,
+    TPdfViewerRefBackedSource
+>;
 
 export function createPdfViewerPublicApi(api: TPdfViewerPublicApiSource): TPdfViewerPublicApiSource {
     return api;

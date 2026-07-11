@@ -41,7 +41,7 @@ function createElement(
 function createSummary(overrides: Partial<IAnnotationCommentSummary>): IAnnotationCommentSummary {
     return {
         id: overrides.id ?? 'ann',
-        stableKey: overrides.stableKey ?? overrides.id ?? 'ann',
+        stableKey: overrides.stableKey ?? `src:pdf:0:${overrides.id ?? 'ann'}`,
         sortIndex: null,
         pageIndex: overrides.pageIndex ?? 0,
         pageNumber: overrides.pageNumber ?? 1,
@@ -123,12 +123,12 @@ describe('findAnnotationSummaryFromPoint', () => {
             [
                 createSummary({
                     id: 'older',
-                    stableKey: 'older',
+                    stableKey: 'ann:0:older',
                     annotationId: 'older',
                 }),
                 createSummary({
                     id: 'topmost',
-                    stableKey: 'topmost',
+                    stableKey: 'ann:0:topmost',
                     annotationId: 'topmost',
                 }),
             ],
@@ -150,13 +150,13 @@ describe('findAnnotationSummaryFromPoint', () => {
             [
                 createSummary({
                     id: 'older',
-                    stableKey: 'older',
+                    stableKey: 'ann:0:older',
                     annotationId: 'older',
                     modifiedAt: 100,
                 }),
                 createSummary({
                     id: 'newer',
-                    stableKey: 'newer',
+                    stableKey: 'ann:0:newer',
                     annotationId: 'newer',
                     modifiedAt: 200,
                 }),

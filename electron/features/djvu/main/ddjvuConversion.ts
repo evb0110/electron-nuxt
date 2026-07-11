@@ -1,8 +1,6 @@
 import { existsSync } from 'fs';
 import {
-    mkdtemp,
     readFile,
-    rm,
     stat,
     unlink,
     writeFile,
@@ -10,9 +8,7 @@ import {
 import {
     availableParallelism,
     cpus,
-    tmpdir,
 } from 'os';
-import { join } from 'path';
 import { PDFDocument } from 'pdf-lib';
 import { limitAsync } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
@@ -27,6 +23,8 @@ import {
 } from '@electron/native-tools/runNativeCommand';
 import type { IRunCommandOptions } from '@electron/native-tools/runNativeCommand';
 import { abortErrorFromSignal } from '@electron/utils/abort';
+import { openDjvuArtifactJob } from '@electron/features/djvu/main/djvuArtifactManifest';
+import { mainJobBroker } from '@electron/resources/jobBroker';
 
 interface IDjvuConversionOptions {
     subsample?: number;
@@ -143,8 +141,14 @@ async function _convertDjvuToPdfWithRanges(
         };
     }
 
-    const tempDir = await mkdtemp(join(tmpdir(), 'djvu-pages-'));
-    const chunks = createPageRangeChunks(totalPages, workerCount, tempDir);
+    const pageRanges = createPageRanges(totalPages, workerCount);
+    const artifactJob = await openDjvuArtifactJob(inputPath, pageRanges, {...(options.subsample === undefined ? {} : {subsample: options.subsample})});
+    const chunks = artifactJob.manifest.ranges.map((range, index) => ({
+        index,
+        startPage: range.startPage,
+        endPage: range.endPage,
+        outputPath: range.outputPath,
+    }));
     const chunkPaths = chunks.map(chunk => chunk.outputPath);
     let completedPageCount = 0;
     let firstError: string | null = null;
@@ -156,17 +160,45 @@ async function _convertDjvuToPdfWithRanges(
                 return firstError;
             }
 
+            const checkpoint = artifactJob.manifest.ranges[chunk.index];
+            if (checkpoint?.status === 'verified') {
+                completedPageCount += chunk.endPage - chunk.startPage + 1;
+                options.onProgress?.(Math.min(
+                    PROGRESS_CAP,
+                    Math.round((completedPageCount / totalPages) * PROGRESS_CAP),
+                ));
+                return null;
+            }
+            await artifactJob.updateRange(chunk.index, {status: 'running'});
+
+            const rangeJobId = `${jobId}-range-${chunk.index + 1}-pages-${chunk.startPage}-${chunk.endPage}`;
+            const brokerLease = await mainJobBroker.acquire({
+                ownerId: jobId,
+                kind: 'djvu-range-conversion',
+                priority: 'user',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 96 * 1024 * 1024,
+                    nativeProcesses: 1,
+                    ioWeight: 2,
+                },
+                ...(options.signal ? {signal: options.signal} : {}),
+            });
             const pageResult = await convertPageRangeToPdf(
                 inputPath,
                 chunk.outputPath,
-                `${jobId}-range-${chunk.index + 1}-pages-${chunk.startPage}-${chunk.endPage}`,
+                rangeJobId,
                 chunk.startPage,
                 chunk.endPage,
                 options.subsample,
                 options.signal,
-            );
+            ).finally(() => brokerLease.release());
 
             if (!pageResult.success) {
+                await artifactJob.updateRange(chunk.index, {
+                    status: 'failed',
+                    error: pageResult.error ?? 'Range conversion failed',
+                });
                 await cancelConversion(jobId);
                 firstError = pageResult.error ?? `Failed to convert pages ${chunk.startPage}-${chunk.endPage}`;
                 return firstError;
@@ -175,6 +207,20 @@ async function _convertDjvuToPdfWithRanges(
             if (firstError) {
                 return firstError;
             }
+
+            const artifact = await stat(chunk.outputPath);
+            if (artifact.size <= 0) {
+                await artifactJob.updateRange(chunk.index, {
+                    status: 'failed',
+                    error: 'Range artifact is empty',
+                });
+                firstError = `Converted pages ${chunk.startPage}-${chunk.endPage} produced an empty artifact`;
+                return firstError;
+            }
+            await artifactJob.updateRange(chunk.index, {
+                status: 'verified',
+                size: artifact.size,
+            });
 
             completedPageCount += chunk.endPage - chunk.startPage + 1;
             if (options.onProgress) {
@@ -242,10 +288,7 @@ async function _convertDjvuToPdfWithRanges(
             };
         }
     } finally {
-        await rm(tempDir, {
-            recursive: true,
-            force: true,
-        }).catch(() => {});
+        // Verified range artifacts intentionally survive failures and process exits for resume.
     }
 }
 
@@ -256,6 +299,18 @@ async function _convertDjvuToPdfSingleProcess(
     options: IDjvuConversionOptions,
     totalPages: number,
 ): Promise<IDjvuConversionResult> {
+    const brokerLease = await mainJobBroker.acquire({
+        ownerId: jobId,
+        kind: 'djvu-conversion',
+        priority: 'user',
+        resources: {
+            cpuTokens: 1,
+            estimatedResidentBytes: 128 * 1024 * 1024,
+            nativeProcesses: 1,
+            ioWeight: 2,
+        },
+        ...(options.signal ? {signal: options.signal} : {}),
+    });
     const args = buildPdfArgs(inputPath, outputPath, options.subsample, options.pages);
     const pageProgressSeen = new Set<number>();
     const result = await runProcess(
@@ -287,7 +342,7 @@ async function _convertDjvuToPdfSingleProcess(
                 }
             },
         },
-    );
+    ).finally(() => brokerLease.release());
 
     if (!result.success) {
         await cleanupPartialOutput(outputPath);
@@ -616,7 +671,7 @@ async function runProcess(
     options: IRunProcessOptions = {},
 ): Promise<{ success: true } | {
     success: false;
-    error: string 
+    error: string
 }> {
     activeProcessIds.add(processId);
     try {
@@ -680,25 +735,25 @@ function _shouldUseParallelRangeConversion(options: IDjvuConversionOptions) {
     return getRangeWorkerCount(totalPages) > 1;
 }
 
-function createPageRangeChunks(
+function createPageRanges(
     totalPages: number,
     workerCount: number,
-    tempDir: string,
 ) {
     const chunkCount = Math.min(totalPages, workerCount);
     const baseChunkSize = Math.floor(totalPages / chunkCount);
     const remainder = totalPages % chunkCount;
-    const chunks: IDjvuPageRangeChunk[] = [];
+    const chunks: Array<{
+        startPage: number;
+        endPage: number
+    }> = [];
     let startPage = 1;
 
     for (let index = 0; index < chunkCount; index += 1) {
         const pageCount = baseChunkSize + (index < remainder ? 1 : 0);
         const endPage = startPage + pageCount - 1;
         chunks.push({
-            index,
             startPage,
             endPage,
-            outputPath: join(tempDir, `pages-${startPage}-${endPage}.pdf`),
         });
         startPage = endPage + 1;
     }
@@ -713,8 +768,12 @@ function getLogicalCpuCount() {
     return cpus().length;
 }
 
-function getRangeWorkerCount(pageCount: number) {
-    const cpuBound = Math.max(1, getLogicalCpuCount() - 1);
-    const desired = clamp(cpuBound, 2, MAX_RANGE_WORKERS);
+export function resolveDjvuRangeWorkerCount(pageCount: number, logicalCpuCount = getLogicalCpuCount()) {
+    const cpuBound = Math.max(1, logicalCpuCount - 1);
+    const desired = clamp(cpuBound, 1, MAX_RANGE_WORKERS);
     return Math.min(pageCount, desired);
+}
+
+function getRangeWorkerCount(pageCount: number) {
+    return resolveDjvuRangeWorkerCount(pageCount);
 }

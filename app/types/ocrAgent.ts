@@ -1,6 +1,7 @@
 import type {
     TOcrPreprocessingMode,
     TOcrQualityProfile,
+    TOcrTextSupersessionPolicy,
 } from '@contracts/electronApiOcr';
 
 export type {
@@ -17,6 +18,8 @@ export interface IAgentOcrRunOptions {
     qualityProfile?: TOcrQualityProfile;
     preprocessingMode?: TOcrPreprocessingMode;
     pageSegmentationMode?: number;
+    supersessionPolicy?: TOcrTextSupersessionPolicy;
+    replaceAllAcknowledged?: boolean;
     open?: boolean;
 }
 

@@ -20,7 +20,9 @@ interface IHttpHandlerOptions {
     bearerToken?: string | null;
     allowUnauthenticated?: boolean;
     allowBrowserOrigins?: boolean;
-    activeRequestControllers?: Set<AbortController>;
+    activeRequestControllers?: Map<AbortController, unknown>;
+    getRequestContext?: () => unknown;
+    createRequestOptions?: (context: unknown) => IProcessMcpRequestOptions;
 }
 
 function createRequestAbortController(request: IncomingMessage, response: ServerResponse) {
@@ -160,13 +162,17 @@ export function createHttpHandler(
 ) {
     return async (request: IncomingMessage, response: ServerResponse) => {
         const requestAbortController = createRequestAbortController(request, response);
-        httpOptions.activeRequestControllers?.add(requestAbortController);
+        const requestContext = httpOptions.getRequestContext?.();
+        httpOptions.activeRequestControllers?.set(requestAbortController, requestContext);
         const releaseRequestController = () => {
             httpOptions.activeRequestControllers?.delete(requestAbortController);
         };
         response.once('finish', releaseRequestController);
         response.once('close', releaseRequestController);
-        const requestOptions = withRequestAbortSignal(options, requestAbortController.signal);
+        const requestOptions = withRequestAbortSignal(
+            httpOptions.createRequestOptions?.(requestContext) ?? options,
+            requestAbortController.signal,
+        );
         if (httpOptions.allowBrowserOrigins !== true && isBrowserOriginMcpRequest(request)) {
             writeJson(response, 403, { error: 'Browser-origin MCP requests are not allowed.' });
             return;

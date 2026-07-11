@@ -6,7 +6,7 @@ export type TToolbarAppMenuCommand =
     | 'save-as'
     | 'print'
     | 'print-current-page'
-    | 'combine-images'
+    | 'combine-files'
     | 'export-docx'
     | 'export-images'
     | 'export-multi-page-tiff'
@@ -17,6 +17,11 @@ export type TToolbarAppMenuCommand =
     | 'paste-image-from-clipboard';
 
 export type TToolbarOverflowMenuCommand =
+    | 'save'
+    | 'save-as'
+    | 'print'
+    | 'undo'
+    | 'redo'
     | 'open-ocr'
     | 'toggle-sidebar'
     | 'fit-width'
@@ -29,6 +34,6 @@ export type TToolbarOverflowMenuCommand =
     | 'quick-note'
     | 'toggle-fullscreen'
     | 'open-settings'
-    | 'combine-images'
+    | 'combine-files'
     | 'print-current-page'
     | 'convert-to-pdf';

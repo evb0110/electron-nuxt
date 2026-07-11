@@ -1,12 +1,10 @@
 import type {
     ComputedRef,
     Ref,
+    ShallowRef,
 } from 'vue';
 import { useAnnotationShapes } from '@app/modules/pdf-viewer/tools/useAnnotationShapes';
-import { annotationCommentsMatch } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/annotationCommentsMatch';
 import { toShapeAnnotationCommentSummary } from '@app/modules/pdf-viewer/engine/annotations/shape-annotation-comments/toShapeAnnotationCommentSummary';
-import { usePdfShapeHistory } from '@app/modules/pdf-viewer/tools/usePdfShapeHistory';
-import type { IPdfAppAnnotationHistoryCommand } from '@app/modules/pdf-viewer/tools/usePdfShapeHistory';
 import { usePdfSelectedShapeCommands } from '@app/modules/pdf-viewer/tools/usePdfSelectedShapeCommands';
 import { usePdfShapeContext } from '@app/modules/pdf-viewer/tools/usePdfShapeContext';
 import { isSelectionInteractionTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isSelectionInteractionTool';
@@ -16,12 +14,14 @@ import type {
     IShapeAnnotation,
     TAnnotationTool,
 } from '@app/types/annotations';
+import type { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
+import { cloneShape } from '@app/modules/pdf-viewer/engine/shapes/cloneShape';
 
 interface IUsePdfShapeToolOptions {
     annotationTool: ComputedRef<TAnnotationTool>;
     annotationSettings: ComputedRef<IAnnotationSettings | null>;
     isAnySaving: Ref<boolean>;
-    registerHistoryCommand: (command: IPdfAppAnnotationHistoryCommand) => void;
+    annotationApplication: ShallowRef<AnnotationApplication>;
     markModified: () => void;
     emitShapeContextMenu: (payload: {
         shapeId: string;
@@ -35,19 +35,82 @@ interface IUsePdfShapeToolOptions {
 export const usePdfShapeTool = (options: IUsePdfShapeToolOptions) => {
     const shapeComposable = useAnnotationShapes();
 
-    const {
-        applyShapeUpdateWithHistory,
-        handleShapeCreated,
-    } = usePdfShapeHistory({
-        registerCommand: options.registerHistoryCommand,
-        addShape: shapeComposable.addShape,
-        updateShape: shapeComposable.updateShape,
-        deleteShape: shapeComposable.deleteShapeByReference,
-        selectShape: shapeComposable.selectShape,
-        handleDeletedShape: (shape) => options.getDeletedShapeHandler()?.(shape),
-        notifyShapeCommentsChanged: () => options.getShapeCommentsChangedHandler()?.(),
-        markModified: options.markModified,
-    });
+    function projectCanonicalShape(
+        nextShape: IShapeAnnotation | null,
+        previousShape: IShapeAnnotation | null,
+    ) {
+        if (nextShape) {
+            if (shapeComposable.getShapeById(nextShape.id)) {
+                shapeComposable.replaceShapeSnapshot(nextShape.id, nextShape);
+            } else {
+                shapeComposable.addShape(nextShape);
+            }
+            return;
+        }
+        if (previousShape) {
+            const deleted = shapeComposable.deleteShapeByReference(previousShape);
+            deleted.forEach(shape => options.getDeletedShapeHandler()?.(shape));
+        }
+    }
+
+    function handleShapeCreated(shape: IShapeAnnotation) {
+        options.annotationApplication.value.createShapeProjected({
+            kind: 'shape',
+            pageIndex: shape.pageIndex,
+            createdAt: shape.createdAt ?? Date.now(),
+            modifiedAt: shape.modifiedAt ?? Date.now(),
+            author: null,
+            geometry: cloneShape(shape),
+        }, (next, previous) => projectCanonicalShape(
+            next && !next.deleted ? cloneShape(next.geometry) : null,
+            previous && !previous.deleted ? cloneShape(previous.geometry) : null,
+        ));
+        options.markModified();
+        options.getShapeCommentsChangedHandler()?.();
+    }
+
+    function resolveShapeAnnotationId(shape: IShapeAnnotation) {
+        const annotationId = options.annotationApplication.value.annotationIdForShape(shape);
+        if (!annotationId) {
+            throw new Error(`Missing canonical AnnotationId for shape ${shape.id}`);
+        }
+        return annotationId;
+    }
+
+    function applyShapeUpdateWithHistory(previousShape: IShapeAnnotation, nextShape: IShapeAnnotation) {
+        options.annotationApplication.value.replaceShapeGeometryProjected(
+            resolveShapeAnnotationId(previousShape),
+            cloneShape(nextShape),
+            (next, previous) => projectCanonicalShape(
+                next && !next.deleted ? cloneShape(next.geometry) : null,
+                previous && !previous.deleted ? cloneShape(previous.geometry) : null,
+            ),
+            cloneShape(previousShape),
+        );
+        options.markModified();
+        options.getShapeCommentsChangedHandler()?.();
+    }
+
+    function previewShapeUpdate(shape: IShapeAnnotation) {
+        options.annotationApplication.value.previewShapeGeometryProjected(
+            resolveShapeAnnotationId(shape),
+            cloneShape(shape),
+            (next, previous) => projectCanonicalShape(
+                next && !next.deleted ? cloneShape(next.geometry) : null,
+                previous && !previous.deleted ? cloneShape(previous.geometry) : null,
+            ),
+        );
+    }
+
+    function deleteShape(shape: IShapeAnnotation) {
+        options.annotationApplication.value.deleteShapeProjected(
+            resolveShapeAnnotationId(shape),
+            (next, previous) => projectCanonicalShape(
+                next && !next.deleted ? cloneShape(next.geometry) : null,
+                previous && !previous.deleted ? cloneShape(previous.geometry) : null,
+            ),
+        );
+    }
 
     const selectedShapeCommands = usePdfSelectedShapeCommands({
         selectedShapeId: shapeComposable.selectedShapeId,
@@ -55,13 +118,8 @@ export const usePdfShapeTool = (options: IUsePdfShapeToolOptions) => {
         isAnySaving: options.isAnySaving,
         getShapeById: shapeComposable.getShapeById,
         selectShape: shapeComposable.selectShape,
-        updateShape: shapeComposable.updateShape,
-        deleteShape: shapeComposable.deleteShape,
-        deleteShapeByReference: shapeComposable.deleteShapeByReference,
-        addShape: shapeComposable.addShape,
-        applyShapeUpdateWithHistory,
-        handleDeletedShape: (shape) => options.getDeletedShapeHandler()?.(shape),
-        registerHistoryCommand: options.registerHistoryCommand,
+        executeShapeUpdate: applyShapeUpdateWithHistory,
+        executeShapeDelete: deleteShape,
         notifyShapeCommentsChanged: () => options.getShapeCommentsChangedHandler()?.(),
         markModified: options.markModified,
     });
@@ -72,6 +130,7 @@ export const usePdfShapeTool = (options: IUsePdfShapeToolOptions) => {
         annotationSettings: options.annotationSettings,
         onShapeCreated: handleShapeCreated,
         onShapeUpdated: applyShapeUpdateWithHistory,
+        onShapePreviewed: previewShapeUpdate,
         onShapeContextMenu: options.emitShapeContextMenu,
     });
 
@@ -90,10 +149,10 @@ export const usePdfShapeTool = (options: IUsePdfShapeToolOptions) => {
         if (comment.source !== 'shape') {
             return null;
         }
-        return shapeComposable.getAllShapes().find((shape) => {
-            const summary = toShapeAnnotationCommentSummary(shape);
-            return annotationCommentsMatch(summary, comment);
-        }) ?? null;
+        const annotationId = comment.appAnnotationId;
+        return shapeComposable.getAllShapes().find(shape => (
+            options.annotationApplication.value.annotationIdForShape(shape) === annotationId
+        )) ?? null;
     }
 
     return {

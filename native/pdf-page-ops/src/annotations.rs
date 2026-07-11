@@ -1,4 +1,6 @@
-fn update_note_text(
+use super::*;
+
+pub(crate) fn update_note_text(
     document: &mut Document,
     updates: &[NoteTextUpdate],
     modified_at: &str,
@@ -20,7 +22,7 @@ fn update_note_text(
     Ok(())
 }
 
-fn upsert_free_text_notes(
+pub(crate) fn upsert_free_text_notes(
     document: &mut Document,
     notes: &[FreeTextNote],
     modified_at: &str,
@@ -89,7 +91,7 @@ fn upsert_free_text_notes(
     Ok(())
 }
 
-fn upsert_free_text_notes_incremental(
+pub(crate) fn upsert_free_text_notes_incremental(
     incremental: &mut IncrementalDocument,
     notes: &[FreeTextNote],
     modified_at: &str,
@@ -165,7 +167,7 @@ fn upsert_free_text_notes_incremental(
     Ok(())
 }
 
-fn ensure_free_text_annotation_fields(
+pub(crate) fn ensure_free_text_annotation_fields(
     document: &mut Document,
     annot_id: ObjectId,
     popup_ref: Option<ObjectId>,
@@ -203,7 +205,7 @@ fn ensure_free_text_annotation_fields(
     Ok(popup_ref)
 }
 
-fn ensure_free_text_incremental_annotation_fields(
+pub(crate) fn ensure_free_text_incremental_annotation_fields(
     incremental: &mut IncrementalDocument,
     annot_id: ObjectId,
     popup_ref: Option<ObjectId>,
@@ -252,7 +254,7 @@ fn ensure_free_text_incremental_annotation_fields(
     Ok(popup_ref)
 }
 
-fn build_free_text_annotation_dict(
+pub(crate) fn build_free_text_annotation_dict(
     note: &FreeTextNote,
     note_name: &str,
     pdf_rect: PdfRect,
@@ -276,7 +278,7 @@ fn build_free_text_annotation_dict(
     dict
 }
 
-fn set_free_text_annotation_fields(
+pub(crate) fn set_free_text_annotation_fields(
     dict: &mut Dictionary,
     note: &FreeTextNote,
     note_name: &str,
@@ -315,7 +317,7 @@ fn set_free_text_annotation_fields(
     set_rgb_color(dict, "IC", note.color.as_deref());
 }
 
-fn build_popup_annotation_dict(
+pub(crate) fn build_popup_annotation_dict(
     note: &FreeTextNote,
     pdf_rect: PdfRect,
     modified_at: &str,
@@ -329,7 +331,7 @@ fn build_popup_annotation_dict(
     dict
 }
 
-fn set_popup_annotation_fields(
+pub(crate) fn set_popup_annotation_fields(
     dict: &mut Dictionary,
     note: &FreeTextNote,
     pdf_rect: PdfRect,
@@ -355,7 +357,7 @@ fn set_popup_annotation_fields(
     );
 }
 
-fn get_or_create_blank_appearance_ref(
+pub(crate) fn get_or_create_blank_appearance_ref(
     document: &mut Document,
     blank_ap_ref: &mut Option<ObjectId>,
 ) -> ObjectId {
@@ -392,7 +394,10 @@ fn get_or_create_blank_appearance_ref(
     object_id
 }
 
-fn replayable_free_text_note_name_from_parts(stable_key: &str, created_at: Option<u64>) -> String {
+pub(crate) fn replayable_free_text_note_name_from_parts(
+    stable_key: &str,
+    created_at: Option<u64>,
+) -> String {
     match created_at {
         Some(created_at) if created_at > 0 => {
             format!("evb-note:{}:created:{created_at}", stable_key.trim())
@@ -401,11 +406,11 @@ fn replayable_free_text_note_name_from_parts(stable_key: &str, created_at: Optio
     }
 }
 
-fn replayable_free_text_note_name(note: &FreeTextNote) -> String {
+pub(crate) fn replayable_free_text_note_name(note: &FreeTextNote) -> String {
     replayable_free_text_note_name_from_parts(&note.stable_key, note.created_at)
 }
 
-fn find_existing_free_text_note(
+pub(crate) fn find_existing_free_text_note(
     document: &Document,
     annots: &[Object],
     note_name: &str,
@@ -431,7 +436,7 @@ fn find_existing_free_text_note(
     Ok(None)
 }
 
-fn get_page_annots(document: &Document, page_id: ObjectId) -> Result<Vec<Object>> {
+pub(crate) fn get_page_annots(document: &Document, page_id: ObjectId) -> Result<Vec<Object>> {
     let page = document.get_dictionary(page_id)?;
     let annots = match page.get(b"Annots") {
         Ok(object) => object,
@@ -441,7 +446,7 @@ fn get_page_annots(document: &Document, page_id: ObjectId) -> Result<Vec<Object>
     Ok(resolved.as_array().cloned().unwrap_or_default())
 }
 
-fn append_annots_to_page(
+pub(crate) fn append_annots_to_page(
     document: &mut Document,
     page_id: ObjectId,
     refs: &[ObjectId],
@@ -453,7 +458,7 @@ fn append_annots_to_page(
     Ok(())
 }
 
-fn append_annots_to_page_incremental(
+pub(crate) fn append_annots_to_page_incremental(
     incremental: &mut IncrementalDocument,
     page_id: ObjectId,
     refs: &[ObjectId],
@@ -469,7 +474,7 @@ fn append_annots_to_page_incremental(
     Ok(())
 }
 
-fn collect_annotation_refs_to_delete(
+pub(crate) fn collect_annotation_refs_to_delete(
     document: &Document,
     target_id: ObjectId,
 ) -> Result<Vec<ObjectId>> {
@@ -510,7 +515,7 @@ fn collect_annotation_refs_to_delete(
     Ok(refs)
 }
 
-fn annotation_matches_stable_delete_name(
+pub(crate) fn annotation_matches_stable_delete_name(
     document: &Document,
     object_id: ObjectId,
     delete: &AnnotationDelete,
@@ -554,7 +559,7 @@ fn annotation_matches_stable_delete_name(
     Ok(note_name.starts_with(&stable_prefix))
 }
 
-fn resolve_annotation_delete_target_refs(
+pub(crate) fn resolve_annotation_delete_target_refs(
     document: &Document,
     page_id: ObjectId,
     delete: &AnnotationDelete,
@@ -592,7 +597,7 @@ fn resolve_annotation_delete_target_refs(
     }
 }
 
-fn collect_delete_refs(
+pub(crate) fn collect_delete_refs(
     document: &Document,
     deletes: &[AnnotationDelete],
 ) -> Result<HashSet<ObjectId>> {
@@ -613,7 +618,7 @@ fn collect_delete_refs(
     Ok(refs_to_delete)
 }
 
-fn filter_annots_without_refs(
+pub(crate) fn filter_annots_without_refs(
     annots: Vec<Object>,
     refs_to_delete: &HashSet<ObjectId>,
 ) -> (Vec<Object>, bool) {
@@ -634,7 +639,10 @@ fn filter_annots_without_refs(
     (filtered, removed)
 }
 
-fn delete_annotations(document: &mut Document, deletes: &[AnnotationDelete]) -> Result<()> {
+pub(crate) fn delete_annotations(
+    document: &mut Document,
+    deletes: &[AnnotationDelete],
+) -> Result<()> {
     if deletes.is_empty() {
         return Ok(());
     }
@@ -659,7 +667,7 @@ fn delete_annotations(document: &mut Document, deletes: &[AnnotationDelete]) -> 
     Ok(())
 }
 
-fn delete_annotations_incremental(
+pub(crate) fn delete_annotations_incremental(
     incremental: &mut IncrementalDocument,
     deletes: &[AnnotationDelete],
 ) -> Result<()> {
@@ -689,7 +697,7 @@ fn delete_annotations_incremental(
     Ok(())
 }
 
-fn update_note_text_incremental(
+pub(crate) fn update_note_text_incremental(
     incremental: &mut IncrementalDocument,
     updates: &[NoteTextUpdate],
     modified_at: &str,
@@ -716,7 +724,7 @@ fn update_note_text_incremental(
     Ok(())
 }
 
-fn update_annotation_text_by_ref(
+pub(crate) fn update_annotation_text_by_ref(
     document: &mut Document,
     target_id: ObjectId,
     text: &str,
@@ -755,7 +763,7 @@ fn update_annotation_text_by_ref(
     Ok(true)
 }
 
-fn update_annotation_text_incremental_by_ref(
+pub(crate) fn update_annotation_text_incremental_by_ref(
     incremental: &mut IncrementalDocument,
     target_id: ObjectId,
     text: &str,
@@ -795,7 +803,7 @@ fn update_annotation_text_incremental_by_ref(
     Ok(true)
 }
 
-fn set_annotation_object_contents(
+pub(crate) fn set_annotation_object_contents(
     document: &mut Document,
     object_id: ObjectId,
     text: &str,
@@ -807,7 +815,7 @@ fn set_annotation_object_contents(
     Ok(())
 }
 
-fn set_annotation_incremental_object_contents(
+pub(crate) fn set_annotation_incremental_object_contents(
     incremental: &mut IncrementalDocument,
     object_id: ObjectId,
     text: &str,
@@ -826,7 +834,7 @@ fn set_annotation_incremental_object_contents(
     Ok(())
 }
 
-fn set_annotation_dict_contents(dict: &mut Dictionary, text: &str, modified_at: &str) {
+pub(crate) fn set_annotation_dict_contents(dict: &mut Dictionary, text: &str, modified_at: &str) {
     dict.set(
         "Contents",
         Object::String(encode_pdf_text_string(text), StringFormat::Hexadecimal),
@@ -834,7 +842,7 @@ fn set_annotation_dict_contents(dict: &mut Dictionary, text: &str, modified_at: 
     dict.set("M", Object::string_literal(modified_at.as_bytes().to_vec()));
 }
 
-fn pdf_string_to_text(object: &Object) -> Option<String> {
+pub(crate) fn pdf_string_to_text(object: &Object) -> Option<String> {
     let bytes = object.as_str().ok()?;
     if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
         let mut units = Vec::with_capacity((bytes.len() - 2) / 2);
@@ -846,7 +854,7 @@ fn pdf_string_to_text(object: &Object) -> Option<String> {
     Some(String::from_utf8_lossy(bytes).into_owned())
 }
 
-fn encode_pdf_text_string(text: &str) -> Vec<u8> {
+pub(crate) fn encode_pdf_text_string(text: &str) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(2 + (text.len() * 2));
     bytes.push(0xFE);
     bytes.push(0xFF);
@@ -857,7 +865,7 @@ fn encode_pdf_text_string(text: &str) -> Vec<u8> {
     bytes
 }
 
-fn rect_object(rect: PdfRect) -> Object {
+pub(crate) fn rect_object(rect: PdfRect) -> Object {
     Object::Array(vec![
         number_object(rect.x1),
         number_object(rect.y1),
@@ -866,11 +874,11 @@ fn rect_object(rect: PdfRect) -> Object {
     ])
 }
 
-fn annotation_related_ref(dict: &Dictionary, key: &[u8]) -> Option<ObjectId> {
+pub(crate) fn annotation_related_ref(dict: &Dictionary, key: &[u8]) -> Option<ObjectId> {
     dict.get(key).and_then(Object::as_reference).ok()
 }
 
-fn annotation_subtype(dict: &Dictionary) -> String {
+pub(crate) fn annotation_subtype(dict: &Dictionary) -> String {
     dict.get(b"Subtype")
         .and_then(Object::as_name)
         .ok()
@@ -884,7 +892,7 @@ fn annotation_subtype(dict: &Dictionary) -> String {
         .unwrap_or_default()
 }
 
-fn parse_hex_digit(value: u8) -> Option<u8> {
+pub(crate) fn parse_hex_digit(value: u8) -> Option<u8> {
     match value {
         b'0'..=b'9' => Some(value - b'0'),
         b'a'..=b'f' => Some(value - b'a' + 10),
@@ -893,13 +901,13 @@ fn parse_hex_digit(value: u8) -> Option<u8> {
     }
 }
 
-fn parse_hex_color_component(high: u8, low: u8) -> Option<f64> {
+pub(crate) fn parse_hex_color_component(high: u8, low: u8) -> Option<f64> {
     let high = parse_hex_digit(high)?;
     let low = parse_hex_digit(low)?;
     Some(f64::from(high * 16 + low) / 255.0)
 }
 
-fn parse_rgb_number(value: &str) -> Option<f64> {
+pub(crate) fn parse_rgb_number(value: &str) -> Option<f64> {
     let parsed = value.trim().parse::<f64>().ok()?;
     if !parsed.is_finite() {
         return None;
@@ -907,7 +915,7 @@ fn parse_rgb_number(value: &str) -> Option<f64> {
     Some(parsed.clamp(0.0, 255.0) / 255.0)
 }
 
-fn parse_pdf_color(color: Option<&str>) -> Option<[f64; 3]> {
+pub(crate) fn parse_pdf_color(color: Option<&str>) -> Option<[f64; 3]> {
     let trimmed = color?.trim();
     if trimmed.is_empty()
         || trimmed.eq_ignore_ascii_case("transparent")
@@ -951,7 +959,7 @@ fn parse_pdf_color(color: Option<&str>) -> Option<[f64; 3]> {
     ])
 }
 
-fn set_rgb_color(dict: &mut Dictionary, key: &str, color: Option<&str>) {
+pub(crate) fn set_rgb_color(dict: &mut Dictionary, key: &str, color: Option<&str>) {
     if let Some(rgb) = parse_pdf_color(color) {
         dict.set(
             key,

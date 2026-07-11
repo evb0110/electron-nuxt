@@ -39,7 +39,6 @@ describe('PdfInitialSurfacePlaceholder contract', () => {
         const sharedGeometryStrings = [
             'aspect-ratio: 1 / 1.409',
             'width: calc(100% - 2rem)',
-            'margin-top: 1rem',
         ];
 
         for (const geometryString of sharedGeometryStrings) {
@@ -59,6 +58,16 @@ describe('PdfInitialSurfacePlaceholder contract', () => {
             expect(surfaceSource).toContain('left: 56');
             expect(surfaceSource).toContain(':padding="skeletonPadding"');
         }
+
+        expect(placeholderSource).toContain('margin-top: var(--app-initial-surface-offset)');
+        expect(transitionSkeletonSource).toContain('margin-top: var(--app-workspace-transition-content-offset)');
+
+        const cssSource = await readFile(
+            join(process.cwd(), 'app/assets/css/main.css'),
+            'utf8',
+        );
+        expect(cssSource).toContain('--app-initial-surface-offset: var(--app-space-12xl);');
+        expect(cssSource).toContain('--app-workspace-transition-content-offset: var(--app-space-12xl);');
     });
 
     it('defines the initial surface and workspace transition overlay z-index tokens', async () => {
@@ -67,7 +76,7 @@ describe('PdfInitialSurfacePlaceholder contract', () => {
             'utf8',
         );
 
-        expect(cssSource).toContain('--app-pdf-initial-surface-z-index: 50;');
-        expect(cssSource).toContain('--app-workspace-transition-overlay-z-index: 60;');
+        expect(cssSource).toContain('--app-pdf-initial-surface-z-index: var(--app-z-progress);');
+        expect(cssSource).toContain('--app-workspace-transition-overlay-z-index: var(--app-z-modal);');
     });
 });

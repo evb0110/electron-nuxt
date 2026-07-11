@@ -51,8 +51,8 @@ function readDjvuPressureFromPage(): IWorkspaceDjvuPressure[] {
                 index,
                 active: visible,
                 visible,
-                pageShells: host.querySelectorAll('.djvu-page-shell').length,
-                images: host.querySelectorAll('.djvu-page-shell img').length,
+                pageShells: host.querySelectorAll('[data-testid="document-page-source-page"]').length,
+                images: host.querySelectorAll('[data-testid="document-page-source-image"]').length,
             };
         });
 }
@@ -92,7 +92,7 @@ async function splitActiveDocument(session: IElectronE2ESession, direction: 'rig
 async function waitForActiveDjvuImages(session: IElectronE2ESession) {
     await session.page.waitForFunction(() => {
         const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        return (activeHost?.querySelectorAll('.djvu-page-shell img').length ?? 0) > 0;
+        return (activeHost?.querySelectorAll('[data-testid="document-page-source-image"]').length ?? 0) > 0;
     }, { timeout: 20_000 });
 }
 
@@ -111,7 +111,7 @@ async function waitForVisibleDjvuImageHosts(session: IElectronE2ESession, expect
         };
 
         return Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter(host => isVisible(host) && host.querySelectorAll('.djvu-page-shell img').length > 0)
+            .filter(host => isVisible(host) && host.querySelectorAll('[data-testid="document-page-source-image"]').length > 0)
             .length >= expected;
     }, { timeout: DJVU_E2E_TIMEOUT_MS }, expectedCount);
 }
@@ -131,7 +131,7 @@ async function waitForInactiveDjvuImagesToRelease(session: IElectronE2ESession) 
         };
         return Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
             .filter(host => !isVisible(host))
-            .every(host => host.querySelectorAll('.djvu-page-shell img').length === 0);
+            .every(host => host.querySelectorAll('[data-testid="document-page-source-image"]').length === 0);
     }, { timeout: 20_000 });
 }
 
@@ -183,7 +183,7 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
         expect(afterDjvuReactivation.filter(host => !host.active).every(host => host.images === 0)).toBe(true);
     });
 
-    it('keeps copied visible split-pane DjVu documents rendered', async () => {
+    it('keeps independently opened visible split-pane DjVu documents rendered', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
             return;
@@ -197,6 +197,8 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
         await waitForActiveDjvuImages(session);
 
         await splitActiveDocument(session, 'right');
+        await openDjvuInApp(session.page, djvuFixture.path, DJVU_E2E_TIMEOUT_MS);
+        await waitForDjvuLoaded(session.page, DJVU_E2E_TIMEOUT_MS);
         await waitForVisibleDjvuImageHosts(session, 2);
 
         const pressure = await assertInactiveDocumentPressureReleased(session.page);

@@ -1,4 +1,6 @@
-fn validate_note_text_document_postconditions(
+use super::*;
+
+pub(crate) fn validate_note_text_document_postconditions(
     document: &Document,
     updates: &[NoteTextUpdate],
     modified_at: &str,
@@ -54,7 +56,7 @@ fn validate_note_text_document_postconditions(
     Ok(())
 }
 
-fn validate_free_text_note_document_postconditions(
+pub(crate) fn validate_free_text_note_document_postconditions(
     document: &Document,
     notes: &[FreeTextNote],
     modified_at: &str,
@@ -122,7 +124,7 @@ fn validate_free_text_note_document_postconditions(
     Ok(())
 }
 
-fn validate_annotation_delete_document_postconditions(
+pub(crate) fn validate_annotation_delete_document_postconditions(
     document: &Document,
     deletes: &[AnnotationDelete],
 ) -> Result<()> {
@@ -167,7 +169,7 @@ fn validate_annotation_delete_document_postconditions(
     Ok(())
 }
 
-fn validate_placed_image_document_postconditions(
+pub(crate) fn validate_placed_image_document_postconditions(
     document: &Document,
     images: &[PlacedImage],
     modified_at: &str,
@@ -207,7 +209,7 @@ fn validate_placed_image_document_postconditions(
     Ok(())
 }
 
-fn validate_placed_image_annotation(
+pub(crate) fn validate_placed_image_annotation(
     document: &Document,
     object_id: ObjectId,
     expected_name: &str,
@@ -240,7 +242,10 @@ fn validate_placed_image_annotation(
     Ok(())
 }
 
-fn validate_placed_image_appearance(document: &Document, dict: &Dictionary) -> Result<()> {
+pub(crate) fn validate_placed_image_appearance(
+    document: &Document,
+    dict: &Dictionary,
+) -> Result<()> {
     let ap_dict = match dict.get(b"AP")? {
         Object::Dictionary(dictionary) => dictionary,
         Object::Reference(reference) => document.get_dictionary(*reference)?,
@@ -254,7 +259,7 @@ fn validate_placed_image_appearance(document: &Document, dict: &Dictionary) -> R
     Ok(())
 }
 
-fn validate_annotation_text_fields(
+pub(crate) fn validate_annotation_text_fields(
     dict: &Dictionary,
     expected_text: &str,
     modified_at: &str,
@@ -282,7 +287,7 @@ fn validate_annotation_text_fields(
     Ok(())
 }
 
-fn validate_free_text_annotation_fields(
+pub(crate) fn validate_free_text_annotation_fields(
     document: &Document,
     dict: &Dictionary,
     note: &FreeTextNote,
@@ -309,7 +314,7 @@ fn validate_free_text_annotation_fields(
     Ok(())
 }
 
-fn validate_popup_annotation_fields(
+pub(crate) fn validate_popup_annotation_fields(
     dict: &Dictionary,
     note: &FreeTextNote,
     expected_rect: PdfRect,
@@ -329,7 +334,7 @@ fn validate_popup_annotation_fields(
     Ok(())
 }
 
-fn validate_optional_author(
+pub(crate) fn validate_optional_author(
     dict: &Dictionary,
     expected_author: Option<&str>,
     label: &str,
@@ -346,7 +351,7 @@ fn validate_optional_author(
     Ok(())
 }
 
-fn validate_appearance(document: &Document, dict: &Dictionary) -> Result<()> {
+pub(crate) fn validate_appearance(document: &Document, dict: &Dictionary) -> Result<()> {
     let ap_dict = match dict.get(b"AP")? {
         Object::Dictionary(dictionary) => dictionary,
         Object::Reference(reference) => document.get_dictionary(*reference)?,
@@ -357,7 +362,11 @@ fn validate_appearance(document: &Document, dict: &Dictionary) -> Result<()> {
     Ok(())
 }
 
-fn validate_rect_approximately(actual: PdfRect, expected: PdfRect, label: &str) -> Result<()> {
+pub(crate) fn validate_rect_approximately(
+    actual: PdfRect,
+    expected: PdfRect,
+    label: &str,
+) -> Result<()> {
     const EPSILON: f64 = 0.01;
     if (actual.x1 - expected.x1).abs() > EPSILON
         || (actual.y1 - expected.y1).abs() > EPSILON
@@ -369,7 +378,7 @@ fn validate_rect_approximately(actual: PdfRect, expected: PdfRect, label: &str) 
     Ok(())
 }
 
-fn resolve_dictionary_object<'a>(
+pub(crate) fn resolve_dictionary_object<'a>(
     document: &'a Document,
     object: &'a Object,
     label: &str,
@@ -381,7 +390,7 @@ fn resolve_dictionary_object<'a>(
     }
 }
 
-fn validate_page_labels_document_postconditions(
+pub(crate) fn validate_page_labels_document_postconditions(
     document: &Document,
     page_labels: &PageLabelsMutation,
 ) -> Result<()> {
@@ -404,7 +413,7 @@ fn validate_page_labels_document_postconditions(
     Ok(())
 }
 
-fn validate_bookmarks_document_postconditions(
+pub(crate) fn validate_bookmarks_document_postconditions(
     document: &Document,
     bookmarks: &BookmarksMutation,
 ) -> Result<()> {
@@ -433,7 +442,7 @@ fn validate_bookmarks_document_postconditions(
     Ok(())
 }
 
-fn validate_shapes_document_postconditions(
+pub(crate) fn validate_shapes_document_postconditions(
     document: &Document,
     shapes: &ShapesMutation,
 ) -> Result<()> {
@@ -478,7 +487,7 @@ fn validate_shapes_document_postconditions(
     Ok(())
 }
 
-fn parse_pdfjs_annotation_object_id(value: &str) -> Option<ObjectId> {
+pub(crate) fn parse_pdfjs_annotation_object_id(value: &str) -> Option<ObjectId> {
     let normalized = normalize_pdfjs_annotation_id(value)?;
     let (object_number, generation_number) = normalized.split_once('R')?;
     let object_number = object_number.parse::<u32>().ok()?;
@@ -490,7 +499,7 @@ fn parse_pdfjs_annotation_object_id(value: &str) -> Option<ObjectId> {
     Some((object_number, generation_number))
 }
 
-fn validate_markup_target(
+pub(crate) fn validate_markup_target(
     document: &Document,
     object_id: ObjectId,
     target_subtype: &str,
@@ -529,7 +538,7 @@ fn validate_markup_target(
     Ok(())
 }
 
-fn validate_markup_document_postconditions(
+pub(crate) fn validate_markup_document_postconditions(
     document: &Document,
     markup: &MarkupMutation,
 ) -> Result<()> {

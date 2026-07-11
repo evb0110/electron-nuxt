@@ -123,7 +123,6 @@ export default withNuxt(
     {
         files: [
             'vitest.config.ts',
-            'vitest.bundle-integrity.config.ts',
         ],
         rules: {
             'no-restricted-imports': 'off',

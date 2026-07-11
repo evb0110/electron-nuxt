@@ -19,6 +19,7 @@ import type {
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type {
     IAnnotationCommentSummary,
+    TAnnotationStableKey,
     TAnnotationTool,
 } from '@app/types/annotations';
 import type { PDFDocumentProxy } from '@app/types/pdfContracts';
@@ -131,7 +132,7 @@ function createFakeUiManager(
 function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
     return {
         id: overrides.id ?? 'editor-1',
-        stableKey: overrides.stableKey ?? 'editor:0:editor-1',
+        stableKey: overrides.stableKey ?? 'src:editor:0:editor-1',
         sortIndex: overrides.sortIndex ?? null,
         pageIndex: overrides.pageIndex ?? 0,
         pageNumber: overrides.pageNumber ?? 1,
@@ -177,8 +178,6 @@ async function createHarness(overrides: IHarnessOverrides = {}) {
     );
     const annotationCommentsCache = ref<IAnnotationCommentSummary[]>(overrides.cache ?? []) as Ref<IAnnotationCommentSummary[]>;
 
-    const pendingCommentEditorKeys = new Set<string>();
-    pendingCommentEditorKeys.add('pending:editor-1');
 
     const syncAnnotationComments = vi.fn(async () => {
         overrides.syncCallback?.();
@@ -213,15 +212,13 @@ async function createHarness(overrides: IHarnessOverrides = {}) {
         getIdentity: () => ({
             resolveCommentFromCache,
             getEditorIdentity: (editor) => editor.uid ?? editor.id ?? '',
-            getEditorPendingKey: (editor) => `pending:${editor.id ?? editor.uid ?? 'unknown'}`,
             hydrateSummaryFromMemory: (s) => s,
-            computeSummaryStableKey: () => 'stable',
+            computeSummaryStableKey: () => 'ann:0:stable',
             rememberSummaryText,
             forgetSummaryText,
             commentMergePriority: () => 0,
         }),
         getSync: () => ({
-            pendingCommentEditorKeys,
             trackedCreatedEditors: new WeakSet<object>(),
             syncAnnotationComments,
             scheduleAnnotationCommentsSync,
@@ -258,7 +255,6 @@ async function createHarness(overrides: IHarnessOverrides = {}) {
         crud,
         uiManager,
         annotationCommentsCache,
-        pendingCommentEditorKeys,
         syncAnnotationComments,
         scheduleAnnotationCommentsSync,
         debouncedSyncInlineCommentIndicators,
@@ -370,11 +366,9 @@ describe('useAnnotationCrud annotation comment interactions', () => {
         });
         const harness = await createHarness({ editors: [editor] });
 
-        expect(harness.pendingCommentEditorKeys.has('pending:editor-1')).toBe(true);
 
         await harness.crud.deleteAnnotationComment(createComment());
 
-        expect(harness.pendingCommentEditorKeys.has('pending:editor-1')).toBe(false);
     });
 
     it('emits modified, schedule, indicator updates after the delete (not before)', async () => {
@@ -444,7 +438,7 @@ describe('useAnnotationCrud annotation comment interactions', () => {
         const orphan = createComment({
             id: 'missing-id',
             uid: 'missing-id',
-            stableKey: 'editor:0:missing-id',
+            stableKey: 'src:editor:0:missing-id',
         });
 
         const result = await harness.crud.deleteAnnotationComment(orphan);
@@ -455,7 +449,7 @@ describe('useAnnotationCrud annotation comment interactions', () => {
         expect(harness.forgetSummaryText).not.toHaveBeenCalled();
     });
 
-    it('deletes the only FreeText editor on the page when a transient note id is stale', async () => {
+    it('does not guess the only FreeText editor when a transient note identity is stale', async () => {
         const editor = createFakeEditor({
             id: 'actual-editor',
             uid: 'actual-editor',
@@ -485,17 +479,17 @@ describe('useAnnotationCrud annotation comment interactions', () => {
 
         const result = await harness.crud.deleteAnnotationComment(staleNote);
 
-        expect(result).toBe(true);
-        expect(harness.uiManager?.setSelected).toHaveBeenCalledWith(editor);
-        expect(harness.uiManager?.delete).toHaveBeenCalledTimes(1);
-        expect(harness.emitAnnotationModified).toHaveBeenCalledTimes(1);
+        expect(result).toBe(false);
+        expect(harness.uiManager?.setSelected).not.toHaveBeenCalled();
+        expect(harness.uiManager?.delete).not.toHaveBeenCalled();
+        expect(harness.emitAnnotationModified).not.toHaveBeenCalled();
     });
 
     it('does not throw when given an unknown id and leaves cache untouched', async () => {
         const unrelated = createComment({
             id: 'kept',
             uid: 'kept',
-            stableKey: 'editor:0:kept',
+            stableKey: 'src:editor:0:kept',
             text: 'keep me',
         });
         const harness = await createHarness({
@@ -507,7 +501,7 @@ describe('useAnnotationCrud annotation comment interactions', () => {
         const unknown = createComment({
             id: 'never-existed',
             uid: 'never-existed',
-            stableKey: 'editor:0:never-existed',
+            stableKey: 'src:editor:0:never-existed',
             text: '',
         });
 
@@ -528,7 +522,7 @@ describe('useAnnotationCrud annotation comment interactions', () => {
         const empty = createComment({
             id: '',
             uid: null,
-            stableKey: '',
+            stableKey: '' as TAnnotationStableKey,
             annotationId: null,
             text: '',
         });
@@ -536,7 +530,6 @@ describe('useAnnotationCrud annotation comment interactions', () => {
         const result = await harness.crud.deleteAnnotationComment(empty);
 
         expect(result).toBe(false);
-        expect(harness.pendingCommentEditorKeys.has('pending:editor-1')).toBe(true);
         expect(harness.emitAnnotationModified).not.toHaveBeenCalled();
     });
 
@@ -551,7 +544,7 @@ describe('useAnnotationCrud annotation comment interactions', () => {
             annotationId: 'pdf-anno-1',
             uid: null,
             id: 'pdf-anno-1',
-            stableKey: 'pdf:0:pdf-anno-1',
+            stableKey: 'src:pdf:0:pdf-anno-1',
         });
 
         await harness.crud.deleteAnnotationComment(pdfComment);

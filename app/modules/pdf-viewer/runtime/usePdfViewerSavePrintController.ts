@@ -3,7 +3,6 @@ import type {
     PDFDocumentProxy,
 } from 'pdfjs-dist';
 import type {
-    IAnnotationCommentSummary,
     IShapeAnnotation,
     TMarkupSubtype,
 } from '@app/types/annotations';
@@ -14,23 +13,23 @@ import {
 import { usePdfViewerSaveTransaction } from '@app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction';
 import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
-import type {
-    IPdfViewerConsumedPendingEmbeddedMutations,
-    IPdfViewerPendingEmbeddedMutationSnapshot,
-} from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
+import type { ISerializationPlan } from '@app/modules/pdf-viewer/serialization/serializationPlan';
 
 interface IUsePdfViewerSavePrintControllerOptions {
     getPdfDocument: () => PDFDocumentProxy | null;
     getAnnotationUiManager: () => AnnotationEditorUIManager | null;
     flushAnnotationMutationsForSave?: () => Promise<unknown>;
-    consumePendingEmbeddedMutations?: () => IPdfViewerConsumedPendingEmbeddedMutations;
-    getPendingEmbeddedMutationSnapshot?: () => IPdfViewerPendingEmbeddedMutationSnapshot;
-    getAnnotationCommentsSnapshot?: () => IAnnotationCommentSummary[];
     getMarkupSubtypeOverrides?: () => Map<string, TMarkupSubtype> | undefined;
     getMarkupSubtypeHints?: () => IMarkupSubtypeHint[] | undefined;
     getAllShapes?: () => IShapeAnnotation[];
     getDeletedEmbeddedShapeAnnotationIds?: () => string[];
     getDeletedEmbeddedShapeStableKeys?: () => string[];
+    prepareAnnotationSave?: () => {
+        plan?: ISerializationPlan;
+        verify(bytes: Uint8Array): Promise<void>;
+        assertCurrent?(): Promise<void> | void;
+        commit(): void;
+    };
 }
 
 export const usePdfViewerSavePrintController = (options: IUsePdfViewerSavePrintControllerOptions) => {
@@ -53,16 +52,14 @@ export const usePdfViewerSavePrintController = (options: IUsePdfViewerSavePrintC
     const { runSaveTransaction } = usePdfViewerSaveTransaction({
         materializePdfJsDocumentForInternalUse,
         ...(options.flushAnnotationMutationsForSave ? {flushAnnotationMutationsForSave: options.flushAnnotationMutationsForSave} : {}),
-        ...(options.consumePendingEmbeddedMutations ? {consumePendingEmbeddedMutations: options.consumePendingEmbeddedMutations} : {}),
-        ...(options.getPendingEmbeddedMutationSnapshot ? {getPendingEmbeddedMutationSnapshot: options.getPendingEmbeddedMutationSnapshot} : {}),
         commitPdfEditorsForSave,
         getPdfDocument: options.getPdfDocument,
-        ...(options.getAnnotationCommentsSnapshot ? {getAnnotationCommentsSnapshot: options.getAnnotationCommentsSnapshot} : {}),
         ...(options.getMarkupSubtypeOverrides ? {getMarkupSubtypeOverrides: options.getMarkupSubtypeOverrides} : {}),
         ...(options.getMarkupSubtypeHints ? {getMarkupSubtypeHints: options.getMarkupSubtypeHints} : {}),
         ...(options.getAllShapes ? {getAllShapes: options.getAllShapes} : {}),
         ...(options.getDeletedEmbeddedShapeAnnotationIds ? {getDeletedEmbeddedShapeAnnotationIds: options.getDeletedEmbeddedShapeAnnotationIds} : {}),
         ...(options.getDeletedEmbeddedShapeStableKeys ? {getDeletedEmbeddedShapeStableKeys: options.getDeletedEmbeddedShapeStableKeys} : {}),
+        ...(options.prepareAnnotationSave ? {prepareAnnotationSave: options.prepareAnnotationSave} : {}),
     });
 
     async function renderLoadedPdfPagesForBrowserPrint(

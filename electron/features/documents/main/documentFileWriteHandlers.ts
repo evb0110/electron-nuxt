@@ -3,15 +3,31 @@ import {
     extname,
     resolve,
 } from 'path';
-import { isErrnoException } from '@contracts/runtimeGuards';
+import {
+    createHash,
+    randomUUID,
+} from 'node:crypto';
+import {createReadStream} from 'node:fs';
+import { pipeline } from 'node:stream/promises';
+import {
+    cp,
+    readFile,
+    rm,
+    unlink,
+    writeFile,
+} from 'node:fs/promises';
+import {isErrnoException} from '@contracts/runtimeGuards';
 import {
     resolveAllowedReadPath,
     resolveAllowedWritePath,
 } from '@electron/utils/pathValidator';
 import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
-import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
+import {
+    clearWorkingCopySearchArtifacts,
+    enqueueWorkingCopyMutation,
+} from '@electron/file-access/workingCopyMutationQueue';
 import type { IDocumentMutationRevisionOptions } from '@contracts/electronApiDocuments';
-import { markWorkingCopyContentChanged } from '@electron/file-access/documentRevisionStore';
+import {transitionWorkingCopyContentRevision} from '@electron/file-access/documentRevisionStore';
 import {
     assertQueuedWorkingCopyMutationPreconditions,
     normalizeExpectedDocumentRevisionToken,
@@ -21,7 +37,12 @@ import {
     copyFileAtomic,
     normalizeIpcWritePayload,
     writeFileAtomic,
-} from '@electron/features/documents/main/documentFileWriteAtomic';
+} from '@electron/file-access/documentFileWriteAtomic';
+import {
+    atomicReplace,
+    makeSiblingTempPath,
+} from '@electron/utils/atomicReplace';
+import {validatePdfFile} from '@electron/features/documents/main/pdfConformance';
 import { normalizeNonEmptyPath } from '@electron/features/documents/main/documentFilePathResolution';
 import {
     getWorkingCopyOriginalPath,
@@ -29,6 +50,7 @@ import {
 } from '@electron/file-access/workingCopyStore';
 import { originalPathSaveBaseMatches } from '@electron/features/documents/main/originalPathSaveBaseMatches';
 import { findPendingOcrResultFileForPath } from '@electron/ocr/createPendingResultFileStore';
+import { rebindDocumentTextCatalogRevision } from '@electron/ocr/documentTextCatalog';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
 
 function requireSenderId(context: IDocumentsSenderIdContext) {
@@ -36,6 +58,12 @@ function requireSenderId(context: IDocumentsSenderIdContext) {
         throw new Error('Missing sender identity');
     }
     return context.senderId;
+}
+
+async function sha256File(path: string) {
+    const hash = createHash('sha256');
+    await pipeline(createReadStream(path), hash);
+    return hash.digest('hex');
 }
 
 function assertOcrPdfResultSourcePath(resolvedPath: string, senderWebContentsId: number) {
@@ -46,9 +74,11 @@ function assertOcrPdfResultSourcePath(resolvedPath: string, senderWebContentsId:
     if (!fileName.startsWith('ocr-') && !fileName.startsWith('searchable-')) {
         throw new Error('Invalid source path: only OCR result files can replace a working copy');
     }
-    if (!findPendingOcrResultFileForPath(senderWebContentsId, resolvedPath)) {
+    const pendingResult = findPendingOcrResultFileForPath(senderWebContentsId, resolvedPath);
+    if (!pendingResult) {
         throw new Error('Invalid source path: OCR result is not owned by this renderer');
     }
+    return pendingResult;
 }
 
 async function shouldRefreshOriginalSaveBaseAfterWorkingCopyReplacement(
@@ -87,19 +117,35 @@ export async function handleFileWrite(
         if (!await ensureWorkingCopyDirectory(resolvedPath, senderId)) {
             throw new Error('Invalid file path: writes require a managed working copy');
         }
+        const tempPath = makeSiblingTempPath(resolvedPath);
+        let committed = false;
         try {
-            await writeFileAtomic(resolvedPath, payload);
-        } catch (error) {
-            const code = isErrnoException(error) ? error.code : undefined;
-            if (code !== 'ENOENT' && code !== 'ENOTDIR') {
-                throw error;
+            try {
+                await writeFileAtomic(tempPath, payload);
+            } catch (error) {
+                const code = isErrnoException(error) ? error.code : undefined;
+                if (code !== 'ENOENT' && code !== 'ENOTDIR') throw error;
+                if (!await ensureWorkingCopyDirectory(resolvedPath, senderId)) {
+                    throw new Error('Invalid file path: writes require a managed working copy');
+                }
+                await writeFileAtomic(tempPath, payload);
             }
-            if (!await ensureWorkingCopyDirectory(resolvedPath, senderId)) {
-                throw new Error('Invalid file path: writes require a managed working copy');
+            const validation = await validatePdfFile(tempPath);
+            if (!validation.isValid) {
+                throw new Error(`PDF write verification failed: ${validation.errors.join('; ')}`);
             }
-            await writeFileAtomic(resolvedPath, payload);
+            await transitionWorkingCopyContentRevision(
+                resolvedPath,
+                'write',
+                async () => {
+                    await atomicReplace(tempPath, resolvedPath);
+                    committed = true;
+                },
+                senderId,
+            );
+        } finally {
+            if (!committed) await unlink(tempPath).catch(() => undefined);
         }
-        await markWorkingCopyContentChanged(resolvedPath, 'write', senderId);
         return true;
     });
 }
@@ -127,9 +173,19 @@ export async function handleReplaceWorkingCopyFromPath(
     if (!resolvedSourcePath) {
         throw new Error('Invalid source path: OCR result must be within temp directory');
     }
-    assertOcrPdfResultSourcePath(resolvedSourcePath, senderId);
+    const pendingResult = assertOcrPdfResultSourcePath(resolvedSourcePath, senderId);
 
     return enqueueWorkingCopyMutation(resolvedWorkingCopyPath, async () => {
+        const journalPath = `${resolvedWorkingCopyPath}.ocr-transition.json`;
+        const priorTransition = await readFile(journalPath, 'utf8')
+            .then(raw => JSON.parse(raw) as {
+                transitionId?: unknown;
+                state?: unknown
+            })
+            .catch(() => null);
+        if (priorTransition?.transitionId === pendingResult.requestId && priorTransition.state === 'committed') {
+            return true;
+        }
         await assertQueuedWorkingCopyMutationPreconditions(
             resolvedWorkingCopyPath,
             expectedDocumentRevisionToken,
@@ -137,28 +193,119 @@ export async function handleReplaceWorkingCopyFromPath(
         if (!await ensureWorkingCopyDirectory(resolvedWorkingCopyPath, senderId)) {
             throw new Error('Invalid file path: writes require a managed working copy');
         }
+        if (!expectedDocumentRevisionToken) {
+            throw new Error('OCR apply requires the source document revision');
+        }
+        if (await sha256File(resolvedSourcePath) !== pendingResult.resultSha256) {
+            throw new Error('OCR result content hash does not match the verified worker result');
+        }
         const shouldRefreshOriginalSaveBase = await shouldRefreshOriginalSaveBaseAfterWorkingCopyReplacement(
             resolvedWorkingCopyPath,
             senderId,
         );
+        const transitionId = pendingResult.requestId;
+        const transitionSuffix = `${process.pid}-${randomUUID()}`;
+        const pdfBackupPath = `${resolvedWorkingCopyPath}.ocr-transition-${transitionSuffix}.bak`;
+        const catalogPath = `${resolvedWorkingCopyPath}.ocr`;
+        const stagedCatalogPath = `${resolvedSourcePath}.ocr`;
+        const catalogBackupPath = `${catalogPath}.transition-${transitionSuffix}.bak`;
+
+        await copyFileAtomic(resolvedWorkingCopyPath, pdfBackupPath);
+        let catalogBackupExisted = true;
         try {
-            await copyFileAtomic(resolvedSourcePath, resolvedWorkingCopyPath);
+            await cp(catalogPath, catalogBackupPath, {recursive: true});
         } catch (error) {
-            const code = isErrnoException(error) ? error.code : undefined;
-            if (code !== 'ENOENT' && code !== 'ENOTDIR') {
+            if (!isErrnoException(error) || error.code !== 'ENOENT') {
+                await unlink(pdfBackupPath).catch(() => undefined);
                 throw error;
             }
-            if (!await ensureWorkingCopyDirectory(resolvedWorkingCopyPath, senderId)) {
-                throw new Error('Invalid file path: writes require a managed working copy');
-            }
-            await copyFileAtomic(resolvedSourcePath, resolvedWorkingCopyPath);
+            catalogBackupExisted = false;
+        }
+        await writeFile(journalPath, JSON.stringify({
+            version: 1,
+            transitionId,
+            state: 'prepared',
+            workingCopyPath: resolvedWorkingCopyPath,
+            resultPath: resolvedSourcePath,
+            expectedDocumentRevisionToken,
+            pdfBackupPath,
+            catalogBackupPath,
+            catalogBackupExisted,
+            createdAt: Date.now(),
+        }), 'utf8');
+        let transitionPublished = false;
+        try {
+            const transitionEvent = await transitionWorkingCopyContentRevision(
+                resolvedWorkingCopyPath,
+                'ocr-apply',
+                async nextRevision => {
+                    try {
+                        await writeFile(journalPath, JSON.stringify({
+                            version: 1,
+                            transitionId,
+                            state: 'prepared',
+                            workingCopyPath: resolvedWorkingCopyPath,
+                            resultPath: resolvedSourcePath,
+                            expectedDocumentRevisionToken,
+                            targetDocumentRevisionToken: nextRevision.token,
+                            pdfBackupPath,
+                            catalogBackupPath,
+                            catalogBackupExisted,
+                            createdAt: Date.now(),
+                        }), 'utf8');
+                        await copyFileAtomic(resolvedSourcePath, resolvedWorkingCopyPath);
+                        await rm(catalogPath, {
+                            recursive: true,
+                            force: true,
+                        });
+                        await cp(stagedCatalogPath, catalogPath, {recursive: true});
+                        await rebindDocumentTextCatalogRevision(
+                            resolvedWorkingCopyPath,
+                            expectedDocumentRevisionToken,
+                            nextRevision.token,
+                        );
+                        await clearWorkingCopySearchArtifacts(resolvedWorkingCopyPath);
+                    } catch (error) {
+                        await copyFileAtomic(pdfBackupPath, resolvedWorkingCopyPath).catch(() => undefined);
+                        await rm(catalogPath, {
+                            recursive: true,
+                            force: true,
+                        }).catch(() => undefined);
+                        if (catalogBackupExisted) {
+                            await cp(catalogBackupPath, catalogPath, {recursive: true}).catch(() => undefined);
+                        }
+                        throw error;
+                    }
+                },
+                senderId,
+            );
+            transitionPublished = true;
+            await writeFile(journalPath, JSON.stringify({
+                version: 1,
+                transitionId,
+                state: 'committed',
+                workingCopyPath: resolvedWorkingCopyPath,
+                targetDocumentRevisionToken: transitionEvent.token,
+                undoPdfPath: pdfBackupPath,
+                undoCatalogPath: catalogBackupPath,
+                undoCatalogExisted: catalogBackupExisted,
+                committedAt: Date.now(),
+            }), 'utf8');
+        } finally {
+            await Promise.all([
+                ...(transitionPublished ? [] : [unlink(pdfBackupPath).catch(() => undefined)]),
+                ...(transitionPublished ? [] : [rm(catalogBackupPath, {
+                    recursive: true,
+                    force: true,
+                }).catch(() => undefined)]),
+                ...(transitionPublished ? [] : [unlink(journalPath).catch(() => undefined)]),
+            ]);
         }
         if (shouldRefreshOriginalSaveBase) {
             if (!await refreshWorkingCopyOriginalFileExpectation(resolvedWorkingCopyPath, senderId)) {
                 throw new Error('Working copy registration changed before original expectation refresh completed');
             }
         }
-        await markWorkingCopyContentChanged(resolvedWorkingCopyPath, 'ocr-apply', senderId);
         return true;
     });
 }

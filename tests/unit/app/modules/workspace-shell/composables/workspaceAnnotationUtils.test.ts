@@ -19,18 +19,13 @@ function createSaveTransaction(bytes: Uint8Array | null) {
         baseBytes: null,
         serializedBytes: bytes,
         serializedResult: null,
-        nativeMutationPlan: null,
+        nativeMutationProjection: null,
         annotationSavePlan: {
             route: 'source-clean' as const,
             expectedCost: 'small' as const,
             reason: 'no-live-pdfjs-annotation-work' as const,
             unreplayableLiveAnnotationIds: [],
         },
-        annotationCommentsSnapshot: [],
-        pendingEmbeddedTextUpdates: new Map(),
-        pendingEmbeddedAnnotationDeletes: [],
-        restoreConsumedPendingEmbeddedMutations: vi.fn(),
-        commitConsumedPendingEmbeddedMutations: vi.fn(),
     }));
 }
 

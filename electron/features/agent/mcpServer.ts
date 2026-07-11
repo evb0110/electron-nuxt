@@ -13,6 +13,7 @@ import type {
     IAgentTabSnapshot,
     TAgentWorkspaceCommandTarget,
 } from '@contracts/agent';
+import type { IAssistantSessionScopeBinding } from '@electron/features/agent/assistantTurnLifecycle';
 import type {
     ILocalMcpServerDescriptor,
     ILocalMcpServerIdentity,
@@ -30,6 +31,7 @@ import {
     assertAssistantMcpSnapshotMatchesScope,
     clearAssistantMcpSessionScope,
     createAssistantCommandExecutionScope,
+    getActiveAssistantMcpSessionScope,
     resolveAssistantMcpSessionScope,
 } from '@electron/features/agent/assistantMcpSessionScope';
 import {
@@ -70,7 +72,7 @@ let localMcpStopPromise: Promise<void> | null = null;
 let localMcpDesiredRunning = false;
 let localMcpGeneration = 0;
 let embeddedMcpServer: Server | null = null;
-const activeMcpRequestsByServer = new WeakMap<Server, Set<AbortController>>();
+const activeMcpRequestsByServer = new WeakMap<Server, Map<AbortController, IAssistantSessionScopeBinding | null>>();
 let embeddedMcpServerDescriptor: ILocalMcpServerDescriptor | null = null;
 // Stable for the server's lifetime so sessions opened earlier keep working; rotated only on full shutdown.
 let embeddedMcpToken: string | null = null;
@@ -298,11 +300,18 @@ function createStartupCanceledError(serverKind: string) {
 function createTrackedHttpServer(
     options: IProcessMcpRequestOptions,
     bearerToken: string,
+    requestOptions: {
+        getBinding?: () => IAssistantSessionScopeBinding | null;
+        createOptions?: (binding: IAssistantSessionScopeBinding | null) => IProcessMcpRequestOptions;
+    } = {},
 ) {
-    const activeRequestControllers = new Set<AbortController>();
+    const activeRequestControllers = new Map<AbortController, IAssistantSessionScopeBinding | null>();
     const server = createServer(createHttpHandler(options, {
         bearerToken,
         activeRequestControllers,
+        ...(requestOptions.getBinding ? {getRequestContext: requestOptions.getBinding} : {}),
+        ...(requestOptions.createOptions ? {createRequestOptions: (context: unknown) =>
+            requestOptions.createOptions?.(context as IAssistantSessionScopeBinding | null) ?? options} : {}),
     }));
     activeMcpRequestsByServer.set(server, activeRequestControllers);
     return server;
@@ -313,7 +322,7 @@ function closeHttpServer(server: Server | null) {
         return Promise.resolve();
     }
 
-    for (const controller of activeMcpRequestsByServer.get(server) ?? []) {
+    for (const controller of activeMcpRequestsByServer.get(server)?.keys() ?? []) {
         controller.abort(new Error('MCP server is shutting down.'));
     }
 
@@ -347,8 +356,14 @@ function closeHttpServer(server: Server | null) {
     });
 }
 
-function resolveInternalAssistantWindow(windowId?: number) {
-    const binding = resolveAssistantMcpSessionScope(windowId);
+function resolveInternalAssistantWindow(
+    windowId?: number,
+    requestBinding?: IAssistantSessionScopeBinding | null,
+) {
+    const binding = requestBinding ?? resolveAssistantMcpSessionScope(windowId);
+    if (windowId !== undefined && windowId !== binding.windowId) {
+        throw new Error('Internal EVB MCP request targeted a different window than the bound assistant turn.');
+    }
     const window = getWindowByIdFromRegistry(binding.windowId);
     if (!window) {
         throw new Error('No live renderer window is available for the active assistant MCP turn.');
@@ -414,6 +429,7 @@ function commandTargetsMatch(
 function createDefaultMcpRequestOptions(
     identity: ILocalMcpServerIdentity,
     callerKind: 'external' | 'internal',
+    requestBinding?: IAssistantSessionScopeBinding | null,
 ): IProcessMcpRequestOptions {
     if (callerKind === 'internal') {
         return {
@@ -423,7 +439,7 @@ function createDefaultMcpRequestOptions(
                 const {
                     binding,
                     window,
-                } = resolveInternalAssistantWindow(windowId);
+                } = resolveInternalAssistantWindow(windowId, requestBinding);
                 const snapshot = await requestAgentWorkspaceSnapshot(
                     window,
                     undefined,
@@ -436,7 +452,7 @@ function createDefaultMcpRequestOptions(
                 const {
                     binding,
                     window,
-                } = resolveInternalAssistantWindow(windowId);
+                } = resolveInternalAssistantWindow(windowId, requestBinding);
                 const scope = createAssistantCommandExecutionScope(binding);
                 const snapshot = await requestAgentWorkspaceSnapshot(window, undefined, scope, signal);
                 assertAssistantMcpSnapshotMatchesScope(snapshot, binding);
@@ -452,7 +468,7 @@ function createDefaultMcpRequestOptions(
                 const {
                     binding,
                     window,
-                } = resolveInternalAssistantWindow(windowId);
+                } = resolveInternalAssistantWindow(windowId, requestBinding);
                 if (!window) {
                     throw new Error('No live renderer window is available for document text inspection.');
                 }
@@ -463,7 +479,7 @@ function createDefaultMcpRequestOptions(
                 const {
                     binding,
                     window,
-                } = resolveInternalAssistantWindow(windowId);
+                } = resolveInternalAssistantWindow(windowId, requestBinding);
                 if (!window) {
                     throw new Error('No live renderer window is available for document search.');
                 }
@@ -474,7 +490,7 @@ function createDefaultMcpRequestOptions(
                 const {
                     binding,
                     window,
-                } = resolveInternalAssistantWindow(windowId);
+                } = resolveInternalAssistantWindow(windowId, requestBinding);
                 if (!window) {
                     throw new Error('No live renderer window is available for document page text reading.');
                 }
@@ -633,6 +649,40 @@ export function isEmbeddedMcpServerRunning() {
     return embeddedMcpServer?.listening === true;
 }
 
+export function abortActiveEmbeddedMcpRequests(
+    binding: IAssistantSessionScopeBinding | null,
+    reason = 'Assistant turn interrupted.',
+) {
+    if (!embeddedMcpServer || !binding) {
+        return 0;
+    }
+    const controllers = activeMcpRequestsByServer.get(embeddedMcpServer) ?? new Map<AbortController, IAssistantSessionScopeBinding | null>();
+    return abortAssistantToolRequestsForBinding(controllers, binding, reason);
+}
+
+export function abortAssistantToolRequestsForBinding(
+    controllers: ReadonlyMap<AbortController, IAssistantSessionScopeBinding | null>,
+    binding: IAssistantSessionScopeBinding,
+    reason = 'Assistant turn interrupted.',
+) {
+    let aborted = 0;
+    for (const [
+        controller,
+        requestBinding,
+    ] of controllers) {
+        if (
+            requestBinding?.sessionKey === binding.sessionKey
+            && requestBinding.turnGeneration === binding.turnGeneration
+            && requestBinding.windowId === binding.windowId
+            && !controller.signal.aborted
+        ) {
+            controller.abort(new Error(reason));
+            aborted += 1;
+        }
+    }
+    return aborted;
+}
+
 export function getEmbeddedMcpServerDescriptor() {
     return embeddedMcpServerDescriptor;
 }
@@ -670,7 +720,10 @@ export function startEmbeddedMcpServer(): Promise<IEmbeddedMcpServerHandle> {
             identity.name = ASSISTANT_MCP_SERVER_NAME;
             identity.title = `${identity.title} Assistant`;
             const options = createDefaultMcpRequestOptions(identity, 'internal');
-            const server = createTrackedHttpServer(options, token);
+            const server = createTrackedHttpServer(options, token, {
+                getBinding: getActiveAssistantMcpSessionScope,
+                createOptions: binding => createDefaultMcpRequestOptions(identity, 'internal', binding),
+            });
             // Track the binding server immediately so a shutdown racing the bind can always close it.
             embeddedMcpServer = server;
             let settled = false;

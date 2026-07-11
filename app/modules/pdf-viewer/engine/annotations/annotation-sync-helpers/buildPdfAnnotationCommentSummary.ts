@@ -4,7 +4,6 @@ import type {
 } from '@app/types/annotations';
 import { getAnnotationAuthor } from '@app/services/pdf/annotationMetadata';
 import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
-import { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
 import { toMarkerRectFromPdfRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/toMarkerRectFromPdfRect';
 import type { TPageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/pageRotation';
 import { toCssColor } from '@app/modules/pdf-viewer/engine/annotation-css-utils/toCssColor';
@@ -23,9 +22,8 @@ import { resolveCombinedAnnotationText } from '@app/modules/pdf-viewer/engine/an
 
 const FREE_TEXT_SUBTYPE_LOWER = 'freetext';
 
-const POINT_NOTE_MARKER_SIZE = 0.0016;
-
 const MAX_FREETEXT_NOTE_MARKER_SIZE = 0.02;
+const MARKER_SIZE_ROUNDING_TOLERANCE = Number.EPSILON * 16;
 
 function isFreeTextNoteMarkerRect(
     subtype: string | null | undefined,
@@ -36,16 +34,9 @@ function isFreeTextNoteMarkerRect(
         return false;
     }
     const normalizedSubtype = (subtype ?? '').trim().toLowerCase();
-    return normalizedSubtype === FREE_TEXT_SUBTYPE_LOWER;
-}
-
-function toPointMarkerRectFromTopLeft(rect: IAnnotationMarkerRect) {
-    return normalizeMarkerRect({
-        left: rect.left,
-        top: rect.top,
-        width: POINT_NOTE_MARKER_SIZE,
-        height: POINT_NOTE_MARKER_SIZE,
-    });
+    return normalizedSubtype === FREE_TEXT_SUBTYPE_LOWER
+        && rect.width <= MAX_FREETEXT_NOTE_MARKER_SIZE + MARKER_SIZE_ROUNDING_TOLERANCE
+        && rect.height <= MAX_FREETEXT_NOTE_MARKER_SIZE + MARKER_SIZE_ROUNDING_TOLERANCE;
 }
 
 function resolvePdfCommentMarkerRect(
@@ -56,13 +47,7 @@ function resolvePdfCommentMarkerRect(
     if (!isFreeTextNoteMarkerRect(subtype, hasLinkedPopup, rawMarkerRect)) {
         return rawMarkerRect;
     }
-    if (
-        rawMarkerRect.width <= MAX_FREETEXT_NOTE_MARKER_SIZE
-        && rawMarkerRect.height <= MAX_FREETEXT_NOTE_MARKER_SIZE
-    ) {
-        return rawMarkerRect;
-    }
-    return toPointMarkerRectFromTopLeft(rawMarkerRect);
+    return rawMarkerRect;
 }
 
 function resolvePdfCommentIds(
@@ -107,9 +92,11 @@ function hasPdfAnnotationNote(
     subtype: string | null,
     hasLinkedPopup: boolean,
     text: string,
+    markerRect: IAnnotationMarkerRect | null,
 ) {
     const normalizedSubtype = (subtype ?? '').trim().toLowerCase();
-    const isFreeTextNote = normalizedSubtype === FREE_TEXT_SUBTYPE_LOWER && hasLinkedPopup;
+    const isFreeTextNote = normalizedSubtype === FREE_TEXT_SUBTYPE_LOWER
+        && isFreeTextNoteMarkerRect(subtype, hasLinkedPopup, markerRect);
     return Boolean(
         (isTextMarkupSubtype(subtype) || isFreeTextNote)
         && (hasLinkedPopup || text.trim().length > 0),
@@ -220,7 +207,7 @@ export function buildPdfAnnotationCommentSummary(
         annotationId,
         annotationName,
         source: 'pdf',
-        hasNote: hasPdfAnnotationNote(subtype, hasLinkedPopup, text),
+        hasNote: hasPdfAnnotationNote(subtype, hasLinkedPopup, text, rawMarkerRect),
         markerRect: resolvePdfCommentMarkerRect(subtype, hasLinkedPopup, rawMarkerRect),
     };
 }

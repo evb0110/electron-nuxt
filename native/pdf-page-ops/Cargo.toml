@@ -8,6 +8,8 @@ crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 getrandom = "0.4.2"
+evb-native-support = { path = "../evb-native-support" }
 lopdf = { version = "0.41.0", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+sha2 = "0.10"

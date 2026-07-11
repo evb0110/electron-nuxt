@@ -68,7 +68,6 @@
 </template>
 
 <script setup lang="ts">
-
 import {
     useDebounceFn,
     useResizeObserver,
@@ -101,20 +100,18 @@ import {
     isValidThumbnailAspectRatio,
     resolveCurrentPageThumbnailScrollTop,
     resolvePageAtScrollOffset as resolvePageAtThumbnailScrollOffset,
-    resolveThumbnailContentHeight,
     resolveThumbnailInsertionIndex,
-    resolveThumbnailItemHeights,
     resolveThumbnailPageBounds,
-    resolveThumbnailPageTops,
     type IThumbnailLayoutSnapshot,
 } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailLayout';
+import { ThumbnailFenwickLayout } from '@app/modules/pdf-viewer/thumbnails/thumbnailFenwickLayout';
 import { usePdfThumbnailSelection } from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailSelection';
-import type { IPdfPagePreviewEntry } from '@app/modules/pdf-viewer/engine/pdf-page-preview/pdfPagePreviewTypes';
 import { roundMetric } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailRenderMetrics';
 import {
     PDF_THUMBNAIL_LOG_SECTION,
     usePdfThumbnailRenderRuntime,
 } from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailRenderRuntime';
+import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/scrollToPageOptions';
 
 interface IProps {
     pdfDocument: PDFDocumentProxy | null;
@@ -130,7 +127,6 @@ interface IProps {
     annotationComments?: IAnnotationCommentSummary[] | undefined;
     annotationSettings?: IAnnotationSettings | null | undefined;
     isActive?: boolean | undefined;
-    pagePreviewProvider?: ((page: number) => IPdfPagePreviewEntry | null) | null | undefined;
 }
 
 const THUMBNAIL_WIDTH_CHANGE_THRESHOLD = 1;
@@ -146,14 +142,13 @@ const {
     invalidationRequest = undefined,
     isActive = true,
     pageLabels = undefined,
-    pagePreviewProvider = null,
     pdfDocument,
     selectedPages = undefined,
     totalPages,
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
-    'go-to-page': [page: number];
+    'go-to-page': [page: number, options?: IScrollToPageOptions];
     'update:selected-pages': [pages: number[]];
     'page-context-menu': [payload: {
         clientX: number;
@@ -198,46 +193,47 @@ const editedTextMarkupVisualSignature = computed(() => createEditedTextMarkupThu
     editedTextMarkupComments.value,
     annotationSettings,
 ));
-
 function getThumbnailAspectRatio(page: number) {
     return thumbnailAspectRatios.value[page - 1] ?? null;
 }
-
 function getThumbnailTop(page: number) {
-    return thumbnailPageTops.value[page - 1] ?? 0;
+    return thumbnailFenwickLayout.value.getPageTop(page);
 }
 
-const thumbnailItemHeights = computed(() => {
-    return resolveThumbnailItemHeights(
-        totalPages,
-        thumbnailAspectRatios.value,
-        thumbnailRenderWidth.value,
-    );
+const thumbnailLayoutRevision = ref(0);
+const thumbnailFenwickLayout = shallowRef(new ThumbnailFenwickLayout(
+    totalPages,
+    thumbnailRenderWidth.value,
+    thumbnailAspectRatios.value,
+));
+function updateThumbnailAspectRatio(page: number, aspectRatio: number | null) {
+    if (thumbnailFenwickLayout.value.updatePageAspect(page, aspectRatio)) {
+        thumbnailLayoutRevision.value += 1;
+    }
+}
+watch([
+    () => totalPages,
+    thumbnailRenderWidth,
+], () => {
+    thumbnailFenwickLayout.value.reset(totalPages, thumbnailRenderWidth.value, thumbnailAspectRatios.value);
+    thumbnailLayoutRevision.value += 1;
 });
-
-const thumbnailPageTops = computed(() => {
-    return resolveThumbnailPageTops(thumbnailItemHeights.value);
-});
-
 const thumbnailContentHeight = computed(() => {
-    return resolveThumbnailContentHeight(
-        totalPages,
-        thumbnailPageTops.value,
-        thumbnailItemHeights.value,
-    );
+    void thumbnailLayoutRevision.value;
+    return thumbnailFenwickLayout.value.getTotalHeight();
 });
-
-const thumbnailLayoutSnapshot = computed<IThumbnailLayoutSnapshot>(() => ({
-    tops: thumbnailPageTops.value,
-    heights: thumbnailItemHeights.value,
-    totalHeight: thumbnailContentHeight.value,
-}));
+const thumbnailLayoutSnapshot = computed<IThumbnailLayoutSnapshot>(() => {
+    void thumbnailLayoutRevision.value;
+    return thumbnailFenwickLayout.value.snapshot();
+});
 
 function resolvePageAtScrollOffset(
     offset: number,
     layout = thumbnailLayoutSnapshot.value,
 ) {
-    return resolvePageAtThumbnailScrollOffset(offset, totalPages, layout);
+    return layout === thumbnailLayoutSnapshot.value
+        ? thumbnailFenwickLayout.value.resolvePageAtOffset(offset)
+        : resolvePageAtThumbnailScrollOffset(offset, totalPages, layout);
 }
 
 function resolveInsertionIndex(offset: number) {
@@ -338,7 +334,7 @@ const {
     isExternalDragOver,
     markUserInteraction,
     onContextMenu: payload => emit('page-context-menu', payload),
-    onGoToPage: page => emit('go-to-page', page),
+    onGoToPage: page => emit('go-to-page', page, {navigationSource: 'thumbnail'}),
     onSelectedPagesChange: pages => emit('update:selected-pages', pages),
     scrollPageIntoKeyboardView,
     selectedPages: computed(() => selectedPages ?? []),
@@ -875,13 +871,13 @@ const thumbnailRenderRuntime = usePdfThumbnailRenderRuntime({
         shouldPreferVisibleAnchorOverCurrentPage,
         thumbnailAspectRatios,
         thumbnailRenderWidth,
+        updateThumbnailAspectRatio,
         virtualPages,
     },
     source: {
         currentPage: computed(() => currentPage),
         invalidationRequest: computed(() => invalidationRequest),
         isActive: computed(() => isActive ?? true),
-        pagePreviewProvider: computed(() => pagePreviewProvider),
         pdfDocument: computed(() => pdfDocument),
         totalPages: computed(() => totalPages),
     },
@@ -944,7 +940,7 @@ useResizeObserver(containerRef, () => {
   overflow: auto;
   overflow-anchor: none;
   scrollbar-gutter: stable;
-  padding: 8px;
+  padding: var(--app-sidebar-content-padding);
 }
 
 .pdf-thumbnails-virtual-wrapper {
@@ -956,9 +952,9 @@ useResizeObserver(containerRef, () => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  padding: 4px;
-  border-radius: 4px;
+  gap: var(--app-sidebar-row-gap);
+  padding: var(--app-sidebar-row-padding-block);
+  border-radius: var(--app-thumbnail-row-radius);
   border: 1px solid transparent;
   cursor: pointer;
   transition:
@@ -968,14 +964,14 @@ useResizeObserver(containerRef, () => {
 
 .pdf-thumbnail-selection-toggle {
   position: absolute;
-  z-index: 1;
+  z-index: var(--app-z-local-raised);
   top: 0.5rem;
   left: 0.5rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.25rem;
-  height: 1.25rem;
+  width: var(--app-sidebar-action-size);
+  height: var(--app-sidebar-action-size);
   border: 1px solid var(--ui-border);
   border-radius: 0.25rem;
   background: var(--ui-bg);
@@ -1008,8 +1004,8 @@ useResizeObserver(containerRef, () => {
 }
 
 .pdf-thumbnail-selection-icon {
-  width: 0.875rem;
-  height: 0.875rem;
+  width: var(--app-icon-size-sm);
+  height: var(--app-icon-size-sm);
 }
 
 .pdf-thumbnail--virtual {
@@ -1032,7 +1028,7 @@ useResizeObserver(containerRef, () => {
   height: auto;
   max-width: 100%;
   border: 1px solid var(--ui-border);
-  border-radius: 2px;
+  border-radius: var(--app-space-3xs);
   transition:
     border-color 0.15s ease,
     box-shadow 0.15s ease;
@@ -1049,9 +1045,9 @@ useResizeObserver(containerRef, () => {
 
 .pdf-thumbnail-number {
   display: block;
-  font-size: 12px;
-  line-height: 16px;
-  min-height: 16px;
+  font-size: var(--app-sidebar-caption-font-size);
+  line-height: var(--app-thumbnail-min-label-height);
+  min-height: var(--app-thumbnail-min-label-height);
   color: var(--ui-text-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -1072,23 +1068,23 @@ useResizeObserver(containerRef, () => {
 .pdf-thumbnail.is-drop-before::before {
   content: "";
   position: absolute;
-  top: -5px;
-  left: 8px;
-  right: 8px;
-  height: 2px;
+  top: calc(var(--app-thumbnail-drop-offset) * -1);
+  left: var(--app-thumbnail-drop-inset);
+  right: var(--app-thumbnail-drop-inset);
+  height: var(--app-drop-indicator-height);
   background: var(--ui-primary);
-  border-radius: 1px;
+  border-radius: var(--app-thumbnail-drop-radius);
 }
 
 .pdf-thumbnail.is-drop-after::after {
   content: "";
   position: absolute;
-  bottom: -5px;
-  left: 8px;
-  right: 8px;
-  height: 2px;
+  bottom: calc(var(--app-thumbnail-drop-offset) * -1);
+  left: var(--app-thumbnail-drop-inset);
+  right: var(--app-thumbnail-drop-inset);
+  height: var(--app-drop-indicator-height);
   background: var(--ui-primary);
-  border-radius: 1px;
+  border-radius: var(--app-thumbnail-drop-radius);
 }
 
 .pdf-thumbnails.is-reorder-dragging .pdf-thumbnail {
@@ -1098,6 +1094,6 @@ useResizeObserver(containerRef, () => {
 .pdf-thumbnails.is-external-drag {
   outline: 2px dashed var(--ui-primary);
   outline-offset: -2px;
-  border-radius: 4px;
+  border-radius: var(--app-thumbnail-row-radius);
 }
 </style>

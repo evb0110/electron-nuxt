@@ -130,7 +130,7 @@ function isKnownEffort(effort: TAgentAssistantEffort): effort is TAgentAssistant
     gap: var(--app-space-sm);
     max-width: 100%;
     min-width: 0;
-    height: 1.85rem;
+    height: var(--app-assistant-control-height);
     padding: 0 var(--app-space-2xl);
     border: 1px solid var(--app-toolbar-group-border);
     border-radius: var(--app-radius-md);
@@ -217,10 +217,10 @@ function isKnownEffort(effort: TAgentAssistantEffort): effort is TAgentAssistant
     align-items: center;
     justify-content: space-between;
     gap: var(--app-space-3xl);
-    min-height: 1.85rem;
+    min-height: var(--app-assistant-control-height);
     min-width: 0;
     padding: 0 var(--app-space-3xl);
-    border-radius: 5px;
+    border-radius: var(--app-radius-sm);
     color: var(--ui-text);
     font-size: var(--app-text-size-body-sm);
     line-height: 1.15;

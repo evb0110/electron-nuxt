@@ -10,7 +10,6 @@ import {
 import {
     mkdir,
     readFile,
-    rename,
     unlink,
     writeFile,
 } from 'fs/promises';
@@ -20,8 +19,17 @@ import type {
     TDocumentRevisionChangeReason,
     TDocumentRevisionToken,
 } from '@contracts/documentRevision';
+import { parseDocumentRevisionToken } from '@contracts/documentRevision';
 import { createStaleRevisionError } from '@contracts/documentMutationErrors';
-import { isRecord } from '@contracts/runtimeGuards';
+import {
+    isRecord,
+    isErrnoException,
+} from '@contracts/runtimeGuards';
+import { quarantineCorruptFile } from '@electron/utils/quarantineCorruptFile';
+import { atomicReplace } from '@electron/utils/atomicReplace';
+import { createLogger } from '@electron/utils/createLogger';
+
+const log = createLogger('document-revision-sidecar');
 
 export interface IWorkingCopyRevisionSidecar extends IDocumentRevisionInfo {
     sidecarVersion: 1;
@@ -86,12 +94,12 @@ function normalizeWorkingCopyRevisionSidecar(value: unknown): IWorkingCopyRevisi
     if (!isRecord(value)) {
         return null;
     }
+    const token = parseDocumentRevisionToken(value.token);
     if (
         value.sidecarVersion !== 1
         || value.version !== 1
         || value.authority !== 'electron-working-copy'
-        || typeof value.token !== 'string'
-        || value.token.length === 0
+        || token === null
         || typeof value.documentRef !== 'string'
         || value.documentRef.length === 0
         || !isContentRevision(value.contentRevision)
@@ -112,7 +120,7 @@ function normalizeWorkingCopyRevisionSidecar(value: unknown): IWorkingCopyRevisi
         version: 1,
         documentRef: value.documentRef,
         authority: 'electron-working-copy',
-        token: value.token,
+        token,
         contentRevision,
         mintedAt,
         updatedAt,
@@ -392,12 +400,27 @@ function tryClearWorkingCopyRevisionSidecarCommitsThrough(
 }
 
 async function readWorkingCopyRevisionSidecarFile(workingCopyPath: string) {
+    const sidecarPath = getWorkingCopyRevisionSidecarPath(workingCopyPath);
+    let text: string;
     try {
-        const text = await readFile(getWorkingCopyRevisionSidecarPath(workingCopyPath), 'utf8');
-        return normalizeWorkingCopyRevisionSidecar(JSON.parse(text));
-    } catch {
+        text = await readFile(sidecarPath, 'utf8');
+    } catch (error) {
+        if (!isErrnoException(error) || error.code !== 'ENOENT') {
+            log.warn(`Failed to read revision sidecar ${sidecarPath}`);
+        }
         return null;
     }
+    try {
+        const sidecar = normalizeWorkingCopyRevisionSidecar(JSON.parse(text));
+        if (sidecar) {
+            return sidecar;
+        }
+    } catch {
+        // Invalid JSON follows the same quarantine path as an invalid schema.
+    }
+    const quarantinePath = await quarantineCorruptFile(sidecarPath).catch(() => null);
+    log.warn(`Quarantined corrupt revision sidecar at ${quarantinePath ?? sidecarPath}`);
+    return null;
 }
 
 export async function reconcileWorkingCopyRevisionSidecarJournal(workingCopyPath: string) {
@@ -448,7 +471,7 @@ export async function writeWorkingCopyRevisionSidecar(
     await mkdir(dirname(sidecarPath), { recursive: true });
     try {
         await writeFile(tempPath, `${JSON.stringify(sidecar)}\n`, 'utf8');
-        await rename(tempPath, sidecarPath);
+        await atomicReplace(tempPath, sidecarPath);
     } catch (error) {
         await unlink(tempPath).catch(() => undefined);
         throw error;

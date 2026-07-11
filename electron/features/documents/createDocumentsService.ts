@@ -1,4 +1,5 @@
 import {
+    handleCancelOpenDocumentDirectBatch,
     handleOpenCombineDialog,
     handleOpenFolderDialog,
     handleOpenImageDialog,
@@ -61,6 +62,7 @@ import {
 import { handleOptimizePdfAsCopy } from '@electron/features/documents/main/handleOptimizePdfAsCopy';
 import {
     handleNativePdfMutationsApplyToWorkingCopy,
+    handleCommitStagedPdfNativeMutations,
     handleNativeNoteChangesSave,
     handleNativeNoteTextSave,
     handleNativePdfMutationsSave,
@@ -84,6 +86,10 @@ import {
 } from '@electron/menu';
 import { createLogger } from '@electron/utils/createLogger';
 import type { IDocumentsService } from '@electron/features/documents/documentsService';
+import {
+    createManagedTempFileHandle,
+    releaseManagedTempFileHandle,
+} from '@electron/features/documents/main/managedTempFileHandles';
 
 const logger = createLogger('documents-service');
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
@@ -102,6 +108,7 @@ export function createDocumentsService(): IDocumentsService {
         openPdfDirect: handleOpenPdfDirect,
         openDocumentDirectBatch: handleOpenPdfDirectBatch,
         openPdfDirectBatch: handleOpenPdfDirectBatch,
+        cancelOpenDocumentDirectBatch: handleCancelOpenDocumentDirectBatch,
         createWorkingCopyFromData: (...args: TDocumentsServiceArgs<'createWorkingCopyFromData'>) =>
             handleCreateWorkingCopyFromData(...args),
         createWorkingCopyFromPath: (...args: TDocumentsServiceArgs<'createWorkingCopyFromPath'>) =>
@@ -115,6 +122,10 @@ export function createDocumentsService(): IDocumentsService {
         readFile: (...args: TDocumentsServiceArgs<'readFile'>) => handleFileRead(...args),
         statFile: (...args: TDocumentsServiceArgs<'statFile'>) => handleFileStat(...args),
         readFileRange: (...args: TDocumentsServiceArgs<'readFileRange'>) => handleFileReadRange(...args),
+        createManagedTempFileHandle: (...args: TDocumentsServiceArgs<'createManagedTempFileHandle'>) =>
+            createManagedTempFileHandle(...args),
+        releaseManagedTempFileHandle: (...args: TDocumentsServiceArgs<'releaseManagedTempFileHandle'>) =>
+            releaseManagedTempFileHandle(...args),
         getPdfNativePageSizes: (...args: TDocumentsServiceArgs<'getPdfNativePageSizes'>) =>
             handlePdfNativePageSizes(...args),
         cancelPdfNativePagePreview: (...args: TDocumentsServiceArgs<'cancelPdfNativePagePreview'>) =>
@@ -162,6 +173,8 @@ export function createDocumentsService(): IDocumentsService {
             handleNativePdfMutationsSave(...args),
         applyPdfNativeMutationsToWorkingCopy: (...args: TDocumentsServiceArgs<'applyPdfNativeMutationsToWorkingCopy'>) =>
             handleNativePdfMutationsApplyToWorkingCopy(...args),
+        commitStagedPdfNativeMutations: (...args: TDocumentsServiceArgs<'commitStagedPdfNativeMutations'>) =>
+            handleCommitStagedPdfNativeMutations(...args),
         beginSavePdfData: (...args: TDocumentsServiceArgs<'beginSavePdfData'>) =>
             beginSerializedPdfSaveToOriginal(...args),
         cleanupFile: (...args: TDocumentsServiceArgs<'cleanupFile'>) => {

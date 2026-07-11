@@ -14,7 +14,7 @@ echo ""
 
 # Ensure Homebrew dependencies are installed
 echo "Checking Homebrew dependencies..."
-DEPS=(tesseract poppler qpdf djvulibre ffmpeg meson pkg-config sphinx-doc)
+DEPS=(tesseract poppler qpdf djvulibre meson pkg-config sphinx-doc)
 MISSING=()
 for dep in "${DEPS[@]}"; do
     if ! brew list --formula "$dep" &>/dev/null; then

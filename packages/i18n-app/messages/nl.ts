@@ -314,6 +314,20 @@ export default {
         'currentPage': 'Huidige pagina ({page})',
         'customRange': 'Aangepast bereik',
         'customRangePlaceholder': 'bijv. 1-5, 8, 10-12',
+        'supersession': {
+            'label': 'Existing text',
+            'options': {
+                'missing-only': 'OCR missing text only',
+                'replace-evb': 'Re-OCR EVB text',
+                'replace-all': 'Replace all hidden OCR',
+            },
+            'descriptions': {
+                'missing-only': 'Keep existing text and OCR only pages without text.',
+                'replace-evb': 'Replace only the active EVB OCR generation.',
+                'replace-all': 'Replace EVB and foreign hidden OCR; visible native text stays untouched.',
+            },
+            'replaceAllAcknowledgement': 'I understand that foreign hidden OCR on selected pages will be removed and replaced.',
+        },
         'qualityProfile': {
             'label': 'Kwaliteit',
             'options': {
@@ -353,6 +367,18 @@ export default {
         },
         'settingHelpAria': 'Over {setting}',
         'languages': 'Talen',
+        'languageModelState': {
+            'installed': 'Geïnstalleerd',
+            'downloading': 'Downloaden',
+            'missing': 'Downloadt bij starten',
+        },
+        'diagnostic': {
+            'preprocessingUnavailable': 'Page {page}: scan cleanup is unavailable; the original image was used.',
+            'preprocessingFailed': 'Page {page}: scan cleanup failed; the original image was used.',
+            'preprocessingGeometryChanged': 'Page {page}: scan cleanup changed page geometry; the original image was used.',
+            'sourceDpiLimited': 'Page {page}: source resolution limited the effective OCR DPI.',
+            'existingTextSkipped': 'Page {page}: existing text was preserved.',
+        },
         'preparing': 'OCR voorbereiden...',
         'progressStage': {
             'modelPrep': 'OCR-taalmodellen voorbereiden...',
@@ -645,9 +671,6 @@ export default {
             other: '{count} bestanden in wachtrij',
         }),
         'clear': 'Wissen',
-        'emptyTitle': 'Geen bestanden geselecteerd',
-        'emptyDescription': 'Sleep bestanden naar links of kies ze op uw computer.',
-        'combineAction': 'Samenvoegen tot PDF',
         'combineCountAction': plural({
             one: '{count} bestand samenvoegen',
             other: '{count} bestanden samenvoegen',
@@ -1085,6 +1108,8 @@ export default {
             'emptyPdf': 'Het PDF-bestand is leeg (0 bytes)',
             'folderEmpty': 'Er zijn geen ondersteunde documenten gevonden in de geselecteerde map',
             'save': 'Kan bestand niet opslaan',
+            'browserStorageTitle': 'Browseropslag is niet beschikbaar',
+            'browserStorageDescription': '‘{name}’ is in het geheugen geopend, maar verschijnt niet opnieuw na herladen.',
         },
         'export': {
             'images': 'Afbeeldingsexport mislukt',
@@ -1214,5 +1239,20 @@ export default {
         'scopeSelected': 'Geselecteerde pagina\'s ({count})',
         'apply': 'Bijsnijden toepassen',
         'removeCrop': 'Bijsnijden verwijderen',
+    },
+    'documentSourceSidebar': {
+        'navLabel': 'Documentnavigatie',
+        'loadingOutline': 'Overzicht laden…',
+        'noOutline': 'Geen overzicht',
+        'searchPlaceholder': 'Document doorzoeken',
+        'searchAction': 'Zoeken',
+        'searching': 'Zoeken…',
+        'noResults': 'Geen resultaten',
+        'goToPage': 'Ga naar pagina {page}',
+        'page': 'Pagina {page}',
+        'addNoteOnPage': 'Notitie toevoegen op pagina {page}',
+        'noAnnotations': 'Geen annotaties op deze pagina',
+        'note': 'Notitie',
+        'deleteAnnotation': 'Annotatie {id} verwijderen',
     },
 };

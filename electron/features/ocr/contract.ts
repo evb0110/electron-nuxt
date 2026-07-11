@@ -12,8 +12,12 @@ export const OCR_CHANNELS = {
     recognizeBatch: 'ocr:recognizeBatch',
     createSearchablePdf: 'ocr:createSearchablePdf',
     cancel: 'ocr:cancel',
+    getJobState: 'ocr:job:get-state',
+    subscribeJob: 'ocr:job:subscribe',
+    reconnectJob: 'ocr:job:reconnect',
     acknowledgeResultFile: 'ocr:ackResultFile',
     getLanguages: 'ocr:getLanguages',
+    resolveDocumentTextCatalog: 'ocr:resolveDocumentTextCatalog',
     validateTools: 'ocr:validateTools',
     preprocessingValidate: 'preprocessing:validate',
     preprocessingPreprocessPage: 'preprocessing:preprocessPage',
@@ -46,6 +50,18 @@ export interface IOcrInvokeMap {
         args: [requestId: string];
         result: Awaited<ReturnType<IOcrCapability['cancel']>>;
     };
+    [OCR_CHANNELS.getJobState]: {
+        args: [requestId: string];
+        result: Awaited<ReturnType<IOcrCapability['getJobState']>>;
+    };
+    [OCR_CHANNELS.subscribeJob]: {
+        args: [requestId: string];
+        result: Awaited<ReturnType<IOcrCapability['subscribeJob']>>;
+    };
+    [OCR_CHANNELS.reconnectJob]: {
+        args: [requestId: string];
+        result: Awaited<ReturnType<IOcrCapability['reconnectJob']>>;
+    };
     [OCR_CHANNELS.acknowledgeResultFile]: {
         args: TOcrAcknowledgeResultFileArgs;
         result: Awaited<ReturnType<IOcrCapability['acknowledgeResultFile']>>;
@@ -53,6 +69,10 @@ export interface IOcrInvokeMap {
     [OCR_CHANNELS.getLanguages]: {
         args: [];
         result: Awaited<ReturnType<IOcrCapability['getLanguages']>>;
+    };
+    [OCR_CHANNELS.resolveDocumentTextCatalog]: {
+        args: Parameters<IOcrCapability['resolveDocumentTextCatalog']>;
+        result: Awaited<ReturnType<IOcrCapability['resolveDocumentTextCatalog']>>;
     };
     [OCR_CHANNELS.validateTools]: {
         args: [];

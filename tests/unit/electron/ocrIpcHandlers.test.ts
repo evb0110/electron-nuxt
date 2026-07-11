@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('electron', () => ({
+    app: { isPackaged: false },
     BrowserWindow: { fromWebContents: vi.fn(() => null) },
     ipcMain: { handle: (channel: string, handler: TRegisteredHandler) => {
         mocks.ipcHandle(channel, handler);
@@ -249,7 +250,7 @@ describe('registerOcrIpcAdapter', () => {
         });
     });
 
-    it('applies plain OCR queue backpressure across concurrent recognize calls', async () => {
+    it('admits concurrent recognition fairly through the shared broker without rejecting queued work', async () => {
         const handler = getHandler('ocr:recognize');
         const deferredResults: Array<{resolve: (result: unknown) => void}> = [];
         mocks.runOcr.mockImplementation(() => new Promise(resolve => {
@@ -265,19 +266,10 @@ describe('registerOcrIpcAdapter', () => {
             },
         ));
 
-        await vi.waitFor(() => {
-            expect(deferredResults).toHaveLength(2);
-        });
-        await expect(calls[10]).resolves.toMatchObject({
-            success: false,
-            errorEnvelope: {
-                code: 'OCR_QUEUE_BACKPRESSURE',
-                retryable: true,
-            },
-        });
+        await vi.waitFor(() => expect(deferredResults.length).toBeGreaterThan(0));
 
         let resolvedCount = 0;
-        while (resolvedCount < 10) {
+        while (resolvedCount < calls.length) {
             await vi.waitFor(() => {
                 expect(deferredResults.length).toBeGreaterThan(resolvedCount);
             });
@@ -288,7 +280,7 @@ describe('registerOcrIpcAdapter', () => {
             });
         }
 
-        await expect(Promise.all(calls.slice(0, 10))).resolves.toHaveLength(10);
+        await expect(Promise.all(calls)).resolves.toHaveLength(calls.length);
     });
 
     it('returns typed worker-unavailable envelope for missing OCR worker path', async () => {

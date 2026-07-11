@@ -23,6 +23,10 @@ import {
     providerDefaultSpeedMode,
     speedModesForProviderStatus,
 } from '@app/modules/agent-panel/utils/assistantSelectionState';
+import {
+    requireDocumentInstanceId,
+    requireDocumentRevisionToken,
+} from '@contracts';
 
 function createProviderStatus(
     id: TAgentAssistantProviderId,
@@ -116,7 +120,11 @@ function createAssistantStatus(
         },
         turn: {
             id: 'turn-1',
-            phase: 'running',
+            phase: 'thinking',
+            reasoning: '',
+            toolActivity: [],
+            lastEventAtMs: null,
+            usage: null,
         },
         lastCheckedAt: '2026-01-01T00:00:00.000Z',
         ...patch,
@@ -260,6 +268,10 @@ describe('assistantSelectionState', () => {
         expect(selectedStatus.turn).toEqual({
             id: null,
             phase: 'idle',
+            reasoning: '',
+            toolActivity: [],
+            lastEventAtMs: null,
+            usage: null,
         });
     });
 
@@ -300,14 +312,14 @@ describe('assistantSelectionState', () => {
                 title: 'Document',
                 tabId: 'tab-1',
                 documentSessionKey: 'logical-1',
-                documentInstanceId: 'instance-a',
+                documentInstanceId: requireDocumentInstanceId('instance-a'),
                 documentIdentity: {
                     version: 1,
                     authority: 'browser-document-store',
                     contentRevision: 1,
                     documentRef: '/tmp/document.pdf',
                     mintedAt: 1,
-                    token: 'revision-1',
+                    token: requireDocumentRevisionToken('revision-1'),
                 },
             },
             status,
@@ -318,7 +330,7 @@ describe('assistantSelectionState', () => {
             ...baseState,
             scope: {
                 ...baseState.scope,
-                documentInstanceId: 'instance-b',
+                documentInstanceId: requireDocumentInstanceId('instance-b'),
             },
         })).not.toBe(getStateScopeFingerprint(baseState));
         expect(getStateScopeFingerprint({
@@ -331,7 +343,7 @@ describe('assistantSelectionState', () => {
                 ...baseState.scope,
                 documentIdentity: {
                     ...baseState.scope.documentIdentity,
-                    token: 'revision-2',
+                    token: requireDocumentRevisionToken('revision-2'),
                 },
             },
         })).not.toBe(getStateScopeFingerprint(baseState));

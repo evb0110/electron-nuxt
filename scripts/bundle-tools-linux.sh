@@ -47,7 +47,12 @@ run_apt_with_timeout "$APT_TIMEOUT_INSTALL_SECONDS" apt-get "${APT_RETRY_FLAGS[@
   poppler-utils \
   qpdf \
   djvulibre-bin \
-  unpaper \
+  build-essential \
+  git \
+  meson \
+  ninja-build \
+  pkg-config \
+  python3-sphinx \
   patchelf
 
 # System .so paths to exclude (provided by glibc / base system)
@@ -160,6 +165,7 @@ echo "1. Bundling Tesseract..."
 echo "=========================================="
 
 TESSERACT_DIR="$RESOURCES_DIR/tesseract/$PLATFORM_ARCH"
+rm -rf "$TESSERACT_DIR"
 bundle_tool "tesseract" "$TESSERACT_DIR"
 bundle_lib_deps "$TESSERACT_DIR/lib"
 fix_lib_rpaths "$TESSERACT_DIR/lib"
@@ -228,9 +234,48 @@ echo "5. Bundling Unpaper..."
 echo "=========================================="
 
 # Unpaper lives alongside tesseract in the same directory
+UNPAPER_BUILD_DIR="$(mktemp -d /tmp/evb-unpaper-linux-XXXXXX)"
+UNPAPER_INSTALL_DIR="$UNPAPER_BUILD_DIR/install"
+FFMPEG_INSTALL_DIR="$UNPAPER_BUILD_DIR/ffmpeg-install"
+trap 'rm -rf "$UNPAPER_BUILD_DIR"' EXIT
+"$SCRIPT_DIR/build-minimal-ffmpeg-for-unpaper.sh" "$UNPAPER_BUILD_DIR/ffmpeg-build" "$FFMPEG_INSTALL_DIR"
+git clone https://github.com/unpaper/unpaper.git "$UNPAPER_BUILD_DIR/unpaper"
+git -C "$UNPAPER_BUILD_DIR/unpaper" checkout unpaper-7.0.0
+if [ "$(git -C "$UNPAPER_BUILD_DIR/unpaper" rev-parse HEAD)" != "5211a623d48858eae154213a61bccbc368b19ca0" ]; then
+  echo "Error: Pinned unpaper tag resolved to an unexpected commit"
+  exit 1
+fi
+PKG_CONFIG_PATH="$FFMPEG_INSTALL_DIR/lib/pkgconfig" \
+LDFLAGS="-Wl,-rpath,$FFMPEG_INSTALL_DIR/lib" \
+meson setup "$UNPAPER_BUILD_DIR/unpaper/build-minimal" \
+  "$UNPAPER_BUILD_DIR/unpaper" \
+  --prefix="$UNPAPER_INSTALL_DIR" \
+  --buildtype=release \
+  -Dstrip=true
+meson compile -C "$UNPAPER_BUILD_DIR/unpaper/build-minimal"
+meson install -C "$UNPAPER_BUILD_DIR/unpaper/build-minimal"
+PATH="$UNPAPER_INSTALL_DIR/bin:$PATH" \
+LD_LIBRARY_PATH="$FFMPEG_INSTALL_DIR/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
 bundle_tool "unpaper" "$TESSERACT_DIR"
 bundle_lib_deps "$TESSERACT_DIR/lib"
 fix_lib_rpaths "$TESSERACT_DIR/lib"
+
+unexpected_video_libraries="$(find "$TESSERACT_DIR/lib" -maxdepth 1 -type f \
+  \( -name 'libx26*' -o -name 'libaom*' -o -name 'libSvt*' -o -name 'librav1e*' \
+     -o -name 'libvpx*' -o -name 'libdav1d*' -o -name 'libvmaf*' \) -print)"
+if [ -n "$unexpected_video_libraries" ]; then
+  echo "Error: Unexpected video-codec closure leaked into the Linux unpaper bundle:"
+  echo "$unexpected_video_libraries" | sed 's/^/  /'
+  exit 1
+fi
+linked_av_libraries="$(LD_LIBRARY_PATH="$TESSERACT_DIR/lib" ldd "$TESSERACT_DIR/bin/unpaper" \
+  | awk '{print $1}' | grep '^libav' || true)"
+for required_av_library in libavcodec libavformat libavutil; do
+  if ! echo "$linked_av_libraries" | grep -q "^${required_av_library}\."; then
+    echo "Error: Minimal Linux unpaper is missing required $required_av_library linkage"
+    exit 1
+  fi
+done
 
 # ==========================================
 # Verification

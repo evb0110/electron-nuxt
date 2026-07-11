@@ -9,7 +9,6 @@ import type { Ref } from 'vue';
 import { ref } from 'vue';
 
 const resizeObserverMock = vi.hoisted(() => ({callback: null as (() => void) | null}));
-const captureScrollSnapshotMock = vi.hoisted(() => vi.fn(() => ({anchorPage: 3})));
 
 vi.mock('@vueuse/core', async () => {
     const actual = await vi.importActual('@vueuse/core');
@@ -22,10 +21,6 @@ vi.mock('@vueuse/core', async () => {
     };
 });
 
-vi.mock('@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/captureScrollSnapshot', () => ({captureScrollSnapshot: captureScrollSnapshotMock}));
-
-vi.mock('@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/restoreScrollFromSnapshot', () => ({restoreScrollFromSnapshot: vi.fn()}));
-
 const { usePdfViewerResizeLifecycle } = await import(
     '@app/modules/pdf-viewer/runtime/composables/usePdfViewerResizeLifecycle'
 );
@@ -36,19 +31,24 @@ function createResizeLifecycle(
     isActive = ref(true),
     options?: {
         computeFitWidthScale?: () => boolean;
+        isResizing?: Ref<boolean>;
         pendingNavigationAnchorPage?: Readonly<Ref<number | null>>;
         transactionController?: TResizeLifecycleOptions['transactionController'];
+        captureViewportAnchor?: TResizeLifecycleOptions['captureViewportAnchor'];
     },
 ) {
     const getMostVisiblePage = vi.fn(() => 2);
     const computeFitWidthScale = vi.fn(options?.computeFitWidthScale ?? (() => true));
     const scheduleResizeAwareRerender = vi.fn();
     const setResizeTransitionVisible = vi.fn();
+    const submitResizeIntent = vi.fn();
+    const isResizing = options?.isResizing ?? ref(false);
     const lifecycle = usePdfViewerResizeLifecycle({
+        submitResizeIntent,
         viewerContainer: ref(null),
         isLoading: ref(false),
         isActive,
-        isResizing: ref(false),
+        isResizing,
         pdfDocument: ref({}),
         currentPage: ref(4),
         pendingNavigationAnchorPage: options?.pendingNavigationAnchorPage,
@@ -58,6 +58,8 @@ function createResizeLifecycle(
         }),
         numPages: ref(10),
         computeFitWidthScale,
+        clearPreviewFitScale: vi.fn(),
+        captureViewportAnchor: options?.captureViewportAnchor,
         getMostVisiblePage,
         summarizeViewerMetricsForLog: vi.fn(() => null),
         summarizeVisiblePageSnapshotForLog: vi.fn(() => ({})),
@@ -70,9 +72,11 @@ function createResizeLifecycle(
         computeFitWidthScale,
         getMostVisiblePage,
         isActive,
+        isResizing,
         lifecycle,
         scheduleResizeAwareRerender,
         setResizeTransitionVisible,
+        submitResizeIntent,
     };
 }
 
@@ -91,9 +95,7 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
 
         const anchor = lifecycle.buildResizeAnchorContext();
 
-        expect(anchor.snapshot).toBeNull();
         expect(anchor.page).toBe(4);
-        expect(captureScrollSnapshotMock).not.toHaveBeenCalled();
         expect(getMostVisiblePage).not.toHaveBeenCalled();
     });
 
@@ -101,46 +103,22 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         const { lifecycle } = createResizeLifecycle(ref(true));
 
         const anchor = lifecycle.buildResizeAnchorContext({
-            anchorViewportX: 64,
-            anchorViewportY: 72,
             preferredAnchorPage: 9,
             trustPreferredAnchorPage: false,
         });
 
         expect(anchor.page).toBe(4);
-        expect(captureScrollSnapshotMock).toHaveBeenNthCalledWith(1, null, {
-            anchorViewportX: 64,
-            anchorViewportY: 72,
-            preferredAnchorPage: null,
-        });
-        expect(captureScrollSnapshotMock).toHaveBeenNthCalledWith(2, null, {
-            anchorViewportX: 64,
-            anchorViewportY: 72,
-            preferredAnchorPage: 4,
-        });
     });
 
-    it('drops a forced preferred anchor snapshot when the captured page disagrees', () => {
+    it('uses a trusted preferred page as the initial anchor snapshot', () => {
         const { lifecycle } = createResizeLifecycle(ref(true));
 
         const anchor = lifecycle.buildResizeAnchorContext({
-            forcePreferredAnchorPage: true,
             preferredAnchorPage: 9,
             trustPreferredAnchorPage: true,
         });
 
         expect(anchor.page).toBe(9);
-        expect(anchor.snapshot).toBeNull();
-        expect(captureScrollSnapshotMock).toHaveBeenNthCalledWith(1, null, {
-            anchorViewportX: null,
-            anchorViewportY: null,
-            preferredAnchorPage: 9,
-        });
-        expect(captureScrollSnapshotMock).toHaveBeenNthCalledWith(2, null, {
-            anchorViewportX: null,
-            anchorViewportY: null,
-            preferredAnchorPage: 9,
-        });
     });
 
     it('ignores resize observer callbacks while inactive', () => {
@@ -179,7 +157,7 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         });
     });
 
-    it('does not schedule a resize rerender when fit geometry is unchanged', async () => {
+    it('refreshes render demand when viewport geometry changes without a fit-scale delta', async () => {
         vi.useFakeTimers();
         const {
             computeFitWidthScale,
@@ -192,8 +170,12 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         await vi.advanceTimersByTimeAsync(400);
 
         expect(computeFitWidthScale).toHaveBeenCalledOnce();
-        expect(scheduleResizeAwareRerender).not.toHaveBeenCalled();
-        expect(setResizeTransitionVisible).not.toHaveBeenCalled();
+        expect(scheduleResizeAwareRerender).toHaveBeenCalledOnce();
+        expect(setResizeTransitionVisible).toHaveBeenCalledWith(expect.objectContaining({
+            active: true,
+            anchorPage: 4,
+            source: 'resize-observer',
+        }));
     });
 
     it('uses a pending navigation page as the resize observer anchor', async () => {
@@ -201,22 +183,14 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         const {
             scheduleResizeAwareRerender,
             setResizeTransitionVisible,
+            submitResizeIntent,
         } = createResizeLifecycle(ref(true), { pendingNavigationAnchorPage: ref(8) });
 
         resizeObserverMock.callback?.();
 
         await vi.advanceTimersByTimeAsync(400);
 
-        expect(captureScrollSnapshotMock).toHaveBeenNthCalledWith(1, null, {
-            anchorViewportX: null,
-            anchorViewportY: null,
-            preferredAnchorPage: 8,
-        });
-        expect(captureScrollSnapshotMock).toHaveBeenNthCalledWith(2, null, {
-            anchorViewportX: null,
-            anchorViewportY: null,
-            preferredAnchorPage: 8,
-        });
+        expect(submitResizeIntent).toHaveBeenCalledOnce();
         expect(setResizeTransitionVisible).toHaveBeenCalledWith({
             active: true,
             source: 'resize-observer',
@@ -251,8 +225,6 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
                 scalePage: null,
                 hydrateRange: null,
                 viewMode: null,
-                invalidateRangeAfterScaleChange: false,
-                suppressLegacyPagedRowRender: false,
                 pagedTargetRenderHandoff: null,
             },
             scrollPlan: null,
@@ -286,5 +258,57 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
             're-render visible pages after resize',
             expect.objectContaining({ transactionId: 12 }),
         );
+    });
+
+    it('previews throughout a drag and performs exactly one anchored settle', async () => {
+        vi.useFakeTimers();
+        const semanticAnchor = {
+            affinity: 'center' as const,
+            page: 4,
+            pageXFraction: 0.35,
+            pageYFraction: 0.72,
+            viewportXFraction: 0.5,
+            viewportYFraction: 0.5,
+        };
+        const isResizing = ref(false);
+        const {
+            computeFitWidthScale,
+            scheduleResizeAwareRerender,
+            submitResizeIntent,
+        } = createResizeLifecycle(ref(true), {
+            captureViewportAnchor: () => semanticAnchor,
+            isResizing,
+        });
+
+        isResizing.value = true;
+        resizeObserverMock.callback?.();
+        resizeObserverMock.callback?.();
+
+        expect(computeFitWidthScale).toHaveBeenCalledWith(null, {
+            page: 4,
+            preview: true,
+        });
+        expect(scheduleResizeAwareRerender).not.toHaveBeenCalled();
+
+        isResizing.value = false;
+        resizeObserverMock.callback?.();
+        await vi.advanceTimersByTimeAsync(25);
+
+        expect(submitResizeIntent).toHaveBeenCalledOnce();
+        expect(submitResizeIntent).toHaveBeenCalledWith(semanticAnchor);
+        expect(scheduleResizeAwareRerender).toHaveBeenCalledOnce();
+        expect(scheduleResizeAwareRerender).toHaveBeenCalledWith(
+            're-render visible pages after resize settle',
+            expect.objectContaining({
+                resizeAnchor: expect.objectContaining({
+                    page: 4,
+                    semanticAnchor,
+                }),
+                source: 'resize-settle',
+            }),
+        );
+
+        await vi.advanceTimersByTimeAsync(400);
+        expect(scheduleResizeAwareRerender).toHaveBeenCalledOnce();
     });
 });

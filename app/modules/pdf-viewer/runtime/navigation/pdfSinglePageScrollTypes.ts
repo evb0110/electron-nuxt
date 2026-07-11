@@ -6,26 +6,16 @@ import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import type { TPdfViewMode } from '@contracts/shared';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
-
-export interface IPagedRowRenderRequest {
-    pageNumber: number;
-    message: string;
-    runId: number;
-}
-
-export interface IApplySnapToMountedPageCommitOptions {commitCurrentPage?: boolean;}
+import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
+import type { IPdfPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
+import type { IPdfNavigationRequest } from '@app/modules/pdf-viewer/engine/viewport/createPageNavigationRequest';
 
 export interface ITransactionVisibleRangeCommitOptions { transactionId?: number | undefined }
-
-export interface ITransactionCurrentPageCommitOptions {
-    previousPage?: number | undefined;
-    transactionId?: number | undefined;
-}
 
 export interface IUsePdfSinglePageScrollOptions {
     viewerContainer: Ref<HTMLElement | null>;
     numPages: Ref<number>;
-    currentPage: Ref<number>;
+    currentPage: Readonly<Ref<number>>;
     scaledMargin: Ref<number>;
     viewMode: Ref<TPdfViewMode>;
     continuousScroll: Ref<boolean>;
@@ -55,10 +45,6 @@ export interface IUsePdfSinglePageScrollOptions {
         },
         options?: ITransactionVisibleRangeCommitOptions,
     ) => boolean | undefined) | undefined;
-    commitCurrentPage?: ((
-        page: number,
-        options?: ITransactionCurrentPageCommitOptions,
-    ) => boolean | undefined) | undefined;
     renderVisiblePages: (
         range: {
             start: number;
@@ -74,4 +60,7 @@ export interface IUsePdfSinglePageScrollOptions {
     }>;
     emitCurrentPage: (page: number) => void;
     emitNavigationFeedbackPage?: ((page: number | null) => void) | undefined;
+    viewportWritePort: IPdfViewportWritePort;
+    getPageLayoutMetrics?: (() => IPdfPageLayoutMetrics | null) | undefined;
+    onNavigationPostArrival?: ((request: IPdfNavigationRequest, signal: AbortSignal) => Promise<void> | void) | undefined;
 }

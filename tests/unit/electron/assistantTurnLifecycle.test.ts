@@ -16,6 +16,7 @@ import {
     supersedeAssistantTurn,
     type IAssistantSessionScopeBinding,
 } from '@electron/features/agent/assistantTurnLifecycle';
+import {requireDocumentInstanceId} from '@contracts';
 
 const scopeBinding = {
     sessionKey: 'codex:document:/tmp/a.pdf',
@@ -24,7 +25,7 @@ const scopeBinding = {
     windowId: 42,
     tabId: 'tab-a',
     documentSessionKey: 'document:/tmp/a.pdf',
-    documentInstanceId: 'instance-a',
+    documentInstanceId: requireDocumentInstanceId('instance-a'),
     documentRef: '/tmp/a.pdf',
     documentIdentity: null,
 } satisfies Omit<IAssistantSessionScopeBinding, 'turnGeneration'>;

@@ -21,19 +21,18 @@ vi.mock('vue', async (importOriginal) => {
     };
 });
 
-interface IViewingErrorData {
-    error: string;
-    jobId?: string;
-}
-
 const mockElectronAPI = {
     djvu: {
+        startOpenForViewing: vi.fn(),
+        awaitOpenJob: vi.fn(),
         onProgress: vi.fn((_callback: (progress: IDjvuProgress) => void) => vi.fn()),
-        onViewingReady: vi.fn(() => vi.fn()),
-        onViewingError: vi.fn((_callback: (data: IViewingErrorData) => void) => vi.fn()),
         openForViewing: vi.fn(),
         releaseViewingPath: vi.fn(),
         convertToPdf: vi.fn(),
+        startConvertToPdf: vi.fn(),
+        awaitConvertJob: vi.fn(),
+        getJobState: vi.fn(),
+        subscribeJob: vi.fn(),
         getPageSizes: vi.fn(),
         cancel: vi.fn(),
         cleanupTemp: vi.fn(),
@@ -49,6 +48,8 @@ const mockElectronAPI = {
         }),
     },
 };
+const pendingOpenJobs = new Map<string, Promise<unknown>>();
+const pendingConvertJobs = new Map<string, Promise<unknown>>();
 const mockDocumentFilesCapability = vi.hoisted(() => ({savePdfDialog: vi.fn()}));
 const mockDocumentWorkingCopyCapability = vi.hoisted(() => ({cleanupFile: vi.fn()}));
 const toastAddMock = vi.hoisted(() => vi.fn());
@@ -69,25 +70,24 @@ vi.mock('@app/utils/platformDocuments', () => ({
 }));
 vi.stubGlobal('useToast', () => ({add: toastAddMock}));
 
-vi.mock('@app/composables/useDjvuMode', () => {
-    const enterDjvuMode = vi.fn((source: string, temp: string | null = null) => {
+vi.mock('@app/modules/workspace-shell/document-sessions/useDocumentSourceSession', () => {
+    const activateDocumentSource = vi.fn((_kind: 'pdf' | 'djvu', source: string, temp: string | null = null) => {
         mockDjvuModeState.isDjvuMode.value = true;
         mockDjvuModeState.djvuSourcePath.value = source;
         mockDjvuModeState.djvuTempPdfPath.value = temp;
     });
-    const exitDjvuMode = vi.fn(() => {
+    const clearDocumentSource = vi.fn(() => {
         mockDjvuModeState.isDjvuMode.value = false;
         mockDjvuModeState.djvuSourcePath.value = null;
         mockDjvuModeState.djvuTempPdfPath.value = null;
     });
 
-    return {useDjvuMode: () => ({
-        isDjvuMode: mockDjvuModeState.isDjvuMode,
-        djvuSourcePath: mockDjvuModeState.djvuSourcePath,
-        djvuTempPdfPath: mockDjvuModeState.djvuTempPdfPath,
-        isDjvuFeatureDisabled: vi.fn(() => false),
-        enterDjvuMode,
-        exitDjvuMode,
+    return {useDocumentSourceSession: () => ({
+        isDjvuSource: mockDjvuModeState.isDjvuMode,
+        sourceRef: mockDjvuModeState.djvuSourcePath,
+        projectionRef: mockDjvuModeState.djvuTempPdfPath,
+        activateDocumentSource,
+        clearDocumentSource,
     })};
 });
 
@@ -97,9 +97,21 @@ function createUnusedConvertedPdfOpen() {
     return vi.fn(async () => ({status: 'cancelled' as const}));
 }
 
-describe('useDjvu', () => {
-    let viewingErrorCallback: ((data: IViewingErrorData) => void) | null = null;
+function createDeferred<T>() {
+    let resolve!: (value: T) => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+        resolve = resolvePromise;
+        reject = rejectPromise;
+    });
+    return {
+        promise,
+        reject,
+        resolve,
+    };
+}
 
+describe('useDjvu', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         clearRegisteredPdfRasterDisplayProfilesForTests();
@@ -107,15 +119,51 @@ describe('useDjvu', () => {
         mockDjvuModeState.djvuSourcePath.value = null;
         mockDjvuModeState.djvuTempPdfPath.value = null;
         mockElectronAPI.djvu.onProgress.mockReturnValue(vi.fn());
-        mockElectronAPI.djvu.onViewingReady.mockReturnValue(vi.fn());
+        pendingOpenJobs.clear();
+        pendingConvertJobs.clear();
+        mockElectronAPI.djvu.startOpenForViewing.mockImplementation(async (path: string, requestId: string) => {
+            const jobId = `djvu-open-${requestId}`;
+            pendingOpenJobs.set(jobId, mockElectronAPI.djvu.openForViewing(path));
+            return {
+                jobId,
+                requestId,
+            };
+        });
+        mockElectronAPI.djvu.awaitOpenJob.mockImplementation(async (jobId: string) => pendingOpenJobs.get(jobId));
+        mockElectronAPI.djvu.startConvertToPdf.mockImplementation(async (
+            path: string,
+            outputPath: string,
+            options: {
+                jobId?: string;
+                requestId?: string;
+            },
+        ) => {
+            const requestId = options.requestId ?? 'request';
+            const jobId = `djvu-convert-${requestId}`;
+            pendingConvertJobs.set(jobId, mockElectronAPI.djvu.convertToPdf(path, outputPath, {
+                ...options,
+                jobId,
+            }));
+            return {
+                jobId,
+                requestId,
+            };
+        });
+        mockElectronAPI.djvu.awaitConvertJob.mockImplementation(async (jobId: string) => pendingConvertJobs.get(jobId));
         mockElectronAPI.djvu.getPageSizes.mockResolvedValue([]);
+        mockElectronAPI.djvu.subscribeJob.mockImplementation(async (jobId: string) => ({
+            jobId,
+            operation: 'djvu-convert' as const,
+            status: 'completed' as const,
+            progress: {
+                jobId,
+                phase: 'converting' as const,
+                percent: 100,
+            },
+            updatedAtMs: Date.now(),
+        }));
         mockDocumentWorkingCopyCapability.cleanupFile.mockResolvedValue(undefined);
         toastAddMock.mockClear();
-        viewingErrorCallback = null;
-        mockElectronAPI.djvu.onViewingError.mockImplementation((callback: (data: IViewingErrorData) => void) => {
-            viewingErrorCallback = callback;
-            return vi.fn();
-        });
     });
 
     describe('openDjvuFile', () => {
@@ -127,14 +175,7 @@ describe('useDjvu', () => {
             });
 
             const djvu = useDjvu();
-            const loadPdf = vi.fn(async () => {});
-
-            await djvu.openDjvuFile(
-                '/path/to/doc.djvu',
-                loadPdf,
-            );
-
-            expect(loadPdf).not.toHaveBeenCalled();
+            await djvu.openDjvuFile('/path/to/doc.djvu');
             expect(mockElectronAPI.documents.setWindowTitle).not.toHaveBeenCalled();
             expect(djvu.isLoadingPages.value).toBe(false);
         });
@@ -147,11 +188,8 @@ describe('useDjvu', () => {
             });
 
             const djvu = useDjvu();
-            const loadPdf = vi.fn(async () => {});
-
             await djvu.openDjvuFile(
                 'browser://documents/source/%25D0%2593%25D0%25BB%25D0%25B0%25D0%25B2%25D0%25B0.djvu',
-                loadPdf,
             );
 
             expect(mockElectronAPI.documents.setWindowTitle).not.toHaveBeenCalled();
@@ -166,7 +204,7 @@ describe('useDjvu', () => {
             const djvu = useDjvu();
 
             await expect(
-                djvu.openDjvuFile('/bad.djvu', vi.fn()),
+                djvu.openDjvuFile('/bad.djvu'),
             ).rejects.toThrow('File corrupted');
         });
 
@@ -178,11 +216,7 @@ describe('useDjvu', () => {
             });
 
             const djvu = useDjvu();
-            const loadPdf = vi.fn(async () => {});
-
-            await djvu.openDjvuFile('/multi.djvu', loadPdf);
-
-            expect(loadPdf).not.toHaveBeenCalled();
+            await djvu.openDjvuFile('/multi.djvu');
             expect(djvu.isLoadingPages.value).toBe(false);
             expect(djvu.loadingProgress.value.total).toBe(0);
         });
@@ -198,7 +232,7 @@ describe('useDjvu', () => {
             }));
 
             const djvu = useDjvu();
-            const openPromise = djvu.openDjvuFile('/pending.djvu', vi.fn(async () => {}));
+            const openPromise = djvu.openDjvuFile('/pending.djvu');
 
             expect(djvu.openingPath.value).toBe('/pending.djvu');
 
@@ -224,14 +258,45 @@ describe('useDjvu', () => {
 
             const djvu = useDjvu();
 
-            await djvu.openDjvuFile('/next.djvu', vi.fn(async () => {}));
+            await djvu.openDjvuFile('/next.djvu');
 
             expect(mockElectronAPI.djvu.releaseViewingPath).toHaveBeenCalledWith('/existing.djvu');
+        });
+
+        it('does not let a stale open overwrite or clear a newer open state', async () => {
+            const first = createDeferred<{
+                success: boolean;
+                pageCount: number;
+                jobId: string;
+            }>();
+            mockElectronAPI.djvu.openForViewing
+                .mockImplementationOnce(() => first.promise)
+                .mockResolvedValueOnce({
+                    success: true,
+                    pageCount: 2,
+                    jobId: 'newer-job',
+                });
+
+            const djvu = useDjvu();
+            const staleOpen = djvu.openDjvuFile('/old.djvu');
+            const currentOpen = djvu.openDjvuFile('/new.djvu');
+            await currentOpen;
+
+            first.resolve({
+                success: false,
+                pageCount: 0,
+                jobId: 'older-job',
+            });
+            await expect(staleOpen).resolves.toBeUndefined();
+
+            expect(djvu.djvuSourcePath.value).toBe('/new.djvu');
+            expect(djvu.openingPath.value).toBeNull();
+            expect(djvu.isLoadingPages.value).toBe(false);
         });
     });
 
     describe('cancelActiveJobs', () => {
-        it('sets pendingConvertCancel when converting but no job ID yet', async () => {
+        it('does not claim cancellation without an admitted job handle', async () => {
             mockElectronAPI.djvu.openForViewing.mockResolvedValue({
                 success: true,
                 pageCount: 1,
@@ -239,7 +304,7 @@ describe('useDjvu', () => {
             });
 
             const djvu = useDjvu();
-            await djvu.openDjvuFile('/a.djvu', vi.fn(async () => {}));
+            await djvu.openDjvuFile('/a.djvu');
 
             djvu.conversionState.value = {
                 isConverting: true,
@@ -249,7 +314,8 @@ describe('useDjvu', () => {
 
             const result = await djvu.cancelActiveJobs();
 
-            expect(result).toBe(true);
+            expect(result).toBe(false);
+            expect(mockElectronAPI.djvu.cancel).not.toHaveBeenCalled();
         });
     });
 
@@ -263,7 +329,7 @@ describe('useDjvu', () => {
             mockDocumentFilesCapability.savePdfDialog.mockResolvedValue(null);
 
             const djvu = useDjvu();
-            await djvu.openDjvuFile('/tmp/input.djvu', vi.fn(async () => {}));
+            await djvu.openDjvuFile('/tmp/input.djvu');
             await djvu.convertToPdf(1, true, 'direct', createUnusedConvertedPdfOpen());
 
             expect(mockDocumentFilesCapability.savePdfDialog).toHaveBeenCalledWith('input.pdf');
@@ -279,7 +345,7 @@ describe('useDjvu', () => {
             mockDocumentFilesCapability.savePdfDialog.mockResolvedValue(null);
 
             const djvu = useDjvu();
-            await djvu.openDjvuFile('browser://documents/source/', vi.fn(async () => {}));
+            await djvu.openDjvuFile('browser://documents/source/');
             await djvu.convertToPdf(1, true, 'direct', createUnusedConvertedPdfOpen());
 
             expect(mockDocumentFilesCapability.savePdfDialog).toHaveBeenCalledWith('djvu.documentFallback.pdf');
@@ -299,10 +365,10 @@ describe('useDjvu', () => {
             });
 
             const djvu = useDjvu();
-            await djvu.openDjvuFile('/tmp/input.djvu', vi.fn(async () => {}));
+            await djvu.openDjvuFile('/tmp/input.djvu');
             await djvu.convertToPdf(1, true, 'direct', createUnusedConvertedPdfOpen());
 
-            expect(djvu.viewingError.value).toBeNull();
+            expect(djvu.sourceError.value).toBeNull();
             expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
                 color: 'error',
                 description: 'Windows converter failed',
@@ -310,6 +376,83 @@ describe('useDjvu', () => {
             expect(djvu.conversionState.value.isConverting).toBe(false);
             expect(mockDocumentWorkingCopyCapability.cleanupFile).not.toHaveBeenCalled();
             expect(mockElectronAPI.documents.cleanupFile).not.toHaveBeenCalled();
+        });
+
+        it('cancels a conversion whose native handle arrives after cancellation', async () => {
+            mockElectronAPI.djvu.openForViewing.mockResolvedValue({
+                success: true,
+                pageCount: 1,
+                jobId: 'view-1',
+            });
+            mockDocumentFilesCapability.savePdfDialog.mockResolvedValue('/tmp/out.pdf');
+            const admission = createDeferred<{
+                jobId: string;
+                requestId: string;
+            }>();
+            mockElectronAPI.djvu.startConvertToPdf.mockImplementationOnce(() => admission.promise);
+
+            const djvu = useDjvu();
+            await djvu.openDjvuFile('/tmp/input.djvu');
+            const conversion = djvu.convertToPdf(1, true, 'direct', createUnusedConvertedPdfOpen());
+            await vi.waitFor(() => expect(djvu.conversionState.value.isConverting).toBe(true));
+
+            await expect(djvu.cancelActiveJobs()).resolves.toBe(false);
+            admission.resolve({
+                jobId: 'late-admitted-job',
+                requestId: 'late-request',
+            });
+            await conversion;
+
+            expect(mockElectronAPI.djvu.cancel).toHaveBeenCalledWith('late-admitted-job');
+            expect(djvu.conversionState.value.isConverting).toBe(false);
+        });
+
+        it('does not let a stale conversion completion clear a newer conversion', async () => {
+            mockElectronAPI.djvu.openForViewing.mockResolvedValue({
+                success: true,
+                pageCount: 1,
+                jobId: 'view-1',
+            });
+            mockDocumentFilesCapability.savePdfDialog
+                .mockResolvedValueOnce('/tmp/old.pdf')
+                .mockResolvedValueOnce('/tmp/new.pdf');
+            const oldResult = createDeferred<{
+                success: boolean;
+                pdfPath: string;
+                jobId: string;
+            }>();
+            const newResult = createDeferred<{
+                success: boolean;
+                pdfPath: string;
+                jobId: string;
+            }>();
+            mockElectronAPI.djvu.convertToPdf
+                .mockImplementationOnce(() => oldResult.promise)
+                .mockImplementationOnce(() => newResult.promise);
+
+            const djvu = useDjvu();
+            await djvu.openDjvuFile('/tmp/input.djvu');
+            const oldConversion = djvu.convertToPdf(1, true, 'direct', createUnusedConvertedPdfOpen());
+            await vi.waitFor(() => expect(mockElectronAPI.djvu.convertToPdf).toHaveBeenCalledTimes(1));
+            await djvu.cancelActiveJobs();
+
+            const newConversion = djvu.convertToPdf(1, true, 'direct', createUnusedConvertedPdfOpen());
+            await vi.waitFor(() => expect(mockElectronAPI.djvu.convertToPdf).toHaveBeenCalledTimes(2));
+            oldResult.resolve({
+                success: true,
+                pdfPath: '/tmp/old.pdf',
+                jobId: mockElectronAPI.djvu.convertToPdf.mock.calls[0]![2]!.jobId!,
+            });
+            await oldConversion;
+
+            expect(djvu.conversionState.value.isConverting).toBe(true);
+            newResult.resolve({
+                success: false,
+                pdfPath: '/tmp/new.pdf',
+                jobId: mockElectronAPI.djvu.convertToPdf.mock.calls[1]![2]!.jobId!,
+            });
+            await newConversion;
+            expect(djvu.conversionState.value.isConverting).toBe(false);
         });
 
         it('cleans up browser conversion output refs after conversion errors', async () => {
@@ -325,10 +468,10 @@ describe('useDjvu', () => {
             });
 
             const djvu = useDjvu();
-            await djvu.openDjvuFile('/tmp/input.djvu', vi.fn(async () => {}));
+            await djvu.openDjvuFile('/tmp/input.djvu');
             await djvu.convertToPdf(1, true, 'direct', createUnusedConvertedPdfOpen());
 
-            expect(djvu.viewingError.value).toBeNull();
+            expect(djvu.sourceError.value).toBeNull();
             expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
                 color: 'error',
                 description: 'Browser converter failed',
@@ -360,7 +503,7 @@ describe('useDjvu', () => {
             }));
 
             const djvu = useDjvu();
-            await djvu.openDjvuFile('/tmp/input.djvu', vi.fn(async () => {}));
+            await djvu.openDjvuFile('/tmp/input.djvu');
             await djvu.convertToPdf(1, true, 'direct', openConvertedPdf);
 
             expect(openConvertedPdf).toHaveBeenCalledWith('/tmp/out.pdf');
@@ -394,7 +537,7 @@ describe('useDjvu', () => {
             }));
 
             const djvu = useDjvu();
-            await djvu.openDjvuFile('/tmp/input.djvu', vi.fn(async () => {}));
+            await djvu.openDjvuFile('/tmp/input.djvu');
             await djvu.convertToPdf(1, true, 'direct', openConvertedPdf);
 
             expect(openConvertedPdf).toHaveBeenCalledWith('/tmp/out.pdf', {rasterDisplayProfile: {
@@ -421,7 +564,7 @@ describe('useDjvu', () => {
             });
 
             const djvu = useDjvu();
-            await djvu.openDjvuFile('/tmp/input.djvu', vi.fn(async () => {}));
+            await djvu.openDjvuFile('/tmp/input.djvu');
             await djvu.convertToPdf(4, false, 'compact-djvu-aware', vi.fn(async () => ({
                 status: 'opened' as const,
                 result: {
@@ -440,6 +583,52 @@ describe('useDjvu', () => {
                     pdfStrategy: 'compact-djvu-aware',
                     requestId: expect.any(String),
                     documentRef: '/tmp/input.djvu',
+                }),
+            );
+        });
+
+        it('reuses the persistent PDF projection for repeated PDF-only actions', async () => {
+            mockElectronAPI.djvu.openForViewing.mockResolvedValue({
+                success: true,
+                pageCount: 1,
+                jobId: 'view-1',
+            });
+            mockDocumentFilesCapability.savePdfDialog.mockResolvedValue('/tmp/out.pdf');
+            mockElectronAPI.djvu.convertToPdf.mockResolvedValue({
+                success: true,
+                pdfPath: '/tmp/out.pdf',
+                jobId: 'convert-1',
+            });
+            const openConvertedPdf = vi.fn(async () => ({
+                status: 'opened' as const,
+                result: {
+                    kind: 'pdf' as const,
+                    originalPath: '/tmp/out.pdf',
+                    workingPath: '/tmp/out-working.pdf',
+                },
+            }));
+            const djvu = useDjvu();
+            await djvu.openDjvuFile('/tmp/input.djvu');
+
+            await expect(djvu.ensurePdfProjectionForAction(
+                'edit',
+                openConvertedPdf,
+                new AbortController().signal,
+            )).resolves.toBe(true);
+            await expect(djvu.ensurePdfProjectionForAction(
+                'ocr',
+                openConvertedPdf,
+                new AbortController().signal,
+            )).resolves.toBe(true);
+
+            expect(mockElectronAPI.djvu.convertToPdf).toHaveBeenCalledTimes(1);
+            expect(mockElectronAPI.djvu.convertToPdf).toHaveBeenCalledWith(
+                '/tmp/input.djvu',
+                '/tmp/out.pdf',
+                expect.objectContaining({
+                    pdfStrategy: 'direct',
+                    preserveBookmarks: true,
+                    subsample: 1,
                 }),
             );
         });
@@ -472,7 +661,7 @@ describe('useDjvu', () => {
                     percent: 80,
                 });
                 progressCallback?.({
-                    jobId: 'convert-1',
+                    jobId: options.jobId,
                     requestId: options.requestId,
                     documentRef: '/tmp/input.djvu',
                     phase: 'converting',
@@ -481,7 +670,7 @@ describe('useDjvu', () => {
             }));
 
             const djvu = useDjvu();
-            await djvu.openDjvuFile('/tmp/input.djvu', vi.fn(async () => {}));
+            await djvu.openDjvuFile('/tmp/input.djvu');
             const convertPromise = djvu.convertToPdf(1, true, 'direct', vi.fn(async () => ({
                 status: 'opened' as const,
                 result: {
@@ -495,13 +684,28 @@ describe('useDjvu', () => {
                 await Promise.resolve();
             }
             expect(mockElectronAPI.djvu.convertToPdf).toHaveBeenCalledTimes(1);
+            await Promise.resolve();
+            await Promise.resolve();
+            const admittedOptions = mockElectronAPI.djvu.convertToPdf.mock.calls[0]![2]!;
+            (progressCallback as ((progress: IDjvuProgress) => void) | null)?.({
+                jobId: admittedOptions.jobId,
+                requestId: admittedOptions.requestId,
+                documentRef: '/tmp/input.djvu',
+                phase: 'converting',
+                percent: 25,
+            });
             expect(djvu.conversionState.value.percent).toBe(25);
             expect(resolveConversion).not.toBeNull();
             const requestId = mockElectronAPI.djvu.convertToPdf.mock.calls[0]?.[2]?.requestId;
-            resolveConversion!({
+            (resolveConversion as ((value: {
+                success: boolean;
+                pdfPath: string;
+                jobId: string;
+                requestId?: string;
+            }) => void) | null)?.({
                 success: true,
                 pdfPath: '/tmp/out.pdf',
-                jobId: 'convert-1',
+                jobId: mockElectronAPI.djvu.convertToPdf.mock.calls[0]![2]!.jobId!,
                 requestId,
             });
             await convertPromise;
@@ -525,33 +729,11 @@ describe('useDjvu', () => {
             }));
 
             const djvu = useDjvu();
-            await djvu.openDjvuFile('/tmp/input.djvu', vi.fn(async () => {}));
+            await djvu.openDjvuFile('/tmp/input.djvu');
             await djvu.convertToPdf(1, true, 'direct', openConvertedPdf);
 
             expect(openConvertedPdf).toHaveBeenCalledWith('/tmp/out.pdf');
-            expect(djvu.viewingError.value).toBe('Converted PDF could not be opened');
-        });
-    });
-
-    describe('listener setup', () => {
-        it('shows background viewing errors and exits loading state', async () => {
-            mockElectronAPI.djvu.openForViewing.mockResolvedValue({
-                success: true,
-                pageCount: 5,
-                jobId: 'job-view-1',
-            });
-
-            const djvu = useDjvu();
-            await djvu.openDjvuFile('/multi.djvu', vi.fn(async () => {}));
-
-            djvu.isLoadingPages.value = true;
-            viewingErrorCallback?.({
-                jobId: 'job-view-1',
-                error: 'Background conversion failed',
-            });
-
-            expect(djvu.isLoadingPages.value).toBe(false);
-            expect(djvu.viewingError.value).toBe('Background conversion failed');
+            expect(djvu.sourceError.value).toBe('Converted PDF could not be opened');
         });
     });
 

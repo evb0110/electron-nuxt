@@ -43,8 +43,6 @@ export interface IScrollSnapshot {
     anchorPage?: number | null;
     anchorInsidePage?: boolean;
     anchorOffsetRatio?: number;
-    anchorViewportX?: number;
-    anchorViewportY?: number;
     anchorContentXRatio?: number;
     anchorContentYRatio?: number;
     anchorPageXRatio?: number;

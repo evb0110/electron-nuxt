@@ -36,10 +36,14 @@ const mocks = vi.hoisted(() => ({
     renderDjvuPagePreview: vi.fn(),
     releaseDjvuViewingPath: vi.fn(),
     cleanupDjvuTempPdfPath: vi.fn(),
-    sweepStaleDjvuTempPdfs: vi.fn(),
+    pruneStaleDjvuArtifactJobs: vi.fn(),
 }));
 
 vi.mock('electron', () => ({
+    app: {
+        isPackaged: false,
+        getPath: vi.fn(() => '/tmp'),
+    },
     BrowserWindow: {fromWebContents: vi.fn(() => null)},
     ipcMain: {handle: (channel: string, handler: TRegisteredHandler) => {
         mocks.ipcHandle(channel, handler);
@@ -65,8 +69,8 @@ vi.mock('@electron/features/djvu/main/viewing', () => ({
     isAllowedDjvuViewingPath: mocks.isAllowedDjvuViewingPath,
     releaseDjvuViewingPath: mocks.releaseDjvuViewingPath,
     cleanupDjvuTempPdfPath: mocks.cleanupDjvuTempPdfPath,
-    sweepStaleDjvuTempPdfs: mocks.sweepStaleDjvuTempPdfs,
 }));
+vi.mock('@electron/features/djvu/main/djvuArtifactManifest', () => ({pruneStaleDjvuArtifactJobs: mocks.pruneStaleDjvuArtifactJobs}));
 vi.mock('@electron/features/djvu/main/pagePreview', () => ({
     getDjvuPageSizesForViewing: mocks.getDjvuPageSizesForViewing,
     renderDjvuPagePreview: mocks.renderDjvuPagePreview,
@@ -178,21 +182,21 @@ describe('registerDjvuIpcAdapter', () => {
         });
         mocks.releaseDjvuViewingPath.mockReturnValue(undefined);
         mocks.cleanupDjvuTempPdfPath.mockResolvedValue(undefined);
-        mocks.sweepStaleDjvuTempPdfs.mockResolvedValue(0);
+        mocks.pruneStaleDjvuArtifactJobs.mockResolvedValue(0);
     });
 
-    it('triggers stale DjVu temp sweep during handler registration by default', () => {
+    it('prunes only manifest-owned stale artifact jobs during registration', () => {
         registerDjvuIpcAdapter();
 
-        expect(mocks.sweepStaleDjvuTempPdfs).toHaveBeenCalledTimes(1);
+        expect(mocks.pruneStaleDjvuArtifactJobs).toHaveBeenCalledOnce();
     });
 
-    it('skips stale sweep when explicitly disabled', () => {
+    it('allows manifest pruning to be disabled for deterministic hosts', () => {
         process.env.EVB_DJVU_SWEEP_STALE_TEMP = '0';
 
         registerDjvuIpcAdapter();
 
-        expect(mocks.sweepStaleDjvuTempPdfs).not.toHaveBeenCalled();
+        expect(mocks.pruneStaleDjvuArtifactJobs).not.toHaveBeenCalled();
     });
 
     it('delegates cleanupTemp to tracked temp cleanup helper', async () => {
@@ -570,8 +574,7 @@ describe('registerDjvuIpcAdapter', () => {
                 subsample: 3,
             });
 
-            await Promise.resolve();
-            expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(2);
+            await vi.waitFor(() => expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(2));
 
             firstPreview.resolve({
                 bytes: new Uint8Array([1]),
@@ -651,8 +654,7 @@ describe('registerDjvuIpcAdapter', () => {
                 subsample: 3,
             });
 
-            await Promise.resolve();
-            expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(2);
+            await vi.waitFor(() => expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(2));
             const firstSignal = mocks.renderDjvuPagePreview.mock.calls[0]?.[3]?.signal as AbortSignal | undefined;
             const secondSignal = mocks.renderDjvuPagePreview.mock.calls[1]?.[3]?.signal as AbortSignal | undefined;
 
@@ -782,8 +784,7 @@ describe('registerDjvuIpcAdapter', () => {
                 subsample: 3,
             });
 
-            await Promise.resolve();
-            expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(2);
+            await vi.waitFor(() => expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(2));
 
             firstPreview.resolve({
                 bytes: new Uint8Array([1]),
@@ -894,8 +895,7 @@ describe('registerDjvuIpcAdapter', () => {
                 subsample: 3,
             });
 
-            await Promise.resolve();
-            expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(2);
+            await vi.waitFor(() => expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(2));
             await staleRejection;
 
             firstPreview.resolve({

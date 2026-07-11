@@ -1,35 +1,34 @@
 import type { Ref } from 'vue';
-import {
-    useDebounceFn,
-    useResizeObserver,
-} from '@vueuse/core';
+import {useResizeObserver} from '@vueuse/core';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { captureScrollSnapshot } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/captureScrollSnapshot';
-import { restoreScrollFromSnapshot } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/restoreScrollFromSnapshot';
 import type {
     ICurrentPageSyncOptions,
     IResizeAnchorContext,
     summarizeViewerMetrics,
 } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
-import { resolveResizeAnchorPage } from '@app/modules/pdf-viewer/runtime/resize-anchor/resolveResizeAnchorPage';
 import { PDF_RERENDER_SOURCE } from '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol';
 import type {
     IPdfViewerTransaction,
     IPdfViewerTransactionCancellation,
 } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
+import type { IPdfSemanticAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
+import {
+    PDF_RESIZE_DRAG_SETTLE_MS,
+    PDF_RESIZE_RERENDER_DEBOUNCE_MS,
+    PDF_RESIZE_TRANSITION_HIDE_MS,
+} from '@app/constants/timeouts';
+import { delay } from 'es-toolkit/promise';
 
 type TViewerMetrics = ReturnType<typeof summarizeViewerMetrics>;
 
 export interface IBuildResizeAnchorContextOptions {
-    anchorViewportX?: number | null;
-    anchorViewportY?: number | null;
-    forcePreferredAnchorPage?: boolean;
     preferredAnchorPage?: number | null;
     trustPreferredAnchorPage?: boolean;
-    preferSnapshotAnchorPage?: boolean | undefined;
 }
 
 interface IUsePdfViewerResizeLifecycleOptions {
+    submitResizeIntent: (anchor?: IPdfSemanticAnchor | null) => void;
+    captureViewportAnchor?: (() => IPdfSemanticAnchor | null) | undefined;
     viewerContainer: Ref<HTMLElement | null>;
     isLoading: Ref<boolean>;
     isActive?: Ref<boolean> | undefined;
@@ -42,7 +41,14 @@ interface IUsePdfViewerResizeLifecycleOptions {
         end: number;
     }>;
     numPages: Ref<number>;
-    computeFitWidthScale: (container: HTMLElement | null) => boolean;
+    computeFitWidthScale: (
+        container: HTMLElement | null,
+        options?: {
+            page?: number | null;
+            preview?: boolean
+        },
+    ) => boolean;
+    clearPreviewFitScale?: (() => void) | undefined;
     getMostVisiblePage: (container: HTMLElement | null, numPages: number) => number;
     summarizeViewerMetricsForLog: (container: HTMLElement | null) => TViewerMetrics;
     summarizeVisiblePageSnapshotForLog: (container: HTMLElement | null) => unknown;
@@ -62,7 +68,7 @@ interface IUsePdfViewerResizeLifecycleOptions {
 interface IResizeLifecycleTransactionController {
     beginTransaction: (options: {
         kind: 'resize';
-        source: 'resize-observer';
+        source: 'resize-observer' | 'resize-settle';
         page?: number | null | undefined;
         range?: IResizeAnchorContext['visibleRange'] | undefined;
         anchor?: NonNullable<IPdfViewerTransaction['target']>['anchor'];
@@ -85,7 +91,6 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
         visibleRange,
         numPages,
         computeFitWidthScale,
-        getMostVisiblePage,
         summarizeViewerMetricsForLog,
         summarizeVisiblePageSnapshotForLog,
         scheduleResizeAwareRerender,
@@ -97,11 +102,19 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
     let pendingResizeTransitionHideTimer: ReturnType<typeof setTimeout> | null = null;
     let pendingResizeAnchor: IResizeAnchorContext | null = null;
     let pendingResizeTransactionId: number | null = null;
+    let dragResizeAnchor: IResizeAnchorContext | null = null;
+    let dragSettleRunId = 0;
+    let dragSettleClaimed = false;
+    let dragSettleClaimReleaseTimer: ReturnType<typeof setTimeout> | null = null;
+    let pendingResizeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-    function beginResizeObserverTransaction(anchor: IResizeAnchorContext) {
+    function beginResizeTransaction(
+        anchor: IResizeAnchorContext,
+        source: 'resize-observer' | 'resize-settle',
+    ) {
         const transaction = options.transactionController?.beginTransaction({
             kind: 'resize',
-            source: 'resize-observer',
+            source,
             page: anchor.page,
             range: anchor.visibleRange,
             anchor: 'center',
@@ -118,7 +131,6 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
             reason,
             cancelInFlightRenders: true,
             bumpRenderVersion: reason === 'resize',
-            clearTimers: true,
             preserveVisualContent: true,
         }, pendingResizeTransactionId);
         pendingResizeTransactionId = null;
@@ -163,7 +175,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
             }
             emitResizeTransitionSignal(false, source, token, anchorPage);
             pendingResizeTransitionHideTimer = null;
-        }, 90);
+        }, PDF_RESIZE_TRANSITION_HIDE_MS);
     }
 
     function normalizePreferredAnchorPage(page: number | null | undefined) {
@@ -182,108 +194,44 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
         return options.pendingNavigationAnchorPage?.value ?? currentPage.value;
     }
 
-    function getSnapshotCaptureOptions(
-        optionsOverride: IBuildResizeAnchorContextOptions | undefined,
-        preferredAnchorPage: number | null,
-    ) {
-        if (!optionsOverride) {
-            return preferredAnchorPage === null
-                ? undefined
-                : { preferredAnchorPage };
-        }
-
-        return {
-            anchorViewportX: optionsOverride.anchorViewportX ?? null,
-            anchorViewportY: optionsOverride.anchorViewportY ?? null,
-            preferredAnchorPage,
-        };
-    }
-
     function buildResizeAnchorContext(optionsOverride?: IBuildResizeAnchorContextOptions) {
         if (isActive?.value === false) {
             return {
                 capturedAtMs: Date.now(),
                 page: currentPage.value,
                 transitionToken: 0,
-                snapshot: null,
                 visibleRange: {
                     start: visibleRange.value.start,
                     end: visibleRange.value.end,
                 },
                 viewerMetrics: summarizeViewerMetricsForLog(viewerContainer.value),
+                semanticAnchor: options.captureViewportAnchor?.() ?? null,
             } satisfies IResizeAnchorContext;
         }
         const preferredAnchorPage = optionsOverride?.trustPreferredAnchorPage
             ? normalizePreferredAnchorPage(optionsOverride.preferredAnchorPage)
             : null;
-        const initialSnapshot = captureScrollSnapshot(
-            viewerContainer.value,
-            getSnapshotCaptureOptions(optionsOverride, preferredAnchorPage),
-        );
-        const snapshotAnchorPage =
-            initialSnapshot
-            && typeof initialSnapshot.anchorPage === 'number'
-            && Number.isFinite(initialSnapshot.anchorPage)
-                ? initialSnapshot.anchorPage
-                : null;
-        const mostVisiblePage = getMostVisiblePage(
-            viewerContainer.value,
-            numPages.value,
-        );
-        const forcePreferredAnchorPage = optionsOverride?.forcePreferredAnchorPage === true;
-        const trustedPreferredAnchorPage =
-            preferredAnchorPage !== null
-            && (
-                forcePreferredAnchorPage
-                || snapshotAnchorPage === null
-                || Math.abs(preferredAnchorPage - snapshotAnchorPage) <= 1
-            )
-                ? preferredAnchorPage
-                : null;
-        const anchorPage = trustedPreferredAnchorPage ?? resolveResizeAnchorPage({
-            totalPages: numPages.value,
-            mostVisiblePage,
-            snapshotAnchorPage,
-            currentPage: currentPage.value,
-            preferSnapshotAnchorPage: optionsOverride?.preferSnapshotAnchorPage,
-        });
-        const recapturedSnapshot = captureScrollSnapshot(
-            viewerContainer.value,
-            getSnapshotCaptureOptions(optionsOverride, anchorPage),
-        );
-        let snapshot = recapturedSnapshot ?? initialSnapshot;
-        if (
-            forcePreferredAnchorPage
-            && anchorPage !== null
-            && snapshot
-            && snapshot.anchorPage !== anchorPage
-        ) {
-            snapshot = null;
-        }
+        const anchorPage = preferredAnchorPage ?? currentPage.value;
         BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'anchor-build-captured', ZOOM_QUEUE_LOG_THROTTLE_MS, '[anchor-build] captured', {
             optionsOverride: optionsOverride ?? null,
-            snapshotAnchorPage,
-            mostVisiblePage,
-            forcePreferredAnchorPage,
-            trustedPreferredAnchorPage,
             anchorPage,
-            snapshot,
             viewer: summarizeViewerMetricsForLog(viewerContainer.value),
         });
         return {
             capturedAtMs: Date.now(),
             page: anchorPage,
             transitionToken: 0,
-            snapshot,
             visibleRange: {
                 start: visibleRange.value.start,
                 end: visibleRange.value.end,
             },
             viewerMetrics: summarizeViewerMetricsForLog(viewerContainer.value),
+            semanticAnchor: options.captureViewportAnchor?.() ?? null,
         } satisfies IResizeAnchorContext;
     }
 
-    const debouncedRenderOnResizeWithAnchor = useDebounceFn(() => {
+    function runDebouncedResizeRender() {
+        pendingResizeDebounceTimer = null;
         if (isActive?.value === false || isLoading.value || !pdfDocument.value) {
             if (pendingResizeAnchor) {
                 scheduleEndResizeTransition(
@@ -318,61 +266,57 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
             resizeAnchor: anchor,
             ...(transactionId !== null ? { transactionId } : {}),
         });
-    }, 200);
+    }
+
+    function cancelDebouncedResizeRender() {
+        if (pendingResizeDebounceTimer !== null) {
+            clearTimeout(pendingResizeDebounceTimer);
+            pendingResizeDebounceTimer = null;
+        }
+    }
+
+    function scheduleDebouncedResizeRender() {
+        cancelDebouncedResizeRender();
+        pendingResizeDebounceTimer = setTimeout(
+            runDebouncedResizeRender,
+            PDF_RESIZE_RERENDER_DEBOUNCE_MS,
+        );
+    }
 
     function restoreResizeAnchorAfterLayout(anchor: IResizeAnchorContext, source: string) {
-        if (!anchor.snapshot || typeof window === 'undefined') {
-            return;
-        }
-
-        const token = anchor.transitionToken;
-        const restoreIfCurrent = (phase: string) => {
-            if (token !== resizeTransitionToken) {
-                return;
-            }
-
-            restoreScrollFromSnapshot(viewerContainer.value, anchor.snapshot, {
-                restoreHorizontal: false,
-                restoreVertical: true,
-                preferPageAnchor: true,
-                allowVerticalRatioFallback: true,
-            });
-            BrowserLogger.diagnosticThrottled(
-                'pdf-zoom-debug',
-                'resize-anchor-immediate-restore',
-                ZOOM_QUEUE_LOG_THROTTLE_MS,
-                '[resize-anchor] immediate vertical restore after layout',
-                {
-                    source,
-                    phase,
-                    token,
-                    anchorPage: anchor.page,
-                    viewer: summarizeViewerMetricsForLog(viewerContainer.value),
-                },
-            );
-        };
-
-        void nextTick(() => {
-            restoreIfCurrent('next-tick');
-            window.requestAnimationFrame(() => {
-                restoreIfCurrent('animation-frame');
-            });
-        });
+        options.submitResizeIntent(anchor.semanticAnchor);
+        BrowserLogger.diagnosticThrottled(
+            'pdf-zoom-debug',
+            'resize-anchor-authority-intent',
+            ZOOM_QUEUE_LOG_THROTTLE_MS,
+            '[resize-anchor] submitted semantic viewport intent',
+            {
+                source,
+                token: anchor.transitionToken,
+                anchorPage: anchor.page,
+            },
+        );
     }
 
     function handleResize() {
         if (isActive?.value === false) {
             return;
         }
-        if (isLoading.value || isResizing.value) {
+        if (isLoading.value) {
             return;
         }
-        const pendingAnchorPage = options.pendingNavigationAnchorPage?.value ?? null;
+        if (isResizing.value) {
+            computeFitWidthScale(viewerContainer.value, {
+                page: dragResizeAnchor?.page ?? currentPage.value,
+                preview: true,
+            });
+            return;
+        }
+        if (dragSettleClaimed) {
+            return;
+        }
         const preferredAnchorPage = getResizePreferredAnchorPage();
         const resizeAnchor = buildResizeAnchorContext({
-            ...(pendingAnchorPage !== null
-                ? { forcePreferredAnchorPage: true }
-                : {}),
             preferredAnchorPage,
             trustPreferredAnchorPage: true,
         });
@@ -386,10 +330,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
                     preservedAnchorAgeMs: Date.now() - pendingResizeAnchor.capturedAtMs,
                     viewer: summarizeViewerMetricsForLog(viewerContainer.value),
                 });
-                void debouncedRenderOnResizeWithAnchor();
-                return;
-            }
-            if (!updated) {
+                scheduleDebouncedResizeRender();
                 return;
             }
             const transitionToken = beginResizeTransition(
@@ -400,11 +341,9 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
                 ...resizeAnchor,
                 transitionToken,
             };
-            beginResizeObserverTransaction(anchoredResizeContext);
+            beginResizeTransaction(anchoredResizeContext, 'resize-observer');
             pendingResizeAnchor = anchoredResizeContext;
-            if (updated) {
-                restoreResizeAnchorAfterLayout(anchoredResizeContext, PDF_RERENDER_SOURCE.ResizeObserver);
-            }
+            restoreResizeAnchorAfterLayout(anchoredResizeContext, PDF_RERENDER_SOURCE.ResizeObserver);
             BrowserLogger.diagnostic('pdf-nav', 'Resize observer requested re-render'
                 + ` anchorPage=${anchoredResizeContext.page}`
                 + ` anchorRange=${anchoredResizeContext.visibleRange.start}-${anchoredResizeContext.visibleRange.end}`
@@ -414,18 +353,85 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
                     start: visibleRange.value.start,
                     end: visibleRange.value.end,
                 },
-                anchorSnapshot: anchoredResizeContext.snapshot,
                 anchorViewerMetrics: anchoredResizeContext.viewerMetrics,
                 pendingAnchorPage: pendingResizeAnchor.page,
                 pendingAnchorAgeMs: Date.now() - pendingResizeAnchor.capturedAtMs,
                 viewer: summarizeViewerMetricsForLog(viewerContainer.value),
                 visiblePageSnapshot: summarizeVisiblePageSnapshotForLog(viewerContainer.value),
             });
-            void debouncedRenderOnResizeWithAnchor();
+            scheduleDebouncedResizeRender();
         }
     }
 
     useResizeObserver(viewerContainer, handleResize);
+
+    watch(isResizing, async (value, previous) => {
+        const runId = ++dragSettleRunId;
+        if (value) {
+            dragSettleClaimed = true;
+            cancelDebouncedResizeRender();
+            if (pendingResizeAnchor) {
+                scheduleEndResizeTransition(
+                    pendingResizeAnchor.transitionToken,
+                    'resize-observer-superseded-by-drag',
+                    pendingResizeAnchor.page,
+                );
+                pendingResizeAnchor = null;
+            }
+            cancelPendingResizeTransaction('resize');
+            const anchor = buildResizeAnchorContext({
+                preferredAnchorPage: getResizePreferredAnchorPage(),
+                trustPreferredAnchorPage: true,
+            });
+            dragResizeAnchor = {
+                ...anchor,
+                transitionToken: beginResizeTransition(PDF_RERENDER_SOURCE.ResizeSettle, anchor.page),
+            };
+            computeFitWidthScale(viewerContainer.value, {
+                page: anchor.page,
+                preview: true,
+            });
+            return;
+        }
+        if (!previous || !dragResizeAnchor) {
+            dragSettleClaimed = false;
+            return;
+        }
+
+        await nextTick();
+        await delay(PDF_RESIZE_DRAG_SETTLE_MS);
+        if (
+            runId !== dragSettleRunId
+            || isResizing.value
+            || isActive?.value === false
+            || isLoading.value
+            || !pdfDocument.value
+        ) {
+            return;
+        }
+
+        const anchor = dragResizeAnchor;
+        dragResizeAnchor = null;
+        computeFitWidthScale(viewerContainer.value, {page: anchor.page});
+        options.clearPreviewFitScale?.();
+        beginResizeTransaction(anchor, 'resize-settle');
+        restoreResizeAnchorAfterLayout(anchor, PDF_RERENDER_SOURCE.ResizeSettle);
+        const transactionId = pendingResizeTransactionId;
+        pendingResizeTransactionId = null;
+        scheduleResizeAwareRerender('re-render visible pages after resize settle', {
+            source: PDF_RERENDER_SOURCE.ResizeSettle,
+            stabilize: true,
+            resizeAnchor: anchor,
+            ...(transactionId !== null ? {transactionId} : {}),
+        });
+        if (dragSettleClaimReleaseTimer !== null) {
+            clearTimeout(dragSettleClaimReleaseTimer);
+        }
+        dragSettleClaimReleaseTimer = setTimeout(() => {
+            dragSettleClaimed = false;
+            dragSettleClaimReleaseTimer = null;
+        }, PDF_RESIZE_TRANSITION_HIDE_MS);
+    }, {flush: 'sync'});
 
     function cleanupResizeLifecycle() {
         if (pendingResizeTransitionHideTimer !== null) {
@@ -433,6 +439,15 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
             pendingResizeTransitionHideTimer = null;
         }
         pendingResizeAnchor = null;
+        dragResizeAnchor = null;
+        dragSettleRunId += 1;
+        dragSettleClaimed = false;
+        if (dragSettleClaimReleaseTimer !== null) {
+            clearTimeout(dragSettleClaimReleaseTimer);
+            dragSettleClaimReleaseTimer = null;
+        }
+        cancelDebouncedResizeRender();
+        options.clearPreviewFitScale?.();
         cancelPendingResizeTransaction('disposed');
         resizeTransitionToken += 1;
         emitResizeTransitionSignal(false, 'unmount', resizeTransitionToken, currentPage.value);

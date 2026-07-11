@@ -16,7 +16,6 @@ import type {
     IPdfViewerTransactionRenderRequest,
     IPdfViewerTransactionScrollPlan,
     TPdfViewerTransactionKind,
-    TPdfViewerTransactionPriority,
     TPdfViewerTransactionSource,
     TPdfViewerTransactionState,
 } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
@@ -31,7 +30,6 @@ import {
     doPdfViewerTransactionRangesIntersect,
     getPdfViewerTransactionRowRange,
 } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionRange';
-import { createPdfViewerTransactionRenderRequest } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/createPdfViewerTransactionRenderRequest';
 import { isPdfViewerPagedTargetFitRenderHandoffConsumable } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/isPdfViewerPagedTargetFitRenderHandoffConsumable';
 
 interface IUsePdfViewerTransactionControllerOptions {
@@ -42,16 +40,12 @@ interface IUsePdfViewerTransactionControllerOptions {
     viewMode: Ref<TPdfViewMode>;
     pdfDocument: ShallowRef<PDFDocumentProxy | null>;
     userViewportInteractionEpoch: Ref<number>;
-    emitCurrentPage?: ((page: number) => void) | undefined;
     getDocumentLoadToken?: (() => number) | undefined;
     getDocumentVersion?: (() => number) | undefined;
+    executeCancellationEffects?: ((cancellation: IPdfViewerTransactionCancellation) => void) | undefined;
 }
 
-interface IPdfViewerTransactionCommitOptions {
-    emitCurrentPage?: boolean | undefined;
-    previousPage?: number | undefined;
-    transactionId?: number | undefined;
-}
+interface IPdfViewerTransactionCommitOptions {transactionId?: number | undefined;}
 
 interface IPdfViewerBeginTransactionOptions {
     kind: TPdfViewerTransactionKind;
@@ -63,19 +57,6 @@ interface IPdfViewerBeginTransactionOptions {
     fitPlan?: Partial<IPdfViewerTransactionFitPlan> | undefined;
     scrollPlan?: IPdfViewerTransactionScrollPlan | null | undefined;
     state?: TPdfViewerTransactionState | undefined;
-}
-
-interface IPdfViewerBeginRenderTransactionOptions extends IPdfViewerBeginTransactionOptions {
-    renderVersion: number;
-    requiredRange?: IPageRange | undefined;
-    buffer?: number | undefined;
-    preserveRenderedPages?: boolean | undefined;
-    preserveInFlightRequiredPages?: boolean | undefined;
-    forceRerender?: boolean | undefined;
-    renderWindowOverride?: IPageRange | undefined;
-    maxCanvasPixelsOverride?: number | undefined;
-    prioritizeTextLayer?: boolean | undefined;
-    priority?: TPdfViewerTransactionPriority | undefined;
 }
 
 interface IPdfViewerConsumePagedTargetFitRenderHandoffOptions {
@@ -113,7 +94,6 @@ function mapNavigationSourceToTransactionKind(
 export const usePdfViewerTransactionController = (
     options: IUsePdfViewerTransactionControllerOptions,
 ) => {
-    const isAuthoritativeFitTransactionActive = ref(false);
     const transactionMachineState = shallowRef(createPdfViewerTransactionMachineState());
     const documentRef = computed<IPdfViewerTransactionDocumentRef>(() => ({
         document: options.pdfDocument.value,
@@ -169,7 +149,7 @@ export const usePdfViewerTransactionController = (
     });
 
     const activeTransaction = computed<IPdfViewerTransaction | null>(() => (
-        transactionMachineState.value.active ?? navigationTransaction.value
+        navigationTransaction.value ?? transactionMachineState.value.active
     ));
     const targetPage = computed(() => activeTransaction.value?.target?.page ?? null);
     const targetRange = computed(() => activeTransaction.value?.target?.range ?? null);
@@ -246,10 +226,30 @@ export const usePdfViewerTransactionController = (
     function dispatchTransactionEvent(
         event: Parameters<typeof reducePdfViewerTransactionMachine>[1],
     ) {
+        const previousActiveId = transactionMachineState.value.active?.id ?? null;
+        const previousCancelledCount = transactionMachineState.value.cancelled.length;
         transactionMachineState.value = reducePdfViewerTransactionMachine(
             transactionMachineState.value,
             event,
         );
+        if (
+            event.type === 'CANCEL'
+            && (
+                previousActiveId === null
+                || event.transactionId === undefined
+                || event.transactionId === previousActiveId
+            )
+        ) {
+            options.executeCancellationEffects?.(event.cancellation);
+            return;
+        }
+        const cancelled = transactionMachineState.value.cancelled;
+        if (cancelled.length > previousCancelledCount) {
+            const cancellation = cancelled.at(-1)?.cancellation;
+            if (cancellation) {
+                options.executeCancellationEffects?.(cancellation);
+            }
+        }
     }
 
     function beginTransaction(beginOptions: IPdfViewerBeginTransactionOptions) {
@@ -304,40 +304,20 @@ export const usePdfViewerTransactionController = (
         return transactionMachineState.value.active === null;
     }
 
-    function beginRenderTransaction(
-        beginOptions: IPdfViewerBeginRenderTransactionOptions,
-    ) {
-        const transaction = beginTransaction(beginOptions);
-        if (!transaction) {
-            return null;
+    watch(navigationTransaction, (navigation) => {
+        if (!navigation || transactionMachineState.value.active === null) {
+            return;
         }
-        const renderRequest = createPdfViewerTransactionRenderRequest({
-            transaction,
-            renderRequestId: transactionMachineState.value.nextRenderRequestId,
-            renderVersion: beginOptions.renderVersion,
-            range: transaction.target?.range,
-            requiredRange: beginOptions.requiredRange,
-            buffer: beginOptions.buffer,
-            preserveRenderedPages: beginOptions.preserveRenderedPages,
-            preserveInFlightRequiredPages: beginOptions.preserveInFlightRequiredPages,
-            forceRerender: beginOptions.forceRerender,
-            renderWindowOverride: beginOptions.renderWindowOverride,
-            maxCanvasPixelsOverride: beginOptions.maxCanvasPixelsOverride,
-            prioritizeTextLayer: beginOptions.prioritizeTextLayer,
-            priority: beginOptions.priority,
+        cancelActiveTransaction({
+            reason: 'superseded',
+            cancelInFlightRenders: true,
+            bumpRenderVersion: true,
+            preserveVisualContent: true,
         });
-        advanceTransaction(transaction.id, 'render-requested', renderRequest);
-        return renderRequest;
-    }
+    }, {flush: 'sync'});
 
     function isTransactionCurrent(transactionId: number) {
         return activeTransaction.value?.id === transactionId;
-    }
-
-    function isRenderRequestCurrent(request: IPdfViewerTransactionRenderRequest) {
-        const transaction = activeTransaction.value;
-        return transaction?.id === request.transactionId
-            && transaction.documentRef.documentVersion === request.documentVersion;
     }
 
     function isTargetRangeCurrent(range: IPageRange) {
@@ -356,21 +336,6 @@ export const usePdfViewerTransactionController = (
             return false;
         }
         options.visibleRange.value = range;
-        return true;
-    }
-
-    function commitCurrentPage(
-        pageNumber: number,
-        commitOptions: IPdfViewerTransactionCommitOptions = {},
-    ) {
-        if (commitOptions.transactionId !== undefined && !isTransactionCurrent(commitOptions.transactionId)) {
-            return false;
-        }
-        const previousPage = commitOptions.previousPage ?? options.currentPage.value;
-        options.currentPage.value = pageNumber;
-        if (pageNumber !== previousPage && commitOptions.emitCurrentPage !== false) {
-            options.emitCurrentPage?.(pageNumber);
-        }
         return true;
     }
 
@@ -394,13 +359,12 @@ export const usePdfViewerTransactionController = (
             page: consumeOptions.page,
             viewMode: consumeOptions.viewMode,
         };
-        const transaction = [
-            transactionMachineState.value.active,
-            transactionMachineState.value.settled,
-        ].find(candidate => isPdfViewerPagedTargetFitRenderHandoffConsumable(
-            candidate,
-            matchOptions,
-        )) ?? null;
+        // A settled transaction no longer has an interaction/render freshness
+        // boundary. Only a live transaction may transfer its fit render.
+        const candidate = transactionMachineState.value.active;
+        const transaction = isPdfViewerPagedTargetFitRenderHandoffConsumable(candidate, matchOptions)
+            ? candidate
+            : null;
         const range = transaction?.fitPlan.hydrateRange ?? null;
         if (!transaction || !range) {
             return null;
@@ -413,27 +377,18 @@ export const usePdfViewerTransactionController = (
         return range;
     }
 
-    function setAuthoritativeFitTransactionActive(active: boolean) {
-        isAuthoritativeFitTransactionActive.value = active;
-    }
-
     return {
         activeTransaction,
         targetPage,
         targetRange,
         diagnostics,
         transactionState,
-        isAuthoritativeFitTransactionActive,
         beginTransaction,
-        beginRenderTransaction,
         advanceTransaction,
         cancelActiveTransaction,
         isTransactionCurrent,
-        isRenderRequestCurrent,
         isTargetRangeCurrent,
         commitVisibleRange,
-        commitCurrentPage,
         consumePagedTargetFitRenderHandoff,
-        setAuthoritativeFitTransactionActive,
     };
 };

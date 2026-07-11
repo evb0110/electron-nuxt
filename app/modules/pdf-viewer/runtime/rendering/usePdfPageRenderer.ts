@@ -8,6 +8,7 @@ import type {
 } from '@app/types/pdfUi';
 import type { IPdfjsL10n } from '@app/types/pdfjs';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
     MaybeRefOrGetter,
     Ref,
@@ -23,7 +24,6 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
-import { clearPdfSelectionForLayerTeardown } from '@app/modules/pdf-viewer/engine/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
 import { usePdfRendererSearchController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererSearchController';
 import { usePdfRendererPageRegistry } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererPageRegistry';
 import { createPdfRendererPageDom } from '@app/modules/pdf-viewer/runtime/rendering/pdf-renderer-page-dom/createPdfRendererPageDom';
@@ -46,10 +46,11 @@ import {
     type IPdfRenderSupervisorTimer,
     type IPdfRenderSupervisor,
 } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
+import type {IPdfPageSlotRegistry} from '@app/modules/pdf-viewer/runtime/page-slots/pdfPageSlotRegistry';
+import { createPdfPageLayerRevisionGraph } from '@app/modules/pdf-viewer/runtime/rendering/createPdfPageLayerRevisionGraph';
+import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
 
 export type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
-
-const MAX_MISSING_RENDER_TARGET_RETRIES = 4;
 
 export interface IUsePdfPageRendererOptions {
     container: Ref<HTMLElement | null>;
@@ -94,7 +95,7 @@ export interface IUsePdfPageRendererOptions {
     currentSearchMatchNavigationId?: MaybeRefOrGetter<number>;
 
     workingCopyPath?: MaybeRefOrGetter<TDocumentRef | null>;
-    documentRevisionToken?: MaybeRefOrGetter<string | null>;
+    documentRevisionToken?: MaybeRefOrGetter<TDocumentRevisionToken | null>;
     onRenderStall?: (payload: IPageRenderStallPayload) => void;
     onPageRendered?: (pageNumber: number) => void;
     onPageCanvasMounted?: (pageNumber: number) => void;
@@ -103,10 +104,13 @@ export interface IUsePdfPageRendererOptions {
     onAnnotationLayersRendered?: ((pageNumber: number, container: HTMLElement) => void) | undefined;
     onRenderedPageStateChanged?: () => void;
     renderSupervisor?: IPdfRenderSupervisor | undefined;
+    pageSlots?: IPdfPageSlotRegistry | undefined;
+    viewportWritePort: IPdfViewportWritePort;
 }
 
 export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     const performanceProfile = getPerformanceProfile();
+    const pageSlots = options.pageSlots;
     const {
         pdfDocument,
         numPages,
@@ -149,8 +153,10 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         workingCopyPath,
         documentRevisionToken,
         effectiveScale: options.effectiveScale,
+        viewportWritePort: options.viewportWritePort,
     });
     const renderMutex = new Mutex();
+    const pageLayerRevisions = createPdfPageLayerRevisionGraph();
     const renderSupervisor = options.renderSupervisor ?? createPdfRenderSupervisor();
     const annotationLayerRenderer = usePdfAnnotationLayerRenderer({
         numPages,
@@ -162,18 +168,15 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         annotationUiManager: options.annotationUiManager ?? null,
         annotationL10n: options.annotationL10n ?? null,
         renderSupervisor,
-        getDocumentVersion: () => renderVersion,
         replaceAnnotationUiManager: options.replaceAnnotationUiManager,
         ...(options.scrollToPage ? { scrollToPage: options.scrollToPage } : {}),
     });
 
     const renderLifecycleTimerDisposers = new Set<() => boolean>();
-    const missingRenderTargetRetryTimers = new Map<number, IRenderLifecycleCancelable>();
+    const missingRenderTargetWaits = new Map<number, AbortController>();
     const RERENDER_LOG_THROTTLE_MS = 420;
     let renderVersion = 0;
     let visibleRenderRequestId = 0;
-
-    interface IRenderLifecycleCancelable {clear: () => boolean;}
 
     function getRenderDocumentToken() {
         return `${String(toValue(workingCopyPath) ?? '')}\0${String(toValue(documentRevisionToken) ?? '')}`;
@@ -239,46 +242,19 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         });
     }
 
-    function armRenderLifecycleAnimationFrame(onFire: () => void): IRenderLifecycleCancelable | null {
-        if (
-            typeof window === 'undefined'
-            || typeof window.requestAnimationFrame !== 'function'
-            || typeof window.cancelAnimationFrame !== 'function'
-        ) {
-            return null;
-        }
-
-        let disposed = false;
-        const frame = window.requestAnimationFrame(() => {
-            if (disposed) {
-                return;
-            }
-            disposed = true;
-            renderLifecycleTimerDisposers.delete(dispose);
-            onFire();
-        });
-        const dispose = () => {
-            if (disposed) {
-                return false;
-            }
-            disposed = true;
-            renderLifecycleTimerDisposers.delete(dispose);
-            window.cancelAnimationFrame(frame);
-            return true;
-        };
-        renderLifecycleTimerDisposers.add(dispose);
-        return {clear: dispose};
-    }
-
     function clearRenderLifecycleTimers() {
         for (const dispose of Array.from(renderLifecycleTimerDisposers)) {
             dispose();
         }
         renderLifecycleTimerDisposers.clear();
-        missingRenderTargetRetryTimers.clear();
+        for (const controller of missingRenderTargetWaits.values()) {
+            controller.abort();
+        }
+        missingRenderTargetWaits.clear();
     }
 
     const {
+        pageRenderState,
         renderedPages,
         staleRenderedPages,
         renderingPages,
@@ -297,6 +273,11 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         cancelAllActiveTextLayerRenders,
         cancelObsoleteInFlightRenders,
         getTrackedPageNumbersForCleanup,
+        reservePageCanvasSurface,
+        replacePageCanvasSurfaceLease,
+        markPageCanvasSurfaceEvictable,
+        releasePageCanvasSurface,
+        releaseAllSurfaceResources,
     } = usePdfRendererPageRegistry();
 
     const {
@@ -446,31 +427,26 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             return;
         }
 
-        const retryCount = missingRenderTargetRetries.get(pageNumber) ?? 0;
-        if (retryCount >= MAX_MISSING_RENDER_TARGET_RETRIES) {
-            clearPdfSelectionForLayerTeardown({
-                root: options.container.value,
-                includeDetached: true,
-                includeAnyPdfTextSelection: true,
-            });
-            BrowserLogger.warnThrottled(
-                'pdf-renderer',
-                `missing-render-target-retry-exhausted:${pageNumber}`,
-                RERENDER_LOG_THROTTLE_MS,
-                `Exhausted render retries waiting for page ${pageNumber} container`,
-                {
-                    pageNumber,
-                    version,
-                    renderVersion,
-                    currentPage: options.currentPage.value,
-                },
-            );
+        if (!pageSlots) {
+            if (missingRenderTargetRetries.has(pageNumber)) {
+                return;
+            }
+            missingRenderTargetRetries.set(pageNumber, 1);
+            scheduleRenderForSinglePage(pageNumber, {
+                preserveRenderedPages: true,
+                bufferOverride: 0,
+            }, transactionRequest);
             return;
         }
-
-        missingRenderTargetRetries.set(pageNumber, retryCount + 1);
-        missingRenderTargetRetryTimers.get(pageNumber)?.clear();
-        const retry = () => {
+        missingRenderTargetRetries.set(pageNumber, 1);
+        missingRenderTargetWaits.get(pageNumber)?.abort();
+        const controller = new AbortController();
+        missingRenderTargetWaits.set(pageNumber, controller);
+        void pageSlots.whenMounted(pageNumber, controller.signal).then(() => {
+            if (missingRenderTargetWaits.get(pageNumber) !== controller) {
+                return;
+            }
+            missingRenderTargetWaits.delete(pageNumber);
             const isRetryStaleVisibleRange = options.isVisibleRenderRangeCurrent?.(visibleRange) === false;
             const isRetryStaleTransactionRequest = transactionRequest
                 ? options.isRenderRequestCurrent?.(transactionRequest) === false
@@ -499,27 +475,11 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 preserveRenderedPages: true,
                 bufferOverride: 0,
             }, transactionRequest);
-        };
-
-        const timer = armRenderLifecycleAnimationFrame(() => {
-            missingRenderTargetRetryTimers.delete(pageNumber);
-            retry();
-        }) ?? armRenderLifecycleTimer({
-            cause: 'mounted-page-recovery',
-            delayMs: 0,
-            key: `missing-render-target-retry:${pageNumber}`,
-            metadata: {
-                documentToken,
-                pageNumber,
-                requestId,
-                version,
-            },
-            onFire: () => {
-                missingRenderTargetRetryTimers.delete(pageNumber);
-                retry();
-            },
+        }).catch((error: unknown) => {
+            if (!(error instanceof DOMException && error.name === 'AbortError')) {
+                BrowserLogger.error('pdf-renderer', `Failed waiting for page ${pageNumber} slot`, error);
+            }
         });
-        missingRenderTargetRetryTimers.set(pageNumber, timer);
     }
 
     function resolveCanvasHiddenAnnotationIds(pageNumber: number) {
@@ -594,6 +554,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     } = usePdfRendererCleanupController({
         container: options.container,
         currentPage: options.currentPage,
+        pageRenderState,
         renderedPages,
         staleRenderedPages,
         renderingPages,
@@ -613,6 +574,8 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         getTrackedPageNumbersForCleanup,
         evictPage,
         cleanupPageCache,
+        releasePageCanvasSurface,
+        releaseAllSurfaceResources,
         onRenderedPageStateChanged: options.onRenderedPageStateChanged,
         invalidatePendingSearchRequests: searchController.invalidatePendingRequests,
     });
@@ -629,6 +592,8 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         getPage: leasePage,
         cancelActiveRenderTask,
         cancelActiveRenderTaskIfCurrent,
+        reservePageCanvasSurface,
+        replacePageCanvasSurfaceLease,
         onRenderStall: options.onRenderStall,
         renderSupervisor,
     });
@@ -672,6 +637,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         effectiveScale: options.effectiveScale,
         annotationUiManager: options.annotationUiManager ?? null,
         getContainerRoot: () => options.container.value,
+        pageRenderState,
         renderedPages,
         staleRenderedPages,
         renderingPages,
@@ -698,11 +664,12 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             );
         },
         mountRenderedCanvas,
+        markPageCanvasSurfaceEvictable,
         scheduleRenderForSinglePage,
         scheduleMissingRenderTargetRetry,
         clearMissingRenderTargetRetry: (pageNumber) => {
-            missingRenderTargetRetryTimers.get(pageNumber)?.clear();
-            missingRenderTargetRetryTimers.delete(pageNumber);
+            missingRenderTargetWaits.get(pageNumber)?.abort();
+            missingRenderTargetWaits.delete(pageNumber);
             missingRenderTargetRetries.delete(pageNumber);
         },
         waitForRenderLifecycleDelay,
@@ -791,7 +758,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         renderingPages,
         renderingPageRequestIds,
         getRenderVersion: () => renderVersion,
-        getDocumentVersion: () => renderVersion,
         getRenderDocumentToken,
         getVisibleRenderRequestId: () => visibleRenderRequestId,
         nextVisibleRenderRequestId: () => {
@@ -832,9 +798,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     }
 
     const reRenderAllVisiblePages = usePdfRendererRerenderController({
-        container: options.container,
-        currentPage: options.currentPage,
-        numPages,
         isActive,
         renderedPages,
         staleRenderedPages,
@@ -846,21 +809,27 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         renderVisiblePages,
         getTrackedPageNumbersForCleanup,
         cleanupPage,
-        throttleMs: RERENDER_LOG_THROTTLE_MS,
     });
 
     const { applySearchHighlights } = searchController;
 
     function invalidatePages(pages: number[]) {
-        bumpRenderVersion('invalidate-pages', { pages });
         logPdfRenderTrace('renderer-invalidate-pages', {
             pages,
             currentPage: options.currentPage.value,
             visiblePages: pages.map(pageNumber => summarizePageDom(pageNumber)),
         });
         for (const pageNumber of pages) {
-            cleanupPage(pageNumber);
+            pageLayerRevisions.bump(pageNumber, 'annotations');
+            cancelActiveRenderTask(pageNumber);
+            cancelActiveTextLayerRender(pageNumber);
+            renderingPages.delete(pageNumber);
+            renderingPageRequestIds.delete(pageNumber);
+            if (renderedPages.has(pageNumber)) {
+                staleRenderedPages.add(pageNumber);
+            }
         }
+        options.onRenderedPageStateChanged?.();
     }
 
     function cancelInFlightRenders() {
@@ -878,17 +847,15 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         renderTransactionPages,
         reRenderAllVisiblePages,
         cleanupAllPages,
+        releaseUnmountedPage: cleanupPage,
         invalidatePages,
         applySearchHighlights,
         hideManagedAnnotationEditors: (pageNumber?: number) => {
             annotationLayerRenderer.hideHiddenManagedEditors(pageNumber);
         },
-        isPageRendered: (pageNumber: number) => renderedPages.has(pageNumber),
-        isPageFreshlyRendered: (pageNumber: number) => (
-            renderedPages.has(pageNumber)
-            && !staleRenderedPages.has(pageNumber)
-        ),
-        isPageRendering: (pageNumber: number) => renderingPages.has(pageNumber),
+        isPageRendered: (pageNumber: number) => pageRenderState.getSlot(pageNumber).visual !== 'none',
+        isPageFreshlyRendered: (pageNumber: number) => pageRenderState.getSlot(pageNumber).visual === 'fresh',
+        isPageRendering: (pageNumber: number) => pageRenderState.getSlot(pageNumber).job === 'rendering',
         requestScrollToCurrentResult,
         cancelPendingSearchScroll: searchController.invalidatePendingRequests,
         cancelInFlightRenders,

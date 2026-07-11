@@ -4,6 +4,7 @@ import type {
     IShapePoint,
     TDrawableShapeType,
 } from '@app/types/annotations';
+import type { IShapeAnnotationConstructionOptions } from '@app/types/shapeAnnotationConstructionOptions';
 import { generateManagedShapeStableKey } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/generateManagedShapeStableKey';
 import { getPointMinMaxBounds } from '@app/modules/pdf-viewer/engine/pdf-shape-resize/getPointMinMaxBounds';
 import { toShapeRect } from '@app/modules/pdf-viewer/engine/pdf-shape-resize/toShapeRect';
@@ -12,22 +13,7 @@ import { createBrowserSafeId } from '@app/utils/browserSafe';
 
 const MIN_DRAWN_SHAPE_SIZE = 0.005;
 
-export interface IBuildShapeAnnotationOptions {
-    pageIndex: number;
-    tool: TDrawableShapeType;
-    x: number;
-    y: number;
-    width?: number | undefined;
-    height?: number | undefined;
-    x2?: number | undefined;
-    y2?: number | undefined;
-    points?: IShapePoint[] | undefined;
-    strokes?: IShapePoint[][] | undefined;
-    color?: string | undefined;
-    fillColor?: string | null | undefined;
-    opacity?: number | undefined;
-    strokeWidth?: number | undefined;
-}
+export interface IBuildShapeAnnotationOptions extends IShapeAnnotationConstructionOptions {pageIndex: number;}
 
 interface IShapeDrawingOrigin {
     x: number;

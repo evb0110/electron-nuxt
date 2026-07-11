@@ -1,5 +1,8 @@
 import { homedir } from 'os';
-import { randomUUID } from 'node:crypto';
+import {
+    createHash,
+    randomUUID,
+} from 'node:crypto';
 import {
     compact,
     uniq,
@@ -10,6 +13,7 @@ import {
     openSync,
     readSync,
     closeSync,
+    readFileSync,
     statSync,
 } from 'fs';
 import {
@@ -42,6 +46,7 @@ import { AVAILABLE_OCR_LANGUAGE_CODES } from '@electron/ocr/availableLanguages';
 import { getErrorMessage } from '@electron/utils/error';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import { resolveOcrResourcesBase } from '@electron/ocr/resolveOcrResourcesBase';
+import { OCR_LANGUAGE_MODEL_SHA256 } from '@contracts/ocrLanguages';
 
 const log = createLogger('ocr-languageModels');
 export const TESSDATA_BEST_REF = 'e12c65a915945e4c28e237a9b52bc4a8f39a0cec';
@@ -51,6 +56,7 @@ const DOWNLOAD_RETRIES = 3;
 const RETRY_DELAY_MS = 1_500;
 const PRECHECK_TIMEOUT_MS = 4_000;
 const MIN_TRAINEDDATA_BYTES = 1024;
+const TESSDATA_SEED_MARKER_PREFIX = '.evb-seeded-';
 const NON_RETRYABLE_HTTP_STATUSES = new Set([
     400,
     401,
@@ -502,16 +508,27 @@ async function seedBundledModels(
     }
 
     await mkdir(runtimeDir, { recursive: true });
-
     const bundledFiles = (await readdir(bundledDir))
-        .filter(fileName => fileName.endsWith('.traineddata'));
+        .filter(fileName => fileName.endsWith('.traineddata'))
+        .sort();
+    const bundledRegistryFingerprint = createHash('sha256')
+        .update(JSON.stringify({
+            ref: TESSDATA_BEST_REF,
+            bundledFiles,
+        }))
+        .digest('hex')
+        .slice(0, 16);
+    const seedMarkerPath = join(
+        runtimeDir,
+        `${TESSDATA_SEED_MARKER_PREFIX}${TESSDATA_BEST_REF}-${bundledRegistryFingerprint}`,
+    );
+    if (existsSync(seedMarkerPath)) {
+        return;
+    }
 
     for (const fileName of bundledFiles) {
         const sourcePath = join(bundledDir, fileName);
         const destinationPath = join(runtimeDir, fileName);
-        if (await removeInvalidModelIfPresent(fileName.slice(0, -'.traineddata'.length), destinationPath)) {
-            continue;
-        }
         const sourceValidation = validateTraineddataFile(sourcePath);
         if (!sourceValidation.valid) {
             log.warn(`Skipping invalid bundled OCR language model ${fileName}: ${sourceValidation.error ?? 'unknown validation error'}`);
@@ -519,6 +536,16 @@ async function seedBundledModels(
         }
         await copyFile(sourcePath, destinationPath);
     }
+    const pendingSeedMarkerPath = `${seedMarkerPath}.${randomUUID()}.tmp`;
+    await writeFile(pendingSeedMarkerPath, JSON.stringify({
+        ref: TESSDATA_BEST_REF,
+        registryFingerprint: bundledRegistryFingerprint,
+        bundledFiles,
+    }), {
+        encoding: 'utf8',
+        mode: 0o600,
+    });
+    await rename(pendingSeedMarkerPath, seedMarkerPath);
 }
 
 export async function ensureRuntimeTessdataSeeded(
@@ -646,6 +673,17 @@ async function downloadLanguageModelAttempt(
         const validation = validateTraineddataFile(tempPath);
         if (!validation.valid) {
             throw new Error(validation.error ?? 'Downloaded model is not a readable traineddata file');
+        }
+        const expectedSha256 = OCR_LANGUAGE_MODEL_SHA256[languageCode as keyof typeof OCR_LANGUAGE_MODEL_SHA256];
+        const actualSha256 = createHash('sha256').update(readFileSync(tempPath)).digest('hex');
+        if (!expectedSha256 || actualSha256 !== expectedSha256) {
+            throw new LanguageModelDownloadError(
+                `OCR language model "${languageCode}" failed SHA-256 verification.`,
+                {
+                    retryable: false,
+                    code: 'CHECKSUM_MISMATCH',
+                },
+            );
         }
         const downloadedSize = statSync(tempPath).size;
         await rename(tempPath, modelPath);
@@ -874,4 +912,17 @@ export async function ensureTessdataLanguages(
     await forEachConcurrent(requiredCodes, OCR_MODEL_DOWNLOAD_CONCURRENCY, async (languageCode) => {
         await ensureLanguageModel(languageCode, runtimeDir, options);
     });
+}
+
+export async function getOcrLanguageModelStates() {
+    await ensureRuntimeTessdataSeeded();
+    const runtimeDir = getRuntimeTessdataDir();
+    return Array.from(AVAILABLE_OCR_LANGUAGE_CODES, languageCode => ({
+        code: languageCode,
+        state: inFlightDownloads.has(languageCode)
+            ? 'downloading' as const
+            : validateTraineddataFile(getModelPath(runtimeDir, languageCode)).valid
+                ? 'installed' as const
+                : 'missing' as const,
+    }));
 }

@@ -1,6 +1,5 @@
 import type { Ref } from 'vue';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import type { IScrollSnapshot } from '@app/types/pdfUi';
 import { wheelDetailLogThrottleMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelDetailLogThrottleMs';
 import { wheelZoomGestureGraceMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelZoomGestureGraceMs';
 import { wheelZoomSessionIdleMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelZoomSessionIdleMs';
@@ -39,13 +38,6 @@ interface IWheelZoomSession {
     startScrollLeft: number | null;
 }
 
-interface IImmediateZoomRestoreIntent {
-    id: number;
-    sessionId: number;
-    snapshot: IScrollSnapshot;
-    capturedAtMs: number;
-}
-
 interface IUsePdfViewerWheelZoomSessionOptions extends IZoomVirtualizationLogOptions {
     viewerContainer: Ref<HTMLElement | null>;
     effectiveScale: Ref<number>;
@@ -65,7 +57,6 @@ export const usePdfViewerWheelZoomSession = (options: IUsePdfViewerWheelZoomSess
     } = options;
 
     const pendingZoomViewportAnchor = ref<IZoomViewportAnchorIntent | null>(null);
-    const pendingImmediateZoomRestoreIntent = ref<IImmediateZoomRestoreIntent | null>(null);
 
     let wheelZoomSessionId = 0;
     let activeWheelZoomSession: IWheelZoomSession | null = null;
@@ -307,13 +298,11 @@ export const usePdfViewerWheelZoomSession = (options: IUsePdfViewerWheelZoomSess
         clearWheelZoomSessionIdleTimer();
         activeWheelZoomSession = null;
         cleanupZoomInteractionLock();
-        pendingImmediateZoomRestoreIntent.value = null;
     }
 
     return {
         pendingZoomViewportAnchor,
         zoomSnapSuppressed,
-        pendingImmediateZoomRestoreIntent,
         getActiveWheelZoomSession,
         ensureWheelZoomSession,
         markExpectedZoomScroll,

@@ -6,17 +6,14 @@ import { appendTextChunkWithByteCap } from '@electron/native-tools/appendTextChu
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import { buildTesseractEnv } from '@electron/ocr/buildTesseractEnv';
 import { createTesseractFinalize } from '@electron/ocr/createTesseractFinalize';
+import type { IOcrRecognizeResult } from '@contracts/electronApiOcr';
 
 interface ITesseractSpawnOptions {
     threads?: number;
     signal?: AbortSignal;
 }
 
-interface IOcrResult {
-    success: boolean;
-    text: string;
-    error?: string;
-}
+type TOcrResult = Pick<IOcrRecognizeResult, 'success' | 'text' | 'error'>;
 
 const TESSERACT_TIMEOUT_MS = parseIntegerEnv('EVB_TESSERACT_TIMEOUT_MS', 2 * 60 * 1000, 5_000);
 const TESSERACT_KILL_GRACE_MS = parseIntegerEnv('EVB_TESSERACT_KILL_GRACE_MS', 2_000, 250);
@@ -27,7 +24,7 @@ export async function runOcr(
     imageBuffer: Buffer,
     languages: string[],
     options?: ITesseractSpawnOptions,
-): Promise<IOcrResult> {
+): Promise<TOcrResult> {
     if (options?.signal?.aborted) {
         return {
             success: false,
@@ -81,8 +78,8 @@ export async function runOcr(
             forceFinalizeHandle: null as NodeJS.Timeout | null,
         };
 
-        const finalizeBase = createTesseractFinalize<IOcrResult>(handles, resolve);
-        const finalize = (result: IOcrResult) => {
+        const finalizeBase = createTesseractFinalize<TOcrResult>(handles, resolve);
+        const finalize = (result: TOcrResult) => {
             if (options?.signal && abortHandler) {
                 options.signal.removeEventListener('abort', abortHandler);
                 abortHandler = null;

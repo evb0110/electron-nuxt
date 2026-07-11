@@ -24,10 +24,16 @@ import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import type { IImageExportOperationContext } from '@electron/features/image-export/ports';
 import { cancelNativeCommandGroup } from '@electron/native-tools/runNativeCommand';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
+import type { SetOptional } from 'type-fest';
+import {
+    exportDjvuAsMultiPageTiff,
+    exportDjvuPagesAsPng,
+} from '@electron/features/image-export/main/djvuImageExport';
+import { documentOutputService } from '@electron/output/documentOutputService';
 
 const logger = createLogger('image-export');
 
-type TImageExportProgressPayload = Omit<IImageExportProgress, 'format' | 'percent' | 'requestId'> & {percent?: number;};
+type TImageExportProgressPayload = SetOptional<Omit<IImageExportProgress, 'format' | 'requestId'>, 'percent'>;
 type TImageExportProgressPump = ReturnType<typeof createIpcProgressPump<IImageExportProgress>>;
 
 const progressPumpsBySenderId = new Map<number, TImageExportProgressPump>();
@@ -116,6 +122,23 @@ async function validateWorkingPdfPath(path: unknown, senderWebContentsId: number
         throw new Error('Working file must be a PDF');
     }
 
+    return resolvedPath;
+}
+
+async function validateWorkingDjvuPath(path: unknown, senderWebContentsId: number) {
+    if (!path || typeof path !== 'string' || path.trim() === '') {
+        throw new Error('Invalid DjVu working copy path');
+    }
+    if (!await ensureWorkingCopyDirectory(path, senderWebContentsId)) {
+        throw new Error('Path is not a managed working copy');
+    }
+    const resolvedPath = await resolveAllowedWritePath(path);
+    if (!resolvedPath || !existsSync(resolvedPath)) {
+        throw new Error('DjVu working copy is outside the allowed working directory');
+    }
+    if (!/\.djvu?$/iu.test(resolvedPath)) {
+        throw new Error('Working file must be a DjVu document');
+    }
     return resolvedPath;
 }
 
@@ -396,6 +419,7 @@ export async function handlePdfExportImages(
     workingCopyPath: string,
     pageNumbers?: number[],
     requestId?: string,
+    sourceKind: 'pdf' | 'djvu' = 'pdf',
 ): Promise<{
     success: boolean;
     canceled?: boolean;
@@ -412,20 +436,32 @@ export async function handlePdfExportImages(
         },
     });
     const cancelGroup = `image-export:${mainOperation.id}`;
+    const outputJob = documentOutputService.start({
+        jobId: normalizedRequestId || mainOperation.id,
+        operation: 'image-export',
+        sourceKind,
+        initialPhase: 'rendering',
+    });
     const lifecycle = createRendererLifecycleAbortController(context.sender);
     const linkedAbort = createLinkedAbortSignal([
         lifecycle.signal,
         mainOperation.signal,
+        outputJob.signal,
     ]);
     try {
-        const normalizedWorkingCopyPath = await validateWorkingPdfPath(workingCopyPath, context.senderId);
+        const normalizedWorkingCopyPath = sourceKind === 'djvu'
+            ? await validateWorkingDjvuPath(workingCopyPath, context.senderId)
+            : await validateWorkingPdfPath(workingCopyPath, context.senderId);
         const normalizedPageNumbers = normalizeRequestedPageNumbers(pageNumbers);
-        await validateRequestedPageNumbersWithinPdf(normalizedWorkingCopyPath, normalizedPageNumbers, {
-            cancelGroup,
-            signal: linkedAbort.signal,
-        });
+        if (sourceKind === 'pdf') {
+            await validateRequestedPageNumbersWithinPdf(normalizedWorkingCopyPath, normalizedPageNumbers, {
+                cancelGroup,
+                signal: linkedAbort.signal,
+            });
+        }
         const result = await showExportImageDialog(context.parentWindow, buildImageSuggestedName(normalizedPageNumbers));
         if (result.canceled || !result.filePath || linkedAbort.signal.aborted) {
+            documentOutputService.finish(outputJob.jobId, 'canceled');
             enqueueTerminalImageExportProgress(context, normalizedRequestId, 'images', 'canceled');
             return {
                 success: false,
@@ -433,15 +469,30 @@ export async function handlePdfExportImages(
             };
         }
 
-        const { normalizedPath } = normalizeImageExportPath(result.filePath, 'jpeg');
-        const onProgress = createImageExportProgressReporter(context.sender, 'images', normalizedRequestId);
-        const outputPaths = await exportPdfPagesAsImages(normalizedWorkingCopyPath, normalizedPath, {
+        const { normalizedPath } = normalizeImageExportPath(result.filePath, sourceKind === 'djvu' ? 'png' : 'jpeg');
+        const reportProgress = createImageExportProgressReporter(context.sender, 'images', normalizedRequestId);
+        const onProgress = (progress: TImageExportProgressPayload) => {
+            reportProgress?.(progress);
+            documentOutputService.update(outputJob.jobId, {
+                phase: progress.phase,
+                percent: progress.percent ?? (progress.processed / Math.max(1, progress.total)) * 100,
+                current: progress.processed,
+                total: progress.total,
+            });
+        };
+        const exportOptions = {
             cancelGroup,
             ...(normalizedPageNumbers ? { pageNumbers: normalizedPageNumbers } : {}),
             signal: linkedAbort.signal,
-            ...(onProgress ? { onProgress } : {}),
-        });
+            onProgress,
+        };
+        const outputPaths = sourceKind === 'djvu'
+            ? await exportDjvuPagesAsPng(normalizedWorkingCopyPath, normalizedPath, exportOptions)
+            : await exportPdfPagesAsImages(normalizedWorkingCopyPath, normalizedPath, exportOptions);
+        const firstOutputPath = outputPaths[0];
+        if (firstOutputPath) documentOutputService.handoff(outputJob.jobId, firstOutputPath);
         if (linkedAbort.signal.aborted) {
+            documentOutputService.finish(outputJob.jobId, 'canceled');
             enqueueTerminalImageExportProgress(context, normalizedRequestId, 'images', 'canceled');
             return {
                 success: false,
@@ -450,6 +501,7 @@ export async function handlePdfExportImages(
         }
 
         enqueueTerminalImageExportProgress(context, normalizedRequestId, 'images', 'success');
+        documentOutputService.finish(outputJob.jobId, 'completed');
 
         return {
             success: true,
@@ -457,6 +509,7 @@ export async function handlePdfExportImages(
         };
     } catch (error) {
         if (isExportAborted(error)) {
+            documentOutputService.finish(outputJob.jobId, 'canceled');
             enqueueTerminalImageExportProgress(context, normalizedRequestId, 'images', 'canceled');
             return {
                 success: false,
@@ -464,6 +517,7 @@ export async function handlePdfExportImages(
             };
         }
         enqueueTerminalImageExportProgress(context, normalizedRequestId, 'images', 'failed', error instanceof Error ? error.message : String(error));
+        documentOutputService.finish(outputJob.jobId, 'failed', error instanceof Error ? error.message : String(error));
         throw error;
     } finally {
         clearImageExportProgress(context, normalizedRequestId);
@@ -478,6 +532,7 @@ export async function handlePdfExportMultiPageTiff(
     workingCopyPath: string,
     pageNumbers?: number[],
     requestId?: string,
+    sourceKind: 'pdf' | 'djvu' = 'pdf',
 ): Promise<{
     success: boolean;
     canceled?: boolean;
@@ -495,20 +550,32 @@ export async function handlePdfExportMultiPageTiff(
         },
     });
     const cancelGroup = `image-export:${mainOperation.id}`;
+    const outputJob = documentOutputService.start({
+        jobId: normalizedRequestId || mainOperation.id,
+        operation: 'multipage-tiff',
+        sourceKind,
+        initialPhase: 'rendering',
+    });
     const lifecycle = createRendererLifecycleAbortController(context.sender);
     const linkedAbort = createLinkedAbortSignal([
         lifecycle.signal,
         mainOperation.signal,
+        outputJob.signal,
     ]);
     try {
-        const normalizedWorkingCopyPath = await validateWorkingPdfPath(workingCopyPath, context.senderId);
+        const normalizedWorkingCopyPath = sourceKind === 'djvu'
+            ? await validateWorkingDjvuPath(workingCopyPath, context.senderId)
+            : await validateWorkingPdfPath(workingCopyPath, context.senderId);
         const normalizedPageNumbers = normalizeRequestedPageNumbers(pageNumbers);
-        await validateRequestedPageNumbersWithinPdf(normalizedWorkingCopyPath, normalizedPageNumbers, {
-            cancelGroup,
-            signal: linkedAbort.signal,
-        });
+        if (sourceKind === 'pdf') {
+            await validateRequestedPageNumbersWithinPdf(normalizedWorkingCopyPath, normalizedPageNumbers, {
+                cancelGroup,
+                signal: linkedAbort.signal,
+            });
+        }
         const result = await showMultiPageTiffDialog(context.parentWindow, buildMultiPageTiffSuggestedName(normalizedPageNumbers));
         if (result.canceled || !result.filePath || linkedAbort.signal.aborted) {
+            documentOutputService.finish(outputJob.jobId, 'canceled');
             enqueueTerminalImageExportProgress(context, normalizedRequestId, 'multipage-tiff', 'canceled');
             return {
                 success: false,
@@ -516,14 +583,27 @@ export async function handlePdfExportMultiPageTiff(
             };
         }
 
-        const onProgress = createImageExportProgressReporter(context.sender, 'multipage-tiff', normalizedRequestId);
-        const outputPaths = await exportPdfAsMultiPageTiff(normalizedWorkingCopyPath, result.filePath, {
+        const reportProgress = createImageExportProgressReporter(context.sender, 'multipage-tiff', normalizedRequestId);
+        const onProgress = (progress: TImageExportProgressPayload) => {
+            reportProgress?.(progress);
+            documentOutputService.update(outputJob.jobId, {
+                phase: progress.phase,
+                percent: progress.percent ?? (progress.processed / Math.max(1, progress.total)) * 100,
+                current: progress.processed,
+                total: progress.total,
+            });
+        };
+        const exportOptions = {
             cancelGroup,
             ...(normalizedPageNumbers ? { pageNumbers: normalizedPageNumbers } : {}),
             signal: linkedAbort.signal,
-            ...(onProgress ? { onProgress } : {}),
-        });
+            onProgress,
+        };
+        const outputPaths = sourceKind === 'djvu'
+            ? await exportDjvuAsMultiPageTiff(normalizedWorkingCopyPath, result.filePath, exportOptions)
+            : await exportPdfAsMultiPageTiff(normalizedWorkingCopyPath, result.filePath, exportOptions);
         if (linkedAbort.signal.aborted) {
+            documentOutputService.finish(outputJob.jobId, 'canceled');
             enqueueTerminalImageExportProgress(context, normalizedRequestId, 'multipage-tiff', 'canceled');
             return {
                 success: false,
@@ -535,8 +615,13 @@ export async function handlePdfExportMultiPageTiff(
         if (!outputPath) {
             throw new Error('Multi-page TIFF export did not produce an output file');
         }
+        documentOutputService.handoff(outputJob.jobId, outputPath, {
+            phase: 'combining',
+            percent: 100,
+        });
 
         enqueueTerminalImageExportProgress(context, normalizedRequestId, 'multipage-tiff', 'success');
+        documentOutputService.finish(outputJob.jobId, 'completed');
 
         return {
             success: true,
@@ -545,6 +630,7 @@ export async function handlePdfExportMultiPageTiff(
         };
     } catch (error) {
         if (isExportAborted(error)) {
+            documentOutputService.finish(outputJob.jobId, 'canceled');
             enqueueTerminalImageExportProgress(context, normalizedRequestId, 'multipage-tiff', 'canceled');
             return {
                 success: false,
@@ -558,6 +644,7 @@ export async function handlePdfExportMultiPageTiff(
             'failed',
             error instanceof Error ? error.message : String(error),
         );
+        documentOutputService.finish(outputJob.jobId, 'failed', error instanceof Error ? error.message : String(error));
         throw error;
     } finally {
         clearImageExportProgress(context, normalizedRequestId);

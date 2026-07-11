@@ -9,10 +9,7 @@ import type { ICurrentPageSyncOptions } from '@app/modules/pdf-viewer/runtime/co
 import { shouldPreserveExistingRerenderContent } from '@app/modules/pdf-viewer/runtime/rerender-strategy/shouldPreserveExistingRerenderContent';
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 import type { TPdfViewerTransactionState } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
-import type {
-    TFitRerenderTransitionOwner,
-    IUsePdfViewerRerenderCoordinatorOptions,
-} from '@app/modules/pdf-viewer/runtime/composables/pdfRerenderCoordinatorTypes';
+import type { IUsePdfViewerRerenderCoordinatorOptions } from '@app/modules/pdf-viewer/runtime/composables/pdfRerenderCoordinatorTypes';
 import {
     PDF_RERENDER_SOURCE,
     isZoomRestorePdfRerenderSource,
@@ -24,8 +21,6 @@ import {
 const ZOOM_QUEUE_LOG_THROTTLE_MS = 420;
 const ZOOM_CHANGE_MAX_CANVAS_PIXELS = 14_000_000;
 const ZOOM_CHANGE_SETTLE_CLAMP_SCALE_THRESHOLD = 0.98;
-const CURRENT_PAGE_FIT_RERENDER_SETTLE_MS = 80;
-const FIT_HEIGHT_PRE_RENDER_SNAP_MAX_TICKS = 4;
 
 export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCoordinatorOptions) => {
     const {
@@ -54,7 +49,6 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         buildResizeAnchorContext,
         scheduleEndResizeTransition,
         enqueueZoomSync,
-        scheduleResizeAwareRerender,
         cancelInFlightPageRenders,
         ensurePageMetricsInRange,
         computeFitWidthScale,
@@ -67,9 +61,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         resetZoomRerenderQueueState,
         getUserViewportInteractionEpoch,
         consumeZoomViewportAnchor,
-        beginResizeTransition,
         consumeSuppressedZoomRerender,
-        setCurrentPageFitRerenderTransitionActive,
         transactionController,
     } = options;
 
@@ -79,10 +71,6 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
     let pagedTargetFitRerenderRunId = 0;
     let viewModeRunId = 0;
     let continuousScrollRunId = 0;
-    let resizeSettleRunId = 0;
-    let isCurrentPageFitRerenderTransitionMarkedActive = false;
-    let nextFitRerenderTransitionToken = 0;
-    const activeFitRerenderTransitionOwners = new Map<number, TFitRerenderTransitionOwner>();
 
     function isViewerAsyncRunActive(
         runId: number,
@@ -105,13 +93,6 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         return zoomMode
             ? zoomMode.value === 'fit-height'
             : fitMode.value === 'height';
-    }
-
-    function shouldDisableHorizontalAnchorRestore() {
-        if (!isFitWidthZoomModeActive()) {
-            return false;
-        }
-        return syncHorizontalScrollForZoomMode?.() ?? true;
     }
 
     function syncHorizontalScrollAfterLayoutUpdate() {
@@ -309,53 +290,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
     }
 
     async function runCurrentPageFitRerenderTransition(task: () => Promise<void>) {
-        const transitionToken = beginFitRerenderTransition('current-page');
-        try {
-            await task();
-        } finally {
-            endFitRerenderTransition(transitionToken);
-        }
-    }
-
-    function syncFitRerenderTransitionMarkedActive() {
-        const active = activeFitRerenderTransitionOwners.size > 0;
-        if (isCurrentPageFitRerenderTransitionMarkedActive === active) {
-            return;
-        }
-
-        isCurrentPageFitRerenderTransitionMarkedActive = active;
-        setCurrentPageFitRerenderTransitionActive?.(active);
-    }
-
-    function beginFitRerenderTransition(owner: TFitRerenderTransitionOwner) {
-        nextFitRerenderTransitionToken += 1;
-        activeFitRerenderTransitionOwners.set(nextFitRerenderTransitionToken, owner);
-        syncFitRerenderTransitionMarkedActive();
-        return nextFitRerenderTransitionToken;
-    }
-
-    function endFitRerenderTransition(token: number) {
-        if (!activeFitRerenderTransitionOwners.delete(token)) {
-            return;
-        }
-        syncFitRerenderTransitionMarkedActive();
-    }
-
-    function endFitRerenderTransitionsForOwner(owner: TFitRerenderTransitionOwner) {
-        let changed = false;
-        for (const [
-            token,
-            activeOwner,
-        ] of activeFitRerenderTransitionOwners) {
-            if (activeOwner !== owner) {
-                continue;
-            }
-            activeFitRerenderTransitionOwners.delete(token);
-            changed = true;
-        }
-        if (changed) {
-            syncFitRerenderTransitionMarkedActive();
-        }
+        await task();
     }
 
     /**
@@ -391,44 +326,22 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
      * Keeps fit-height transitions visually atomic by making the intended page
      * position the viewport anchor before renderer work can repaint.
      */
-    async function snapFitHeightPageBeforeRender(
+    function snapFitHeightPageBeforeRender(
         source: string,
         runId: number,
         page: number,
         interactionEpoch: number,
         isRunActive: () => boolean,
     ) {
-        for (let attempt = 0; attempt <= FIT_HEIGHT_PRE_RENDER_SNAP_MAX_TICKS; attempt += 1) {
-            if (!isRunActive()) {
-                return false;
-            }
-            if (!canApplyDelayedViewportScroll(source, runId, interactionEpoch)) {
-                return false;
-            }
-
-            const snapResult = scrollToPage(page, {
-                preferExactDom: true,
-                suppressRenderAfterSnap: true,
-            });
-            syncHorizontalScrollAfterLayoutUpdate();
-            if (snapResult !== false) {
-                return true;
-            }
-
-            await nextTick();
+        if (!isRunActive() || !canApplyDelayedViewportScroll(source, runId, interactionEpoch)) {
+            return false;
         }
-
-        BrowserLogger.diagnostic('pdf-nav', `[${source}] could not snap fit-height page before render`, {
-            runId,
-            page,
-            currentPage: currentPage.value,
-            visibleRange: {
-                start: visibleRange.value.start,
-                end: visibleRange.value.end,
-            },
-            viewer: summarizeViewerMetricsForLog(viewerContainer.value),
+        const snapResult = scrollToPage(page, {
+            preferExactDom: true,
+            suppressRenderAfterSnap: true,
         });
-        return false;
+        syncHorizontalScrollAfterLayoutUpdate();
+        return snapResult !== false;
     }
 
     function buildRerenderSyncNavLogPayload(runId: number, source: string) {
@@ -521,8 +434,6 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         }
         await reRenderAllVisiblePages(getVisibleRange, {
             preserveExistingPages,
-            anchorSnapshot: syncOptions.resizeAnchor?.snapshot ?? null,
-            disableHorizontalAnchorRestore: shouldDisableHorizontalAnchorRestore(),
             rerenderSource: source,
             ...(renderBufferOverride !== undefined ? { renderBufferOverride } : {}),
             ...(maxCanvasPixelsOverride !== undefined ? { maxCanvasPixelsOverride } : {}),
@@ -605,7 +516,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             let snappedBeforeRender = false;
             if (pageToSnapTo !== null) {
                 setupPagePlaceholders();
-                snappedBeforeRender = await snapFitHeightPageBeforeRender(
+                snappedBeforeRender = snapFitHeightPageBeforeRender(
                     source,
                     runId,
                     pageToSnapTo,
@@ -619,10 +530,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             void cancelInFlightPageRenders?.();
             await reRenderAllVisiblePages(getVisibleRange, {
                 preserveExistingPages: true,
-                disableHorizontalAnchorRestore: mode === 'width' || shouldDisableHorizontalAnchorRestore(),
-                disableVerticalAnchorRestore: mode === 'height',
-                disablePageAnchorRestore: mode === 'height',
-                rerenderSource: source,
+                rerenderSource: normalizePdfRerenderSource(source),
                 renderBufferOverride: 0,
             });
             if (!isRunActive()) {
@@ -689,8 +597,6 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 const zoomViewportAnchor = consumeZoomViewportAnchor?.() ?? null;
                 const trustCurrentPageAnchor = !zoomViewportAnchor && canTrustCurrentPageAsZoomAnchor();
                 const zoomAnchor = buildResizeAnchorContext({
-                    anchorViewportX: zoomViewportAnchor?.x ?? null,
-                    anchorViewportY: zoomViewportAnchor?.y ?? null,
                     preferredAnchorPage: currentPage.value,
                     trustPreferredAnchorPage: trustCurrentPageAnchor,
                 });
@@ -746,10 +652,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         }
 
         void cancelInFlightPageRenders?.();
-        await reRenderAllVisiblePages(getVisibleRange, {
-            disableHorizontalAnchorRestore: shouldDisableHorizontalAnchorRestore(),
-            rerenderSource: PDF_RERENDER_SOURCE.ViewMode,
-        });
+        await reRenderAllVisiblePages(getVisibleRange, {rerenderSource: PDF_RERENDER_SOURCE.ViewMode});
         if (!isViewerAsyncRunActive(runId, viewModeRunId, document) || viewMode.value !== targetViewMode) {
             return;
         }
@@ -772,11 +675,9 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             || isLoading.value
             || isResizing.value
         ) {
-            endFitRerenderTransitionsForOwner('current-page');
             return;
         }
         if (consumePagedTargetFitRenderHandoff(next, document)) {
-            endFitRerenderTransitionsForOwner('current-page');
             return;
         }
         await runCurrentPageFitRerenderTransition(async () => {
@@ -790,8 +691,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
              * checking the run id lets ordinary single-page navigation stay prompt
              * while making the last requested page the only rerender authority.
              */
-            await delay(CURRENT_PAGE_FIT_RERENDER_SETTLE_MS);
-            await nextTick();
+            await delay(50);
             if (!isCurrentPageFitRerenderRunActive(runId, document, next)) {
                 return;
             }
@@ -809,7 +709,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             }
 
             if (fitMode.value === 'height') {
-                const snappedBeforeRender = await snapFitHeightPageBeforeRender(
+                const snappedBeforeRender = snapFitHeightPageBeforeRender(
                     PDF_RERENDER_SOURCE.FitHeightCurrentPage,
                     runId,
                     next,
@@ -834,9 +734,6 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 }
                 await reRenderAllVisiblePages(() => range, {
                     preserveExistingPages: true,
-                    disableHorizontalAnchorRestore: shouldDisableHorizontalAnchorRestore(),
-                    disableVerticalAnchorRestore: true,
-                    disablePageAnchorRestore: true,
                     rerenderSource: PDF_RERENDER_SOURCE.FitHeightCurrentPage,
                     renderBufferOverride: 0,
                 });
@@ -910,13 +807,9 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 || isLoading.value
                 || isResizing.value
             ) {
-                endFitRerenderTransitionsForOwner('paged-target');
                 return;
             }
-
-            const transitionToken = beginFitRerenderTransition('paged-target');
-            try {
-                await delay(CURRENT_PAGE_FIT_RERENDER_SETTLE_MS);
+            {
                 await nextTick();
                 const isRunActive = () => isPagedTargetFitRerenderRunActive(runId, document, next);
                 if (!isRunActive()) {
@@ -932,7 +825,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 // canvas readiness callback; low-res previews are no longer a
                 // valid visual authority for committing the target page.
                 if (fitMode.value === 'height') {
-                    await snapFitHeightPageBeforeRender(
+                    snapFitHeightPageBeforeRender(
                         PDF_RERENDER_SOURCE.FitHeightPagedTarget,
                         runId,
                         next,
@@ -958,7 +851,6 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                         scalePage: next,
                         hydrateRange: range,
                         viewMode: viewMode.value,
-                        suppressLegacyPagedRowRender: true,
                         pagedTargetRenderHandoff: 'pending',
                     },
                 }) ?? null;
@@ -967,9 +859,6 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 }
                 await reRenderAllVisiblePages(() => range, {
                     preserveExistingPages: true,
-                    disableHorizontalAnchorRestore: true,
-                    disableVerticalAnchorRestore: fitMode.value === 'height',
-                    disablePageAnchorRestore: fitMode.value === 'height',
                     rerenderSource: fitMode.value === 'height'
                         ? PDF_RERENDER_SOURCE.FitHeightPagedTarget
                         : PDF_RERENDER_SOURCE.FitWidthPagedTarget,
@@ -981,8 +870,6 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 if (isRunActive()) {
                     syncHorizontalScrollAfterLayoutUpdate();
                 }
-            } finally {
-                endFitRerenderTransition(transitionToken);
             }
         },
     );
@@ -997,11 +884,10 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             // pre-toggle viewport — matching pdf.js's scrollMode setter
             // (which calls _setCurrentPageNumber(currentPageNumber, reset=true)
             // anchored at the page top-left), and Adobe / Preview behavior.
-            const pageToSnapTo = navigationAnchorPage?.value
-                ?? getMostVisiblePage(
-                    viewerContainer.value,
-                    numPages.value,
-                );
+            const pageToSnapTo = getMostVisiblePage(
+                viewerContainer.value,
+                numPages.value,
+            );
             resetContinuousScrollState();
             if (fitMode.value === 'height' && pdfDocument.value) {
                 computeFitWidthScale(viewerContainer.value);
@@ -1037,8 +923,6 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 ? PDF_RERENDER_SOURCE.ZoomGestureChange
                 : PDF_RERENDER_SOURCE.ZoomChange;
             const zoomAnchor = buildResizeAnchorContext({
-                anchorViewportX: zoomViewportAnchor?.x ?? null,
-                anchorViewportY: zoomViewportAnchor?.y ?? null,
                 preferredAnchorPage: currentPage.value,
                 trustPreferredAnchorPage: trustCurrentPageAnchor,
             });
@@ -1058,57 +942,6 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 zoomLockOperationId: zoomViewportAnchor?.zoomLockOperationId ?? null,
             });
         }
-    });
-
-    watch(isResizing, async (value) => {
-        const runId = ++resizeSettleRunId;
-        const document = pdfDocument.value;
-        if (value || !document || isLoading.value) {
-            return;
-        }
-
-        await nextTick();
-        await delay(20);
-        if (!isViewerAsyncRunActive(runId, resizeSettleRunId, document) || isResizing.value) {
-            return;
-        }
-        const pendingAnchorPage = pagedNavigationTargetPage?.value ?? null;
-        const preferredAnchorPage = pendingAnchorPage ?? currentPage.value;
-        const resizeAnchor = buildResizeAnchorContext({
-            ...(pendingAnchorPage !== null
-                ? { forcePreferredAnchorPage: true }
-                : {}),
-            preferredAnchorPage,
-            trustPreferredAnchorPage: true,
-        });
-        const updated = computeFitWidthScale(viewerContainer.value);
-        if (!updated) {
-            return;
-        }
-
-        const transitionToken = beginResizeTransition(
-            PDF_RERENDER_SOURCE.ResizeSettle,
-            resizeAnchor.page,
-        );
-        const transaction = transactionController?.beginTransaction({
-            kind: 'resize',
-            source: 'resize-settle',
-            page: resizeAnchor.page,
-            range: resizeAnchor.visibleRange,
-            anchor: 'center',
-        }) ?? null;
-        scheduleResizeAwareRerender(
-            're-render visible pages after resize settle',
-            {
-                source: PDF_RERENDER_SOURCE.ResizeSettle,
-                stabilize: true,
-                resizeAnchor: {
-                    ...resizeAnchor,
-                    transitionToken,
-                },
-                ...(transaction ? { transactionId: transaction.id } : {}),
-            },
-        );
     });
 
     return {reRenderVisiblePagesAndSyncCurrentPage};

@@ -19,7 +19,6 @@ import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/pdf-seri
 import { deleteEmbeddedAnnotationOffThread } from '@app/modules/pdf-viewer/engine/pdf-serialization-worker-client/deleteEmbeddedAnnotationOffThread';
 import { serializePdfEditsOffThread } from '@app/modules/pdf-viewer/engine/pdf-serialization-worker-client/serializePdfEditsOffThread';
 import { updateEmbeddedAnnotationTextOffThread } from '@app/modules/pdf-viewer/engine/pdf-serialization-worker-client/updateEmbeddedAnnotationTextOffThread';
-import { validatePdfSerializationStructure } from '@app/modules/pdf-viewer/engine/pdf-serialization-operations/validatePdfSerializationStructure';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     decodeBrowserImageBlob,
@@ -27,10 +26,11 @@ import {
 } from '@app/platform/browser-api/public';
 import { readDocumentBytes } from '@app/utils/documentBytes';
 import { measureDevPerfAsync } from '@app/utils/devPerf';
-import { mergeAnnotationCommentSaveSnapshot } from '@app/modules/pdf-viewer/engine/annotation-comment-save-snapshot/mergeAnnotationCommentSaveSnapshot';
 import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
 import { toPdfDateString } from '@app/utils/pdfDate';
 import { getErrorMessage } from '@app/utils/error';
+import type {ISerializationPlan} from '@app/modules/pdf-viewer/serialization/serializationPlan';
+import {projectAnnotationBackendMutations} from '@app/modules/pdf-viewer/annotations/persistence/annotationBackendConformance';
 
 const PDF_SERIALIZATION_LOG_SECTION = 'pdf-serialization';
 
@@ -38,7 +38,6 @@ export interface IPdfSerializationDeps {
     pdfData: Ref<Uint8Array | null>;
     workingCopyPath: Ref<TDocumentRef | null>;
     documentRevisionToken?: Ref<TDocumentRevisionToken | null>;
-    annotationComments: Ref<IAnnotationCommentSummary[]>;
     totalPages: Ref<number>;
     pageLabelsDirty: Ref<boolean>;
     pageLabelRanges: Ref<IPdfPageLabelRange[]>;
@@ -47,19 +46,16 @@ export interface IPdfSerializationDeps {
     untitledBookmarkLabel?: string;
     getMarkupSubtypeOverrides: () => Map<string, TMarkupSubtype> | undefined;
     getMarkupSubtypeHints?: () => IMarkupSubtypeHint[] | undefined;
-    getAnnotationCommentsSnapshot?: () => IAnnotationCommentSummary[] | undefined;
     getAllShapes: () => IShapeAnnotation[];
     getDeletedEmbeddedShapeAnnotationIds?: () => string[];
     getDeletedEmbeddedShapeStableKeys?: () => string[];
 }
 
 interface ISerializePdfForSaveOptions {
+    annotationSerializationPlan?: ISerializationPlan;
     forceRewrite?: boolean;
     includeShapes?: boolean;
     rewriteShapeState?: boolean;
-    pendingTexts?: Map<string, string> | null;
-    pendingDeletes?: IAnnotationCommentSummary[] | null;
-    annotationCommentsSnapshot?: IAnnotationCommentSummary[];
     placedImage?: IPdfPlacedImageFinalizePayload | null;
 }
 
@@ -68,7 +64,6 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         pdfData,
         workingCopyPath,
         documentRevisionToken,
-        annotationComments,
         totalPages,
         pageLabelsDirty,
         pageLabelRanges,
@@ -77,7 +72,6 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         untitledBookmarkLabel = '',
         getMarkupSubtypeOverrides,
         getMarkupSubtypeHints,
-        getAnnotationCommentsSnapshot,
         getAllShapes,
         getDeletedEmbeddedShapeAnnotationIds,
         getDeletedEmbeddedShapeStableKeys,
@@ -100,15 +94,6 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
             }
         }
         return sourceData;
-    }
-
-    function getAnnotationCommentsForSerialization(
-        snapshotOverride?: IAnnotationCommentSummary[],
-    ) {
-        return mergeAnnotationCommentSaveSnapshot(
-            snapshotOverride ?? getAnnotationCommentsSnapshot?.(),
-            annotationComments.value,
-        );
     }
 
     async function decodePlacedImageSource(payload: IPdfPlacedImageFinalizePayload) {
@@ -196,6 +181,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         if (
             payload.mimeType !== 'image/jpeg'
             || payload.bytes.length === 0
+            || !payload.nativeSourceHandle
             || !Number.isSafeInteger(payload.pageNumber)
             || payload.pageNumber < 1
         ) {
@@ -215,7 +201,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
             height: payload.height,
             rotationDegrees: payload.rotationDegrees,
             mimeType: 'image/jpeg' as const,
-            bytes: payload.bytes,
+            source: payload.nativeSourceHandle,
         };
     }
 
@@ -288,23 +274,16 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
                 error: getErrorMessage(error),
             });
             return null;
+        } finally {
+            if (typeof documentFiles.releaseManagedTempFileHandle === 'function') {
+                await documentFiles.releaseManagedTempFileHandle(nativeImage.source.leaseId).catch(() => false);
+            }
         }
-    }
-
-    function getFreeTextNoteComments(
-        snapshotOverride?: IAnnotationCommentSummary[],
-    ) {
-        return getAnnotationCommentsForSerialization(snapshotOverride)
-            .filter(
-                comment => comment.markerRect
-                    && comment.subtype
-                    && (comment.subtype.toLowerCase() === 'freetext' || comment.subtype.toLowerCase() === 'typewriter')
-                    && comment.hasNote,
-            );
     }
 
     function createEmptySavePayload(): IPdfSerializationSavePayload {
         return {
+            canonicalAnnotationProgram: [],
             forceRewrite: false,
             markupSubtypeOverrides: [],
             markupSubtypeHints: [],
@@ -329,13 +308,11 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
     function applyMarkupPayload(
         payload: IPdfSerializationSavePayload,
         additionalComments: IAnnotationCommentSummary[] = [],
-        annotationCommentsSnapshot?: IAnnotationCommentSummary[],
     ) {
         payload.markupSubtypeOverrides = Array.from(getMarkupSubtypeOverrides()?.entries() ?? []);
         payload.markupSubtypeHints = [
             ...collectMarkupSubtypeHints(additionalComments),
             ...(getMarkupSubtypeHints?.() ?? []),
-            ...collectMarkupSubtypeHints(getAnnotationCommentsForSerialization(annotationCommentsSnapshot)),
         ];
     }
 
@@ -347,16 +324,6 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         payload.shapes = (options?.includeShapes ?? true) ? getAllShapes() : [];
         payload.deletedShapeAnnotationIds = getDeletedEmbeddedShapeAnnotationIds?.() ?? [];
         payload.deletedShapeStableKeys = getDeletedEmbeddedShapeStableKeys?.() ?? [];
-    }
-
-    function applyAnnotationPayload(
-        payload: IPdfSerializationSavePayload,
-        options?: Pick<ISerializePdfForSaveOptions, 'pendingTexts' | 'pendingDeletes' | 'annotationCommentsSnapshot'>,
-    ) {
-        payload.freeTextComments = getFreeTextNoteComments(options?.annotationCommentsSnapshot);
-        payload.annotationComments = getAnnotationCommentsForSerialization(options?.annotationCommentsSnapshot);
-        payload.pendingEmbeddedTextUpdates = Array.from(options?.pendingTexts?.entries() ?? []);
-        payload.pendingEmbeddedAnnotationDeletes = options?.pendingDeletes ?? [];
     }
 
     function applyDocumentStructurePayload(payload: IPdfSerializationSavePayload) {
@@ -375,36 +342,14 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
             return;
         }
 
-        BrowserLogger.error(
+        BrowserLogger.warn(
             PDF_SERIALIZATION_LOG_SECTION,
-            `${operation}: pdf-lib re-save lost more than half the document; refusing to persist`,
+            `${operation}: pdf-lib output is less than half the input size; staged utility validation remains authoritative`,
             {
                 inputSize: data.length,
                 outputSize: result.length,
             },
         );
-        throw new Error(
-            `PDF serialization produced a corrupted result (input ${data.length} bytes, output ${result.length} bytes); refusing to overwrite original`,
-        );
-    }
-
-    async function assertPdfLibResultIsStructurallySound(
-        operation: string,
-        data: Uint8Array,
-        result: Uint8Array,
-        payload: IPdfSerializationSavePayload,
-    ) {
-        const validation = await validatePdfSerializationStructure(data, result, payload);
-        if (validation.ok) {
-            return;
-        }
-
-        BrowserLogger.error(
-            PDF_SERIALIZATION_LOG_SECTION,
-            `${operation}: pdf-lib re-save failed post-save structural validation; refusing to persist`,
-            {failures: validation.failures},
-        );
-        throw new Error('PDF serialization produced a structurally invalid result; refusing to overwrite original');
     }
 
     async function runSerializedEdit(
@@ -418,8 +363,6 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
             }
 
             assertPdfLibResultDidNotShrinkCatastrophically('serializePdfEdits', data, result);
-            await assertPdfLibResultIsStructurallySound('serializePdfEdits', data, result, payload);
-
             return result;
         }, {
             thresholdMs: 25,
@@ -442,9 +385,11 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         options?: ISerializePdfForSaveOptions,
     ): Promise<IPdfSerializationSavePayload> {
         const payload = createEmptySavePayload();
-        applyMarkupPayload(payload, [], options?.annotationCommentsSnapshot);
+        payload.canonicalAnnotationProgram = options?.annotationSerializationPlan
+            ? projectAnnotationBackendMutations(options.annotationSerializationPlan, 'pdf-lib-rewrite')
+            : [];
+        applyMarkupPayload(payload);
         applyShapePayload(payload, options);
-        applyAnnotationPayload(payload, options);
         applyDocumentStructurePayload(payload);
         payload.forceRewrite = options?.forceRewrite === true;
         payload.placedImage = await toSerializedPlacedImagePayload(options?.placedImage);
@@ -474,23 +419,6 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
             includeShapes: true,
             rewriteShapeState: true,
         });
-        return runSerializedEdit(data, payload);
-    }
-
-    async function rewriteFreeTextNoteRects(data: Uint8Array) {
-        const payload = createEmptySavePayload();
-        payload.freeTextComments = getFreeTextNoteComments();
-        return runSerializedEdit(data, payload);
-    }
-
-    async function rewriteEmbeddedNoteTexts(
-        data: Uint8Array,
-        pendingTexts: Map<string, string>,
-    ) {
-        const payload = createEmptySavePayload();
-        payload.freeTextComments = getFreeTextNoteComments();
-        payload.annotationComments = getAnnotationCommentsForSerialization();
-        payload.pendingEmbeddedTextUpdates = Array.from(pendingTexts.entries());
         return runSerializedEdit(data, payload);
     }
 
@@ -555,8 +483,6 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         serializePdfForSave,
         rewriteMarkupSubtypes,
         serializeShapeAnnotations,
-        rewriteFreeTextNoteRects,
-        rewriteEmbeddedNoteTexts,
         embedPlacedImageToPage,
         updateEmbeddedAnnotationByRef,
         deleteEmbeddedAnnotationByRef,

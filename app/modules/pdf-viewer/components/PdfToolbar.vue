@@ -13,7 +13,7 @@
                 :is-collapsed="isCollapsed"
             />
             <ToolbarButton
-                v-if="isCommandInline('open-file')"
+                v-if="isCommandInline('open-file') && !isCollapsed(5)"
                 :icon="getReaderCommandToolbarIcon('open-file')"
                 :tooltip="t('toolbar.openPdf')"
                 :shortcut="shortcutLabels.openFile"
@@ -22,7 +22,7 @@
                 @click="handleToolbarCommand('open-file')"
             />
             <ToolbarButton
-                v-if="isCommandInline('toggle-sidebar')"
+                v-if="isCommandInline('toggle-sidebar') && !isCollapsed(5)"
                 :icon="getReaderCommandToolbarIcon('toggle-sidebar')"
                 :active="showSidebar"
                 :tooltip="t('toolbar.toggleSidebar')"
@@ -266,9 +266,9 @@
                     :disabled="!hasInteractiveDocument || !fullscreenSupported"
                     @click="handleToolbarCommand('toggle-fullscreen')"
                 />
-                <AssistantToolbarToggle />
+                <AssistantToolbarToggle v-if="!isCollapsed(5)" />
                 <ToolbarButton
-                    v-if="isCommandInline('settings')"
+                    v-if="isCommandInline('settings') && !isCollapsed(5)"
                     :icon="getReaderCommandToolbarIcon('settings')"
                     :tooltip="t('toolbar.settings')"
                     @click="handleToolbarCommand('open-settings')"
@@ -402,8 +402,27 @@ const {
     isCollapsed,
 } = useToolbarOverflow();
 const hasOverflowItems = computed(() => hasMeasuredOverflowItems.value || isCommandInline('overflow-menu'));
-const pageCompactLevel = 0;
-const zoomCompactLevel = 0;
+const pageCompactLevel = computed(() => {
+    if (collapseTier.value >= 4) {
+        return 3;
+    }
+    if (collapseTier.value >= 2) {
+        return 2;
+    }
+    if (collapseTier.value >= 1) {
+        return 1;
+    }
+    return 0;
+});
+const zoomCompactLevel = computed(() => {
+    if (collapseTier.value >= 4) {
+        return 2;
+    }
+    if (collapseTier.value >= 1) {
+        return 1;
+    }
+    return 0;
+});
 
 const toolbarCommandHandlers = {
     'open-file': () => emit('open-file'),
@@ -459,7 +478,7 @@ function handleToolbarCommand(command: TToolbarCommand) {
     white-space: nowrap;
     overflow: visible;
     position: relative;
-    z-index: 10;
+    z-index: var(--app-z-local-sticky);
     transition:
         background-color var(--app-transition-standard),
         border-color var(--app-transition-standard);
@@ -504,7 +523,7 @@ function handleToolbarCommand(command: TToolbarCommand) {
 }
 
 .toolbar-separator {
-    width: 1px;
+    width: var(--app-divider-width);
     height: var(--app-space-15xl);
     background: var(--app-toolbar-separator);
     flex-shrink: 0;
@@ -566,5 +585,43 @@ function handleToolbarCommand(command: TToolbarCommand) {
 .toolbar--reader .toolbar-left,
 .toolbar--reader .toolbar-right {
     min-width: max-content;
+}
+
+.toolbar[data-collapse-tier='5'] {
+    overflow: hidden;
+}
+
+.toolbar[data-collapse-tier='5'] .toolbar-center {
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+}
+
+.toolbar[data-collapse-tier='5'] .toolbar-section,
+.toolbar[data-collapse-tier='5'] .toolbar-left,
+.toolbar[data-collapse-tier='5'] .toolbar-right,
+.toolbar[data-collapse-tier='5'] .toolbar-cluster,
+.toolbar[data-collapse-tier='5'] .toolbar-button-group {
+    min-width: 0;
+}
+
+.toolbar[data-collapse-tier='5'] .toolbar-left,
+.toolbar[data-collapse-tier='5'] .toolbar-right {
+    flex: 0 1 auto;
+    overflow: hidden;
+}
+
+.toolbar[data-collapse-tier='5'] .toolbar-center {
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.toolbar[data-collapse-tier='5'] .toolbar-center::-webkit-scrollbar {
+    display: none;
+}
+
+.toolbar[data-collapse-tier='5'] .toolbar-inline-group {
+    min-width: 0;
+    flex: 1 1 auto;
 }
 </style>

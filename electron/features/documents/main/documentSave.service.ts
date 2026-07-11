@@ -9,7 +9,10 @@ import type {
     IPdfSerializedSaveOptions,
 } from '@contracts/electronApiDocuments';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import {
+    parseDocumentRevisionToken,
+    type TDocumentRevisionToken,
+} from '@contracts/documentRevision';
 import {
     basename,
     extname,
@@ -25,12 +28,10 @@ import {
 } from '@electron/file-access/workingCopyStore';
 import { allowOpenPath } from '@electron/file-access/openPathCapabilities';
 import { te } from '@electron/te';
-import {
-    atomicReplace,
-    makeSiblingTempPath,
-} from '@electron/utils/atomicReplace';
+import {makeSiblingTempPath} from '@electron/utils/atomicReplace';
+import { commitPdfTempFile } from '@electron/features/documents/main/commitPdfTempFile';
 import { getErrorMessage } from '@electron/utils/error';
-import { normalizeIpcWritePayload } from '@electron/features/documents/main/documentFileWriteAtomic';
+import {normalizeIpcWritePayload} from '@electron/file-access/documentFileWriteAtomic';
 import { validatePdfFile } from '@electron/features/documents/main/pdfConformance';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
@@ -57,10 +58,11 @@ function normalizeExpectedDocumentRevisionToken(options?: IPdfSerializedSaveOpti
     if (token === undefined || token === null) {
         return null;
     }
-    if (typeof token !== 'string' || token.trim().length === 0) {
+    const parsedToken = parseDocumentRevisionToken(token);
+    if (parsedToken === null) {
         throw new TypeError('expectedDocumentRevisionToken must be a non-empty string');
     }
-    return token.trim();
+    return parsedToken;
 }
 
 function withWorkingCopySyncWarning(validation: IPdfValidationResult, error: unknown): IPdfValidationResult {
@@ -145,7 +147,7 @@ export async function savePdfAs(
 
             await copyFileCopyOnWrite(normalizedWorkingPath, tempPath);
             const optimizedValidation = await optimizePdfForSaveAs(tempPath, options);
-            await atomicReplace(tempPath, targetPath);
+            await commitPdfTempFile(tempPath, targetPath, {ownerId: `pdf-save-as:${context.senderId}`});
             replaced = true;
             try {
                 await setWorkingCopyOriginalPath(normalizedWorkingPath, targetPath, context.senderId);
@@ -246,7 +248,7 @@ export async function savePdfDataAs(
             if (!existsSync(normalizedWorkingPath)) {
                 throw new Error(`File not found: ${normalizedWorkingPath}`);
             }
-            await atomicReplace(tempPath, targetPath);
+            await commitPdfTempFile(tempPath, targetPath, {ownerId: `pdf-data-save-as:${context.senderId}`});
             replaced = true;
             let resultValidation = committedValidation;
             try {

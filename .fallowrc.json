@@ -19,6 +19,7 @@
         "electron/preload.ts",
         "electron/image/pdfCombineWorker.ts",
         "electron/features/documents/main/pdfConformanceWorker.ts",
+        "electron/features/documents/main/documentSaveUtilityProcess.ts",
         "electron/features/djvu/main/pdfWorker.ts",
         "electron/features/*/public.ts",
         "electron/features/image-export/main/tiffCombineWorker.ts",
@@ -26,7 +27,8 @@
         "electron/ocr/worker/main.ts",
         "electron/search/worker.ts",
         "packages/*/index.ts",
-        "scripts/**/*.{ts,mjs,cjs}"
+        "scripts/**/*.{ts,mjs,cjs}",
+        "tests/fixtures/ocr/*.mjs"
     ],
     "ignorePatterns": [
         "app/types/*.d.ts",

@@ -40,6 +40,9 @@ const menuSaveStateByWindow = new Map<number, boolean>();
 const menuSaveAsStateByWindow = new Map<number, boolean>();
 const menuRepairSaveStateByWindow = new Map<number, boolean>();
 const menuOptimizePdfStateByWindow = new Map<number, boolean>();
+const menuInteractiveStateByWindow = new Map<number, boolean>();
+const menuContinuousScrollCapabilityByWindow = new Map<number, boolean>();
+const menuContinuousScrollStateByWindow = new Map<number, boolean>();
 const menuTabCountByWindow = new Map<number, number>();
 const trackedWindowIds = new Set<number>();
 let listenersRegistered = false;
@@ -162,6 +165,18 @@ function getWindowTabCount(window: BrowserWindow | null) {
     }
 
     return menuTabCountByWindow.get(window.id) ?? 0;
+}
+
+function getWindowInteractiveState(window: BrowserWindow | null) {
+    return window ? menuInteractiveStateByWindow.get(window.id) ?? getWindowDocumentState(window) : false;
+}
+
+function getWindowContinuousScrollCapability(window: BrowserWindow | null) {
+    return window ? menuContinuousScrollCapabilityByWindow.get(window.id) ?? false : false;
+}
+
+function getWindowContinuousScrollState(window: BrowserWindow | null) {
+    return window ? menuContinuousScrollStateByWindow.get(window.id) ?? false : false;
 }
 
 function getWindowDisplayLabel(window: BrowserWindow, duplicateCountByTitle: Record<string, number>) {
@@ -527,7 +542,11 @@ function getPagesMenu(documentActionsEnabled: boolean): MenuItemConstructorOptio
     };
 }
 
-function getViewMenu(documentActionsEnabled: boolean): MenuItemConstructorOptions {
+function getViewMenu(
+    documentActionsEnabled: boolean,
+    continuousScrollEnabled: boolean,
+    continuousScrollChecked: boolean,
+): MenuItemConstructorOptions {
     return {
         label: te('menu.view'),
         submenu: [
@@ -562,6 +581,15 @@ function getViewMenu(documentActionsEnabled: boolean): MenuItemConstructorOption
                 enabled: documentActionsEnabled,
                 channel: DOCUMENTS_EVENT_CHANNELS.menuFitHeight,
             }),
+            {
+                ...createWindowMenuAction({
+                    label: te('zoom.continuousScroll'),
+                    enabled: documentActionsEnabled && continuousScrollEnabled,
+                    channel: DOCUMENTS_EVENT_CHANNELS.menuToggleContinuousScroll,
+                }),
+                type: 'checkbox',
+                checked: continuousScrollChecked,
+            },
             { type: 'separator' },
             createWindowMenuAction({
                 label: te('menu.singlePage'),
@@ -789,6 +817,7 @@ function getMacAppMenu(): MenuItemConstructorOptions {
 function buildMenuTemplate(activeWindow: BrowserWindow | null): MenuItemConstructorOptions[] {
     const template: MenuItemConstructorOptions[] = [];
     const documentActionsEnabled = getWindowDocumentState(activeWindow);
+    const viewActionsEnabled = getWindowInteractiveState(activeWindow);
     const printActionEnabled = getWindowPrintState(activeWindow);
     const saveActionEnabled = getWindowSaveState(activeWindow);
     const saveAsActionEnabled = getWindowSaveAsState(activeWindow);
@@ -803,7 +832,11 @@ function buildMenuTemplate(activeWindow: BrowserWindow | null): MenuItemConstruc
         getFileMenu(documentActionsEnabled, printActionEnabled, saveActionEnabled, saveAsActionEnabled, repairSaveActionEnabled, optimizePdfActionEnabled),
         getEditMenu(documentActionsEnabled),
         getPagesMenu(documentActionsEnabled),
-        getViewMenu(documentActionsEnabled),
+        getViewMenu(
+            viewActionsEnabled,
+            getWindowContinuousScrollCapability(activeWindow),
+            getWindowContinuousScrollState(activeWindow),
+        ),
         getWindowMenu(activeWindow),
         getHelpMenu(),
     );
@@ -869,6 +902,9 @@ function trackWindowForMenu(window: BrowserWindow) {
         menuSaveAsStateByWindow.delete(window.id);
         menuRepairSaveStateByWindow.delete(window.id);
         menuOptimizePdfStateByWindow.delete(window.id);
+        menuInteractiveStateByWindow.delete(window.id);
+        menuContinuousScrollCapabilityByWindow.delete(window.id);
+        menuContinuousScrollStateByWindow.delete(window.id);
         menuTabCountByWindow.delete(window.id);
         rebuildMenu();
     });
@@ -919,6 +955,9 @@ export function setMenuDocumentState(windowId: number, state: boolean | {
     canSaveAs?: boolean;
     canRepairSave?: boolean;
     canOptimizePdf?: boolean;
+    interactive?: boolean;
+    canContinuousScroll?: boolean;
+    continuousScroll?: boolean;
 }) {
     const normalizedDocument = typeof state === 'boolean'
         ? Boolean(state)
@@ -938,6 +977,15 @@ export function setMenuDocumentState(windowId: number, state: boolean | {
     const normalizedOptimizePdf = typeof state === 'boolean'
         ? normalizedDocument
         : state.canOptimizePdf ?? normalizedRepairSave;
+    const normalizedInteractive = typeof state === 'boolean'
+        ? normalizedDocument
+        : state.interactive ?? normalizedDocument;
+    const normalizedContinuousScrollCapability = typeof state === 'boolean'
+        ? false
+        : state.canContinuousScroll ?? false;
+    const normalizedContinuousScroll = typeof state === 'boolean'
+        ? false
+        : state.continuousScroll ?? false;
     if (
         menuDocumentStateByWindow.get(windowId) === normalizedDocument
         && menuPrintStateByWindow.get(windowId) === normalizedPrint
@@ -945,6 +993,9 @@ export function setMenuDocumentState(windowId: number, state: boolean | {
         && menuSaveAsStateByWindow.get(windowId) === normalizedSaveAs
         && menuRepairSaveStateByWindow.get(windowId) === normalizedRepairSave
         && menuOptimizePdfStateByWindow.get(windowId) === normalizedOptimizePdf
+        && menuInteractiveStateByWindow.get(windowId) === normalizedInteractive
+        && menuContinuousScrollCapabilityByWindow.get(windowId) === normalizedContinuousScrollCapability
+        && menuContinuousScrollStateByWindow.get(windowId) === normalizedContinuousScroll
     ) {
         return;
     }
@@ -955,6 +1006,9 @@ export function setMenuDocumentState(windowId: number, state: boolean | {
     menuSaveAsStateByWindow.set(windowId, normalizedSaveAs);
     menuRepairSaveStateByWindow.set(windowId, normalizedRepairSave);
     menuOptimizePdfStateByWindow.set(windowId, normalizedOptimizePdf);
+    menuInteractiveStateByWindow.set(windowId, normalizedInteractive);
+    menuContinuousScrollCapabilityByWindow.set(windowId, normalizedContinuousScrollCapability);
+    menuContinuousScrollStateByWindow.set(windowId, normalizedContinuousScroll);
     rebuildMenuForWindowStateChange(windowId);
 }
 

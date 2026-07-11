@@ -94,7 +94,6 @@ export interface IDocumentViewportTransactionCancellation<
     supersededByTransactionId?: number | undefined;
     cancelInFlightRenders: boolean;
     bumpRenderVersion: boolean;
-    clearTimers: boolean;
     preserveVisualContent: boolean;
 }
 
@@ -105,7 +104,7 @@ export interface IDocumentViewportTransactionBase<
     TRange extends IDocumentPageRange = IDocumentPageRange,
     TRenderRequest extends {
         priority: string;
-        renderRequestId: number | string 
+        renderRequestId: number | string
     } = IDocumentViewportRenderRequest<
         unknown,
         number | string,

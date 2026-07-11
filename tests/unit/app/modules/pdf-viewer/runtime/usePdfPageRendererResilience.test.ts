@@ -14,6 +14,7 @@ import {
 import type { Ref } from 'vue';
 import type { IPdfSearchMatch } from '@app/types/pdfUi';
 import { cast } from '@tests/helpers/cast';
+import {createTestPdfViewportWritePort} from '@tests/helpers/createTestPdfViewportWritePort';
 
 const loggerError = vi.fn();
 
@@ -117,7 +118,13 @@ vi.mock('@app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer
 
 vi.mock('@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer', () => ({usePdfAnnotationLayerRenderer: () => annotationLayerRendererMock}));
 
-const { usePdfPageRenderer } = await import('@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer');
+const { usePdfPageRenderer: usePdfPageRendererProduction } = await import('@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer');
+const usePdfPageRenderer = (
+    options: Omit<Parameters<typeof usePdfPageRendererProduction>[0], 'viewportWritePort'>,
+) => usePdfPageRendererProduction({
+    ...options,
+    viewportWritePort: createTestPdfViewportWritePort().port,
+});
 const {
     PDF_PAGE_RENDER_TIMEOUT_MS,
     PDF_PAGE_TEXT_LAYER_TIMEOUT_MS,
@@ -598,7 +605,7 @@ describe('usePdfPageRenderer resilience', () => {
         expect(canvasRendererMock.renderCanvas).toHaveBeenCalledTimes(2);
     });
 
-    it('renders search navigation targets at full canvas quality', async () => {
+    it('does not run a private render/scroll engine for search navigation', async () => {
         vi.stubGlobal('window', {});
         try {
             const { pageContainer } = createPageContainer({
@@ -644,13 +651,8 @@ describe('usePdfPageRenderer resilience', () => {
 
             renderer.requestScrollToCurrentResult();
             renderer.cancelPendingSearchScroll();
-
-            await vi.waitFor(() => {
-                expect(canvasRendererMock.renderCanvas).toHaveBeenCalled();
-            });
-
-            const canvasOptions = canvasRendererMock.renderCanvas.mock.calls[0]?.[2] as { maxCanvasPixels?: number; } | undefined;
-            expect(canvasOptions).not.toHaveProperty('maxCanvasPixels');
+            await Promise.resolve();
+            expect(canvasRendererMock.renderCanvas).not.toHaveBeenCalled();
             expect(canvasRendererMock.estimateRequestedPixels).not.toHaveBeenCalled();
         } finally {
             vi.unstubAllGlobals();
@@ -784,7 +786,7 @@ describe('usePdfPageRenderer resilience', () => {
         expect(renderer.isPageRendered(1)).toBe(true);
     });
 
-    it('notifies when invalidation removes rendered page state', async () => {
+    it('retains stale pixels and notifies when a page-local layer is invalidated', async () => {
         const { pageContainer } = createPageContainer();
         const containerRoot = createContainerRoot(pageContainer);
         const onRenderedPageStateChanged = vi.fn();
@@ -826,7 +828,8 @@ describe('usePdfPageRenderer resilience', () => {
 
         renderer.invalidatePages([1]);
 
-        expect(renderer.isPageRendered(1)).toBe(false);
+        expect(renderer.isPageRendered(1)).toBe(true);
+        expect(renderer.isPageFreshlyRendered(1)).toBe(false);
         expect(onRenderedPageStateChanged).toHaveBeenCalledTimes(1);
     });
 

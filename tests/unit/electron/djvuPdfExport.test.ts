@@ -30,10 +30,15 @@ const mocks = vi.hoisted(() => {
         copyFile: vi.fn(),
         makeSiblingTempPath: vi.fn(),
         mkdtemp: vi.fn(),
+        open: vi.fn(),
         readFile: vi.fn(),
         rename: vi.fn(),
         rm: vi.fn(),
         stat: vi.fn(),
+        statfs: vi.fn(),
+        fileHandleWrite: vi.fn(),
+        fileHandleSync: vi.fn(),
+        fileHandleClose: vi.fn(),
         unlink: vi.fn(),
         writeFile: vi.fn(),
         atomicReplace: vi.fn(),
@@ -55,6 +60,7 @@ const mocks = vi.hoisted(() => {
         loggerInfo: vi.fn(),
         loggerWarn: vi.fn(),
         loggerError: vi.fn(),
+        recordDocumentOutputHandoff: vi.fn(),
     };
 });
 
@@ -68,10 +74,12 @@ vi.mock('node:crypto', () => ({randomUUID: mocks.randomUUID}));
 vi.mock('fs/promises', () => ({
     copyFile: mocks.copyFile,
     mkdtemp: mocks.mkdtemp,
+    open: mocks.open,
     readFile: mocks.readFile,
     rename: mocks.rename,
     rm: mocks.rm,
     stat: mocks.stat,
+    statfs: mocks.statfs,
     unlink: mocks.unlink,
     writeFile: mocks.writeFile,
 }));
@@ -111,6 +119,13 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
 vi.mock('@electron/utils/atomicReplace', () => ({
     atomicReplace: mocks.atomicReplace,
     makeSiblingTempPath: mocks.makeSiblingTempPath,
+}));
+
+vi.mock('@electron/features/djvu/main/documentOutputJobStore', () => ({
+    getDocumentOutputJobState: vi.fn(() => null),
+    recordDocumentOutputHandoff: mocks.recordDocumentOutputHandoff,
+    recordDocumentOutputProgress: vi.fn(),
+    subscribeDocumentOutputJob: vi.fn(() => () => undefined),
 }));
 
 vi.mock('@electron/features/djvu/main/pdfWorkerClient', () => ({
@@ -179,10 +194,41 @@ describe('handleDjvuConvertToPdf', () => {
         mocks.copyFile.mockResolvedValue(undefined);
         mocks.makeSiblingTempPath.mockReturnValue('/tmp/.staged-output.tmp');
         mocks.mkdtemp.mockResolvedValue('/tmp/djvu-export-test');
+        mocks.open.mockImplementation(async (_path: string, flags: string) => {
+            if (flags === 'r') {
+                let completed = false;
+                return {
+                    read: vi.fn(async (buffer: Buffer) => {
+                        if (completed) {
+                            return {
+                                bytesRead: 0,
+                                buffer,
+                            };
+                        }
+                        completed = true;
+                        buffer[0] = 0x25;
+                        return {
+                            bytesRead: 1,
+                            buffer,
+                        };
+                    }),
+                    close: mocks.fileHandleClose,
+                };
+            }
+            return {
+                write: mocks.fileHandleWrite.mockResolvedValue({bytesWritten: 1}),
+                sync: mocks.fileHandleSync.mockResolvedValue(undefined),
+                close: mocks.fileHandleClose,
+            };
+        });
         mocks.readFile.mockResolvedValue(Buffer.from('%PDF-1.7\n%%EOF\n'));
         mocks.rename.mockResolvedValue(undefined);
         mocks.rm.mockResolvedValue(undefined);
         mocks.stat.mockResolvedValue({size: 8 * 1024 * 1024});
+        mocks.statfs.mockResolvedValue({
+            bavail: 1_000_000,
+            bsize: 4096,
+        });
         mocks.unlink.mockResolvedValue(undefined);
         mocks.writeFile.mockResolvedValue(undefined);
         mocks.atomicReplace.mockResolvedValue(undefined);
@@ -504,9 +550,13 @@ describe('handleDjvuConvertToPdf', () => {
         expect(mocks.getDjvuOutline).not.toHaveBeenCalled();
         expect(mocks.optimizeGeneratedPdfForInteraction)
             .toHaveBeenCalledWith('/tmp/djvu-export-test/convert-123.convert.pdf', { signal: expect.any(AbortSignal) });
-        expect(mocks.copyFile).toHaveBeenCalledWith(
+        expect(mocks.open).toHaveBeenCalledWith(
             '/tmp/djvu-export-test/convert-123.convert.pdf',
+            'r',
+        );
+        expect(mocks.open).toHaveBeenCalledWith(
             '/tmp/.staged-output.tmp',
+            'wx',
         );
         expect(mocks.atomicReplace).toHaveBeenCalledWith('/tmp/.staged-output.tmp', '/tmp/output.pdf');
     });
@@ -537,7 +587,7 @@ describe('handleDjvuConvertToPdf', () => {
         expect(mocks.convertDjvuToPdfFile).not.toHaveBeenCalled();
         expect(mocks.getDjvuOutline).not.toHaveBeenCalled();
         expect(mocks.optimizeGeneratedPdfForInteraction).not.toHaveBeenCalled();
-        expect(mocks.copyFile).not.toHaveBeenCalled();
+        expect(mocks.open).not.toHaveBeenCalled();
         expect(mocks.atomicReplace).not.toHaveBeenCalled();
         expect(mocks.safeSendToWindow).toHaveBeenLastCalledWith(null, 'djvu:progress', expect.objectContaining({
             jobId: 'djvu-convert-convert-123',
@@ -738,15 +788,19 @@ describe('handleDjvuConvertToPdf', () => {
             pdfPath: '/tmp/output.pdf',
             jobId: 'djvu-convert-convert-123',
         });
-        expect(mocks.copyFile).toHaveBeenCalledWith(
+        expect(mocks.open).toHaveBeenCalledWith(
             '/tmp/djvu-export-test/convert-123.convert.pdf',
+            'r',
+        );
+        expect(mocks.open).toHaveBeenCalledWith(
             '/tmp/.staged-output.tmp',
+            'wx',
         );
         expect(mocks.optimizeGeneratedPdfForInteraction)
             .toHaveBeenCalledWith('/tmp/djvu-export-test/convert-123.convert.pdf', { signal: expect.any(AbortSignal) });
         expect(
             mocks.optimizeGeneratedPdfForInteraction.mock.invocationCallOrder[0]!,
-        ).toBeLessThan(mocks.copyFile.mock.invocationCallOrder[0]!);
+        ).toBeLessThan(mocks.fileHandleWrite.mock.invocationCallOrder[0]!);
         expect(mocks.atomicReplace).toHaveBeenCalledWith('/tmp/.staged-output.tmp', '/tmp/output.pdf');
     });
 
@@ -801,6 +855,8 @@ describe('handleDjvuConvertToPdf', () => {
                 surface: 'rasterized-html',
             },
         );
+        expect(mocks.printManagedTempPdfPath.mock.invocationCallOrder[0])
+            .toBeLessThan(mocks.recordDocumentOutputHandoff.mock.invocationCallOrder[0]!);
     });
 
     it('adds the selected DjVu page number to the native print save title', async () => {

@@ -26,10 +26,17 @@ import {
     isImagePath,
 } from '@electron/image/pdfCombineShared';
 import {
+    buildCompactDjvuAwarePdfFromDjvu,
     cancelConversion,
-    convertDjvuToPdfFile,
+    getDjvuPageSizesForViewing,
 } from '@electron/features/djvu/public';
-import { getDjvuPageCount } from '@electron/djvu/metadata';
+import { resolveDjvuCompactFidelityPreset } from '@contracts/djvuConversionPolicy';
+import {
+    getDjvuPageCount,
+    getDjvuOutline,
+    getDjvuResolution,
+} from '@electron/djvu/metadata';
+import { parseDjvuOutline } from '@electron/djvu/parseDjvuOutline';
 import { getErrorMessage } from '@electron/utils/error';
 import {
     isFiniteWorkerMessageNumber,
@@ -131,6 +138,9 @@ const WORKER_SUPPORTED_IMAGE_EXTENSIONS = new Set<string>(
         '.jpeg',
         '.tif',
         '.tiff',
+        '.bmp',
+        '.gif',
+        '.webp',
     ],
 );
 
@@ -251,6 +261,8 @@ async function createPdfFromInputPathsLocal(
     return createCombinedPdf(inputPaths, {
         ...(options?.onProgress ? { onProgress: options.onProgress } : {}),
         unsupportedFileError: (sourcePath) => `Unsupported file type: ${sourcePath}`,
+        skipNativeImageCombiner: true,
+        ...(options?.signal ? { signal: options.signal } : {}),
         appendDjvuPages: async (targetPdf, sourcePath) => {
             const tempDir = await mkdtemp(join(tmpdir(), 'pdf-combine-djvu-'));
             const tempPdfPath = join(tempDir, `${randomUUID()}.pdf`);
@@ -269,16 +281,21 @@ async function createPdfFromInputPathsLocal(
                     options.signal.addEventListener('abort', abortHandler, { once: true });
                 }
                 const pageCount = await getOptionalDjvuPageCount(sourcePath, options?.signal);
-                const result = await convertDjvuToPdfFile(
-                    sourcePath,
-                    tempPdfPath,
+                const sourceDpi = await getDjvuResolution(sourcePath, options?.signal ? { signal: options.signal } : {});
+                const pageSizes = pageCount > 0
+                    ? await getDjvuPageSizesForViewing(sourcePath, pageCount, options?.signal ? { signal: options.signal } : {})
+                    : null;
+                const result = await buildCompactDjvuAwarePdfFromDjvu({
                     jobId,
-                    {
-                        subsample: 1,
-                        ...(pageCount > 0 ? { pageCount } : {}),
-                        ...(options?.signal ? { signal: options.signal } : {}),
-                    },
-                );
+                    djvuPath: sourcePath,
+                    outputPath: tempPdfPath,
+                    tempDir,
+                    pageCount,
+                    sourceDpi,
+                    pageSizes,
+                    qualityPreset: resolveDjvuCompactFidelityPreset(2),
+                    ...(options?.signal ? { signal: options.signal } : {}),
+                });
 
                 if (options?.signal?.aborted) {
                     throw abortErrorFromSignal(options.signal);
@@ -297,7 +314,13 @@ async function createPdfFromInputPathsLocal(
                 for (const page of copiedPages) {
                     targetPdf.addPage(page);
                 }
-                return copiedPages.length;
+                const bookmarks = await getDjvuOutline(sourcePath, options?.signal ? { signal: options.signal } : {})
+                    .then(parseDjvuOutline)
+                    .catch(() => []);
+                return {
+                    pageCount: copiedPages.length,
+                    bookmarks,
+                };
             } finally {
                 if (options?.signal && abortHandler) {
                     options.signal.removeEventListener('abort', abortHandler);
@@ -549,7 +572,7 @@ function createPdfFromInputPathsWorker(
         });
 
         worker.once('exit', (code) => {
-            if (!settled && code !== 0) {
+            if (!settled) {
                 settled = true;
                 cleanupWorker();
                 if (!workerOnline) {
@@ -581,9 +604,8 @@ export async function createPdfFileFromInputPaths(
     options?: ICreatePdfFromInputPathsOptions,
 ) {
     const normalizedPaths = inputPaths
-        .map((path) => path.trim())
         .filter((path) => path.length > 0);
-    const normalizedOutputPath = typeof outputPath === 'string' ? outputPath.trim() : '';
+    const normalizedOutputPath = typeof outputPath === 'string' ? outputPath : '';
 
     if (normalizedPaths.length === 0) {
         throw new Error('No input files were provided');
@@ -606,6 +628,7 @@ export async function createPdfFileFromInputPaths(
         normalizedPaths,
         resourceUsage,
         options,
+        true,
     );
     const stagedOutputPath = makeSiblingTempPath(normalizedOutputPath);
     let replaced = false;
@@ -625,13 +648,15 @@ async function createPdfFromNormalizedInputPaths(
     normalizedPaths: string[],
     resourceUsage: ICombineInputResourceUsage,
     options?: ICreatePdfFromInputPathsOptions,
+    nativeAlreadyAttempted = false,
 ) {
     assertMemoryCombineInputResourceLimits(resourceUsage);
-    const nativePdf = await tryCreatePdfFromInputPathsNative(normalizedPaths, options);
-    if (nativePdf) {
-        return nativePdf;
+    if (!nativeAlreadyAttempted) {
+        const nativePdf = await tryCreatePdfFromInputPathsNative(normalizedPaths, options);
+        if (nativePdf) {
+            return nativePdf;
+        }
     }
-
     if (!canCombineInWorker(normalizedPaths)) {
         return createPdfFromInputPathsLocal(normalizedPaths, options);
     }
@@ -663,7 +688,6 @@ export async function createPdfFromInputPaths(
     options?: ICreatePdfFromInputPathsOptions,
 ): Promise<Uint8Array> {
     const normalizedPaths = inputPaths
-        .map((path) => path.trim())
         .filter((path) => path.length > 0);
 
     if (normalizedPaths.length === 0) {

@@ -38,21 +38,27 @@ describe('validated IPC registrar argument policy', () => {
 
         expect(() => {
             registrar.handle('test:requires-decoder', (_event, value: string) => value);
-        }).toThrow('IPC invoke channel registered without an argument decoder or explicit no-arg/validated allowlist: test:requires-decoder');
+        }).toThrow('IPC invoke channel registered without an argument decoder or explicit no-arg allowlist: test:requires-decoder');
         expect(native.handle).not.toHaveBeenCalled();
     });
 
     it('allows decoded invoke handlers and wraps decoder failures with channel context', async () => {
         const { createValidatedIpcMainRegistrar } = await import('@electron/platform-ipc/validatedIpcRegistrar');
         const native = createNativeRegistrar();
-        const registrar = createValidatedIpcMainRegistrar(native.registrar, {allowedChannels: new Set(['test:decoded'])});
+        const registrar = createValidatedIpcMainRegistrar(native.registrar, {
+            allowedChannels: new Set(['test:decoded']),
+            codecs: {'test:decoded': {
+                decodeArgs: (args: readonly unknown[]) => {
+                    if (typeof args[0] !== 'string') {
+                        throw new Error('value must be a string');
+                    }
+                    return [args[0]] as [value: string];
+                },
+                decodeResult: String,
+            }},
+        });
 
-        registrar.handle('test:decoded', (_event, value: string) => value, {decode: args => {
-            if (typeof args[0] !== 'string') {
-                throw new Error('value must be a string');
-            }
-            return [args[0]] as [value: string];
-        }});
+        registrar.handle('test:decoded', (_event, ...args) => String(args[0]));
 
         const handler = native.handlers.get('test:decoded');
         expect(handler).toBeTypeOf('function');
@@ -80,21 +86,6 @@ describe('validated IPC registrar argument policy', () => {
             .rejects
             .toThrow('Invalid IPC arguments for test:no-args: expected no arguments');
         expect(handler).toHaveBeenCalledOnce();
-    });
-
-    it('allows explicitly validated invoke handlers to keep handler-owned validation', async () => {
-        const { createValidatedIpcMainRegistrar } = await import('@electron/platform-ipc/validatedIpcRegistrar');
-        const native = createNativeRegistrar();
-        const registrar = createValidatedIpcMainRegistrar(native.registrar, {
-            allowedChannels: new Set(['test:validated-in-handler']),
-            argumentValidation: {channelsValidatedWithoutRegistrarDecoder: new Set(['test:validated-in-handler'])},
-        });
-
-        registrar.handle('test:validated-in-handler', (_event, value: string) => value);
-
-        const handler = native.handlers.get('test:validated-in-handler');
-        expect(handler).toBeTypeOf('function');
-        await expect(handler?.({} as IpcMainInvokeEvent, 'kept-raw')).resolves.toBe('kept-raw');
     });
 
     it('rejects policy entries outside the registrar channel allowlist', async () => {

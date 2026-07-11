@@ -14,7 +14,10 @@ import type {
     IPdfSaveAsOptions,
     IPdfSerializedSaveOptions,
 } from '@contracts/electronApiDocuments';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import {
+    parseDocumentRevisionToken,
+    type TDocumentRevisionToken,
+} from '@contracts/documentRevision';
 import { createMissingRevisionError } from '@contracts/documentMutationErrors';
 import type {
     IBeginSerializedPdfPersistenceResult,
@@ -37,10 +40,7 @@ import {
     isPdfPersistencePreloadToMainPayload,
     normalizePdfPersistencePreloadToMainPayload,
 } from '@electron/features/documents/serializedPdfPersistenceContract';
-import {
-    atomicReplace,
-    makeSiblingTempPath,
-} from '@electron/utils/atomicReplace';
+import { makeSiblingTempPath } from '@electron/utils/atomicReplace';
 import { getErrorMessage } from '@electron/utils/error';
 import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
 import {
@@ -61,6 +61,8 @@ import {
 import { assertQueuedWorkingCopyMutationPreconditions } from '@electron/file-access/documentMutationGuards';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
 import { originalPathSaveBaseMatches } from '@electron/features/documents/main/originalPathSaveBaseMatches';
+import {transitionOriginalAndWorkingCopyRevision} from '@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision';
+import { commitPdfTempFile } from '@electron/features/documents/main/commitPdfTempFile';
 import {
     optimizeLargePdfForSave,
     optimizePdfForSaveAs,
@@ -119,6 +121,7 @@ interface ISerializedPdfPersistenceSession {
     targetPath: string;
     saveAsOptions: IPdfSaveAsOptions | undefined;
     expectedDocumentRevisionToken: TDocumentRevisionToken;
+    changedObjectRefs: string[];
     tempPath: string;
     totalBytes: number;
     receivedBytes: number;
@@ -167,10 +170,11 @@ function normalizeExpectedDocumentRevisionToken(
     if (token === undefined || token === null) {
         throw createMissingRevisionError({documentRef: workingPath});
     }
-    if (typeof token !== 'string' || token.trim().length === 0) {
+    const parsedToken = parseDocumentRevisionToken(token);
+    if (parsedToken === null) {
         throw new TypeError('expectedDocumentRevisionToken must be a non-empty string');
     }
-    return token.trim();
+    return parsedToken;
 }
 
 function getSerializedPdfPersistenceLimits(): ISerializedPdfPersistenceLimits {
@@ -385,6 +389,7 @@ async function createSession(options: {
         workingPath: options.workingPath,
         targetPath: options.targetPath,
         saveAsOptions: options.saveAsOptions,
+        changedObjectRefs: options.serializedSaveOptions?.changedObjectRefs ?? [],
         expectedDocumentRevisionToken,
         tempPath,
         totalBytes: options.totalBytes,
@@ -512,7 +517,11 @@ async function finishSession(session: ISerializedPdfPersistenceSession): Promise
         );
 
         if (session.mode === 'save_as') {
-            await atomicReplace(session.tempPath, session.targetPath);
+            await commitPdfTempFile(session.tempPath, session.targetPath, {
+                signal: session.lifecycleOperation.signal,
+                ownerId: `serialized-pdf:${session.id}`,
+                ...(session.changedObjectRefs.length ? {changedObjectRefs: session.changedObjectRefs} : {}),
+            });
             targetWriteCommitted = true;
             try {
                 await setWorkingCopyOriginalPath(session.workingPath, session.targetPath, session.senderId);
@@ -530,25 +539,34 @@ async function finishSession(session: ISerializedPdfPersistenceSession): Promise
             await addRecentFile(session.targetPath);
             updateRecentFilesMenu();
         } else {
-            if (!await originalPathSaveBaseMatches(session.workingPath, session.targetPath, session.senderId)) {
-                conflictValidation = createOriginalChangedValidationResult();
-                return;
-            }
-            await atomicReplace(session.tempPath, session.targetPath);
-            targetWriteCommitted = true;
-            try {
-                await copyFileCopyOnWrite(session.targetPath, session.workingPath);
-                if (!await refreshWorkingCopyOriginalFileExpectation(session.workingPath, session.senderId)) {
-                    throw new Error('Working copy registration changed before original expectation refresh completed');
-                }
-                await markWorkingCopyContentChanged(session.workingPath, 'save-sync', session.senderId);
-                workingCopyRefreshed = true;
-            } catch (syncError) {
-                markWorkingCopySyncRequired(
+            const transition = await transitionOriginalAndWorkingCopyRevision({
+                workingCopyPath: session.workingPath,
+                originalPath: session.targetPath,
+                reason: 'save-sync',
+                senderId: session.senderId,
+                assertOriginalCurrent: () => originalPathSaveBaseMatches(
                     session.workingPath,
-                    `Original file was saved, but the working copy refresh failed: ${getErrorMessage(syncError)}`,
-                );
-                syncWarningValidation = withWorkingCopySyncWarning(committedValidation, syncError);
+                    session.targetPath,
+                    session.senderId,
+                ),
+                publishOriginal: async () => {
+                    await commitPdfTempFile(session.tempPath, session.targetPath, {
+                        signal: session.lifecycleOperation.signal,
+                        ownerId: `serialized-pdf:${session.id}`,
+                        ...(session.changedObjectRefs.length ? {changedObjectRefs: session.changedObjectRefs} : {}),
+                    });
+                },
+                afterWorkingCopySync: async () => {
+                    if (!await refreshWorkingCopyOriginalFileExpectation(session.workingPath, session.senderId)) {
+                        throw new Error('Working copy registration changed before original expectation refresh completed');
+                    }
+                    workingCopyRefreshed = true;
+                },
+            });
+            if (!transition) {
+                conflictValidation = createOriginalChangedValidationResult();
+            } else {
+                targetWriteCommitted = true;
             }
         }
     });

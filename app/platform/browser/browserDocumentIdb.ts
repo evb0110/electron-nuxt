@@ -37,19 +37,24 @@ async function openDatabase() {
         }
 
         request.onupgradeneeded = () => {
-            const database = request.result;
-            if (!database.objectStoreNames.contains(DOCUMENTS_STORE)) {
-                database.createObjectStore(DOCUMENTS_STORE, { keyPath: 'ref' });
-            }
-            if (!database.objectStoreNames.contains(DOCUMENT_CHUNKS_STORE)) {
-                database.createObjectStore(DOCUMENT_CHUNKS_STORE, { keyPath: 'key' });
-            }
+            upgradeBrowserDocumentDatabase(request.result);
         };
 
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => resolve(null);
         request.onblocked = () => resolve(null);
     });
+}
+
+// Exercised by the real IndexedDB migration harness through a runtime dynamic import.
+// fallow-ignore-next-line unused-export
+export function upgradeBrowserDocumentDatabase(database: IDBDatabase) {
+    if (!database.objectStoreNames.contains(DOCUMENTS_STORE)) {
+        database.createObjectStore(DOCUMENTS_STORE, { keyPath: 'ref' });
+    }
+    if (!database.objectStoreNames.contains(DOCUMENT_CHUNKS_STORE)) {
+        database.createObjectStore(DOCUMENT_CHUNKS_STORE, { keyPath: 'key' });
+    }
 }
 
 function assertWriteCommitted(result: unknown, operation: string) {

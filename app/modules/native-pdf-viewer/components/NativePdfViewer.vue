@@ -21,22 +21,13 @@
         />
 
         <div
-            ref="viewerContainer"
-            class="native-pdf-viewer-container h-full w-full overflow-auto app-scrollbar"
-            :class="{
-                'cursor-grab': dragMode,
-                'cursor-default': !dragMode,
-                'native-pdf-viewer-container--initial-visual-pending': showInitialSurfacePlaceholder,
-            }"
-            @scroll="handleViewerScroll"
+            class="native-pdf-continuous-surface mx-auto min-w-full"
+            :style="renderedPagesSurfaceStyle"
         >
-            <div
-                class="native-pdf-continuous-surface mx-auto min-w-full"
-                :style="renderedPagesSurfaceStyle"
-            >
                 <section
                     v-for="pageNumber in renderedPageNumbers"
                     :key="pageNumber"
+                    :ref="element => setPageElement(pageNumber, element)"
                     class="native-pdf-page-shell"
                     :style="getPageShellStyle(pageNumber)"
                     :data-page-number="pageNumber"
@@ -48,7 +39,6 @@
                         @visual-ready="handlePageVisualReady"
                     />
                 </section>
-            </div>
         </div>
     </div>
 </template>
@@ -56,29 +46,38 @@
 <script setup lang="ts">
 import { useResizeObserver } from '@vueuse/core';
 import { clamp } from 'es-toolkit/math';
+import type { ComponentPublicInstance } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TPdfViewMode } from '@contracts/shared';
 import type { IPdfNativePageSize } from '@contracts/electronApiDocuments';
-import type { IScrollSnapshot } from '@app/types/pdfUi';
 import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
 import { PdfInitialSurfacePlaceholder } from '@app/modules/pdf-viewer/public/component-exports/pdfInitialSurfacePlaceholder';
 import NativePdfPageContent from '@app/modules/native-pdf-viewer/components/NativePdfPageContent.vue';
 import { createNativePdfPreviewSourceFromPath } from '@app/platform/browser-api/public';
+import { createPagePreviewDocumentSource } from '@app/utils/document-viewer/source/createPagePreviewDocumentSource';
+import type { IDocumentPageSource } from '@app/utils/document-viewer/source/documentPageSource';
 import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
 import type {
     IDocumentPreviewPageState,
     IPagePreviewSource,
 } from '@app/utils/document-viewer/pagePreviewSource';
-import {
-    capturePageAnchorScrollSnapshot,
-    restorePageAnchorScrollSnapshot,
-} from '@app/utils/document-viewer/page-anchor-scroll-snapshot/pageAnchorScrollSnapshot';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { markStartupMetricOnce } from '@app/utils/startupMetrics';
 import {
     resolveDocumentContinuousScrollGeometry,
     resolveDocumentContinuousScrollWindow,
     resolveDocumentViewportPageNumbers,
 } from '@app/utils/document-viewer/viewport/resolveDocumentContinuousScrollWindow';
+import { injectDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
+import { createDocumentViewportWritePort } from '@app/utils/document-viewer/chassis/documentViewportWritePort';
+import {
+    clampDocumentFitScale,
+    clampDocumentManualZoom,
+} from '@app/utils/document-viewer/zoomPolicy';
+import {
+    captureDocumentZoomAnchor,
+    resolveDocumentZoomAnchorScroll,
+} from '@app/utils/document-viewer/zoomAnchor';
 
 interface IProps {
     src: TDocumentRef | null;
@@ -87,19 +86,29 @@ interface IProps {
     fitMode?: 'width' | 'height';
     viewMode?: TPdfViewMode;
     continuousScroll?: boolean;
+    currentPage?: number;
     dragMode?: boolean;
     isActive?: boolean;
 }
+
+let nextNativePageSlotOwnerId = 0;
 
 const {
     dragMode: dragModeProp,
     fitMode = undefined,
     isActive: isActiveProp = true,
+    currentPage: requestedCurrentPage = 1,
     src,
     viewMode: _viewMode = undefined,
     zoom = undefined,
     zoomMode: zoomModeProp = undefined,
 } = defineProps<IProps>();
+const chassisAuthority = injectDocumentViewerChassisAuthority();
+const renderSession = chassisAuthority?.renderCoordinator.createSession(
+    `native-pdf-feature:${String(++nextNativePageSlotOwnerId)}`,
+);
+const pageSlots = renderSession?.pageSlots;
+const viewportWritePort = chassisAuthority?.viewportWritePort ?? createDocumentViewportWritePort();
 const emit = defineEmits<{
     'update:effectiveZoom': [value: number];
     'update:currentPage': [value: number];
@@ -122,22 +131,46 @@ const NATIVE_PDF_RENDER_MARGIN_PAGES = 3;
 const NATIVE_PDF_RENDER_CONCURRENCY = 2;
 const NATIVE_PDF_DEVICE_PIXEL_RATIO_CAP = 2;
 const NATIVE_PDF_INITIAL_PREVIEW_MAX_TARGET_PX = 1_024;
-const NATIVE_PDF_PAGE_SNAPSHOT_SELECTOR = '[data-page-number]';
 
 const viewerContainer = ref<HTMLElement | null>(null);
+function setPageElement(pageNumber: number, element: Element | ComponentPublicInstance | null) {
+    if (element instanceof HTMLElement) {
+        pageSlots?.markMounted(pageNumber);
+    } else {
+        pageSlots?.markUnmounted(pageNumber);
+    }
+}
 const pageSizes = ref<IPdfNativePageSize[]>([]);
 const pageStates = ref<IDocumentPreviewPageState[]>([]);
-const currentPage = ref(1);
+const activePage = ref(1);
 const containerWidth = ref(0);
 const containerHeight = ref(0);
 const scrollTop = ref(0);
 const viewerError = ref<string | null>(null);
 const isLoading = ref(Boolean(src));
 const isActive = computed(() => isActiveProp);
+let releaseViewportFeature: (() => void) | null = null;
+
+onMounted(() => {
+    viewerContainer.value = chassisAuthority?.viewportElement.value ?? null;
+    releaseViewportFeature = chassisAuthority?.bindViewportFeature({
+        getClass: () => [
+            'native-pdf-viewer-container h-full w-full overflow-auto app-scrollbar',
+            {
+                'cursor-grab': dragMode.value,
+                'cursor-default': !dragMode.value,
+                'native-pdf-viewer-container--initial-visual-pending': showInitialSurfacePlaceholder.value,
+            },
+        ],
+        getStyle: () => ({}),
+        events: {scroll: () => handleViewerScroll()},
+    }) ?? null;
+});
 const showInitialSurfacePlaceholder = computed(() => isActive.value && isLoading.value && !viewerError.value);
 const dragMode = computed(() => dragModeProp ?? false);
 const totalPages = computed(() => pageSizes.value.length);
 let activeSource: IPagePreviewSource | null = null;
+let boundPageSource: IDocumentPageSource | null = null;
 let loadGeneration = 0;
 let pendingInitialVisualGeneration: number | null = null;
 let readyInitialVisualGeneration: number | null = null;
@@ -149,11 +182,7 @@ const paintedPageObjectUrls = new Map<number, string>();
 const queuedPageObjectUrlsForRevoke = new Map<number, string[]>();
 
 const manualZoom = computed(() => {
-    const candidate = zoom ?? 1;
-    if (!Number.isFinite(candidate) || candidate <= 0) {
-        return 1;
-    }
-    return candidate;
+    return clampDocumentManualZoom(zoom ?? 1);
 });
 const zoomMode = computed(() => zoomModeProp ?? (
     fitMode === 'height' ? 'fit-height' : 'fit-width'
@@ -173,7 +202,7 @@ function resolveFitHeightZoomForPageSize(pageSize: IPdfNativePageSize | null | u
         return manualZoom.value;
     }
 
-    return Math.max(0.1, fitHeightAvailable() / baseHeight);
+    return clampDocumentFitScale(fitHeightAvailable() / baseHeight);
 }
 
 function getPageDisplayScale(pageNumber: number) {
@@ -183,7 +212,7 @@ function getPageDisplayScale(pageNumber: number) {
     }
 
     if (zoomMode.value === 'fit-width' && pageSize.width > 0) {
-        return Math.max(0.1, fitWidthAvailable() / pageSize.width);
+        return clampDocumentFitScale(fitWidthAvailable() / pageSize.width);
     }
     if (zoomMode.value === 'fit-height') {
         return resolveFitHeightZoomForPageSize(pageSize);
@@ -197,14 +226,14 @@ const effectiveZoom = computed(() => {
         return manualZoom.value;
     }
 
-    const pageSize = pageSizes.value[currentPage.value - 1] ?? pageSizes.value[0] ?? null;
+    const pageSize = pageSizes.value[activePage.value - 1] ?? pageSizes.value[0] ?? null;
     if (zoomMode.value === 'fit-height') {
         return resolveFitHeightZoomForPageSize(pageSize);
     }
     if (!pageSize?.width) {
         return manualZoom.value;
     }
-    return Math.max(0.1, fitWidthAvailable() / pageSize.width);
+    return clampDocumentFitScale(fitWidthAvailable() / pageSize.width);
 });
 
 const pageLayouts = computed<IPageLayout[]>(() => {
@@ -255,7 +284,7 @@ const renderedPageNumbers = computed(() => {
         viewportHeight: containerHeight.value,
         overscanViewports: NATIVE_PDF_RENDER_OVERSCAN_VIEWPORTS,
     });
-    return pages.length ? pages : [currentPage.value];
+    return pages.length ? pages : [activePage.value];
 });
 
 const renderedPagesSurfaceStyle = computed(() => ({
@@ -318,6 +347,7 @@ function markInitialVisualReady(generation: number, pageNumber: number) {
 
     readyInitialVisualGeneration = generation;
     pendingInitialVisualGeneration = null;
+    markStartupMetricOnce('evb:first-page-painted');
     emit('initial-visual-ready', { pageNumber });
     resolveInitialVisualSettle();
 }
@@ -459,6 +489,11 @@ function stopSource() {
     resolveInitialVisualSettle();
     cleanupRenderedPages();
     activeRenderPageNumbers.clear();
+    if (chassisAuthority?.source.value === boundPageSource) {
+        chassisAuthority.bindSource(null);
+    }
+    boundPageSource?.dispose();
+    boundPageSource = null;
     activeSource?.terminate();
     activeSource = null;
 }
@@ -467,22 +502,21 @@ function cleanupViewerState() {
     stopSource();
     pageSizes.value = [];
     pageStates.value = [];
-    currentPage.value = 1;
+    activePage.value = Math.max(1, Math.trunc(requestedCurrentPage));
     scrollTop.value = 0;
     viewerError.value = null;
     emit('update:document', null);
     emit('update:totalPages', 0);
-    emit('update:currentPage', 1);
 }
 
 function getVisiblePageNumber() {
     const container = viewerContainer.value;
     if (!container || pageLayouts.value.length === 0) {
-        return currentPage.value;
+        return activePage.value;
     }
 
     return resolveDocumentContinuousScrollWindow({
-        currentPage: currentPage.value,
+        currentPage: activePage.value,
         geometry: continuousGeometry.value,
         pageGapPx: NATIVE_PDF_BASE_MARGIN,
         pageHeights: continuousGeometry.value.pageHeights,
@@ -491,15 +525,15 @@ function getVisiblePageNumber() {
         totalPages: totalPages.value,
         viewportHeight: container.clientHeight,
         overscanViewports: 0,
-    })?.mostVisiblePage ?? currentPage.value;
+    })?.mostVisiblePage ?? activePage.value;
 }
 
 function syncCurrentPageFromViewport() {
     const nextPage = getVisiblePageNumber();
-    if (nextPage === currentPage.value) {
+    if (nextPage === activePage.value) {
         return;
     }
-    currentPage.value = nextPage;
+    activePage.value = nextPage;
     emit('update:currentPage', nextPage);
 }
 
@@ -516,7 +550,7 @@ function getActivePageSet() {
             }
         }
     }
-    activePages.add(currentPage.value);
+    activePages.add(activePage.value);
     return activePages;
 }
 
@@ -587,7 +621,7 @@ function finishInitialLoadIfSettled() {
         return pageState?.status === 'error';
     });
     if (visiblePagesSettled) {
-        markInitialVisualReady(loadGeneration, initialPageNumbers[0] ?? currentPage.value);
+        markInitialVisualReady(loadGeneration, initialPageNumbers[0] ?? activePage.value);
         emitLoading(false);
     }
 }
@@ -730,6 +764,12 @@ async function loadSource(nextSrc: TDocumentRef, generation: number) {
 
     pageSizes.value = sizes;
     pageStates.value = sizes.map(createIdlePageState);
+    boundPageSource = createPagePreviewDocumentSource({
+        documentRef: nextSrc,
+        previewSource: source,
+        pageSizes: sizes,
+    });
+    chassisAuthority?.bindSource(boundPageSource);
 }
 
 function clearFailedLoadSource(generation: number) {
@@ -747,6 +787,13 @@ function handleViewerScroll() {
     if (!container) {
         return;
     }
+    if (viewportWritePort.consumeAuthorityScroll(container)) {
+        scrollTop.value = Math.max(0, container.scrollTop);
+        syncCurrentPageFromViewport();
+        syncLoadedPages();
+        return;
+    }
+    viewportWritePort.observeUserScroll(container);
     scrollTop.value = Math.max(0, container.scrollTop);
     syncCurrentPageFromViewport();
     syncLoadedPages();
@@ -781,63 +828,22 @@ function handlePageVisualReady(payload: {
 
 function scrollToPage(pageNumber: number) {
     const normalizedPage = clamp(pageNumber, 1, totalPages.value || 1);
-    currentPage.value = normalizedPage;
+    activePage.value = normalizedPage;
     emit('update:currentPage', normalizedPage);
+    const intentId = `native-preview-navigation:${String(normalizedPage)}:${String(loadGeneration)}`;
+    const intent = viewportWritePort.beginIntent(intentId);
     void nextTick(() => {
         const container = viewerContainer.value;
         const layout = pageLayouts.value[normalizedPage - 1];
         if (!container || !layout) {
             return;
         }
-        container.scrollTop = Math.max(0, layout.top - NATIVE_PDF_BASE_MARGIN);
+        viewportWritePort.apply(container, {
+            intent,
+            reason: 'source-neutral-page-navigation',
+            top: Math.max(0, layout.top - NATIVE_PDF_BASE_MARGIN),
+        });
         scrollTop.value = Math.max(0, container.scrollTop);
-        syncLoadedPages();
-    });
-}
-
-function getSnapshotPage(value: number | null | undefined) {
-    if (typeof value !== 'number' || !Number.isFinite(value)) {
-        return null;
-    }
-    return clamp(Math.floor(value), 1, totalPages.value || 1);
-}
-
-function captureScrollSnapshot(): IScrollSnapshot | null {
-    return capturePageAnchorScrollSnapshot(
-        viewerContainer.value,
-        {
-            pageSelector: NATIVE_PDF_PAGE_SNAPSHOT_SELECTOR,
-            preferredAnchorPage: currentPage.value,
-        },
-    );
-}
-
-function restoreScrollSnapshot(
-    snapshot: IScrollSnapshot | null,
-    options?: { fallbackPage?: number | null },
-) {
-    const fallbackPage = getSnapshotPage(options?.fallbackPage);
-    const anchorPage = getSnapshotPage(snapshot?.anchorPage) ?? fallbackPage;
-    if (!snapshot) {
-        if (fallbackPage !== null) {
-            scrollToPage(fallbackPage);
-        }
-        return;
-    }
-
-    if (anchorPage !== null && anchorPage !== currentPage.value) {
-        currentPage.value = anchorPage;
-        emit('update:currentPage', anchorPage);
-    }
-
-    void nextTick(() => {
-        restorePageAnchorScrollSnapshot(
-            viewerContainer.value,
-            snapshot,
-            { pageSelector: NATIVE_PDF_PAGE_SNAPSHOT_SELECTOR },
-        );
-        measureContainer();
-        syncCurrentPageFromViewport();
         syncLoadedPages();
     });
 }
@@ -845,6 +851,24 @@ function restoreScrollSnapshot(
 watch(effectiveZoom, (value) => {
     emit('update:effectiveZoom', value);
 }, { immediate: true });
+
+watch(pageLayouts, async (layouts, previousLayouts) => {
+    const container = viewerContainer.value;
+    if (!container || layouts.length === 0 || previousLayouts.length !== layouts.length) {
+        return;
+    }
+    const anchor = captureDocumentZoomAnchor(container, previousLayouts);
+    await nextTick();
+    const restored = resolveDocumentZoomAnchorScroll(container, layouts, anchor);
+    if (restored) {
+        viewportWritePort.apply(container, {
+            intent: viewportWritePort.beginIntent(`native-preview-zoom-anchor:${String(loadGeneration)}`),
+            reason: 'zoom-anchor-restoration',
+            ...restored,
+        });
+    }
+    scrollTop.value = Math.max(0, container.scrollTop);
+}, {flush: 'post'});
 
 watch(
     () => src,
@@ -865,11 +889,17 @@ watch(
             if (!isCurrentLoadGeneration(generation) || !activeSource) {
                 return;
             }
-            currentPage.value = 1;
+            const restoredPage = clamp(
+                chassisAuthority?.currentPage.value ?? requestedCurrentPage,
+                1,
+                Math.max(1, pageSizes.value.length),
+            );
+            activePage.value = restoredPage;
+            chassisAuthority?.navigate(restoredPage);
             viewerError.value = null;
             emit('update:document', null);
             emit('update:totalPages', pageSizes.value.length);
-            emit('update:currentPage', 1);
+            emit('update:currentPage', restoredPage);
             if (pageSizes.value.length === 0) {
                 markInitialVisualReady(generation, 1);
                 emitLoading(false);
@@ -878,11 +908,17 @@ watch(
 
             await nextTick();
             measureContainer();
-            viewerContainer.value?.scrollTo({
-                top: 0,
-                left: 0,
-            });
-            scrollTop.value = 0;
+            if (viewerContainer.value) {
+                const intentId = `native-preview-load:${String(generation)}`;
+                const layout = pageLayouts.value[restoredPage - 1];
+                viewportWritePort.apply(viewerContainer.value, {
+                    intent: viewportWritePort.beginIntent(intentId),
+                    reason: 'document-load',
+                    top: Math.max(0, (layout?.top ?? NATIVE_PDF_BASE_MARGIN) - NATIVE_PDF_BASE_MARGIN),
+                    left: 0,
+                });
+            }
+            scrollTop.value = Math.max(0, viewerContainer.value?.scrollTop ?? 0);
             syncLoadedPages();
         } catch (error) {
             if (!isCurrentLoadGeneration(generation)) {
@@ -895,7 +931,7 @@ watch(
                 src: nextSrc,
                 error,
             });
-            markInitialVisualReady(generation, currentPage.value);
+            markInitialVisualReady(generation, activePage.value);
             emitLoading(false);
         } finally {
             if (isCurrentLoadGeneration(generation)) {
@@ -943,7 +979,7 @@ watch(isActive, async (active) => {
                 src,
                 error,
             });
-            markInitialVisualReady(generation, currentPage.value);
+            markInitialVisualReady(generation, activePage.value);
             emitLoading(false);
         }
         return;
@@ -971,17 +1007,20 @@ onMounted(measureContainer);
 useResizeObserver(viewerContainer, handleContainerResize);
 
 onBeforeUnmount(() => {
+    releaseViewportFeature?.();
     loadGeneration += 1;
+    renderSession?.dispose();
     stopSource();
 });
 
-defineExpose<IDocumentViewerExpose>({
+defineExpose<IDocumentViewerExpose & {
+    captureScrollSnapshot: () => unknown;
+    restoreScrollSnapshot: (snapshot: unknown, options: {fallbackPage: number}) => void;
+}>({
     getViewerContainer: () => viewerContainer.value,
-    getCurrentPage: () => currentPage.value,
+    getCurrentPage: () => activePage.value,
     waitForViewerLoadSettled,
     scrollToPage,
-    captureScrollSnapshot,
-    restoreScrollSnapshot,
     invalidatePages: (pages: number[]) => {
         for (const pageNumber of pages) {
             if (pageNumber < 1 || pageNumber > totalPages.value) {
@@ -992,7 +1031,14 @@ defineExpose<IDocumentViewerExpose>({
         syncLoadedPages();
     },
     requestScrollToCurrentResult: () => {
-        scrollToPage(currentPage.value);
+        scrollToPage(activePage.value);
+    },
+    captureScrollSnapshot: () => ({page: activePage.value}),
+    restoreScrollSnapshot: (snapshot, options) => {
+        const page = typeof snapshot === 'object' && snapshot !== null && 'page' in snapshot
+            ? Number(snapshot.page)
+            : options.fallbackPage;
+        scrollToPage(Number.isFinite(page) ? page : options.fallbackPage);
     },
 });
 </script>

@@ -61,6 +61,7 @@ import {
 import { emitBrowserDocumentRevisionChange } from '@app/platform/browser/emitBrowserDocumentRevisionChange';
 import { createBrowserFileDocumentEntry } from '@app/platform/browser/createBrowserFileDocumentEntry';
 import {createStoredBrowserDocument} from '@app/platform/browser/createStoredBrowserDocument';
+import {emitBrowserDocumentPersistenceWarning} from '@app/platform/browser/browserDocumentPersistenceWarnings';
 import {BrowserDocumentMutationQueue} from '@app/platform/browser/browserDocumentMutationQueue';
 import {
     BrowserDocumentMutationCoordinator,
@@ -136,11 +137,9 @@ export class BrowserDocumentStore {
         this.entries.set(ref, entry);
         this.fileRefs.set(file, ref);
         void this.consumeFileIntoEntry(entry, file)
-            .catch(() => {
-                if (this.entries.get(ref) === entry) {
-                    this.entries.delete(ref);
-                }
-                return undefined;
+            .catch(async (error: unknown) => {
+                await this.retainFileInMemoryAfterPersistenceFailure(entry, file, error)
+                    .catch(() => undefined);
             });
         return ref;
     }
@@ -155,8 +154,7 @@ export class BrowserDocumentStore {
         try {
             await this.consumeFileIntoEntry(entry, file);
         } catch (error) {
-            this.entries.delete(ref);
-            throw error;
+            await this.retainFileInMemoryAfterPersistenceFailure(entry, file, error);
         }
         return ref;
     }
@@ -602,6 +600,9 @@ export class BrowserDocumentStore {
     }
 
     public unload(ref: string) {
+        if (this.entries.get(ref)?.memoryOnly) {
+            return;
+        }
         this.entries.delete(ref);
     }
 
@@ -1041,6 +1042,7 @@ export class BrowserDocumentStore {
                 await persistRecord(createPersistedBrowserDocumentRecord(entry, entry.data, false));
                 this.emitRevisionChangeForEntry(entry, previousToken, 'open');
             }
+            entry.memoryOnly = false;
             entry.pendingLoad = null;
         })();
 
@@ -1060,6 +1062,37 @@ export class BrowserDocumentStore {
             }
             throw error;
         }
+    }
+
+    private async retainFileInMemoryAfterPersistenceFailure(
+        entry: IBrowserDocumentEntry,
+        file: File,
+        error: unknown,
+    ) {
+        try {
+            entry.data = new Uint8Array(await file.arrayBuffer());
+        } catch {
+            if (this.entries.get(entry.ref) === entry) {
+                this.entries.delete(entry.ref);
+            }
+            throw error;
+        }
+
+        entry.storageMode = 'inline';
+        entry.memoryOnly = true;
+        entry.fileSize = entry.data.byteLength;
+        entry.updatedAt = Date.now();
+        entry.chunkCount = 0;
+        entry.pendingLoad = null;
+        delete entry.chunkGeneration;
+        delete entry.pendingChunkGeneration;
+        delete entry.pendingChunkCount;
+        delete entry.pendingChunkSize;
+        delete entry.pendingFileSize;
+        emitBrowserDocumentPersistenceWarning({
+            fileName: entry.fileName,
+            error,
+        });
     }
 
     private async refreshHandleBackedEntry(

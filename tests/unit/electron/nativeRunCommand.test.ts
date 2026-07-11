@@ -37,6 +37,22 @@ describe('runNativeCommand', () => {
         vi.resetModules();
         vi.clearAllMocks();
         vi.useRealTimers();
+        vi.unstubAllEnvs();
+    });
+
+    it('applies a bounded default timeout when a caller omits one', async () => {
+        vi.useFakeTimers();
+        vi.stubEnv('EVB_NATIVE_COMMAND_TIMEOUT_MS', '1000');
+        const proc = new MockNativeProcess();
+        mocks.spawn.mockReturnValue(proc);
+        const { runNativeCommand } = await import('@electron/native-tools/runNativeCommand');
+
+        const resultPromise = runNativeCommand('/bin/tool', []);
+        const rejection = resultPromise.catch((error: unknown) => error);
+        await vi.advanceTimersByTimeAsync(1_000);
+
+        await expect(rejection).resolves.toMatchObject({message: '/bin/tool timed out after 1000ms'});
+        expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(proc, 1_000);
     });
 
     it('rejects an already-aborted signal before spawning', async () => {
@@ -97,6 +113,22 @@ describe('runNativeCommand', () => {
         expect(error.message).toContain('[stderr truncated to 4 bytes]');
         expect(error.message).toContain('signal=SIGTERM');
         expect(log).toHaveBeenCalledWith('error', expect.stringContaining('cmd=/bin/tool --bad'));
+    });
+
+    it('classifies native failures from a structured error code instead of message text', async () => {
+        const proc = new MockNativeProcess();
+        mocks.spawn.mockReturnValue(proc);
+        const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
+
+        const resultPromise = runNativeCommand('/bin/tool', []);
+        proc.stderr.emit('data', Buffer.from('{"code":"corrupt-xref","message":"localized detail"}\n'));
+        proc.emit('close', 2, null);
+
+        await expect(resultPromise).rejects.toMatchObject({
+            code: 'corrupt-xref',
+            message: 'localized detail',
+            name: 'NativeToolError',
+        });
     });
 
     it('rejects stdout truncation when requested even for successful exits', async () => {

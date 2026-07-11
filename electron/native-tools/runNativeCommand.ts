@@ -18,6 +18,11 @@ import {
     createDetachedChildProcessSpawnOptions,
     terminateDetachedChildProcess,
 } from '@electron/utils/nativeChildProcess';
+import { createLogger } from '@electron/utils/createLogger';
+import {
+    isNativeErrorEnvelope,
+    type TNativeErrorCode,
+} from '@contracts/nativeErrors';
 
 export interface IRunCommandOptions {
     cwd?: string;
@@ -43,6 +48,13 @@ export interface IRunCommandOptions {
 const DEFAULT_MAX_STDOUT_BYTES = parseIntegerEnv('EVB_NATIVE_TOOL_MAX_STDOUT_BYTES', 262_144, 1_024);
 const DEFAULT_MAX_STDERR_BYTES = parseIntegerEnv('EVB_NATIVE_TOOL_MAX_STDERR_BYTES', 262_144, 1_024);
 const DEFAULT_TERMINATION_GRACE_MS = parseIntegerEnv('EVB_NATIVE_TOOL_TERMINATION_GRACE_MS', 1_000, 250);
+const nativeProcessTelemetryLog = createLogger('native-process-telemetry');
+let activeNativeProcessCount = 0;
+const DEFAULT_NATIVE_COMMAND_TIMEOUT_MS = parseIntegerEnv(
+    'EVB_NATIVE_COMMAND_TIMEOUT_MS',
+    15 * 60 * 1_000,
+    1_000,
+);
 
 type TNativeProcess = ReturnType<typeof spawn>;
 type TCancelGroupHandler = () => void;
@@ -54,6 +66,28 @@ interface ICommandRunContext {
     effectiveEnv: NodeJS.ProcessEnv | undefined;
     displayName: string;
     displayCommand: string;
+}
+
+class NativeToolError extends Error {
+    constructor(readonly code: TNativeErrorCode, message: string) {
+        super(message);
+        this.name = 'NativeToolError';
+    }
+}
+
+function parseNativeErrorEnvelope(stderr: string): NativeToolError | null {
+    const lines = stderr.trim().split(/\r?\n/u).reverse();
+    for (const line of lines) {
+        try {
+            const value: unknown = JSON.parse(line);
+            if (isNativeErrorEnvelope(value)) {
+                return new NativeToolError(value.code, value.message);
+            }
+        } catch {
+            // Native progress and third-party diagnostics are allowed alongside the final envelope.
+        }
+    }
+    return null;
 }
 
 function createCommandRunContext(command: string, args: string[], options: IRunCommandOptions): ICommandRunContext {
@@ -163,7 +197,7 @@ export async function runNativeCommand(
     const {
         cwd,
         env,
-        timeoutMs,
+        timeoutMs = DEFAULT_NATIVE_COMMAND_TIMEOUT_MS,
         maxStdoutBytes = DEFAULT_MAX_STDOUT_BYTES,
         maxStderrBytes = DEFAULT_MAX_STDERR_BYTES,
         allowedExitCodes = [0],
@@ -211,7 +245,10 @@ export async function runNativeCommand(
         let timeoutHandle: NodeJS.Timeout | null = null;
         let forceRejectHandle: NodeJS.Timeout | null = null;
         let pendingTerminationError: Error | null = null;
+        let terminationPromise: Promise<void> | null = null;
         let settled = false;
+        let processAdmitted = false;
+        const startedAt = performance.now();
         let stdoutDataHandler: ((data: Buffer) => void) | null = null;
         let stderrDataHandler: ((data: Buffer) => void) | null = null;
         let processErrorHandler: ((error: Error) => void) | null = null;
@@ -264,7 +301,8 @@ export async function runNativeCommand(
             }
 
             cleanupProcessOutput(targetProc, true);
-            void terminateNativeProcessBestEffort(targetProc, terminationGraceMs).finally(() => {
+            terminationPromise = terminateNativeProcessBestEffort(targetProc, terminationGraceMs).catch(() => undefined);
+            void terminationPromise.finally(() => {
                 if (pendingTerminationError === error) {
                     finalizeReject(error);
                 }
@@ -281,6 +319,13 @@ export async function runNativeCommand(
                 return;
             }
             settled = true;
+            if (processAdmitted) {
+                processAdmitted = false;
+                activeNativeProcessCount = Math.max(0, activeNativeProcessCount - 1);
+                nativeProcessTelemetryLog.debug(
+                    `Native process settled: command=${context.displayName} durationMs=${Math.round(performance.now() - startedAt)} active=${activeNativeProcessCount}`,
+                );
+            }
             if (timeoutHandle) {
                 clearTimeout(timeoutHandle);
                 timeoutHandle = null;
@@ -329,6 +374,11 @@ export async function runNativeCommand(
 
         try {
             proc = spawnNativeProcess(command, args, context, windowsHide);
+            processAdmitted = true;
+            activeNativeProcessCount += 1;
+            nativeProcessTelemetryLog.debug(
+                `Native process spawned: command=${context.displayName} active=${activeNativeProcessCount}`,
+            );
         } catch (error) {
             const message = `${context.displayName} failed to start: ${getErrorMessage(error)}`;
             log?.('error', `${message}; cmd=${context.displayCommand}`);
@@ -370,13 +420,23 @@ export async function runNativeCommand(
 
         processCloseHandler = (code, closeSignal) => {
             if (pendingTerminationError) {
-                finalizeReject(pendingTerminationError);
+                const terminationError = pendingTerminationError;
+                void (terminationPromise ?? Promise.resolve()).finally(() => {
+                    if (pendingTerminationError === terminationError) {
+                        finalizeReject(terminationError);
+                    }
+                });
                 return;
             }
 
             const exitCode = typeof code === 'number' ? code : -1;
             const outputSnapshot = output.snapshot();
             if (!allowedExitCodes.includes(exitCode)) {
+                const structuredError = parseNativeErrorEnvelope(outputSnapshot.stderr);
+                if (structuredError) {
+                    finalizeReject(structuredError);
+                    return;
+                }
                 const failure = formatCommandFailureMessage(
                     context.displayName,
                     command,

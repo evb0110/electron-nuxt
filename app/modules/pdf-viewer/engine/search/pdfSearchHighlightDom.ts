@@ -333,16 +333,3 @@ export function clearDomHighlights(container: HTMLElement, highlightClass: strin
 
     parentsToNormalize.forEach(parent => parent.normalize());
 }
-
-export function scrollToHighlight(
-    element: HTMLElement,
-    container: HTMLElement,
-) {
-    const containerRect = container.getBoundingClientRect();
-    const elementRect = element.getBoundingClientRect();
-
-    const elementTop = elementRect.top - containerRect.top + container.scrollTop;
-    const elementCenter = elementTop - container.clientHeight / 2 + elementRect.height / 2;
-
-    container.scrollTop = Math.max(0, elementCenter);
-}

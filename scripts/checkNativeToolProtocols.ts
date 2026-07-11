@@ -57,7 +57,34 @@ async function checkNativeToolProtocol(root: string, protocol: IGeneratedRustNat
     errors.push(...await checkCargoMetadata(root, crateRoot, cargoTomlPath, protocol));
     errors.push(...await checkProtocolVersionDeclarations(root, srcRoot, protocol));
     errors.push(...await checkProtocolVersionTest(root, protocolTestPath, protocol));
+    if (protocol.binaryName === 'evb-pdf-page-ops') {
+        errors.push(...await checkPageOpsGoldenSchema(root));
+    }
 
+    return errors;
+}
+
+async function checkPageOpsGoldenSchema(root: string) {
+    const errors: string[] = [];
+    const fixturePath = path.join(root, 'native', 'protocol-fixtures', 'pdf-page-ops-save-mutations.json');
+    const rustTypesPath = path.join(root, 'native', 'pdf-page-ops', 'src', 'types.rs');
+    const tsTestPath = path.join(root, 'tests', 'unit', 'scripts', 'nativeInteropProtocolFixtures.test.ts');
+    const fixture = await readText(fixturePath, 'evb-pdf-page-ops: missing canonical protocol fixture');
+    const rustTypes = await readText(rustTypesPath, 'evb-pdf-page-ops: missing request schema');
+    const tsTest = await readText(tsTestPath, 'evb-pdf-page-ops: missing TypeScript golden fixture test');
+    try {
+        if (fixture !== null) {
+            JSON.parse(fixture);
+        }
+    } catch {
+        errors.push('evb-pdf-page-ops: canonical protocol fixture is not valid JSON');
+    }
+    if ((rustTypes?.match(/deny_unknown_fields/gu)?.length ?? 0) < 16) {
+        errors.push('evb-pdf-page-ops: every serde request struct must deny unknown fields');
+    }
+    if (!tsTest?.includes('pdf-page-ops-save-mutations.json')) {
+        errors.push('evb-pdf-page-ops: TypeScript validator does not consume the canonical fixture');
+    }
     return errors;
 }
 

@@ -135,7 +135,6 @@ function createSupersededCancellation<
         supersededByTransactionId,
         cancelInFlightRenders: true,
         bumpRenderVersion: false,
-        clearTimers: true,
         preserveVisualContent: true,
     };
 }
@@ -297,7 +296,7 @@ export function isDocumentViewportRenderRequestCurrent(
     activeTransaction: Pick<IDocumentViewportTransactionBase, 'id' | 'documentRef'> | null,
     request: {
         transactionId: number | string;
-        documentVersion: number 
+        documentVersion: number
     },
 ) {
     return activeTransaction?.id === request.transactionId

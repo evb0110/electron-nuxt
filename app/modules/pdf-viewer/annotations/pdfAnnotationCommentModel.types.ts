@@ -1,25 +1,15 @@
-import type {
-    Ref,
-    ShallowRef,
-} from 'vue';
+import type {Ref} from 'vue';
 import type {
     IAnnotationCommentSummary,
     IAnnotationMarkerRect,
     TMarkupSubtype,
 } from '@app/types/annotations';
 
-export interface IPendingAnnotationMarkerMove {
-    markerRect: IAnnotationMarkerRect;
-    previousMarkerRect: IAnnotationMarkerRect | null;
-    movedAt: number;
-}
-
 export interface IPdfAnnotationCommentModel {
-    annotationCommentsCache: ShallowRef<IAnnotationCommentSummary[]>;
+    annotationCommentsCache: Ref<IAnnotationCommentSummary[]>;
     activeCommentStableKey: Ref<string | null>;
-    pendingMarkerMoves: Map<string, IPendingAnnotationMarkerMove>;
     emitCommentsForSidebar: (
-        comments: IAnnotationCommentSummary[],
+        comments: readonly IAnnotationCommentSummary[],
         options?: { includeShapes?: boolean },
     ) => void;
     upsertComment(comment: IAnnotationCommentSummary): void;
@@ -45,5 +35,6 @@ export interface IPdfAnnotationCommentModel {
     getSnapshot(): IAnnotationCommentSummary[];
     removeFromInternalCache(stableKey: string): void;
     clearPendingMarkerMoves(): void;
+    clearProjection(): void;
     handleSourceChanged(next: unknown, previous: unknown, options?: { syncAnnotationComments?: () => void | Promise<void> }): void;
 }

@@ -7,15 +7,31 @@ import type {
     ICropMargins,
     IPageGeometry,
 } from '@contracts/shared';
+import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 
 export type TPageOpsRotationAngle = 90 | 180 | 270;
 
-export interface IPageOpsMutationOptions {expectedDocumentRevisionToken?: TDocumentRevisionToken | null;}
+export interface IPageOpsMetadataSnapshot {
+    pageLabels: string[] | null;
+    bookmarks: IPdfBookmarkEntry[];
+    untitledBookmarkLabel: string;
+}
+
+export interface IPageOpsMutationOptions {
+    expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
+    metadataSnapshot?: IPageOpsMetadataSnapshot;
+}
+
+export interface IPageIdentityDelta {
+    previousPageCount: number;
+    pages: Array<{fromPageNumber: number} | {insertedId: string}>;
+}
 
 export interface IPageOpsResult {
     success: boolean;
     pageCount?: number;
     documentRevision?: IDocumentRevisionInfo;
+    pageIdentityDelta?: IPageIdentityDelta;
 }
 
 export interface IPageOpsExtractResult {
@@ -28,6 +44,7 @@ export interface IPageOpsInsertResult {
     success: boolean;
     canceled?: boolean;
     documentRevision?: IDocumentRevisionInfo;
+    pageIdentityDelta?: IPageIdentityDelta;
 }
 
 export interface IPageOpsCapability {

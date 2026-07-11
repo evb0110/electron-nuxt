@@ -10,17 +10,16 @@ import type {
 } from '@app/types/annotations';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 import { useAnnotationMutationService } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationMutationService';
-import type {
-    IConsumedAnnotationEmbeddedMutations,
-    IUseAnnotationMutationServiceOptions,
-} from '@app/modules/pdf-viewer/runtime/annotations/annotationMutationService.types';
+import type {IUseAnnotationMutationServiceOptions} from '@app/modules/pdf-viewer/runtime/annotations/annotationMutationService.types';
+import {asAnnotationId} from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
 import type { ITextMarkupColorMutationResult } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationColorCommands';
 import { cast } from '@tests/helpers/cast';
+import { getPdfjsEditorFacadeState } from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
 
 function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
     return {
         id: 'ann-1',
-        stableKey: 'stable-1',
+        stableKey: 'ann:0:stable-1',
         pageIndex: 0,
         pageNumber: 1,
         text: 'note',
@@ -86,15 +85,7 @@ function createOptions(
         clearPendingMarkerMoves: vi.fn(),
         handleMarkerMove: vi.fn(() => true),
         findEditorForComment: vi.fn(() => null),
-        addPendingCommentEditorKey: vi.fn(),
-        getEditorPendingKey: vi.fn(() => 'pending-editor-key'),
         markModified: vi.fn(),
-        suppressManagedAnnotationId: vi.fn(),
-        unsuppressManagedAnnotationId: vi.fn(),
-        suppressCommentAnnotationId: vi.fn(),
-        unsuppressCommentAnnotationId: vi.fn(),
-        suppressAnnotationStableKey: vi.fn(),
-        unsuppressAnnotationStableKey: vi.fn(),
         flushAnnotationCommentsForSave: vi.fn(async () => undefined),
         ...overrides,
     };
@@ -132,7 +123,7 @@ describe('useAnnotationMutationService', () => {
 
     it('enqueues deletion visual effects from delete and internal-cache removal paths', async () => {
         const comment = createComment({
-            stableKey: 'stable-delete',
+            stableKey: 'ann:0:stable-delete',
             annotationId: '18R0',
         });
         const options = createOptions({findAnnotationCommentByStableKey: vi.fn(() => comment)});
@@ -147,11 +138,11 @@ describe('useAnnotationMutationService', () => {
         expect(service.visualEffects.effects.value).toEqual([expect.objectContaining({
             id: 1,
             kind: 'annotation-dom-removal',
-            stableKey: 'stable-delete',
+            stableKey: 'ann:0:stable-delete',
             annotationId: '18R0',
             commentSnapshot: comment,
         })]);
-        expect(options.removeAnnotationFromInternalCache).toHaveBeenCalledWith('stable-delete');
+        expect(options.removeAnnotationFromInternalCache).toHaveBeenCalledWith('ann:0:stable-delete');
     });
 
     it('routes selected and comment-scoped color mutations', () => {
@@ -184,7 +175,7 @@ describe('useAnnotationMutationService', () => {
 
     it('enqueues derived visual effects for safe color mutations', () => {
         const comment = createComment({
-            stableKey: 'stable-color',
+            stableKey: 'ann:0:stable-color',
             annotationId: '12R0',
             color: '#ef4444',
         });
@@ -207,7 +198,7 @@ describe('useAnnotationMutationService', () => {
             expect.objectContaining({
                 id: 1,
                 kind: 'text-markup-color',
-                stableKey: 'stable-color',
+                stableKey: 'ann:0:stable-color',
                 annotationId: '12R0',
                 pageNumber: 1,
                 commentSnapshot: updatedComment,
@@ -217,7 +208,7 @@ describe('useAnnotationMutationService', () => {
             expect.objectContaining({
                 id: 2,
                 kind: 'render-page-text-markup',
-                stableKey: 'stable-color',
+                stableKey: 'ann:0:stable-color',
                 annotationId: '12R0',
                 pageNumber: 1,
                 commentSnapshot: updatedComment,
@@ -227,7 +218,7 @@ describe('useAnnotationMutationService', () => {
 
     it('does not enqueue duplicate text-markup overlay work for connected highlights', () => {
         const comment = createComment({
-            stableKey: 'stable-highlight',
+            stableKey: 'ann:0:stable-highlight',
             annotationId: '14R0',
             subtype: 'Highlight',
         });
@@ -250,38 +241,16 @@ describe('useAnnotationMutationService', () => {
 
         expect(service.visualEffects.effects.value).toEqual([expect.objectContaining({
             kind: 'render-page-text-markup',
-            stableKey: 'stable-highlight',
+            stableKey: 'ann:0:stable-highlight',
             annotationId: '14R0',
         })]);
     });
 
-    it('preserves current annotation suppression fan-out', () => {
-        const options = createOptions();
-        const service = useAnnotationMutationService(options);
-
-        service.suppressAnnotation({
-            annotationId: '12R0',
-            stableKey: 'stable-1',
-        });
-        service.unsuppressAnnotation({
-            annotationId: '12R0',
-            stableKey: 'stable-1',
-        });
-
-        expect(options.suppressAnnotationStableKey).toHaveBeenCalledWith('stable-1');
-        expect(options.suppressManagedAnnotationId).toHaveBeenCalledWith('12R0');
-        expect(options.suppressCommentAnnotationId).not.toHaveBeenCalled();
-        expect(options.unsuppressAnnotationStableKey).toHaveBeenCalledWith('stable-1');
-        expect(options.unsuppressManagedAnnotationId).toHaveBeenCalledWith('12R0');
-        expect(options.unsuppressCommentAnnotationId).toHaveBeenCalledWith('12R0');
-    });
-
-    it('marks moved note marker editors pending before dirtying the viewer', () => {
+    it('updates moved note marker editor anchors before dirtying the viewer', () => {
         const comment = createComment({ pageIndex: 2 });
         const markerRect = createMarkerRect();
         const editor = createEditor();
         const markModified = vi.fn();
-        const addPendingCommentEditorKey = vi.fn();
         const handleMarkerMove = vi.fn((
             movedComment,
             movedRect,
@@ -294,8 +263,6 @@ describe('useAnnotationMutationService', () => {
         const options = createOptions({
             handleMarkerMove,
             findEditorForComment: vi.fn(() => editor),
-            addPendingCommentEditorKey,
-            getEditorPendingKey: vi.fn(() => 'editor:2:ann-1'),
             markModified,
         });
         const service = useAnnotationMutationService(options);
@@ -309,57 +276,29 @@ describe('useAnnotationMutationService', () => {
         )).toBe(true);
 
         expect(handleMarkerMove).toHaveBeenCalledWith(comment, markerRect, expect.any(Object));
-        expect(editor.__evbPendingAnchorRect).toEqual(markerRect);
-        expect(addPendingCommentEditorKey).toHaveBeenCalledWith('editor:2:ann-1');
+        expect(getPdfjsEditorFacadeState(editor).pendingAnchorRect).toEqual(markerRect);
         expect(markModified).toHaveBeenCalledOnce();
         expect(service.visualEffects.effects.value).toEqual([]);
     });
 
-    it('exposes save flush and pending embedded mutation consumption hooks', async () => {
-        const consumed: IConsumedAnnotationEmbeddedMutations = {
-            pendingEmbeddedTextUpdates: new Map<string, string>().set('stable-1', 'updated'),
-            pendingEmbeddedAnnotationDeletes: [createComment()],
-            restore: vi.fn(),
-            commit: vi.fn(),
-        };
-        const options = createOptions({
-            flushAnnotationCommentsForSave: vi.fn(async () => 'flushed'),
-            consumePendingEmbeddedMutations: vi.fn(() => consumed),
-        });
+    it('exposes the canonical save flush hook', async () => {
+        const options = createOptions({flushAnnotationCommentsForSave: vi.fn(async () => 'flushed')});
         const service = useAnnotationMutationService(options);
 
         await expect(service.flushForSave()).resolves.toBe('flushed');
-        expect(service.consumePendingEmbeddedMutations()).toBe(consumed);
-
         expect(options.flushAnnotationCommentsForSave).toHaveBeenCalledOnce();
-        expect(options.consumePendingEmbeddedMutations).toHaveBeenCalledOnce();
     });
 
-    it('owns pending embedded text and delete queues with restoreable consumption', () => {
+    it('routes deferred delete and undo directly through the canonical store', () => {
         const comment = createComment();
-        const options = createOptions();
+        const annotationId = asAnnotationId('annotation-1');
+        const options = createOptions({
+            resolveCanonicalAnnotationId: vi.fn(() => annotationId),
+            deleteCanonicalAnnotation: vi.fn(),
+        });
         const service = useAnnotationMutationService(options);
 
-        expect(service.queuePendingEmbeddedTextUpdate({
-            comment,
-            text: 'updated',
-        })).toBe(true);
-        expect(service.queuePendingEmbeddedAnnotationDelete(comment)).toBe(true);
-
-        const queuedSnapshot = service.getPendingEmbeddedMutationSnapshot();
-        expect(queuedSnapshot.pendingEmbeddedTextUpdates.get(comment.stableKey)).toBe('updated');
-        expect(queuedSnapshot.pendingEmbeddedAnnotationDeletes).toEqual([comment]);
-        expect(service.pendingEmbeddedMutationVersion.value).toBeGreaterThan(0);
-
-        const consumed = service.consumePendingEmbeddedMutations();
-        expect(consumed.pendingEmbeddedTextUpdates.get(comment.stableKey)).toBe('updated');
-        expect(consumed.pendingEmbeddedAnnotationDeletes).toEqual([comment]);
-        expect(service.getPendingEmbeddedMutationSnapshot().pendingEmbeddedTextUpdates.size).toBe(0);
-        expect(service.getPendingEmbeddedMutationSnapshot().pendingEmbeddedAnnotationDeletes).toEqual([]);
-
-        consumed.restore();
-        const restoredSnapshot = service.getPendingEmbeddedMutationSnapshot();
-        expect(restoredSnapshot.pendingEmbeddedTextUpdates.get(comment.stableKey)).toBe('updated');
-        expect(restoredSnapshot.pendingEmbeddedAnnotationDeletes).toEqual([comment]);
+        expect(service.deleteEmbeddedAnnotationDeferred(comment)).toBe(true);
+        expect(options.deleteCanonicalAnnotation).toHaveBeenCalledWith(annotationId);
     });
 });

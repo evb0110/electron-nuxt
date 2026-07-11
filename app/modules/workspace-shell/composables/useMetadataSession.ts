@@ -8,20 +8,26 @@ import {
 } from '@app/modules/pdf-viewer/public';
 import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import { useWorkspaceMetadataHistory } from '@app/modules/workspace-shell/composables/useWorkspaceMetadataHistory';
-import { useWorkspaceUndoTimeline } from '@app/modules/workspace-shell/composables/useWorkspaceUndoTimeline';
+import { useWorkspaceCommandLedger } from '@app/modules/workspace-shell/composables/useWorkspaceCommandLedger';
+import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
 
 interface IMetadataSessionOptions {
     pdfDocument: ShallowRef<PDFDocumentProxy | null>;
     totalPages: Ref<number>;
     markDirty: () => void;
-    fileHistoryMutationVersion: Readonly<Ref<number>>;
-    fileHistorySessionVersion: Readonly<Ref<number>>;
+    /** @deprecated Producers now publish directly through setWorkspaceCommandSink. */
+    fileHistoryMutationVersion?: Readonly<Ref<number>> | undefined;
+    /** @deprecated Producers now publish directly through setWorkspaceCommandSink. */
+    fileHistorySessionVersion?: Readonly<Ref<number>> | undefined;
+    /** @deprecated The annotation producer now publishes direct commands. */
     annotationHistoryMutationVersion?: Readonly<Ref<number>> | undefined;
+    /** @deprecated The annotation producer resets its ledger source directly. */
     annotationHistoryResetVersion?: Readonly<Ref<number>> | undefined;
-    undoFile: () => Promise<boolean>;
-    redoFile: () => Promise<boolean>;
-    undoAnnotation?: (() => Promise<boolean> | boolean) | undefined;
-    redoAnnotation?: (() => Promise<boolean> | boolean) | undefined;
+    /** @deprecated Commands carry their own inverse. */
+    undoFile?: (() => Promise<boolean>) | undefined;
+    /** @deprecated Commands carry their own redo operation. */
+    redoFile?: (() => Promise<boolean>) | undefined;
+    setWorkspaceCommandSink?: ((sink: IWorkspaceCommandSink | null) => void) | undefined;
 }
 
 export const useMetadataSession = (options: IMetadataSessionOptions) => {
@@ -29,17 +35,16 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
         pdfDocument,
         totalPages,
         markDirty,
-        fileHistoryMutationVersion,
-        fileHistorySessionVersion,
-        annotationHistoryMutationVersion,
-        annotationHistoryResetVersion,
-        undoFile,
-        redoFile,
-        undoAnnotation,
-        redoAnnotation,
+        setWorkspaceCommandSink,
     } = options;
 
     let metadataHistory: ReturnType<typeof useWorkspaceMetadataHistory> | null = null;
+    const workspaceUndoTimeline = useWorkspaceCommandLedger();
+    const commandSink: IWorkspaceCommandSink = {
+        register: workspaceUndoTimeline.registerCommand,
+        reset: workspaceUndoTimeline.resetSource,
+    };
+    setWorkspaceCommandSink?.(commandSink);
 
     const pageLabelState = usePageLabelState({
         pdfDocument,
@@ -73,23 +78,9 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
         pageLabelRanges,
         pageLabelsDirty,
         totalPages,
+        commandSink,
     });
     metadataHistory.resetToCurrentState();
-
-    const workspaceUndoTimeline = useWorkspaceUndoTimeline({
-        fileHistoryMutationVersion,
-        fileHistorySessionVersion,
-        metadataHistoryMutationVersion: metadataHistory.metadataHistoryMutationVersion,
-        metadataHistoryResetVersion: metadataHistory.metadataHistoryResetVersion,
-        annotationHistoryMutationVersion,
-        annotationHistoryResetVersion,
-        undoFile,
-        redoFile,
-        undoMetadata: () => metadataHistory?.undoMetadata() ?? false,
-        redoMetadata: () => metadataHistory?.redoMetadata() ?? false,
-        undoAnnotation,
-        redoAnnotation,
-    });
 
     return {
         pageLabelState,
@@ -99,5 +90,6 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
         consumePreservedSourceReloadMetadata: () => metadataHistory?.consumePreservedSourceReloadState() ?? false,
         preserveMetadataForNextSourceReload: () => metadataHistory?.preserveCurrentStateForNextSourceReload(),
         workspaceUndoTimeline,
+        workspaceCommandSink: commandSink,
     };
 };

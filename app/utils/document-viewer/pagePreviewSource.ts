@@ -16,9 +16,17 @@ export interface IPagePreviewRenderedObjectUrl {
     renderedPx: number;
 }
 
+export interface IPagePreviewOutlineItem {
+    title: string;
+    pageNumber: number | null;
+    children: IPagePreviewOutlineItem[];
+}
+
 export interface IPagePreviewSource {
     cancelPagePreview?(pageNumber: number): void;
     getPageSizes(): Promise<IPreviewPageSize[]>;
+    getPageText?(pageNumber: number): Promise<string>;
+    getOutline?(): Promise<IPagePreviewOutlineItem[]>;
     renderPageObjectUrl(
         pageNumber: number,
         options?: unknown,

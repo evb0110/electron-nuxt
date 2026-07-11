@@ -12,6 +12,7 @@ import {
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
+import {requireDocumentRevisionToken} from '@contracts';
 
 const mocks = vi.hoisted(() => ({ pageOpsDeps: null as null | {
     onExtractedDocument?: (path: TDocumentRef) => Promise<void> | void;
@@ -87,9 +88,12 @@ function createOptions() {
         annotationDirty: ref(false),
         isDirty: ref(false),
         pageLabelsDirty: ref(false),
+        pageLabels: ref([]),
         bookmarksDirty: ref(false),
+        bookmarkItems: ref([]),
         hasAnnotationChanges: vi.fn(() => false),
         persistAllAnnotationNotes: vi.fn(async () => true),
+        materializeAnnotationsForPageMutation: vi.fn(async () => true),
         pickFileToOpen: vi.fn(async () => null),
         openFileWithViewerLifecycle: vi.fn(async () => openedOutcome),
         openFileDirectWithViewerLifecycle: vi.fn(async () => openedOutcome),
@@ -138,7 +142,7 @@ describe('useWorkspaceDocumentControls', () => {
 
     it('forwards the current document revision token to page operations', () => {
         const options = createOptions();
-        options.documentRevisionToken.value = 'drt1:test:current';
+        options.documentRevisionToken.value = requireDocumentRevisionToken('drt1:test:current');
 
         useWorkspaceDocumentControls(options);
 

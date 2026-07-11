@@ -5,7 +5,6 @@ import type { usePdfViewerAnnotationRuntime } from '@app/modules/pdf-viewer/runt
 import type { usePdfSinglePageNavigationController } from '@app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController';
 import { createPdfViewerPublicApi } from '@app/modules/pdf-viewer/runtime/contracts/createPdfViewerPublicApi';
 import type { TPdfViewerPublicApiSource } from '@app/modules/pdf-viewer/runtime/contracts/createPdfViewerPublicApi';
-import type { IScrollSnapshot } from '@app/types/pdfUi';
 import type { IPdfViewerExpose } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { toShapeAnnotationCommentSummary } from '@app/modules/pdf-viewer/engine/annotations/shape-annotation-comments/toShapeAnnotationCommentSummary';
@@ -19,8 +18,6 @@ interface IUsePdfViewerPublicApiControllerOptions {
     cancelPendingSearchScroll: () => void;
     annotationRuntime: ReturnType<typeof usePdfViewerAnnotationRuntime>;
     appAnnotationHistory: ReturnType<typeof usePdfAppAnnotationHistory>;
-    captureViewerScrollSnapshot: () => IScrollSnapshot | null;
-    restoreViewerScrollSnapshot: NonNullable<IPdfViewerExpose['restoreScrollSnapshot']>;
     applyFitWidthToCurrentPage: NonNullable<IPdfViewerExpose['applyFitWidthToCurrentPage']>;
     waitForViewerLoadSettled: NonNullable<IPdfViewerExpose['waitForViewerLoadSettled']>;
     renderVisiblePages: (
@@ -125,8 +122,6 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
             options.cancelPendingSearchScroll();
             options.singlePageScroll.cancelProgrammaticNavigation();
         },
-        captureScrollSnapshot: options.captureViewerScrollSnapshot,
-        restoreScrollSnapshot: options.restoreViewerScrollSnapshot,
         applyFitWidthToCurrentPage: options.applyFitWidthToCurrentPage,
         ensurePageMetricsInRange: viewerRuntime.document.ensurePageMetricsInRange,
         getPageMetricsSnapshot: () => viewerRuntime.document.pageMetrics.value.map(metric => ({ ...metric })),
@@ -238,6 +233,7 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
         },
         annotationHistoryMutationVersion: options.appAnnotationHistory.annotationHistoryMutationVersion,
         annotationHistoryResetVersion: options.appAnnotationHistory.annotationHistoryResetVersion,
+        setWorkspaceCommandSink: options.appAnnotationHistory.setWorkspaceCommandSink,
         startCommentPlacement: annotationRuntime.highlightComposable.startCommentPlacement,
         cancelCommentPlacement: annotationRuntime.highlightComposable.cancelCommentPlacement,
         undoAnnotation: options.undoAnnotation,
@@ -250,6 +246,13 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
                 text,
             },
             { source: 'user' },
+        ),
+        moveAnnotationMarker: (comment, rect) => annotationMutationService.moveMarker(
+            {
+                comment,
+                rect,
+            },
+            {source: 'agent'},
         ),
         deleteAnnotationComment: comment => annotationMutationService.deleteAnnotation(
             { comment },
@@ -274,17 +277,7 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
             },
             { source: 'user' },
         ),
-        pendingEmbeddedMutationVersion: annotationMutationService.pendingEmbeddedMutationVersion,
-        queuePendingEmbeddedTextUpdate: (comment, text, stableKey) => annotationMutationService.queuePendingEmbeddedTextUpdate({
-            comment,
-            text,
-            ...(stableKey !== undefined ? {stableKey} : {}),
-        }),
-        clearPendingEmbeddedTextUpdate: annotationMutationService.clearPendingEmbeddedTextUpdate,
-        migratePendingEmbeddedTextUpdate: annotationMutationService.migratePendingEmbeddedTextUpdate,
-        queuePendingEmbeddedAnnotationDelete: annotationMutationService.queuePendingEmbeddedAnnotationDelete,
-        unqueuePendingEmbeddedAnnotationDelete: annotationMutationService.unqueuePendingEmbeddedAnnotationDelete,
-        getPendingEmbeddedMutationSnapshot: annotationMutationService.getPendingEmbeddedMutationSnapshot,
+        deleteEmbeddedAnnotationDeferred: annotationMutationService.deleteEmbeddedAnnotationDeferred,
         getAllShapes: shapeComposable.getAllShapes,
         getDeletedEmbeddedShapeAnnotationIds: shapeComposable.getDeletedEmbeddedAnnotationIds,
         getDeletedEmbeddedShapeStableKeys: shapeComposable.getDeletedEmbeddedShapeStableKeys,
@@ -300,10 +293,7 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
         clearPendingImagePlacement: options.clearPendingImagePlacement,
         restorePendingImagePlacement: options.restorePendingImagePlacement,
         invalidatePages: options.invalidatePages,
-        suppressAnnotationId: annotationId => annotationMutationService.suppressAnnotation({annotationId}),
-        unsuppressAnnotationId: annotationId => annotationMutationService.unsuppressAnnotation({annotationId}),
-        suppressAnnotationStableKey: stableKey => annotationMutationService.suppressAnnotation({stableKey}),
-        unsuppressAnnotationStableKey: stableKey => annotationMutationService.unsuppressAnnotation({stableKey}),
+        remapPageIdentityDelta: delta => annotationRuntime.annotationApplication.value.remapPages(delta),
         removeAnnotationFromDom: annotationRuntime.removeAnnotationFromDom,
         removeAnnotationFromInternalCache: stableKey => annotationMutationService.removeAnnotationFromInternalCache(
             stableKey,

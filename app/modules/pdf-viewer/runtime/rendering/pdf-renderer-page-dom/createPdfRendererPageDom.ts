@@ -3,14 +3,18 @@ import { clearPdfSelectionForLayerTeardown } from '@app/modules/pdf-viewer/engin
 import { findPdfPageContainer } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/findPdfPageContainer';
 import { pdfViewerDomSelectors } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/pdfViewerDomSelectors';
 import { pdfViewerDomClasses } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/pdfViewerDomClasses';
+import type {
+    IPdfPageNumberStateMap,
+    IPdfPageNumberStateSet,
+} from '@app/modules/pdf-viewer/runtime/rendering/pdfPageRenderState';
 
 interface ICreatePdfRendererPageDomOptions {
     container: Ref<HTMLElement | null>;
     currentPage: Ref<number>;
-    renderedPages: Set<number>;
-    staleRenderedPages: Set<number>;
-    renderingPages: Map<number, number>;
-    renderingPageRequestIds: Map<number, number>;
+    renderedPages: IPdfPageNumberStateSet;
+    staleRenderedPages: IPdfPageNumberStateSet;
+    renderingPages: IPdfPageNumberStateMap;
+    renderingPageRequestIds: IPdfPageNumberStateMap;
     pageCanvases: Map<number, HTMLCanvasElement>;
 }
 

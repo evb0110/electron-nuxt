@@ -111,6 +111,10 @@ export type {
 export type { TDocumentRef } from '@contracts/documentRef';
 export type * from '@contracts/documentRef';
 export type { TDocumentInstanceId } from '@contracts/documentInstanceId';
+export {
+    parseDocumentInstanceId,
+    requireDocumentInstanceId,
+} from '@contracts/documentInstanceId';
 export type * from '@contracts/platformUnsupported';
 export type {
     IDocumentRevisionChangedEvent,
@@ -120,7 +124,11 @@ export type {
     TDocumentRevisionChangeReason,
     TDocumentRevisionToken,
 } from '@contracts/documentRevision';
-export { isDocumentRevisionInfo } from '@contracts/documentRevision';
+export {
+    isDocumentRevisionInfo,
+    parseDocumentRevisionToken,
+    requireDocumentRevisionToken,
+} from '@contracts/documentRevision';
 export {
     DOCUMENT_MUTATION_ERROR_PREFIX,
     DocumentMutationError,
@@ -213,8 +221,8 @@ export {
     pageNumberToPageIndex,
     parsePageIndex,
     parsePageNumber,
-    toPageIndex,
-    toPageNumber,
+    requirePageIndex,
+    requirePageNumber,
 } from '@contracts/pageNumbers';
 
 export { PDF_PAGE_LABEL_STYLE_VALUES } from '@contracts/pdfPageLabels';
@@ -253,8 +261,20 @@ export type {
     IPdfNativeValidationOptions,
     TPdfNativeMutationSetNativeToolPayload,
 } from '@contracts/nativePdfMutations';
+export {
+    NATIVE_ERROR_CODES,
+    hasNativeErrorCode,
+    isNativeErrorEnvelope,
+} from '@contracts/nativeErrors';
+export type {
+    INativeErrorEnvelope,
+    TNativeErrorCode,
+} from '@contracts/nativeErrors';
 
-export { GENERATED_RUST_NATIVE_TOOL_PROTOCOLS } from '@contracts/nativeToolProtocols';
+export {
+    GENERATED_RUST_NATIVE_TOOL_PROTOCOLS,
+    SEARCH_NATIVE_PROTOCOL_VERSION,
+} from '@contracts/nativeToolProtocols';
 export type { IGeneratedRustNativeToolProtocol } from '@contracts/nativeToolProtocols';
 
 export type {
@@ -314,6 +334,8 @@ export type {
 export {
     AVAILABLE_OCR_LANGUAGES,
     AVAILABLE_OCR_LANGUAGE_CODES,
+    BUNDLED_OCR_LANGUAGE_CODES,
+    BUNDLED_OCR_LANGUAGE_CODE_SET,
     GREEK_OCR_LANGUAGE_CODES,
     RTL_OCR_LANGUAGE_CODES,
     isGreekOcrLanguage,
@@ -398,3 +420,9 @@ export type {
     TWindowTabsAction,
     TWindowTabTransferTarget,
 } from '@contracts/windowTabs';
+export type {
+    IWorkspaceCheckpoint,
+    IWorkspaceCheckpointPane,
+    IWorkspaceCheckpointTab,
+} from '@contracts/workspaceCheckpoint';
+export {decodeWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';

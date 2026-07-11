@@ -73,20 +73,24 @@ const formattedPercent = computed(() => `${clamp(Math.round(value), 0, 100)}%`);
     background: var(--ui-bg);
     border: 1px solid var(--ui-border);
     box-shadow: var(--ui-shadow-lg);
+    inline-size: min-content;
+    max-inline-size: calc(100% - (2 * var(--app-space-9xl)));
+    box-sizing: border-box;
 }
 
 .app-progress-overlay-title {
-    font-size: 0.875rem;
+    font-size: var(--app-text-size-body);
     color: var(--ui-text);
     font-weight: 500;
 }
 
 .app-progress-overlay-bar {
-    width: var(--app-progress-bar-width);
+    width: min(var(--app-progress-bar-width), 100%);
+    max-inline-size: 100%;
 }
 
 .app-progress-overlay-percent {
-    font-size: 0.75rem;
+    font-size: var(--app-text-size-kicker);
     color: var(--ui-text-muted);
     font-variant-numeric: tabular-nums;
 }

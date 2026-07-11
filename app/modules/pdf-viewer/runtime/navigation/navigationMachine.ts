@@ -2,7 +2,6 @@ import type { TPageSnapAnchor } from '@app/utils/document-viewer/single-page-whe
 import {
     canSyncDocumentViewportNavigationFromViewport,
     createDocumentViewportNavigationMachineState,
-    createDocumentViewportNavigationRenderSettledEvent,
     getDocumentViewportNavigationStatusForSource,
     getDocumentViewportNavigationTargetPageForSource,
     getDocumentViewportNavigationTxnForSource,
@@ -53,13 +52,6 @@ export type TPdfNavigationEvent = TDocumentViewportNavigationEvent<TPdfNavigatio
     | IPdfNavigationCurrentPageCommittedEvent
     | IPdfNavigationViewportCurrentPageEvent
     | IPdfNavigationCancelEvent;
-
-export function createPdfNavigationRenderSettledEvent(
-    txn: number,
-    page: number,
-): TPdfNavigationEvent {
-    return createDocumentViewportNavigationRenderSettledEvent<TPdfNavigationSource, TPageSnapAnchor>(txn, page);
-}
 
 export function createPdfNavigationMachineState(
     txn = 0,

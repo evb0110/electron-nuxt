@@ -37,6 +37,7 @@ import {
     markWorkingCopyContentChanged,
 } from '@electron/file-access/documentRevisionStore';
 import { readWorkingCopySyncRequiredJournalEntry } from '@electron/file-access/documentRevisionSidecar';
+import {initializePageIdentityStore} from '@electron/file-access/pageIdentityStore';
 
 const logger = createLogger('working-copy');
 
@@ -58,7 +59,10 @@ export async function createWorkingCopy(originalPath: TOpenPath, ownerWebContent
         }
 
         await setWorkingCopyOriginalPath(workingPath, originalPath, ownerWebContentsId);
-        await ensureWorkingCopyRevision(workingPath, ownerWebContentsId);
+        const revision = await ensureWorkingCopyRevision(workingPath, ownerWebContentsId);
+        if (workingPath.toLowerCase().endsWith('.pdf')) {
+            await initializePageIdentityStore(workingPath, revision, originalPath);
+        }
 
         return workingPath;
     } catch (error) {
@@ -92,7 +96,8 @@ export async function createWorkingCopyFromPath(
 
         const role = resolveWorkingCopyRoleForPathClone(sourcePath, ownerWebContentsId);
         await setWorkingCopyOriginalPath(workingPath, mappedOriginalPath, ownerWebContentsId, {role});
-        await ensureWorkingCopyRevision(workingPath, ownerWebContentsId);
+        const revision = await ensureWorkingCopyRevision(workingPath, ownerWebContentsId);
+        await initializePageIdentityStore(workingPath, revision, sourcePath);
 
         return workingPath;
     } catch (error) {
@@ -129,7 +134,8 @@ export async function createWorkingCopyFromData(
             const role = isKnownWorkingCopyOriginalPath(normalizedOriginalPath, ownerWebContentsId) ? 'snapshot' : 'current';
             await setWorkingCopyOriginalPath(workingPath, normalizedOriginalPath, ownerWebContentsId, {role});
         }
-        await ensureWorkingCopyRevision(workingPath, ownerWebContentsId);
+        const revision = await ensureWorkingCopyRevision(workingPath, ownerWebContentsId);
+        await initializePageIdentityStore(workingPath, revision);
 
         return workingPath;
     } catch (error) {

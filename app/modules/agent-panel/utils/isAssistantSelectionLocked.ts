@@ -12,7 +12,11 @@ export interface IAssistantSelectionLockState {
 export function isAssistantSelectionLocked(state: IAssistantSelectionLockState) {
     return state.isSending
         || state.runtimeState === 'busy'
-        || state.turn.phase === 'starting'
-        || state.turn.phase === 'running'
+        || state.turn.phase === 'queued'
+        || state.turn.phase === 'thinking'
+        || state.turn.phase === 'streaming'
+        || state.turn.phase === 'tool-running'
+        || state.turn.phase === 'finalizing'
+        || state.turn.phase === 'stalled'
         || state.turn.phase === 'interrupting';
 }

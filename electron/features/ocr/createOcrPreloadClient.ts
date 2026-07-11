@@ -3,14 +3,16 @@ import type {
     IOcrCapability,
     IOcrCompleteResult,
     IOcrErrorEnvelope,
+    IOcrDiagnostic,
     IOcrProgress,
 } from '@contracts/electronApiOcr';
-import { decodeOcrLanguages } from '@contracts/ocrLanguages';
 import {
     OCR_ERROR_CODES,
+    OCR_DIAGNOSTIC_CODES,
     OCR_PROGRESS_PHASES,
 } from '@contracts/electronApiOcr';
 import type { TDocumentRef } from '@contracts/documentRef';
+import { parseDocumentRevisionToken } from '@contracts/documentRevision';
 import {
     isFiniteNumber,
     isOneOf,
@@ -27,10 +29,10 @@ import {
     type IOcrEventMap,
     type IOcrInvokeMap,
 } from '@electron/features/ocr/contract';
+import { OCR_IPC_CODECS } from '@electron/features/ocr/ocrIpcCodecs';
 import {
-    createDecodedIpcInvoker,
+    createCodecIpcInvoker,
     createTypedIpcEventSubscriber,
-    createTypedIpcInvoker,
 } from '@electron/preload/ipcClient';
 
 const OCR_LANGUAGE_INSTALL_UNAVAILABLE = 'OCR language installation is not available from the renderer; validateTools only reports installed languages.';
@@ -39,6 +41,10 @@ const OCR_INVOKE_TIMEOUT_MS_BY_CHANNEL = {
     [OCR_CHANNELS.recognize]: OCR_NATIVE_IPC_TIMEOUT_MS,
     [OCR_CHANNELS.recognizeBatch]: OCR_NATIVE_IPC_TIMEOUT_MS,
     [OCR_CHANNELS.createSearchablePdf]: OCR_NATIVE_IPC_TIMEOUT_MS,
+    [OCR_CHANNELS.getJobState]: OCR_NATIVE_IPC_TIMEOUT_MS,
+    [OCR_CHANNELS.subscribeJob]: OCR_NATIVE_IPC_TIMEOUT_MS,
+    [OCR_CHANNELS.reconnectJob]: OCR_NATIVE_IPC_TIMEOUT_MS,
+    [OCR_CHANNELS.resolveDocumentTextCatalog]: OCR_NATIVE_IPC_TIMEOUT_MS,
     [OCR_CHANNELS.validateTools]: OCR_NATIVE_IPC_TIMEOUT_MS,
     [OCR_CHANNELS.preprocessingValidate]: OCR_NATIVE_IPC_TIMEOUT_MS,
     [OCR_CHANNELS.preprocessingPreprocessPage]: OCR_NATIVE_IPC_TIMEOUT_MS,
@@ -119,6 +125,38 @@ function decodeOcrProgress(payload: unknown): IOcrProgress | null {
     };
 }
 
+function decodeOcrDiagnostics(value: unknown): IOcrDiagnostic[] | null | undefined {
+    if (value === undefined) {
+        return undefined;
+    }
+    if (!Array.isArray(value)) {
+        return null;
+    }
+    const diagnostics: IOcrDiagnostic[] = [];
+    for (const diagnostic of value) {
+        if (
+            !isRecord(diagnostic)
+            || !isOneOf(OCR_DIAGNOSTIC_CODES, diagnostic.code)
+            || (diagnostic.severity !== 'info' && diagnostic.severity !== 'warning')
+            || typeof diagnostic.message !== 'string'
+            || (diagnostic.pageNumber !== undefined && (
+                typeof diagnostic.pageNumber !== 'number'
+                || !Number.isSafeInteger(diagnostic.pageNumber)
+                || diagnostic.pageNumber < 1
+            ))
+        ) {
+            return null;
+        }
+        diagnostics.push({
+            code: diagnostic.code,
+            severity: diagnostic.severity,
+            message: diagnostic.message,
+            ...(diagnostic.pageNumber === undefined ? {} : {pageNumber: diagnostic.pageNumber}),
+        });
+    }
+    return diagnostics;
+}
+
 function decodeOcrErrorEnvelope(payload: unknown): IOcrErrorEnvelope | null {
     if (
         !isRecord(payload)
@@ -160,10 +198,21 @@ function decodeOcrCompleteResult(payload: unknown): IOcrCompleteResult | null {
     if (payload.pdfPath !== undefined && typeof payload.pdfPath !== 'string') {
         return buildMalformedCompleteResult(payload.requestId);
     }
-    if (payload.sourceDocumentRevisionToken !== undefined && typeof payload.sourceDocumentRevisionToken !== 'string') {
+    const sourceDocumentRevisionToken = payload.sourceDocumentRevisionToken === undefined
+        ? undefined
+        : parseDocumentRevisionToken(payload.sourceDocumentRevisionToken);
+    if (sourceDocumentRevisionToken === null) {
         return buildMalformedCompleteResult(payload.requestId);
     }
     if (payload.requiresCleanupAck !== undefined && typeof payload.requiresCleanupAck !== 'boolean') {
+        return buildMalformedCompleteResult(payload.requestId);
+    }
+    const resultSha256 = payload.resultSha256 === undefined
+        ? undefined
+        : typeof payload.resultSha256 === 'string' && /^[a-f0-9]{64}$/u.test(payload.resultSha256)
+            ? payload.resultSha256
+            : null;
+    if (resultSha256 === null) {
         return buildMalformedCompleteResult(payload.requestId);
     }
     if (
@@ -171,8 +220,8 @@ function decodeOcrCompleteResult(payload: unknown): IOcrCompleteResult | null {
         && (
             typeof payload.pdfPath !== 'string'
             || payload.pdfPath.trim().length === 0
-            || typeof payload.sourceDocumentRevisionToken !== 'string'
-            || payload.sourceDocumentRevisionToken.trim().length === 0
+            || sourceDocumentRevisionToken === undefined
+            || resultSha256 === undefined
             || typeof payload.requiresCleanupAck !== 'boolean'
         )
     ) {
@@ -185,21 +234,26 @@ function decodeOcrCompleteResult(payload: unknown): IOcrCompleteResult | null {
         return buildMalformedCompleteResult(payload.requestId, 'Malformed OCR completion error envelope');
     }
     const errors = payload.errors.map(error => error as string);
+    const diagnostics = decodeOcrDiagnostics(payload.diagnostics);
+    if (diagnostics === null) {
+        return buildMalformedCompleteResult(payload.requestId, 'Malformed OCR completion diagnostics');
+    }
 
     return {
         requestId: payload.requestId,
         success: payload.success,
         errors,
+        ...(diagnostics === undefined ? {} : {diagnostics}),
         ...(payload.pdfPath === undefined ? {} : {pdfPath: payload.pdfPath}),
-        ...(payload.sourceDocumentRevisionToken === undefined ? {} : {sourceDocumentRevisionToken: payload.sourceDocumentRevisionToken.trim()}),
+        ...(sourceDocumentRevisionToken === undefined ? {} : {sourceDocumentRevisionToken}),
+        ...(resultSha256 === undefined ? {} : {resultSha256}),
         ...(payload.requiresCleanupAck === undefined ? {} : {requiresCleanupAck: payload.requiresCleanupAck}),
         ...(errorEnvelope === null ? {} : {errorEnvelope}),
     };
 }
 
 export function createOcrPreloadClient(ipcRenderer: IpcRenderer): IOcrCapability {
-    const invoke = createTypedIpcInvoker<IOcrInvokeMap>(ipcRenderer, {invokeTimeoutMsByChannel: OCR_INVOKE_TIMEOUT_MS_BY_CHANNEL});
-    const invokeDecoded = createDecodedIpcInvoker<IOcrInvokeMap>(ipcRenderer, {invokeTimeoutMsByChannel: OCR_INVOKE_TIMEOUT_MS_BY_CHANNEL});
+    const invoke = createCodecIpcInvoker<IOcrInvokeMap>(ipcRenderer, OCR_IPC_CODECS, {invokeTimeoutMsByChannel: OCR_INVOKE_TIMEOUT_MS_BY_CHANNEL});
     const eventSubscriber = createTypedIpcEventSubscriber<IOcrEventMap>(ipcRenderer);
 
     return {
@@ -219,8 +273,24 @@ export function createOcrPreloadClient(ipcRenderer: IpcRenderer): IOcrCapability
         ) => invoke(OCR_CHANNELS.recognizeBatch, pages, requestId),
 
         cancel: (requestId) => invoke(OCR_CHANNELS.cancel, requestId),
+        getJobState: requestId => invoke(OCR_CHANNELS.getJobState, assertRequestId(requestId, 'ocrGetJobState.requestId')),
+        subscribeJob: requestId => invoke(OCR_CHANNELS.subscribeJob, assertRequestId(requestId, 'ocrSubscribeJob.requestId')),
+        reconnectJob: requestId => invoke(OCR_CHANNELS.reconnectJob, assertRequestId(requestId, 'ocrReconnectJob.requestId')),
 
-        getLanguages: () => invokeDecoded(OCR_CHANNELS.getLanguages, decodeOcrLanguages),
+        getLanguages: () => invoke(OCR_CHANNELS.getLanguages),
+
+        resolveDocumentTextCatalog: (workingCopyPath, documentRevision, pageCount) => {
+            const checkedRevision = parseDocumentRevisionToken(documentRevision);
+            if (checkedRevision === null) {
+                throw new TypeError('resolveDocumentTextCatalog.documentRevision must be a valid revision token');
+            }
+            return invoke(
+                OCR_CHANNELS.resolveDocumentTextCatalog,
+                assertAbsolutePath(workingCopyPath, 'resolveDocumentTextCatalog.workingCopyPath'),
+                checkedRevision,
+                pageCount,
+            );
+        },
 
         validateTools: () => invoke(OCR_CHANNELS.validateTools),
 

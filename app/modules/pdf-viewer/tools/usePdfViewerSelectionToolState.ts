@@ -11,6 +11,7 @@ import type {
     IAnnotationSettings,
     TAnnotationTool,
 } from '@app/types/annotations';
+import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
 
 interface IUsePdfViewerSelectionToolStateOptions {
     dragMode: ComputedRef<boolean>;
@@ -18,6 +19,7 @@ interface IUsePdfViewerSelectionToolStateOptions {
     annotationCursorMode: ComputedRef<boolean>;
     annotationSettings: ComputedRef<IAnnotationSettings | null>;
     pendingImagePlacement: Ref<unknown | null>;
+    viewportWritePort: IPdfViewportWritePort;
 }
 
 export const usePdfViewerSelectionToolState = (options: IUsePdfViewerSelectionToolStateOptions) => {
@@ -67,7 +69,7 @@ export const usePdfViewerSelectionToolState = (options: IUsePdfViewerSelectionTo
         return { '--app-pdf-text-selection-bg': `color-mix(in srgb, ${color} ${opacityPercent}%, transparent)` };
     });
 
-    const drag = usePdfDrag(() => isViewerPanDragModeActive.value);
+    const drag = usePdfDrag(() => isViewerPanDragModeActive.value, options.viewportWritePort);
     watch(isImagePlacementActive, (active) => {
         if (active) {
             drag.stopDrag();

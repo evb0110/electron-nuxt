@@ -17,7 +17,6 @@ import type {
 import type { TMenuEventUnsubscribe } from '@contracts/electronApiCommon';
 import { decodeHostEnvironmentSnapshot } from '@contracts/electronApiHost';
 import { decodeAppUpdateStatus } from '@contracts/electronApiUpdates';
-import { sanitizeSettings } from '@contracts/settings';
 import {
     decodeWindowTabIncomingTransfer,
     decodeWindowTabsAction,
@@ -26,6 +25,7 @@ import { getDebugLogMessages } from '@electron/preload/debugLogBuffer';
 import { decodeDebugLogEntry } from '@electron/preload/installDebugLogListener';
 import { createAgentPreloadClient } from '@electron/features/agent/createAgentPreloadClient';
 import {createDocumentsPreloadClient} from '@electron/features/documents/createDocumentsPreloadClient';
+import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
 import { createDocumentsPreloadPageOpsClient } from '@electron/features/documents/createDocumentsPreloadPageOpsClient';
 import { createImageExportPreloadClient } from '@electron/features/image-export/createImageExportPreloadClient';
 import {
@@ -36,9 +36,8 @@ import {createOcrPreloadClient} from '@electron/features/ocr/createOcrPreloadCli
 import {createSearchPreloadClient} from '@electron/features/search/createSearchPreloadClient';
 import {createDjvuPreloadClient} from '@electron/features/djvu/createDjvuPreloadClient';
 import {
-    createDecodedIpcInvoker,
+    createCodecIpcInvoker,
     createTypedIpcEventSubscriber,
-    createTypedIpcInvoker,
 } from '@electron/preload/ipcClient';
 import { getErrorMessage } from '@electron/utils/error';
 import {
@@ -50,6 +49,7 @@ import {
     type IShutdownSaveFlushRequest,
     type IShutdownSaveFlushResult,
 } from '@electron/platform-ipc/coreContract';
+import { CORE_IPC_CODECS } from '@electron/platform-ipc/coreIpcCodecs';
 
 const preloadStartupStart = Date.now();
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
@@ -114,9 +114,8 @@ function readSystemMemoryInfo() {
 }
 
 export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: typeof webUtils): IElectronAPI {
-    const invokeCore = createTypedIpcInvoker<ICoreInvokeMap>(ipcRenderer);
-    const invokeCoreDecoded = createDecodedIpcInvoker<ICoreInvokeMap>(ipcRenderer);
-    const invokeDocuments = createTypedIpcInvoker<IDocumentsInvokeMap>(ipcRenderer);
+    const invokeCore = createCodecIpcInvoker<ICoreInvokeMap>(ipcRenderer, CORE_IPC_CODECS);
+    const invokeDocuments = createCodecIpcInvoker<IDocumentsInvokeMap>(ipcRenderer, DOCUMENTS_IPC_CODECS);
     const eventSubscriber = createTypedIpcEventSubscriber<ICoreEventMap>(ipcRenderer);
     const baseDocuments = createDocumentsPreloadClient(ipcRenderer);
     const pageOps = createDocumentsPreloadPageOpsClient(ipcRenderer);
@@ -210,7 +209,11 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         }
         return baseDocuments.openDocumentDirect(path);
     };
-    const openDocumentDirectBatch = async (paths: string[], requestId?: string) => {
+    const openDocumentDirectBatch = async (
+        paths: string[],
+        requestId?: string,
+        options?: {forceCombine?: boolean},
+    ) => {
         const allowed = await Promise.all(paths.map(async (path) => {
             const pendingAllow = pendingRendererFileOpenAllows.get(path)?.promise;
             return pendingAllow === undefined || await pendingAllow;
@@ -218,7 +221,9 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         if (allowed.some(result => !result)) {
             return null;
         }
-        return baseDocuments.openDocumentDirectBatch(paths, requestId);
+        return options === undefined
+            ? baseDocuments.openDocumentDirectBatch(paths, requestId)
+            : baseDocuments.openDocumentDirectBatch(paths, requestId, options);
     };
 
     const recentFiles = {
@@ -306,6 +311,9 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         openPdfDirect: openDocumentDirect,
         openDocumentDirectBatch,
         openPdfDirectBatch: openDocumentDirectBatch,
+        ...(baseDocuments.cancelOpenDocumentDirectBatch
+            ? {cancelOpenDocumentDirectBatch: baseDocuments.cancelOpenDocumentDirectBatch}
+            : {}),
     } satisfies IDocumentsOpenCapability;
     const documentWorkingCopy = {
         createWorkingCopyFromData: baseDocuments.createWorkingCopyFromData,
@@ -322,6 +330,9 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         ...(baseDocuments.savePdfNativeMutations ? {savePdfNativeMutations: baseDocuments.savePdfNativeMutations} : {}),
         ...(baseDocuments.applyPdfNativeMutationsToWorkingCopy
             ? {applyPdfNativeMutationsToWorkingCopy: baseDocuments.applyPdfNativeMutationsToWorkingCopy}
+            : {}),
+        ...(baseDocuments.commitStagedPdfNativeMutations
+            ? {commitStagedPdfNativeMutations: baseDocuments.commitStagedPdfNativeMutations}
             : {}),
         ...(baseDocuments.getPdfNativePageSizes
             ? {getPdfNativePageSizes: baseDocuments.getPdfNativePageSizes}
@@ -393,6 +404,7 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         onMenuActualSize: baseDocuments.onMenuActualSize,
         onMenuFitWidth: baseDocuments.onMenuFitWidth,
         onMenuFitHeight: baseDocuments.onMenuFitHeight,
+        onMenuToggleContinuousScroll: baseDocuments.onMenuToggleContinuousScroll,
         onMenuViewModeSingle: baseDocuments.onMenuViewModeSingle,
         onMenuViewModeFacing: baseDocuments.onMenuViewModeFacing,
         onMenuViewModeFacingFirstSingle: baseDocuments.onMenuViewModeFacingFirstSingle,
@@ -445,7 +457,7 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         settings: {
             get: () => invokeWithStartupTrace(
                 'settings:get',
-                () => invokeCoreDecoded(CORE_IPC_CHANNELS.settingsGet, sanitizeSettings),
+                () => invokeCore(CORE_IPC_CHANNELS.settingsGet),
             ),
             save: (settings) => invokeCore(CORE_IPC_CHANNELS.settingsSave, settings),
             getDebugLogs: () => Promise.resolve(getDebugLogMessages()),
@@ -467,7 +479,7 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         },
 
         updates: {
-            getState: () => invokeCoreDecoded(CORE_IPC_CHANNELS.updatesGetState, decodeAppUpdateStatus),
+            getState: () => invokeCore(CORE_IPC_CHANNELS.updatesGetState),
             check: () => invokeCore(CORE_IPC_CHANNELS.updatesCheck),
             install: () => invokeCore(CORE_IPC_CHANNELS.updatesInstall),
             defer: () => invokeCore(CORE_IPC_CHANNELS.updatesDefer),
@@ -485,10 +497,7 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         shell: {openExternal: (url) => invokeCore(CORE_IPC_CHANNELS.shellOpenExternal, url)},
 
         host: {
-            getEnvironment: () => invokeCoreDecoded(
-                CORE_IPC_CHANNELS.hostGetEnvironment,
-                decodeHostEnvironmentSnapshot,
-            ),
+            getEnvironment: () => invokeCore(CORE_IPC_CHANNELS.hostGetEnvironment),
             onEnvironmentChange: (callback): TMenuEventUnsubscribe =>
                 eventSubscriber.onDecodedPayload(
                     CORE_IPC_EVENT_CHANNELS.hostEnvironmentChanged,
@@ -498,7 +507,7 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
             getZenModeState: () => invokeCore(CORE_IPC_CHANNELS.hostGetZenModeState),
             setZenMode: (active) => invokeCore(CORE_IPC_CHANNELS.hostSetZenMode, active),
             onZenModeChange: (callback): TMenuEventUnsubscribe =>
-                eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.hostZenModeChanged, callback),
+                eventSubscriber.onPayloadUnchecked(CORE_IPC_EVENT_CHANNELS.hostZenModeChanged, callback),
         },
 
         agent: createAgentPreloadClient(ipcRenderer),
@@ -517,6 +526,11 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
                 CORE_IPC_CHANNELS.acknowledgePendingExternalOpenPaths,
                 failedPaths,
             ),
+            saveWorkspaceCheckpoint: checkpoint => invokeCore(
+                CORE_IPC_CHANNELS.workspaceCheckpointSave,
+                checkpoint,
+            ),
+            claimWorkspaceCheckpoint: () => invokeCore(CORE_IPC_CHANNELS.workspaceCheckpointClaim),
             transfer: (request) => invokeCore(CORE_IPC_CHANNELS.tabsTransfer, request),
             transferAck: (ack) => invokeCore(CORE_IPC_CHANNELS.tabsTransferAck, ack),
             listTargetWindows: () => invokeCore(CORE_IPC_CHANNELS.tabsListTargets),
@@ -538,13 +552,13 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
             onMenuCloseTab: (callback): TMenuEventUnsubscribe =>
                 eventSubscriber.onNoArg(CORE_IPC_EVENT_CHANNELS.menuCloseTab, callback),
             onMenuSplitEditor: (callback): TMenuEventUnsubscribe =>
-                eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.menuSplitEditor, callback),
+                eventSubscriber.onPayloadUnchecked(CORE_IPC_EVENT_CHANNELS.menuSplitEditor, callback),
             onMenuFocusEditorPane: (callback): TMenuEventUnsubscribe =>
-                eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.menuFocusEditorPane, callback),
+                eventSubscriber.onPayloadUnchecked(CORE_IPC_EVENT_CHANNELS.menuFocusEditorPane, callback),
             onMenuMoveTabToPane: (callback): TMenuEventUnsubscribe =>
-                eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.menuMoveTabToPane, callback),
+                eventSubscriber.onPayloadUnchecked(CORE_IPC_EVENT_CHANNELS.menuMoveTabToPane, callback),
             onMenuCopyTabToPane: (callback): TMenuEventUnsubscribe =>
-                eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.menuCopyTabToPane, callback),
+                eventSubscriber.onPayloadUnchecked(CORE_IPC_EVENT_CHANNELS.menuCopyTabToPane, callback),
         },
     } satisfies IElectronAPI;
 

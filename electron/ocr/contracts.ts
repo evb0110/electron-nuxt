@@ -153,6 +153,16 @@ function asOptionalPageSegmentationMode(value: unknown, fieldName: string) {
     return value;
 }
 
+function asOptionalSupersessionPolicy(value: unknown, fieldName: string) {
+    if (value === null || value === undefined) {
+        return undefined;
+    }
+    if (value !== 'missing-only' && value !== 'replace-evb' && value !== 'replace-all') {
+        throw new OcrPayloadValidationError(`${fieldName} must be one of: missing-only, replace-evb, replace-all`);
+    }
+    return value;
+}
+
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
     return !!value && typeof value === 'object' && !Array.isArray(value);
 }
@@ -176,6 +186,13 @@ function asSearchablePdfOptions(value: unknown): IOcrSearchablePdfOptions {
     const qualityProfile = asOptionalOcrQualityProfile(value.qualityProfile, 'ocrOptions.qualityProfile');
     const preprocessingMode = asOptionalOcrPreprocessingMode(value.preprocessingMode, 'ocrOptions.preprocessingMode');
     const pageSegmentationMode = asOptionalPageSegmentationMode(value.pageSegmentationMode, 'ocrOptions.pageSegmentationMode');
+    const supersessionPolicy = asOptionalSupersessionPolicy(value.supersessionPolicy, 'ocrOptions.supersessionPolicy');
+    if (value.replaceAllAcknowledged !== undefined && typeof value.replaceAllAcknowledged !== 'boolean') {
+        throw new OcrPayloadValidationError('ocrOptions.replaceAllAcknowledged must be a boolean');
+    }
+    if (supersessionPolicy === 'replace-all' && value.replaceAllAcknowledged !== true) {
+        throw new OcrPayloadValidationError('replace-all OCR requires replaceAllAcknowledged=true');
+    }
 
     if (renderDpi !== undefined) {
         options.renderDpi = renderDpi;
@@ -188,6 +205,12 @@ function asSearchablePdfOptions(value: unknown): IOcrSearchablePdfOptions {
     }
     if (pageSegmentationMode !== undefined) {
         options.pageSegmentationMode = pageSegmentationMode;
+    }
+    if (supersessionPolicy !== undefined) {
+        options.supersessionPolicy = supersessionPolicy;
+    }
+    if (value.replaceAllAcknowledged !== undefined) {
+        options.replaceAllAcknowledged = value.replaceAllAcknowledged;
     }
     return options;
 }

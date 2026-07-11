@@ -17,7 +17,7 @@ const { value = null } = defineProps<{value?: number | null;}>();
 
 const progressUi = {
     base: 'bg-elevated',
-    indicator: 'duration-[180ms]',
+    indicator: 'duration-200',
 } as const;
 
 const hasValue = computed(() => typeof value === 'number' && Number.isFinite(value));

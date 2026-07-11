@@ -17,7 +17,7 @@
 
 .pdf-viewer-virtual-spacer {
     flex-shrink: 0;
-    width: 1px;
+    width: var(--app-pdf-virtual-spacer-width);
     pointer-events: none;
     opacity: 0;
 }
@@ -46,10 +46,10 @@
     position: relative;
     width: 100%;
     height: 100%;
-    z-index: 0;
+    z-index: var(--app-z-pdf-canvas-layer);
     background: var(--pdf-page-bg);
     box-shadow: var(--pdf-page-shadow);
-    border-radius: 2px;
+    border-radius: var(--app-pdf-page-radius);
 
     > canvas {
         /* stylelint-disable declaration-no-important -- css-important-allow: PDF.js can set canvas sizing at runtime; the viewer owns this rendered box. */
@@ -72,7 +72,7 @@
     forced-color-adjust: none;
     transform-origin: 0 0;
     caret-color: CanvasText;
-    z-index: 1;
+    z-index: var(--app-z-pdf-text-layer);
     pointer-events: auto;
     user-select: text;
 
@@ -94,7 +94,7 @@
 
     > :not(.markedContent),
     .markedContent span:not(.markedContent) {
-        z-index: 1;
+        z-index: var(--app-z-pdf-text-layer);
         font-size: calc(var(--text-scale-factor) * var(--font-height, 10px));
         transform: rotate(var(--rotate, 0deg)) scaleX(var(--scale-x, 1)) scale(var(--min-font-size-inv));
     }
@@ -119,7 +119,7 @@
         display: block;
         position: absolute;
         inset: 100% 0 0;
-        z-index: 0;
+        z-index: var(--app-z-pdf-canvas-layer);
         cursor: default;
         user-select: none;
     }
@@ -135,7 +135,7 @@
     position: absolute;
     inset: 0;
     overflow: hidden;
-    z-index: 2;
+    z-index: var(--app-z-pdf-link-layer);
     pointer-events: none;
 
     a {
@@ -162,7 +162,7 @@
 .pdfViewer .annotationEditorLayer {
     position: absolute;
     inset: 0;
-    z-index: 3;
+    z-index: var(--app-z-pdf-annotation-editor-layer);
 }
 
 .pdfViewer.is-selection-markup-tool .annotation-editor-layer,
@@ -254,7 +254,7 @@
     }
 
     /*
-     * Single-page mode is driven entirely by JS (see usePdfSinglePageScroll).
+     * Single-page mode is driven entirely by the viewport authority.
      * CSS scroll-snap was previously enabled here but collided with the JS
      * snap targets — `scroll-snap-align: center` resolves to a different
      * scrollTop than the JS `centerTarget` calculation (margin handling
@@ -454,13 +454,13 @@
 
 /*
  * Single-page CSS scroll-snap was removed — paging is JS-driven via
- * usePdfSinglePageScroll. Keeping a CSS snap point on each .page_container
+ * the viewport authority. Keeping a CSS snap point on each .page_container
  * fought the JS centerTarget math and produced asymmetric wheel behavior.
  */
 
 .page {
     /* stylelint-disable declaration-no-important -- css-important-allow: PDF.js page defaults must yield to the viewer's measured page frame. */
-    margin: 1px auto -3px !important;
+    margin: var(--app-pdf-annotation-editor-margin) !important;
     border: 1px dashed transparent !important;
     /* stylelint-enable declaration-no-important */
     box-shadow: var(--pdf-page-shadow);
@@ -498,13 +498,13 @@
             &::after {
                 content: '';
                 position: absolute;
-                width: 6px;
-                height: 6px;
+                width: var(--app-pdf-annotation-handle-size);
+                height: var(--app-pdf-annotation-handle-size);
                 top: 50%;
                 left: 50%;
                 transform: translate(-50%, -50%);
                 background: var(--resizer-bg-color, var(--ui-primary));
-                border-radius: 2px;
+                border-radius: var(--app-pdf-annotation-handle-radius);
                 pointer-events: none;
             }
 

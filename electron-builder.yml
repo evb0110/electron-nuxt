@@ -13,6 +13,7 @@ asar: true
 asarUnpack:
   - dist-electron/package.json
   - dist-electron/djvu-pdfWorker.js
+  - dist-electron/document-save-utility.js
   - dist-electron/image-export-tiff-worker.js
   - dist-electron/ocr-worker.js
   - dist-electron/page-ops-cropWorker.js
@@ -52,6 +53,9 @@ files:
 extraResources:
   - from: resources/tesseract/tessdata
     to: tesseract/tessdata
+    filter:
+      - eng.traineddata
+      - rus.traineddata
   - from: resources/icon.png
     to: icon.png
 

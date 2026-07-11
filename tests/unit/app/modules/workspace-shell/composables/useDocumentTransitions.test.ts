@@ -10,6 +10,7 @@ import {
     shallowRef,
 } from 'vue';
 import { useDocumentTransitions } from '@app/modules/workspace-shell/composables/useDocumentTransitions';
+import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { TPdfSource } from '@app/types/pdfUi';
 
 function createDeps() {
@@ -26,9 +27,9 @@ function createDeps() {
         showSidebar: ref(false),
         sidebarTab: ref<'annotations' | 'thumbnails' | 'bookmarks' | 'search'>('thumbnails'),
         annotationTool: ref<'none'>('none'),
-        annotationComments: ref([{
+        annotationComments: ref<IAnnotationCommentSummary[]>([{
             id: 'note-1',
-            stableKey: 'note-1',
+            stableKey: 'ann:0:note-1',
             pageIndex: 0,
             pageNumber: 1,
             text: 'Note',

@@ -3,6 +3,7 @@ export const SIDEBAR = {
     MIN_WIDTH: 220,
     MAX_WIDTH: 520,
     RESIZER_WIDTH: 8,
+    MIN_VIEWER_WIDTH: 320,
 };
 
 export const ZOOM = {
@@ -13,31 +14,31 @@ export const ZOOM = {
     PRESETS: [
         {
             value: 0.5,
-            label: '50%', 
+            label: '50%',
         },
         {
             value: 0.75,
-            label: '75%', 
+            label: '75%',
         },
         {
             value: 1,
-            label: '100%', 
+            label: '100%',
         },
         {
             value: 1.25,
-            label: '125%', 
+            label: '125%',
         },
         {
             value: 1.5,
-            label: '150%', 
+            label: '150%',
         },
         {
             value: 2,
-            label: '200%', 
+            label: '200%',
         },
         {
             value: 3,
-            label: '300%', 
+            label: '300%',
         },
     ],
 } as const;
@@ -49,6 +50,18 @@ export const NOTE_WINDOW = {
     DEFAULT_WIDTH: 380,
     DEFAULT_HEIGHT: 360,
     DEFAULT_Z_INDEX: 55,
+    ACTIVE_Z_INDEX_BASE: 90,
+    ACTIVE_Z_INDEX_SLOTS: 8,
+    ANCHOR_Z_INDEX_BASE: 25,
+    ANCHOR_Z_INDEX_SLOTS: 8,
 };
+
+export function resolveNoteWindowAnchorZIndex(order: number) {
+    const normalizedOrder = Number.isFinite(order) ? Math.max(0, Math.trunc(order)) : 0;
+    return NOTE_WINDOW.ANCHOR_Z_INDEX_BASE + Math.min(
+        normalizedOrder,
+        NOTE_WINDOW.ANCHOR_Z_INDEX_SLOTS - 1,
+    );
+}
 
 export const THUMBNAIL_WIDTH = 150;

@@ -94,3 +94,11 @@ export function runGuardedTask(
         logGuardAsyncError(error, options);
     }
 }
+
+/** Runs intentionally unawaited work while keeping failures inside its owning subsystem. */
+export function runDetached(
+    task: () => Promise<unknown>,
+    options: IGuardAsyncOptions,
+) {
+    runGuardedTask(task, options);
+}

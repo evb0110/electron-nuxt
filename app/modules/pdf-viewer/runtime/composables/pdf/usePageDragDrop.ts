@@ -8,6 +8,7 @@ import {
 } from '@vueuse/core';
 import { getDocumentPickerCapability } from '@app/utils/platformDocuments';
 import { isSupportedPdfInsertFilePath } from '@app/utils/supportedDocumentPaths';
+import { createRafCoalescedCallback } from '@app/utils/createRafCoalescedCallback';
 
 interface IPageDragDropDeps {
     containerRef: Ref<HTMLElement | null>;
@@ -251,6 +252,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
     }
 
     function cancelInternalDrag() {
+        internalDragMove.cancel();
         const wasDragging = isDragging.value;
         cleanupWindowDragListeners();
         clearAutoScroll();
@@ -260,8 +262,8 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         }
     }
 
-    function onMove(e: MouseEvent) {
-        if (e.buttons === 0) {
+    function applyInternalDragMove(e: MouseEvent, allowReleasedPointer = false) {
+        if (!allowReleasedPointer && e.buttons === 0) {
             cancelInternalDrag();
             return;
         }
@@ -286,7 +288,13 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         syncAutoScroll(e.clientY);
     }
 
-    function onUp() {
+    const internalDragMove = createRafCoalescedCallback((event: MouseEvent) => {
+        applyInternalDragMove(event);
+    });
+
+    function onUp(event: MouseEvent) {
+        internalDragMove.cancel();
+        applyInternalDragMove(event, true);
         cleanupWindowDragListeners();
         clearAutoScroll();
 
@@ -330,7 +338,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
             ? window
             : null
     ));
-    useEventListener(windowDragTarget, 'mousemove', onMove);
+    useEventListener(windowDragTarget, 'mousemove', internalDragMove.schedule);
     useEventListener(windowDragTarget, 'mouseup', onUp);
     useEventListener(windowDragTarget, 'blur', cancelInternalDrag);
     useEventListener(windowDragTarget, 'pointercancel', cancelInternalDrag);
@@ -368,6 +376,16 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         isExternalDragOver.value = true;
     }
 
+    function applyExternalDragOver(e: DragEvent) {
+        if (!isExternalDragOver.value) {
+            return;
+        }
+        dropInsertIndex.value = resolveDropInsertIndex(e.clientY);
+        syncAutoScroll(e.clientY);
+    }
+
+    const externalDragOver = createRafCoalescedCallback(applyExternalDragOver);
+
     function handleDragOver(e: DragEvent) {
         if (!isExternalDragOver.value) {
             return;
@@ -376,8 +394,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         if (e.dataTransfer) {
             e.dataTransfer.dropEffect = 'copy';
         }
-        dropInsertIndex.value = resolveDropInsertIndex(e.clientY);
-        syncAutoScroll(e.clientY);
+        externalDragOver.schedule(e);
     }
 
     function handleDragLeave(e: DragEvent) {
@@ -391,6 +408,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
             isExternalDragOver.value = false;
             dropInsertIndex.value = null;
             clearAutoScroll();
+            externalDragOver.cancel();
         }
     }
 
@@ -431,6 +449,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
 
     async function handleExternalDrop(e: DragEvent) {
         e.preventDefault();
+        externalDragOver.flush(e);
         clearAutoScroll();
         const insertAt = dropInsertIndex.value ?? totalPages.value;
         isExternalDragOver.value = false;
@@ -450,6 +469,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
 
     onUnmounted(() => {
         cancelInternalDrag();
+        externalDragOver.cancel();
     });
 
     return {

@@ -52,6 +52,8 @@ describe('OCR worker inbound message parsing', () => {
                 qualityProfile: 'poor-scan',
                 preprocessingMode: 'clean',
                 pageSegmentationMode: 6,
+                supersessionPolicy: 'replace-all',
+                replaceAllAcknowledged: true,
             },
         })).toEqual({
             sourcePdfPath: '/tmp/source.pdf',
@@ -66,6 +68,8 @@ describe('OCR worker inbound message parsing', () => {
                 qualityProfile: 'poor-scan',
                 preprocessingMode: 'clean',
                 pageSegmentationMode: 6,
+                supersessionPolicy: 'replace-all',
+                replaceAllAcknowledged: true,
             },
         });
     });
@@ -103,6 +107,18 @@ describe('OCR worker inbound message parsing', () => {
                 languages: ['eng'],
             }],
             renderDpi: 10_000,
+        })).toBeNull();
+        expect(parseOcrWorkerStartPayload({
+            sourcePdfPath: '/tmp/source.pdf',
+            documentRevision,
+            pages: [{
+                pageNumber: 1,
+                languages: ['eng'],
+            }],
+            options: {
+                supersessionPolicy: 'replace-all',
+                replaceAllAcknowledged: false,
+            },
         })).toBeNull();
     });
 

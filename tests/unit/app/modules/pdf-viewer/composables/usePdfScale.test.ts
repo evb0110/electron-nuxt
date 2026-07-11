@@ -89,6 +89,25 @@ describe('usePdfScale', () => {
         expect(scale.effectiveScale.value * 227.04).toBeCloseTo(1496, 6);
     });
 
+    it('uses a separate live layout preview without committing effective zoom', () => {
+        const {scale} = createScaleComposable({
+            width: 500,
+            height: 700,
+            mode: 'width',
+        });
+        scale.computeFitWidthScale(createContainer(1_000, 900));
+        const committedScale = scale.effectiveScale.value;
+
+        scale.computeFitWidthScale(createContainer(1_300, 900), {preview: true});
+
+        expect(scale.effectiveScale.value).toBe(committedScale);
+        expect(scale.layoutScale.value).toBeGreaterThan(committedScale);
+        expect(scale.previewFitScale.value).toBe(scale.layoutScale.value);
+
+        scale.clearPreviewFitScale();
+        expect(scale.layoutScale.value).toBe(committedScale);
+    });
+
     it('produces similar rendered page width for different PDF page sizes', () => {
         const first = createScaleComposable({
             width: 227.04,

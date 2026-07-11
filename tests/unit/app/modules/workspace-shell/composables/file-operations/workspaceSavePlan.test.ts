@@ -4,11 +4,12 @@ import {
     it,
 } from 'vitest';
 import {
-    buildWorkspaceSavePlan,
-    type IWorkspaceSavePlanConfig,
-    type IWorkspaceSavePlanInput,
+    selectSerializationMechanism,
+    type ISerializationMechanismConfig,
+    type ISerializationMechanismInput,
 } from '@app/modules/workspace-shell/composables/file-operations/workspaceSavePlan';
 import type { IDocumentDirtyState } from '@app/modules/workspace-shell/composables/file-operations/saveDirtyState';
+import {requireDocumentRevisionToken} from '@contracts';
 
 const CLEAN_DIRTY_STATE: IDocumentDirtyState = {
     annotationChanges: false,
@@ -23,18 +24,18 @@ const CLEAN_DIRTY_STATE: IDocumentDirtyState = {
     shapes: false,
 };
 
-const BASE_CONFIG: IWorkspaceSavePlanConfig = {
+const BASE_CONFIG: ISerializationMechanismConfig = {
     mode: 'save',
     shouldPreferWorkingCopy: true,
     canPersistNativeWorkingCopy: false,
     canAttemptNativeMutationSave: false,
 };
 
-const BASE_INPUT: IWorkspaceSavePlanInput = {
+const BASE_INPUT: ISerializationMechanismInput = {
     workingCopyPath: '/tmp/work.pdf',
     expectedOriginalPath: '/tmp/source.pdf',
     expectedWorkingPath: '/tmp/work.pdf',
-    expectedDocumentRevisionToken: 'rev-1',
+    expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-1'),
     dirtyState: CLEAN_DIRTY_STATE,
     hasManagedShapes: false,
 };
@@ -47,10 +48,10 @@ function dirtyState(overrides: Partial<IDocumentDirtyState> = {}): IDocumentDirt
 }
 
 function buildPlan(
-    config: Partial<IWorkspaceSavePlanConfig> = {},
-    input: Partial<IWorkspaceSavePlanInput> = {},
+    config: Partial<ISerializationMechanismConfig> = {},
+    input: Partial<ISerializationMechanismInput> = {},
 ) {
-    return buildWorkspaceSavePlan(
+    return selectSerializationMechanism(
         {
             ...BASE_CONFIG,
             ...config,
@@ -81,7 +82,7 @@ describe('workspaceSavePlan', () => {
         expect(saveAsPlan.staleTargetProtection).toEqual({
             expectedOriginalPath: '/tmp/source.pdf',
             expectedWorkingPath: '/tmp/work.pdf',
-            expectedDocumentRevisionToken: 'rev-1',
+            expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-1'),
         });
     });
 

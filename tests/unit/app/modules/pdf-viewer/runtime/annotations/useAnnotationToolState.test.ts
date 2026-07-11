@@ -17,6 +17,7 @@ import type { ShallowRef } from 'vue';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { IAnnotationSettings } from '@app/types/annotations';
 import { cast } from '@tests/helpers/cast';
+import { getPdfjsEditorFacadeState } from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
 
 vi.mock('pdfjs-dist', () => ({
     AnnotationEditorType: {
@@ -524,7 +525,7 @@ describe('useAnnotationToolState', () => {
         }));
 
         expect(manager.resolveEditorMarkupSubtypeColor(highlightEditor, 'Highlight', 0)).toBe('#ffff00');
-        expect((highlightEditor as { __evbMarkupSubtypeColor?: string }).__evbMarkupSubtypeColor).toBe('#ffff00');
+        expect(getPdfjsEditorFacadeState(highlightEditor).markupSubtypeColor).toBe('#ffff00');
     });
 
     it('uses raw highlight settings for active-tool subtype overrides while keeping the visual color opaque', async () => {
@@ -554,7 +555,7 @@ describe('useAnnotationToolState', () => {
             { preferEditorColor: false },
         );
 
-        expect((highlightEditor as { __evbMarkupSubtypeColor?: string }).__evbMarkupSubtypeColor).toBe('#ffff00');
+        expect(getPdfjsEditorFacadeState(highlightEditor).markupSubtypeColor).toBe('#ffff00');
         expect(highlightEditor.color).toBe('#ffff66');
         expect(highlightEditor.opacity).toBe(1);
     });
@@ -579,7 +580,7 @@ describe('useAnnotationToolState', () => {
         manager.rememberMarkupSubtypeColorOverride('42R0', '#22c55e');
 
         expect(manager.resolveEditorMarkupSubtypeColor(underlineEditor, 'Underline', 0)).toBe('#22c55e');
-        expect((underlineEditor as { __evbMarkupSubtypeColor?: string }).__evbMarkupSubtypeColor).toBe('#22c55e');
+        expect(getPdfjsEditorFacadeState(underlineEditor).markupSubtypeColor).toBe('#22c55e');
     });
 
     it('uses normalized materialized annotation ids for markup color overrides', async () => {

@@ -2,6 +2,7 @@ import {
     mkdirSync,
     mkdtempSync,
     readFileSync,
+    readdirSync,
     rmSync,
     unlinkSync,
     writeFileSync,
@@ -142,6 +143,58 @@ describe('recentFiles persistence', () => {
             fileA,
             fileB,
         ]);
+    });
+
+    it('serializes concurrent additions without losing either persisted entry', async () => {
+        const fileA = writeFixture('concurrent-alpha.pdf');
+        const fileB = writeFixture('concurrent-beta.pdf');
+        let recentFiles = await loadRecentFilesModule();
+
+        await Promise.all([
+            recentFiles.addRecentFile(fileA),
+            recentFiles.addRecentFile(fileB),
+        ]);
+
+        expect(new Set(recentFiles.getRecentFilesSync())).toEqual(new Set([
+            fileA,
+            fileB,
+        ]));
+        recentFiles = await loadRecentFilesModule();
+        await recentFiles.initRecentFilesCache();
+        expect(new Set(recentFiles.getRecentFilesSync())).toEqual(new Set([
+            fileA,
+            fileB,
+        ]));
+    });
+
+    it('preserves an existing target and removes staged data when atomic promotion fails', async () => {
+        const filePath = writeFixture('atomic-failure.pdf');
+        const storagePath = join(userDataDir, 'recentFiles.json');
+        mkdirSync(storagePath);
+        const recentFiles = await loadRecentFilesModule();
+
+        await expect(recentFiles.addRecentFile(filePath)).rejects.toThrow();
+
+        expect(readdirSync(storagePath)).toEqual([]);
+        expect(readdirSync(userDataDir).sort()).toEqual([
+            'atomic-failure.pdf',
+            'recentFiles.json',
+        ]);
+    });
+
+    it('quarantines malformed persisted JSON and writes a clean empty store', async () => {
+        const storagePath = join(userDataDir, 'recentFiles.json');
+        writeFileSync(storagePath, '{malformed');
+
+        const recentFiles = await loadRecentFilesModule();
+
+        await expect(recentFiles.getRecentFiles()).resolves.toEqual([]);
+        expect(JSON.parse(readFileSync(storagePath, 'utf-8'))).toEqual({
+            version: 1,
+            files: [],
+        });
+        expect(readdirSync(userDataDir).some(name => /^recentFiles\.json\.\d+\.corrupt$/u.test(name))).toBe(true);
+        expect(mocks.logger.warn).toHaveBeenCalledWith(expect.stringContaining('Quarantined corrupt recent-files state'));
     });
 
     it('dedupes persisted recent files by path when rebuilding the cache from disk', async () => {

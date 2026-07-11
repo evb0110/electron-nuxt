@@ -94,8 +94,10 @@ function expandContinuousScrollRange(
 ) {
     const baseStart = state.visibleStart ?? state.overscanStart ?? anchorPage;
     const baseEnd = state.visibleEnd ?? state.overscanEnd ?? anchorPage;
-    const minStart = Math.max(1, (state.visibleStart ?? anchorPage) - renderMarginPages);
-    const minEnd = Math.min(totalPages, (state.visibleEnd ?? anchorPage) + renderMarginPages);
+    const demandStart = state.visibleStart ?? state.overscanStart ?? anchorPage;
+    const demandEnd = state.visibleEnd ?? state.overscanEnd ?? anchorPage;
+    const minStart = Math.max(1, demandStart - renderMarginPages);
+    const minEnd = Math.min(totalPages, demandEnd + renderMarginPages);
 
     return {
         start: clampPageRange(Math.min(baseStart, minStart), totalPages),
@@ -395,5 +397,11 @@ export function resolveDocumentContinuousScrollWindow(
         options.renderMarginPages,
     );
 
-    return createContinuousScrollWindow(start, end, bounds.mostVisiblePage);
+    return createContinuousScrollWindow(
+        start,
+        end,
+        bounds.visibleStart === null && bounds.overscanStart !== null
+            ? bounds.overscanStart
+            : bounds.mostVisiblePage,
+    );
 }

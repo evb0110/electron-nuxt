@@ -80,6 +80,38 @@ describe('createSearchPreloadClient', () => {
         });
     });
 
+    it('rejects malformed search results returned across IPC', async () => {
+        const ipcRenderer: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener'> = {
+            invoke: vi.fn(async () => ({
+                results: [{
+                    pageNumber: 0,
+                    pageMatchIndex: 0.5,
+                    matchIndex: 0,
+                    startOffset: -1,
+                    endOffset: 4,
+                    excerpt: {
+                        prefix: false,
+                        suffix: false,
+                        before: '',
+                        match: 'term',
+                        after: '',
+                    },
+                    words: [null],
+                }],
+                truncated: false,
+            })),
+            on: vi.fn(),
+            removeListener: vi.fn(),
+        };
+        const { createSearchPreloadClient } = await import('@electron/features/search/createSearchPreloadClient');
+        const client = createSearchPreloadClient(ipcRenderer as IpcRenderer);
+
+        await expect(client.run('/tmp/work.pdf', 'term')).rejects.toMatchObject({
+            name: 'PlatformIpcInvokeError',
+            channel: SEARCH_CHANNELS.search,
+        });
+    });
+
     it('drops malformed search progress events before callbacks', async () => {
         const listeners = new Map<string, (_event: unknown, payload: unknown) => void>();
         const ipcRenderer: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener'> = {

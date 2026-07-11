@@ -3,15 +3,12 @@ import type {
     Ref,
 } from 'vue';
 import type { TSplitPayload } from '@contracts/windowTabs';
-import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHasPdf';
-import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/splits/cleanupSplitPayloadSnapshot';
 import type {
     IEditorPaneState,
     TPaneDirection,
 } from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import type {
     ITabContextAvailability,
     TDirectionalCommandAvailability,
@@ -20,16 +17,11 @@ import type {
 } from '@app/types/tabContextMenu';
 import { hasElectronAPI } from '@app/utils/platform';
 import { isBrowserDocumentRef } from '@app/utils/documentRef';
-import {
-    getDocumentWindowCapability,
-    getDocumentWorkingCopyCapability,
-} from '@app/utils/platformDocuments';
+import { getDocumentWindowCapability } from '@app/utils/platformDocuments';
 import type { IWorkspaceSplitCacheLike } from '@app/modules/workspace-shell/composables/workspaceSplitTypes';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
-import { createWorkspaceSplitCacheSessionState } from '@app/modules/workspace-shell/document-sessions/createWorkspaceSplitCacheSessionState';
 import type { IWorkspaceDocumentSessionController } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
 
-const TAB_TRANSITION_CACHE_GRACE_MS = 1200;
 const DIRECTION_ORDER = [
     'left',
     'right',
@@ -96,9 +88,6 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         activePaneId,
         panes,
         tabs,
-        workspaceRefs,
-        documentSessionsByTabId,
-        getDocumentRecord,
         isTabTransitionBusy,
         getPaneById,
         getTabById,
@@ -111,7 +100,6 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         activateTab,
         removeTabFromState,
         cleanupEmptyPanes,
-        workspaceSplitCache,
         isSingletonPlaceholderCloseBlocked,
         enqueueTabTransition,
         captureWorkspacePayload,
@@ -121,7 +109,6 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         handleCloseTab,
     } = options;
 
-    const splitCacheCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
     const canTransferTabsAcrossWindows = computed(() => hasElectronAPI());
 
     function getDirectionalTargetPane(sourcePaneId: string, direction: TPaneDirection) {
@@ -183,45 +170,6 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         };
     }
 
-    function scheduleSplitCacheCleanup(tabId: string, entryId: string | null) {
-        if (!entryId) {
-            return;
-        }
-
-        const previousTimer = splitCacheCleanupTimers.get(tabId);
-        if (previousTimer) {
-            clearTimeout(previousTimer);
-        }
-
-        const timer = setTimeout(() => {
-            splitCacheCleanupTimers.delete(tabId);
-            const snapshot = getDocumentRecord(tabId)?.toolbarSnapshot;
-            if (hasWorkspaceViewerDocumentCapabilities(snapshot?.viewerCapabilities)) {
-                workspaceSplitCache.clear(tabId, entryId);
-                return;
-            }
-            const workspace = workspaceRefs.value.get(tabId);
-            if (
-                workspace
-                && (
-                    workspaceHasPdf(workspace)
-                    || hasWorkspaceViewerDocumentCapabilities(workspace.getToolbarSnapshot().viewerCapabilities)
-                )
-            ) {
-                workspaceSplitCache.clear(tabId, entryId);
-            }
-        }, TAB_TRANSITION_CACHE_GRACE_MS);
-        timer.unref?.();
-        splitCacheCleanupTimers.set(tabId, timer);
-    }
-
-    function setSplitCachePayload(tabId: string, payload: TSplitPayload) {
-        const session = createWorkspaceSplitCacheSessionState(documentSessionsByTabId?.value[tabId]);
-        return session
-            ? workspaceSplitCache.set(tabId, payload, {session})
-            : workspaceSplitCache.set(tabId, payload);
-    }
-
     async function captureActiveTabPayload() {
         const sourcePane = getPaneById(activePaneId.value);
         const sourceTabId = sourcePane?.activeTabId ?? null;
@@ -243,21 +191,6 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         };
     }
 
-    async function createIndependentSplitRestorePayload(payload: TSplitPayload): Promise<TSplitPayload> {
-        if (payload.kind !== 'pdfSnapshot') {
-            return payload;
-        }
-
-        const snapshotPath = await getDocumentWorkingCopyCapability().createWorkingCopyFromPath(
-            payload.snapshotPath,
-            payload.originalPath ?? undefined,
-        );
-        return {
-            ...payload,
-            snapshotPath,
-        };
-    }
-
     const tabContextAvailabilityByPane = computed<Record<string, ITabContextAvailability>>(() => {
         const result: Record<string, ITabContextAvailability> = {};
         const transitionsBusy = isTabTransitionBusy.value;
@@ -270,89 +203,27 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
     });
 
     async function splitEditor(direction: TPaneDirection) {
-        await enqueueTabTransition(async () => {
-            const activeTabPayload = await captureActiveTabPayload();
-            if (!activeTabPayload) {
-                return;
-            }
-            const {
-                payload,
-                sourcePane,
-                sourceTab,
-                sourceTabId,
-            } = activeTabPayload;
-
-            const cacheEntryId = setSplitCachePayload(sourceTabId, payload);
-            scheduleSplitCacheCleanup(sourceTabId, cacheEntryId);
-
-            const targetPayload = await createIndependentSplitRestorePayload(payload);
-            const newPaneId = splitPane(sourcePane.paneId, direction);
-            if (!newPaneId) {
-                await cleanupSplitPayloadSnapshot(targetPayload, {
-                    logSection: 'split-cache',
-                    context: 'split-editor-pane-create-failed',
-                    metadata: { tabId: sourceTabId },
-                });
-                return;
-            }
-
-            const newTab = createTab({
-                paneId: newPaneId,
-                activate: false,
-                initial: {
-                    fileName: sourceTab.fileName,
-                    originalPath: sourceTab.originalPath,
-                    isDirty: sourceTab.isDirty,
-                    isDjvu: sourceTab.isDjvu,
-                },
-            });
-
-            const restored = await restoreWorkspacePayload(newTab.id, targetPayload);
-            if (!restored) {
-                await cleanupSplitPayloadSnapshot(targetPayload, {
-                    logSection: 'split-cache',
-                    context: 'split-editor-restore-failed',
-                    metadata: { tabId: newTab.id },
-                });
-                removeTabFromState(newTab.id);
-                activateTab(sourcePane.paneId, sourceTabId);
-                return;
-            }
-
-            activatePane(sourcePane.paneId);
-            activateTab(sourcePane.paneId, sourceTabId);
-            cleanupEmptyPanes();
-        });
-    }
-
-    async function splitEditorEmpty(direction: TPaneDirection) {
-        await enqueueTabTransition(async () => {
+        await enqueueTabTransition(() => {
             const sourcePane = getPaneById(activePaneId.value);
-            const sourceTabId = sourcePane?.activeTabId ?? null;
             if (!sourcePane) {
-                return;
+                return Promise.resolve();
             }
-
-            if (sourceTabId) {
-                const payload = await captureWorkspacePayload(sourceTabId);
-                if (payload) {
-                    const cacheEntryId = setSplitCachePayload(sourceTabId, payload);
-                    scheduleSplitCacheCleanup(sourceTabId, cacheEntryId);
-                }
-            }
-
             const newPaneId = splitPane(sourcePane.paneId, direction);
             if (!newPaneId) {
-                return;
+                return Promise.resolve();
             }
 
             createTab({
                 paneId: newPaneId,
                 activate: true,
             });
-
             activatePane(newPaneId);
+            return Promise.resolve();
         });
+    }
+
+    async function splitEditorEmpty(direction: TPaneDirection) {
+        await splitEditor(direction);
     }
 
     function focusEditorPane(direction: TPaneDirection) {
@@ -591,10 +462,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
     }
 
     function cleanup() {
-        for (const timer of splitCacheCleanupTimers.values()) {
-            clearTimeout(timer);
-        }
-        splitCacheCleanupTimers.clear();
+        // Stable lifecycle hook retained for the shell binding.
     }
 
     return {

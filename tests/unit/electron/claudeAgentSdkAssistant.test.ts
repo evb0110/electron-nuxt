@@ -190,6 +190,9 @@ describe('claudeAgentSdkAssistant', () => {
             onInitialized: vi.fn(),
             onTurnStarted: vi.fn(),
             onAssistantDelta: vi.fn(),
+            onReasoningDelta: vi.fn(),
+            onToolActivity: vi.fn(),
+            onUsage: vi.fn(),
             onAssistantMessage: vi.fn(),
             onTurnCompleted: vi.fn(),
             onError: vi.fn(),
@@ -218,6 +221,16 @@ describe('claudeAgentSdkAssistant', () => {
             },
         });
         fakeQuery.push({
+            type: 'stream_event',
+            event: {
+                type: 'content_block_delta',
+                delta: {
+                    type: 'thinking_delta',
+                    thinking: 'First inspect the document.',
+                },
+            },
+        });
+        fakeQuery.push({
             type: 'assistant',
             message: { content: [{
                 type: 'text',
@@ -225,16 +238,58 @@ describe('claudeAgentSdkAssistant', () => {
             }] },
         });
         fakeQuery.push({
+            type: 'assistant',
+            message: { content: [{
+                type: 'tool_use',
+                id: 'tool-1',
+                name: 'mcp__evb_viewer_embedded__evb_run_action',
+                input: {},
+            }] },
+        });
+        fakeQuery.push({
+            type: 'tool_progress',
+            tool_use_id: 'tool-1',
+            tool_name: 'mcp__evb_viewer_embedded__evb_run_action',
+            elapsed_time_seconds: 1,
+        });
+        fakeQuery.push({
+            type: 'tool_use_summary',
+            summary: 'Done',
+            preceding_tool_use_ids: ['tool-1'],
+        });
+        fakeQuery.push({
             type: 'result',
             subtype: 'error_during_execution',
             is_error: true,
+            usage: {
+                input_tokens: 13,
+                output_tokens: 8,
+                cache_read_input_tokens: 5,
+                cache_creation_input_tokens: 2,
+            },
             result: 'Claude exploded politely.',
         });
         await settleAsyncTicks();
 
         expect(callbacks.onTurnStarted).toHaveBeenCalledWith(turnId);
         expect(callbacks.onAssistantDelta).toHaveBeenCalledWith(turnId, expect.any(String), 'Hi');
+        expect(callbacks.onReasoningDelta).toHaveBeenCalledWith(turnId, 'First inspect the document.');
         expect(callbacks.onAssistantMessage).toHaveBeenCalledWith(turnId, expect.any(String), 'Hi there', true);
+        expect(callbacks.onToolActivity).toHaveBeenCalledWith(turnId, {
+            toolId: 'tool-1',
+            name: 'mcp__evb_viewer_embedded__evb_run_action',
+            phase: 'running',
+        });
+        expect(callbacks.onToolActivity).toHaveBeenCalledWith(turnId, {
+            toolId: 'tool-1',
+            name: 'mcp__evb_viewer_embedded__evb_run_action',
+            phase: 'completed',
+        });
+        expect(callbacks.onUsage).toHaveBeenCalledWith(turnId, {
+            inputTokens: 13,
+            outputTokens: 8,
+            cachedInputTokens: 7,
+        });
         expect(callbacks.onError).toHaveBeenCalledWith(turnId, 'Claude exploded politely.');
     });
 
@@ -254,6 +309,9 @@ describe('claudeAgentSdkAssistant', () => {
                 onInitialized: vi.fn(),
                 onTurnStarted: vi.fn(),
                 onAssistantDelta: vi.fn(),
+                onReasoningDelta: vi.fn(),
+                onToolActivity: vi.fn(),
+                onUsage: vi.fn(),
                 onAssistantMessage: vi.fn(),
                 onTurnCompleted: vi.fn(),
                 onError: vi.fn(),

@@ -362,11 +362,11 @@ function applyDrawStyle(style: TDrawStyle) {
 }
 
 .annotation-style-editor-idle-icon {
-    font-size: 0.9rem;
+    font-size: var(--app-text-size-ui);
 }
 
 .annotation-style-editor-idle-label {
-    font-size: 0.78rem;
+    font-size: var(--app-text-size-meta);
     line-height: 1.25;
 }
 
@@ -375,7 +375,7 @@ function applyDrawStyle(style: TDrawStyle) {
 }
 
 .style-label {
-    font-size: 0.8rem;
+    font-size: var(--app-text-size-secondary);
     color: var(--ui-text-muted);
 }
 
@@ -388,9 +388,9 @@ function applyDrawStyle(style: TDrawStyle) {
 .swatch {
     border: 1px solid color-mix(in oklab, var(--app-pdf-color-swatch-border) 45%, transparent);
     border-radius: 0.3rem;
-    flex: 0 0 1.5rem;
-    width: 1.5rem;
-    height: 1.5rem;
+    flex: 0 0 var(--app-annotation-color-control-size);
+    width: var(--app-annotation-color-control-size);
+    height: var(--app-annotation-color-control-size);
     padding: 0;
     cursor: pointer;
 }
@@ -414,8 +414,8 @@ function applyDrawStyle(style: TDrawStyle) {
 }
 
 .style-range :deep(.style-range-track) {
-    height: 4px;
-    border-radius: 2px;
+    height: var(--app-range-track-height);
+    border-radius: var(--app-space-3xs);
     background: var(--ui-border);
 }
 
@@ -424,8 +424,8 @@ function applyDrawStyle(style: TDrawStyle) {
 }
 
 .style-range :deep(.style-range-thumb) {
-    width: 14px;
-    height: 14px;
+    width: var(--app-annotation-color-swatch-size);
+    height: var(--app-annotation-color-swatch-size);
     border: 2px solid var(--app-sidebar-bg);
     background: var(--ui-text);
     box-shadow: none;
@@ -442,8 +442,8 @@ function applyDrawStyle(style: TDrawStyle) {
     border-radius: 0.4rem;
     background: var(--ui-bg);
     color: var(--ui-text);
-    width: 1.75rem;
-    height: 1.75rem;
+    width: var(--app-annotation-action-size);
+    height: var(--app-annotation-action-size);
     padding: 0;
     cursor: pointer;
 }
@@ -468,8 +468,8 @@ function applyDrawStyle(style: TDrawStyle) {
     border-radius: 0.45rem;
     background: transparent;
     color: var(--ui-text-muted);
-    min-height: 1.9rem;
-    font-size: 0.78rem;
+    min-height: var(--app-annotation-input-min-height);
+    font-size: var(--app-text-size-meta);
     font-weight: 600;
     cursor: pointer;
 }

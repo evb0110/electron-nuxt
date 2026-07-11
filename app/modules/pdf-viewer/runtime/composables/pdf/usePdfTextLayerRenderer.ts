@@ -1,4 +1,3 @@
-import { TextLayer } from '@app/services/pdfjs/runtimeLib';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import type { MaybeRefOrGetter } from 'vue';
 import { tryOnScopeDispose } from '@vueuse/core';
@@ -8,6 +7,7 @@ import type {
     IPdfSearchMatch,
 } from '@app/types/pdfUi';
 import type { IOcrWord } from '@contracts/shared';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import { buildOcrWordKey } from '@contracts/ocrText';
 import type { TextContent } from 'pdfjs-dist/types/src/display/api';
 import { usePdfSearchHighlight } from '@app/modules/pdf-viewer/runtime/composables/usePdfSearchHighlight';
@@ -38,15 +38,15 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { measureDevPerf } from '@app/utils/devPerf';
 import { logPdfNav } from '@app/utils/logPdfNav';
 import { guardAsync } from '@app/utils/asyncGuard';
-
+import { createPdfjsTextLayer } from '@app/services/pdfjs/pdfViewerFacade';
+import {
+    applyPdfViewportWrite,
+    type IPdfViewportWritePort,
+} from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
 const HIGHLIGHT_REFRESH_BUDGET_MS = 8;
 const HIGHLIGHT_REFRESH_MAX_PAGES_PER_SLICE = 4;
 
-function createAbortError() {
-    const error = new Error('Text layer rendering was cancelled');
-    error.name = 'AbortError';
-    return error;
-}
+const createAbortError = () => new DOMException('Text layer rendering was cancelled', 'AbortError');
 
 function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) {
@@ -58,8 +58,9 @@ export const usePdfTextLayerRenderer = (deps: {
     searchPageMatches: MaybeRefOrGetter<Map<number, IPdfPageMatches>>;
     currentSearchMatch: MaybeRefOrGetter<IPdfSearchMatch | null>;
     workingCopyPath: MaybeRefOrGetter<string | null>;
-    documentRevisionToken: MaybeRefOrGetter<string | null>;
+    documentRevisionToken: MaybeRefOrGetter<TDocumentRevisionToken | null>;
     effectiveScale: MaybeRefOrGetter<number>;
+    viewportWritePort: IPdfViewportWritePort;
 }) => {
     const { setupTextLayer } = useTextLayerSelection();
     const {
@@ -836,7 +837,7 @@ export const usePdfTextLayerRenderer = (deps: {
         textContentSource ??= await getPdfjsTextContentSource(pdfPage);
         throwIfAborted(signal);
 
-        const textLayer = new TextLayer({
+        const textLayer = createPdfjsTextLayer({
             textContentSource,
             container: textLayerDiv,
             viewport,
@@ -1007,8 +1008,12 @@ export const usePdfTextLayerRenderer = (deps: {
                 + ` clampedLeft=${clampedLeft.toFixed(1)} maxLeft=${maxLeft.toFixed(1)}`,
             );
 
-            containerRoot.scrollTop = clampedTop;
-            containerRoot.scrollLeft = clampedLeft;
+            applyPdfViewportWrite(deps.viewportWritePort, containerRoot, {
+                intentId: 'search-match-arrival',
+                reason: 'search-match-arrival',
+                top: clampedTop,
+                left: clampedLeft,
+            });
         }
 
         function getCurrentGeometryMatchRect(
@@ -1067,16 +1072,13 @@ export const usePdfTextLayerRenderer = (deps: {
                 Math.max(0, bottom - top),
             );
         }
-
         const currentMatchValue = toValue(deps.currentSearchMatch);
         if (!currentMatchValue) {
             logPdfNav('[PDF-NAV] scrollToCurrentMatch: no current search match');
             return false;
         }
-
         const pageIndex = currentMatchValue.pageIndex;
         const targetContainer = getPageContainer(containerRoot, pageIndex);
-
         if (!targetContainer) {
             const mountedPages = Array.from(
                 containerRoot.querySelectorAll<HTMLElement>('.page_container'),
@@ -1090,7 +1092,6 @@ export const usePdfTextLayerRenderer = (deps: {
             );
             return false;
         }
-
         const textLayerDiv = targetContainer.querySelector<HTMLElement>('.text-layer');
         if (!textLayerDiv) {
             logPdfNav(
@@ -1098,7 +1099,6 @@ export const usePdfTextLayerRenderer = (deps: {
             );
             return false;
         }
-
         const pageMatchData = toValue(deps.searchPageMatches)?.get(pageIndex) ?? null;
         refreshSearchHighlightsForPage(
             targetContainer,
@@ -1184,7 +1184,7 @@ export const usePdfTextLayerRenderer = (deps: {
         container: HTMLElement,
         pageNumber: number,
         wcPath: string,
-        documentRevisionToken: string,
+        documentRevisionToken: TDocumentRevisionToken,
         viewport: ReturnType<PDFPageProxy['getViewport']>,
         rawPageWidth: number,
         rawPageHeight: number,

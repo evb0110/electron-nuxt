@@ -10,6 +10,7 @@ const PNG_CHUNK_CRC_LENGTH = 4;
 const PNG_PHYS_CHUNK_LENGTH = 9;
 const JPEG_APP0_MARKER = 0xE0;
 const JPEG_START_OF_SCAN_MARKER = 0xDA;
+const JPEG_APP1_MARKER = 0xE1;
 
 function readUint32BE(buf: Uint8Array, offset: number) {
     return ((buf[offset]! << 24) | (buf[offset + 1]! << 16) | (buf[offset + 2]! << 8) | buf[offset + 3]!) >>> 0;
@@ -157,6 +158,65 @@ function readJpegDpi(data: Uint8Array) {
     }
 
     return null;
+}
+
+function readUint16(data: Uint8Array, offset: number, littleEndian: boolean) {
+    return littleEndian
+        ? data[offset]! | (data[offset + 1]! << 8)
+        : readUint16BE(data, offset);
+}
+
+function readUint32(data: Uint8Array, offset: number, littleEndian: boolean) {
+    if (!littleEndian) {
+        return readUint32BE(data, offset);
+    }
+    return (data[offset]! | (data[offset + 1]! << 8) | (data[offset + 2]! << 16) | (data[offset + 3]! << 24)) >>> 0;
+}
+
+function readExifOrientationSegment(data: Uint8Array, payloadOffset: number, payloadLength: number) {
+    if (
+        payloadLength < 14
+        || String.fromCharCode(...data.subarray(payloadOffset, payloadOffset + 6)) !== 'Exif\0\0'
+    ) {
+        return 1;
+    }
+    const tiffOffset = payloadOffset + 6;
+    const littleEndian = data[tiffOffset] === 0x49 && data[tiffOffset + 1] === 0x49;
+    if (!littleEndian && !(data[tiffOffset] === 0x4d && data[tiffOffset + 1] === 0x4d)) {
+        return 1;
+    }
+    const ifdOffset = tiffOffset + readUint32(data, tiffOffset + 4, littleEndian);
+    if (ifdOffset + 2 > payloadOffset + payloadLength) {
+        return 1;
+    }
+    const entryCount = readUint16(data, ifdOffset, littleEndian);
+    for (let index = 0; index < entryCount; index += 1) {
+        const entryOffset = ifdOffset + 2 + (index * 12);
+        if (entryOffset + 12 > payloadOffset + payloadLength) break;
+        if (readUint16(data, entryOffset, littleEndian) === 0x0112) {
+            const orientation = readUint16(data, entryOffset + 8, littleEndian);
+            return orientation === 3 || orientation === 6 || orientation === 8 ? orientation : 1;
+        }
+    }
+    return 1;
+}
+
+export function readJpegExifOrientation(data: Uint8Array): 1 | 3 | 6 | 8 {
+    if (data.length < 4 || data[0] !== 0xff || data[1] !== 0xd8) {
+        return 1;
+    }
+    let offset = 2;
+    while (offset + 4 < data.length && data[offset] === 0xff) {
+        const marker = data[offset + 1]!;
+        if (marker === JPEG_START_OF_SCAN_MARKER) break;
+        const segmentLength = readUint16BE(data, offset + 2);
+        if (segmentLength < 2 || offset + 2 + segmentLength > data.length) break;
+        if (marker === JPEG_APP1_MARKER) {
+            return readExifOrientationSegment(data, offset + 4, segmentLength - 2);
+        }
+        offset += 2 + segmentLength;
+    }
+    return 1;
 }
 
 interface ITiffResolutionTags {

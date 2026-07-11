@@ -21,6 +21,7 @@ import type {
     IPdfViewerSaveTransactionResult,
 } from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
 import { cast } from '@tests/helpers/cast';
+import {requireDocumentRevisionToken} from '@contracts';
 
 const cleanAnnotationSavePlan: IPdfViewerAnnotationSavePlan = {
     route: 'source-clean',
@@ -44,7 +45,7 @@ function createExecutorFixture(overrides: {runSaveTransaction?: () => Promise<Pa
             documentIdentity: {
                 workingCopyPath: ref('/tmp/work.pdf'),
                 originalPath: ref('/tmp/source.pdf'),
-                documentRevisionToken: ref('rev-1'),
+                documentRevisionToken: ref(requireDocumentRevisionToken('rev-1')),
             },
             metadata: {
                 pageLabelsDirty: ref(false),
@@ -59,13 +60,8 @@ function createExecutorFixture(overrides: {runSaveTransaction?: () => Promise<Pa
                     baseBytes: new Uint8Array([1]),
                     serializedBytes: null,
                     serializedResult: null,
-                    nativeMutationPlan: null,
+                    nativeMutationProjection: null,
                     annotationSavePlan: cleanAnnotationSavePlan,
-                    annotationCommentsSnapshot: [],
-                    pendingEmbeddedTextUpdates: new Map(),
-                    pendingEmbeddedAnnotationDeletes: [],
-                    restoreConsumedPendingEmbeddedMutations: vi.fn(),
-                    commitConsumedPendingEmbeddedMutations: vi.fn(),
                     ...(overrides.runSaveTransaction ? await overrides.runSaveTransaction() : {}),
                 })),
                 saveDocument: vi.fn(async () => new Uint8Array([7])),
@@ -124,7 +120,6 @@ function createExecutorFixture(overrides: {runSaveTransaction?: () => Promise<Pa
 function createContext(route: TWorkspaceSavePersistenceRoute): IFileOperationsSaveContext {
     const markFinalized = vi.fn();
     return cast<IFileOperationsSaveContext>({
-        annotationCommentsSnapshot: [],
         dirtyState: {
             annotationChanges: false,
             annotationDirty: false,
@@ -154,7 +149,7 @@ function createContext(route: TWorkspaceSavePersistenceRoute): IFileOperationsSa
             livePdfjsAnnotationSession: {canPreserve: true},
             rendererFullPdfSerialization: {requiresLargeFileGuard: false},
             staleTargetProtection: {
-                expectedDocumentRevisionToken: 'rev-1',
+                expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-1'),
                 expectedOriginalPath: '/tmp/source.pdf',
                 expectedWorkingPath: '/tmp/work.pdf',
             },
@@ -205,7 +200,7 @@ describe('createFileOperationsSaveExecutor', () => {
         expect(config.persistUnserialized).toHaveBeenCalledWith({
             saveMode: 'rewrite',
             expectedWorkingPath: '/tmp/work.pdf',
-            expectedDocumentRevisionToken: 'rev-1',
+            expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-1'),
         });
         expect(ports.pdf.source.runSaveTransaction).not.toHaveBeenCalled();
         expect(ports.pdf.serialization.serializePdfForSave).not.toHaveBeenCalled();
@@ -244,6 +239,7 @@ describe('createFileOperationsSaveExecutor', () => {
             ]),
             saveMode: 'rewrite' as const,
             source: 'serialized-rewrite' as const,
+            changedObjectRefs: ['12 0 R'],
         };
         const fixture = createExecutorFixture({runSaveTransaction: async () => ({
             source: 'serialized-rewrite' as const,
@@ -267,7 +263,8 @@ describe('createFileOperationsSaveExecutor', () => {
             saveMode: 'rewrite',
             preserveLoadedSource: true,
             expectedWorkingPath: '/tmp/work.pdf',
-            expectedDocumentRevisionToken: 'rev-1',
+            expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-1'),
+            changedObjectRefs: ['12 0 R'],
         });
         expect(fixture.services.completion.primePersistedShapeStateForSave)
             .toHaveBeenCalledWith(serializedResult.finalBytes, false);
@@ -290,7 +287,7 @@ describe('createFileOperationsSaveExecutor', () => {
 
         await expect(fixture.executor.executeOptimizeCopySave({
             expectedWorkingPath: '/tmp/work.pdf',
-            expectedDocumentRevisionToken: 'rev-1',
+            expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-1'),
             options: {preset: 'lossless'},
             requestId: 'optimize-1',
             reloadWaiter: null,
@@ -302,7 +299,7 @@ describe('createFileOperationsSaveExecutor', () => {
             {
                 saveMode: 'save_as_rewrite',
                 expectedWorkingPath: '/tmp/work.pdf',
-                expectedDocumentRevisionToken: 'rev-1',
+                expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-1'),
             },
         );
     });

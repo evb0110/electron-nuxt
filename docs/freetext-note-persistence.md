@@ -38,23 +38,23 @@ This resolves the tension because:
 
 ## Why the Rect Must Be Rewritten
 
-The annotation sync layer classifies FreeText annotations as "point-like note markers" only when their normalized dimensions are tiny (≤ 0.02). PDF.js saves FreeText rects at editor size (e.g. 7×20 points), which is far too large to pass this check. Without rect rewriting, the annotation would not be recognized as a note marker on reopen, and no marker button would appear.
+The annotation sync layer classifies FreeText annotations as "point-like note markers" only when they have a linked Popup and both normalized dimensions are ≤ 0.02. The boundary is inclusive: `0.02` is a marker, while `0.020001` is not. Larger third-party FreeText annotations remain FreeText content and are never converted into app note markers. PDF.js saves the app's note-anchor rects at editor size (e.g. 7×20 points), which is too large to pass this check. Without rect rewriting, an app-created note would not be recognized as a marker on reopen.
 
 ## Why ZWS Must Be Stripped
 
-Legacy saves (from the broken ZWS-clearing approach) left `\u200B` or BOM `\uFEFF` in `/Contents`. Two guards strip these invisible characters:
+Legacy saves (from the broken ZWS-clearing approach) left `\u200B` or BOM `\uFEFF` in `/Contents`. The legacy-ingestion boundary strips these invisible characters before text enters the canonical annotation store:
 
 1. **Annotation sync text selection** — To decide whether the FreeText's text is "truly empty" (should fall through to popup text) vs "has real content". Without stripping, `"\u200B"` counts as non-empty and gets chosen over the popup's real text.
 
-2. **Stale-empty-sync guard** — To prevent a sync cycle from overwriting a note's saved text with empty text. The guard compares saved vs incoming text; without stripping, `"\u200B"` ≠ `""` would bypass the guard and discard saved content.
+Canonical note text is revisioned and can become empty only through an explicit newer `setNoteText(id, '')` command. The former note-window stale-empty heuristic is intentionally gone.
 
 ## Why annotationCursorMode Needs the Note Window Count
 
 When note windows are open, the PDF.js annotation editor layer must remain active. If `annotationCursorMode` returns `false`, the editor layer deactivates, destroying the backing editors that the note windows reference. The `hasOpenAnnotationNotes` bridge ensures the cursor mode stays active as long as any note window is open.
 
-## Why the Safety Guard Exists
+## Why Size Reduction Is Telemetry
 
-pdf-lib performs a full re-serialize when saving. Annotations that PDF.js added via incremental save can sometimes be lost during this process. The 50% size check detects catastrophic data loss and falls back to the original bytes rather than saving a corrupted file.
+pdf-lib performs a full re-serialize when saving, so a large size reduction is recorded as telemetry but is not itself proof of corruption. Structural validation and semantic reopen verification are authoritative; the former 50% guard no longer throws or silently substitutes old bytes.
 
 ## Save Pipeline Order
 
@@ -71,4 +71,4 @@ pdf-lib performs a full re-serialize when saving. Annotations that PDF.js added 
 | `app/modules/pdf-viewer/engine/serialization/pdf-serialization-embedded-notes/applyEmbeddedNoteTextUpdates.ts` | Applies note text updates during full serialization |
 | `app/modules/pdf-viewer/engine/pdf-serialization-comments/updateAnnotationTextByRef.ts` | Writes note text to FreeText `/Contents` for targeted updates |
 | `app/modules/pdf-viewer/runtime/annotations/useAnnotationSync.ts` | ZWS stripping when selecting text source |
-| `app/modules/workspace-shell/composables/useAnnotationNoteWindows.ts` | ZWS stripping in stale-empty-sync guard |
+| `app/modules/pdf-viewer/annotations/domain/annotationEntity.ts` | Canonical ZWS/BOM normalization before store commands |

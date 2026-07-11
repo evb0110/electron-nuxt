@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import type { SetOptional } from 'type-fest';
 import type {
     IAgentAssistantChatMessage,
     IAgentAssistantChatScope,
@@ -6,9 +7,12 @@ import type {
     IAgentAssistantImageAttachment,
     IAgentAssistantScopedRequest,
     IAgentAssistantStateRequest,
+    IAgentAssistantTurnState,
     TAgentAssistantEffort,
     TAgentAssistantProviderId,
     TAgentAssistantSpeedMode,
+    TAgentAssistantTurnPhase,
+    IAgentAssistantToolActivity,
 } from '@contracts/agent';
 import {
     ASSISTANT_DEFAULT_EFFORT,
@@ -16,6 +20,7 @@ import {
     CODEX_ASSISTANT_DEFAULT_MODEL,
 } from '@contracts/agentModels';
 import { isDocumentRevisionInfo } from '@contracts/documentRevision';
+import { parseDocumentInstanceId } from '@contracts/documentInstanceId';
 import type { ClaudeAgentAssistantSession } from '@electron/features/agent/claudeAgentSdkAssistant';
 import { withAssistantErrorEnvelope } from '@electron/features/agent/assistantErrorEnvelope';
 import type { IAssistantSelection } from '@electron/features/agent/assistantProviderStatus';
@@ -40,6 +45,13 @@ export interface IAssistantChatSession {
     scopeBinding: IAssistantSessionScopeBinding | null;
     messages: IAgentAssistantChatMessage[];
     lastAccessedAtMs: number;
+    turnPresentation: {
+        phase: TAgentAssistantTurnPhase;
+        reasoning: string;
+        toolActivity: IAgentAssistantToolActivity[];
+        lastEventAtMs: number | null;
+        usage: IAgentAssistantTurnState['usage'];
+    };
     claudeSession: ClaudeAgentAssistantSession | undefined;
     lastError?: string;
 }
@@ -52,7 +64,7 @@ interface IAssistantChatSessionStoreOptions {
     onSessionMessageEvent?: (event: IAgentAssistantEvent, session: IAssistantChatSession) => void;
 }
 
-type TAssistantMessageInput = Omit<IAgentAssistantChatMessage, 'id' | 'createdAt'> & { id?: string };
+type TAssistantMessageInput = SetOptional<Omit<IAgentAssistantChatMessage, 'createdAt'>, 'id'>;
 
 const DEFAULT_SELECTION = {
     provider: 'codex',
@@ -104,14 +116,14 @@ export function normalizeAssistantScope(scope: IAgentAssistantChatScope | null |
 
     const title = scope.title?.trim();
     const documentSessionKey = scope.documentSessionKey?.trim();
-    const documentInstanceId = scope.documentInstanceId?.trim();
+    const documentInstanceId = parseDocumentInstanceId(scope.documentInstanceId);
     return {
         kind: 'document',
         key,
         title: title && title.length > 0 ? title : null,
         ...(scope.tabId?.trim() ? { tabId: scope.tabId.trim() } : {}),
         ...(documentSessionKey ? { documentSessionKey } : {}),
-        ...(documentInstanceId ? { documentInstanceId } : {}),
+        ...(documentInstanceId === null ? {} : { documentInstanceId }),
         ...(scope.documentRef?.trim() ? { documentRef: scope.documentRef.trim() } : {}),
         ...(scope.documentBackend === 'browser' || scope.documentBackend === 'electron'
             ? {documentBackend: scope.documentBackend}
@@ -173,6 +185,13 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
             scopeBinding: recovered.session.scopeBinding,
             messages: recovered.session.messages,
             lastAccessedAtMs: normalizeRecoveredLastAccessedAt(recovered.session.lastAccessedAtMs),
+            turnPresentation: {
+                phase: 'idle',
+                reasoning: '',
+                toolActivity: [],
+                lastEventAtMs: null,
+                usage: null,
+            },
             claudeSession: undefined,
             ...(recovered.session.lastError === undefined ? {} : { lastError: recovered.session.lastError }),
         });
@@ -327,6 +346,13 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
             scopeBinding: null,
             messages: [],
             lastAccessedAtMs: now,
+            turnPresentation: {
+                phase: 'idle',
+                reasoning: '',
+                toolActivity: [],
+                lastEventAtMs: null,
+                usage: null,
+            },
             claudeSession: undefined,
         } satisfies IAssistantChatSession;
         chatSessions.set(sessionKey, session);

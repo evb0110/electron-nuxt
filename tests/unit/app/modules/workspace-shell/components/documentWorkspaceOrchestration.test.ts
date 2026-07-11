@@ -14,6 +14,7 @@ import {
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../..');
 const documentWorkspacePath = 'app/modules/workspace-shell/components/DocumentWorkspace.vue';
 const deferredWorkspaceSearchPath = 'app/modules/workspace-shell/composables/createDeferredWorkspaceSearch.ts';
+const workspaceOrchestrationPath = 'app/modules/workspace-shell/useWorkspaceOrchestration.ts';
 
 const expectedOrchestrationGroups = new Set([
     'annotationSession',
@@ -185,5 +186,25 @@ describe('DocumentWorkspace orchestration grouping', () => {
         expect(workspaceScript).toContain('documentRevisionToken: documentRevisionToken.value');
         expect(workspaceScript).toContain('workingCopyPath: workingCopyPath.value');
         expect(workspaceScript).toContain('deferredWorkspaceSearch.dispose();');
+    });
+
+    it('routes DjVu print through a PDF projection and waits for output-service handoff', () => {
+        const source = readWorkspaceFile(workspaceOrchestrationPath);
+        const printStart = source.indexOf('async function printDjvuSource(');
+        const printEnd = source.indexOf('\n    const workspacePrint = useWorkspacePrint(', printStart);
+        const printSource = source.slice(printStart, printEnd);
+        const projectionIndex = printSource.indexOf('ensurePdfProjection(printSession');
+        const reasonIndex = printSource.indexOf('}, \'print\', projectionSignal)');
+        const printIndex = printSource.indexOf('printDjvuPath(sourcePath');
+        const stateIndex = printSource.indexOf('getJobState(result.jobId ?? jobId)');
+        const handoffIndex = printSource.indexOf('onNativePrintHandoffStart?.()');
+
+        expect(printStart).toBeGreaterThanOrEqual(0);
+        expect(projectionIndex).toBeGreaterThanOrEqual(0);
+        expect(reasonIndex).toBeGreaterThan(projectionIndex);
+        expect(printIndex).toBeGreaterThan(projectionIndex);
+        expect(stateIndex).toBeGreaterThan(printIndex);
+        expect(handoffIndex).toBeGreaterThan(stateIndex);
+        expect(printSource).toContain('outputState.status !== \'handoff\' && outputState.status !== \'completed\'');
     });
 });

@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
     existsSync: vi.fn(() => true),
     exportPdfAsMultiPageTiff: vi.fn(),
     exportPdfPagesAsImages: vi.fn(),
+    exportDjvuPagesAsPng: vi.fn(),
+    exportDjvuAsMultiPageTiff: vi.fn(),
     fromWebContents: vi.fn(() => null),
     getPdfPageCount: vi.fn(async () => 10),
     normalizeImageExportPath: vi.fn((path: string) => ({ normalizedPath: path })),
@@ -38,6 +40,10 @@ vi.mock('@electron/features/image-export/main/export', () => ({
     exportPdfPagesAsImages: mocks.exportPdfPagesAsImages,
     getPdfPageCount: mocks.getPdfPageCount,
     normalizeImageExportPath: mocks.normalizeImageExportPath,
+}));
+vi.mock('@electron/features/image-export/main/djvuImageExport', () => ({
+    exportDjvuPagesAsPng: mocks.exportDjvuPagesAsPng,
+    exportDjvuAsMultiPageTiff: mocks.exportDjvuAsMultiPageTiff,
 }));
 
 vi.mock('@electron/te', () => ({ te: (key: string) => key }));
@@ -138,6 +144,8 @@ describe('image export IPC lifecycle', () => {
         ) => ({ normalizedPath: path.includes('.') ? path : `${path}.${fallbackFormat === 'jpeg' ? 'jpg' : fallbackFormat}` }));
         mocks.exportPdfPagesAsImages.mockResolvedValue(['/tmp/export.jpg']);
         mocks.exportPdfAsMultiPageTiff.mockResolvedValue(['/tmp/export.tiff']);
+        mocks.exportDjvuPagesAsPng.mockResolvedValue(['/tmp/export.png']);
+        mocks.exportDjvuAsMultiPageTiff.mockResolvedValue(['/tmp/export.tiff']);
     });
 
     it('defaults page image export to JPEG while offering PNG and TIFF choices', async () => {
@@ -202,6 +210,35 @@ describe('image export IPC lifecycle', () => {
             '/tmp/export.jpg',
             expect.objectContaining({ signal: expect.any(AbortSignal) }),
         );
+    });
+
+    it('routes DjVu image export through the source raster provider', async () => {
+        const sender = createSender();
+        mocks.showSaveDialog.mockResolvedValueOnce({
+            canceled: false,
+            filePath: '/tmp/export',
+        });
+
+        await expect(handlePdfExportImages(
+            createContext(sender),
+            '/tmp/working.djvu',
+            [2],
+            'djvu-export-request',
+            'djvu',
+        )).resolves.toEqual({
+            success: true,
+            outputPaths: ['/tmp/export.png'],
+        });
+
+        expect(mocks.exportDjvuPagesAsPng).toHaveBeenCalledWith(
+            '/tmp/working.djvu',
+            '/tmp/export.png',
+            expect.objectContaining({
+                pageNumbers: [2],
+                signal: expect.any(AbortSignal),
+            }),
+        );
+        expect(mocks.exportPdfPagesAsImages).not.toHaveBeenCalled();
     });
 
     it('rejects malformed page number arrays before opening an image export dialog', async () => {

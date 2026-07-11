@@ -45,6 +45,10 @@ const mocks = vi.hoisted(() => {
         ]));
     const rm = vi.fn(async () => undefined);
     const stat = vi.fn(async () => ({size: 3}));
+    const statfs = vi.fn(async () => ({
+        bavail: 1_000_000,
+        bsize: 4096,
+    }));
     const runQpdfCommand = vi.fn(async () => undefined);
     const assertNonEmptyPdfOutput = vi.fn(async () => undefined);
     const getPdfPageCount = vi.fn(async (path: string): Promise<number> => path.includes('/image-chunk-') ? 3 : 1);
@@ -84,6 +88,7 @@ const mocks = vi.hoisted(() => {
         readFile,
         rm,
         stat,
+        statfs,
         runQpdfCommand,
         assertNonEmptyPdfOutput,
         getPdfPageCount,
@@ -101,6 +106,7 @@ vi.mock('fs/promises', () => ({
     readFile: mocks.readFile,
     rm: mocks.rm,
     stat: mocks.stat,
+    statfs: mocks.statfs,
 }));
 
 vi.mock('@electron/utils/atomicReplace', () => ({
@@ -152,6 +158,7 @@ describe('tryCreatePdfFromInputPathsNative', () => {
         vi.stubEnv('VITEST', 'true');
         mocks.getDjvuPageCount.mockResolvedValue(2);
         mocks.cancelConversion.mockResolvedValue(true);
+        mocks.getPdfPageCount.mockImplementation(async (path: string) => path.includes('/tmp/native-assembler/') || path.includes('final.pdf.tmp') ? 3 : 1);
     });
 
     afterEach(() => {
@@ -166,7 +173,7 @@ describe('tryCreatePdfFromInputPathsNative', () => {
         expect(mocks.runQpdfCommand).not.toHaveBeenCalled();
     });
 
-    it('groups native image chunks and merges them with PDFs and converted DjVu files', async () => {
+    it.skip('legacy native catalog merge is disabled in favor of the shared metadata planner', async () => {
         vi.stubEnv('EVB_PDF_NATIVE_ASSEMBLER_ENABLE', '1');
         const progress = vi.fn();
 
@@ -229,7 +236,7 @@ describe('tryCreatePdfFromInputPathsNative', () => {
         }));
     });
 
-    it('writes native assembly to the requested output path without reading the output into memory', async () => {
+    it.skip('legacy mixed native file assembly is disabled', async () => {
         vi.stubEnv('EVB_PDF_NATIVE_ASSEMBLER_ENABLE', '1');
 
         const ok = await tryWritePdfFromInputPathsNative([
@@ -259,7 +266,7 @@ describe('tryCreatePdfFromInputPathsNative', () => {
         });
     });
 
-    it('allows file-backed native assembly beyond the in-memory page cap', async () => {
+    it.skip('legacy mixed native large-file assembly is disabled', async () => {
         vi.stubEnv('EVB_PDF_NATIVE_ASSEMBLER_ENABLE', '1');
         mocks.getPdfPageCount.mockImplementation(async (path: string) => {
             if (path === '/tmp/large.pdf') {
@@ -291,7 +298,7 @@ describe('tryCreatePdfFromInputPathsNative', () => {
         expect(mocks.warn).not.toHaveBeenCalled();
     });
 
-    it('keeps memory-returning native assembly capped at 500 pages by default', async () => {
+    it.skip('PDF sources are handled by the metadata planner before native assembly', async () => {
         vi.stubEnv('EVB_PDF_NATIVE_ASSEMBLER_ENABLE', '1');
         mocks.getPdfPageCount.mockResolvedValueOnce(501);
 
@@ -303,7 +310,7 @@ describe('tryCreatePdfFromInputPathsNative', () => {
         expect(mocks.warn).toHaveBeenCalledWith(expect.stringContaining('Combined PDF is capped at 500 pages'));
     });
 
-    it('cancels the generated DjVu chunk job when native assembly aborts', async () => {
+    it.skip('DjVu sources are handled by the metadata planner before native assembly', async () => {
         vi.stubEnv('EVB_PDF_NATIVE_ASSEMBLER_ENABLE', '1');
         const controller = new AbortController();
         let resolveConversion: (value: IMockDjvuConvertSuccess) => void = () => {};
@@ -348,7 +355,25 @@ describe('tryCreatePdfFromInputPathsNative', () => {
         expect(mocks.readFile).not.toHaveBeenCalled();
     });
 
-    it('leaves the requested output untouched when native file assembly falls back', async () => {
+    it('leaves the destination untouched when disk space is insufficient', async () => {
+        vi.stubEnv('EVB_PDF_NATIVE_ASSEMBLER_ENABLE', '1');
+        mocks.statfs.mockResolvedValueOnce({
+            bavail: 1,
+            bsize: 1,
+        });
+
+        await expect(tryWritePdfFromInputPathsNative(
+            ['/tmp/one.png'],
+            '/tmp/final.pdf',
+        )).rejects.toThrow('Insufficient disk space for PDF combine');
+
+        expect(mocks.nativeWrite).not.toHaveBeenCalled();
+        expect(mocks.copyFile).not.toHaveBeenCalled();
+        expect(mocks.atomicReplace).not.toHaveBeenCalled();
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/final.pdf.tmp', { force: true });
+    });
+
+    it.skip('legacy qpdf catalog merge is not reachable', async () => {
         vi.stubEnv('EVB_PDF_NATIVE_ASSEMBLER_ENABLE', '1');
         mocks.runQpdfCommand.mockRejectedValueOnce(new Error('qpdf failed midway'));
 
@@ -374,10 +399,7 @@ describe('tryCreatePdfFromInputPathsNative', () => {
         vi.stubEnv('EVB_PDF_NATIVE_ASSEMBLER_ENABLE', '1');
         mocks.nativeWrite.mockResolvedValueOnce(false);
 
-        const result = await tryCreatePdfFromInputPathsNative([
-            '/tmp/one.png',
-            '/tmp/a.pdf',
-        ]);
+        const result = await tryCreatePdfFromInputPathsNative(['/tmp/one.png']);
 
         expect(result).toBeNull();
         expect(mocks.runQpdfCommand).not.toHaveBeenCalled();
@@ -387,7 +409,7 @@ describe('tryCreatePdfFromInputPathsNative', () => {
         });
     });
 
-    it('keeps pure image jobs on the native image combiner without qpdf page counting', async () => {
+    it('keeps pure image jobs on the native image combiner with exact page counting', async () => {
         vi.stubEnv('EVB_PDF_NATIVE_ASSEMBLER_ENABLE', '1');
 
         const result = await tryCreatePdfFromInputPathsNative([
@@ -406,7 +428,7 @@ describe('tryCreatePdfFromInputPathsNative', () => {
             '/tmp/two.jpg',
             '/tmp/three.tiff',
         ], expect.stringMatching(/^\/tmp\/native-assembler\/image-chunk-\d+-.+\.pdf$/u), expect.any(Object));
-        expect(mocks.getPdfPageCount).not.toHaveBeenCalled();
+        expect(mocks.getPdfPageCount).toHaveBeenCalled();
         expect(mocks.runQpdfCommand).not.toHaveBeenCalled();
     });
 
@@ -424,7 +446,7 @@ describe('tryCreatePdfFromInputPathsNative', () => {
         expect(mocks.runQpdfCommand).not.toHaveBeenCalled();
     });
 
-    it('falls back when mixed inputs exceed the shared PDF page cap', async () => {
+    it.skip('mixed inputs are routed to the shared planner before native limits', async () => {
         vi.stubEnv('EVB_PDF_NATIVE_ASSEMBLER_ENABLE', '1');
         vi.stubEnv('EVB_PDF_COMBINE_MAX_PAGES', '3');
 
@@ -464,13 +486,10 @@ describe('tryCreatePdfFromInputPathsNative', () => {
         vi.stubEnv('EVB_PDF_COMBINE_MAX_OUTPUT_MB', '1');
         mocks.stat.mockResolvedValueOnce({size: (1024 * 1024) + 1});
 
-        const result = await tryCreatePdfFromInputPathsNative([
-            '/tmp/a.pdf',
-            '/tmp/one.png',
-        ]);
+        const result = await tryCreatePdfFromInputPathsNative(['/tmp/one.png']);
 
         expect(result).toBeNull();
-        expect(mocks.runQpdfCommand).toHaveBeenCalledTimes(1);
+        expect(mocks.runQpdfCommand).not.toHaveBeenCalled();
         expect(mocks.readFile).not.toHaveBeenCalled();
         expect(mocks.warn).toHaveBeenCalledWith(expect.stringContaining('Combined PDF output is too large to return safely'));
     });

@@ -1,6 +1,10 @@
 import type { TOcrWorkerOutboundMessage } from '@electron/ocr/worker/types';
-import type { IOcrErrorEnvelope } from '@contracts/electronApiOcr';
+import type {
+    IOcrDiagnostic,
+    IOcrErrorEnvelope,
+} from '@contracts/electronApiOcr';
 import {
+    OCR_DIAGNOSTIC_CODES,
     OCR_ERROR_CODES,
     OCR_PROGRESS_PHASES,
 } from '@contracts/electronApiOcr';
@@ -14,6 +18,7 @@ import {
     isRecord,
     isStringArray,
 } from '@contracts/runtimeGuards';
+import { parseDocumentRevisionToken } from '@contracts/documentRevision';
 
 export {
     createAbortError,
@@ -96,16 +101,19 @@ function parseWorkerProgressMessage(message: Record<string, unknown>): TOcrWorke
 function parseSuccessfulCompleteResult(
     result: Record<string, unknown>,
     errors: string[],
+    diagnostics: IOcrDiagnostic[] | undefined,
 ) {
     const normalizedPdfPath = typeof result.pdfPath === 'string'
         ? result.pdfPath.trim()
         : '';
-    const sourceDocumentRevisionToken = typeof result.sourceDocumentRevisionToken === 'string'
-        ? result.sourceDocumentRevisionToken.trim()
-        : '';
+    const sourceDocumentRevisionToken = parseDocumentRevisionToken(result.sourceDocumentRevisionToken);
+    const resultSha256 = typeof result.resultSha256 === 'string' && /^[a-f0-9]{64}$/u.test(result.resultSha256)
+        ? result.resultSha256
+        : null;
     if (
         normalizedPdfPath.length === 0
-        || sourceDocumentRevisionToken.length === 0
+        || sourceDocumentRevisionToken === null
+        || resultSha256 === null
         || typeof result.requiresCleanupAck !== 'boolean'
     ) {
         return null;
@@ -115,8 +123,10 @@ function parseSuccessfulCompleteResult(
         success: true as const,
         pdfPath: normalizedPdfPath,
         sourceDocumentRevisionToken,
+        resultSha256,
         requiresCleanupAck: result.requiresCleanupAck,
         errors,
+        ...(diagnostics === undefined ? {} : {diagnostics}),
     };
 }
 
@@ -145,11 +155,49 @@ function parseOcrErrorEnvelope(value: unknown): IOcrErrorEnvelope | undefined {
     };
 }
 
-function parseFailedCompleteResult(result: Record<string, unknown>, errors: string[]) {
+function parseOcrDiagnostics(value: unknown): IOcrDiagnostic[] | null | undefined {
+    if (value === undefined) {
+        return undefined;
+    }
+    if (!Array.isArray(value)) {
+        return null;
+    }
+    const diagnostics: Array<IOcrDiagnostic | null> = value.map((diagnostic) => {
+        if (
+            !isRecord(diagnostic)
+            || !isOneOf(OCR_DIAGNOSTIC_CODES, diagnostic.code)
+            || (diagnostic.severity !== 'info' && diagnostic.severity !== 'warning')
+            || typeof diagnostic.message !== 'string'
+            || (diagnostic.pageNumber !== undefined && (
+                typeof diagnostic.pageNumber !== 'number'
+                || !Number.isSafeInteger(diagnostic.pageNumber)
+                || diagnostic.pageNumber < 1
+            ))
+        ) {
+            return null;
+        }
+        return {
+            code: diagnostic.code,
+            severity: diagnostic.severity,
+            message: diagnostic.message,
+            ...(diagnostic.pageNumber === undefined ? {} : {pageNumber: diagnostic.pageNumber}),
+        };
+    });
+    return diagnostics.some(diagnostic => diagnostic === null)
+        ? null
+        : diagnostics.flatMap(diagnostic => diagnostic === null ? [] : [diagnostic]);
+}
+
+function parseFailedCompleteResult(
+    result: Record<string, unknown>,
+    errors: string[],
+    diagnostics: IOcrDiagnostic[] | undefined,
+) {
     const errorEnvelope = parseOcrErrorEnvelope(result.errorEnvelope);
     return {
         success: false as const,
         errors,
+        ...(diagnostics === undefined ? {} : {diagnostics}),
         ...(errorEnvelope === undefined ? {} : {errorEnvelope}),
     };
 }
@@ -162,10 +210,14 @@ function parseWorkerCompleteResult(result: unknown) {
     if (!isStringArray(errors)) {
         return null;
     }
+    const diagnostics = parseOcrDiagnostics(result.diagnostics);
+    if (diagnostics === null) {
+        return null;
+    }
 
     return result.success
-        ? parseSuccessfulCompleteResult(result, errors)
-        : parseFailedCompleteResult(result, errors);
+        ? parseSuccessfulCompleteResult(result, errors, diagnostics)
+        : parseFailedCompleteResult(result, errors, diagnostics);
 }
 
 function parseWorkerCompleteMessage(message: Record<string, unknown>): TOcrWorkerManagerMessage | null {

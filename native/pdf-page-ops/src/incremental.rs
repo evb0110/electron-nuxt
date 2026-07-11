@@ -1,10 +1,12 @@
-struct SkipWriter<W: Write> {
-    inner: W,
-    bytes_to_skip: usize,
+use super::*;
+
+pub(crate) struct SkipWriter<W: Write> {
+    pub(crate) inner: W,
+    pub(crate) bytes_to_skip: usize,
 }
 
 impl<W: Write> SkipWriter<W> {
-    fn new(inner: W, bytes_to_skip: usize) -> Self {
+    pub(crate) fn new(inner: W, bytes_to_skip: usize) -> Self {
         Self {
             inner,
             bytes_to_skip,
@@ -28,7 +30,7 @@ impl<W: Write> Write for SkipWriter<W> {
     }
 }
 
-fn append_paths_refer_to_same_file(input_path: &PathBuf, output_path: &PathBuf) -> bool {
+pub(crate) fn append_paths_refer_to_same_file(input_path: &PathBuf, output_path: &PathBuf) -> bool {
     if input_path == output_path {
         return true;
     }
@@ -39,7 +41,7 @@ fn append_paths_refer_to_same_file(input_path: &PathBuf, output_path: &PathBuf) 
     }
 }
 
-fn assert_append_output_seeded(
+pub(crate) fn assert_append_output_seeded(
     input_path: &PathBuf,
     output_path: &PathBuf,
     previous_bytes: &[u8],
@@ -56,7 +58,7 @@ fn assert_append_output_seeded(
     Err("Append output must already contain an exact byte-for-byte copy of the input PDF".into())
 }
 
-fn append_note_text_update(
+pub(crate) fn append_note_text_update(
     input_path: &PathBuf,
     output_path: &PathBuf,
     updates: &[NoteTextUpdate],
@@ -64,7 +66,10 @@ fn append_note_text_update(
 ) -> Result<()> {
     let mut incremental = IncrementalDocument::load(input_path)?;
     if incremental.get_prev_documents().is_encrypted() {
-        return Err("Encrypted PDFs are not supported by native page ops".into());
+        return Err(domain_error(
+            NativeErrorCode::Encrypted,
+            "Encrypted PDFs are not supported by native page ops",
+        ));
     }
 
     incremental.new_document.version = incremental.get_prev_documents().version.clone();
@@ -86,7 +91,8 @@ fn append_note_text_update(
         previous_len,
         previous_xref_start,
         &expected_object_ids,
-    )?;
+    )
+    .map_err(|error| reclassify_domain_error(error, NativeErrorCode::CorruptXref))?;
     if should_run_full_incremental_post_save_validation() {
         let output_document = Document::load(output_path)?;
         validate_note_text_document_postconditions(&output_document, updates, modified_at)?;
@@ -94,7 +100,7 @@ fn append_note_text_update(
     Ok(())
 }
 
-fn append_note_changes(
+pub(crate) fn append_note_changes(
     input_path: &PathBuf,
     output_path: &PathBuf,
     changes: &NoteChangesFile,
@@ -102,7 +108,10 @@ fn append_note_changes(
 ) -> Result<()> {
     let mut incremental = IncrementalDocument::load(input_path)?;
     if incremental.get_prev_documents().is_encrypted() {
-        return Err("Encrypted PDFs are not supported by native page ops".into());
+        return Err(domain_error(
+            NativeErrorCode::Encrypted,
+            "Encrypted PDFs are not supported by native page ops",
+        ));
     }
 
     incremental.new_document.version = incremental.get_prev_documents().version.clone();
@@ -136,7 +145,8 @@ fn append_note_changes(
         previous_len,
         previous_xref_start,
         &expected_object_ids,
-    )?;
+    )
+    .map_err(|error| reclassify_domain_error(error, NativeErrorCode::CorruptXref))?;
     if should_run_full_incremental_post_save_validation() {
         let output_document = Document::load(output_path)?;
         validate_note_text_document_postconditions(
@@ -154,7 +164,7 @@ fn append_note_changes(
     Ok(())
 }
 
-fn apply_native_mutations(
+pub(crate) fn apply_native_mutations(
     document: &mut Document,
     mutations: &NativeMutationsFile,
     modified_at: &str,
@@ -186,7 +196,7 @@ fn apply_native_mutations(
     Ok(())
 }
 
-fn apply_native_mutations_incremental(
+pub(crate) fn apply_native_mutations_incremental(
     incremental: &mut IncrementalDocument,
     mutations: &NativeMutationsFile,
     modified_at: &str,
@@ -218,7 +228,7 @@ fn apply_native_mutations_incremental(
     Ok(())
 }
 
-fn append_native_mutations(
+pub(crate) fn append_native_mutations(
     input_path: &PathBuf,
     output_path: &PathBuf,
     mutations: &NativeMutationsFile,
@@ -226,7 +236,10 @@ fn append_native_mutations(
 ) -> Result<()> {
     let mut incremental = IncrementalDocument::load(input_path)?;
     if incremental.get_prev_documents().is_encrypted() {
-        return Err("Encrypted PDFs are not supported by native page ops".into());
+        return Err(domain_error(
+            NativeErrorCode::Encrypted,
+            "Encrypted PDFs are not supported by native page ops",
+        ));
     }
 
     incremental.new_document.version = incremental.get_prev_documents().version.clone();
@@ -248,7 +261,8 @@ fn append_native_mutations(
         previous_len,
         previous_xref_start,
         &expected_object_ids,
-    )?;
+    )
+    .map_err(|error| reclassify_domain_error(error, NativeErrorCode::CorruptXref))?;
     if should_run_full_incremental_post_save_validation() {
         let output_document = Document::load(output_path)?;
         validate_note_text_document_postconditions(
@@ -283,7 +297,9 @@ fn append_native_mutations(
     Ok(())
 }
 
-fn collect_incremental_append_object_ids(incremental: &IncrementalDocument) -> Vec<ObjectId> {
+pub(crate) fn collect_incremental_append_object_ids(
+    incremental: &IncrementalDocument,
+) -> Vec<ObjectId> {
     incremental
         .new_document
         .objects
@@ -298,7 +314,7 @@ fn collect_incremental_append_object_ids(incremental: &IncrementalDocument) -> V
         .collect()
 }
 
-fn should_write_incremental_object(object: &Object) -> bool {
+pub(crate) fn should_write_incremental_object(object: &Object) -> bool {
     object
         .type_name()
         .map(|name| {
@@ -312,7 +328,7 @@ fn should_write_incremental_object(object: &Object) -> bool {
         .unwrap_or(true)
 }
 
-fn should_run_full_incremental_post_save_validation_for(value: Option<&str>) -> bool {
+pub(crate) fn should_run_full_incremental_post_save_validation_for(value: Option<&str>) -> bool {
     match value.map(str::trim) {
         Some("0") => false,
         Some(value) if value.eq_ignore_ascii_case("false") => false,
@@ -321,12 +337,12 @@ fn should_run_full_incremental_post_save_validation_for(value: Option<&str>) -> 
     }
 }
 
-fn should_run_full_incremental_post_save_validation() -> bool {
+pub(crate) fn should_run_full_incremental_post_save_validation() -> bool {
     let value = env::var("EVB_PDF_PAGE_OPS_FULL_INCREMENTAL_VALIDATE").ok();
     should_run_full_incremental_post_save_validation_for(value.as_deref())
 }
 
-fn validate_incremental_append_output(
+pub(crate) fn validate_incremental_append_output(
     output_path: &PathBuf,
     previous_len: usize,
     previous_xref_start: usize,
@@ -358,8 +374,7 @@ fn validate_incremental_append_output(
         .ok_or("Native incremental append is missing a /Prev pointer")?;
     if prev_offset != u64::try_from(previous_xref_start)? {
         return Err(
-            "Native incremental append /Prev pointer does not match the previous revision"
-                .into(),
+            "Native incremental append /Prev pointer does not match the previous revision".into(),
         );
     }
 
@@ -388,16 +403,16 @@ fn validate_incremental_append_output(
     Ok(())
 }
 
-fn validate_expected_incremental_objects(
+pub(crate) fn validate_expected_incremental_objects(
     appended_bytes: &[u8],
     previous_len: u64,
     expected_object_ids: &[ObjectId],
     xref_entries: &HashMap<ObjectId, u64>,
 ) -> Result<()> {
     for object_id in expected_object_ids {
-        let xref_offset = xref_entries
-            .get(object_id)
-            .ok_or_else(|| format!("Native incremental append xref is missing object {object_id:?}"))?;
+        let xref_offset = xref_entries.get(object_id).ok_or_else(|| {
+            format!("Native incremental append xref is missing object {object_id:?}")
+        })?;
         if *xref_offset < previous_len {
             return Err(format!(
                 "Native incremental append xref for object {object_id:?} points before the appended revision"
@@ -419,7 +434,7 @@ fn validate_expected_incremental_objects(
     Ok(())
 }
 
-fn parse_incremental_xref_table(
+pub(crate) fn parse_incremental_xref_table(
     appended_bytes: &[u8],
     xref_relative_offset: usize,
 ) -> Result<HashMap<ObjectId, u64>> {
@@ -458,7 +473,7 @@ fn parse_incremental_xref_table(
     }
 }
 
-fn parse_incremental_xref_stream(
+pub(crate) fn parse_incremental_xref_stream(
     appended_bytes: &[u8],
     xref_relative_offset: usize,
 ) -> Result<HashMap<ObjectId, u64>> {
@@ -478,35 +493,50 @@ fn parse_incremental_xref_stream(
     let stream_marker_offset = find_bytes(xref_bytes, b"stream")
         .ok_or("Native incremental append xref stream is missing stream data")?;
     let dictionary_bytes = &xref_bytes[..stream_marker_offset];
-    if !contains_bytes(dictionary_bytes, b"/Type/XRef")
-        && !(contains_bytes(dictionary_bytes, b"/Type") && contains_bytes(dictionary_bytes, b"/XRef"))
+    if !(contains_bytes(dictionary_bytes, b"/Type/XRef")
+        || contains_bytes(dictionary_bytes, b"/Type") && contains_bytes(dictionary_bytes, b"/XRef"))
     {
         return Err("Native incremental append xref stream is missing /Type /XRef".into());
     }
     if contains_bytes(dictionary_bytes, b"/Filter") {
-        return Err("Native incremental append xref stream uses an unsupported filter".into());
+        return Err(domain_error(
+            NativeErrorCode::UnsupportedFilter,
+            "Native incremental append xref stream uses an unsupported filter",
+        ));
     }
     parse_number_after_marker(dictionary_bytes, b"/Size")
         .ok_or("Native incremental append xref stream is missing /Size")?;
     let w_values = parse_number_array_after_marker(dictionary_bytes, b"/W")
         .ok_or("Native incremental append xref stream is missing /W")?;
-    if w_values.as_slice() != [1, 4, 2] {
+    if w_values.len() != 3 || w_values.iter().any(|width| *width > 8) {
         return Err("Native incremental append xref stream has unsupported /W widths".into());
     }
+    let widths = [
+        usize::try_from(w_values[0])?,
+        usize::try_from(w_values[1])?,
+        usize::try_from(w_values[2])?,
+    ];
+    let entry_stride = widths
+        .iter()
+        .try_fold(0usize, |total, width| total.checked_add(*width))
+        .filter(|stride| *stride > 0)
+        .ok_or("Native incremental append xref stream has an invalid /W stride")?;
     let index_values = parse_number_array_after_marker(dictionary_bytes, b"/Index")
         .ok_or("Native incremental append xref stream is missing /Index")?;
     if index_values.len() % 2 != 0 {
         return Err("Native incremental append xref stream has an invalid /Index array".into());
     }
 
-    let stream_content_start = skip_stream_line_ending(xref_bytes, stream_marker_offset + b"stream".len());
+    let stream_content_start =
+        skip_stream_line_ending(xref_bytes, stream_marker_offset + b"stream".len());
     let endstream_offset = find_bytes(&xref_bytes[stream_content_start..], b"endstream")
         .map(|offset| stream_content_start + offset)
         .ok_or("Native incremental append xref stream is missing endstream")?;
     let mut stream_content_end = endstream_offset;
     if stream_content_end > stream_content_start && xref_bytes[stream_content_end - 1] == b'\n' {
         stream_content_end -= 1;
-        if stream_content_end > stream_content_start && xref_bytes[stream_content_end - 1] == b'\r' {
+        if stream_content_end > stream_content_start && xref_bytes[stream_content_end - 1] == b'\r'
+        {
             stream_content_end -= 1;
         }
     }
@@ -524,13 +554,22 @@ fn parse_incremental_xref_stream(
         let entry_count = u32::try_from(pair[1])?;
         for object_index in 0..entry_count {
             let entry = stream_content
-                .get(content_cursor..content_cursor + 7)
+                .get(content_cursor..content_cursor + entry_stride)
                 .ok_or("Native incremental append xref stream ended early")?;
-            content_cursor += 7;
-            if entry[0] == 1 {
-                let offset = u32::from_be_bytes([entry[1], entry[2], entry[3], entry[4]]) as u64;
-                let generation = u16::from_be_bytes([entry[5], entry[6]]);
-                entries.insert((start_object + object_index, generation), offset);
+            content_cursor += entry_stride;
+            let mut field_cursor = 0usize;
+            let entry_type = if widths[0] == 0 {
+                1
+            } else {
+                read_xref_stream_field(entry, &mut field_cursor, widths[0])?
+            };
+            let offset = read_xref_stream_field(entry, &mut field_cursor, widths[1])?;
+            let generation = read_xref_stream_field(entry, &mut field_cursor, widths[2])?;
+            if entry_type == 1 {
+                entries.insert(
+                    (start_object + object_index, u16::try_from(generation)?),
+                    offset,
+                );
             }
         }
     }
@@ -547,7 +586,39 @@ fn parse_incremental_xref_stream(
     Ok(entries)
 }
 
-fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
+#[doc(hidden)]
+pub fn fuzz_parse_incremental_xref_table(data: &[u8]) {
+    let _ = parse_incremental_xref_table(data, 0);
+}
+
+#[doc(hidden)]
+pub fn fuzz_parse_incremental_xref_stream(data: &[u8]) {
+    let _ = parse_incremental_xref_stream(data, 0);
+}
+
+pub(crate) fn read_xref_stream_field(
+    entry: &[u8],
+    cursor: &mut usize,
+    width: usize,
+) -> Result<u64> {
+    let bytes = entry
+        .get(
+            *cursor
+                ..cursor
+                    .checked_add(width)
+                    .ok_or("Invalid xref field width")?,
+        )
+        .ok_or("Native incremental append xref stream field ended early")?;
+    *cursor += width;
+    bytes.iter().try_fold(0u64, |value, byte| {
+        value
+            .checked_mul(256)
+            .and_then(|value| value.checked_add(u64::from(*byte)))
+            .ok_or_else(|| "Native incremental append xref stream field overflow".into())
+    })
+}
+
+pub(crate) fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
     if needle.is_empty() {
         return true;
     }
@@ -556,7 +627,7 @@ fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
         .any(|window| window == needle)
 }
 
-fn find_last_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+pub(crate) fn find_last_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() || haystack.len() < needle.len() {
         return None;
     }
@@ -565,7 +636,7 @@ fn find_last_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
         .rposition(|window| window == needle)
 }
 
-fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+pub(crate) fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() || haystack.len() < needle.len() {
         return None;
     }
@@ -574,17 +645,17 @@ fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
         .position(|window| window == needle)
 }
 
-fn parse_number_after_marker(bytes: &[u8], marker: &[u8]) -> Option<u64> {
+pub(crate) fn parse_number_after_marker(bytes: &[u8], marker: &[u8]) -> Option<u64> {
     let index = find_bytes(bytes, marker)? + marker.len();
     parse_u64_token(bytes, index).map(|(value, _)| value)
 }
 
-fn parse_number_after_last_marker(bytes: &[u8], marker: &[u8]) -> Option<u64> {
+pub(crate) fn parse_number_after_last_marker(bytes: &[u8], marker: &[u8]) -> Option<u64> {
     let index = find_last_bytes(bytes, marker)? + marker.len();
     parse_u64_token(bytes, index).map(|(value, _)| value)
 }
 
-fn parse_number_array_after_marker(bytes: &[u8], marker: &[u8]) -> Option<Vec<u64>> {
+pub(crate) fn parse_number_array_after_marker(bytes: &[u8], marker: &[u8]) -> Option<Vec<u64>> {
     let mut index = skip_ascii_whitespace(bytes, find_bytes(bytes, marker)? + marker.len());
     if bytes.get(index) != Some(&b'[') {
         return None;
@@ -605,14 +676,14 @@ fn parse_number_array_after_marker(bytes: &[u8], marker: &[u8]) -> Option<Vec<u6
     }
 }
 
-fn skip_ascii_whitespace(bytes: &[u8], mut index: usize) -> usize {
+pub(crate) fn skip_ascii_whitespace(bytes: &[u8], mut index: usize) -> usize {
     while index < bytes.len() && bytes[index].is_ascii_whitespace() {
         index += 1;
     }
     index
 }
 
-fn skip_stream_line_ending(bytes: &[u8], index: usize) -> usize {
+pub(crate) fn skip_stream_line_ending(bytes: &[u8], index: usize) -> usize {
     match bytes.get(index..) {
         Some(bytes) if bytes.starts_with(b"\r\n") => index + 2,
         Some(bytes) if bytes.starts_with(b"\n") || bytes.starts_with(b"\r") => index + 1,
@@ -620,7 +691,7 @@ fn skip_stream_line_ending(bytes: &[u8], index: usize) -> usize {
     }
 }
 
-fn parse_u64_token(bytes: &[u8], index: usize) -> Option<(u64, usize)> {
+pub(crate) fn parse_u64_token(bytes: &[u8], index: usize) -> Option<(u64, usize)> {
     let mut index = skip_ascii_whitespace(bytes, index);
     let start = index;
     while index < bytes.len() && bytes[index].is_ascii_digit() {
@@ -629,26 +700,29 @@ fn parse_u64_token(bytes: &[u8], index: usize) -> Option<(u64, usize)> {
     if start == index {
         return None;
     }
-    let value = std::str::from_utf8(&bytes[start..index]).ok()?.parse().ok()?;
+    let value = std::str::from_utf8(&bytes[start..index])
+        .ok()?
+        .parse()
+        .ok()?;
     Some((value, index))
 }
 
-fn parse_u32_token(bytes: &[u8], index: usize) -> Option<(u32, usize)> {
+pub(crate) fn parse_u32_token(bytes: &[u8], index: usize) -> Option<(u32, usize)> {
     let (value, index) = parse_u64_token(bytes, index)?;
     Some((u32::try_from(value).ok()?, index))
 }
 
-fn parse_u16_token(bytes: &[u8], index: usize) -> Option<(u16, usize)> {
+pub(crate) fn parse_u16_token(bytes: &[u8], index: usize) -> Option<(u16, usize)> {
     let (value, index) = parse_u64_token(bytes, index)?;
     Some((u16::try_from(value).ok()?, index))
 }
 
-fn parse_non_whitespace_byte(bytes: &[u8], index: usize) -> Option<(u8, usize)> {
+pub(crate) fn parse_non_whitespace_byte(bytes: &[u8], index: usize) -> Option<(u8, usize)> {
     let index = skip_ascii_whitespace(bytes, index);
     Some((*bytes.get(index)?, index + 1))
 }
 
-fn parse_non_whitespace_token(bytes: &[u8], index: usize) -> Option<(&[u8], usize)> {
+pub(crate) fn parse_non_whitespace_token(bytes: &[u8], index: usize) -> Option<(&[u8], usize)> {
     let mut index = skip_ascii_whitespace(bytes, index);
     let start = index;
     while index < bytes.len() && !bytes[index].is_ascii_whitespace() {
@@ -658,4 +732,16 @@ fn parse_non_whitespace_token(bytes: &[u8], index: usize) -> Option<(&[u8], usiz
         return None;
     }
     Some((&bytes[start..index], index))
+}
+
+#[cfg(test)]
+mod xref_stream_canary_tests {
+    use super::*;
+
+    #[test]
+    fn accepts_dynamic_xref_stream_widths_and_stride() {
+        let appended = b"5 0 obj\n<</Type/XRef/Size 6/W[1 2 1]/Index[5 1]/Length 4>>\nstream\n\x01\x00\x00\x00\nendstream\nendobj\nstartxref\n0\n%%EOF\n";
+        let entries = parse_incremental_xref_stream(appended, 0).unwrap();
+        assert_eq!(entries.get(&(5, 0)), Some(&0));
+    }
 }

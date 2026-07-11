@@ -24,13 +24,17 @@ export function isSafeWorkerRequestId(value: unknown): value is number {
         && value >= 0;
 }
 
-export interface IErrnoLikeException extends Error {
-    code?: string | number;
+export interface IErrnoLikeException {
+    code: string | number;
     errno?: number;
     path?: string;
     syscall?: string;
 }
 
 export function isErrnoException(value: unknown): value is IErrnoLikeException {
-    return isRecord(value) && 'code' in value;
+    return isRecord(value)
+        && (typeof value.code === 'string' || typeof value.code === 'number')
+        && (value.errno === undefined || typeof value.errno === 'number')
+        && (value.path === undefined || typeof value.path === 'string')
+        && (value.syscall === undefined || typeof value.syscall === 'string');
 }

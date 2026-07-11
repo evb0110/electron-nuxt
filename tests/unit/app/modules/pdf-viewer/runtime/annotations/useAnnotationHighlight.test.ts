@@ -77,7 +77,6 @@ function createHighlightHarness(viewerContainer: HTMLElement) {
             syncMarkupSubtypePresentationForEditors: () => {},
         }),
         getSync: () => ({
-            pendingCommentEditorKeys: new Set<string>(),
             scheduleAnnotationCommentsSync: () => {},
             toEditorSummary: () => {
                 throw new Error('not used in resolvePagePointTarget tests');
@@ -231,7 +230,6 @@ describe('useAnnotationHighlight commentAtPoint', () => {
             })),
             waitForEditorsRendered: vi.fn(async () => undefined),
         };
-        const pendingCommentEditorKeys = new Set<string>();
         const emitAnnotationOpenNote = vi.fn();
 
         const highlight = useAnnotationHighlight({
@@ -240,10 +238,7 @@ describe('useAnnotationHighlight commentAtPoint', () => {
             numPages: ref(1),
             currentPage: ref(1),
             annotationTool: ref('none'),
-            getIdentity: () => ({
-                getEditorIdentity: editor => String(editor.id),
-                getEditorPendingKey: editor => `pending:${String(editor.id)}`,
-            }),
+            getIdentity: () => ({getEditorIdentity: editor => String(editor.id)}),
             getMarkupSubtype: () => ({
                 toolToMarkupSubtype: {},
                 isSelectionMarkupTool: () => false,
@@ -253,7 +248,6 @@ describe('useAnnotationHighlight commentAtPoint', () => {
                 syncMarkupSubtypePresentationForEditors: () => {},
             }),
             getSync: () => ({
-                pendingCommentEditorKeys,
                 scheduleAnnotationCommentsSync: () => {},
                 toEditorSummary: (editor, pageIndex, text) => ({
                     id: String(editor.id),
@@ -284,7 +278,6 @@ describe('useAnnotationHighlight commentAtPoint', () => {
 
         expect(created).toBe(false);
         expect(emitAnnotationOpenNote).not.toHaveBeenCalled();
-        expect(pendingCommentEditorKeys.has('pending:existing-editor')).toBe(false);
     });
 });
 
@@ -348,10 +341,7 @@ describe('useAnnotationHighlight highlightSelectionInternal', () => {
             numPages: ref(1),
             currentPage: ref(1),
             annotationTool: ref('none'),
-            getIdentity: () => ({
-                getEditorIdentity: editor => String(editor.id),
-                getEditorPendingKey: editor => `pending:${String(editor.id)}`,
-            }),
+            getIdentity: () => ({getEditorIdentity: editor => String(editor.id)}),
             getMarkupSubtype: () => ({
                 toolToMarkupSubtype: {},
                 isSelectionMarkupTool: () => false,
@@ -361,7 +351,6 @@ describe('useAnnotationHighlight highlightSelectionInternal', () => {
                 syncMarkupSubtypePresentationForEditors: () => {},
             }),
             getSync: () => ({
-                pendingCommentEditorKeys: new Set<string>(),
                 scheduleAnnotationCommentsSync: () => {},
                 toEditorSummary: () => {
                     throw new Error('not used in highlight selection test');

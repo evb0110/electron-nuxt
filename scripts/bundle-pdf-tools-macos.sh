@@ -51,13 +51,20 @@ for tool in "${required_tools[@]}"; do
 done
 
 shopt -s nullglob
-poppler_source_libs=("$BREW_PREFIX"/opt/poppler/lib/libpoppler.*.dylib)
-qpdf_source_libs=("$BREW_PREFIX"/opt/qpdf/lib/libqpdf*.dylib)
-if [ "${#poppler_source_libs[@]}" -eq 0 ]; then
+find_soname_library() {
+    local directory="$1"
+    local expression="$2"
+    find "$directory" -maxdepth 1 \( -type f -o -type l \) -print \
+        | awk -F/ -v expression="$expression" '$NF ~ expression {print; exit}'
+}
+
+poppler_source_lib="$(find_soname_library "$BREW_PREFIX/opt/poppler/lib" '^libpoppler\.[0-9]+\.dylib$')"
+qpdf_source_lib="$(find_soname_library "$BREW_PREFIX/opt/qpdf/lib" '^libqpdf\.[0-9]+\.dylib$')"
+if [ -z "$poppler_source_lib" ]; then
     echo "Error: No Homebrew Poppler dylib found under $BREW_PREFIX/opt/poppler/lib"
     exit 1
 fi
-if [ "${#qpdf_source_libs[@]}" -eq 0 ]; then
+if [ -z "$qpdf_source_lib" ]; then
     echo "Error: No Homebrew qpdf dylib found under $BREW_PREFIX/opt/qpdf/lib"
     exit 1
 fi
@@ -171,7 +178,7 @@ done
 # Copy core poppler library
 echo ""
 echo "Copying libraries..."
-for lib in "${poppler_source_libs[@]}"; do
+for lib in "$poppler_source_lib"; do
     lib_name="$(basename "$lib")"
     if [ ! -f "$POPPLER_DIR/lib/$lib_name" ]; then
         cp "$lib" "$POPPLER_DIR/lib/"
@@ -228,7 +235,7 @@ echo "  Copied qpdf"
 # Copy core qpdf library
 echo ""
 echo "Copying libraries..."
-for lib in "${qpdf_source_libs[@]}"; do
+for lib in "$qpdf_source_lib"; do
     lib_name="$(basename "$lib")"
     if [ ! -f "$QPDF_DIR/lib/$lib_name" ]; then
         cp "$lib" "$QPDF_DIR/lib/"

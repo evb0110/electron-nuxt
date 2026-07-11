@@ -1,6 +1,9 @@
 import { createBrowserDocumentContentToken } from '@app/platform/browser/browserDocumentChunkStorage';
 import type { IBrowserDocumentEntry } from '@app/platform/browser/browserDocumentTypes';
-import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
+import {
+    requireDocumentRevisionToken,
+    type IDocumentRevisionInfo,
+} from '@contracts/documentRevision';
 
 export function getBrowserDocumentEntryContentRevision(entry: IBrowserDocumentEntry) {
     return typeof entry.contentRevision === 'number'
@@ -18,7 +21,7 @@ export function createBrowserDocumentRevisionInfo(
         version: 1,
         documentRef,
         authority: 'browser-document-store',
-        token: `drt1:browser:${entry.contentToken ?? 'legacy'}`,
+        token: requireDocumentRevisionToken(`drt1:browser:${entry.contentToken ?? 'legacy'}`),
         contentRevision: getBrowserDocumentEntryContentRevision(entry),
         mintedAt: entry.updatedAt,
     };

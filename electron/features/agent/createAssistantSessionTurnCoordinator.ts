@@ -44,6 +44,13 @@ export function createAssistantSessionTurnCoordinator(options: IAssistantSession
 
     function claimSessionTurn(session: IAssistantChatSession) {
         session.turnOwner = claimAssistantTurn(session.turnOwner, createAssistantSessionScopeBinding(session));
+        session.turnPresentation = {
+            phase: 'queued',
+            reasoning: '',
+            toolActivity: [],
+            lastEventAtMs: Date.now(),
+            usage: null,
+        };
         syncSessionTurnScope(session);
         options.sessionStore.recordTurnBoundary(session);
         return session.turnOwner.generation;
@@ -71,6 +78,10 @@ export function createAssistantSessionTurnCoordinator(options: IAssistantSession
     ) {
         const previousOwner = session.turnOwner;
         session.turnOwner = completeAssistantTurn(session.turnOwner, generation, providerTurnId, completeOptions);
+        if (session.turnOwner !== previousOwner) {
+            session.turnPresentation.phase = 'done';
+            session.turnPresentation.lastEventAtMs = Date.now();
+        }
         syncSessionTurnScope(session);
         if (session.turnOwner !== previousOwner) {
             options.sessionStore.recordTurnBoundary(session);
@@ -86,6 +97,10 @@ export function createAssistantSessionTurnCoordinator(options: IAssistantSession
     ) {
         const previousOwner = session.turnOwner;
         session.turnOwner = errorAssistantTurn(session.turnOwner, generation, error, providerTurnId);
+        if (session.turnOwner !== previousOwner) {
+            session.turnPresentation.phase = 'failed';
+            session.turnPresentation.lastEventAtMs = Date.now();
+        }
         syncSessionTurnScope(session);
         if (session.turnOwner !== previousOwner) {
             options.sessionStore.recordTurnBoundary(session);
@@ -102,12 +117,16 @@ export function createAssistantSessionTurnCoordinator(options: IAssistantSession
 
     function interruptSessionTurn(session: IAssistantChatSession) {
         session.turnOwner = markAssistantTurnInterrupting(session.turnOwner);
+        session.turnPresentation.phase = 'interrupting';
+        session.turnPresentation.lastEventAtMs = Date.now();
         syncSessionTurnScope(session);
         options.sessionStore.recordTurnBoundary(session);
     }
 
     function supersedeSessionTurn(session: IAssistantChatSession) {
         session.turnOwner = supersedeAssistantTurn(session.turnOwner);
+        session.turnPresentation.phase = 'cancelled';
+        session.turnPresentation.lastEventAtMs = Date.now();
         syncSessionTurnScope(session);
         options.sessionStore.recordTurnBoundary(session);
     }

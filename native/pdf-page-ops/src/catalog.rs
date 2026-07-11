@@ -1,8 +1,10 @@
-fn clamp_u32(value: u32, min: u32, max: u32) -> u32 {
+use super::*;
+
+pub(crate) fn clamp_u32(value: u32, min: u32, max: u32) -> u32 {
     value.max(min).min(max)
 }
 
-fn normalize_page_label_style(style: Option<&str>) -> Option<String> {
+pub(crate) fn normalize_page_label_style(style: Option<&str>) -> Option<String> {
     match style {
         Some("D" | "R" | "r" | "A" | "a") => style.map(ToOwned::to_owned),
         Some(_) => Some("D".to_string()),
@@ -10,7 +12,10 @@ fn normalize_page_label_style(style: Option<&str>) -> Option<String> {
     }
 }
 
-fn normalize_page_label_ranges(ranges: &[PageLabelRange], total_pages: u32) -> Vec<PageLabelRange> {
+pub(crate) fn normalize_page_label_ranges(
+    ranges: &[PageLabelRange],
+    total_pages: u32,
+) -> Vec<PageLabelRange> {
     if total_pages == 0 {
         return Vec::new();
     }
@@ -37,7 +42,7 @@ fn normalize_page_label_ranges(ranges: &[PageLabelRange], total_pages: u32) -> V
     deduped.into_values().collect()
 }
 
-fn is_implicit_default_page_labels(ranges: &[PageLabelRange], total_pages: u32) -> bool {
+pub(crate) fn is_implicit_default_page_labels(ranges: &[PageLabelRange], total_pages: u32) -> bool {
     let normalized = normalize_page_label_ranges(ranges, total_pages);
     normalized.len() == 1
         && normalized[0].start_page == 1
@@ -46,7 +51,7 @@ fn is_implicit_default_page_labels(ranges: &[PageLabelRange], total_pages: u32) 
         && normalized[0].start_number == 1
 }
 
-fn catalog_id(document: &Document) -> Result<ObjectId> {
+pub(crate) fn catalog_id(document: &Document) -> Result<ObjectId> {
     document
         .trailer
         .get(b"Root")?
@@ -54,7 +59,11 @@ fn catalog_id(document: &Document) -> Result<ObjectId> {
         .map_err(Into::into)
 }
 
-fn assert_mutation_page_count(document: &Document, total_pages: u32, label: &str) -> Result<()> {
+pub(crate) fn assert_mutation_page_count(
+    document: &Document,
+    total_pages: u32,
+    label: &str,
+) -> Result<()> {
     let actual_pages = u32::try_from(document.get_pages().len())?;
     if total_pages != actual_pages {
         return Err(format!(
@@ -65,7 +74,10 @@ fn assert_mutation_page_count(document: &Document, total_pages: u32, label: &str
     Ok(())
 }
 
-fn set_page_labels_on_catalog(catalog: &mut Dictionary, page_labels: &PageLabelsMutation) {
+pub(crate) fn set_page_labels_on_catalog(
+    catalog: &mut Dictionary,
+    page_labels: &PageLabelsMutation,
+) {
     if is_implicit_default_page_labels(&page_labels.ranges, page_labels.total_pages) {
         catalog.remove(b"PageLabels");
         return;
@@ -102,7 +114,10 @@ fn set_page_labels_on_catalog(catalog: &mut Dictionary, page_labels: &PageLabels
     catalog.set("PageLabels", Object::Dictionary(page_labels_dict));
 }
 
-fn set_page_labels(document: &mut Document, page_labels: &PageLabelsMutation) -> Result<()> {
+pub(crate) fn set_page_labels(
+    document: &mut Document,
+    page_labels: &PageLabelsMutation,
+) -> Result<()> {
     assert_mutation_page_count(document, page_labels.total_pages, "Page-label mutation")?;
     let catalog_id = catalog_id(document)?;
     let catalog = document.get_dictionary_mut(catalog_id)?;
@@ -110,7 +125,7 @@ fn set_page_labels(document: &mut Document, page_labels: &PageLabelsMutation) ->
     Ok(())
 }
 
-fn set_page_labels_incremental(
+pub(crate) fn set_page_labels_incremental(
     incremental: &mut IncrementalDocument,
     page_labels: &PageLabelsMutation,
 ) -> Result<()> {
@@ -126,7 +141,7 @@ fn set_page_labels_incremental(
     Ok(())
 }
 
-fn normalize_bookmark_color(color: Option<&str>) -> Option<String> {
+pub(crate) fn normalize_bookmark_color(color: Option<&str>) -> Option<String> {
     parse_pdf_color(color).map(|rgb| {
         let to_byte = |value: f64| -> u8 { (value.clamp(0.0, 1.0) * 255.0).round() as u8 };
         format!(
@@ -138,7 +153,7 @@ fn normalize_bookmark_color(color: Option<&str>) -> Option<String> {
     })
 }
 
-fn normalize_bookmark_entries(
+pub(crate) fn normalize_bookmark_entries(
     items: &[BookmarkEntry],
     total_pages: u32,
     untitled_label: &str,
@@ -180,26 +195,29 @@ fn normalize_bookmark_entries(
         .collect()
 }
 
-fn resolve_bookmark_destination_top(page_view: &PdfRect, page_y_ratio: Option<f64>) -> f64 {
+pub(crate) fn resolve_bookmark_destination_top(
+    page_view: &PdfRect,
+    page_y_ratio: Option<f64>,
+) -> f64 {
     let Some(page_y_ratio) = page_y_ratio else {
         return page_view.y2;
     };
     page_view.y2 - page_y_ratio.clamp(0.0, 1.0) * page_view.height().max(0.0)
 }
 
-struct OutlineBuildResult {
-    first: Option<ObjectId>,
-    last: Option<ObjectId>,
-    visible_count: i64,
+pub(crate) struct OutlineBuildResult {
+    pub(crate) first: Option<ObjectId>,
+    pub(crate) last: Option<ObjectId>,
+    pub(crate) visible_count: i64,
 }
 
-struct BookmarkNode<'a> {
-    object_id: ObjectId,
-    item: &'a BookmarkEntry,
-    visible_count: i64,
+pub(crate) struct BookmarkNode<'a> {
+    pub(crate) object_id: ObjectId,
+    pub(crate) item: &'a BookmarkEntry,
+    pub(crate) visible_count: i64,
 }
 
-fn set_bookmark_destination(
+pub(crate) fn set_bookmark_destination(
     base_document: &Document,
     page_map: &std::collections::BTreeMap<u32, ObjectId>,
     dict: &mut Dictionary,
@@ -234,7 +252,7 @@ fn set_bookmark_destination(
     Ok(())
 }
 
-fn set_bookmark_style(dict: &mut Dictionary, item: &BookmarkEntry) {
+pub(crate) fn set_bookmark_style(dict: &mut Dictionary, item: &BookmarkEntry) {
     let flags = (if item.italic { 1 } else { 0 }) | (if item.bold { 2 } else { 0 });
     if flags > 0 {
         dict.set("F", Object::Integer(flags));
@@ -251,7 +269,7 @@ fn set_bookmark_style(dict: &mut Dictionary, item: &BookmarkEntry) {
     }
 }
 
-fn build_bookmark_dict(
+pub(crate) fn build_bookmark_dict(
     base_document: &Document,
     page_map: &std::collections::BTreeMap<u32, ObjectId>,
     item: &BookmarkEntry,
@@ -269,7 +287,7 @@ fn build_bookmark_dict(
     Ok(dict)
 }
 
-fn build_outline_level(
+pub(crate) fn build_outline_level(
     document: &mut Document,
     page_map: &std::collections::BTreeMap<u32, ObjectId>,
     items: &[BookmarkEntry],
@@ -332,7 +350,7 @@ fn build_outline_level(
     })
 }
 
-fn build_outline_level_incremental(
+pub(crate) fn build_outline_level_incremental(
     incremental: &mut IncrementalDocument,
     page_map: &std::collections::BTreeMap<u32, ObjectId>,
     items: &[BookmarkEntry],
@@ -405,7 +423,10 @@ fn build_outline_level_incremental(
     })
 }
 
-fn set_bookmarks_on_catalog(document: &mut Document, bookmarks: &BookmarksMutation) -> Result<()> {
+pub(crate) fn set_bookmarks_on_catalog(
+    document: &mut Document,
+    bookmarks: &BookmarksMutation,
+) -> Result<()> {
     assert_mutation_page_count(document, bookmarks.total_pages, "Bookmark mutation")?;
     let normalized = normalize_bookmark_entries(
         &bookmarks.items,
@@ -439,11 +460,11 @@ fn set_bookmarks_on_catalog(document: &mut Document, bookmarks: &BookmarksMutati
     Ok(())
 }
 
-fn set_bookmarks(document: &mut Document, bookmarks: &BookmarksMutation) -> Result<()> {
+pub(crate) fn set_bookmarks(document: &mut Document, bookmarks: &BookmarksMutation) -> Result<()> {
     set_bookmarks_on_catalog(document, bookmarks)
 }
 
-fn set_bookmarks_incremental(
+pub(crate) fn set_bookmarks_incremental(
     incremental: &mut IncrementalDocument,
     bookmarks: &BookmarksMutation,
 ) -> Result<()> {

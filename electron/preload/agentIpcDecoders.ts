@@ -1,50 +1,69 @@
 import type {
+    IAgentAssistantAccount,
+    IAgentAssistantChatScope,
     IAgentAssistantChatMessage,
+    IAgentAssistantEffortOption,
     IAgentAssistantErrorEnvelope,
     IAgentAssistantImageAttachment,
+    IAgentAssistantInstallResult,
+    IAgentAssistantLoginResult,
+    IAgentAssistantMcpStatus,
+    IAgentAssistantModelOption,
+    IAgentAssistantProviderStatus,
+    IAgentAssistantSendMessageResult,
+    IAgentAssistantServiceTierOption,
     IAgentCommandExecutionScope,
     IAgentAssistantState,
-    TAgentAssistantErrorCode,
-    TAgentAssistantEventType,
-    TAgentAssistantMessageRole,
+    IAgentAssistantStatus,
+    IAgentAssistantTurnState,
     TAgentCommand,
     TAgentWorkspaceCommandTarget,
 } from '@contracts/agent';
+import {
+    AGENT_ASSISTANT_ERROR_CODES,
+    AGENT_ASSISTANT_EVENT_TYPES,
+    AGENT_ASSISTANT_MESSAGE_ROLES,
+    AGENT_ASSISTANT_TURN_PHASES,
+    ASSISTANT_PROVIDER_IDS,
+} from '@contracts/agent';
 import type { TDocumentBackend } from '@contracts/documentRef';
-import { isDocumentRevisionInfo } from '@contracts/documentRevision';
+import {
+    isDocumentRevisionInfo,
+    parseDocumentRevisionToken,
+} from '@contracts/documentRevision';
+import { parseDocumentInstanceId } from '@contracts/documentInstanceId';
 import {
     isOneOf,
     isRecord,
 } from '@contracts/runtimeGuards';
 import type { IAgentEventMap } from '@electron/features/agent/contract';
 
-const AGENT_ASSISTANT_EVENT_TYPES = [
-    'state',
-    'message',
-    'message-delta',
-    'turn-started',
-    'turn-progress',
-    'turn-completed',
-    'install-progress',
+const AGENT_ASSISTANT_INSTALL_STATES = [
+    'installed',
+    'missing',
+    'unsupported',
+] as const;
+const AGENT_ASSISTANT_AUTH_STATES = [
+    'signed-in',
+    'signed-out',
+    'login-pending',
+    'unknown',
+] as const;
+const AGENT_ASSISTANT_RUNTIME_STATES = [
+    'stopped',
+    'starting',
+    'ready',
+    'busy',
     'error',
-] as const satisfies readonly TAgentAssistantEventType[];
-
-const AGENT_ASSISTANT_MESSAGE_ROLES = [
-    'user',
-    'assistant',
-    'system',
-] as const satisfies readonly TAgentAssistantMessageRole[];
-
-const AGENT_ASSISTANT_ERROR_CODES = [
-    'AUTH_REQUIRED',
-    'INSTALL_MISSING',
-    'LOGIN_CANCELLED',
-    'USER_INTERRUPTED',
-    'MODEL_UNAVAILABLE',
-    'RUNTIME_UNAVAILABLE',
-    'PROVIDER_RATE_LIMITED',
-    'INTERNAL',
-] as const satisfies readonly TAgentAssistantErrorCode[];
+] as const;
+const AGENT_ASSISTANT_MODEL_SWITCH_MODES = [
+    'none',
+    'in-session',
+] as const;
+const AGENT_ASSISTANT_SPEED_MODES = [
+    'fast',
+    'standard',
+] as const;
 
 function normalizeNonEmptyString(value: unknown) {
     if (typeof value !== 'string') {
@@ -108,7 +127,7 @@ function normalizeOptionalDocumentRevisionToken(value: unknown) {
         return undefined;
     }
 
-    return normalizeNonEmptyString(value);
+    return parseDocumentRevisionToken(value);
 }
 
 function normalizeOptionalDocumentInstanceId(value: unknown) {
@@ -116,7 +135,7 @@ function normalizeOptionalDocumentInstanceId(value: unknown) {
         return null;
     }
 
-    return normalizeNonEmptyString(value);
+    return parseDocumentInstanceId(value);
 }
 
 function decodeCommandTargetBase(value: Record<PropertyKey, unknown>) {
@@ -305,16 +324,37 @@ function decodeAgentCommand(value: unknown): TAgentCommand | null {
     return null;
 }
 
-function isAssistantEventType(value: unknown): value is TAgentAssistantEventType {
+function isAssistantEventType(value: unknown): value is typeof AGENT_ASSISTANT_EVENT_TYPES[number] {
     return isOneOf(AGENT_ASSISTANT_EVENT_TYPES, value);
 }
 
-function isAssistantMessageRole(value: unknown): value is TAgentAssistantMessageRole {
+function isAssistantMessageRole(value: unknown): value is typeof AGENT_ASSISTANT_MESSAGE_ROLES[number] {
     return isOneOf(AGENT_ASSISTANT_MESSAGE_ROLES, value);
 }
 
-function isAssistantErrorCode(value: unknown): value is TAgentAssistantErrorCode {
+function isAssistantErrorCode(value: unknown): value is typeof AGENT_ASSISTANT_ERROR_CODES[number] {
     return isOneOf(AGENT_ASSISTANT_ERROR_CODES, value);
+}
+
+function decodeArray<T>(value: unknown, decode: (item: unknown) => T | null): T[] | null {
+    if (!Array.isArray(value)) {
+        return null;
+    }
+    const decoded: T[] = [];
+    for (const item of value) {
+        const result = decode(item);
+        if (result === null) {
+            return null;
+        }
+        decoded.push(result);
+    }
+    return decoded;
+}
+
+function decodeStringArray(value: unknown) {
+    return Array.isArray(value) && value.every(item => typeof item === 'string')
+        ? [...value]
+        : null;
 }
 
 function decodeAssistantErrorEnvelope(value: unknown): IAgentAssistantErrorEnvelope | null {
@@ -337,7 +377,7 @@ function decodeAssistantErrorEnvelope(value: unknown): IAgentAssistantErrorEnvel
     };
 }
 
-function decodeAssistantImageAttachment(value: unknown): IAgentAssistantImageAttachment | null {
+export function decodeAgentAssistantImageAttachment(value: unknown): IAgentAssistantImageAttachment | null {
     if (
         !isRecord(value)
         || value.type !== 'image'
@@ -389,7 +429,7 @@ function decodeAssistantMessage(value: unknown): IAgentAssistantChatMessage | nu
         }
         attachments = [];
         for (const attachment of value.attachments) {
-            const decoded = decodeAssistantImageAttachment(attachment);
+            const decoded = decodeAgentAssistantImageAttachment(attachment);
             if (decoded === null) {
                 return null;
             }
@@ -418,38 +458,459 @@ function decodeAssistantMessage(value: unknown): IAgentAssistantChatMessage | nu
     return message;
 }
 
-function isAssistantStatus(value: unknown): value is IAgentAssistantState['status'] {
-    return isRecord(value)
-        && typeof value.provider === 'string'
-        && typeof value.model === 'string'
-        && typeof value.runtimeState === 'string'
-        && Array.isArray(value.providers)
-        && isRecord(value.turn);
-}
-
-function decodeAssistantState(value: unknown): IAgentAssistantState | null {
+function decodeAssistantAccount(value: unknown): IAgentAssistantAccount | null {
     if (
         !isRecord(value)
-        || (value.scope !== null && value.scope !== undefined && !isRecord(value.scope))
-        || !isAssistantStatus(value.status)
-        || !Array.isArray(value.messages)
+        || (value.type !== 'chatgpt' && value.type !== 'apiKey' && value.type !== 'other')
+        || (value.email !== undefined && typeof value.email !== 'string')
+        || (value.planType !== undefined && typeof value.planType !== 'string')
     ) {
         return null;
     }
-
-    const messages: IAgentAssistantChatMessage[] = [];
-    for (const message of value.messages) {
-        const decoded = decodeAssistantMessage(message);
-        if (decoded === null) {
-            return null;
-        }
-        messages.push(decoded);
-    }
-
     return {
-        scope: (value.scope ?? null) as IAgentAssistantState['scope'],
-        status: value.status,
+        type: value.type,
+        ...(value.email === undefined ? {} : {email: value.email}),
+        ...(value.planType === undefined ? {} : {planType: value.planType}),
+    };
+}
+
+function decodeAssistantEffortOption(value: unknown): IAgentAssistantEffortOption | null {
+    if (
+        !isRecord(value)
+        || typeof value.id !== 'string'
+        || typeof value.label !== 'string'
+        || (value.description !== undefined && typeof value.description !== 'string')
+        || (value.isDefault !== undefined && typeof value.isDefault !== 'boolean')
+    ) {
+        return null;
+    }
+    return {
+        id: value.id,
+        label: value.label,
+        ...(value.description === undefined ? {} : {description: value.description}),
+        ...(value.isDefault === undefined ? {} : {isDefault: value.isDefault}),
+    };
+}
+
+function decodeAssistantServiceTierOption(value: unknown): IAgentAssistantServiceTierOption | null {
+    if (
+        !isRecord(value)
+        || typeof value.id !== 'string'
+        || typeof value.label !== 'string'
+        || (value.description !== undefined && typeof value.description !== 'string')
+        || (value.isDefault !== undefined && typeof value.isDefault !== 'boolean')
+    ) {
+        return null;
+    }
+    return {
+        id: value.id,
+        label: value.label,
+        ...(value.description === undefined ? {} : {description: value.description}),
+        ...(value.isDefault === undefined ? {} : {isDefault: value.isDefault}),
+    };
+}
+
+function decodeAssistantModelOption(value: unknown): IAgentAssistantModelOption | null {
+    if (!isRecord(value) || typeof value.id !== 'string' || typeof value.label !== 'string') {
+        return null;
+    }
+    const reasoningEfforts = value.reasoningEfforts === undefined
+        ? undefined
+        : decodeArray(value.reasoningEfforts, decodeAssistantEffortOption);
+    const serviceTiers = value.serviceTiers === undefined
+        ? undefined
+        : decodeArray(value.serviceTiers, decodeAssistantServiceTierOption);
+    if (
+        reasoningEfforts === null
+        || serviceTiers === null
+        || (
+            value.defaultReasoningEffort !== undefined
+            && value.defaultReasoningEffort !== null
+            && typeof value.defaultReasoningEffort !== 'string'
+        )
+        || (
+            value.defaultServiceTier !== undefined
+            && value.defaultServiceTier !== null
+            && typeof value.defaultServiceTier !== 'string'
+        )
+    ) {
+        return null;
+    }
+    return {
+        id: value.id,
+        label: value.label,
+        ...(reasoningEfforts === undefined ? {} : {reasoningEfforts}),
+        ...(value.defaultReasoningEffort === undefined
+            ? {}
+            : {defaultReasoningEffort: value.defaultReasoningEffort}),
+        ...(serviceTiers === undefined ? {} : {serviceTiers}),
+        ...(value.defaultServiceTier === undefined
+            ? {}
+            : {defaultServiceTier: value.defaultServiceTier}),
+    };
+}
+
+function decodeAssistantMcpStatus(value: unknown): IAgentAssistantMcpStatus | null {
+    if (
+        !isRecord(value)
+        || typeof value.serverName !== 'string'
+        || typeof value.serverUrl !== 'string'
+        || typeof value.serverRunning !== 'boolean'
+        || typeof value.toolCount !== 'number'
+        || !Number.isSafeInteger(value.toolCount)
+        || value.toolCount < 0
+    ) {
+        return null;
+    }
+    return {
+        serverName: value.serverName,
+        serverUrl: value.serverUrl,
+        serverRunning: value.serverRunning,
+        toolCount: value.toolCount,
+    };
+}
+
+function decodeAssistantTurnState(value: unknown): IAgentAssistantTurnState | null {
+    const usage = value && isRecord(value) && value.usage !== null
+        ? decodeAssistantTokenUsage(value.usage)
+        : null;
+    if (
+        !isRecord(value)
+        || (value.id !== null && typeof value.id !== 'string')
+        || !isOneOf(AGENT_ASSISTANT_TURN_PHASES, value.phase)
+        || typeof value.reasoning !== 'string'
+        || !Array.isArray(value.toolActivity)
+        || !value.toolActivity.every(isAssistantToolActivity)
+        || (value.lastEventAtMs !== null && (typeof value.lastEventAtMs !== 'number' || !Number.isFinite(value.lastEventAtMs)))
+        || usage === null && value.usage !== null
+    ) {
+        return null;
+    }
+    return {
+        id: value.id,
+        phase: value.phase,
+        reasoning: value.reasoning,
+        toolActivity: value.toolActivity,
+        lastEventAtMs: value.lastEventAtMs,
+        usage,
+    };
+}
+
+function decodeAssistantTokenUsage(value: unknown): IAgentAssistantTurnState['usage'] {
+    if (!isRecord(value)
+        || typeof value.inputTokens !== 'number'
+        || typeof value.outputTokens !== 'number'
+        || (value.cachedInputTokens !== undefined && typeof value.cachedInputTokens !== 'number')) {
+        return null;
+    }
+    return {
+        inputTokens: value.inputTokens,
+        outputTokens: value.outputTokens,
+        ...(value.cachedInputTokens === undefined ? {} : {cachedInputTokens: value.cachedInputTokens}),
+    };
+}
+
+function isAssistantToolActivity(value: unknown): value is IAgentAssistantTurnState['toolActivity'][number] {
+    return isRecord(value)
+        && typeof value.toolId === 'string'
+        && typeof value.name === 'string'
+        && (value.phase === 'running' || value.phase === 'completed' || value.phase === 'failed')
+        && typeof value.startedAtMs === 'number'
+        && Number.isFinite(value.startedAtMs)
+        && (value.completedAtMs === undefined
+            || typeof value.completedAtMs === 'number' && Number.isFinite(value.completedAtMs));
+}
+
+function decodeDocumentRevisionInfo(value: unknown) {
+    if (!isDocumentRevisionInfo(value)) {
+        return null;
+    }
+    const token = parseDocumentRevisionToken(value.token);
+    if (token === null) {
+        return null;
+    }
+    return {
+        version: 1 as const,
+        token,
+        documentRef: value.documentRef,
+        authority: value.authority,
+        contentRevision: value.contentRevision,
+        mintedAt: value.mintedAt,
+    };
+}
+
+export function decodeAgentAssistantChatScope(value: unknown): IAgentAssistantChatScope | null {
+    if (
+        !isRecord(value)
+        || value.kind !== 'document'
+        || typeof value.key !== 'string'
+        || value.key.trim().length === 0
+        || (value.title !== null && typeof value.title !== 'string')
+        || (value.tabId !== undefined && value.tabId !== null && typeof value.tabId !== 'string')
+        || (
+            value.documentSessionKey !== undefined
+            && value.documentSessionKey !== null
+            && typeof value.documentSessionKey !== 'string'
+        )
+        || (value.documentRef !== undefined && value.documentRef !== null && typeof value.documentRef !== 'string')
+        || (
+            value.documentBackend !== undefined
+            && value.documentBackend !== 'browser'
+            && value.documentBackend !== 'electron'
+        )
+    ) {
+        return null;
+    }
+    const documentInstanceId = value.documentInstanceId === undefined || value.documentInstanceId === null
+        ? value.documentInstanceId
+        : parseDocumentInstanceId(value.documentInstanceId);
+    const documentIdentity = value.documentIdentity === undefined || value.documentIdentity === null
+        ? value.documentIdentity
+        : decodeDocumentRevisionInfo(value.documentIdentity);
+    const commandTarget = decodeWorkspaceCommandTarget(value.commandTarget);
+    if (
+        documentInstanceId === null && value.documentInstanceId !== null
+        || documentIdentity === null && value.documentIdentity !== null
+        || commandTarget === null
+        || value.commandTarget === null
+    ) {
+        return null;
+    }
+    return {
+        kind: 'document',
+        key: value.key,
+        title: value.title,
+        ...(value.tabId === undefined ? {} : {tabId: value.tabId}),
+        ...(value.documentSessionKey === undefined ? {} : {documentSessionKey: value.documentSessionKey}),
+        ...(documentInstanceId === undefined ? {} : {documentInstanceId}),
+        ...(value.documentRef === undefined ? {} : {documentRef: value.documentRef}),
+        ...(value.documentBackend === undefined ? {} : {documentBackend: value.documentBackend}),
+        ...(documentIdentity === undefined ? {} : {documentIdentity}),
+        ...(commandTarget === undefined ? {} : {commandTarget}),
+    };
+}
+
+function decodeAssistantProviderStatus(value: unknown): IAgentAssistantProviderStatus | null {
+    if (!isRecord(value)) {
+        return null;
+    }
+    const models = decodeArray(value.models, decodeAssistantModelOption);
+    const availableEfforts = decodeStringArray(value.availableEfforts);
+    const availableSpeedModes = Array.isArray(value.availableSpeedModes)
+        && value.availableSpeedModes.every(mode => isOneOf(AGENT_ASSISTANT_SPEED_MODES, mode))
+        ? [...value.availableSpeedModes]
+        : null;
+    const account = value.account === null ? null : decodeAssistantAccount(value.account);
+    const errorEnvelope = value.errorEnvelope === undefined
+        ? undefined
+        : decodeAssistantErrorEnvelope(value.errorEnvelope);
+    if (
+        !isOneOf(ASSISTANT_PROVIDER_IDS, value.id)
+        || typeof value.label !== 'string'
+        || !isOneOf(AGENT_ASSISTANT_INSTALL_STATES, value.installState)
+        || !isOneOf(AGENT_ASSISTANT_AUTH_STATES, value.authState)
+        || !isOneOf(AGENT_ASSISTANT_RUNTIME_STATES, value.runtimeState)
+        || models === null
+        || typeof value.defaultModel !== 'string'
+        || typeof value.activeModel !== 'string'
+        || !isOneOf(AGENT_ASSISTANT_MODEL_SWITCH_MODES, value.modelSwitchMode)
+        || availableEfforts === null
+        || typeof value.defaultEffort !== 'string'
+        || typeof value.activeEffort !== 'string'
+        || availableSpeedModes === null
+        || !isOneOf(AGENT_ASSISTANT_SPEED_MODES, value.defaultSpeedMode)
+        || !isOneOf(AGENT_ASSISTANT_SPEED_MODES, value.activeSpeedMode)
+        || (value.path !== null && typeof value.path !== 'string')
+        || (value.version !== null && typeof value.version !== 'string')
+        || (value.minimumVersion !== null && typeof value.minimumVersion !== 'string')
+        || typeof value.versionSupported !== 'boolean'
+        || typeof value.installUrl !== 'string'
+        || account === null && value.account !== null
+        || (value.error !== undefined && typeof value.error !== 'string')
+        || errorEnvelope === null
+    ) {
+        return null;
+    }
+    return {
+        id: value.id,
+        label: value.label,
+        installState: value.installState,
+        authState: value.authState,
+        runtimeState: value.runtimeState,
+        models,
+        defaultModel: value.defaultModel,
+        activeModel: value.activeModel,
+        modelSwitchMode: value.modelSwitchMode,
+        availableEfforts,
+        defaultEffort: value.defaultEffort,
+        activeEffort: value.activeEffort,
+        availableSpeedModes,
+        defaultSpeedMode: value.defaultSpeedMode,
+        activeSpeedMode: value.activeSpeedMode,
+        path: value.path,
+        version: value.version,
+        minimumVersion: value.minimumVersion,
+        versionSupported: value.versionSupported,
+        installUrl: value.installUrl,
+        account,
+        ...(value.error === undefined ? {} : {error: value.error}),
+        ...(errorEnvelope === undefined ? {} : {errorEnvelope}),
+    };
+}
+
+function decodeAgentAssistantStatus(value: unknown): IAgentAssistantStatus | null {
+    if (!isRecord(value)) {
+        return null;
+    }
+    const providers = decodeArray(value.providers, decodeAssistantProviderStatus);
+    const models = decodeArray(value.models, decodeAssistantModelOption);
+    const availableEfforts = decodeStringArray(value.availableEfforts);
+    const availableSpeedModes = Array.isArray(value.availableSpeedModes)
+        && value.availableSpeedModes.every(mode => isOneOf(AGENT_ASSISTANT_SPEED_MODES, mode))
+        ? [...value.availableSpeedModes]
+        : null;
+    const account = value.account === null ? null : decodeAssistantAccount(value.account);
+    const mcp = decodeAssistantMcpStatus(value.mcp);
+    const turn = decodeAssistantTurnState(value.turn);
+    const errorEnvelope = value.errorEnvelope === undefined
+        ? undefined
+        : decodeAssistantErrorEnvelope(value.errorEnvelope);
+    if (
+        typeof value.supported !== 'boolean'
+        || typeof value.platform !== 'string'
+        || !isOneOf(ASSISTANT_PROVIDER_IDS, value.provider)
+        || typeof value.providerLabel !== 'string'
+        || providers === null
+        || typeof value.model !== 'string'
+        || typeof value.modelLabel !== 'string'
+        || models === null
+        || !isOneOf(AGENT_ASSISTANT_MODEL_SWITCH_MODES, value.modelSwitchMode)
+        || typeof value.effort !== 'string'
+        || availableEfforts === null
+        || !isOneOf(AGENT_ASSISTANT_SPEED_MODES, value.speedMode)
+        || availableSpeedModes === null
+        || !isOneOf(AGENT_ASSISTANT_INSTALL_STATES, value.installState)
+        || typeof value.codexInstalled !== 'boolean'
+        || (value.codexPath !== null && typeof value.codexPath !== 'string')
+        || (value.codexVersion !== null && typeof value.codexVersion !== 'string')
+        || typeof value.minimumCodexVersion !== 'string'
+        || typeof value.codexVersionSupported !== 'boolean'
+        || typeof value.installUrl !== 'string'
+        || typeof value.installScriptUrl !== 'string'
+        || typeof value.managedInstallDir !== 'string'
+        || !isOneOf(AGENT_ASSISTANT_AUTH_STATES, value.authState)
+        || account === null && value.account !== null
+        || !isOneOf(AGENT_ASSISTANT_RUNTIME_STATES, value.runtimeState)
+        || mcp === null
+        || turn === null
+        || typeof value.lastCheckedAt !== 'string'
+        || (value.error !== undefined && typeof value.error !== 'string')
+        || errorEnvelope === null
+    ) {
+        return null;
+    }
+    return {
+        supported: value.supported,
+        platform: value.platform,
+        provider: value.provider,
+        providerLabel: value.providerLabel,
+        providers,
+        model: value.model,
+        modelLabel: value.modelLabel,
+        models,
+        modelSwitchMode: value.modelSwitchMode,
+        effort: value.effort,
+        availableEfforts,
+        speedMode: value.speedMode,
+        availableSpeedModes,
+        installState: value.installState,
+        codexInstalled: value.codexInstalled,
+        codexPath: value.codexPath,
+        codexVersion: value.codexVersion,
+        minimumCodexVersion: value.minimumCodexVersion,
+        codexVersionSupported: value.codexVersionSupported,
+        installUrl: value.installUrl,
+        installScriptUrl: value.installScriptUrl,
+        managedInstallDir: value.managedInstallDir,
+        authState: value.authState,
+        account,
+        runtimeState: value.runtimeState,
+        mcp,
+        turn,
+        lastCheckedAt: value.lastCheckedAt,
+        ...(value.error === undefined ? {} : {error: value.error}),
+        ...(errorEnvelope === undefined ? {} : {errorEnvelope}),
+    };
+}
+
+export function decodeAgentAssistantState(value: unknown): IAgentAssistantState | null {
+    if (!isRecord(value)) {
+        return null;
+    }
+    const scope = value.scope === null ? null : decodeAgentAssistantChatScope(value.scope);
+    const status = decodeAgentAssistantStatus(value.status);
+    const messages = decodeArray(value.messages, decodeAssistantMessage);
+    if (scope === null && value.scope !== null || status === null || messages === null) {
+        return null;
+    }
+    return {
+        scope,
+        status,
         messages,
+    };
+}
+
+function decodeAssistantOperationResult(
+    value: unknown,
+): Pick<IAgentAssistantInstallResult, 'ok' | 'state' | 'error' | 'errorEnvelope'> | null {
+    if (!isRecord(value) || typeof value.ok !== 'boolean') {
+        return null;
+    }
+    const state = decodeAgentAssistantState(value.state);
+    const errorEnvelope = value.errorEnvelope === undefined
+        ? undefined
+        : decodeAssistantErrorEnvelope(value.errorEnvelope);
+    if (
+        state === null
+        || (value.error !== undefined && typeof value.error !== 'string')
+        || errorEnvelope === null
+    ) {
+        return null;
+    }
+    return {
+        ok: value.ok,
+        state,
+        ...(value.error === undefined ? {} : {error: value.error}),
+        ...(errorEnvelope === undefined ? {} : {errorEnvelope}),
+    };
+}
+
+export function decodeAgentAssistantInstallResult(value: unknown): IAgentAssistantInstallResult | null {
+    return decodeAssistantOperationResult(value);
+}
+
+export function decodeAgentAssistantSendMessageResult(value: unknown): IAgentAssistantSendMessageResult | null {
+    return decodeAssistantOperationResult(value);
+}
+
+export function decodeAgentAssistantLoginResult(value: unknown): IAgentAssistantLoginResult | null {
+    const result = decodeAssistantOperationResult(value);
+    if (
+        result === null
+        || !isRecord(value)
+        || (value.loginId !== undefined && typeof value.loginId !== 'string')
+        || (value.authUrl !== undefined && typeof value.authUrl !== 'string')
+        || (value.verificationUrl !== undefined && typeof value.verificationUrl !== 'string')
+        || (value.userCode !== undefined && typeof value.userCode !== 'string')
+    ) {
+        return null;
+    }
+    return {
+        ...result,
+        ...(value.loginId === undefined ? {} : {loginId: value.loginId}),
+        ...(value.authUrl === undefined ? {} : {authUrl: value.authUrl}),
+        ...(value.verificationUrl === undefined ? {} : {verificationUrl: value.verificationUrl}),
+        ...(value.userCode === undefined ? {} : {userCode: value.userCode}),
     };
 }
 
@@ -521,7 +982,7 @@ export function decodeAgentAssistantEvent(value: unknown): IAgentEventMap['agent
 
     const event: IAgentEventMap['agent:assistantEvent'] = {type: value.type};
     if (value.state !== undefined) {
-        const state = decodeAssistantState(value.state);
+        const state = decodeAgentAssistantState(value.state);
         if (state === null) {
             return null;
         }
@@ -547,12 +1008,55 @@ export function decodeAgentAssistantEvent(value: unknown): IAgentEventMap['agent
         }
         event.delta = value.delta;
     }
+    if (value.reasoningDelta !== undefined) {
+        if (typeof value.reasoningDelta !== 'string') {
+            return null;
+        }
+        event.reasoningDelta = value.reasoningDelta;
+    }
+    if (value.binding !== undefined) {
+        if (
+            !isRecord(value.binding)
+            || typeof value.binding.scopeFingerprint !== 'string'
+            || typeof value.binding.sessionKey !== 'string'
+            || !Number.isInteger(value.binding.turnGeneration)
+            || (value.binding.turnGeneration as number) < 0
+            || !Number.isInteger(value.binding.windowId)
+            || (value.binding.windowId as number) < 0
+        ) {
+            return null;
+        }
+        event.binding = {
+            scopeFingerprint: value.binding.scopeFingerprint,
+            sessionKey: value.binding.sessionKey,
+            turnGeneration: value.binding.turnGeneration as number,
+            windowId: value.binding.windowId as number,
+        };
+    }
     if (value.turnId !== undefined) {
         const turnId = normalizeNonEmptyString(value.turnId);
         if (turnId === null) {
             return null;
         }
         event.turnId = turnId;
+    }
+    if (value.phase !== undefined) {
+        if (!isOneOf(AGENT_ASSISTANT_TURN_PHASES, value.phase)) {
+            return null;
+        }
+        event.phase = value.phase;
+    }
+    if (value.toolActivity !== undefined) {
+        if (!isAssistantToolActivity(value.toolActivity)) {
+            return null;
+        }
+        event.toolActivity = value.toolActivity;
+    }
+    if (value.lastEventAtMs !== undefined) {
+        if (typeof value.lastEventAtMs !== 'number' || !Number.isFinite(value.lastEventAtMs)) {
+            return null;
+        }
+        event.lastEventAtMs = value.lastEventAtMs;
     }
     if (value.progress !== undefined) {
         if (typeof value.progress !== 'string') {
@@ -572,6 +1076,10 @@ export function decodeAgentAssistantEvent(value: unknown): IAgentEventMap['agent
             return null;
         }
         event.errorEnvelope = errorEnvelope;
+    }
+
+    if (event.binding === undefined && event.state === undefined) {
+        return null;
     }
 
     return event;

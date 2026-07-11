@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {requireDocumentRevisionToken} from '@contracts';
 
 const mocks = vi.hoisted(() => ({
     lstat: vi.fn<(path: string) => Promise<{ isSymbolicLink: () => boolean }>>(),
@@ -43,7 +44,6 @@ vi.mock('@electron/file-access/documentRevisionSidecar', () => ({assertWorkingCo
 
 const {
     resolveSafeOcrIndexBasePath,
-    writeOcrIndexV1,
     writeOcrIndexV3,
 } = await import('@electron/ocr/worker/indexWriter');
 
@@ -52,7 +52,7 @@ function makeDocumentRevision(documentRef: string) {
         version: 1 as const,
         documentRef,
         authority: 'electron-working-copy' as const,
-        token: 'revision-token',
+        token: requireDocumentRevisionToken('revision-token'),
         contentRevision: 1,
         mintedAt: 1,
     };
@@ -125,30 +125,6 @@ describe('resolveSafeOcrIndexBasePath', () => {
     });
 });
 
-describe('writeOcrIndexV1', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-        mocks.rename.mockResolvedValue();
-        mocks.unlink.mockResolvedValue();
-        mocks.writeFile.mockResolvedValue();
-    });
-
-    it('writes the legacy index through a temp file before renaming it into place', async () => {
-        await writeOcrIndexV1('/tmp/work.pdf', [{
-            pageNumber: 1,
-            text: 'page one',
-            imageWidth: 100,
-            imageHeight: 200,
-            words: [],
-        }], 1);
-
-        const targetPath = '/tmp/work.pdf.index.json';
-        const tempPath = mocks.writeFile.mock.calls[0]?.[0] ?? '';
-        expect(tempPath).toMatch(/^\/tmp\/work\.pdf\.index\.json\.\d+\..+\.tmp$/u);
-        expect(mocks.rename).toHaveBeenCalledWith(tempPath, targetPath);
-    });
-});
-
 describe('writeOcrIndexV3', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -165,7 +141,7 @@ describe('writeOcrIndexV3', () => {
     it('preserves existing page mappings when writing a partial OCR run', async () => {
         mocks.readFile.mockResolvedValue(JSON.stringify({
             version: 3,
-            documentRevision: {token: 'revision-token'},
+            documentRevision: {token: requireDocumentRevisionToken('revision-token')},
             createdAt: 1,
             source: { pdfPath: '/tmp/work.pdf' },
             pageCount: 2,
@@ -198,7 +174,7 @@ describe('writeOcrIndexV3', () => {
         const manifest = JSON.parse(manifestWrite?.[1] ?? '{}') as { pages: Record<string, { path: string }> };
         expect(manifest).toMatchObject({
             version: 3,
-            documentRevision: {token: 'revision-token'},
+            documentRevision: {token: requireDocumentRevisionToken('revision-token')},
         });
         expect(manifest.pages).toEqual({
             1: { path: 'page-0001.json' },
@@ -209,7 +185,7 @@ describe('writeOcrIndexV3', () => {
     it('drops preserved page mappings when the existing manifest revision differs', async () => {
         mocks.readFile.mockResolvedValue(JSON.stringify({
             version: 3,
-            documentRevision: {token: 'previous-token'},
+            documentRevision: {token: requireDocumentRevisionToken('previous-token')},
             createdAt: 1,
             source: { pdfPath: '/tmp/work.pdf' },
             pageCount: 2,
@@ -266,7 +242,7 @@ describe('writeOcrIndexV3', () => {
     it('drops preserved page mappings when the existing manifest belongs to a different page set', async () => {
         mocks.readFile.mockResolvedValue(JSON.stringify({
             version: 3,
-            documentRevision: {token: 'revision-token'},
+            documentRevision: {token: requireDocumentRevisionToken('revision-token')},
             createdAt: 1,
             source: { pdfPath: '/tmp/work.pdf' },
             pageCount: 3,
@@ -349,7 +325,7 @@ describe('writeOcrIndexV3', () => {
     it('drops preserved manifest page paths that escape the OCR sidecar directory', async () => {
         mocks.readFile.mockResolvedValue(JSON.stringify({
             version: 3,
-            documentRevision: {token: 'revision-token'},
+            documentRevision: {token: requireDocumentRevisionToken('revision-token')},
             createdAt: 1,
             source: { pdfPath: '/tmp/work.pdf' },
             pageCount: 2,

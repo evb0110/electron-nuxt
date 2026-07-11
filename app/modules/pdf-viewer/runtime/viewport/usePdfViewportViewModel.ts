@@ -13,6 +13,7 @@ import type {
     TZoomMode,
 } from '@app/types/pdfContracts';
 import type { IPdfPageMetric } from '@app/types/pdfUi';
+import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
 
 interface IUsePdfViewportViewModelOptions {
     viewerContainer: Ref<HTMLElement | null>;
@@ -36,6 +37,7 @@ interface IUsePdfViewportViewModelOptions {
     zoomVirtualizationFreeze: Ref<IZoomVirtualizationFreeze | null>;
     scaleContainerStyle: ComputedRef<Record<string, string>>;
     selectionMarkupStyle: ComputedRef<Record<string, string> | null>;
+    viewportWritePort: IPdfViewportWritePort;
     classState: {
         isAnySaving: ComputedRef<boolean>;
         isDragging: Ref<boolean>;
@@ -53,6 +55,16 @@ interface IUsePdfViewportViewModelOptions {
 export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions) => {
     const fitWidthHorizontalScrollLocked = ref(false);
     const viewportDimensionVersion = ref(0);
+    let writeSequence = 0;
+    const writeLeft = (container: HTMLElement, left: number, reason: string) => {
+        writeSequence += 1;
+        const intentId = `viewport-clamp-${writeSequence}`;
+        options.viewportWritePort.apply(container, {
+            intent: options.viewportWritePort.beginIntent(intentId),
+            reason,
+            left,
+        });
+    };
 
     watch(
         () => options.viewerContainer.value,
@@ -148,7 +160,7 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
 
         const shouldLock = isActiveSpreadHorizontalScrollLocked.value;
         if (shouldLock && container.scrollLeft !== 0) {
-            container.scrollLeft = 0;
+            writeLeft(container, 0, 'active-spread-fit-clamp');
         }
 
         return shouldLock;
@@ -192,7 +204,7 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
         if (scrollClamp) {
             const scrollDelta = Math.abs(container.scrollLeft - scrollClamp.scrollLeft);
             if (scrollDelta > HORIZONTAL_SCROLL_CLAMP_EPSILON_PX) {
-                container.scrollLeft = scrollClamp.scrollLeft;
+                writeLeft(container, scrollClamp.scrollLeft, 'fit-width-clamp');
             }
             return scrollClamp.shouldLock;
         }
@@ -206,7 +218,7 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
             && container.scrollWidth <= container.clientWidth
             && container.scrollLeft !== 0
         ) {
-            container.scrollLeft = 0;
+            writeLeft(container, 0, 'fit-mode-center');
         }
         return false;
     }

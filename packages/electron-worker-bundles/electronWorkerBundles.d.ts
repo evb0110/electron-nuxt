@@ -1,6 +1,7 @@
 export type TWorkerBundleId =
     | 'pdf-combine'
     | 'pdf-conformance'
+    | 'document-save-utility'
     | 'ocr'
     | 'search'
     | 'page-ops-crop'

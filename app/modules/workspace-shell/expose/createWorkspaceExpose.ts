@@ -24,7 +24,7 @@ import type {
 } from '@app/types/workspaceExpose';
 import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
 import { clampPdfManualZoom } from '@app/modules/pdf-viewer/public';
-import type { IAnnotationNoteWindowState } from '@app/types/annotationNoteWindow';
+import type { IAnnotationNoteWindowViewModel } from '@app/types/annotationNoteWindow';
 import {
     createWorkspaceExposeCommandHandlers,
     createWorkspaceExposeCommandRunner,
@@ -113,7 +113,7 @@ interface ICreateWorkspaceExposeDeps extends
     pendingEmbeddedAnnotationDeleteCount?: ComputedRef<number>;
     pageLabelsDirty?: Ref<boolean>;
     bookmarksDirty?: Ref<boolean>;
-    sortedAnnotationNoteWindows: Ref<IAnnotationNoteWindowState[]>;
+    sortedAnnotationNoteWindows: Ref<IAnnotationNoteWindowViewModel[]>;
     handleOcrComplete: (payload: unknown) => Promise<void>;
 }
 
@@ -303,7 +303,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
             originalPath: deps.originalPath.value,
             sortedAnnotationNoteWindows: deps.sortedAnnotationNoteWindows.value.map(note => ({
                 ...note,
-                comment: {...note.comment},
+                markerRect: note.markerRect ? {...note.markerRect} : null,
             })),
             workingCopyPath: deps.workingCopyPath.value,
         };

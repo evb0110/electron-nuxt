@@ -10,8 +10,8 @@ import {
 } from '@electron/features/djvu/contract';
 import {createDjvuService} from '@electron/features/djvu/createDjvuService';
 import { createLogger } from '@electron/utils/createLogger';
-import { sweepStaleDjvuTempPdfs } from '@electron/features/djvu/main/viewing';
 import type { IDjvuService } from '@electron/features/djvu/ports';
+import { pruneStaleDjvuArtifactJobs } from '@electron/features/djvu/main/djvuArtifactManifest';
 
 export type TDjvuIpcMainRegistrar = IContractIpcMainRegistrar<IDjvuInvokeMap, IpcMainInvokeEvent>;
 
@@ -29,16 +29,28 @@ export function registerDjvuIpcAdapter(
     registrar: TDjvuIpcMainRegistrar = ipcMain,
     service: IDjvuService = createDjvuService(),
 ) {
+    registrar.handle(DJVU_CHANNELS.startOpenForViewing, (event, djvuPath, requestId) =>
+        service.startOpenForViewing(createDjvuOperationContext(event), djvuPath, requestId));
+    registrar.handle(DJVU_CHANNELS.awaitOpenJob, (event, jobId) =>
+        service.awaitOpenJob(createDjvuOperationContext(event), jobId));
     registrar.handle(DJVU_CHANNELS.openForViewing, (event, djvuPath) =>
         service.openForViewing(createDjvuOperationContext(event), djvuPath));
     registrar.handle(DJVU_CHANNELS.releaseViewingPath, (event, djvuPath) =>
         service.releaseViewingPath(createDjvuOperationContext(event), djvuPath));
     registrar.handle(DJVU_CHANNELS.convertToPdf, (event, djvuPath, outputPath, options) =>
         service.convertToPdf(createDjvuOperationContext(event), djvuPath, outputPath, options));
+    registrar.handle(DJVU_CHANNELS.startConvertToPdf, (event, djvuPath, outputPath, options) =>
+        service.startConvertToPdf(createDjvuOperationContext(event), djvuPath, outputPath, options));
+    registrar.handle(DJVU_CHANNELS.awaitConvertJob, (event, jobId) =>
+        service.awaitConvertJob(createDjvuOperationContext(event), jobId));
     registrar.handle(DJVU_CHANNELS.printDjvuPath, (event, djvuPath, options) =>
         service.printDjvuPath(createDjvuOperationContext(event), djvuPath, options));
     registrar.handle(DJVU_CHANNELS.cancel, (event, jobId) =>
         service.cancel(createDjvuOperationContext(event), jobId));
+    registrar.handle(DJVU_CHANNELS.getJobState, (event, jobId) =>
+        service.getJobState(createDjvuOperationContext(event), jobId));
+    registrar.handle(DJVU_CHANNELS.subscribeJob, (event, jobId) =>
+        service.subscribeJob(createDjvuOperationContext(event), jobId));
     registrar.handle(DJVU_CHANNELS.cancelPagePreview, (event, requestId) =>
         service.cancelPagePreview(createDjvuOperationContext(event), requestId));
     registrar.handle(DJVU_CHANNELS.getInfo, (event, djvuPath) =>
@@ -57,8 +69,8 @@ export function registerDjvuIpcAdapter(
     });
 
     if (process.env.EVB_DJVU_SWEEP_STALE_TEMP !== '0') {
-        void sweepStaleDjvuTempPdfs().catch((error: unknown) => {
-            logger.warn(`DjVu stale temp cleanup failed: ${String(error)}`);
+        void pruneStaleDjvuArtifactJobs().catch((error: unknown) => {
+            logger.warn(`DjVu artifact job cleanup failed: ${String(error)}`);
         });
     }
 }

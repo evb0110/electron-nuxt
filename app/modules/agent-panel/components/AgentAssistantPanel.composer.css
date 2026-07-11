@@ -37,8 +37,8 @@
 
 .agent-assistant-composer-attachment {
     position: relative;
-    width: 3.75rem;
-    height: 3.75rem;
+    width: var(--app-assistant-empty-icon-size);
+    height: var(--app-assistant-empty-icon-size);
     flex: 0 0 auto;
     overflow: hidden;
     border: 1px solid var(--ui-border);
@@ -67,7 +67,7 @@
     position: absolute;
     top: 0.2rem;
     right: 0.2rem;
-    z-index: 1;
+    z-index: var(--app-z-local-raised);
 }
 
 .agent-assistant-composer-error {
@@ -81,7 +81,7 @@
 .agent-assistant-input {
     display: block;
     width: 100%;
-    min-height: 4.25rem;
+    min-height: var(--app-assistant-install-card-min-height);
     resize: none;
     padding: var(--app-space-4xl) var(--app-space-8xl) var(--app-space-4xl);
     border: 0;
@@ -102,7 +102,7 @@
     align-items: center;
     justify-content: space-between;
     gap: var(--app-space-3xl);
-    min-height: 2.45rem;
+    min-height: var(--app-assistant-composer-min-height);
     padding: var(--app-space-lg) var(--app-space-xl);
     border-top: 1px solid color-mix(in oklab, var(--ui-border) 72%, transparent);
     background: color-mix(in oklab, var(--ui-bg-muted) 62%, var(--ui-bg) 38%);
@@ -138,18 +138,18 @@
 
 .agent-assistant-composer-control-reserve {
     display: inline-flex;
-    width: 8.5rem;
-    height: 1.85rem;
+    width: var(--app-assistant-model-control-width);
+    height: var(--app-assistant-control-height);
     border-radius: var(--app-radius-md);
 }
 
 .agent-assistant-composer-control-reserve.is-short {
-    width: 5.25rem;
+    width: var(--app-assistant-speed-control-width);
 }
 
 .agent-assistant-composer-send-reserve {
     flex: 0 0 auto;
-    width: 2rem;
-    height: 2rem;
+    width: var(--app-assistant-send-button-size);
+    height: var(--app-assistant-send-button-size);
     border-radius: var(--app-radius-md);
 }

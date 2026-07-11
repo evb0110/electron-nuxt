@@ -2,17 +2,10 @@ import { uniq } from 'es-toolkit/array';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import type {
     IDjvuCapability,
-    IDjvuConvertOptions,
     IDjvuInfo,
     IDjvuProgress,
     IDjvuSizeEstimate,
-    IDjvuViewingErrorEvent,
-    IDjvuViewingReadyEvent,
 } from '@contracts/electronApiDjvu';
-import {
-    normalizeDjvuPdfSubsample,
-    resolveDjvuPdfExportStrategy,
-} from '@contracts/djvuConversionPolicy';
 import type { TDocumentRef } from '@contracts/documentRef';
 import {
     browserDocumentStore,
@@ -23,8 +16,13 @@ import type {
     IDjvuContentsItem,
     IDjvuWorker,
 } from '@app/platform/browser-api/djvujsLoader';
-import { createDjvuWorkerFromPath } from '@app/platform/browser-api/createDjvuWorkerFromPath';
+import {
+    createDjvuWorkerFromPath,
+    releaseBrowserDjvuViewingWorker,
+    retainBrowserDjvuViewingWorker,
+} from '@app/platform/browser-api/createDjvuWorkerFromPath';
 import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
+import { browserDurableDjvuJobs } from '@app/platform/browser-api/browserDurableDjvuJobs';
 import { StreamingImagePdfWriter } from '@app/platform/browser-api/streamingImagePdfWriter';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -44,7 +42,31 @@ import {
     DjvuCanceledError,
     throwIfDjvuCanceled as throwIfCanceled,
 } from '@app/platform/browser-api/djvuCanceledError';
+import {
+    resolveBrowserDjvuCompactExportPlan,
+    resolveBrowserDjvuConversionPreflight,
+    resolveBrowserDjvuPdfRenderConcurrency,
+    resolveBrowserDjvuPdfRenderSettings,
+    type IBrowserDjvuPageMetrics as IDjvuPageMetrics,
+} from '@app/platform/browser-api/browserDjvuConversionPolicy';
+export {
+    resolveBrowserDjvuCompactExportPlan,
+    resolveBrowserDjvuConversionPreflight,
+    resolveBrowserDjvuPdfRenderConcurrency,
+    resolveBrowserDjvuPdfRenderSettings,
+} from '@app/platform/browser-api/browserDjvuConversionPolicy';
 
+export async function getBrowserDjvuBookmarksForCombine(djvuPath: TDocumentRef, signal?: AbortSignal) {
+    const worker = await createDjvuWorkerFromPath(djvuPath, signal ? { signal } : {});
+    try {
+        throwIfCanceled(signal);
+        const contents = await worker.doc.getContents().run().catch(() => null);
+        throwIfCanceled(signal);
+        return await mapDjvuContentsToPdfBookmarks(worker, contents, signal);
+    } finally {
+        worker.terminate();
+    }
+}
 const DJVU_ESTIMATE_PRESETS = [
     1,
     2,
@@ -54,10 +76,6 @@ const DJVU_BROWSER_DIRECT_PDF_JPEG_QUALITY = 0.92;
 const DJVU_BROWSER_COMPACT_PHOTO_PDF_JPEG_QUALITY = 85;
 const DJVU_BROWSER_COMPACT_PHOTO_PPI_CAP = 300;
 const DJVU_BROWSER_COMPACT_PHOTO_PAGE_SPEC_MAX_BYTES = 192 * 1024 * 1024;
-const DJVU_BROWSER_COMPACT_PHOTO_PAGE_SPEC_OVERHEAD_BYTES = 256;
-const DJVU_BROWSER_PDF_RENDER_WORKER_LIMIT = 3;
-const DJVU_BROWSER_PDF_MEDIUM_PAGE_PIXEL_COUNT = 16_000_000;
-const DJVU_BROWSER_PDF_LARGE_PAGE_PIXEL_COUNT = 32_000_000;
 const DJVU_INFO_TEXT_SAMPLE_PAGES = 3;
 const DJVU_ESTIMATE_SAMPLE_PAGES = 3;
 
@@ -71,24 +89,6 @@ interface IRenderedDjvuPage {
     width: number;
     height: number;
     dpi: number;
-}
-
-interface IDjvuPageMetrics {
-    width?: number;
-    height?: number;
-    dpi: number;
-}
-
-export interface IBrowserDjvuPdfRenderSettings {
-    strategy: 'direct' | 'compact-djvu-aware';
-    subsample: number;
-    jpegQuality: number;
-}
-
-export interface IBrowserDjvuCompactExportPlan {
-    strategy: 'compact-djvu-aware' | 'direct-fallback';
-    estimatedPageSpecBytes: number;
-    maxPageSpecBytes: number;
 }
 
 interface IBrowserDjvuRenderTaskSuccess {
@@ -113,10 +113,6 @@ interface IBrowserDjvuRenderTask {
 }
 
 const progressListeners = new Set<(progress: IDjvuProgress) => void>();
-const viewingReadyListeners =
-    new Set<(event: IDjvuViewingReadyEvent) => void>();
-const viewingErrorListeners =
-    new Set<(event: IDjvuViewingErrorEvent) => void>();
 const activeJobs = new Map<string, IDjvuJobRecord>();
 
 function emitProgress(progress: IDjvuProgress) {
@@ -176,92 +172,6 @@ async function withDjvuWorker<T>(
     } finally {
         worker.terminate();
     }
-}
-
-export function resolveBrowserDjvuPdfRenderSettings(
-    options: Pick<IDjvuConvertOptions, 'pdfStrategy' | 'subsample'>,
-): IBrowserDjvuPdfRenderSettings {
-    const strategy = resolveDjvuPdfExportStrategy(options.pdfStrategy);
-    const requestedSubsample = normalizeDjvuPdfSubsample(options.subsample);
-
-    if (strategy === 'compact-djvu-aware') {
-        return {
-            strategy,
-            subsample: requestedSubsample,
-            jpegQuality: DJVU_BROWSER_COMPACT_PHOTO_PDF_JPEG_QUALITY,
-        };
-    }
-
-    return {
-        strategy,
-        subsample: requestedSubsample,
-        jpegQuality: DJVU_BROWSER_DIRECT_PDF_JPEG_QUALITY,
-    };
-}
-
-export function resolveBrowserDjvuPdfRenderConcurrency(
-    pageSizes: ReadonlyArray<Pick<IDjvuPageMetrics, 'width' | 'height'>>,
-    hardwareConcurrency = typeof navigator === 'undefined'
-        ? undefined
-        : navigator.hardwareConcurrency,
-) {
-    const pageCount = Math.max(1, pageSizes.length);
-    const normalizedHardwareConcurrency =
-        typeof hardwareConcurrency === 'number'
-        && Number.isFinite(hardwareConcurrency)
-        && hardwareConcurrency > 0
-            ? Math.trunc(hardwareConcurrency)
-            : 2;
-    const hardwareWorkerCount = Math.max(
-        1,
-        Math.floor(normalizedHardwareConcurrency / 2),
-    );
-    const maxPagePixels = pageSizes.reduce((maxPixels, size) => {
-        const width = typeof size.width === 'number' && Number.isFinite(size.width)
-            ? Math.max(0, Math.trunc(size.width))
-            : 0;
-        const height = typeof size.height === 'number' && Number.isFinite(size.height)
-            ? Math.max(0, Math.trunc(size.height))
-            : 0;
-        return Math.max(maxPixels, width * height);
-    }, 0);
-    const pixelWorkerLimit = maxPagePixels >= DJVU_BROWSER_PDF_LARGE_PAGE_PIXEL_COUNT
-        ? 1
-        : maxPagePixels >= DJVU_BROWSER_PDF_MEDIUM_PAGE_PIXEL_COUNT
-            ? 2
-            : DJVU_BROWSER_PDF_RENDER_WORKER_LIMIT;
-
-    return Math.min(
-        pageCount,
-        DJVU_BROWSER_PDF_RENDER_WORKER_LIMIT,
-        pixelWorkerLimit,
-        hardwareWorkerCount,
-    );
-}
-
-function estimateBrowserDjvuCompactPageSpecBytes(
-    pageSizes: readonly IDjvuPageMetrics[],
-) {
-    return pageSizes.reduce((totalBytes, pageSize) => {
-        const targetSize = compactPhotoTargetSize(pageSize);
-        return totalBytes
-            + DJVU_BROWSER_COMPACT_PHOTO_PAGE_SPEC_OVERHEAD_BYTES
-            + (targetSize.width * targetSize.height * 3);
-    }, 0);
-}
-
-export function resolveBrowserDjvuCompactExportPlan(
-    pageSizes: readonly IDjvuPageMetrics[],
-    maxPageSpecBytes = DJVU_BROWSER_COMPACT_PHOTO_PAGE_SPEC_MAX_BYTES,
-): IBrowserDjvuCompactExportPlan {
-    const estimatedPageSpecBytes = estimateBrowserDjvuCompactPageSpecBytes(pageSizes);
-    return {
-        strategy: estimatedPageSpecBytes <= maxPageSpecBytes
-            ? 'compact-djvu-aware'
-            : 'direct-fallback',
-        estimatedPageSpecBytes,
-        maxPageSpecBytes,
-    };
 }
 
 async function renderDjvuPageFromImageData(
@@ -862,11 +772,11 @@ async function buildCompactPhotoPdfWithWasm(options: {
     }
 
     throwIfCanceled(options.signal);
-    const pdfBytes = await tryCombineImageInputsWithWasm([], {pageSpecs});
-    if (!pdfBytes) {
+    const outcome = await tryCombineImageInputsWithWasm([], {pageSpecs});
+    if (outcome.status !== 'success') {
         throw new Error('ERR_BROWSER_DJVU_COMPACT_WASM_UNAVAILABLE');
     }
-    return writePdfBytesToOutput(options.outputPath, pdfBytes);
+    return writePdfBytesToOutput(options.outputPath, outcome.data);
 }
 
 function pickSamplePageNumbers(pageCount: number, maxSamples: number) {
@@ -965,31 +875,60 @@ async function estimateDjvuSizes(
 }
 
 export const browserDjvuCapability: IDjvuCapability = {
+    startOpenForViewing(djvuPath, requestId) {
+        const jobId = `djvu-open-${requestId}`;
+        return Promise.resolve(browserDurableDjvuJobs.startOpen(
+            jobId,
+            requestId,
+            () => browserDjvuCapability.openForViewing(djvuPath),
+        ));
+    },
+    awaitOpenJob(jobId) {
+        return browserDurableDjvuJobs.awaitOpen(jobId);
+    },
     async openForViewing(djvuPath) {
-        return withDjvuWorker(djvuPath, async (worker) => {
+        if (!isBrowserDocumentRef(djvuPath)) {
+            return withDjvuWorker(djvuPath, async (worker) => {
+                const pageSizes = await worker.doc.getPagesSizes().run();
+                return pageSizes.length > 0
+                    ? {
+                        success: true,
+                        pageCount: pageSizes.length,
+                    }
+                    : {
+                        success: false,
+                        error: 'DjVu document has no pages',
+                    };
+            });
+        }
+        try {
+            const worker = await retainBrowserDjvuViewingWorker(djvuPath);
             const pageSizes = await worker.doc.getPagesSizes().run();
             const pageCount = pageSizes.length;
 
             if (pageCount <= 0) {
+                releaseBrowserDjvuViewingWorker(djvuPath);
                 return {
                     success: false,
                     error: 'DjVu document has no pages',
                 };
             }
-
             return {
                 success: true,
                 pageCount,
             };
-        }).catch((error: unknown) => ({
-            success: false,
-            error:
-                error instanceof Error
-                    ? error.message
-                    : 'DjVu viewing failed',
-        }));
+        } catch (error: unknown) {
+            releaseBrowserDjvuViewingWorker(djvuPath);
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : 'DjVu viewing failed',
+            };
+        }
     },
-    async releaseViewingPath(_djvuPath) {},
+    releaseViewingPath(djvuPath) {
+        if (isBrowserDocumentRef(djvuPath)) releaseBrowserDjvuViewingWorker(djvuPath);
+        return Promise.resolve();
+    },
     cancelPagePreview(_requestId) {
         return Promise.resolve({ canceled: false });
     },
@@ -1001,10 +940,13 @@ export const browserDjvuCapability: IDjvuCapability = {
             };
         }
 
-        const jobId = `djvu-convert-${crypto.randomUUID()}`;
+        const jobId = options.jobId ?? `djvu-convert-${crypto.randomUUID()}`;
         const abortController = createDjvuJob(jobId);
 
         try {
+            const sourceBytes = isBrowserDocumentRef(djvuPath)
+                ? (await browserDocumentStore.stat(djvuPath)).size
+                : 0;
             emitProgress({
                 jobId,
                 phase: 'loading',
@@ -1020,6 +962,13 @@ export const browserDjvuCapability: IDjvuCapability = {
             if (pageCount <= 0) {
                 throw new Error('DjVu document has no pages');
             }
+            const preflight = resolveBrowserDjvuConversionPreflight(pageSizes);
+            if (!preflight.allowed) {
+                const limit = preflight.reason === 'page-count'
+                    ? `${preflight.maxPages} pages`
+                    : `${preflight.maxPagePixels.toLocaleString('en-US')} pixels per page`;
+                throw new Error(`Browser rasterized compatibility export exceeds its ${limit} limit. Use the Electron app for archival conversion.`);
+            }
 
             emitProgress({
                 jobId,
@@ -1027,7 +976,7 @@ export const browserDjvuCapability: IDjvuCapability = {
                 percent: 0,
             });
             const renderSettings = resolveBrowserDjvuPdfRenderSettings(options);
-            const renderConcurrency = resolveBrowserDjvuPdfRenderConcurrency(pageSizes);
+            const renderConcurrency = resolveBrowserDjvuPdfRenderConcurrency(pageSizes, undefined, sourceBytes);
             BrowserLogger.info('djvu-browser', 'Starting browser DjVu PDF conversion', {
                 jobId,
                 pageCount,
@@ -1037,11 +986,18 @@ export const browserDjvuCapability: IDjvuCapability = {
                 renderConcurrency,
             });
             const compactExportPlan = renderSettings.strategy === 'compact-djvu-aware'
-                ? resolveBrowserDjvuCompactExportPlan(pageSizes)
+                ? resolveBrowserDjvuCompactExportPlan(
+                    pageSizes,
+                    DJVU_BROWSER_COMPACT_PHOTO_PAGE_SPEC_MAX_BYTES,
+                    options.preserveBookmarks !== false,
+                )
                 : null;
             if (compactExportPlan?.strategy === 'direct-fallback') {
-                BrowserLogger.info('djvu-browser', 'Browser compact DjVu export exceeds in-memory WASM budget; using streaming direct export', {
+                BrowserLogger.info('djvu-browser', compactExportPlan.fallbackReason === 'bookmarks'
+                    ? 'Browser compact DjVu export cannot preserve bookmarks; using streaming direct export'
+                    : 'Browser compact DjVu export exceeds in-memory WASM budget; using streaming direct export', {
                     jobId,
+                    fallbackReason: compactExportPlan.fallbackReason,
                     estimatedPageSpecBytes: compactExportPlan.estimatedPageSpecBytes,
                     maxPageSpecBytes: compactExportPlan.maxPageSpecBytes,
                 });
@@ -1123,6 +1079,22 @@ export const browserDjvuCapability: IDjvuCapability = {
             cleanupDjvuJob(jobId);
         }
     },
+    startConvertToPdf(djvuPath, outputPath, options) {
+        const requestId = options.requestId ?? crypto.randomUUID();
+        const jobId = options.jobId ?? `djvu-convert-${requestId}`;
+        return Promise.resolve(browserDurableDjvuJobs.startConvert(
+            jobId,
+            requestId,
+            () => browserDjvuCapability.convertToPdf(djvuPath, outputPath, {
+                ...options,
+                jobId,
+                requestId,
+            }),
+        ));
+    },
+    awaitConvertJob(jobId) {
+        return browserDurableDjvuJobs.awaitConvert(jobId);
+    },
     printDjvuPath() {
         return Promise.resolve({
             success: false,
@@ -1138,6 +1110,12 @@ export const browserDjvuCapability: IDjvuCapability = {
         job.abortController.abort();
         cleanupDjvuJob(jobId);
         return Promise.resolve({ canceled: true });
+    },
+    getJobState(jobId) {
+        return Promise.resolve(browserDurableDjvuJobs.getState(jobId));
+    },
+    subscribeJob(jobId) {
+        return Promise.resolve(browserDurableDjvuJobs.getState(jobId));
     },
     getInfo(djvuPath) {
         return getDjvuInfo(djvuPath);
@@ -1179,18 +1157,6 @@ export const browserDjvuCapability: IDjvuCapability = {
         progressListeners.add(callback);
         return () => {
             progressListeners.delete(callback);
-        };
-    },
-    onViewingReady(callback) {
-        viewingReadyListeners.add(callback);
-        return () => {
-            viewingReadyListeners.delete(callback);
-        };
-    },
-    onViewingError(callback) {
-        viewingErrorListeners.add(callback);
-        return () => {
-            viewingErrorListeners.delete(callback);
         };
     },
     onMenuConvertToPdf: noopUnsubscribe,

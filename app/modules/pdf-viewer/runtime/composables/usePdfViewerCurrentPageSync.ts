@@ -9,9 +9,9 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { getVisiblePageDebugSnapshot } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getVisiblePageDebugSnapshot';
 import { summarizeViewerMetrics } from '@app/modules/pdf-viewer/engine/pdf-viewer-metrics/summarizeViewerMetrics';
 import type { PDFDocumentProxy } from '@app/types/pdfContracts';
-import type { IScrollSnapshot } from '@app/types/pdfUi';
 import { isAnchoredCurrentPageSyncSource } from '@app/modules/pdf-viewer/runtime/rerender-strategy/isAnchoredCurrentPageSyncSource';
 import type { TZoomInteractionLockOperationId } from '@app/modules/pdf-viewer/runtime/zoom/pdfViewerZoomTypes';
+import type { IPdfSemanticAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
 
 const CURRENT_PAGE_SYNC_SAMPLE_COUNT = 3;
 export { summarizeViewerMetrics };
@@ -28,12 +28,12 @@ export interface IResizeAnchorContext {
     capturedAtMs: number;
     page: number;
     transitionToken: number;
-    snapshot: IScrollSnapshot | null;
     visibleRange: {
         start: number;
         end: number;
     };
     viewerMetrics: ReturnType<typeof summarizeViewerMetrics>;
+    semanticAnchor?: IPdfSemanticAnchor | null;
 }
 
 interface IUsePdfViewerCurrentPageSyncOptions {
@@ -198,7 +198,6 @@ export const usePdfViewerCurrentPageSync = (options: IUsePdfViewerCurrentPageSyn
             });
             return;
         }
-        currentPage.value = page;
         emitCurrentPage(page);
     }
 

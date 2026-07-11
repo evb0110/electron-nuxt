@@ -43,7 +43,6 @@ export type TPdfViewerTransactionSource =
     | 'reload'
     | 'activation-restore'
     | 'render-stall-recovery'
-    | 'mounted-page-recovery'
     | 'continuous-warm'
     | 'dpr-change';
 
@@ -62,8 +61,6 @@ export interface IPdfViewerTransactionFitPlan {
     scalePage: number | null;
     hydrateRange: IPageRange | null;
     viewMode: TPdfViewMode | null;
-    invalidateRangeAfterScaleChange: boolean;
-    suppressLegacyPagedRowRender: boolean;
     pagedTargetRenderHandoff: 'pending' | 'consumed' | null;
 }
 
@@ -131,7 +128,5 @@ export const DEFAULT_PDF_VIEWER_TRANSACTION_FIT_PLAN: IPdfViewerTransactionFitPl
     scalePage: null,
     hydrateRange: null,
     viewMode: null,
-    invalidateRangeAfterScaleChange: false,
-    suppressLegacyPagedRowRender: false,
     pagedTargetRenderHandoff: null,
 };

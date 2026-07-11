@@ -7,6 +7,7 @@ import type {
     IAnnotationSettings,
     IShapeAnnotation,
     TDrawableShapeType,
+    TShapeAnnotationPatch,
     TShapeResizeHandle,
 } from '@app/types/annotations';
 import { isShapeTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isShapeTool';
@@ -47,11 +48,11 @@ export interface IShapeContextProvide {
     getShapesForPage: (pageIndex: number) => IShapeAnnotation[];
     handleStartDrawing: (pageIndex: number, coords: {
         x: number;
-        y: number 
+        y: number
     }) => void;
     handleContinueDrawing: (coords: {
         x: number;
-        y: number 
+        y: number
     }) => void;
     handleFinishDrawing: () => void;
     handleSelectShape: (id: string | null) => void;
@@ -99,7 +100,7 @@ export const useAnnotationShapes = () => {
     const baselineSignature = ref('[]');
     let drawOrigin: {
         x: number;
-        y: number 
+        y: number
     } | null = null;
 
     function cloneShape(shape: IShapeAnnotation): IShapeAnnotation {
@@ -443,7 +444,7 @@ export const useAnnotationShapes = () => {
         return deletedShapes.map(shape => cloneShape(shape));
     }
 
-    function updateShape(id: string, updates: Partial<IShapeAnnotation>) {
+    function updateShape(id: string, updates: TShapeAnnotationPatch) {
         for (const [
             pageIndex,
             pageShapes,
@@ -457,7 +458,7 @@ export const useAnnotationShapes = () => {
                 const updatedAt = Date.now();
                 pageShapes[index] = {
                     ...currentShape,
-                    ...updates, 
+                    ...updates,
                     points: updates.points ? cloneShapePoints(updates.points) : currentShape.points,
                     strokes: updates.strokes ? cloneShapeStrokes(updates.strokes) : currentShape.strokes,
                     createdAt: updates.createdAt ?? currentShape.createdAt ?? updatedAt,
@@ -467,6 +468,29 @@ export const useAnnotationShapes = () => {
                 shapes.value = new Map(shapes.value);
                 return;
             }
+        }
+    }
+
+    function replaceShapeSnapshot(id: string, snapshot: IShapeAnnotation) {
+        for (const [
+            pageIndex,
+            pageShapes,
+        ] of shapes.value.entries()) {
+            const index = pageShapes.findIndex(shape => shape.id === id);
+            if (index === -1) {
+                continue;
+            }
+            const currentShape = pageShapes[index];
+            if (!currentShape) {
+                continue;
+            }
+            if (snapshot.id !== currentShape.id || snapshot.pageIndex !== currentShape.pageIndex) {
+                throw new Error('Shape snapshots cannot change id or pageIndex');
+            }
+            pageShapes[index] = cloneShape(snapshot);
+            shapes.value.set(pageIndex, [...pageShapes]);
+            shapes.value = new Map(shapes.value);
+            return;
         }
     }
 
@@ -842,7 +866,7 @@ export const useAnnotationShapes = () => {
         focusedShapeId.value = null;
         drawOrigin = {
             x,
-            y, 
+            y,
         };
         drawingShape.value = createDrawingShape(pageIndex, tool, x, y, settings);
         isDrawing.value = true;
@@ -857,7 +881,7 @@ export const useAnnotationShapes = () => {
         drawingShape.value = updateDrawingShapeForPoint(shape, drawOrigin, x, y);
     }
 
-    function finishDrawing() {
+    function finishDrawingInternal(addToProjection: boolean) {
         if (!drawingShape.value || !isDrawing.value) {
             return null;
         }
@@ -872,8 +896,18 @@ export const useAnnotationShapes = () => {
             return null;
         }
 
-        addShape(shape);
+        if (addToProjection) {
+            addShape(shape);
+        }
         return shape;
+    }
+
+    function finishDrawing() {
+        return finishDrawingInternal(true);
+    }
+
+    function finishDrawingDraft() {
+        return finishDrawingInternal(false);
     }
 
     function cancelDrawing() {
@@ -902,6 +936,7 @@ export const useAnnotationShapes = () => {
         getManagedEmbeddedAnnotationIds,
         addShape,
         updateShape,
+        replaceShapeSnapshot,
         deleteShape,
         deleteShapeByReference,
         deleteSelectedShape,
@@ -922,6 +957,7 @@ export const useAnnotationShapes = () => {
         startDrawing,
         continueDrawing,
         finishDrawing,
+        finishDrawingDraft,
         cancelDrawing,
     };
 };

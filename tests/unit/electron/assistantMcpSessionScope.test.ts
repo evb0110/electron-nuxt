@@ -18,13 +18,17 @@ import {
     syncAssistantMcpSessionScope,
 } from '@electron/features/agent/assistantMcpSessionScope';
 import type { IAssistantSessionScopeBinding } from '@electron/features/agent/assistantTurnLifecycle';
+import {
+    requireDocumentInstanceId,
+    requireDocumentRevisionToken,
+} from '@contracts';
 
 const documentIdentity = {
     version: 1,
     documentRef: '/tmp/a.pdf',
     authority: 'electron-working-copy',
     contentRevision: 3,
-    token: 'revision-token-a',
+    token: requireDocumentRevisionToken('revision-token-a'),
     mintedAt: 123,
 } satisfies IDocumentRevisionInfo;
 
@@ -36,7 +40,7 @@ const binding = {
     windowId: 42,
     tabId: 'tab-a',
     documentSessionKey: 'document:/tmp/a.pdf',
-    documentInstanceId: 'instance-a',
+    documentInstanceId: requireDocumentInstanceId('instance-a'),
     documentRef: '/tmp/a.pdf',
     documentIdentity,
 } satisfies IAssistantSessionScopeBinding;
@@ -46,9 +50,9 @@ const commandTarget = {
     tabId: 'tab-a',
     sessionId: 'session-a',
     documentRef: '/tmp/a.pdf',
-    documentInstanceId: 'instance-a',
+    documentInstanceId: requireDocumentInstanceId('instance-a'),
     sessionRevision: 7,
-    documentRevisionToken: 'revision-token-a',
+    documentRevisionToken: requireDocumentRevisionToken('revision-token-a'),
 } as const;
 
 function createTab(patch: Partial<IAgentTabSnapshot> = {}): IAgentTabSnapshot {
@@ -72,7 +76,7 @@ function createTab(patch: Partial<IAgentTabSnapshot> = {}): IAgentTabSnapshot {
             recommendations: [],
         },
         documentSessionKey: 'document:/tmp/a.pdf',
-        documentInstanceId: 'instance-a',
+        documentInstanceId: requireDocumentInstanceId('instance-a'),
         documentIdentity,
         commandTarget,
         ...patch,
@@ -135,7 +139,7 @@ describe('assistantMcpSessionScope', () => {
         setActiveAssistantMcpSessionScope(binding);
         const staleIdentity = {
             ...documentIdentity,
-            token: 'revision-token-b',
+            token: requireDocumentRevisionToken('revision-token-b'),
         } satisfies IDocumentRevisionInfo;
 
         expect(() => assertAssistantMcpSnapshotMatchesScope(createSnapshot(), binding)).not.toThrow();
@@ -173,10 +177,10 @@ describe('assistantMcpSessionScope', () => {
 
         expect(() => assertAssistantMcpSnapshotMatchesScope(
             createSnapshot(createTab({
-                documentInstanceId: 'instance-b',
+                documentInstanceId: requireDocumentInstanceId('instance-b'),
                 commandTarget: {
                     ...commandTarget,
-                    documentInstanceId: 'instance-b',
+                    documentInstanceId: requireDocumentInstanceId('instance-b'),
                 },
             })),
             scopedBinding,
@@ -204,7 +208,7 @@ describe('assistantMcpSessionScope', () => {
             windowId: 42,
             tabId: 'tab-a',
             documentRef: '/tmp/a.pdf',
-            documentInstanceId: 'instance-a',
+            documentInstanceId: requireDocumentInstanceId('instance-a'),
             documentIdentity,
             commandTarget,
         });

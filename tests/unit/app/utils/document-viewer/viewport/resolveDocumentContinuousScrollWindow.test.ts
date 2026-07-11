@@ -94,15 +94,11 @@ describe('resolveDocumentContinuousScrollWindow', () => {
             overscanViewports: 2,
         })).toEqual({
             start: 1,
-            end: 6,
-            mostVisiblePage: 5,
+            end: 2,
+            mostVisiblePage: 1,
             pageNumbers: [
                 1,
                 2,
-                3,
-                4,
-                5,
-                6,
             ],
         });
     });

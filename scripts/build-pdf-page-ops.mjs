@@ -1,12 +1,16 @@
 import { spawnSync } from 'node:child_process';
 import {
     chmod,
-    copyFile,
     mkdir,
     rm,
 } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+    copyCargoArtifactVerified,
+    getCargoArtifactPath,
+    resolveCargoTargetDirectory,
+} from './cargo-artifacts.mjs';
 import { getRequestedNativeRustTarget } from './native-rust-targets.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -21,6 +25,10 @@ const cargoArgs = [
     '--locked',
     ...target.cargoTargetArgs,
 ];
+const cargoTargetDirectory = resolveCargoTargetDirectory({
+    manifestPath: 'native/pdf-page-ops/Cargo.toml',
+    projectRoot,
+});
 
 const result = spawnSync('cargo', cargoArgs, {
     cwd: projectRoot,
@@ -30,7 +38,11 @@ if (result.status !== 0) {
     throw new Error(`cargo ${cargoArgs.join(' ')} failed with status ${result.status ?? 'unknown'}`);
 }
 
-const sourcePath = path.join(projectRoot, 'native', 'pdf-page-ops', ...target.cargoReleaseDirSegments, binaryName);
+const sourcePath = getCargoArtifactPath({
+    fileName: binaryName,
+    rustTarget: target.isHostTarget ? undefined : target.rustTarget,
+    targetDirectory: cargoTargetDirectory,
+});
 const stageDir = path.join(projectRoot, '.tmp', 'pdf-page-ops', target.platformArch, 'bin');
 const destinationPath = path.join(stageDir, binaryName);
 
@@ -39,9 +51,9 @@ await rm(stageDir, {
     force: true,
 });
 await mkdir(stageDir, {recursive: true});
-await copyFile(sourcePath, destinationPath);
+const stagedArtifact = await copyCargoArtifactVerified(sourcePath, destinationPath);
 if (target.platform !== 'win32') {
     await chmod(destinationPath, 0o755);
 }
 
-console.log(`Staged ${binaryName} for ${target.platformArch}: ${path.relative(projectRoot, destinationPath)}`);
+console.log(`Staged ${binaryName} for ${target.platformArch}: ${path.relative(projectRoot, destinationPath)} (${stagedArtifact.sha256})`);

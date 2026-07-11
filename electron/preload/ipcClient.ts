@@ -3,7 +3,10 @@ import type {
     IpcRendererEvent,
 } from 'electron';
 import type { TMenuEventUnsubscribe } from '@contracts/electronApiCommon';
-import type { IIpcInvokeSpec } from '@contracts/ipcMain';
+import type {
+    IIpcInvokeSpec,
+    TIpcCodecMap,
+} from '@contracts/ipcMain';
 import { CORE_IPC_SEND_CHANNELS } from '@electron/platform-ipc/coreContract';
 
 type TNoArgEventChannel<TEventMap extends {[TChannel in keyof TEventMap]: unknown}> = Extract<{
@@ -15,7 +18,6 @@ type TPayloadEventChannel<TEventMap extends {[TChannel in keyof TEventMap]: unkn
     TNoArgEventChannel<TEventMap>
 >;
 
-type TIpcResultDecoder<TResult> = (value: unknown) => TResult | null;
 type TIpcPayloadDecoder<TPayload> = (value: unknown) => TPayload | null;
 type TIpcInvokeTimeoutMap<TChannel extends string = string> = Readonly<Partial<Record<TChannel, number>>>;
 
@@ -102,33 +104,25 @@ async function invokeWithChannelContext<TResult>(
     }
 }
 
-export function createTypedIpcInvoker<TMap extends {[TChannel in keyof TMap]: IIpcInvokeSpec}>(
+export function createCodecIpcInvoker<TMap extends {[TChannel in keyof TMap]: IIpcInvokeSpec}>(
     ipcRenderer: Pick<IpcRenderer, 'invoke'>,
+    codecs: TIpcCodecMap<TMap>,
     options?: IIpcInvokerOptions<Extract<keyof TMap, string>>,
 ) {
-    return function invoke<TChannel extends Extract<keyof TMap, string>>(
+    return async function invoke<TChannel extends Extract<keyof TMap, string>>(
         channel: TChannel,
-        ...args: TMap[TChannel]['args']
-    ) {
-        return invokeWithChannelContext<TMap[TChannel]['result']>(ipcRenderer, channel, args, options);
-    };
-}
-
-export function createDecodedIpcInvoker<TMap extends {[TChannel in keyof TMap]: IIpcInvokeSpec}>(
-    ipcRenderer: Pick<IpcRenderer, 'invoke'>,
-    options?: IIpcInvokerOptions<Extract<keyof TMap, string>>,
-) {
-    return async function invokeDecoded<TChannel extends Extract<keyof TMap, string>>(
-        channel: TChannel,
-        decode: TIpcResultDecoder<TMap[TChannel]['result']>,
         ...args: TMap[TChannel]['args']
     ) {
         const result: unknown = await invokeWithChannelContext<unknown>(ipcRenderer, channel, args, options);
-        const decoded = decode(result);
-        if (decoded === null) {
-            throw new PlatformIpcInvokeError(channel, new Error(`Invalid IPC response for ${channel}`));
+        try {
+            return codecs[channel].decodeResult(result);
+        } catch (error) {
+            const details = error instanceof Error ? `: ${error.message}` : '';
+            throw new PlatformIpcInvokeError(
+                channel,
+                new Error(`Invalid IPC response for ${channel}${details}`),
+            );
         }
-        return decoded;
     };
 }
 
@@ -145,7 +139,7 @@ export function createTypedIpcEventSubscriber<
             return () => ipcRenderer.removeListener(channel, handler);
         },
 
-        onPayload<TChannel extends TPayloadEventChannel<TEventMap>>(
+        onPayloadUnchecked<TChannel extends TPayloadEventChannel<TEventMap>>(
             channel: TChannel,
             callback: (payload: TEventMap[TChannel]) => void,
         ): TMenuEventUnsubscribe {

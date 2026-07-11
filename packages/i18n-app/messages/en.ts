@@ -314,6 +314,20 @@ export default {
         'currentPage': 'Current page ({page})',
         'customRange': 'Custom range',
         'customRangePlaceholder': 'e.g. 1-5, 8, 10-12',
+        'supersession': {
+            'label': 'Existing text',
+            'options': {
+                'missing-only': 'OCR missing text only',
+                'replace-evb': 'Re-OCR EVB text',
+                'replace-all': 'Replace all hidden OCR',
+            },
+            'descriptions': {
+                'missing-only': 'Keep every existing text layer and OCR only pages without text.',
+                'replace-evb': 'Replace the active EVB OCR generation; native and foreign text stay untouched.',
+                'replace-all': 'Replace EVB and foreign hidden OCR layers; visible native text stays untouched.',
+            },
+            'replaceAllAcknowledgement': 'I understand that foreign hidden OCR text on the selected pages will be removed and replaced.',
+        },
         'qualityProfile': {
             'label': 'Quality',
             'options': {
@@ -353,6 +367,18 @@ export default {
         },
         'settingHelpAria': 'About {setting}',
         'languages': 'Languages',
+        'languageModelState': {
+            'installed': 'Installed',
+            'downloading': 'Downloading',
+            'missing': 'Downloads on start',
+        },
+        'diagnostic': {
+            'preprocessingUnavailable': 'Page {page}: scan cleanup is unavailable; the original image was used.',
+            'preprocessingFailed': 'Page {page}: scan cleanup failed; the original image was used.',
+            'preprocessingGeometryChanged': 'Page {page}: scan cleanup changed page geometry; the original image was used.',
+            'sourceDpiLimited': 'Page {page}: source resolution limited the effective OCR DPI.',
+            'existingTextSkipped': 'Page {page}: existing text was preserved.',
+        },
         'preparing': 'Preparing OCR...',
         'progressStage': {
             'modelPrep': 'Preparing OCR language models...',
@@ -636,7 +662,7 @@ export default {
         'title': 'Combine Files to PDF',
         'pageEyebrow': 'PDF tools',
         'dropTitle': 'Drop files to combine',
-        'dropDescription': 'Use PDFs, DjVu, PNG, JPG, TIFF, WebP, GIF, BMP, AVIF, or APNG. Each file becomes part of the output PDF in the order shown.',
+        'dropDescription': 'Use PDFs, DjVu, PNG, JPG, TIFF, WebP, GIF, or BMP. Each file becomes part of the output PDF in the order shown.',
         'chooseFiles': 'Choose Files',
         'addMore': 'Add More',
         'listTitle': 'Output Order',
@@ -645,9 +671,6 @@ export default {
             other: '{count} files queued',
         }),
         'clear': 'Clear',
-        'emptyTitle': 'No files selected',
-        'emptyDescription': 'Drop files on the left or choose them from your computer.',
-        'combineAction': 'Combine to PDF',
         'combineCountAction': plural({
             one: 'Combine {count} file',
             other: 'Combine {count} files',
@@ -694,7 +717,7 @@ export default {
         'searching': 'Searching...',
         'pagesProgress': '{processed} of {total} pages',
         'enterSearchTerm': 'Enter a search term',
-        'enterSearchHint': 'Type a word or phrase to search across the current document.',
+        'enterSearchHint': 'Search runs page by page, so phrases do not span page breaks. Use double quotes to preserve leading or trailing spaces.',
         'typeMinChars': plural({
             one: 'Type at least {count} character',
             other: 'Type at least {count} characters',
@@ -1085,6 +1108,8 @@ export default {
             'emptyPdf': 'The PDF file is empty (0 bytes)',
             'folderEmpty': 'No supported documents were found in the selected folder',
             'save': 'Failed to save file',
+            'browserStorageTitle': 'Browser storage is unavailable',
+            'browserStorageDescription': '“{name}” is open in memory, but it will not reappear after reload.',
         },
         'export': {
             'images': 'Failed to export images',
@@ -1214,5 +1239,20 @@ export default {
         'scopeSelected': 'Selected pages ({count})',
         'apply': 'Apply Crop',
         'removeCrop': 'Remove Crop',
+    },
+    'documentSourceSidebar': {
+        'navLabel': 'Document navigation',
+        'loadingOutline': 'Loading outline…',
+        'noOutline': 'No outline',
+        'searchPlaceholder': 'Search document',
+        'searchAction': 'Search',
+        'searching': 'Searching…',
+        'noResults': 'No results',
+        'goToPage': 'Go to page {page}',
+        'page': 'Page {page}',
+        'addNoteOnPage': 'Add note on page {page}',
+        'noAnnotations': 'No annotations on this page',
+        'note': 'Note',
+        'deleteAnnotation': 'Delete annotation {id}',
     },
 } as const;

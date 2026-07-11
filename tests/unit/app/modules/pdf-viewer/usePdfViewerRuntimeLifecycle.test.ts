@@ -15,6 +15,7 @@ import {
 } from 'vue';
 import { usePdfViewerRuntimeLifecycle } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfViewerRuntimeLifecycle';
 import type { TPdfSource } from '@app/types/pdfUi';
+import {createTestPdfViewportWritePort} from '@tests/helpers/createTestPdfViewportWritePort';
 
 const lifecycleMocks = vi.hoisted(() => ({
     applySearchHighlights: vi.fn(),
@@ -170,6 +171,8 @@ function mountCore(options?: {
 
     const app = testRenderer.createApp(defineComponent({setup() {
         usePdfViewerRuntimeLifecycle({
+            viewportWritePort: createTestPdfViewportWritePort().port,
+            submitResizeIntent: vi.fn(),
             viewerContainer,
             src: computed(() => src.value),
             isAnySaving: computed(() => isAnySaving.value),
@@ -416,8 +419,8 @@ describe('usePdfViewerRuntimeLifecycle inactive lifecycle', () => {
         expect(harness.editor.applyAnnotationSettings).toHaveBeenCalledWith(null);
         expect(lifecycleMocks.updateVisibleRange).toHaveBeenCalledWith(harness.viewerContainer.value, 5);
         expect(lifecycleMocks.renderVisiblePages).toHaveBeenCalledWith({
-            start: 2,
-            end: 3,
+            start: 1,
+            end: 1,
         }, { preserveRenderedPages: true });
         expect(lifecycleMocks.applySearchHighlights).toHaveBeenCalledTimes(1);
 
@@ -444,14 +447,14 @@ describe('usePdfViewerRuntimeLifecycle inactive lifecycle', () => {
         });
 
         expect(renderVisiblePages).toHaveBeenCalledWith({
-            start: 2,
-            end: 3,
+            start: 1,
+            end: 1,
         }, { preserveRenderedPages: true });
 
         harness.app.unmount();
     });
 
-    it('retries the current page row after activation when the normal render leaves no canvas mounted', async () => {
+    it('restores the viewport-authority page once after activation', async () => {
         const renderVisiblePages = vi.fn().mockResolvedValue(undefined);
         const viewerContainer = createViewerContainerStub(null);
         const harness = mountCore({
@@ -473,14 +476,7 @@ describe('usePdfViewerRuntimeLifecycle inactive lifecycle', () => {
             start: 2,
             end: 2,
         }, { preserveRenderedPages: true });
-        expect(renderVisiblePages).toHaveBeenNthCalledWith(2, {
-            start: 2,
-            end: 2,
-        }, {
-            preserveRenderedPages: true,
-            forceRerender: true,
-            bufferOverride: 0,
-        });
+        expect(renderVisiblePages).toHaveBeenCalledTimes(1);
 
         harness.app.unmount();
     });

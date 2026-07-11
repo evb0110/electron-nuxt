@@ -19,6 +19,7 @@ pub(crate) struct ImagePage {
     pub(crate) height: u32,
     pub(crate) dpi: u32,
     pub(crate) color_space: &'static str,
+    pub(crate) icc_profile: Option<Vec<u8>>,
     pub(crate) payload: ImagePayload,
 }
 
@@ -128,7 +129,8 @@ impl<W: IoWrite> PdfWriter<W> {
         let page_object = self.next_object;
         let image_object = page_object + 1;
         let content_object = page_object + 2;
-        self.next_object += 3;
+        let icc_object = page.icc_profile.as_ref().map(|_| page_object + 3);
+        self.next_object += if icc_object.is_some() { 4 } else { 3 };
         self.page_objects.push(page_object);
 
         let image_name = format!("Im{}", self.page_objects.len());
@@ -143,7 +145,17 @@ impl<W: IoWrite> PdfWriter<W> {
             page_width, page_height, image_name, image_object, content_object
         );
         self.push_object(page_object, page_body.as_bytes())?;
-        self.push_image_object(image_object, page)?;
+        self.push_image_object(image_object, page, icc_object)?;
+        if let (Some(object_number), Some(profile)) = (icc_object, page.icc_profile.as_ref()) {
+            let components = if page.color_space == "DeviceGray" { 1 } else { 3 };
+            let dict = format!(
+                "<< /N {} /Alternate /{} /Length {} >>",
+                components,
+                page.color_space,
+                profile.len()
+            );
+            self.push_stream_object(object_number, dict.as_bytes(), profile)?;
+        }
 
         let content_stream = format!(
             "q {:.4} 0 0 {:.4} 0 0 cm /{} Do Q\n",
@@ -281,12 +293,18 @@ impl<W: IoWrite> PdfWriter<W> {
         Ok(self.inner)
     }
 
-    fn push_image_object(&mut self, object_number: usize, page: &ImagePage) -> Result<()> {
+    fn push_image_object(
+        &mut self,
+        object_number: usize,
+        page: &ImagePage,
+        icc_object: Option<usize>,
+    ) -> Result<()> {
         self.push_color_image_stream(
             object_number,
             page.width,
             page.height,
             page.color_space,
+            icc_object,
             ColorImagePayloadRef::from(&page.payload),
         )
     }
@@ -301,6 +319,7 @@ impl<W: IoWrite> PdfWriter<W> {
             image.width,
             image.height,
             image.color_space,
+            None,
             ColorImagePayloadRef::from(&image.payload),
         )
     }
@@ -311,18 +330,22 @@ impl<W: IoWrite> PdfWriter<W> {
         width: u32,
         height: u32,
         color_space: &str,
+        icc_object: Option<usize>,
         payload: ColorImagePayloadRef<'_>,
     ) -> Result<()> {
+        let color_space_value = icc_object
+            .map(|object| format!("[/ICCBased {object} 0 R]"))
+            .unwrap_or_else(|| format!("/{color_space}"));
         match payload {
             ColorImagePayloadRef::RawFlate {
                 data,
                 decode_params,
             } => {
                 let dict = format!(
-                    "<< /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /{} /BitsPerComponent 8 /Filter /FlateDecode /DecodeParms {} /Length {} >>",
+                    "<< /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace {} /BitsPerComponent 8 /Filter /FlateDecode /DecodeParms {} /Length {} >>",
                     width,
                     height,
-                    color_space,
+                    color_space_value,
                     decode_params,
                     data.len()
                 );
@@ -330,10 +353,10 @@ impl<W: IoWrite> PdfWriter<W> {
             }
             ColorImagePayloadRef::Jpeg { data } => {
                 let dict = format!(
-                    "<< /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /{} /BitsPerComponent 8 /Filter /DCTDecode /Length {} >>",
+                    "<< /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace {} /BitsPerComponent 8 /Filter /DCTDecode /Length {} >>",
                     width,
                     height,
-                    color_space,
+                    color_space_value,
                     data.len()
                 );
                 self.push_stream_object(object_number, dict.as_bytes(), data)
@@ -562,6 +585,7 @@ mod tests {
             height: 1,
             dpi: 72,
             color_space: "DeviceGray",
+            icc_profile: None,
             payload: ImagePayload::RawFlate {
                 data: vec![0],
                 decode_params: "<< /Predictor 12 /Colors 1 /BitsPerComponent 8 /Columns 1 >>"

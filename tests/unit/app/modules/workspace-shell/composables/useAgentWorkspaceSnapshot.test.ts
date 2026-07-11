@@ -6,6 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { requireDocumentInstanceId } from '@contracts/documentInstanceId';
 import {
     createApp,
     ref,
@@ -32,6 +33,7 @@ import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/stat
 import type { IWorkspaceDocumentSessionController } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
 import { cast } from '@tests/helpers/cast';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import {requireDocumentRevisionToken} from '@contracts';
 
 interface IWindowWithElectronApi extends Window {electronAPI?: IPlatformApi;}
 
@@ -61,7 +63,7 @@ function createDocumentIdentity(
 ): IDocumentRevisionInfo {
     return {
         version: 1,
-        token,
+        token: requireDocumentRevisionToken(token),
         documentRef,
         authority: 'browser-document-store',
         contentRevision,
@@ -731,7 +733,7 @@ describe('useAgentWorkspaceSnapshot command guards', () => {
             sessionId: 'session-1',
             createDocumentInstanceId: () => {
                 nextInstanceId += 1;
-                return `instance-${nextInstanceId}`;
+                return requireDocumentInstanceId(`instance-${nextInstanceId}`);
             },
             initialRecord: createSessionRecord('/tmp/document.pdf'),
         });

@@ -17,7 +17,7 @@ describe('platform runtime detection', () => {
         expect(shouldPreferDesktopPlatform('/', true, false)).toBe(true);
         expect(shouldPreferDesktopPlatform('/electron', false, false)).toBe(true);
         expect(shouldPreferDesktopPlatform('/', false, true)).toBe(true);
-        expect(shouldPreferDesktopPlatform('/', false, false, true)).toBe(true);
+        expect(shouldPreferDesktopPlatform('/', false, false, true)).toBe(false);
         expect(shouldPreferDesktopPlatform('/', false, false, false)).toBe(false);
     });
 

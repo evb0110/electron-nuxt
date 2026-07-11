@@ -5,7 +5,6 @@ import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
     ISearchMatch,
     ISearchWorkerRequest,
-    TSearchWorkerInboundMessage,
     TSearchWorkerOutboundMessage,
 } from '@electron/search/protocol';
 import { SEARCH_RESULT_LIMIT } from '@electron/config/constants';
@@ -15,10 +14,7 @@ import {
 } from '@electron/utils/abort';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
-import {
-    isFiniteWorkerMessageNumber,
-    isWorkerMessageRecord,
-} from '@electron/utils/workerMessage';
+import { parseSearchWorkerInboundMessage } from '@electron/search/parseSearchWorkerInboundMessage';
 import {
     buildExcerpt,
     iteratePageMatches,
@@ -103,80 +99,6 @@ const log = createLogger('search-worker');
 
 function assertNever(value: never) {
     throw new Error(`Unhandled search worker inbound message: ${JSON.stringify(value)}`);
-}
-
-function parseSearchWorkerRequest(value: unknown): ISearchWorkerRequest | null {
-    if (!isWorkerMessageRecord(value)) {
-        return null;
-    }
-    if (
-        typeof value.requestId !== 'string'
-        || typeof value.pdfPath !== 'string'
-        || typeof value.documentRevision !== 'string'
-        || value.documentRevision.length === 0
-        || typeof value.query !== 'string'
-    ) {
-        return null;
-    }
-    const pageCount = isFiniteWorkerMessageNumber(value.pageCount) ? value.pageCount : undefined;
-    const warmup = typeof value.warmup === 'boolean' ? value.warmup : undefined;
-    const matchCase = typeof value.matchCase === 'boolean' ? value.matchCase : undefined;
-    const wholeWord = typeof value.wholeWord === 'boolean' ? value.wholeWord : undefined;
-    const useRegex = typeof value.useRegex === 'boolean' ? value.useRegex : undefined;
-    const request: ISearchWorkerRequest = {
-        requestId: value.requestId,
-        pdfPath: value.pdfPath,
-        documentRevision: value.documentRevision,
-        query: value.query,
-    };
-    if (pageCount !== undefined) {
-        request.pageCount = pageCount;
-    }
-    if (warmup !== undefined) {
-        request.warmup = warmup;
-    }
-    if (matchCase !== undefined) {
-        request.matchCase = matchCase;
-    }
-    if (wholeWord !== undefined) {
-        request.wholeWord = wholeWord;
-    }
-    if (useRegex !== undefined) {
-        request.useRegex = useRegex;
-    }
-    return request;
-}
-
-function parseInboundMessage(value: unknown): TSearchWorkerInboundMessage | null {
-    if (!isWorkerMessageRecord(value) || typeof value.type !== 'string') {
-        return null;
-    }
-    switch (value.type) {
-        case 'cancel':
-            if (typeof value.requestId !== 'string') {
-                return null;
-            }
-            return {
-                type: 'cancel',
-                requestId: value.requestId,
-            };
-        case 'reset-cache':
-            return { type: 'reset-cache' };
-        case 'reset-state':
-            return { type: 'reset-state' };
-        case 'search': {
-            const payload = parseSearchWorkerRequest(value.payload);
-            if (!payload) {
-                return null;
-            }
-            return {
-                type: 'search',
-                payload,
-            };
-        }
-        default:
-            return null;
-    }
 }
 
 function postMessage(message: TSearchWorkerOutboundMessage) {
@@ -672,7 +594,7 @@ async function processSearchRequest(request: ISearchWorkerRequest) {
 }
 
 parentPort?.on('message', (rawMessage: unknown) => {
-    const message = parseInboundMessage(rawMessage);
+    const message = parseSearchWorkerInboundMessage(rawMessage);
     if (!message) {
         log.warn('Ignoring malformed search worker inbound message');
         return;

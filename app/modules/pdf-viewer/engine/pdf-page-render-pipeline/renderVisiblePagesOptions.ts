@@ -1,4 +1,5 @@
 import type { IPdfViewerTransactionRenderRequest } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
+import type { TPdfRenderContinuationPriority } from '@app/modules/pdf-viewer/engine/pdf-render-continuation-scheduler/pdfRenderContinuationScheduler';
 
 export interface IRenderVisiblePagesOptions {
     preserveRenderedPages?: boolean;
@@ -13,4 +14,5 @@ export interface IRenderVisiblePagesOptions {
     preserveInFlightRequiredPages?: boolean;
     prioritizeTextLayer?: boolean;
     transactionRequest?: IPdfViewerTransactionRenderRequest;
+    continuationPriority?: TPdfRenderContinuationPriority;
 }

@@ -12,6 +12,7 @@ import {
     syncCommentMarkerAnchorEditor,
 } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/commentMarkerAnchorEditor';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
+import { getPdfjsEditorFacadeState } from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
 
 vi.mock('pdfjs-dist', () => ({PDFDateString: {toDateObject: vi.fn(() => null)}}));
 
@@ -94,13 +95,13 @@ function expectMarkerRectClose(
         left: number;
         top: number;
         width: number;
-        height: number; 
+        height: number;
     } | null,
     expected: {
         left: number;
         top: number;
         width: number;
-        height: number; 
+        height: number;
     },
 ) {
     if (!actual) {
@@ -503,8 +504,8 @@ describe('comment marker anchor editor', () => {
         });
 
         expect(synced).toBe(true);
-        expect(editor.__evbCommentMarkerAnchor).toBe(true);
-        expect(editor.__evbPendingAnchorRect).toEqual({
+        expect(getPdfjsEditorFacadeState(editor).commentMarkerAnchor).toBe(true);
+        expect(getPdfjsEditorFacadeState(editor).pendingAnchorRect).toEqual({
             left: 0.25,
             top: 0.4,
             width: 0.015,
@@ -548,8 +549,8 @@ describe('comment marker anchor editor', () => {
         const synced = syncCommentMarkerAnchorEditor(editor, null);
 
         expect(synced).toBe(false);
-        expect(editor.__evbCommentMarkerAnchor).toBe(true);
-        expect(editor.__evbPendingAnchorRect).toBeNull();
+        expect(getPdfjsEditorFacadeState(editor).commentMarkerAnchor).toBe(true);
+        expect(getPdfjsEditorFacadeState(editor).pendingAnchorRect).toBeNull();
         expect(classNames.has(COMMENT_MARKER_ANCHOR_EDITOR_CLASS)).toBe(true);
     });
 });

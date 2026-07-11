@@ -89,6 +89,7 @@ const documentsClientMock = vi.hoisted(() => ({
     savePdfNoteChanges: vi.fn(async () => ({success: true})),
     savePdfNativeMutations: vi.fn(async () => ({success: true})),
     applyPdfNativeMutationsToWorkingCopy: vi.fn(async () => ({success: true})),
+    commitStagedPdfNativeMutations: vi.fn(async () => ({success: true})),
     cleanupFile: vi.fn(async () => undefined),
     cleanupOcrTemp: vi.fn(async () => undefined),
     setWindowTitle: vi.fn(async () => undefined),
@@ -120,6 +121,7 @@ const documentsClientMock = vi.hoisted(() => ({
     onMenuActualSize: vi.fn(),
     onMenuFitWidth: vi.fn(),
     onMenuFitHeight: vi.fn(),
+    onMenuToggleContinuousScroll: vi.fn(),
     onMenuViewModeSingle: vi.fn(),
     onMenuViewModeFacing: vi.fn(),
     onMenuViewModeFacingFirstSingle: vi.fn(),
@@ -319,7 +321,6 @@ describe('createElectronApi', () => {
             { getPathForFile: () => '' },
         );
         const callback = vi.fn();
-
         api.settings.onDebugLog(callback);
         const listener = listeners.get(CORE_IPC_EVENT_CHANNELS.debugLog);
         if (!listener) {
@@ -441,6 +442,12 @@ describe('createElectronApi', () => {
     });
 
     it('decodes assistant events before invoking callbacks', async () => {
+        const binding = {
+            scopeFingerprint: 'codex:document-1',
+            sessionKey: 'codex:document-1',
+            turnGeneration: 1,
+            windowId: 1,
+        };
         const warningSpy = silenceExpectedDecodedEventWarnings();
         const listeners = new Map<string, (_event: unknown, payload: unknown) => void>();
         const ipcRenderer = {
@@ -475,10 +482,12 @@ describe('createElectronApi', () => {
             type: 'message-delta',
             messageId: ' message-1 ',
             delta: 'hello',
+            binding,
         });
         listener({}, {
             type: 'turn-progress',
             progress: 'Still working',
+            binding,
         });
 
         expect(callback).toHaveBeenCalledTimes(2);
@@ -486,10 +495,12 @@ describe('createElectronApi', () => {
             type: 'message-delta',
             messageId: 'message-1',
             delta: 'hello',
+            binding,
         });
         expect(callback).toHaveBeenNthCalledWith(2, {
             type: 'turn-progress',
             progress: 'Still working',
+            binding,
         });
         expect(warningSpy).toHaveBeenCalledWith(
             `Dropped invalid decoded IPC event payload for ${AGENT_EVENT_CHANNELS.assistantEvent}`,
@@ -676,7 +687,7 @@ describe('createElectronApi', () => {
             invoke: vi.fn((channel: string) => {
                 invocations.push(channel);
                 if (channel === DOCUMENTS_CHANNELS.registerRendererFileOpenToken) {
-                    return Promise.resolve();
+                    return Promise.resolve(true);
                 }
                 if (channel === DOCUMENTS_CHANNELS.allowRendererFileOpen) {
                     return new Promise<boolean>((resolve) => {
@@ -719,7 +730,7 @@ describe('createElectronApi', () => {
         const ipcRenderer = {
             invoke: vi.fn((channel: string) => {
                 if (channel === DOCUMENTS_CHANNELS.registerRendererFileOpenToken) {
-                    return Promise.resolve();
+                    return Promise.resolve(true);
                 }
                 if (channel === DOCUMENTS_CHANNELS.allowRendererFileOpen) {
                     return Promise.resolve(false);
@@ -751,7 +762,7 @@ describe('createElectronApi', () => {
         const ipcRenderer = {
             invoke: vi.fn((channel: string, payload?: { token?: string }) => {
                 if (channel === DOCUMENTS_CHANNELS.registerRendererFileOpenToken) {
-                    return Promise.resolve();
+                    return Promise.resolve(true);
                 }
                 if (channel === DOCUMENTS_CHANNELS.allowRendererFileOpen && payload?.token) {
                     return new Promise<boolean>((resolve) => {

@@ -25,6 +25,7 @@ import {
     rgb,
 } from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
+import {createCanvas} from '@napi-rs/canvas';
 import { getCurrentSessionName } from '@scripts/electron-run/electronRunSessionPaths';
 import { createPdfjsNodeDocumentOptions } from '@electron/search/createPdfjsNodeDocumentOptions';
 
@@ -362,6 +363,33 @@ export async function createBlankFixturePdf(filename: string, pageCount = 1) {
     const bytes = await doc.save();
     writeFileSync(filePath, bytes);
 
+    return filePath;
+}
+
+export async function createScannedTextFixturePdf(filename: string, text: string) {
+    ensureFixtureDir();
+    const filePath = join(getFixtureDir(), filename);
+    const canvas = createCanvas(1200, 500);
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = '#111111';
+    context.font = 'bold 72px sans-serif';
+    context.fillText(text, 60, 270);
+
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([
+        600,
+        250,
+    ]);
+    const image = await doc.embedPng(canvas.toBuffer('image/png'));
+    page.drawImage(image, {
+        x: 0,
+        y: 0,
+        width: 600,
+        height: 250,
+    });
+    writeFileSync(filePath, await doc.save());
     return filePath;
 }
 

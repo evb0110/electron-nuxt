@@ -1,5 +1,6 @@
 import type { Ref } from 'vue';
 import { useEventListener } from '@vueuse/core';
+import { getEventCurrentTarget } from '@app/utils/getEventCurrentTarget';
 
 interface ISlot {
     left: number;
@@ -466,7 +467,10 @@ export const useTabDragReorder = (
             return;
         }
 
-        const el = e.currentTarget as HTMLElement;
+        const el = getEventCurrentTarget(e, HTMLElement);
+        if (!el) {
+            return;
+        }
         el.setPointerCapture(e.pointerId);
 
         pointerStartX = e.clientX;

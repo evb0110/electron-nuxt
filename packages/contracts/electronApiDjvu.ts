@@ -23,6 +23,41 @@ export interface IDjvuProgress {
     error?: string;
 }
 
+export type TDocumentOutputOperation = 'djvu-convert' | 'djvu-open' | 'djvu-print';
+
+export type TDocumentOutputJobState =
+    | {
+        jobId: string;
+        operation: TDocumentOutputOperation;
+        status: 'queued' | 'running';
+        progress: IDjvuProgress;
+        updatedAtMs: number;
+    }
+    | {
+        jobId: string;
+        operation: TDocumentOutputOperation;
+        status: 'handoff';
+        artifactPath: TDocumentRef;
+        progress: IDjvuProgress;
+        updatedAtMs: number;
+    }
+    | {
+        jobId: string;
+        operation: TDocumentOutputOperation;
+        status: 'completed';
+        artifactPath?: TDocumentRef;
+        progress: IDjvuProgress;
+        updatedAtMs: number;
+    }
+    | {
+        jobId: string;
+        operation: TDocumentOutputOperation;
+        status: 'canceled' | 'failed';
+        error?: string;
+        progress: IDjvuProgress;
+        updatedAtMs: number;
+    };
+
 export interface IDjvuInfo {
     pageCount: number;
     sourceDpi: number;
@@ -59,11 +94,17 @@ export interface IDjvuPagePreviewOptions {
 }
 
 export interface IDjvuConvertOptions {
+    jobId?: string;
     subsample?: number;
     preserveBookmarks?: boolean;
     pdfStrategy?: TDjvuPdfExportStrategy;
     requestId?: string;
     documentRef?: TDocumentRef;
+}
+
+export interface IDjvuJobStartHandle {
+    jobId: string;
+    requestId: string;
 }
 
 export interface IDjvuPrintOptions {
@@ -78,7 +119,6 @@ export interface IDjvuPrintOptions {
 
 export interface IDjvuOpenResult {
     success: boolean;
-    pdfPath?: TDocumentRef;
     pageCount?: number;
     jobId?: string;
     error?: string;
@@ -100,23 +140,18 @@ export interface IDjvuPrintResult {
     error?: string;
 }
 
-export interface IDjvuViewingReadyEvent {
-    pdfPath: TDocumentRef;
-    isPartial: boolean;
-    jobId?: string;
-}
-
-export interface IDjvuViewingErrorEvent {
-    error: string;
-    jobId?: string;
-}
-
 export interface IDjvuAPI {
+    startOpenForViewing: (djvuPath: TDocumentRef, requestId: string) => Promise<IDjvuJobStartHandle>;
+    awaitOpenJob: (jobId: string) => Promise<IDjvuOpenResult>;
     openForViewing: (djvuPath: TDocumentRef) => Promise<IDjvuOpenResult>;
     releaseViewingPath: (djvuPath: TDocumentRef) => Promise<void>;
     convertToPdf: (djvuPath: TDocumentRef, outputPath: string, options: IDjvuConvertOptions) => Promise<IDjvuConvertResult>;
+    startConvertToPdf: (djvuPath: TDocumentRef, outputPath: string, options: IDjvuConvertOptions) => Promise<IDjvuJobStartHandle>;
+    awaitConvertJob: (jobId: string) => Promise<IDjvuConvertResult>;
     printDjvuPath: (djvuPath: TDocumentRef, options: IDjvuPrintOptions) => Promise<IDjvuPrintResult>;
     cancel: (jobId: string) => Promise<{ canceled: boolean }>;
+    getJobState: (jobId: string) => Promise<TDocumentOutputJobState | null>;
+    subscribeJob: (jobId: string) => Promise<TDocumentOutputJobState | null>;
     cancelPagePreview: (requestId: string) => Promise<{ canceled: boolean }>;
     getInfo: (djvuPath: TDocumentRef) => Promise<IDjvuInfo>;
     getPageSizes: (djvuPath: TDocumentRef) => Promise<IDjvuPageSize[]>;
@@ -128,8 +163,6 @@ export interface IDjvuAPI {
     estimateSizes: (djvuPath: TDocumentRef) => Promise<IDjvuSizeEstimate[]>;
     cleanupTemp: (tempPdfPath: TDocumentRef) => Promise<void>;
     onProgress: (callback: (progress: IDjvuProgress) => void) => () => void;
-    onViewingReady: (callback: (data: IDjvuViewingReadyEvent) => void) => () => void;
-    onViewingError: (callback: (data: IDjvuViewingErrorEvent) => void) => () => void;
 }
 
 export interface IDjvuCapability extends IDjvuAPI {onMenuConvertToPdf: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;}

@@ -8,6 +8,7 @@ import type {
     IDocumentRevisionInfo,
     TDocumentRevisionToken,
 } from '@contracts/documentRevision';
+import { parseDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
     IPdfBox,
     IMarkerRect,
@@ -15,6 +16,7 @@ import type {
 } from '@contracts/geometry';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import type {
+    IPdfPageLabelsMutation,
     IPdfPageLabelRange,
     TPdfPageLabelStyle,
 } from '@contracts/pdfPageLabels';
@@ -50,6 +52,45 @@ export interface IDocumentChunkReadResult {
     size: number;
     bytesRead: number;
     chunks: number;
+}
+
+export const IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES = 16 * 1024 * 1024;
+
+export interface IManagedTempFileHandle {
+    path: TDocumentRef;
+    size: number;
+    sha256: string;
+    leaseId: string;
+    revision: TDocumentRevisionToken | null;
+}
+
+export function decodeManagedTempFileHandle(value: unknown): IManagedTempFileHandle | null {
+    if (
+        !isRecord(value)
+        || typeof value.path !== 'string'
+        || value.path.length === 0
+        || typeof value.size !== 'number'
+        || !Number.isSafeInteger(value.size)
+        || value.size < 0
+        || typeof value.sha256 !== 'string'
+        || !/^[a-f0-9]{64}$/u.test(value.sha256)
+        || typeof value.leaseId !== 'string'
+        || value.leaseId.length === 0
+        || (value.revision !== null && typeof value.revision !== 'string')
+    ) {
+        return null;
+    }
+    const revision = value.revision === null ? null : parseDocumentRevisionToken(value.revision);
+    if (value.revision !== null && revision === null) {
+        return null;
+    }
+    return {
+        path: value.path,
+        size: value.size,
+        sha256: value.sha256,
+        leaseId: value.leaseId,
+        revision,
+    };
 }
 
 export const MAX_DOCUMENT_ALLOCATION_BYTES = 512 * 1024 * 1024;
@@ -103,7 +144,10 @@ export interface IDocumentsBatchProgress {
     estimatedRemainingMs: number | null;
 }
 
-export interface ICreateCombinedPdfFromFilesOptions { onProgress?: (progress: IDocumentsBatchProgress) => void; }
+export interface ICreateCombinedPdfFromFilesOptions {
+    onProgress?: (progress: IDocumentsBatchProgress) => void;
+    signal?: AbortSignal;
+}
 
 export interface IOpenPdfResult {
     kind: 'pdf';
@@ -156,7 +200,8 @@ export interface IPdfOptimizeOptions { preset: TPdfOptimizePreset; }
 
 export interface IDocumentMutationRevisionOptions {expectedDocumentRevisionToken: TDocumentRevisionToken;}
 
-export interface IPdfSerializedSaveOptions extends IDocumentMutationRevisionOptions {}
+export interface IPdfSerializedSaveOptions extends IDocumentMutationRevisionOptions {changedObjectRefs?: string[];}
+export interface IPdfNativeStagedCommitOptions extends IDocumentMutationRevisionOptions {changedObjectRefs?: string[];}
 
 export interface IPdfOptimizeProgress {
     requestId: string;
@@ -228,10 +273,7 @@ export type TPdfNativePageLabelStyle = TPdfPageLabelStyle;
 
 export type IPdfNativePageLabelRange = IPdfPageLabelRange;
 
-export interface IPdfNativePageLabelsMutation {
-    totalPages: number;
-    ranges: IPdfNativePageLabelRange[];
-}
+export type IPdfNativePageLabelsMutation = IPdfPageLabelsMutation;
 
 export interface IPdfNativeBookmarksMutation {
     totalPages: number;
@@ -302,7 +344,7 @@ export interface IPdfNativePlacedImage extends IPdfBox {
     pageIndex: TPageIndex;
     rotationDegrees?: number | null;
     mimeType: 'image/jpeg';
-    bytes: Uint8Array;
+    source: IManagedTempFileHandle;
 }
 
 export interface IPdfNativeMutationSet extends IPdfNativeNoteChanges {
@@ -317,6 +359,8 @@ export interface IPdfNativeNoteTextSaveResult {
     applied: boolean;
     validation: IPdfValidationResult | null;
     syncError?: string;
+    /** Immutable native output. It is not visible as document state until committed. */
+    stagedOutput?: IManagedTempFileHandle;
 }
 
 export type IPdfNativeSaveResult = IPdfNativeNoteTextSaveResult;
@@ -376,13 +420,15 @@ export interface IImageExportProgress {
     error?: string;
 }
 
+export type TDocumentImageExportSourceKind = 'pdf' | 'djvu';
+
 export interface IImageExportCapability {
-    exportPdfToImages: (workingCopyPath: TDocumentRef, pageNumbers?: number[], requestId?: string) => Promise<{
+    exportPdfToImages: (workingCopyPath: TDocumentRef, pageNumbers?: number[], requestId?: string, sourceKind?: TDocumentImageExportSourceKind) => Promise<{
         success: boolean;
         canceled?: boolean;
         outputPaths?: TDocumentRef[];
     }>;
-    exportPdfToMultiPageTiff: (workingCopyPath: TDocumentRef, pageNumbers?: number[], requestId?: string) => Promise<{
+    exportPdfToMultiPageTiff: (workingCopyPath: TDocumentRef, pageNumbers?: number[], requestId?: string, sourceKind?: TDocumentImageExportSourceKind) => Promise<{
         success: boolean;
         canceled?: boolean;
         outputPath?: TDocumentRef;
@@ -399,6 +445,9 @@ export interface IDocumentsMenuCapability {
         canSaveAs?: boolean;
         canRepairSave?: boolean;
         canOptimizePdf?: boolean;
+        interactive?: boolean;
+        canContinuousScroll?: boolean;
+        continuousScroll?: boolean;
     }) => Promise<void>;
     setMenuTabCount: (tabCount: number) => Promise<void>;
     onPdfOptimizeProgress: (callback: (progress: IPdfOptimizeProgress) => void) => TMenuEventUnsubscribe;
@@ -419,6 +468,7 @@ export interface IDocumentsMenuCapability {
     onMenuActualSize: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuFitWidth: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuFitHeight: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuToggleContinuousScroll: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuViewModeSingle: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuViewModeFacing: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuViewModeFacingFirstSingle: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
@@ -446,8 +496,17 @@ export interface IDocumentsFileCapability {
     openImageDialog: () => Promise<string | null>;
     openDocumentDirect: (path: TDocumentRef) => Promise<TOpenFileResult | null>;
     openPdfDirect: (path: TDocumentRef) => Promise<TOpenFileResult | null>;
-    openDocumentDirectBatch: (paths: TDocumentRef[], requestId?: string) => Promise<TOpenFileResult | null>;
-    openPdfDirectBatch: (paths: TDocumentRef[], requestId?: string) => Promise<TOpenFileResult | null>;
+    openDocumentDirectBatch: (
+        paths: TDocumentRef[],
+        requestId?: string,
+        options?: {forceCombine?: boolean},
+    ) => Promise<TOpenFileResult | null>;
+    openPdfDirectBatch: (
+        paths: TDocumentRef[],
+        requestId?: string,
+        options?: {forceCombine?: boolean},
+    ) => Promise<TOpenFileResult | null>;
+    cancelOpenDocumentDirectBatch?: (requestId: string) => Promise<boolean>;
     savePdfAs: (
         workingCopyPath: TDocumentRef,
         options: IPdfSaveAsOptions | undefined,
@@ -458,6 +517,8 @@ export interface IDocumentsFileCapability {
     readFile: (path: TDocumentRef) => Promise<Uint8Array>;
     statFile: (path: TDocumentRef) => Promise<{ size: number }>;
     readFileRange: (path: TDocumentRef, offset: number, length: number) => Promise<Uint8Array>;
+    createManagedTempFileHandle?: (path: TDocumentRef) => Promise<IManagedTempFileHandle>;
+    releaseManagedTempFileHandle?: (leaseId: string) => Promise<boolean>;
     getPdfNativePageSizes?: (path: TDocumentRef) => Promise<IPdfNativePageSize[]>;
     cancelPdfNativePagePreview?: (requestId: string) => Promise<{ canceled: boolean }>;
     renderPdfNativePagePreview?: (
@@ -552,6 +613,11 @@ export interface IDocumentsFileCapability {
         expectedBase: IPdfNativeWorkingCopyExpectation,
         options?: IDocumentMutationRevisionOptions,
     ) => Promise<IPdfNativeSaveResult>;
+    commitStagedPdfNativeMutations?: (
+        path: TDocumentRef,
+        stagedOutput: IManagedTempFileHandle,
+        options?: IPdfNativeStagedCommitOptions,
+    ) => Promise<IPdfNativeSaveResult>;
     savePdfDataAs: (
         workingCopyPath: TDocumentRef,
         data: Uint8Array,
@@ -616,6 +682,7 @@ export interface IDocumentsOpenCapability extends Pick<
     | 'openPdfDirect'
     | 'openDocumentDirectBatch'
     | 'openPdfDirectBatch'
+    | 'cancelOpenDocumentDirectBatch'
 > {}
 
 export interface IDocumentsWorkingCopyCapability extends Pick<
@@ -631,6 +698,8 @@ export interface IDocumentsReadCapability extends Pick<
     | 'readFile'
     | 'statFile'
     | 'readFileRange'
+    | 'createManagedTempFileHandle'
+    | 'releaseManagedTempFileHandle'
     | 'getPdfNativePageSizes'
     | 'cancelPdfNativePagePreview'
     | 'renderPdfNativePagePreview'
@@ -676,6 +745,7 @@ export interface IDocumentsPdfPersistenceCapability extends Pick<
     | 'savePdfNoteChanges'
     | 'savePdfNativeMutations'
     | 'applyPdfNativeMutationsToWorkingCopy'
+    | 'commitStagedPdfNativeMutations'
 > {}
 
 export interface IDocumentsFileIoCapability extends

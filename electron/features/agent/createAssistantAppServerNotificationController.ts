@@ -123,8 +123,15 @@ function isCodexTurnNotification(method: string) {
         || method === 'item/created'
         || method === 'item/updated'
         || method === 'item/agentMessage/delta'
+        || method.includes('reasoning')
         || method === 'item/completed'
         || method === 'error';
+}
+
+function getNotificationDelta(params: unknown) {
+    return getStringParam(params, 'delta')
+        ?? getStringParam(params, 'textDelta')
+        ?? getStringParam(params, 'summaryTextDelta');
 }
 
 function getNestedString(value: unknown, path: readonly string[]) {
@@ -138,6 +145,17 @@ function getNestedString(value: unknown, path: readonly string[]) {
     return typeof current === 'string' && current.trim().length > 0
         ? current.trim()
         : null;
+}
+
+function getNestedNumber(value: unknown, path: readonly string[]) {
+    let current = value;
+    for (const key of path) {
+        if (!isRecord(current)) {
+            return null;
+        }
+        current = current[key];
+    }
+    return typeof current === 'number' && Number.isFinite(current) ? current : null;
 }
 
 function getThreadItemType(item: Record<string, unknown>) {
@@ -187,7 +205,7 @@ function getSafeAssistantTurnProgress(method: string, params: unknown) {
         return formatAssistantToolActivity(getThreadItemToolName(item), completed);
     }
     if (normalizedType.includes('reason')) {
-        return completed ? 'Planning step completed' : 'Planning next step';
+        return null;
     }
     if (normalizedType.includes('mcp')) {
         return formatAssistantToolActivity(getThreadItemToolName(item), completed);
@@ -196,6 +214,10 @@ function getSafeAssistantTurnProgress(method: string, params: unknown) {
 }
 
 export function createAssistantAppServerNotificationController(options: IAssistantAppServerNotificationsOptions) {
+    function recordTurnEvent(session: IAssistantChatSession) {
+        session.turnPresentation.lastEventAtMs = Date.now();
+    }
+
     function shouldIgnoreThreadNotification(method: string, params: unknown) {
         const notificationThreadId = getNotificationThreadId(params);
         if (!notificationThreadId) {
@@ -316,6 +338,8 @@ export function createAssistantAppServerNotificationController(options: IAssista
             }
             options.sessionStore.setActiveSession(session);
             options.codexProviderRuntime.runtimeState = 'busy';
+            session.turnPresentation.phase = 'thinking';
+            recordTurnEvent(session);
             if (!turnAlreadyBound) {
                 options.publishAssistantEvent({
                     type: 'turn-started',
@@ -331,13 +355,47 @@ export function createAssistantAppServerNotificationController(options: IAssista
                 return;
             }
             const turnId = getNotificationTurnId(params);
+            const inputTokens = getNestedNumber(params, [
+                'turn',
+                'usage',
+                'inputTokens',
+            ])
+                ?? getNestedNumber(params, [
+                    'usage',
+                    'inputTokens',
+                ]);
+            const outputTokens = getNestedNumber(params, [
+                'turn',
+                'usage',
+                'outputTokens',
+            ])
+                ?? getNestedNumber(params, [
+                    'usage',
+                    'outputTokens',
+                ]);
+            if (inputTokens !== null && outputTokens !== null) {
+                const cachedInputTokens = getNestedNumber(params, [
+                    'turn',
+                    'usage',
+                    'cachedInputTokens',
+                ])
+                    ?? getNestedNumber(params, [
+                        'usage',
+                        'cachedInputTokens',
+                    ]);
+                session.turnPresentation.usage = {
+                    inputTokens,
+                    outputTokens,
+                    ...(cachedInputTokens === null ? {} : {cachedInputTokens}),
+                };
+            }
             if (!bindNotificationTurn(session, turnId, {allowStaleScope: true})) {
                 options.logger.info('Ignoring stale assistant turn completion.');
                 return;
             }
             const allowStartingWithoutProviderTurn = turnId === null
                 && getAssistantTurnProviderTurnId(session.turnOwner) === null
-                && getAssistantTurnPhase(session.turnOwner) === 'starting';
+                && getAssistantTurnPhase(session.turnOwner) === 'queued';
             if (
                 turnId === null
                 && !allowStartingWithoutProviderTurn
@@ -366,6 +424,29 @@ export function createAssistantAppServerNotificationController(options: IAssista
             return;
         }
 
+        if (method.includes('reasoning') && method.toLowerCase().includes('delta')) {
+            const session = getNotificationChatSession(params);
+            if (!session || shouldDropNotificationForTurn(session, params)) {
+                return;
+            }
+            const reasoningDelta = getNotificationDelta(params);
+            if (!reasoningDelta) {
+                return;
+            }
+            session.turnPresentation.phase = 'thinking';
+            session.turnPresentation.reasoning += reasoningDelta;
+            recordTurnEvent(session);
+            options.publishAssistantEvent({
+                type: 'reasoning-delta',
+                reasoningDelta,
+                phase: 'thinking',
+                ...(session.turnPresentation.lastEventAtMs === null
+                    ? {}
+                    : {lastEventAtMs: session.turnPresentation.lastEventAtMs}),
+            }, session.scope, session);
+            return;
+        }
+
         if (method === 'item/agentMessage/delta') {
             const session = getNotificationChatSession(params);
             if (!session) {
@@ -380,6 +461,8 @@ export function createAssistantAppServerNotificationController(options: IAssista
             if (options.codexProviderRuntime.runtimeState === 'busy') {
                 options.markSessionTurnRunning(session, session.turnOwner.generation, getAssistantTurnProviderTurnId(session.turnOwner));
             }
+            session.turnPresentation.phase = 'streaming';
+            recordTurnEvent(session);
             options.publishAssistantEvent({
                 type: 'turn-progress',
                 progress: 'Receiving assistant response',
@@ -400,6 +483,31 @@ export function createAssistantAppServerNotificationController(options: IAssista
                 return;
             }
             const progress = getSafeAssistantTurnProgress(method, params);
+            const item = getThreadItem(params);
+            const itemType = item ? getThreadItemType(item)?.toLowerCase() ?? '' : '';
+            if (item && (itemType.includes('tool') || itemType.includes('call') || itemType.includes('mcp'))) {
+                const name = getThreadItemToolName(item) ?? 'tool';
+                const toolId = typeof item.id === 'string' ? item.id : `${name}:${session.turnOwner.generation}`;
+                const activity = {
+                    toolId,
+                    name,
+                    phase: 'running' as const,
+                    startedAtMs: Date.now(),
+                };
+                const existing = session.turnPresentation.toolActivity.findIndex(value => value.toolId === toolId);
+                if (existing >= 0) {
+                    session.turnPresentation.toolActivity[existing] = activity;
+                } else {
+                    session.turnPresentation.toolActivity.push(activity);
+                }
+                session.turnPresentation.phase = 'tool-running';
+                recordTurnEvent(session);
+                options.publishAssistantEvent({
+                    type: 'turn-progress',
+                    phase: 'tool-running',
+                    toolActivity: activity,
+                }, session.scope, session);
+            }
             if (progress) {
                 options.publishAssistantEvent({
                     type: 'turn-progress',
@@ -425,6 +533,15 @@ export function createAssistantAppServerNotificationController(options: IAssista
                     pending: false,
                 });
             } else {
+                const name = item ? getThreadItemToolName(item) ?? 'tool' : 'tool';
+                const toolId = item && typeof item.id === 'string' ? item.id : `${name}:${session.turnOwner.generation}`;
+                const existing = session.turnPresentation.toolActivity.find(value => value.toolId === toolId);
+                if (existing) {
+                    existing.phase = 'completed';
+                    existing.completedAtMs = Date.now();
+                }
+                session.turnPresentation.phase = 'finalizing';
+                recordTurnEvent(session);
                 const progress = getSafeAssistantTurnProgress(method, params);
                 if (progress) {
                     options.publishAssistantEvent({

@@ -1,0 +1,318 @@
+import {
+    spawn,
+    type ChildProcessWithoutNullStreams,
+} from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { createInterface } from 'node:readline';
+import { isRecord } from '@contracts/runtimeGuards';
+import { SEARCH_NATIVE_PROTOCOL_VERSION } from '@contracts/nativeToolProtocols';
+import {
+    isNativeErrorEnvelope,
+    type TNativeErrorCode,
+} from '@contracts/nativeErrors';
+import { appendTextChunkWithByteCap } from '@electron/native-tools/appendTextChunkWithByteCap';
+
+const SEARCH_SERVICE_READY_TIMEOUT_MS = 5_000;
+const SEARCH_SERVICE_IDLE_TIMEOUT_MS = 5 * 60_000;
+const SEARCH_SERVICE_MAX_FRAME_BYTES = 4 * 1024 * 1024;
+const SEARCH_SERVICE_MAX_STDERR_BYTES = 64 * 1024;
+class NativeSearchServiceError extends Error {
+    constructor(readonly code: TNativeErrorCode, message: string) {
+        super(message);
+        this.name = 'NativeSearchServiceError';
+    }
+}
+
+interface IPersistentNativeSearchRequest {
+    contextChars: number;
+    documentRevision: string;
+    indexPath: string;
+    limit: number;
+    matchCase: boolean;
+    pageCount?: number;
+    query: string;
+}
+
+interface IPendingSearchRequest {
+    reject: (error: Error) => void;
+    resolve: (result: unknown) => void;
+    timer: ReturnType<typeof setTimeout>;
+}
+
+class PersistentNativeSearchService {
+    readonly child: ChildProcessWithoutNullStreams;
+    private readonly pending = new Map<string, IPendingSearchRequest>();
+    private readonly ready: Promise<void>;
+    private resolveReady: (() => void) | null = null;
+    private rejectReady: ((error: Error) => void) | null = null;
+    private idleTimer: ReturnType<typeof setTimeout> | null = null;
+    private stopped = false;
+    private stderr = '';
+    private stderrTruncated = false;
+
+    constructor(binaryPath: string, private readonly onStopped: () => void) {
+        this.child = spawn(binaryPath, ['serve'], {
+            stdio: [
+                'pipe',
+                'pipe',
+                'pipe',
+            ],
+            windowsHide: true,
+        });
+        this.child.unref();
+        this.ready = new Promise<void>((resolve, reject) => {
+            this.resolveReady = resolve;
+            this.rejectReady = reject;
+        });
+        const lines = createInterface({input: this.child.stdout});
+        lines.on('line', line => this.handleLine(line));
+        this.child.once('error', error => this.stop(error));
+        this.child.once('exit', (code, signal) => this.stop(new Error(
+            `Persistent native search service exited (${signal ?? code ?? 'unknown'})`,
+        )));
+        this.child.stdin.on('error', error => this.stop(error));
+        this.child.stderr.setEncoding('utf8');
+        this.child.stderr.on('data', (chunk: string | Buffer) => {
+            const appended = appendTextChunkWithByteCap(
+                this.stderr,
+                Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk),
+                SEARCH_SERVICE_MAX_STDERR_BYTES,
+            );
+            this.stderr = appended.text;
+            this.stderrTruncated = this.stderrTruncated || appended.truncated;
+        });
+        this.armIdleTimer();
+    }
+
+    private armIdleTimer() {
+        if (this.idleTimer) {
+            clearTimeout(this.idleTimer);
+        }
+        this.idleTimer = setTimeout(() => this.stop(new Error('Persistent native search service idle timeout')), SEARCH_SERVICE_IDLE_TIMEOUT_MS);
+        this.idleTimer.unref();
+    }
+
+    private handleLine(line: string) {
+        if (Buffer.byteLength(line) > SEARCH_SERVICE_MAX_FRAME_BYTES) {
+            this.stop(new Error('Persistent native search service frame exceeds limit'));
+            return;
+        }
+        let frame: unknown;
+        try {
+            frame = JSON.parse(line);
+        } catch {
+            this.stop(new Error('Persistent native search service emitted invalid JSON'));
+            return;
+        }
+        if (!isRecord(frame) || typeof frame.type !== 'string') {
+            this.stop(new Error('Persistent native search service emitted an invalid frame'));
+            return;
+        }
+        if (frame.type === 'ready') {
+            if (frame.protocolVersion !== SEARCH_NATIVE_PROTOCOL_VERSION) {
+                this.stop(new Error(
+                    'Persistent native search service protocol mismatch: '
+                    + `expected ${SEARCH_NATIVE_PROTOCOL_VERSION}, got ${String(frame.protocolVersion ?? '<missing>')}`,
+                ));
+                return;
+            }
+            this.resolveReady?.();
+            this.clearReadyCallbacks();
+            return;
+        }
+        const requestId = typeof frame.requestId === 'string' ? frame.requestId : '';
+        const pending = this.pending.get(requestId);
+        if (!pending) {
+            return;
+        }
+        this.pending.delete(requestId);
+        clearTimeout(pending.timer);
+        this.armIdleTimer();
+        if (frame.type === 'result') {
+            pending.resolve(frame.result);
+        } else {
+            const error = isNativeErrorEnvelope(frame.error)
+                ? new NativeSearchServiceError(frame.error.code, frame.error.message)
+                : new NativeSearchServiceError(
+                    frame.type === 'canceled' ? 'native-failure' : 'invalid-request',
+                    frame.type === 'canceled' ? 'Native search canceled' : 'Persistent native search failed',
+                );
+            pending.reject(error);
+        }
+    }
+
+    private writeFrame(frame: unknown) {
+        if (this.stopped || !this.child.stdin.writable) {
+            throw new Error('Persistent native search service is unavailable');
+        }
+        this.child.stdin.write(`${JSON.stringify(frame)}\n`);
+    }
+
+    private tryWriteCancelFrame(requestId: string) {
+        try {
+            this.writeFrame({
+                type: 'cancel',
+                requestId,
+            });
+        } catch {
+            // The request still has to settle when the daemon closes stdin first.
+        }
+    }
+
+    async search(request: IPersistentNativeSearchRequest, options: {
+        signal?: AbortSignal;
+        timeoutMs: number
+    }) {
+        await this.waitUntilReady(options.signal);
+        if (options.signal?.aborted) {
+            throw new Error('Native search canceled');
+        }
+        const requestId = randomUUID();
+        return new Promise<unknown>((resolve, reject) => {
+            let settled = false;
+            const settle = (action: () => void) => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                options.signal?.removeEventListener('abort', abort);
+                action();
+            };
+            const timer = setTimeout(() => {
+                this.pending.delete(requestId);
+                this.tryWriteCancelFrame(requestId);
+                settle(() => reject(new Error('Persistent native search service request timeout')));
+            }, options.timeoutMs);
+            timer.unref();
+            const abort = () => {
+                const pending = this.pending.get(requestId);
+                if (!pending) {
+                    return;
+                }
+                this.pending.delete(requestId);
+                clearTimeout(pending.timer);
+                this.tryWriteCancelFrame(requestId);
+                settle(() => reject(new Error('Native search canceled')));
+            };
+            options.signal?.addEventListener('abort', abort, {once: true});
+            this.pending.set(requestId, {
+                reject: error => {
+                    settle(() => reject(error));
+                },
+                resolve: result => {
+                    settle(() => resolve(result));
+                },
+                timer,
+            });
+            if (options.signal?.aborted) {
+                abort();
+                return;
+            }
+            try {
+                this.writeFrame({
+                    type: 'search',
+                    requestId,
+                    ...request,
+                });
+            } catch (error) {
+                this.pending.delete(requestId);
+                clearTimeout(timer);
+                settle(() => reject(error));
+            }
+        });
+    }
+
+    private async waitUntilReady(signal?: AbortSignal) {
+        if (signal?.aborted) {
+            throw new Error('Native search canceled');
+        }
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        let abort: (() => void) | undefined;
+        try {
+            await Promise.race([
+                this.ready,
+                new Promise<never>((_, reject) => {
+                    timer = setTimeout(() => {
+                        const error = new Error('Persistent native search service ready timeout');
+                        this.stop(error);
+                        reject(error);
+                    }, SEARCH_SERVICE_READY_TIMEOUT_MS);
+                    timer.unref();
+                }),
+                ...(signal ? [new Promise<never>((_, reject) => {
+                    abort = () => reject(new Error('Native search canceled'));
+                    signal.addEventListener('abort', abort, {once: true});
+                    if (signal.aborted) {
+                        abort();
+                    }
+                })] : []),
+            ]);
+        } finally {
+            if (timer) {
+                clearTimeout(timer);
+            }
+            if (abort) {
+                signal?.removeEventListener('abort', abort);
+            }
+        }
+    }
+
+    private clearReadyCallbacks() {
+        this.rejectReady = null;
+        this.resolveReady = null;
+    }
+
+    private stop(error: Error) {
+        if (this.stopped) {
+            return;
+        }
+        this.stopped = true;
+        if (this.idleTimer) {
+            clearTimeout(this.idleTimer);
+        }
+        if (this.stderr.trim()) {
+            const truncationNote = this.stderrTruncated
+                ? `[native stderr truncated to ${SEARCH_SERVICE_MAX_STDERR_BYTES} bytes] `
+                : '';
+            error.message = `${error.message}; ${truncationNote}native stderr: ${this.stderr.trim()}`;
+        }
+        this.rejectReady?.(error);
+        this.clearReadyCallbacks();
+        for (const pending of this.pending.values()) {
+            clearTimeout(pending.timer);
+            pending.reject(error);
+        }
+        this.pending.clear();
+        this.child.kill();
+        this.onStopped();
+    }
+}
+
+const services = new Map<string, PersistentNativeSearchService>();
+
+function persistentSearchIsDisabled() {
+    return process.env.EVB_PDF_SEARCH_SERVICE_DISABLE === '1'
+        || (process.env.VITEST === 'true' && process.env.EVB_PDF_SEARCH_SERVICE_ENABLE !== '1');
+}
+
+export async function tryRunPersistentNativeSearch(
+    binaryPath: string,
+    request: IPersistentNativeSearchRequest,
+    options: {
+        signal?: AbortSignal;
+        timeoutMs: number
+    },
+) {
+    if (persistentSearchIsDisabled()) {
+        return null;
+    }
+    if (options.signal?.aborted) {
+        throw new Error('Native search canceled');
+    }
+    let service = services.get(binaryPath);
+    if (!service) {
+        service = new PersistentNativeSearchService(binaryPath, () => services.delete(binaryPath));
+        services.set(binaryPath, service);
+    }
+    return service.search(request, options);
+}

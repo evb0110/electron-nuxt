@@ -8,8 +8,10 @@ import {
 } from 'vitest';
 import {
     mkdtemp,
+    mkdir,
     readFile,
     rm,
+    writeFile,
 } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -20,8 +22,9 @@ import {
     persistCompactSearchIndex,
 } from '@electron/search/searchIndexSidecar';
 import { OCR_TEXT_LAYER_INDEX_VERSION } from '@contracts/ocrText';
+import {requireDocumentRevisionToken} from '@contracts';
 
-const DOCUMENT_REVISION = 'revision-token';
+const DOCUMENT_REVISION = requireDocumentRevisionToken('revision-token');
 
 const mocks = vi.hoisted(() => ({assertWorkingCopyRevisionCurrent: vi.fn()}));
 
@@ -139,6 +142,51 @@ describe('writeOcrIndexV3 compact search sidecar', () => {
                 },
             ],
         });
+    });
+
+    it('stages a result catalog without publishing OCR text into the live catalog', async () => {
+        const pdfPath = join(tempDir, 'work.pdf');
+        const resultPdfPath = join(tempDir, 'ocr-result.pdf');
+        const liveCatalogPath = `${pdfPath}.ocr`;
+        await mkdir(liveCatalogPath, {recursive: true});
+        await writeFile(join(liveCatalogPath, 'manifest.json'), JSON.stringify({
+            version: 3,
+            documentRevision: {token: DOCUMENT_REVISION},
+            createdAt: 1,
+            source: {pdfPath},
+            pageCount: 1,
+            pageBox: 'crop',
+            ocr: {
+                engine: 'tesseract',
+                languages: ['eng'],
+                renderDpi: 300,
+            },
+            pages: {},
+        }));
+
+        await writeOcrIndexV3(
+            pdfPath,
+            makeDocumentRevision(pdfPath),
+            [{
+                pageNumber: 1,
+                text: 'private until apply',
+                imageWidth: 100,
+                imageHeight: 200,
+                words: [],
+            }],
+            1,
+            ['eng'],
+            300,
+            vi.fn(),
+            undefined,
+            resultPdfPath,
+        );
+
+        await expect(readFile(join(liveCatalogPath, 'manifest.json'), 'utf8'))
+            .resolves.not.toContain('private until apply');
+        await expect(readFile(join(`${resultPdfPath}.ocr`, 'page-0001.json'), 'utf8'))
+            .resolves.toContain('private until apply');
+        expect(await loadCompactSearchIndex(resultPdfPath, {documentRevision: DOCUMENT_REVISION})).toBeNull();
     });
 
     it('merges a partial OCR rerun into the existing compact sidecar', async () => {

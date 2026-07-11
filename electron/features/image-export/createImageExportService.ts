@@ -7,10 +7,10 @@ import type { IImageExportService } from '@electron/features/image-export/ports'
 
 export function createImageExportService(): IImageExportService {
     return {
-        exportImages: (context, workingCopyPath, pageNumbers, requestId) =>
-            handlePdfExportImages(context, workingCopyPath, pageNumbers, requestId),
-        exportMultiPageTiff: (context, workingCopyPath, pageNumbers, requestId) =>
-            handlePdfExportMultiPageTiff(context, workingCopyPath, pageNumbers, requestId),
+        exportImages: (context, workingCopyPath, pageNumbers, requestId, sourceKind) =>
+            handlePdfExportImages(context, workingCopyPath, pageNumbers, requestId, sourceKind),
+        exportMultiPageTiff: (context, workingCopyPath, pageNumbers, requestId, sourceKind) =>
+            handlePdfExportMultiPageTiff(context, workingCopyPath, pageNumbers, requestId, sourceKind),
         subscribeProgress: context => subscribeImageExportProgress(context.sender),
     };
 }

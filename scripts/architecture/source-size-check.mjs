@@ -44,15 +44,10 @@ const EXCLUDED_PATH_SEGMENTS = new Set([
 ]);
 
 export const SOURCE_SIZE_ALLOWLIST = {
-    'app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageScroll.ts': {
-        maxLines: 2084,
-        reason: 'PDF navigation facade after commit, frame scheduling, and timing policy extraction',
-        stage: 'Static audit Stage 15 - navigation domain extraction',
-    },
     'app/modules/agent-panel/components/AgentAssistantPanel.vue': {
-        maxLines: 911,
-        reason: 'assistant panel entrypoint after extracted reactive controller-props bridge',
-        stage: 'Static audit Stage 15 - assistant panel props extraction',
+        maxLines: 814,
+        reason: 'assistant panel entrypoint after extracting turn status and markdown segment rendering',
+        stage: 'Assistant overhaul - presentation component extraction',
     },
     'app/modules/agent-panel/composables/useAgentAssistantPanelController.ts': {
         maxLines: 1161,
@@ -60,7 +55,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Static audit Stage 15 - assistant controller domain extraction',
     },
     'app/modules/pdf-viewer/components/PdfThumbnails.vue': {
-        maxLines: 1103,
+        maxLines: 1099,
         reason: 'transitional PDF thumbnail UI/layout hotspot after removing redundant label wrapper',
         stage: 'Static audit Stage 15 - thumbnail label simplification',
     },
@@ -70,14 +65,9 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Worker 2/Stage 1 - Assistant backend session/runtime split',
     },
     'app/modules/workspace-shell/composables/file-operations/useFileOperationsSaveController.ts': {
-        maxLines: 459,
+        maxLines: 441,
         reason: 'transitional workspace save orchestration hotspot',
         stage: 'Finding 4 Stage D - Save controller port alignment',
-    },
-    'app/modules/djvu-viewer/components/DjvuViewer.vue': {
-        maxLines: 527,
-        reason: 'transitional DjVu viewer UI shell after preview runtime, scroll orchestration, and viewer-owned initial placeholder extraction',
-        stage: 'Finding 9 Stage B - DjVu preview runtime and scroll controller extraction',
     },
     'scripts/electron-run/sessionManager.ts': {
         maxLines: 1167,
@@ -90,7 +80,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Worker 6 - Diagnostic trace analysis extraction',
     },
     'app/modules/workspace-shell/components/DocumentWorkspace.vue': {
-        maxLines: 1584,
+        maxLines: 1535,
         reason: 'workspace component after deferred-search lifecycle extraction',
         stage: 'Static audit Stage 15 - workspace search binding extraction',
     },
@@ -100,14 +90,14 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Static audit Stage 15 - deferred host binding extraction',
     },
     'app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer.ts': {
-        maxLines: 1308,
+        maxLines: 1297,
         reason: 'annotation renderer after hidden-annotation policy and failure tracking extraction',
         stage: 'Static audit Stage 15 - annotation renderer domain extraction',
     },
     'app/platform/browser/browserDocumentRepository.ts': {
-        maxLines: 1174,
-        reason: 'browser repository after file-entry, revision-event, and persistence-record extraction',
-        stage: 'Static audit Stage 15 - browser repository domain extraction',
+        maxLines: 1207,
+        reason: 'browser repository after persistence fallback and memory-only source lifetime hardening',
+        stage: 'Browser resilience overhaul - transient source retention',
     },
     'app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer.ts': {
         maxLines: 1262,
@@ -115,27 +105,27 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Future PDF rendering extraction',
     },
     'electron/ocr/jobManager.ts': {
-        maxLines: 1050,
+        maxLines: 993,
         reason: 'OCR job manager facade after request-work estimation extraction',
         stage: 'Static audit Stage 15 - OCR admission calculation extraction',
     },
     'app/modules/workspace-shell/components/AppShellRoot.vue': {
-        maxLines: 917,
+        maxLines: 922,
         reason: 'app shell orchestration after scoped presentation styles were extracted',
         stage: 'Static audit Stage 15 - app shell style extraction',
     },
     'app/modules/workspace-shell/agent/useDocumentWorkspaceAgent.ts': {
-        maxLines: 1069,
+        maxLines: 1081,
         reason: 'transitional document workspace agent hotspot',
         stage: 'Future workspace agent extraction',
     },
     'app/modules/workspace-shell/components/WorkspaceAnnotationOverlays.vue': {
-        maxLines: 1221,
+        maxLines: 1176,
         reason: 'transitional workspace annotation overlay hotspot',
         stage: 'Future workspace annotation extraction',
     },
     'electron/features/agent/mcp/mcpServerCore.ts': {
-        maxLines: 981,
+        maxLines: 979,
         reason: 'agent MCP server core after result encoding and public option-contract extraction',
         stage: 'Static audit Stage 15 - MCP core contract extraction',
     },

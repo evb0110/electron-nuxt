@@ -1,5 +1,6 @@
 import {
     chmodSync,
+    existsSync,
     mkdirSync,
     mkdtempSync,
     rmSync,
@@ -102,6 +103,27 @@ describe('macOS PDF tool bundler', () => {
 
         expect(result.status).not.toBe(0);
         expect(`${result.stdout}${result.stderr}`).toContain('Missing required Homebrew tool');
+    });
+
+    it('stages only canonical SONAME dylibs instead of dead unversioned and full-version copies', () => {
+        const host = createFakeMacBundlingHost();
+        writeFileSync(join(host.brewPrefix, 'opt/poppler/lib/libpoppler.dylib'), 'dead');
+        writeFileSync(join(host.brewPrefix, 'opt/poppler/lib/libpoppler.1.2.3.dylib'), 'dead');
+        writeFileSync(join(host.brewPrefix, 'opt/qpdf/lib/libqpdf.dylib'), 'dead');
+        writeFileSync(join(host.brewPrefix, 'opt/qpdf/lib/libqpdf.1.2.3.dylib'), 'dead');
+        writeExecutable(join(host.binDir, 'otool'), '#!/bin/sh\nexit 0\n');
+
+        const result = runBundler(host);
+
+        expect(result.status, `${result.stdout}${result.stderr}`).toBe(0);
+        const popplerLib = join(host.resourcesDir, 'poppler/darwin-arm64/lib');
+        const qpdfLib = join(host.resourcesDir, 'qpdf/darwin-arm64/lib');
+        expect(existsSync(join(popplerLib, 'libpoppler.1.dylib'))).toBe(true);
+        expect(existsSync(join(qpdfLib, 'libqpdf.1.dylib'))).toBe(true);
+        expect(existsSync(join(popplerLib, 'libpoppler.dylib'))).toBe(false);
+        expect(existsSync(join(popplerLib, 'libpoppler.1.2.3.dylib'))).toBe(false);
+        expect(existsSync(join(qpdfLib, 'libqpdf.dylib'))).toBe(false);
+        expect(existsSync(join(qpdfLib, 'libqpdf.1.2.3.dylib'))).toBe(false);
     });
 
     it('fails when rewritten bundles retain Homebrew references', () => {

@@ -7,7 +7,10 @@ import { resolveWorkspaceRequestedState } from '@app/modules/workspace-shell/hos
 import { shouldAutoRequestWorkspace } from '@app/modules/workspace-shell/host/shouldAutoRequestWorkspace';
 import { shouldPreloadWorkspaceDuringStartup } from '@app/modules/workspace-shell/host/shouldPreloadWorkspaceDuringStartup';
 import { shouldPreloadWorkspaceOnHostMount } from '@app/modules/workspace-shell/host/shouldPreloadWorkspaceOnHostMount';
-import { warmupDesktopViewerChunks } from '@app/modules/workspace-shell/host/warmupDesktopViewerChunks';
+import {
+    warmupDesktopViewerChunkForPaths,
+    warmupDesktopViewerChunks,
+} from '@app/modules/workspace-shell/host/warmupDesktopViewerChunks';
 import { shouldShowWorkspaceHostLoader } from '@app/modules/workspace-shell/host/shouldShowWorkspaceHostLoader';
 import { shouldShowWorkspacePlaceholder } from '@app/modules/workspace-shell/host/shouldShowWorkspacePlaceholder';
 import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
@@ -170,6 +173,27 @@ describe('workspace preload policy', () => {
             'djvu',
             'native-pdf',
         ]);
+    });
+
+    it('prioritizes only the viewer engines required by pending open paths', async () => {
+        const loadedChunks: string[] = [];
+        const result = warmupDesktopViewerChunkForPaths({
+            isDesktopRuntime: true,
+            paths: [
+                '/docs/book.djvu',
+                '/docs/notes.DJV',
+            ],
+            djvuLoader: () => {
+                loadedChunks.push('djvu');
+                return Promise.resolve();
+            },
+            pdfLoader: () => {
+                loadedChunks.push('pdf');
+                return Promise.resolve();
+            },
+        });
+        await result;
+        expect(loadedChunks).toEqual(['djvu']);
     });
 
     it('skips empty host mount preload in dev after startup warmup', () => {

@@ -1,0 +1,98 @@
+{
+  "schemaVersion": 1,
+  "source": ".devkit/analysis/reports/nav-history-last.md",
+  "finalTargetExclusive": 10,
+  "newCorePolicy": {
+    "guardedRoots": [
+      "app/utils/document-viewer/viewport",
+      "app/modules/pdf-viewer/runtime/page-slots",
+      "app/modules/pdf-viewer/runtime/viewport"
+    ],
+    "forbiddenPatterns": [
+      "setTimeout(",
+      "setInterval("
+    ]
+  },
+  "stages": [
+    {
+      "stage": 0,
+      "status": "baseline",
+      "categories": {
+        "timers": [
+          "search-correction",
+          "search-polling",
+          "search-render-retry",
+          "resize-debounce",
+          "resize-raf-retry",
+          "wheel-session-idle",
+          "wheel-snap-cooldown",
+          "skeleton-delay-map",
+          "page-pin-expiry",
+          "continuous-settle-scheduler",
+          "fit-settle-wait",
+          "paged-hold-soft",
+          "paged-hold-hard",
+          "paged-trailing-render",
+          "paged-quiet-period",
+          "programmatic-navigation-release",
+          "mounted-readiness-retry",
+          "mounted-readiness-watchdog",
+          "navigation-recovery-watchdog",
+          "navigation-abandon-watchdog",
+          "marker-observer-lease",
+          "bookmark-destination-reapply",
+          "activation-restore-retry",
+          "zoom-settle-rerender",
+          "expected-scroll-expiry",
+          "preview-warmup",
+          "burst-render-debounce"
+        ],
+        "locks": [
+          "zoom-session-lock",
+          "expected-scroll-suppression",
+          "programmatic-navigation-lock",
+          "search-navigation-lock",
+          "resize-transition-lock",
+          "fit-width-horizontal-lock",
+          "paged-visual-hold",
+          "navigation-anchor-ownership"
+        ],
+        "counters": [
+          "search-request-id",
+          "search-token",
+          "wheel-session-id",
+          "wheel-intent-id",
+          "resize-transition-token",
+          "paged-buffer-token",
+          "continuous-render-run",
+          "paged-render-run",
+          "fit-rerender-run",
+          "bookmark-request-id",
+          "paged-preparation-run",
+          "current-page-sync-run",
+          "bookmark-intent-version",
+          "navigation-transaction-id",
+          "render-request-generation"
+        ]
+      }
+    },
+    {
+      "stage": 7,
+      "status": "complete",
+      "categories": {
+        "timers": [],
+        "locks": [
+          "active-intent-abort-controller",
+          "page-slot-abortable-waiters"
+        ],
+        "counters": [
+          "viewport-intent-sequence",
+          "interaction-epoch",
+          "document-revision",
+          "geometry-revision",
+          "render-generation"
+        ]
+      }
+    }
+  ]
+}

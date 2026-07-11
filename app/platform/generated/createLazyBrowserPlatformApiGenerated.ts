@@ -4,12 +4,18 @@
 import type { IPlatformApi } from '@contracts/platformApi';
 import { BROWSER_PLATFORM_MANIFEST } from '@contracts/platformManifest';
 import { browserDocumentStore } from '@app/platform/browserDocumentStore';
+import type {
+    TBrowserPlatformAsyncMethodPath,
+    TBrowserPlatformEventMethodPath,
+    TBrowserPlatformVoidMethodPath,
+    TMethodAtBrowserPlatformPath,
+} from '@app/platform/browserPlatformPathDescriptors';
 import { browserPlatformPathDescriptors } from '@app/platform/browserPlatformPathDescriptors';
 
 interface ILazyBrowserPlatformApiFactoryDeps {
-    lazyAsync: (path: readonly string[]) => any;
-    lazyEvent: (path: readonly string[]) => any;
-    lazyVoid: (path: readonly string[]) => any;
+    lazyAsync: <TPath extends TBrowserPlatformAsyncMethodPath>(path: TPath) => TMethodAtBrowserPlatformPath<TPath>;
+    lazyEvent: <TPath extends TBrowserPlatformEventMethodPath>(path: TPath) => TMethodAtBrowserPlatformPath<TPath>;
+    lazyVoid: <TPath extends TBrowserPlatformVoidMethodPath>(path: TPath) => TMethodAtBrowserPlatformPath<TPath>;
 }
 
 const pathDescriptors = browserPlatformPathDescriptors;
@@ -171,6 +177,8 @@ export function createLazyBrowserPlatformApiGenerated({
     const documentsOnMenuFitWidthMethod = documentMenuOnMenuFitWidthMethod;
     const documentMenuOnMenuFitHeightMethod = lazyEvent(pathDescriptors.documentMenu.onMenuFitHeight.path);
     const documentsOnMenuFitHeightMethod = documentMenuOnMenuFitHeightMethod;
+    const documentMenuOnMenuToggleContinuousScrollMethod = lazyEvent(pathDescriptors.documentMenu.onMenuToggleContinuousScroll.path);
+    const documentsOnMenuToggleContinuousScrollMethod = documentMenuOnMenuToggleContinuousScrollMethod;
     const documentMenuOnMenuViewModeSingleMethod = lazyEvent(pathDescriptors.documentMenu.onMenuViewModeSingle.path);
     const documentsOnMenuViewModeSingleMethod = documentMenuOnMenuViewModeSingleMethod;
     const documentMenuOnMenuViewModeFacingMethod = lazyEvent(pathDescriptors.documentMenu.onMenuViewModeFacing.path);
@@ -218,7 +226,11 @@ export function createLazyBrowserPlatformApiGenerated({
     const ocrRecognizeMethod = lazyAsync(pathDescriptors.ocr.recognize.path);
     const ocrRecognizeBatchMethod = lazyAsync(pathDescriptors.ocr.recognizeBatch.path);
     const ocrCancelMethod = lazyAsync(pathDescriptors.ocr.cancel.path);
+    const ocrGetJobStateMethod = lazyAsync(pathDescriptors.ocr.getJobState.path);
+    const ocrSubscribeJobMethod = lazyAsync(pathDescriptors.ocr.subscribeJob.path);
+    const ocrReconnectJobMethod = lazyAsync(pathDescriptors.ocr.reconnectJob.path);
     const ocrGetLanguagesMethod = lazyAsync(pathDescriptors.ocr.getLanguages.path);
+    const ocrResolveDocumentTextCatalogMethod = lazyAsync(pathDescriptors.ocr.resolveDocumentTextCatalog.path);
     const ocrValidateToolsMethod = lazyAsync(pathDescriptors.ocr.validateTools.path);
     const ocrInstallLanguagesMethod = lazyAsync(pathDescriptors.ocr.installLanguages.path);
     const ocrAcknowledgeResultFileMethod = lazyAsync(pathDescriptors.ocr.acknowledgeResultFile.path);
@@ -232,11 +244,17 @@ export function createLazyBrowserPlatformApiGenerated({
     const searchCancelMethod = lazyAsync(pathDescriptors.search.cancel.path);
     const searchOnProgressMethod = lazyEvent(pathDescriptors.search.onProgress.path);
     const searchResetCacheMethod = lazyAsync(pathDescriptors.search.resetCache.path);
+    const djvuStartOpenForViewingMethod = lazyAsync(pathDescriptors.djvu.startOpenForViewing.path);
+    const djvuAwaitOpenJobMethod = lazyAsync(pathDescriptors.djvu.awaitOpenJob.path);
     const djvuOpenForViewingMethod = lazyAsync(pathDescriptors.djvu.openForViewing.path);
     const djvuReleaseViewingPathMethod = lazyAsync(pathDescriptors.djvu.releaseViewingPath.path);
+    const djvuStartConvertToPdfMethod = lazyAsync(pathDescriptors.djvu.startConvertToPdf.path);
+    const djvuAwaitConvertJobMethod = lazyAsync(pathDescriptors.djvu.awaitConvertJob.path);
     const djvuConvertToPdfMethod = lazyAsync(pathDescriptors.djvu.convertToPdf.path);
     const djvuPrintDjvuPathMethod = lazyAsync(pathDescriptors.djvu.printDjvuPath.path);
     const djvuCancelMethod = lazyAsync(pathDescriptors.djvu.cancel.path);
+    const djvuGetJobStateMethod = lazyAsync(pathDescriptors.djvu.getJobState.path);
+    const djvuSubscribeJobMethod = lazyAsync(pathDescriptors.djvu.subscribeJob.path);
     const djvuCancelPagePreviewMethod = lazyAsync(pathDescriptors.djvu.cancelPagePreview.path);
     const djvuGetInfoMethod = lazyAsync(pathDescriptors.djvu.getInfo.path);
     const djvuGetPageSizesMethod = lazyAsync(pathDescriptors.djvu.getPageSizes.path);
@@ -244,8 +262,6 @@ export function createLazyBrowserPlatformApiGenerated({
     const djvuEstimateSizesMethod = lazyAsync(pathDescriptors.djvu.estimateSizes.path);
     const djvuCleanupTempMethod = lazyAsync(pathDescriptors.djvu.cleanupTemp.path);
     const djvuOnProgressMethod = lazyEvent(pathDescriptors.djvu.onProgress.path);
-    const djvuOnViewingReadyMethod = lazyEvent(pathDescriptors.djvu.onViewingReady.path);
-    const djvuOnViewingErrorMethod = lazyEvent(pathDescriptors.djvu.onViewingError.path);
     const djvuOnMenuConvertToPdfMethod = lazyEvent(pathDescriptors.djvu.onMenuConvertToPdf.path);
     const settingsGetMethod = lazyAsync(pathDescriptors.settings.get.path);
     const settingsSaveMethod = lazyAsync(pathDescriptors.settings.save.path);
@@ -272,6 +288,8 @@ export function createLazyBrowserPlatformApiGenerated({
     const windowTabsNotifyRendererReadyMethod = lazyVoid(pathDescriptors.windowTabs.notifyRendererReady.path);
     const windowTabsClaimPendingExternalOpenPathsMethod = lazyAsync(pathDescriptors.windowTabs.claimPendingExternalOpenPaths.path);
     const windowTabsAcknowledgePendingExternalOpenPathsMethod = lazyAsync(pathDescriptors.windowTabs.acknowledgePendingExternalOpenPaths.path);
+    const windowTabsSaveWorkspaceCheckpointMethod = lazyAsync(pathDescriptors.windowTabs.saveWorkspaceCheckpoint.path);
+    const windowTabsClaimWorkspaceCheckpointMethod = lazyAsync(pathDescriptors.windowTabs.claimWorkspaceCheckpoint.path);
     const windowTabsOnMenuNewTabMethod = lazyEvent(pathDescriptors.windowTabs.onMenuNewTab.path);
     const windowTabsOnMenuCloseTabMethod = lazyEvent(pathDescriptors.windowTabs.onMenuCloseTab.path);
     const windowTabsOnMenuSplitEditorMethod = lazyEvent(pathDescriptors.windowTabs.onMenuSplitEditor.path);
@@ -387,6 +405,7 @@ export function createLazyBrowserPlatformApiGenerated({
         onMenuActualSize: documentsOnMenuActualSizeMethod,
         onMenuFitWidth: documentsOnMenuFitWidthMethod,
         onMenuFitHeight: documentsOnMenuFitHeightMethod,
+        onMenuToggleContinuousScroll: documentsOnMenuToggleContinuousScrollMethod,
         onMenuViewModeSingle: documentsOnMenuViewModeSingleMethod,
         onMenuViewModeFacing: documentsOnMenuViewModeFacingMethod,
         onMenuViewModeFacingFirstSingle: documentsOnMenuViewModeFacingFirstSingleMethod,
@@ -479,6 +498,7 @@ export function createLazyBrowserPlatformApiGenerated({
         onMenuActualSize: documentMenuOnMenuActualSizeMethod,
         onMenuFitWidth: documentMenuOnMenuFitWidthMethod,
         onMenuFitHeight: documentMenuOnMenuFitHeightMethod,
+        onMenuToggleContinuousScroll: documentMenuOnMenuToggleContinuousScrollMethod,
         onMenuViewModeSingle: documentMenuOnMenuViewModeSingleMethod,
         onMenuViewModeFacing: documentMenuOnMenuViewModeFacingMethod,
         onMenuViewModeFacingFirstSingle: documentMenuOnMenuViewModeFacingFirstSingleMethod,
@@ -516,7 +536,11 @@ export function createLazyBrowserPlatformApiGenerated({
         recognize: ocrRecognizeMethod,
         recognizeBatch: ocrRecognizeBatchMethod,
         cancel: ocrCancelMethod,
+        getJobState: ocrGetJobStateMethod,
+        subscribeJob: ocrSubscribeJobMethod,
+        reconnectJob: ocrReconnectJobMethod,
         getLanguages: ocrGetLanguagesMethod,
+        resolveDocumentTextCatalog: ocrResolveDocumentTextCatalogMethod,
         validateTools: ocrValidateToolsMethod,
         installLanguages: ocrInstallLanguagesMethod,
         acknowledgeResultFile: ocrAcknowledgeResultFileMethod,
@@ -536,11 +560,17 @@ export function createLazyBrowserPlatformApiGenerated({
         resetCache: searchResetCacheMethod,
     },
     djvu: {
+        startOpenForViewing: djvuStartOpenForViewingMethod,
+        awaitOpenJob: djvuAwaitOpenJobMethod,
         openForViewing: djvuOpenForViewingMethod,
         releaseViewingPath: djvuReleaseViewingPathMethod,
+        startConvertToPdf: djvuStartConvertToPdfMethod,
+        awaitConvertJob: djvuAwaitConvertJobMethod,
         convertToPdf: djvuConvertToPdfMethod,
         printDjvuPath: djvuPrintDjvuPathMethod,
         cancel: djvuCancelMethod,
+        getJobState: djvuGetJobStateMethod,
+        subscribeJob: djvuSubscribeJobMethod,
         cancelPagePreview: djvuCancelPagePreviewMethod,
         getInfo: djvuGetInfoMethod,
         getPageSizes: djvuGetPageSizesMethod,
@@ -548,8 +578,6 @@ export function createLazyBrowserPlatformApiGenerated({
         estimateSizes: djvuEstimateSizesMethod,
         cleanupTemp: djvuCleanupTempMethod,
         onProgress: djvuOnProgressMethod,
-        onViewingReady: djvuOnViewingReadyMethod,
-        onViewingError: djvuOnViewingErrorMethod,
         onMenuConvertToPdf: djvuOnMenuConvertToPdfMethod,
     },
     settings: {
@@ -584,6 +612,8 @@ export function createLazyBrowserPlatformApiGenerated({
         notifyRendererReady: windowTabsNotifyRendererReadyMethod,
         claimPendingExternalOpenPaths: windowTabsClaimPendingExternalOpenPathsMethod,
         acknowledgePendingExternalOpenPaths: windowTabsAcknowledgePendingExternalOpenPathsMethod,
+        saveWorkspaceCheckpoint: windowTabsSaveWorkspaceCheckpointMethod,
+        claimWorkspaceCheckpoint: windowTabsClaimWorkspaceCheckpointMethod,
         onMenuNewTab: windowTabsOnMenuNewTabMethod,
         onMenuCloseTab: windowTabsOnMenuCloseTabMethod,
         onMenuSplitEditor: windowTabsOnMenuSplitEditorMethod,

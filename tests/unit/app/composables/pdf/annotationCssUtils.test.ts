@@ -11,7 +11,7 @@ import type { IAnnotationCommentSummary } from '@app/types/annotations';
 function createComment(text: string): IAnnotationCommentSummary {
     return {
         id: 'id',
-        stableKey: 'key',
+        stableKey: 'ann:0:key',
         pageIndex: 0,
         pageNumber: 1,
         text,

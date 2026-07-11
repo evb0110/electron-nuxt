@@ -6,8 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import { EventEmitter } from 'node:events';
-import { PassThrough } from 'node:stream';
+import { FakeAssistantAppServerProcess } from '@tests/unit/electron/helpers/fakeAssistantAppServerProcess';
 
 const mocks = vi.hoisted(() => ({
     spawn: vi.fn(),
@@ -23,24 +22,6 @@ const mocks = vi.hoisted(() => ({
     },
 }));
 
-interface IFakeStdin extends EventEmitter {write: ReturnType<typeof vi.fn>;}
-
-class FakeCodexAppServerProcess extends EventEmitter {
-    readonly stdout = new PassThrough();
-    readonly stderr = new PassThrough();
-    readonly stdin = new EventEmitter() as IFakeStdin;
-
-    readonly kill = vi.fn(() => {
-        this.emit('close', 0);
-        return true;
-    });
-
-    constructor(write: (line: string, callback?: (error?: Error | null) => void) => boolean) {
-        super();
-        this.stdin.write = vi.fn(write);
-    }
-}
-
 vi.mock('child_process', () => ({spawn: mocks.spawn}));
 vi.mock('electron', () => ({app: {getVersion: () => '0.0.0-test'}}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
@@ -50,7 +31,7 @@ vi.mock('@electron/utils/nativeChildProcess', () => ({
     terminateDetachedChildProcess: (...args: unknown[]) => mocks.terminateDetachedChildProcess(...args),
 }));
 
-async function createClient(process: FakeCodexAppServerProcess) {
+async function createClient(process: FakeAssistantAppServerProcess) {
     mocks.spawn.mockReturnValue(process);
     const { CodexAppServerClient } = await import('@electron/features/agent/codexAppServerClient');
     const onNotification = vi.fn();
@@ -65,6 +46,7 @@ async function createClient(process: FakeCodexAppServerProcess) {
     return {
         client,
         onExit,
+        onNotification,
     };
 }
 
@@ -77,7 +59,7 @@ describe('CodexAppServerClient stdin handling', () => {
             ...options,
             detached: true,
         }));
-        mocks.terminateDetachedChildProcess.mockImplementation(async (process: FakeCodexAppServerProcess) => {
+        mocks.terminateDetachedChildProcess.mockImplementation(async (process: FakeAssistantAppServerProcess) => {
             process.emit('close', 0);
         });
     });
@@ -89,7 +71,7 @@ describe('CodexAppServerClient stdin handling', () => {
     });
 
     it('fails pending requests when the app-server stdin stream errors', async () => {
-        const process = new FakeCodexAppServerProcess((_line, callback) => {
+        const process = new FakeAssistantAppServerProcess((_line, callback) => {
             callback?.();
             return true;
         });
@@ -105,11 +87,29 @@ describe('CodexAppServerClient stdin handling', () => {
         expect(onExit).toHaveBeenCalledWith('Codex app-server stdin failed: EPIPE');
     });
 
+    it('reassembles split stdout frames and forwards reasoning notifications', async () => {
+        const process = new FakeAssistantAppServerProcess((_line, callback) => {
+            callback?.();
+            return true;
+        });
+        const {onNotification} = await createClient(process);
+        process.stdout.write('{"jsonrpc":"2.0","method":"item/reasoning/summaryTextDelta","params":{"delta":"plan');
+        process.stdout.write('","threadId":"thread-1"}}\n');
+
+        expect(onNotification).toHaveBeenCalledWith(expect.objectContaining({
+            method: 'item/reasoning/summaryTextDelta',
+            params: {
+                delta: 'plan',
+                threadId: 'thread-1',
+            },
+        }));
+    });
+
     it.each([
         ['notify' as const],
         ['respond' as const],
     ])('handles %s write callback failures without throwing', async (method) => {
-        const process = new FakeCodexAppServerProcess((_line, callback) => {
+        const process = new FakeAssistantAppServerProcess((_line, callback) => {
             callback?.(new Error('EPIPE'));
             return false;
         });
@@ -129,7 +129,7 @@ describe('CodexAppServerClient stdin handling', () => {
 
     it('rejects request timeouts with a typed timeout error', async () => {
         vi.useFakeTimers();
-        const process = new FakeCodexAppServerProcess((_line, callback) => {
+        const process = new FakeAssistantAppServerProcess((_line, callback) => {
             callback?.();
             return true;
         });
@@ -154,7 +154,7 @@ describe('CodexAppServerClient stdin handling', () => {
 
     it('reports a bounded stderr tail when the app-server exits after noisy output', async () => {
         process.env.EVB_CODEX_APP_SERVER_MAX_STDERR_BYTES = '1024';
-        const fakeProcess = new FakeCodexAppServerProcess((_line, callback) => {
+        const fakeProcess = new FakeAssistantAppServerProcess((_line, callback) => {
             callback?.();
             return true;
         });
@@ -172,7 +172,7 @@ describe('CodexAppServerClient stdin handling', () => {
     });
 
     it('awaits detached process-tree termination during shutdown', async () => {
-        const fakeProcess = new FakeCodexAppServerProcess((_line, callback) => {
+        const fakeProcess = new FakeAssistantAppServerProcess((_line, callback) => {
             callback?.();
             return true;
         });

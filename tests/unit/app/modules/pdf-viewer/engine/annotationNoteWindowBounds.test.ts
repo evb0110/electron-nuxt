@@ -54,5 +54,18 @@ describe('annotationNoteWindowBounds', () => {
             height: PDF_VIEWER_BOUNDS.height - (NOTE_WINDOW.MARGIN * 2),
         });
     });
-});
 
+    it('shrinks below the normal usability floor when the pane itself is narrower', () => {
+        expect(clampAnnotationNoteWindowSize(380, 360, {
+            left: 0,
+            top: 0,
+            right: 210,
+            bottom: 190,
+            width: 210,
+            height: 190,
+        })).toEqual({
+            width: 194,
+            height: 174,
+        });
+    });
+});

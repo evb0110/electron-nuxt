@@ -34,7 +34,6 @@ function createCompletionPorts(overrides: {
         state: {
             annotations: {
                 annotationDirty: ref(false),
-                annotationComments: ref([]),
                 markAnnotationSaved: vi.fn(),
                 getAnnotationSaveStateToken: overrides.annotationToken ?? vi.fn(() => 'annotation-token'),
                 hasAnnotationChanges: vi.fn(() => false),
@@ -57,18 +56,13 @@ function createCompletionPorts(overrides: {
                 baseBytes: null,
                 serializedBytes: new Uint8Array([1]),
                 serializedResult: null,
-                nativeMutationPlan: null,
+                nativeMutationProjection: null,
                 annotationSavePlan: {
                     route: 'source-clean' as const,
                     expectedCost: 'small' as const,
                     reason: 'no-live-pdfjs-annotation-work' as const,
                     unreplayableLiveAnnotationIds: [],
                 },
-                annotationCommentsSnapshot: [],
-                pendingEmbeddedTextUpdates: new Map(),
-                pendingEmbeddedAnnotationDeletes: [],
-                restoreConsumedPendingEmbeddedMutations: vi.fn(),
-                commitConsumedPendingEmbeddedMutations: vi.fn(),
             })),
             saveDocument: vi.fn(async () => new Uint8Array([1])),
             getSourcePdfData: vi.fn(async () => new Uint8Array([1])),

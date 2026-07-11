@@ -15,6 +15,7 @@ import {
     ref,
 } from 'vue';
 import { usePdfViewportViewModel } from '@app/modules/pdf-viewer/runtime/viewport/usePdfViewportViewModel';
+import {createTestPdfViewportWritePort} from '@tests/helpers/createTestPdfViewportWritePort';
 
 class ResizeObserverDouble {
     public static instances: ResizeObserverDouble[] = [];
@@ -69,6 +70,7 @@ describe('usePdfViewportViewModel', () => {
         container.scrollLeft = 0;
 
         const viewModel = scope.run(() => usePdfViewportViewModel({
+            viewportWritePort: createTestPdfViewportWritePort().port,
             viewerContainer: ref(container),
             bufferPages: computed(() => 2),
             viewMode: computed(() => 'single' as const),

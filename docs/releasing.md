@@ -35,13 +35,13 @@ Store AppX packages must declare every shipped UI locale in `electron-builder.ym
 ## Local guardrails
 
 - `pnpm run release:verify` mirrors the local parts of the release workflow, includes current-platform build and packaging verification, and fails if the successful verify run changes the working tree snapshot.
-- `release:verify:checks` forces `CI=1` during app-scoped linting, split static report/assets checks, typechecking, Electron install verification, native-resource matrix checks, WASM portability checks, lint-owned architecture import checks, Rust tests, unit coverage, and bundle-integrity checks so the local gate stays closer to the GitHub release runner.
-- `pnpm run release:verify:package:local` owns the strict build and current-platform package proof: it packages the current platform exactly as the release workflow would, validates produced artifacts and updater metadata, verifies packaged native tools, and verifies packaged startup on macOS. After that build has produced `dist-electron/`, use `pnpm run test:bundle-integrity:no-build` for a no-build bundle-integrity loop; use `pnpm run test:bundle-integrity` when you want its script-managed build, prune, and hygiene wrapper.
+- `release:verify:checks` forces `CI=1` during app-scoped linting, split static report/assets checks, typechecking, Electron install verification, native-resource matrix checks, WASM portability checks, lint-owned architecture import checks, Rust tests, unit coverage, and Electron bundle static-integrity checks so the local gate stays closer to the GitHub release runner.
+- `pnpm run release:verify:package:local` owns the strict build and current-platform package proof: it packages the current platform exactly as the release workflow would, validates produced artifacts and updater metadata, verifies packaged native tools, and verifies packaged startup on macOS. After that build has produced `dist-electron/`, use `pnpm run test:electron-bundle-static-integrity:no-build` for a no-build static-integrity loop; use `pnpm run test:electron-bundle-static-integrity` when you want its script-managed build, prune, and hygiene wrapper.
 - Pull requests that touch landing or its vendored package sources must pass landing vendor sync, lint, typecheck, and build checks. Native/build and landing path classification comes from the single changed-area policy in `scripts/release/policy.mjs`; manual CI quality lanes remain available on demand, while nightly maintenance keeps broader deterministic coverage running outside the local patch-cut path.
 - Main app release checks are app-scoped and do not read or build `landing/`. Landing-only working tree changes are ignored by the release cutter so the desktop/web app release path stays independent of the separate landing deploy.
-- Broad maintenance checks (`typecheck:coverage`, `fallow`, the coverage ratchet, OCR model registry, and Python page-processor smoke) remain part of scheduled nightly CI, but they do not block every local release cut. The page-processor smoke is retained as dormant devkit-tool maintenance coverage, not as a local release gate.
+- Broad maintenance checks (`typecheck:coverage`, `fallow`, the coverage zero-execution tripwire, OCR model registry, and Python page-processor smoke) remain part of scheduled nightly CI, but they do not block every local release cut. The page-processor smoke is retained as dormant devkit-tool maintenance coverage, not as a local release gate.
 - Release-critical tests should stay deterministic and fast. Long serial Electron E2E and PDF tab diagnostics are available in nightly/manual diagnostics, but they do not block release cutting.
-- Changed or file-scoped local loops, including `pnpm run validate:changed`, `pnpm run test:changed`, `pnpm exec vitest run --project unit-policy tests/unit/scripts/releasePolicy.test.ts`, `pnpm run fallow:changed`, and `pnpm run test:bundle-integrity:no-build`, are iteration aids. They do not replace `pnpm run release:verify` for release proof.
+- Changed or file-scoped local loops, including `pnpm run validate:changed`, `pnpm run test:changed`, `pnpm exec vitest run --project unit-policy tests/unit/scripts/releasePolicy.test.ts`, `pnpm run fallow:changed`, and `pnpm run test:electron-bundle-static-integrity:no-build`, are iteration aids. They do not replace `pnpm run release:verify` for release proof.
 - Fresh installs now follow the checked-in build-script policy in [`pnpm-workspace.yaml`](../pnpm-workspace.yaml). If a new dependency needs an install script for release-critical behavior, update that allow/ignore list deliberately instead of tolerating pnpm's warning output.
 - `pnpm run release:verify` is intentionally host-only for packaging. If you change cross-platform launcher or packaging decisions, add unit coverage for that branching logic instead of assuming a macOS-local release cut exercises Linux and Windows paths.
 - The macOS packaged-startup step is meaningful only when local packaging uses real Developer ID credentials. Ad-hoc local signing still verifies bundled native-tool execution, but it does not faithfully reproduce LaunchServices/runtime-library-validation behavior for a shipped `.app`.
@@ -66,6 +66,16 @@ Store AppX packages must declare every shipped UI locale in `electron-builder.ym
 - If GitHub Actions flakes during packaging or publishing, rerun the failed `Release` workflow for the same tag in GitHub Actions.
 - If you need to retry from scratch, use the workflow's manual dispatch and provide the existing tag.
 - If local `release:verify` changes any tracked, staged, or untracked file, treat that as a release-script regression and fix it before retrying. The cutter also refuses to auto-stage unexpected release changes.
+
+## Landing rollout, withdrawal, and rollback
+
+The landing download endpoint selects from the public GitHub release list; it does not trust GitHub's mutable `latest` flag. Configure the deployed landing service with:
+
+- `NUXT_RELEASE_STABLE_TAGS`: comma-separated, preference-ordered stable tags. The first available, non-withdrawn tag is served. Leave empty only for newest-public-release compatibility mode.
+- `NUXT_RELEASE_WITHDRAWN_TAGS`: comma-separated tags that must never be served.
+- `NUXT_RELEASE_CANARY_TAG` and `NUXT_RELEASE_CANARY_PERCENT`: an optional public canary and deterministic cohort percentage from 0 through 100.
+
+To withdraw a bad release, add its tag to `NUXT_RELEASE_WITHDRAWN_TAGS`, put the prior known-good tag first in `NUXT_RELEASE_STABLE_TAGS`, set the canary percentage to zero, deploy the configuration, and verify `/api/releases/latest` from multiple user-agent/cohort keys. Keep the withdrawn release excluded until a replacement has passed the packaged smoke and downloaded-asset hash checks. Rollback is therefore a server configuration change and does not require republishing or mutating old GitHub assets.
 
 ## Release command behavior
 

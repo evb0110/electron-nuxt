@@ -7,6 +7,7 @@ import { STORAGE_KEYS } from '@app/constants/storageKeys';
 import {
     collectLivePdfJsAnnotationChangeFingerprint,
     resetLivePdfJsAnnotationStorageModifiedState,
+    annotationIdForSummary,
 } from '@app/modules/pdf-viewer/public';
 import { useAnnotationContextMenu } from '@app/modules/workspace-shell/composables/useAnnotationContextMenu';
 import { useAnnotationNoteWindows } from '@app/modules/workspace-shell/composables/useAnnotationNoteWindows';
@@ -16,6 +17,7 @@ import type { IWorkspacePdfViewerAnnotationSessionPort } from '@app/modules/work
 import { hasAnnotationChanges as detectAnnotationChanges } from '@app/modules/workspace-shell/annotations/hasAnnotationChanges';
 import { hasLivePdfJsAnnotationChanges as detectLivePdfJsAnnotationChanges } from '@app/modules/workspace-shell/annotations/hasLivePdfJsAnnotationChanges';
 import type { PDFDocumentProxy } from '@app/types/pdfContracts';
+import type { AnnotationId } from '@app/modules/pdf-viewer/public';
 
 interface IWorkspaceAnnotationSessionOptions {
     pdfViewerRef: Ref<IWorkspacePdfViewerAnnotationSessionPort | null>;
@@ -146,6 +148,15 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         rtl: stored => stored === '1',
     }});
 
+    function resolveNoteComment(annotationId: AnnotationId) {
+        return annotationComments.value.find((comment) => {
+            if (comment.appAnnotationId) {
+                return comment.appAnnotationId === annotationId;
+            }
+            return annotationIdForSummary(comment) === annotationId;
+        }) ?? null;
+    }
+
     const {
         annotationNoteWindows,
         annotationNotePositions,
@@ -163,20 +174,15 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         setAnnotationNoteWindowError,
         bringAnnotationNoteToFront,
         isSameAnnotationComment,
-        consumePendingEmbeddedTextUpdates,
-        restorePendingEmbeddedTextUpdates,
     } = useAnnotationNoteWindows({
         annotationComments,
         markAnnotationDirty,
-        updateAnnotationCommentInViewer: (comment, text) => pdfViewerRef.value?.updateAnnotationComment(comment, text) ?? false,
-        queuePendingEmbeddedTextUpdate: (stableKey, comment, text) => (
-            pdfViewerRef.value?.queuePendingEmbeddedTextUpdate?.(comment, text, stableKey) ?? false
-        ),
-        clearPendingEmbeddedTextUpdate: stableKey => pdfViewerRef.value?.clearPendingEmbeddedTextUpdate?.(stableKey),
-        migratePendingEmbeddedTextUpdate: (
-            previousKey,
-            nextKey,
-        ) => pdfViewerRef.value?.migratePendingEmbeddedTextUpdate?.(previousKey, nextKey),
+        updateAnnotationCommentInViewer: (annotationId, text) => {
+            const comment = resolveNoteComment(annotationId);
+            return comment
+                ? pdfViewerRef.value?.updateAnnotationComment(comment, text) ?? false
+                : false;
+        },
         isAnnotationCommentSyncReady: () => Boolean(pdfDocument.value),
     });
 
@@ -247,7 +253,5 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         setAnnotationNoteWindowError,
         bringAnnotationNoteToFront,
         isSameAnnotationComment,
-        consumePendingEmbeddedTextUpdates,
-        restorePendingEmbeddedTextUpdates,
     };
 };

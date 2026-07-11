@@ -24,7 +24,7 @@ interface IAssistantMessageLinkSegment {
     href: string;
 }
 
-type TAssistantMessageSegment =
+export type TAssistantMessageSegment =
     | IAssistantMessageTextSegment
     | IAssistantMessageInlineCodeSegment
     | IAssistantMessageStrongSegment
@@ -61,12 +61,18 @@ interface IAssistantMessageCodeBlock {
 
 interface IAssistantMessageRuleBlock { kind: 'rule' }
 
+interface IAssistantMessageTableBlock {
+    kind: 'table';
+    rows: TAssistantMessageSegment[][][];
+}
+
 type TAssistantMessageBlock =
     | IAssistantMessageTextBlock
     | IAssistantMessageHeadingBlock
     | IAssistantMessageListBlock
     | IAssistantMessageBlockquoteBlock
     | IAssistantMessageCodeBlock
+    | IAssistantMessageTableBlock
     | IAssistantMessageRuleBlock;
 
 const FENCE_PATTERN = /^\s*```([^\s`]*)?\s*$/u;
@@ -75,6 +81,11 @@ const BLOCKQUOTE_PATTERN = /^\s{0,3}>\s?(.*)$/u;
 const UNORDERED_LIST_PATTERN = /^\s{0,3}[-*+]\s+(.+)$/u;
 const ORDERED_LIST_PATTERN = /^\s{0,3}\d+[.)]\s+(.+)$/u;
 const HORIZONTAL_RULE_PATTERN = /^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/u;
+const TABLE_SEPARATOR_PATTERN = /^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$/u;
+
+function parseTableRow(line: string) {
+    return line.trim().replace(/^\||\|$/gu, '').split('|').map(cell => parseInlineSegments(cell.trim()));
+}
 
 function appendTextSegment(segments: TAssistantMessageSegment[], text: string) {
     if (text.length === 0) {
@@ -290,6 +301,22 @@ export function formatAssistantMessage(text: string) {
 
     for (let index = 0; index < lines.length; index += 1) {
         const line = lines[index] ?? '';
+
+        if (line.includes('|') && TABLE_SEPARATOR_PATTERN.test(lines[index + 1] ?? '')) {
+            pushTextBlock(blocks, textLines);
+            const rows = [parseTableRow(line)];
+            index += 2;
+            while (index < lines.length && (lines[index] ?? '').includes('|')) {
+                rows.push(parseTableRow(lines[index] ?? ''));
+                index += 1;
+            }
+            index -= 1;
+            blocks.push({
+                kind: 'table',
+                rows,
+            });
+            continue;
+        }
         const fenceMatch = line.match(FENCE_PATTERN);
         if (codeLines) {
             if (fenceMatch) {
@@ -391,4 +418,36 @@ export function formatAssistantMessage(text: string) {
     }
 
     return blocks;
+}
+
+export function createStreamingAssistantMessageFormatter() {
+    let text = '';
+    let committedLength = 0;
+    let committedBlocks: TAssistantMessageBlock[] = [];
+    return {format(nextText: string) {
+        if (!nextText.startsWith(text)) {
+            text = nextText;
+            committedLength = 0;
+            committedBlocks = [];
+        } else {
+            text = nextText;
+        }
+        const suffix = text.slice(committedLength);
+        const boundary = suffix.lastIndexOf('\n\n');
+        if (boundary >= 0) {
+            const stable = suffix.slice(0, boundary + 2);
+            const fenceCount = (stable.match(/```/gu) ?? []).length;
+            if (fenceCount % 2 === 0) {
+                committedBlocks = [
+                    ...committedBlocks,
+                    ...formatAssistantMessage(stable),
+                ];
+                committedLength += stable.length;
+            }
+        }
+        return [
+            ...committedBlocks,
+            ...formatAssistantMessage(text.slice(committedLength)),
+        ];
+    }};
 }

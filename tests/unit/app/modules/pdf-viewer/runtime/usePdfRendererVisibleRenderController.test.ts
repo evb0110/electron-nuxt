@@ -62,7 +62,7 @@ function createControllerHarness(options?: {
     const scheduleMissingRenderTargetRetry = vi.fn();
 
     const renderVisiblePages = usePdfRendererVisibleRenderController({
-        container: ref({} as HTMLElement),
+        container: ref(document.createElement('div')),
         currentPage: ref(13),
         numPages: ref(20),
         isActive: true,
@@ -138,6 +138,55 @@ describe('usePdfRendererVisibleRenderController', () => {
 
         expect(harness.nextVisibleRenderRequestId).toHaveBeenCalledTimes(1);
         expect(harness.ensurePageMetricsInRange).toHaveBeenCalledWith(12, 14);
+    });
+
+    it('releases unmounted tracked pages even when rendered-page preservation is requested', async () => {
+        const containerRoot = document.createElement('div');
+        const mountedPage = document.createElement('div');
+        mountedPage.className = 'page_container';
+        mountedPage.dataset.page = '10';
+        containerRoot.append(mountedPage);
+        const cleanupPage = vi.fn();
+        let visibleRenderRequestId = 1;
+        const renderedPages = new Set([
+            4,
+            10,
+        ]);
+        const renderVisiblePages = usePdfRendererVisibleRenderController({
+            container: ref(containerRoot),
+            currentPage: ref(10),
+            numPages: ref(20),
+            isActive: true,
+            bufferPages: 0,
+            renderConcurrency: 1,
+            effectiveScale: 1,
+            renderedPages,
+            staleRenderedPages: new Set<number>(),
+            renderingPages: new Map<number, number>(),
+            renderingPageRequestIds: new Map<number, number>(),
+            getRenderVersion: () => 3,
+            getRenderDocumentToken: () => 'doc-1',
+            getVisibleRenderRequestId: () => visibleRenderRequestId,
+            nextVisibleRenderRequestId: () => {
+                visibleRenderRequestId += 1;
+                return visibleRenderRequestId;
+            },
+            ensurePageMetricsInRange: vi.fn(async () => true),
+            setupPagePlaceholders: vi.fn(),
+            cleanupPage,
+            cancelObsoleteInFlightRenders: vi.fn(),
+            renderSingleVisiblePage: vi.fn(async () => undefined),
+            scheduleMissingRenderTargetRetry: vi.fn(),
+            throttleMs: 0,
+        });
+
+        await renderVisiblePages({
+            start: 10,
+            end: 10,
+        }, { preserveRenderedPages: true });
+
+        expect(cleanupPage).toHaveBeenCalledWith(4);
+        expect(cleanupPage).not.toHaveBeenCalledWith(10);
     });
 
     it('abandons stale visible ranges without warning or retrying missing containers', async () => {
@@ -216,11 +265,18 @@ describe('usePdfRendererVisibleRenderController', () => {
             9,
         ]);
         expect(resolveBufferPageCanvasClamp).toHaveBeenCalledTimes(2);
-        expect(harness.renderSingleVisiblePage.mock.calls[0]?.[9]).toBeUndefined();
+        expect(harness.renderSingleVisiblePage.mock.calls[0]?.[9])
+            .toEqual({ continuationPriority: 'visible' });
         expect(harness.renderSingleVisiblePage.mock.calls[1]?.[9])
-            .toEqual({ maxCanvasPixelsOverride: 16_700_000 });
+            .toEqual({
+                continuationPriority: 'nearby',
+                maxCanvasPixelsOverride: 16_700_000,
+            });
         expect(harness.renderSingleVisiblePage.mock.calls[2]?.[9])
-            .toEqual({ maxCanvasPixelsOverride: 16_700_000 });
+            .toEqual({
+                continuationPriority: 'nearby',
+                maxCanvasPixelsOverride: 16_700_000,
+            });
         expect(harness.staleRenderedPages).toEqual(new Set([
             9,
             11,
@@ -246,9 +302,12 @@ describe('usePdfRendererVisibleRenderController', () => {
             11,
             9,
         ]);
-        for (const call of harness.renderSingleVisiblePage.mock.calls) {
-            expect(call[9]).toBeUndefined();
-        }
+        expect(harness.renderSingleVisiblePage.mock.calls.map(call => call[9]?.continuationPriority))
+            .toEqual([
+                'visible',
+                'nearby',
+                'nearby',
+            ]);
         expect(harness.staleRenderedPages.size).toBe(0);
     });
 
@@ -277,6 +336,7 @@ describe('usePdfRendererVisibleRenderController', () => {
             expect(call[9]).toEqual({
                 preserveRenderedPages: true,
                 maxCanvasPixelsOverride: 14_000_000,
+                continuationPriority: call[1] === 10 ? 'visible' : 'nearby',
             });
         }
         expect(harness.staleRenderedPages.size).toBe(0);
@@ -422,7 +482,7 @@ describe('usePdfRendererVisibleRenderController', () => {
         expect(staleRenderedPages.has(10)).toBe(false);
     });
 
-    it('fences legacy visible render requests when the document version changes mid-render', async () => {
+    it('fences visible render requests when the render version changes mid-render', async () => {
         const renderSingleVisiblePage = vi.fn(async () => undefined);
         const ensurePageMetricsInRange = vi.fn(async () => {
             documentVersion = 51;
@@ -445,7 +505,6 @@ describe('usePdfRendererVisibleRenderController', () => {
             renderingPages: new Map<number, number>(),
             renderingPageRequestIds: new Map<number, number>(),
             getRenderVersion: () => documentVersion,
-            getDocumentVersion: () => documentVersion,
             getRenderDocumentToken: () => 'doc-1',
             getVisibleRenderRequestId: () => 1,
             nextVisibleRenderRequestId: () => 1,

@@ -71,16 +71,6 @@ export function getRequestedNativeRustTarget(
     return {
         arch,
         binaryExtension: platform === 'win32' ? '.exe' : '',
-        cargoReleaseDirSegments: isHostTarget
-            ? [
-                'target',
-                'release',
-            ]
-            : [
-                'target',
-                rustTarget,
-                'release',
-            ],
         cargoTargetArgs: isHostTarget
             ? []
             : [

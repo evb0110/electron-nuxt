@@ -12,7 +12,7 @@ import {
     resolveWheelTargetAnchor,
     resolveWheelTargetPage,
     shouldHandleSinglePageWheel,
-} from '@app/modules/pdf-viewer/runtime/navigation/singlePageWheelNavigation';
+} from '@app/utils/document-viewer/single-page-wheel/singlePageWheelNavigation';
 import { cast } from '@tests/helpers/cast';
 
 function createWheelEvent(options?: {

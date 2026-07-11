@@ -4,7 +4,7 @@
         :visible="visible && Boolean(bookmark)"
         :style="menuStyle"
         variant="panel"
-        min-width="210px"
+        min-width="var(--app-context-menu-preferred-width)"
         z-index="var(--app-pdf-annotation-style-popover-z-index)"
     >
         <template v-if="bookmark">
@@ -203,29 +203,29 @@ function removeBookmark(id: string) {
 
 <style scoped>
 .bookmarks-context-menu-style-block {
-    padding: 3px 4px;
+    padding: var(--app-space-xs) var(--app-space-sm);
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: var(--app-space-lg);
 }
 
 .bookmarks-context-menu-style-row {
     display: flex;
-    gap: 6px;
+    gap: var(--app-space-lg);
 }
 
 .bookmarks-style-toggle {
-    width: 24px;
-    height: 24px;
+    width: var(--app-control-height-xs);
+    height: var(--app-control-height-xs);
     display: inline-flex;
     align-items: center;
     justify-content: center;
     padding: 0;
     border: 1px solid var(--ui-border);
-    border-radius: 5px;
+    border-radius: var(--app-radius-sm);
     background: var(--ui-bg);
     color: var(--ui-text-muted);
-    font-size: 12px;
+    font-size: var(--app-text-size-kicker);
     font-weight: 700;
     cursor: pointer;
 }
@@ -236,7 +236,7 @@ function removeBookmark(id: string) {
 }
 
 .bookmarks-style-toggle-letter {
-    font-size: 0.9rem;
+    font-size: var(--app-text-size-ui);
     font-weight: 600;
 }
 
@@ -252,12 +252,12 @@ function removeBookmark(id: string) {
 
 .bookmarks-context-menu-color-row {
     display: flex;
-    gap: 6px;
+    gap: var(--app-space-lg);
 }
 
 .bookmarks-color-swatch {
-    width: 18px;
-    height: 18px;
+    width: var(--app-outline-loading-icon-height);
+    height: var(--app-outline-loading-icon-height);
     border-radius: var(--app-radius-full);
     border: 1px solid color-mix(in srgb, var(--ui-bg-inverted) 16%, transparent 84%);
     cursor: pointer;

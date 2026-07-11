@@ -15,6 +15,7 @@ import {
     MemoryStorage,
     cast,
 } from '@tests/unit/app/platform/browserPlatformTestDoubles';
+import {onBrowserDocumentPersistenceWarning} from '@app/platform/browser/browserDocumentPersistenceWarnings';
 
 describe('BrowserDocumentStore', () => {
     let indexedDbFactory: FakeIndexedDbFactory;
@@ -33,6 +34,7 @@ describe('BrowserDocumentStore', () => {
         const handle = cast<FileSystemFileHandle>({
             kind: 'file',
             name: 'saved-report.pdf',
+            getFile: vi.fn(),
         });
         const store = new BrowserDocumentStore();
         const ref = await store.createStoredDocument(
@@ -245,6 +247,58 @@ describe('BrowserDocumentStore', () => {
         )).rejects.toThrow('IndexedDB document write did not commit');
 
         expect(store.getRecentFiles()).toEqual([]);
+    });
+
+    it('keeps picked files open in memory and reports a persistence warning when IndexedDB is unavailable', async () => {
+        vi.stubGlobal('indexedDB', undefined);
+        const warnings: string[] = [];
+        const unsubscribe = onBrowserDocumentPersistenceWarning(({fileName}) => {
+            warnings.push(fileName);
+        });
+        const store = new BrowserDocumentStore();
+        const bytes = new Uint8Array([
+            7,
+            4,
+            1,
+        ]);
+
+        const ref = await store.registerFile(new File(
+            [bytes],
+            'volatile.pdf',
+            {type: 'application/pdf'},
+        ));
+
+        await expect(store.read(ref)).resolves.toEqual(bytes);
+        expect(warnings).toEqual(['volatile.pdf']);
+        unsubscribe();
+
+        const rehydratedStore = new BrowserDocumentStore();
+        await expect(rehydratedStore.ensureEntry(ref)).resolves.toBeNull();
+    });
+
+    it('does not unload a picked source when persistence falls back to memory', async () => {
+        const bytes = new Uint8Array([
+            7,
+            4,
+            1,
+        ]);
+        const store = new BrowserDocumentStore();
+        vi.stubGlobal('indexedDB', undefined);
+        const sourceRef = await store.registerFile(
+            new File([bytes], 'volatile.pdf', {type: 'application/pdf'}),
+            {
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+
+        expect((await store.requireEntry(sourceRef)).memoryOnly).toBe(true);
+        vi.stubGlobal('indexedDB', indexedDbFactory);
+        const workingRef = await store.cloneAsWorkingCopy(sourceRef);
+        store.unload(sourceRef);
+
+        await expect(store.read(workingRef)).resolves.toEqual(bytes);
+        await expect(store.read(sourceRef)).resolves.toEqual(bytes);
     });
 
     it('rolls back an in-memory write when the durable write cannot commit', async () => {

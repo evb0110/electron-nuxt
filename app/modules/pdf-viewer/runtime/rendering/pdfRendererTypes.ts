@@ -1,8 +1,10 @@
+import type { RenderTask } from 'pdfjs-dist';
 export type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/renderVisiblePagesOptions';
 
 export interface ICancelableRenderTask {
     cancel: () => void;
     promise: Promise<unknown>;
+    onContinue?: RenderTask['onContinue'];
 }
 
 export interface IActivePdfRenderTask {

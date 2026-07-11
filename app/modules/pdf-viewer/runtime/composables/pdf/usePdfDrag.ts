@@ -1,9 +1,14 @@
 
-export const usePdfDrag = (dragModeEnabled: () => boolean) => {
+import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
+
+export const usePdfDrag = (
+    dragModeEnabled: () => boolean,
+    viewportWritePort: IPdfViewportWritePort,
+) => {
     const isDragging = ref(false);
     const dragStart = ref({
         x: 0,
-        y: 0, 
+        y: 0,
     });
 
     function startDrag(e: MouseEvent, container: HTMLElement | null) {
@@ -13,7 +18,7 @@ export const usePdfDrag = (dragModeEnabled: () => boolean) => {
         isDragging.value = true;
         dragStart.value = {
             x: e.clientX,
-            y: e.clientY, 
+            y: e.clientY,
         };
         e.preventDefault();
     }
@@ -24,11 +29,16 @@ export const usePdfDrag = (dragModeEnabled: () => boolean) => {
         }
         const dx = e.clientX - dragStart.value.x;
         const dy = e.clientY - dragStart.value.y;
-        container.scrollLeft -= dx;
-        container.scrollTop -= dy;
+        const intentId = `pan-drag:${String(e.timeStamp)}`;
+        viewportWritePort.apply(container, {
+            intent: viewportWritePort.beginIntent(intentId),
+            reason: 'user-pan-drag',
+            left: container.scrollLeft - dx,
+            top: container.scrollTop - dy,
+        });
         dragStart.value = {
             x: e.clientX,
-            y: e.clientY, 
+            y: e.clientY,
         };
     }
 

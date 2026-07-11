@@ -310,4 +310,59 @@ describe('native PDF preview lifecycle', () => {
         expect(scaleToXIndex).toBeGreaterThanOrEqual(0);
         expect(args?.[scaleToXIndex + 1]).toBe('4096');
     });
+
+    it('coalesces identical in-flight native preview requests', async () => {
+        const sender = new FakeSender();
+        const command = deferred<{
+            exitCode: number;
+            stdout: string;
+            stderr: string;
+        }>();
+        mocks.runNativeToolCommand.mockReturnValueOnce(command.promise);
+        const { handlePdfNativePagePreview } = await import('@electron/features/documents/main/nativePdfPreview');
+        const options = {previewRequestId: 'preview-coalesced'};
+
+        const first = handlePdfNativePagePreview({
+            sender: sender as never,
+            senderId: sender.id,
+        }, '/tmp/input.pdf', 1, options);
+        const second = handlePdfNativePagePreview({
+            sender: sender as never,
+            senderId: sender.id,
+        }, '/tmp/input.pdf', 1, options);
+        await vi.waitFor(() => {
+            expect(mocks.runNativeToolCommand).toHaveBeenCalledTimes(1);
+        });
+        command.resolve({
+            exitCode: 0,
+            stdout: '',
+            stderr: '',
+        });
+
+        await expect(Promise.all([
+            first,
+            second,
+        ])).resolves.toEqual([
+            expect.objectContaining({
+                width: 640,
+                height: 480,
+            }),
+            expect.objectContaining({
+                width: 640,
+                height: 480,
+            }),
+        ]);
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledTimes(1);
+    });
 });
+
+function deferred<T>() {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    const promise = new Promise<T>((promiseResolve) => {
+        resolve = promiseResolve;
+    });
+    return {
+        promise,
+        resolve,
+    };
+}

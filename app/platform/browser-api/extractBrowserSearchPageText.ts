@@ -3,7 +3,7 @@ import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { buildOcrTextLayerIndexText } from '@contracts/ocrText';
 import type { IOcrWord } from '@contracts/shared';
 import {
-    collapseRepeatedPdfSearchPageText,
+    assembleSearchablePageText,
     extractPdfjsWordBoxesFromOperatorList,
     getPdfjsPageViewBox,
     type TPdfjsTextOps,
@@ -48,16 +48,19 @@ async function extractTextContentPageText(
         disableNormalization: true,
     });
     await throwIfBrowserSearchCanceled(options.shouldContinue);
-    const textChunks: string[] = [];
+    const textItems: Array<{
+        text: string;
+        separatorAfter: 'line' | 'none'
+    }> = [];
 
     for (let index = 0; index < content.items.length; index += 128) {
         const chunk = content.items.slice(index, index + 128);
         for (const item of chunk) {
             if ('str' in item) {
-                textChunks.push(String(item.str ?? ''));
-                if (item.hasEOL) {
-                    textChunks.push('\n');
-                }
+                textItems.push({
+                    text: String(item.str ?? ''),
+                    separatorAfter: item.hasEOL ? 'line' : 'none',
+                });
             }
         }
 
@@ -67,7 +70,7 @@ async function extractTextContentPageText(
         }
     }
 
-    return collapseRepeatedPdfSearchPageText(textChunks.join(''));
+    return assembleSearchablePageText(textItems).text;
 }
 
 async function cleanupBrowserSearchPage(page: IBrowserSearchTextPageLike) {

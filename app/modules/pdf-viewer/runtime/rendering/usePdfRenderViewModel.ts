@@ -4,10 +4,7 @@ import type {
     ShallowRef,
 } from 'vue';
 import type { IMarkerViewModel } from '@app/modules/pdf-viewer/engine/annotations/types';
-import { usePdfViewerDelayedSkeleton } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerDelayedSkeleton';
 import { usePdfViewerLoadingState } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerLoadingState';
-import { PDF_VIEWER_PAGE_SKELETON_DELAY_MS } from '@app/constants/timeouts';
-import { logPdfNav } from '@app/utils/logPdfNav';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import type {
     PDFDocumentProxy,
@@ -43,12 +40,10 @@ interface IUsePdfRenderViewModelOptions {
     suppressPagedBufferRender?: Ref<boolean> | undefined;
     skeletonContentInsets: Ref<IContentInsets | null>;
     pagesToRender: ComputedRef<number[]>;
-    skeletonTrackedPages?: ComputedRef<number[]> | undefined;
     isPageBuffered: (page: number) => boolean;
     isPageRenderedForClass: (page: number) => boolean;
     isPageRendering: (page: number) => boolean;
     hasMountedPageCanvas: (page: number) => boolean;
-    shouldShowSkeletonImmediately?: ((page: number) => boolean) | undefined;
     shouldShowSkeleton: (page: number) => boolean;
     visibleRange: Ref<{
         start: number;
@@ -103,17 +98,6 @@ export const usePdfRenderViewModel = (options: IUsePdfRenderViewModelOptions) =>
         || isInitialSkeletonGeometryPending.value
     ));
 
-    const skeletonTrackedPages = computed(() => (
-        options.skeletonTrackedPages?.value ?? options.pagesToRender.value
-    ));
-
-    const delayedSkeleton = usePdfViewerDelayedSkeleton({
-        delayMs: PDF_VIEWER_PAGE_SKELETON_DELAY_MS,
-        trackedPages: skeletonTrackedPages,
-        blockSkeletons: shouldBlockPageSkeletons,
-        shouldShowSkeletonNow: options.shouldShowSkeleton,
-    });
-
     const visibleMarkersByPage = computed(() => (
         new Map([...options.markersByPage.value].filter(([page]) => options.isPageRenderedForClass(page)))
     ));
@@ -127,46 +111,18 @@ export const usePdfRenderViewModel = (options: IUsePdfRenderViewModelOptions) =>
 
     function shouldShowPageSkeleton(page: number) {
         if (options.isPageBuffered(page)) {
-            delayedSkeleton.hidePage(page);
             return false;
         }
         if (options.isPageRenderedForClass(page)) {
-            delayedSkeleton.markPageRendered(page);
             return false;
         }
         if (shouldBlockPageSkeletons.value) {
-            delayedSkeleton.hidePage(page);
             return false;
-        }
-        if (options.shouldShowSkeletonImmediately?.(page) === true) {
-            delayedSkeleton.hidePage(page);
-            return true;
         }
         if (options.hasMountedPageCanvas(page)) {
-            delayedSkeleton.markPageRendered(page);
             return false;
         }
-        const showSkeleton = delayedSkeleton.shouldShowSkeleton(page);
-        const isVisiblePage = page >= options.visibleRange.value.start && page <= options.visibleRange.value.end;
-        if (showSkeleton && isVisiblePage) {
-            logPdfNav('[PDF-NAV] page skeleton visible', {
-                page,
-                currentPage: options.currentPage.value,
-                visibleRange: `${options.visibleRange.value.start}-${options.visibleRange.value.end}`,
-                pagesToRender: options.pagesToRender.value,
-                rendered: options.isPageRenderedForClass(page),
-                rendering: options.isPageRendering(page),
-                hasMountedCanvas: options.hasMountedPageCanvas(page),
-                buffered: options.isPageBuffered(page),
-                nearVisible: options.shouldShowSkeleton(page),
-                delayMs: PDF_VIEWER_PAGE_SKELETON_DELAY_MS,
-                zoom: options.zoom.value,
-                zoomMode: options.zoomMode.value,
-                fitMode: options.fitMode.value,
-                effectiveScale: options.effectiveScale.value,
-            });
-        }
-        return showSkeleton;
+        return options.shouldShowSkeleton(page);
     }
 
     let pagedBufferRenderToken = 0;
@@ -309,6 +265,6 @@ export const usePdfRenderViewModel = (options: IUsePdfRenderViewModelOptions) =>
         visibleMarkersByPage,
         visibleLinksByPage,
         shouldShowPageSkeleton,
-        markPageRendered: delayedSkeleton.markPageRendered,
+        markPageRendered: (_pageNumber: number) => {},
     };
 };

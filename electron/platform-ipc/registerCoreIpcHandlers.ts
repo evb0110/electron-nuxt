@@ -6,15 +6,10 @@ import {
     countBy,
     sortBy,
 } from 'es-toolkit/array';
-import { isRecord } from '@contracts/runtimeGuards';
 import { sanitizeSettings } from '@contracts/settings';
 import { sanitizeAllowedExternalUrl } from '@contracts/externalUrl';
-import type {
-    IWindowTabTransferAck,
-    IWindowTabTargetWindow,
-} from '@contracts/windowTabs';
+import type { IWindowTabTargetWindow } from '@contracts/windowTabs';
 import type { ISettingsData } from '@contracts/shared';
-import { decodeWindowTabTransferRequest } from '@contracts/windowTabsValidation';
 import { te } from '@electron/te';
 import {
     showTabContextMenu,
@@ -44,7 +39,7 @@ import {
     createValidatedIpcMainEventRegistrar,
     createValidatedIpcMainRegistrar,
 } from '@electron/platform-ipc/validatedIpcRegistrar';
-import { CORE_IPC_ARGUMENT_VALIDATION_POLICY } from '@electron/platform-ipc/ipcInvokeArgumentValidationPolicy';
+import { CORE_IPC_CODECS } from '@electron/platform-ipc/coreIpcCodecs';
 import {
     setHostZenModeForWindow,
     snapshotHostEnvironmentForWindow,
@@ -55,6 +50,11 @@ import {
     CORE_IPC_SEND_CHANNELS,
     type ICoreInvokeMap,
 } from '@electron/platform-ipc/coreContract';
+import {
+    claimWorkspaceCheckpoint,
+    saveWorkspaceCheckpoint,
+} from '@electron/workspaceCheckpointStore';
+import { allowOpenPaths } from '@electron/file-access/openPathCapabilities';
 
 export interface ICoreIpcHandlerOptions {
     onRendererReady?: (event: Electron.IpcMainEvent) => void;
@@ -71,7 +71,7 @@ const shellOpenExternalLastOpenedAtBySender = new Map<number, number>();
 const shellOpenExternalCleanupRegisteredBySender = new Set<number>();
 const SETTINGS_SAVE_COALESCE_MS = 25;
 
-const CORE_INVOKE_CHANNEL_SET = new Set<string>(Object.values(CORE_IPC_CHANNELS));
+const CORE_INVOKE_CHANNEL_SET = new Set<string>(Object.keys(CORE_IPC_CODECS));
 const CORE_RAW_EVENT_CHANNEL_SET = new Set<string>([
     CORE_IPC_CHANNELS.rendererReady,
     CORE_IPC_SEND_CHANNELS.rendererLog,
@@ -222,24 +222,6 @@ function queueSettingsSave(
     return savePromise;
 }
 
-function getTargetWindowIdFromTransferRequest(request: unknown) {
-    if (!isRecord(request) || !isRecord(request.target)) {
-        return -1;
-    }
-    if (request.target.kind !== 'window') {
-        return -1;
-    }
-    return typeof request.target.windowId === 'number' ? request.target.windowId : -1;
-}
-
-function isValidTransferAck(ack: unknown): ack is IWindowTabTransferAck {
-    return isRecord(ack)
-        && typeof ack.transferId === 'string'
-        && ack.transferId.trim().length > 0
-        && typeof ack.success === 'boolean'
-        && (ack.error === undefined || typeof ack.error === 'string');
-}
-
 function buildTabTransferTargetLabels(sourceWindowId: number): IWindowTabTargetWindow[] {
     const otherWindows = sortBy(
         getAllRegisteredAppWindows().filter(window => window.id !== sourceWindowId),
@@ -264,7 +246,7 @@ export function registerCoreIpcHandlers(
 ) {
     const registrar = createValidatedIpcMainRegistrar<ICoreInvokeMap>(ipcMain, {
         allowedChannels: CORE_INVOKE_CHANNEL_SET,
-        argumentValidation: CORE_IPC_ARGUMENT_VALIDATION_POLICY,
+        codecs: CORE_IPC_CODECS,
     });
     const eventRegistrar = createValidatedIpcMainEventRegistrar(ipcMain, {allowedChannels: CORE_RAW_EVENT_CHANNEL_SET});
     registerRendererLogBridge({
@@ -283,42 +265,40 @@ export function registerCoreIpcHandlers(
         options.claimPendingExternalOpenPaths?.(event) ?? [],
     );
 
-    registrar.handle(CORE_IPC_CHANNELS.acknowledgePendingExternalOpenPaths, (event, failedPaths: unknown) => {
-        const normalizedFailedPaths = Array.isArray(failedPaths)
-            ? (failedPaths as unknown[]).filter((path): path is string => typeof path === 'string' && path.trim().length > 0)
-            : [];
-        options.acknowledgePendingExternalOpenPaths?.(event, normalizedFailedPaths);
+    registrar.handle(CORE_IPC_CHANNELS.acknowledgePendingExternalOpenPaths, (event, failedPaths) => {
+        options.acknowledgePendingExternalOpenPaths?.(event, failedPaths);
     });
 
-    registrar.handle(CORE_IPC_CHANNELS.tabsTransfer, async (event, request: unknown) => {
-        const decodedRequest = decodeWindowTabTransferRequest(request);
-        if (!decodedRequest) {
-            return {
-                transferId: '',
-                success: false,
-                targetWindowId: getTargetWindowIdFromTransferRequest(request),
-                error: 'Invalid transfer request payload.',
-            };
-        }
+    registrar.handle(CORE_IPC_CHANNELS.workspaceCheckpointSave, async (event, checkpoint) => {
+        await saveWorkspaceCheckpoint(checkpoint, event.sender.id);
+    });
 
+    registrar.handle(CORE_IPC_CHANNELS.workspaceCheckpointClaim, async (event) => {
+        const checkpoint = await claimWorkspaceCheckpoint(event.sender.id);
+        if (checkpoint) {
+            allowOpenPaths(checkpoint.tabs.flatMap(tab => [
+                tab.sourceRef,
+                tab.workingCopyRef,
+            ].filter((path): path is string => path !== null)), event.sender);
+        }
+        return checkpoint;
+    });
+
+    registrar.handle(CORE_IPC_CHANNELS.tabsTransfer, async (event, request) => {
         const sourceWindow = BrowserWindow.fromWebContents(event.sender);
         if (!sourceWindow) {
             return {
                 transferId: '',
                 success: false,
-                targetWindowId: decodedRequest.target.kind === 'window' ? decodedRequest.target.windowId : -1,
+                targetWindowId: request.target.kind === 'window' ? request.target.windowId : -1,
                 error: 'Source window is not available.',
             };
         }
 
-        return requestWindowTabTransfer(sourceWindow.id, decodedRequest);
+        return requestWindowTabTransfer(sourceWindow.id, request);
     });
 
-    registrar.handle(CORE_IPC_CHANNELS.tabsTransferAck, (event, ack: unknown) => {
-        if (!isValidTransferAck(ack)) {
-            return false;
-        }
-
+    registrar.handle(CORE_IPC_CHANNELS.tabsTransferAck, (event, ack) => {
         const window = BrowserWindow.fromWebContents(event.sender);
         if (!window) {
             return false;
@@ -336,18 +316,13 @@ export function registerCoreIpcHandlers(
         return buildTabTransferTargetLabels(sourceWindow.id);
     });
 
-    registrar.handle(CORE_IPC_CHANNELS.tabsShowContextMenu, (event, tabId: unknown) => {
-        const normalizedTabId = typeof tabId === 'string' ? tabId.trim() : '';
-        if (!normalizedTabId) {
-            return;
-        }
-
+    registrar.handle(CORE_IPC_CHANNELS.tabsShowContextMenu, (event, tabId) => {
         const window = BrowserWindow.fromWebContents(event.sender);
         if (!window) {
             return;
         }
 
-        showTabContextMenu(window, normalizedTabId);
+        showTabContextMenu(window, tabId);
     });
 
     registrar.handle(CORE_IPC_CHANNELS.windowCloseCurrent, (event) => {
@@ -369,11 +344,7 @@ export function registerCoreIpcHandlers(
         return settings;
     });
 
-    registrar.handle(CORE_IPC_CHANNELS.settingsSave, async (event, settingsPayload: unknown) => {
-        if (!isRecord(settingsPayload)) {
-            throw new Error('Invalid settings payload');
-        }
-
+    registrar.handle(CORE_IPC_CHANNELS.settingsSave, async (event, settingsPayload) => {
         await queueSettingsSave(event.sender.id, settingsPayload, dependencies.agentService.shutdownAssistant);
     });
 
@@ -381,12 +352,9 @@ export function registerCoreIpcHandlers(
     registrar.handle(CORE_IPC_CHANNELS.updatesCheck, () => triggerManualUpdateCheck());
     registrar.handle(CORE_IPC_CHANNELS.updatesInstall, () => installDownloadedUpdate());
     registrar.handle(CORE_IPC_CHANNELS.updatesDefer, () => deferDownloadedUpdate());
-    registrar.handle(CORE_IPC_CHANNELS.updatesSkipVersion, (_event, version: unknown) => {
-        const normalizedVersion = typeof version === 'string' ? version.trim() : '';
-        return skipUpdateVersion(normalizedVersion);
-    });
+    registrar.handle(CORE_IPC_CHANNELS.updatesSkipVersion, (_event, version) => skipUpdateVersion(version));
 
-    registrar.handle(CORE_IPC_CHANNELS.shellOpenExternal, async (event, url: unknown) => {
+    registrar.handle(CORE_IPC_CHANNELS.shellOpenExternal, async (event, url) => {
         const sanitizedUrl = sanitizeAllowedExternalUrl(url);
         assertShellOpenExternalRateLimit(event.sender);
         await shell.openExternal(sanitizedUrl);
@@ -402,7 +370,7 @@ export function registerCoreIpcHandlers(
         return snapshotHostZenModeForWindow(window);
     });
 
-    registrar.handle(CORE_IPC_CHANNELS.hostSetZenMode, (event, active: unknown) => {
+    registrar.handle(CORE_IPC_CHANNELS.hostSetZenMode, (event, active) => {
         const window = BrowserWindow.fromWebContents(event.sender);
         return setHostZenModeForWindow(window, active === true);
     });

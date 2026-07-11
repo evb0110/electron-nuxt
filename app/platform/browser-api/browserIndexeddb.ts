@@ -16,17 +16,10 @@ export function readStoreValue<T>(
     store: IDBObjectStore,
     key: IDBValidKey,
     errorMessage: string,
+    decode: (value: unknown) => T | null,
 ): Promise<T | null> {
-    return idbRequestToPromise(store.get(key), errorMessage)
-        .then((value) => (value as T | undefined) ?? null);
-}
-
-export function readAllStoreValues<T>(
-    store: IDBObjectStore,
-    errorMessage: string,
-): Promise<T[]> {
-    return idbRequestToPromise(store.getAll(), errorMessage)
-        .then((values) => (values as T[] | undefined) ?? []);
+    return idbRequestToPromise<unknown>(store.get(key), errorMessage)
+        .then((value) => value === undefined ? null : decode(value));
 }
 
 export function writeStoreValue(
