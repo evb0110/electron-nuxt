@@ -186,4 +186,20 @@ describe('buildContentSecurityPolicy', () => {
 
         expect(callback).toHaveBeenCalledWith(false);
     });
+
+    it('authorizes the Nuxt UI SPA color cleanup without allowing arbitrary inline scripts', () => {
+        setupContentSecurityPolicy();
+
+        const listener = mocks.onHeadersReceived.mock.calls[0]?.[0];
+        const callback = vi.fn();
+        listener?.({}, callback);
+        const policy = callback.mock.calls[0]?.[0]?.responseHeaders?.['Content-Security-Policy']?.[0] as string;
+        const directives = parseCsp(policy);
+        const cleanupHash = createInlineScriptCspHash(
+            'document.head.removeChild(document.querySelector(\'[data-nuxt-ui-colors]\'))',
+        );
+
+        expect(directives['script-src']).toContain(cleanupHash);
+        expect(directives['script-src']).not.toContain('\'unsafe-inline\'');
+    });
 });

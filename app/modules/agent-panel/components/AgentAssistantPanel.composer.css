@@ -8,10 +8,6 @@
     pointer-events: none;
 }
 
-.agent-assistant-composer-reserve.is-visible {
-    visibility: visible;
-}
-
 .agent-assistant-composer-field {
     position: relative;
     overflow: hidden;

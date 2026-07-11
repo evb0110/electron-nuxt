@@ -15,6 +15,7 @@ import {
 } from 'vitest';
 import type {
     IAgentAssistantEvent,
+    IAgentAssistantInstallResult,
     IAgentAssistantState,
 } from '@contracts/agent';
 import { createEmptyAssistantState } from '@app/modules/agent-panel/utils/createEmptyAssistantState';
@@ -23,6 +24,7 @@ import { useAgentAssistantPanelController } from '@app/modules/agent-panel/compo
 const mocks = vi.hoisted(() => ({
     eventSubscriber: null as ((event: IAgentAssistantEvent) => void) | null,
     getAssistantState: vi.fn(),
+    installAssistantCodex: vi.fn(),
     sendAssistantMessage: vi.fn(),
     interruptAssistant: vi.fn(),
 }));
@@ -32,7 +34,7 @@ vi.mock('@app/utils/getAgentCapability', () => ({getAgentCapability: () => ({
     sendAssistantMessage: mocks.sendAssistantMessage,
     interruptAssistant: mocks.interruptAssistant,
     resetAssistantChat: vi.fn(),
-    installAssistantCodex: vi.fn(),
+    installAssistantCodex: mocks.installAssistantCodex,
     startAssistantLogin: vi.fn(),
     cancelAssistantLogin: vi.fn(),
     onAssistantEvent: (subscriber: (event: IAgentAssistantEvent) => void) => {
@@ -102,6 +104,19 @@ function createReadyState(phase: IAgentAssistantState['status']['turn']['phase']
     return state;
 }
 
+function createUpdateState() {
+    const state = createReadyState('idle');
+    state.status = {
+        ...state.status,
+        codexVersion: '0.132.0',
+        codexVersionSupported: false,
+        authState: 'unknown',
+        runtimeState: 'stopped',
+    };
+    state.messages = [];
+    return state;
+}
+
 async function mountHarness(initialState: IAgentAssistantState) {
     mocks.getAssistantState.mockResolvedValue(initialState);
     mocks.interruptAssistant.mockResolvedValue(createReadyState('cancelled'));
@@ -121,6 +136,14 @@ async function mountHarness(initialState: IAgentAssistantState) {
         return () => h('section', [
             h('output', {class: 'phase'}, controller.status.value.turn.phase),
             h('output', {class: 'reasoning'}, controller.turnReasoning.value),
+            h('output', {class: 'panel-view'}, controller.panelView.value),
+            h('output', {class: 'install-progress'}, controller.installProgress.value),
+            h('output', {class: 'install-error'}, controller.status.value.error),
+            h('output', {class: 'installing'}, String(controller.isInstalling.value)),
+            h('button', {
+                class: 'install',
+                onClick: controller.handleInstallCodex,
+            }, 'Install'),
             h('div', {
                 class: 'messages',
                 ref: controller.messagesRef,
@@ -196,6 +219,42 @@ describe('mounted assistant panel lifecycle', () => {
 
         expect(messages.scrollTop).toBe(120);
         expect(harness.host.textContent).toContain('Initial streamed');
+        harness.unmount();
+    });
+
+    it('shows accepted install progress and returns a failed update to a retryable state', async () => {
+        let resolveInstall: (result: IAgentAssistantInstallResult) => void = () => undefined;
+        mocks.installAssistantCodex.mockReturnValue(new Promise<IAgentAssistantInstallResult>(resolve => {
+            resolveInstall = resolve;
+        }));
+        const updateState = createUpdateState();
+        const harness = await mountHarness(updateState);
+
+        (harness.host.querySelector('.install') as HTMLButtonElement).click();
+        await nextTick();
+        expect(harness.host.querySelector('.installing')?.textContent).toBe('true');
+
+        mocks.eventSubscriber?.({
+            type: 'install-progress',
+            progress: 'Downloading verified Codex.',
+            state: updateState,
+        });
+        await nextTick();
+        expect(harness.host.querySelector('.install-progress')?.textContent).toBe('Downloading verified Codex.');
+
+        const failedUpdateState = createUpdateState();
+        failedUpdateState.status.error = 'The Codex download timed out.';
+        resolveInstall({
+            ok: false,
+            state: failedUpdateState,
+            error: 'The Codex download timed out.',
+        });
+        await nextTick();
+        await nextTick();
+
+        expect(harness.host.querySelector('.panel-view')?.textContent).toBe('update');
+        expect(harness.host.querySelector('.installing')?.textContent).toBe('false');
+        expect(harness.host.querySelector('.install-error')?.textContent).toBe('The Codex download timed out.');
         harness.unmount();
     });
 });

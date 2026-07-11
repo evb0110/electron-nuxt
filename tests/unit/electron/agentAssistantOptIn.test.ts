@@ -465,7 +465,8 @@ describe('agent assistant opt-in gating', () => {
         expect(state.status.runtimeState).toBe('ready');
         expect(state.status.account).toBeNull();
         expect(state.status.error).toBeUndefined();
-        expect(mocks.logger.warn).toHaveBeenCalledWith(expect.stringContaining('falling back to auth status'));
+        expect(mocks.logger.info).toHaveBeenCalledWith(expect.stringContaining('auth status fallback succeeded'));
+        expect(mocks.logger.warn).not.toHaveBeenCalledWith(expect.stringContaining('falling back to auth status'));
     });
 
     it('publishes an actionable auth error when Codex auth probes fail', async () => {

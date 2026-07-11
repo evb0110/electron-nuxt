@@ -13,6 +13,7 @@ let isCspConfigured = false;
 const logger = createLogger('content-security-policy');
 const PRODUCTION_CSP_HTML_ENTRYPOINTS = ['electron/index.html'];
 const CSP_SHA256_SOURCE_PATTERN = /^'sha256-[A-Za-z0-9+/]+={0,2}'$/u;
+const NUXT_UI_SPA_COLOR_CLEANUP_SCRIPT = 'document.head.removeChild(document.querySelector(\'[data-nuxt-ui-colors]\'))';
 
 interface IBuildContentSecurityPolicyOptions { inlineScriptHashes?: readonly string[]; }
 
@@ -110,7 +111,10 @@ export function setupContentSecurityPolicy() {
 
     const inlineScriptHashes = config.isDev
         ? []
-        : collectProductionInlineScriptCspHashes(config.renderer.staticRoot);
+        : [
+            ...collectProductionInlineScriptCspHashes(config.renderer.staticRoot),
+            createInlineScriptCspHash(NUXT_UI_SPA_COLOR_CLEANUP_SCRIPT),
+        ];
     if (!config.isDev && inlineScriptHashes.length === 0) {
         logger.warn('Production CSP found no static inline script hashes; renderer bootstrap will fail if Nuxt output contains inline scripts');
     }

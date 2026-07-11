@@ -57,17 +57,21 @@
             <section
                 v-if="panelView === 'checking'"
                 class="agent-assistant-placeholder"
-                :class="{ 'is-muted': hasPendingComposer }"
             >
                 <span class="agent-assistant-glyph">
                     <UIcon
-                        :name="hasPendingComposer ? 'i-ph-lightbulb' : 'i-ph-circle-notch'"
-                        class="agent-assistant-glyph-icon"
-                        :class="{ 'is-spinning': !hasPendingComposer }"
+                        name="i-ph-circle-notch"
+                        class="agent-assistant-glyph-icon is-spinning"
                     />
                 </span>
-                <h2>{{ hasPendingComposer ? emptyTitle : t('assistant.checkingTitle') }}</h2>
-                <p>{{ hasPendingComposer ? emptyDescription : t('assistant.checkingDescription') }}</p>
+                <h2>{{ t('assistant.checkingTitle') }}</h2>
+                <p>{{ t('assistant.checkingDescription') }}</p>
+                <p
+                    v-if="isInstalling && installProgress"
+                    class="agent-assistant-progress"
+                >
+                    {{ installProgress }}
+                </p>
             </section>
 
             <section
@@ -112,6 +116,13 @@
                 >
                     {{ installProgress }}
                 </p>
+                <p
+                    v-if="status.error"
+                    class="agent-assistant-setup-error"
+                    role="alert"
+                >
+                    {{ status.error }}
+                </p>
             </section>
 
             <section
@@ -124,13 +135,26 @@
                 <h2>{{ t('assistant.updateTitle') }}</h2>
                 <p>{{ t('assistant.updateDescription', { version: status.minimumCodexVersion }) }}</p>
                 <UButton
-                    :label="t('assistant.updateCodex')"
+                    :label="isInstalling ? t('assistant.installingCodex') : t('assistant.updateCodex')"
                     icon="i-ph-arrows-clockwise"
                     color="primary"
                     :loading="isInstalling"
                     :disabled="isInstalling"
                     @click="handleInstallCodex"
                 />
+                <p
+                    v-if="installProgress"
+                    class="agent-assistant-progress"
+                >
+                    {{ installProgress }}
+                </p>
+                <p
+                    v-if="status.error"
+                    class="agent-assistant-setup-error"
+                    role="alert"
+                >
+                    {{ status.error }}
+                </p>
             </section>
 
             <section
@@ -516,7 +540,6 @@
             <div
                 v-if="!hasComposer"
                 class="agent-assistant-composer agent-assistant-composer-reserve"
-                :class="{ 'is-visible': hasPendingComposer }"
                 aria-hidden="true"
             >
                 <div class="agent-assistant-composer-field">
@@ -528,59 +551,12 @@
                         disabled
                     />
                     <div class="agent-assistant-composer-actions">
-                        <div
-                            v-if="hasPendingComposer"
-                            class="agent-assistant-composer-switchers"
-                        >
-                            <AssistantModelSwitcher
-                                :providers="status.providers"
-                                :selected-provider="selectedProvider"
-                                :selected-model="selectedModel"
-                                :is-switching="false"
-                                disabled
-                                side="top"
-                                @select-provider="updateProvider"
-                                @select-model="updateModel"
-                            />
-                            <AssistantEffortSwitcher
-                                v-if="availableEfforts.length > 0"
-                                :efforts="availableEfforts"
-                                :selected-effort="selectedEffort"
-                                disabled
-                                side="top"
-                                @select-effort="updateEffort"
-                            />
-                            <AssistantSpeedSwitcher
-                                v-if="availableSpeedModes.length > 1"
-                                :modes="availableSpeedModes"
-                                :selected-mode="selectedSpeedMode"
-                                disabled
-                                side="top"
-                                @select-mode="updateSpeedMode"
-                            />
-                        </div>
-                        <div
-                            v-else
-                            class="agent-assistant-composer-switchers"
-                        >
+                        <div class="agent-assistant-composer-switchers">
                             <span class="agent-assistant-composer-control-reserve" />
                             <span class="agent-assistant-composer-control-reserve is-short" />
                             <span class="agent-assistant-composer-control-reserve is-short" />
                         </div>
-                        <UButton
-                            v-if="hasPendingComposer"
-                            :aria-label="t('assistant.send')"
-                            icon="i-ph-arrow-up"
-                            color="neutral"
-                            variant="soft"
-                            size="sm"
-                            type="button"
-                            disabled
-                        />
-                        <span
-                            v-else
-                            class="agent-assistant-composer-send-reserve"
-                        />
+                        <span class="agent-assistant-composer-send-reserve" />
                     </div>
                 </div>
             </div>
@@ -618,7 +594,7 @@
             </div>
 
             <p
-                v-if="status.error && !hasMessages"
+                v-if="status.error && !hasMessages && panelView !== 'install' && panelView !== 'update'"
                 class="agent-assistant-error"
             >
                 {{ status.error }}
@@ -762,7 +738,6 @@ const {
     hasComposer,
     hasLoadedState,
     hasMessages,
-    hasPendingComposer,
     headerIcon,
     headerTitle,
     installButtonLabel,

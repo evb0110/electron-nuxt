@@ -1,5 +1,3 @@
-import { dialog } from 'electron';
-import { te } from '@electron/te';
 import {
     cancelAgentAssistantLogin,
     getAgentAssistantState,
@@ -18,29 +16,7 @@ import {
     submitAgentCommandResponse,
     submitAgentWorkspaceSnapshotResponse,
 } from '@electron/features/agent/workspaceBridge';
-import type {
-    IAgentIpcContext,
-    IAgentService,
-} from '@electron/features/agent/ports';
-
-async function confirmAssistantCodexInstall(context: IAgentIpcContext) {
-    const options = {
-        type: 'warning',
-        title: te('assistant.installCodex'),
-        message: te('assistant.installDescription'),
-        detail: 'EVB Viewer will download and run the official Codex installer.',
-        buttons: [
-            te('assistant.installCodex'),
-            te('dialogs.agentMcp.cancel'),
-        ],
-        defaultId: 1,
-        cancelId: 1,
-    } satisfies Electron.MessageBoxOptions;
-    const result = context.parentWindow
-        ? await dialog.showMessageBox(context.parentWindow, options)
-        : await dialog.showMessageBox(options);
-    return result.response === 0;
-}
+import type { IAgentService } from '@electron/features/agent/ports';
 
 export function createAgentService(): IAgentService {
     return {
@@ -49,17 +25,7 @@ export function createAgentService(): IAgentService {
             setAgentMcpIntegrationEnabled(enabled, context.parentWindow),
         getAssistantState: (_context, request) =>
             getAgentAssistantState(request),
-        installAssistantCodex: async (context) => {
-            const confirmed = await confirmAssistantCodexInstall(context);
-            if (!confirmed) {
-                return {
-                    ok: false,
-                    state: await getAgentAssistantState(),
-                    error: 'Codex installation was cancelled.',
-                };
-            }
-            return installAgentAssistantCodex();
-        },
+        installAssistantCodex: () => installAgentAssistantCodex(),
         startAssistantLogin: (context, request) =>
             startAgentAssistantLogin(request, context.parentWindow),
         cancelAssistantLogin: () => cancelAgentAssistantLogin(),
