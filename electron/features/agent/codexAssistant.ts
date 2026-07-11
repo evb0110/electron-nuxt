@@ -827,7 +827,7 @@ export async function installAgentAssistantCodex(): Promise<IAgentAssistantInsta
             runtimeLifecycle.setCodexInfo(codexInfo);
             publishAssistantEvent({
                 type: 'install-progress',
-                progress: 'Codex installation complete.',
+                progress: 'Starting EVB Assistant with the updated Codex.',
             });
             await ensureAssistantRuntime();
             return {

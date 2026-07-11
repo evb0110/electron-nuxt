@@ -178,10 +178,8 @@
     line-height: 1.5;
 }
 
-.agent-assistant-placeholder.is-muted .agent-assistant-glyph-icon,
-.agent-assistant-placeholder.is-muted h2,
-.agent-assistant-placeholder.is-muted p {
-    color: var(--ui-text-dimmed);
+.agent-assistant-placeholder .agent-assistant-setup-error {
+    color: var(--ui-error);
 }
 
 .agent-assistant-placeholder-actions {

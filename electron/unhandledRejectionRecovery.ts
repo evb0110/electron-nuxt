@@ -24,7 +24,7 @@ const SUBSYSTEM_PATTERNS: Array<[TMainSubsystem, RegExp]> = [
     ],
     [
         'agent',
-        /(?:electron[\\/]features[\\/]agent|assistant|mcp server)/iu,
+        /(?:electron[\\/]features[\\/]agent|(?:^|[\s:])assistant(?:\s|$)|mcp server)/imu,
     ],
     [
         'documents',

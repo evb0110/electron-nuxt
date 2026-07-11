@@ -179,7 +179,6 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     const isClaudeProvider = computed(() => selectedProvider.value === 'claude');
     const panelView = computed(() => getAgentAssistantPanelView(status.value, hasLoadedState.value));
     const hasComposer = computed(() => panelView.value === 'ready' && Boolean(chatScope.value));
-    const hasPendingComposer = computed(() => panelView.value === 'checking' && Boolean(chatScope.value));
     const canFocusComposerInput = computed(() => hasComposer.value);
     const hasMessages = computed(() => messages.value.length > 0 || isTurnActive.value);
     const trimmedDraft = computed(() => draft.value.trim());
@@ -1111,7 +1110,6 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         hasComposer,
         hasLoadedState,
         hasMessages,
-        hasPendingComposer,
         headerIcon,
         headerTitle,
         installButtonLabel,

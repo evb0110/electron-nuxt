@@ -179,7 +179,10 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
         await refreshCodexAuthState(
             options.providerRuntime,
             runtime?.client ?? null,
-            { warn: (message: string) => options.logger.warn(message) },
+            {
+                info: (message: string) => options.logger.info(message),
+                warn: (message: string) => options.logger.warn(message),
+            },
         );
     }
 
@@ -189,6 +192,7 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
             client: runtime?.client ?? null,
             hasRuntime: Boolean(runtime),
             ...(refreshOptions.recoverFromError === undefined ? {} : { recoverFromError: refreshOptions.recoverFromError }),
+            info: (message: string) => options.logger.info(message),
             warn: (message: string) => options.logger.warn(message),
         });
     }

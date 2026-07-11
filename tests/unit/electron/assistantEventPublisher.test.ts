@@ -79,4 +79,28 @@ describe('assistant event publisher', () => {
             windowId: 2,
         }});
     });
+
+    it('attaches state to unbound install progress so renderer event fences accept it', () => {
+        const state = cast<IAgentAssistantState>({scope: null});
+        const publisher = createAssistantEventPublisher({
+            currentState: () => state,
+            getDefaultScope: () => null,
+            getDefaultSelection: () => cast<IAssistantChatSession>({
+                provider: 'codex',
+                lastSenderWindowId: null,
+            }),
+        });
+
+        publisher.publishAssistantEvent({
+            type: 'install-progress',
+            progress: 'Downloading verified Codex.',
+        });
+
+        expect(mocks.send).toHaveBeenCalledTimes(2);
+        expect(mocks.send.mock.calls[0]?.[1]).toMatchObject({
+            type: 'install-progress',
+            progress: 'Downloading verified Codex.',
+            state,
+        });
+    });
 });

@@ -20,7 +20,10 @@ export interface ICodexAuthStateClient {requestDecoded<T>(
     timeoutMs?: number,
 ): Promise<T>;}
 
-export interface ICodexAuthRefreshOptions {warn?: (message: string) => void;}
+export interface ICodexAuthRefreshOptions {
+    info?: (message: string) => void;
+    warn?: (message: string) => void;
+}
 
 export interface ICodexAuthRuntimeAvailabilityOptions extends ICodexAuthRefreshOptions {
     client: ICodexAuthStateClient | null;
@@ -111,7 +114,6 @@ export async function refreshCodexAuthState(
         }
     } catch (error) {
         accountReadError = error;
-        options.warn?.(`Failed to read Codex account state; falling back to auth status: ${getErrorMessage(error)}`);
     }
 
     try {
@@ -125,6 +127,9 @@ export async function refreshCodexAuthState(
             CODEX_AUTH_STATUS_TIMEOUT_MS,
         );
         applyCodexAuthStatusResponse(providerRuntime, authStatus);
+        if (accountReadError !== undefined) {
+            options.info?.(`Codex account profile was unavailable; auth status fallback succeeded: ${getErrorMessage(accountReadError)}`);
+        }
     } catch (error) {
         const message = accountReadError === undefined
             ? getErrorMessage(error)
@@ -161,7 +166,10 @@ export async function refreshCodexAuthStateAndRuntimeAvailability(
     await refreshCodexAuthState(
         options.providerRuntime,
         options.client,
-        options.warn ? { warn: options.warn } : {},
+        {
+            ...(options.info ? {info: options.info} : {}),
+            ...(options.warn ? {warn: options.warn} : {}),
+        },
     );
     syncCodexRuntimeStateAfterAuthCheck(options.providerRuntime, {
         hasRuntime: options.hasRuntime,

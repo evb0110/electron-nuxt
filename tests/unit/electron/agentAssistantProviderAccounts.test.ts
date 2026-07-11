@@ -127,15 +127,17 @@ describe('agent assistant provider accounts', () => {
     it('refreshes Codex auth from account reads and auth-status fallback', async () => {
         const states = createAssistantProviderRuntimeStates();
         const codexState = states.codex;
+        const info: string[] = [];
 
         await refreshCodexAuthState(codexState, createCodexAuthClient({
             'account/read': new Error('account/read timed out'),
             getAuthStatus: { authMethod: 'chatgpt' },
-        }));
+        }), {info: message => info.push(message)});
         expect(codexState).toMatchObject({
             authState: 'signed-in',
             account: null,
         });
+        expect(info.join('\n')).toContain('auth status fallback succeeded');
 
         await refreshCodexAuthState(codexState, null);
         expect(codexState).toMatchObject({
@@ -158,7 +160,7 @@ describe('agent assistant provider accounts', () => {
         expect(codexState.account).toBeNull();
         expect(codexState.lastError).toContain('account/read timed out');
         expect(codexState.lastError).toContain('getAuthStatus timed out');
-        expect(warnings.join('\n')).toContain('falling back to auth status');
+        expect(warnings.join('\n')).toContain('Failed to read Codex auth state');
     });
 
     it('syncs Codex runtime availability after auth checks', async () => {

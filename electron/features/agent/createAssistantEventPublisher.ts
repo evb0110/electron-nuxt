@@ -16,6 +16,7 @@ function shouldAttachState(event: IAgentAssistantEvent) {
         'message',
         'turn-started',
         'turn-completed',
+        'install-progress',
         'error',
     ].includes(event.type);
 }
