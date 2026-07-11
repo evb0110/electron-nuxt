@@ -19,6 +19,24 @@ const MACHINE_NAMES = new Map([
     ],
 ]);
 
+export function normalizeWindowsHostPath(filePath, platform = process.platform) {
+    if (platform !== 'win32') {
+        return filePath;
+    }
+
+    const msysDrivePath = /^\/([a-z])(?:\/(.*))?$/iu.exec(filePath);
+    if (!msysDrivePath) {
+        return filePath;
+    }
+
+    const [
+        ,
+        drive,
+        remainder = '',
+    ] = msysDrivePath;
+    return `${drive.toUpperCase()}:/${remainder}`;
+}
+
 function fail(message) {
     throw new Error(message);
 }
@@ -68,7 +86,7 @@ function rvaToOffset(rva, sections, sizeOfHeaders) {
 }
 
 export function readWindowsPeInfo(filePath) {
-    const buffer = readFileSync(filePath);
+    const buffer = readFileSync(normalizeWindowsHostPath(filePath));
 
     if (buffer.length < 0x40 || buffer.toString('ascii', 0, 2) !== 'MZ') {
         fail('Missing DOS MZ header');
@@ -159,6 +177,7 @@ export function verifyWindowsPeDependencies({
     files,
     systemDllPattern,
 }) {
+    files = files.map(file => normalizeWindowsHostPath(file));
     const allowedMachineSet = new Set(allowedMachines);
     const bundledDllsByDirectory = new Map();
     for (const file of files.filter(file => /\.dll$/iu.test(file))) {

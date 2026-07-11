@@ -16,6 +16,7 @@ import {
 } from 'vitest';
 
 interface IWindowsPeDependenciesModule {
+    normalizeWindowsHostPath: (filePath: string, platform?: NodeJS.Platform) => string;
     readWindowsPeInfo: (filePath: string) => {
         imports: string[];
         machine: string;
@@ -29,6 +30,7 @@ interface IWindowsPeDependenciesModule {
 }
 
 const {
+    normalizeWindowsHostPath,
     readWindowsPeInfo,
     verifyWindowsPeDependencies,
 } = await import(pathToFileURL(join(process.cwd(), 'scripts/release/windows-pe-dependencies.mjs')).href) as IWindowsPeDependenciesModule;
@@ -87,6 +89,15 @@ function createPeFixture(machine: keyof typeof machineCodes, imports: string[]) 
 }
 
 describe('Windows PE dependency helpers', () => {
+    it('normalizes MSYS drive paths before Windows Node filesystem access', () => {
+        expect(normalizeWindowsHostPath('/d/a/evb-viewer/resources/qpdf.exe', 'win32'))
+            .toBe('D:/a/evb-viewer/resources/qpdf.exe');
+        expect(normalizeWindowsHostPath('D:\\a\\evb-viewer\\resources\\qpdf.exe', 'win32'))
+            .toBe('D:\\a\\evb-viewer\\resources\\qpdf.exe');
+        expect(normalizeWindowsHostPath('/d/a/evb-viewer/resources/qpdf.exe', 'darwin'))
+            .toBe('/d/a/evb-viewer/resources/qpdf.exe');
+    });
+
     it('reads ARM64 PE machine type and import DLL names without objdump', () => {
         const filePath = createPeFixture('arm64', [
             'KERNEL32.dll',
