@@ -99,7 +99,13 @@ function insertSelectionSentinel(
     insertBeforeAnchor: boolean,
 ) {
     const anchorElement = anchor as Element;
-    anchorElement.parentElement?.insertBefore(
+    const anchorTextLayer = resolveTextLayerFromNode(anchorElement);
+    const anchorParent = anchorElement.parentElement;
+    if (!anchorTextLayer || !textLayers.has(anchorTextLayer) || !anchorParent || !anchorTextLayer.contains(anchorParent)) {
+        return;
+    }
+
+    anchorParent.insertBefore(
         endOfContent,
         insertBeforeAnchor ? anchor : anchorElement.nextSibling,
     );
