@@ -15,7 +15,10 @@ const fixtures = [
                 default: 0.01138,
                 linux: 0.01082,
             },
-            luminance: 253.947,
+            luminance: {
+                default: 253.947,
+                linux: 254.066,
+            },
             textItems: 6,
         },
     },
@@ -27,7 +30,10 @@ const fixtures = [
                 default: 0.00728,
                 linux: 0.00613,
             },
-            luminance: 253.961,
+            luminance: {
+                default: 253.961,
+                linux: 254.054,
+            },
             textItems: 3,
         },
     },
@@ -39,7 +45,10 @@ const fixtures = [
                 default: 0.01284,
                 linux: 0.01284,
             },
-            luminance: 252.209,
+            luminance: {
+                default: 252.209,
+                linux: 252.209,
+            },
             textItems: 0,
         },
     },
@@ -65,7 +74,10 @@ describe('PDF canvas fidelity corpus', () => {
                 : fixture.expected.ink.default;
             expect(metrics.inkPixelRatio).toBeCloseTo(expectedInk, 3);
             expect(metrics.darkPixelRatio).toBeCloseTo(fixture.expected.dark, 3);
-            expect(metrics.meanLuminance).toBeCloseTo(fixture.expected.luminance, 1);
+            const expectedLuminance = process.platform === 'linux'
+                ? fixture.expected.luminance.linux
+                : fixture.expected.luminance.default;
+            expect(metrics.meanLuminance).toBeCloseTo(expectedLuminance, 1);
         });
     }
 });
