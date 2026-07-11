@@ -284,7 +284,10 @@ function chromiumLocaleDirectoryForContext(context) {
         );
     }
 
-    return path.join(resourcesDirForContext(context), 'locales');
+    // Electron places Chromium locale packs beside the resources directory on
+    // Linux and Windows (for example, appOutDir/locales/en-US.pak). The
+    // resources directory itself contains app.asar and extraResources.
+    return path.join(context.appOutDir, 'locales');
 }
 
 function pruneChromiumLocales(context) {

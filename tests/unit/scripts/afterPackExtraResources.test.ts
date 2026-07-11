@@ -164,7 +164,7 @@ describe('afterPack extraResources preflight', () => {
                 'A',
                 'Resources',
             )
-            : path.join(resourcesDir, 'locales');
+            : path.join(tempRoot, 'locales');
 
         try {
             for (const locale of [
