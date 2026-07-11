@@ -451,6 +451,11 @@ done
 find "$(dirname "$POPPLER_BIN")" -name '*.dll' -exec cp {} "$POPPLER_DIR/bin/" \; 2>/dev/null || true
 # Also check directly in bin dir
 cp "$POPPLER_BIN/"*.dll "$POPPLER_DIR/bin/" 2>/dev/null || true
+# The five shipped Poppler CLI tools use poppler.dll directly and never import
+# the optional GLib binding. Upstream includes poppler-glib.dll without its GLib
+# runtime closure, so retaining it creates an unusable orphan and needlessly
+# expands the package. Keep the CLI closure minimal and independently valid.
+rm -f "$POPPLER_DIR/bin/poppler-glib.dll"
 
 # Poppler on Windows also relies on runtime data/config directories.
 # Without these, pdftoppm can crash on some PDFs with access violations.
