@@ -37,8 +37,9 @@ import {
     stripTesseractImageLayer,
 } from '@electron/ocr/worker/pdfAssembler';
 import { createPdfjsNodeDocumentOptions } from '@electron/search/createPdfjsNodeDocumentOptions';
+import { resolveTestQpdfBinary } from '@tests/helpers/resolveTestQpdfBinary';
 
-const QPDF_TEST_BINARY = process.env.EVB_QPDF_PATH ?? 'qpdf';
+const QPDF_TEST_BINARY = resolveTestQpdfBinary();
 
 async function addHiddenTextLayer(
     pdf: PDFDocument,

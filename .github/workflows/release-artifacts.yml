@@ -82,9 +82,18 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            landing/pnpm-lock.yaml
 
       - name: Install dependencies
         run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+
+      - name: Install landing test dependencies
+        run: pnpm --dir landing install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
 
       - name: Install Rust WASM target
         run: rustup target add wasm32-unknown-unknown

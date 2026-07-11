@@ -13,6 +13,7 @@ import {
 import {build} from 'esbuild';
 import {PDFDocument} from 'pdf-lib';
 import type {TOcrWorkerOutboundMessage} from '@electron/ocr/worker/types';
+import {resolveTestQpdfBinary} from '@tests/helpers/resolveTestQpdfBinary';
 
 export interface IOcrWorkerPipelineHarness {
     callLogPath: string;
@@ -107,7 +108,7 @@ printf 'level\\tpage_num\\tblock_num\\tpar_num\\tline_num\\tword_num\\tleft\\tto
             tessdataPath: root,
             pdftoppmBinary: process.env.EVB_PDFTOPPM_PATH ?? 'pdftoppm',
             pdftotextBinary: process.env.EVB_PDFTOTEXT_PATH ?? 'pdftotext',
-            qpdfBinary: process.env.EVB_QPDF_PATH ?? 'qpdf',
+            qpdfBinary: resolveTestQpdfBinary(),
             tempDir: root,
         },
     });

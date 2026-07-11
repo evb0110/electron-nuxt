@@ -41,9 +41,18 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            landing/pnpm-lock.yaml
 
       - name: Install dependencies
         run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+
+      - name: Install landing test dependencies
+        run: pnpm --dir landing install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
 
       - name: Lint
         run: pnpm run lint
@@ -225,9 +234,18 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            landing/pnpm-lock.yaml
 
       - name: Install dependencies
         run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+
+      - name: Install landing test dependencies
+        run: pnpm --dir landing install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
 
       - name: Install Rust WASM target
         run: rustup target add wasm32-unknown-unknown
@@ -374,6 +392,9 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            landing/pnpm-lock.yaml
 
       - name: Setup Python
         uses: actions/setup-python@v6
@@ -382,6 +403,12 @@ jobs:
 
       - name: Install dependencies
         run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+
+      - name: Install landing test dependencies
+        run: pnpm --dir landing install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
 
       - name: Install OCR native smoke tools
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng poppler-utils

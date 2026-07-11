@@ -15,6 +15,7 @@ import {
     it,
 } from 'vitest';
 import { assembleSearchablePdfStreaming } from '@electron/ocr/worker/assembleSearchablePdfStreaming';
+import { resolveTestQpdfBinary } from '@tests/helpers/resolveTestQpdfBinary';
 
 let tempDir: string | null = null;
 
@@ -49,7 +50,7 @@ describe('streaming OCR PDF assembly', () => {
         await createPdf(replacementPath, 1);
 
         const outputPath = await assembleSearchablePdfStreaming({
-            qpdfBinary: process.env.QPDF_BINARY ?? 'qpdf',
+            qpdfBinary: resolveTestQpdfBinary(),
             originalPdfPath: originalPath,
             ocrPageEntries: [[
                 2,

@@ -124,6 +124,8 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('name: Quality Gates');
         expect(prQuality).toContain('if: ${{ github.event_name == \'pull_request\' || github.event_name == \'push\' }}');
         expect(prQuality).toContain('run: node scripts/ci-install-dependencies.mjs --frozen-lockfile');
+        expect(prQuality).toContain('run: pnpm --dir landing install --frozen-lockfile');
+        expect(prQuality).toContain('run: pnpm exec playwright install --with-deps chromium');
         expect(prQuality).toContain('run: pnpm run lint');
         expect(prQuality).not.toContain('run: pnpm run check:static:reports');
         expect(prQuality).not.toContain('run: pnpm run check:static:assets');
@@ -160,6 +162,8 @@ describe('CI topology policy', () => {
         expect(workflowJob(workflow, 'manual_quality')).toContain('run: pnpm run check:wasm:portable');
         expectSplitQualitySteps(workflowJob(workflow, 'manual_quality'));
         expect(workflowJob(workflow, 'manual_quality')).toContain('run: pnpm run test:coverage');
+        expect(workflowJob(workflow, 'manual_quality')).toContain('run: pnpm --dir landing install --frozen-lockfile');
+        expect(workflowJob(workflow, 'manual_quality')).toContain('run: pnpm exec playwright install --with-deps chromium');
         expect(releaseWorkflow).not.toContain('test:coverage');
         expect(packageJson).not.toMatch(/"gate:commit":\s*"[^"]*coverage/u);
     });
@@ -263,6 +267,8 @@ describe('CI topology policy', () => {
         expect(releaseWorkflow).toContain('ref: ${{ steps.target.outputs.target_ref }}');
         expect(qualityJob).toContain('run: rustup target add wasm32-unknown-unknown');
         expect(qualityJob).toContain('EVB_NATIVE_TOOLS_ALLOW_HOST_CI_GEN: \'1\'');
+        expect(qualityJob).toContain('run: pnpm --dir landing install --frozen-lockfile');
+        expect(qualityJob).toContain('run: pnpm exec playwright install --with-deps chromium');
         expect(qualityJob).toContain('run: pnpm run release:verify:checks');
         const publishJob = workflowJob(releaseWorkflow, 'publish');
         expect(publishJob).toContain('gh release create "$RELEASE_TAG" artifacts/* --draft --generate-notes --target "$TARGET_SHA"');
@@ -281,6 +287,8 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('permissions:\n  contents: read');
         expect(workflow).not.toContain('contents: write');
         expect(qualityJob).toContain('run: pnpm run release:verify:checks');
+        expect(qualityJob).toContain('run: pnpm --dir landing install --frozen-lockfile');
+        expect(qualityJob).toContain('run: pnpm exec playwright install --with-deps chromium');
         expect(workflowJob(workflow, 'build_artifacts')).toContain('uses: ./.github/workflows/build.yml');
         expect(workflowJob(workflow, 'build_mac_intel')).toContain('uses: ./.github/workflows/build-mac-intel.yml');
         expect(workflowJob(workflow, 'build_win7_legacy')).toContain('uses: ./.github/workflows/build-win7-legacy.yml');
@@ -322,6 +330,8 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('run: pnpm run test:coverage');
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm run check:static:assets');
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm run check:production-dependency-audit');
+        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm --dir landing install --frozen-lockfile');
+        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm exec playwright install --with-deps chromium');
         expect(workflowJob(workflow, 'manual_quality')).not.toContain('run: pnpm run check:production-dependency-audit');
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('python -m pip install --require-hashes --only-binary=:all: -r python/page-processor/requirements-lock.txt');
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm run test:python-page-processor');

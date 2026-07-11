@@ -28,6 +28,8 @@ const expectedClasses = [
     'browser-boundary',
 ] as const;
 const execFileAsync = promisify(execFile);
+const DJVU_TOOL_TIMEOUT_MS = 15_000;
+const DJVU_TEST_TIMEOUT_MS = DJVU_TOOL_TIMEOUT_MS + 5_000;
 const corpusDirectory = resolve(process.cwd(), 'tests/fixtures/djvu');
 const hostResourceDirectory = `${process.platform}-${process.arch}`;
 const executableSuffix = process.platform === 'win32' ? '.exe' : '';
@@ -140,7 +142,7 @@ describe.skipIf(!hostHasDjvuTools)('generated DjVu fidelity goldens', () => {
                     `-page=${page}`,
                     resolve(corpusDirectory, 'sources', source),
                     rendered,
-                ]);
+                ], {timeout: DJVU_TOOL_TIMEOUT_MS});
                 expect(await readFile(rendered)).toEqual(await readFile(resolve(corpusDirectory, 'goldens', golden)));
             } finally {
                 await rm(directory, {
@@ -148,7 +150,7 @@ describe.skipIf(!hostHasDjvuTools)('generated DjVu fidelity goldens', () => {
                     recursive: true,
                 });
             }
-        });
+        }, DJVU_TEST_TIMEOUT_MS);
     }
 
     it('proves the huge-page and 501-page browser admission boundaries', async () => {
@@ -160,17 +162,17 @@ describe.skipIf(!hostHasDjvuTools)('generated DjVu fidelity goldens', () => {
                 resolve(corpusDirectory, 'sources/huge-page.djvu'),
                 '-e',
                 'size',
-            ]),
+            ], {timeout: DJVU_TOOL_TIMEOUT_MS}),
             execFileAsync(djvuToolPath('djvused'), [
                 resolve(corpusDirectory, 'sources/browser-boundary-501-pages.djvu'),
                 '-e',
                 'n',
-            ]),
+            ], {timeout: DJVU_TOOL_TIMEOUT_MS}),
         ]);
 
         expect(hugeSize).toContain('width=10000 height=8001');
         expect(boundaryPages.trim()).toBe('501');
-    });
+    }, DJVU_TEST_TIMEOUT_MS);
 
     it('rejects the deterministic truncated DjVu fixture', async () => {
         const directory = await mkdtemp(join(tmpdir(), 'evb-djvu-corrupt-'));
@@ -178,12 +180,12 @@ describe.skipIf(!hostHasDjvuTools)('generated DjVu fidelity goldens', () => {
             await expect(execFileAsync(djvuToolPath('ddjvu'), [
                 resolve(corpusDirectory, 'sources/corrupt-truncated.djvu'),
                 join(directory, 'output.ppm'),
-            ])).rejects.toThrow();
+            ], {timeout: DJVU_TOOL_TIMEOUT_MS})).rejects.toThrow();
         } finally {
             await rm(directory, {
                 force: true,
                 recursive: true,
             });
         }
-    });
+    }, DJVU_TEST_TIMEOUT_MS);
 });
