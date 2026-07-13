@@ -145,6 +145,9 @@ appx:
 
 linux:
   icon: resources/icon.png
+  # GitHub release asset labels normalize spaces to dots. Keep Linux artifact
+  # names stable and verification-safe before they cross that API boundary.
+  artifactName: "EVB-Viewer-${version}-${arch}.${ext}"
   maintainer: Eugene Barsky <34789976+evb0110@users.noreply.github.com>
   vendor: Eugene Barsky
   synopsis: PDF and DjVu document viewer
