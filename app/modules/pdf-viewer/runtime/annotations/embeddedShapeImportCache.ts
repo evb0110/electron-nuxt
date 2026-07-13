@@ -2,7 +2,6 @@ import type { IShapeAnnotation } from '@app/types/annotations';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 
 const MAX_COMPLETED_EMBEDDED_SHAPE_IMPORTS = 8;
-const MAX_RETAINED_IN_FLIGHT_WITHOUT_SUBSCRIBERS = 2;
 
 interface IEmbeddedShapeImportSource {
     data: Uint8Array | null;
@@ -15,16 +14,9 @@ interface IEmbeddedShapeImportCacheEntry {
     controller: AbortController;
     promise: Promise<readonly IShapeAnnotation[]>;
     result: readonly IShapeAnnotation[] | null;
-    retainInFlightWithoutSubscribers: boolean;
     subscribers: Set<symbol>;
     lastAccess: number;
 }
-
-/**
- * Retention is safe only for fingerprinted source-owned work whose loader does
- * not depend on the lifetime of a disposable working copy.
- */
-interface IAcquireEmbeddedShapeImportOptions { retainInFlightWithoutSubscribers?: boolean }
 
 const byteSourceIds = new WeakMap<Uint8Array, number>();
 const entries = new Map<string, IEmbeddedShapeImportCacheEntry>();
@@ -66,30 +58,6 @@ function evictCompletedEntries() {
     }
 }
 
-function evictExcessRetainedInFlightEntries() {
-    const retainedWithoutSubscribers = Array.from(entries.entries())
-        .filter(([
-            ,
-            entry,
-        ]) => (
-            entry.result === null
-            && entry.retainInFlightWithoutSubscribers
-            && entry.subscribers.size === 0
-        ))
-        .sort((left, right) => left[1].lastAccess - right[1].lastAccess);
-    while (retainedWithoutSubscribers.length > MAX_RETAINED_IN_FLIGHT_WITHOUT_SUBSCRIBERS) {
-        const candidate = retainedWithoutSubscribers.shift();
-        if (!candidate) {
-            continue;
-        }
-        entries.delete(candidate[0]);
-        candidate[1].controller.abort(new DOMException(
-            'Superseded retained embedded PDF shape import',
-            'AbortError',
-        ));
-    }
-}
-
 export function createEmbeddedShapeImportCacheKey(source: IEmbeddedShapeImportSource) {
     if (source.stableSourceIdentity) {
         return JSON.stringify([
@@ -121,7 +89,6 @@ export function acquireEmbeddedShapeImport(
     key: string,
     loader: (signal: AbortSignal) => Promise<IShapeAnnotation[]>,
     subscriberSignal: AbortSignal,
-    options: IAcquireEmbeddedShapeImportOptions = {},
 ) {
     subscriberSignal.throwIfAborted();
     let entry = entries.get(key);
@@ -131,7 +98,6 @@ export function acquireEmbeddedShapeImport(
             controller,
             promise: Promise.resolve([]),
             result: null,
-            retainInFlightWithoutSubscribers: options.retainInFlightWithoutSubscribers === true,
             subscribers: new Set(),
             lastAccess: ++nextAccess,
         };
@@ -150,11 +116,6 @@ export function acquireEmbeddedShapeImport(
             });
         entries.set(key, created);
         entry = created;
-    } else if (options.retainInFlightWithoutSubscribers === true) {
-        // A later subscriber may know that a previously working-copy-scoped
-        // request is actually backed by a stable source. Retention is monotonic
-        // for the lifetime of this entry.
-        entry.retainInFlightWithoutSubscribers = true;
     }
 
     entry.lastAccess = ++nextAccess;
@@ -176,14 +137,12 @@ export function acquireEmbeddedShapeImport(
             if (
                 entry.result === null
                 && entry.subscribers.size === 0
-                && !entry.retainInFlightWithoutSubscribers
             ) {
                 if (entries.get(key) === entry) {
                     entries.delete(key);
                 }
                 entry.controller.abort(createAbortError(subscriberSignal));
             }
-            evictExcessRetainedInFlightEntries();
             reject(createAbortError(subscriberSignal));
         };
 

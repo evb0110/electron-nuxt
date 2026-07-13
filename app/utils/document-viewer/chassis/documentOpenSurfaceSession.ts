@@ -234,19 +234,11 @@ export function hasCommittedDocumentOpeningLayout(snapshot: IDocumentOpenSurface
         && snapshot.openingPageFrame.pageNumber === snapshot.openingPageGeometry.pageNumber;
 }
 
-function hasOwnedOpeningPageShell(snapshot: IDocumentOpenSurfaceSnapshot) {
-    return isTransitionPhase(snapshot.phase)
-        && snapshot.openingPageGeometry !== null
-        && snapshot.openingPageFrame !== null
-        && snapshot.openingPageFrame.generation === snapshot.generation
-        && snapshot.openingPageFrame.pageNumber === snapshot.openingPageGeometry.pageNumber;
-}
-
 function resolveOpeningPresentation(snapshot: IDocumentOpenSurfaceSnapshot) {
     const hasMeasuredOwnedFrame = isTransitionPhase(snapshot.phase)
         && snapshot.geometry !== null
         && snapshot.openingPageFrame?.generation === snapshot.generation;
-    return hasOwnedOpeningPageShell(snapshot) || hasMeasuredOwnedFrame
+    return hasCommittedDocumentOpeningLayout(snapshot) || hasMeasuredOwnedFrame
         ? 'page-shell'
         : snapshot.presentation;
 }
@@ -359,6 +351,9 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         begin(identity, openingPageGeometry = null) {
             const generation = snapshot.value.generation + 1;
             const normalizedOpeningPageGeometry = normalizeOpeningPageGeometry(openingPageGeometry);
+            const ownedOpeningPageGeometry = normalizedOpeningPageGeometry?.documentId === identity.documentId
+                ? normalizedOpeningPageGeometry
+                : null;
             snapshot.value = {
                 generation,
                 identity: Object.freeze({...identity}),
@@ -368,15 +363,13 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 // idle until real page geometry can establish the page shell.
                 presentation: 'idle',
                 geometry: null,
-                openingPageGeometry: normalizedOpeningPageGeometry?.documentId === identity.documentId
-                    ? normalizedOpeningPageGeometry
-                    : null,
+                openingPageGeometry: ownedOpeningPageGeometry,
                 openingPageFrame: null,
                 committedRender: null,
                 committedViewport: null,
                 failure: null,
             };
-            beginViewportSession(identity, normalizedOpeningPageGeometry);
+            beginViewportSession(identity, ownedOpeningPageGeometry);
             return generation;
         },
         beginPrepared(identity, preparedFrame) {

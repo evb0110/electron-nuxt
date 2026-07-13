@@ -184,6 +184,7 @@ import {
 import { prewarmRecentDjvuOpeningGeometry } from '@app/modules/djvu-viewer/public/openGeometry';
 
 const RECENT_OPEN_GEOMETRY_SETTLE_TIMEOUT_MS = 1_500;
+const RECENT_OPEN_GEOMETRY_PREWARM_LIMIT = 4;
 
 const {
     load: loadSettings,
@@ -398,7 +399,8 @@ async function preloadStartupContent() {
     const recentFilesWarmup = loadRecentFiles();
     const recentPdfGeometryWarmup = recentFilesWarmup.then(async () => {
         const candidates = recentFiles.value
-            .filter(file => /\.pdf$/iu.test(file.fileName || file.originalPath));
+            .filter(file => /\.pdf$/iu.test(file.fileName || file.originalPath))
+            .slice(0, RECENT_OPEN_GEOMETRY_PREWARM_LIMIT);
         beginRecentOpenGeometryPrewarm(candidates.map(file => file.originalPath));
         const { prewarmRecentPdfOpeningGeometry } = await import(
             '@app/modules/pdf-viewer/runtime/lifecycle/prewarmRecentPdfOpeningGeometry'
@@ -416,7 +418,7 @@ async function preloadStartupContent() {
             ? (path: string) => documentFiles.getPdfOpeningGeometry!(path)
             : undefined;
         const warmedGeometry = await prewarmRecentPdfOpeningGeometry(recentFiles.value, {readOpeningGeometry}, {
-            limit: candidates.length,
+            limit: RECENT_OPEN_GEOMETRY_PREWARM_LIMIT,
             settleTimeoutMs: RECENT_OPEN_GEOMETRY_SETTLE_TIMEOUT_MS,
             onError: handleGeometryWarmupError,
             onSettled: (file, geometry) => settleRecentOpenGeometryPrewarm(
@@ -424,6 +426,11 @@ async function preloadStartupContent() {
                 geometry ? 'ready' : 'cold-fallback',
             ),
         });
+        for (const file of candidates) {
+            if (!warmedGeometry.has(file.originalPath)) {
+                settleRecentOpenGeometryPrewarm(file.originalPath, 'cold-fallback');
+            }
+        }
         return warmedGeometry;
     }).catch((error) => {
         for (const file of recentFiles.value
@@ -435,17 +442,24 @@ async function preloadStartupContent() {
     guardStartupWarmup(recentPdfGeometryWarmup, 'Recent PDF opening geometry warmup failed');
     const recentDjvuGeometryWarmup = recentFilesWarmup.then(async () => {
         const candidates = recentFiles.value
-            .filter(file => /\.djvu?$/iu.test(file.fileName || file.originalPath));
+            .filter(file => /\.djvu?$/iu.test(file.fileName || file.originalPath))
+            .slice(0, RECENT_OPEN_GEOMETRY_PREWARM_LIMIT);
         beginRecentOpenGeometryPrewarm(candidates.map(file => file.originalPath));
         const djvu = getDjvuCapability();
-        return prewarmRecentDjvuOpeningGeometry(recentFiles.value, {readSourceInfo: path => djvu.getPageSourceInfo(path, 1)}, {
-            limit: candidates.length,
+        const warmedGeometry = await prewarmRecentDjvuOpeningGeometry(recentFiles.value, {readSourceInfo: path => djvu.getPageSourceInfo(path, 1)}, {
+            limit: RECENT_OPEN_GEOMETRY_PREWARM_LIMIT,
             settleTimeoutMs: RECENT_OPEN_GEOMETRY_SETTLE_TIMEOUT_MS,
             onSettled: (file, geometry) => settleRecentOpenGeometryPrewarm(
                 file.originalPath,
                 geometry ? 'ready' : 'cold-fallback',
             ),
         });
+        for (const file of candidates) {
+            if (!warmedGeometry.has(file.originalPath)) {
+                settleRecentOpenGeometryPrewarm(file.originalPath, 'cold-fallback');
+            }
+        }
+        return warmedGeometry;
     }).catch((error) => {
         for (const file of recentFiles.value
             .filter(file => /\.djvu?$/iu.test(file.fileName || file.originalPath))) {

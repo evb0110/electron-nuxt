@@ -231,6 +231,19 @@ describe('SearchWorkerService', () => {
         expect(workerMocks.instances[0]?.terminate).toHaveBeenCalledTimes(1);
     });
 
+    it('forces and awaits worker termination during application shutdown', async () => {
+        const { SearchWorkerService } = await import('@electron/features/search/main/searchWorkerService');
+        const service = new SearchWorkerService(() => '/tmp/search-worker.js');
+        const sender = createSender(42);
+
+        const searchPromise = dispatchSearch(service, sender, 'search-1', {senderId: 42});
+        const shutdownPromise = service.shutdown('app shutdown');
+        await expect(searchPromise).rejects.toThrow('app shutdown');
+        await expect(shutdownPromise).resolves.toBeUndefined();
+        expect(workerMocks.instances[0]?.terminate).toHaveBeenCalledOnce();
+        expect(workerMocks.instances[0]?.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({type: 'cancel'}));
+    });
+
     it('does not let stale worker errors clean up a newer sender state', async () => {
         const { SearchWorkerService } = await import('@electron/features/search/main/searchWorkerService');
         const service = new SearchWorkerService(() => '/tmp/search-worker.js');

@@ -353,7 +353,7 @@ describe('document open surface session', () => {
         const session = createDocumentOpenSurfaceSession();
         const wrongGeometry = {
             documentId: 'wrong.pdf',
-            pageNumber: 1,
+            pageNumber: 7,
             pageCount: 10,
             width: 612,
             height: 792,
@@ -365,6 +365,7 @@ describe('document open surface session', () => {
         }, wrongGeometry);
 
         expect(session.snapshot.value.openingPageGeometry).toBeNull();
+        expect(session.viewportSession.value.requestedPage).toBe(1);
         expect(session.commitOpeningPageGeometry(generation, wrongGeometry)).toBe(false);
         expect(session.snapshot.value.openingPageGeometry).toBeNull();
     });

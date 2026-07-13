@@ -102,6 +102,9 @@ export async function prewarmRecentPdfOpeningGeometry(
                             options.onSettled?.(file, lateGeometry);
                         }
                     }).catch(() => undefined);
+                    // Do not launch more native probes from this slot while its
+                    // timed-out operation is still running in the background.
+                    return;
                 }
             } catch (error) {
                 results.set(file.originalPath, null);

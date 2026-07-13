@@ -13,6 +13,10 @@ describe('macOS packaged-reactivation diagnostic policy', () => {
         expect(script).toContain('open -n -a "$app_path"');
         expect(script).toContain('--user-data-dir="$user_data_dir"');
         expect(script).toContain('EVB_REACTIVATION_APP_PATH:-release/mac-$arch/EVB Viewer.app');
+        expect(script).toContain('EVB_ALLOW_PRODUCTION_BUNDLE_IDENTITY_TEST');
+        expect(script).toContain('defaults export com.apple.dock "$dock_snapshot"');
+        expect(script).toContain('dock_item_preexisted');
+        expect(script).toContain('Delete :persistent-apps:$dock_index');
         expect(script).toContain('xcrun swiftc scripts/macos-app-lifecycle-probe.swift');
         expect(script).toContain('--env "EVB_AUTOMATION_USER_DATA_DIR=$user_data_dir"');
         expect(script).toContain('--env "EVB_ALLOW_MULTI_AUTOMATION_SESSIONS=1"');
@@ -33,13 +37,20 @@ describe('macOS packaged-reactivation diagnostic policy', () => {
         expect(script).toContain('for cycle in $(seq 1 20)');
         expect(script).toContain('"$probe" not-frontmost "$app_pid"');
         expect(script).toContain('"$probe" not-visible "$app_pid"');
-        expect(script).toContain('"$probe" no-window "$app_pid"');
         expect(script).toContain('"$probe" minimize "$app_pid"');
         expect(script).toContain('"$probe" hide "$app_pid"');
         expect(script).toContain('"$probe" close "$app_pid"');
         expect(script).toContain('set_canary_minimized');
         expect(script).toContain('hide_canary');
         expect(script).toContain('close_last_canary_window');
+        expect(script).toContain('local deadline=$((SECONDS + 55))');
+        expect(script).toContain('pgrep -P "$app_pid"');
+        expect(script).toContain('closing the last window kept the macOS app alive without a window');
+        expect(script).toContain('last-window-closed LaunchServices recovery');
+        expect(script).toContain('terminate_canary_and_wait_for_exit');
+        expect(script).toContain('explicit application termination exited the app process tree');
+        expect(script).toContain('assert_bundle_replaceable');
+        expect(script).toContain('exited app bundle can be moved for replacement');
         expect(script).toContain('open -a "$app_path"');
     });
 

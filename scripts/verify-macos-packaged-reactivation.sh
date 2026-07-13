@@ -30,6 +30,16 @@ if [ ! -x "$app_exec" ]; then
   exit 1
 fi
 
+local_production_identity_test=0
+if [ "${CI:-}" != "true" ]; then
+  if [ "${EVB_ALLOW_PRODUCTION_BUNDLE_IDENTITY_TEST:-}" != "1" ]; then
+    echo "Error: this diagnostic exercises the production bundle identity through Dock and LaunchServices"
+    echo "Use an ephemeral CI host, or set EVB_ALLOW_PRODUCTION_BUNDLE_IDENTITY_TEST=1 after explicit approval."
+    exit 1
+  fi
+  local_production_identity_test=1
+fi
+
 accessibility_enabled="$(osascript -e 'tell application "System Events" to get UI elements enabled' 2>/dev/null || true)"
 if [ "$accessibility_enabled" != "true" ]; then
   echo "Error: Accessibility access is required for packaged reactivation assertions"
@@ -49,8 +59,19 @@ main_log="$log_dir/main.log"
 window_log="$log_dir/window.log"
 app_pid=""
 passed=0
+dock_snapshot="$artifact_dir/dock-before.plist"
+dock_url=""
+dock_item_preexisted=0
 
 mkdir -p "$log_dir"
+
+if [ "$local_production_identity_test" -eq 1 ]; then
+  defaults export com.apple.dock "$dock_snapshot" >/dev/null
+  dock_url="$(xcrun swift -e 'import Foundation; print(URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true).absoluteString)' "$app_path")"
+  if defaults read com.apple.dock persistent-apps 2>/dev/null | grep -F "$dock_url" >/dev/null; then
+    dock_item_preexisted=1
+  fi
+fi
 
 print_evidence() {
   echo "Evidence retained at: $artifact_dir"
@@ -78,6 +99,20 @@ cleanup() {
   fi
   if [ "$passed" -ne 1 ]; then
     print_evidence
+  fi
+  if [ "$local_production_identity_test" -eq 1 ] && [ "$dock_item_preexisted" -eq 0 ]; then
+    current_dock="$artifact_dir/dock-current.plist"
+    defaults export com.apple.dock "$current_dock" >/dev/null
+    plutil -convert xml1 "$current_dock"
+    dock_index="$(plutil -p "$current_dock" | awk -v target="$dock_url" '
+      /^[[:space:]]+[0-9]+ => \{/ { item_index=$1 }
+      index($0, target) { print item_index; exit }
+    ')"
+    if [ -n "$dock_index" ]; then
+      /usr/libexec/PlistBuddy -c "Delete :persistent-apps:$dock_index" "$current_dock"
+      defaults import com.apple.dock "$current_dock" >/dev/null
+      launchctl kickstart -k "gui/$(id -u)/com.apple.Dock.agent"
+    fi
   fi
 }
 trap cleanup EXIT
@@ -168,17 +203,58 @@ close_last_canary_window() {
 
   local deadline=$((SECONDS + 10))
   while [ "$SECONDS" -lt "$deadline" ]; do
-    if ! is_tokenized_canary; then
-      echo "Error: canary exited while closing its last window"
-      return 1
-    fi
-    if "$probe" no-window "$app_pid" >/dev/null 2>&1; then
+    if is_tokenized_canary && "$probe" no-window "$app_pid" >/dev/null 2>&1; then
+      echo "Passed: closing the last window kept the macOS app alive without a window"
       return 0
     fi
     sleep 0.1
   done
-  echo "Error: packaged canary did not close its last window"
+  echo "Error: closing the last window did not preserve normal macOS application lifecycle"
   return 1
+}
+
+terminate_canary_and_wait_for_exit() {
+  local process_pids
+  process_pids="$(
+    {
+      echo "$app_pid"
+      pgrep -P "$app_pid" 2>/dev/null || true
+    } | awk 'NF && !seen[$1]++ { print $1 }'
+  )"
+  "$probe" terminate "$app_pid" >/dev/null
+
+  local deadline=$((SECONDS + 55))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    local running_pid=""
+    for process_pid in $process_pids; do
+      if kill -0 "$process_pid" >/dev/null 2>&1; then
+        running_pid="$process_pid"
+        break
+      fi
+    done
+    if [ -z "$running_pid" ]; then
+      echo "Passed: explicit application termination exited the app process tree"
+      return 0
+    fi
+    sleep 0.1
+  done
+  echo "Error: packaged canary process tree remained alive after explicit application termination"
+  return 1
+}
+
+assert_bundle_replaceable() {
+  local moved_app_path="${app_path}.exit-smoke-moved"
+  if [ -e "$moved_app_path" ]; then
+    echo "Error: temporary bundle replacement path already exists: $moved_app_path"
+    return 1
+  fi
+
+  mv "$app_path" "$moved_app_path"
+  if ! mv "$moved_app_path" "$app_path"; then
+    echo "Error: packaged app bundle could not be restored after replacement probe"
+    return 1
+  fi
+  echo "Passed: exited app bundle can be moved for replacement"
 }
 
 env -u ELECTRON_RUN_AS_NODE open -n -a "$app_path" \
@@ -224,6 +300,8 @@ close_last_canary_window
 focus_finder
 activate_canary
 assert_frontmost_visible_window "last-window-closed LaunchServices recovery"
+terminate_canary_and_wait_for_exit
+assert_bundle_replaceable
 
 passed=1
 echo "Packaged macOS reactivation verification passed for $platform-$arch"

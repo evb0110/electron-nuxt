@@ -344,6 +344,11 @@ async function performShutdownCleanup() {
             run: () => shutdownAgentAssistant(),
         },
         {
+            label: 'search-workers',
+            timeoutMs: 12_000,
+            run: () => searchWorkerService.shutdown('App shutting down'),
+        },
+        {
             label: 'mcp-server',
             run: () => shutdownLocalMcpServer(),
         },

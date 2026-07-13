@@ -13,6 +13,7 @@ import { PACKAGED_STARTUP_READY_MARKER } from '@contracts/packagedStartupReadyMa
 import { resolveApplicationVersion } from '@electron/appVersion';
 
 interface IShutdownCoordinator {
+    isGracefulQuitInProgress(): boolean;
     isQuittingAfterCleanup(): boolean;
     isFatalShutdownInProgress(): boolean;
     requestGracefulQuit(options?: { afterCleanup?: () => void }): void;
@@ -405,9 +406,15 @@ function bootWindowLifecycle(
     });
 
     app.on('window-all-closed', () => {
-        if (!config.isMac) {
-            app.quit();
+        if (config.isMac) {
+            return;
         }
+        logger.info('All application windows closed; requesting graceful quit');
+        if (shutdownCoordinator) {
+            shutdownCoordinator.requestGracefulQuit();
+            return;
+        }
+        app.quit();
     });
 
     app.on('before-quit', (event) => {
@@ -420,6 +427,12 @@ function bootWindowLifecycle(
 
     app.on('activate', () => {
         if (config.automation.noFocus) {
+            return;
+        }
+        if (
+            shutdownCoordinator?.isGracefulQuitInProgress()
+            || shutdownCoordinator?.isFatalShutdownInProgress()
+        ) {
             return;
         }
 

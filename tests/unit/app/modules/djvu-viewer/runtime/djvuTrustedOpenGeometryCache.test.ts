@@ -98,4 +98,24 @@ describe('DjVu trusted opening geometry cache', () => {
             ],
         ]));
     });
+
+    it('does not stack more native probes behind timed-out worker slots', async () => {
+        const files = Array.from({length: 4}, (_, index) => ({
+            originalPath: `/docs/permanently-stalled-${String(index + 1)}.djvu`,
+            fileName: `permanently-stalled-${String(index + 1)}.djvu`,
+            timestamp: 4 - index,
+        }));
+        const readSourceInfo = vi.fn(() => new Promise<IDjvuPageSourceInfo>(() => undefined));
+
+        const results = await prewarmRecentDjvuOpeningGeometry(files, {readSourceInfo}, {
+            concurrency: 2,
+            settleTimeoutMs: 5,
+        });
+
+        expect(readSourceInfo).toHaveBeenCalledTimes(2);
+        expect([...results.entries()]).toEqual(files.slice(0, 2).map(file => [
+            file.originalPath,
+            null,
+        ]));
+    });
 });

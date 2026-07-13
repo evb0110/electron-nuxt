@@ -364,12 +364,22 @@ export class SearchWorkerService {
         return true;
     }
 
-    cleanupAll(reason: string) {
+    cleanupAll(reason: string, options: { cooperativeStop?: boolean } = {}) {
         for (const senderId of this.senderSearchStates.keys()) {
             this.cleanupSenderState(senderId, {
                 terminateWorker: true,
                 reason,
+                ...(options.cooperativeStop === undefined
+                    ? {}
+                    : {cooperativeStop: options.cooperativeStop}),
             });
+        }
+    }
+
+    async shutdown(reason: string) {
+        this.cleanupAll(reason, {cooperativeStop: false});
+        while (this.workerTerminationPromises.size > 0) {
+            await Promise.all(Array.from(this.workerTerminationPromises.values()));
         }
     }
 
@@ -662,6 +672,7 @@ export class SearchWorkerService {
     private cleanupSenderState(
         senderId: number,
         options?: {
+            cooperativeStop?: boolean;
             terminateWorker?: boolean;
             reason?: string;
             rejectionError?: Error;
@@ -700,7 +711,8 @@ export class SearchWorkerService {
 
         const reason = options?.reason ?? 'Search worker stopped';
         const terminalError = options?.rejectionError ? getErrorMessage(options.rejectionError) : reason;
-        const cooperativeStopRequested = options?.terminateWorker !== false
+        const cooperativeStopRequested = options?.cooperativeStop !== false
+            && options?.terminateWorker !== false
             && this.postCancelMessagesForPendingRequests(state);
         for (const [
             requestId,

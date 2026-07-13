@@ -85,6 +85,7 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
     return {
         clearGracefulQuitForceTimer,
         isFatalShutdownInProgress: () => isFatalShutdownInProgress,
+        isGracefulQuitInProgress: () => gracefulShutdownPromise !== null,
         isQuittingAfterCleanup: () => isQuittingAfterCleanup,
         async performCleanup() {
             await performCleanup();

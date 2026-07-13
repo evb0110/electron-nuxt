@@ -7,6 +7,7 @@ import {
 } from 'vitest';
 import { runInitSequence } from '@electron/bootstrap/runInitSequence';
 import { canonicalBundledApplicationVersion } from '@electron/appVersion';
+import { config } from '@electron/config';
 
 vi.mock('@electron/config', () => ({config: {
     automation: { noFocus: false },
@@ -23,6 +24,8 @@ describe('runInitSequence external open IPC', () => {
     async function createHarness(options: {
         allowMultipleAutomationSessions?: boolean;
         appVersion?: string;
+        gracefulQuitInProgress?: boolean;
+        hasWindows?: boolean;
         isPackaged?: boolean;
     } = {}) {
         const app = new EventEmitter() as EventEmitter & {
@@ -64,7 +67,16 @@ describe('runInitSequence external open IPC', () => {
         };
         const allowOpenPaths = vi.fn();
         const focusMainWindow = vi.fn();
+        const createWindow = vi.fn(async () => mainWindow as never);
         const sweepStaleManagedScratchTempDirs = vi.fn(async () => {});
+        const shutdownCoordinator = options.gracefulQuitInProgress === undefined
+            ? null
+            : {
+                isFatalShutdownInProgress: vi.fn(() => false),
+                isGracefulQuitInProgress: vi.fn(() => options.gracefulQuitInProgress ?? false),
+                isQuittingAfterCleanup: vi.fn(() => false),
+                requestGracefulQuit: vi.fn(),
+            };
 
         await runInitSequence({
             app: app as never,
@@ -77,7 +89,7 @@ describe('runInitSequence external open IPC', () => {
                 removedDirectories: 0,
                 removedOcrDirectories: 0,
             })),
-            createWindow: vi.fn(async () => mainWindow as never),
+            createWindow,
             devDockBadgeText: '',
             devDockIconPath: '',
             externalOpenManager,
@@ -92,7 +104,7 @@ describe('runInitSequence external open IPC', () => {
                 }
                 return null;
             }),
-            hasWindows: vi.fn(() => true),
+            hasWindows: vi.fn(() => options.hasWindows ?? true),
             initRecentFilesCache: vi.fn(async () => {}),
             initializeUpdates: vi.fn(),
             installHostEnvironmentDisplayWatcher: vi.fn(),
@@ -115,7 +127,7 @@ describe('runInitSequence external open IPC', () => {
             setupAppProtocolHandler: vi.fn(),
             setupMenu: vi.fn(),
             shouldResetRendererReadyOnNavigation: vi.fn(() => true),
-            shutdownCoordinator: null,
+            shutdownCoordinator,
             sweepStaleDefaultAppTempPdfs: vi.fn(async () => {}),
             sweepStaleManagedScratchTempDirs,
         });
@@ -124,10 +136,12 @@ describe('runInitSequence external open IPC', () => {
             app,
             allowOpenPaths,
             capturedHandlers,
+            createWindow,
             externalOpenManager,
             focusMainWindow,
             mainWindow,
             otherWindow,
+            shutdownCoordinator,
             sweepStaleManagedScratchTempDirs,
         };
     }
@@ -227,6 +241,50 @@ describe('runInitSequence external open IPC', () => {
         const harness = await createHarness();
 
         expect(harness.sweepStaleManagedScratchTempDirs).toHaveBeenCalledTimes(1);
+    });
+
+    it('quits when the last window closes outside macOS', async () => {
+        const harness = await createHarness();
+
+        harness.app.emit('window-all-closed');
+
+        expect(harness.app.quit).toHaveBeenCalledOnce();
+    });
+
+    it('does not recreate a window while graceful quit cleanup is running', async () => {
+        const harness = await createHarness({
+            gracefulQuitInProgress: true,
+            hasWindows: false,
+        });
+        expect(harness.createWindow).toHaveBeenCalledOnce();
+
+        harness.app.emit('activate');
+
+        expect(harness.createWindow).toHaveBeenCalledOnce();
+    });
+
+    it('routes non-macOS last-window close through coordinated cleanup when available', async () => {
+        const harness = await createHarness({gracefulQuitInProgress: false});
+
+        harness.app.emit('window-all-closed');
+
+        expect(harness.shutdownCoordinator?.requestGracefulQuit).toHaveBeenCalledOnce();
+        expect(harness.app.quit).not.toHaveBeenCalled();
+    });
+
+    it('keeps the macOS application alive after its last window closes', async () => {
+        const originalIsMac = config.isMac;
+        (config as { isMac: boolean }).isMac = true;
+        try {
+            const harness = await createHarness({gracefulQuitInProgress: false});
+
+            harness.app.emit('window-all-closed');
+
+            expect(harness.shutdownCoordinator?.requestGracefulQuit).not.toHaveBeenCalled();
+            expect(harness.app.quit).not.toHaveBeenCalled();
+        } finally {
+            (config as { isMac: boolean }).isMac = originalIsMac;
+        }
     });
 
     it('requeues an unacknowledged startup claim when the main renderer navigates', async () => {

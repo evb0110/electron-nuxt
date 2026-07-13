@@ -18,26 +18,36 @@ if [ "$platform" != "mac" ] || [ "$RELEASE_HOST_PLATFORM" != "mac" ]; then
   exit 1
 fi
 
-app_path="${EVB_LAUNCHSERVICES_APP_PATH:-release/mac-$arch/EVB Viewer.app}"
-if [ ! -d "$app_path" ]; then
-  echo "Error: Could not find packaged app bundle: $app_path"
+if [ "${CI:-}" != "true" ] && [ "${EVB_ALLOW_PRODUCTION_BUNDLE_IDENTITY_TEST:-}" != "1" ]; then
+  echo "Error: this diagnostic exercises the production bundle identity through LaunchServices"
+  echo "Run it on an ephemeral CI host, or set EVB_ALLOW_PRODUCTION_BUNDLE_IDENTITY_TEST=1 after approving the local LaunchServices test."
   exit 1
 fi
-app_path="$(cd "$(dirname "$app_path")" && pwd -P)/$(basename "$app_path")"
 
-app_exec="$app_path/Contents/MacOS/EVB Viewer"
-if [ ! -x "$app_exec" ]; then
-  echo "Error: Packaged app executable is missing or not executable: $app_exec"
+release_dir="${EVB_LAUNCHSERVICES_RELEASE_DIR:-release}"
+dmg_path="${EVB_LAUNCHSERVICES_DMG_PATH:-}"
+if [ -z "$dmg_path" ]; then
+  dmg_path="$(find "$release_dir" -maxdepth 1 -type f -name "*-$arch.dmg" | head -n 1)"
+fi
+if [ -z "$dmg_path" ] || [ ! -f "$dmg_path" ]; then
+  echo "Error: Could not find packaged DMG for $arch below $release_dir"
   exit 1
 fi
+dmg_path="$(cd "$(dirname "$dmg_path")" && pwd -P)/$(basename "$dmg_path")"
 
 token="evb-launchservices-smoke-$$-$(date +%s)"
 user_data_dir="$(mktemp -d "${TMPDIR:-/tmp}/evb-launchservices-smoke.XXXXXX")"
+mount_point="$user_data_dir/mount"
+install_dir="$user_data_dir/install"
+quarantined_dmg="$user_data_dir/candidate.dmg"
+app_path="$install_dir/EVB Viewer.app"
+app_exec="$app_path/Contents/MacOS/EVB Viewer"
 log_dir="$user_data_dir/electron-logs"
 main_log="$log_dir/main.log"
 window_log="$log_dir/window.log"
 open_pid=""
 app_pid=""
+mounted=0
 
 cleanup() {
   if [ -n "$app_pid" ] && kill -0 "$app_pid" >/dev/null 2>&1; then
@@ -46,15 +56,48 @@ cleanup() {
   if [ -n "$open_pid" ] && kill -0 "$open_pid" >/dev/null 2>&1; then
     kill "$open_pid" >/dev/null 2>&1 || true
   fi
+  if [ "$mounted" -eq 1 ]; then
+    hdiutil detach "$mount_point" -force >/dev/null 2>&1 || true
+  fi
+  lsregister="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+  if [ -x "$lsregister" ] && [ -d "$app_path" ]; then
+    "$lsregister" -u "$app_path" >/dev/null 2>&1 || true
+  fi
   rm -rf "$user_data_dir"
 }
 trap cleanup EXIT
 
-mkdir -p "$log_dir"
+mkdir -p "$mount_point" "$install_dir" "$log_dir"
 
-# -a receives the exact bundle path, -n forces a separate instance, and the
-# unique Chromium user-data directory prevents the canary from attaching to or
-# mutating an installed production instance.
+# Exercise the same trust boundary as a browser download and Finder install.
+# Quarantining a disposable DMG copy causes DiskImages to propagate quarantine
+# metadata to the installed app and its nested code without changing artifact bytes.
+ditto "$dmg_path" "$quarantined_dmg"
+xattr -w com.apple.quarantine "0381;$(printf '%x' "$(date +%s)");GitHub_Actions;$token" "$quarantined_dmg"
+hdiutil attach -nobrowse -readonly -mountpoint "$mount_point" "$quarantined_dmg" >/dev/null
+mounted=1
+source_app="$(find "$mount_point" -maxdepth 1 -type d -name '*.app' | head -n 1)"
+if [ -z "$source_app" ]; then
+  echo "Error: Mounted DMG does not contain an app bundle"
+  exit 1
+fi
+ditto "$source_app" "$app_path"
+hdiutil detach "$mount_point" >/dev/null
+mounted=0
+
+if [ ! -x "$app_exec" ]; then
+  echo "Error: Installed app executable is missing or not executable: $app_exec"
+  exit 1
+fi
+if ! xattr -p com.apple.quarantine "$app_path" >/dev/null 2>&1 \
+  || ! xattr -p com.apple.quarantine "$app_exec" >/dev/null 2>&1; then
+  echo "Error: Browser-download quarantine did not propagate to the installed app and main executable"
+  exit 1
+fi
+
+# -a receives the exact disposable installed bundle path, -n forces a separate
+# instance, and the unique Chromium user-data directory prevents the canary from
+# attaching to or mutating an installed production instance.
 env -u ELECTRON_RUN_AS_NODE open -n -W -a "$app_path" \
   --env "EVB_FILE_LOG_DIR=$log_dir" \
   --env "EVB_AUTOMATION_USER_DATA_DIR=$user_data_dir" \
@@ -108,4 +151,4 @@ if [ "$ready" -ne 1 ]; then
   exit 1
 fi
 
-echo "LaunchServices startup verification passed for $platform-$arch using $app_path"
+echo "Quarantined DMG install and LaunchServices startup verification passed for $platform-$arch"

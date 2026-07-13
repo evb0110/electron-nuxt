@@ -168,4 +168,25 @@ describe('Recent PDF opening geometry application warmup', () => {
             ],
         ]));
     });
+
+    it('does not stack more native probes behind timed-out worker slots', async () => {
+        const files = Array.from({length: 4}, (_, index) => ({
+            originalPath: `/documents/permanently-stalled-${String(index + 1)}.pdf`,
+            fileName: `permanently-stalled-${String(index + 1)}.pdf`,
+            timestamp: 4 - index,
+            fileSize: 1_000,
+        }));
+        const readOpeningGeometry = vi.fn(() => new Promise<IPdfOpeningGeometry>(() => undefined));
+
+        const results = await prewarmRecentPdfOpeningGeometry(files, {readOpeningGeometry}, {
+            concurrency: 2,
+            settleTimeoutMs: 5,
+        });
+
+        expect(readOpeningGeometry).toHaveBeenCalledTimes(2);
+        expect([...results.entries()]).toEqual(files.slice(0, 2).map(file => [
+            file.originalPath,
+            null,
+        ]));
+    });
 });

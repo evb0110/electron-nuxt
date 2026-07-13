@@ -67,6 +67,8 @@ export async function hydrateRemainingDocumentPageMetrics(options: {
         Array.from({length: source.pageCount}, (_, index) => index + 1)
             .filter(pageNumber => pageNumber !== initialPage),
     );
+    let queuedPriorityPage: number | null = null;
+    let prioritizedPages: number[] = [];
     const takeNextPage = () => {
         if (remainingPages.size === 0) {
             return null;
@@ -76,24 +78,23 @@ export async function hydrateRemainingDocumentPageMetrics(options: {
             Math.min(source.pageCount, Math.trunc(getPriorityPage())),
         );
         if (remainingPages.delete(requestedPriority)) {
+            queuedPriorityPage = null;
             return requestedPriority;
         }
-        let selectedPage: number | null = null;
-        let selectedDistance = Number.POSITIVE_INFINITY;
-        for (const pageNumber of remainingPages) {
-            const distance = Math.abs(pageNumber - requestedPriority);
-            if (
-                distance < selectedDistance
-                || distance === selectedDistance && (selectedPage === null || pageNumber < selectedPage)
-            ) {
-                selectedPage = pageNumber;
-                selectedDistance = distance;
+        if (queuedPriorityPage !== requestedPriority) {
+            queuedPriorityPage = requestedPriority;
+            prioritizedPages = [...remainingPages].sort((left, right) => (
+                Math.abs(right - requestedPriority) - Math.abs(left - requestedPriority)
+                || right - left
+            ));
+        }
+        while (prioritizedPages.length > 0) {
+            const selectedPage = prioritizedPages.pop();
+            if (selectedPage !== undefined && remainingPages.delete(selectedPage)) {
+                return selectedPage;
             }
         }
-        if (selectedPage !== null) {
-            remainingPages.delete(selectedPage);
-        }
-        return selectedPage;
+        return null;
     };
     const workers = Array.from(
         {length: Math.min(remainingPages.size, Math.max(1, Math.trunc(concurrency)))},

@@ -73,6 +73,13 @@ func hideApplication(processIdentifier: pid_t) -> Bool {
     ) == .success
 }
 
+func terminateApplication(processIdentifier: pid_t) -> Bool {
+    guard let application = NSRunningApplication(processIdentifier: processIdentifier) else {
+        return false
+    }
+    return application.terminate()
+}
+
 guard CommandLine.arguments.count == 3, let pid = pid_t(CommandLine.arguments[2]) else {
     throw ProbeError.invalidArguments
 }
@@ -98,6 +105,8 @@ case "hide":
     passed = hideApplication(processIdentifier: pid)
 case "close":
     passed = closeMainWindow(processIdentifier: pid)
+case "terminate":
+    passed = terminateApplication(processIdentifier: pid)
 default:
     throw ProbeError.invalidArguments
 }

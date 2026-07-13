@@ -21,6 +21,31 @@ function createDeferred<T = void>() {
 }
 
 describe('shutdown coordinator', () => {
+    it('quits once after ordinary graceful cleanup completes', async () => {
+        const app = {
+            exit: vi.fn(),
+            quit: vi.fn(),
+        };
+        const coordinator = createShutdownCoordinator({
+            app,
+            logger: {
+                debug: vi.fn(),
+                error: vi.fn(),
+                info: vi.fn(),
+                warn: vi.fn(),
+            },
+            runCleanupSteps: vi.fn(async () => {}),
+        });
+
+        coordinator.requestGracefulQuit();
+        coordinator.requestGracefulQuit();
+
+        await vi.waitFor(() => {
+            expect(app.quit).toHaveBeenCalledOnce();
+        });
+        expect(app.exit).not.toHaveBeenCalled();
+    });
+
     it('runs update installation only after graceful cleanup has completed', async () => {
         const cleanup = createDeferred();
         const app = {
@@ -45,6 +70,7 @@ describe('shutdown coordinator', () => {
 
         expect(install).not.toHaveBeenCalled();
         expect(app.quit).not.toHaveBeenCalled();
+        expect(coordinator.isGracefulQuitInProgress()).toBe(true);
         expect(coordinator.isQuittingAfterCleanup()).toBe(false);
 
         cleanup.resolve();

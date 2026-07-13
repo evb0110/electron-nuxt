@@ -187,6 +187,35 @@ describe('prioritized document page metrics', () => {
         ]);
     });
 
+    it('keeps nearest-first scheduling practical for very large scans', async () => {
+        const {
+            calls,
+            source,
+        } = createSource(40_000);
+
+        const metrics = await hydrateRemainingDocumentPageMetrics({
+            source,
+            initialPage: 20_000,
+            initialMetric: {
+                widthPoints: 20_600,
+                heightPoints: 20_800,
+                rotation: 0,
+            },
+            signal: new AbortController().signal,
+            isCurrent: () => true,
+            concurrency: 1,
+        });
+
+        expect(metrics).toHaveLength(40_000);
+        expect(calls).toHaveLength(39_999);
+        expect(calls.slice(0, 4)).toEqual([
+            19_999,
+            20_001,
+            19_998,
+            20_002,
+        ]);
+    }, 1_000);
+
     it('drops background metrics when the source generation is superseded', async () => {
         const {
             calls,

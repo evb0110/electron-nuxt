@@ -136,6 +136,10 @@ export async function prewarmRecentDjvuOpeningGeometry(
                         options.onSettled?.(file, lateGeometry);
                     }
                 });
+                // The platform operation is not abortable through this port.
+                // Keep the bounded worker slot occupied instead of stacking
+                // additional native probes behind the timeout.
+                return;
             }
         }
     });
