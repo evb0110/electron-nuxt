@@ -16,6 +16,7 @@ import {
 } from 'path';
 import { randomUUID } from 'crypto';
 import { isErrnoException } from '@contracts/runtimeGuards';
+import {syncFileHandleForDurability} from '@electron/utils/syncFileHandleForDurability';
 
 const MAX_IPC_WRITE_BYTES = (() => {
     const parsed = Number.parseInt(process.env.EVB_MAX_IPC_WRITE_BYTES ?? `${16 * 1024 * 1024}`, 10);
@@ -117,7 +118,7 @@ export async function writeFileAtomic(resolvedPath: string, payload: Uint8Array)
     const handle = await openFileHandle(temporaryPath, 'wx');
     try {
         await handle.writeFile(payload);
-        await handle.sync();
+        await syncFileHandleForDurability(handle);
     } catch (error) {
         await handle.close().catch(() => undefined);
         await unlink(temporaryPath).catch(() => undefined);
@@ -149,7 +150,7 @@ export async function copyFileAtomic(resolvedSourcePath: string, resolvedTargetP
         await copyFile(resolvedSourcePath, temporaryPath);
         const handle = await openFileHandle(temporaryPath, 'r');
         try {
-            await handle.sync();
+            await syncFileHandleForDurability(handle);
         } finally {
             await handle.close().catch(() => undefined);
         }

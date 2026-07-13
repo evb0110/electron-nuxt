@@ -14,6 +14,7 @@ import {
 import { isErrnoException } from '@contracts/runtimeGuards';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import { syncFileHandleForDurability } from '@electron/utils/syncFileHandleForDurability';
 import { markActiveWorkingCopyMutationCommitStarted } from '@electron/file-access/workingCopyMutationCommitSignal';
 
 const logger = createLogger('atomicReplace');
@@ -25,18 +26,9 @@ function randomSuffix() {
 async function fsyncPath(filePath: string) {
     const handle = await open(filePath, 'r');
     try {
-        await handle.sync();
-    } catch (error) {
-        if (
-            process.platform === 'win32'
-            && isErrnoException(error)
-            && (error.code === 'EPERM' || error.code === 'EINVAL')
-        ) {
-            logger.debug(`Skipping temp-file fsync for "${filePath}": ${getErrorMessage(error)}`);
-            return;
-        }
-
-        throw error;
+        await syncFileHandleForDurability(handle, {onSkipped: error => logger.debug(
+            `Skipping temp-file fsync for "${filePath}": ${getErrorMessage(error)}`,
+        )});
     } finally {
         await handle.close();
     }

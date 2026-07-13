@@ -42,6 +42,7 @@ import {
 } from '@electron/features/documents/serializedPdfPersistenceContract';
 import { makeSiblingTempPath } from '@electron/utils/atomicReplace';
 import { getErrorMessage } from '@electron/utils/error';
+import { syncFileHandleForDurability } from '@electron/utils/syncFileHandleForDurability';
 import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
 import {
     getWorkingCopyOriginalPath,
@@ -491,7 +492,7 @@ async function finishSession(session: ISerializedPdfPersistenceSession): Promise
         };
     }
 
-    await session.handle.sync();
+    await syncFileHandleForDurability(session.handle);
     await session.handle.close();
     const validation = await validatePdfFile(session.tempPath);
     if (!validation.isValid) {

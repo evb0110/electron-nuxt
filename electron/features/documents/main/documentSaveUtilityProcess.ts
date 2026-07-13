@@ -16,6 +16,7 @@ import {
 } from '@electron/features/documents/main/documentSaveUtilityProtocol';
 import {fingerprintFileBounded} from '@electron/features/documents/main/fingerprintFileBounded';
 import {validateTargetedPdfObjects} from '@electron/features/documents/main/validateTargetedPdfObjects';
+import {syncFileHandleForDurability} from '@electron/utils/syncFileHandleForDurability';
 
 const execFileAsync = promisify(execFile);
 const {parentPort} = process;
@@ -30,7 +31,7 @@ async function exists(path: string) {
 
 async function fsyncPath(path: string) {
     const handle = await open(path, 'r');
-    try { await handle.sync(); } finally { await handle.close(); }
+    try { await syncFileHandleForDurability(handle); } finally { await handle.close(); }
 }
 
 async function fsyncDirectory(path: string) {

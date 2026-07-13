@@ -18,6 +18,7 @@ import {
     parse,
 } from 'path';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
+import {syncFileHandleForDurability} from '@electron/utils/syncFileHandleForDurability';
 import type {
     IDjvuConvertOptions,
     IDjvuPrintOptions,
@@ -339,7 +340,7 @@ async function copyFileCancellable(sourcePath: string, targetPath: string, signa
             await target.write(buffer, 0, bytesRead, position);
             position += bytesRead;
         }
-        await target.sync();
+        await syncFileHandleForDurability(target);
     } finally {
         await Promise.allSettled([
             source.close(),
