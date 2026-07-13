@@ -254,6 +254,21 @@ describe('createElectronApi', () => {
         expect(typeof api.system.getMemoryInfo).toBe('function');
     });
 
+    it('includes reclaimable macOS memory in the available host headroom', async () => {
+        const { decodeSystemMemoryInfo } = await import('@electron/preload/createElectronApi');
+
+        expect(decodeSystemMemoryInfo({
+            total: 37_748_736,
+            free: 143_312,
+            fileBacked: 12_784_048,
+            purgeable: 358_608,
+        })).toEqual({
+            availableBytes: 13_604_831_232,
+            totalBytes: 38_654_705_664,
+            freeBytes: 146_751_488,
+        });
+    });
+
     it('exposes top-level document capability slices from the same preload behavior as legacy documents', async () => {
         const ipcRenderer = {
             invoke: vi.fn(async () => undefined),

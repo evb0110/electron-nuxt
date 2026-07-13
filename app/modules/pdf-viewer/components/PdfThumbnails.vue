@@ -101,6 +101,7 @@ import {
     resolvePageAtScrollOffset as resolvePageAtThumbnailScrollOffset,
     resolveThumbnailInsertionIndex,
     resolveThumbnailPageBounds,
+    type IThumbnailLayoutAnchor,
     type IThumbnailLayoutSnapshot,
 } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailLayout';
 import { ThumbnailFenwickLayout } from '@app/modules/pdf-viewer/thumbnails/thumbnailFenwickLayout';
@@ -217,17 +218,18 @@ const thumbnailFenwickLayout = shallowRef(new ThumbnailFenwickLayout(
     thumbnailAspectRatios.value,
 ));
 function updateThumbnailAspectRatio(page: number, aspectRatio: number | null) {
+    const anchor = captureThumbnailLayoutAnchor();
     thumbnailAspectRatios.value[page - 1] = aspectRatio;
     triggerRef(thumbnailAspectRatios);
     if (thumbnailFenwickLayout.value.updatePageAspect(page, aspectRatio)) {
         thumbnailLayoutRevision.value += 1;
-        scheduleThumbnailLayoutReaction();
+        scheduleThumbnailLayoutReaction(anchor);
     }
 }
 function clearThumbnailAspectRatios() {
     const anchor = captureThumbnailLayoutAnchor();
     thumbnailAspectRatios.value = [];
-    thumbnailFenwickLayout.value.reset(totalPages, thumbnailLayoutWidth.value);
+    thumbnailFenwickLayout.value.reset(totalPages, thumbnailLayoutWidth.value, [], null);
     thumbnailLayoutRevision.value += 1;
     scheduleThumbnailLayoutReaction(anchor);
 }
@@ -475,11 +477,6 @@ function shouldPreferVisibleAnchorOverCurrentPage() {
 function markManualThumbnailScroll(reason: string) {
     manualScrollSourceCycleId = thumbnailSourceCycleId;
     markUserInteraction(reason);
-}
-
-interface IThumbnailLayoutAnchor {
-    offset: number;
-    page: number;
 }
 
 function captureThumbnailLayoutAnchor(): IThumbnailLayoutAnchor | null {

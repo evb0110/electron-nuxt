@@ -95,22 +95,43 @@ async function invokeWithStartupTrace<T>(label: string, invoke: () => Promise<T>
     }
 }
 
-function readSystemMemoryInfo() {
-    if (typeof process.getSystemMemoryInfo !== 'function') {
-        return null;
-    }
+interface IElectronSystemMemoryInfo {
+    fileBacked?: number | undefined;
+    free: number;
+    purgeable?: number | undefined;
+    total: number;
+}
 
-    const memoryInfo = process.getSystemMemoryInfo();
+function normalizeMemoryKilobytes(value: number | undefined) {
+    return typeof value === 'number' && Number.isFinite(value) && value > 0
+        ? value
+        : 0;
+}
+
+export function decodeSystemMemoryInfo(memoryInfo: IElectronSystemMemoryInfo) {
     const total = Number(memoryInfo.total);
     const free = Number(memoryInfo.free);
     if (!Number.isFinite(total) || total <= 0 || !Number.isFinite(free) || free < 0) {
         return null;
     }
 
+    const reclaimable = normalizeMemoryKilobytes(memoryInfo.fileBacked)
+        + normalizeMemoryKilobytes(memoryInfo.purgeable);
+    const available = Math.min(total, free + reclaimable);
+
     return {
+        availableBytes: Math.round(available * 1024),
         totalBytes: Math.round(total * 1024),
         freeBytes: Math.round(free * 1024),
     };
+}
+
+function readSystemMemoryInfo() {
+    if (typeof process.getSystemMemoryInfo !== 'function') {
+        return null;
+    }
+
+    return decodeSystemMemoryInfo(process.getSystemMemoryInfo());
 }
 
 interface ICreateElectronApiOptions {waitForDocumentOpenDirect?: (path: string) => Promise<void>;}

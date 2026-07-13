@@ -280,6 +280,10 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
         });
     }
 
+    function isThumbnailDocumentGenerationCurrent(pdfDocument: PDFDocumentProxy, runId: number) {
+        return runId === renderRunId && isPdfDocumentUsable(pdfDocument);
+    }
+
     function cancelAllRenders() {
         thumbnailRenderState.cancelAll();
     }
@@ -865,7 +869,7 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
             const pageLease = await leasePdfDocumentPage(pdfDocument, pageNum);
             const page = pageLease.page;
             try {
-                if (!isThumbnailRenderGenerationCurrent(pdfDocument, runId)) {
+                if (!isThumbnailDocumentGenerationCurrent(pdfDocument, runId)) {
                     return;
                 }
 

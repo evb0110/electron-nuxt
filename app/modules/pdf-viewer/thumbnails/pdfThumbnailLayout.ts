@@ -16,6 +16,11 @@ export interface IThumbnailLayoutSnapshot {
     totalHeight: number;
 }
 
+export interface IThumbnailLayoutAnchor {
+    offset: number;
+    page: number;
+}
+
 export interface IThumbnailPageBounds {
     bottom: number;
     height: number;

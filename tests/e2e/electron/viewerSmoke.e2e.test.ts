@@ -13,6 +13,8 @@ import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/cre
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
     clickVisibleToolbarButton,
+    ensureSidebarOpen,
+    goToPageViaToolbar,
     openDjvuInApp,
     openPdfInApp,
     waitForDjvuLoaded,
@@ -103,6 +105,27 @@ const DJVU_PROJECTED_SCROLL_DELTA_Y = 32;
 const DJVU_PROJECTED_SCROLL_INTERVAL_MS = 12;
 const DJVU_PROJECTED_SCROLL_STEPS = 650;
 const DJVU_PROJECTED_SCROLL_WARMUP_SAMPLES = 3;
+
+interface IThumbnailPaintSample {
+    containerClientHeight: number;
+    containerScrollHeight: number;
+    containerScrollTop: number;
+    contentPixels: number;
+    height: number;
+    itemViewportTop: number;
+    page: number;
+    renderKey: string | null;
+    rendered: boolean;
+    timeMs: number;
+    width: number;
+}
+
+interface IThumbnailPaintProbe {
+    samples: IThumbnailPaintSample[];
+    stop: () => void;
+}
+
+interface IThumbnailPaintProbeWindow extends Window {__thumbnailPaintProbe?: IThumbnailPaintProbe;}
 
 const djvuFixture = resolveDjvuFixturePath();
 const runDjvuSmokeOrSkip = selectFixtureDescribe(describe, djvuFixture);
@@ -524,6 +547,170 @@ describe('Electron E2E - Viewer Smoke', () => {
             return Math.min(pageRect.bottom, viewerRect.bottom) - Math.max(pageRect.top, viewerRect.top) > 100;
         }, { timeout: 5_000 });
     });
+
+    it('keeps adjacent thumbnails and scroll geometry stable after opening the sidebar', async () => {
+        let session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+
+        session = await sessionFixture.restart({sessionName: () => `e2e-viewer-thumbnail-open-${Date.now()}`});
+        if (!session) {
+            return;
+        }
+
+        await session.page.setViewport({
+            deviceScaleFactor: 2,
+            height: 982,
+            width: 1512,
+        });
+        const fixturePath = await createMultiPageTextFixturePdf(`viewer-thumbnail-open-${Date.now()}.pdf`, 36);
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await goToPageViaToolbar(session.page, 18);
+        await ensureSidebarOpen(session.page);
+        await waitForFunctionInPage(session.page, () => [
+            17,
+            18,
+        ].every((page) => {
+            const canvas = document.querySelector<HTMLCanvasElement>(
+                `.editor-pane.is-active .pdf-thumbnail[data-page="${String(page)}"] .pdf-thumbnail-canvas`,
+            );
+            return canvas?.dataset.thumbnailRendered === 'true'
+                && canvas.width > 0
+                && canvas.height > 0;
+        }), {timeout: 10_000});
+        await clickVisibleToolbarButton(session.page, 'Toggle Sidebar');
+        await waitForFunctionInPage(session.page, () => {
+            const sidebar = document.querySelector<HTMLElement>('.editor-pane.is-active .pdf-sidebar');
+            if (!sidebar) {
+                return true;
+            }
+            const rect = sidebar.getBoundingClientRect();
+            const style = window.getComputedStyle(sidebar);
+            return rect.width <= 10 || style.display === 'none' || style.visibility === 'hidden';
+        }, {timeout: 5_000});
+
+        await session.page.evaluate(() => {
+            const probeWindow = window as IThumbnailPaintProbeWindow;
+            const samples: IThumbnailPaintSample[] = [];
+            const sampleCanvas = document.createElement('canvas');
+            sampleCanvas.width = 32;
+            sampleCanvas.height = 32;
+            const sampleContext = sampleCanvas.getContext('2d', {willReadFrequently: true});
+            let active = true;
+
+            function sample() {
+                if (!active) {
+                    return;
+                }
+                const canvases = Array.from(document.querySelectorAll<HTMLCanvasElement>(
+                    '.editor-pane.is-active .pdf-sidebar-pages-thumbnails .pdf-thumbnail-canvas',
+                ));
+                const container = document.querySelector<HTMLElement>(
+                    '.editor-pane.is-active .pdf-sidebar-pages-thumbnails .pdf-thumbnails',
+                );
+                const containerRect = container?.getBoundingClientRect() ?? null;
+                for (const canvas of canvases) {
+                    const item = canvas.closest<HTMLElement>('.pdf-thumbnail');
+                    const page = Number(item?.dataset.page);
+                    if (!Number.isFinite(page) || page < 17 || page > 18) {
+                        continue;
+                    }
+                    let contentPixels = 0;
+                    if (sampleContext && canvas.width > 0 && canvas.height > 0) {
+                        sampleContext.clearRect(0, 0, 32, 32);
+                        sampleContext.drawImage(canvas, 0, 0, 32, 32);
+                        const pixels = sampleContext.getImageData(0, 0, 32, 32).data;
+                        for (let index = 0; index < pixels.length; index += 4) {
+                            const alpha = pixels[index + 3] ?? 0;
+                            if (alpha > 32) {
+                                contentPixels += 1;
+                            }
+                        }
+                    }
+                    samples.push({
+                        containerClientHeight: container?.clientHeight ?? 0,
+                        containerScrollHeight: container?.scrollHeight ?? 0,
+                        containerScrollTop: container?.scrollTop ?? 0,
+                        contentPixels,
+                        height: canvas.height,
+                        itemViewportTop: item && containerRect
+                            ? item.getBoundingClientRect().top - containerRect.top
+                            : 0,
+                        page,
+                        renderKey: canvas.dataset.thumbnailRenderKey ?? null,
+                        rendered: canvas.dataset.thumbnailRendered === 'true',
+                        timeMs: Math.round(performance.now()),
+                        width: canvas.width,
+                    });
+                }
+                requestAnimationFrame(sample);
+            }
+
+            probeWindow.__thumbnailPaintProbe = {
+                samples,
+                stop() {
+                    active = false;
+                },
+            };
+            requestAnimationFrame(sample);
+        });
+
+        await ensureSidebarOpen(session.page);
+        await session.page.evaluate(async () => {
+            await new Promise(resolve => setTimeout(resolve, 2_500));
+        });
+        const samples = await session.page.evaluate(() => {
+            const probe = (window as IThumbnailPaintProbeWindow).__thumbnailPaintProbe;
+            probe?.stop();
+            return probe?.samples ?? [];
+        });
+
+        const samplesByPage = Map.groupBy(samples, sample => sample.page);
+        const regressions = Array.from(samplesByPage.entries()).flatMap(([
+            page,
+            pageSamples,
+        ]) => {
+            const firstPaintIndex = pageSamples.findIndex(sample => sample.contentPixels > 1);
+            if (firstPaintIndex < 0) {
+                return [];
+            }
+            const firstPaint = pageSamples[firstPaintIndex]!;
+            const cleared = pageSamples.slice(firstPaintIndex + 1).find(sample => (
+                sample.width === 0
+                || sample.height === 0
+                || sample.contentPixels === 0
+            ));
+            return cleared ? [{
+                page,
+                firstPaint,
+                cleared,
+            }] : [];
+        });
+        const settledPages = Array.from(samplesByPage.entries())
+            .filter(([
+                ,
+                pageSamples,
+            ]) => pageSamples.some(sample => sample.rendered && sample.contentPixels > 1))
+            .map(([page]) => page);
+        const visibleCurrentPageSamples = samples.filter(sample => (
+            sample.page === 18
+            && sample.containerClientHeight > 0
+        ));
+        const metricSpread = (values: number[]) => Math.max(...values) - Math.min(...values);
+
+        expect(settledPages).toContain(18);
+        expect(settledPages.length).toBeGreaterThan(1);
+        expect(regressions, JSON.stringify({
+            regressions,
+            settledPages,
+        })).toEqual([]);
+        expect(visibleCurrentPageSamples.length).toBeGreaterThan(1);
+        expect(metricSpread(visibleCurrentPageSamples.map(sample => sample.containerScrollHeight))).toBeLessThanOrEqual(1);
+        expect(metricSpread(visibleCurrentPageSamples.map(sample => sample.containerScrollTop))).toBeLessThanOrEqual(1);
+        expect(metricSpread(visibleCurrentPageSamples.map(sample => sample.itemViewportTop))).toBeLessThanOrEqual(1);
+    }, 120_000);
 
     it('opens a PNG image through the same document entrypoint', async () => {
         let session = sessionFixture.getSession();

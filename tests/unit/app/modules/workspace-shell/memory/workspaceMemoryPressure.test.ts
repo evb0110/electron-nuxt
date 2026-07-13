@@ -6,10 +6,11 @@ import {
 import { resolveWorkspaceResourcePressureLevel } from '@app/modules/workspace-shell/memory/resolveWorkspaceResourcePressureLevel';
 
 describe('workspace memory pressure', () => {
-    const sample = (freeBytes: number, reservedBytes = 0) => resolveWorkspaceResourcePressureLevel({
+    const sample = (availableBytes: number, reservedBytes = 0) => resolveWorkspaceResourcePressureLevel({
         memoryInfo: {
+            availableBytes,
             totalBytes: 8_000,
-            freeBytes,
+            freeBytes: availableBytes,
         },
         surfaces: {
             maxBytes: 1_000,
@@ -37,5 +38,20 @@ describe('workspace memory pressure', () => {
             systemFreeReserveBytes: 1_000,
             postCrashSafeMode: true,
         })).toBe('post-crash-safe-mode');
+    });
+
+    it('uses reclaimable host memory instead of raw free pages', () => {
+        expect(resolveWorkspaceResourcePressureLevel({
+            memoryInfo: {
+                availableBytes: 6_000,
+                totalBytes: 8_000,
+                freeBytes: 100,
+            },
+            surfaces: {
+                maxBytes: 1_000,
+                reservedBytes: 0,
+            },
+            systemFreeReserveBytes: 1_000,
+        })).toBe('healthy');
     });
 });

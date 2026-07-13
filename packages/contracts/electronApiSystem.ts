@@ -1,4 +1,5 @@
 export interface ISystemMemoryInfo {
+    availableBytes: number;
     totalBytes: number;
     freeBytes: number;
 }
