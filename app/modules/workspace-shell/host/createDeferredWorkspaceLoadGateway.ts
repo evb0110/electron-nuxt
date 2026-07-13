@@ -1,4 +1,8 @@
 import { delay } from 'es-toolkit/promise';
+import type {
+    Ref,
+    ShallowRef,
+} from 'vue';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHasPdf';
