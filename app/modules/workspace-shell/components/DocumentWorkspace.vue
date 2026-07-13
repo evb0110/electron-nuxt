@@ -104,6 +104,7 @@
                     :submitted-search-query="submittedSearchQuery"
                     :search-options="searchOptions"
                     :is-open="showSidebar"
+                    :is-resizing="isResizingSidebar"
                     :pdf-document="pdfDocument"
                     :current-page="currentPage"
                     :total-pages="totalPages"

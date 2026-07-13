@@ -59,7 +59,6 @@
         <canvas
           class="pdf-thumbnail-canvas"
           :style="getThumbnailCanvasStyle(page)"
-          :data-thumbnail-render-key="getThumbnailRenderKey(page)"
         />
         <span class="pdf-thumbnail-number">{{ formatPageIndicatorWithOptions(page, pageLabels ?? null) }}</span>
       </div>
@@ -106,7 +105,10 @@ import {
 } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailLayout';
 import { ThumbnailFenwickLayout } from '@app/modules/pdf-viewer/thumbnails/thumbnailFenwickLayout';
 import { usePdfThumbnailSelection } from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailSelection';
-import { roundMetric } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailRenderMetrics';
+import {
+    resolveThumbnailRasterWidth,
+    roundMetric,
+} from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailRenderMetrics';
 import {
     PDF_THUMBNAIL_LOG_SECTION,
     usePdfThumbnailRenderRuntime,
@@ -127,9 +129,11 @@ interface IProps {
     annotationComments?: IAnnotationCommentSummary[] | undefined;
     annotationSettings?: IAnnotationSettings | null | undefined;
     isActive?: boolean | undefined;
+    isResizing?: boolean | undefined;
 }
 
 const THUMBNAIL_WIDTH_CHANGE_THRESHOLD = 1;
+const THUMBNAIL_RASTER_RESIZE_SETTLE_MS = 120;
 const AUTO_SYNC_INTERACTION_COOLDOWN_MS = 700;
 const AUTO_SYNC_PROGRAMMATIC_SCROLL_GUARD_MS = 160;
 const AUTO_SYNC_LAYOUT_RETRY_COUNT = 4;
@@ -141,6 +145,7 @@ const {
     hiddenAnnotationIds = undefined,
     invalidationRequest = undefined,
     isActive = true,
+    isResizing = false,
     pageLabels = undefined,
     pdfDocument,
     selectedPages = undefined,
@@ -173,9 +178,14 @@ let currentPageSyncRunId = 0;
 let thumbnailSourceCycleId = 0;
 let manualScrollSourceCycleId = -1;
 let activePaneRefreshRunId = 0;
+let resizeViewportAnchor: {
+    offset: number;
+    page: number;
+} | null = null;
 
 const scrollTop = ref(0);
 const viewportHeight = ref(0);
+const thumbnailLayoutWidth = ref(THUMBNAIL_WIDTH);
 const thumbnailRenderWidth = ref(THUMBNAIL_WIDTH);
 const thumbnailAspectRatios = ref<Array<number | null>>([]);
 let getThumbnailRenderSummary = () => ({
@@ -203,7 +213,7 @@ function getThumbnailTop(page: number) {
 const thumbnailLayoutRevision = ref(0);
 const thumbnailFenwickLayout = shallowRef(new ThumbnailFenwickLayout(
     totalPages,
-    thumbnailRenderWidth.value,
+    thumbnailLayoutWidth.value,
     thumbnailAspectRatios.value,
 ));
 function updateThumbnailAspectRatio(page: number, aspectRatio: number | null) {
@@ -213,9 +223,9 @@ function updateThumbnailAspectRatio(page: number, aspectRatio: number | null) {
 }
 watch([
     () => totalPages,
-    thumbnailRenderWidth,
+    thumbnailLayoutWidth,
 ], () => {
-    thumbnailFenwickLayout.value.reset(totalPages, thumbnailRenderWidth.value, thumbnailAspectRatios.value);
+    thumbnailFenwickLayout.value.reset(totalPages, thumbnailLayoutWidth.value, thumbnailAspectRatios.value);
     thumbnailLayoutRevision.value += 1;
 });
 const thumbnailContentHeight = computed(() => {
@@ -458,7 +468,7 @@ function markManualThumbnailScroll(reason: string) {
 function preserveVisibleAnchorAfterThumbnailLayoutChange(
     previousLayout: typeof thumbnailLayoutSnapshot.value,
 ) {
-    if (manualScrollSourceCycleId !== thumbnailSourceCycleId) {
+    if (!isResizing && manualScrollSourceCycleId !== thumbnailSourceCycleId) {
         return false;
     }
 
@@ -467,13 +477,13 @@ function preserveVisibleAnchorAfterThumbnailLayoutChange(
         return false;
     }
 
-    const anchorPage = resolveViewportAnchorPage(previousLayout);
+    const anchorPage = resizeViewportAnchor?.page ?? resolveViewportAnchorPage(previousLayout);
     if (anchorPage === null) {
         return false;
     }
 
     const previousTop = previousLayout.tops[anchorPage - 1] ?? 0;
-    const anchorOffset = scrollTop.value - previousTop;
+    const anchorOffset = resizeViewportAnchor?.offset ?? scrollTop.value - previousTop;
     const nextScrollTop = getThumbnailTop(anchorPage) + anchorOffset;
     return applyThumbnailScrollTop(
         container,
@@ -561,6 +571,7 @@ function resolveCurrentPageSyncRequest(
     if (
         !container ||
         totalPages <= 0 ||
+        isResizing ||
         isDragging.value ||
         isExternalDragOver.value ||
         (!options.force && isCurrentPageAutoSyncSuppressed())
@@ -655,13 +666,13 @@ function updateViewportMetrics() {
     const previousViewportHeight = viewportHeight.value;
     scrollTop.value = container.scrollTop;
     viewportHeight.value = container.clientHeight;
-    const nextThumbnailRenderWidth = thumbnailRenderRuntime.resolveThumbnailRenderWidth(container);
-    if (Math.abs(nextThumbnailRenderWidth - thumbnailRenderWidth.value) >= THUMBNAIL_WIDTH_CHANGE_THRESHOLD) {
-        const previousThumbnailRenderWidth = thumbnailRenderWidth.value;
-        thumbnailRenderWidth.value = nextThumbnailRenderWidth;
-        BrowserLogger.diagnostic(PDF_THUMBNAIL_LOG_SECTION, 'Thumbnail render width changed', {
-            previousThumbnailRenderWidth: roundMetric(previousThumbnailRenderWidth),
-            nextThumbnailRenderWidth: roundMetric(thumbnailRenderWidth.value),
+    const nextThumbnailLayoutWidth = thumbnailRenderRuntime.resolveThumbnailRenderWidth(container);
+    if (Math.abs(nextThumbnailLayoutWidth - thumbnailLayoutWidth.value) >= THUMBNAIL_WIDTH_CHANGE_THRESHOLD) {
+        const previousThumbnailLayoutWidth = thumbnailLayoutWidth.value;
+        thumbnailLayoutWidth.value = nextThumbnailLayoutWidth;
+        BrowserLogger.diagnostic(PDF_THUMBNAIL_LOG_SECTION, 'Thumbnail layout width changed', {
+            previousThumbnailLayoutWidth: roundMetric(previousThumbnailLayoutWidth),
+            nextThumbnailLayoutWidth: roundMetric(thumbnailLayoutWidth.value),
             currentPage: currentPage,
             totalPages: totalPages,
             geometry: describeContainerGeometry(container),
@@ -677,6 +688,31 @@ function updateViewportMetrics() {
         });
     }
 }
+
+function commitThumbnailRasterWidth() {
+    const nextThumbnailRenderWidth = resolveThumbnailRasterWidth(thumbnailLayoutWidth.value);
+    if (nextThumbnailRenderWidth === thumbnailRenderWidth.value) {
+        return false;
+    }
+
+    const previousThumbnailRenderWidth = thumbnailRenderWidth.value;
+    thumbnailRenderWidth.value = nextThumbnailRenderWidth;
+    BrowserLogger.diagnostic(PDF_THUMBNAIL_LOG_SECTION, 'Thumbnail raster width committed', {
+        previousThumbnailRenderWidth: roundMetric(previousThumbnailRenderWidth),
+        nextThumbnailRenderWidth: roundMetric(nextThumbnailRenderWidth),
+        thumbnailLayoutWidth: roundMetric(thumbnailLayoutWidth.value),
+        currentPage,
+        totalPages,
+    });
+    return true;
+}
+
+const scheduleThumbnailRasterWidthCommit = useDebounceFn(() => {
+    if (isResizing || !commitThumbnailRasterWidth()) {
+        return;
+    }
+    void nextTick(() => scheduleVisibleThumbnailRender());
+}, THUMBNAIL_RASTER_RESIZE_SETTLE_MS);
 
 async function syncCurrentPageIntoView(
     reason: string,
@@ -889,10 +925,7 @@ const thumbnailRenderRuntime = usePdfThumbnailRenderRuntime({
         hiddenAnnotationIdsSignature,
     },
 });
-const {
-    getThumbnailRenderKey,
-    scheduleVisibleThumbnailRender,
-} = thumbnailRenderRuntime;
+const { scheduleVisibleThumbnailRender } = thumbnailRenderRuntime;
 getThumbnailRenderSummary = thumbnailRenderRuntime.getRenderSummary;
 
 watch(
@@ -925,10 +958,43 @@ watch(
 useResizeObserver(containerRef, () => {
     resolveVisibleContainer('resize-observer');
     updateViewportMetrics();
-    void scheduleVisibleThumbnailRender();
+    if (!isResizing) {
+        void scheduleThumbnailRasterWidthCommit();
+        void scheduleVisibleThumbnailRender();
+    }
     void measureThumbnailHeight();
-    void syncCurrentPageIntoView('resize-observer');
+    if (!isResizing) {
+        void syncCurrentPageIntoView('resize-observer');
+    }
 });
+
+watch(
+    () => isResizing,
+    (resizing, wasResizing) => {
+        updateViewportMetrics();
+        if (resizing) {
+            const anchorPage = resolveViewportAnchorPage();
+            resizeViewportAnchor = anchorPage === null
+                ? null
+                : {
+                    page: anchorPage,
+                    offset: scrollTop.value - getThumbnailTop(anchorPage),
+                };
+            currentPageSyncRunId += 1;
+            return;
+        }
+        if (!wasResizing) {
+            return;
+        }
+        if (commitThumbnailRasterWidth()) {
+            void nextTick(() => scheduleVisibleThumbnailRender());
+        }
+        void measureThumbnailHeight();
+        void nextTick(() => {
+            resizeViewportAnchor = null;
+        });
+    },
+);
 </script>
 
 <style scoped>

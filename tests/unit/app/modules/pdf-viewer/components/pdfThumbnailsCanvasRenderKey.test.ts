@@ -7,14 +7,14 @@ import {
 } from 'vitest';
 
 describe('PdfThumbnails canvas render key', () => {
-    it('keeps thumbnail canvases mounted while render keys update', () => {
+    it('keeps thumbnail canvases mounted and leaves render-key ownership with the runtime', () => {
         const source = readFileSync(
             join(process.cwd(), 'app/modules/pdf-viewer/components/PdfThumbnails.vue'),
             'utf8',
         );
         const canvasMatch = source.match(/<canvas[\s\S]*?class="pdf-thumbnail-canvas"[\s\S]*?\/>/);
 
-        expect(canvasMatch?.[0]).toContain(':data-thumbnail-render-key="getThumbnailRenderKey(page)"');
+        expect(canvasMatch?.[0]).not.toContain('data-thumbnail-render-key');
         expect(canvasMatch?.[0]).not.toContain(':key="getThumbnailRenderKey(page)"');
     });
 });

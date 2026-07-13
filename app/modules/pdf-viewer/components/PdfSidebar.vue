@@ -5,7 +5,7 @@
         :style="sidebarStyle"
         :model-value="activeTab"
         :tabs="localizedTabs"
-        :outer-scroll="activeTab !== 'bookmarks' && activeTab !== 'search'"
+        :outer-scroll="activeTab === 'annotations'"
         @update:model-value="handleShellTabUpdate"
     >
             <PdfAnnotationsPanel
@@ -40,7 +40,7 @@
                     @delete-pages="deleteSelectedPages"
                     @deselect="clearPageSelection"
                 />
-                <div class="pdf-sidebar-pages-thumbnails app-scrollbar app-panel-scroll">
+                <div class="pdf-sidebar-pages-thumbnails">
                     <PdfThumbnails
                         :pdf-document="pdfDocument"
                         :current-page="currentPage"
@@ -52,6 +52,7 @@
                         :annotation-comments="annotationComments"
                         :annotation-settings="annotationSettings"
                         :is-active="isOpen && activeTab === 'thumbnails'"
+                        :is-resizing="isResizing"
                         @go-to-page="goToPage"
                         @update:selected-pages="handleSelectedPagesUpdate"
                         @page-context-menu="openPageContextMenu"
@@ -150,6 +151,7 @@ import AppSidebarShell from '@app/components/sidebar/AppSidebarShell.vue';
 
 interface IProps {
     isOpen: boolean;
+    isResizing?: boolean | undefined;
     pdfDocument: PDFDocumentProxy | null;
     currentPage: number;
     totalPages: number;
@@ -212,6 +214,7 @@ const {
     currentResultIndex,
     isDjvuMode = false,
     isOpen,
+    isResizing = false,
     isPageOperationInProgress = false,
     isSearching,
     isTruncated = undefined,

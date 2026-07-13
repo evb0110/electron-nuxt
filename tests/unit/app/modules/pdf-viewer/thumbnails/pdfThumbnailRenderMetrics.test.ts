@@ -8,6 +8,7 @@ import {
     parseCssPixelValue,
     resolveHorizontalInset,
     resolveSeededThumbnailMetrics,
+    resolveThumbnailRasterWidth,
     resolveThumbnailRenderWidthFromStyles,
     roundMetric,
     type IThumbnailStyleLike,
@@ -69,6 +70,14 @@ describe('pdfThumbnailRenderMetrics', () => {
             minWidth: 120,
             thumbnailStyle: null,
         })).toBe(120);
+    });
+
+    it('rounds raster widths up so a resized preview is never stretched past its bitmap', () => {
+        expect(resolveThumbnailRasterWidth(218)).toBe(224);
+        expect(resolveThumbnailRasterWidth(224)).toBe(224);
+        expect(resolveThumbnailRasterWidth(225)).toBe(256);
+        expect(resolveThumbnailRasterWidth(0)).toBe(32);
+        expect(resolveThumbnailRasterWidth(218, 16)).toBe(224);
     });
 
     it('resolves seeded preview metrics from source dimensions and output scale', () => {

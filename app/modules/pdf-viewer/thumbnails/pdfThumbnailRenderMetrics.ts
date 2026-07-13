@@ -14,6 +14,8 @@ export interface IResolveSeededThumbnailMetricsOptions {
     sourceWidth: number;
 }
 
+const DEFAULT_THUMBNAIL_RASTER_WIDTH_BUCKET = 32;
+
 export function roundMetric(value: number) {
     return Number(value.toFixed(2));
 }
@@ -52,6 +54,17 @@ export function resolveThumbnailRenderWidthFromStyles({
         : 0;
 
     return Math.max(minWidth, Math.floor(containerContentWidth - thumbnailInset));
+}
+
+export function resolveThumbnailRasterWidth(
+    cssWidth: number,
+    bucketSize = DEFAULT_THUMBNAIL_RASTER_WIDTH_BUCKET,
+) {
+    const normalizedBucketSize = Math.max(1, Math.round(bucketSize));
+    return Math.max(
+        1,
+        Math.ceil(Math.max(1, cssWidth) / normalizedBucketSize) * normalizedBucketSize,
+    );
 }
 
 export function resolveSeededThumbnailMetrics({

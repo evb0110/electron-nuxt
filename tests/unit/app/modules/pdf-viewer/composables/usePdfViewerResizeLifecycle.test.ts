@@ -381,7 +381,7 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         expect(scheduleResizeAwareRerender).not.toHaveBeenCalled();
     });
 
-    it('previews throughout a drag and performs exactly one anchored settle', async () => {
+    it('keeps the drag-start anchor during preview changes and performs exactly one settle render', async () => {
         vi.useFakeTimers();
         const semanticAnchor = {
             affinity: 'center' as const,
@@ -409,14 +409,17 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
             page: 4,
             preview: true,
         });
+        expect(submitResizeIntent).toHaveBeenCalledTimes(2);
+        expect(submitResizeIntent).toHaveBeenNthCalledWith(1, semanticAnchor);
+        expect(submitResizeIntent).toHaveBeenNthCalledWith(2, semanticAnchor);
         expect(scheduleResizeAwareRerender).not.toHaveBeenCalled();
 
         isResizing.value = false;
         resizeObserverMock.callback?.();
         await vi.advanceTimersByTimeAsync(25);
 
-        expect(submitResizeIntent).toHaveBeenCalledOnce();
-        expect(submitResizeIntent).toHaveBeenCalledWith(semanticAnchor);
+        expect(submitResizeIntent).toHaveBeenCalledTimes(3);
+        expect(submitResizeIntent).toHaveBeenNthCalledWith(3, semanticAnchor);
         expect(scheduleResizeAwareRerender).toHaveBeenCalledOnce();
         expect(scheduleResizeAwareRerender).toHaveBeenCalledWith(
             're-render visible pages after resize settle',
@@ -431,5 +434,39 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
 
         await vi.advanceTimersByTimeAsync(400);
         expect(scheduleResizeAwareRerender).toHaveBeenCalledOnce();
+    });
+
+    it('reapplies the drag anchor when viewport geometry changes without a fit-scale delta', () => {
+        const isResizing = ref(false);
+        const viewerContainer = ref({
+            clientWidth: 1200,
+            clientHeight: 800,
+        } as HTMLElement);
+        const semanticAnchor = {
+            affinity: 'center' as const,
+            page: 4,
+            pageXFraction: 0.5,
+            pageYFraction: 0.25,
+            viewportXFraction: 0.5,
+            viewportYFraction: 0.5,
+        };
+        const {
+            lifecycle,
+            submitResizeIntent,
+        } = createResizeLifecycle(ref(true), {
+            captureViewportAnchor: () => semanticAnchor,
+            computeFitWidthScale: () => false,
+            isResizing,
+            viewerContainer,
+        });
+
+        isResizing.value = true;
+        (viewerContainer.value as {clientWidth: number}).clientWidth = 1100;
+        resizeObserverMock.callback?.();
+
+        expect(submitResizeIntent).toHaveBeenCalledOnce();
+        expect(submitResizeIntent).toHaveBeenCalledWith(semanticAnchor);
+
+        lifecycle.cleanupResizeLifecycle();
     });
 });

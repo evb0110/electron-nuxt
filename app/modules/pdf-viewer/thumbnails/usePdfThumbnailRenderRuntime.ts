@@ -657,16 +657,23 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
                 && getThumbnailRenderKey(pageNum) === renderKey
                 && isCanvasForRenderKey(canvas, renderKey)
             );
-            if (isStillCurrentCanvas) {
-                drawEditedTextMarkupThumbnailVisuals({
-                    annotationSettings: visuals.annotationSettings.value,
-                    canvas: renderCanvas,
-                    comments: visuals.editedTextMarkupComments.value,
-                    context,
-                    pageNum,
-                });
+            if (!isStillCurrentCanvas) {
+                if (renderCanvas !== canvas) {
+                    renderCanvas.width = 0;
+                    renderCanvas.height = 0;
+                    renderCanvas.remove();
+                }
+                void scheduleVisibleThumbnailRender();
+                return;
             }
-            if (renderCanvas !== canvas && isStillCurrentCanvas) {
+            drawEditedTextMarkupThumbnailVisuals({
+                annotationSettings: visuals.annotationSettings.value,
+                canvas: renderCanvas,
+                comments: visuals.editedTextMarkupComments.value,
+                context,
+                pageNum,
+            });
+            if (renderCanvas !== canvas) {
                 const visibleContext = canvas.getContext('2d');
                 if (!visibleContext) {
                     renderCanvas.remove();
@@ -679,11 +686,6 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
                 renderCanvas.height = 0;
                 renderCanvas.remove();
                 delete canvas.dataset.thumbnailPreservedBitmap;
-            }
-            if (renderCanvas !== canvas && !isStillCurrentCanvas) {
-                renderCanvas.width = 0;
-                renderCanvas.height = 0;
-                renderCanvas.remove();
             }
             finalizeRenderedThumbnail(pageNum, canvas, renderKey);
         } finally {

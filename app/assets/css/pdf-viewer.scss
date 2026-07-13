@@ -32,6 +32,18 @@
     display: none;
 }
 
+.pdfViewer .page_container--resize-visual-snapshot .pdf-page-skeleton {
+    display: none;
+}
+
+.pdf-resize-canvas-snapshot {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
 /* Canvas pixels may finish before Vue projects the canonical rendered state.
    Keep that backing store non-presentational until the same class transition
    that removes the skeleton; users then observe one atomic shell handoff. */

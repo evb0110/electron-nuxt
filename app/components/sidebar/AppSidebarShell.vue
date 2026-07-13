@@ -114,6 +114,7 @@ watch(() => tabs, async () => {
 
 .app-sidebar-shell__content--no-outer-scroll {
     overflow: hidden;
+    scrollbar-gutter: auto;
 }
 
 .app-sidebar-shell__tab-fit-probe {

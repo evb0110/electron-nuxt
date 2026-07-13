@@ -1,6 +1,8 @@
 import type { Ref } from 'vue';
 import {useResizeObserver} from '@vueuse/core';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { preservePdfResizeCanvasVisualSnapshot } from '@app/modules/pdf-viewer/engine/pdf-resize-visual-snapshot/preservePdfResizeCanvasVisualSnapshot';
+import { schedulePdfLayerVisualSnapshotRelease } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/schedulePdfLayerVisualSnapshotRelease';
 import type {
     ICurrentPageSyncOptions,
     IResizeAnchorContext,
@@ -99,8 +101,10 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
     } = options;
 
     const ZOOM_QUEUE_LOG_THROTTLE_MS = 420;
+    const PDF_RESIZE_VISUAL_SNAPSHOT_MAX_DELAY_MS = 2_500;
     let resizeTransitionToken = 0;
     let pendingResizeTransitionHideTimer: ReturnType<typeof setTimeout> | null = null;
+    const activeResizeVisualSnapshotReleases = new Set<() => void>();
     let pendingResizeAnchor: IResizeAnchorContext | null = null;
     let pendingResizeTransactionId: number | null = null;
     let dragResizeAnchor: IResizeAnchorContext | null = null;
@@ -337,6 +341,34 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
         );
     }
 
+    function captureResizeVisualSnapshots(anchor: IResizeAnchorContext) {
+        activeResizeVisualSnapshotReleases.forEach(release => release());
+        activeResizeVisualSnapshotReleases.clear();
+        const container = viewerContainer.value;
+        if (!container) {
+            return;
+        }
+        for (let page = anchor.visibleRange.start; page <= anchor.visibleRange.end; page += 1) {
+            const pageContainer = container.querySelector<HTMLElement>(
+                `.page_container[data-page="${page}"]`,
+            );
+            const snapshot = preservePdfResizeCanvasVisualSnapshot(pageContainer);
+            if (!snapshot) {
+                continue;
+            }
+            const release = () => {
+                snapshot.release();
+                activeResizeVisualSnapshotReleases.delete(release);
+            };
+            activeResizeVisualSnapshotReleases.add(release);
+            schedulePdfLayerVisualSnapshotRelease(release, {
+                maxDelayMs: PDF_RESIZE_VISUAL_SNAPSHOT_MAX_DELAY_MS,
+                minFrames: 2,
+                waitFor: snapshot.hasReplacementCanvas,
+            });
+        }
+    }
+
     function handleResize() {
         if (isActive?.value === false) {
             return;
@@ -363,10 +395,22 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
             return;
         }
         if (isResizing.value) {
-            computeFitWidthScale(viewerContainer.value, {
+            const viewportGeometryChanged = consumeViewportGeometryChange();
+            const updated = computeFitWidthScale(viewerContainer.value, {
                 page: dragResizeAnchor?.page ?? currentPage.value,
                 preview: true,
             });
+            if (dragResizeAnchor && (updated || viewportGeometryChanged)) {
+                // Preview scale updates replace the virtual page geometry
+                // immediately. Reapply the drag-start semantic anchor through
+                // the viewport authority in the same resize cycle so the old
+                // pixel scroll offset is never interpreted as a different page.
+                // The final resize transaction still owns the sole rerender.
+                restoreResizeAnchorAfterLayout(
+                    dragResizeAnchor,
+                    PDF_RERENDER_SOURCE.ResizeObserver,
+                );
+            }
             return;
         }
         if (dragSettleClaimed) {
@@ -493,6 +537,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
 
         const anchor = dragResizeAnchor;
         dragResizeAnchor = null;
+        captureResizeVisualSnapshots(anchor);
         computeFitWidthScale(viewerContainer.value, {page: anchor.page});
         options.clearPreviewFitScale?.();
         beginResizeTransaction(anchor, 'resize-settle');
@@ -515,6 +560,8 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
     }, {flush: 'sync'});
 
     function cleanupResizeLifecycle() {
+        activeResizeVisualSnapshotReleases.forEach(release => release());
+        activeResizeVisualSnapshotReleases.clear();
         if (pendingResizeTransitionHideTimer !== null) {
             clearTimeout(pendingResizeTransitionHideTimer);
             pendingResizeTransitionHideTimer = null;
