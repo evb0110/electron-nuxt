@@ -243,6 +243,7 @@
     "@stylistic/eslint-plugin": "^5.10.0",
     "@types/node": "^24.13.0",
     "@typescript-eslint/parser": "8.60.1",
+    "@vitejs/plugin-vue": "6.0.7",
     "@vitest/coverage-v8": "4.1.8",
     "@vueuse/core": "^14.3.0",
     "@vueuse/math": "^14.3.0",

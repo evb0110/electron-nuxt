@@ -1,9 +1,11 @@
-import { createDocumentViewportSessionController } from '@app/utils/document-viewer/session/createDocumentViewportSessionController';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
-import type { ShallowRef } from 'vue';
-import type {
-    IDocumentViewportSessionState,
-    TDocumentViewportSessionEffect,
+import type { Ref } from 'vue';
+import {
+    createEmptyDocumentViewportSession,
+    reduceDocumentViewportSession,
+    type IDocumentViewportSessionState,
+    type TDocumentViewportSessionEffect,
+    type TDocumentViewportSessionEvent,
 } from '@app/utils/document-viewer/session/documentViewportSession';
 
 export type TDocumentOpenSurfacePhase = 'idle' | 'pending' | 'geometry-committed'
@@ -94,7 +96,7 @@ export interface IDocumentOpenSurfaceSnapshot {
 
 export interface IDocumentOpenSurfaceSession {
     readonly snapshot: Readonly<Ref<IDocumentOpenSurfaceSnapshot>>;
-    readonly viewportSession: Readonly<ShallowRef<IDocumentViewportSessionState>>;
+    readonly viewportSession: Readonly<Ref<IDocumentViewportSessionState>>;
     begin(
         identity: IDocumentOpenSurfaceIdentity,
         openingPageGeometry?: IDocumentOpenSurfacePageGeometry | null,
@@ -124,9 +126,6 @@ export interface IDocumentOpenSurfaceSession {
     reset(): void;
     metadataReady(pageCount: number): boolean;
     requestNavigation(pageNumber: number, skeletonDelayMs?: number): number;
-    subscribeViewportEffects(
-        listener: (effect: TDocumentViewportSessionEffect) => void,
-    ): () => void;
 }
 
 export function resolveDocumentOpenSurfaceViewportPolicy(snapshot: IDocumentOpenSurfaceSnapshot) {
@@ -159,17 +158,26 @@ export function shouldProjectDocumentViewportScroll(
         && viewportSession.requestedPage === viewportSession.committedPage;
 }
 
-const idleSnapshot = (): IDocumentOpenSurfaceSnapshot => ({
-    generation: 0,
-    identity: null,
-    phase: 'idle',
+type TDocumentOpenSurfaceVisualPresentation = Exclude<TDocumentOpenSurfacePresentation, 'failed'>;
+
+interface IDocumentOpenSurfaceVisualState {
+    presentation: TDocumentOpenSurfaceVisualPresentation;
+    geometry: IDocumentOpenSurfaceGeometry | null;
+    openingPageGeometry: IDocumentOpenSurfacePageGeometry | null;
+    openingPageFrame: IDocumentOpenSurfacePageFrame | null;
+    committedViewportPosition: {
+        readonly viewportIntentId: string;
+        readonly left: number;
+        readonly top: number;
+    } | null;
+}
+
+const idleVisualState = (): IDocumentOpenSurfaceVisualState => ({
     presentation: 'idle',
     geometry: null,
     openingPageGeometry: null,
     openingPageFrame: null,
-    committedRender: null,
-    committedViewport: null,
-    failure: null,
+    committedViewportPosition: null,
 });
 
 function isFinitePositive(value: number) {
@@ -234,13 +242,16 @@ export function hasCommittedDocumentOpeningLayout(snapshot: IDocumentOpenSurface
         && snapshot.openingPageFrame.pageNumber === snapshot.openingPageGeometry.pageNumber;
 }
 
-function resolveOpeningPresentation(snapshot: IDocumentOpenSurfaceSnapshot) {
+function resolveOpeningPresentation(
+    snapshot: IDocumentOpenSurfaceSnapshot,
+): TDocumentOpenSurfaceVisualPresentation {
     const hasMeasuredOwnedFrame = isTransitionPhase(snapshot.phase)
         && snapshot.geometry !== null
         && snapshot.openingPageFrame?.generation === snapshot.generation;
-    return hasCommittedDocumentOpeningLayout(snapshot) || hasMeasuredOwnedFrame
-        ? 'page-shell'
-        : snapshot.presentation;
+    if (hasCommittedDocumentOpeningLayout(snapshot) || hasMeasuredOwnedFrame) {
+        return 'page-shell';
+    }
+    return snapshot.presentation === 'failed' ? 'idle' : snapshot.presentation;
 }
 
 export function isDocumentOpenEmptySurfaceTransition(snapshot: IDocumentOpenSurfaceSnapshot) {
@@ -255,11 +266,156 @@ function canAcceptSameGenerationVisualCommit(snapshot: IDocumentOpenSurfaceSnaps
     return isTransitionPhase(snapshot.phase) || snapshot.phase === 'failed';
 }
 
+function projectDocumentOpenSurfaceSnapshot(
+    visual: IDocumentOpenSurfaceVisualState,
+    viewport: IDocumentViewportSessionState,
+): IDocumentOpenSurfaceSnapshot {
+    const identity = viewport.identity === null
+        ? null
+        : {
+            documentId: viewport.identity.documentId,
+            documentRevision: viewport.identity.revision,
+        };
+    const committedRender = viewport.committedRenderFence === null
+        ? null
+        : {
+            generation: viewport.generation,
+            documentRevision: viewport.committedRenderFence.revision,
+            viewportIntentId: viewport.committedRenderFence.viewportIntentId,
+            renderVersion: viewport.committedRenderFence.renderVersion,
+            requestId: viewport.committedRenderFence.requestId,
+            pageNumber: viewport.committedRenderFence.pageNumber,
+        };
+    const viewportFence = viewport.committedViewportFence;
+    const position = visual.committedViewportPosition;
+    const committedViewport = viewportFence !== null
+        && position?.viewportIntentId === viewportFence.viewportIntentId
+        ? {
+            generation: viewport.generation,
+            documentRevision: viewportFence.revision,
+            viewportIntentId: viewportFence.viewportIntentId,
+            documentGeometryRevision: viewportFence.geometryRevision,
+            interactionEpoch: viewportFence.interactionEpoch,
+            pageNumber: viewportFence.pageNumber,
+            left: position.left,
+            top: position.top,
+        }
+        : null;
+    const phase: TDocumentOpenSurfacePhase = viewport.lifecycle === 'empty'
+        ? 'idle'
+        : viewport.lifecycle === 'failed'
+            ? 'failed'
+            : visual.presentation === 'committed'
+                ? 'ready'
+                : committedRender !== null && committedViewport !== null
+                    ? 'viewport-committed'
+                    : committedRender !== null
+                        ? 'canvas-committed'
+                        : visual.geometry !== null
+                            ? 'geometry-committed'
+                            : 'pending';
+    const presentation: TDocumentOpenSurfacePresentation = phase === 'idle'
+        ? 'idle'
+        : phase === 'failed'
+            ? 'failed'
+            : visual.presentation;
+    return {
+        generation: viewport.generation,
+        identity,
+        phase,
+        presentation,
+        geometry: visual.geometry,
+        openingPageGeometry: visual.openingPageGeometry,
+        openingPageFrame: visual.openingPageFrame,
+        committedRender,
+        committedViewport,
+        failure: viewport.failure,
+    };
+}
+
 export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession {
-    const snapshot = ref<IDocumentOpenSurfaceSnapshot>(idleSnapshot());
-    const viewportSessionController = createDocumentViewportSessionController();
+    const sessionState = shallowRef({
+        viewport: createEmptyDocumentViewportSession(),
+        visual: idleVisualState(),
+    });
+    const viewportSession = computed(() => sessionState.value.viewport);
+    const snapshot = computed(() => projectDocumentOpenSurfaceSnapshot(
+        sessionState.value.visual,
+        sessionState.value.viewport,
+    ));
+    const skeletonTimers = new Map<string, ReturnType<typeof setTimeout>>();
     let nextViewportIntent = 0;
     const openingSkeletonDelayMs = 120;
+
+    function cancelSkeletonTimer(token: string) {
+        const timer = skeletonTimers.get(token);
+        if (timer === undefined) {
+            return;
+        }
+        clearTimeout(timer);
+        skeletonTimers.delete(token);
+    }
+
+    function applyViewportEffect(effect: TDocumentViewportSessionEffect) {
+        if (effect.type === 'cancel-skeleton-delay') {
+            cancelSkeletonTimer(effect.token);
+            return;
+        }
+        cancelSkeletonTimer(effect.token);
+        const timer = setTimeout(() => {
+            skeletonTimers.delete(effect.token);
+            dispatchViewport({
+                type: 'skeleton-delay-elapsed',
+                generation: effect.generation,
+                token: effect.token,
+            });
+        }, Math.max(0, effect.deadline - Date.now()));
+        skeletonTimers.set(effect.token, timer);
+    }
+
+    function transitionViewport(
+        events: readonly TDocumentViewportSessionEvent[],
+        updateVisual?: (
+            current: IDocumentOpenSurfaceVisualState,
+            viewport: IDocumentViewportSessionState,
+        ) => IDocumentOpenSurfaceVisualState,
+    ) {
+        let viewport = sessionState.value.viewport;
+        const effects: TDocumentViewportSessionEffect[] = [];
+        for (const event of events) {
+            const transition = reduceDocumentViewportSession(viewport, event);
+            if (!transition.accepted) {
+                return false;
+            }
+            viewport = transition.state;
+            effects.push(...transition.effects);
+        }
+        sessionState.value = {
+            viewport,
+            visual: updateVisual?.(sessionState.value.visual, viewport) ?? sessionState.value.visual,
+        };
+        for (const effect of effects) applyViewportEffect(effect);
+        return true;
+    }
+
+    function dispatchViewport(
+        event: TDocumentViewportSessionEvent,
+        updateVisual?: (
+            current: IDocumentOpenSurfaceVisualState,
+            viewport: IDocumentViewportSessionState,
+        ) => IDocumentOpenSurfaceVisualState,
+    ) {
+        return transitionViewport([event], updateVisual);
+    }
+
+    function commitVisual(
+        update: (current: IDocumentOpenSurfaceVisualState) => IDocumentOpenSurfaceVisualState,
+    ) {
+        sessionState.value = {
+            viewport: sessionState.value.viewport,
+            visual: update(sessionState.value.visual),
+        };
+    }
 
     function createViewportIntentId(prefix: string) {
         nextViewportIntent += 1;
@@ -270,8 +426,12 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         identity: IDocumentOpenSurfaceIdentity,
         openingPageGeometry: IDocumentOpenSurfacePageGeometry | null,
         preparedFrame?: IDocumentOpenSurfacePreparedPageFrame,
+        updateVisual?: (
+            current: IDocumentOpenSurfaceVisualState,
+            viewport: IDocumentViewportSessionState,
+        ) => IDocumentOpenSurfaceVisualState,
     ) {
-        const opened = viewportSessionController.dispatch({
+        const opened = dispatchViewport({
             type: 'open-requested',
             identity: {
                 documentId: identity.documentId,
@@ -288,19 +448,23 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 pageCount: preparedFrame.geometry.pageCount,
                 frameKey: preparedFrame.sourceRevisionKey ?? preparedFrame.intentKey,
             }} : {}),
-        });
+        }, updateVisual);
         logPdfRenderTrace('viewport-session-open-requested', {
             documentId: identity.documentId,
             opened,
-            requestedPage: viewportSessionController.snapshot.value.requestedPage,
+            requestedPage: sessionState.value.viewport.requestedPage,
         });
         return opened;
     }
 
-    function dispatchNavigation(pageNumber: number, skeletonDelayMs: number) {
+    function dispatchNavigation(
+        pageNumber: number,
+        skeletonDelayMs: number,
+        updateVisual?: (current: IDocumentOpenSurfaceVisualState) => IDocumentOpenSurfaceVisualState,
+    ) {
         const intentId = createViewportIntentId('navigation');
         const token = createViewportIntentId('skeleton');
-        viewportSessionController.dispatch({
+        return dispatchViewport({
             type: 'navigation-requested',
             pageNumber,
             viewportIntentId: intentId,
@@ -308,7 +472,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 token,
                 deadline: Date.now() + skeletonDelayMs,
             }} : {}),
-        });
+        }, updateVisual);
     }
 
     function isCurrentFence(fence: IDocumentOpenSurfaceRenderFence) {
@@ -319,7 +483,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             && (canAcceptSameGenerationVisualCommit(current) || current.phase === 'ready');
     }
 
-    function retargetOwnedOpeningPageShell(pageNumber: number) {
+    function shouldRetargetOwnedOpeningPageShell(pageNumber: number) {
         const current = snapshot.value;
         const geometry = current.openingPageGeometry;
         const frame = current.openingPageFrame;
@@ -330,34 +494,20 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             || frame.generation !== current.generation
             || geometry.pageNumber === pageNumber
         ) {
-            return;
+            return false;
         }
-        const next = {
-            ...current,
-            phase: 'pending' as const,
-            presentation: 'page-shell' as const,
-            geometry: null,
-            openingPageGeometry: null,
-            openingPageFrame: null,
-            committedRender: null,
-            committedViewport: null,
-        };
-        snapshot.value = next;
+        return true;
     }
 
     return {
         snapshot: readonly(snapshot),
-        viewportSession: viewportSessionController.snapshot,
+        viewportSession,
         begin(identity, openingPageGeometry = null) {
-            const generation = snapshot.value.generation + 1;
             const normalizedOpeningPageGeometry = normalizeOpeningPageGeometry(openingPageGeometry);
             const ownedOpeningPageGeometry = normalizedOpeningPageGeometry?.documentId === identity.documentId
                 ? normalizedOpeningPageGeometry
                 : null;
-            snapshot.value = {
-                generation,
-                identity: Object.freeze({...identity}),
-                phase: 'pending',
+            beginViewportSession(identity, ownedOpeningPageGeometry, undefined, () => ({
                 // The transaction phase transfers center-surface ownership away
                 // from the empty placeholder immediately. Presentation remains
                 // idle until real page geometry can establish the page shell.
@@ -365,15 +515,11 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 geometry: null,
                 openingPageGeometry: ownedOpeningPageGeometry,
                 openingPageFrame: null,
-                committedRender: null,
-                committedViewport: null,
-                failure: null,
-            };
-            beginViewportSession(identity, ownedOpeningPageGeometry);
-            return generation;
+                committedViewportPosition: null,
+            }));
+            return sessionState.value.viewport.generation;
         },
         beginPrepared(identity, preparedFrame) {
-            const current = snapshot.value;
             const normalizedOpeningPageGeometry = normalizeOpeningPageGeometry(preparedFrame.geometry);
             if (
                 identity.documentId.length === 0
@@ -391,11 +537,8 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             ) {
                 return null;
             }
-            const generation = current.generation + 1;
-            snapshot.value = {
-                generation,
-                identity: Object.freeze({...identity}),
-                phase: 'pending',
+            const generation = sessionState.value.viewport.generation + 1;
+            const opened = beginViewportSession(identity, normalizedOpeningPageGeometry, preparedFrame, () => ({
                 presentation: 'page-shell',
                 geometry: null,
                 openingPageGeometry: normalizedOpeningPageGeometry,
@@ -406,12 +549,9 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                     intentKey: preparedFrame.intentKey,
                     style: Object.freeze({...preparedFrame.style}),
                 }),
-                committedRender: null,
-                committedViewport: null,
-                failure: null,
-            };
-            beginViewportSession(identity, normalizedOpeningPageGeometry, preparedFrame);
-            return generation;
+                committedViewportPosition: null,
+            }));
+            return opened ? generation : null;
         },
         commitOpeningPageGeometry(generation, geometry) {
             const current = snapshot.value;
@@ -424,20 +564,18 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             ) {
                 return false;
             }
-            const next = {
-                ...current,
-                openingPageGeometry: normalizedGeometry,
-            };
-            snapshot.value = {
-                ...next,
-                presentation: resolveOpeningPresentation(next),
-            };
-            viewportSessionController.dispatch({
+            return dispatchViewport({
                 type: 'metadata-ready',
-                generation: viewportSessionController.snapshot.value.generation,
+                generation: sessionState.value.viewport.generation,
                 pageCount: normalizedGeometry.pageCount,
-            });
-            return true;
+            }, visual => ({
+                ...visual,
+                openingPageGeometry: normalizedGeometry,
+                presentation: resolveOpeningPresentation({
+                    ...current,
+                    openingPageGeometry: normalizedGeometry,
+                }),
+            }));
         },
         claim(identity) {
             const current = snapshot.value;
@@ -459,35 +597,17 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                     && current.committedRender === null
                     && current.committedViewport === null
                 ) {
-                    snapshot.value = {
-                        ...current,
-                        identity: Object.freeze({...identity}),
-                    };
-                    viewportSessionController.dispatch({
+                    const refined = dispatchViewport({
                         type: 'identity-refined',
-                        generation: viewportSessionController.snapshot.value.generation,
+                        generation: sessionState.value.viewport.generation,
                         identity: {
                             documentId: identity.documentId,
                             revision: identity.documentRevision,
                         },
                     });
-                    return current.generation;
+                    return refined ? snapshot.value.generation : this.begin(identity);
                 }
-                const generation = current.generation + 1;
-                snapshot.value = {
-                    generation,
-                    identity: Object.freeze({...identity}),
-                    phase: 'pending',
-                    presentation: 'idle',
-                    geometry: null,
-                    openingPageGeometry: null,
-                    openingPageFrame: null,
-                    committedRender: null,
-                    committedViewport: null,
-                    failure: null,
-                };
-                beginViewportSession(identity, null);
-                return generation;
+                return this.begin(identity);
             }
             return this.begin(identity);
         },
@@ -496,21 +616,14 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             if (current.identity === null || current.phase === 'idle' || current.phase === 'failed') {
                 return null;
             }
-            const generation = current.generation + 1;
-            snapshot.value = {
-                generation,
-                identity: current.identity,
-                phase: 'pending',
+            const opened = beginViewportSession(current.identity, current.openingPageGeometry, undefined, () => ({
                 presentation: 'idle',
                 geometry: current.geometry,
                 openingPageGeometry: current.openingPageGeometry,
                 openingPageFrame: null,
-                committedRender: null,
-                committedViewport: null,
-                failure: null,
-            };
-            beginViewportSession(current.identity, current.openingPageGeometry);
-            return generation;
+                committedViewportPosition: null,
+            }));
+            return opened ? sessionState.value.viewport.generation : null;
         },
         commitOpeningPageFrame(generation, frame) {
             const current = snapshot.value;
@@ -528,16 +641,19 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 return false;
             }
             const next = {
-                ...current,
+                ...sessionState.value.visual,
                 openingPageFrame: Object.freeze({
                     ...frame,
                     style: Object.freeze({...frame.style}),
                 }),
             };
-            snapshot.value = {
+            commitVisual(() => ({
                 ...next,
-                presentation: resolveOpeningPresentation(next),
-            };
+                presentation: resolveOpeningPresentation({
+                    ...current,
+                    openingPageFrame: next.openingPageFrame,
+                }),
+            }));
             return true;
         },
         clearOpeningPageFrame(generation, ownerId) {
@@ -552,10 +668,10 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             ) {
                 return false;
             }
-            snapshot.value = {
-                ...current,
+            commitVisual(visual => ({
+                ...visual,
                 openingPageFrame: null,
-            };
+            }));
             return true;
         },
         commitGeometry(generation, geometry) {
@@ -569,17 +685,18 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             ) {
                 return false;
             }
-            snapshot.value = {
-                ...snapshot.value,
-                phase: 'geometry-committed',
-                presentation: snapshot.value.openingPageFrame === null ? snapshot.value.presentation : 'page-shell',
+            commitVisual(visual => ({
+                ...visual,
+                presentation: snapshot.value.openingPageFrame === null
+                    ? visual.presentation
+                    : 'page-shell',
                 geometry: Object.freeze({...geometry}),
-            };
+            }));
             return true;
         },
         createRenderFence(input) {
             const current = snapshot.value;
-            const viewportState = viewportSessionController.snapshot.value;
+            const viewportState = sessionState.value.viewport;
             const viewportIntentId = viewportState.viewportIntent?.id;
             if (
                 current.identity === null
@@ -594,13 +711,9 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 ...input,
                 viewportIntentId,
             });
-            const accepted = viewportSessionController.dispatch({
+            const accepted = dispatchViewport({
                 type: 'render-started',
                 fence: {
-                    // Surface and viewport sessions have independent lifecycle
-                    // counters (viewport close commits advance their own
-                    // generation). Validate the surface generation above, then
-                    // translate into the current viewport generation here.
                     generation: viewportState.generation,
                     revision: input.documentRevision,
                     pageNumber: input.pageNumber,
@@ -627,10 +740,10 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             ) {
                 return false;
             }
-            const accepted = viewportSessionController.dispatch({
+            const accepted = dispatchViewport({
                 type: 'canvas-committed',
                 fence: {
-                    generation: viewportSessionController.snapshot.value.generation,
+                    generation: sessionState.value.viewport.generation,
                     revision: fence.documentRevision,
                     pageNumber: fence.pageNumber,
                     viewportIntentId: fence.viewportIntentId,
@@ -641,17 +754,6 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             if (!accepted) {
                 return false;
             }
-            const phase = isReadyNavigation
-                ? 'ready'
-                : current.committedViewport?.pageNumber === fence.pageNumber
-                    ? 'viewport-committed'
-                    : 'canvas-committed';
-            snapshot.value = {
-                ...current,
-                phase,
-                committedRender: fence,
-                failure: null,
-            };
             return true;
         },
         commitViewport(commit) {
@@ -669,37 +771,29 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             ) {
                 return false;
             }
-            const accepted = viewportSessionController.dispatch({
+            return dispatchViewport({
                 type: 'viewport-committed',
                 fence: {
-                    generation: viewportSessionController.snapshot.value.generation,
+                    generation: sessionState.value.viewport.generation,
                     revision: commit.documentRevision,
                     pageNumber: commit.pageNumber,
                     viewportIntentId: commit.viewportIntentId,
                     geometryRevision: commit.documentGeometryRevision,
                     interactionEpoch: commit.interactionEpoch,
                 },
-            });
-            if (!accepted) {
-                return false;
-            }
-            const phase = current.phase === 'ready'
-                ? 'ready'
-                : current.committedRender?.pageNumber === commit.pageNumber
-                    ? 'viewport-committed'
-                    : current.phase;
-            snapshot.value = {
-                ...current,
-                phase,
-                committedViewport: Object.freeze({...commit}),
-                failure: null,
-            };
-            return true;
+            }, visual => ({
+                ...visual,
+                committedViewportPosition: Object.freeze({
+                    viewportIntentId: commit.viewportIntentId,
+                    left: commit.left,
+                    top: commit.top,
+                }),
+            }));
         },
         markReady(fence) {
             if (snapshot.value.phase === 'ready') {
-                return viewportSessionController.snapshot.value.lifecycle === 'ready'
-                    && viewportSessionController.snapshot.value.committedPage === fence.pageNumber;
+                return sessionState.value.viewport.lifecycle === 'ready'
+                    && sessionState.value.viewport.committedPage === fence.pageNumber;
             }
             const committed = snapshot.value.committedRender;
             const viewport = snapshot.value.committedViewport;
@@ -713,18 +807,17 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             ) {
                 return false;
             }
-            snapshot.value = {
-                ...snapshot.value,
-                phase: 'ready',
+            commitVisual(visual => ({
+                ...visual,
                 presentation: 'committed',
-            };
+            }));
             return true;
         },
         reject(fence, reason) {
             if (!isCurrentFence(fence)) {
                 return false;
             }
-            const viewportState = viewportSessionController.snapshot.value;
+            const viewportState = sessionState.value.viewport;
             const rejectsCurrentViewportIntent = viewportRenderFenceMatches(fence, viewportState.renderFence)
                 && viewportState.requestedPage === fence.pageNumber
                 && viewportState.lifecycle !== 'ready';
@@ -735,22 +828,20 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             if (!rejectsCurrentViewportIntent && viewportState.renderFence !== null) {
                 return false;
             }
-            snapshot.value = {
-                ...snapshot.value,
-                phase: 'failed',
-                presentation: 'failed',
-                openingPageFrame: null,
-                failure: reason,
-            };
-            if (viewportState.renderFence) viewportSessionController.dispatch({
+            if (!viewportState.renderFence) {
+                return false;
+            }
+            return dispatchViewport({
                 type: 'page-failed',
                 fence: viewportState.renderFence,
                 error: reason,
-            });
-            return true;
+            }, visual => ({
+                ...visual,
+                openingPageFrame: null,
+            }));
         },
         failPageTransition(pageNumber, reason) {
-            const viewport = viewportSessionController.snapshot.value;
+            const viewport = sessionState.value.viewport;
             const intent = viewport.viewportIntent;
             if (
                 !intent
@@ -759,7 +850,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             ) {
                 return false;
             }
-            return viewportSessionController.dispatch({
+            return dispatchViewport({
                 type: 'page-transition-failed',
                 generation: viewport.generation,
                 pageNumber,
@@ -775,55 +866,49 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             ) {
                 return false;
             }
-            snapshot.value = {
-                ...snapshot.value,
-                phase: 'failed',
-                presentation: 'failed',
-                openingPageFrame: null,
-                failure: reason,
-            };
-            viewportSessionController.dispatch({
+            return dispatchViewport({
                 type: 'open-failed',
-                generation: viewportSessionController.snapshot.value.generation,
+                generation: sessionState.value.viewport.generation,
                 error: reason,
-            });
-            return true;
+            }, visual => ({
+                ...visual,
+                openingPageFrame: null,
+            }));
         },
         reset() {
-            const closingGeneration = viewportSessionController.snapshot.value.generation;
-            if (viewportSessionController.dispatch({type: 'close-requested'})) {
-                viewportSessionController.dispatch({
+            const closingGeneration = sessionState.value.viewport.generation;
+            if (!transitionViewport([
+                {type: 'close-requested'},
+                {
                     type: 'close-committed',
                     generation: closingGeneration,
-                });
+                },
+            ], () => idleVisualState())) {
+                commitVisual(() => idleVisualState());
             }
-            snapshot.value = {
-                ...idleSnapshot(),
-                generation: snapshot.value.generation,
-            };
         },
         metadataReady(pageCount) {
-            return viewportSessionController.dispatch({
+            return dispatchViewport({
                 type: 'metadata-ready',
-                generation: viewportSessionController.snapshot.value.generation,
+                generation: sessionState.value.viewport.generation,
                 pageCount,
             });
         },
         requestNavigation(pageNumber, skeletonDelayMs = 120) {
             const normalized = Math.max(1, Math.trunc(pageNumber));
             if (!Number.isSafeInteger(normalized)) {
-                return viewportSessionController.snapshot.value.requestedPage;
+                return sessionState.value.viewport.requestedPage;
             }
-            if (viewportSessionController.snapshot.value.identity === null) {
+            if (sessionState.value.viewport.identity === null) {
                 // Navigation without a document identity has no semantic
                 // owner. The host begins an open session synchronously before
                 // exposing page commands, so retaining this value would only
                 // allow a late projection from the closed document to target
                 // the next file.
                 logPdfRenderTrace('viewport-session-navigation-rejected-without-owner', {pageNumber: normalized});
-                return viewportSessionController.snapshot.value.requestedPage;
+                return sessionState.value.viewport.requestedPage;
             }
-            const current = viewportSessionController.snapshot.value;
+            const current = sessionState.value.viewport;
             if (current.requestedPage === normalized) {
                 // Page projection and viewport commit callbacks may repeat the
                 // already-authoritative semantic page. Replacing its intent here
@@ -838,17 +923,23 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 });
                 return current.requestedPage;
             }
-            dispatchNavigation(normalized, skeletonDelayMs);
-            retargetOwnedOpeningPageShell(viewportSessionController.snapshot.value.requestedPage);
+            const retargetOpeningShell = shouldRetargetOwnedOpeningPageShell(normalized);
+            dispatchNavigation(normalized, skeletonDelayMs, retargetOpeningShell
+                ? visual => ({
+                    ...visual,
+                    presentation: 'page-shell',
+                    geometry: null,
+                    openingPageGeometry: null,
+                    openingPageFrame: null,
+                    committedViewportPosition: null,
+                })
+                : undefined);
             logPdfRenderTrace('viewport-session-navigation-dispatched', {
                 pageNumber: normalized,
-                requestedPage: viewportSessionController.snapshot.value.requestedPage,
-                documentId: viewportSessionController.snapshot.value.identity?.documentId ?? null,
+                requestedPage: sessionState.value.viewport.requestedPage,
+                documentId: sessionState.value.viewport.identity?.documentId ?? null,
             });
-            return viewportSessionController.snapshot.value.requestedPage;
-        },
-        subscribeViewportEffects(listener) {
-            return viewportSessionController.subscribe(listener);
+            return sessionState.value.viewport.requestedPage;
         },
     };
 }

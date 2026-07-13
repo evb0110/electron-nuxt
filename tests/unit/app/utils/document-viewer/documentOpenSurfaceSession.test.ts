@@ -61,7 +61,7 @@ describe('document open surface session', () => {
         expect(session.viewportSession.value.requestedPage).toBe(1);
     });
 
-    it('translates surface fences after close advances the viewport generation', () => {
+    it('keeps one generation authority across close and reopen', () => {
         const session = createDocumentOpenSurfaceSession();
         session.begin({
             documentId: 'first.pdf',
@@ -73,7 +73,7 @@ describe('document open surface session', () => {
             documentId: 'second.pdf',
             documentRevision: 'revision-2',
         });
-        expect(session.viewportSession.value.generation).not.toBe(surfaceGeneration);
+        expect(session.viewportSession.value.generation).toBe(surfaceGeneration);
         expect(session.commitGeometry(surfaceGeneration, {
             width: 612,
             height: 792,
@@ -746,7 +746,10 @@ describe('document open surface session', () => {
         expect(session.commitViewport(createViewportCommit(committedFence))).toBe(true);
         expect(session.snapshot.value.phase).toBe('viewport-committed');
         expect(session.markReady(committedFence)).toBe(true);
-        expect(session.snapshot.value.phase).toBe('ready');
+        expect(session.snapshot.value).toMatchObject({
+            phase: 'ready',
+            presentation: 'committed',
+        });
     });
 
     it('settles ready-phase navigation from the current requested-page render and viewport commits', () => {
@@ -976,7 +979,11 @@ describe('document open surface session', () => {
         expect(session.failPageTransition(5, 'Native preview failed')).toBe(true);
         vi.advanceTimersByTime(120);
 
-        expect(session.snapshot.value.phase).toBe('ready');
+        expect(session.snapshot.value).toMatchObject({
+            phase: 'failed',
+            presentation: 'failed',
+            failure: 'Native preview failed',
+        });
         expect(session.viewportSession.value).toMatchObject({
             lifecycle: 'failed',
             requestedPage: 5,
@@ -1489,7 +1496,7 @@ describe('document open surface session', () => {
 
         expect(session.commitCanvas(newer)).toBe(true);
         expect(session.commitCanvas(older)).toBe(false);
-        expect(session.snapshot.value.committedRender).toBe(newer);
+        expect(session.snapshot.value.committedRender).toEqual(newer);
     });
 
     it('does not replace a current-generation canvas commit with a late failure', () => {

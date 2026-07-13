@@ -147,28 +147,16 @@ export type TDocumentViewportSessionEvent =
         readonly generation: number
     };
 
-export type TDocumentViewportSessionEffect =
-    | {
-        readonly type: 'request-page-transition';
-        readonly generation: number;
-        readonly identity: IDocumentViewportIdentity;
-        readonly pageNumber: number;
-        readonly viewportIntentId: string;
-    }
-    | {
-        readonly type: 'schedule-skeleton-delay';
-        readonly generation: number;
-        readonly pageNumber: number;
-        readonly token: string;
-        readonly deadline: number;
-    }
+export type TDocumentViewportSessionEffect = {
+    readonly type: 'schedule-skeleton-delay';
+    readonly generation: number;
+    readonly pageNumber: number;
+    readonly token: string;
+    readonly deadline: number;
+}
     | {
         readonly type: 'cancel-skeleton-delay';
         readonly token: string
-    }
-    | {
-        readonly type: 'cancel-generation';
-        readonly generation: number
     };
 
 export interface IDocumentViewportSessionTransition {

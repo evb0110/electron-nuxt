@@ -167,7 +167,10 @@ describe('unit Vitest project topology', () => {
         expect(projectByName(config, vitestProjectNames.unitApp).test?.include)
             .toEqual(unitAppTestFiles);
         expect(projectByName(config, vitestProjectNames.unitApp).plugins)
-            .toHaveLength(1);
+            .toEqual(expect.arrayContaining([
+                expect.objectContaining({ name: 'vite:vue' }),
+                expect.objectContaining({ name: 'unplugin-auto-import' }),
+            ]));
         expect(projectByName(config, vitestProjectNames.unitApp).test?.setupFiles)
             .toEqual(['tests/setup.ts']);
         expect(projectByName(config, vitestProjectNames.unitElectron).test?.include)

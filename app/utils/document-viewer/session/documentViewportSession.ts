@@ -100,19 +100,6 @@ function fenceTargetsCurrentIntent(
         && fence.viewportIntentId === state.viewportIntent?.id;
 }
 
-function pageTransitionEffect(state: IDocumentViewportSessionState) {
-    if (!state.identity || !state.viewportIntent || state.pageCount === null) {
-        return null;
-    }
-    return {
-        type: 'request-page-transition',
-        generation: state.generation,
-        identity: state.identity,
-        pageNumber: state.requestedPage,
-        viewportIntentId: state.viewportIntent.id,
-    } as const;
-}
-
 function settleIfComplete(state: IDocumentViewportSessionState) {
     const render = state.committedRenderFence;
     const viewport = state.committedViewportFence;
@@ -210,10 +197,6 @@ function openRequested(
         type: 'cancel-skeleton-delay',
         token: state.skeletonDelay.token,
     });
-    if (state.lifecycle !== 'empty') effects.push({
-        type: 'cancel-generation',
-        generation: state.generation,
-    });
     if (event.skeletonDelay) effects.push({
         type: 'schedule-skeleton-delay',
         generation,
@@ -221,8 +204,6 @@ function openRequested(
         token: event.skeletonDelay.token,
         deadline: event.skeletonDelay.deadline,
     });
-    const request = pageTransitionEffect(next);
-    if (request) effects.push(request);
     return accept(next, effects);
 }
 
@@ -257,8 +238,7 @@ function metadataReady(
         viewportIntent,
         skeletonDelay,
     };
-    const request = pageTransitionEffect(next);
-    return accept(next, request ? [request] : []);
+    return accept(next);
 }
 
 function navigationRequested(
@@ -322,8 +302,6 @@ function navigationRequested(
             deadline: event.skeletonDelay.deadline,
         });
     }
-    const request = pageTransitionEffect(next);
-    if (request) effects.push(request);
     return accept(next, effects);
 }
 
@@ -483,10 +461,7 @@ export function reduceDocumentViewportSession(
             if (state.lifecycle === 'empty' || state.lifecycle === 'closing') {
                 return reject(state);
             }
-            const effects: TDocumentViewportSessionEffect[] = [{
-                type: 'cancel-generation',
-                generation: state.generation,
-            }];
+            const effects: TDocumentViewportSessionEffect[] = [];
             if (state.skeletonDelay) effects.push({
                 type: 'cancel-skeleton-delay',
                 token: state.skeletonDelay.token,
@@ -502,7 +477,7 @@ export function reduceDocumentViewportSession(
             if (state.lifecycle !== 'closing' || event.generation !== state.generation) {
                 return reject(state);
             }
-            return accept(createEmptyDocumentViewportSession(state.generation + 1));
+            return accept(createEmptyDocumentViewportSession(state.generation));
         default: {
             const exhaustive: never = event;
             return exhaustive;

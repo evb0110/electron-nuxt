@@ -1,5 +1,6 @@
 import type { TestProjectConfiguration } from 'vitest/config';
 import AutoImport from 'unplugin-auto-import/vite';
+import Vue from '@vitejs/plugin-vue';
 import { vitestResolveAlias } from './scripts/vitestResolveAlias';
 
 const vitestResolveConfig = { alias: vitestResolveAlias };
@@ -69,16 +70,21 @@ function createUnitTestProject(
     include: string[],
     {
         autoImport = false,
+        vueComponents = false,
         exclude = [],
         setupFiles,
     }: {
         autoImport?: boolean;
+        vueComponents?: boolean;
         exclude?: string[];
         setupFiles?: string[];
     } = {},
 ) {
     return {
-        plugins: autoImport ? [createUnitAutoImportPlugin()] : [],
+        plugins: [
+            ...(vueComponents ? [Vue()] : []),
+            ...(autoImport ? [createUnitAutoImportPlugin()] : []),
+        ],
         resolve: vitestResolveConfig,
         test: {
             name,
@@ -151,6 +157,7 @@ export const vitestProjects = [
         ['tests/unit/app/**/*.test.ts'],
         {
             autoImport: true,
+            vueComponents: true,
             setupFiles: unitTestSetupFiles,
         },
     ),

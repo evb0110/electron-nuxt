@@ -68,7 +68,7 @@ describe('commitPdfOpenSurfaceViewport', () => {
         expect(surface.snapshot.value.committedViewport).toBeNull();
     });
 
-    it('commits after close advances the independent viewport generation', () => {
+    it('commits after close and reopen under the shared generation', () => {
         const surface = createDocumentOpenSurfaceSession();
         surface.begin({
             documentId: 'first.pdf',
@@ -79,7 +79,7 @@ describe('commitPdfOpenSurfaceViewport', () => {
             documentId: 'scan.pdf',
             documentRevision: 'load:2',
         });
-        expect(surface.viewportSession.value.generation).not.toBe(generation);
+        expect(surface.viewportSession.value.generation).toBe(generation);
         expect(surface.commitGeometry(generation, {
             width: 612,
             height: 792,

@@ -163,13 +163,7 @@ describe('DocumentViewportSession', () => {
             frameKey: 'frame-3',
             error: null,
         });
-        expect(result.effects).toEqual([{
-            type: 'request-page-transition',
-            generation: 1,
-            identity,
-            pageNumber: 3,
-            viewportIntentId: 'open-intent',
-        }]);
+        expect(result.effects).toEqual([]);
     });
 
     it('accepts rapid pre-metadata navigation, keeps only latest intent, and clamps on metadata', () => {
@@ -233,13 +227,7 @@ describe('DocumentViewportSession', () => {
             presentation: 'cold-shell',
             pageNumber: 20,
         });
-        expect(metadata.effects).toEqual([{
-            type: 'request-page-transition',
-            generation: 1,
-            identity,
-            pageNumber: 20,
-            viewportIntentId: 'nav-2',
-        }]);
+        expect(metadata.effects).toEqual([]);
     });
 
     it('never flashes a skeleton when the current canvas commits before the delay', () => {
@@ -499,10 +487,7 @@ describe('DocumentViewportSession', () => {
             },
         });
 
-        expect(replacement.effects).toContainEqual({
-            type: 'cancel-generation',
-            generation: 1,
-        });
+        expect(replacement.effects).toEqual([]);
         expect(harness.state.generation).toBe(2);
         expect(harness.dispatch({
             type: 'canvas-committed',
@@ -518,10 +503,7 @@ describe('DocumentViewportSession', () => {
         expect(canOpenRecentDocument(harness.state)).toBe(false);
 
         const closing = harness.dispatch({type: 'close-requested'});
-        expect(closing.effects).toContainEqual({
-            type: 'cancel-generation',
-            generation: closingGeneration,
-        });
+        expect(closing.effects).toEqual([]);
         expect(canOpenRecentDocument(harness.state)).toBe(false);
         const closed = harness.dispatch({
             type: 'close-committed',
@@ -529,7 +511,7 @@ describe('DocumentViewportSession', () => {
         });
 
         expect(closed.accepted).toBe(true);
-        expect(harness.state).toEqual(createEmptyDocumentViewportSession(closingGeneration + 1));
+        expect(harness.state).toEqual(createEmptyDocumentViewportSession(closingGeneration));
         expect(canOpenRecentDocument(harness.state)).toBe(true);
         expect(harness.dispatch({
             type: 'metadata-ready',
