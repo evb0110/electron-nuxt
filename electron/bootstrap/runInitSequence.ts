@@ -406,7 +406,7 @@ function bootWindowLifecycle(
     });
 
     app.on('window-all-closed', () => {
-        if (config.isMac) {
+        if (config.isMac && !options.allowMultipleAutomationSessions) {
             return;
         }
         logger.info('All application windows closed; requesting graceful quit');

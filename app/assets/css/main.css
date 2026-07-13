@@ -326,7 +326,7 @@
     --app-annotation-context-swatch-size: 1.35rem;
     --app-document-source-badge-radius: var(--app-radius-xs);
     --app-workspace-transition-content-offset: var(--app-space-12xl);
-    --app-editor-sash-width: var(--app-space-lg);
+    --app-editor-sash-width: var(--app-editor-sash-size);
     --app-privacy-page-padding: 3rem;
     --app-privacy-inline-padding: 1.25rem;
     --app-privacy-footer-padding: 2rem;

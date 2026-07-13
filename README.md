@@ -227,7 +227,16 @@ pnpm run release:verify
 Electron E2E Vitest setup starts one shared Nuxt renderer server for the run,
 passes its port to detached Electron sessions, and tears it down only when the
 setup process owns it. Individual sessions launch Electron against that shared
-renderer instead of starting their own Nuxt server.
+renderer instead of starting their own Nuxt server. Session boot is a suite
+hook, so a filtered command such as `vitest ... -t 'specific journey'` does not
+need to include a synthetic infrastructure-test title.
+
+Failed fixture-backed E2E tests retain their bounded session log, diagnostics,
+and an automatic renderer screenshot under `.devkit/sessions/e2e-*/`. Set
+`EVB_E2E_PRESERVE_ARTIFACTS=1` to retain the same diagnostics for successful
+local runs. CI enables retention and uploads session logs, screenshots, and
+shared-renderer logs with `if: always()`; Electron browser profile data is
+intentionally excluded from the upload.
 
 Root app checks are intentionally scoped to the browser/Electron app and shared
 packages. The landing site is checked from `landing/` with its own dependency
@@ -257,6 +266,9 @@ Opt-in Electron E2E subsets are selected by named Vitest projects through
 package scripts: `pnpm run test:e2e:electron:draw-shapes`,
 `pnpm run test:e2e:electron:large`, and
 `pnpm run test:e2e:electron:rapid-navigation`.
+The macOS nightly `pnpm run test:e2e:electron:visible-window` lane deliberately
+uses the real show/maximize/focus lifecycle. Unlike the default hidden lanes,
+running it locally can bring the development app to the foreground.
 
 Broader regressions such as page operations, DOCX/image export, browser/desktop page extraction, recent-files persistence, and external-open routing are covered by fast unit tests so releases do not depend on long serial UI automation.
 

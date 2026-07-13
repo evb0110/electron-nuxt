@@ -201,6 +201,7 @@ interface IViewerSetupState {
     currentPage?: number;
     isLoading?: boolean;
     workingCopyPath?: string | null;
+    activeDocumentRecord?: {tab?: {originalPath?: string | null;} | null;} | null;
 }
 
 async function installPageEvaluationShims(page: Page) {
@@ -422,6 +423,7 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
     interface IViewerSnapshot {
         viewerIndex: number;
         isVisible: boolean;
+        documentPath: string | null;
         numPages: number | null;
         currentPage: number | null;
         isLoading: boolean | null;
@@ -458,11 +460,11 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
         } | null;
     }
 
-    const isRequestedDocumentLoaded = (workingCopyPath: string | null | undefined) => {
-        if (!workingCopyPath) {
+    const isRequestedDocumentLoaded = (documentPath: string | null | undefined) => {
+        if (!documentPath) {
             return false;
         }
-        return basename(workingCopyPath).toLowerCase() === requestedBasename;
+        return basename(documentPath).toLowerCase() === requestedBasename;
     };
     const isViewerReady = (viewer: Pick<IViewerSnapshot, 'numPages' | 'isLoading' | 'renderedPageContainers' | 'renderedCanvasCount' | 'renderedTextSpanCount'>) => {
         const hasPages = (viewer.numPages ?? 0) > 0 || viewer.renderedPageContainers > 0;
@@ -476,7 +478,7 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
     const findRequestedReadyViewer = (state: IOpenPdfState) => {
         return maxBy(
             state.viewers.filter(viewer => (
-                isRequestedDocumentLoaded(viewer.workingCopyPath)
+                isRequestedDocumentLoaded(viewer.documentPath)
                             && isViewerReady(viewer)
             )),
             scoreReadyViewer,
@@ -503,6 +505,19 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
             return rect.width > 0 && rect.height > 0;
         };
         const viewers = hosts.map((host, viewerIndex) => {
+            const resolveDocumentPath = () => {
+                let current: HTMLElement | null = host;
+                while (current) {
+                    const component = (current as HTMLElement & {__vueParentComponent?: IViewerVueComponent})
+                        .__vueParentComponent;
+                    const originalPath = component?.setupState?.activeDocumentRecord?.tab?.originalPath;
+                    if (typeof originalPath === 'string' && originalPath.length > 0) {
+                        return originalPath;
+                    }
+                    current = current.parentElement;
+                }
+                return null;
+            };
             const resolveViewerComponent = (): IViewerComponentSnapshot | null => {
                 let current: HTMLElement | null = host;
                 while (current) {
@@ -551,6 +566,7 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
             return {
                 viewerIndex,
                 isVisible: isElementVisible(host),
+                documentPath: resolveDocumentPath() ?? setupState?.workingCopyPath ?? null,
                 numPages: setupState?.numPages ?? null,
                 currentPage: setupState?.currentPage ?? exposed?.getCurrentPage?.() ?? null,
                 isLoading: setupState?.isLoading ?? null,
@@ -574,7 +590,7 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
         };
         const scoreViewer = (viewer: typeof viewers[number]) => {
             let score = 0;
-            if (requestedPathBasename && getPathBasename(viewer.workingCopyPath) === requestedPathBasename) {
+            if (requestedPathBasename && getPathBasename(viewer.documentPath) === requestedPathBasename) {
                 score += 1_000_000;
             }
             if (viewer.isVisible) {
@@ -616,6 +632,7 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
             .filter(node => isElementVisible(node as HTMLElement));
         const selected = selectedViewer ?? {
             viewerIndex: -1,
+            documentPath: null,
             numPages: null,
             currentPage: null,
             isLoading: null,
@@ -628,7 +645,7 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
             visibleErrorCount: 0,
         };
         const matchingViewerCount = viewers.filter((viewer) => {
-            return getPathBasename(viewer.workingCopyPath) === requestedPathBasename;
+            return getPathBasename(viewer.documentPath) === requestedPathBasename;
         }).length;
 
         return {
@@ -732,7 +749,7 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
     const readyViewer = findRequestedReadyViewer(state);
     if (!readyViewer) {
         const loadedPaths = state.viewers
-            .map(viewer => `${viewer.viewerIndex}:${viewer.workingCopyPath ?? '<none>'}${viewer.isVisible ? ':visible' : ''}`)
+            .map(viewer => `${viewer.viewerIndex}:${viewer.documentPath ?? '<none>'}${viewer.isVisible ? ':visible' : ''}`)
             .join(', ');
         throw new Error(`openPdf readiness timeout for ${pdfPath} (viewer paths: ${loadedPaths || '<none>'})`);
     }

@@ -1,49 +1,70 @@
 <template>
-    <div class="flex-1 min-h-0 min-w-0">
+    <div class="editor-panes-host flex-1 min-h-0 min-w-0">
+        <div
+            ref="parkingTarget"
+            class="editor-pane-parking"
+            aria-hidden="true"
+        />
         <EditorPanesGrid
             v-if="layout"
             :node="layout"
-            :panes="panes"
-            :tabs="tabs"
-            :active-pane-id="activePaneId"
-            :is-startup-open-claim-pending="isStartupOpenClaimPending"
-            :is-tab-transition-busy="isTabTransitionBusy"
-            :tab-context-availability-by-pane="tabContextAvailabilityByPane"
-            :start-section-by-tab-id="startSectionByTabId"
-            :tab-lifecycle-by-id="tabLifecycleById"
-            :view-state-by-tab-id="viewStateByTabId"
-            :document-records-by-tab-id="documentRecordsByTabId"
-            :document-sessions-by-tab-id="documentSessionsByTabId"
             :zen-mode="zenMode"
-            :zen-active-tab-id="zenActiveTabId"
-            :is-fullscreen="isFullscreen"
-            :fullscreen-supported="fullscreenSupported"
-            :is-workspace-layout-resizing="isWorkspaceLayoutResizing"
-            @activate-pane="handleActivatePane"
-            @activate-tab="handleActivateTab"
-            @close-tab="handleCloseTab"
-            @new-tab="handleNewTab"
-            @reorder-tab="handleReorderTab"
-            @move-tab-direction="handleMoveTabDirection"
-            @tab-context-command="handleTabContextCommand"
-            @set-workspace-ref="handleSetWorkspaceRef"
-            @update-document-record="handleUpdateDocumentRecord"
-            @update-tab-session-state="handleUpdateTabSessionState"
-            @update-tab-start-section="handleUpdateTabStartSection"
-            @open-in-new-tab="handleOpenInNewTab"
-            @request-close-tab="handleRequestCloseTab"
-            @open-settings="handleOpenSettings"
-            @open-combine="handleOpenCombine"
-            @toggle-fullscreen="handleToggleFullscreen"
+            :zen-active-pane-id="zenActivePaneId"
+            @set-pane-slot="handlePaneSlot"
             @update-split-ratio="handleUpdateSplitRatio"
             @update-layout-resizing="emit('update-layout-resizing', $event)"
         />
+        <template v-if="parkingTarget">
+            <Teleport
+                v-for="pane in panes"
+                :key="pane.paneId"
+                :to="paneSlotTargets.get(pane.paneId) ?? parkingTarget"
+            >
+                <EditorPaneView
+                    :key="pane.paneId"
+                    :pane="pane"
+                    :pane-count="panes.length"
+                    :tabs="tabs"
+                    :active-pane-id="activePaneId"
+                    :is-startup-open-claim-pending="isStartupOpenClaimPending"
+                    :is-tab-transition-busy="isTabTransitionBusy"
+                    :tab-context-availability="tabContextAvailabilityByPane[pane.paneId] ?? null"
+                    :start-section-by-tab-id="startSectionByTabId"
+                    :tab-lifecycle-by-id="tabLifecycleById"
+                    :view-state-by-tab-id="viewStateByTabId"
+                    :document-records-by-tab-id="documentRecordsByTabId"
+                    :document-sessions-by-tab-id="documentSessionsByTabId"
+                    :zen-mode="zenMode"
+                    :zen-active-tab-id="zenActiveTabId"
+                    :is-fullscreen="isFullscreen"
+                    :fullscreen-supported="fullscreenSupported"
+                    :is-workspace-layout-resizing="isWorkspaceLayoutResizing ?? false"
+                    @activate-pane="handleActivatePane"
+                    @activate-tab="handleActivateTab"
+                    @close-tab="handleCloseTab"
+                    @new-tab="handleNewTab"
+                    @reorder-tab="handleReorderTab"
+                    @move-tab-direction="handleMoveTabDirection"
+                    @tab-context-command="handleTabContextCommand"
+                    @set-workspace-ref="handleSetWorkspaceRef"
+                    @update-document-record="handleUpdateDocumentRecord"
+                    @update-tab-session-state="handleUpdateTabSessionState"
+                    @update-tab-start-section="handleUpdateTabStartSection"
+                    @open-in-new-tab="handleOpenInNewTab"
+                    @request-close-tab="handleRequestCloseTab"
+                    @open-settings="handleOpenSettings"
+                    @open-combine="handleOpenCombine"
+                    @toggle-fullscreen="handleToggleFullscreen"
+                />
+            </Teleport>
+        </template>
     </div>
 </template>
 
 <script setup lang="ts">
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import EditorPanesGrid from '@app/modules/workspace-shell/components/EditorPanesGrid.vue';
+import EditorPaneView from '@app/modules/workspace-shell/components/EditorPaneView.vue';
 import type {
     IEditorPaneState,
     TEditorLayoutNode,
@@ -63,7 +84,25 @@ import type { IWorkspaceDocumentSessionController } from '@app/modules/workspace
 
 defineOptions({ name: 'EditorPanesHost' });
 
-defineProps<{
+const {
+    activePaneId,
+    documentRecordsByTabId,
+    documentSessionsByTabId,
+    fullscreenSupported,
+    isFullscreen,
+    isStartupOpenClaimPending,
+    isTabTransitionBusy,
+    isWorkspaceLayoutResizing = false,
+    layout,
+    panes,
+    startSectionByTabId,
+    tabContextAvailabilityByPane,
+    tabLifecycleById,
+    tabs,
+    viewStateByTabId,
+    zenActiveTabId,
+    zenMode,
+} = defineProps<{
     layout: TEditorLayoutNode | null;
     panes: IEditorPaneState[];
     tabs: ITab[];
@@ -82,6 +121,23 @@ defineProps<{
     fullscreenSupported: boolean;
     isWorkspaceLayoutResizing?: boolean | undefined;
 }>();
+
+const parkingTarget = ref<HTMLElement | null>(null);
+const paneSlotTargets = shallowReactive(new Map<string, HTMLElement>());
+const zenActivePaneId = computed(() => (
+    zenActiveTabId
+        ? panes.find(pane => pane.tabIds.includes(zenActiveTabId))?.paneId ?? null
+        : null
+));
+
+watchEffect(() => {
+    const livePaneIds = new Set(panes.map(pane => pane.paneId));
+    for (const paneId of paneSlotTargets.keys()) {
+        if (!livePaneIds.has(paneId)) {
+            paneSlotTargets.delete(paneId);
+        }
+    }
+});
 
 const emit = defineEmits<{
     'activate-pane': [paneId: string];
@@ -181,4 +237,34 @@ function handleToggleFullscreen() {
 function handleUpdateSplitRatio(splitId: string, ratio: number) {
     emit('update-split-ratio', splitId, ratio);
 }
+
+function handlePaneSlot(paneId: string, element: HTMLElement | null) {
+    if (element) {
+        paneSlotTargets.set(paneId, element);
+        return;
+    }
+    const current = paneSlotTargets.get(paneId);
+    if (current && !current.isConnected) {
+        // Keep the detached target until its replacement registers in the
+        // same layout transition. Teleport then moves the persistent pane
+        // without ever unmounting its document workspace.
+        return;
+    }
+    paneSlotTargets.delete(paneId);
+}
 </script>
+
+<style scoped>
+.editor-panes-host {
+    position: relative;
+}
+
+.editor-pane-parking {
+    position: fixed;
+    width: var(--app-divider-width);
+    height: var(--app-hairline-height);
+    overflow: hidden;
+    visibility: hidden;
+    pointer-events: none;
+}
+</style>

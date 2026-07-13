@@ -58,3 +58,32 @@ export function resolveDocumentZoomAnchorScroll(
         top: Math.max(0, layout.top + layout.height * anchor.yRatio - container.clientHeight / 2),
     };
 }
+
+export function resolveRetainedDocumentZoomAnchor(
+    container: Pick<HTMLElement,
+        'clientHeight' | 'clientWidth' | 'scrollHeight' | 'scrollLeft' | 'scrollTop' | 'scrollWidth'>,
+    layouts: readonly IDocumentZoomPageLayout[],
+    retainedAnchor: IDocumentZoomAnchor | null,
+    tolerance = 1,
+) {
+    if (retainedAnchor) {
+        const projected = resolveDocumentZoomAnchorScroll(container, layouts, retainedAnchor);
+        if (projected) {
+            const projectedLeft = Math.min(
+                projected.left,
+                Math.max(0, container.scrollWidth - container.clientWidth),
+            );
+            const projectedTop = Math.min(
+                projected.top,
+                Math.max(0, container.scrollHeight - container.clientHeight),
+            );
+            if (
+                Math.abs(projectedLeft - container.scrollLeft) <= tolerance
+                && Math.abs(projectedTop - container.scrollTop) <= tolerance
+            ) {
+                return retainedAnchor;
+            }
+        }
+    }
+    return captureDocumentZoomAnchor(container, layouts);
+}

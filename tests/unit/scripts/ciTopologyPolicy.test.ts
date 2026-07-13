@@ -351,6 +351,7 @@ describe('CI topology policy', () => {
 
     it('keeps Electron desktop automation and PDF tab diagnostics nightly and non-blocking', async () => {
         const workflow = await readProjectFile('.github/workflows/ci.yml');
+        const artifactAction = await readProjectFile('.github/actions/upload-electron-e2e-artifacts/action.yml');
         const releaseWorkflow = await readProjectFile('.github/workflows/release.yml');
         const packageJson = await readProjectFile('package.json');
         const sharedVitestConfig = await readProjectFile('vitest.shared.config.ts');
@@ -376,6 +377,30 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('name: Nightly Electron E2E Quarantine');
         expect(workflowJob(workflow, 'nightly_electron_e2e_quarantine')).toContain('run: pnpm run check:electron:install');
         expect(workflow).toContain('run: pnpm run test:e2e:electron:quarantine');
+        expect(workflow).toContain('name: Nightly Electron E2E Visible Window');
+        expect(workflowJob(workflow, 'nightly_electron_e2e_visible_window')).toContain('runs-on: macos-14');
+        expect(workflowJob(workflow, 'nightly_electron_e2e_visible_window')).toContain('run: pnpm run test:e2e:electron:visible-window');
+        expect(packageJson).toContain('"test:e2e:electron:visible-window:no-build": "vitest run --project e2e-visible-window --reporter verbose"');
+        expect(sharedVitestConfig).toContain('electronE2EVisibleWindow: \'e2e-visible-window\'');
+        expect(workflow).toContain('EVB_E2E_PRESERVE_ARTIFACTS: \'1\'');
+        for (const jobName of [
+            'pr_electron_blocking_smoke',
+            'nightly_electron_e2e_regression',
+            'nightly_electron_e2e_rapid_navigation',
+            'nightly_electron_e2e_large_pdf',
+            'nightly_electron_e2e_quarantine',
+            'nightly_electron_e2e_visible_window',
+        ]) {
+            const job = workflowJob(workflow, jobName);
+            expect(job).toContain('if: ${{ always() }}');
+            expect(job).toContain('uses: ./.github/actions/upload-electron-e2e-artifacts');
+        }
+        expect(artifactAction).toContain('uses: actions/upload-artifact@v7');
+        expect(artifactAction).toContain('include-hidden-files: true');
+        expect(artifactAction).toContain('.devkit/sessions/e2e-*/screenshots/**');
+        expect(artifactAction).toContain('.devkit/test/electron-e2e-artifacts/**');
+        expect(artifactAction).toContain('.devkit/scratch/dev-server-logs/e2e-*/**');
+        expect(artifactAction).not.toContain('electron-user-data');
         expect(workflow).toContain('name: Nightly PDF Tab Diagnostics');
         expect(workflowJob(workflow, 'nightly_pdf_tabs_diagnostics')).toContain('run: pnpm run check:electron:install');
         expect(workflow).toMatch(/nightly_pdf_tabs_diagnostics:[\s\S]*if: \$\{\{ github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch' \}\}[\s\S]*continue-on-error: true[\s\S]*run: pnpm run diag:pdf-tabs:ci/u);

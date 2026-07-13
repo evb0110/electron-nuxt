@@ -126,6 +126,19 @@ describe('usePageStatusBar', () => {
         expect(statFileMock).not.toHaveBeenCalledWith('/Users/evb/Desktop/book.djvu');
     });
 
+    it('uses trusted opening metadata for a DjVu without a managed working copy', () => {
+        vi.stubGlobal('useTypedI18n', () => ({ t: (key: string, params?: { size?: string }) => (
+            key === 'status.fileSizeValue' ? `size:${params?.size ?? ''}` : key
+        ) }));
+        const statusBar = usePageStatusBar(createDeps({
+            knownFileSizeBytes: ref(4096),
+            originalPath: ref('/Users/evb/Desktop/book.djvu'),
+        }));
+
+        expect(statusBar.statusFileSizeLabel.value).toContain('4.00 KB');
+        expect(statFileMock).not.toHaveBeenCalled();
+    });
+
     it('does not stat an unadopted filesystem path while its visual open is pending', async () => {
         vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
         const isDocumentVisualPending = ref(true);

@@ -118,8 +118,10 @@ function dismiss() {
     flex: 1;
     min-width: 0;
     overflow: hidden;
+    padding-block: var(--app-space-2xs);
     color: var(--ui-text-muted);
     font-variant-numeric: tabular-nums;
+    line-height: var(--app-line-height-body);
     text-overflow: ellipsis;
     white-space: nowrap;
 }

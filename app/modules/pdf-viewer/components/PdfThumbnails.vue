@@ -114,6 +114,7 @@ import {
     PDF_THUMBNAIL_LOG_SECTION,
     usePdfThumbnailRenderRuntime,
 } from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailRenderRuntime';
+import { createThumbnailMeasurementDiagnostics } from '@app/modules/pdf-viewer/thumbnails/createThumbnailMeasurementDiagnostics';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/scrollToPageOptions';
 
 interface IProps {
@@ -170,7 +171,6 @@ const emit = defineEmits<{
 
 const containerRef = ref<HTMLElement | null>(null);
 let containerVisibilityState: 'unknown' | 'visible' | 'hidden' = 'unknown';
-let measurementState: 'ready' | 'no-item' | 'no-rendered-canvas' = 'ready';
 let lastUserInteractionAtMs = 0;
 let lastUserInteractionLogAtMs = 0;
 let lastUserInteractionReason: string | null = null;
@@ -189,6 +189,12 @@ const viewportHeight = ref(0);
 const thumbnailLayoutWidth = ref(THUMBNAIL_WIDTH);
 const thumbnailRenderWidth = ref(THUMBNAIL_WIDTH);
 const thumbnailAspectRatios = shallowRef<Array<number | null>>([]);
+const thumbnailMeasurementDiagnostics = createThumbnailMeasurementDiagnostics({
+    currentPage: () => currentPage,
+    describeContainerGeometry,
+    logSection: PDF_THUMBNAIL_LOG_SECTION,
+    totalPages: () => totalPages,
+});
 let getThumbnailRenderSummary = () => ({
     renderedCount: 0,
     renderingCount: 0,
@@ -264,26 +270,33 @@ function resolveInsertionIndex(offset: number) {
     return resolveThumbnailInsertionIndex(offset, totalPages, thumbnailLayoutSnapshot.value);
 }
 
-const visibleStartIndex = computed(() => {
+const viewportStartIndex = computed(() => {
     if (totalPages <= 0) {
         return 0;
     }
     const startPage = resolvePageAtScrollOffset(scrollTop.value) ?? 1;
-    return Math.max(
-        0,
-        startPage - 1 - VIRTUAL_OVERSCAN,
-    );
+    return Math.max(0, startPage - 1);
 });
 
-const visibleEndIndex = computed(() => {
+const viewportEndIndex = computed(() => {
     if (totalPages <= 0) {
         return -1;
     }
     const viewportBottom = scrollTop.value + Math.max(viewportHeight.value, DEFAULT_THUMBNAIL_ITEM_HEIGHT);
     const endPage = resolvePageAtScrollOffset(viewportBottom) ?? totalPages;
-    return Math.min(
-        totalPages - 1,
-        endPage - 1 + VIRTUAL_OVERSCAN,
+    return Math.min(totalPages - 1, endPage - 1);
+});
+
+const visibleStartIndex = computed(() => Math.max(0, viewportStartIndex.value - VIRTUAL_OVERSCAN));
+const visibleEndIndex = computed(() => Math.min(totalPages - 1, viewportEndIndex.value + VIRTUAL_OVERSCAN));
+
+const viewportPages = computed(() => {
+    if (totalPages <= 0 || viewportEndIndex.value < viewportStartIndex.value) {
+        return [] as number[];
+    }
+    return Array.from(
+        {length: viewportEndIndex.value - viewportStartIndex.value + 1},
+        (_, index) => viewportStartIndex.value + index + 1,
     );
 });
 
@@ -381,6 +394,17 @@ function getCanvas(pageNum: number): HTMLCanvasElement | null {
     return thumbnail?.querySelector('canvas') ?? null;
 }
 
+function isCanvasViewportVisible(page: number, canvas: HTMLCanvasElement) {
+    const container = containerRef.value;
+    const thumbnail = canvas.closest<HTMLElement>(`.pdf-thumbnail[data-page="${String(page)}"]`);
+    if (!container || !thumbnail || !isContainerVisible(container)) {
+        return false;
+    }
+    const containerRect = container.getBoundingClientRect();
+    const thumbnailRect = thumbnail.getBoundingClientRect();
+    return thumbnailRect.bottom > containerRect.top && thumbnailRect.top < containerRect.bottom;
+}
+
 function getThumbnailElement(pageNum: number) {
     if (!containerRef.value) {
         return null;
@@ -451,7 +475,7 @@ function isThumbnailPaneActive() {
 function isThumbnailLayoutStabilizing() {
     return (
         thumbnailAspectRatios.value.every(aspectRatio => !isValidThumbnailAspectRatio(aspectRatio))
-        || measurementState !== 'ready'
+        || !thumbnailMeasurementDiagnostics.isReady()
         || !thumbnailRenderRuntime.hasRenderedThumbnails()
     );
 }
@@ -731,6 +755,7 @@ function updateViewportMetrics() {
             geometry: describeContainerGeometry(container),
         });
     }
+    thumbnailRenderRuntime.reconcileSurfaceResidency();
 }
 
 function commitThumbnailRasterWidth() {
@@ -775,97 +800,10 @@ async function syncCurrentPageIntoView(
     applyRefinedCurrentPageSync(request.container, options);
 }
 
-function findRenderedMeasurementItem(container: HTMLElement) {
-    return Array.from(
-        container.querySelectorAll<HTMLElement>('.pdf-thumbnail'),
-    ).find((candidate) => {
-        const candidateCanvas = candidate.querySelector<HTMLCanvasElement>('canvas');
-        return Boolean(
-            candidateCanvas
-            && candidateCanvas.width > 0
-            && candidateCanvas.height > 0
-            && candidateCanvas.getBoundingClientRect().height > 0,
-        );
-    }) ?? null;
-}
-
-function warnMissingMeasurementItem(container: HTMLElement) {
-    if (measurementState === 'no-item') {
-        return;
-    }
-
-    measurementState = 'no-item';
-    BrowserLogger.diagnostic(PDF_THUMBNAIL_LOG_SECTION, 'Skipping thumbnail height measurement: no thumbnail items', {
-        currentPage: currentPage,
-        totalPages: totalPages,
-        geometry: describeContainerGeometry(container),
-    });
-}
-
-function warnMissingRenderedCanvas(
-    container: HTMLElement,
-    measurementItem: HTMLElement,
-    canvas: HTMLCanvasElement | null,
-) {
-    if (measurementState === 'no-rendered-canvas') {
-        return;
-    }
-
-    measurementState = 'no-rendered-canvas';
-    BrowserLogger.diagnostic(PDF_THUMBNAIL_LOG_SECTION, 'Skipping thumbnail height measurement: no rendered canvas in virtual window yet', {
-        currentPage: currentPage,
-        totalPages: totalPages,
-        geometry: describeContainerGeometry(container),
-        itemPage: measurementItem.dataset.page ?? null,
-        canvasWidth: canvas?.width ?? null,
-        canvasHeight: canvas?.height ?? null,
-    });
-}
-
-function logMeasurementReady(
-    measurementItem: HTMLElement,
-    canvas: HTMLCanvasElement,
-) {
-    if (measurementState === 'ready') {
-        return;
-    }
-
-    measurementState = 'ready';
-    BrowserLogger.diagnostic(PDF_THUMBNAIL_LOG_SECTION, 'Thumbnail height measurement resumed with rendered canvas', {
-        currentPage: currentPage,
-        totalPages: totalPages,
-        itemPage: measurementItem.dataset.page ?? null,
-        canvasWidth: canvas.width,
-        canvasHeight: canvas.height,
-    });
-}
-
-function measureRenderedThumbnailHeight(container: HTMLElement) {
-    const item = container.querySelector<HTMLElement>('.pdf-thumbnail');
-    if (!item) {
-        warnMissingMeasurementItem(container);
-        return;
-    }
-
-    const renderedItem = findRenderedMeasurementItem(container);
-    const measurementItem = renderedItem ?? item;
-    const canvas = measurementItem.querySelector<HTMLCanvasElement>('canvas');
-    if (!renderedItem || !canvas) {
-        warnMissingRenderedCanvas(container, measurementItem, canvas);
-        return;
-    }
-
-    logMeasurementReady(measurementItem, canvas);
-    BrowserLogger.diagnostic(PDF_THUMBNAIL_LOG_SECTION, 'Thumbnail layout measurement checked', {
-        geometry: describeContainerGeometry(container),
-        itemPage: measurementItem.dataset.page ?? null,
-    });
-}
-
 const measureThumbnailHeight = useDebounceFn(() => {
     const container = resolveVisibleContainer('measure-thumbnail-height');
     if (container) {
-        measureRenderedThumbnailHeight(container);
+        thumbnailMeasurementDiagnostics.measure(container);
     }
 }, 16);
 
@@ -932,6 +870,7 @@ function scheduleActivePaneRefresh(reason: string) {
 const thumbnailRenderRuntime = usePdfThumbnailRenderRuntime({
     dom: {
         getCanvas,
+        isCanvasViewportVisible,
         resolveVisibleContainer,
     },
     effects: {
@@ -942,7 +881,7 @@ const thumbnailRenderRuntime = usePdfThumbnailRenderRuntime({
         },
         refreshVisibleThumbnailPane,
         resetMeasurementState: () => {
-            measurementState = 'ready';
+            thumbnailMeasurementDiagnostics.reset();
         },
         scheduleActivePaneRefresh,
     },
@@ -951,6 +890,7 @@ const thumbnailRenderRuntime = usePdfThumbnailRenderRuntime({
         shouldPreferVisibleAnchorOverCurrentPage,
         thumbnailAspectRatios,
         thumbnailRenderWidth,
+        viewportPages,
         clearThumbnailAspectRatios,
         updateThumbnailAspectRatio,
         virtualPages,

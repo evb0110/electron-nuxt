@@ -21,6 +21,7 @@ env:
   # Pin exact Node 24 patch level so CI does not drift independently of local verification.
   NODE_VERSION: '24.11.1'
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  EVB_E2E_PRESERVE_ARTIFACTS: '1'
 
 jobs:
   pr_quality:
@@ -96,6 +97,12 @@ jobs:
 
       - name: Electron blocking core-PDF smoke
         run: pnpm run test:e2e:electron:blocking-smoke:headless
+
+      - name: Upload Electron E2E artifacts
+        if: ${{ always() }}
+        uses: ./.github/actions/upload-electron-e2e-artifacts
+        with:
+          artifact-name: electron-blocking-smoke-${{ github.run_attempt }}
 
   pr_changed_areas:
     name: Changed Area Detection
@@ -513,6 +520,12 @@ jobs:
       - name: Electron E2E regression
         run: pnpm run test:e2e:electron:regression
 
+      - name: Upload Electron E2E artifacts
+        if: ${{ always() }}
+        uses: ./.github/actions/upload-electron-e2e-artifacts
+        with:
+          artifact-name: electron-regression-${{ github.run_attempt }}
+
   nightly_electron_e2e_rapid_navigation:
     name: Nightly Electron E2E Rapid Navigation
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
@@ -541,6 +554,12 @@ jobs:
 
       - name: Electron E2E rapid navigation
         run: pnpm run test:e2e:electron:rapid-navigation
+
+      - name: Upload Electron E2E artifacts
+        if: ${{ always() }}
+        uses: ./.github/actions/upload-electron-e2e-artifacts
+        with:
+          artifact-name: electron-rapid-navigation-${{ github.run_attempt }}
 
   nightly_electron_e2e_large_pdf:
     name: Nightly Electron E2E Large PDF
@@ -581,6 +600,12 @@ jobs:
       - name: Electron E2E large PDF
         run: pnpm run test:e2e:electron:large
 
+      - name: Upload Electron E2E artifacts
+        if: ${{ always() }}
+        uses: ./.github/actions/upload-electron-e2e-artifacts
+        with:
+          artifact-name: electron-large-pdf-${{ github.run_attempt }}
+
   nightly_electron_e2e_quarantine:
     name: Nightly Electron E2E Quarantine
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
@@ -609,6 +634,47 @@ jobs:
 
       - name: Electron E2E quarantine
         run: pnpm run test:e2e:electron:quarantine
+
+      - name: Upload Electron E2E artifacts
+        if: ${{ always() }}
+        uses: ./.github/actions/upload-electron-e2e-artifacts
+        with:
+          artifact-name: electron-quarantine-${{ github.run_attempt }}
+
+  nightly_electron_e2e_visible_window:
+    name: Nightly Electron E2E Visible Window
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    runs-on: macos-14
+    continue-on-error: true
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+
+      - name: Verify Electron install
+        run: pnpm run check:electron:install
+
+      - name: Electron E2E visible-window lifecycle
+        run: pnpm run test:e2e:electron:visible-window
+
+      - name: Upload Electron E2E artifacts
+        if: ${{ always() }}
+        uses: ./.github/actions/upload-electron-e2e-artifacts
+        with:
+          artifact-name: electron-visible-window-${{ github.run_attempt }}
 
   nightly_pdf_tabs_diagnostics:
     name: Nightly PDF Tab Diagnostics

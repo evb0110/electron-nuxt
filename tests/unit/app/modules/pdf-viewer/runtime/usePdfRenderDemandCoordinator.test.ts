@@ -36,9 +36,14 @@ function createHarness() {
     let nextFrameId = 0;
     let nextWatchdogId = 0;
     const renderVisiblePages = vi.fn(async () => undefined);
+    const reconcilePageCanvasResidency = vi.fn();
     const coordinator = scope.run(() => usePdfRenderDemandCoordinator({
         visibleRange,
         pagesToRender: computed(() => mountedPages.value),
+        bufferPages: computed(() => 4),
+        maxBufferCanvasPixels: 100,
+        estimatePageRasterPixels: () => 10,
+        reconcilePageCanvasResidency,
         pageSlots,
         isActive: computed(() => true),
         isLoading: ref(false),
@@ -106,6 +111,7 @@ function createHarness() {
         renderStateVersion,
         renderGeneration,
         renderVisiblePages,
+        reconcilePageCanvasResidency,
         rendering,
         scope,
         visibleRange,
@@ -313,7 +319,7 @@ describe('usePdfRenderDemandCoordinator', () => {
         harness.scope.stop();
     });
 
-    it('covers the full mounted buffer window with a render-window override', async () => {
+    it('renders only the viewport-centered raster window inside a larger mounted geometry window', async () => {
         const harness = createHarness();
         harness.mountedPages.value = [
             40,
@@ -338,18 +344,34 @@ describe('usePdfRenderDemandCoordinator', () => {
                 end: 43,
             },
             {
+                maxCanvasPixels: 50,
                 preserveInFlightRequiredPages: true,
                 preserveRenderedPages: true,
                 renderWindowOverride: {
                     start: 40,
-                    end: 46,
+                    end: 42,
                 },
+            },
+        );
+        expect(harness.reconcilePageCanvasResidency).toHaveBeenLastCalledWith(
+            [
+                43,
+                44,
+                42,
+                45,
+                41,
+                46,
+                40,
+            ],
+            {
+                start: 43,
+                end: 43,
             },
         );
         harness.scope.stop();
     });
 
-    it('serializes disjoint mounted buffer windows without rendering their unmounted gap', async () => {
+    it('does not rasterize a far disjoint geometry segment outside the buffer radius', async () => {
         const harness = createHarness();
         harness.visibleRange.value = {
             start: 1,
@@ -378,28 +400,15 @@ describe('usePdfRenderDemandCoordinator', () => {
                 end: 1,
             },
             expect.objectContaining({renderWindowOverride: {
-                start: 1,
+                start: 2,
                 end: 3,
             }}),
         );
-
-        harness.flushFrame();
-        await Promise.resolve();
-        expect(harness.renderVisiblePages).toHaveBeenCalledTimes(2);
-        expect(harness.renderVisiblePages).toHaveBeenLastCalledWith(
-            {
-                start: 1,
-                end: 1,
-            },
-            expect.objectContaining({renderWindowOverride: {
-                start: 100,
-                end: 102,
-            }}),
-        );
+        expect(harness.renderVisiblePages).toHaveBeenCalledTimes(1);
         expect(harness.renderVisiblePages).not.toHaveBeenCalledWith(
             expect.anything(),
             expect.objectContaining({renderWindowOverride: {
-                start: 1,
+                start: 100,
                 end: 102,
             }}),
         );
@@ -413,9 +422,9 @@ describe('usePdfRenderDemandCoordinator', () => {
             end: 43,
         };
         harness.mountedPages.value = [
+            42,
             43,
             44,
-            100,
         ];
         for (const pageNumber of harness.mountedPages.value) {
             harness.pageSlots.markMounted(pageNumber);
@@ -435,13 +444,13 @@ describe('usePdfRenderDemandCoordinator', () => {
                 end: 43,
             },
             expect.objectContaining({renderWindowOverride: {
-                start: 43,
-                end: 44,
+                start: 42,
+                end: 42,
             }}),
         );
 
         // beginRender/commitCanvas update this version during a real buffer
-        // render. Reconciliation must wait instead of starting page 100 with a
+        // render. Reconciliation must wait instead of starting page 44 with a
         // newer renderer request id and cancelling the first range.
         harness.renderStateVersion.value += 1;
         harness.flushFrame();
@@ -459,8 +468,8 @@ describe('usePdfRenderDemandCoordinator', () => {
                 end: 43,
             },
             expect.objectContaining({renderWindowOverride: {
-                start: 100,
-                end: 100,
+                start: 44,
+                end: 44,
             }}),
         );
         harness.scope.stop();

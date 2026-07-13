@@ -122,22 +122,23 @@ watch(
     height: 100%;
     min-width: 0;
     max-width: max(0px, calc(100% - var(--app-sidebar-min-viewer-width)));
+    background: var(--app-sidebar-bg);
 }
 
 .sidebar-resizer {
     width: var(--app-editor-sash-width);
+    margin-inline-start: auto;
     cursor: col-resize;
     position: relative;
     flex-shrink: 0;
     user-select: none;
     touch-action: none;
-    background: transparent;
-    border-left: 1px solid var(--ui-border);
-    transition: border-color 0.15s ease;
+    background: var(--app-editor-sash-bg);
+    transition: background-color 0.12s ease;
 }
 
 .sidebar-resizer:hover,
 .sidebar-resizer.is-active {
-    border-left-color: var(--ui-primary);
+    background: var(--app-editor-sash-bg-hover);
 }
 </style>

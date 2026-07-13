@@ -17,6 +17,7 @@ import type {
 } from 'puppeteer-core';
 import { delay } from 'es-toolkit/promise';
 import { safeJsonParse } from '@contracts/safeJsonParse';
+import type { IWindowTabsCapability } from '@contracts/electronApiWindowTabs';
 import { createCommandHandler } from '@scripts/electron-run/createCommandHandler';
 import {
     buildElectronAutomationArgs,
@@ -77,6 +78,7 @@ import {
     sessionFilePath,
 } from '@scripts/electron-run/electronRunSessionPaths';
 import type { ISessionState } from '@scripts/electron-run/electronRunSessionTypes';
+import { clearAutomationWorkspaceCrashCheckpoint } from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 import { SESSION_WAIT_TIMEOUT_MS } from '@scripts/electron-run/electronRunTimeouts';
 import {
     connectToBrowser,
@@ -637,12 +639,20 @@ async function stopSessionElectronProcess(state: ISessionState | null) {
     const shutdownStartedAt = Date.now();
     if (state.browser.connected) {
         console.log('[Electron] Requesting graceful app shutdown...');
-        const didCloseBrowser = await Promise.race([
-            state.browser.close().then(() => true).catch(() => false),
-            delay(ELECTRON_GRACEFUL_SHUTDOWN_TIMEOUT_MS).then(() => false),
+        const didRequestWindowClose = await Promise.race([
+            state.page.evaluate(() => {
+                const rendererWindow = window as Window & {electronAPI?: {windowTabs: IWindowTabsCapability}};
+                const closeCurrentWindow = rendererWindow.electronAPI?.windowTabs.closeCurrentWindow;
+                if (!closeCurrentWindow) {
+                    return false;
+                }
+                void closeCurrentWindow();
+                return true;
+            }).catch(() => false),
+            delay(1_000).then(() => false),
         ]);
-        if (!didCloseBrowser) {
-            console.warn('[Electron] Graceful close command did not complete before the deadline');
+        if (!didRequestWindowClose) {
+            console.warn('[Electron] Renderer window close request did not complete before the deadline');
         }
     }
 
@@ -661,6 +671,9 @@ async function stopSessionElectronProcess(state: ISessionState | null) {
         }
     }
 
+    if (state.browser.connected) {
+        await state.browser.close().catch(() => {});
+    }
     await state.browser.disconnect().catch(() => {});
     console.warn('[Electron] Graceful shutdown timed out; using process-tree fallback');
     try {
@@ -722,6 +735,9 @@ async function cleanupSessionAndExit(exitCode: number, httpServer: ReturnType<ty
     clearRuntimeSessionFiles();
     httpServer?.close();
     await stopSessionElectronProcess(sessionState);
+    if (exitCode === 0) {
+        clearAutomationWorkspaceCrashCheckpoint(getCurrentSessionName());
+    }
     await stopSessionNuxtProcess(sessionState, keepNuxtOnStop);
     sessionState = null;
     closeActiveDevServerOutputTee();

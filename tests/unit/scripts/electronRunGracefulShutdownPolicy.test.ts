@@ -1,5 +1,13 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import {
+    mkdirSync,
+    readFileSync,
+    rmSync,
+    writeFileSync,
+} from 'node:fs';
+import {
+    dirname,
+    join,
+} from 'node:path';
 import {
     describe,
     expect,
@@ -10,6 +18,11 @@ import {
     parseElectronRunCommandRequest,
 } from '@scripts/electron-run/electronRunProtocol';
 import { shouldRemoveSessionStopArtifacts } from '@scripts/electron-run/stopSession';
+import {
+    clearAutomationWorkspaceCrashCheckpoint,
+    workspaceCrashCheckpointPath,
+} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
+import { sessionDir } from '@scripts/electron-run/electronRunSessionPaths';
 
 const projectRoot = process.cwd();
 
@@ -29,30 +42,64 @@ describe('Electron automation graceful shutdown policy', () => {
         });
     });
 
-    it('closes Electron through the automation browser before process-tree fallback', () => {
+    it('closes the renderer window before browser and process-tree fallbacks', () => {
         const sessionSource = readProjectSource('scripts/electron-run/sessionManager.ts');
         const stopSource = readProjectSource('scripts/electron-run/stopSession.ts');
-        const gracefulCloseIndex = sessionSource.indexOf('state.browser.close()');
+        const gracefulCloseIndex = sessionSource.indexOf('electronAPI?.windowTabs.closeCurrentWindow');
+        const browserFallbackIndex = sessionSource.indexOf('state.browser.close()');
         const electronFallbackIndex = sessionSource.indexOf('killProcessTree(electronPid');
         const shutdownCommandIndex = stopSource.indexOf('info, \'shutdown\'');
         const controllerFallbackIndex = stopSource.indexOf('killVerifiedSessionProcess', shutdownCommandIndex);
 
         expect(gracefulCloseIndex).toBeGreaterThan(-1);
-        expect(electronFallbackIndex).toBeGreaterThan(gracefulCloseIndex);
+        expect(browserFallbackIndex).toBeGreaterThan(gracefulCloseIndex);
+        expect(electronFallbackIndex).toBeGreaterThan(browserFallbackIndex);
         expect(shutdownCommandIndex).toBeGreaterThan(-1);
         expect(controllerFallbackIndex).toBeGreaterThan(shutdownCommandIndex);
         expect(sessionSource).toContain('Graceful app shutdown complete');
         expect(sessionSource).toContain('Graceful shutdown timed out; using process-tree fallback');
     });
 
-    it('keeps the E2E browser attached until the controller initiates app shutdown', () => {
-        const source = readProjectSource('tests/e2e/electron/helpers/startElectronE2ESession.ts');
-        const stopBody = source.slice(
-            source.indexOf('const stop = async () => {'),
-            source.indexOf('return {', source.indexOf('const stop = async () => {')),
+    it('removes only the crash-recovery checkpoint on an intentional automation stop', () => {
+        const sessionName = `checkpoint-policy-${String(process.pid)}-${String(Date.now())}`;
+        const checkpointPath = workspaceCrashCheckpointPath(sessionName);
+        try {
+            mkdirSync(dirname(checkpointPath), {recursive: true});
+            writeFileSync(checkpointPath, '{"checkpoint":true}', 'utf8');
+
+            expect(clearAutomationWorkspaceCrashCheckpoint(sessionName)).toBe(true);
+            expect(clearAutomationWorkspaceCrashCheckpoint(sessionName)).toBe(false);
+        } finally {
+            rmSync(sessionDir(sessionName), {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
+    it('preserves crash recovery during a normal start until an explicit stop owns cleanup', () => {
+        const sessionSource = readProjectSource('scripts/electron-run/sessionManager.ts');
+        const startBody = sessionSource.slice(
+            sessionSource.indexOf('export async function startSession('),
+            sessionSource.indexOf('async function waitForProcessExit', sessionSource.indexOf('export async function startSession(')),
         );
 
-        expect(stopBody).toContain('stopSingleSession(scopedSessionName)');
+        expect(startBody).not.toContain('clearAutomationWorkspaceCrashCheckpoint');
+        expect(sessionSource).toContain('if (exitCode === 0)');
+        expect(readProjectSource('scripts/electron-run/stopSession.ts'))
+            .toContain('clearAutomationWorkspaceCrashCheckpoint(name)');
+    });
+
+    it('keeps the E2E browser attached until the controller initiates app shutdown', () => {
+        const source = readProjectSource('tests/e2e/electron/helpers/startElectronE2ESession.ts');
+        const stopStart = source.indexOf('const stop = async (');
+        expect(stopStart).toBeGreaterThan(-1);
+        const stopBody = source.slice(
+            stopStart,
+            source.indexOf('return {', stopStart),
+        );
+
+        expect(stopBody).toContain('stopSingleSession(scopedSessionName');
         expect(stopBody).not.toContain('browser.disconnect()');
     });
 

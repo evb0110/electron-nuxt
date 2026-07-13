@@ -7,7 +7,6 @@ import {
     readFile,
     stat,
 } from 'node:fs/promises';
-import {basename} from 'node:path';
 import {PDFDocument} from 'pdf-lib';
 import {
     createLargeScannedFixturePdf,
@@ -570,15 +569,14 @@ async function closeActiveDocumentToEmpty(
 
 async function openActionableRecentFile(
     page: Parameters<typeof installCommittedSurfaceSampler>[0],
-    fileName: string,
+    sourcePath: string,
 ) {
-    await waitForFunctionInPage(page, (targetFileName: string) => {
-        const row = Array.from(document.querySelectorAll<HTMLButtonElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] button.recent-row--data',
+    await waitForFunctionInPage(page, (targetSourcePath: string) => {
+        const row = Array.from(document.querySelectorAll<HTMLElement>(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .recent-row--data:not(.recent-row--skeleton)',
         )).find(candidate => (
-            !candidate.disabled
-            && candidate.dataset.recentOpenReady === 'true'
-            && candidate.textContent?.includes(targetFileName)
+            candidate.dataset.recentOpenActionable === 'true'
+            && candidate.dataset.recentSource === targetSourcePath
         ));
         if (!row) {
             return false;
@@ -587,7 +585,7 @@ async function openActionableRecentFile(
             .__committedSurfaceInteractionCheckpoint = 'recent-djvu-click';
         row.click();
         return true;
-    }, {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS}, fileName);
+    }, {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS}, sourcePath);
 }
 
 async function captureRepeatedLargePdfOpen(
@@ -1100,7 +1098,6 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             12,
             0,
         );
-        const fixtureName = basename(fixturePath);
         await runPdfDiagnosticStage(session.page, 'early:prime-open-pdf', () => (
             openPdfInApp(session.page, fixturePath, PR_BLOCKING_SMOKE_TIMEOUT_MS)
         ));
@@ -1111,14 +1108,13 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             closeActiveDocumentToEmpty(session.page)
         ));
         await runPdfDiagnosticStage(session.page, 'early:wait-actionable-recent', () => (
-            waitForFunctionInPage(session.page, (targetFileName: string) => (
-                Array.from(document.querySelectorAll<HTMLButtonElement>('button.recent-row--data'))
+            waitForFunctionInPage(session.page, (targetSourcePath: string) => (
+                Array.from(document.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)'))
                     .some(row => (
-                        !row.disabled
-                        && row.dataset.recentOpenReady === 'true'
-                        && row.textContent?.includes(targetFileName)
+                        row.dataset.recentOpenActionable === 'true'
+                        && row.dataset.recentSource === targetSourcePath
                     ))
-            ), {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS}, fixtureName)
+            ), {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS}, fixturePath)
         ));
 
         const sourceDeferred = await evaluateInPage(session.page, (path: string) => (
@@ -1127,12 +1123,11 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         expect(sourceDeferred).toBe(true);
         await installCommittedSurfaceSampler(session.page);
         await startPdfRenderTrace(session.page);
-        const earlyNavigation = await evaluateInPage(session.page, (targetFileName: string) => {
-            const row = Array.from(document.querySelectorAll<HTMLButtonElement>('button.recent-row--data'))
+        const earlyNavigation = await evaluateInPage(session.page, (targetSourcePath: string) => {
+            const row = Array.from(document.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)'))
                 .find(candidate => (
-                    !candidate.disabled
-                    && candidate.dataset.recentOpenReady === 'true'
-                    && candidate.textContent?.includes(targetFileName)
+                    candidate.dataset.recentOpenActionable === 'true'
+                    && candidate.dataset.recentSource === targetSourcePath
                 ));
             const api = (window as IE2EWindow).__evbTestApi;
             if (!row || !api) {
@@ -1153,7 +1148,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                 clicked: true,
                 requestCount: 5,
             };
-        }, fixtureName);
+        }, fixturePath);
         expect(earlyNavigation).toEqual({
             clicked: true,
             requestCount: 5,
@@ -1312,7 +1307,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         ).toEqual([]);
 
         const closeRecentState = await evaluateInPage(session.page, (
-            targetFileName: string,
+            targetSourcePath: string,
         ) => new Promise<{
             enabled: boolean;
             found: boolean;
@@ -1321,17 +1316,17 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         }>((resolve) => {
             document.querySelector<HTMLButtonElement>('.tab-list .tab.is-active .tab-close')?.click();
             window.requestAnimationFrame(() => {
-                const row = Array.from(document.querySelectorAll<HTMLButtonElement>('button.recent-row--data'))
-                    .find(candidate => candidate.textContent?.includes(targetFileName));
+                const row = Array.from(document.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)'))
+                    .find(candidate => candidate.dataset.recentSource === targetSourcePath);
                 const host = document.querySelector<HTMLElement>('.workspace-host[data-workspace-active="true"]');
                 resolve({
-                    enabled: Boolean(row && !row.disabled),
+                    enabled: row?.dataset.recentOpenActionable === 'true',
                     found: Boolean(row),
                     host: host ? {...host.dataset} : null,
                     rowReady: row?.dataset.recentOpenReady ?? null,
                 });
             });
-        }), fixtureName);
+        }), fixturePath);
         expect(closeRecentState.found, JSON.stringify(closeRecentState)).toBe(true);
         expect(closeRecentState.enabled, JSON.stringify(closeRecentState)).toBe(true);
         await stopPdfRenderTrace(session.page);
@@ -1362,29 +1357,26 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                 3,
                 0,
             );
-            const fixtureName = basename(fixturePath);
             await openPdfInApp(session.page, fixturePath, PR_BLOCKING_SMOKE_TIMEOUT_MS);
             await waitForPdfLoaded(session.page, PR_BLOCKING_SMOKE_TIMEOUT_MS);
             await evaluateInPage(session.page, () => {
                 document.querySelector<HTMLButtonElement>('.tab-list .tab.is-active .tab-close')?.click();
             });
-            await waitForFunctionInPage(session.page, (targetFileName: string) => (
-                Array.from(document.querySelectorAll<HTMLButtonElement>('button.recent-row--data'))
+            await waitForFunctionInPage(session.page, (targetSourcePath: string) => (
+                Array.from(document.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)'))
                     .some(row => (
-                        !row.disabled
-                        && row.dataset.recentOpenReady === 'true'
-                        && row.textContent?.includes(targetFileName)
+                        row.dataset.recentOpenActionable === 'true'
+                        && row.dataset.recentSource === targetSourcePath
                     ))
-            ), {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS}, fixtureName);
-            await evaluateInPage(session.page, (targetFileName: string) => {
-                const row = Array.from(document.querySelectorAll<HTMLButtonElement>('button.recent-row--data'))
+            ), {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS}, fixturePath);
+            await evaluateInPage(session.page, (targetSourcePath: string) => {
+                const row = Array.from(document.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)'))
                     .find(candidate => (
-                        !candidate.disabled
-                        && candidate.dataset.recentOpenReady === 'true'
-                        && candidate.textContent?.includes(targetFileName)
+                        candidate.dataset.recentOpenActionable === 'true'
+                        && candidate.dataset.recentSource === targetSourcePath
                     ));
                 row?.click();
-            }, fixtureName);
+            }, fixturePath);
             await waitForPdfLoaded(session.page, PR_BLOCKING_SMOKE_TIMEOUT_MS);
             expect(rendererExceptions).toEqual([]);
         } catch (error) {
@@ -2232,7 +2224,7 @@ runDjvuBlockingOrSkip('Electron E2E - PR Blocking DjVu Committed Surface', () =>
         await installCommittedSurfaceSampler(session.page);
         await openActionableRecentFile(
             session.page,
-            basename(djvuBlockingFixture.path),
+            djvuBlockingFixture.path,
         );
         await waitForDjvuLoaded(session.page, PR_BLOCKING_SMOKE_TIMEOUT_MS);
         await waitForFunctionInPage(session.page, () => {

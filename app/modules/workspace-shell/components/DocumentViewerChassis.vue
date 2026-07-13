@@ -431,10 +431,10 @@ watch(() => [
     }
 }, {flush: 'pre'});
 
-// Navigation belongs to the stable chassis, not to the async feature pack
-// currently projected inside it. A command can arrive while that child is
-// absent or swapping; the session-backed requested page then mounts the next
-// child at the durable target.
+// Navigation belongs to the stable chassis, so commands remain durable while
+// the async feature pack is absent or swapping. When a renderer is mounted it
+// must also project that request into the viewport; recording the requested
+// page alone does not create or commit a scroll intent.
 defineExpose(createDocumentViewerExposeForwarder(sourceViewerRef, {
     getCurrentPage: () => (
         chassisAuthority.openSurface.viewportSession.value.committedPage
@@ -447,7 +447,9 @@ defineExpose(createDocumentViewerExposeForwarder(sourceViewerRef, {
             : null;
     },
     scrollToPage: (pageNumber: number) => {
-        chassisAuthority.navigate(pageNumber);
+        const normalizedPage = chassisAuthority.navigate(pageNumber);
+        const viewer = sourceViewerRef.value as {scrollToPage?: (page: number) => void;} | null;
+        viewer?.scrollToPage?.(normalizedPage);
     },
 }));
 </script>
@@ -471,6 +473,7 @@ defineExpose(createDocumentViewerExposeForwarder(sourceViewerRef, {
     gap: 0;
     overflow: auto;
     overflow-y: scroll;
+    background: var(--app-pdf-viewer-bg);
 
     /* Reserve the vertical scrollbar lane before the live page track mounts.
        Otherwise fit-width opening geometry is computed against a viewport

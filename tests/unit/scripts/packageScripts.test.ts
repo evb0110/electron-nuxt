@@ -335,6 +335,11 @@ describe('package scripts', () => {
             'pnpm run test:e2e:electron:rapid-navigation:no-build',
         ]);
         expect(scripts['test:e2e:electron:rapid-navigation:no-build']).toBe('vitest run --project e2e-rapid-navigation --reporter verbose');
+        expect(scriptCommands(packageJson, 'test:e2e:electron:visible-window')).toEqual([
+            'pnpm run build:electron',
+            'pnpm run test:e2e:electron:visible-window:no-build',
+        ]);
+        expect(scripts['test:e2e:electron:visible-window:no-build']).toBe('vitest run --project e2e-visible-window --reporter verbose');
         expect(scriptCommands(packageJson, 'diag:pdf-navigation-blink-trace')).toEqual([
             'pnpm run build:electron',
             'pnpm exec tsx scripts/diagnostics/pdfNavigationBlinkTrace.ts',

@@ -11,3 +11,6 @@ and a deterministic pseudo-photo gradient, so no third-party artwork or fonts
 enter the repository. `corpus-manifest.json` records SHA-256 hashes and CC0
 provenance. Missing-tool and ENOSPC behavior is simulated around the checked-in
 corrupt fixture by the contract tests.
+
+`sources/browser-boundary-501-pages.djvu` is also the required default Electron
+E2E viewer fixture, keeping DjVu smoke lanes independent of host generator tools.

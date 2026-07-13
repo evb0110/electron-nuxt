@@ -247,6 +247,12 @@ export const usePdfRendererPageRegistry = (options: IUsePdfRendererPageRegistryO
             bytes: leases.reduce((total, lease) => total + lease.bytes, 0),
             category: 'pdf-page-canvas',
             scopeId: surfaceScopeId,
+            promotePriority(priority) {
+                leases.forEach(lease => lease.promotePriority?.(priority));
+            },
+            setPriority(priority) {
+                leases.forEach(lease => lease.setPriority?.(priority));
+            },
             release() {
                 if (released) {
                     return;
@@ -284,6 +290,10 @@ export const usePdfRendererPageRegistry = (options: IUsePdfRendererPageRegistryO
         pageCanvasSurfaceLeases.delete(pageNumber);
     }
 
+    function setPageCanvasSurfacePriority(pageNumber: number, priority: number) {
+        pageCanvasSurfaceLeases.get(pageNumber)?.setPriority?.(priority);
+    }
+
     function releaseAllSurfaceResources() {
         workspaceSurfaceBudgetController.releaseScope(surfaceScopeId);
         pageCanvasSurfaceLeases.clear();
@@ -301,6 +311,7 @@ export const usePdfRendererPageRegistry = (options: IUsePdfRendererPageRegistryO
         replacePageCanvasSurfaceLease,
         markPageCanvasSurfaceEvictable,
         releasePageCanvasSurface,
+        setPageCanvasSurfacePriority,
         releaseAllSurfaceResources,
         textLayerCleanupFns,
         activeTextLayerAbortControllers,

@@ -1,7 +1,3 @@
-import type {
-    ComputedRef,
-    Ref,
-} from 'vue';
 import { useDebounceFn } from '@vueuse/core';
 import { clamp } from 'es-toolkit/math';
 import type {
@@ -9,10 +5,6 @@ import type {
     PDFPageProxy,
     RenderTask,
 } from 'pdfjs-dist';
-import type {
-    IAnnotationCommentSummary,
-    IAnnotationSettings,
-} from '@app/types/annotations';
 import { THUMBNAIL_WIDTH } from '@app/constants/pdfLayout';
 import { createRenderTaskHiddenAnnotationOperationsFilter } from '@app/modules/pdf-viewer/engine/pdf-hidden-annotation-operations/createRenderTaskHiddenAnnotationOperationsFilter';
 import { runCoordinatedPdfPageRender } from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
@@ -39,57 +31,16 @@ import { resolveThumbnailItemHeightFromAspect } from '@app/modules/pdf-viewer/th
 import { resolveThumbnailRenderConcurrency } from '@app/modules/pdf-viewer/thumbnails/resolveThumbnailRenderConcurrency';
 import { resolveThumbnailRenderCoordination } from '@app/modules/pdf-viewer/thumbnails/resolveThumbnailRenderCoordination';
 import {
+    createThumbnailSurfaceResidency,
+    type TThumbnailSurfaceDemand,
+} from '@app/modules/pdf-viewer/thumbnails/createThumbnailSurfaceResidency';
+import type { IUsePdfThumbnailRenderRuntimeOptions } from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailRenderRuntimeOptions';
+import {
     estimateCanvasSurfaceBytes,
     workspaceSurfaceBudgetController,
-    type IWorkspaceSurfaceLease,
 } from '@app/utils/document-viewer/workspaceSurfaceBudget';
 
 export const PDF_THUMBNAIL_LOG_SECTION = 'pdf-thumbnails';
-interface IPdfThumbnailRenderRuntimeSource {
-    currentPage: ComputedRef<number>;
-    invalidationRequest: ComputedRef<{
-        id: number;
-        pages: number[];
-    } | null | undefined>;
-    isActive: ComputedRef<boolean>;
-    pdfDocument: ComputedRef<PDFDocumentProxy | null>;
-    totalPages: ComputedRef<number>;
-}
-interface IPdfThumbnailRenderRuntimeVisuals {
-    annotationSettings: ComputedRef<IAnnotationSettings | null | undefined>;
-    editedTextMarkupComments: ComputedRef<IAnnotationCommentSummary[]>;
-    editedTextMarkupVisualSignature: ComputedRef<string>;
-    hiddenAnnotationIdSet: ComputedRef<Set<string>>;
-    hiddenAnnotationIdsSignature: ComputedRef<string>;
-}
-interface IPdfThumbnailRenderRuntimeLayout {
-    clearThumbnailAspectRatios: () => void;
-    shouldPreferVisibleAnchorOverCurrentPage: () => boolean;
-    resolveViewportAnchorPage: () => number | null;
-    thumbnailAspectRatios: Ref<Array<number | null>>;
-    thumbnailRenderWidth: Ref<number>;
-    virtualPages: ComputedRef<number[]>;
-    updateThumbnailAspectRatio: (page: number, aspectRatio: number | null) => void;
-}
-interface IPdfThumbnailRenderRuntimeDom {
-    getCanvas: (page: number) => HTMLCanvasElement | null;
-    resolveVisibleContainer: (reason: string) => HTMLElement | null;
-}
-interface IPdfThumbnailRenderRuntimeEffects {
-    cancelActivePaneRefresh: () => void;
-    measureThumbnailHeight: () => void | Promise<void>;
-    onSourceCycleStarted: () => void;
-    refreshVisibleThumbnailPane: (reason: string) => void | Promise<void>;
-    resetMeasurementState: () => void;
-    scheduleActivePaneRefresh: (reason: string) => void;
-}
-interface IUsePdfThumbnailRenderRuntimeOptions {
-    dom: IPdfThumbnailRenderRuntimeDom;
-    effects: IPdfThumbnailRenderRuntimeEffects;
-    layout: IPdfThumbnailRenderRuntimeLayout;
-    source: IPdfThumbnailRenderRuntimeSource;
-    visuals: IPdfThumbnailRenderRuntimeVisuals;
-}
 const THUMBNAIL_RENDER_CONCURRENCY = getPerformanceProfile().thumbnailBaseConcurrency;
 
 export function shouldPreserveThumbnailBitmap(canvas: Pick<HTMLCanvasElement, 'height' | 'width'>) {
@@ -98,6 +49,7 @@ export function shouldPreserveThumbnailBitmap(canvas: Pick<HTMLCanvasElement, 'h
 const THUMBNAIL_NAVIGATION_CONCURRENCY_COOLDOWN_MS = 250;
 const IMMEDIATE_RENDER_RADIUS = 2;
 const PREFETCH_RENDER_RADIUS = 4;
+const MAX_DEMAND_RENDER_RETRIES = 3;
 const MAX_THUMBNAIL_OUTPUT_SCALE = 2;
 let nextThumbnailSurfaceScopeId = 0;
 
@@ -107,18 +59,70 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
         effects,
         layout,
         source,
+        surfaceBudget = workspaceSurfaceBudgetController,
         visuals,
     } = options;
     const thumbnailRenderState = createThumbnailRenderState();
     const surfaceScopeId = `pdf-thumbnails:${++nextThumbnailSurfaceScopeId}`;
-    const surfaceLeases = new WeakMap<HTMLCanvasElement, IWorkspaceSurfaceLease>();
     let renderRunId = 0;
     let pendingInvalidation: number[] | null = null;
     let reloadTransition = false;
     let lastNavigationAtMs = Number.NEGATIVE_INFINITY;
+    const demandRetryAttempts = new Map<number, {
+        attempts: number;
+        renderKey: string;
+    }>();
 
     const documentRenderEpoch = ref(0);
     const thumbnailKeySignal = ref(0);
+
+    function resolveThumbnailDemand(page: number, canvas: HTMLCanvasElement): TThumbnailSurfaceDemand {
+        if (!isThumbnailPaneActive()) {
+            return 'inactive';
+        }
+        if (page === source.currentPage.value) {
+            return 'current';
+        }
+        if (dom.isCanvasViewportVisible(page, canvas)) {
+            return 'viewport';
+        }
+        return Math.abs(page - source.currentPage.value) <= IMMEDIATE_RENDER_RADIUS
+            ? 'nearby'
+            : 'cold';
+    }
+
+    function resetThumbnailCanvasBitmap(canvas: HTMLCanvasElement, renderKey: string | null = null) {
+        canvas.width = 0;
+        canvas.height = 0;
+        delete canvas.dataset.thumbnailRendered;
+        delete canvas.dataset.thumbnailPreservedBitmap;
+        if (renderKey) {
+            canvas.dataset.thumbnailRenderKey = renderKey;
+            return;
+        }
+        delete canvas.dataset.thumbnailRenderKey;
+    }
+
+    const surfaceResidency = createThumbnailSurfaceResidency<HTMLCanvasElement>({
+        budget: surfaceBudget,
+        scopeId: surfaceScopeId,
+        resolveDemand: ({
+            page,
+            canvas,
+        }) => resolveThumbnailDemand(page, canvas),
+        onEvict: ({
+            page,
+            canvas,
+        }) => {
+            thumbnailRenderState.deleteRenderedPage(page);
+            resetThumbnailCanvasBitmap(canvas);
+            logPdfRenderTrace('thumbnail-surface-evicted', {
+                pageNumber: page,
+                currentPage: source.currentPage.value,
+                demand: resolveThumbnailDemand(page, canvas),
+            });
+        },
+    });
 
     function getThumbnailRenderKey(page: number) {
         void thumbnailKeySignal.value;
@@ -189,18 +193,14 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
         return Math.min(MAX_THUMBNAIL_OUTPUT_SCALE, window.devicePixelRatio);
     }
 
-    function clearThumbnailCanvas(canvas: HTMLCanvasElement, renderKey: string | null = null) {
-        surfaceLeases.get(canvas)?.release();
-        surfaceLeases.delete(canvas);
-        canvas.width = 0;
-        canvas.height = 0;
-        delete canvas.dataset.thumbnailRendered;
-        delete canvas.dataset.thumbnailPreservedBitmap;
-        if (renderKey) {
-            canvas.dataset.thumbnailRenderKey = renderKey;
-            return;
-        }
-        delete canvas.dataset.thumbnailRenderKey;
+    function clearThumbnailCanvas(
+        page: number,
+        canvas: HTMLCanvasElement,
+        renderKey: string | null = null,
+    ) {
+        surfaceResidency.releasePage(page, canvas);
+        thumbnailRenderState.deleteRenderedPage(page);
+        resetThumbnailCanvasBitmap(canvas, renderKey);
     }
 
     function clearVisibleThumbnailCanvases(pages: number[] | null = null) {
@@ -218,7 +218,7 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
             }
             const canvas = thumbnail.querySelector<HTMLCanvasElement>('canvas');
             if (canvas) {
-                clearThumbnailCanvas(canvas, null);
+                clearThumbnailCanvas(page, canvas, null);
             }
         }
     }
@@ -298,10 +298,16 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
 
     function pruneDetachedThumbnailState() {
         const mountedPages = new Set(layout.virtualPages.value);
+        surfaceResidency.prune(mountedPages, dom.getCanvas);
         thumbnailRenderState.pruneDetached({
             mountedPages,
             resolveCanvas: dom.getCanvas,
         });
+        for (const page of demandRetryAttempts.keys()) {
+            if (!mountedPages.has(page)) {
+                demandRetryAttempts.delete(page);
+            }
+        }
     }
 
     function prepareThumbnailCanvas(pageNum: number) {
@@ -327,7 +333,7 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
             canvas.dataset.thumbnailPreservedBitmap = 'true';
             delete canvas.dataset.thumbnailRendered;
         } else {
-            clearThumbnailCanvas(canvas, renderKey);
+            clearThumbnailCanvas(pageNum, canvas, renderKey);
         }
         thumbnailRenderState.beginRender({
             page: pageNum,
@@ -416,27 +422,25 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
         }
 
         canvas.dataset.thumbnailRendered = 'true';
-        surfaceLeases.get(canvas)?.release();
-        let leaseCommitted = false;
-        const lease = workspaceSurfaceBudgetController.reserve({
-            scopeId: surfaceScopeId,
-            category: 'pdf-thumbnail-canvas',
-            bytes: estimateCanvasSurfaceBytes(canvas),
-            priority: pageNum === source.currentPage.value ? 100 : 10,
-            canEvict: () => leaseCommitted && pageNum !== source.currentPage.value,
-            evict: () => clearThumbnailCanvas(canvas),
-        });
-        surfaceLeases.set(canvas, lease);
-        leaseCommitted = true;
+        demandRetryAttempts.delete(pageNum);
         const renderedCount = thumbnailRenderState.markRendered({
             page: pageNum,
             canvas,
         });
+        const admitted = surfaceResidency.register({
+            page: pageNum,
+            canvas,
+        }, estimateCanvasSurfaceBytes(canvas));
         logPdfRenderTrace('thumbnail-finalize-rendered', {
             pageNumber: pageNum,
             renderKey,
             renderedCount,
+            admitted,
+            demand: resolveThumbnailDemand(pageNum, canvas),
         });
+        if (!admitted) {
+            return;
+        }
         void effects.measureThumbnailHeight();
         if (renderedCount === 1) {
             void scheduleVisibleThumbnailRender();
@@ -764,7 +768,8 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
         return buildThumbnailRenderQueue({
             totalPages,
             currentPage: queueCurrentPage,
-            visiblePages: layout.virtualPages.value,
+            visiblePages: layout.viewportPages.value,
+            mountedPages: layout.virtualPages.value,
             renderedPages: currentRenderedPages,
             renderingPages: currentRenderingPages,
             immediateRenderRadius: IMMEDIATE_RENDER_RADIUS,
@@ -829,6 +834,65 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
             renderedCount: renderStateSnapshot.renderedCount,
             activeTasks: renderStateSnapshot.activeTasks,
         });
+        scheduleDemandedThumbnailRetry(runId);
+    }
+
+    function scheduleDemandedThumbnailRetry(runId: number) {
+        if (runId !== renderRunId || !isThumbnailPaneActive()) {
+            return;
+        }
+
+        const mountedPages = new Set(layout.virtualPages.value);
+        const demandedPages = new Set(layout.viewportPages.value);
+        for (let distance = -IMMEDIATE_RENDER_RADIUS; distance <= IMMEDIATE_RENDER_RADIUS; distance += 1) {
+            demandedPages.add(source.currentPage.value + distance);
+        }
+
+        const retryPages: number[] = [];
+        const exhaustedPages: number[] = [];
+        for (const page of demandedPages) {
+            if (
+                page < 1
+                || page > source.totalPages.value
+                || !mountedPages.has(page)
+                || isCurrentThumbnailCanvasRendered(page)
+                || isCurrentThumbnailCanvasRendering(page)
+                || !dom.getCanvas(page)
+            ) {
+                continue;
+            }
+
+            const renderKey = getThumbnailRenderKey(page);
+            const previous = demandRetryAttempts.get(page);
+            const attempts = previous?.renderKey === renderKey ? previous.attempts : 0;
+            if (attempts >= MAX_DEMAND_RENDER_RETRIES) {
+                exhaustedPages.push(page);
+                continue;
+            }
+            demandRetryAttempts.set(page, {
+                attempts: attempts + 1,
+                renderKey,
+            });
+            retryPages.push(page);
+        }
+
+        if (retryPages.length === 0) {
+            if (exhaustedPages.length > 0) {
+                logPdfRenderTrace('thumbnail-demand-retry-exhausted', {
+                    pages: exhaustedPages,
+                    runId,
+                    renderRunId,
+                });
+            }
+            return;
+        }
+
+        logPdfRenderTrace('thumbnail-demand-retry-scheduled', {
+            pages: retryPages,
+            runId,
+            renderRunId,
+        });
+        void scheduleVisibleThumbnailRender();
     }
 
     const scheduleVisibleThumbnailRender = useDebounceFn(() => {
@@ -901,6 +965,8 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
         preserveRenderWidth?: boolean;
         preserveAspectRatio?: boolean;
     } = {}) {
+        surfaceResidency.releaseAll();
+        demandRetryAttempts.clear();
         thumbnailRenderState.clearAllState();
         clearVisibleThumbnailCanvases();
         if (!options.preserveRenderWidth) {
@@ -950,7 +1016,7 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
 
             const canvas = dom.getCanvas(page);
             if (canvas) {
-                clearThumbnailCanvas(canvas, getThumbnailRenderKey(page));
+                clearThumbnailCanvas(page, canvas, getThumbnailRenderKey(page));
             }
         }
 
@@ -1028,6 +1094,7 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
             layout.virtualPages.value.length,
         ] as const,
         () => {
+            surfaceResidency.reconcile();
             void scheduleVisibleThumbnailRender();
         },
     );
@@ -1038,6 +1105,7 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
             if (previousPage !== undefined && nextPage !== previousPage) {
                 lastNavigationAtMs = Date.now();
             }
+            surfaceResidency.reconcile();
             effects.scheduleActivePaneRefresh('current-page');
         },
         {
@@ -1049,6 +1117,7 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
     watch(
         () => source.isActive.value,
         (isActive) => {
+            surfaceResidency.reconcile();
             if (!isActive) {
                 effects.cancelActivePaneRefresh();
                 cancelAllRenders();
@@ -1096,6 +1165,7 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
 
     watch(layout.virtualPages, async () => {
         pruneDetachedThumbnailState();
+        surfaceResidency.reconcile();
         await nextTick();
         void effects.measureThumbnailHeight();
         void scheduleVisibleThumbnailRender();
@@ -1110,7 +1180,6 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
         cancelAllRenders();
         incrementRenderGeneration();
         clearRenderedState();
-        workspaceSurfaceBudgetController.releaseScope(surfaceScopeId);
     });
 
     return {
@@ -1118,6 +1187,7 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
         getRenderSummary: () => thumbnailRenderState.createSnapshot(),
         getThumbnailRenderKey,
         hasRenderedThumbnails: () => thumbnailRenderState.renderedCount > 0,
+        reconcileSurfaceResidency: surfaceResidency.reconcile,
         resolveThumbnailRenderWidth,
         scheduleVisibleThumbnailRender,
     };

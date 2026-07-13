@@ -113,6 +113,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     const {
         isDjvuMode,
         djvuSourcePath,
+        djvuSourceSizeBytes,
         loadRecentFiles,
         removeRecentFile,
         pickFileToOpen,
@@ -703,6 +704,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         bookmarkItems,
         currentPage,
         effectiveZoom,
+        knownFileSizeBytes: djvuSourceSizeBytes,
         canSave,
         isAnySaving,
         isHistoryBusy,

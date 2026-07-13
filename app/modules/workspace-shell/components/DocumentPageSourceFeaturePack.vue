@@ -113,7 +113,6 @@
         </div>
     </div>
 </template>
-
 <script setup lang="ts">
 import type { ComponentPublicInstance } from 'vue';
 import { useResizeObserver } from '@vueuse/core';
@@ -127,7 +126,6 @@ import { createDjvuPageSource } from '@app/utils/document-viewer/source/createDj
 import type {
     IDocumentPageMetrics,
     IDocumentPageSource,
-    IDocumentAnnotationRecord,
     IDocumentSourceCapabilities,
     IDocumentSurfaceLease,
     TDocumentRenderPriority,
@@ -155,11 +153,18 @@ import {
 } from '@app/utils/document-viewer/zoomPolicy';
 import { resolveDocumentPageSourceOpeningFrame } from '@app/modules/workspace-shell/viewers/resolveDocumentPageSourceOpeningFrame';
 import { createDocumentPageSourceVisualRetryState } from '@app/modules/workspace-shell/viewers/createDocumentPageSourceVisualRetryState';
-import {
-    captureDocumentZoomAnchor,
-    resolveDocumentZoomAnchorScroll,
-} from '@app/utils/document-viewer/zoomAnchor';
 import { resolveNearestDocumentPageToViewportCenter } from '@app/utils/document-viewer/viewport/resolveDocumentContinuousScrollWindow';
+import { DOCUMENT_PAGE_GUTTER_PX } from '@app/utils/document-viewer/layout/documentPageGutterPx';
+import { resolveDocumentPageSourceRenderDemand } from '@app/modules/workspace-shell/viewers/resolveDocumentPageSourceRenderDemand';
+import {
+    findConnectedDocumentPageImage,
+    getDocumentPageSourceAnnotationStyle,
+    hasHigherDocumentRenderPriority,
+    isOwnedConnectedDocumentPageImage,
+    prepareDocumentPageSurface,
+    waitForDocumentPageImagePaint,
+} from '@app/modules/workspace-shell/viewers/documentPageSourcePresentation';
+import { useDocumentPageSourceResizeLifecycle } from '@app/modules/workspace-shell/viewers/useDocumentPageSourceResizeLifecycle';
 
 interface IPageVisualState {
     generation: number;
@@ -185,6 +190,7 @@ const {
     dragMode = false,
     documentRevisionToken = null,
     isActive = true,
+    isResizing = false,
     currentPage = 1,
     showSidebar = false,
 } = defineProps<{
@@ -197,6 +203,7 @@ const {
     dragMode?: boolean;
     documentRevisionToken?: TDocumentRevisionToken | null;
     isActive?: boolean;
+    isResizing?: boolean;
     currentPage?: number;
     showSidebar?: boolean;
 }>();
@@ -219,6 +226,7 @@ const emit = defineEmits<{
 const viewerContainer = ref<HTMLElement | null>(null);
 const containerWidth = ref(0);
 const containerHeight = ref(0);
+const viewportScrollTop = ref(0);
 const wheelFlipGate = createWheelFlipGate();
 const chassisAuthority = injectDocumentViewerChassisAuthority();
 const viewportWritePort = chassisAuthority?.viewportWritePort ?? createDocumentViewportWritePort();
@@ -237,7 +245,6 @@ const renderControllers = new Map<number, AbortController>();
 const DOCUMENT_SOURCE_VISUAL_ERROR_MAX_RETRIES = 2;
 const visualRetryState = createDocumentPageSourceVisualRetryState(DOCUMENT_SOURCE_VISUAL_ERROR_MAX_RETRIES);
 const DOCUMENT_SOURCE_CONTINUOUS_MOUNT_RADIUS = 12;
-const DOCUMENT_SOURCE_PAGE_MARGIN = 16;
 const loadGeneration = ref(0);
 const annotationRevision = ref(0);
 let loadSettled = Promise.resolve();
@@ -288,6 +295,7 @@ onMounted(() => {
 function measureViewport() {
     containerWidth.value = viewerContainer.value?.clientWidth ?? 0;
     containerHeight.value = viewerContainer.value?.clientHeight ?? 0;
+    viewportScrollTop.value = viewerContainer.value?.scrollTop ?? 0;
 }
 useResizeObserver(viewerContainer, measureViewport);
 
@@ -296,34 +304,38 @@ const effectiveZoom = computed(() => {
     if (zoomMode === 'custom' || !metric) {
         return clampDocumentManualZoom(zoom);
     }
-    const widthScale = clampDocumentFitScale((containerWidth.value - 32) / metric.widthPoints);
+    const widthScale = clampDocumentFitScale(
+        (containerWidth.value - DOCUMENT_PAGE_GUTTER_PX * 2) / metric.widthPoints,
+    );
     if (zoomMode === 'fit-height') {
-        return clampDocumentFitScale((containerHeight.value - 32) / metric.heightPoints);
+        return clampDocumentFitScale(
+            (containerHeight.value - DOCUMENT_PAGE_GUTTER_PX * 2) / metric.heightPoints,
+        );
     }
     return widthScale;
 });
 const pageHeights = computed(() => pageMetrics.value.map(metric => metric.heightPoints * effectiveZoom.value));
 const pageTops = computed(() => {
-    let top = DOCUMENT_SOURCE_PAGE_MARGIN;
+    let top = DOCUMENT_PAGE_GUTTER_PX;
     return pageHeights.value.map((height) => {
         const value = top;
-        top += height + DOCUMENT_SOURCE_PAGE_MARGIN;
+        top += height + DOCUMENT_PAGE_GUTTER_PX;
         return value;
     });
 });
 const totalHeight = computed(() => Math.max(
     containerHeight.value,
-    (pageTops.value.at(-1) ?? DOCUMENT_SOURCE_PAGE_MARGIN)
+    (pageTops.value.at(-1) ?? DOCUMENT_PAGE_GUTTER_PX)
         + (pageHeights.value.at(-1) ?? 0)
-        + DOCUMENT_SOURCE_PAGE_MARGIN,
-    (pageTops.value[currentPage - 1] ?? DOCUMENT_SOURCE_PAGE_MARGIN)
+        + DOCUMENT_PAGE_GUTTER_PX,
+    (pageTops.value[currentPage - 1] ?? DOCUMENT_PAGE_GUTTER_PX)
         + (pageHeights.value[currentPage - 1] ?? 0)
-        + DOCUMENT_SOURCE_PAGE_MARGIN,
+        + DOCUMENT_PAGE_GUTTER_PX,
 ));
 const pageLayouts = computed(() => pageMetrics.value.map((metric, index) => ({
     top: continuousScroll
-        ? pageTops.value[index] ?? DOCUMENT_SOURCE_PAGE_MARGIN
-        : DOCUMENT_SOURCE_PAGE_MARGIN,
+        ? pageTops.value[index] ?? DOCUMENT_PAGE_GUTTER_PX
+        : DOCUMENT_PAGE_GUTTER_PX,
     width: metric.widthPoints * effectiveZoom.value,
     height: metric.heightPoints * effectiveZoom.value,
 })));
@@ -341,6 +353,15 @@ const mountedPages = computed(() => {
         radius: continuousScroll ? DOCUMENT_SOURCE_CONTINUOUS_MOUNT_RADIUS : 3,
     }) ?? [];
 });
+const renderDemand = computed(() => resolveDocumentPageSourceRenderDemand({
+    continuousScroll,
+    currentPage,
+    pageCount: source.value?.pageCount ?? pageMetrics.value.length,
+    pageHeights: pageHeights.value,
+    pageTops: pageTops.value,
+    scrollTop: viewportScrollTop.value,
+    viewportHeight: containerHeight.value,
+}));
 const surfaceStyle = computed(() => ({height: continuousScroll ? `${Math.max(1, totalHeight.value)}px` : '100%'}));
 
 function getPageStyle(pageNumber: number) {
@@ -354,9 +375,9 @@ function getPageStyle(pageNumber: number) {
         width: `${width}px`,
         height: `${height}px`,
         top: continuousScroll
-            ? `${String(pageTops.value[pageNumber - 1] ?? DOCUMENT_SOURCE_PAGE_MARGIN)}px`
-            : `${String(DOCUMENT_SOURCE_PAGE_MARGIN)}px`,
-        left: `max(${String(DOCUMENT_SOURCE_PAGE_MARGIN)}px, calc(50% - ${String(width / 2)}px))`,
+            ? `${String(pageTops.value[pageNumber - 1] ?? DOCUMENT_PAGE_GUTTER_PX)}px`
+            : `${String(DOCUMENT_PAGE_GUTTER_PX)}px`,
+        left: `max(${String(DOCUMENT_PAGE_GUTTER_PX)}px, calc(50% - ${String(width / 2)}px))`,
         display: !continuousScroll && pageNumber !== currentPage ? 'none' : undefined,
     };
 }
@@ -489,20 +510,8 @@ function getAnnotations(pageNumber: number) {
     void annotationRevision.value;
     return source.value?.annotationProvider?.getPageAnnotations(pageNumber) ?? [];
 }
-function getAnnotationNumber(payload: Readonly<Record<string, unknown>>, key: string, fallback: number) {
-    const value = payload[key];
-    return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
-}
-function getAnnotationStyle(annotation: IDocumentAnnotationRecord) {
-    const {payload} = annotation;
-    return {
-        left: `${getAnnotationNumber(payload, 'x', 0.08) * 100}%`,
-        top: `${getAnnotationNumber(payload, 'y', 0.08) * 100}%`,
-        width: `${getAnnotationNumber(payload, 'width', 0.18) * 100}%`,
-        height: `${getAnnotationNumber(payload, 'height', 0.08) * 100}%`,
-        borderColor: typeof payload.color === 'string' ? payload.color : '#f59e0b',
-    };
-}
+const getAnnotationStyle =
+    getDocumentPageSourceAnnotationStyle;
 function setPageElement(pageNumber: number, element: Element | ComponentPublicInstance | null) {
     if (element instanceof HTMLElement) {
         pageSlots?.markMounted(pageNumber);
@@ -627,16 +636,18 @@ async function renderPage(pageNumber: number) {
         return;
     }
     const previous = pageStates.get(pageNumber);
-    const priority: TDocumentRenderPriority = pageNumber === currentPage ? 'navigation' : 'nearby';
+    const priority: TDocumentRenderPriority = pageNumber === currentPage
+        ? 'navigation'
+        : renderDemand.value.visiblePages.includes(pageNumber) ? 'visible' : 'nearby';
     const widthPx = Math.max(1, Math.round(
         metric.widthPoints * effectiveZoom.value * (window.devicePixelRatio || 1),
     ));
     const activeController = renderControllers.get(pageNumber);
     if (previous?.widthPx === widthPx) {
         if (previous.lease) {
-            if (priority === 'navigation' && previous.priority !== 'navigation') {
-                previous.lease.promotePriority?.('navigation');
-                previous.priority = 'navigation';
+            if (hasHigherDocumentRenderPriority(priority, previous.priority)) {
+                previous.lease.promotePriority?.(priority);
+                previous.priority = priority;
             }
             if (previous.ready && priority === 'navigation') {
                 void nextTick(() => commitReadyPageToViewportSession(pageNumber, previous));
@@ -648,9 +659,10 @@ async function renderPage(pageNumber: number) {
         }
     }
     activeController?.abort();
-    previous?.unsubscribeInvalidation?.();
-    previous?.lease?.release();
-    if (previous) {
+    const preserveExistingVisual = Boolean(previous?.lease && previous.ready);
+    if (previous && !preserveExistingVisual) {
+        previous.unsubscribeInvalidation?.();
+        previous.lease?.release();
         previous.unsubscribeInvalidation = null;
         previous.lease = null;
         beginPagePresentationPending(pageNumber, previous);
@@ -663,17 +675,22 @@ async function renderPage(pageNumber: number) {
             pageNumber,
             async (generation) => {
                 attemptGeneration = generation;
-                const nextState = shallowReactive<IPageVisualState>({
-                    generation,
-                    error: null,
-                    ready: false,
-                    lease: null,
-                    priority,
-                    widthPx,
-                    unsubscribeInvalidation: null,
-                });
+                const nextState = previous && preserveExistingVisual
+                    ? previous
+                    : shallowReactive<IPageVisualState>({
+                        generation,
+                        error: null,
+                        ready: false,
+                        lease: null,
+                        priority,
+                        widthPx,
+                        unsubscribeInvalidation: null,
+                    });
+                nextState.generation = generation;
+                nextState.error = null;
+                nextState.priority = priority;
                 pageStates.set(pageNumber, nextState);
-                beginPagePresentationPending(pageNumber, nextState);
+                if (!preserveExistingVisual) beginPagePresentationPending(pageNumber, nextState);
                 await nextTick();
                 return activeSource.renderPage({
                     pageNumber,
@@ -690,17 +707,24 @@ async function renderPage(pageNumber: number) {
             generation,
             value: lease,
         } = renderOutcome;
+        try {
+            await prepareDocumentPageSurface(lease.surface, controller.signal);
+        } catch (error) {
+            lease.release();
+            throw error;
+        }
         const current = pageStates.get(pageNumber);
         if (!renderOutcome.committed || source.value !== activeSource || current?.generation !== generation) {
             lease.release();
             return;
         }
+        const previousLease = current.lease;
         current.unsubscribeInvalidation?.();
-        current.lease?.release();
         current.lease = lease;
         current.priority = priority;
         current.widthPx = widthPx;
         current.unsubscribeInvalidation = null;
+        previousLease?.release();
         if (lease.onInvalidated) {
             current.unsubscribeInvalidation = lease.onInvalidated(() => {
                 const invalidated = pageStates.get(pageNumber);
@@ -711,7 +735,9 @@ async function renderPage(pageNumber: number) {
                 invalidated.unsubscribeInvalidation = null;
                 invalidated.lease = null;
                 beginPagePresentationPending(pageNumber, invalidated);
-                scheduleRender.schedule();
+                if (invalidated.priority !== 'nearby') {
+                    scheduleRender.schedule();
+                }
             });
         }
     } catch (error) {
@@ -741,56 +767,21 @@ async function renderPage(pageNumber: number) {
 }
 
 function isOwnedConnectedPageImage(image: HTMLImageElement, pageNumber: number) {
-    const openingTarget = getChassisOpeningShellTarget(pageNumber);
-    if (openingTarget) {
-        return image.parentElement === openingTarget && openingTarget.isConnected;
-    }
-    const page = image.closest<HTMLElement>('[data-testid="document-page-source-page"]');
-    return Boolean(page?.isConnected && page.dataset.pageNumber === String(pageNumber));
-}
-
-function waitForSurfacePaint(image: HTMLImageElement, signal: AbortSignal) {
-    if (signal.aborted || !image.isConnected) {
-        return Promise.resolve(false);
-    }
-    if (document.visibilityState !== 'visible') {
-        return Promise.resolve(true);
-    }
-    return new Promise<boolean>((resolve) => {
-        let settled = false;
-        let animationFrame: number | null = null;
-        const finish = (painted: boolean) => {
-            if (settled) {
-                return;
-            }
-            settled = true;
-            if (animationFrame !== null) cancelAnimationFrame(animationFrame);
-            signal.removeEventListener('abort', handleAbort);
-            document.removeEventListener('visibilitychange', handleVisibilityChange);
-            resolve(painted);
-        };
-        const handleAbort = () => finish(false);
-        const handleVisibilityChange = () => {
-            if (document.visibilityState !== 'visible') finish(true);
-        };
-        signal.addEventListener('abort', handleAbort, {once: true});
-        document.addEventListener('visibilitychange', handleVisibilityChange);
-        animationFrame = requestAnimationFrame(() => finish(true));
-    });
+    return isOwnedConnectedDocumentPageImage(
+        image,
+        pageNumber,
+        getChassisOpeningShellTarget(pageNumber),
+    );
 }
 
 function getConnectedPageImage(pageNumber: number, state: IPageVisualState) {
-    const openingTarget = getChassisOpeningShellTarget(pageNumber);
-    const candidates = openingTarget
-        ? openingTarget.querySelectorAll<HTMLImageElement>('[data-testid="document-page-source-image"]')
-        : viewerContainer.value?.querySelectorAll<HTMLImageElement>('[data-testid="document-page-source-image"]');
-    return [...(candidates ?? [])].find(image => (
-        image.dataset.pageRenderGeneration === String(state.generation)
-        && image.dataset.documentLoadGeneration === String(loadGeneration.value)
-        && isOwnedConnectedPageImage(image, pageNumber)
-        && image.complete
-        && image.naturalWidth > 0
-    )) ?? null;
+    return findConnectedDocumentPageImage({
+        loadGeneration: loadGeneration.value,
+        openingTarget: getChassisOpeningShellTarget(pageNumber),
+        pageNumber,
+        renderGeneration: state.generation,
+        viewerContainer: viewerContainer.value,
+    });
 }
 
 function commitReadyPageToViewportSession(pageNumber: number, state: IPageVisualState) {
@@ -861,7 +852,7 @@ async function handleSurfaceLoad(pageNumber: number, surface: string, event: Eve
     ) {
         return;
     }
-    if (!await waitForSurfacePaint(image, signal)) {
+    if (!await waitForDocumentPageImagePaint(image, signal)) {
         return;
     }
     state = pageStates.get(pageNumber);
@@ -883,10 +874,10 @@ async function handleSurfaceLoad(pageNumber: number, surface: string, event: Eve
     if (!commitReadyPageToViewportSession(pageNumber, state)) {
         return;
     }
-    await nextTick();
-    if (!await waitForSurfacePaint(image, signal)) {
-        return;
-    }
+    // markReady transfers the opening surface into the normal viewer and may
+    // detach this exact image on the next tick. The successful paint above is
+    // the readiness proof; waiting on the retired node makes initial visual
+    // readiness impossible to emit even though the document is visible.
     if (isInitialOpenTransition) emit('initial-visual-ready', {pageNumber});
 }
 
@@ -910,17 +901,46 @@ function handleSurfaceError(pageNumber: number, surface: string) {
     void renderPage(pageNumber);
 }
 async function renderMountedPages() {
+    if (isResizing) {
+        return;
+    }
     await nextTick();
-    const pagesByViewportPriority = [...mountedPages.value]
+    const mountedPageSet = new Set(mountedPages.value);
+    const pagesByViewportPriority = renderDemand.value.residentPages
+        .filter(pageNumber => mountedPageSet.has(pageNumber))
         .sort((left, right) => Math.abs(left - currentPage) - Math.abs(right - currentPage));
     await Promise.all(pagesByViewportPriority.map(renderPage));
 }
 const scheduleRender = createRafCoalescedCallback(() => void renderMountedPages());
+const resizeLifecycle = useDocumentPageSourceResizeLifecycle({
+    viewerContainer,
+    pageLayouts,
+    isResizing: toRef(() => isResizing),
+    captureRestoreEpoch: () => chassisAuthority?.openSurface.snapshot.value.generation ?? null,
+    canRestore: epoch => !chassisAuthority || (
+        chassisAuthority.openSurface.snapshot.value.generation === epoch
+        && shouldProjectDocumentViewportScroll(
+            chassisAuthority.openSurface.snapshot.value,
+            chassisAuthority.openSurface.viewportSession.value,
+        )
+    ),
+    applyRestoredScroll: restored => viewerContainer.value && viewportWritePort.apply(
+        viewerContainer.value,
+        {
+            intent: viewportWritePort.beginIntent(`page-source-zoom-anchor:${String(loadGeneration.value)}`),
+            reason: 'zoom-anchor-restoration',
+            ...restored,
+        },
+    ),
+    onResizeSettled: () => scheduleRender.schedule(),
+});
 
 function handleScroll() {
-    if (!continuousScroll || !viewerContainer.value) {
+    if (!continuousScroll || !viewerContainer.value || resizeLifecycle.isResizeTransitionActive.value) {
         return;
     }
+    viewportScrollTop.value = viewerContainer.value.scrollTop;
+    scheduleRender.schedule();
     if (chassisAuthority?.viewportWritePort.consumeAuthorityScroll(viewerContainer.value)) {
         return;
     }
@@ -945,7 +965,7 @@ function handleScroll() {
         viewportHeight: viewerContainer.value.clientHeight,
     });
     if (nearestPage && nearestPage !== currentPage) {
-        emit('update:currentPage', nearestPage);
+        emit('update:currentPage', chassisAuthority?.navigate(nearestPage) ?? nearestPage);
     }
 }
 function handleWheel(event: WheelEvent) {
@@ -961,7 +981,7 @@ function handleWheel(event: WheelEvent) {
         const direction = resolveWheelDirection(event.deltaY);
         const bounds = {
             min: 0,
-            max: Math.max(0, layout.height + 32 - container.clientHeight),
+            max: Math.max(0, layout.height + DOCUMENT_PAGE_GUTTER_PX * 2 - container.clientHeight),
         };
         if (canScrollWithinPageBounds(container, bounds, direction)) {
             wheelFlipGate.recordInteriorScroll();
@@ -1019,8 +1039,8 @@ function scrollToPage(pageNumber: number) {
                 top: continuousScroll
                     ? Math.max(
                         0,
-                        (pageTops.value[normalized - 1] ?? DOCUMENT_SOURCE_PAGE_MARGIN)
-                            - DOCUMENT_SOURCE_PAGE_MARGIN,
+                        (pageTops.value[normalized - 1] ?? DOCUMENT_PAGE_GUTTER_PX)
+                            - DOCUMENT_PAGE_GUTTER_PX,
                     )
                     : 0,
             });
@@ -1104,7 +1124,7 @@ async function commitInitialPageShell(
     return surface.commitGeometry(surfaceGeneration, {
         width: rect.width,
         height: rect.height,
-        margin: DOCUMENT_SOURCE_PAGE_MARGIN,
+        margin: DOCUMENT_PAGE_GUTTER_PX,
     });
 }
 
@@ -1321,46 +1341,20 @@ watch(
 );
 watch(effectiveZoom, (value) => {
     emit('update:effectiveZoom', value);
-    scheduleRender.schedule();
+    if (!isResizing) scheduleRender.schedule();
 });
-watch(pageLayouts, async (layouts, previousLayouts) => {
-    const container = viewerContainer.value;
-    const openSurface = chassisAuthority?.openSurface;
-    const surfaceGeneration = openSurface?.snapshot.value.generation ?? null;
-    if (
-        !container
-        || layouts.length === 0
-        || previousLayouts.length !== layouts.length
-        || openSurface && !shouldProjectDocumentViewportScroll(
-            openSurface.snapshot.value,
-            openSurface.viewportSession.value,
-        )
-    ) {
+watch(() => isActive, (active) => {
+    if (!active) {
         return;
     }
-    const anchor = captureDocumentZoomAnchor(container, previousLayouts);
-    await nextTick();
-    if (
-        openSurface
-        && (
-            openSurface.snapshot.value.generation !== surfaceGeneration
-            || !shouldProjectDocumentViewportScroll(
-                openSurface.snapshot.value,
-                openSurface.viewportSession.value,
-            )
-        )
-    ) {
-        return;
-    }
-    const restored = resolveDocumentZoomAnchorScroll(container, layouts, anchor);
-    if (restored) {
-        viewportWritePort.apply(container, {
-            intent: viewportWritePort.beginIntent(`page-source-zoom-anchor:${String(loadGeneration.value)}`),
-            reason: 'zoom-anchor-restoration',
-            ...restored,
-        });
-    }
-}, {flush: 'post'});
+    // Inactive tab pressure can evict every page-source lease while this
+    // feature pack remains mounted. Reactivation does not otherwise change
+    // geometry or render demand, so explicitly repopulate the live window.
+    void nextTick(() => {
+        measureViewport();
+        scheduleRender.schedule();
+    });
+});
 watch(mountedPages, (pages) => {
     const retainedPages = new Set(pages);
     for (const pageNumber of pageStates.keys()) {
@@ -1370,7 +1364,15 @@ watch(mountedPages, (pages) => {
     }
     scheduleRender.schedule();
 });
-
+watch(() => renderDemand.value.residentPages, (pages) => {
+    const retainedPages = new Set(pages);
+    for (const pageNumber of pageStates.keys()) {
+        if (!retainedPages.has(pageNumber)) {
+            releasePageState(pageNumber);
+        }
+    }
+    scheduleRender.schedule();
+});
 onBeforeUnmount(() => {
     supersedeActiveOpenSurfaceGeneration();
     releaseViewportFeature?.();
@@ -1419,10 +1421,6 @@ defineExpose<IDocumentViewerExpose & {
     position: relative;
     min-width: 100%;
     min-height: 100%;
-}
-
-.document-source-viewer {
-    background: var(--ui-bg-muted);
 }
 
 .document-source-viewer__surface {

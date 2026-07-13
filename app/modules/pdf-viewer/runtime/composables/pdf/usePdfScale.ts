@@ -15,8 +15,7 @@ import {
     clampPdfFitScale,
     resolvePdfZoomScale,
 } from '@app/modules/pdf-viewer/runtime/zoom/resolvePdfZoomScale';
-
-const BASE_MARGIN = 20;
+import { DOCUMENT_PAGE_GUTTER_PX } from '@app/utils/document-viewer/layout/documentPageGutterPx';
 
 export interface IFitScalePageOptions {
     page?: number | null | undefined;
@@ -54,12 +53,12 @@ export const usePdfScale = (
 
     const containerStyle = computed(() => {
         return {
-            padding: `${BASE_MARGIN}px`,
-            gap: `${BASE_MARGIN}px`,
+            padding: `${DOCUMENT_PAGE_GUTTER_PX}px`,
+            gap: `${DOCUMENT_PAGE_GUTTER_PX}px`,
         };
     });
 
-    const scaledMargin = computed(() => BASE_MARGIN);
+    const scaledMargin = computed(() => DOCUMENT_PAGE_GUTTER_PX);
 
     let normalizedMetricsCacheKey = '';
     let normalizedMetricsCacheValue: IPdfPageMetric[] = [];
@@ -129,11 +128,11 @@ export const usePdfScale = (
 
     function getFitAvailableSize(rawSize: number, mode: TFitMode) {
         if (mode === 'height') {
-            return rawSize - BASE_MARGIN * 2;
+            return rawSize - DOCUMENT_PAGE_GUTTER_PX * 2;
         }
 
         const columns = getViewColumnCount(toValue(viewMode), toValue(numPages));
-        return rawSize - BASE_MARGIN * (columns + 1);
+        return rawSize - DOCUMENT_PAGE_GUTTER_PX * (columns + 1);
     }
 
     function buildFitScaleSignature(options: {
@@ -208,7 +207,7 @@ export const usePdfScale = (
         if (availableSize <= 0) {
             BrowserLogger.diagnostic('pdf-nav', `[scale] skipped computeFitWidthScale: availableSize<=0 mode=${mode}`, {
                 rawSize,
-                baseMargin: BASE_MARGIN,
+                baseMargin: DOCUMENT_PAGE_GUTTER_PX,
                 availableSize,
             });
             return false;

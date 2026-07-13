@@ -257,3 +257,24 @@ export function resolveAnchorFromScroll(
         affinity: 'center',
     };
 }
+
+export function resolveRetainedAnchorFromScroll(
+    geometry: IPdfViewportGeometry,
+    scroll: {
+        left: number;
+        top: number;
+    },
+    committedAnchor: IPdfSemanticAnchor | null,
+    tolerance = 1,
+) {
+    if (committedAnchor) {
+        const projected = resolveScrollForAnchor(geometry, committedAnchor);
+        if (
+            Math.abs(projected.left - scroll.left) <= tolerance
+            && Math.abs(projected.top - scroll.top) <= tolerance
+        ) {
+            return committedAnchor;
+        }
+    }
+    return resolveAnchorFromScroll(geometry, scroll);
+}

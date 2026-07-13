@@ -148,6 +148,7 @@ export const useWorkspaceViewerAdapterBinding = (options: IWorkspaceViewerAdapte
                 sourceKind: 'djvu',
                 rendererKind: 'page-source',
                 showSidebar: options.showSidebar.value,
+                isResizing: options.isWorkspaceLayoutResizing.value,
             };
         }
 

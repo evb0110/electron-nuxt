@@ -90,6 +90,32 @@ interface IDjvuToolbarPageSnapshot {currentPage?: number | null;}
 
 interface IDjvuWheelMetricWindow {__evbTestApi?: {getActiveToolbarSnapshot?: () => IDjvuToolbarPageSnapshot | null;};}
 
+type TSplitResizeDocumentKind = 'pdf' | 'djvu';
+
+interface ISplitResizeViewportAnchor {
+    busy: boolean;
+    pageHeight: number;
+    pageNumber: number | null;
+    pagePointRatio: number;
+    paneWidth: number;
+    readyVisiblePageCount: number;
+    scrollTop: number;
+    visiblePageCount: number;
+}
+
+interface IDjvuSplitResizeContinuityFrame {
+    busy: boolean;
+    readyVisiblePageCount: number;
+    visiblePageCount: number;
+}
+
+interface IDjvuSplitResizeContinuityProbe {
+    active: boolean;
+    frames: IDjvuSplitResizeContinuityFrame[];
+}
+
+interface IDjvuSplitResizeContinuityWindow extends Window {__djvuSplitResizeContinuityProbe?: IDjvuSplitResizeContinuityProbe;}
+
 const VIEWER_SMOKE_OPEN_TIMEOUT_MS = 45_000;
 const DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS = 90_000;
 const DJVU_VIDEO_LIKE_VIEWPORT = {
@@ -105,6 +131,9 @@ const DJVU_PROJECTED_SCROLL_DELTA_Y = 32;
 const DJVU_PROJECTED_SCROLL_INTERVAL_MS = 12;
 const DJVU_PROJECTED_SCROLL_STEPS = 650;
 const DJVU_PROJECTED_SCROLL_WARMUP_SAMPLES = 3;
+const DJVU_HIGH_ZOOM_REGRESSION_ZOOM = 4.72;
+const DJVU_HIGH_ZOOM_PRESSURE_DURATION_MS = 5_500;
+const SPLIT_RESIZE_ANCHOR_TOLERANCE = 0.08;
 
 interface IThumbnailPaintSample {
     containerClientHeight: number;
@@ -112,6 +141,7 @@ interface IThumbnailPaintSample {
     containerScrollTop: number;
     contentPixels: number;
     height: number;
+    intersectsViewport: boolean;
     itemViewportTop: number;
     page: number;
     renderKey: string | null;
@@ -125,10 +155,305 @@ interface IThumbnailPaintProbe {
     stop: () => void;
 }
 
-interface IThumbnailPaintProbeWindow extends Window {__thumbnailPaintProbe?: IThumbnailPaintProbe;}
+interface IThumbnailPaintProbeWindow extends Window {
+    __getPdfRasterProfileForE2E?: () => {maxBufferCanvasPixels: number};
+    __getWorkspaceSurfaceBudgetForE2E?: () => {
+        effectiveMaxBytes: number;
+        pressureLevel: string;
+        reservedBytes: number;
+    };
+    __setWorkspaceSurfacePressureForE2E?: (level: 'healthy' | 'critical') => void;
+    __thumbnailPaintProbe?: IThumbnailPaintProbe;
+}
 
 const djvuFixture = resolveDjvuFixturePath();
 const runDjvuSmokeOrSkip = selectFixtureDescribe(describe, djvuFixture);
+
+function readSplitResizeViewportAnchorFromPage(
+    paneId: string,
+    documentKind: TSplitResizeDocumentKind,
+): ISplitResizeViewportAnchor {
+    const pane = Array.from(document.querySelectorAll<HTMLElement>('.editor-pane'))
+        .find(candidate => candidate.dataset.editorPaneId === paneId) ?? null;
+    const host = pane?.querySelector<HTMLElement>('.workspace-host') ?? null;
+    const sourceSurface = host?.querySelector<HTMLElement>('[data-testid="document-page-source-viewer"]') ?? null;
+    const viewport = documentKind === 'pdf'
+        ? host?.querySelector<HTMLElement>('#pdf-viewer') ?? null
+        : sourceSurface?.closest<HTMLElement>('[data-document-viewer-chassis-viewport]') ?? null;
+    const pageSelector = documentKind === 'pdf'
+        ? '.page_container[data-page]'
+        : '[data-testid="document-page-source-page"][data-page-number]';
+    const pageElements = Array.from(viewport?.querySelectorAll<HTMLElement>(pageSelector) ?? []);
+    const viewportRect = viewport?.getBoundingClientRect() ?? null;
+    const viewportPointY = viewportRect
+        ? viewportRect.top + viewportRect.height / 2
+        : 0;
+    const visiblePages = viewportRect
+        ? pageElements.filter((page) => {
+            const rect = page.getBoundingClientRect();
+            return Math.min(rect.bottom, viewportRect.bottom) - Math.max(rect.top, viewportRect.top) > 8;
+        })
+        : [];
+    const anchorPage = visiblePages.find((page) => {
+        const rect = page.getBoundingClientRect();
+        return rect.top <= viewportPointY && rect.bottom >= viewportPointY;
+    }) ?? visiblePages.reduce<HTMLElement | null>((best, page) => {
+        if (!viewportRect) {
+            return best;
+        }
+        const visibleHeight = (candidate: HTMLElement) => {
+            const rect = candidate.getBoundingClientRect();
+            return Math.max(0, Math.min(rect.bottom, viewportRect.bottom) - Math.max(rect.top, viewportRect.top));
+        };
+        return !best || visibleHeight(page) > visibleHeight(best) ? page : best;
+    }, null);
+    const anchorRect = anchorPage?.getBoundingClientRect() ?? null;
+    const readyVisiblePageCount = visiblePages.filter((page) => {
+        if (documentKind === 'pdf') {
+            const canvas = page.querySelector<HTMLCanvasElement>('.page_canvas canvas, canvas');
+            return Boolean(canvas && canvas.width > 0 && canvas.height > 0);
+        }
+        const image = page.querySelector<HTMLImageElement>('[data-testid="document-page-source-image"]');
+        return Boolean(
+            image?.complete
+            && image.naturalWidth > 0
+            && image.naturalHeight > 0,
+        );
+    }).length;
+    const banner = host?.querySelector<HTMLElement>('.djvu-banner') ?? null;
+
+    return {
+        busy: Boolean(
+            host?.querySelector('.workspace-host__loading')
+            || banner?.getAttribute('aria-busy') === 'true'
+            || banner?.textContent?.includes('Opening DjVu'),
+        ),
+        pageHeight: Math.round(anchorRect?.height ?? 0),
+        pageNumber: anchorPage
+            ? Number.parseInt(
+                documentKind === 'pdf'
+                    ? anchorPage.dataset.page ?? ''
+                    : anchorPage.dataset.pageNumber ?? '',
+                10,
+            ) || null
+            : null,
+        pagePointRatio: anchorRect && anchorRect.height > 0
+            ? (viewportPointY - anchorRect.top) / anchorRect.height
+            : 0,
+        paneWidth: Math.round(pane?.getBoundingClientRect().width ?? 0),
+        readyVisiblePageCount,
+        scrollTop: Math.round(viewport?.scrollTop ?? 0),
+        visiblePageCount: visiblePages.length,
+    };
+}
+
+async function readSplitResizeViewportAnchor(
+    session: IElectronE2ESession,
+    paneId: string,
+    documentKind: TSplitResizeDocumentKind,
+) {
+    return session.page.evaluate(readSplitResizeViewportAnchorFromPage, paneId, documentKind);
+}
+
+async function waitForSplitResizeViewportAnchor(
+    session: IElectronE2ESession,
+    paneId: string,
+    documentKind: TSplitResizeDocumentKind,
+    expected: ISplitResizeViewportAnchor,
+) {
+    const deadline = Date.now() + 5_000;
+    let snapshot = await readSplitResizeViewportAnchor(session, paneId, documentKind);
+    while (
+        Date.now() < deadline
+        && (
+            snapshot.pageNumber !== expected.pageNumber
+            || Math.abs(snapshot.pagePointRatio - expected.pagePointRatio) > SPLIT_RESIZE_ANCHOR_TOLERANCE
+            || snapshot.readyVisiblePageCount === 0
+        )
+    ) {
+        await session.page.evaluate(async () => {
+            await new Promise(resolve => setTimeout(resolve, 50));
+        });
+        snapshot = await readSplitResizeViewportAnchor(session, paneId, documentKind);
+    }
+    return snapshot;
+}
+
+async function splitActivePaneWithEmptyEditor(session: IElectronE2ESession) {
+    const result = await session.page.evaluate(async () => {
+        const sourcePaneId = document.querySelector<HTMLElement>('.editor-pane.is-active')
+            ?.dataset.editorPaneId ?? null;
+        const splitEditor = (window as Window & {__splitEditorEmptyForE2E?: (direction: 'right') => Promise<void> | void;}).__splitEditorEmptyForE2E;
+        if (!sourcePaneId || typeof splitEditor !== 'function') {
+            return {
+                sourcePaneId,
+                split: false,
+            };
+        }
+        await splitEditor('right');
+        return {
+            sourcePaneId,
+            split: true,
+        };
+    });
+    expect(result.split).toBe(true);
+    expect(result.sourcePaneId).not.toBeNull();
+    await session.page.waitForFunction(() => document.querySelectorAll('.editor-pane').length === 2);
+    return result.sourcePaneId!;
+}
+
+async function nudgeActiveDocumentViewportWithWheel(
+    session: IElectronE2ESession,
+    documentKind: TSplitResizeDocumentKind,
+    deltaY: number,
+) {
+    const point = await session.page.evaluate((kind: TSplitResizeDocumentKind) => {
+        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const surface = host?.querySelector<HTMLElement>('[data-testid="document-page-source-viewer"]') ?? null;
+        const viewport = kind === 'pdf'
+            ? host?.querySelector<HTMLElement>('#pdf-viewer') ?? null
+            : surface?.closest<HTMLElement>('[data-document-viewer-chassis-viewport]') ?? null;
+        if (!viewport) {
+            return null;
+        }
+        const rect = viewport.getBoundingClientRect();
+        return {
+            x: Math.round(rect.left + rect.width / 2),
+            y: Math.round(rect.top + rect.height / 2),
+        };
+    }, documentKind);
+    if (!point) {
+        throw new Error(`Active ${documentKind} viewport was not found`);
+    }
+    await session.page.mouse.move(point.x, point.y);
+    await session.page.mouse.wheel({deltaY});
+    await session.page.evaluate(async () => {
+        await new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        });
+    });
+}
+
+async function dragEditorDividerToRatio(session: IElectronE2ESession, targetRatio: number) {
+    const geometry = await session.page.evaluate((ratio: number) => {
+        const split = Array.from(document.querySelectorAll<HTMLElement>('.editor-split.is-horizontal'))
+            .find((candidate) => {
+                const rect = candidate.getBoundingClientRect();
+                return rect.width > 400 && rect.height > 300;
+            }) ?? null;
+        const sash = split?.querySelector<HTMLElement>(':scope > .editor-sash.is-vertical-line') ?? null;
+        if (!split || !sash) {
+            return null;
+        }
+        const splitRect = split.getBoundingClientRect();
+        const sashRect = sash.getBoundingClientRect();
+        return {
+            startX: sashRect.left + sashRect.width / 2,
+            targetX: splitRect.left + splitRect.width * ratio,
+            y: sashRect.top + sashRect.height / 2,
+        };
+    }, targetRatio);
+    if (!geometry) {
+        throw new Error('Visible horizontal editor divider was not found');
+    }
+
+    await session.page.mouse.move(geometry.startX, geometry.y);
+    await session.page.mouse.down();
+    const steps = 12;
+    for (let index = 1; index <= steps; index += 1) {
+        const progress = index / steps;
+        await session.page.mouse.move(
+            geometry.startX + (geometry.targetX - geometry.startX) * progress,
+            geometry.y,
+        );
+        await session.page.evaluate(async () => {
+            await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+        });
+    }
+    await session.page.mouse.up();
+    await session.page.evaluate(async () => {
+        await new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        });
+    });
+}
+
+async function installDjvuSplitResizeContinuityProbe(session: IElectronE2ESession, paneId: string) {
+    return session.page.evaluate((sourcePaneId: string) => {
+        const probeWindow = window as IDjvuSplitResizeContinuityWindow;
+        const sourcePane = Array.from(document.querySelectorAll<HTMLElement>('.editor-pane'))
+            .find(candidate => candidate.dataset.editorPaneId === sourcePaneId) ?? null;
+        const host = sourcePane?.querySelector<HTMLElement>('.workspace-host') ?? null;
+        const surface = host?.querySelector<HTMLElement>('[data-testid="document-page-source-viewer"]') ?? null;
+        const viewport = surface?.closest<HTMLElement>('[data-document-viewer-chassis-viewport]') ?? null;
+        if (!host || !viewport) {
+            return false;
+        }
+        const probe: IDjvuSplitResizeContinuityProbe = {
+            active: true,
+            frames: [],
+        };
+        const sample = () => {
+            if (!probe.active) {
+                return;
+            }
+            const viewportRect = viewport.getBoundingClientRect();
+            const visiblePages = Array.from(viewport.querySelectorAll<HTMLElement>(
+                '[data-testid="document-page-source-page"]',
+            )).filter((page) => {
+                const rect = page.getBoundingClientRect();
+                return Math.min(rect.bottom, viewportRect.bottom) - Math.max(rect.top, viewportRect.top) > 8;
+            });
+            const banner = host.querySelector<HTMLElement>('.djvu-banner');
+            probe.frames.push({
+                busy: Boolean(
+                    host.querySelector('.workspace-host__loading')
+                    || banner?.getAttribute('aria-busy') === 'true'
+                    || banner?.textContent?.includes('Opening DjVu'),
+                ),
+                readyVisiblePageCount: visiblePages.filter((page) => {
+                    const image = page.querySelector<HTMLImageElement>('[data-testid="document-page-source-image"]');
+                    return Boolean(
+                        image?.complete
+                        && image.naturalWidth > 0
+                        && image.naturalHeight > 0,
+                    );
+                }).length,
+                visiblePageCount: visiblePages.length,
+            });
+            requestAnimationFrame(sample);
+        };
+        probeWindow.__djvuSplitResizeContinuityProbe = probe;
+        requestAnimationFrame(sample);
+        return true;
+    }, paneId);
+}
+
+async function stopDjvuSplitResizeContinuityProbe(session: IElectronE2ESession) {
+    return session.page.evaluate(() => {
+        const probe = (window as IDjvuSplitResizeContinuityWindow).__djvuSplitResizeContinuityProbe;
+        if (!probe) {
+            return [];
+        }
+        probe.active = false;
+        return probe.frames;
+    });
+}
+
+function expectSplitResizeAnchorPreserved(
+    actual: ISplitResizeViewportAnchor,
+    expected: ISplitResizeViewportAnchor,
+) {
+    const detail = JSON.stringify({
+        actual,
+        expected,
+    });
+    expect(actual.pageNumber, detail).toBe(expected.pageNumber);
+    expect(Math.abs(actual.pagePointRatio - expected.pagePointRatio), detail)
+        .toBeLessThanOrEqual(SPLIT_RESIZE_ANCHOR_TOLERANCE);
+    expect(actual.visiblePageCount, detail).toBeGreaterThan(0);
+    expect(actual.readyVisiblePageCount, detail).toBeGreaterThan(0);
+}
 
 async function readViewerSmokeSnapshot(session: IElectronE2ESession) {
     return session.page.evaluate((): IViewerSmokeSnapshot => {
@@ -187,7 +512,9 @@ async function waitForViewerSmokeSnapshot(
     },
 ) {
     await waitForFunctionInPage(session.page, (expected: typeof minimums) => {
-        const viewer = document.querySelector<HTMLElement>('#pdf-viewer');
+        const viewer = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host #pdf-viewer',
+        );
         const firstPage = viewer?.querySelector<HTMLElement>('.page_container[data-page="1"]') ?? null;
         if (!viewer || !firstPage) {
             return false;
@@ -203,8 +530,10 @@ async function waitForViewerSmokeSnapshot(
 
 async function scrollToBottomOfPageOne(session: IElectronE2ESession) {
     const attempt = await session.page.evaluate((): IViewerScrollAttempt => {
-        const viewer = document.querySelector<HTMLElement>('#pdf-viewer');
-        const firstPage = document.querySelector<HTMLElement>('.page_container[data-page="1"]');
+        const viewer = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host #pdf-viewer',
+        );
+        const firstPage = viewer?.querySelector<HTMLElement>('.page_container[data-page="1"]');
         if (!viewer || !firstPage) {
             return {
                 maxScrollTop: 0,
@@ -221,7 +550,9 @@ async function scrollToBottomOfPageOne(session: IElectronE2ESession) {
         };
     });
     await waitForFunctionInPage(session.page, () => {
-        const viewer = document.querySelector<HTMLElement>('#pdf-viewer');
+        const viewer = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host #pdf-viewer',
+        );
         return Boolean(viewer && viewer.scrollTop > 20);
     }, { timeout: 5_000 });
     return attempt;
@@ -230,11 +561,19 @@ async function scrollToBottomOfPageOne(session: IElectronE2ESession) {
 async function zoomInUntilScrollable(session: IElectronE2ESession, start: IViewerSmokeSnapshot) {
     let previous = start;
     for (let attempt = 0; attempt < 4; attempt += 1) {
+        const toolbarBefore = await getWorkspaceToolbarSnapshot(session.page);
         await clickVisibleToolbarButton(session.page, 'Zoom In');
+        await waitForWorkspaceToolbarSnapshot(
+            session.page,
+            {minEffectiveZoom: (toolbarBefore?.effectiveZoom ?? 0) + 0.005},
+            { timeoutMs: 10_000 },
+        );
         await waitForFunctionInPage(session.page, (previousWidth: number) => {
-            const pageElement = document.querySelector<HTMLElement>('.page_container[data-page="1"]');
+            const pageElement = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host #pdf-viewer .page_container[data-page="1"]',
+            );
             return Boolean(pageElement && pageElement.getBoundingClientRect().width > previousWidth + 5);
-        }, { timeout: 5_000 }, previous.firstPageWidth);
+        }, { timeout: 10_000 }, previous.firstPageWidth);
 
         const next = await readViewerSmokeSnapshot(session);
         if (next.scrollHeight > next.clientHeight + 20) {
@@ -269,7 +608,10 @@ function readDjvuWheelMetricSampleFromPage(): IDjvuWheelMetricSample {
     const surface = visibleHost?.querySelector<HTMLElement>('[data-testid="document-page-source-viewer"]') ?? null;
     const viewer = surface?.closest<HTMLElement>('[data-document-viewer-chassis-viewport]') ?? null;
     const viewerRect = viewer?.getBoundingClientRect() ?? null;
-    const pageShells = Array.from(surface?.querySelectorAll<HTMLElement>('[data-testid="document-page-source-page"]') ?? []);
+    // The opening-page shell is teleported beside the source surface while a
+    // viewport transition commits. Count shells from the chassis viewport so
+    // that temporary ownership move is not misreported as a missing page.
+    const pageShells = Array.from(viewer?.querySelectorAll<HTMLElement>('[data-testid="document-page-source-page"]') ?? []);
     const virtualSpacers: HTMLElement[] = [];
     const pageNumbers = pageShells
         .map(pageElement => Number.parseInt(pageElement.dataset.pageNumber ?? '', 10))
@@ -331,7 +673,7 @@ function readDjvuWheelMetricSampleFromPage(): IDjvuWheelMetricSample {
                     ?? '',
                 10,
             ) || null,
-        imageCount: surface?.querySelectorAll('[data-testid="document-page-source-image"]').length ?? 0,
+        imageCount: viewer?.querySelectorAll('[data-testid="document-page-source-image"]').length ?? 0,
         mountedRange: pageNumbers.length > 0 ? `${pageNumbers[0]}-${pageNumbers.at(-1)}` : 'empty',
         maxVisibleGapPx: Math.round(maxVisibleGapPx),
         pageNumbers,
@@ -502,7 +844,12 @@ describe('Electron E2E - Viewer Smoke', () => {
     const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-viewer-smoke-${Date.now()}`});
 
     it('keeps the PDF viewport scrollable, navigable, and scalable', async () => {
-        const session = sessionFixture.getSession();
+        let session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+
+        session = await sessionFixture.restart({sessionName: () => `e2e-viewer-pdf-smoke-${Date.now()}`});
         if (!session) {
             return;
         }
@@ -525,14 +872,18 @@ describe('Electron E2E - Viewer Smoke', () => {
 
         await clickVisibleToolbarButton(session.page, 'Fit Height');
         await waitForFunctionInPage(session.page, (previousHeight: number) => {
-            const pageElement = document.querySelector<HTMLElement>('.page_container[data-page="1"]');
+            const pageElement = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host #pdf-viewer .page_container[data-page="1"]',
+            );
             return Boolean(pageElement && Math.abs(pageElement.getBoundingClientRect().height - previousHeight) > 5);
         }, { timeout: 5_000 }, zoomed.firstPageHeight);
 
         await clickVisibleToolbarButton(session.page, 'Next Page');
         await waitForToolbarCurrentPage(session.page, 2);
         await waitForFunctionInPage(session.page, () => {
-            const viewer = document.querySelector<HTMLElement>('#pdf-viewer');
+            const viewer = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host #pdf-viewer',
+            );
             if (!viewer) {
                 return false;
             }
@@ -548,7 +899,145 @@ describe('Electron E2E - Viewer Smoke', () => {
         }, { timeout: 5_000 });
     });
 
-    it('keeps adjacent thumbnails and scroll geometry stable after opening the sidebar', async () => {
+    it('preserves a user-established PDF viewport anchor through separate split-divider drags', async () => {
+        let session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-viewer-pdf-split-resize-${Date.now()}`,
+        });
+        if (!session) {
+            return;
+        }
+        await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
+        const fixturePath = await createMultiPageTextFixturePdf(
+            `viewer-pdf-split-resize-${Date.now()}.pdf`,
+            8,
+        );
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        const fitWidth = await callWorkspaceCommand(session.page, 'handleFitWidth');
+        expect(fitWidth.called).toBe(true);
+        await goToPageViaToolbar(session.page, 4);
+        await nudgeActiveDocumentViewportWithWheel(session, 'pdf', 220);
+
+        const sourcePaneId = await session.page.evaluate(() => (
+            document.querySelector<HTMLElement>('.editor-pane.is-active')?.dataset.editorPaneId ?? null
+        ));
+        expect(sourcePaneId).not.toBeNull();
+        const userAnchor = await readSplitResizeViewportAnchor(session, sourcePaneId!, 'pdf');
+        expect(userAnchor.scrollTop).toBeGreaterThan(0);
+        expect(userAnchor.pageHeight).toBeGreaterThan(100);
+        expect(userAnchor.readyVisiblePageCount).toBeGreaterThan(0);
+
+        const retainedPaneId = await splitActivePaneWithEmptyEditor(session);
+        expect(retainedPaneId).toBe(sourcePaneId);
+        const afterSplit = await waitForSplitResizeViewportAnchor(
+            session,
+            retainedPaneId,
+            'pdf',
+            userAnchor,
+        );
+        expectSplitResizeAnchorPreserved(afterSplit, userAnchor);
+
+        await dragEditorDividerToRatio(session, 0.32);
+        const afterNarrowDrag = await waitForSplitResizeViewportAnchor(
+            session,
+            retainedPaneId,
+            'pdf',
+            userAnchor,
+        );
+        expectSplitResizeAnchorPreserved(afterNarrowDrag, userAnchor);
+        expect(afterNarrowDrag.paneWidth).toBeLessThan(afterSplit.paneWidth - 100);
+
+        await dragEditorDividerToRatio(session, 0.68);
+        const afterWideDrag = await waitForSplitResizeViewportAnchor(
+            session,
+            retainedPaneId,
+            'pdf',
+            userAnchor,
+        );
+        expectSplitResizeAnchorPreserved(afterWideDrag, userAnchor);
+        expect(afterWideDrag.paneWidth).toBeGreaterThan(afterNarrowDrag.paneWidth + 250);
+    }, 90_000);
+
+    it('exposes named sidebar tabs and navigates from a real search result', async () => {
+        let session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+
+        session = await sessionFixture.restart({sessionName: () => `e2e-viewer-sidebar-search-${Date.now()}`});
+        if (!session) {
+            return;
+        }
+
+        const fixturePath = await createMultiPageTextFixturePdf(
+            `viewer-sidebar-search-${Date.now()}.pdf`,
+            4,
+        );
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await ensureSidebarOpen(session.page);
+
+        const tabNames = await session.page.evaluate(() => (
+            Array.from(document.querySelectorAll<HTMLElement>(
+                '.editor-pane.is-active .pdf-sidebar [role="tab"]',
+            )).map(tab => tab.textContent?.trim() ?? '')
+        ));
+        expect(tabNames).toEqual([
+            'Annotations',
+            'Pages',
+            'Bookmarks',
+            'Search',
+        ]);
+
+        const sidebarTabs = await session.page.$$(
+            '.editor-pane.is-active .pdf-sidebar [role="tab"]',
+        );
+        expect(sidebarTabs).toHaveLength(4);
+        await sidebarTabs[3]!.click();
+
+        await waitForFunctionInPage(session.page, () => {
+            const input = document.querySelector<HTMLInputElement>(
+                '.editor-pane.is-active .pdf-sidebar .pdf-search-bar input',
+            );
+            return Boolean(input && input.getBoundingClientRect().width > 0);
+        }, { timeout: 10_000 });
+        const searchInput = await session.page.$(
+            '.editor-pane.is-active .pdf-sidebar .pdf-search-bar input',
+        );
+        expect(searchInput).not.toBeNull();
+        await searchInput!.type('Page 3 sample text');
+        const searchStarted = await session.page.evaluate(() => {
+            const button = document.querySelector<HTMLButtonElement>(
+                '.editor-pane.is-active .pdf-sidebar .search-run-button',
+            );
+            button?.click();
+            return Boolean(button && !button.disabled);
+        });
+        expect(searchStarted).toBe(true);
+
+        await waitForFunctionInPage(session.page, () => (
+            Array.from(document.querySelectorAll<HTMLElement>(
+                '.editor-pane.is-active .pdf-sidebar .pdf-search-result',
+            )).some(result => result.textContent?.includes('Page 3 sample text'))
+        ), { timeout: 15_000 });
+        const clickedResult = await session.page.evaluate(() => {
+            const result = Array.from(document.querySelectorAll<HTMLElement>(
+                '.editor-pane.is-active .pdf-sidebar .pdf-search-result',
+            )).find(candidate => candidate.textContent?.includes('Page 3 sample text'));
+            result?.click();
+            return Boolean(result);
+        });
+        expect(clickedResult).toBe(true);
+        await waitForToolbarCurrentPage(session.page, 3);
+    });
+
+    it('keeps the visible thumbnail triplet painted through sustained raster pressure', async () => {
         let session = sessionFixture.getSession();
         if (!session) {
             return;
@@ -561,35 +1050,44 @@ describe('Electron E2E - Viewer Smoke', () => {
 
         await session.page.setViewport({
             deviceScaleFactor: 2,
-            height: 982,
-            width: 1512,
+            // The three neighboring thumbnails are the regression subject.
+            // Give their portrait canvases enough vertical CSS space to all
+            // be genuinely viewport-resident instead of weakening the test
+            // to include an intentionally cold offscreen neighbor.
+            height: 1_600,
+            width: 1_200,
         });
         const fixturePath = await createMultiPageTextFixturePdf(`viewer-thumbnail-open-${Date.now()}.pdf`, 36);
         await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
-        await goToPageViaToolbar(session.page, 18);
         await ensureSidebarOpen(session.page);
-        await waitForFunctionInPage(session.page, () => [
-            17,
-            18,
-        ].every((page) => {
-            const canvas = document.querySelector<HTMLCanvasElement>(
-                `.editor-pane.is-active .pdf-thumbnail[data-page="${String(page)}"] .pdf-thumbnail-canvas`,
-            );
-            return canvas?.dataset.thumbnailRendered === 'true'
-                && canvas.width > 0
-                && canvas.height > 0;
-        }), {timeout: 10_000});
-        await clickVisibleToolbarButton(session.page, 'Toggle Sidebar');
+        const sidebarTabs = await session.page.$$(
+            '.editor-pane.is-active .pdf-sidebar [role="tab"]',
+        );
+        expect(sidebarTabs).toHaveLength(4);
+        await sidebarTabs[1]!.click();
         await waitForFunctionInPage(session.page, () => {
-            const sidebar = document.querySelector<HTMLElement>('.editor-pane.is-active .pdf-sidebar');
-            if (!sidebar) {
-                return true;
-            }
-            const rect = sidebar.getBoundingClientRect();
-            const style = window.getComputedStyle(sidebar);
-            return rect.width <= 10 || style.display === 'none' || style.visibility === 'hidden';
-        }, {timeout: 5_000});
+            const pages = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .pdf-sidebar-pages',
+            );
+            const firstCanvas = document.querySelector<HTMLCanvasElement>(
+                '.editor-pane.is-active .pdf-thumbnail[data-page="1"] .pdf-thumbnail-canvas',
+            );
+            return Boolean(
+                pages
+                && pages.getBoundingClientRect().height > 0
+                && firstCanvas?.dataset.thumbnailRendered === 'true'
+                && firstCanvas.width > 0
+                && firstCanvas.height > 0,
+            );
+        }, {timeout: 10_000});
+        await goToPageViaToolbar(session.page, 18);
+        await waitForFunctionInPage(session.page, () => Boolean(document.querySelector(
+            '.editor-pane.is-active .pdf-thumbnail[data-page="18"]',
+        )), {timeout: 10_000});
+        const zoomResult = await callWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [4]);
+        expect(zoomResult.called).toBe(true);
+        await waitForWorkspaceToolbarSnapshot(session.page, {minEffectiveZoom: 3.99}, {timeoutMs: 15_000});
 
         await session.page.evaluate(() => {
             const probeWindow = window as IThumbnailPaintProbeWindow;
@@ -614,7 +1112,7 @@ describe('Electron E2E - Viewer Smoke', () => {
                 for (const canvas of canvases) {
                     const item = canvas.closest<HTMLElement>('.pdf-thumbnail');
                     const page = Number(item?.dataset.page);
-                    if (!Number.isFinite(page) || page < 17 || page > 18) {
+                    if (!Number.isFinite(page) || page < 17 || page > 19) {
                         continue;
                     }
                     let contentPixels = 0;
@@ -635,6 +1133,9 @@ describe('Electron E2E - Viewer Smoke', () => {
                         containerScrollTop: container?.scrollTop ?? 0,
                         contentPixels,
                         height: canvas.height,
+                        intersectsViewport: Boolean(item && containerRect
+                            && item.getBoundingClientRect().bottom > containerRect.top
+                            && item.getBoundingClientRect().top < containerRect.bottom),
                         itemViewportTop: item && containerRect
                             ? item.getBoundingClientRect().top - containerRect.top
                             : 0,
@@ -657,10 +1158,93 @@ describe('Electron E2E - Viewer Smoke', () => {
             requestAnimationFrame(sample);
         });
 
-        await ensureSidebarOpen(session.page);
-        await session.page.evaluate(async () => {
-            await new Promise(resolve => setTimeout(resolve, 2_500));
+        await session.page.evaluate(() => {
+            const container = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .pdf-sidebar-pages-thumbnails .pdf-thumbnails',
+            );
+            const current = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .pdf-thumbnail[data-page="18"]',
+            );
+            if (!container || !current) {
+                return;
+            }
+            const containerRect = container.getBoundingClientRect();
+            const currentRect = current.getBoundingClientRect();
+            container.scrollTop = Math.max(
+                0,
+                container.scrollTop
+                + currentRect.top
+                - containerRect.top
+                - (container.clientHeight - currentRect.height) / 2,
+            );
+            container.dispatchEvent(new Event('scroll', {bubbles: true}));
         });
+        let thumbnailTriplet: Array<{
+            height: number;
+            intersectsViewport: boolean;
+            page: number;
+            rendered: boolean;
+            width: number;
+        }> = [];
+        const thumbnailDeadline = Date.now() + 20_000;
+        while (Date.now() < thumbnailDeadline) {
+            thumbnailTriplet = await session.page.evaluate(() => [
+                17,
+                18,
+                19,
+            ].map((page) => {
+                const container = document.querySelector<HTMLElement>(
+                    '.editor-pane.is-active .pdf-sidebar-pages-thumbnails .pdf-thumbnails',
+                );
+                const canvas = document.querySelector<HTMLCanvasElement>(
+                    `.editor-pane.is-active .pdf-thumbnail[data-page="${String(page)}"] .pdf-thumbnail-canvas`,
+                );
+                const item = canvas?.closest<HTMLElement>('.pdf-thumbnail');
+                const containerRect = container?.getBoundingClientRect() ?? null;
+                const itemRect = item?.getBoundingClientRect() ?? null;
+                return {
+                    height: canvas?.height ?? 0,
+                    intersectsViewport: Boolean(containerRect && itemRect
+                        && itemRect.bottom > containerRect.top
+                        && itemRect.top < containerRect.bottom),
+                    page,
+                    rendered: canvas?.dataset.thumbnailRendered === 'true',
+                    width: canvas?.width ?? 0,
+                };
+            }));
+            if (thumbnailTriplet.every(sample => (
+                sample.intersectsViewport
+                && sample.rendered
+                && sample.width > 0
+                && sample.height > 0
+            ))) {
+                break;
+            }
+            await session.page.evaluate(async () => {
+                await new Promise(resolve => setTimeout(resolve, 100));
+            });
+        }
+        expect(thumbnailTriplet.every(sample => (
+            sample.intersectsViewport
+            && sample.rendered
+            && sample.width > 0
+            && sample.height > 0
+        )), JSON.stringify(thumbnailTriplet)).toBe(true);
+        const pressureResult = await session.page.evaluate(async () => {
+            const probeWindow = window as IThumbnailPaintProbeWindow;
+            const applyPressure = () => probeWindow.__setWorkspaceSurfacePressureForE2E?.('critical');
+            if (!probeWindow.__setWorkspaceSurfacePressureForE2E) {
+                throw new Error('Workspace surface pressure E2E hook is unavailable');
+            }
+            applyPressure();
+            const pressureTimer = window.setInterval(applyPressure, 200);
+            await new Promise(resolve => setTimeout(resolve, 5_500));
+            window.clearInterval(pressureTimer);
+            const snapshot = probeWindow.__getWorkspaceSurfaceBudgetForE2E?.() ?? null;
+            probeWindow.__setWorkspaceSurfacePressureForE2E('healthy');
+            return {snapshot};
+        });
+        const pressureSnapshot = pressureResult.snapshot;
         const samples = await session.page.evaluate(() => {
             const probe = (window as IThumbnailPaintProbeWindow).__thumbnailPaintProbe;
             probe?.stop();
@@ -694,18 +1278,38 @@ describe('Electron E2E - Viewer Smoke', () => {
                 pageSamples,
             ]) => pageSamples.some(sample => sample.rendered && sample.contentPixels > 1))
             .map(([page]) => page);
+        const targetPages = [
+            17,
+            18,
+            19,
+        ];
+        const stableStartTime = Math.max(...targetPages.map(page => (
+            samplesByPage.get(page)?.find(sample => sample.rendered && sample.contentPixels > 1)?.timeMs ?? 0
+        )));
         const visibleCurrentPageSamples = samples.filter(sample => (
             sample.page === 18
-            && sample.containerClientHeight > 0
+            && sample.intersectsViewport
+            && sample.timeMs >= stableStartTime
         ));
         const metricSpread = (values: number[]) => Math.max(...values) - Math.min(...values);
 
-        expect(settledPages).toContain(18);
-        expect(settledPages.length).toBeGreaterThan(1);
+        expect(pressureSnapshot).toMatchObject({pressureLevel: 'critical'});
+        expect(settledPages).toEqual(expect.arrayContaining(targetPages));
         expect(regressions, JSON.stringify({
             regressions,
             settledPages,
+            pressureSnapshot,
         })).toEqual([]);
+        for (const page of targetPages) {
+            const finalSample = samplesByPage.get(page)?.at(-1);
+            expect(finalSample, `missing final sample for thumbnail ${String(page)}`).toMatchObject({
+                rendered: true,
+                intersectsViewport: true,
+            });
+            expect(finalSample?.width ?? 0).toBeGreaterThan(0);
+            expect(finalSample?.height ?? 0).toBeGreaterThan(0);
+            expect(finalSample?.contentPixels ?? 0).toBeGreaterThan(1);
+        }
         expect(visibleCurrentPageSamples.length).toBeGreaterThan(1);
         expect(metricSpread(visibleCurrentPageSamples.map(sample => sample.containerScrollHeight))).toBeLessThanOrEqual(1);
         expect(metricSpread(visibleCurrentPageSamples.map(sample => sample.containerScrollTop))).toBeLessThanOrEqual(1);
@@ -742,6 +1346,90 @@ describe('Electron E2E - Viewer Smoke', () => {
 runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
     const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-djvu-viewer-smoke-${Date.now()}`});
 
+    it('preserves the DjVu viewport anchor and ready surface through separate split-divider drags', async () => {
+        let session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+        if (!djvuFixture.path) {
+            throw new Error(djvuFixture.reason);
+        }
+
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-djvu-split-resize-${Date.now()}`,
+        });
+        if (!session) {
+            return;
+        }
+        await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
+        await openDjvuInApp(session.page, djvuFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForDjvuLoaded(session.page, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        const fitWidth = await callWorkspaceCommand(session.page, 'handleFitWidth');
+        expect(fitWidth.called).toBe(true);
+        const navigation = await callWorkspaceCommand(session.page, 'scrollToPage', [18]);
+        expect(navigation.called).toBe(true);
+        await waitForWorkspaceToolbarSnapshot(session.page, {currentPage: 18}, {timeoutMs: 20_000});
+        await nudgeActiveDocumentViewportWithWheel(session, 'djvu', 160);
+
+        const sourcePaneId = await session.page.evaluate(() => (
+            document.querySelector<HTMLElement>('.editor-pane.is-active')?.dataset.editorPaneId ?? null
+        ));
+        expect(sourcePaneId).not.toBeNull();
+        const userAnchor = await readSplitResizeViewportAnchor(session, sourcePaneId!, 'djvu');
+        expect(userAnchor.busy).toBe(false);
+        expect(userAnchor.scrollTop).toBeGreaterThan(0);
+        expect(userAnchor.pageHeight).toBeGreaterThan(100);
+        expect(userAnchor.readyVisiblePageCount).toBeGreaterThan(0);
+
+        const retainedPaneId = await splitActivePaneWithEmptyEditor(session);
+        expect(retainedPaneId).toBe(sourcePaneId);
+        const afterSplit = await waitForSplitResizeViewportAnchor(
+            session,
+            retainedPaneId,
+            'djvu',
+            userAnchor,
+        );
+        expectSplitResizeAnchorPreserved(afterSplit, userAnchor);
+        expect(afterSplit.busy).toBe(false);
+
+        const probeInstalled = await installDjvuSplitResizeContinuityProbe(session, retainedPaneId);
+        expect(probeInstalled).toBe(true);
+
+        await dragEditorDividerToRatio(session, 0.32);
+        const afterNarrowDrag = await waitForSplitResizeViewportAnchor(
+            session,
+            retainedPaneId,
+            'djvu',
+            userAnchor,
+        );
+        expectSplitResizeAnchorPreserved(afterNarrowDrag, userAnchor);
+        expect(afterNarrowDrag.paneWidth).toBeLessThan(afterSplit.paneWidth - 100);
+
+        await dragEditorDividerToRatio(session, 0.68);
+        const afterWideDrag = await waitForSplitResizeViewportAnchor(
+            session,
+            retainedPaneId,
+            'djvu',
+            userAnchor,
+        );
+        expectSplitResizeAnchorPreserved(afterWideDrag, userAnchor);
+        expect(afterWideDrag.paneWidth).toBeGreaterThan(afterNarrowDrag.paneWidth + 250);
+
+        const continuityFrames = await stopDjvuSplitResizeContinuityProbe(session);
+        const continuityDetail = JSON.stringify(continuityFrames);
+        expect(continuityFrames.length, continuityDetail).toBeGreaterThan(20);
+        expect(continuityFrames.every(frame => !frame.busy), continuityDetail).toBe(true);
+        expect(
+            continuityFrames.every(frame => frame.visiblePageCount > 0),
+            continuityDetail,
+        ).toBe(true);
+        expect(
+            continuityFrames.every(frame => frame.readyVisiblePageCount > 0),
+            continuityDetail,
+        ).toBe(true);
+    }, 120_000);
+
     it('keeps DjVu continuous wheel scroll geometry stable on the exact fixture', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
@@ -754,6 +1442,11 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
         await openDjvuInApp(session.page, djvuFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await waitForDjvuLoaded(session.page, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForFunctionInPage(session.page, () => {
+            const banner = document.querySelector<HTMLElement>('.editor-pane.is-active .djvu-banner');
+            const openingText = banner?.textContent?.includes('Opening DjVu') ?? false;
+            return !openingText && banner?.getAttribute('aria-busy') !== 'true';
+        }, {timeout: 10_000});
         await configureDjvuWheelMetricStart(session);
 
         const samples = await collectDjvuWheelMetricSamples(session);
@@ -769,7 +1462,10 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         expect(summary.virtualSpacerHeight, summaryDetail).toBe(0);
         expect(summary.maxScrollHeightDelta, summaryDetail).toBeLessThanOrEqual(2);
         expect(summary.maxSurfaceHeightDelta, summaryDetail).toBeLessThanOrEqual(2);
-        expect(summary.maxMountedPages, summaryDetail).toBeLessThanOrEqual(36);
+        // The source viewer keeps a 12-page radius plus a short overlap while
+        // the preceding viewport commit retires. Keep the cap tight enough to
+        // catch an unbounded render window while allowing that transition.
+        expect(summary.maxMountedPages, summaryDetail).toBeLessThanOrEqual(40);
         expect(summary.rangeTransitions, summaryDetail).toBeGreaterThan(3);
         expect(summary.maxVisibleGapPx, summaryDetail).toBeLessThanOrEqual(240);
         expect(summary.maxVisibleUnloadedFraction, summaryDetail).toBeLessThanOrEqual(0.85);
@@ -777,7 +1473,9 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             expect(sample.visibleShellCount, summaryDetail).toBeGreaterThan(0);
             expect(sample.visibleImageCount, summaryDetail).toBeGreaterThan(0);
             expect(sample.pageNumbers).toEqual([...sample.pageNumbers].sort((left, right) => left - right));
-            expect(sample.pageNumbers.at(-1)! - sample.pageNumbers[0]! + 1).toBe(sample.pageNumbers.length);
+            // Mounted pages are the union of current and outgoing destination
+            // windows and need not be contiguous. Visible continuity is
+            // asserted directly through gap and loaded-image metrics above.
         }
     }, 120_000);
 
@@ -821,4 +1519,215 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         expect(summary.maxVisibleGapPx, summaryDetail).toBeLessThanOrEqual(240);
         expect(summary.maxVisibleUnloadedFraction, summaryDetail).toBeLessThanOrEqual(0.35);
     }, 180_000);
+
+    it('keeps high-zoom visible pages resident under pressure with PDF-equivalent page framing', async () => {
+        let session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+        if (!djvuFixture.path) {
+            throw new Error(djvuFixture.reason);
+        }
+
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-djvu-high-zoom-residency-${Date.now()}`,
+        });
+        if (!session) {
+            return;
+        }
+
+        await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
+        await openDjvuInApp(session.page, djvuFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForDjvuLoaded(session.page, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+
+        const zoomResult = await callWorkspaceCommand(
+            session.page,
+            'setCustomZoomFromDisplay',
+            [DJVU_HIGH_ZOOM_REGRESSION_ZOOM],
+        );
+        expect(zoomResult.called).toBe(true);
+        await waitForWorkspaceToolbarSnapshot(
+            session.page,
+            {minEffectiveZoom: DJVU_HIGH_ZOOM_REGRESSION_ZOOM - 0.005},
+            {timeoutMs: 20_000},
+        );
+        const toolbar = await getWorkspaceToolbarSnapshot(session.page);
+        const totalPages = toolbar?.totalPages ?? 0;
+        expect(totalPages).toBeGreaterThan(10);
+        const targetPage = Math.max(2, totalPages - 8);
+        const navigation = await callWorkspaceCommand(session.page, 'handleGoToPage', [targetPage]);
+        expect(navigation.called).toBe(true);
+        await waitForWorkspaceToolbarSnapshot(
+            session.page,
+            {currentPage: targetPage},
+            {timeoutMs: 30_000},
+        );
+        await waitForFunctionInPage(session.page, () => {
+            const surface = document.querySelector<HTMLElement>('[data-testid="document-page-source-viewer"]');
+            const viewer = surface?.closest<HTMLElement>('[data-document-viewer-chassis-viewport]');
+            if (!viewer) {
+                return false;
+            }
+            const viewerRect = viewer.getBoundingClientRect();
+            const visiblePages = Array.from(viewer.querySelectorAll<HTMLElement>(
+                '[data-testid="document-page-source-page"]',
+            )).filter((page) => {
+                const rect = page.getBoundingClientRect();
+                return Math.min(rect.bottom, viewerRect.bottom) - Math.max(rect.top, viewerRect.top) > 8;
+            });
+            return visiblePages.length > 0 && visiblePages.every((page) => {
+                const image = page.querySelector<HTMLImageElement>(
+                    ':scope > [data-testid="document-page-source-image"]',
+                );
+                return page.dataset.pageSourceVisual === 'fresh'
+                    && image?.complete
+                    && (image.naturalWidth ?? 0) > 0
+                    && (image.naturalHeight ?? 0) > 0;
+            });
+        }, {timeout: 35_000});
+
+        const result = await session.page.evaluate(async (pressureDurationMs: number) => {
+            type TPressureWindow = Window & {
+                __getWorkspaceSurfaceBudgetForE2E?: () => {
+                    effectiveMaxBytes: number;
+                    leaseCount: number;
+                    pressureLevel: string;
+                    reservedBytes: number;
+                    reservedBytesByCategory: Record<string, number>;
+                };
+                __setWorkspaceSurfacePressureForE2E?: (level: 'healthy' | 'critical') => void;
+            };
+            interface IContinuityFrame {
+                imageCount: number;
+                timeMs: number;
+                visiblePages: Array<{
+                    imageReady: boolean;
+                    imageSource: string;
+                    pageNumber: number;
+                    visual: string;
+                }>;
+            }
+            const probeWindow = window as TPressureWindow;
+            if (!probeWindow.__setWorkspaceSurfacePressureForE2E) {
+                throw new Error('Workspace surface pressure E2E hook is unavailable');
+            }
+            const surface = document.querySelector<HTMLElement>('[data-testid="document-page-source-viewer"]');
+            const viewer = surface?.closest<HTMLElement>('[data-document-viewer-chassis-viewport]');
+            if (!surface || !viewer) {
+                throw new Error('DjVu viewer container was not found');
+            }
+
+            const shells = Array.from(viewer.querySelectorAll<HTMLElement>(
+                '[data-testid="document-page-source-page"]',
+            )).sort((left, right) => (
+                Number(left.dataset.pageNumber) - Number(right.dataset.pageNumber)
+            ));
+            let adjacentGapPx: number | null = null;
+            for (let index = 1; index < shells.length; index += 1) {
+                if (Number(shells[index]!.dataset.pageNumber) !== Number(shells[index - 1]!.dataset.pageNumber) + 1) {
+                    continue;
+                }
+                adjacentGapPx = Math.round(
+                    shells[index]!.getBoundingClientRect().top
+                    - shells[index - 1]!.getBoundingClientRect().bottom,
+                );
+                break;
+            }
+            const pageStyle = shells[0] ? window.getComputedStyle(shells[0]) : null;
+            const expectedBackgroundProbe = document.createElement('div');
+            expectedBackgroundProbe.style.background = 'var(--app-pdf-viewer-bg)';
+            document.body.append(expectedBackgroundProbe);
+            const expectedViewportBackground = window.getComputedStyle(expectedBackgroundProbe).backgroundColor;
+            expectedBackgroundProbe.remove();
+            const layout = {
+                adjacentGapPx,
+                pageBackground: pageStyle?.backgroundColor ?? '',
+                pageBorderRadius: pageStyle?.borderRadius ?? '',
+                pageShadow: pageStyle?.boxShadow ?? '',
+                viewportBackground: window.getComputedStyle(viewer).backgroundColor,
+                expectedViewportBackground,
+            };
+
+            const frames: IContinuityFrame[] = [];
+            let active = true;
+            const sample = () => {
+                if (!active) {
+                    return;
+                }
+                const viewerRect = viewer.getBoundingClientRect();
+                const visiblePages = Array.from(viewer.querySelectorAll<HTMLElement>(
+                    '[data-testid="document-page-source-page"]',
+                )).flatMap((page) => {
+                    const rect = page.getBoundingClientRect();
+                    if (Math.min(rect.bottom, viewerRect.bottom) - Math.max(rect.top, viewerRect.top) <= 8) {
+                        return [];
+                    }
+                    const image = page.querySelector<HTMLImageElement>(
+                        ':scope > [data-testid="document-page-source-image"]',
+                    );
+                    return [{
+                        imageReady: Boolean(
+                            image?.complete
+                            && (image.naturalWidth ?? 0) > 0
+                            && (image.naturalHeight ?? 0) > 0,
+                        ),
+                        imageSource: image?.currentSrc || image?.src || '',
+                        pageNumber: Number(page.dataset.pageNumber),
+                        visual: page.dataset.pageSourceVisual ?? '',
+                    }];
+                });
+                frames.push({
+                    imageCount: viewer.querySelectorAll('[data-testid="document-page-source-image"]').length,
+                    timeMs: Math.round(performance.now()),
+                    visiblePages,
+                });
+                window.requestAnimationFrame(sample);
+            };
+
+            const applyPressure = () => probeWindow.__setWorkspaceSurfacePressureForE2E?.('critical');
+            window.requestAnimationFrame(sample);
+            applyPressure();
+            const pressureTimer = window.setInterval(applyPressure, 150);
+            await new Promise(resolve => setTimeout(resolve, pressureDurationMs));
+            window.clearInterval(pressureTimer);
+            active = false;
+            const snapshot = probeWindow.__getWorkspaceSurfaceBudgetForE2E?.() ?? null;
+            probeWindow.__setWorkspaceSurfacePressureForE2E('healthy');
+            return {
+                frames,
+                layout,
+                snapshot,
+            };
+        }, DJVU_HIGH_ZOOM_PRESSURE_DURATION_MS);
+
+        const detail = JSON.stringify(result);
+        expect(result.frames.length, detail).toBeGreaterThan(30);
+        expect(result.frames.every(frame => frame.visiblePages.length > 0), detail).toBe(true);
+        expect(result.frames.every(frame => frame.visiblePages.every(page => (
+            page.visual === 'fresh' && page.imageReady
+        ))), detail).toBe(true);
+        expect(Math.max(...result.frames.map(frame => frame.imageCount)), detail).toBeLessThanOrEqual(5);
+
+        const imageSourcesByPage = new Map<number, Set<string>>();
+        for (const frame of result.frames) {
+            for (const page of frame.visiblePages) {
+                const sources = imageSourcesByPage.get(page.pageNumber) ?? new Set<string>();
+                sources.add(page.imageSource);
+                imageSourcesByPage.set(page.pageNumber, sources);
+            }
+        }
+        expect(
+            [...imageSourcesByPage.values()].every(sources => sources.size === 1 && !sources.has('')),
+            detail,
+        ).toBe(true);
+        expect(result.snapshot?.reservedBytesByCategory['djvu-preview'] ?? Number.POSITIVE_INFINITY, detail)
+            .toBeLessThan(512 * 1024 * 1024);
+
+        expect(result.layout.adjacentGapPx, detail).toBe(20);
+        expect(result.layout.viewportBackground, detail).toBe(result.layout.expectedViewportBackground);
+        expect(result.layout.pageBackground, detail).not.toBe('rgba(0, 0, 0, 0)');
+        expect(result.layout.pageShadow, detail).not.toBe('none');
+        expect(result.layout.pageBorderRadius, detail).not.toBe('0px');
+    }, 150_000);
 });

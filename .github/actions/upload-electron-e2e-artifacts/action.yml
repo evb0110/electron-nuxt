@@ -1,0 +1,25 @@
+name: Upload Electron E2E artifacts
+description: Upload bounded Electron session diagnostics without browser profile data
+
+inputs:
+  artifact-name:
+    description: Unique artifact name for this CI job
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Upload retained Electron diagnostics
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: |
+          .devkit/sessions/e2e-*/session.log
+          .devkit/sessions/e2e-*/session.json
+          .devkit/sessions/e2e-*/session-starting.json
+          .devkit/sessions/e2e-*/screenshots/**
+          .devkit/test/electron-e2e-artifacts/**
+          .devkit/scratch/dev-server-logs/e2e-*/**
+        include-hidden-files: true
+        if-no-files-found: warn
+        retention-days: 14

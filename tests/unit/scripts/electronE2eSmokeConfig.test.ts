@@ -48,6 +48,7 @@ const vitestProjectNames = {
     electronE2EDrawShapes: 'e2e-draw-shapes',
     electronE2ELargePdf: 'e2e-large-pdf',
     electronE2ERapidNavigation: 'e2e-rapid-navigation',
+    electronE2EVisibleWindow: 'e2e-visible-window',
     electronE2EQuarantine: 'e2e-quarantine',
 } as const;
 
@@ -92,6 +93,7 @@ const electronE2ELargePdfTestFiles = [
     'tests/e2e/electron/largePdfNativePreview.e2e.test.ts',
 ];
 const electronE2ERapidNavigationTestFiles = ['tests/e2e/electron/rapidPdfNavigation.e2e.test.ts'];
+const electronE2EVisibleWindowTestFiles = ['tests/e2e/electron/visibleWindowLifecycle.e2e.test.ts'];
 const electronE2EQuarantineTestFiles = ['tests/e2e/electron/quarantine/**/*.e2e.test.ts'];
 
 let importNonce = 0;
@@ -141,6 +143,7 @@ function e2eProjectNames() {
         vitestProjectNames.electronE2EDrawShapes,
         vitestProjectNames.electronE2ELargePdf,
         vitestProjectNames.electronE2ERapidNavigation,
+        vitestProjectNames.electronE2EVisibleWindow,
         vitestProjectNames.electronE2EQuarantine,
     ];
 }
@@ -237,6 +240,8 @@ describe('electron e2e Vitest project topology', () => {
             .toEqual(electronE2ELargePdfTestFiles);
         expect(projectByName(config, vitestProjectNames.electronE2ERapidNavigation).test?.include)
             .toEqual(electronE2ERapidNavigationTestFiles);
+        expect(projectByName(config, vitestProjectNames.electronE2EVisibleWindow).test?.include)
+            .toEqual(electronE2EVisibleWindowTestFiles);
 
         for (const obsoleteEnvFlag of [
             'EVB_E2E_DRAW_SHAPES_EXTENDED',
@@ -254,6 +259,8 @@ describe('electron e2e Vitest project topology', () => {
         expect(packageScripts['test:e2e:electron:large']).toContain('pnpm run build:pdf-page-ops');
         expect(packageScripts['test:e2e:electron:rapid-navigation:no-build'])
             .toBe('vitest run --project e2e-rapid-navigation --reporter verbose');
+        expect(packageScripts['test:e2e:electron:visible-window:no-build'])
+            .toBe('vitest run --project e2e-visible-window --reporter verbose');
         expect(packageScripts['test:e2e:electron'])
             .toBe('pnpm run build:electron && pnpm run test:e2e:electron:regression:no-build');
         expect(packageScripts['test:e2e:electron:regression:no-build'])

@@ -2,6 +2,7 @@ import {
     createPdfViewportGeometryFromLayout,
     computePdfViewportGeometry,
     resolveAnchorFromScroll,
+    resolveRetainedAnchorFromScroll,
     resolveScrollForAnchor,
 } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
 import {
@@ -26,6 +27,51 @@ describe('pdfViewportGeometry', () => {
             height: 1_200,
         },
     ];
+
+    it('retains a semantic resize anchor when narrow geometry clamps its projected scroll', () => {
+        const wide = computePdfViewportGeometry({
+            revision: 1,
+            pages: [{
+                width: 600,
+                height: 800,
+            }],
+            viewportWidth: 900,
+            viewportHeight: 600,
+            zoom: 1.5,
+            viewMode: 'single',
+            gap: 20,
+            padding: 20,
+        });
+        const intendedAnchor = resolveAnchorFromScroll(wide, {
+            left: 0,
+            top: 600,
+        });
+        const narrow = computePdfViewportGeometry({
+            revision: 2,
+            pages: [{
+                width: 600,
+                height: 800,
+            }],
+            viewportWidth: 360,
+            viewportHeight: 600,
+            zoom: 0.5,
+            viewMode: 'single',
+            gap: 20,
+            padding: 20,
+        });
+        const clamped = resolveScrollForAnchor(narrow, intendedAnchor);
+
+        expect(clamped.top).toBe(0);
+        expect(resolveAnchorFromScroll(narrow, clamped).pageYFraction)
+            .not.toBeCloseTo(intendedAnchor.pageYFraction, 3);
+        expect(resolveRetainedAnchorFromScroll(narrow, clamped, intendedAnchor))
+            .toEqual(intendedAnchor);
+        expect(resolveScrollForAnchor(wide, resolveRetainedAnchorFromScroll(
+            narrow,
+            clamped,
+            intendedAnchor,
+        ))).toEqual(resolveScrollForAnchor(wide, intendedAnchor));
+    });
 
     it('is pure and preserves a semantic anchor across corrected geometry', () => {
         const before = computePdfViewportGeometry({

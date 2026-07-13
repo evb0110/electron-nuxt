@@ -178,6 +178,7 @@ import { useAnalytics } from '@app/composables/useAnalytics';
 import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
 import { useEditorPanesManager } from '@app/modules/workspace-shell/composables/useEditorPanesManager';
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
+import { installAppShellE2EHooks } from '@app/modules/workspace-shell/automation/installAppShellE2EHooks';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
 import { useAppShellResilience } from '@app/modules/workspace-shell/composables/useAppShellResilience';
 import { useAppShellToolPages } from '@app/modules/workspace-shell/composables/useAppShellToolPages';
@@ -186,10 +187,7 @@ import { useBrowserInstallHint } from '@app/modules/workspace-shell/composables/
 import { useDirectOpenAutomationDispatcherShell } from '@app/modules/workspace-shell/automation/directOpenAutomationDispatcher';
 import { resolveTabLifecycleStates } from '@app/modules/workspace-shell/tabs/resolveTabLifecycleStates';
 import { pruneStartSectionByTabId } from '@app/modules/workspace-shell/tabs/pruneStartSectionByTabId';
-import type {
-    TPdfViewMode,
-    TTabMemoryPolicy,
-} from '@contracts/shared';
+import type { TPdfViewMode } from '@contracts/shared';
 import type { IAgentAssistantChatScope } from '@contracts/agent';
 import type { TStartSection } from '@app/types/startSection';
 import type { IHostZenModeState } from '@contracts/electronApiHost';
@@ -268,9 +266,7 @@ const {
     startPanelResize: startAssistantPanelResize,
 } = useAssistantPanelResize();
 const isEditorPanesResizing = ref(false);
-const isWorkspaceLayoutResizing = computed(() => (
-    isAssistantPanelResizing.value || isEditorPanesResizing.value
-));
+const isWorkspaceLayoutResizing = computed(() => isAssistantPanelResizing.value || isEditorPanesResizing.value);
 const fullscreenSupported = ref(true);
 let zenModeRequestInFlight = false;
 const workspaceSplitCache = useWorkspaceSplitCache();
@@ -495,6 +491,8 @@ useEventListener(window, 'keydown', (event: KeyboardEvent) => {
 
 let unsubscribeZenModeChange: (() => void) | null = null;
 let isShellRootDisposed = false;
+// Keep hook disposal paired with the component instance during dev HMR.
+let cleanupAppShellE2EHooks: (() => void) | null = null;
 
 onMounted(() => {
     isShellRootDisposed = false;
@@ -523,10 +521,14 @@ onMounted(() => {
     );
 
     if (import.meta.dev) {
-        (window as Window & {__setTabMemoryPolicyForE2E?: (policy: TTabMemoryPolicy) => void;}).__setTabMemoryPolicyForE2E = (policy) => updateSetting('tabMemoryPolicy', policy);
-        (window as Window & {__splitEditorForE2E?: (direction: 'left' | 'right' | 'up' | 'down') => Promise<void> | void;}).__splitEditorForE2E = splitEditor;
-        (window as Window & {__splitEditorEmptyForE2E?: (direction: 'left' | 'right' | 'up' | 'down') => Promise<void> | void;}).__splitEditorEmptyForE2E = splitEditorEmpty;
-        (window as Window & {__copyActiveTabForE2E?: (direction: 'left' | 'right' | 'up' | 'down') => Promise<void> | void;}).__copyActiveTabForE2E = copyActiveTab;
+        cleanupAppShellE2EHooks = installAppShellE2EHooks({
+            copyActiveTab,
+            setTabMemoryPolicy: (policy) => {
+                updateSetting('tabMemoryPolicy', policy);
+            },
+            splitEditor,
+            splitEditorEmpty,
+        });
     }
 });
 
@@ -534,12 +536,8 @@ onUnmounted(() => {
     isShellRootDisposed = true;
     unsubscribeZenModeChange?.();
     unsubscribeZenModeChange = null;
-    if (import.meta.dev) {
-        delete (window as Window & {__setTabMemoryPolicyForE2E?: (policy: TTabMemoryPolicy) => void;}).__setTabMemoryPolicyForE2E;
-        delete (window as Window & {__splitEditorForE2E?: (direction: 'left' | 'right' | 'up' | 'down') => Promise<void> | void;}).__splitEditorForE2E;
-        delete (window as Window & {__splitEditorEmptyForE2E?: (direction: 'left' | 'right' | 'up' | 'down') => Promise<void> | void;}).__splitEditorEmptyForE2E;
-        delete (window as Window & {__copyActiveTabForE2E?: (direction: 'left' | 'right' | 'up' | 'down') => Promise<void> | void;}).__copyActiveTabForE2E;
-    }
+    cleanupAppShellE2EHooks?.();
+    cleanupAppShellE2EHooks = null;
 });
 
 const {
@@ -813,6 +811,7 @@ const {
     workspaceSplitCache,
     isSingletonPlaceholderCloseBlocked,
     enqueueTabTransition,
+    setWorkspaceLayoutResizing: value => { isEditorPanesResizing.value = value; },
     captureWorkspacePayload,
     restoreWorkspacePayload,
     moveTabToNewWindow,

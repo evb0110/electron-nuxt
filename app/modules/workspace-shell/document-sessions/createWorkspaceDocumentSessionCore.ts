@@ -486,6 +486,20 @@ export function createWorkspaceDocumentSessionCore(
             || normalizedRecord.tab.isDjvu;
         const activeKind = snapshot.value.activeTransaction?.kind ?? null;
         if (
+            !hasIncomingDocument
+            && getLogicalDocumentSignature(snapshot.value.identity) !== null
+            && activeKind === null
+            && !closeRecordFenceActive
+        ) {
+            // A freshly mounted DocumentWorkspace publishes its empty initial
+            // record before restoring the host-owned document session. Pane
+            // reparenting and inactive-tab cooling can both expose that mount
+            // boundary. Only an explicit close/open transaction may clear a
+            // live identity; otherwise this transient record would relabel the
+            // tab as New Tab and destroy the source needed for restoration.
+            return;
+        }
+        if (
             closeRecordFenceActive
             && hasIncomingDocument
             && activeKind !== 'open'

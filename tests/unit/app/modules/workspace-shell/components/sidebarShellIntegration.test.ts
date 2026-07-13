@@ -43,4 +43,39 @@ describe('shared sidebar shell integration', () => {
         expect(sharedStyles).toContain('.app-sidebar-tab-trigger-fluid');
         expect(sharedStyles).toContain('flex: 0 1 auto;');
     });
+
+    it('keeps compact tab labels available to assistive technology', () => {
+        const shell = readWorkspaceFile('app/components/sidebar/AppSidebarShell.vue');
+
+        expect(shell).toContain('label: item.label');
+        expect(shell).not.toContain('label: isCompact.value ? \'\' : item.label');
+        expect(shell).toContain('label: isCompact.value ? \'sr-only\'');
+    });
+
+    it('shares the editor sash hit area and visual states with the sidebar resizer', () => {
+        const tokens = readWorkspaceFile('app/assets/css/main.css');
+        const sidebarHost = readWorkspaceFile(
+            'app/modules/workspace-shell/components/layout/WorkspaceSidebarHost.vue',
+        );
+        const editorGrid = readWorkspaceFile(
+            'app/modules/workspace-shell/components/EditorPanesGrid.vue',
+        );
+
+        expect(tokens).toContain('--app-editor-sash-width: var(--app-editor-sash-size);');
+        for (const source of [
+            sidebarHost,
+            editorGrid,
+        ]) {
+            expect(source).toContain('background: var(--app-editor-sash-bg);');
+            expect(source).toContain('background: var(--app-editor-sash-bg-hover);');
+        }
+        expect(sidebarHost).toContain('width: var(--app-editor-sash-width);');
+        expect(sidebarHost).toMatch(
+            /\.sidebar-wrapper\s*\{[^}]*background: var\(--app-sidebar-bg\);/su,
+        );
+        expect(sidebarHost).toMatch(
+            /\.sidebar-resizer\s*\{[^}]*margin-inline-start: auto;/su,
+        );
+        expect(sidebarHost).not.toMatch(/\.sidebar-resizer\s*\{[^}]*border-left:/su);
+    });
 });

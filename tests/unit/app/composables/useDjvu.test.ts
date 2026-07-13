@@ -202,6 +202,34 @@ describe('useDjvu', () => {
             expect(djvu.isLoadingPages.value).toBe(false);
         });
 
+        it('retains trusted source size for the active DjVu until that activation exits', async () => {
+            mockElectronAPI.djvu.openForViewing.mockResolvedValue({
+                success: true,
+                pageCount: 1,
+                jobId: 'job-sized',
+                pageSourceInfo: {
+                    pageCount: 1,
+                    pageNumber: 1,
+                    pageSize: {
+                        width: 1200,
+                        height: 1800,
+                        dpi: 300,
+                    },
+                    sourceSize: 14_712_313,
+                    sourceModifiedAt: 1_700_000_000_000,
+                },
+            });
+
+            const djvu = useDjvu();
+            await djvu.openDjvuFile('/path/to/sized.djvu');
+
+            expect(djvu.sourceSizeBytes.value).toBe(14_712_313);
+            const activation = djvu.captureDjvuActivation();
+            expect(activation).not.toBeNull();
+            expect(djvu.exitDjvuMode(activation!)).toBe(true);
+            expect(djvu.sourceSizeBytes.value).toBeNull();
+        });
+
         it('leaves window title sync to the workspace shell', async () => {
             mockElectronAPI.djvu.openForViewing.mockResolvedValue({
                 success: true,

@@ -30,6 +30,7 @@ interface IWorkspaceDocumentControlsOptions extends Omit<IPageFileOperationsDeps
     pdfData: Ref<Uint8Array | null>;
     originalPath: TReadableRef<TDocumentRef | null>;
     effectiveZoom: Ref<number>;
+    knownFileSizeBytes?: TReadableRef<number | null> | undefined;
     isDocumentVisualPending?: Ref<boolean>;
     canSave: Ref<boolean>;
     handleSave: () => Promise<unknown>;
@@ -56,6 +57,7 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
         bookmarkItems,
         currentPage,
         effectiveZoom,
+        knownFileSizeBytes,
         isDocumentVisualPending,
         canSave,
         isAnySaving,
@@ -106,6 +108,7 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
         workingCopyPath,
         ...(documentRevisionToken !== undefined ? { documentRevisionToken } : {}),
         effectiveZoom,
+        ...(knownFileSizeBytes ? {knownFileSizeBytes} : {}),
         ...(isDocumentVisualPending ? { isDocumentVisualPending } : {}),
         canSave,
         isAnySaving,

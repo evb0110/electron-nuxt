@@ -74,21 +74,6 @@ function describeError(error: unknown) {
     return String(error);
 }
 
-function getPathBasename(path: string) {
-    return path
-        .replace(/\\/gu, '/')
-        .split('/')
-        .pop()
-        ?.toLowerCase() ?? '';
-}
-
-function getGeneratedPdfBasenameForImage(path: string) {
-    const basename = getPathBasename(path);
-    return /\.(?:a?png|avif|bmp|gif|ico|jpe?g|svgz?|tiff?|webp)$/iu.test(basename)
-        ? basename.replace(/\.[^.]+$/u, '.pdf')
-        : '';
-}
-
 async function runWithExecutionContextRetry<T>(
     page: Page,
     task: () => Promise<T>,
@@ -148,54 +133,27 @@ async function waitForRendererBindings(page: Page, timeoutMs = DEFAULT_TIMEOUT_M
     throw new Error(`Renderer bindings did not become ready within ${timeoutMs}ms (${detail})`);
 }
 
-async function waitForActiveDocumentPath(page: Page, path: string, timeoutMs = DEFAULT_TIMEOUT_MS) {
+export async function waitForActiveDocumentSource(page: Page, path: string, timeoutMs = DEFAULT_TIMEOUT_MS) {
     await installWorkspaceExposeProbe(page);
-    await waitForFunctionInPage(page, (payload: {
-        basename: string;
-        generatedPdfBasename: string;
-        path: string;
-    }) => {
+    await waitForFunctionInPage(page, (payload: {path: string}) => {
         const normalize = (value: unknown) => typeof value === 'string'
             ? value.replace(/\\/gu, '/').toLowerCase()
             : '';
-        const basenameOf = (value: unknown) => normalize(value).split('/').pop() ?? '';
         const requestedPath = normalize(payload.path);
-        const requestedBasename = payload.basename;
         const api = (window as IE2EWindow & {__evbTestApi?: {
             collectWorkspaceDebugState?: () => {activeWorkspaceState?: Record<string, unknown>;};
             readActiveWorkspaceStateValues?: (propertyNames: string[]) => Record<string, unknown>;
         };}).__evbTestApi;
         const activeState = (api?.readActiveWorkspaceStateValues?.([
-            'fileName',
             'originalPath',
             'pendingDocumentPath',
-            'workingCopyPath',
         ]) ?? api?.collectWorkspaceDebugState?.().activeWorkspaceState ?? {}) as Record<string, unknown>;
-        const activeTab = document.querySelector<HTMLElement>('.tab.is-active, [role="tab"][aria-selected="true"]');
-        const statusCandidates = Array.from(document.querySelectorAll<HTMLElement>('.status-path, .status-file, .workspace-status, .document-status'))
-            .map(candidate => candidate.textContent ?? '');
         const candidates = [
-            activeState.fileName,
             activeState.originalPath,
             activeState.pendingDocumentPath,
-            activeState.workingCopyPath,
-            activeTab?.getAttribute('aria-label'),
-            activeTab?.textContent,
-            ...statusCandidates,
         ];
-
-        return candidates.some(candidate => {
-            const normalized = normalize(candidate);
-            const candidateBasename = basenameOf(candidate);
-            return normalized === requestedPath
-                || candidateBasename === requestedBasename
-                || (payload.generatedPdfBasename.length > 0 && candidateBasename === payload.generatedPdfBasename);
-        });
-    }, {timeout: timeoutMs}, {
-        basename: getPathBasename(path),
-        generatedPdfBasename: getGeneratedPdfBasenameForImage(path),
-        path,
-    });
+        return candidates.some(candidate => normalize(candidate) === requestedPath);
+    }, {timeout: timeoutMs}, {path});
 }
 
 async function openFreshTabForDocumentOpen(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
@@ -426,7 +384,7 @@ async function openPathInApp(
     let openedFreshTabAfterBlockedOpen = false;
 
     try {
-        await waitForActiveDocumentPath(page, path, 300);
+        await waitForActiveDocumentSource(page, path, 300);
         await waitForLoaded(page, timeoutMs);
         return;
     } catch {
@@ -466,7 +424,7 @@ async function openPathInApp(
                 if (!openResult) {
                     lastError = new Error('window.__openFileDirect returned false');
                     try {
-                        await waitForActiveDocumentPath(page, path, Math.min(3_000, remainingMs));
+                        await waitForActiveDocumentSource(page, path, Math.min(3_000, remainingMs));
                         await waitForLoaded(page, remainingMs);
                         return;
                     } catch (error) {
@@ -486,7 +444,7 @@ async function openPathInApp(
             }
 
             const domWait = (async () => {
-                await waitForActiveDocumentPath(page, path, remainingMs);
+                await waitForActiveDocumentSource(page, path, remainingMs);
                 await waitForLoaded(page, remainingMs);
             })();
             const eventWait = Promise.all([

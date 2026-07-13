@@ -8,12 +8,20 @@ import type { IPageRange } from '@app/types/pdfUi';
 import type { IPdfPageSlotRegistry } from '@app/modules/pdf-viewer/runtime/page-slots/pdfPageSlotRegistry';
 import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
+import { resolvePdfRasterResidencyPlan } from '@app/modules/pdf-viewer/runtime/rendering/resolvePdfRasterResidencyPlan';
 
 type TPdfPageVisualReadiness = 'unmounted' | 'queued' | 'rendering' | 'ready' | 'error';
 
 interface IUsePdfRenderDemandCoordinatorOptions {
     visibleRange: Ref<IPageRange>;
     pagesToRender: ComputedRef<number[]>;
+    bufferPages: ComputedRef<number>;
+    maxBufferCanvasPixels: number;
+    estimatePageRasterPixels: (pageNumber: number) => number;
+    reconcilePageCanvasResidency: (
+        residentPages: readonly number[],
+        visibleRange: IPageRange,
+    ) => void;
     pageSlots: IPdfPageSlotRegistry;
     isActive: ComputedRef<boolean>;
     isLoading: Ref<boolean>;
@@ -66,12 +74,40 @@ export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordi
     } | null = null;
     let bufferDemandPending = true;
     let pendingBufferRanges: IPageRange[] = [];
+    let pendingBufferMaxCanvasPixels = 0;
     let automaticDemandPending = true;
     const watchdogRecoveries = new Map<string, number>();
     const observedFailureTokens = new Map<number, string>();
     const failureAttempts = new Map<number, number>();
     let observedRenderGeneration = options.getRenderGeneration();
     let disposed = false;
+
+    function resolveRasterResidencyPlan() {
+        const visibleRange = getClampedVisibleRange();
+        if (!options.isActive.value || options.pdfDocument.value === null || options.numPages.value <= 0) {
+            return {
+                visiblePages: [],
+                bufferPages: [],
+                residentPages: [],
+                maxPixelsPerBufferCanvas: 0,
+                estimatedBufferPixels: 0,
+            };
+        }
+        return resolvePdfRasterResidencyPlan({
+            mountedPages: options.pagesToRender.value.filter(pageNumber => options.pageSlots.isMounted(pageNumber)),
+            visibleRange,
+            bufferRadius: options.bufferPages.value,
+            maxBufferPixels: options.maxBufferCanvasPixels,
+            estimatePagePixels: options.estimatePageRasterPixels,
+        });
+    }
+
+    function reconcileRasterResidency() {
+        const visibleRange = getClampedVisibleRange();
+        const plan = resolveRasterResidencyPlan();
+        options.reconcilePageCanvasResidency(plan.residentPages, visibleRange);
+        return plan;
+    }
 
     function isOperational() {
         return !disposed
@@ -178,6 +214,7 @@ export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordi
         }
         automaticDemandPending = true;
         clearWatchdog(optionsOverride.resetWatchdog === true);
+        reconcileRasterResidency();
         publishQueuedRequiredPages();
         queueFrame();
     }
@@ -212,6 +249,7 @@ export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordi
             'automatic',
             visibleRange,
             {
+                maxCanvasPixels: pendingBufferMaxCanvasPixels,
                 preserveRenderedPages: true,
                 preserveInFlightRequiredPages: true,
                 renderWindowOverride,
@@ -440,13 +478,13 @@ export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordi
         }
         bufferDemandPending = false;
         automaticDemandPending = false;
-        const mountedBufferPages = options.pagesToRender.value.filter(pageNumber => (
-            options.pageSlots.isMounted(pageNumber)
-        ));
+        const residencyPlan = reconcileRasterResidency();
+        const mountedBufferPages = residencyPlan.bufferPages;
         if (mountedBufferPages.length === 0) {
             return;
         }
         pendingBufferRanges = partitionContiguousPages(mountedBufferPages);
+        pendingBufferMaxCanvasPixels = residencyPlan.maxPixelsPerBufferCanvas;
         runNextBufferDemand();
     }
 
@@ -506,6 +544,7 @@ export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordi
             options.visibleRange.value.start,
             options.visibleRange.value.end,
             options.pagesToRender.value.join(','),
+            options.bufferPages.value,
             options.isActive.value,
             options.isLoading.value,
             Boolean(options.pdfDocument.value),

@@ -612,9 +612,11 @@ useEventListener(window, 'keydown', (event) => {
 
 .tab-label {
     overflow: hidden;
+    padding-block: var(--app-space-2xs);
     text-overflow: ellipsis;
     white-space: nowrap;
     flex: 1;
+    line-height: var(--app-line-height-body);
     min-width: 0;
 }
 

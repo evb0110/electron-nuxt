@@ -4,6 +4,7 @@ interface IBuildThumbnailRenderQueueOptions {
     totalPages: number;
     currentPage: number;
     visiblePages: readonly number[];
+    mountedPages?: readonly number[] | undefined;
     renderedPages: ReadonlySet<number>;
     renderingPages: ReadonlySet<number>;
     immediateRenderRadius: number;
@@ -45,40 +46,44 @@ export function buildThumbnailRenderQueue(
         queue.push(normalizedPage);
     };
 
-    const pushRange = (start: number, end: number) => {
-        for (let page = start; page <= end; page += 1) {
+    const pushSymmetric = (center: number, radius: number) => {
+        for (let distance = 1; distance <= radius; distance += 1) {
+            push(center - distance);
+            push(center + distance);
+        }
+    };
+
+    const pushByDistance = (pages: readonly number[], anchor: number) => {
+        const sortedPages = [...pages].sort((left, right) => (
+            Math.abs(left - anchor) - Math.abs(right - anchor)
+            || left - right
+        ));
+        for (const page of sortedPages) {
             push(page);
         }
     };
 
     push(currentPage);
+    pushSymmetric(currentPage, options.immediateRenderRadius);
 
     const normalizedVisiblePages = options.visiblePages
         .map(page => normalizePageNumber(page, totalPages))
         .filter(page => page > 0);
 
-    for (const page of normalizedVisiblePages) {
-        push(page);
-    }
-
-    pushRange(
-        currentPage - options.immediateRenderRadius,
-        currentPage + options.immediateRenderRadius,
-    );
+    pushByDistance(normalizedVisiblePages, currentPage);
 
     if (normalizedVisiblePages.length > 0) {
         const firstVisible = normalizedVisiblePages[0]!;
         const lastVisible = normalizedVisiblePages[normalizedVisiblePages.length - 1]!;
-        pushRange(
-            firstVisible - options.immediateRenderRadius,
-            lastVisible + options.immediateRenderRadius,
+        const expandedVisiblePages = Array.from(
+            {length: lastVisible - firstVisible + 1 + options.immediateRenderRadius * 2},
+            (_, index) => firstVisible - options.immediateRenderRadius + index,
         );
+        pushByDistance(expandedVisiblePages, currentPage);
     }
 
-    pushRange(
-        currentPage - options.prefetchRenderRadius,
-        currentPage + options.prefetchRenderRadius,
-    );
+    pushSymmetric(currentPage, options.prefetchRenderRadius);
+    pushByDistance(options.mountedPages ?? [], currentPage);
 
     return queue;
 }

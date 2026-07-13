@@ -18,6 +18,7 @@ describe('PdfEmptyState Recent eligibility contract', () => {
 
         expect(source).toContain(':data-recent-open-ready="isRecentOpenReady(file) ? \'true\' : \'false\'"');
         expect(source).toContain(':data-recent-open-exact-frame-ready="isRecentOpenExactFrameReady(file) ? \'true\' : \'false\'"');
+        expect(source).toContain(':data-recent-source="String(file.originalPath)"');
         expect(disabledSource).toContain('recentOpenDisabled || !isRecentOpenReady(file)');
         expect(disabledSource).not.toContain('return openInProgress');
         expect(disabledSource).not.toContain('isRecentOpenExactFrameReady');

@@ -21,6 +21,8 @@ import { usePdfViewerViewportLifecycle } from '@app/modules/pdf-viewer/runtime/v
 import { usePdfViewerRuntimeLifecycle } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfViewerRuntimeLifecycle';
 import { usePdfViewerExposeControllers } from '@app/modules/pdf-viewer/runtime/usePdfViewerExposeControllers';
 import { usePdfViewerLoadLifecycleController } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfViewerLoadLifecycleController';
+import { isPdfInitialVisualCanvasReady } from '@app/modules/pdf-viewer/runtime/lifecycle/isPdfInitialVisualCanvasReady';
+import { resolvePdfPreparedOpeningFitScale } from '@app/modules/pdf-viewer/runtime/lifecycle/resolvePdfPreparedOpeningFitScale';
 import { usePdfInitialCanvasCommitCoordinator } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfInitialCanvasCommitCoordinator';
 import { commitPdfOpenSurfaceViewport } from '@app/modules/pdf-viewer/runtime/navigation/commitPdfOpenSurfaceViewport';
 import { usePdfTrustedOpenGeometryLifecycle } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfTrustedOpenGeometryLifecycle';
@@ -31,6 +33,7 @@ import type { IZoomVirtualizationFreeze } from '@app/modules/pdf-viewer/runtime/
 import { usePdfViewerMouseInteractions } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerMouseInteractions';
 import { usePdfViewerWheelZoom } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerWheelZoom';
 import { usePdfViewerOutputScale } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerOutputScale';
+import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import { createPdfViewerEventAdapter } from '@app/modules/pdf-viewer/runtime/contracts/createPdfViewerEventAdapter';
 import { usePdfViewerPublicApiController } from '@app/modules/pdf-viewer/runtime/usePdfViewerPublicApiController';
 import { useEditedTextMarkupVisualSync } from '@app/modules/pdf-viewer/runtime/annotations/useEditedTextMarkupVisualSync';
@@ -143,26 +146,11 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         },
         emitInitialVisualReady: viewerEvents.initialVisualReady,
         markDelayedSkeletonPageRendered: pageNumber => markDelayedSkeletonPageRendered(pageNumber),
-        isInitialVisualCanvasReady: (pageNumber) => {
-            if (pageNumber !== viewerCurrentPage.value) {
-                return false;
-            }
-            const container = viewerContainer.value;
-            const canvas = container?.querySelector<HTMLCanvasElement>(
-                `.page_container[data-page="${pageNumber}"] .page_canvas canvas`,
-            );
-            if (!container || !canvas?.isConnected || canvas.width <= 0 || canvas.height <= 0) {
-                return false;
-            }
-            const containerRect = container.getBoundingClientRect();
-            const canvasRect = canvas.getBoundingClientRect();
-            return canvasRect.width > 0
-                && canvasRect.height > 0
-                && canvasRect.bottom > containerRect.top
-                && canvasRect.top < containerRect.bottom
-                && canvasRect.right > containerRect.left
-                && canvasRect.left < containerRect.right;
-        },
+        isInitialVisualCanvasReady: pageNumber => isPdfInitialVisualCanvasReady(
+            viewerContainer.value,
+            pageNumber,
+            viewerCurrentPage.value,
+        ),
     });
     const viewerRuntime = usePdfViewerRuntime({
         viewerContainer,
@@ -221,35 +209,14 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
     } = viewerRuntime.scale;
 
     function seedPreparedOpeningFitScale() {
-        if (!chassisAuthority || zoomMode.value === 'custom') {
+        if (!chassisAuthority) {
             return false;
         }
-        const snapshot = chassisAuthority.openSurface.snapshot.value;
-        const frame = snapshot.openingPageFrame;
-        const geometry = snapshot.openingPageGeometry;
-        const isOpening = snapshot.phase === 'pending'
-            || snapshot.phase === 'geometry-committed'
-            || snapshot.phase === 'canvas-committed'
-            || snapshot.phase === 'viewport-committed';
-        if (
-            !isOpening
-            || !frame
-            || !geometry
-            || frame.generation !== snapshot.generation
-            || frame.pageNumber !== geometry.pageNumber
-            || geometry.width <= 0
-        ) {
-            return false;
-        }
-        const preparedWidth = Number.parseFloat(frame.style.width ?? '');
-        if (Number.isFinite(preparedWidth) && preparedWidth > 0) {
-            // The prepared frame is the synchronous layout authority. Seed
-            // the renderer from that exact geometry so its first canonical
-            // canvas occupies the same box; the normal metric calculation
-            // verifies/recomputes the value once document metadata is ready.
-            return seedOpeningFitScale(preparedWidth / geometry.width);
-        }
-        return false;
+        const preparedScale = resolvePdfPreparedOpeningFitScale(
+            chassisAuthority.openSurface.snapshot.value,
+            zoomMode.value === 'custom',
+        );
+        return preparedScale === null ? false : seedOpeningFitScale(preparedScale);
     }
     watchEffect(seedPreparedOpeningFitScale);
     const {
@@ -263,6 +230,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         resetInsets,
     } = viewerRuntime.skeletonInsets;
     let pageRenderStallRecoveryHandler: ((payload: IPageRenderStallPayload) => void) | null = null;
+    let initializedSinglePageScroll: ReturnType<typeof usePdfViewerNavigationOrchestration>['singlePageScroll'] | null = null;
     const annotationRuntime = usePdfViewerAnnotationRuntime({
         viewerContainer,
         originalPath: computed(() => props.originalPath ?? null),
@@ -288,7 +256,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         appAnnotationHistory,
         pdfjsAnnotationEditorState,
         stopDrag: () => stopDrag(),
-        scrollToPage: (pageNumber, options) => singlePageScroll.scrollToPage(pageNumber, options),
+        scrollToPage: (pageNumber, options) => initializedSinglePageScroll?.scrollToPage(pageNumber, options),
         updateVisibleRange,
         emitAnnotationModified,
         emitAnnotationComments: viewerEvents.annotationComments,
@@ -374,6 +342,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         isPageRenderedForClass,
         isPageCanvasCommitted,
         getRenderAuthorityCursor,
+        reconcilePageCanvasResidency,
     } = usePdfViewerRenderingRuntime({
         viewerContainer,
         document: pdfDocumentResult,
@@ -394,14 +363,14 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
                 annotations.editor.initAnnotationEditor();
             }
         },
-        scrollToPage: (pageNumber, options) => singlePageScroll.scrollToPage(pageNumber, options),
+        scrollToPage: (pageNumber, options) => initializedSinglePageScroll?.scrollToPage(pageNumber, options),
         suppressSnap: () => undefined,
         beginSearchNavigation: (pageNumber) => {
             markUserViewportInteraction();
-            singlePageScroll.beginSearchNavigation(pageNumber);
+            initializedSinglePageScroll?.beginSearchNavigation(pageNumber);
         },
-        revealSearchNavigationTarget: (pageNumber, options) => singlePageScroll.revealSearchNavigationTarget(pageNumber, options),
-        endSearchNavigation: () => singlePageScroll.endSearchNavigation(),
+        revealSearchNavigationTarget: (pageNumber, options) => initializedSinglePageScroll?.revealSearchNavigationTarget(pageNumber, options),
+        endSearchNavigation: () => initializedSinglePageScroll?.endSearchNavigation(),
         beginSearchTransaction: (pageNumber, options) => (
             transactionController?.beginTransaction({
                 kind: 'search',
@@ -495,7 +464,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
                     }));
                     if (surface.commitCanvas(fence)) {
                         initialCanvasCommit.resolveCanvas(commit.openSurfaceGeneration, commit.pageNumber);
-                        singlePageScroll.commitCurrentViewportIfSettled(commit.pageNumber);
+                        initializedSinglePageScroll?.commitCurrentViewportIfSettled(commit.pageNumber);
                         initialCanvasCommit.tryComplete(commit.pageNumber, commitInitialVisualReady);
                     }
                 }
@@ -553,6 +522,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
             scaledMargin,
             viewMode,
             continuousScroll,
+            isResizeTransitionActive: computed(() => isResizing.value || resizeTransitionVisible.value),
             isLoading,
             pdfDocument,
             getMostVisiblePage,
@@ -633,6 +603,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         handleLinkDestination,
         markAnchoredZoomSubmitted,
     } = navigationOrchestration;
+    initializedSinglePageScroll = singlePageScroll;
     transactionController = navigationOrchestration.transactionController;
     const { navigationAnchorPage } = singlePageScroll;
     getNavigationRenderTargetPage = () => (
@@ -959,6 +930,19 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
     renderDemandCoordinator = usePdfRenderDemandCoordinator({
         visibleRange,
         pagesToRender,
+        bufferPages,
+        maxBufferCanvasPixels: getPerformanceProfile().maxBufferCanvasPixels,
+        estimatePageRasterPixels: (pageNumber) => {
+            const metric = pageMetrics.value[pageNumber - 1];
+            const width = metric?.width ?? basePageWidth.value ?? 1;
+            const height = metric?.height ?? basePageHeight.value ?? 1;
+            const scale = effectiveScale.value;
+            const pixelRatio = outputScale.value;
+            const requestedPixels = Math.max(1, Math.round(width * scale * pixelRatio))
+                * Math.max(1, Math.round(height * scale * pixelRatio));
+            return Math.min(requestedPixels, getPerformanceProfile().settledMaxCanvasPixels);
+        },
+        reconcilePageCanvasResidency,
         pageSlots,
         isActive,
         isLoading,

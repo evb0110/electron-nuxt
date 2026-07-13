@@ -159,6 +159,34 @@ describe('workspace surface budget controller', () => {
         });
     });
 
+    it('updates a live lease priority in both directions as residency changes', () => {
+        const controller = createWorkspaceSurfaceBudgetController(1_000);
+        const evicted: string[] = [];
+        const changing = controller.reserve({
+            scopeId: 'changing',
+            category: 'pdf-thumbnail-canvas',
+            bytes: 300,
+            priority: 100,
+            evict: () => evicted.push('changing'),
+        });
+        controller.reserve({
+            scopeId: 'stable',
+            category: 'pdf-page-canvas',
+            bytes: 300,
+            priority: 50,
+            evict: () => evicted.push('stable'),
+        });
+
+        changing.setPriority?.(10);
+        controller.setPressureLevel('critical');
+
+        expect(evicted).toEqual(['changing']);
+        expect(controller.getSnapshot()).toMatchObject({
+            leaseCount: 1,
+            reservedBytes: 300,
+        });
+    });
+
     it('reconciles reservations that become evictable after admission across all surface categories', () => {
         const controller = createWorkspaceSurfaceBudgetController(500);
         const categories = [

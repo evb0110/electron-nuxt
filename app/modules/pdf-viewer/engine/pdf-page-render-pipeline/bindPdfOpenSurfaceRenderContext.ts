@@ -15,6 +15,7 @@ export interface IRenderVisiblePagesOptions {
     prioritizeTextLayer?: boolean;
     transactionRequest?: IPdfViewerTransactionRenderRequest;
     continuationPriority?: TPdfRenderContinuationPriority;
+    maxCanvasPixels?: number;
 }
 
 export type TPdfOpenSurfaceRenderContext = Pick<

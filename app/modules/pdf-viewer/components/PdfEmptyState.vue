@@ -152,25 +152,31 @@
                                     <span class="recent-col recent-col--actions" role="cell" />
                                 </div>
                             </template>
-                            <button
+                            <div
                                 v-for="file in filteredRecentFiles"
                                 v-else
                                 :key="file.originalPath"
-                                type="button"
                                 class="recent-row recent-row--data"
                                 role="row"
                                 :class="{ 'is-disabled': isRecentRowDisabled(file) }"
-                                :disabled="isRecentRowDisabled(file)"
                                 :data-recent-open-actionable="isRecentOpenReady(file) ? 'true' : 'false'"
                                 :data-recent-open-exact-frame-ready="isRecentOpenExactFrameReady(file) ? 'true' : 'false'"
                                 :data-recent-open-ready="isRecentOpenReady(file) ? 'true' : 'false'"
-                                @click="openRecent(file)"
+                                :data-recent-source="String(file.originalPath)"
+                                @click="openRecentFromRow(file)"
                             >
                                 <span class="recent-col recent-col--name" role="cell">
-                                    <span class="recent-file-icon" aria-hidden="true">
-                                        <FileTypeIcon :kind="getFileKind(file)" />
-                                    </span>
-                                    <span class="recent-file-name">{{ file.fileName }}</span>
+                                    <button
+                                        type="button"
+                                        class="recent-open"
+                                        :disabled="isRecentRowDisabled(file)"
+                                        @click.stop="openRecent(file)"
+                                    >
+                                        <span class="recent-file-icon" aria-hidden="true">
+                                            <FileTypeIcon :kind="getFileKind(file)" />
+                                        </span>
+                                        <span class="recent-file-name">{{ file.fileName }}</span>
+                                    </button>
                                 </span>
                                 <span
                                     v-if="shouldShowRecentLocationColumn"
@@ -183,18 +189,15 @@
                                         :delay-duration="600"
                                         usefulness="always"
                                     >
-                                        <span
+                                        <button
+                                            type="button"
                                             class="recent-location recent-location--reveal"
-                                            role="button"
-                                            tabindex="0"
                                             :aria-label="t('status.showInFolder')"
                                             @click.stop="revealRecent(file)"
-                                            @keydown.enter.stop="revealRecent(file)"
-                                            @keydown.space.stop.prevent="revealRecent(file)"
                                         >
                                             <UIcon name="i-ph-folder" class="recent-location-icon" aria-hidden="true" />
                                             <span class="recent-location-path">{{ getParentFolder(file.originalPath) }}</span>
-                                        </span>
+                                        </button>
                                     </AppTooltip>
                                     <span v-else class="recent-location recent-location--static">
                                         <UIcon name="i-ph-globe" class="recent-location-icon" aria-hidden="true" />
@@ -206,20 +209,17 @@
                                 </span>
                                 <span class="recent-col recent-col--actions" role="cell">
                                     <AppTooltip :text="t('emptyState.removeFromRecent')" :delay-duration="1200">
-                                        <span
+                                        <button
+                                            type="button"
                                             class="recent-action recent-action--remove"
-                                            role="button"
-                                            tabindex="0"
                                             :aria-label="t('emptyState.removeFromRecent')"
                                             @click.stop="removeRecent(file)"
-                                            @keydown.enter.stop="removeRecent(file)"
-                                            @keydown.space.stop.prevent="removeRecent(file)"
                                         >
                                             <UIcon name="i-ph-x" />
-                                        </span>
+                                        </button>
                                     </AppTooltip>
                                 </span>
-                            </button>
+                            </div>
                         </div>
 
                         <div v-else class="recent-empty">
@@ -424,6 +424,12 @@ function openFile() {
 
 function openRecent(file: IRecentFile) {
     emit('open-recent', file);
+}
+
+function openRecentFromRow(file: IRecentFile) {
+    if (!isRecentRowDisabled(file)) {
+        openRecent(file);
+    }
 }
 
 function isRecentRowDisabled(file: IRecentFile) {
@@ -805,13 +811,13 @@ watch(() => startSection, (section) => {
     color: var(--ui-text);
 }
 
-.recent-row--data:hover:not(.is-disabled, :disabled, :has(.recent-action:hover), :has(.recent-location--reveal:hover)) {
+.recent-row--data:hover:not(.is-disabled, :has(.recent-action:hover), :has(.recent-location--reveal:hover)) {
     background: var(--app-start-row-hover-bg);
 }
 
-.recent-row--data:focus-visible {
+.recent-open:focus-visible {
     outline: 2px solid color-mix(in oklab, var(--ui-primary) 55%, transparent);
-    outline-offset: -2px;
+    outline-offset: 1px;
 }
 
 .recent-row--data.is-disabled {
@@ -835,6 +841,24 @@ watch(() => startSection, (section) => {
     min-width: 0;
 }
 
+.recent-open {
+    display: flex;
+    align-items: center;
+    gap: var(--app-start-recent-header-gap);
+    width: 100%;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.recent-open:disabled {
+    cursor: default;
+}
+
 .recent-col--location {
     display: flex;
     align-items: center;
@@ -854,7 +878,9 @@ watch(() => startSection, (section) => {
     max-width: 100%;
     margin-left: var(--app-start-location-margin);
     padding: var(--app-start-location-padding);
+    border: 0;
     border-radius: var(--app-control-radius);
+    background: transparent;
     color: var(--ui-text-muted);
 }
 

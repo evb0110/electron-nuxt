@@ -6,7 +6,7 @@ import {
 import { buildThumbnailRenderQueue } from '@app/modules/pdf-viewer/thumbnails/buildThumbnailRenderQueue';
 
 describe('buildThumbnailRenderQueue', () => {
-    it('prioritizes the current page and mounted visible pages on a cold start', () => {
+    it('renders symmetrically around current before viewport and mounted overscan', () => {
         expect(buildThumbnailRenderQueue({
             totalPages: 158,
             currentPage: 9,
@@ -16,24 +16,32 @@ describe('buildThumbnailRenderQueue', () => {
                 3,
                 4,
             ],
+            mountedPages: [
+                1,
+                2,
+                3,
+                4,
+                14,
+            ],
             renderedPages: new Set<number>(),
             renderingPages: new Set<number>(),
             immediateRenderRadius: 2,
             prefetchRenderRadius: 4,
         })).toEqual([
             9,
-            1,
-            2,
-            3,
-            4,
-            7,
             8,
             10,
+            7,
             11,
-            5,
+            4,
+            3,
+            2,
+            1,
             6,
+            5,
             12,
             13,
+            14,
         ]);
     });
 
@@ -51,12 +59,12 @@ describe('buildThumbnailRenderQueue', () => {
             immediateRenderRadius: 2,
             prefetchRenderRadius: 4,
         })).toEqual([
-            1,
-            2,
-            3,
             4,
             6,
+            3,
             7,
+            2,
+            1,
             8,
             9,
         ]);
@@ -81,8 +89,8 @@ describe('buildThumbnailRenderQueue', () => {
             immediateRenderRadius: 1,
             prefetchRenderRadius: 2,
         })).toEqual([
-            3,
             8,
+            3,
         ]);
     });
 });

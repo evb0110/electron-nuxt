@@ -183,7 +183,7 @@ describe('createWorkspaceDocumentSessionCore', () => {
         expect(session.snapshot.value.identity.documentSessionKey).toBe('document-key-2:/tmp/b-working.pdf');
     });
 
-    it('clears the document session key when the session becomes empty', () => {
+    it('clears the document session key when an explicit close makes the session empty', () => {
         const session = createWorkspaceDocumentSessionCore({
             tabId: 'tab-1',
             sessionId: 'session-1',
@@ -199,9 +199,38 @@ describe('createWorkspaceDocumentSessionCore', () => {
             createDocumentSessionKey: input => `document-key-${input.nextDocumentSessionIndex}:${input.documentRef}`,
         });
 
+        const close = session.beginTransaction({
+            kind: 'close',
+            documentRef: '/tmp/a-working.pdf',
+            persist: false,
+        });
         session.applyWorkspaceRecord(createWorkspaceDocumentRecord(), 'workspace');
+        session.finishTransaction(close.id, 'committed');
 
         expect(session.snapshot.value.identity.documentSessionKey).toBeNull();
+    });
+
+    it('ignores a transient empty record while remounting a live document session', () => {
+        const session = createWorkspaceDocumentSessionCore({
+            tabId: 'tab-1',
+            sessionId: 'session-1',
+            initialRecord: createWorkspaceDocumentRecord({
+                tab: {
+                    fileName: 'A.pdf',
+                    originalPath: '/tmp/a.pdf',
+                },
+                documentIdentity: createDocumentRevision('revision-1', '/tmp/a-working.pdf'),
+            }),
+        });
+        const identityBeforeRemount = session.snapshot.value.identity;
+
+        session.applyWorkspaceRecord(createWorkspaceDocumentRecord(), 'workspace');
+
+        expect(session.snapshot.value.identity).toEqual(identityBeforeRemount);
+        expect(session.toDocumentRecord().tab).toMatchObject({
+            fileName: 'A.pdf',
+            originalPath: '/tmp/a.pdf',
+        });
     });
 
     it('supersedes an active transaction with the latest document operation', () => {

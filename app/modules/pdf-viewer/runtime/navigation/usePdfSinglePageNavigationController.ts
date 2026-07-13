@@ -7,6 +7,7 @@ import type {IPdfPageSlotRegistry} from '@app/modules/pdf-viewer/runtime/page-sl
 import {
     createPdfViewportGeometryFromLayout,
     resolveAnchorFromScroll,
+    resolveRetainedAnchorFromScroll,
     resolveScrollForAnchor,
     type IPdfSemanticAnchor,
     type IPdfViewportGeometry,
@@ -540,6 +541,26 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             anchor?: IPdfSemanticAnchor;
         } = {},
     ) {
+        const documentRevision = options.getDocumentRevision();
+        const geometryRevision = options.getGeometryRevision();
+        if (documentRevision <= 0 || geometryRevision <= 0) {
+            // ResizeObserver and reactive layout watchers can run while a PDF
+            // surface is being mounted or torn down. At that boundary there
+            // is deliberately no live document generation to own a viewport
+            // write, so treat the transient intent as cancelled instead of
+            // violating the viewport authority's revision invariant.
+            logPdfRenderTrace('navigation-viewport-state-intent-cancelled', () => ({
+                kind,
+                documentRevision,
+                geometryRevision,
+                reason: 'inactive-revision',
+            }));
+            return Promise.resolve({
+                outcome: 'cancelled' as const,
+                intent: null,
+                positionCommit: null,
+            });
+        }
         intentSequence += 1;
         const container = options.viewerContainer.value;
         const snapshot = refreshGeometry();
@@ -620,8 +641,8 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         return viewportAuthority.submit({
             id: `viewport-state-${intentSequence}`,
             kind,
-            documentRevision: options.getDocumentRevision(),
-            geometryRevision: options.getGeometryRevision(),
+            documentRevision,
+            geometryRevision,
             priority: 5,
             supersessionKey: 'viewport-state',
             anchor,
@@ -649,10 +670,10 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         const container = options.viewerContainer.value;
         const snapshot = refreshGeometry();
         return container && snapshot
-            ? resolveAnchorFromScroll(snapshot, {
+            ? resolveRetainedAnchorFromScroll(snapshot, {
                 left: container.scrollLeft,
                 top: container.scrollTop,
-            })
+            }, viewportAuthority.committedAnchor.value)
             : viewportAuthority.committedAnchor.value;
     }
 
@@ -763,7 +784,10 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         // The active viewport intent still owns that burst. Genuine wheel,
         // pointer, and keyboard interactions cancel through their input
         // boundaries before reaching this observer.
-        if (viewportAuthority.activeIntent.value !== null) {
+        if (
+            viewportAuthority.activeIntent.value !== null
+            || options.isResizeTransitionActive?.value === true
+        ) {
             options.updateVisibleRange(container, options.numPages.value);
             options.emitCurrentPage(viewportAuthority.currentPage.value);
             return;
@@ -943,7 +967,10 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         : null);
     const searchNavigationState = computed(() => searchNavigationTargetPage.value === null ? 'idle' : 'navigating');
     const currentPageAuthority = {
-        canSyncFromViewport: () => viewportAuthority.activeIntent.value === null,
+        canSyncFromViewport: () => (
+            viewportAuthority.activeIntent.value === null
+            && options.isResizeTransitionActive?.value !== true
+        ),
         commitViewportPage: (page: number) => {
             if (viewportAuthority.activeIntent.value !== null) {
                 logPdfRenderTrace('viewport-current-page-commit-rejected', {

@@ -4,8 +4,16 @@ import {
     it,
 } from 'vitest';
 import { delay } from 'es-toolkit/promise';
-import { basename } from 'node:path';
 import {
+    copyFileSync,
+    mkdirSync,
+} from 'node:fs';
+import {
+    basename,
+    dirname,
+} from 'node:path';
+import {
+    createFixturePath,
     createLargeScannedFixturePdf,
     resolveDjvuFixturePath,
     selectFixtureDescribe,
@@ -16,6 +24,7 @@ import {
     openDjvuInApp,
     openPdfInApp,
     waitForDjvuLoaded,
+    waitForActiveDocumentSource,
     waitForPdfLoaded,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
@@ -210,9 +219,9 @@ function assertToolbarTransitionStable(samples: IToolbarTransitionSample[]) {
 
 async function readRecentOpenDomState(
     session: IElectronE2ESession,
-    fileName: string,
+    sourcePath: string,
 ): Promise<IRecentOpenDomState> {
-    return evaluateInPage(session.page, (targetFileName: string) => {
+    return evaluateInPage(session.page, (targetSourcePath: string) => {
         const isVisible = (element: HTMLElement) => {
             let current: HTMLElement | null = element;
             while (current) {
@@ -246,7 +255,7 @@ async function readRecentOpenDomState(
             };
         }
 
-        const recentRows = Array.from(activeHost.querySelectorAll<HTMLButtonElement>('button.recent-row--data'))
+        const recentRows = Array.from(activeHost.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)'))
             .filter(isVisible);
         const viewer = activeHost.querySelector<HTMLElement>('#pdf-viewer');
         const hasOpeningSurface = Array.from(activeHost.querySelectorAll<HTMLElement>(
@@ -261,33 +270,34 @@ async function readRecentOpenDomState(
             hasLoader: Array.from(activeHost.querySelectorAll<HTMLElement>('.workspace-host__loading')).some(isVisible),
             hasViewer: hasOpeningSurface || hasRenderedContent,
             hasRenderedContent,
-            recentRowVisible: recentRows.some(row => row.textContent?.includes(targetFileName)),
+            recentRowVisible: recentRows.some(row => row.dataset.recentSource === targetSourcePath),
             visibleRecentRows: recentRows.length,
             visibleText: (activeHost.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 300),
         };
-    }, fileName);
+    }, sourcePath);
 }
 
 function describeRecentOpenDomState(state: IRecentOpenDomState) {
     return JSON.stringify(state);
 }
 
-async function waitForRecentFileRow(session: IElectronE2ESession, fileName: string) {
-    await waitForFunctionInPage(session.page, (targetFileName: string) => {
-        return Array.from(document.querySelectorAll<HTMLButtonElement>('button.recent-row--data'))
-            .some(row => row.textContent?.includes(targetFileName));
-    }, { timeout: RECENT_ROW_TIMEOUT_MS }, fileName);
+async function waitForRecentFileRow(session: IElectronE2ESession, sourcePath: string) {
+    await waitForFunctionInPage(session.page, (targetSourcePath: string) => {
+        return Array.from(document.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)'))
+            .some(row => row.dataset.recentSource === targetSourcePath);
+    }, { timeout: RECENT_ROW_TIMEOUT_MS }, sourcePath);
 }
 
-async function clickRecentFile(session: IElectronE2ESession, fileName: string) {
-    await waitForRecentFileRow(session, fileName);
+async function clickRecentFile(session: IElectronE2ESession, sourcePath: string) {
+    await waitForRecentFileRow(session, sourcePath);
 
-    const clicked = await evaluateInPage(session.page, (targetFileName: string) => {
-        const row = Array.from(document.querySelectorAll<HTMLButtonElement>('button.recent-row--data'))
-            .find(candidate => candidate.textContent?.includes(targetFileName));
-        row?.click();
-        return Boolean(row);
-    }, fileName);
+    const clicked = await evaluateInPage(session.page, (targetSourcePath: string) => {
+        const row = Array.from(document.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)'))
+            .find(candidate => candidate.dataset.recentSource === targetSourcePath);
+        const openButton = row?.querySelector<HTMLButtonElement>('button.recent-open') ?? null;
+        openButton?.click();
+        return Boolean(openButton);
+    }, sourcePath);
 
     expect(clicked).toBe(true);
 }
@@ -300,10 +310,10 @@ async function waitForStartupOverlayRemoved(session: IElectronE2ESession) {
 
 async function emptyCurrentTabAndOpenRecentOnFirstFrame(
     session: IElectronE2ESession,
-    fileName: string,
+    sourcePath: string,
 ): Promise<IImmediateRecentOpenResult> {
     return evaluateInPage(session.page, (
-        targetFileName: string,
+        targetSourcePath: string,
         shellBudgetMs: number,
     ) => new Promise<IImmediateRecentOpenResult>((resolve) => {
         const previousActiveTabId = document.querySelector<HTMLElement>(
@@ -339,12 +349,13 @@ async function emptyCurrentTabAndOpenRecentOnFirstFrame(
             '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
         );
         const getTargetRecentRows = () => Array.from(
-            getActiveHost()?.querySelectorAll<HTMLButtonElement>('button.recent-row--data') ?? [],
+            getActiveHost()?.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)') ?? [],
         ).filter(row => (
-            row.textContent?.includes(targetFileName)
+            row.dataset.recentSource === targetSourcePath
             && isVisible(row)
         ));
-        const getRecentRow = () => getTargetRecentRows().find(row => !row.disabled) ?? null;
+        const getRecentRow = () => getTargetRecentRows()
+            .find(row => row.dataset.recentOpenActionable === 'true') ?? null;
         const getExactPageShell = () => {
             const openingShell = getActiveHost()?.querySelector<HTMLElement>(
                 '.document-viewer-chassis__opening-page',
@@ -385,7 +396,8 @@ async function emptyCurrentTabAndOpenRecentOnFirstFrame(
         };
         const sample = () => {
             if (clickAtMs === null) {
-                sawVisibleDisabledTargetRow ||= getTargetRecentRows().some(row => row.disabled);
+                sawVisibleDisabledTargetRow ||= getTargetRecentRows()
+                    .some(row => row.dataset.recentOpenActionable !== 'true');
                 const recentRow = getRecentRow();
                 if (recentRow) {
                     targetReadyAtClick = recentRow.dataset.recentOpenReady === 'true';
@@ -393,7 +405,7 @@ async function emptyCurrentTabAndOpenRecentOnFirstFrame(
                     clickAtMs = performance.now();
                     (window as Window & {__committedSurfaceInteractionCheckpoint?: string | null;})
                         .__committedSurfaceInteractionCheckpoint = 'recent-click';
-                    recentRow.click();
+                    recentRow.querySelector<HTMLButtonElement>('button.recent-open')?.click();
                 }
                 window.requestAnimationFrame(sample);
                 return;
@@ -436,15 +448,15 @@ async function emptyCurrentTabAndOpenRecentOnFirstFrame(
         currentTabCloseButton.click();
         emptyTabCreatedAtMs = performance.now();
         window.requestAnimationFrame(sample);
-    }), fileName, RECENT_FIRST_PAGE_SHELL_BUDGET_MS);
+    }), sourcePath, RECENT_FIRST_PAGE_SHELL_BUDGET_MS);
 }
 
-async function assertRecentListStaysStableBeforeOpen(session: IElectronE2ESession, fileName: string) {
-    await waitForRecentFileRow(session, fileName);
+async function assertRecentListStaysStableBeforeOpen(session: IElectronE2ESession, sourcePath: string) {
+    await waitForRecentFileRow(session, sourcePath);
 
     const deadline = Date.now() + RECENT_STARTUP_STABILITY_MS;
     while (Date.now() < deadline) {
-        const state = await readRecentOpenDomState(session, fileName);
+        const state = await readRecentOpenDomState(session, sourcePath);
         if (state.hasLoader) {
             throw new Error(`Recent files list returned to loader after first render: ${describeRecentOpenDomState(state)}`);
         }
@@ -455,13 +467,13 @@ async function assertRecentListStaysStableBeforeOpen(session: IElectronE2ESessio
     }
 }
 
-async function waitForRecentPdfOpen(session: IElectronE2ESession, fileName: string) {
+async function waitForRecentPdfOpen(session: IElectronE2ESession, sourcePath: string) {
     const deadline = Date.now() + RECENT_OPEN_TIMEOUT_MS;
     let sawOpenAttempt = false;
     let lastState: IRecentOpenDomState | null = null;
 
     while (Date.now() < deadline) {
-        const state = await readRecentOpenDomState(session, fileName);
+        const state = await readRecentOpenDomState(session, sourcePath);
         lastState = state;
 
         if (state.hasLoader || state.hasViewer) {
@@ -469,7 +481,7 @@ async function waitForRecentPdfOpen(session: IElectronE2ESession, fileName: stri
         }
 
         if (sawOpenAttempt && state.recentRowVisible && !state.hasViewer && !state.hasLoader) {
-            throw new Error(`Recent file "${fileName}" returned to the placeholder instead of opening: ${describeRecentOpenDomState(state)}`);
+            throw new Error(`Recent file "${sourcePath}" returned to the placeholder instead of opening: ${describeRecentOpenDomState(state)}`);
         }
 
         if (state.hasViewer && state.hasRenderedContent) {
@@ -480,7 +492,7 @@ async function waitForRecentPdfOpen(session: IElectronE2ESession, fileName: stri
         await delay(RECENT_POLL_INTERVAL_MS);
     }
 
-    throw new Error(`Recent file "${fileName}" did not settle into a loaded viewer: ${describeRecentOpenDomState(lastState ?? {
+    throw new Error(`Recent file "${sourcePath}" did not settle into a loaded viewer: ${describeRecentOpenDomState(lastState ?? {
         hasHost: false,
         hasLoader: false,
         hasViewer: false,
@@ -491,13 +503,13 @@ async function waitForRecentPdfOpen(session: IElectronE2ESession, fileName: stri
     })}`);
 }
 
-async function waitForRecentDjvuOpen(session: IElectronE2ESession, fileName: string) {
+async function waitForRecentDjvuOpen(session: IElectronE2ESession, sourcePath: string) {
     const deadline = Date.now() + RECENT_OPEN_TIMEOUT_MS;
     let sawOpenAttempt = false;
     let lastState: IRecentOpenDomState | null = null;
 
     while (Date.now() < deadline) {
-        const state = await readRecentOpenDomState(session, fileName);
+        const state = await readRecentOpenDomState(session, sourcePath);
         lastState = state;
 
         if (state.hasLoader || state.visibleText.includes('.djvu') || state.visibleText.includes('.djv')) {
@@ -505,7 +517,7 @@ async function waitForRecentDjvuOpen(session: IElectronE2ESession, fileName: str
         }
 
         if (sawOpenAttempt && state.recentRowVisible && !state.hasLoader) {
-            throw new Error(`Recent DjVu "${fileName}" returned to the placeholder instead of opening: ${describeRecentOpenDomState(state)}`);
+            throw new Error(`Recent DjVu "${sourcePath}" returned to the placeholder instead of opening: ${describeRecentOpenDomState(state)}`);
         }
 
         const loaded = await evaluateInPage(session.page, () => {
@@ -521,7 +533,7 @@ async function waitForRecentDjvuOpen(session: IElectronE2ESession, fileName: str
         await delay(RECENT_POLL_INTERVAL_MS);
     }
 
-    throw new Error(`Recent DjVu "${fileName}" did not settle into a loaded viewer: ${describeRecentOpenDomState(lastState ?? {
+    throw new Error(`Recent DjVu "${sourcePath}" did not settle into a loaded viewer: ${describeRecentOpenDomState(lastState ?? {
         hasHost: false,
         hasLoader: false,
         hasViewer: false,
@@ -532,12 +544,12 @@ async function waitForRecentDjvuOpen(session: IElectronE2ESession, fileName: str
     })}`);
 }
 
-async function assertRecentPdfStaysLoaded(session: IElectronE2ESession, fileName: string) {
+async function assertRecentPdfStaysLoaded(session: IElectronE2ESession, sourcePath: string) {
     const deadline = Date.now() + RECENT_OPEN_STABILITY_MS;
     while (Date.now() < deadline) {
-        const state = await readRecentOpenDomState(session, fileName);
+        const state = await readRecentOpenDomState(session, sourcePath);
         if (!state.hasViewer || state.recentRowVisible || state.hasLoader) {
-            throw new Error(`Recent file "${fileName}" did not remain loaded after open: ${describeRecentOpenDomState(state)}`);
+            throw new Error(`Recent file "${sourcePath}" did not remain loaded after open: ${describeRecentOpenDomState(state)}`);
         }
         await delay(RECENT_POLL_INTERVAL_MS);
     }
@@ -574,7 +586,7 @@ describe('Electron E2E - Recent Files', () => {
         expect(sourceDeferred).toBe(true);
         const immediateOpen = await emptyCurrentTabAndOpenRecentOnFirstFrame(
             session,
-            basename(fixturePath),
+            fixturePath,
         );
         const openingShellState = await evaluateInPage(session.page, () => {
             const shell = document.querySelector<HTMLElement>(
@@ -665,7 +677,7 @@ describe('Electron E2E - Recent Files', () => {
             shellVisible: true,
             skeletonVisible: false,
         });
-        await waitForRecentPdfOpen(session, basename(fixturePath));
+        await waitForRecentPdfOpen(session, fixturePath);
         const committedCanvasState = await evaluateInPage(session.page, () => {
             const shell = document.querySelector<HTMLElement>(
                 '.editor-pane.is-active #pdf-viewer .page_canvas',
@@ -806,7 +818,163 @@ describe('Electron E2E - Recent Files', () => {
                 timing: summarizeCommittedSurfaceTiming(postClickSurfaceTrace),
             }),
         ).toEqual([]);
-        await assertRecentPdfStaysLoaded(session, basename(fixturePath));
+        await assertRecentPdfStaysLoaded(session, fixturePath);
+    });
+
+    it('keeps keyboard remove isolated from opening the recent document', async () => {
+        let session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-recent-keyboard-${Date.now()}`,
+        });
+        if (!session) {
+            return;
+        }
+
+        const fixturePath = await createLargeScannedFixturePdf(
+            `recent-keyboard-${Date.now()}.pdf`,
+            3,
+            0,
+        );
+        const fixtureName = basename(fixturePath);
+        await openPdfInApp(session.page, fixturePath);
+        await waitForPdfLoaded(session.page);
+        session = await sessionFixture.restart({
+            clean: false,
+            keepNuxt: true,
+        });
+        if (!session) {
+            return;
+        }
+
+        await waitForStartupOverlayRemoved(session);
+        await assertRecentListStaysStableBeforeOpen(session, fixturePath);
+        const semanticSnapshot = await evaluateInPage(session.page, (targetSourcePath: string) => {
+            const row = Array.from(document.querySelectorAll<HTMLElement>(
+                '.recent-row--data:not(.recent-row--skeleton)',
+            )).find(candidate => candidate.dataset.recentSource === targetSourcePath);
+            return {
+                rowTag: row?.tagName ?? null,
+                openTag: row?.querySelector('.recent-open')?.tagName ?? null,
+                revealTag: row?.querySelector('.recent-location--reveal')?.tagName ?? null,
+                removeTag: row?.querySelector('.recent-action--remove')?.tagName ?? null,
+                nestedButtons: row?.querySelectorAll('button button').length ?? -1,
+            };
+        }, fixturePath);
+        expect(semanticSnapshot).toEqual({
+            rowTag: 'DIV',
+            openTag: 'BUTTON',
+            revealTag: 'BUTTON',
+            removeTag: 'BUTTON',
+            nestedButtons: 0,
+        });
+
+        const searchInput = await session.page.$(
+            '.editor-pane.is-active input[aria-label="Search recent files"]',
+        );
+        expect(searchInput).not.toBeNull();
+        await searchInput!.type(fixtureName);
+        await waitForFunctionInPage(session.page, (targetFileName: string) => {
+            const rows = Array.from(document.querySelectorAll<HTMLElement>(
+                '.recent-row--data:not(.recent-row--skeleton)',
+            ));
+            return rows.length === 1 && rows[0]?.textContent?.includes(targetFileName);
+        }, { timeout: RECENT_ROW_TIMEOUT_MS }, fixtureName);
+
+        const removeButton = await session.page.$(
+            '.editor-pane.is-active .recent-row--data:not(.recent-row--skeleton) button.recent-action--remove',
+        );
+        expect(removeButton).not.toBeNull();
+        await removeButton!.focus();
+        await session.page.keyboard.press('Enter');
+        await waitForFunctionInPage(session.page, (targetSourcePath: string) => (
+            !Array.from(document.querySelectorAll<HTMLElement>(
+                '.recent-row--data:not(.recent-row--skeleton)',
+            )).some(row => row.dataset.recentSource === targetSourcePath)
+        ), { timeout: RECENT_ROW_TIMEOUT_MS }, fixturePath);
+
+        const finalState = await evaluateInPage(session.page, () => {
+            const isVisible = (element: HTMLElement) => {
+                let current: HTMLElement | null = element;
+                while (current) {
+                    const style = window.getComputedStyle(current);
+                    if (
+                        style.display === 'none'
+                        || style.visibility === 'hidden'
+                        || Number(style.opacity || '1') === 0
+                    ) {
+                        return false;
+                    }
+                    current = current.parentElement;
+                }
+                const rect = element.getBoundingClientRect();
+                return rect.width > 0 && rect.height > 0;
+            };
+            const activeHost = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+            );
+            return {
+                activeTabTitle: document.querySelector<HTMLElement>(
+                    '.tab-list .tab.is-active .tab-label',
+                )?.textContent?.trim() ?? '',
+                hasVisibleDocumentContent: Array.from(activeHost?.querySelectorAll<HTMLElement>(
+                    '#pdf-viewer .page_canvas canvas, .document-viewer-chassis__opening-page, .native-pdf-page-content',
+                ) ?? []).some(isVisible),
+            };
+        });
+        expect(finalState).toEqual({
+            activeTabTitle: 'New Tab',
+            hasVisibleDocumentContent: false,
+        });
+    });
+
+    it('opens the exact recent source when two files share a basename', async () => {
+        let session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-recent-duplicate-basename-${Date.now()}`,
+        });
+        if (!session) {
+            return;
+        }
+
+        const sharedName = 'duplicate-recent-source.pdf';
+        const seedPath = await createLargeScannedFixturePdf(`seed-${sharedName}`, 2, 0);
+        const firstPath = createFixturePath(`duplicate-source-a/${sharedName}`);
+        const secondPath = createFixturePath(`duplicate-source-b/${sharedName}`);
+        mkdirSync(dirname(firstPath), {recursive: true});
+        mkdirSync(dirname(secondPath), {recursive: true});
+        copyFileSync(seedPath, firstPath);
+        copyFileSync(seedPath, secondPath);
+
+        await openPdfInApp(session.page, firstPath);
+        await waitForPdfLoaded(session.page);
+        await openPdfInApp(session.page, secondPath);
+        await waitForPdfLoaded(session.page);
+        session = await sessionFixture.restart({
+            clean: false,
+            keepNuxt: true,
+        });
+        if (!session) {
+            return;
+        }
+
+        await waitForStartupOverlayRemoved(session);
+        await waitForRecentFileRow(session, firstPath);
+        await waitForRecentFileRow(session, secondPath);
+        expect(await evaluateInPage(session.page, (paths: string[]) => (
+            paths.map(path => Array.from(document.querySelectorAll<HTMLElement>(
+                '.recent-row--data:not(.recent-row--skeleton)',
+            )).filter(row => row.dataset.recentSource === path).length)
+        ), [
+            firstPath,
+            secondPath,
+        ])).toEqual([
+            1,
+            1,
+        ]);
+
+        await clickRecentFile(session, firstPath);
+        await waitForRecentPdfOpen(session, firstPath);
+        await waitForActiveDocumentSource(session.page, firstPath);
     });
 });
 
@@ -837,8 +1005,8 @@ runDjvuRecentOrSkip('Electron E2E - Recent DjVu Files', () => {
             return;
         }
 
-        await assertRecentListStaysStableBeforeOpen(session, basename(djvuFixture.path));
-        await clickRecentFile(session, basename(djvuFixture.path));
-        await waitForRecentDjvuOpen(session, basename(djvuFixture.path));
+        await assertRecentListStaysStableBeforeOpen(session, djvuFixture.path);
+        await clickRecentFile(session, djvuFixture.path);
+        await waitForRecentDjvuOpen(session, djvuFixture.path);
     });
 });

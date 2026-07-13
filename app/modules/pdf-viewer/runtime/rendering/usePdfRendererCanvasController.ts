@@ -286,6 +286,13 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
         if (sourceMaxPixelBudget !== null && sourceMaxPixelBudget !== undefined) {
             canvasRenderOptions.sourceMaxPixels = sourceMaxPixelBudget;
         }
+        if (
+            typeof renderOptions?.maxCanvasPixels === 'number'
+            && Number.isFinite(renderOptions.maxCanvasPixels)
+            && renderOptions.maxCanvasPixels > 0
+        ) {
+            canvasRenderOptions.maxCanvasPixels = renderOptions.maxCanvasPixels;
+        }
         let prepareStageTimedOut = false;
         const prepareCanvasRenderPromise = canvasRenderer.prepareCanvasRender(
             pdfPage,

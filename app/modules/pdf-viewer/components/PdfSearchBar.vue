@@ -1,5 +1,5 @@
 <template>
-    <div class="flex flex-col gap-1.5 px-2 py-1.5">
+    <div class="pdf-search-bar flex flex-col gap-1.5 px-2 py-1.5">
         <UInput
             ref="inputRef"
             v-model="searchQuery"

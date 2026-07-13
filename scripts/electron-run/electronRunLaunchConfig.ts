@@ -130,6 +130,24 @@ export function buildHeadlessAutomationEnv(env: NodeJS.ProcessEnv = process.env)
     } satisfies NodeJS.ProcessEnv;
 }
 
+export type TElectronE2EWindowMode = 'hidden' | 'visible';
+
+export function buildElectronE2EAutomationEnv(
+    env: NodeJS.ProcessEnv = process.env,
+    windowMode: TElectronE2EWindowMode = 'hidden',
+) {
+    if (windowMode === 'hidden') {
+        return buildHeadlessAutomationEnv(env);
+    }
+
+    return {
+        ...env,
+        EVB_AUTOMATION_NO_FOCUS: '0',
+        EVB_AUTOMATION_HIDE_WINDOW: '0',
+        EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '0',
+    } satisfies NodeJS.ProcessEnv;
+}
+
 export function shouldUseMacOSHiddenAppLauncher(
     env: NodeJS.ProcessEnv,
     platform = process.platform,

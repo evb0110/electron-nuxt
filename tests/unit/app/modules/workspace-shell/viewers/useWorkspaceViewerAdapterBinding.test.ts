@@ -124,7 +124,7 @@ describe('useWorkspaceViewerAdapterBinding', () => {
         expect(binding.activeViewerProps.value.rasterDisplayProfile).toStrictEqual(profile);
     });
 
-    it('passes workspace layout resize state only to the standard PDF viewer', () => {
+    it('passes workspace layout resize state to the PDF and DjVu viewers', () => {
         const {
             activeViewerAdapter,
             binding,
@@ -143,7 +143,7 @@ describe('useWorkspaceViewerAdapterBinding', () => {
 
         activeViewerAdapter.value = getWorkspaceViewerAdapter('djvu');
 
-        expect(binding.activeViewerProps.value).not.toHaveProperty('isResizing');
+        expect(binding.activeViewerProps.value.isResizing).toBe(true);
     });
 
     it('forwards source capability updates from the active source viewer', () => {

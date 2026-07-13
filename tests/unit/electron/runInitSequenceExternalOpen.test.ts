@@ -287,6 +287,24 @@ describe('runInitSequence external open IPC', () => {
         }
     });
 
+    it('quits an isolated macOS automation app after its last window closes', async () => {
+        const originalIsMac = config.isMac;
+        (config as { isMac: boolean }).isMac = true;
+        try {
+            const harness = await createHarness({
+                allowMultipleAutomationSessions: true,
+                gracefulQuitInProgress: false,
+            });
+
+            harness.app.emit('window-all-closed');
+
+            expect(harness.shutdownCoordinator?.requestGracefulQuit).toHaveBeenCalledOnce();
+            expect(harness.app.quit).not.toHaveBeenCalled();
+        } finally {
+            (config as { isMac: boolean }).isMac = originalIsMac;
+        }
+    });
+
     it('requeues an unacknowledged startup claim when the main renderer navigates', async () => {
         const harness = await createHarness();
         harness.app.emit('browser-window-created', {}, harness.mainWindow);

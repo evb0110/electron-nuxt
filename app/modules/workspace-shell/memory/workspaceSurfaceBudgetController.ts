@@ -21,6 +21,7 @@ export interface IWorkspaceSurfaceLease {
     readonly category: TWorkspaceSurfaceCategory;
     readonly scopeId: string;
     promotePriority?: (priority: number) => void;
+    setPriority?: (priority: number) => void;
     release: () => void;
 }
 
@@ -160,6 +161,12 @@ export function createWorkspaceSurfaceBudgetController(
                     return;
                 }
                 entry.priority = Math.max(entry.priority, priority);
+            },
+            setPriority(priority) {
+                if (released || !Number.isFinite(priority)) {
+                    return;
+                }
+                entry.priority = priority;
             },
             release() {
                 if (released) {

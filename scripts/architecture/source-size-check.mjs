@@ -55,7 +55,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Static audit Stage 15 - assistant controller domain extraction',
     },
     'app/modules/pdf-viewer/components/PdfThumbnails.vue': {
-        maxLines: 1027,
+        maxLines: 967,
         reason: 'transitional PDF thumbnail orchestration hotspot after extracting component styles',
         stage: 'Latest overhaul audit - thumbnail style extraction',
     },
@@ -85,7 +85,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Static audit Stage 15 - workspace binding extraction',
     },
     'app/modules/workspace-shell/components/DocumentPageSourceFeaturePack.vue': {
-        maxLines: 1489,
+        maxLines: 1487,
         reason: 'page-source feature pack after shared chassis, retry, and committed-surface lifecycle integration',
         stage: 'Viewer core follow-up - page-source controller extraction',
     },
@@ -105,7 +105,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Future PDF rendering extraction',
     },
     'app/modules/pdf-viewer/runtime/usePdfViewerFeatureController.ts': {
-        maxLines: 1290,
+        maxLines: 1274,
         reason: 'PDF feature controller after render-demand and prepared opening-frame authority integration',
         stage: 'Viewer core follow-up - opening and render-demand orchestration extraction',
     },
@@ -115,7 +115,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Static audit Stage 15 - OCR admission calculation extraction',
     },
     'app/modules/workspace-shell/components/AppShellRoot.vue': {
-        maxLines: 922,
+        maxLines: 921,
         reason: 'app shell orchestration after scoped presentation styles were extracted',
         stage: 'Static audit Stage 15 - app shell style extraction',
     },

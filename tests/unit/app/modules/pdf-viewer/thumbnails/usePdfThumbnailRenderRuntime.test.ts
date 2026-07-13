@@ -89,6 +89,7 @@ describe('usePdfThumbnailRenderRuntime', () => {
         const runtime = usePdfThumbnailRenderRuntime({
             dom: {
                 getCanvas: () => canvas,
+                isCanvasViewportVisible: () => true,
                 resolveVisibleContainer: () => cast<HTMLElement>({ querySelectorAll: () => [] }),
             },
             effects: {
@@ -106,6 +107,7 @@ describe('usePdfThumbnailRenderRuntime', () => {
                 thumbnailAspectRatios,
                 thumbnailRenderWidth,
                 updateThumbnailAspectRatio,
+                viewportPages: computed(() => [1]),
                 virtualPages: computed(() => [1]),
             },
             source: {
@@ -136,6 +138,99 @@ describe('usePdfThumbnailRenderRuntime', () => {
         expect(pdfPage.cleanup).not.toHaveBeenCalled();
         expect(canvas.dataset.thumbnailRendered).toBe('true');
         expect(updateThumbnailAspectRatio).toHaveBeenCalledWith(1, 2);
+    });
+
+    it('retries a demanded thumbnail dropped by a raster-width transition', async () => {
+        vi.useFakeTimers();
+        pdfDocumentLeaseMocks.leasePdfDocumentPage.mockReset();
+        const context = { drawImage: vi.fn() };
+        const canvas = cast<HTMLCanvasElement>({
+            dataset: {},
+            getContext: vi.fn(() => context),
+            height: 0,
+            style: { removeProperty: vi.fn() },
+            width: 0,
+        });
+        const pdfDocument = cast<PDFDocumentProxy>({ numPages: 1 });
+        const pdfPage = cast<PDFPageProxy>({
+            getViewport: vi.fn(({scale}: {scale: number}) => ({
+                width: 100 * scale,
+                height: 200 * scale,
+            })),
+            pageNumber: 1,
+            render: vi.fn(() => ({
+                cancel: vi.fn(),
+                promise: Promise.resolve(),
+            })),
+        });
+        const firstLease = Promise.withResolvers<{
+            page: PDFPageProxy;
+            release: ReturnType<typeof vi.fn>;
+        }>();
+        pdfDocumentLeaseMocks.leasePdfDocumentPage
+            .mockReturnValueOnce(firstLease.promise)
+            .mockResolvedValue({
+                page: pdfPage,
+                release: vi.fn(),
+            });
+        const thumbnailRenderWidth = ref(100);
+        const runtime = usePdfThumbnailRenderRuntime({
+            dom: {
+                getCanvas: () => canvas,
+                isCanvasViewportVisible: () => true,
+                resolveVisibleContainer: () => cast<HTMLElement>({ querySelectorAll: () => [] }),
+            },
+            effects: {
+                cancelActivePaneRefresh: vi.fn(),
+                measureThumbnailHeight: vi.fn(),
+                onSourceCycleStarted: vi.fn(),
+                refreshVisibleThumbnailPane: vi.fn(),
+                resetMeasurementState: vi.fn(),
+                scheduleActivePaneRefresh: vi.fn(),
+            },
+            layout: {
+                clearThumbnailAspectRatios: vi.fn(),
+                resolveViewportAnchorPage: () => null,
+                shouldPreferVisibleAnchorOverCurrentPage: () => false,
+                thumbnailAspectRatios: ref<Array<number | null>>([2]),
+                thumbnailRenderWidth,
+                updateThumbnailAspectRatio: vi.fn(),
+                viewportPages: computed(() => [1]),
+                virtualPages: computed(() => [1]),
+            },
+            source: {
+                currentPage: computed(() => 1),
+                invalidationRequest: computed(() => null),
+                isActive: computed(() => true),
+                pdfDocument: computed(() => pdfDocument),
+                totalPages: computed(() => 1),
+            },
+            visuals: {
+                annotationSettings: computed(() => null),
+                editedTextMarkupComments: computed(() => []),
+                editedTextMarkupVisualSignature: computed(() => ''),
+                hiddenAnnotationIdSet: computed(() => new Set<string>()),
+                hiddenAnnotationIdsSignature: computed(() => ''),
+            },
+        });
+
+        void runtime.scheduleVisibleThumbnailRender();
+        await vi.advanceTimersByTimeAsync(25);
+        await vi.waitFor(() => expect(pdfDocumentLeaseMocks.leasePdfDocumentPage).toHaveBeenCalledOnce());
+
+        thumbnailRenderWidth.value = 120;
+        firstLease.resolve({
+            page: pdfPage,
+            release: vi.fn(),
+        });
+        await vi.waitFor(() => expect(runtime.getRenderSummary().renderingCount).toBe(0));
+        await vi.advanceTimersByTimeAsync(25);
+
+        await vi.waitFor(() => {
+            expect(pdfDocumentLeaseMocks.leasePdfDocumentPage).toHaveBeenCalledTimes(2);
+            expect(pdfPage.render).toHaveBeenCalledOnce();
+            expect(canvas.dataset.thumbnailRendered).toBe('true');
+        });
     });
 
     it('aborts a thumbnail waiting for coordinated rendering and releases its exact lease', async () => {
@@ -182,6 +277,7 @@ describe('usePdfThumbnailRenderRuntime', () => {
         const runtime = usePdfThumbnailRenderRuntime({
             dom: {
                 getCanvas: () => canvas,
+                isCanvasViewportVisible: () => true,
                 resolveVisibleContainer: () => cast<HTMLElement>({ querySelectorAll: () => [] }),
             },
             effects: {
@@ -199,6 +295,7 @@ describe('usePdfThumbnailRenderRuntime', () => {
                 thumbnailAspectRatios: ref<Array<number | null>>([]),
                 thumbnailRenderWidth: ref(100),
                 updateThumbnailAspectRatio,
+                viewportPages: computed(() => [1]),
                 virtualPages: computed(() => [1]),
             },
             source: {

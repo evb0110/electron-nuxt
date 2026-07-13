@@ -22,14 +22,21 @@ import type {
     ISessionInfo,
     ISessionStartingInfo,
 } from '@scripts/electron-run/electronRunSessionTypes';
+import { sessionDir } from '@scripts/electron-run/electronRunSessionPaths';
+import {
+    prunePreservedSessionArtifacts,
+    shouldPreserveE2EArtifacts,
+} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
     createLargeScannedFixturePdf,
+    createMultiPageTextFixturePdf,
     type IFixtureDescribeSelector,
     resolveScannedFixturePageMarkerRgb,
     resolveDjvuFixturePath,
     resolvePathFixtureAvailability,
     selectFixtureDescribe,
 } from '@tests/e2e/electron/helpers/fixtures';
+import { assertOcrPdfSemanticOutput } from '@tests/e2e/electron/helpers/electronApiHelpers';
 
 const ELECTRON_FIXTURE_ROOT = join(process.cwd(), 'tests/fixtures/electron');
 const MAX_TRACKED_ELECTRON_BINARY_FIXTURE_BYTES = 2 * 1024 * 1024;
@@ -86,6 +93,140 @@ function createStartingSessionInfo(overrides: Partial<ISessionStartingInfo> = {}
 }
 
 describe('Electron E2E fixture policy', () => {
+    it('rejects OCR completion artifacts that do not contain the expected semantic text', async () => {
+        const outputPath = await createMultiPageTextFixturePdf('unit-ocr-semantic-output.pdf', 1);
+
+        try {
+            await expect(assertOcrPdfSemanticOutput(
+                outputPath,
+                'E2E Multi Page Fixture 1/1',
+            )).resolves.toContain('E2E Multi Page Fixture 1/1');
+            await expect(assertOcrPdfSemanticOutput(
+                outputPath,
+                'text that is not present',
+            )).rejects.toThrow('OCR output did not contain expected semantic text');
+        } finally {
+            await rm(outputPath, {force: true});
+        }
+    });
+
+    it('boots sessions in a suite hook so filtered test-name runs cannot skip initialization', async () => {
+        const source = await readFile(
+            'tests/e2e/electron/helpers/createElectronE2ESessionFixture.ts',
+            'utf8',
+        );
+        const startBlock = source.slice(
+            source.indexOf('start: async'),
+            source.indexOf('restart: async'),
+        );
+        const bootHookBlock = source.slice(
+            source.indexOf('beforeAll(async () =>'),
+            source.indexOf('beforeEach((context) =>'),
+        );
+
+        expect(startBlock).not.toContain('if (bootFailure)');
+        expect(startBlock).toContain('bootFailure = null;');
+        expect(bootHookBlock).toContain('bootFailure = null;');
+        expect(source).not.toContain('\'[INFRA] boots an Electron session\'');
+        expect(source).toContain('the suite boot hook may not have completed');
+    });
+
+    it('captures and retains session diagnostics when an Electron E2E test fails', async () => {
+        const fixtureSource = await readFile(
+            'tests/e2e/electron/helpers/createElectronE2ESessionFixture.ts',
+            'utf8',
+        );
+        const sessionSource = await readFile(
+            'tests/e2e/electron/helpers/startElectronE2ESession.ts',
+            'utf8',
+        );
+
+        expect(fixtureSource).toContain('context.onTestFailed');
+        expect(fixtureSource).toContain('captureFailureArtifacts');
+        expect(fixtureSource).toContain('preserveArtifacts: preserveFailureArtifacts');
+        expect(fixtureSource).toContain('await previousSession.stop');
+        expect(fixtureSource).toContain('if (clean)');
+        expect(fixtureSource).toContain('await stopSingleSession(previousSession.name, {keepNuxt})');
+        expect(sessionSource).toContain('page.screenshot');
+        expect(sessionSource).toContain('createSessionDiagnostics(sessionName)');
+        expect(sessionSource).toContain('join(FAILURE_ARTIFACTS_BASE_DIR, sessionName)');
+        expect(sessionSource).toContain('stopOptions.preserveArtifacts');
+        expect(sessionSource).toContain('\'electron-user-data\'');
+        expect(sessionSource).toContain('prunePreservedSessionArtifacts(scopedSessionName)');
+    });
+
+    it('retains bounded failure evidence without keeping Electron profile or app copies', async () => {
+        const sessionName = `e2e-unit-retained-artifacts-${process.pid}`;
+        const root = sessionDir(sessionName);
+        const screenshotPath = join(root, 'screenshots', 'failure.png');
+        const logPath = join(root, 'session.log');
+
+        try {
+            await mkdir(join(root, 'electron-user-data'), {recursive: true});
+            await mkdir(join(root, 'automation-electron-app'), {recursive: true});
+            await mkdir(join(root, 'automation-electron-app-entry'), {recursive: true});
+            await mkdir(join(root, 'screenshots'), {recursive: true});
+            await writeFile(join(root, 'electron-user-data', 'Preferences'), 'profile');
+            await writeFile(join(root, 'automation-electron-app', 'Electron'), 'app');
+            await writeFile(join(root, 'automation-electron-app-entry', 'main.js'), 'entry');
+            await writeFile(screenshotPath, 'screenshot');
+            await writeFile(logPath, 'diagnostics');
+
+            prunePreservedSessionArtifacts(sessionName);
+
+            await expect(stat(screenshotPath)).resolves.toBeDefined();
+            await expect(stat(logPath)).resolves.toBeDefined();
+            await expect(stat(join(root, 'electron-user-data'))).rejects.toMatchObject({code: 'ENOENT'});
+            await expect(stat(join(root, 'automation-electron-app'))).rejects.toMatchObject({code: 'ENOENT'});
+            await expect(stat(join(root, 'automation-electron-app-entry'))).rejects.toMatchObject({code: 'ENOENT'});
+        } finally {
+            await rm(root, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('recognizes the documented CI artifact-retention values', () => {
+        expect(shouldPreserveE2EArtifacts({EVB_E2E_PRESERVE_ARTIFACTS: '1'})).toBe(true);
+        expect(shouldPreserveE2EArtifacts({EVB_E2E_PRESERVE_ARTIFACTS: 'yes'})).toBe(true);
+        expect(shouldPreserveE2EArtifacts({EVB_E2E_PRESERVE_ARTIFACTS: '0'})).toBe(false);
+        expect(shouldPreserveE2EArtifacts({})).toBe(false);
+    });
+
+    it('matches openPdf readiness against the workspace document record', async () => {
+        const source = await readFile(
+            'scripts/electron-run/createCommandHandler.ts',
+            'utf8',
+        );
+
+        expect(source).toContain('activeDocumentRecord?.tab?.originalPath');
+        expect(source).toContain('isRequestedDocumentLoaded(viewer.documentPath)');
+        expect(source).toContain('viewer.documentPath ?? \'<none>\'');
+    });
+
+    it('matches active and Recent documents by full source identity rather than basename', async () => {
+        const viewerCore = await readFile(
+            'tests/e2e/electron/helpers/viewerCore.ts',
+            'utf8',
+        );
+        const sourceWait = viewerCore.slice(
+            viewerCore.indexOf('export async function waitForActiveDocumentSource'),
+            viewerCore.indexOf('async function openFreshTabForDocumentOpen'),
+        );
+        const recentFilesSuite = await readFile(
+            'tests/e2e/electron/recentFiles.e2e.test.ts',
+            'utf8',
+        );
+
+        expect(sourceWait).toContain('\'originalPath\'');
+        expect(sourceWait).toContain('\'pendingDocumentPath\'');
+        expect(sourceWait).toContain('normalize(candidate) === requestedPath');
+        expect(sourceWait).not.toContain('basename');
+        expect(recentFilesSuite).toContain('row.dataset.recentSource === targetSourcePath');
+        expect(recentFilesSuite).toContain('two files share a basename');
+    });
+
     it('generates a scanned large-PDF fixture without constructing dense text layers', async () => {
         const outputPath = await createLargeScannedFixturePdf(
             'unit-large-scanned-policy.pdf',
@@ -184,7 +325,29 @@ describe('Electron E2E fixture policy', () => {
     });
 
     it('resolves DjVu smoke through explicit, tracked, or generated deterministic fixtures only', async () => {
+        const generatedFixtureFactory = vi.fn(() => {
+            throw new Error('the checked-in fixture must make host generators unnecessary');
+        });
+        const checkedInFixture = resolveDjvuFixturePath({
+            env: {},
+            generatedFixtureFactory,
+        });
+        expect(checkedInFixture).toMatchObject({
+            path: join(
+                process.cwd(),
+                'tests',
+                'fixtures',
+                'djvu',
+                'sources',
+                'browser-boundary-501-pages.djvu',
+            ),
+            required: true,
+        });
+        expect((await stat(checkedInFixture.path!)).size).toBeGreaterThan(0);
+        expect(generatedFixtureFactory).not.toHaveBeenCalled();
+
         const fixture = resolveDjvuFixturePath({
+            corpusFixturePath: null,
             devkitFixtureDir: '.devkit/tmp/unit-missing-djvu/devkit',
             env: {},
             generate: false,
@@ -193,17 +356,21 @@ describe('Electron E2E fixture policy', () => {
 
         expect(fixture).toMatchObject({
             path: null,
-            required: false,
+            required: true,
         });
         expect(fixture.reason).toContain('EVB_E2E_DJVU_FIXTURE');
         expect(fixture.reason).toContain('djvu-fixtures/viewer-smoke.djvu');
         expect(fixture.reason).not.toContain('.devkit/pdfs');
+        expect(() => selectFixtureDescribe(createDescribeSelectorDouble(), fixture)).toThrow(
+            /Required fixture missing: DjVu fixture is not available/u,
+        );
 
         const generatedFixturePath = join(process.cwd(), '.devkit/tmp/unit-missing-djvu/generated.djvu');
         await mkdir(join(process.cwd(), '.devkit/tmp/unit-missing-djvu'), { recursive: true });
         await writeFile(generatedFixturePath, 'generated fixture placeholder');
         try {
             const generated = resolveDjvuFixturePath({
+                corpusFixturePath: null,
                 devkitFixtureDir: '.devkit/tmp/unit-missing-djvu/devkit',
                 env: {},
                 generatedFixtureFactory: () => generatedFixturePath,
@@ -212,7 +379,7 @@ describe('Electron E2E fixture policy', () => {
             expect(generated).toMatchObject({
                 path: generatedFixturePath,
                 reason: `Using generated DjVu fixture: ${generatedFixturePath}`,
-                required: false,
+                required: true,
             });
         } finally {
             await rm(join(process.cwd(), '.devkit/tmp/unit-missing-djvu'), {

@@ -6,6 +6,7 @@ import {
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {createScannedTextFixturePdf} from '@tests/e2e/electron/helpers/fixtures';
 import {
+    assertOcrPdfSemanticOutput,
     consumeOcrResultIntoActiveWorkspace,
     getActiveWorkspaceWorkingCopyPath,
     runOcrSearchablePdf,
@@ -26,16 +27,22 @@ describe('nightly OCR journey', () => {
             return;
         }
 
+        const expectedText = 'EVB NIGHTLY OCR JOURNEY';
         const sourcePath = await createScannedTextFixturePdf(
             'ocr-journey-scanned.pdf',
-            'EVB NIGHTLY OCR JOURNEY',
+            expectedText,
         );
         await openPdfInApp(session.page, sourcePath, 90_000);
         await waitForPdfLoaded(session.page, 90_000);
         await waitForViewerInteractive(session.page, 90_000);
         const workingCopyPath = await getActiveWorkspaceWorkingCopyPath(session.page);
         const requestId = `ocr-e2e-${Date.now()}`;
-        const result = await runOcrSearchablePdf(session.page, workingCopyPath, requestId);
+        const result = await runOcrSearchablePdf(
+            session.page,
+            workingCopyPath,
+            requestId,
+            expectedText,
+        );
 
         expect(result).toMatchObject({
             started: true,
@@ -44,6 +51,7 @@ describe('nightly OCR journey', () => {
         expect(result.progressEventCount).toBeGreaterThan(0);
         expect(result.pdfPath).toBeTruthy();
         expect(result.sourceDocumentRevisionToken).toBeTruthy();
+        expect(result.recognizedText).toContain(expectedText);
         await consumeOcrResultIntoActiveWorkspace(
             session.page,
             requestId,
@@ -52,5 +60,6 @@ describe('nightly OCR journey', () => {
         );
         await waitForPdfLoaded(session.page, 90_000);
         await waitForViewerInteractive(session.page, 90_000);
+        expect(await assertOcrPdfSemanticOutput(workingCopyPath, expectedText)).toContain(expectedText);
     }, 240_000);
 });

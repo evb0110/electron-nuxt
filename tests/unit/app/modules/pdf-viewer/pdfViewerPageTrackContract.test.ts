@@ -55,9 +55,9 @@ describe('PDF physical page-track contract', () => {
 
         expect(viewport).toContain(':style="containerStyle"');
         expect(viewport).toContain('getStyle: () => ({})');
-        expect(scale).toContain('const BASE_MARGIN = 20;');
-        expect(scale).toContain('padding: `${BASE_MARGIN}px`');
-        expect(scale).toContain('gap: `${BASE_MARGIN}px`');
+        expect(scale).toContain('import { DOCUMENT_PAGE_GUTTER_PX } from \'@app/utils/document-viewer/layout/documentPageGutterPx\';');
+        expect(scale).toContain('padding: `${DOCUMENT_PAGE_GUTTER_PX}px`');
+        expect(scale).toContain('gap: `${DOCUMENT_PAGE_GUTTER_PX}px`');
     });
 
     it('atomically swaps the pending skeleton for the committed canvas', () => {

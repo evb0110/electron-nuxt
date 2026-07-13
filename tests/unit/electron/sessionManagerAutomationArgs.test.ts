@@ -10,6 +10,7 @@ import {
     buildHeadlessAutomationEnv,
     buildAutomationAppEntryPackage,
     buildAutomationAppEntryPaths,
+    buildElectronE2EAutomationEnv,
     buildMacOSHiddenAppBundlePaths,
     buildNuxtDevServerEnv,
     resolveAutomationRendererReadyEnv,
@@ -207,6 +208,21 @@ describe('sessionManager automation launch args', () => {
         });
 
         expect(buildHeadlessAutomationEnv({ EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '0' }).EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE).toBe('0');
+    });
+
+    it('gives the dedicated visible-window E2E lane the real show and focus lifecycle', () => {
+        expect(buildElectronE2EAutomationEnv({ PATH: '/bin' }, 'visible')).toEqual({
+            PATH: '/bin',
+            EVB_AUTOMATION_NO_FOCUS: '0',
+            EVB_AUTOMATION_HIDE_WINDOW: '0',
+            EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '0',
+        });
+        expect(buildElectronE2EAutomationEnv({ PATH: '/bin' }, 'hidden')).toEqual({
+            PATH: '/bin',
+            EVB_AUTOMATION_NO_FOCUS: '1',
+            EVB_AUTOMATION_HIDE_WINDOW: '1',
+            EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '1',
+        });
     });
 
     it('uses the hidden macOS app bundle only when explicitly requested', () => {

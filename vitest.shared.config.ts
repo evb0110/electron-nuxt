@@ -22,6 +22,7 @@ const vitestProjectNames = {
     electronE2EDrawShapes: 'e2e-draw-shapes',
     electronE2ELargePdf: 'e2e-large-pdf',
     electronE2ERapidNavigation: 'e2e-rapid-navigation',
+    electronE2EVisibleWindow: 'e2e-visible-window',
     electronE2EQuarantine: 'e2e-quarantine',
 } as const;
 
@@ -53,6 +54,7 @@ const electronE2ELargePdfTestFiles = [
     'tests/e2e/electron/largePdfNativePreview.e2e.test.ts',
 ];
 const electronE2ERapidNavigationTestFiles = ['tests/e2e/electron/rapidPdfNavigation.e2e.test.ts'];
+const electronE2EVisibleWindowTestFiles = ['tests/e2e/electron/visibleWindowLifecycle.e2e.test.ts'];
 const electronE2EQuarantineTestFiles = ['tests/e2e/electron/quarantine/**/*.e2e.test.ts'];
 
 function createUnitAutoImportPlugin() {
@@ -183,5 +185,6 @@ export const vitestProjects = [
     createElectronE2ETestProject(vitestProjectNames.electronE2EDrawShapes, electronE2EDrawShapeTestFiles),
     createElectronE2ETestProject(vitestProjectNames.electronE2ELargePdf, electronE2ELargePdfTestFiles),
     createElectronE2ETestProject(vitestProjectNames.electronE2ERapidNavigation, electronE2ERapidNavigationTestFiles),
+    createElectronE2ETestProject(vitestProjectNames.electronE2EVisibleWindow, electronE2EVisibleWindowTestFiles),
     createElectronE2ETestProject(vitestProjectNames.electronE2EQuarantine, electronE2EQuarantineTestFiles),
 ] satisfies TestProjectConfiguration[];

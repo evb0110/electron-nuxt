@@ -73,6 +73,7 @@ describe('usePdfSinglePageNavigationController', () => {
         }
         const currentPage = ref(1);
         const requestedCurrentPage = ref<number | undefined>(1);
+        const isResizeTransitionActive = ref(false);
         const viewportWrites = createTestPdfViewportWritePort();
 
         try {
@@ -83,6 +84,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 scaledMargin: ref(20),
                 viewMode: ref('single'),
                 continuousScroll: ref(true),
+                isResizeTransitionActive,
                 isLoading: ref(false),
                 pdfDocument: shallowRef({numPages: 2} as PDFDocumentProxy),
                 getMostVisiblePage: vi.fn(() => 1),
@@ -115,6 +117,11 @@ describe('usePdfSinglePageNavigationController', () => {
             expect(controller.viewportAuthority.currentPage.value).toBe(1);
 
             viewer.scrollTop = 850;
+            isResizeTransitionActive.value = true;
+            controller.handleScroll({isTrusted: true} as Event);
+            expect(controller.viewportAuthority.currentPage.value).toBe(1);
+            expect(controller.currentPageAuthority.canSyncFromViewport()).toBe(false);
+            isResizeTransitionActive.value = false;
             const livePageTwoAnchor = controller.captureCurrentSemanticAnchor();
             expect(livePageTwoAnchor?.page).toBe(2);
             controller.viewportAuthority.observeUserScroll(livePageTwoAnchor!);
@@ -404,8 +411,8 @@ describe('usePdfSinglePageNavigationController', () => {
         const committedWorkspacePage = ref(1);
         const requestedCurrentPage = ref<number | undefined>(1);
         const freshPages = new Set<number>();
-        const documentRevision = ref(1);
-        const geometryRevision = ref(1);
+        const documentRevision = ref(0);
+        const geometryRevision = ref(0);
         let layout: ReturnType<typeof buildPageLayoutMetrics> = null;
         const prepareNavigationVisual = vi.fn(async (range: {
             start: number;
@@ -470,6 +477,12 @@ describe('usePdfSinglePageNavigationController', () => {
             expect(committedWorkspacePage.value).toBe(1);
             expect(prepareNavigationVisual).not.toHaveBeenCalled();
             expect(viewportWrites.writes).toHaveLength(0);
+
+            // A ResizeObserver callback can arrive during the same
+            // pre-operational window while a split pane is mounting. It must
+            // be ignored without rejecting into the renderer process.
+            const staleResize = controller.submitViewportStateIntent('resize');
+            await expect(staleResize).resolves.toMatchObject({outcome: 'cancelled'});
 
             const staleFit = controller.submitViewportStateIntent('fit');
             await expect(staleFit).resolves.toMatchObject({outcome: 'cancelled'});

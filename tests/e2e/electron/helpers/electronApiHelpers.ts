@@ -5,6 +5,29 @@ import {
     callWorkspaceCommand,
     readWorkspaceStateValues,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
+import { readPdfPageSnapshots } from '@tests/e2e/electron/helpers/fixtures';
+
+function normalizeSemanticText(value: string) {
+    return value.replace(/\s+/gu, ' ').trim().toLocaleLowerCase();
+}
+
+export async function assertOcrPdfSemanticOutput(pdfPath: string, expectedText: string) {
+    const recognizedText = (await readPdfPageSnapshots(pdfPath))
+        .map(page => page.textSnippet)
+        .join(' ')
+        .replace(/\s+/gu, ' ')
+        .trim();
+    const normalizedRecognizedText = normalizeSemanticText(recognizedText);
+    const normalizedExpectedText = normalizeSemanticText(expectedText);
+    if (!normalizedRecognizedText.includes(normalizedExpectedText)) {
+        throw new Error(`OCR output did not contain expected semantic text: ${JSON.stringify({
+            expectedText,
+            pdfPath,
+            recognizedText,
+        })}`);
+    }
+    return recognizedText;
+}
 
 export async function createWorkingCopyFromPath(page: Page, sourcePath: string, originalPath?: string) {
     return evaluateInPage(page, async ({
@@ -34,8 +57,13 @@ export async function getActiveWorkspaceWorkingCopyPath(page: Page) {
     return workingCopyPath;
 }
 
-export async function runOcrSearchablePdf(page: Page, sourcePdfPath: string, requestId: string) {
-    return evaluateInPage(page, async ({
+export async function runOcrSearchablePdf(
+    page: Page,
+    sourcePdfPath: string,
+    requestId: string,
+    expectedText: string,
+) {
+    const result = await evaluateInPage(page, async ({
         sourcePath,
         id,
     }) => {
@@ -143,6 +171,20 @@ export async function runOcrSearchablePdf(page: Page, sourcePdfPath: string, req
         sourcePath: sourcePdfPath,
         id: requestId,
     });
+
+    if (!result.success) {
+        return {
+            ...result,
+            recognizedText: null,
+        };
+    }
+    if (!result.pdfPath) {
+        throw new Error('OCR reported success without a result PDF path');
+    }
+    return {
+        ...result,
+        recognizedText: await assertOcrPdfSemanticOutput(result.pdfPath, expectedText),
+    };
 }
 
 export async function acknowledgeOcrResult(page: Page, requestId: string, pdfPath: string) {

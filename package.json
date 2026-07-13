@@ -96,6 +96,8 @@
     "test:e2e:electron:quarantine:no-build": "vitest run --project e2e-quarantine --passWithNoTests --reporter verbose",
     "test:e2e:electron:rapid-navigation": "pnpm run build:electron && pnpm run test:e2e:electron:rapid-navigation:no-build",
     "test:e2e:electron:rapid-navigation:no-build": "vitest run --project e2e-rapid-navigation --reporter verbose",
+    "test:e2e:electron:visible-window": "pnpm run build:electron && pnpm run test:e2e:electron:visible-window:no-build",
+    "test:e2e:electron:visible-window:no-build": "vitest run --project e2e-visible-window --reporter verbose",
     "test:e2e:electron:regression": "pnpm run build:electron && pnpm run test:e2e:electron:regression:no-build",
     "test:e2e:electron:regression:no-build": "vitest run --project e2e-regression --reporter verbose",
     "test:e2e:electron:headless": "EVB_AUTOMATION_DISABLE_SANDBOX=1 EVB_AUTOMATION_HIDE_WINDOW=0 xvfb-run -a pnpm run test:e2e:electron",

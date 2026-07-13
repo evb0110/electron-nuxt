@@ -33,6 +33,7 @@ import {
 } from '@scripts/electron-run/electronRunSessionPaths';
 import type { ISessionInfo } from '@scripts/electron-run/electronRunSessionTypes';
 import { sendCommandToSession } from '@scripts/electron-run/sendCommand';
+import { clearAutomationWorkspaceCrashCheckpoint } from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 
 const KEEP_NUXT_ON_STOP_MARKER = 'keep-nuxt-on-stop';
 const SESSION_CONTROLLER_SHUTDOWN_TIMEOUT_MS = 12_000;
@@ -222,6 +223,7 @@ export async function stopSingleSession(name: string, options: {keepNuxt?: boole
         } else {
             console.log(`No session '${name}' running.`);
         }
+        clearAutomationWorkspaceCrashCheckpoint(name);
         return;
     }
     if (info) {
@@ -236,6 +238,7 @@ export async function stopSingleSession(name: string, options: {keepNuxt?: boole
                 `Session '${name}' stop was refused because one or more process identities could not be verified; session artifacts were retained.`,
             );
         }
+        clearAutomationWorkspaceCrashCheckpoint(name);
         removeSessionStopFiles(name);
     }
     if (starting?.pid && isProcessAlive(starting.pid)) {
@@ -258,6 +261,7 @@ export async function stopSingleSession(name: string, options: {keepNuxt?: boole
     }
     await cleanupSessionStartingAttempt(name, {killNuxt: options.keepNuxt !== true});
     clearSessionStarting(name);
+    clearAutomationWorkspaceCrashCheckpoint(name);
     await delay(options.keepNuxt ? 1000 : 250);
     console.log(`Session '${name}' stopped.`);
 }

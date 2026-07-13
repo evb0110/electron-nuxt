@@ -124,6 +124,9 @@ export interface IUsePdfPageRendererOptions {
 export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     const performanceProfile = getPerformanceProfile();
     const pageSlots = options.pageSlots;
+    let handlePageSurfaceEvicted = (_pageNumber: number) => {
+        options.onRenderedPageStateChanged?.();
+    };
     const {
         pdfDocument,
         numPages,
@@ -312,13 +315,12 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         replacePageCanvasSurfaceLease,
         markPageCanvasSurfaceEvictable,
         releasePageCanvasSurface,
+        setPageCanvasSurfacePriority,
         releaseAllSurfaceResources,
     } = usePdfRendererPageRegistry({
         isPageProtected: isPageInProtectedVisibleRange,
         onPageEvicted: (pageNumber) => {
-            if (isPageInProtectedVisibleRange(pageNumber)) {
-                options.onRenderedPageStateChanged?.();
-            }
+            handlePageSurfaceEvicted(pageNumber);
         },
     });
 
@@ -618,6 +620,40 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         onRenderedPageStateChanged: options.onRenderedPageStateChanged,
         invalidatePendingSearchRequests: searchController.invalidatePendingRequests,
     });
+    handlePageSurfaceEvicted = (pageNumber) => {
+        // Budget eviction must be a coherent visual-state transition. A zeroed
+        // backing store cannot remain mounted or classified as ready.
+        clearPageVisual(pageNumber, false);
+        options.onRenderedPageStateChanged?.();
+    };
+
+    function reconcilePageCanvasResidency(
+        residentPageNumbers: readonly number[],
+        visibleRange: IPageRange,
+    ) {
+        const residentPages = new Set(residentPageNumbers);
+        let didChangeRenderedState = false;
+        for (const pageNumber of getTrackedPageNumbersForCleanup()) {
+            if (residentPages.has(pageNumber)) {
+                const distance = pageNumber < visibleRange.start
+                    ? visibleRange.start - pageNumber
+                    : pageNumber > visibleRange.end
+                        ? pageNumber - visibleRange.end
+                        : 0;
+                setPageCanvasSurfacePriority(pageNumber, distance === 0 ? 90 : Math.max(40, 70 - distance));
+                continue;
+            }
+            cancelActiveRenderTask(pageNumber);
+            cancelActiveTextLayerRender(pageNumber);
+            renderingPages.delete(pageNumber);
+            renderingPageRequestIds.delete(pageNumber);
+            missingRenderTargetRetries.delete(pageNumber);
+            didChangeRenderedState = clearPageVisual(pageNumber, false) || didChangeRenderedState;
+        }
+        if (didChangeRenderedState) {
+            options.onRenderedPageStateChanged?.();
+        }
+    }
     const canvasController = usePdfRendererCanvasController({
         canvasRenderer,
         activeRenderTasks,
@@ -858,6 +894,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     return {
         setupPagePlaceholders,
         renderVisiblePages,
+        reconcilePageCanvasResidency,
         renderTransactionPages,
         reRenderAllVisiblePages,
         cleanupAllPages,

@@ -24,6 +24,7 @@ export interface IDjvuSurfaceBudget {
         bytes: number;
         priority: number;
         evict?: (() => void) | undefined;
+        canEvict?: (() => boolean) | undefined;
     }): {
         promotePriority?(priority: number): void;
         release(): void
@@ -125,12 +126,14 @@ export async function createDjvuPageSource(
             } | null,
             invalidationListeners: new Set<() => void>(),
         };
+        let priority = previewPriorityByClass[request.priority];
         urlLeases.set(rendered.objectUrl, leaseEntry);
         leaseEntry.lease = surfaceBudget.reserve({
             scopeId,
             category: 'djvu-preview',
             bytes,
-            priority: previewPriorityByClass[request.priority],
+            priority,
+            canEvict: () => priority < previewPriorityByClass.visible,
             evict: () => {
                 for (const listener of leaseEntry.invalidationListeners) {
                     listener();
@@ -144,7 +147,6 @@ export async function createDjvuPageSource(
             throw new Error('DjVu preview evicted under memory pressure');
         }
         let released = false;
-        let priority = previewPriorityByClass[request.priority];
         return {
             widthPx: rendered.renderedPx,
             heightPx,

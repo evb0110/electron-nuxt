@@ -57,7 +57,9 @@ const tabFitProbeRef = useTemplateRef<HTMLElement>('tabFitProbeRef');
 const isCompact = ref(true);
 const displayTabs = computed(() => tabs.map(item => ({
     ...item,
-    label: isCompact.value ? '' : item.label,
+    // Keep the localized label in the DOM when the compact layout hides it
+    // visually. UTabs derives the tab's accessible name from this slot.
+    label: item.label,
 })));
 const tabsUi = computed(() => ({
     root: 'gap-0',

@@ -271,7 +271,7 @@ describe('document page sources', () => {
         const surface = await source.renderPage({
             pageNumber: 1,
             widthPx: 200,
-            priority: 'visible',
+            priority: 'nearby',
             signal: new AbortController().signal,
         });
         const onInvalidated = vi.fn();
@@ -281,6 +281,39 @@ describe('document page sources', () => {
 
         expect(onInvalidated).toHaveBeenCalledOnce();
         expect(previewSource.revokeObjectURL).toHaveBeenCalledWith('blob:pressure-page');
+        source.dispose();
+    });
+
+    it('protects a visible DjVu surface from pressure eviction', async () => {
+        const previewSource = {
+            getPageSizes: vi.fn().mockResolvedValue([{
+                width: 1_200,
+                height: 1_800,
+                dpi: 300,
+            }]),
+            renderPageObjectUrl: vi.fn().mockResolvedValue({
+                objectUrl: 'blob:visible-page',
+                renderedPx: 200,
+            }),
+            revokeObjectURL: vi.fn(),
+            terminate: vi.fn(),
+        } satisfies IPagePreviewSource;
+        const budget = createWorkspaceSurfaceBudgetController(800_000);
+        const source = await createDjvuPageSource('book.djvu', previewSource, budget);
+        const surface = await source.renderPage({
+            pageNumber: 1,
+            widthPx: 200,
+            priority: 'visible',
+            signal: new AbortController().signal,
+        });
+        const onInvalidated = vi.fn();
+        surface.onInvalidated?.(onInvalidated);
+
+        budget.setPressureLevel('emergency');
+
+        expect(onInvalidated).not.toHaveBeenCalled();
+        expect(previewSource.revokeObjectURL).not.toHaveBeenCalled();
+        surface.release();
         source.dispose();
     });
 
@@ -299,11 +332,16 @@ describe('document page sources', () => {
             terminate: vi.fn(),
         } satisfies IPagePreviewSource;
         const promotePriority = vi.fn();
-        const source = await createDjvuPageSource('book.djvu', previewSource, {
-            reserve: vi.fn(() => ({
+        let canEvict: (() => boolean) | undefined;
+        const reserve = vi.fn((options: {canEvict?: (() => boolean) | undefined;}) => {
+            canEvict = options.canEvict;
+            return {
                 promotePriority,
                 release: vi.fn(),
-            })),
+            };
+        });
+        const source = await createDjvuPageSource('book.djvu', previewSource, {
+            reserve,
             releaseScope: vi.fn(),
         });
         const surface = await source.renderPage({
@@ -313,7 +351,9 @@ describe('document page sources', () => {
             signal: new AbortController().signal,
         });
 
+        expect(canEvict?.()).toBe(true);
         surface.promotePriority?.('navigation');
+        expect(canEvict?.()).toBe(false);
         surface.promotePriority?.('visible');
 
         expect(previewSource.renderPageObjectUrl).toHaveBeenCalledOnce();

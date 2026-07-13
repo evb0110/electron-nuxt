@@ -172,6 +172,7 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
     const showConvertDialog = ref(false);
     const sourceError = ref<string | null>(null);
     const openingPath = ref<TDocumentRef | null>(null);
+    const sourceSizeBytes = ref<number | null>(null);
     const activeViewingJobId = ref<string | null>(null);
     const activeConvertJobId = ref<string | null>(null);
 
@@ -295,6 +296,7 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
             return false;
         }
         activeProjectionSession = null;
+        sourceSizeBytes.value = null;
         void releaseViewingPath(sourcePath);
         return true;
     }
@@ -498,6 +500,9 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
             }
             options.setOriginalPath?.(djvuPath);
             const activation = activateDocumentSource('djvu', djvuPath);
+            sourceSizeBytes.value = typeof sourceInfo?.sourceSize === 'number'
+                ? sourceInfo.sourceSize
+                : null;
             activeProjectionSession = createDocumentSession({
                 id: `djvu:${String(djvuPath)}`,
                 originalRef: djvuPath,
@@ -831,6 +836,7 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
         showConvertDialog,
         sourceError,
         openingPath,
+        sourceSizeBytes,
         openDjvuFile,
         invalidatePendingDjvuOpen,
         convertToPdf,

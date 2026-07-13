@@ -60,6 +60,7 @@ interface IUseAppShellDirectionalTabsOptions {
     workspaceSplitCache: IWorkspaceSplitCacheLike;
     isSingletonPlaceholderCloseBlocked: (paneId: string, tabId: string) => boolean;
     enqueueTabTransition: <T>(task: () => Promise<T>) => Promise<T>;
+    setWorkspaceLayoutResizing?: ((value: boolean) => void) | undefined;
     captureWorkspacePayload: (tabId: string) => Promise<TSplitPayload | null>;
     restoreWorkspacePayload: (tabId: string, payload: TSplitPayload | null) => Promise<boolean>;
     moveTabToNewWindow: (tabId: string) => Promise<void>;
@@ -203,23 +204,30 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
     });
 
     async function splitEditor(direction: TPaneDirection) {
-        await enqueueTabTransition(() => {
-            const sourcePane = getPaneById(activePaneId.value);
-            if (!sourcePane) {
-                return Promise.resolve();
-            }
-            const newPaneId = splitPane(sourcePane.paneId, direction);
-            if (!newPaneId) {
-                return Promise.resolve();
-            }
+        options.setWorkspaceLayoutResizing?.(true);
+        await nextTick();
+        try {
+            await enqueueTabTransition(() => {
+                const sourcePane = getPaneById(activePaneId.value);
+                if (!sourcePane) {
+                    return Promise.resolve();
+                }
+                const newPaneId = splitPane(sourcePane.paneId, direction);
+                if (!newPaneId) {
+                    return Promise.resolve();
+                }
 
-            createTab({
-                paneId: newPaneId,
-                activate: true,
+                createTab({
+                    paneId: newPaneId,
+                    activate: true,
+                });
+                activatePane(newPaneId);
+                return Promise.resolve();
             });
-            activatePane(newPaneId);
-            return Promise.resolve();
-        });
+            await nextTick();
+        } finally {
+            options.setWorkspaceLayoutResizing?.(false);
+        }
     }
 
     async function splitEditorEmpty(direction: TPaneDirection) {

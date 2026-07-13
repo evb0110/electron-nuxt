@@ -3,7 +3,9 @@ import {
     expect,
     it,
 } from 'vitest';
+import { copyFileSync } from 'node:fs';
 import {
+    createFixturePath,
     createMultiPageTextFixturePdf,
     resolveDjvuFixturePath,
     selectFixtureDescribe,
@@ -196,8 +198,10 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
         await waitForDjvuLoaded(session.page, DJVU_E2E_TIMEOUT_MS);
         await waitForActiveDjvuImages(session);
 
+        const independentDjvuPath = createFixturePath(`split-pane-${Date.now()}.djvu`);
+        copyFileSync(djvuFixture.path, independentDjvuPath);
         await splitActiveDocument(session, 'right');
-        await openDjvuInApp(session.page, djvuFixture.path, DJVU_E2E_TIMEOUT_MS);
+        await openDjvuInApp(session.page, independentDjvuPath, DJVU_E2E_TIMEOUT_MS);
         await waitForDjvuLoaded(session.page, DJVU_E2E_TIMEOUT_MS);
         await waitForVisibleDjvuImageHosts(session, 2);
 
@@ -205,4 +209,143 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
         expect(pressure.filter(host => host.active).length).toBeGreaterThanOrEqual(2);
         expect(pressure.filter(host => host.active).every(host => host.djvuImages > 0)).toBe(true);
     });
+
+    it('preserves the exact source document surface while an empty split is opened and closed', async () => {
+        let session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+        if (!djvuFixture.path) {
+            throw new Error(djvuFixture.reason);
+        }
+
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-djvu-empty-split-continuity-${Date.now()}`,
+        });
+        if (!session) {
+            return;
+        }
+
+        await openDjvuInApp(session.page, djvuFixture.path, DJVU_E2E_TIMEOUT_MS);
+        await waitForDjvuLoaded(session.page, DJVU_E2E_TIMEOUT_MS);
+        await waitForActiveDjvuImages(session);
+
+        const probeInstalled = await session.page.evaluate(() => {
+            type TSplitContinuityWindow = Window & {
+                __splitEditorEmptyForE2E?: (direction: 'right') => Promise<void> | void;
+                __splitContinuityProbe?: {
+                    disconnectedSamples: number;
+                    newTabSamples: number;
+                    openingSamples: number;
+                    placeholderSamples: number;
+                    sourceHost: HTMLElement;
+                    sourcePane: HTMLElement;
+                    timer: number;
+                };
+            };
+            const sourcePane = document.querySelector<HTMLElement>('.editor-pane.is-active');
+            const sourceHost = sourcePane?.querySelector<HTMLElement>('.workspace-host');
+            const sourceImage = sourceHost?.querySelector<HTMLImageElement>(
+                '[data-testid="document-page-source-image"]',
+            );
+            const probeWindow = window as TSplitContinuityWindow;
+            if (!sourcePane || !sourceHost || !sourceImage || !probeWindow.__splitEditorEmptyForE2E) {
+                return false;
+            }
+
+            const probe = {
+                disconnectedSamples: 0,
+                newTabSamples: 0,
+                openingSamples: 0,
+                placeholderSamples: 0,
+                sourceHost,
+                sourcePane,
+                timer: 0,
+            };
+            const sample = () => {
+                if (!sourcePane.isConnected || !sourceHost.isConnected) {
+                    probe.disconnectedSamples += 1;
+                }
+                if (sourcePane.querySelector('.tab.is-active')?.textContent?.includes('New Tab')) {
+                    probe.newTabSamples += 1;
+                }
+                if (sourceHost.textContent?.includes('Opening DjVu')) {
+                    probe.openingSamples += 1;
+                }
+                if (sourceHost.querySelector('.workspace-host__placeholder')) {
+                    probe.placeholderSamples += 1;
+                }
+            };
+            probe.timer = window.setInterval(sample, 8);
+            probeWindow.__splitContinuityProbe = probe;
+            sample();
+            return true;
+        });
+        expect(probeInstalled).toBe(true);
+
+        const split = await session.page.evaluate(async () => {
+            const splitEditorEmpty = (window as Window & {__splitEditorEmptyForE2E?: (direction: 'right') => Promise<void> | void;})
+                .__splitEditorEmptyForE2E;
+            await splitEditorEmpty?.('right');
+            return typeof splitEditorEmpty === 'function';
+        });
+        expect(split).toBe(true);
+        await session.page.waitForFunction(() => document.querySelectorAll('.editor-pane').length === 2);
+
+        const closed = await session.page.evaluate(() => {
+            const activePane = document.querySelector<HTMLElement>('.editor-pane.is-active');
+            const closeButton = activePane?.querySelector<HTMLButtonElement>('.tab.is-active .tab-close');
+            closeButton?.click();
+            return Boolean(closeButton);
+        });
+        expect(closed).toBe(true);
+        await session.page.waitForFunction(() => document.querySelectorAll('.editor-pane').length === 1);
+        await session.page.evaluate(async () => {
+            await new Promise(resolve => setTimeout(resolve, 750));
+        });
+
+        const continuity = await session.page.evaluate(() => {
+            interface ISplitContinuityProbe {
+                disconnectedSamples: number;
+                newTabSamples: number;
+                openingSamples: number;
+                placeholderSamples: number;
+                sourceHost: HTMLElement;
+                sourcePane: HTMLElement;
+                timer: number;
+            }
+            const probe = (window as Window & {__splitContinuityProbe?: ISplitContinuityProbe;})
+                .__splitContinuityProbe;
+            if (!probe) {
+                return null;
+            }
+            window.clearInterval(probe.timer);
+            const currentPane = document.querySelector<HTMLElement>('.editor-pane');
+            const currentHost = currentPane?.querySelector<HTMLElement>('.workspace-host') ?? null;
+            const currentImage = currentHost?.querySelector<HTMLImageElement>(
+                '[data-testid="document-page-source-image"]',
+            ) ?? null;
+            return {
+                disconnectedSamples: probe.disconnectedSamples,
+                hostIsIdentical: currentHost === probe.sourceHost,
+                imageReady: Boolean(currentImage?.complete && currentImage.naturalWidth > 0),
+                newTabSamples: probe.newTabSamples,
+                openingSamples: probe.openingSamples,
+                paneIsIdentical: currentPane === probe.sourcePane,
+                placeholderSamples: probe.placeholderSamples,
+                tabTitle: currentPane?.querySelector('.tab.is-active')?.textContent?.trim() ?? '',
+            };
+        });
+
+        expect(continuity).not.toBeNull();
+        expect(continuity?.paneIsIdentical).toBe(true);
+        expect(continuity?.hostIsIdentical).toBe(true);
+        expect(continuity?.imageReady).toBe(true);
+        expect(continuity?.disconnectedSamples).toBe(0);
+        expect(continuity?.newTabSamples).toBe(0);
+        expect(continuity?.openingSamples).toBe(0);
+        expect(continuity?.placeholderSamples).toBe(0);
+        expect(continuity?.tabTitle).not.toContain('New Tab');
+    }, 120_000);
 });

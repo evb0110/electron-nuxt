@@ -38,8 +38,15 @@ const LARGE_PDF_FIXTURE_ENV_VAR = 'EVB_E2E_LARGE_PDF_FIXTURE';
 const LARGE_PDF_REQUIRE_ENV_VAR = 'EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE';
 const DEFAULT_LARGE_PDF_FIXTURE = 'large-pdf-fixtures/turkish-english-lexicon-letter-bookmarks.pdf';
 const DJVU_FIXTURE_ENV_VAR = 'EVB_E2E_DJVU_FIXTURE';
-const DJVU_REQUIRE_ENV_VAR = 'EVB_E2E_REQUIRE_DJVU_FIXTURE';
 const DEFAULT_DJVU_FIXTURE = 'djvu-fixtures/viewer-smoke.djvu';
+const TRACKED_DJVU_CORPUS_FIXTURE = resolve(
+    process.cwd(),
+    'tests',
+    'fixtures',
+    'djvu',
+    'sources',
+    'browser-boundary-501-pages.djvu',
+);
 const GENERATED_DJVU_FIXTURE_PAGE_COUNT = 100;
 const GENERATED_DJVU_FIXTURE_WIDTH = 1200;
 const GENERATED_DJVU_FIXTURE_HEIGHT = 1600;
@@ -79,6 +86,7 @@ interface IPathFixtureAvailabilityOptions {
 }
 
 interface IDjvuFixtureAvailabilityOptions {
+    corpusFixturePath?: string | null;
     devkitFixtureDir?: string;
     env?: NodeJS.ProcessEnv;
     generate?: boolean;
@@ -588,8 +596,8 @@ export function findDjvuFixturePath() {
     return resolveDjvuFixturePath().path;
 }
 
-export function isDjvuFixtureRequired(env: NodeJS.ProcessEnv = process.env) {
-    return isEnvFlagEnabled(DJVU_REQUIRE_ENV_VAR, env);
+export function isDjvuFixtureRequired() {
+    return true;
 }
 
 function getGeneratedDjvuFixturePath() {
@@ -696,7 +704,10 @@ export function resolveDjvuFixturePath(options: IDjvuFixtureAvailabilityOptions 
     const env = options.env ?? process.env;
     const trackedFixtureDir = options.trackedFixtureDir ?? TRACKED_PROJECT_FIXTURE_DIR;
     const devkitFixtureDir = options.devkitFixtureDir ?? PROJECT_ROOT_FIXTURE_DIR;
-    const required = isDjvuFixtureRequired(env);
+    const corpusFixturePath = options.corpusFixturePath === undefined
+        ? TRACKED_DJVU_CORPUS_FIXTURE
+        : options.corpusFixturePath;
+    const required = isDjvuFixtureRequired();
     const overridePath = env[DJVU_FIXTURE_ENV_VAR]?.trim();
     if (overridePath) {
         const absoluteOverridePath = resolve(overridePath);
@@ -729,6 +740,7 @@ export function resolveDjvuFixturePath(options: IDjvuFixtureAvailabilityOptions 
     }
 
     for (const candidatePath of [
+        ...(corpusFixturePath ? [resolve(corpusFixturePath)] : []),
         resolve(trackedFixtureDir, DEFAULT_DJVU_FIXTURE),
         resolve(devkitFixtureDir, DEFAULT_DJVU_FIXTURE),
     ]) {

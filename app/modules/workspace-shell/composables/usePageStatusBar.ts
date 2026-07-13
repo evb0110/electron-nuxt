@@ -32,6 +32,7 @@ interface IPageStatusBarDeps {
     originalPath: TReadableRef<TDocumentRef | null>;
     workingCopyPath: Ref<TDocumentRef | null>;
     effectiveZoom: Ref<number>;
+    knownFileSizeBytes?: TReadableRef<number | null> | undefined;
     isDocumentVisualPending?: Ref<boolean>;
     canSave: Ref<boolean>;
     isAnySaving: Ref<boolean>;
@@ -47,6 +48,7 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         originalPath,
         workingCopyPath,
         effectiveZoom,
+        knownFileSizeBytes,
         isDocumentVisualPending,
         canSave,
         isAnySaving,
@@ -108,7 +110,11 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
             }
         }
     }, { immediate: true });
-    const statusFileSizeBytes = computed(() => inMemoryFileSizeBytes.value ?? statFileSizeBytes.value);
+    const statusFileSizeBytes = computed(() => (
+        inMemoryFileSizeBytes.value
+        ?? knownFileSizeBytes?.value
+        ?? statFileSizeBytes.value
+    ));
     const statusFileSizeLabel = computed(() => {
         if (statusFileSizeBytes.value === null) {
             return t('status.fileSizeUnknown');
