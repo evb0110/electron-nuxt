@@ -51,9 +51,6 @@ jobs:
       - name: Install landing test dependencies
         run: pnpm --dir landing install --frozen-lockfile
 
-      - name: Install Playwright Chromium
-        run: pnpm exec playwright install --with-deps chromium
-
       - name: Lint
         run: pnpm run lint
 
@@ -73,7 +70,8 @@ jobs:
 
   pr_electron_blocking_smoke:
     name: Electron Blocking Smoke
-    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.electron_smoke == 'true' }}
+    needs: pr_changed_areas
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
@@ -105,6 +103,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
+      browser_integration: ${{ steps.classify.outputs.browser_integration }}
+      electron_smoke: ${{ steps.classify.outputs.electron_smoke }}
       landing: ${{ steps.classify.outputs.landing }}
       native_or_build: ${{ steps.classify.outputs.native_or_build }}
 
@@ -139,6 +139,35 @@ jobs:
             fi
           fi
           node scripts/ci/classify-changed-areas.mjs --base="$base_sha" --head="$head_sha"
+
+  pr_browser_integration:
+    name: Browser Integration
+    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.browser_integration == 'true' }}
+    needs: pr_changed_areas
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Browser integration tests
+        run: pnpm run test:integration:browser
 
   pr_native_build_safety:
     name: Native And Build Safety
@@ -243,9 +272,6 @@ jobs:
 
       - name: Install landing test dependencies
         run: pnpm --dir landing install --frozen-lockfile
-
-      - name: Install Playwright Chromium
-        run: pnpm exec playwright install --with-deps chromium
 
       - name: Install Rust WASM target
         run: rustup target add wasm32-unknown-unknown
@@ -406,9 +432,6 @@ jobs:
 
       - name: Install landing test dependencies
         run: pnpm --dir landing install --frozen-lockfile
-
-      - name: Install Playwright Chromium
-        run: pnpm exec playwright install --with-deps chromium
 
       - name: Install OCR native smoke tools
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng poppler-utils

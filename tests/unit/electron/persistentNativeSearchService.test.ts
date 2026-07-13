@@ -111,4 +111,26 @@ setTimeout(() => process.exit(0), 500);
         await expect(tryRunPersistentNativeSearch(executablePath, request, {timeoutMs: 30}))
             .rejects.toThrow(/request timeout|unavailable|EPIPE/u);
     });
+
+    it('does not apply the service idle timeout while a request is pending', async () => {
+        vi.stubEnv('EVB_PDF_SEARCH_SERVICE_ENABLE', '1');
+        vi.stubEnv('EVB_PDF_SEARCH_SERVICE_IDLE_TIMEOUT_MS', '30');
+        const executablePath = await createSearchService(`
+const readline = require('node:readline');
+process.stdout.write(JSON.stringify({type: 'ready', protocolVersion: 1}) + '\\n');
+readline.createInterface({input: process.stdin}).on('line', line => {
+    const frame = JSON.parse(line);
+    if (frame.type !== 'search') return;
+    setTimeout(() => process.stdout.write(JSON.stringify({
+        type: 'result',
+        requestId: frame.requestId,
+        result: {results: []}
+    }) + '\\n'), 100);
+});
+`);
+        const {tryRunPersistentNativeSearch} = await import('@electron/search/tryRunPersistentNativeSearch');
+
+        await expect(tryRunPersistentNativeSearch(executablePath, request, {timeoutMs: 500}))
+            .resolves.toEqual({results: []});
+    });
 });

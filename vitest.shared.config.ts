@@ -14,6 +14,7 @@ const vitestProjectNames = {
     unitElectron: 'unit-electron',
     unitScripts: 'unit-scripts',
     unitPolicy: 'unit-policy',
+    browserIntegration: 'browser-integration',
     electronBundleStaticIntegrity: 'electron-bundle-static-integrity',
     electronE2ERegression: 'e2e-regression',
     electronE2EBlockingSmoke: 'e2e-blocking-smoke',
@@ -24,6 +25,7 @@ const vitestProjectNames = {
 } as const;
 
 const electronBundleStaticIntegrityTestFiles = ['tests/unit/electron/bundleIntegrity.test.ts'];
+const browserIntegrationTestFiles = ['tests/integration/browser/**/*.test.ts'];
 const landingUnitTestFiles = ['tests/unit/landing/**/*.test.ts'];
 const unitPolicyTestFiles = [
     'tests/unit/scripts/*Policy.test.ts',
@@ -32,6 +34,7 @@ const unitPolicyTestFiles = [
 ];
 
 const electronE2ESmokeTestFiles = [
+    'tests/e2e/electron/prBlockingSmoke.e2e.test.ts',
     'tests/e2e/electron/startupHydration.e2e.test.ts',
     'tests/e2e/electron/recentFiles.e2e.test.ts',
     'tests/e2e/electron/viewerSmoke.e2e.test.ts',
@@ -42,10 +45,7 @@ const electronE2ESmokeTestFiles = [
     'tests/e2e/electron/squigglyMarkup.e2e.test.ts',
 ];
 
-const electronE2EBlockingSmokeTestFiles = [
-    'tests/e2e/electron/blockingPdfSaveSmoke.e2e.test.ts',
-    'tests/e2e/electron/prBlockingSmoke.e2e.test.ts',
-];
+const electronE2EBlockingSmokeTestFiles = ['tests/e2e/electron/blockingPdfSaveSmoke.e2e.test.ts'];
 const electronE2EDrawShapeTestFiles = ['tests/e2e/electron/drawShapeLifecycle.e2e.test.ts'];
 const electronE2ELargePdfTestFiles = [
     'tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts',
@@ -141,6 +141,10 @@ export const vitestProjects = [
             'tests/unit/server/**/*.test.ts',
         ],
         { autoImport: true },
+    ),
+    createUnitTestProject(
+        vitestProjectNames.browserIntegration,
+        browserIntegrationTestFiles,
     ),
     createUnitTestProject(
         vitestProjectNames.unitApp,

@@ -7,6 +7,7 @@ import { resolveUnpackedWorkerPath } from '@electron/utils/workerTask';
 import { abortErrorFromSignal } from '@electron/utils/abort';
 import { markActiveWorkingCopyMutationCommitStarted } from '@electron/file-access/workingCopyMutationCommitSignal';
 import { mainJobBroker } from '@electron/resources/jobBroker';
+import type { IJobBrokerLease } from '@electron/resources/jobBroker';
 import { decodeDocumentSaveUtilityResult } from '@electron/features/documents/main/documentSaveUtilityProtocol';
 import { documentOutputService } from '@electron/output/documentOutputService';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
@@ -39,9 +40,10 @@ export async function commitPdfTempFile(sourcePath: string, targetPath: string, 
             outputJob.signal,
         ])
         : outputJob.signal;
-    const expectedBytes = options.expectedBytes ?? (await stat(sourcePath)).size;
-    if (!shouldUseDocumentSaveUtility(expectedBytes) && !options.changedObjectRefs?.length) {
-        try {
+    let lease: IJobBrokerLease | undefined;
+    try {
+        const expectedBytes = options.expectedBytes ?? (await stat(sourcePath)).size;
+        if (!shouldUseDocumentSaveUtility(expectedBytes) && !options.changedObjectRefs?.length) {
             const {atomicReplace} = await import('@electron/utils/atomicReplace');
             await atomicReplace(sourcePath, targetPath);
             documentOutputService.handoff(outputJob.jobId, targetPath, {
@@ -50,30 +52,25 @@ export async function commitPdfTempFile(sourcePath: string, targetPath: string, 
             });
             documentOutputService.finish(outputJob.jobId, 'completed');
             return null;
-        } catch (error) {
-            documentOutputService.finish(outputJob.jobId, signal.aborted ? 'canceled' : 'failed', error instanceof Error ? error.message : String(error));
-            throw error;
         }
-    }
-    const lease = await mainJobBroker.acquire({
-        ownerId: options.ownerId ?? `document-save:${targetPath}`,
-        kind: 'document-save-utility',
-        priority: 'user',
-        resources: {
-            cpuTokens: 1,
-            estimatedResidentBytes: 256 * 1024 * 1024,
-            nativeProcesses: 1,
-            ioWeight: 4,
-        },
-        signal,
-    });
-    try {
+        lease = await mainJobBroker.acquire({
+            ownerId: options.ownerId ?? `document-save:${targetPath}`,
+            kind: 'document-save-utility',
+            priority: 'user',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 256 * 1024 * 1024,
+                nativeProcesses: 1,
+                ioWeight: 4,
+            },
+            signal,
+        });
         markActiveWorkingCopyMutationCommitStarted();
         const workerPath = resolveUnpackedWorkerPath(
             __dirname,
             WORKER_BUNDLES_BY_ID['document-save-utility'].fileName,
         );
-        return await new Promise<{
+        const result = await new Promise<{
             bytes: number;
             sha256: string
         }>((resolve, reject) => {
@@ -125,16 +122,21 @@ export async function commitPdfTempFile(sourcePath: string, targetPath: string, 
             child.once('exit', code => {
                 if (!settled) finish(new Error(`Document save utility exited before completion (${code})`));
             });
-        }).then((result) => {
-            documentOutputService.handoff(outputJob.jobId, targetPath, {
-                phase: 'publishing',
-                percent: 100,
-            });
-            documentOutputService.finish(outputJob.jobId, 'completed');
-            return result;
-        }).catch((error: unknown) => {
-            documentOutputService.finish(outputJob.jobId, signal.aborted ? 'canceled' : 'failed', error instanceof Error ? error.message : String(error));
-            throw error;
         });
-    } finally { lease.release(); }
+        documentOutputService.handoff(outputJob.jobId, targetPath, {
+            phase: 'publishing',
+            percent: 100,
+        });
+        documentOutputService.finish(outputJob.jobId, 'completed');
+        return result;
+    } catch (error) {
+        documentOutputService.finish(
+            outputJob.jobId,
+            signal.aborted ? 'canceled' : 'failed',
+            error instanceof Error ? error.message : String(error),
+        );
+        throw error;
+    } finally {
+        lease?.release();
+    }
 }

@@ -1507,7 +1507,6 @@ onMounted(() => {
     }) ?? null;
     emit('expose-ready', workspaceExpose);
 });
-
 onBeforeUnmount(() => {
     deferredWorkspaceSearch.dispose();
     unsubscribeOptimizeProgress?.();

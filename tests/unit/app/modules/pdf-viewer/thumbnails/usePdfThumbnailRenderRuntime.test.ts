@@ -100,6 +100,7 @@ describe('usePdfThumbnailRenderRuntime', () => {
                 scheduleActivePaneRefresh: vi.fn(),
             },
             layout: {
+                clearThumbnailAspectRatios: vi.fn(),
                 resolveViewportAnchorPage: () => null,
                 shouldPreferVisibleAnchorOverCurrentPage: () => false,
                 thumbnailAspectRatios,
@@ -192,6 +193,7 @@ describe('usePdfThumbnailRenderRuntime', () => {
                 scheduleActivePaneRefresh: vi.fn(),
             },
             layout: {
+                clearThumbnailAspectRatios: vi.fn(),
                 resolveViewportAnchorPage: () => null,
                 shouldPreferVisibleAnchorOverCurrentPage: () => false,
                 thumbnailAspectRatios: ref<Array<number | null>>([]),

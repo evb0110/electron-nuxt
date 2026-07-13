@@ -723,6 +723,9 @@ export class AnnotationApplication {
                 .map(value => normalizePdfJsAnnotationId(value))
                 .filter((value): value is string => Boolean(value)));
         for (const expected of session.plan.expected) {
+            if (expected.deleted && expected.pageIndex >= document.numPages) {
+                continue;
+            }
             const page = await document.getPage(expected.pageIndex + 1);
             const records: readonly IPdfjsReopenedAnnotation[] = await page.getAnnotations();
             const externalIds = new Set([

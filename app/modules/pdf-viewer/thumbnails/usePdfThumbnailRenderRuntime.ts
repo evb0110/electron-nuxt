@@ -63,6 +63,7 @@ interface IPdfThumbnailRenderRuntimeVisuals {
     hiddenAnnotationIdsSignature: ComputedRef<string>;
 }
 interface IPdfThumbnailRenderRuntimeLayout {
+    clearThumbnailAspectRatios: () => void;
     shouldPreferVisibleAnchorOverCurrentPage: () => boolean;
     resolveViewportAnchorPage: () => number | null;
     thumbnailAspectRatios: Ref<Array<number | null>>;
@@ -248,9 +249,6 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
             return false;
         }
 
-        const nextRatios = layout.thumbnailAspectRatios.value.slice(0, Math.max(source.totalPages.value, page));
-        nextRatios[page - 1] = nextAspectRatio;
-        layout.thumbnailAspectRatios.value = nextRatios;
         layout.updateThumbnailAspectRatio(page, nextAspectRatio);
         BrowserLogger.diagnostic(PDF_THUMBNAIL_LOG_SECTION, 'Thumbnail aspect ratio changed', {
             reason,
@@ -905,10 +903,7 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
             layout.thumbnailRenderWidth.value = THUMBNAIL_WIDTH;
         }
         if (!options.preserveAspectRatio) {
-            layout.thumbnailAspectRatios.value = [];
-            for (let page = 1; page <= source.totalPages.value; page += 1) {
-                layout.updateThumbnailAspectRatio(page, null);
-            }
+            layout.clearThumbnailAspectRatios();
         }
         effects.resetMeasurementState();
     }
@@ -925,17 +920,8 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
         for (const page of pages) {
             thumbnailRenderState.bumpPageRenderEpoch(page);
         }
-        const nextRatios = layout.thumbnailAspectRatios.value.slice();
-        let didClearRatio = false;
         for (const page of pages) {
-            if (nextRatios[page - 1] !== undefined) {
-                nextRatios[page - 1] = null;
-                didClearRatio = true;
-            }
-        }
-        if (didClearRatio) {
-            layout.thumbnailAspectRatios.value = nextRatios;
-            for (const page of pages) {
+            if (layout.thumbnailAspectRatios.value[page - 1] !== undefined) {
                 layout.updateThumbnailAspectRatio(page, null);
             }
         }

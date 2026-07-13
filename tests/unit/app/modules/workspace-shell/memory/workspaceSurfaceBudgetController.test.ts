@@ -73,6 +73,23 @@ describe('workspace surface budget controller', () => {
         });
     });
 
+    it('keeps scope and individual lease release idempotent when cleanup paths overlap', () => {
+        const controller = createWorkspaceSurfaceBudgetController(1_000);
+        const lease = controller.reserve({
+            scopeId: 'viewer',
+            category: 'pdf-page-canvas',
+            bytes: 400,
+        });
+
+        controller.releaseScope('viewer');
+        lease.release();
+
+        expect(controller.getSnapshot()).toMatchObject({
+            reservedBytes: 0,
+            leaseCount: 0,
+        });
+    });
+
     it('counts canvas backing stores at four bytes per physical pixel', () => {
         expect(estimateCanvasSurfaceBytes({
             width: 1200,

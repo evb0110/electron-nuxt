@@ -42,6 +42,7 @@ const vitestProjectNames = {
     unitElectron: 'unit-electron',
     unitScripts: 'unit-scripts',
     unitPolicy: 'unit-policy',
+    browserIntegration: 'browser-integration',
     electronE2ERegression: 'e2e-regression',
     electronE2EBlockingSmoke: 'e2e-blocking-smoke',
     electronE2EDrawShapes: 'e2e-draw-shapes',
@@ -73,6 +74,7 @@ const unitPolicyTestFiles = [
 ];
 
 const electronE2ERegressionTestFiles = [
+    'tests/e2e/electron/prBlockingSmoke.e2e.test.ts',
     'tests/e2e/electron/startupHydration.e2e.test.ts',
     'tests/e2e/electron/recentFiles.e2e.test.ts',
     'tests/e2e/electron/viewerSmoke.e2e.test.ts',
@@ -83,10 +85,7 @@ const electronE2ERegressionTestFiles = [
     'tests/e2e/electron/squigglyMarkup.e2e.test.ts',
 ];
 
-const electronE2EBlockingSmokeTestFiles = [
-    'tests/e2e/electron/blockingPdfSaveSmoke.e2e.test.ts',
-    'tests/e2e/electron/prBlockingSmoke.e2e.test.ts',
-];
+const electronE2EBlockingSmokeTestFiles = ['tests/e2e/electron/blockingPdfSaveSmoke.e2e.test.ts'];
 const electronE2EDrawShapeTestFiles = ['tests/e2e/electron/drawShapeLifecycle.e2e.test.ts'];
 const electronE2ELargePdfTestFiles = [
     'tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts',
@@ -179,6 +178,8 @@ describe('unit Vitest project topology', () => {
             .toEqual(expect.arrayContaining(unitPolicyTestFiles));
         expect(projectByName(config, vitestProjectNames.unitPolicy).test?.include)
             .toEqual(unitPolicyTestFiles);
+        expect(projectByName(config, vitestProjectNames.browserIntegration).test?.include)
+            .toEqual(['tests/integration/browser/**/*.test.ts']);
     });
 });
 
@@ -193,7 +194,7 @@ describe('electron e2e Vitest project topology', () => {
             .toEqual(Array.from({ length: e2eProjectNames().length }, () => 2));
     });
 
-    it('keeps the broad regression project focused and serial', async () => {
+    it('keeps comprehensive diagnostics in the nightly regression project', async () => {
         const config = await loadVitestSharedConfig(undefined);
         const regressionProject = projectByName(config, vitestProjectNames.electronE2ERegression);
 
@@ -212,7 +213,7 @@ describe('electron e2e Vitest project topology', () => {
         expect(regressionProject.test?.hookTimeout).toBe(150_000);
     });
 
-    it('keeps the PR blocking smoke project separate from broad regression', async () => {
+    it('keeps the PR blocking smoke short and separate from broad regression', async () => {
         const config = await loadVitestSharedConfig(undefined);
         const blockingSmokeProject = projectByName(config, vitestProjectNames.electronE2EBlockingSmoke);
 

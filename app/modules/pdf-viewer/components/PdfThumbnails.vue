@@ -187,7 +187,7 @@ const scrollTop = ref(0);
 const viewportHeight = ref(0);
 const thumbnailLayoutWidth = ref(THUMBNAIL_WIDTH);
 const thumbnailRenderWidth = ref(THUMBNAIL_WIDTH);
-const thumbnailAspectRatios = ref<Array<number | null>>([]);
+const thumbnailAspectRatios = shallowRef<Array<number | null>>([]);
 let getThumbnailRenderSummary = () => ({
     renderedCount: 0,
     renderingCount: 0,
@@ -217,16 +217,28 @@ const thumbnailFenwickLayout = shallowRef(new ThumbnailFenwickLayout(
     thumbnailAspectRatios.value,
 ));
 function updateThumbnailAspectRatio(page: number, aspectRatio: number | null) {
+    thumbnailAspectRatios.value[page - 1] = aspectRatio;
+    triggerRef(thumbnailAspectRatios);
     if (thumbnailFenwickLayout.value.updatePageAspect(page, aspectRatio)) {
         thumbnailLayoutRevision.value += 1;
+        scheduleThumbnailLayoutReaction();
     }
+}
+function clearThumbnailAspectRatios() {
+    const anchor = captureThumbnailLayoutAnchor();
+    thumbnailAspectRatios.value = [];
+    thumbnailFenwickLayout.value.reset(totalPages, thumbnailLayoutWidth.value);
+    thumbnailLayoutRevision.value += 1;
+    scheduleThumbnailLayoutReaction(anchor);
 }
 watch([
     () => totalPages,
     thumbnailLayoutWidth,
 ], () => {
+    const anchor = captureThumbnailLayoutAnchor();
     thumbnailFenwickLayout.value.reset(totalPages, thumbnailLayoutWidth.value, thumbnailAspectRatios.value);
     thumbnailLayoutRevision.value += 1;
+    scheduleThumbnailLayoutReaction(anchor);
 });
 const thumbnailContentHeight = computed(() => {
     void thumbnailLayoutRevision.value;
@@ -465,30 +477,65 @@ function markManualThumbnailScroll(reason: string) {
     markUserInteraction(reason);
 }
 
-function preserveVisibleAnchorAfterThumbnailLayoutChange(
-    previousLayout: typeof thumbnailLayoutSnapshot.value,
-) {
+interface IThumbnailLayoutAnchor {
+    offset: number;
+    page: number;
+}
+
+function captureThumbnailLayoutAnchor(): IThumbnailLayoutAnchor | null {
     if (!isResizing && manualScrollSourceCycleId !== thumbnailSourceCycleId) {
-        return false;
+        return null;
     }
 
     const container = resolveVisibleContainer('thumbnail-measure-anchor');
     if (!container) {
-        return false;
+        return null;
     }
 
-    const anchorPage = resizeViewportAnchor?.page ?? resolveViewportAnchorPage(previousLayout);
+    const anchorPage = resizeViewportAnchor?.page ?? resolveViewportAnchorPage();
     if (anchorPage === null) {
-        return false;
+        return null;
     }
 
-    const previousTop = previousLayout.tops[anchorPage - 1] ?? 0;
-    const anchorOffset = resizeViewportAnchor?.offset ?? scrollTop.value - previousTop;
-    const nextScrollTop = getThumbnailTop(anchorPage) + anchorOffset;
+    return {
+        page: anchorPage,
+        offset: resizeViewportAnchor?.offset ?? scrollTop.value - getThumbnailTop(anchorPage),
+    };
+}
+
+function preserveVisibleAnchorAfterThumbnailLayoutChange(anchor: IThumbnailLayoutAnchor | null) {
+    if (!anchor) {
+        return false;
+    }
+    const container = resolveVisibleContainer('thumbnail-measure-anchor');
+    if (!container) {
+        return false;
+    }
+    const nextScrollTop = getThumbnailTop(anchor.page) + anchor.offset;
     return applyThumbnailScrollTop(
         container,
         clamp(nextScrollTop, 0, getMaxThumbnailScrollTop(container)),
     );
+}
+
+let pendingThumbnailLayoutAnchor: IThumbnailLayoutAnchor | null | undefined;
+function scheduleThumbnailLayoutReaction(
+    capturedAnchor: IThumbnailLayoutAnchor | null = captureThumbnailLayoutAnchor(),
+) {
+    if (pendingThumbnailLayoutAnchor !== undefined) {
+        return;
+    }
+    pendingThumbnailLayoutAnchor = capturedAnchor;
+    void nextTick(() => {
+        const anchor = pendingThumbnailLayoutAnchor ?? null;
+        pendingThumbnailLayoutAnchor = undefined;
+        if (preserveVisibleAnchorAfterThumbnailLayoutChange(anchor)) {
+            return;
+        }
+        if (!isCurrentPageAutoSyncSuppressed()) {
+            void syncCurrentPageIntoView('thumbnail-measure');
+        }
+    });
 }
 
 function scrollPageIntoKeyboardView(page: number) {
@@ -907,6 +954,7 @@ const thumbnailRenderRuntime = usePdfThumbnailRenderRuntime({
         shouldPreferVisibleAnchorOverCurrentPage,
         thumbnailAspectRatios,
         thumbnailRenderWidth,
+        clearThumbnailAspectRatios,
         updateThumbnailAspectRatio,
         virtualPages,
     },
@@ -927,24 +975,6 @@ const thumbnailRenderRuntime = usePdfThumbnailRenderRuntime({
 });
 const { scheduleVisibleThumbnailRender } = thumbnailRenderRuntime;
 getThumbnailRenderSummary = thumbnailRenderRuntime.getRenderSummary;
-
-watch(
-    thumbnailLayoutSnapshot,
-    (nextLayout, previousLayout) => {
-        if (Math.abs(nextLayout.totalHeight - previousLayout.totalHeight) < 1) {
-            return;
-        }
-        void nextTick(() => {
-            if (preserveVisibleAnchorAfterThumbnailLayoutChange(previousLayout)) {
-                return;
-            }
-            if (isCurrentPageAutoSyncSuppressed()) {
-                return;
-            }
-            void syncCurrentPageIntoView('thumbnail-measure');
-        });
-    },
-);
 
 watch(
     containerRef,
@@ -997,169 +1027,4 @@ watch(
 );
 </script>
 
-<style scoped>
-.pdf-thumbnails {
-  position: relative;
-  height: 100%;
-  min-height: 0;
-  box-sizing: border-box;
-  overflow: auto;
-  overflow-anchor: none;
-  scrollbar-gutter: stable;
-  padding: var(--app-sidebar-content-padding);
-}
-
-.pdf-thumbnails-virtual-wrapper {
-  position: relative;
-}
-
-.pdf-thumbnail {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--app-sidebar-row-gap);
-  padding: var(--app-sidebar-row-padding-block);
-  border-radius: var(--app-thumbnail-row-radius);
-  border: 1px solid transparent;
-  cursor: pointer;
-  transition:
-    background-color 0.15s,
-    border-color 0.15s;
-}
-
-.pdf-thumbnail-selection-toggle {
-  position: absolute;
-  z-index: var(--app-z-local-raised);
-  top: 0.5rem;
-  left: 0.5rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--app-sidebar-action-size);
-  height: var(--app-sidebar-action-size);
-  border: 1px solid var(--ui-border);
-  border-radius: 0.25rem;
-  background: var(--ui-bg);
-  color: var(--ui-primary);
-  opacity: 0;
-  cursor: pointer;
-  transition:
-    background-color 0.15s ease,
-    border-color 0.15s ease,
-    color 0.15s ease,
-    opacity 0.15s ease;
-}
-
-.pdf-thumbnail:hover .pdf-thumbnail-selection-toggle,
-.pdf-thumbnail-selection-toggle:focus-visible,
-.pdf-thumbnail-selection-toggle.is-selected {
-  opacity: 1;
-}
-
-.pdf-thumbnail-selection-toggle:hover,
-.pdf-thumbnail-selection-toggle:focus-visible {
-  border-color: var(--ui-primary);
-  background: var(--app-sidebar-control-hover-bg);
-}
-
-.pdf-thumbnail-selection-toggle.is-selected {
-  border-color: var(--ui-primary);
-  background: var(--ui-primary);
-  color: var(--ui-bg);
-}
-
-.pdf-thumbnail-selection-icon {
-  width: var(--app-icon-size-sm);
-  height: var(--app-icon-size-sm);
-}
-
-.pdf-thumbnail--virtual {
-  position: absolute;
-  left: 0;
-  right: 0;
-}
-
-.pdf-thumbnail:hover {
-  background: var(--app-sidebar-control-hover-bg);
-}
-
-.pdf-thumbnail.is-selected {
-  background: color-mix(in oklab, var(--ui-bg) 65%, var(--ui-primary) 12%);
-}
-
-.pdf-thumbnail-canvas {
-  display: block;
-  width: 100%;
-  height: auto;
-  max-width: 100%;
-  border: 1px solid var(--ui-border);
-  border-radius: var(--app-space-3xs);
-  transition:
-    border-color 0.15s ease,
-    box-shadow 0.15s ease;
-}
-
-.pdf-thumbnail.is-active .pdf-thumbnail-canvas {
-  border-color: var(--ui-text);
-  box-shadow: 0 0 0 1px var(--ui-text);
-}
-
-.pdf-thumbnail.is-selected .pdf-thumbnail-canvas {
-  border-color: var(--ui-primary);
-}
-
-.pdf-thumbnail-number {
-  display: block;
-  font-size: var(--app-sidebar-caption-font-size);
-  line-height: var(--app-thumbnail-min-label-height);
-  min-height: var(--app-thumbnail-min-label-height);
-  color: var(--ui-text-muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.pdf-thumbnail.is-active .pdf-thumbnail-number {
-  color: var(--ui-text);
-  font-weight: 600;
-}
-
-.pdf-thumbnail.is-selected .pdf-thumbnail-number {
-  color: var(--ui-text);
-}
-
-.pdf-thumbnail.is-dragged {
-  opacity: 0.35;
-}
-
-.pdf-thumbnail.is-drop-before::before {
-  content: "";
-  position: absolute;
-  top: calc(var(--app-thumbnail-drop-offset) * -1);
-  left: var(--app-thumbnail-drop-inset);
-  right: var(--app-thumbnail-drop-inset);
-  height: var(--app-drop-indicator-height);
-  background: var(--ui-primary);
-  border-radius: var(--app-thumbnail-drop-radius);
-}
-
-.pdf-thumbnail.is-drop-after::after {
-  content: "";
-  position: absolute;
-  bottom: calc(var(--app-thumbnail-drop-offset) * -1);
-  left: var(--app-thumbnail-drop-inset);
-  right: var(--app-thumbnail-drop-inset);
-  height: var(--app-drop-indicator-height);
-  background: var(--ui-primary);
-  border-radius: var(--app-thumbnail-drop-radius);
-}
-
-.pdf-thumbnails.is-reorder-dragging .pdf-thumbnail {
-  cursor: grabbing;
-}
-
-.pdf-thumbnails.is-external-drag {
-  outline: 2px dashed var(--ui-primary);
-  outline-offset: -2px;
-  border-radius: var(--app-thumbnail-row-radius);
-}
-</style>
+<style scoped src="./PdfThumbnails.css"></style>

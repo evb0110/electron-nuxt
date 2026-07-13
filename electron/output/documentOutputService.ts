@@ -26,6 +26,8 @@ export class DocumentOutputService implements IDocumentOutputService {
     readonly #listeners = new Map<string, Set<(state: TDocumentOutputJobState) => void>>();
     readonly #cleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+    constructor(private readonly terminalRetentionMs = TERMINAL_RETENTION_MS) {}
+
     start(options: IDocumentOutputStartOptions) {
         const jobId = resolveOutputJobId(options.jobId);
         const existing = this.#jobs.get(jobId);
@@ -35,6 +37,7 @@ export class DocumentOutputService implements IDocumentOutputService {
                 signal: existing.abortController.signal,
             };
         }
+        this.#clearCleanupTimer(jobId);
         const abortController = new AbortController();
         this.#publish({
             jobId,
@@ -153,15 +156,30 @@ export class DocumentOutputService implements IDocumentOutputService {
     }
 
     #scheduleCleanup(jobId: string) {
-        const previous = this.#cleanupTimers.get(jobId);
-        if (previous) clearTimeout(previous);
+        this.#clearCleanupTimer(jobId);
+        const expectedJob = this.#jobs.get(jobId);
         const timer = setTimeout(() => {
+            if (this.#cleanupTimers.get(jobId) !== timer) {
+                return;
+            }
             this.#cleanupTimers.delete(jobId);
+            if (this.#jobs.get(jobId) !== expectedJob) {
+                return;
+            }
             this.#jobs.delete(jobId);
             this.#listeners.delete(jobId);
-        }, TERMINAL_RETENTION_MS);
+        }, this.terminalRetentionMs);
         timer.unref?.();
         this.#cleanupTimers.set(jobId, timer);
+    }
+
+    #clearCleanupTimer(jobId: string) {
+        const timer = this.#cleanupTimers.get(jobId);
+        if (!timer) {
+            return;
+        }
+        clearTimeout(timer);
+        this.#cleanupTimers.delete(jobId);
     }
 
     #isTerminal(state: TDocumentOutputJobState) {

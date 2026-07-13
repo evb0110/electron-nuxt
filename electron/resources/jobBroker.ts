@@ -8,6 +8,13 @@ const MIB = 1024 * 1024;
 const GIB = 1024 * MIB;
 const DEFAULT_AGING_INTERVAL_MS = 5_000;
 
+export const MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES: Readonly<IJobResourceVector> = {
+    cpuTokens: 2,
+    estimatedResidentBytes: 256 * MIB,
+    nativeProcesses: 1,
+    ioWeight: 4,
+};
+
 export type TJobBrokerPriority = 'visible' | 'foreground' | 'user' | 'background';
 
 export interface IJobResourceVector {
@@ -246,15 +253,28 @@ export class JobBroker {
     }
 }
 
-function resolveMainJobBrokerCapacity(): IJobResourceVector {
-    const cpuCount = Math.max(1, availableParallelism());
-    const totalMemoryBytes = Math.max(0, totalmem());
+export function resolveMainJobBrokerCapacity(
+    availableCpuCount = availableParallelism(),
+    hostMemoryBytes = totalmem(),
+): IJobResourceVector {
+    const cpuCount = Math.max(1, availableCpuCount);
+    const totalMemoryBytes = Math.max(0, hostMemoryBytes);
     const freeReserveBytes = clamp(totalMemoryBytes * 0.15, GIB, 4 * GIB);
     return {
-        cpuTokens: clamp(Math.floor(cpuCount * 0.75), 1, 16),
-        estimatedResidentBytes: Math.max(128 * MIB, totalMemoryBytes - freeReserveBytes),
-        nativeProcesses: clamp(Math.floor(cpuCount / 2), 1, 8),
-        ioWeight: clamp(Math.floor(cpuCount / 2), 1, 8),
+        cpuTokens: clamp(Math.floor(cpuCount * 0.75), MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES.cpuTokens, 16),
+        estimatedResidentBytes: Math.max(
+            MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES.estimatedResidentBytes,
+            totalMemoryBytes - freeReserveBytes,
+        ),
+        nativeProcesses: clamp(
+            Math.floor(cpuCount / 2),
+            MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES.nativeProcesses,
+            8,
+        ),
+        // A weight of four is used by supported single-process save and
+        // fingerprint jobs. Keep that work admissible on low-core hosts while
+        // still allowing additional I/O concurrency on larger machines.
+        ioWeight: clamp(Math.floor(cpuCount / 2), MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES.ioWeight, 8),
     };
 }
 

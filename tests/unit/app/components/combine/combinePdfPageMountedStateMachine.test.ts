@@ -82,7 +82,7 @@ async function mountCombinePageStateMachine(openResult: (result: TOpenFileResult
         });
         const queue = useCombinePdfQueue({
             files,
-            isCombining: operation.isCombining,
+            isMutationLocked: operation.queueMutationLocked,
             isSupported: () => true,
             toQueueItem: file => ({
                 id: file.name,
@@ -98,12 +98,12 @@ async function mountCombinePageStateMachine(openResult: (result: TOpenFileResult
             }, item.name))),
             h('button', {
                 class: 'remove',
-                disabled: operation.isCombining.value,
+                disabled: operation.queueMutationLocked.value,
                 onClick: () => queue.removeFile(0),
             }, 'Remove'),
             h('button', {
                 class: 'clear',
-                disabled: operation.isCombining.value,
+                disabled: operation.queueMutationLocked.value,
                 onClick: queue.clearFiles,
             }, 'Clear'),
             operation.pendingCombinedResult.value && !operation.isCombining.value
@@ -169,6 +169,12 @@ describe('mounted Combine PDF page state machine', () => {
         expect(page.host.querySelectorAll('.queue-row')).toHaveLength(2);
         expect(page.host.querySelector('.combine')?.textContent).toBe('Retry');
         expect(page.host.querySelector('.save-as')).not.toBeNull();
+        expect((page.host.querySelector('.clear') as HTMLButtonElement).disabled).toBe(true);
+        expect((page.host.querySelector('.remove') as HTMLButtonElement).disabled).toBe(true);
+
+        (page.host.querySelector('.clear') as HTMLButtonElement).click();
+        (page.host.querySelector('.remove') as HTMLButtonElement).click();
+        expect(page.host.querySelectorAll('.queue-row')).toHaveLength(2);
 
         (page.host.querySelector('.save-as') as HTMLButtonElement).click();
         await flushUpdates();

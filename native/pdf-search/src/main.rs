@@ -1,7 +1,7 @@
 use evb_native_support::{NativeError, NativeErrorCode, NativeErrorEnvelope};
 use memmap2::{Mmap, MmapOptions};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::env;
 use std::error::Error;
 #[cfg(test)]
@@ -26,6 +26,7 @@ const SCHEMA_VERSION: u32 = 2;
 const HEADER_SIZE: usize = 64;
 const PAGE_RECORD_SIZE: usize = 24;
 const MAX_SERVICE_WORKERS: usize = 4;
+const MAX_SERVICE_CACHED_INDEXES: usize = 8;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -902,7 +903,38 @@ enum ServiceResponse<'a> {
     },
 }
 
-type ServiceIndexCache = Arc<Mutex<HashMap<(PathBuf, String), Arc<SearchIndex>>>>;
+#[derive(Default)]
+struct ServiceIndexCacheState {
+    entries: HashMap<(PathBuf, String), Arc<SearchIndex>>,
+    recency: VecDeque<(PathBuf, String)>,
+}
+
+impl ServiceIndexCacheState {
+    fn get(&mut self, key: &(PathBuf, String)) -> Option<Arc<SearchIndex>> {
+        let index = self.entries.get(key).cloned()?;
+        self.recency.retain(|candidate| candidate != key);
+        self.recency.push_back(key.clone());
+        Some(index)
+    }
+
+    fn insert(&mut self, key: (PathBuf, String), index: Arc<SearchIndex>) {
+        self.entries
+            .retain(|(cached_path, _), _| cached_path != &key.0);
+        self.recency
+            .retain(|(cached_path, _)| cached_path != &key.0);
+        self.entries.insert(key.clone(), index);
+        self.recency.push_back(key);
+        while self.entries.len() > MAX_SERVICE_CACHED_INDEXES {
+            if let Some(oldest) = self.recency.pop_front() {
+                self.entries.remove(&oldest);
+            } else {
+                break;
+            }
+        }
+    }
+}
+
+type ServiceIndexCache = Arc<Mutex<ServiceIndexCacheState>>;
 type ServiceCancellationMap = Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>;
 type ServiceOutput = Arc<Mutex<io::Stdout>>;
 
@@ -925,25 +957,27 @@ fn get_cached_index(
     revision: &str,
 ) -> Result<Arc<SearchIndex>, Box<dyn Error>> {
     let key = (path.clone(), revision.to_string());
-    if let Some(index) = cache
-        .lock()
-        .map_err(|_| native_failure("Search index cache lock poisoned".to_string()))?
-        .get(&key)
-        .cloned()
     {
-        return Ok(index);
+        let mut cache = cache
+            .lock()
+            .map_err(|_| native_failure("Search index cache lock poisoned".to_string()))?;
+        if let Some(index) = cache.get(&key) {
+            return Ok(index);
+        }
     }
     let index = Arc::new(load_index(path, revision)?);
     let mut cache = cache
         .lock()
         .map_err(|_| native_failure("Search index cache lock poisoned".to_string()))?;
-    cache.retain(|(cached_path, _), _| cached_path != path);
+    if let Some(existing) = cache.get(&key) {
+        return Ok(existing);
+    }
     cache.insert(key, Arc::clone(&index));
     Ok(index)
 }
 
 fn run_service() -> Result<(), Box<dyn Error>> {
-    let cache: ServiceIndexCache = Arc::new(Mutex::new(HashMap::new()));
+    let cache: ServiceIndexCache = Arc::new(Mutex::new(ServiceIndexCacheState::default()));
     let cancellations: ServiceCancellationMap = Arc::new(Mutex::new(HashMap::new()));
     let output = Arc::new(Mutex::new(io::stdout()));
     write_service_response(
@@ -1506,6 +1540,32 @@ mod tests {
         fs::remove_file(&path).ok();
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn bounds_service_index_cache_without_invalidating_active_indexes() {
+        let active = Arc::new(test_index(&[(1, "active")]));
+        let active_key = (
+            PathBuf::from("active.search-index.bin"),
+            "revision-0".to_string(),
+        );
+        let mut cache = ServiceIndexCacheState::default();
+        cache.insert(active_key.clone(), Arc::clone(&active));
+
+        for index in 1..=MAX_SERVICE_CACHED_INDEXES {
+            cache.insert(
+                (
+                    PathBuf::from(format!("document-{index}.search-index.bin")),
+                    format!("revision-{index}"),
+                ),
+                Arc::new(test_index(&[(1, "cached")])),
+            );
+        }
+
+        assert_eq!(cache.entries.len(), MAX_SERVICE_CACHED_INDEXES);
+        assert!(!cache.entries.contains_key(&active_key));
+        assert_eq!(active.page_count, 1);
+        assert_eq!(Arc::strong_count(&active), 1);
     }
 
     trait MatchText {

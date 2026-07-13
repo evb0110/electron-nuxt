@@ -1,0 +1,239 @@
+import {isRecord} from '@contracts/runtimeGuards';
+import {
+    readFile,
+    writeFile,
+} from 'node:fs/promises';
+import path from 'node:path';
+import {pathToFileURL} from 'node:url';
+
+const COVERAGE_METRICS = [
+    'statements',
+    'branches',
+    'functions',
+    'lines',
+] as const;
+const BASELINE_PATH = 'coverage-baseline.json';
+const SUMMARY_PATH = 'coverage/coverage-summary.json';
+const DEFAULT_TOLERANCE = 0.5;
+
+type TCoverageMetric = typeof COVERAGE_METRICS[number];
+
+interface IMetricSummary {
+    covered: number;
+    pct: number;
+    total: number;
+}
+
+interface IFileCoverage {
+    filePath: string;
+    metrics: Record<TCoverageMetric, IMetricSummary>;
+}
+
+interface ICoverageSnapshot {
+    files: IFileCoverage[];
+    metrics: Record<TCoverageMetric, IMetricSummary>;
+}
+
+interface ICoverageAreaBaseline {
+    fileCount: number;
+    include: string[];
+    metrics: Record<TCoverageMetric, number>;
+}
+
+interface ICoverageBaseline {
+    areas: Record<string, ICoverageAreaBaseline>;
+    metrics: Record<TCoverageMetric, number>;
+    tolerancePercentagePoints: number;
+    version: 1;
+}
+
+export const DEFAULT_COVERAGE_AREAS = {
+    'app-core': {include: ['app/']},
+    'electron-core': {include: ['electron/']},
+    'electron-djvu-feature': {include: ['electron/features/djvu/']},
+    'electron-ocr': {include: ['electron/ocr/']},
+    'pdf-viewer': {include: ['app/modules/pdf-viewer/']},
+    'release-scripts': {include: ['scripts/release/']},
+    'scripts-core': {include: ['scripts/']},
+    'workspace-shell': {include: ['app/modules/workspace-shell/']},
+} satisfies Record<string, {include: string[]}>;
+
+function assertNumber(value: unknown, label: string) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+        throw new TypeError(`${label} must be a finite number.`);
+    }
+    return value;
+}
+
+function parseMetrics(value: unknown, label: string) {
+    if (!isRecord(value)) {
+        throw new TypeError(`${label} must be an object.`);
+    }
+    return Object.fromEntries(COVERAGE_METRICS.map((metric) => {
+        const rawMetric = value[metric];
+        if (!isRecord(rawMetric)) {
+            throw new TypeError(`${label}.${metric} must be an object.`);
+        }
+        return [
+            metric,
+            {
+                covered: assertNumber(rawMetric.covered, `${label}.${metric}.covered`),
+                pct: assertNumber(rawMetric.pct, `${label}.${metric}.pct`),
+                total: assertNumber(rawMetric.total, `${label}.${metric}.total`),
+            },
+        ];
+    })) as Record<TCoverageMetric, IMetricSummary>;
+}
+
+function normalizePath(filePath: string, projectRoot: string) {
+    const normalized = filePath.replaceAll('\\', '/');
+    const root = projectRoot.replaceAll('\\', '/').replace(/\/$/u, '');
+    return path.isAbsolute(filePath) && normalized.startsWith(`${root}/`)
+        ? normalized.slice(root.length + 1)
+        : normalized.replace(/^\.\//u, '');
+}
+
+export function parseCoverageSummary(source: string, projectRoot = process.cwd()): ICoverageSnapshot {
+    const parsed = JSON.parse(source) as unknown;
+    if (!isRecord(parsed)) {
+        throw new TypeError('Coverage summary must be an object.');
+    }
+    return {
+        files: Object.entries(parsed)
+            .filter(([filePath]) => filePath !== 'total')
+            .map(([
+                filePath,
+                metrics,
+            ]) => ({
+                filePath: normalizePath(filePath, projectRoot),
+                metrics: parseMetrics(metrics, `Coverage summary ${filePath}`),
+            })),
+        metrics: parseMetrics(parsed.total, 'Coverage summary total'),
+    };
+}
+
+function aggregateArea(snapshot: ICoverageSnapshot, prefixes: readonly string[]) {
+    const files = snapshot.files.filter(file => prefixes.some(prefix => file.filePath.startsWith(prefix)));
+    const metrics = Object.fromEntries(COVERAGE_METRICS.map((metric) => {
+        const covered = files.reduce((total, file) => total + file.metrics[metric].covered, 0);
+        const total = files.reduce((sum, file) => sum + file.metrics[metric].total, 0);
+        return [
+            metric,
+            {
+                covered,
+                pct: total === 0 ? 100 : Number(((covered / total) * 100).toFixed(2)),
+                total,
+            },
+        ];
+    })) as Record<TCoverageMetric, IMetricSummary>;
+    return {
+        fileCount: files.length,
+        metrics,
+    };
+}
+
+function metricPercentages(metrics: Record<TCoverageMetric, IMetricSummary>) {
+    return Object.fromEntries(COVERAGE_METRICS.map(metric => [
+        metric,
+        metrics[metric].pct,
+    ])) as Record<TCoverageMetric, number>;
+}
+
+export function createCoverageBaseline(snapshot: ICoverageSnapshot, tolerance = DEFAULT_TOLERANCE): ICoverageBaseline {
+    return {
+        areas: Object.fromEntries(Object.entries(DEFAULT_COVERAGE_AREAS).map(([
+            name,
+            area,
+        ]) => {
+            const aggregate = aggregateArea(snapshot, area.include);
+            return [
+                name,
+                {
+                    fileCount: aggregate.fileCount,
+                    include: area.include,
+                    metrics: metricPercentages(aggregate.metrics),
+                },
+            ];
+        })),
+        metrics: metricPercentages(snapshot.metrics),
+        tolerancePercentagePoints: tolerance,
+        version: 1,
+    };
+}
+
+export function compareCoverageToBaseline(snapshot: ICoverageSnapshot, baseline: ICoverageBaseline) {
+    const failures: string[] = [];
+    const comparisons: string[] = [];
+    const compare = (
+        label: string,
+        current: Record<TCoverageMetric, IMetricSummary>,
+        expected: Record<TCoverageMetric, number>,
+    ) => {
+        for (const metric of COVERAGE_METRICS) {
+            const delta = Number((current[metric].pct - expected[metric]).toFixed(2));
+            comparisons.push(`${label} ${metric}: ${current[metric].pct.toFixed(2)}% (${delta >= 0 ? '+' : ''}${delta.toFixed(2)} pp)`);
+            if (delta < -baseline.tolerancePercentagePoints) {
+                failures.push(`${label} ${metric} regressed by ${Math.abs(delta).toFixed(2)} percentage points`);
+            }
+        }
+    };
+
+    compare('total', snapshot.metrics, baseline.metrics);
+    for (const [
+        name,
+        area,
+    ] of Object.entries(baseline.areas)) {
+        const aggregate = aggregateArea(snapshot, area.include);
+        if (aggregate.fileCount === 0) {
+            failures.push(`${name} is missing from the coverage report`);
+        } else {
+            compare(name, aggregate.metrics, area.metrics);
+        }
+    }
+    return {
+        comparisons,
+        failures,
+        passed: failures.length === 0,
+    };
+}
+
+function parseBaseline(source: string): ICoverageBaseline {
+    const parsed = JSON.parse(source) as ICoverageBaseline;
+    if (parsed.version !== 1 || !isRecord(parsed.metrics) || !isRecord(parsed.areas)) {
+        throw new TypeError('Coverage baseline is invalid or unsupported.');
+    }
+    return parsed;
+}
+
+export async function runCoverageRatchet(args = process.argv.slice(2), projectRoot = process.cwd()) {
+    const snapshot = parseCoverageSummary(
+        await readFile(path.join(projectRoot, SUMMARY_PATH), 'utf8'),
+        projectRoot,
+    );
+    const baselinePath = path.join(projectRoot, BASELINE_PATH);
+    if (args.includes('--update-baseline')) {
+        await writeFile(baselinePath, `${JSON.stringify(createCoverageBaseline(snapshot), null, 2)}\n`, 'utf8');
+        return {
+            message: 'Coverage baseline updated.',
+            passed: true,
+        };
+    }
+
+    const result = compareCoverageToBaseline(snapshot, parseBaseline(await readFile(baselinePath, 'utf8')));
+    return {
+        message: [
+            result.passed ? 'Coverage ratchet passed.' : 'Coverage ratchet failed.',
+            ...result.failures.map(failure => `  ERROR: ${failure}`),
+            ...result.comparisons.map(comparison => `  ${comparison}`),
+        ].join('\n'),
+        passed: result.passed,
+    };
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+    const result = await runCoverageRatchet();
+    console.log(result.message);
+    if (!result.passed) {
+        process.exitCode = 1;
+    }
+}

@@ -10,7 +10,10 @@ import { DocumentOutputService } from '@electron/output/documentOutputService';
 describe('DocumentOutputService', () => {
     const service = new DocumentOutputService();
 
-    afterEach(() => service.clearForTests());
+    afterEach(() => {
+        service.clearForTests();
+        vi.useRealTimers();
+    });
 
     it('keeps source-neutral state through progress, handoff, and completion', () => {
         const handle = service.start({
@@ -61,5 +64,31 @@ describe('DocumentOutputService', () => {
             status: 'canceled',
             error: 'superseded',
         });
+    });
+
+    it('does not let a stale terminal cleanup delete a reused job ID', () => {
+        vi.useFakeTimers();
+        const shortRetentionService = new DocumentOutputService(100);
+        const first = shortRetentionService.start({
+            jobId: 'reused-output',
+            operation: 'djvu-open',
+            sourceKind: 'djvu',
+        });
+        shortRetentionService.finish(first.jobId, 'completed');
+        vi.advanceTimersByTime(50);
+
+        const replacement = shortRetentionService.start({
+            jobId: first.jobId,
+            operation: 'save-as-pdf',
+            sourceKind: 'pdf',
+        });
+        vi.advanceTimersByTime(100);
+
+        expect(shortRetentionService.getState(replacement.jobId)).toMatchObject({
+            operation: 'save-as-pdf',
+            status: 'queued',
+        });
+        shortRetentionService.clearForTests();
+        vi.useRealTimers();
     });
 });

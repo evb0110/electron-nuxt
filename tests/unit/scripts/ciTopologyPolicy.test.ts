@@ -125,7 +125,7 @@ describe('CI topology policy', () => {
         expect(prQuality).toContain('if: ${{ github.event_name == \'pull_request\' || github.event_name == \'push\' }}');
         expect(prQuality).toContain('run: node scripts/ci-install-dependencies.mjs --frozen-lockfile');
         expect(prQuality).toContain('run: pnpm --dir landing install --frozen-lockfile');
-        expect(prQuality).toContain('run: pnpm exec playwright install --with-deps chromium');
+        expect(prQuality).not.toContain('playwright install');
         expect(prQuality).toContain('run: pnpm run lint');
         expect(prQuality).not.toContain('run: pnpm run check:static:reports');
         expect(prQuality).not.toContain('run: pnpm run check:static:assets');
@@ -134,7 +134,6 @@ describe('CI topology policy', () => {
         expect(packageJson).toContain('"lint:style": "stylelint \\"app/**/*.{vue,scss,css}\\""');
         expect(packageJson).toContain('"check:static:fast": "pnpm run check:platform-api-generated');
         expect(packageJson).toContain('pnpm run check:native-tool-protocols');
-        expect(packageJson).toContain('"validate": "pnpm run lint && pnpm run check:layout-tokens');
         expect(packageJson).toContain('"check:static:reports": "pnpm run check:platform-manifest-consumers"');
         expect(packageJson).toContain('"check:static:assets": "pnpm run check:web-deploy-source && pnpm run check:ocr-language-model-registry && pnpm run check:vendor-sync"');
         expect(prQuality).toContain('run: pnpm run typecheck');
@@ -163,12 +162,12 @@ describe('CI topology policy', () => {
         expectSplitQualitySteps(workflowJob(workflow, 'manual_quality'));
         expect(workflowJob(workflow, 'manual_quality')).toContain('run: pnpm run test:coverage');
         expect(workflowJob(workflow, 'manual_quality')).toContain('run: pnpm --dir landing install --frozen-lockfile');
-        expect(workflowJob(workflow, 'manual_quality')).toContain('run: pnpm exec playwright install --with-deps chromium');
+        expect(workflowJob(workflow, 'manual_quality')).not.toContain('playwright install');
         expect(releaseWorkflow).not.toContain('test:coverage');
         expect(packageJson).not.toMatch(/"gate:commit":\s*"[^"]*coverage/u);
     });
 
-    it('keeps native and landing PR and push checks path-filtered from checked-in policy', async () => {
+    it('keeps expensive PR and push checks path-filtered from checked-in policy', async () => {
         const workflow = await readProjectFile('.github/workflows/ci.yml');
         const testsTsconfig = await readTsConfigJsonWithGlobs('tests/tsconfig.json');
         const sharedVitestConfig = await readProjectFile('vitest.shared.config.ts');
@@ -181,6 +180,10 @@ describe('CI topology policy', () => {
         expect(workflowJob(workflow, 'pr_changed_areas')).toContain('fetch-depth: 0');
         expect(workflowJob(workflow, 'pr_changed_areas')).not.toContain('dorny/paths-filter');
         expect(workflowJob(workflow, 'pr_changed_areas')).not.toContain('native/**');
+        expect(workflowJob(workflow, 'pr_electron_blocking_smoke')).toContain('needs.pr_changed_areas.outputs.electron_smoke == \'true\'');
+        expect(workflowJob(workflow, 'pr_browser_integration')).toContain('needs.pr_changed_areas.outputs.browser_integration == \'true\'');
+        expect(workflowJob(workflow, 'pr_browser_integration')).toContain('run: pnpm run test:integration:browser');
+        expect(workflowJob(workflow, 'pr_browser_integration')).toContain('playwright install --with-deps chromium');
         expect(workflow).toContain('name: Native And Build Safety');
         expect(workflowJob(workflow, 'pr_native_build_safety')).toContain('needs: pr_changed_areas');
         expect(workflowJob(workflow, 'pr_native_build_safety')).toContain('needs.pr_changed_areas.outputs.native_or_build == \'true\'');
@@ -334,7 +337,7 @@ describe('CI topology policy', () => {
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm run check:static:assets');
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm run check:production-dependency-audit');
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm --dir landing install --frozen-lockfile');
-        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm exec playwright install --with-deps chromium');
+        expect(workflowJob(workflow, 'nightly_maintenance')).not.toContain('playwright install');
         expect(workflowJob(workflow, 'manual_quality')).not.toContain('run: pnpm run check:production-dependency-audit');
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('python -m pip install --require-hashes --only-binary=:all: -r python/page-processor/requirements-lock.txt');
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm run test:python-page-processor');
@@ -396,42 +399,32 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('run: pnpm run test:coverage');
         expectNoExactRunStep(workflowJob(workflow, 'manual_quality'), 'pnpm run test:unit');
         expectNoExactRunStep(workflowJob(workflow, 'nightly_maintenance'), 'pnpm run test:unit');
-        expect(packageJson).toContain('"test:coverage": "pnpm run test:coverage:run && pnpm run check:coverage:zero-execution"');
+        expect(packageJson).toContain('"test:coverage": "pnpm run test:coverage:run && pnpm run check:coverage:ratchet && pnpm run check:coverage:zero-execution"');
         expect(packageJson).toContain('"test:coverage:run": "vitest run --coverage --project unit-core --project unit-app --project unit-electron --project unit-scripts --project unit-policy"');
         expect(packageJson).not.toContain('"test:coverage:run": "vitest run --coverage --project unit"');
         expect(packageJson).toContain('"check:coverage:zero-execution": "pnpm exec tsx scripts/checkZeroExecutionCoverage.ts"');
+        expect(packageJson).toContain('"check:coverage:ratchet": "pnpm exec tsx scripts/checkCoverageRatchet.ts"');
         expect(vitestConfig).toContain('provider: \'v8\'');
         expect(vitestConfig).toContain('include: [');
-        expect(vitestConfig).toContain('\'electron/platform-ipc/**/*.ts\'');
-        expect(vitestConfig).toContain('\'packages/contracts/**/*.ts\'');
+        expect(vitestConfig).toContain('\'app/**/*.ts\'');
+        expect(vitestConfig).toContain('\'electron/**/*.ts\'');
+        expect(vitestConfig).toContain('\'packages/**/*.ts\'');
         expect(vitestConfig).toContain('\'json-summary\'');
         expect(vitestConfig).toContain('slowTestThreshold: unitSlowTestThresholdMs');
         expect(sharedVitestConfig).toContain('unitSlowTestThresholdMs = 300');
-        expect(vitestConfig).toContain('thresholds:');
-        expect(vitestConfig).toContain('statements: 65');
-        expect(vitestConfig).toContain('branches: 66');
-        expect(vitestConfig).toContain('functions: 76');
-        expect(vitestConfig).toContain('lines: 66');
         expect(vitestConfig).not.toContain('explicitImportOnlyFiles');
         expect(vitestConfig).not.toContain('app/composables/page/**/*.ts');
-        expect(packageJson).not.toContain('coverage-ratchet');
-        expect(existsSync(path.join(process.cwd(), 'coverage-baseline.json'))).toBe(false);
+        expect(existsSync(path.join(process.cwd(), 'coverage-baseline.json'))).toBe(true);
     });
 
-    it('keeps mock-based module tests in the unit tree', async () => {
+    it('keeps real-browser tests in their dedicated project', async () => {
         const packageJson = await readProjectFile('package.json');
-        const vitestConfig = await readProjectFile('vitest.config.ts');
-        const oldLayerPath = [
-            'tests',
-            'integration',
-        ].join('/');
+        const sharedVitestConfig = await readProjectFile('vitest.shared.config.ts');
 
-        expect(vitestConfig).not.toContain(oldLayerPath);
-        expect(packageJson).not.toContain([
-            'test',
-            'integration',
-        ].join(':'));
-        expect(existsSync(path.join(process.cwd(), oldLayerPath))).toBe(false);
+        expect(packageJson).toContain('"test:integration:browser": "vitest run --project browser-integration"');
+        expect(sharedVitestConfig).toContain('tests/integration/browser/**/*.test.ts');
+        expect(sharedVitestConfig).toContain('browserIntegration: \'browser-integration\'');
+        expect(existsSync(path.join(process.cwd(), 'tests/integration/browser/realIndexedDbMigration.test.ts'))).toBe(true);
     });
 
     it('keeps module-owned composable tests out of legacy app composables paths', async () => {

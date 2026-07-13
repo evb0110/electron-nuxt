@@ -184,6 +184,10 @@ async function _convertDjvuToPdfWithRanges(
                 },
                 ...(options.signal ? {signal: options.signal} : {}),
             });
+            if (firstError) {
+                brokerLease.release();
+                return firstError;
+            }
             const pageResult = await convertPageRangeToPdf(
                 inputPath,
                 chunk.outputPath,
@@ -195,12 +199,18 @@ async function _convertDjvuToPdfWithRanges(
             ).finally(() => brokerLease.release());
 
             if (!pageResult.success) {
+                const pageError = pageResult.error ?? `Failed to convert pages ${chunk.startPage}-${chunk.endPage}`;
                 await artifactJob.updateRange(chunk.index, {
                     status: 'failed',
-                    error: pageResult.error ?? 'Range conversion failed',
+                    error: pageError,
                 });
-                await cancelConversion(jobId);
-                firstError = pageResult.error ?? `Failed to convert pages ${chunk.startPage}-${chunk.endPage}`;
+                if (!firstError) {
+                    // Preserve the initiating failure before canceling sibling
+                    // processes, whose cancellation results must not suppress
+                    // the safe single-process fallback.
+                    firstError = pageError;
+                    await cancelConversion(jobId);
+                }
                 return firstError;
             }
 

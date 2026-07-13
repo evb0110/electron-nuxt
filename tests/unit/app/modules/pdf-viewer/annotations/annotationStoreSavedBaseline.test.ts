@@ -423,6 +423,59 @@ describe('AnnotationStore saved semantic baseline', () => {
         })]);
     });
 
+    it('adopts committed page remaps without adopting unrelated unsaved edits', () => {
+        const store = new AnnotationStore();
+        const annotationId = importPersistedHighlight(store);
+        store.setStyle(annotationId, {color: '#ff0000'});
+
+        store.remapPages({
+            previousPageCount: 2,
+            pages: [
+                {fromPageNumber: 2},
+                {fromPageNumber: 1},
+            ],
+        });
+
+        expect(store.get(annotationId)).toMatchObject({
+            pageIndex: 1,
+            color: '#ff0000',
+        });
+        expect(store.dirtyAt(store.beginSave())).toEqual([expect.objectContaining({
+            pageIndex: 1,
+            color: '#ff0000',
+        })]);
+    });
+
+    it('adopts annotations removed by a committed page deletion as saved tombstones', () => {
+        const store = new AnnotationStore();
+        const annotationId = importPersistedHighlight(store);
+
+        store.remapPages({
+            previousPageCount: 1,
+            pages: [],
+        });
+
+        expect(store.get(annotationId)).toMatchObject({deleted: true});
+        expect(store.hasChangesSinceSavedBaseline()).toBe(false);
+        expect(store.countDirtyPersistedDeletions()).toBe(0);
+    });
+
+    it('invalidates an in-flight save frontier when committed page geometry changes', () => {
+        const store = new AnnotationStore();
+        importPersistedHighlight(store);
+        const frontier = store.beginSave();
+
+        store.remapPages({
+            previousPageCount: 2,
+            pages: [
+                {fromPageNumber: 2},
+                {fromPageNumber: 1},
+            ],
+        });
+
+        expect(() => store.assertSaveFrontierCurrent(frontier)).toThrow('staleRevisionError');
+    });
+
     it('rebases only after save acknowledgement and stays dirty when undo crosses that save', () => {
         const store = new AnnotationStore();
         const annotationId = importPersistedHighlight(store);

@@ -1,6 +1,4 @@
 import type { TPdfViewMode } from '@app/types/pdfContracts';
-import { buildPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/buildPageLayoutMetrics';
-import { getTrailingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getTrailingSpacerHeightForPage';
 import {
     hasCommittedDocumentOpeningLayout,
     isDocumentOpenEmptySurfaceTransition,
@@ -15,7 +13,27 @@ function readPositivePixels(value: string | undefined) {
     return Number.isFinite(number) && number > 0 ? number : null;
 }
 
-export function buildPdfCommittedOpenVirtualSpacerStyle(input: {
+function resolveUniformPageRowIndex(pageNumber: number, viewMode: TPdfViewMode) {
+    if (viewMode === 'single') {
+        return pageNumber - 1;
+    }
+    if (viewMode === 'facing') {
+        return Math.floor((pageNumber - 1) / 2);
+    }
+    return pageNumber === 1 ? 0 : 1 + Math.floor((pageNumber - 2) / 2);
+}
+
+function resolveUniformPageRowCount(pageCount: number, viewMode: TPdfViewMode) {
+    if (viewMode === 'single') {
+        return pageCount;
+    }
+    if (viewMode === 'facing') {
+        return Math.ceil(pageCount / 2);
+    }
+    return 1 + Math.ceil((pageCount - 1) / 2);
+}
+
+function resolvePdfCommittedOpenVirtualSpacerHeight(input: {
     snapshot: IDocumentOpenSurfaceSnapshot;
     continuousScroll: boolean;
     viewMode: TPdfViewMode;
@@ -38,27 +56,32 @@ export function buildPdfCommittedOpenVirtualSpacerStyle(input: {
         return null;
     }
 
-    const pageMetrics = Array.from({ length: geometry.pageCount }, () => ({
-        width,
-        height,
-    }));
-    const layout = buildPageLayoutMetrics({
-        pageMetrics,
-        totalPages: geometry.pageCount,
-        viewMode: input.viewMode,
-        scale: 1,
-        gap: input.gap,
-        paddingTop: input.gap,
-        paddingBottom: input.gap,
-        fallbackWidth: width,
-        fallbackHeight: height,
-    });
-    if (!layout) {
+    const pageNumber = Math.min(geometry.pageCount, Math.floor(input.lastMountedPage));
+    if (!Number.isFinite(pageNumber) || pageNumber < 1) {
         return null;
     }
+    const hiddenRows = Math.max(
+        0,
+        resolveUniformPageRowCount(geometry.pageCount, input.viewMode)
+        - resolveUniformPageRowIndex(pageNumber, input.viewMode)
+        - 1,
+    );
+    if (hiddenRows === 0) {
+        return null;
+    }
+    const gap = Number.isFinite(input.gap) ? Math.max(0, input.gap) : 0;
+    return hiddenRows * height + Math.max(0, hiddenRows - 1) * gap;
+}
 
-    const spacerHeight = getTrailingSpacerHeightForPage(layout, input.lastMountedPage);
-    if (spacerHeight <= 0) {
+export function buildPdfCommittedOpenVirtualSpacerStyle(input: {
+    snapshot: IDocumentOpenSurfaceSnapshot;
+    continuousScroll: boolean;
+    viewMode: TPdfViewMode;
+    gap: number;
+    lastMountedPage: number;
+}) {
+    const spacerHeight = resolvePdfCommittedOpenVirtualSpacerHeight(input);
+    if (spacerHeight === null) {
         return null;
     }
     const value = `${String(spacerHeight)}px`;
@@ -92,9 +115,8 @@ export function resolvePdfCommittedOpenVirtualExtentMinimumScrollHeight(input: {
     if (!geometry || geometry.pageCount <= geometry.pageNumber) {
         return 0;
     }
-    const style = buildPdfCommittedOpenVirtualSpacerStyle({
+    return resolvePdfCommittedOpenVirtualSpacerHeight({
         ...input,
         lastMountedPage: geometry.pageNumber,
     });
-    return style ? readPositivePixels(style.height) : null;
 }

@@ -22,6 +22,9 @@ export const useCombinePdfOperation = <T extends {
     const progress = ref<ICombinePdfProgress | null>(null);
     const combineError = ref<string | null>(null);
     const pendingCombinedResult = ref<TOpenFileResult | null>(null);
+    const queueMutationLocked = computed(() => (
+        isCombining.value || pendingCombinedResult.value !== null
+    ));
     let abortController: AbortController | null = null;
 
     function buildOutputName(operationFiles: readonly T[]) {
@@ -99,6 +102,7 @@ export const useCombinePdfOperation = <T extends {
         progress,
         combineError,
         pendingCombinedResult,
+        queueMutationLocked,
         combine,
         cancel,
         savePendingAs,

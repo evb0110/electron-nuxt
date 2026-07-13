@@ -159,6 +159,7 @@ import {
     captureDocumentZoomAnchor,
     resolveDocumentZoomAnchorScroll,
 } from '@app/utils/document-viewer/zoomAnchor';
+import { resolveNearestDocumentPageToViewportCenter } from '@app/utils/document-viewer/viewport/resolveDocumentContinuousScrollWindow';
 
 interface IPageVisualState {
     generation: number;
@@ -933,18 +934,17 @@ function handleScroll() {
         return;
     }
     chassisAuthority?.viewportWritePort.observeUserScroll(viewerContainer.value);
-    const viewportMiddle = viewerContainer.value.scrollTop + viewerContainer.value.clientHeight / 2;
-    let nearestPage = 1;
-    let nearestDistance = Number.POSITIVE_INFINITY;
-    for (let page = 1; page <= pageMetrics.value.length; page += 1) {
-        const middle = (pageTops.value[page - 1] ?? 0) + (pageHeights.value[page - 1] ?? 0) / 2;
-        const distance = Math.abs(middle - viewportMiddle);
-        if (distance < nearestDistance) {
-            nearestDistance = distance;
-            nearestPage = page;
-        }
-    }
-    if (nearestPage !== currentPage) {
+    const nearestPage = resolveNearestDocumentPageToViewportCenter({
+        geometry: {
+            pageHeights: pageHeights.value,
+            pageTops: pageTops.value,
+            totalHeight: totalHeight.value,
+        },
+        scrollTop: viewerContainer.value.scrollTop,
+        totalPages: pageMetrics.value.length,
+        viewportHeight: viewerContainer.value.clientHeight,
+    });
+    if (nearestPage && nearestPage !== currentPage) {
         emit('update:currentPage', nearestPage);
     }
 }

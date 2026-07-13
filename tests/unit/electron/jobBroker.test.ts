@@ -6,6 +6,8 @@ import {
 import {
     JobBroker,
     type IJobBrokerRequest,
+    MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES,
+    resolveMainJobBrokerCapacity,
 } from '@electron/resources/jobBroker';
 
 const CAPACITY = {
@@ -31,6 +33,24 @@ function createRequest(overrides: Partial<IJobBrokerRequest> = {}): IJobBrokerRe
 }
 
 describe('JobBroker', () => {
+    it.each([
+        1,
+        2,
+        4,
+        6,
+        8,
+    ])('admits the largest supported single job on a %i-CPU host', async (cpuCount) => {
+        const capacity = resolveMainJobBrokerCapacity(cpuCount, 8 * 1024 * 1024 * 1024);
+        const broker = new JobBroker(capacity);
+        const lease = await broker.acquire(createRequest({resources: {...MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES}}));
+
+        expect(capacity.cpuTokens).toBeGreaterThanOrEqual(MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES.cpuTokens);
+        expect(capacity.estimatedResidentBytes).toBeGreaterThanOrEqual(MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES.estimatedResidentBytes);
+        expect(capacity.nativeProcesses).toBeGreaterThanOrEqual(MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES.nativeProcesses);
+        expect(capacity.ioWeight).toBeGreaterThanOrEqual(MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES.ioWeight);
+        expect(lease.release()).toBe(true);
+    });
+
     it('holds work until the full resource vector is available', async () => {
         const broker = new JobBroker(CAPACITY);
         const first = await broker.acquire(createRequest({resources: CAPACITY}));

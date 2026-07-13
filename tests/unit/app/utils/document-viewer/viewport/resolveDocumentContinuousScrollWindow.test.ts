@@ -6,6 +6,7 @@ import {
 import {
     resolveDocumentContinuousScrollGeometry,
     resolveDocumentContinuousScrollWindow,
+    resolveNearestDocumentPageToViewportCenter,
 } from '@app/utils/document-viewer/viewport/resolveDocumentContinuousScrollWindow';
 
 describe('resolveDocumentContinuousScrollWindow', () => {
@@ -101,5 +102,24 @@ describe('resolveDocumentContinuousScrollWindow', () => {
                 2,
             ],
         });
+    });
+
+    it('finds the nearest page center without scanning all pages', () => {
+        const geometry = resolveDocumentContinuousScrollGeometry({
+            pageGapPx: 10,
+            pageHeights: [
+                1_000,
+                100,
+                100,
+            ],
+            totalPages: 3,
+        });
+
+        expect(resolveNearestDocumentPageToViewportCenter({
+            geometry,
+            scrollTop: 900,
+            totalPages: 3,
+            viewportHeight: 300,
+        })).toBe(2);
     });
 });

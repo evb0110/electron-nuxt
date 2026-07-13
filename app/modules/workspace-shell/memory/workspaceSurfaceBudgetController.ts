@@ -184,6 +184,7 @@ export function createWorkspaceSurfaceBudgetController(
         for (const lease of leases) {
             reservedBytes -= lease.bytes;
         }
+        leases.clear();
         leasesByScope.delete(scopeId);
     }
 

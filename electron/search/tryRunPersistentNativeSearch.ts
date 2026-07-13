@@ -16,6 +16,13 @@ const SEARCH_SERVICE_READY_TIMEOUT_MS = 5_000;
 const SEARCH_SERVICE_IDLE_TIMEOUT_MS = 5 * 60_000;
 const SEARCH_SERVICE_MAX_FRAME_BYTES = 4 * 1024 * 1024;
 const SEARCH_SERVICE_MAX_STDERR_BYTES = 64 * 1024;
+
+function resolveSearchServiceIdleTimeoutMs() {
+    const configured = Number.parseInt(process.env.EVB_PDF_SEARCH_SERVICE_IDLE_TIMEOUT_MS ?? '', 10);
+    return Number.isSafeInteger(configured) && configured > 0
+        ? configured
+        : SEARCH_SERVICE_IDLE_TIMEOUT_MS;
+}
 class NativeSearchServiceError extends Error {
     constructor(readonly code: TNativeErrorCode, message: string) {
         super(message);
@@ -46,6 +53,7 @@ class PersistentNativeSearchService {
     private resolveReady: (() => void) | null = null;
     private rejectReady: ((error: Error) => void) | null = null;
     private idleTimer: ReturnType<typeof setTimeout> | null = null;
+    private startingSearches = 0;
     private stopped = false;
     private stderr = '';
     private stderrTruncated = false;
@@ -88,8 +96,27 @@ class PersistentNativeSearchService {
         if (this.idleTimer) {
             clearTimeout(this.idleTimer);
         }
-        this.idleTimer = setTimeout(() => this.stop(new Error('Persistent native search service idle timeout')), SEARCH_SERVICE_IDLE_TIMEOUT_MS);
+        this.idleTimer = setTimeout(() => {
+            this.idleTimer = null;
+            if (this.pending.size === 0) {
+                this.stop(new Error('Persistent native search service idle timeout'));
+            }
+        }, resolveSearchServiceIdleTimeoutMs());
         this.idleTimer.unref();
+    }
+
+    private disarmIdleTimer() {
+        if (!this.idleTimer) {
+            return;
+        }
+        clearTimeout(this.idleTimer);
+        this.idleTimer = null;
+    }
+
+    private armIdleTimerIfIdle() {
+        if (this.pending.size === 0 && this.startingSearches === 0 && !this.stopped) {
+            this.armIdleTimer();
+        }
     }
 
     private handleLine(line: string) {
@@ -127,7 +154,7 @@ class PersistentNativeSearchService {
         }
         this.pending.delete(requestId);
         clearTimeout(pending.timer);
-        this.armIdleTimer();
+        this.armIdleTimerIfIdle();
         if (frame.type === 'result') {
             pending.resolve(frame.result);
         } else {
@@ -163,8 +190,18 @@ class PersistentNativeSearchService {
         signal?: AbortSignal;
         timeoutMs: number
     }) {
-        await this.waitUntilReady(options.signal);
+        this.startingSearches += 1;
+        this.disarmIdleTimer();
+        try {
+            await this.waitUntilReady(options.signal);
+        } catch (error) {
+            this.startingSearches -= 1;
+            this.armIdleTimerIfIdle();
+            throw error;
+        }
+        this.startingSearches -= 1;
         if (options.signal?.aborted) {
+            this.armIdleTimerIfIdle();
             throw new Error('Native search canceled');
         }
         const requestId = randomUUID();
@@ -180,6 +217,7 @@ class PersistentNativeSearchService {
             };
             const timer = setTimeout(() => {
                 this.pending.delete(requestId);
+                this.armIdleTimerIfIdle();
                 this.tryWriteCancelFrame(requestId);
                 settle(() => reject(new Error('Persistent native search service request timeout')));
             }, options.timeoutMs);
@@ -191,6 +229,7 @@ class PersistentNativeSearchService {
                 }
                 this.pending.delete(requestId);
                 clearTimeout(pending.timer);
+                this.armIdleTimerIfIdle();
                 this.tryWriteCancelFrame(requestId);
                 settle(() => reject(new Error('Native search canceled')));
             };
@@ -204,6 +243,7 @@ class PersistentNativeSearchService {
                 },
                 timer,
             });
+            this.disarmIdleTimer();
             if (options.signal?.aborted) {
                 abort();
                 return;
@@ -217,6 +257,7 @@ class PersistentNativeSearchService {
             } catch (error) {
                 this.pending.delete(requestId);
                 clearTimeout(timer);
+                this.armIdleTimerIfIdle();
                 settle(() => reject(error));
             }
         });

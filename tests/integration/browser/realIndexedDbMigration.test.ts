@@ -6,13 +6,13 @@ import {
     createServer,
     type Server,
 } from 'node:http';
-import { tmpdir } from 'node:os';
+import {tmpdir} from 'node:os';
 import {
     join,
     resolve,
 } from 'node:path';
-import { build } from 'esbuild';
-import { chromium } from 'playwright';
+import {build} from 'esbuild';
+import {chromium} from 'playwright';
 import {
     afterAll,
     beforeAll,
@@ -45,7 +45,7 @@ beforeAll(async () => {
     });
     await new Promise<void>((resolveListen, rejectListen) => {
         server.once('error', rejectListen);
-        server.listen(0, '127.0.0.1', () => resolveListen());
+        server.listen(0, '127.0.0.1', resolveListen);
     });
     const address = server.address();
     if (!address || typeof address === 'string') {
@@ -108,12 +108,10 @@ describe('browser document IndexedDB migration in Chromium', () => {
                 }
                 return new Promise<{
                     legacyName: string | null;
-                    stores: string[]
+                    stores: string[];
                 }>((resolveUpgrade, rejectUpgrade) => {
                     const request = indexedDB.open('evb-viewer-browser-documents', 2);
-                    request.onupgradeneeded = () => {
-                        upgradeBrowserDocumentDatabase(request.result);
-                    };
+                    request.onupgradeneeded = () => upgradeBrowserDocumentDatabase(request.result);
                     request.onerror = () => rejectUpgrade(request.error);
                     request.onsuccess = () => {
                         const database = request.result;

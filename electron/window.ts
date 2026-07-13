@@ -304,6 +304,7 @@ function attachRendererDiagnostics(window: BrowserWindow) {
 export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
     const createStart = Date.now();
     const preloadPath = join(__dirname, 'preload.cjs');
+    const keepAutomationRendererActive = config.automation.hideWindow || config.automation.noFocus;
     logger.debug(`__dirname: ${__dirname}`);
     logger.debug(`preload path: ${preloadPath}`);
 
@@ -314,12 +315,14 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
         ...(windowIconPath ? { icon: windowIconPath } : {}),
         autoHideMenuBar: false,
         show: false,
+        ...(keepAutomationRendererActive ? {paintWhenInitiallyHidden: true} : {}),
         backgroundColor: config.window.backgroundColor,
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
             sandbox: true,
             preload: preloadPath,
+            ...(keepAutomationRendererActive ? {backgroundThrottling: false} : {}),
         },
     });
 

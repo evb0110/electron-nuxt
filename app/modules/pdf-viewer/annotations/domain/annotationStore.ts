@@ -67,7 +67,34 @@ function saveFrontierEntityBaseline(entities: readonly AnnotationEntity[]) {
         entity.identity.id,
         entity.revision,
         entity.deleted,
+        entity.pageIndex,
     ]));
+}
+
+function remapSavedSemanticFingerprint(
+    fingerprint: string,
+    nextPageIndex: number | undefined,
+) {
+    const saved = JSON.parse(fingerprint) as Record<string, unknown>;
+    if (nextPageIndex === undefined) {
+        return JSON.stringify({
+            ...saved,
+            deleted: true,
+        });
+    }
+    return JSON.stringify(saved.kind === 'shape'
+        ? {
+            ...saved,
+            pageIndex: nextPageIndex,
+            geometry: {
+                ...(saved.geometry as Record<string, unknown>),
+                pageIndex: nextPageIndex,
+            },
+        }
+        : {
+            ...saved,
+            pageIndex: nextPageIndex,
+        });
 }
 
 function semanticSnapshotsEqual(
@@ -339,6 +366,13 @@ export class AnnotationStore {
         });
         this.#entities.forEach((entity, id) => {
             const nextPageIndex = newPageByOldPage.get(entity.pageIndex);
+            const savedFingerprint = this.#savedSemanticSnapshot.get(id);
+            if (savedFingerprint !== undefined) {
+                this.#savedSemanticSnapshot.set(
+                    id,
+                    remapSavedSemanticFingerprint(savedFingerprint, nextPageIndex),
+                );
+            }
             if (nextPageIndex === undefined) {
                 this.#entities.set(id, {
                     ...entity,
@@ -438,10 +472,14 @@ export class AnnotationStore {
             entity.identity.id,
             entity,
         ]));
-        const capturedEntityChanged = Array.from(frontier.revisions).some(([
-            id,
-            revision,
-        ]) => current.get(id)?.revision !== revision);
+        const capturedEntities = Array.from(frontier.revisions, ([id]) => current.get(id))
+            .filter((entity): entity is AnnotationEntity => entity !== undefined);
+        const capturedEntityChanged = capturedEntities.length !== frontier.revisions.size
+            || saveFrontierEntityBaseline(capturedEntities) !== frontier.entityBaselineHash
+            || Array.from(frontier.revisions).some(([
+                id,
+                revision,
+            ]) => current.get(id)?.revision !== revision);
         const unsavedEntityCreatedAfterFrontier = Array.from(current.values()).some(entity => (
             !frontier.revisions.has(entity.identity.id)
             && entity.persistedRevision < 0

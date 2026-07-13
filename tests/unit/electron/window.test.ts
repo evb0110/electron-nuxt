@@ -236,6 +236,21 @@ describe('window runtime readiness', () => {
         expect(window?.setMenuBarVisibility).not.toHaveBeenCalled();
     });
 
+    it('keeps hidden automation renderers painting without changing interactive window defaults', async () => {
+        const { createAppWindow } = await import('@electron/window');
+
+        await createAppWindow({ showStartupPlaceholder: false });
+        expect(mocks.BrowserWindow.windows[0]?.options).toEqual(expect.objectContaining({
+            paintWhenInitiallyHidden: true,
+            webPreferences: expect.objectContaining({backgroundThrottling: false}),
+        }));
+
+        mocks.config.automation.hideWindow = false;
+        await createAppWindow({ showStartupPlaceholder: false });
+        expect(mocks.BrowserWindow.windows[1]?.options).not.toHaveProperty('paintWhenInitiallyHidden');
+        expect(mocks.BrowserWindow.windows[1]?.options).not.toHaveProperty('webPreferences.backgroundThrottling');
+    });
+
     it('waits for the initial rendererReady signal when requested', async () => {
         const { createAppWindow } = await import('@electron/window');
         const { markWindowRendererReady } = await import('@electron/window/rendererReady');

@@ -291,7 +291,7 @@ describe('convertDjvuToPdfFile', () => {
 
         const result = await convertDjvuToPdfFile('/input.djvu', '/output.pdf', 'job-3', {pageCount: 24});
 
-        expect(result.success).toBe(true);
+        expect(result.success, result.error).toBe(true);
         expect(mocks.loggerWarn).toHaveBeenCalledWith(expect.stringContaining('falling back to single process'));
         expect(mocks.unlink).toHaveBeenCalledWith('/output.pdf');
         expect(mocks.spawnCalls.filter(call => call.command === '/tools/ddjvu')).toHaveLength(5);

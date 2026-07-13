@@ -12,24 +12,23 @@ export default defineConfig({ test: {
     coverage: {
         provider: 'v8',
         include: [
-            'electron/platform-ipc/**/*.ts',
-            'packages/contracts/**/*.ts',
-            'app/**/*.worker.ts',
-            'electron/**/*.worker.ts',
-            'electron/**/*Worker.ts',
-            'electron/**/worker.ts',
-            'electron/**/worker/main.ts',
+            'app/**/*.ts',
+            'electron/**/*.ts',
+            'packages/**/*.ts',
+            'scripts/**/*.{ts,mjs,cjs}',
+            'server/**/*.ts',
+        ],
+        exclude: [
+            '**/*.d.ts',
+            'app/.nuxt/**',
+            'coverage/**',
+            'node_modules/**',
+            'tests/**',
         ],
         reporter: [
             'text',
             'json-summary',
             'lcov',
         ],
-        thresholds: {
-            statements: 65,
-            branches: 66,
-            functions: 76,
-            lines: 66,
-        },
     },
 } });

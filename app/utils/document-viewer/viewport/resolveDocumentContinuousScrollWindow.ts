@@ -45,6 +45,13 @@ export interface IResolveDocumentViewportPageNumbersOptions {
     overscanViewports: number;
 }
 
+export interface IResolveNearestDocumentPageOptions {
+    geometry: IDocumentContinuousScrollGeometry;
+    scrollTop: number;
+    totalPages: number;
+    viewportHeight: number;
+}
+
 interface IContinuousScrollBoundsState {
     visibleStart: number | null;
     visibleEnd: number | null;
@@ -161,6 +168,34 @@ function getGeometryPageTop(
     pageNumber: number,
 ) {
     return geometry.pageTops[pageNumber - 1] ?? normalizeGapPx(pageGapPx);
+}
+
+export function resolveNearestDocumentPageToViewportCenter(
+    options: IResolveNearestDocumentPageOptions,
+) {
+    if (options.totalPages <= 0) {
+        return null;
+    }
+    const viewportCenter = Math.max(0, options.scrollTop) + Math.max(0, options.viewportHeight) / 2;
+    const pageCenter = (pageNumber: number) => (
+        (options.geometry.pageTops[pageNumber - 1] ?? 0)
+        + (options.geometry.pageHeights[pageNumber - 1] ?? 0) / 2
+    );
+    let low = 1;
+    let high = options.totalPages + 1;
+    while (low < high) {
+        const middle = Math.floor((low + high) / 2);
+        if (pageCenter(middle) < viewportCenter) {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
+    }
+    const nextPage = Math.min(options.totalPages, low);
+    const previousPage = Math.max(1, nextPage - 1);
+    return Math.abs(pageCenter(nextPage) - viewportCenter) < Math.abs(pageCenter(previousPage) - viewportCenter)
+        ? nextPage
+        : previousPage;
 }
 
 function normalizeGapPx(value: number) {

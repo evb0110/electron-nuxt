@@ -387,6 +387,27 @@ describe('AnnotationApplication', () => {
         }]);
     });
 
+    it('verifies deletion of an annotation from a removed trailing page without opening that page', async () => {
+        const application = new AnnotationApplication('document');
+        application.store.import(note({
+            pageIndex: 1,
+            persistedRevision: 0,
+        }));
+        application.delete(asAnnotationId('anno_test'));
+        const getPage = vi.fn();
+        pdfjsMocks.getDocument.mockReturnValue({promise: Promise.resolve({
+            destroy: pdfjsMocks.destroy,
+            getPage,
+            numPages: 1,
+        })});
+
+        await expect(application.verifySaveBytes(
+            application.beginSave(),
+            new Uint8Array([1]),
+        )).resolves.toBeUndefined();
+        expect(getPage).not.toHaveBeenCalled();
+    });
+
     it('normalizes adapter-only liveness sentinels and preserves tombstones through history', () => {
         const application = new AnnotationApplication('document');
         application.store.createStickyNote(note());

@@ -13,7 +13,7 @@
             data-combine-page
             :class="[
                 files.length > 0 ? 'has-files' : 'is-empty',
-                { 'is-dragging': isDraggingOver && !isCombining },
+                { 'is-dragging': isDraggingOver && !queueMutationLocked },
             ]"
             @dragenter.prevent="handleDragEnter"
             @dragover.prevent="handleDragOver"
@@ -43,7 +43,7 @@
                     color="primary"
                     icon="i-ph-folder-open"
                     :label="files.length > 0 ? t('combinePdf.addMore') : t('combinePdf.chooseFiles')"
-                    :disabled="isCombining"
+                    :disabled="queueMutationLocked"
                     @click="openFileInput"
                 />
                 <div
@@ -95,7 +95,7 @@
                         variant="ghost"
                         icon="i-ph-trash"
                         :label="t('combinePdf.clear')"
-                        :disabled="isCombining"
+                        :disabled="queueMutationLocked"
                         @click="clearFiles"
                     />
                 </header>
@@ -153,7 +153,7 @@
                                     size="xs"
                                     icon="i-ph-caret-up"
                                     :aria-label="t('combinePdf.moveUp')"
-                                    :disabled="index === 0 || isCombining"
+                                    :disabled="index === 0 || queueMutationLocked"
                                     @click="moveFile(index, -1)"
                                 />
                             </AppTooltip>
@@ -164,7 +164,7 @@
                                     size="xs"
                                     icon="i-ph-caret-down"
                                     :aria-label="t('combinePdf.moveDown')"
-                                    :disabled="index === files.length - 1 || isCombining"
+                                    :disabled="index === files.length - 1 || queueMutationLocked"
                                     @click="moveFile(index, 1)"
                                 />
                             </AppTooltip>
@@ -175,7 +175,7 @@
                                     size="xs"
                                     icon="i-ph-x"
                                     :aria-label="t('combinePdf.removeFile')"
-                                    :disabled="isCombining"
+                                    :disabled="queueMutationLocked"
                                     @click="removeFile(index)"
                                 />
                             </AppTooltip>
@@ -300,6 +300,7 @@ const {
     progress,
     combineError,
     pendingCombinedResult,
+    queueMutationLocked,
     combine: combineFiles,
     cancel: cancelCombine,
     savePendingAs,
@@ -312,7 +313,7 @@ const {
 
 const queue = useCombinePdfQueue({
     files,
-    isCombining,
+    isMutationLocked: queueMutationLocked,
     isSupported: isSupportedCombineFile,
     toQueueItem: toCombineFile,
 });
@@ -323,7 +324,7 @@ function addFiles(fileList: FileList | File[]) {
 }
 
 function openFileInput() {
-    if (!canMutateCombineFiles(isCombining.value)) {
+    if (!canMutateCombineFiles(queueMutationLocked.value)) {
         return;
     }
     fileInputRef.value?.click();
@@ -345,7 +346,7 @@ function resetDragOverlay() {
 }
 
 function handleDragEnter() {
-    if (isCombining.value) {
+    if (queueMutationLocked.value) {
         return;
     }
     dragDepth.value += 1;
@@ -353,7 +354,7 @@ function handleDragEnter() {
 }
 
 function handleDragOver(event: DragEvent) {
-    if (isCombining.value) {
+    if (queueMutationLocked.value) {
         if (event.dataTransfer) {
             event.dataTransfer.dropEffect = 'none';
         }
@@ -431,7 +432,7 @@ function announceReorder(position: number) {
 }
 
 function moveFile(index: number, delta: -1 | 1) {
-    if (!canMutateCombineFiles(isCombining.value)) {
+    if (!canMutateCombineFiles(queueMutationLocked.value)) {
         return;
     }
     const targetIndex = index + delta;
@@ -446,7 +447,7 @@ function moveFile(index: number, delta: -1 | 1) {
 }
 
 function handleReorder(fromIndex: number, toIndex: number) {
-    if (!canMutateCombineFiles(isCombining.value)) {
+    if (!canMutateCombineFiles(queueMutationLocked.value)) {
         return;
     }
     if (!queue.moveFile(fromIndex, toIndex)) {
@@ -462,7 +463,7 @@ const {
 } = useListDragReorder(listRef, '[data-combine-row]', handleReorder);
 
 function startReorder(event: PointerEvent, index: number) {
-    if (isCombining.value) {
+    if (queueMutationLocked.value) {
         return;
     }
     onReorderPointerDown(event, index);

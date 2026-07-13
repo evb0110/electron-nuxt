@@ -108,8 +108,13 @@ describe('changed-area classifier', () => {
             'resources/tesseract/tessdata/eng.traineddata',
             'scripts/afterPack.cjs',
             'scripts/afterSign.cjs',
+            'scripts/build-minimal-ffmpeg-for-unpaper.sh',
+            'scripts/cargo-artifacts.mjs',
+            'scripts/checkSearchNativeParity.ts',
             'scripts/ci/classify-changed-areas.mjs',
+            'scripts/generate-djvu-fidelity-corpus.mjs',
             'scripts/nativeResourceManifest.ts',
+            'scripts/test-ocr-native-smoke.mjs',
             'scripts/verify-packaged-startup.sh',
         ]) {
             expect(classifyChangedFiles([file]).native_or_build?.matched, file).toBe(true);
@@ -117,6 +122,8 @@ describe('changed-area classifier', () => {
         expect(classifyChangedFiles(['landing/app/pages/index.vue']).landing?.matched).toBe(true);
         expect(classifyChangedFiles(['packages/release-selection/index.ts']).landing?.matched).toBe(true);
         expect(classifyChangedFiles(['scripts/ci/classify-changed-areas.mjs']).landing?.matched).toBe(true);
+        expect(classifyChangedFiles(['app/modules/pdf-viewer/PdfViewer.vue']).electron_smoke?.matched).toBe(true);
+        expect(classifyChangedFiles(['app/platform/browser/browserDocumentIdb.ts']).browser_integration?.matched).toBe(true);
         expect(classifyChangedFiles(['app/app.vue'])).toMatchObject({
             landing: { matched: false },
             native_or_build: { matched: false },
@@ -160,6 +167,8 @@ describe('changed-area classifier', () => {
 
             expect(result.status, result.stderr).toBe(0);
             expect(readFileSync(outputPath, 'utf8').trim().split('\n').sort()).toEqual([
+                'browser_integration=false',
+                'electron_smoke=false',
                 'landing=true',
                 'native_or_build=true',
             ]);

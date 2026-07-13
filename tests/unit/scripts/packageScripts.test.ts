@@ -248,7 +248,6 @@ describe('package scripts', () => {
 
         expect(scriptCommands(packageJson, 'validate')).toEqual([
             'pnpm run lint',
-            'pnpm run check:layout-tokens',
             'pnpm run check:static:reports',
             'pnpm run check:static:assets',
             'pnpm run check:architecture:source-size',
@@ -267,7 +266,7 @@ describe('package scripts', () => {
             'typecheck:server',
         ]);
         expect(scripts['typecheck:packages']).toBe('node scripts/run-workspace-package-typecheck.mjs');
-        expect(scripts['test:coverage']).toBe('pnpm run test:coverage:run && pnpm run check:coverage:zero-execution');
+        expect(scripts['test:coverage']).toBe('pnpm run test:coverage:run && pnpm run check:coverage:ratchet && pnpm run check:coverage:zero-execution');
         expect(scripts['release:verify']).toBe('node scripts/release/verify-local.mjs');
         expectSelectsSplitUnitProjects(packageJson, 'test');
         expectSelectsSplitUnitProjects(packageJson, 'test:unit');
@@ -287,6 +286,7 @@ describe('package scripts', () => {
         expect(scripts['db:migrate']).toBe('pnpm --dir landing exec drizzle-kit migrate --config ../drizzle.config.ts');
         expect(scripts['db:check']).toBe('pnpm --dir landing exec drizzle-kit check --config ../drizzle.config.ts');
         expect(scripts['check:coverage:zero-execution']).toBe('pnpm exec tsx scripts/checkZeroExecutionCoverage.ts');
+        expect(scripts['check:coverage:ratchet']).toBe('pnpm exec tsx scripts/checkCoverageRatchet.ts');
         expect(scripts['check:drizzle-schema']).toBe('node scripts/check-drizzle-schema.mjs');
         expect(scripts['check:electron-builder:asar-unpack']).toBe('node scripts/check-electron-builder-asar-unpack.mjs');
         expect(scripts['check:generated-native-resources:host']).toBe('node scripts/check-generated-native-resources.mjs --host');

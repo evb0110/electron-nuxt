@@ -1,0 +1,108 @@
+{
+  "areas": {
+    "app-core": {
+      "fileCount": 1149,
+      "include": [
+        "app/"
+      ],
+      "metrics": {
+        "statements": 68.22,
+        "branches": 60.07,
+        "functions": 69.05,
+        "lines": 68.54
+      }
+    },
+    "electron-core": {
+      "fileCount": 403,
+      "include": [
+        "electron/"
+      ],
+      "metrics": {
+        "statements": 70.54,
+        "branches": 60.54,
+        "functions": 72.08,
+        "lines": 70.97
+      }
+    },
+    "electron-djvu-feature": {
+      "fileCount": 24,
+      "include": [
+        "electron/features/djvu/"
+      ],
+      "metrics": {
+        "statements": 70.9,
+        "branches": 55.2,
+        "functions": 71.84,
+        "lines": 71.34
+      }
+    },
+    "electron-ocr": {
+      "fileCount": 51,
+      "include": [
+        "electron/ocr/"
+      ],
+      "metrics": {
+        "statements": 67.11,
+        "branches": 60.36,
+        "functions": 73.42,
+        "lines": 67.18
+      }
+    },
+    "pdf-viewer": {
+      "fileCount": 584,
+      "include": [
+        "app/modules/pdf-viewer/"
+      ],
+      "metrics": {
+        "statements": 69.07,
+        "branches": 60.91,
+        "functions": 70.47,
+        "lines": 69.38
+      }
+    },
+    "release-scripts": {
+      "fileCount": 23,
+      "include": [
+        "scripts/release/"
+      ],
+      "metrics": {
+        "statements": 50.14,
+        "branches": 52.79,
+        "functions": 59.92,
+        "lines": 49.68
+      }
+    },
+    "scripts-core": {
+      "fileCount": 131,
+      "include": [
+        "scripts/"
+      ],
+      "metrics": {
+        "statements": 35.43,
+        "branches": 36.49,
+        "functions": 40.89,
+        "lines": 35.61
+      }
+    },
+    "workspace-shell": {
+      "fileCount": 211,
+      "include": [
+        "app/modules/workspace-shell/"
+      ],
+      "metrics": {
+        "statements": 65.8,
+        "branches": 57.18,
+        "functions": 64.96,
+        "lines": 66.11
+      }
+    }
+  },
+  "metrics": {
+    "statements": 65.44,
+    "branches": 58.22,
+    "functions": 67.39,
+    "lines": 65.79
+  },
+  "tolerancePercentagePoints": 0.5,
+  "version": 1
+}

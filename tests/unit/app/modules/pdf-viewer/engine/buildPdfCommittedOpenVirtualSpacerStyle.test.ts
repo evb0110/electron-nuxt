@@ -62,6 +62,31 @@ describe('buildPdfCommittedOpenVirtualSpacerStyle', () => {
         });
     });
 
+    it('computes uniform spread extents without materializing every page', () => {
+        const snapshot = {
+            ...createSnapshot(),
+            openingPageGeometry: {
+                ...createSnapshot().openingPageGeometry!,
+                pageCount: 1_000_001,
+            },
+        };
+
+        expect(buildPdfCommittedOpenVirtualSpacerStyle({
+            snapshot,
+            continuousScroll: true,
+            viewMode: 'facing',
+            gap: 20,
+            lastMountedPage: 2,
+        })?.height).toBe('621999980px');
+        expect(buildPdfCommittedOpenVirtualSpacerStyle({
+            snapshot,
+            continuousScroll: true,
+            viewMode: 'facing-first-single',
+            gap: 20,
+            lastMountedPage: 1,
+        })?.height).toBe('621999980px');
+    });
+
     it('does not reserve an extent after the opening generation is ready', () => {
         expect(buildPdfCommittedOpenVirtualSpacerStyle({
             snapshot: {
