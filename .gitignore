@@ -15,6 +15,7 @@ coverage/
 resources/page-processing/
 
 .idea/
+.agents/
 .claude/
 .codex/
 .vscode/
