@@ -7,6 +7,7 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
+import { IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES } from '@contracts/electronApiDocuments';
 import type { TTranslateFn } from '@i18n-app';
 import {
     clearRegisteredPdfRasterDisplayProfilesForTests,
@@ -124,6 +125,25 @@ describe('createDocumentOpenFlow', () => {
         expect(mocks.legacyDocuments.statFile).not.toHaveBeenCalled();
     });
 
+    it('keeps PDFs above the direct IPC ceiling path-backed', async () => {
+        const { openFlow } = createOpenFlowHarness();
+        const size = IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES + 1;
+        mocks.documentFiles.statFile.mockResolvedValue({ size });
+
+        const nextState = await openFlow.readPdfStateFromPath('/tmp/large-work.pdf');
+
+        expect(nextState).toEqual({
+            pdfData: null,
+            pdfSrc: {
+                kind: 'path',
+                path: '/tmp/large-work.pdf',
+                size,
+            },
+        });
+        expect(mocks.documentFiles.readFile).not.toHaveBeenCalled();
+        expect(mocks.documentFiles.readFileRange).not.toHaveBeenCalled();
+    });
+
     it('persists in-memory PDF snapshots with the split document files write capability', async () => {
         const {
             openFlow,
@@ -144,8 +164,7 @@ describe('createDocumentOpenFlow', () => {
         expect(mocks.legacyDocuments.writeFile).not.toHaveBeenCalled();
     });
 
-    it('tracks preselected opens with the split document files stat capability', async () => {
-        mocks.documentFiles.statFile.mockResolvedValueOnce({ size: 2 * 1024 * 1024 });
+    it('tracks preselected DjVu opens without statting the external source path', async () => {
         const {
             analyticsDocumentScope,
             deps,
@@ -160,19 +179,19 @@ describe('createDocumentOpenFlow', () => {
 
         const outcome = await openFlow.openFile(preselectedDjvu);
 
-        expect(outcome.status).toBe('opened');
+        expect(outcome.status).toBe('prepared');
         expect(state.pendingDjvu.value).toBe('/tmp/scan.djvu');
-        expect(mocks.documentFiles.statFile).toHaveBeenCalledWith('/tmp/scan.djvu');
+        expect(mocks.documentFiles.statFile).not.toHaveBeenCalledWith('/tmp/scan.djvu');
         expect(mocks.legacyDocuments.statFile).not.toHaveBeenCalled();
         expect(analyticsDocumentScope.set).toHaveBeenCalledWith(expect.objectContaining({
             documentKind: 'djvu',
             fileExtension: 'djvu',
-            fileSizeBucket: '1mb_to_10mb',
+            fileSizeBucket: null,
         }));
         expect(deps.analytics.track).toHaveBeenCalledWith('document_opened', expect.objectContaining({
             documentKind: 'djvu',
             fileExtension: 'djvu',
-            fileSizeBucket: '1mb_to_10mb',
+            fileSizeBucket: null,
             openMethod: 'preselected',
             requiresSaveAsOnFirstSave: false,
         }));
@@ -273,6 +292,8 @@ describe('createDocumentOpenFlow', () => {
 
         expect(state.pdfRasterDisplayProfile.value).toStrictEqual(profile);
         expect(getRegisteredPdfRasterDisplayProfileCountForTests()).toBe(0);
+        expect(mocks.documentFiles.statFile).not.toHaveBeenCalledWith('/tmp/generated.pdf');
+        expect(mocks.documentFiles.statFile).toHaveBeenCalledWith('/tmp/generated-working.pdf');
 
         await expect(openFlow.openFileDirect('/tmp/generated.pdf')).resolves.toMatchObject({status: 'opened'});
 

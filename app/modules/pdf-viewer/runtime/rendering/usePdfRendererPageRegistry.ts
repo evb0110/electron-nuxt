@@ -13,11 +13,15 @@ import {
 
 let nextPdfViewerSurfaceScopeId = 1;
 
-export const usePdfRendererPageRegistry = () => {
+interface IUsePdfRendererPageRegistryOptions {
+    isPageProtected?: (pageNumber: number) => boolean;
+    onPageEvicted?: (pageNumber: number) => void;
+}
+
+export const usePdfRendererPageRegistry = (options: IUsePdfRendererPageRegistryOptions = {}) => {
     const pageRenderState = createPdfPageRenderState();
     const {
         renderedPages,
-        staleRenderedPages,
         renderingPages,
         renderingPageRequestIds,
     } = pageRenderState;
@@ -29,6 +33,41 @@ export const usePdfRendererPageRegistry = () => {
     nextPdfViewerSurfaceScopeId += 1;
     const textLayerCleanupFns = new Map<number, TPdfTextLayerCleanup>();
     const activeTextLayerAbortControllers = new Map<number, IActivePdfTextLayerTask>();
+    const activeOptionalTextLayerTasks = new Map<number, {
+        version: number;
+        requestId: number;
+        promise: Promise<void>;
+    }>();
+
+    function trackOptionalTextLayerTask(
+        pageNumber: number,
+        version: number,
+        requestId: number,
+        task: Promise<unknown>,
+    ) {
+        const promise = task
+            .catch(() => undefined)
+            .then(() => undefined)
+            .finally(() => {
+                const current = activeOptionalTextLayerTasks.get(pageNumber);
+                if (current?.version === version && current.requestId === requestId) {
+                    activeOptionalTextLayerTasks.delete(pageNumber);
+                }
+            });
+        activeOptionalTextLayerTasks.set(pageNumber, {
+            version,
+            requestId,
+            promise,
+        });
+        return promise;
+    }
+
+    function waitForOptionalTextLayerTasksToSettle() {
+        return Promise.all(Array.from(
+            activeOptionalTextLayerTasks.values(),
+            task => task.promise,
+        )).then(() => undefined);
+    }
 
     function cancelActiveRenderTask(pageNumber: number) {
         const activeRenderTask = activeRenderTasks.get(pageNumber);
@@ -176,14 +215,16 @@ export const usePdfRendererPageRegistry = () => {
             if (pageCanvases.get(pageNumber) === canvas) {
                 pageCanvases.delete(pageNumber);
                 renderedPages.delete(pageNumber);
-                staleRenderedPages.delete(pageNumber);
             }
             if (pageCanvasSurfaceLeases.get(pageNumber) === compositeLease) {
                 pageCanvasSurfaceLeases.delete(pageNumber);
             }
             compositeLease.release();
+            options.onPageEvicted?.(pageNumber);
         };
-        const canEvict = () => committed && pageCanvases.get(pageNumber) === canvas;
+        const canEvict = () => committed
+            && pageCanvases.get(pageNumber) === canvas
+            && options.isPageProtected?.(pageNumber) !== true;
         leases.push(workspaceSurfaceBudgetController.reserve({
             scopeId: surfaceScopeId,
             category: 'pdf-page-canvas',
@@ -251,7 +292,6 @@ export const usePdfRendererPageRegistry = () => {
     return {
         pageRenderState,
         renderedPages,
-        staleRenderedPages,
         renderingPages,
         renderingPageRequestIds,
         missingRenderTargetRetries,
@@ -264,6 +304,9 @@ export const usePdfRendererPageRegistry = () => {
         releaseAllSurfaceResources,
         textLayerCleanupFns,
         activeTextLayerAbortControllers,
+        activeOptionalTextLayerTasks,
+        trackOptionalTextLayerTask,
+        waitForOptionalTextLayerTasksToSettle,
         cancelActiveRenderTask,
         cancelActiveRenderTaskIfCurrent,
         cancelAllActiveRenderTasks,

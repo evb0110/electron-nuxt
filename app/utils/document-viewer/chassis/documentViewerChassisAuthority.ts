@@ -18,12 +18,21 @@ import {
     type IDocumentViewportWritePort,
 } from '@app/utils/document-viewer/chassis/documentViewportWritePort';
 import { createDocumentViewerRenderCoordinator } from '@app/utils/document-viewer/chassis/createDocumentViewerRenderCoordinator';
+import {
+    createDocumentOpenSurfaceSession,
+    type IDocumentOpenSurfaceSession,
+} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import type { IDocumentViewportSessionState } from '@app/utils/document-viewer/session/documentViewportSession';
 
 export interface IDocumentViewerChassisAuthority {
+    readonly instanceId: string;
     readonly currentPage: Ref<number>;
     readonly pageCount: Ref<number>;
     readonly pageSlots: IDocumentPageSlotRegistry;
     readonly renderCoordinator: ReturnType<typeof createDocumentViewerRenderCoordinator>;
+    readonly openSurface: ReturnType<typeof createDocumentOpenSurfaceSession>;
+    readonly openingPageElement: Readonly<ShallowRef<HTMLElement | null>>;
+    readonly openingPageVisual: Readonly<Ref<TDocumentOpeningPageVisual>>;
     readonly source: Readonly<ShallowRef<IDocumentPageSource | null>>;
     readonly sourceKind: Ref<TDocumentPageSourceKind>;
     readonly surfaceBudget: typeof workspaceSurfaceBudgetController;
@@ -32,6 +41,12 @@ export interface IDocumentViewerChassisAuthority {
     readonly viewportClass: Readonly<Ref<HTMLAttributes['class']>>;
     readonly viewportStyle: Readonly<Ref<StyleValue>>;
     bindSource(source: IDocumentPageSource | null): void;
+    bindOpeningPageElement(element: HTMLElement | null): void;
+    commitOpeningPageVisual(
+        generation: number,
+        pageNumber: number,
+        visual: TDocumentOpeningPageVisual,
+    ): boolean;
     bindViewportElement(element: HTMLElement | null): void;
     bindViewportFeature(binding: IDocumentViewportFeatureBinding): () => void;
     dispatchViewportEvent(type: TDocumentViewportEventType, event?: Event): void;
@@ -40,6 +55,7 @@ export interface IDocumentViewerChassisAuthority {
 
 export type TDocumentViewportEventType = 'scroll' | 'wheel' | 'mousedown' | 'mousemove' | 'mouseup'
     | 'mouseleave' | 'click' | 'dblclick' | 'contextmenu' | 'selectstart';
+export type TDocumentOpeningPageVisual = 'none' | 'skeleton' | 'fresh';
 
 export interface IDocumentViewportFeatureBinding {
     getClass: () => HTMLAttributes['class'];
@@ -51,29 +67,142 @@ export const documentViewerChassisAuthorityKey = Symbol('document-viewer-chassis
     IDocumentViewerChassisAuthority
 >;
 
+let nextDocumentViewerChassisInstanceId = 0;
+
+export function shouldApplyExternalChassisPage(
+    session: IDocumentViewportSessionState,
+    pageNumber: number,
+) {
+    const normalizedPage = Math.max(1, Math.trunc(pageNumber));
+    // Once a session owns an identity, currentPage is a committed projection,
+    // not an alternate command channel. Real navigation enters through
+    // openSurface.requestNavigation; accepting a mismatched projected prop
+    // here would supersede a newer session intent during mount/update races.
+    return session.identity === null || session.requestedPage === normalizedPage;
+}
+
+export function shouldAcceptFeaturePackChassisPage(
+    session: IDocumentViewportSessionState,
+    pageNumber: number,
+) {
+    const normalizedPage = Math.max(1, Math.trunc(pageNumber));
+    // A retained feature pack can finish projecting its previous page after
+    // the document session has already closed.  An empty session has no
+    // document whose scroll state is authoritative, so accepting that late
+    // projection would queue it as pre-open navigation for the next file and
+    // make the opening shell jump from page 1 to the stale page.
+    if (session.identity === null) {
+        return false;
+    }
+    // A claimed viewport session is the navigation authority. Feature packs
+    // project the result of an already-requested viewport commit; they must
+    // not turn a late projection from an older render into a new command.
+    // Viewport commit boundaries request their page before emitting this
+    // compatibility projection, so legitimate scroll/navigation updates still
+    // match requestedPage while stale updates are rejected.
+    return session.requestedPage === normalizedPage;
+}
+
 export function createDocumentViewerChassisAuthority(
     sourceKind: Ref<TDocumentPageSourceKind>,
     initialPage = 1,
+    sharedOpenSurface?: IDocumentOpenSurfaceSession | undefined,
 ): IDocumentViewerChassisAuthority {
-    const currentPage = ref(Math.max(1, Math.trunc(initialPage)));
+    const currentPage = ref(Math.max(
+        1,
+        Math.trunc(sharedOpenSurface?.viewportSession.value.requestedPage ?? initialPage),
+    ));
+    const instanceId = `document-viewer-chassis-${String(++nextDocumentViewerChassisInstanceId)}`;
     const pageCount = ref(0);
     const pageSlots = createDocumentPageSlotRegistry();
     const renderCoordinator = createDocumentViewerRenderCoordinator(pageSlots);
+    const openSurface = sharedOpenSurface ?? createDocumentOpenSurfaceSession();
+    const openingPageElement = shallowRef<HTMLElement | null>(null);
+    const openingPageVisual = ref<TDocumentOpeningPageVisual>('none');
     const source = shallowRef<IDocumentPageSource | null>(null);
     const viewportElement = shallowRef<HTMLElement | null>(null);
+    const viewportWritePort = createDocumentViewportWritePort();
     const viewportFeature = shallowRef<IDocumentViewportFeatureBinding | null>(null);
     const viewportClass = computed(() => viewportFeature.value?.getClass() ?? '');
     const viewportStyle = computed(() => viewportFeature.value?.getStyle() ?? {});
+    watch(
+        () => openSurface.viewportSession.value.visual,
+        (visual) => {
+            openingPageVisual.value = visual.kind === 'page' && visual.presentation === 'skeleton'
+                ? 'skeleton'
+                : visual.kind === 'page' && visual.presentation === 'canvas'
+                    ? 'fresh'
+                    : 'none';
+        },
+        {
+            flush: 'sync',
+            immediate: true,
+        },
+    );
+    watch(
+        () => openSurface.viewportSession.value,
+        (session) => {
+            // Identity acquisition is itself an authority boundary even when
+            // both the empty and opening sessions request page 1. Observing
+            // only the numeric page would leave local pre-source state in
+            // place when that number did not change.
+            currentPage.value = session.requestedPage;
+        },
+        {flush: 'sync'},
+    );
+    let resetOpeningViewportGeneration = 0;
+    watch(
+        [
+            () => openSurface.snapshot.value.generation,
+            () => openSurface.snapshot.value.phase,
+            () => viewportElement.value,
+        ],
+        ([
+            generation,
+            phase,
+            viewport,
+        ]) => {
+            if (
+                phase !== 'pending'
+                || generation <= 0
+                || generation === resetOpeningViewportGeneration
+                || !viewport
+            ) {
+                return;
+            }
+            // A new document generation starts at the canonical viewport
+            // origin. Reset it in the same synchronous transaction that
+            // exposes the opening frame so a stale empty-state/native scroll
+            // offset cannot move the shell before the renderer commits.
+            const intent = viewportWritePort.beginIntent(`document-open:${String(generation)}`);
+            if (viewportWritePort.apply(viewport, {
+                intent,
+                reason: 'document-open-origin',
+                left: 0,
+                top: 0,
+            })) {
+                resetOpeningViewportGeneration = generation;
+            }
+        },
+        {
+            flush: 'sync',
+            immediate: true,
+        },
+    );
 
     return {
+        instanceId,
         currentPage,
         pageCount,
         pageSlots,
         renderCoordinator,
+        openSurface,
+        openingPageElement,
+        openingPageVisual,
         source,
         sourceKind,
         surfaceBudget: workspaceSurfaceBudgetController,
-        viewportWritePort: createDocumentViewportWritePort(),
+        viewportWritePort,
         viewportElement,
         viewportClass,
         viewportStyle,
@@ -86,6 +215,31 @@ export function createDocumentViewerChassisAuthority(
             }
             source.value = nextSource;
             pageCount.value = nextSource?.pageCount ?? 0;
+            if (pageCount.value > 0) openSurface.metadataReady(pageCount.value);
+        },
+        bindOpeningPageElement(element) {
+            openingPageElement.value = element;
+            if (element === null) {
+                openingPageVisual.value = 'none';
+            }
+        },
+        commitOpeningPageVisual(generation, pageNumber, visual) {
+            const snapshot = openSurface.snapshot.value;
+            const frame = snapshot.openingPageFrame;
+            const element = openingPageElement.value;
+            if (
+                snapshot.generation !== generation
+                || frame?.generation !== generation
+                || frame.pageNumber !== pageNumber
+                || !element?.isConnected
+                || element.dataset.pageNumber !== String(pageNumber)
+                || element.dataset.openSurfaceGeneration !== String(generation)
+                || element.dataset.openSurfaceFrameOwner !== frame.ownerId
+            ) {
+                return false;
+            }
+            openingPageVisual.value = visual;
+            return true;
         },
         bindViewportElement(element) {
             viewportElement.value = element;
@@ -103,9 +257,21 @@ export function createDocumentViewerChassisAuthority(
         },
         navigate(pageNumber) {
             const normalizedPage = Math.max(1, Math.trunc(pageNumber));
-            currentPage.value = pageCount.value > 0
+            const boundedPage = pageCount.value > 0
                 ? Math.min(pageCount.value, normalizedPage)
                 : normalizedPage;
+            if (openSurface.viewportSession.value.identity === null) {
+                // Local chassis state may still be prepared before a source is
+                // claimed (for example while swapping feature kinds), but it
+                // is not a durable command for a future document.
+                currentPage.value = boundedPage;
+                return currentPage.value;
+            }
+            if (openSurface.viewportSession.value.requestedPage !== boundedPage) {
+                currentPage.value = openSurface.requestNavigation(boundedPage);
+                return currentPage.value;
+            }
+            currentPage.value = boundedPage;
             return currentPage.value;
         },
     };

@@ -46,7 +46,7 @@ function setup() {
 }
 
 describe('usePdfViewerRenderStallRecovery', () => {
-    it('trips the heartbeat circuit breaker without starting a retry timer or reload', () => {
+    it('forces a bounded page render when the heartbeat circuit breaker trips', async () => {
         const {
             cancelInFlightPageRenders,
             recovery,
@@ -62,8 +62,33 @@ describe('usePdfViewerRenderStallRecovery', () => {
 
         expect(cancelInFlightPageRenders).toHaveBeenCalledOnce();
         expect(recovery.consumePendingInvalidation()).toEqual([2]);
-        expect(renderVisiblePages).not.toHaveBeenCalled();
+        expect(renderVisiblePages).toHaveBeenCalledExactlyOnceWith({
+            start: 2,
+            end: 2,
+        }, {
+            preserveRenderedPages: true,
+            forceRerender: true,
+            bufferOverride: 0,
+        });
         expect(scheduleReload).not.toHaveBeenCalled();
+        await vi.waitFor(() => expect(renderVisiblePages).toHaveBeenCalledOnce());
+    });
+
+    it('reloads only when the bounded page render fails', async () => {
+        const {
+            recovery,
+            renderVisiblePages,
+            scheduleReload,
+        } = setup();
+        renderVisiblePages.mockRejectedValueOnce(new Error('stalled again'));
+
+        recovery.handlePageRenderStall({
+            pageNumber: 2,
+            stage: 'canvas-render',
+            timeoutMs: 15_000,
+        });
+
+        await vi.waitFor(() => expect(scheduleReload).toHaveBeenCalledExactlyOnceWith(true));
     });
 
     it('deduplicates repeated heartbeat failures until reset', () => {

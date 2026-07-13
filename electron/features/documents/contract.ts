@@ -44,6 +44,7 @@ export const DOCUMENTS_CHANNELS = {
     fileReadRange: 'file:readRange',
     fileCreateManagedHandle: 'file:createManagedHandle',
     fileReleaseManagedHandle: 'file:releaseManagedHandle',
+    pdfOpeningGeometry: 'pdf:openingGeometry',
     pdfNativePageSizes: 'pdf:nativePageSizes',
     pdfNativePagePreviewCancel: 'pdf:nativePagePreview:cancel',
     pdfNativePagePreview: 'pdf:nativePagePreview',
@@ -238,6 +239,10 @@ export interface IDocumentsInvokeMap {
     [DOCUMENTS_CHANNELS.fileReleaseManagedHandle]: {
         args: [leaseId: string];
         result: boolean;
+    };
+    [DOCUMENTS_CHANNELS.pdfOpeningGeometry]: {
+        args: [path: string];
+        result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['getPdfOpeningGeometry']>>>;
     };
     [DOCUMENTS_CHANNELS.pdfNativePageSizes]: {
         args: [path: string];

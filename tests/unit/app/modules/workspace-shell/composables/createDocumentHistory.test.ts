@@ -16,13 +16,29 @@ import {
 } from '@contracts/documentMutationErrors';
 import {requireDocumentRevisionToken} from '@contracts';
 
-function createHistoryHarness() {
-    const state = createDocumentSessionState({ isDesktopRuntime: ref(false) });
+function createHistoryHarness(isDesktopRuntime = false) {
+    const state = createDocumentSessionState({ isDesktopRuntime: ref(isDesktopRuntime) });
     state.workingCopyPath.value = '/tmp/work.pdf';
     state.originalPath.value = '/tmp/original.pdf';
     state.documentRevisionToken.value = requireDocumentRevisionToken('revision-before-restore');
 
-    const documentFiles = {writeFile: vi.fn(async () => true)};
+    const documentFiles = {
+        writeFile: vi.fn(async () => true),
+        getDocumentRevision: vi.fn(async () => ({
+            version: 1 as const,
+            documentRef: '/tmp/history.pdf',
+            token: requireDocumentRevisionToken('history-revision'),
+            contentRevision: 1,
+            authority: 'electron-working-copy' as const,
+            mintedAt: 1,
+        })),
+        savePdfData: vi.fn(async () => ({
+            isValid: true,
+            tool: 'qpdf' as const,
+            errors: [],
+            warnings: [],
+        })),
+    };
     const documentWorkingCopy = {
         cleanupFile: vi.fn(async () => undefined),
         createWorkingCopyFromData: vi.fn(async () => '/tmp/history.pdf'),
@@ -58,6 +74,35 @@ function createHistoryHarness() {
 }
 
 describe('createDocumentHistory', () => {
+    it('keeps document open viable when an oversized baseline cannot be staged', async () => {
+        const {
+            documentWorkingCopy,
+            history,
+        } = createHistoryHarness(true);
+        documentWorkingCopy.createWorkingCopyFromPath.mockRejectedValueOnce(new Error('staging failed'));
+
+        await expect(history.resetHistory(
+            new Uint8Array((16 * 1024 * 1024) + 1),
+            { reuseSnapshot: true },
+        )).resolves.toBe(true);
+
+        expect(history.getHistoryDebugState()).toEqual({
+            historyLength: 0,
+            historyIndex: 0,
+            historyCleanIndex: -1,
+        });
+    });
+
+    it('rejects oversized byte entries supplied through the public history entry API', () => {
+        const {history} = createHistoryHarness();
+
+        expect(history.pushHistoryEntry({
+            kind: 'bytes',
+            snapshot: new Uint8Array((16 * 1024 * 1024) + 1),
+        })).toBe(false);
+        expect(history.getHistoryDebugState().historyLength).toBe(0);
+    });
+
     it('publishes file checkpoints directly to the workspace command sink', async () => {
         const {history} = createHistoryHarness();
         const registrations: Array<{
@@ -245,7 +290,23 @@ describe('createDocumentHistory', () => {
             clearPdfConformanceProfile: vi.fn(),
             clearOcrCache: vi.fn(),
             deferPdfConformanceProfile: vi.fn(),
-            documentFiles: () => ({writeFile: vi.fn(async () => true)}),
+            documentFiles: () => ({
+                writeFile: vi.fn(async () => true),
+                getDocumentRevision: vi.fn(async () => ({
+                    version: 1 as const,
+                    documentRef: '/tmp/history.pdf',
+                    token: requireDocumentRevisionToken('history-revision'),
+                    contentRevision: 1,
+                    authority: 'electron-working-copy' as const,
+                    mintedAt: 1,
+                })),
+                savePdfData: vi.fn(async () => ({
+                    isValid: true,
+                    tool: 'qpdf' as const,
+                    errors: [],
+                    warnings: [],
+                })),
+            }),
             documentWorkingCopy: () => ({
                 cleanupFile: vi.fn(async () => undefined),
                 createWorkingCopyFromData: vi.fn(async () => '/tmp/unused-data-history.pdf'),

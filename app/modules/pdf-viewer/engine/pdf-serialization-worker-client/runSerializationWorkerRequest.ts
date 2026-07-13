@@ -1,9 +1,10 @@
 import type {
     ISerializationWorkerRequest,
     ISerializationWorkerRequestMap,
+    ISerializationWorkerResultMap,
     TSerializationWorkerRequest,
     TSerializationWorkerRequestType,
-} from '@app/modules/pdf-viewer/engine/pdfSerializationWorker.types';
+} from '@app/modules/pdf-viewer/engine/canonicalAnnotationIdentityBindingWorkerResult.types';
 import { isRecord } from '@contracts/runtimeGuards';
 import { yieldToBrowser } from '@app/utils/yieldToBrowser';
 import type { IPendingBrowserWorkerRequest } from '@app/platform/browser-api/public';
@@ -91,6 +92,35 @@ function decodeSerializationWorkerResult(data: unknown): Uint8Array | null | und
     return undefined;
 }
 
+function decodeCanonicalIdentityBindingWorkerResult(
+    data: unknown,
+): ISerializationWorkerResultMap['bindCanonicalAnnotationIdentities'] | undefined {
+    if (
+        !isRecord(data)
+        || !(data.data instanceof Uint8Array)
+        || !Array.isArray(data.identityBindings)
+    ) {
+        return undefined;
+    }
+    const identityBindings = Array.from<unknown>(data.identityBindings);
+    if (
+        !identityBindings.every((binding): binding is {
+            annotationId: string;
+            pdfRef: string;
+        } => (
+            isRecord(binding)
+            && typeof binding.annotationId === 'string'
+            && typeof binding.pdfRef === 'string'
+        ))
+    ) {
+        return undefined;
+    }
+    return {
+        data: data.data,
+        identityBindings,
+    };
+}
+
 function toTransferableUint8Array(data: Uint8Array): Uint8Array<ArrayBuffer> {
     // Never transfer the caller's live buffer into the worker. The save path
     // can pass reactive PDF state here, and transferring that buffer would
@@ -144,6 +174,20 @@ function buildWorkerRequestWithTransfers(
                 transfer: [transferableData.buffer] satisfies Transferable[],
             };
         }
+        case 'bindCanonicalAnnotationIdentities': {
+            const payload = request.payload;
+            const transferableData = toTransferableUint8Array(payload.data);
+            return {
+                request: {
+                    ...request,
+                    payload: {
+                        ...payload,
+                        data: transferableData,
+                    },
+                } satisfies ISerializationWorkerRequest<'bindCanonicalAnnotationIdentities'>,
+                transfer: [transferableData.buffer] satisfies Transferable[],
+            };
+        }
         default:
             return {
                 request,
@@ -192,6 +236,26 @@ async function runDirect(
             );
             return deleteEmbeddedAnnotation(payload.data, payload.comment);
         }
+        case 'bindCanonicalAnnotationIdentities': {
+            const { payload } = request;
+            const { bindCanonicalAnnotationIdentitiesInBytes } = await import(
+                '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-annotations/applyCanonicalAnnotationIdentityBindings'
+            );
+            const identityBindings: ISerializationWorkerResultMap['bindCanonicalAnnotationIdentities']['identityBindings'] = [];
+            const data = await bindCanonicalAnnotationIdentitiesInBytes(
+                payload.data,
+                payload.comments,
+                payload.program ?? [],
+                {
+                    ...payload.evidence,
+                    onIdentityBound: binding => identityBindings.push(binding),
+                },
+            );
+            return {
+                data,
+                identityBindings,
+            };
+        }
         default:
             throw new Error('Unsupported PDF serialization request');
     }
@@ -209,7 +273,7 @@ async function runDirectWithYield(
 export async function runSerializationWorkerRequest<K extends TSerializationWorkerRequestType>(
     type: K,
     payload: ISerializationWorkerRequestMap[K],
-) {
+): Promise<ISerializationWorkerResultMap[K]> {
     const request: ISerializationWorkerRequest<K> = {
         id: serializationWorkerClient.createRequestId(),
         type,
@@ -218,27 +282,35 @@ export async function runSerializationWorkerRequest<K extends TSerializationWork
     const typedRequest = request as TSerializationWorkerRequest;
 
     if (!canUseBrowserWorker()) {
-        return runDirectWithYield(typedRequest);
+        return runDirectWithYield(typedRequest) as Promise<ISerializationWorkerResultMap[K]>;
     }
 
     let worker: Worker;
     try {
         worker = serializationWorkerClient.getWorker();
     } catch {
-        return runDirectWithYield(typedRequest);
+        return runDirectWithYield(typedRequest) as Promise<ISerializationWorkerResultMap[K]>;
     }
 
-    return new Promise<Uint8Array | null>((resolve, reject) => {
+    return new Promise<ISerializationWorkerResultMap[K]>((resolve, reject) => {
         serializationWorkerClient.clearIdleTerminateTimer();
 
         serializationWorkerClient.registerPendingRequest(request.id, {
             requestType: type,
             resolveData: (data) => {
+                if (type === 'bindCanonicalAnnotationIdentities') {
+                    const decoded = decodeCanonicalIdentityBindingWorkerResult(data);
+                    if (!decoded) {
+                        return false;
+                    }
+                    resolve(decoded as ISerializationWorkerResultMap[K]);
+                    return true;
+                }
                 const decoded = decodeSerializationWorkerResult(data);
                 if (decoded === undefined) {
                     return false;
                 }
-                resolve(decoded);
+                resolve(decoded as ISerializationWorkerResultMap[K]);
                 return true;
             },
             reject,
@@ -272,6 +344,6 @@ export async function runSerializationWorkerRequest<K extends TSerializationWork
         }
         return runDirectWithYield(typedRequest).catch(() => {
             throw error;
-        });
+        }) as Promise<ISerializationWorkerResultMap[K]>;
     });
 }

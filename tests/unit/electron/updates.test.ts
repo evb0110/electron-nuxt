@@ -113,9 +113,11 @@ const originalArch = process.arch;
 
 function createMetadataResponse(version: string) {
     return {
+        headers: new Headers(),
         ok: true,
         status: 200,
         json: async () => ({release: {tag: version}}),
+        text: async () => `version: ${version}\n`,
     };
 }
 
@@ -455,6 +457,95 @@ describe('updates robustness', () => {
         });
     });
 
+    it.each([
+        '1.0.0',
+        '0.9.9',
+    ])('discards a stale downloaded %s event and performs the next check normally', async (staleVersion) => {
+        mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
+        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
+            mocks.autoUpdater.emit('checking-for-update');
+            mocks.autoUpdater.emit('update-available', { version: '1.1.0' });
+            mocks.autoUpdater.emit('update-downloaded', { version: staleVersion });
+        });
+
+        const updates = await loadUpdatesModule();
+        const statuses: Array<Record<string, unknown>> = [];
+        updates.initializeUpdates(status => statuses.push({ ...status }));
+
+        await updates.triggerManualUpdateCheck();
+        await flushPromises();
+
+        expect(statuses.at(-1)).toMatchObject({
+            origin: 'manual',
+            phase: 'no-update',
+            version: '1.0.0',
+        });
+        await expect(updates.installDownloadedUpdate()).resolves.toEqual({started: false});
+        expect(mocks.logger.warn).toHaveBeenCalledWith(
+            `Discarding downloaded update ${staleVersion} during download event; running version is 1.0.0`,
+        );
+
+        mocks.autoUpdater.checkForUpdates.mockImplementationOnce(async () => {
+            mocks.autoUpdater.emit('checking-for-update');
+            mocks.autoUpdater.emit('update-not-available', { version: '1.0.0' });
+        });
+        await updates.triggerManualUpdateCheck();
+        await flushPromises();
+
+        expect(mocks.autoUpdater.checkForUpdates).toHaveBeenCalledTimes(2);
+    });
+
+    it('clears a downloaded candidate that became current before the next check', async () => {
+        mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
+        mocks.autoUpdater.checkForUpdates.mockImplementationOnce(async () => {
+            mocks.autoUpdater.emit('checking-for-update');
+            mocks.autoUpdater.emit('update-available', { version: '1.1.0' });
+            mocks.autoUpdater.emit('update-downloaded', { version: '1.1.0' });
+        });
+
+        const updates = await loadUpdatesModule();
+        updates.initializeUpdates(() => undefined);
+        await updates.triggerManualUpdateCheck();
+        await flushPromises();
+
+        mocks.app.getVersion.mockReturnValue('1.1.0');
+        mocks.fetch.mockResolvedValue(createMetadataResponse('1.2.0'));
+        mocks.autoUpdater.checkForUpdates.mockImplementationOnce(async () => {
+            mocks.autoUpdater.emit('checking-for-update');
+            mocks.autoUpdater.emit('update-not-available', { version: '1.1.0' });
+        });
+        await updates.triggerManualUpdateCheck();
+        await flushPromises();
+
+        expect(mocks.autoUpdater.checkForUpdates).toHaveBeenCalledTimes(2);
+        expect(mocks.logger.warn).toHaveBeenCalledWith(
+            'Discarding downloaded update 1.1.0 during update check; running version is 1.1.0',
+        );
+    });
+
+    it('clears a downloaded candidate that became current before installation', async () => {
+        mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
+        mocks.autoUpdater.checkForUpdates.mockImplementationOnce(async () => {
+            mocks.autoUpdater.emit('checking-for-update');
+            mocks.autoUpdater.emit('update-available', { version: '1.1.0' });
+            mocks.autoUpdater.emit('update-downloaded', { version: '1.1.0' });
+        });
+
+        const updates = await loadUpdatesModule();
+        updates.initializeUpdates(() => undefined);
+        await updates.triggerManualUpdateCheck();
+        await flushPromises();
+
+        mocks.app.getVersion.mockReturnValue('1.1.0');
+        await expect(updates.installDownloadedUpdate()).resolves.toEqual({started: false});
+        await expect(updates.installDownloadedUpdate()).resolves.toEqual({started: false});
+        expect(mocks.markUpdateInstallPending).not.toHaveBeenCalled();
+        expect(mocks.autoUpdater.quitAndInstall).not.toHaveBeenCalled();
+        expect(mocks.logger.error).toHaveBeenCalledWith(
+            'Downloaded update validation failed: Downloaded update 1.1.0 is not newer than the running version 1.1.0',
+        );
+    });
+
     it('routes downloaded update installation through the configured shutdown hook', async () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
         mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
@@ -503,6 +594,85 @@ describe('updates robustness', () => {
 
         await expect(updates.installDownloadedUpdate()).resolves.toEqual({started: true});
         expect(mocks.autoUpdater.quitAndInstall).toHaveBeenCalledWith(false, true);
+    });
+
+    it('refuses to install a cached update after an online check locally proves it is superseded', async () => {
+        mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
+        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
+            mocks.autoUpdater.emit('checking-for-update');
+            mocks.autoUpdater.emit('update-available', { version: '1.1.0' });
+            mocks.autoUpdater.emit('update-downloaded', { version: '1.1.0' });
+        });
+
+        const updates = await loadUpdatesModule();
+        updates.initializeUpdates(() => undefined);
+        await updates.triggerManualUpdateCheck();
+        await flushPromises();
+
+        mocks.fetch.mockResolvedValue(createMetadataResponse('1.2.0'));
+        mocks.autoUpdater.checkForUpdates.mockResolvedValue(undefined);
+        await updates.triggerManualUpdateCheck();
+        await flushPromises();
+
+        await expect(updates.installDownloadedUpdate()).resolves.toEqual({started: false});
+        expect(mocks.markUpdateInstallPending).not.toHaveBeenCalled();
+        expect(mocks.autoUpdater.quitAndInstall).not.toHaveBeenCalled();
+        expect(mocks.logger.info).toHaveBeenCalledWith(
+            'Discarding cached downloaded update 1.1.0 in favor of newer metadata release 1.2.0',
+        );
+    });
+
+    it('installs an already-downloaded update offline without performing live validation requests', async () => {
+        mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
+        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
+            mocks.autoUpdater.emit('checking-for-update');
+            mocks.autoUpdater.emit('update-available', { version: '1.1.0' });
+            mocks.autoUpdater.emit('update-downloaded', { version: '1.1.0' });
+        });
+
+        const updates = await loadUpdatesModule();
+        updates.initializeUpdates(() => undefined);
+        await updates.triggerManualUpdateCheck();
+        await flushPromises();
+
+        const fetchCallsBeforeInstall = mocks.fetch.mock.calls.length;
+        mocks.fetch.mockRejectedValue(new Error('getaddrinfo ENOTFOUND updates.example.test'));
+
+        await expect(updates.installDownloadedUpdate()).resolves.toEqual({started: true});
+        expect(mocks.fetch).toHaveBeenCalledTimes(fetchCallsBeforeInstall);
+        expect(mocks.markUpdateInstallPending).toHaveBeenCalledWith('1.1.0');
+        expect(mocks.autoUpdater.quitAndInstall).toHaveBeenCalledWith(false, true);
+    });
+
+    it('refuses a cached update after an online check locally proves its updater feed was yanked', async () => {
+        mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
+        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
+            mocks.autoUpdater.emit('checking-for-update');
+            mocks.autoUpdater.emit('update-available', { version: '1.1.0' });
+            mocks.autoUpdater.emit('update-downloaded', { version: '1.1.0' });
+        });
+
+        const updates = await loadUpdatesModule();
+        updates.initializeUpdates(() => undefined);
+        await updates.triggerManualUpdateCheck();
+        await flushPromises();
+
+        mocks.fetch.mockImplementation(async (_url: string, init?: {method?: string}) => {
+            if (init?.method === 'HEAD') {
+                return createEmptyResponse(404);
+            }
+            return createMetadataResponse('1.1.0');
+        });
+        mocks.autoUpdater.checkForUpdates.mockResolvedValue(undefined);
+        await updates.triggerManualUpdateCheck();
+        await flushPromises();
+
+        await expect(updates.installDownloadedUpdate()).resolves.toEqual({started: false});
+        expect(mocks.markUpdateInstallPending).not.toHaveBeenCalled();
+        expect(mocks.autoUpdater.quitAndInstall).not.toHaveBeenCalled();
+        expect(mocks.logger.warn).toHaveBeenCalledWith(
+            'Discarding cached downloaded update 1.1.0; its updater feed is no longer published',
+        );
     });
 
     it('does not block installation when the diagnostic health marker cannot be written', async () => {

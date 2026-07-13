@@ -1,5 +1,4 @@
 import {
-    afterEach,
     describe,
     expect,
     it,
@@ -7,140 +6,120 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import { usePdfViewerInitialVisualLifecycle } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfViewerInitialVisualLifecycle';
+import type { IPdfCanvasDomCommit } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 
-let restoreWindow: (() => void) | null = null;
-
-function installRequestAnimationFrameQueue() {
-    const originalWindowDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'window');
-    const callbacks: FrameRequestCallback[] = [];
-    const requestAnimationFrame = vi.fn((callback: FrameRequestCallback) => {
-        callbacks.push(callback);
-        return callbacks.length;
-    });
-
-    Object.defineProperty(globalThis, 'window', {
-        configurable: true,
-        writable: true,
-        value: { requestAnimationFrame },
-    });
-
-    restoreWindow = () => {
-        if (originalWindowDescriptor) {
-            Object.defineProperty(globalThis, 'window', originalWindowDescriptor);
-            return;
-        }
-
-        Reflect.deleteProperty(globalThis, 'window');
-    };
-
+function createCommit(pageNumber: number): IPdfCanvasDomCommit {
     return {
-        requestAnimationFrame,
-        async runNextFrame() {
-            const callback = callbacks.shift();
-            expect(callback).toBeTypeOf('function');
-            callback?.(performance.now());
-            await Promise.resolve();
-            await Promise.resolve();
-        },
+        openSurfaceGeneration: 1,
+        documentRevision: 'rev-1',
+        renderVersion: 2,
+        requestId: 3,
+        pageNumber,
     };
 }
 
-afterEach(() => {
-    restoreWindow?.();
-    restoreWindow = null;
-});
-
 describe('usePdfViewerInitialVisualLifecycle', () => {
-    it('keeps delayed skeletons visible until the full page render finalizes', async () => {
-        const frameQueue = installRequestAnimationFrameQueue();
+    it('keeps canvas commit separate from the explicit viewport-ready handoff', () => {
         const renderedPageStateVersion = ref(0);
         const emitInitialVisualReady = vi.fn();
         const markDelayedSkeletonPageRendered = vi.fn();
         const syncManagedShapesAfterPageRendered = vi.fn();
-
         const lifecycle = usePdfViewerInitialVisualLifecycle({
             renderedPageStateVersion,
             emitInitialVisualReady,
             markDelayedSkeletonPageRendered,
             syncManagedShapesAfterPageRendered,
+            isInitialVisualCanvasReady: pageNumber => pageNumber === 3,
         });
 
         lifecycle.setPendingInitialVisualReadyToken(11);
-        lifecycle.handlePageCanvasMounted(3);
+        lifecycle.handlePageCanvasMounted(createCommit(3));
 
         expect(renderedPageStateVersion.value).toBe(1);
         expect(syncManagedShapesAfterPageRendered).toHaveBeenCalledWith(3);
         expect(markDelayedSkeletonPageRendered).not.toHaveBeenCalled();
         expect(emitInitialVisualReady).not.toHaveBeenCalled();
 
-        lifecycle.handlePageRendered(3);
+        lifecycle.commitInitialVisualReady(3);
 
-        expect(markDelayedSkeletonPageRendered).toHaveBeenCalledWith(3);
-        expect(syncManagedShapesAfterPageRendered).toHaveBeenCalledTimes(2);
-        expect(emitInitialVisualReady).not.toHaveBeenCalled();
-        expect(frameQueue.requestAnimationFrame).toHaveBeenCalledTimes(1);
-
-        await frameQueue.runNextFrame();
-        expect(emitInitialVisualReady).not.toHaveBeenCalled();
-        expect(frameQueue.requestAnimationFrame).toHaveBeenCalledTimes(2);
-
-        await frameQueue.runNextFrame();
         expect(emitInitialVisualReady).toHaveBeenCalledOnce();
-        expect(emitInitialVisualReady).toHaveBeenCalledWith({ pageNumber: 3 });
+        expect(emitInitialVisualReady).toHaveBeenCalledWith({pageNumber: 3});
     });
 
-    it('ignores a stale paint-ready callback when a new document starts opening', async () => {
-        const frameQueue = installRequestAnimationFrameQueue();
-        const renderedPageStateVersion = ref(0);
+    it('never infers initial readiness from a page-rendered notification', () => {
         const emitInitialVisualReady = vi.fn();
         const markDelayedSkeletonPageRendered = vi.fn();
-        const syncManagedShapesAfterPageRendered = vi.fn();
-
         const lifecycle = usePdfViewerInitialVisualLifecycle({
-            renderedPageStateVersion,
+            renderedPageStateVersion: ref(0),
             emitInitialVisualReady,
             markDelayedSkeletonPageRendered,
-            syncManagedShapesAfterPageRendered,
+            syncManagedShapesAfterPageRendered: vi.fn(),
+            isInitialVisualCanvasReady: () => true,
         });
 
         lifecycle.setPendingInitialVisualReadyToken(11);
         lifecycle.handlePageRendered(1);
-        lifecycle.setPendingInitialVisualReadyToken(12);
 
-        await frameQueue.runNextFrame();
-        await frameQueue.runNextFrame();
-
+        expect(markDelayedSkeletonPageRendered).toHaveBeenCalledWith(1);
         expect(emitInitialVisualReady).not.toHaveBeenCalled();
-
-        lifecycle.handlePageRendered(2);
-        await frameQueue.runNextFrame();
-        await frameQueue.runNextFrame();
-
-        expect(emitInitialVisualReady).toHaveBeenCalledOnce();
-        expect(emitInitialVisualReady).toHaveBeenCalledWith({ pageNumber: 2 });
     });
 
-    it('cancels a scheduled initial visual ready callback', async () => {
-        const frameQueue = installRequestAnimationFrameQueue();
-        const renderedPageStateVersion = ref(0);
+    it('cancels an initial visual token before a canvas commit', () => {
         const emitInitialVisualReady = vi.fn();
-        const markDelayedSkeletonPageRendered = vi.fn();
-        const syncManagedShapesAfterPageRendered = vi.fn();
-
         const lifecycle = usePdfViewerInitialVisualLifecycle({
-            renderedPageStateVersion,
+            renderedPageStateVersion: ref(0),
             emitInitialVisualReady,
-            markDelayedSkeletonPageRendered,
-            syncManagedShapesAfterPageRendered,
+            markDelayedSkeletonPageRendered: vi.fn(),
+            syncManagedShapesAfterPageRendered: vi.fn(),
+            isInitialVisualCanvasReady: () => true,
         });
 
         lifecycle.setPendingInitialVisualReadyToken(11);
-        lifecycle.handlePageRendered(1);
         lifecycle.cancelInitialVisualReady();
-
-        await frameQueue.runNextFrame();
-        await frameQueue.runNextFrame();
+        lifecycle.handlePageCanvasMounted(createCommit(1));
 
         expect(emitInitialVisualReady).not.toHaveBeenCalled();
+    });
+
+    it('does not let an offscreen commit consume the pending visual token', () => {
+        const emitInitialVisualReady = vi.fn();
+        const lifecycle = usePdfViewerInitialVisualLifecycle({
+            renderedPageStateVersion: ref(0),
+            emitInitialVisualReady,
+            markDelayedSkeletonPageRendered: vi.fn(),
+            syncManagedShapesAfterPageRendered: vi.fn(),
+            isInitialVisualCanvasReady: pageNumber => pageNumber === 1,
+        });
+
+        lifecycle.setPendingInitialVisualReadyToken(21);
+        lifecycle.handlePageCanvasMounted(createCommit(2));
+        expect(emitInitialVisualReady).not.toHaveBeenCalled();
+
+        lifecycle.handlePageCanvasMounted(createCommit(1));
+        lifecycle.commitInitialVisualReady(1);
+        expect(emitInitialVisualReady).toHaveBeenCalledOnce();
+        expect(emitInitialVisualReady).toHaveBeenCalledWith({pageNumber: 1});
+    });
+
+    it('keeps the token armed until an exact commit has a valid mounted canvas', () => {
+        const emitInitialVisualReady = vi.fn();
+        let canvasReady = false;
+        const lifecycle = usePdfViewerInitialVisualLifecycle({
+            renderedPageStateVersion: ref(0),
+            emitInitialVisualReady,
+            markDelayedSkeletonPageRendered: vi.fn(),
+            syncManagedShapesAfterPageRendered: vi.fn(),
+            isInitialVisualCanvasReady: () => canvasReady,
+        });
+
+        lifecycle.setPendingInitialVisualReadyToken(22);
+        lifecycle.handlePageCanvasMounted(createCommit(1));
+        expect(lifecycle.commitInitialVisualReady(1)).toBe(false);
+        expect(emitInitialVisualReady).not.toHaveBeenCalled();
+
+        canvasReady = true;
+        lifecycle.handlePageCanvasMounted(createCommit(1));
+        expect(lifecycle.commitInitialVisualReady(1)).toBe(true);
+        expect(emitInitialVisualReady).toHaveBeenCalledOnce();
     });
 });

@@ -23,7 +23,6 @@ interface IUseDocumentWorkspaceViewerPresentationOptions {
     pdfError: Readonly<Ref<unknown>>;
     pdfSrc: Readonly<Ref<unknown>>;
     pendingDjvuDocumentOpen: Readonly<Ref<boolean>>;
-    showDocumentTransitionSkeleton: Readonly<Ref<boolean>>;
     showDjvuSource: Readonly<Ref<boolean>>;
     showNativePdfViewer: Readonly<Ref<boolean>>;
     showStandardPdfViewer: Readonly<Ref<boolean>>;
@@ -37,30 +36,6 @@ export const useDocumentWorkspaceViewerPresentation = (
         || options.showNativePdfViewer.value
         || options.showDjvuSource.value
     ));
-    const hasPendingViewerSource = computed(() => (
-        Boolean(options.pdfSrc.value)
-        || Boolean(options.nativePdfSourcePath.value)
-        || Boolean(options.djvuSourcePath.value)
-    ));
-    const showPendingViewerMountSkeleton = computed(() => (
-        Boolean(options.activeViewerAdapter.value)
-        && hasPendingViewerSource.value
-        && !options.documentViewerRef.value
-    ));
-    const showPendingDocumentOpenSkeleton = computed(() => (
-        (
-            options.isDocumentOpenPlaceholderVisible.value
-            || showPendingViewerMountSkeleton.value
-        )
-        && !showWorkspaceViewerDocument.value
-        && !options.pdfError.value
-        && !options.djvuError.value
-    ));
-    const showWorkspaceTransitionSkeleton = computed(() => (
-        options.showDocumentTransitionSkeleton.value
-        || showPendingViewerMountSkeleton.value
-        || showPendingDocumentOpenSkeleton.value
-    ));
     const hasDjvuBannerOpeningContext = computed(() => (
         options.pendingDjvuDocumentOpen.value
         || Boolean(options.djvuOpeningPath.value)
@@ -73,7 +48,7 @@ export const useDocumentWorkspaceViewerPresentation = (
         && (
             options.pendingDjvuDocumentOpen.value
             || Boolean(options.djvuOpeningPath.value)
-            || showWorkspaceTransitionSkeleton.value
+            || options.isDocumentOpenPlaceholderVisible.value
             || options.showDjvuSource.value && !options.initialDocumentVisualReady.value
         )
     ));
@@ -91,7 +66,6 @@ export const useDocumentWorkspaceViewerPresentation = (
     return {
         djvuBannerOpening,
         showDjvuConversionUi,
-        showWorkspaceTransitionSkeleton,
         showWorkspaceViewerDocument,
     };
 };

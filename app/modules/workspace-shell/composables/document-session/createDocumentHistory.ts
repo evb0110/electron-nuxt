@@ -18,6 +18,8 @@ import { areByteArraysEqual } from '@app/utils/areByteArraysEqual';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getDocumentRefBaseName } from '@app/utils/documentRef';
 import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
+import { createWorkingCopySnapshotFromData } from '@app/services/pdf-file/createWorkingCopySnapshotFromData';
+import { IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES } from '@contracts/electronApiDocuments';
 
 export interface IPdfLoadedState {
     pdfData: Uint8Array | null;
@@ -31,7 +33,10 @@ interface IApplyLoadedPdfStateOptions {
     isCurrent?: (() => boolean) | undefined;
 }
 
-type TDocumentHistoryFileDeps = Pick<IDocumentsFileIoCapability, 'writeFile'>;
+type TDocumentHistoryFileDeps = Pick<
+    IDocumentsFileIoCapability,
+    'getDocumentRevision' | 'savePdfData' | 'writeFile'
+>;
 
 type TDocumentHistoryWorkingCopyDeps = Pick<
     IDocumentsWorkingCopyCapability,
@@ -148,7 +153,14 @@ export function createDocumentHistory(
                 replaceHistory([entry], 0, 0);
                 return true;
             }
-            return false;
+            // History is a resilience feature, not an open prerequisite. If a
+            // large checkpoint cannot be staged, keep the document usable and
+            // start with an empty history instead of aborting the open flow.
+            if (options?.isCurrent?.() === false) {
+                return false;
+            }
+            clearHistory();
+            return true;
         } else {
             if (options?.isCurrent?.() === false) {
                 return false;
@@ -220,11 +232,14 @@ export function createDocumentHistory(
         snapshot: Uint8Array,
         expectedWorkingPath: TDocumentRef,
     ): Promise<IPathHistoryEntry | null> {
-        const snapshotPath = await deps.documentWorkingCopy().createWorkingCopyFromData(
-            getHistorySnapshotFileName(),
-            snapshot,
-            state.originalPath.value ?? undefined,
-        );
+        const snapshotPath = await createWorkingCopySnapshotFromData({
+            fileName: getHistorySnapshotFileName(),
+            data: snapshot,
+            sourcePath: expectedWorkingPath,
+            originalPath: state.originalPath.value ?? undefined,
+            files: deps.documentFiles(),
+            workingCopies: deps.documentWorkingCopy(),
+        });
         if (!state.isActiveWorkingCopy(expectedWorkingPath)) {
             void deps.documentWorkingCopy().cleanupFile(snapshotPath);
             return null;
@@ -258,6 +273,9 @@ export function createDocumentHistory(
         }
 
         if (expectedWorkingPath && !state.isActiveWorkingCopy(expectedWorkingPath)) {
+            return null;
+        }
+        if (snapshot.byteLength > IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES) {
             return null;
         }
         return createByteHistoryEntry(snapshot, options);
@@ -388,6 +406,13 @@ export function createDocumentHistory(
     }
 
     function pushHistoryEntry(entry: TPdfHistoryEntry) {
+        if (entry.kind === 'bytes' && entry.snapshot.byteLength > MAX_FILE_HISTORY_BYTES) {
+            BrowserLogger.warn('pdf-file', 'Refusing oversized in-memory history entry', {
+                bytes: entry.snapshot.byteLength,
+                maxBytes: MAX_FILE_HISTORY_BYTES,
+            });
+            return false;
+        }
         const nextState = appendHistoryEntry({
             history: history.value,
             historyIndex: historyIndex.value,
@@ -408,6 +433,7 @@ export function createDocumentHistory(
             estimatedBytes: entry.kind === 'bytes' ? entry.snapshot.byteLength : entry.size,
         });
         syncDirtyFromHistory();
+        return true;
     }
 
     async function pushHistorySnapshot(
@@ -418,8 +444,7 @@ export function createDocumentHistory(
         if (!entry) {
             return false;
         }
-        pushHistoryEntry(entry);
-        return true;
+        return pushHistoryEntry(entry);
     }
 
     const canUndo = computed(

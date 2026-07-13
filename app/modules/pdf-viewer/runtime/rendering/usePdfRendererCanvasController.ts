@@ -209,6 +209,7 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
             },
             onRenderStall,
             renderSupervisor,
+            renderAbortController.signal,
         ).finally(() => {
             queuedCanvasRenderAbortControllers.delete(renderAbortController);
         });
@@ -281,9 +282,6 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
             hiddenAnnotationCount: ids?.size ?? 0,
             hiddenAnnotationIds: ids ? Array.from(ids).slice(0, 30) : [],
         });
-        if (renderOptions?.maxCanvasPixelsOverride !== undefined) {
-            canvasRenderOptions.maxCanvasPixels = renderOptions.maxCanvasPixelsOverride;
-        }
         const sourceMaxPixelBudget = sourceMaxPixels?.(pageNumber);
         if (sourceMaxPixelBudget !== null && sourceMaxPixelBudget !== undefined) {
             canvasRenderOptions.sourceMaxPixels = sourceMaxPixelBudget;
@@ -313,6 +311,7 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
             },
             onRenderStall,
             renderSupervisor,
+            prepareAbortController.signal,
         );
         if (!preparedCanvasRender) {
             return null;
@@ -394,21 +393,16 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
         container: HTMLElement,
         canvasHost: HTMLDivElement,
         renderResult: Awaited<ReturnType<typeof renderPreparedCanvasResult>>,
-        scale: number,
+        _scale: number,
     ) {
         const {
             canvas,
-            viewport,
             userUnit,
-            totalScaleFactor,
         } = renderResult;
 
-        canvasRenderer.applyContainerDimensions(
+        canvasRenderer.applyContainerUserUnit(
             container,
-            viewport,
-            scale,
             userUnit,
-            totalScaleFactor,
         );
         const previousCanvas = pageCanvases.get(pageNumber);
         const surfaceLease = reservePageCanvasSurface(

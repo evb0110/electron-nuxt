@@ -101,9 +101,15 @@ export function makeSiblingTempPath(targetPath: string) {
     return join(dirname(targetPath), `.${randomSuffix()}.tmp`);
 }
 
-export async function atomicReplace(srcTemp: string, dst: string) {
+export async function atomicReplace(
+    srcTemp: string,
+    dst: string,
+    options: {markMutationCommitStarted?: boolean} = {},
+) {
     await fsyncPath(srcTemp);
-    markActiveWorkingCopyMutationCommitStarted();
+    if (options.markMutationCommitStarted !== false) {
+        markActiveWorkingCopyMutationCommitStarted();
+    }
 
     if (
         process.env.EVB_DOCUMENT_RECOVERY_COPY === '1'

@@ -19,6 +19,7 @@ import type {
     IPdfNativePagePreview,
     IPdfNativePagePreviewOptions,
     IPdfNativePageSize,
+    IPdfOpeningGeometry,
     IPdfNoteTextUpdate,
     IPdfOptimizeOptions,
     IPdfOptimizeResult,
@@ -112,10 +113,17 @@ export interface IDocumentsService {
     savePdfDialog: (context: IDocumentsDialogContext, suggestedName: string) => Promise<string | null>;
     saveDocxAs: (context: IDocumentsDialogContext, workingPath: string) => Promise<string | null>;
     readFile: (context: IDocumentsSenderIdContext, filePath: string) => Promise<Uint8Array>;
-    statFile: (context: IDocumentsSenderIdContext, filePath: string) => Promise<{ size: number }>;
+    statFile: (context: IDocumentsSenderIdContext, filePath: string) => Promise<{
+        size: number;
+        modifiedAt: number;
+    }>;
     readFileRange: (context: IDocumentsSenderIdContext, filePath: string, offset: number, length: number) => Promise<Uint8Array>;
     createManagedTempFileHandle: (context: IDocumentsSenderIdContext, filePath: string) => Promise<IManagedTempFileHandle>;
     releaseManagedTempFileHandle: (context: IDocumentsSenderIdContext, leaseId: string) => boolean;
+    getPdfOpeningGeometry: (
+        context: IDocumentsSenderIdContext,
+        filePath: string,
+    ) => Promise<IPdfOpeningGeometry>;
     getPdfNativePageSizes: (
         context: IDocumentsSenderIdContext,
         filePath: string,
@@ -237,7 +245,7 @@ export interface IDocumentsService {
         totalBytes: number,
         options?: IPdfSerializedSaveOptions,
     ) => Promise<IBeginSerializedPdfPersistenceResult>;
-    cleanupFile: (context: IDocumentsSenderIdContext, workingPath: string) => void;
+    cleanupFile: (context: IDocumentsSenderIdContext, workingPath: string) => Promise<void>;
     cleanupOcrTemp: (context: IDocumentsSenderIdContext, filePath: string) => Promise<void>;
     setWindowTitle: (context: IDocumentsWindowContext, title: string) => void;
     showItemInFolder: (context: IDocumentsOpenPathContext, filePath: string) => Promise<boolean>;

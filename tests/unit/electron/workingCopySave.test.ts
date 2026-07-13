@@ -45,6 +45,7 @@ const mocks = vi.hoisted(() => ({
     assertWorkingCopyMutationAllowed: vi.fn(),
     assertWorkingCopyResyncAllowed: vi.fn(),
     assertWorkingCopyRevisionCurrent: vi.fn(),
+    awaitWorkingCopyRevisionDurability: vi.fn(),
     markWorkingCopySyncRequired: vi.fn(),
     clearWorkingCopySyncRequired: vi.fn(),
     markWorkingCopyContentChanged: vi.fn(),
@@ -71,6 +72,7 @@ vi.mock('@electron/file-access/documentRevisionStore', () => ({
     assertWorkingCopyMutationAllowed: (...args: unknown[]) => mocks.assertWorkingCopyMutationAllowed(...args),
     assertWorkingCopyResyncAllowed: (...args: unknown[]) => mocks.assertWorkingCopyResyncAllowed(...args),
     assertWorkingCopyRevisionCurrent: (...args: unknown[]) => mocks.assertWorkingCopyRevisionCurrent(...args),
+    awaitWorkingCopyRevisionDurability: (...args: unknown[]) => mocks.awaitWorkingCopyRevisionDurability(...args),
     clearWorkingCopySyncRequired: (...args: unknown[]) => mocks.clearWorkingCopySyncRequired(...args),
     markWorkingCopyContentChanged: (...args: unknown[]) => mocks.markWorkingCopyContentChanged(...args),
     markWorkingCopySyncRequired: (...args: unknown[]) => mocks.markWorkingCopySyncRequired(...args),
@@ -130,6 +132,7 @@ describe('workingCopySave', () => {
         mocks.assertWorkingCopyMutationAllowed.mockResolvedValue(undefined);
         mocks.assertWorkingCopyResyncAllowed.mockReturnValue(undefined);
         mocks.assertWorkingCopyRevisionCurrent.mockResolvedValue(undefined);
+        mocks.awaitWorkingCopyRevisionDurability.mockResolvedValue(undefined);
         mocks.refreshWorkingCopyOriginalFileExpectation.mockResolvedValue(true);
         mocks.markWorkingCopyContentChanged.mockResolvedValue({});
         mocks.transitionWorkingCopyContentRevision.mockImplementation(async (

@@ -10,6 +10,7 @@ import { config } from '@electron/config';
 import { getErrorMessage } from '@electron/utils/error';
 import type { IAppUpdateStatus } from '@contracts/electronApiUpdates';
 import { PACKAGED_STARTUP_READY_MARKER } from '@contracts/packagedStartupReadyMarker';
+import { resolveApplicationVersion } from '@electron/appVersion';
 
 interface IShutdownCoordinator {
     isQuittingAfterCleanup(): boolean;
@@ -245,7 +246,7 @@ async function bootDevDockIcon(options: IRunInitSequenceOptions) {
 }
 
 function bootAboutPanel(options: IRunInitSequenceOptions) {
-    const appVersion = options.app.getVersion();
+    const appVersion = resolveApplicationVersion(options.app);
     options.app.setAboutPanelOptions({
         applicationName: 'EVB Viewer',
         applicationVersion: appVersion,
@@ -263,6 +264,7 @@ function bootIpc(
     const {
         allowOpenPaths,
         externalOpenManager,
+        focusMainWindow,
         getMainWindow,
         getWindowFromWebContents,
         logStartupPhase,
@@ -285,6 +287,7 @@ function bootIpc(
             externalOpenManager.scheduleFlushPendingFiles();
             markWindowRendererReady(window.id);
             if (window.id === getMainWindow()?.id) {
+                focusMainWindow();
                 logStartupPhase(`${PACKAGED_STARTUP_READY_MARKER} Main renderer signaled ready (windowId=${window.id})`);
                 maybePromptForDefaultViewer();
             }
@@ -375,11 +378,13 @@ function bootWindowLifecycle(
 
     app.on('browser-window-created', (_event, window) => {
         attachHostEnvironmentToWindow(window);
+        const windowId = window.id;
+        const windowWebContents = window.webContents;
 
         const markNotReady = (reason: string) => {
-            readyWindowIds.delete(window.id);
-            markWindowTabTransferNotReady(window.id);
-            startupExternalOpenClaims.requeue(window.webContents, reason);
+            readyWindowIds.delete(windowId);
+            markWindowTabTransferNotReady(windowId);
+            startupExternalOpenClaims.requeue(windowWebContents, reason);
         };
 
         window.webContents.on('did-start-navigation', (_navEvent, _url, isInPlace, isMainFrame) => {
@@ -395,7 +400,7 @@ function bootWindowLifecycle(
 
         window.on('closed', () => {
             markNotReady('window closed');
-            markWindowTabTransferWindowClosed(window.id);
+            markWindowTabTransferWindowClosed(windowId);
         });
     });
 

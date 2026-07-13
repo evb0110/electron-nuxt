@@ -52,7 +52,8 @@ function scheduleCompositeRefresh(host: IHighlightCompositeHost) {
 }
 
 export function observeHighlightCompositeOverlay(pageContainer: HTMLElement) {
-    const host = pageContainer.querySelector<IHighlightCompositeHost>('.page_canvas, .canvasWrapper');
+    const host = pageContainer.querySelector<IHighlightCompositeHost>('.page_canvas__render-layer')
+        ?? pageContainer.querySelector<IHighlightCompositeHost>('.page_canvas, .canvasWrapper');
     if (!host || host[OBSERVER_KEY] || typeof MutationObserver === 'undefined') {
         return;
     }

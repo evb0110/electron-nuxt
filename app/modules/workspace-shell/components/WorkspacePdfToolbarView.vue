@@ -138,7 +138,7 @@
                 :view-mode="snapshot.viewMode"
                 :page-labels="pageLabels"
                 :navigation-page="navigationPage"
-                :disabled="toolbarControlsDisabled"
+                :disabled="pageNavigationDisabled"
                 :compact-level="compactLevel"
                 @go-to-page="handleGoToPage"
                 @update:open="handlePageDropdownOpenUpdate"
@@ -355,6 +355,9 @@ const toolbarControlsDisabled = computed(() => (
     controlsDisabled
     ?? (!toolbarHasPdf.value || toolbarDocumentBusy.value || snapshot.totalPages <= 0)
 ));
+const pageNavigationDisabled = computed(() => (
+    toolbarDocumentBusy.value ? false : toolbarControlsDisabled.value
+));
 const pageDropdownTotalPages = computed(() => pageDropdownTotalPagesProp ?? snapshot.totalPages);
 const ocrIsExportingDocx = computed(() => ocrIsExportingDocxProp ?? snapshot.isExportingDocx);
 
@@ -385,6 +388,7 @@ const {
 } = useWorkspaceToolbarPageModel({
     sourcePage: () => snapshot.currentPage,
     feedbackPage: () => navigationFeedbackPage,
+    sessionActive: () => toolbarHasPdf.value || toolbarDocumentBusy.value,
     goToPage: page => emit('go-to-page', page),
 });
 

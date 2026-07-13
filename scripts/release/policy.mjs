@@ -322,6 +322,31 @@ export function getUpdaterMetadataFileNames(artifactNames) {
     return [...artifactNames].filter(fileName => /^latest.*\.yml$/u.test(fileName));
 }
 
+export function parseUpdaterMetadataVersion(metadataFileName, metadataText) {
+    const versionLine = metadataText
+        .split(/\r?\n/u)
+        .find(line => /^version:\s*/u.test(line));
+    if (!versionLine) {
+        throw new Error(`Missing version entry in ${metadataFileName}`);
+    }
+    const match = versionLine.match(/^version:\s*(?:"([^"]+)"|'([^']+)'|([^#\s]+))\s*(?:#.*)?$/u);
+    if (!match) {
+        throw new Error(`Unsupported version entry in ${metadataFileName}: ${versionLine}`);
+    }
+    return match[1] ?? match[2] ?? match[3];
+}
+
+export function assertUpdaterMetadataVersion(artifactNames, readMetadataText, expectedVersion) {
+    for (const metadataFileName of getUpdaterMetadataFileNames(artifactNames)) {
+        const actualVersion = parseUpdaterMetadataVersion(metadataFileName, readMetadataText(metadataFileName));
+        if (actualVersion !== expectedVersion) {
+            throw new Error(
+                `Updater metadata version mismatch in ${metadataFileName}: expected ${expectedVersion}, got ${actualVersion}`,
+            );
+        }
+    }
+}
+
 function assertSafeArtifactReference(metadataFileName, artifactPath) {
     if (
         artifactPath.startsWith('/')

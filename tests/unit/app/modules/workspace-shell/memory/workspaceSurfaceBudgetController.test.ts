@@ -113,6 +113,35 @@ describe('workspace surface budget controller', () => {
         });
     });
 
+    it('promotes a completed lease without reallocating it or allowing later demotion', () => {
+        const controller = createWorkspaceSurfaceBudgetController(1_000);
+        const evicted: string[] = [];
+        const promoted = controller.reserve({
+            scopeId: 'promoted',
+            category: 'native-preview',
+            bytes: 300,
+            priority: 10,
+            evict: () => evicted.push('promoted'),
+        });
+        controller.reserve({
+            scopeId: 'nearby',
+            category: 'native-preview',
+            bytes: 300,
+            priority: 50,
+            evict: () => evicted.push('nearby'),
+        });
+
+        promoted.promotePriority?.(100);
+        promoted.promotePriority?.(20);
+        controller.setPressureLevel('critical');
+
+        expect(evicted).toEqual(['nearby']);
+        expect(controller.getSnapshot()).toMatchObject({
+            leaseCount: 1,
+            reservedBytes: 300,
+        });
+    });
+
     it('reconciles reservations that become evictable after admission across all surface categories', () => {
         const controller = createWorkspaceSurfaceBudgetController(500);
         const categories = [

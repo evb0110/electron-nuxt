@@ -255,6 +255,15 @@ function decodeOcrCompleteResult(payload: unknown): IOcrCompleteResult | null {
 export function createOcrPreloadClient(ipcRenderer: IpcRenderer): IOcrCapability {
     const invoke = createCodecIpcInvoker<IOcrInvokeMap>(ipcRenderer, OCR_IPC_CODECS, {invokeTimeoutMsByChannel: OCR_INVOKE_TIMEOUT_MS_BY_CHANNEL});
     const eventSubscriber = createTypedIpcEventSubscriber<IOcrEventMap>(ipcRenderer);
+    let progressSubscriptionRequested = false;
+
+    function ensureProgressSubscription() {
+        if (progressSubscriptionRequested) {
+            return;
+        }
+        progressSubscriptionRequested = true;
+        void invoke(OCR_CHANNELS.subscribeProgress);
+    }
 
     return {
         recognize: (request: {
@@ -332,7 +341,7 @@ export function createOcrPreloadClient(ipcRenderer: IpcRenderer): IOcrCapability
 
         onProgress: (callback: (progress: IOcrProgress) => void): (() => void) => {
             const unsubscribe = eventSubscriber.onDecodedPayload(OCR_EVENT_CHANNELS.progress, decodeOcrProgress, callback);
-            void invoke(OCR_CHANNELS.subscribeProgress);
+            ensureProgressSubscription();
             return unsubscribe;
         },
 

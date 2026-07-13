@@ -11,6 +11,8 @@ import {
 interface INativePdfRenderedPageObjectUrl {
     objectUrl: string;
     renderedPx: number;
+    onInvalidated?: (listener: () => void) => () => void;
+    promotePriority?: (priority: number) => void;
 }
 
 function createPngObjectUrl(bytes: Uint8Array) {
@@ -40,7 +42,10 @@ export function createNativePdfPreviewSourceFromPath(
     let nextPreviewRequestId = 0;
     const activePreviewRequestIds = new Set<string>();
     const activePreviewRequestIdsByPage = new Map<number, string>();
-    const objectUrlLeases = new Map<string, {lease: IWorkspaceSurfaceBudgetLeasePort | null}>();
+    const objectUrlLeases = new Map<string, {
+        lease: IWorkspaceSurfaceBudgetLeasePort | null;
+        invalidationListeners: Set<() => void>;
+    }>();
     const surfaceScopeId = `native-preview:${pdfPath}`;
     const surfaceBudget = requireWorkspaceSurfaceBudgetPort();
     const cancelPreviewRequest = (requestId: string) => {
@@ -97,7 +102,10 @@ export function createNativePdfPreviewSourceFromPath(
                 throw new Error('Native PDF preview canceled');
             }
             const objectUrl = createPngObjectUrl(preview.bytes);
-            const leaseEntry: {lease: IWorkspaceSurfaceBudgetLeasePort | null} = {lease: null};
+            const leaseEntry = {
+                lease: null as IWorkspaceSurfaceBudgetLeasePort | null,
+                invalidationListeners: new Set<() => void>(),
+            };
             objectUrlLeases.set(objectUrl, leaseEntry);
             leaseEntry.lease = surfaceBudget.reserve({
                 scopeId: surfaceScopeId,
@@ -106,6 +114,10 @@ export function createNativePdfPreviewSourceFromPath(
                 priority: 20,
                 evict: () => {
                     objectUrlLeases.delete(objectUrl);
+                    for (const listener of leaseEntry.invalidationListeners) {
+                        listener();
+                    }
+                    leaseEntry.invalidationListeners.clear();
                     URL.revokeObjectURL(objectUrl);
                 },
             });
@@ -116,10 +128,18 @@ export function createNativePdfPreviewSourceFromPath(
             return {
                 objectUrl,
                 renderedPx: preview.width,
+                promotePriority(priority) {
+                    leaseEntry.lease?.promotePriority?.(priority);
+                },
+                onInvalidated(listener: () => void) {
+                    leaseEntry.invalidationListeners.add(listener);
+                    return () => leaseEntry.invalidationListeners.delete(listener);
+                },
             };
         },
         revokeObjectURL: (url: string) => {
             objectUrlLeases.get(url)?.lease?.release();
+            objectUrlLeases.get(url)?.invalidationListeners.clear();
             objectUrlLeases.delete(url);
             URL.revokeObjectURL(url);
         },

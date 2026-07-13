@@ -1,7 +1,9 @@
+const PDF_CANONICAL_OUTPUT_SCALE = 2;
+
 function readWindowOutputScale() {
     return typeof window !== 'undefined'
-        ? window.devicePixelRatio || 1
-        : 1;
+        ? Math.max(PDF_CANONICAL_OUTPUT_SCALE, window.devicePixelRatio || 1)
+        : PDF_CANONICAL_OUTPUT_SCALE;
 }
 
 export function shouldDeferPdfDprRerenderForResize(isResizing: boolean) {

@@ -22,6 +22,7 @@ import { serializePdfEdits } from '@app/modules/pdf-viewer/engine/pdf-serializat
 import { updateEmbeddedAnnotationText } from '@app/modules/pdf-viewer/engine/pdf-serialization-operations/updateEmbeddedAnnotationText';
 import type { IPdfSerializationSavePayload } from '@app/modules/pdf-viewer/engine/pdf-serialization-operations/pdfSerializationSavePayload';
 import { importEmbeddedShapeAnnotations } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
+import { hasEmbeddedShapeCandidateBytes } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/scanDocumentForEmbeddedShapeCandidates';
 import { readManagedShapeStableKey } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/readManagedShapeStableKey';
 import { writeManagedShapeStableKey } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/writeManagedShapeStableKey';
 import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
@@ -320,6 +321,32 @@ describe('serializePdfEdits force rewrite', () => {
 });
 
 describe('serializePdfEdits embedded geometric shapes', () => {
+    it('preserves a managed shape through object-stream reopen and a second save', async () => {
+        const { bytes: firstSave } = await createPdfWithManagedSquareAnnotation();
+
+        expect(new TextDecoder().decode(firstSave)).toContain('/ObjStm');
+        expect(hasEmbeddedShapeCandidateBytes(firstSave)).toBe(false);
+
+        const reopenedShapes = await importEmbeddedShapeAnnotations(firstSave);
+        expect(reopenedShapes).toEqual([expect.objectContaining({
+            stableKey: 'evb-shape:managed-square',
+            source: 'embedded',
+            type: 'rectangle',
+        })]);
+
+        const payload = createEmptyPayload();
+        payload.rewriteShapeState = true;
+        payload.shapes = reopenedShapes;
+        const secondSave = await serializePdfEdits(firstSave, payload);
+
+        expect(hasEmbeddedShapeCandidateBytes(secondSave)).toBe(false);
+        await expect(importEmbeddedShapeAnnotations(secondSave)).resolves.toEqual([expect.objectContaining({
+            stableKey: 'evb-shape:managed-square',
+            source: 'embedded',
+            type: 'rectangle',
+        })]);
+    });
+
     it('backfills EVBShapeKey when a managed shape only has /NM', async () => {
         const doc = await PDFDocument.create();
         const dict = PDFDict.withContext(doc.context);
@@ -590,6 +617,36 @@ describe('serializePdfEdits embedded geometric shapes', () => {
         const annotRefs = getPageAnnotRefs(doc);
 
         expect(annotRefs.map(ref => ref.toString())).toEqual([squareRef.toString()]);
+        expect(getAnnotDict(doc, lineRef)).toBeInstanceOf(PDFDict);
+    });
+
+    it('removes embedded annotations from the canonical delete program during source replay', async () => {
+        const {
+            bytes,
+            squareRef,
+            lineRef,
+        } = await createPdfWithSquareAndLineAnnotations();
+        const lineId = `${lineRef.objectNumber}R${lineRef.generationNumber}`;
+        const payload = createEmptyPayload();
+        payload.canonicalAnnotationProgram = [{
+            backend: 'pdf-lib-rewrite',
+            order: 0,
+            annotationId: 'anno-line' as never,
+            operation: 'delete-annotation',
+            fields: {
+                identity: {
+                    id: 'anno-line',
+                    pdfRef: lineId,
+                },
+                pageIndex: 0,
+                kind: 'shape',
+            },
+        }];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+
+        expect(getPageAnnotRefs(doc).map(ref => ref.toString())).toEqual([squareRef.toString()]);
         expect(getAnnotDict(doc, lineRef)).toBeInstanceOf(PDFDict);
     });
 

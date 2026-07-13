@@ -38,6 +38,7 @@ import { safeReadEditorData } from '@app/modules/pdf-viewer/engine/annotations/a
 import { tracePdfAnnotationSaveEvent } from '@app/modules/pdf-viewer/engine/pdf-annotation-save-trace/tracePdfAnnotationSaveEvent';
 import type { IPdfCommentSummaryDeps } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/annotationSyncHelpersTypes';
 import type { TComputeSummaryStableKey } from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import {
     initialAnnotationSyncState,
     reduceAnnotationSync,
@@ -66,13 +67,21 @@ interface ISyncMarkupSubtype {
 }
 
 interface ISyncStore {
-    setAnnotations: (comments: IAnnotationCommentSummary[]) => IAnnotationCommentSummary[] | undefined;
+    setAnnotations: (
+        comments: IAnnotationCommentSummary[],
+        options?: {
+            adoptAsSavedBaseline?: boolean;
+            reconcileMissingTransient?: boolean;
+        },
+    ) => IAnnotationCommentSummary[] | undefined;
     setLinkAnnotations: (links: ILinkAnnotation[]) => void;
     setActiveKey: (key: string | null) => void;
 }
 
 interface IUseAnnotationSyncOptions {
     pdfDocument: ShallowRef<PDFDocumentProxy | null>;
+    documentIdentity: Ref<string>;
+    documentRevisionToken?: Ref<TDocumentRevisionToken | null>;
     numPages: Ref<number>;
     currentPage: Ref<number>;
     annotationUiManager: ShallowRef<AnnotationEditorUIManager | null>;
@@ -92,6 +101,42 @@ interface IPdfAnnotationSnapshot {
     links: ILinkAnnotation[];
 }
 
+interface ISharedPdfAnnotationSnapshot {
+    pageCount: number;
+    comments: IAnnotationCommentSummary[];
+    links: ILinkAnnotation[];
+}
+
+const MAX_SHARED_PDF_ANNOTATION_SNAPSHOTS = 8;
+const sharedPdfAnnotationSnapshots = new Map<string, ISharedPdfAnnotationSnapshot>();
+const sourcePdfAnnotationSnapshots = new WeakMap<PDFDocumentProxy, ISharedPdfAnnotationSnapshot>();
+
+function cloneSharedSnapshot(
+    cached: ISharedPdfAnnotationSnapshot,
+    doc: PDFDocumentProxy,
+): IPdfAnnotationSnapshot {
+    return {
+        doc,
+        pageCount: cached.pageCount,
+        comments: structuredClone(cached.comments),
+        links: structuredClone(cached.links),
+    };
+}
+
+function rememberSharedSnapshot(key: string, snapshot: IPdfAnnotationSnapshot) {
+    sharedPdfAnnotationSnapshots.delete(key);
+    sharedPdfAnnotationSnapshots.set(key, {
+        pageCount: snapshot.pageCount,
+        comments: structuredClone(snapshot.comments),
+        links: structuredClone(snapshot.links),
+    });
+    while (sharedPdfAnnotationSnapshots.size > MAX_SHARED_PDF_ANNOTATION_SNAPSHOTS) {
+        const oldestKey = sharedPdfAnnotationSnapshots.keys().next().value;
+        if (!oldestKey) break;
+        sharedPdfAnnotationSnapshots.delete(oldestKey);
+    }
+}
+
 type TEditorData = ReturnType<typeof safeReadEditorData>;
 
 export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
@@ -99,6 +144,8 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
 
     const {
         pdfDocument,
+        documentIdentity,
+        documentRevisionToken,
         numPages,
         currentPage,
         annotationUiManager,
@@ -124,6 +171,24 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         promise: Promise<IPdfAnnotationSnapshot | null>;
     } | null = null;
     let syncMachineState = initialAnnotationSyncState<IAnnotationCommentSummary>();
+    let hasAppliedDocumentSnapshot = false;
+
+    function getSharedSnapshotKey(pageCount: number) {
+        const revision = documentRevisionToken?.value ?? null;
+        const identity = documentIdentity.value;
+        if (revision) {
+            return JSON.stringify([
+                'revision',
+                revision,
+                pageCount,
+            ]);
+        }
+        // A path/name/length tuple is not a content revision: a save can
+        // replace bytes in place. Without a revision token the exact PDF.js
+        // proxy WeakMap below is the only safe reusable source identity.
+        void identity;
+        return null;
+    }
 
     function getVisibleFirstPageOrder(pageCount: number) {
         const visiblePage = Math.min(pageCount, Math.max(1, Math.trunc(currentPage.value)));
@@ -137,7 +202,11 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         }
         return new Promise<void>((resolve) => {
             if (typeof window.requestIdleCallback === 'function') {
-                window.requestIdleCallback(() => resolve(), {timeout: 50});
+                // This inventory is enrichment, never visible-render work.
+                // A generous timeout keeps it moving in a truly idle window
+                // without letting hundreds of page parses monopolize the UI
+                // thread while another document is opening.
+                window.requestIdleCallback(() => resolve(), {timeout: 250});
                 return;
             }
             setTimeout(resolve, 0);
@@ -187,7 +256,21 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
     }
 
     watch(pdfDocument, () => {
+        // Abort an inventory tied to the previous PDF proxy immediately. A
+        // new document can otherwise spend seconds competing with a stale
+        // all-page scan before its first canvas appears.
+        syncToken += 1;
         resetPdfAnnotationSnapshot();
+        hasAppliedDocumentSnapshot = false;
+    });
+    watch(documentIdentity, () => {
+        syncToken += 1;
+        hasAppliedDocumentSnapshot = false;
+    });
+    watch(() => documentRevisionToken?.value ?? null, () => {
+        syncToken += 1;
+        resetPdfAnnotationSnapshot();
+        hasAppliedDocumentSnapshot = false;
     });
 
     function rememberResolvedMarkupSubtypeOverride(
@@ -389,25 +472,49 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         });
 
         const pageOrder = getVisibleFirstPageOrder(pageCount);
+        let completedPages = 0;
+        tracePdfAnnotationSaveEvent('annotation-sync:inventory-start', {
+            pageCount,
+            firstPage: pageOrder[0] ?? null,
+            generation: localToken,
+        });
         for (const [
             orderIndex,
             pageNumber,
         ] of pageOrder.entries()) {
             if (localToken !== syncToken) {
+                tracePdfAnnotationSaveEvent('annotation-sync:inventory-cancelled', {
+                    completedPages,
+                    pageCount,
+                    generation: localToken,
+                });
                 return null;
             }
 
-            if (orderIndex > 0 && orderIndex % 4 === 0) {
+            if (orderIndex > 0) {
                 await waitForAnnotationSyncIdleOpportunity();
+                if (localToken !== syncToken) {
+                    tracePdfAnnotationSaveEvent('annotation-sync:inventory-cancelled', {
+                        completedPages,
+                        pageCount,
+                        generation: localToken,
+                    });
+                    return null;
+                }
             }
 
             const pageBundle = await loadPdfPageAnnotations(
                 doc,
                 pageNumber,
                 annotationNamesByPage?.get(pageNumber - 1),
-                {leasePage: leasePdfDocumentPage},
+                {leasePage: (pdf, page) => leasePdfDocumentPage(
+                    pdf,
+                    page,
+                    'transient-background',
+                )},
             );
             if (!pageBundle) {
+                completedPages += 1;
                 continue;
             }
 
@@ -418,7 +525,16 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
                 comments,
                 links,
             );
+            completedPages += 1;
         }
+
+        tracePdfAnnotationSaveEvent('annotation-sync:inventory-complete', {
+            completedPages,
+            pageCount,
+            commentCount: comments.length,
+            linkCount: links.length,
+            generation: localToken,
+        });
 
         return {
             doc,
@@ -474,6 +590,20 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             return pdfAnnotationSnapshot;
         }
 
+        const sharedKey = getSharedSnapshotKey(pageCount);
+        const shared = (sharedKey ? sharedPdfAnnotationSnapshots.get(sharedKey) : null)
+            ?? sourcePdfAnnotationSnapshots.get(doc)
+            ?? null;
+        if (shared && shared.pageCount === pageCount) {
+            // Refresh LRU order and hand each viewer an isolated payload.
+            if (sharedKey) {
+                sharedPdfAnnotationSnapshots.delete(sharedKey);
+                sharedPdfAnnotationSnapshots.set(sharedKey, shared);
+            }
+            pdfAnnotationSnapshot = cloneSharedSnapshot(shared, doc);
+            return pdfAnnotationSnapshot;
+        }
+
         const reusablePromise = getReusablePdfSnapshotPromise(doc, pageCount);
         if (reusablePromise) {
             return reusablePromise;
@@ -484,6 +614,14 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             .then((snapshot) => {
                 if (shouldCachePdfAnnotationSnapshot(snapshot, doc, pageCount, snapshotVersion)) {
                     pdfAnnotationSnapshot = snapshot;
+                    if (sharedKey) {
+                        rememberSharedSnapshot(sharedKey, snapshot);
+                    }
+                    sourcePdfAnnotationSnapshots.set(doc, {
+                        pageCount: snapshot.pageCount,
+                        comments: structuredClone(snapshot.comments),
+                        links: structuredClone(snapshot.links),
+                    });
                 }
                 return snapshot;
             })
@@ -511,7 +649,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         tracePdfAnnotationSaveEvent('annotation-sync:empty-state');
         identity.clearMemory();
         markupSubtype.clearOverrides();
-        store.setAnnotations([]);
+        store.setAnnotations([], {reconcileMissingTransient: false});
         store.setLinkAnnotations([]);
         syncInlineCommentIndicators();
     }
@@ -538,18 +676,23 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         commentsByKey: Map<string, IAnnotationCommentSummary>,
     ) {
         let sourceOrder = 0;
+        let hasPostOpenUserMutation = false;
         if (!uiManager) {
             tracePdfAnnotationSaveEvent('annotation-sync:collected-editors', {
                 count: 0,
                 hasUiManager: false,
             });
-            return sourceOrder;
+            return {
+                sourceOrder,
+                hasPostOpenUserMutation,
+            };
         }
 
         const collected: IAnnotationCommentSummary[] = [];
         let skipped = 0;
         for (let pageIndex = 0; pageIndex < numPages.value; pageIndex += 1) {
             for (const editor of getEditorsOnPage(uiManager, pageIndex)) {
+                hasPostOpenUserMutation ||= trackedCreatedEditors.has(editor);
                 const text = getCommentText(editor);
                 const summary = toEditorSummary(editor, pageIndex, text, sourceOrder);
                 sourceOrder += 1;
@@ -567,7 +710,10 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             skipped,
             ...summarizeCommentsForTrace(collected),
         }));
-        return sourceOrder;
+        return {
+            sourceOrder,
+            hasPostOpenUserMutation,
+        };
     }
 
     function shouldSkipPdfCommentSummary(
@@ -575,6 +721,55 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         isDeletedAnnotationElement: ((id: string) => boolean) | null,
     ) {
         return Boolean(summary.annotationId && isDeletedAnnotationElement?.(summary.annotationId));
+    }
+
+    function bindReplacedEditorToPdfIdentity(
+        identity: ISyncIdentity,
+        commentsByKey: Map<string, IAnnotationCommentSummary>,
+        summary: IAnnotationCommentSummary,
+    ) {
+        const candidates = Array.from(commentsByKey.entries()).filter(([
+            ,
+            candidate,
+        ]) => (
+            candidate.source === 'editor'
+            && candidate.pageIndex === summary.pageIndex
+            && (
+                candidate.subtype === summary.subtype
+                || (
+                    isTextMarkupSubtype(candidate.subtype)
+                    && isTextMarkupSubtype(summary.subtype)
+                )
+            )
+        ));
+        if (candidates.length !== 1) {
+            return false;
+        }
+        const [
+            previousKey,
+            candidate,
+        ] = candidates[0]!;
+        commentsByKey.delete(previousKey);
+        const annotationName = summary.annotationName ?? candidate.annotationName;
+        const annotationId = summary.annotationId ?? candidate.annotationId;
+        const bound: IAnnotationCommentSummary = {
+            ...candidate,
+            ...(annotationName ? {
+                annotationName,
+                appAnnotationId: annotationName,
+            } : {}),
+            annotationId,
+            stableKey: identity.computeSummaryStableKey({
+                id: candidate.id,
+                pageIndex: candidate.pageIndex,
+                source: candidate.source,
+                uid: candidate.uid,
+                annotationId,
+                annotationName: annotationName ?? null,
+            }),
+        };
+        commentsByKey.set(identity.toSummaryKey(bound), bound);
+        return true;
     }
 
     function shouldSkipEditorCommentSummary(_summary: IAnnotationCommentSummary) {
@@ -628,6 +823,9 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         let nextSourceOrder = sourceOrder;
 
         for (const summary of pdfSnapshot.comments) {
+            if (bindReplacedEditorToPdfIdentity(identity, commentsByKey, summary)) {
+                continue;
+            }
             if (shouldSkipPdfCommentSummary(summary, isDeletedAnnotationElement)) {
                 continue;
             }
@@ -663,6 +861,8 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         store: ISyncStore,
         commentsByKey: Map<string, IAnnotationCommentSummary>,
         links: ILinkAnnotation[],
+        editorSnapshotIsAuthoritative: boolean,
+        hasPostOpenUserMutation: boolean,
     ) {
         const comments = identity.dedupeAnnotationCommentSummaries(
             Array.from(commentsByKey.values()),
@@ -671,7 +871,18 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             comments: summarizeCommentsForTrace(comments),
             links: links.length,
         }));
-        const appliedComments = store.setAnnotations(comments) ?? comments;
+        const appliedComments = store.setAnnotations(
+            comments,
+            {
+                adoptAsSavedBaseline: editorSnapshotIsAuthoritative
+                    && !hasAppliedDocumentSnapshot
+                    && !hasPostOpenUserMutation,
+                reconcileMissingTransient: editorSnapshotIsAuthoritative,
+            },
+        ) ?? comments;
+        if (editorSnapshotIsAuthoritative) {
+            hasAppliedDocumentSnapshot = true;
+        }
         appliedComments.forEach((comment) => {
             identity.rememberSummaryText(comment);
         });
@@ -700,7 +911,10 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         const commentsByKey = new Map<string, IAnnotationCommentSummary>();
         const uiManager = annotationUiManager.value;
         const isDeletedAnnotationElement = resolveDeletedAnnotationElementPredicate(uiManager);
-        const sourceOrder = collectEditorCommentSummaries(identity, uiManager, commentsByKey);
+        const {
+            sourceOrder,
+            hasPostOpenUserMutation,
+        } = collectEditorCommentSummaries(identity, uiManager, commentsByKey);
         syncMachineState = reduceAnnotationSync(syncMachineState, {
             type: 'receive-editor-snapshot',
             generation: localToken,
@@ -757,7 +971,15 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             return;
         }
 
-        applyAnnotationSyncState(identity, markupSubtype, store, commentsByKey, collectedLinks);
+        applyAnnotationSyncState(
+            identity,
+            markupSubtype,
+            store,
+            commentsByKey,
+            collectedLinks,
+            uiManager !== null,
+            hasPostOpenUserMutation,
+        );
     }
 
     async function syncAnnotationComments() {
@@ -823,6 +1045,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         syncToken += 1;
         cancelDebouncedSync();
         resetPdfAnnotationSnapshot();
+        hasAppliedDocumentSnapshot = false;
         getIdentity().clearMemory();
         getMarkupSubtype().clearOverrides();
     }

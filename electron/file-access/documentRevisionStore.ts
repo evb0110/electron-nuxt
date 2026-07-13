@@ -30,6 +30,7 @@ import {
     readWorkingCopySyncRequiredJournalEntry,
     reconcileWorkingCopyRevisionSidecarJournal,
     stageWorkingCopyRevisionSidecarCommit,
+    writeProvisionalWorkingCopyRevisionSidecar,
     writeWorkingCopySyncRequiredJournalEntry,
     writeWorkingCopyRevisionSidecar,
     type IWorkingCopyRevisionSidecar,
@@ -55,6 +56,11 @@ import {recoverTwoTargetDocumentTransition} from '@electron/file-access/recoverT
 const log = createLogger('documentRevisionStore');
 const revisionListeners = new Set<(event: IDocumentRevisionChangedEvent) => void>();
 const workingCopySyncRequired = new Map<string, string>();
+interface IProvisionalWorkingCopyRevision {
+    durabilityPromise?: Promise<void>;
+    sidecar: IWorkingCopyRevisionSidecar;
+}
+const provisionalWorkingCopyRevisions = new Map<string, IProvisionalWorkingCopyRevision>();
 
 function getRevisionQueueKey(workingCopyPath: string) {
     return normalizePathForLookup(workingCopyPath) || workingCopyPath;
@@ -138,6 +144,68 @@ function toRevisionInfo(sidecar: IWorkingCopyRevisionSidecar): IDocumentRevision
     };
 }
 
+/**
+ * Initializes a revision for a path that was created in a fresh working-copy
+ * directory during this process. Unlike `ensureWorkingCopyRevision`, this does
+ * not run recovery for journals that cannot exist yet and it avoids an fsync on
+ * the user-visible open path. Every mutation entry point must cross
+ * `awaitWorkingCopyRevisionDurability` before changing the document.
+ */
+export async function initializeFreshWorkingCopyRevision(
+    workingCopyPath: string,
+    senderId?: number,
+): Promise<IDocumentRevisionInfo> {
+    const normalizedWorkingPath = typeof workingCopyPath === 'string' ? workingCopyPath.trim() : '';
+    if (!normalizedWorkingPath) {
+        throw new Error('Invalid file path');
+    }
+    assertCanUseWorkingCopyRevision(normalizedWorkingPath, senderId);
+    const queueKey = getRevisionQueueKey(normalizedWorkingPath);
+    const active = provisionalWorkingCopyRevisions.get(queueKey);
+    if (active) {
+        return toRevisionInfo(active.sidecar);
+    }
+    if (existsSync(getWorkingCopyRevisionSidecarPath(normalizedWorkingPath))) {
+        return ensureWorkingCopyRevision(normalizedWorkingPath, senderId);
+    }
+
+    const sidecar = createRevisionSidecar(normalizedWorkingPath, 1, senderId);
+    await writeProvisionalWorkingCopyRevisionSidecar(normalizedWorkingPath, sidecar);
+    provisionalWorkingCopyRevisions.set(queueKey, {sidecar});
+    return toRevisionInfo(sidecar);
+}
+
+/** Promotes a fresh revision to durable storage before any mutation commits. */
+export async function awaitWorkingCopyRevisionDurability(workingCopyPath: string) {
+    const queueKey = getRevisionQueueKey(workingCopyPath);
+    const entry = provisionalWorkingCopyRevisions.get(queueKey);
+    if (!entry) {
+        return;
+    }
+    entry.durabilityPromise ??= writeWorkingCopyRevisionSidecar(
+        workingCopyPath,
+        entry.sidecar,
+        {markMutationCommitStarted: false},
+    );
+    try {
+        await entry.durabilityPromise;
+        if (provisionalWorkingCopyRevisions.get(queueKey) === entry) {
+            provisionalWorkingCopyRevisions.delete(queueKey);
+        }
+    } catch (error) {
+        delete entry.durabilityPromise;
+        throw error;
+    }
+}
+
+export function forgetWorkingCopyRevisionInitialization(workingCopyPath: string) {
+    provisionalWorkingCopyRevisions.delete(getRevisionQueueKey(workingCopyPath));
+}
+
+export function clearWorkingCopyRevisionInitializations() {
+    provisionalWorkingCopyRevisions.clear();
+}
+
 function notifyRevisionChanged(event: IDocumentRevisionChangedEvent) {
     for (const listener of revisionListeners) {
         try {
@@ -171,6 +239,10 @@ export async function ensureWorkingCopyRevision(
         throw new Error('Invalid file path');
     }
     assertCanUseWorkingCopyRevision(normalizedWorkingPath, senderId);
+    const provisional = provisionalWorkingCopyRevisions.get(getRevisionQueueKey(normalizedWorkingPath));
+    if (provisional) {
+        return toRevisionInfo(provisional.sidecar);
+    }
     await recoverTwoTargetDocumentTransition(normalizedWorkingPath);
     await recoverWorkingCopyContentTransition(normalizedWorkingPath);
     await recoverPreparedOcrRevisionTransition(normalizedWorkingPath);
@@ -200,6 +272,7 @@ export async function markWorkingCopyRevisionChanged(
         throw new Error('Invalid file path');
     }
     assertCanUseWorkingCopyRevision(normalizedWorkingPath, senderId);
+    await awaitWorkingCopyRevisionDurability(normalizedWorkingPath);
 
     const previous = await readWorkingCopyRevisionSidecar(normalizedWorkingPath);
     const contentRevision = (previous?.contentRevision ?? 0) + 1;
@@ -237,6 +310,7 @@ export async function transitionWorkingCopyContentRevision(
         throw new Error('Invalid file path');
     }
     assertCanUseWorkingCopyRevision(normalizedWorkingPath, senderId);
+    await awaitWorkingCopyRevisionDurability(normalizedWorkingPath);
 
     const previous = await readWorkingCopyRevisionSidecar(normalizedWorkingPath);
     const sidecar = createRevisionSidecar(normalizedWorkingPath, (previous?.contentRevision ?? 0) + 1, senderId);
@@ -290,6 +364,7 @@ export async function assertWorkingCopyRevisionCurrent(
     workingCopyPath: string,
     token: TDocumentRevisionToken,
 ): Promise<void> {
+    await awaitWorkingCopyRevisionDurability(workingCopyPath);
     await reconcileWorkingCopyRevisionSidecarJournal(workingCopyPath);
     await assertWorkingCopyRevisionSidecarCurrent(workingCopyPath, token);
 }

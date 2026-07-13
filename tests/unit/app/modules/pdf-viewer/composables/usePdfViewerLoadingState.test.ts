@@ -15,8 +15,70 @@ import {
 import { usePdfViewerLoadingState } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerLoadingState';
 import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 
+class TestNodeList<TNode extends Node> implements NodeListOf<TNode> {
+    readonly length: number;
+    readonly [index: number]: TNode;
+
+    constructor(private readonly nodes: TNode[]) {
+        this.length = nodes.length;
+        nodes.forEach((node, index) => {
+            Object.defineProperty(this, index, { value: node });
+        });
+    }
+
+    entries() {
+        return this.nodes.entries();
+    }
+
+    forEach(
+        callbackfn: (value: TNode, key: number, parent: NodeListOf<TNode>) => void,
+        thisArg?: unknown,
+    ) {
+        this.nodes.forEach((node, index) => {
+            callbackfn.call(thisArg, node, index, this);
+        });
+    }
+
+    item(index: number) {
+        return this.nodes[index]!;
+    }
+
+    keys() {
+        return this.nodes.keys();
+    }
+
+    values() {
+        return this.nodes.values();
+    }
+
+    [Symbol.iterator]() {
+        return this.values();
+    }
+}
+
 describe('usePdfViewerLoadingState', () => {
     let triggerObservedMutation: (() => void) | null = null;
+
+    function createRenderedCanvas(size = 100) {
+        return {
+            height: size,
+            isConnected: true,
+            width: size,
+        } as HTMLCanvasElement;
+    }
+
+    function createViewerContainer() {
+        const container: HTMLElement = Object.create(null);
+        Object.defineProperty(container, 'querySelectorAll', {
+            configurable: true,
+            value: () => new TestNodeList<Element>([]),
+        });
+        return container;
+    }
+
+    function createCanvasNodeList(canvas: HTMLCanvasElement) {
+        return new TestNodeList<Element>([canvas]);
+    }
 
     beforeEach(() => {
         vi.unstubAllGlobals();
@@ -28,7 +90,7 @@ describe('usePdfViewerLoadingState', () => {
             observe() {}
             disconnect() {}
         });
-        vi.stubGlobal('document', { createElement: () => ({ querySelector: () => null }) });
+        vi.stubGlobal('document', { createElement: createViewerContainer });
     });
 
     it('hides the loading overlay after a failed load leaves no document to render', async () => {
@@ -87,14 +149,18 @@ describe('usePdfViewerLoadingState', () => {
         }
     });
 
-    it('hides the loading overlay after the first rendered canvas appears', async () => {
+    it('hides the loading overlay only after the first nonzero rendered canvas appears', async () => {
         const scope = effectScope();
         try {
-            let hasRenderedCanvas = false;
+            let renderedCanvasSize: number | null = null;
             const container = document.createElement('div');
             const querySelector = vi
-                .spyOn(container, 'querySelector')
-                .mockImplementation(() => (hasRenderedCanvas ? document.createElement('canvas') : null));
+                .spyOn(container, 'querySelectorAll')
+                .mockImplementation(() => (
+                    renderedCanvasSize === null
+                        ? new TestNodeList<Element>([])
+                        : createCanvasNodeList(createRenderedCanvas(renderedCanvasSize))
+                ));
 
             const state = scope.run(() => {
                 const src = computed(() =>
@@ -116,7 +182,12 @@ describe('usePdfViewerLoadingState', () => {
             await nextTick();
             expect(state?.isViewerLoadingOverlayVisible.value).toBe(true);
 
-            hasRenderedCanvas = true;
+            renderedCanvasSize = 0;
+            triggerObservedMutation?.();
+            await nextTick();
+            expect(state?.isViewerLoadingOverlayVisible.value).toBe(true);
+
+            renderedCanvasSize = 100;
             triggerObservedMutation?.();
             await nextTick();
 
@@ -132,8 +203,12 @@ describe('usePdfViewerLoadingState', () => {
         try {
             let hasRenderedCanvas = true;
             const container = document.createElement('div');
-            vi.spyOn(container, 'querySelector')
-                .mockImplementation(() => (hasRenderedCanvas ? document.createElement('canvas') : null));
+            vi.spyOn(container, 'querySelectorAll')
+                .mockImplementation(() => (
+                    hasRenderedCanvas
+                        ? createCanvasNodeList(createRenderedCanvas())
+                        : new TestNodeList<Element>([])
+                ));
             const sourceA = new Blob([new Uint8Array([1])], {type: 'application/pdf'});
             const sourceB = new Blob([new Uint8Array([2])], {type: 'application/pdf'});
             const documentA = {} as PDFDocumentProxy;

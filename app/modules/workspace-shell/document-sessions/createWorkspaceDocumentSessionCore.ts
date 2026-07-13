@@ -52,7 +52,10 @@ interface IWorkspaceWaiter {
     timer: ReturnType<typeof setTimeout>;
 }
 
-const DEFAULT_WORKSPACE_WAIT_TIMEOUT_MS = 4000;
+// Large documents can legitimately take well over four seconds to mount their
+// workspace host on production hardware. Keep this aligned with the document
+// visual-settle policies so routing does not manufacture a false open failure.
+const DEFAULT_WORKSPACE_WAIT_TIMEOUT_MS = 30_000;
 let nextSessionIndex = 0;
 let nextGlobalDocumentSessionKeyIndex = 0;
 
@@ -198,6 +201,7 @@ function createInitialRecord(options: ICreateWorkspaceDocumentSessionCoreOptions
 function resolvePhaseFromRecord(
     record: IWorkspaceDocumentRecord,
     activeTransaction: IWorkspaceDocumentTransaction | null,
+    previousPhase?: TWorkspaceDocumentSessionPhase,
 ): TWorkspaceDocumentSessionPhase {
     if (activeTransaction?.kind === 'close') {
         return 'closing';
@@ -211,16 +215,17 @@ function resolvePhaseFromRecord(
         return activeTransaction?.kind === 'restore' ? 'restoring' : 'opening';
     }
 
+    if (previousPhase === 'error' && !activeTransaction && !record.toolbarSnapshot.initialVisualReady) {
+        return 'error';
+    }
+
     if (activeTransaction?.kind === 'reload') {
         return 'reloading';
     }
 
     if (
-        hasWorkspaceViewerDocumentCapabilities(record.toolbarSnapshot.viewerCapabilities)
-        || record.documentIdentity
-        || record.tab.originalPath
-        || record.tab.fileName
-        || record.tab.isDjvu
+        record.toolbarSnapshot.initialVisualReady
+        && hasWorkspaceViewerDocumentCapabilities(record.toolbarSnapshot.viewerCapabilities)
     ) {
         return 'ready';
     }
@@ -507,7 +512,7 @@ export function createWorkspaceDocumentSessionCore(
             return {
                 ...current,
                 identity: nextIdentity,
-                phase: resolvePhaseFromRecord(normalizedRecord, current.activeTransaction),
+                phase: resolvePhaseFromRecord(normalizedRecord, current.activeTransaction, current.phase),
                 toolbarSnapshot: normalizedRecord.toolbarSnapshot,
                 viewState: normalizedRecord.viewState,
                 dirty: normalizedRecord.tab.isDirty,

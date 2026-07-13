@@ -85,10 +85,14 @@ export function createWorkspaceDocumentRecordFromTab(tab: ITab): IWorkspaceDocum
     return createWorkspaceDocumentRecord({ tab });
 }
 
-export function createPendingWorkspaceDocumentRecord(tab: TTabUpdate): IWorkspaceDocumentRecord {
+export function createPendingWorkspaceDocumentRecord(
+    tab: TTabUpdate,
+    previousToolbarSnapshot: IWorkspaceToolbarSnapshot = createDefaultWorkspaceToolbarSnapshot(),
+    previousViewState: ITabViewSessionState = createTabViewSessionState(previousToolbarSnapshot),
+): IWorkspaceDocumentRecord {
     const tabState = normalizeTabState(tab);
     const toolbarSnapshot = normalizeWorkspaceToolbarSnapshot({
-        ...createDefaultWorkspaceToolbarSnapshot(),
+        ...previousToolbarSnapshot,
         hasPdf: Boolean(tabState.fileName) || Boolean(tabState.originalPath) || tabState.isDjvu,
         isOpeningDocument: true,
         isDjvuMode: tabState.isDjvu,
@@ -97,7 +101,7 @@ export function createPendingWorkspaceDocumentRecord(tab: TTabUpdate): IWorkspac
     return createWorkspaceDocumentRecord({
         tab: tabState,
         toolbarSnapshot,
-        viewState: createPendingWorkspaceViewState(toolbarSnapshot),
+        viewState: previousViewState,
     });
 }
 

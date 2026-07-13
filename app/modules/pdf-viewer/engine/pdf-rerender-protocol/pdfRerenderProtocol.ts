@@ -15,17 +15,14 @@ export const PDF_RERENDER_SOURCE = {
     ZoomGestureChange: 'zoom-gesture-change',
     ZoomMode: 'zoom-mode',
     ZoomModeChange: 'zoom-mode-change',
-    ZoomSettle: 'zoom-settle',
 } as const;
 
 export type TPdfRerenderSource = typeof PDF_RERENDER_SOURCE[keyof typeof PDF_RERENDER_SOURCE];
 
 interface IPdfRerenderSourcePolicy {
     anchoredCurrentPageSync: boolean;
-    preserveExistingContent: boolean;
     resize: boolean;
     useMinimalRenderBuffer: boolean;
-    zoomGestureCanvasCap: boolean;
     zoomRestore: boolean;
 }
 
@@ -36,139 +33,99 @@ const PDF_RERENDER_SOURCE_SET: ReadonlySet<string> = new Set(PDF_RERENDER_SOURCE
 const PDF_RERENDER_SOURCE_POLICY = {
     [PDF_RERENDER_SOURCE.DprChange]: {
         anchoredCurrentPageSync: false,
-        preserveExistingContent: true,
         resize: false,
         useMinimalRenderBuffer: true,
-        zoomGestureCanvasCap: false,
         zoomRestore: false,
     },
     [PDF_RERENDER_SOURCE.FitHeightCurrentPage]: {
         anchoredCurrentPageSync: false,
-        preserveExistingContent: true,
         resize: false,
         useMinimalRenderBuffer: true,
-        zoomGestureCanvasCap: false,
         zoomRestore: false,
     },
     [PDF_RERENDER_SOURCE.FitHeightPagedTarget]: {
         anchoredCurrentPageSync: false,
-        preserveExistingContent: true,
         resize: false,
         useMinimalRenderBuffer: true,
-        zoomGestureCanvasCap: false,
         zoomRestore: false,
     },
     [PDF_RERENDER_SOURCE.FitMode]: {
         anchoredCurrentPageSync: false,
-        preserveExistingContent: true,
         resize: false,
         useMinimalRenderBuffer: true,
-        zoomGestureCanvasCap: false,
         zoomRestore: false,
     },
     [PDF_RERENDER_SOURCE.FitWidthCurrentPage]: {
         anchoredCurrentPageSync: true,
-        preserveExistingContent: true,
         resize: false,
         useMinimalRenderBuffer: true,
-        zoomGestureCanvasCap: false,
         zoomRestore: false,
     },
     [PDF_RERENDER_SOURCE.FitWidthExplicit]: {
         anchoredCurrentPageSync: false,
-        preserveExistingContent: true,
         resize: false,
         useMinimalRenderBuffer: true,
-        zoomGestureCanvasCap: false,
         zoomRestore: false,
     },
     [PDF_RERENDER_SOURCE.FitWidthPagedTarget]: {
         anchoredCurrentPageSync: false,
-        preserveExistingContent: true,
         resize: false,
         useMinimalRenderBuffer: true,
-        zoomGestureCanvasCap: false,
         zoomRestore: false,
     },
     [PDF_RERENDER_SOURCE.ReRender]: {
         anchoredCurrentPageSync: false,
-        preserveExistingContent: false,
         resize: false,
         useMinimalRenderBuffer: false,
-        zoomGestureCanvasCap: false,
         zoomRestore: false,
     },
     [PDF_RERENDER_SOURCE.ResizeObserver]: {
         anchoredCurrentPageSync: true,
-        preserveExistingContent: true,
         resize: true,
         useMinimalRenderBuffer: false,
-        zoomGestureCanvasCap: false,
         zoomRestore: false,
     },
     [PDF_RERENDER_SOURCE.ResizeSettle]: {
         anchoredCurrentPageSync: true,
-        preserveExistingContent: true,
         resize: true,
         useMinimalRenderBuffer: false,
-        zoomGestureCanvasCap: false,
         zoomRestore: false,
     },
     [PDF_RERENDER_SOURCE.Unknown]: {
         anchoredCurrentPageSync: false,
-        preserveExistingContent: false,
         resize: false,
         useMinimalRenderBuffer: false,
-        zoomGestureCanvasCap: false,
         zoomRestore: false,
     },
     [PDF_RERENDER_SOURCE.ViewMode]: {
         anchoredCurrentPageSync: false,
-        preserveExistingContent: false,
         resize: false,
         useMinimalRenderBuffer: false,
-        zoomGestureCanvasCap: false,
         zoomRestore: false,
     },
     [PDF_RERENDER_SOURCE.ZoomChange]: {
         anchoredCurrentPageSync: true,
-        preserveExistingContent: true,
         resize: false,
         useMinimalRenderBuffer: true,
-        zoomGestureCanvasCap: false,
         zoomRestore: true,
     },
     [PDF_RERENDER_SOURCE.ZoomGestureChange]: {
         anchoredCurrentPageSync: true,
-        preserveExistingContent: true,
         resize: false,
         useMinimalRenderBuffer: true,
-        zoomGestureCanvasCap: true,
         zoomRestore: true,
     },
     [PDF_RERENDER_SOURCE.ZoomMode]: {
         anchoredCurrentPageSync: false,
-        preserveExistingContent: true,
         resize: false,
         useMinimalRenderBuffer: true,
-        zoomGestureCanvasCap: false,
         zoomRestore: false,
     },
     [PDF_RERENDER_SOURCE.ZoomModeChange]: {
         anchoredCurrentPageSync: true,
-        preserveExistingContent: true,
         resize: false,
         useMinimalRenderBuffer: true,
-        zoomGestureCanvasCap: false,
         zoomRestore: true,
-    },
-    [PDF_RERENDER_SOURCE.ZoomSettle]: {
-        anchoredCurrentPageSync: true,
-        preserveExistingContent: true,
-        resize: false,
-        useMinimalRenderBuffer: true,
-        zoomGestureCanvasCap: false,
-        zoomRestore: false,
     },
 } satisfies Record<TPdfRerenderSource, IPdfRerenderSourcePolicy>;
 
@@ -200,19 +157,10 @@ export function isResizePdfRerenderSource(source: string | null | undefined) {
     return getPdfRerenderSourcePolicy(source).resize;
 }
 
-export function shouldPreserveExistingPdfRerenderContent(source: string | null | undefined) {
-    return getPdfRerenderSourcePolicy(source).preserveExistingContent;
-}
-
 export function shouldUseMinimalPdfRerenderBuffer(source: string | null | undefined) {
     return getPdfRerenderSourcePolicy(source).useMinimalRenderBuffer;
-}
-
-export function shouldUseZoomGestureCanvasCap(source: string | null | undefined) {
-    return getPdfRerenderSourcePolicy(source).zoomGestureCanvasCap;
 }
 
 export function isZoomRestorePdfRerenderSource(source: string | null | undefined) {
     return getPdfRerenderSourcePolicy(source).zoomRestore;
 }
-

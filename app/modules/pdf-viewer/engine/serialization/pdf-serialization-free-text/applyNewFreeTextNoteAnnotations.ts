@@ -24,6 +24,7 @@ import { toFreeTextNoteMarkerRect } from '@app/modules/pdf-viewer/engine/seriali
 import { setRgbColor } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-colors/setRgbColor';
 import { resolveShapePageContext } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-geometry/resolveShapePageContext';
 import { findFreeTextCommentMatch } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-free-text/findFreeTextCommentMatch';
+import {getReplayableFreeTextNoteName} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 
 function toPdfRectArray(
     doc: PDFDocument,
@@ -67,12 +68,10 @@ function getReplayableNewFreeTextNoteName(comment: IAnnotationCommentSummary) {
     if (!rawKey) {
         return null;
     }
-    const createdAt = typeof comment.createdAt === 'number' && Number.isFinite(comment.createdAt)
-        ? Math.trunc(comment.createdAt)
-        : null;
-    return createdAt
-        ? `evb-note:${rawKey}:created:${createdAt}`
-        : `evb-note:${rawKey}`;
+    return getReplayableFreeTextNoteName({
+        stableKey: rawKey,
+        createdAt: comment.createdAt,
+    });
 }
 
 function hashReplayableNoteNamePart(value: string) {

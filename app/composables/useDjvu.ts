@@ -31,13 +31,18 @@ import {
     registerPdfRasterDisplayProfile,
     unregisterPdfRasterDisplayProfiles,
 } from '@app/types/pdfRasterDisplayProfile';
-import { useDocumentSourceSession } from '@app/modules/workspace-shell/document-sessions/useDocumentSourceSession';
+import {
+    type IDocumentSourceActivation,
+    useDocumentSourceSession,
+} from '@app/modules/workspace-shell/document-sessions/useDocumentSourceSession';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     getDocumentRefBaseName,
     isBrowserDocumentRef,
 } from '@app/utils/documentRef';
 import { getDjvuCapability } from '@app/utils/getDjvuCapability';
+import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import { cacheTrustedDjvuOpenGeometry } from '@app/modules/djvu-viewer/runtime/djvuTrustedOpenGeometryCache';
 import {
     getDocumentFilesCapability,
     getDocumentWorkingCopyCapability,
@@ -62,12 +67,19 @@ export interface IOpenDjvuFileOptions {
 export type TOpenDjvuFile = (
     djvuPath: TDocumentRef,
     options?: IOpenDjvuFileOptions,
-) => Promise<void>;
+) => Promise<boolean>;
 
 type TOpenConvertedPdf = (
     path: TDocumentRef,
     options?: IPdfRasterDisplayProfileOpenOptions,
 ) => Promise<TDocumentOpenOutcome>;
+
+function isPromiseLike(value: unknown): value is PromiseLike<void> {
+    return typeof value === 'object'
+        && value !== null
+        && 'then' in value
+        && typeof value.then === 'function';
+}
 
 const DJVU_PROJECTION_SOURCE_CAPABILITIES: IDocumentSourceCapabilities = {
     annotations: false,
@@ -131,7 +143,7 @@ function createTrustedRasterDjvuPdfDisplayProfile(
         : null;
 }
 
-export const useDjvu = () => {
+export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | undefined} = {}) => {
     const { t } = useTypedI18n();
     const toast = useToast();
 
@@ -140,6 +152,7 @@ export const useDjvu = () => {
         sourceRef: djvuSourcePath,
         projectionRef: djvuTempPdfPath,
         activateDocumentSource,
+        captureDocumentSourceActivation,
         clearDocumentSource,
     } = useDocumentSourceSession();
 
@@ -259,11 +272,31 @@ export const useDjvu = () => {
         }
     }
 
-    function exitDjvuMode() {
-        const sourcePath = djvuSourcePath.value;
+    function isCurrentSourceActivation(activation: IDocumentSourceActivation) {
+        const current = captureDocumentSourceActivation();
+        return current?.generation === activation.generation
+            && current.kind === activation.kind
+            && current.documentRef === activation.documentRef;
+    }
+
+    function captureDjvuActivation() {
+        const activation = captureDocumentSourceActivation();
+        return activation?.kind === 'djvu' ? activation : null;
+    }
+
+    function exitDjvuMode(expectedActivation: IDocumentSourceActivation) {
+        const sourcePath = expectedActivation.documentRef;
+        if (!clearDocumentSource(expectedActivation)) {
+            BrowserLogger.info('djvu-open-generation', 'Source clear rejected', {
+                reason: 'activation-generation-mismatch',
+                expectedActivation,
+                currentActivation: captureDocumentSourceActivation(),
+            });
+            return false;
+        }
         activeProjectionSession = null;
-        clearDocumentSource();
         void releaseViewingPath(sourcePath);
+        return true;
     }
 
     function setupProgressListener() {
@@ -316,7 +349,10 @@ export const useDjvu = () => {
         invalidatePendingDjvuOpen();
         conversionGeneration += 1;
         void cancelActiveJobs();
-        void releaseViewingPath(djvuSourcePath.value);
+        const activation = captureDjvuActivation();
+        if (activation) {
+            exitDjvuMode(activation);
+        }
         teardownListeners();
     });
 
@@ -336,23 +372,80 @@ export const useDjvu = () => {
             current: 0,
             total: 0,
         };
-
+        BrowserLogger.info('djvu-open-generation', 'Open started', {
+            generation,
+            djvuPath,
+            previousDjvuPath,
+        });
         try {
+            BrowserLogger.info('djvu-open-generation', 'Closing previous PDF state', {
+                reason: 'close-before-native-activation',
+                generation,
+                djvuPath,
+                current: isCurrentDjvuOpen(generation, djvuPath),
+            });
+            const closeResult = options.closeActiveDocument?.();
+            if (isPromiseLike(closeResult)) {
+                await closeResult;
+            }
+            BrowserLogger.info('djvu-open-generation', 'Previous PDF state closed', {
+                generation,
+                djvuPath,
+                current: isCurrentDjvuOpen(generation, djvuPath),
+            });
+            if (!isCurrentDjvuOpen(generation, djvuPath)) {
+                BrowserLogger.warn('djvu-open-generation', 'Open superseded', {
+                    reason: 'stale-after-pdf-close',
+                    generation,
+                    currentGeneration: openDjvuGeneration,
+                    djvuPath,
+                    openingPath: openingPath.value,
+                });
+                return false;
+            }
             const openHandle = await djvu.startOpenForViewing(
                 djvuPath,
                 `open:${generation}:${Date.now()}`,
             );
+            BrowserLogger.info('djvu-open-generation', 'Native job admitted', {
+                generation,
+                djvuPath,
+                jobId: openHandle.jobId,
+                current: isCurrentDjvuOpen(generation, djvuPath),
+            });
             if (!isCurrentDjvuOpen(generation, djvuPath)) {
+                BrowserLogger.warn('djvu-open-generation', 'Open superseded', {
+                    reason: 'stale-after-admission',
+                    generation,
+                    currentGeneration: openDjvuGeneration,
+                    djvuPath,
+                    openingPath: openingPath.value,
+                });
                 await cancelJobWhenAdmitted(openHandle.jobId);
                 await releaseStaleViewingPath(generation, djvuPath);
-                return;
+                return false;
             }
             activeViewingJobId.value = openHandle.jobId;
             await djvu.subscribeJob(openHandle.jobId);
             const result = await djvu.awaitOpenJob(openHandle.jobId);
+            BrowserLogger.info('djvu-open-generation', 'Native result received', {
+                generation,
+                djvuPath,
+                jobId: openHandle.jobId,
+                success: result.success,
+                pageCount: result.pageCount ?? null,
+                current: isCurrentDjvuOpen(generation, djvuPath),
+            });
             if (!isCurrentDjvuOpen(generation, djvuPath)) {
+                BrowserLogger.warn('djvu-open-generation', 'Open superseded', {
+                    reason: 'stale-after-native-result',
+                    generation,
+                    currentGeneration: openDjvuGeneration,
+                    djvuPath,
+                    openingPath: openingPath.value,
+                });
                 await releaseStaleViewingPath(generation, djvuPath);
-                return;
+                return false;
             }
             if (!result.success) {
                 BrowserLogger.error('djvu', 'Open failed', result.error);
@@ -367,28 +460,62 @@ export const useDjvu = () => {
                 total: result.pageCount ?? loadingProgress.value.total,
             };
 
+            const sourceInfo = result.pageSourceInfo;
+            const surfaceSnapshot = config.openSurface?.snapshot.value;
+            const sourceRevision = sourceInfo?.sourceSize !== undefined
+                && sourceInfo.sourceModifiedAt !== undefined
+                ? {
+                    size: sourceInfo.sourceSize,
+                    modifiedAt: sourceInfo.sourceModifiedAt,
+                }
+                : null;
+            const openingGeometry = sourceInfo && sourceRevision
+                ? cacheTrustedDjvuOpenGeometry(String(djvuPath), sourceRevision, sourceInfo)
+                : null;
+            if (
+                openingGeometry
+                && surfaceSnapshot
+                && surfaceSnapshot.identity?.documentId === String(djvuPath)
+            ) {
+                config.openSurface?.commitOpeningPageGeometry(surfaceSnapshot.generation, openingGeometry);
+            }
+
             BrowserLogger.info('djvu', 'Native DjVu viewing ready', { pageCount: result.pageCount ?? 0 });
             resetViewingProgressState();
-            await options.closeActiveDocument?.();
-            if (!isCurrentDjvuOpen(generation, djvuPath)) {
-                await releaseStaleViewingPath(generation, djvuPath);
-                return;
-            }
             if (previousDjvuPath && previousDjvuPath !== djvuPath) {
                 await releaseViewingPath(previousDjvuPath);
             }
+            if (!isCurrentDjvuOpen(generation, djvuPath)) {
+                BrowserLogger.warn('djvu-open-generation', 'Open superseded', {
+                    reason: 'stale-before-source-activation',
+                    generation,
+                    currentGeneration: openDjvuGeneration,
+                    djvuPath,
+                    openingPath: openingPath.value,
+                });
+                await releaseStaleViewingPath(generation, djvuPath);
+                return false;
+            }
             options.setOriginalPath?.(djvuPath);
-            activateDocumentSource('djvu', djvuPath);
+            const activation = activateDocumentSource('djvu', djvuPath);
             activeProjectionSession = createDocumentSession({
                 id: `djvu:${String(djvuPath)}`,
                 originalRef: djvuPath,
                 source: createProjectionSourceIdentity('djvu', djvuPath),
                 capabilities: DJVU_PROJECTION_SOURCE_CAPABILITIES,
             });
+            BrowserLogger.info('djvu-open-generation', 'Source activated', {
+                generation,
+                djvuPath,
+                isDjvuMode: isDjvuMode.value,
+                sourcePath: djvuSourcePath.value,
+                activationGeneration: activation.generation,
+            });
+            return true;
         } catch (e) {
             if (!isCurrentDjvuOpen(generation, djvuPath)) {
                 await releaseStaleViewingPath(generation, djvuPath);
-                return;
+                return false;
             }
             resetViewingProgressState();
             throw e;
@@ -661,16 +788,21 @@ export const useDjvu = () => {
         return true;
     }
 
-    async function cleanupDjvuTemp() {
-        if (!djvuTempPdfPath.value) {
-            return;
+    async function cleanupDjvuTemp(expectedActivation: IDocumentSourceActivation) {
+        if (!isCurrentSourceActivation(expectedActivation)) {
+            return false;
+        }
+        const tempPath = djvuTempPdfPath.value;
+        if (!tempPath) {
+            return true;
         }
 
         try {
-            await getDjvuCapability().cleanupTemp(djvuTempPdfPath.value);
+            await getDjvuCapability().cleanupTemp(tempPath);
         } catch (cleanupError) {
             logSuppressedError('Failed to cleanup DjVu temp PDF', cleanupError);
         }
+        return true;
     }
 
     function openConvertDialog() {
@@ -705,6 +837,7 @@ export const useDjvu = () => {
         ensurePdfProjectionForAction,
         cancelActiveJobs,
         cleanupDjvuTemp,
+        captureDjvuActivation,
         exitDjvuMode,
         openConvertDialog,
         closeConvertDialog,

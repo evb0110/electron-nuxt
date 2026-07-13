@@ -41,6 +41,22 @@ export function computeSummaryStableKey(params: IComputeSummaryStableKeyParams):
     return `src:${params.source}:${params.pageIndex}:${params.id}`;
 }
 
+export function getReplayableFreeTextNoteName(input: {
+    stableKey: string;
+    createdAt: number | null | undefined;
+}) {
+    const stableKey = input.stableKey.trim();
+    if (!stableKey) {
+        return null;
+    }
+    const createdAt = typeof input.createdAt === 'number' && Number.isFinite(input.createdAt)
+        ? Math.trunc(input.createdAt)
+        : null;
+    return createdAt && createdAt > 0
+        ? `evb-note:${stableKey}:created:${createdAt}`
+        : `evb-note:${stableKey}`;
+}
+
 /** Canonical command/UI identity. Stable keys remain serializer/DOM bindings. */
 export function annotationIdForSummary(summary: TAnnotationCommentMatchInput): AnnotationId {
     if (summary.appAnnotationId) {

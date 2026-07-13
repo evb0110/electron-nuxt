@@ -28,7 +28,9 @@ export async function waitForActiveWorkspaceHost(page: Page, timeoutMs = DEFAULT
 
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
             .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+        ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         if (activeHost && visibleHosts.includes(activeHost)) {
             return true;
         }
@@ -59,7 +61,9 @@ export async function findVisiblePointInActiveHost(page: Page, selector: string,
 
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
             .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+        ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const host = (activeHost && visibleHosts.includes(activeHost))
             ? activeHost
             : (visibleHosts.length === 1 ? visibleHosts[0] : null);
@@ -118,7 +122,9 @@ export async function getRenderedPageCount(page: Page) {
 
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
             .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+        ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const host = (activeHost && visibleHosts.includes(activeHost))
             ? activeHost
             : (visibleHosts.length === 1 ? visibleHosts[0] : null);

@@ -1057,7 +1057,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         pageNumber: number,
     ) {
         const drawLayer = drawLayers.get(pageNumber) ?? createPdfjsDrawLayer();
-        const canvasHost = container.querySelector<HTMLDivElement>('.page_canvas');
+        const canvasHost = container.querySelector<HTMLDivElement>('.page_canvas__render-layer');
         if (canvasHost) {
             drawLayer.setParent(canvasHost);
         }

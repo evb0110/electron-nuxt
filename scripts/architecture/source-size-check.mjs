@@ -59,6 +59,11 @@ export const SOURCE_SIZE_ALLOWLIST = {
         reason: 'transitional PDF thumbnail UI/layout hotspot after removing redundant label wrapper',
         stage: 'Static audit Stage 15 - thumbnail label simplification',
     },
+    'app/modules/native-pdf-viewer/components/NativePdfViewer.vue': {
+        maxLines: 1334,
+        reason: 'native PDF viewer after committed-surface ownership and page-source lifecycle hardening',
+        stage: 'Viewer core follow-up - native PDF presentation extraction',
+    },
     'electron/features/agent/codexAssistant.ts': {
         maxLines: 1331,
         reason: 'transitional Electron assistant backend facade after session store and runtime lifecycle extraction',
@@ -69,25 +74,20 @@ export const SOURCE_SIZE_ALLOWLIST = {
         reason: 'transitional workspace save orchestration hotspot',
         stage: 'Finding 4 Stage D - Save controller port alignment',
     },
-    'scripts/electron-run/sessionManager.ts': {
-        maxLines: 1167,
-        reason: 'Electron dev session controller after page-diagnostics ownership extraction',
-        stage: 'Static audit Stage 15 - Electron session diagnostics extraction',
-    },
     'scripts/diagnostics/pdfNavigationBlinkTrace.ts': {
-        maxLines: 1730,
+        maxLines: 1719,
         reason: 'transitional PDF navigation diagnostic hotspot',
         stage: 'Worker 6 - Diagnostic trace analysis extraction',
     },
     'app/modules/workspace-shell/components/DocumentWorkspace.vue': {
-        maxLines: 1535,
-        reason: 'workspace component after deferred-search lifecycle extraction',
-        stage: 'Static audit Stage 15 - workspace search binding extraction',
+        maxLines: 1518,
+        reason: 'workspace component after deferred-search and component-binding extraction',
+        stage: 'Static audit Stage 15 - workspace binding extraction',
     },
-    'app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue': {
-        maxLines: 1029,
-        reason: 'deferred workspace host after event/session binding and timeout policy extraction',
-        stage: 'Static audit Stage 15 - deferred host binding extraction',
+    'app/modules/workspace-shell/components/DocumentPageSourceFeaturePack.vue': {
+        maxLines: 1489,
+        reason: 'page-source feature pack after shared chassis, retry, and committed-surface lifecycle integration',
+        stage: 'Viewer core follow-up - page-source controller extraction',
     },
     'app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer.ts': {
         maxLines: 1297,
@@ -100,9 +100,14 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Browser resilience overhaul - transient source retention',
     },
     'app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer.ts': {
-        maxLines: 1262,
+        maxLines: 1264,
         reason: 'transitional PDF text layer renderer hotspot',
         stage: 'Future PDF rendering extraction',
+    },
+    'app/modules/pdf-viewer/runtime/usePdfViewerFeatureController.ts': {
+        maxLines: 1290,
+        reason: 'PDF feature controller after render-demand and prepared opening-frame authority integration',
+        stage: 'Viewer core follow-up - opening and render-demand orchestration extraction',
     },
     'electron/ocr/jobManager.ts': {
         maxLines: 993,

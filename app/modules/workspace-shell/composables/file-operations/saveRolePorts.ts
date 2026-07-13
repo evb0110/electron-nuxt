@@ -58,6 +58,7 @@ export interface IWorkspaceSaveAnnotationStatePort {
     hasLivePdfJsAnnotationChanges?: () => boolean;
     hasSavedPdfJsAnnotationBaselineChanges?: () => boolean;
     hasPreservedAnnotationSourceChanges?: () => boolean;
+    hasPendingAnnotationDeletes?: () => boolean;
 }
 
 export interface IWorkspaceSaveMetadataStatePort {
@@ -132,7 +133,7 @@ export interface IWorkspaceSaveNativeWorkingCopyPersistencePort {
 export interface IWorkspaceSaveNativeMutationOptions extends IWorkspaceSavePersistSerializedOptions {
     saveMode: TPdfSaveMode;
     modifiedAt: string;
-    verifyBeforeExpose?: (bytes: Uint8Array) => Promise<void>;
+    verifyPathBeforeExpose?: (path: TDocumentRef, knownSize: number) => Promise<void>;
     assertBeforeExpose?: () => Promise<void> | void;
 }
 
@@ -259,6 +260,7 @@ export interface IWorkspacePdfViewerSaveAnnotationSourcePort extends
 export interface IWorkspacePdfViewerSaveShapeStatePort {
     adoptPersistedManagedShapesOnNextImport?: () => void;
     clearPendingManagedShapeImportAdoption?: () => void;
+    ensureManagedShapeBaselineReady?: () => Promise<void>;
     preparePersistedManagedShapesForSave?: (data: Uint8Array) => Promise<unknown>;
     restorePreparedManagedShapesAfterFailedSave?: (snapshot: unknown) => Promise<void>;
 }

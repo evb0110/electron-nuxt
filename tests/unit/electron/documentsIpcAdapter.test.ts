@@ -193,6 +193,15 @@ describe('documents ipc adapter', () => {
         } = createRegistrationHarness();
         const sender = {id: 49};
         const service = {
+            getPdfOpeningGeometry: vi.fn(async () => ({
+                pageNumber: 1 as const,
+                pageCount: 431,
+                width: 612,
+                height: 792,
+                rotation: 0 as const,
+                size: 28_000_000,
+                modifiedAt: 1_720_000_000_000,
+            })),
             getPdfNativePageSizes: vi.fn(async () => [{
                 width: 612,
                 height: 792,
@@ -207,6 +216,12 @@ describe('documents ipc adapter', () => {
         const { registerDocumentsIpcAdapter } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
 
         registerDocumentsIpcAdapter(registrar as never, service as never, {eventRegistrar});
+        await expect(handlers.get(DOCUMENTS_CHANNELS.pdfOpeningGeometry)?.({sender}, '/tmp/huge.pdf'))
+            .resolves
+            .toMatchObject({
+                pageNumber: 1,
+                pageCount: 431,
+            });
         await expect(handlers.get(DOCUMENTS_CHANNELS.pdfNativePageSizes)?.({sender}, '/tmp/huge.pdf'))
             .resolves
             .toEqual([{
@@ -230,6 +245,10 @@ describe('documents ipc adapter', () => {
             height: 1200,
         });
 
+        expect(service.getPdfOpeningGeometry).toHaveBeenCalledWith({
+            sender,
+            senderId: 49,
+        }, '/tmp/huge.pdf');
         expect(service.getPdfNativePageSizes).toHaveBeenCalledWith({
             sender,
             senderId: 49,

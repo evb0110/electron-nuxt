@@ -51,6 +51,7 @@ function createBindingHarness() {
         showSidebar: ref(true),
         viewMode: ref('single'),
         workingCopyPath: ref(null),
+        originalPath: ref('/tmp/source.pdf'),
         documentRevisionToken: ref(null),
         zoom: ref(1),
         zoomMode: ref('fit-width'),

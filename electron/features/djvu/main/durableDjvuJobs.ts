@@ -6,7 +6,7 @@ import type { IDjvuOperationContext } from '@electron/features/djvu/ports';
 import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
 import { allowOpenPath } from '@electron/file-access/openPathCapabilities';
 import { documentOutputService } from '@electron/output/documentOutputService';
-import { handleDjvuOpenForViewing } from '@electron/features/djvu/main/viewing';
+import { adoptDjvuViewingPath } from '@electron/features/djvu/main/viewing';
 
 const RETENTION_MS = 60 * 60 * 1_000;
 const convertJobs = new Map<string, Promise<IDjvuConvertResult>>();
@@ -126,12 +126,11 @@ export async function awaitDurableDjvuOpenJob(context: IDjvuOperationContext, jo
             error: 'DjVu open canceled',
         };
     }
-    // Re-adopt the source capability after renderer reload/navigation.
-    const adopted = await handleDjvuOpenForViewing(context, job.path);
-    return {
-        ...adopted,
-        jobId,
-    };
+    // The durable job already completed the native metadata probe. Awaiting
+    // only adopts the proven source capability for this renderer; repeating
+    // the probe here doubled every cold-open critical path.
+    adoptDjvuViewingPath(context, job.path);
+    return result;
 }
 
 export function cancelDurableDjvuJob(jobId: string, reason = 'DjVu operation canceled') {

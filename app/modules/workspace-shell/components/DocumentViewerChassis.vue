@@ -1,11 +1,31 @@
 <template>
-    <div class="document-viewer-chassis">
+    <div
+        class="document-viewer-chassis"
+        :data-open-surface-presentation="chassisAuthority.openSurface.snapshot.value.presentation"
+        :data-open-surface-generation="chassisAuthority.openSurface.snapshot.value.generation"
+        :data-open-surface-document-id="chassisAuthority.openSurface.snapshot.value.identity?.documentId ?? ''"
+        :data-open-surface-document-revision="chassisAuthority.openSurface.snapshot.value.identity?.documentRevision ?? ''"
+        :data-open-surface-has-opening-geometry="chassisAuthority.openSurface.snapshot.value.openingPageGeometry !== null"
+        :data-open-surface-has-opening-frame="chassisAuthority.openSurface.snapshot.value.openingPageFrame !== null"
+        :data-open-surface-opening-frame-page="chassisAuthority.openSurface.snapshot.value.openingPageFrame?.pageNumber ?? ''"
+        :data-open-surface-opening-frame-owner="chassisAuthority.openSurface.snapshot.value.openingPageFrame?.ownerId ?? ''"
+        :data-open-surface-has-geometry="chassisAuthority.openSurface.snapshot.value.geometry !== null"
+        :data-open-surface-has-render="chassisAuthority.openSurface.snapshot.value.committedRender !== null"
+        :data-open-surface-has-viewport="chassisAuthority.openSurface.snapshot.value.committedViewport !== null"
+        :data-viewport-requested-page="chassisAuthority.openSurface.viewportSession.value.requestedPage"
+        :data-viewport-committed-page="chassisAuthority.openSurface.viewportSession.value.committedPage ?? ''"
+        :data-viewport-visual-kind="chassisAuthority.openSurface.viewportSession.value.visual.kind"
+        :data-viewport-visual-page="chassisAuthority.openSurface.viewportSession.value.visual.kind === 'page' ? chassisAuthority.openSurface.viewportSession.value.visual.pageNumber : ''"
+        :data-viewport-visual-presentation="chassisAuthority.openSurface.viewportSession.value.visual.kind === 'page' ? chassisAuthority.openSurface.viewportSession.value.visual.presentation : ''"
+        :data-chassis-current-page="chassisAuthority.currentPage.value"
+    >
         <div id="document-viewer-chassis-sidebar" />
         <DocumentViewportHost
             :viewport-id="viewportId"
             :set-viewport="chassisAuthority.bindViewportElement"
             :class="chassisAuthority.viewportClass.value"
-            :style="chassisAuthority.viewportStyle.value"
+            :style="chassisViewportStyle"
+            :data-open-surface-phase="chassisAuthority.openSurface.snapshot.value.phase"
             @scroll="chassisAuthority.dispatchViewportEvent('scroll', $event)"
             @wheel="chassisAuthority.dispatchViewportEvent('wheel', $event)"
             @mousedown="chassisAuthority.dispatchViewportEvent('mousedown', $event)"
@@ -17,6 +37,29 @@
             @contextmenu="chassisAuthority.dispatchViewportEvent('contextmenu', $event)"
             @selectstart="chassisAuthority.dispatchViewportEvent('selectstart', $event)"
         >
+            <div
+                v-if="chassisOpeningPageShell && shouldRenderChassisOpeningPageShell"
+                class="document-viewer-chassis__opening-layer"
+            >
+                <section
+                    :id="chassisOpeningPageShell.id"
+                    :ref="bindChassisOpeningPageElement"
+                    class="document-viewer-chassis__opening-page"
+                    :style="chassisOpeningPageShell.style"
+                    :data-page-number="chassisOpeningPageShell.pageNumber"
+                    :data-document-opening-shell-id="chassisOpeningPageShell.id"
+                    :data-open-surface-generation="chassisOpeningPageShell.generation"
+                    :data-open-surface-frame-owner="chassisOpeningPageShell.ownerId"
+                    :data-page-source-visual="chassisAuthority.openingPageVisual.value"
+                    data-testid="document-page-source-page"
+                >
+                    <PdfPageSkeleton
+                        v-if="chassisAuthority.openingPageVisual.value === 'skeleton'"
+                        :padding="openingSkeletonPadding"
+                        :content-height="chassisOpeningPageShell.height"
+                    />
+                </section>
+            </div>
             <component
                 :is="activeFeaturePack"
                 ref="activeFeaturePackRef"
@@ -30,14 +73,33 @@
 </template>
 
 <script setup lang="ts">
-import type { Component } from 'vue';
+import type {
+    Component,
+    ComponentPublicInstance,
+} from 'vue';
 import { createDocumentViewerExposeForwarder } from '@app/modules/workspace-shell/viewers/createDocumentViewerExposeForwarder';
 import {
     createDocumentViewerChassisAuthority,
     documentViewerChassisAuthorityKey,
+    shouldAcceptFeaturePackChassisPage,
+    shouldApplyExternalChassisPage,
 } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
 import type { TDocumentPageSourceKind } from '@app/utils/document-viewer/source/documentPageSource';
 import DocumentViewportHost from '@app/utils/document-viewer/chassis/DocumentViewportHost.vue';
+import { workspaceViewerFeatureChunkLoaders } from '@app/modules/workspace-shell/viewers/workspaceViewerFeatureChunkLoaders';
+import {
+    injectDocumentOpenSurfaceSession,
+    resolveDocumentOpenSurfaceViewportPolicy,
+} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import {
+    createDocumentOpeningPageFrameAuthority,
+    resolveDocumentOpeningPageMargin,
+    resolveDocumentOpeningPageShellId,
+} from '@app/utils/document-viewer/chassis/documentOpeningPageFrameAuthority';
+import { readPrevalidatedTrustedPdfOpenGeometry } from '@app/modules/pdf-viewer/public';
+import { readPrevalidatedTrustedDjvuOpenGeometry } from '@app/modules/djvu-viewer/public';
+import { resolveDocumentPageSourceOpeningFrame } from '@app/modules/workspace-shell/viewers/resolveDocumentPageSourceOpeningFrame';
+import { PdfPageSkeleton } from '@app/modules/pdf-viewer/public/component-exports/pdfPageSkeleton';
 
 defineOptions({ inheritAttrs: false });
 
@@ -46,18 +108,24 @@ const props = defineProps<{
     rendererKind?: 'pdfjs' | 'native-pdf' | 'page-source';
     currentPage?: number;
 }>();
+const emit = defineEmits<{
+    'feature-pack-ready': [authority: ReturnType<typeof createDocumentOpeningPageFrameAuthority>];
+    'update:current-page': [pageNumber: number];
+    'update:total-pages': [pageCount: number];
+}>();
 const sourceKind = toRef(props, 'sourceKind');
+const attrs = useAttrs();
 
 const PdfFeaturePack = defineAsyncComponent(
-    () => import('@app/modules/pdf-viewer/public/component-exports/pdfViewer')
+    () => workspaceViewerFeatureChunkLoaders.pdfjs()
         .then(componentModule => componentModule.PdfViewer),
 ) as Component;
 const DocumentPageSourceFeaturePack = defineAsyncComponent(
-    () => import('@app/modules/workspace-shell/components/DocumentPageSourceFeaturePack.vue')
+    () => workspaceViewerFeatureChunkLoaders['page-source']()
         .then(componentModule => componentModule.default),
 ) as Component;
 const NativePdfFeaturePack = defineAsyncComponent(
-    () => import('@app/modules/native-pdf-viewer/public/component-exports/nativePdfViewer')
+    () => workspaceViewerFeatureChunkLoaders['native-pdf']()
         .then(componentModule => componentModule.NativePdfViewer),
 ) as Component;
 const activeFeaturePackRef = shallowRef<Record<PropertyKey, unknown> | null>(null);
@@ -70,23 +138,263 @@ const activeFeaturePack = computed(() => (
         : sourceKind.value === 'pdf' ? PdfFeaturePack : DocumentPageSourceFeaturePack
 ));
 const sourceViewerRef = computed(() => activeFeaturePackRef.value);
-const chassisAuthority = createDocumentViewerChassisAuthority(sourceKind);
+const openingFrameLayoutRevision = ref(0);
+let openingFrameResizeObserver: ResizeObserver | null = null;
+const documentOpenSurface = injectDocumentOpenSurfaceSession();
+if (!documentOpenSurface) {
+    throw new Error('DocumentViewerChassis requires the host-owned document open surface session');
+}
+const chassisAuthority = createDocumentViewerChassisAuthority(
+    sourceKind,
+    1,
+    documentOpenSurface,
+);
+function readNumericAttr(name: string, fallback: number) {
+    const value = attrs[name];
+    return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+function readStringAttr<T extends string>(name: string, values: readonly T[], fallback: T) {
+    const value = attrs[name];
+    return typeof value === 'string' && values.includes(value as T) ? value as T : fallback;
+}
+function readOpeningViewportSize() {
+    const viewport = chassisAuthority.viewportElement.value;
+    const viewportWidth = viewport?.clientWidth ?? 0;
+    const viewportHeight = viewport?.clientHeight ?? 0;
+    if (viewportWidth > 0 && viewportHeight > 0) {
+        return {
+            width: viewportWidth,
+            height: viewportHeight,
+        };
+    }
+    const visibleHost = viewport?.closest<HTMLElement>('.workspace-viewer-host');
+    const hostRect = visibleHost?.getBoundingClientRect();
+    return {
+        width: hostRect?.width ?? 0,
+        height: hostRect?.height ?? 0,
+    };
+}
+const openingPageFrameAuthority = createDocumentOpeningPageFrameAuthority({
+    openSurface: documentOpenSurface,
+    readLayoutRevision: () => openingFrameLayoutRevision.value,
+    readPolicy: () => ({
+        fitMode: readStringAttr('fitMode', [
+            'width',
+            'height',
+        ] as const, 'width'),
+        viewMode: readStringAttr('viewMode', [
+            'single',
+            'facing',
+            'facing-first-single',
+        ] as const, 'single'),
+        zoom: readNumericAttr('zoom', 1),
+        zoomMode: readStringAttr('zoomMode', [
+            'custom',
+            'fit-width',
+            'fit-height',
+        ] as const, 'fit-width'),
+    }),
+    readViewportSize: readOpeningViewportSize,
+});
+watch(
+    () => chassisAuthority.viewportElement.value,
+    (viewport) => {
+        openingFrameResizeObserver?.disconnect();
+        openingFrameResizeObserver = null;
+        if (!viewport || typeof ResizeObserver === 'undefined') {
+            openingFrameLayoutRevision.value += 1;
+            return;
+        }
+        openingFrameResizeObserver = new ResizeObserver(() => {
+            openingFrameLayoutRevision.value += 1;
+        });
+        openingFrameResizeObserver.observe(viewport);
+        const layoutHost = viewport.closest<HTMLElement>('.workspace-viewer-host');
+        if (layoutHost) {
+            openingFrameResizeObserver.observe(layoutHost);
+        }
+    },
+    {
+        flush: 'post',
+        immediate: true,
+    },
+);
+onBeforeUnmount(() => {
+    openingFrameResizeObserver?.disconnect();
+    openingFrameResizeObserver = null;
+});
+function bindChassisOpeningPageElement(element: Element | ComponentPublicInstance | null) {
+    chassisAuthority.bindOpeningPageElement(element instanceof HTMLElement ? element : null);
+}
+const openingSkeletonPadding = Object.freeze({
+    top: 56,
+    right: 56,
+    bottom: 56,
+    left: 56,
+});
+const chassisOpeningPageShell = computed(() => {
+    void openingFrameLayoutRevision.value;
+    const snapshot = chassisAuthority.openSurface.snapshot.value;
+    const frame = snapshot.openingPageFrame;
+    const isPdf = sourceKind.value === 'pdf';
+    const isOpening = snapshot.phase === 'pending'
+        || snapshot.phase === 'geometry-committed'
+        || snapshot.phase === 'canvas-committed'
+        || snapshot.phase === 'viewport-committed';
+    if (
+        !isOpening
+        || frame !== null && (
+            frame.generation !== snapshot.generation
+            || frame.pageNumber !== chassisAuthority.currentPage.value
+        )
+    ) {
+        return null;
+    }
+    const viewport = readOpeningViewportSize();
+    const provisionalWidth = viewport.width > 40 ? viewport.width - 40 : 612;
+    const provisionalStyle = {
+        width: `${String(provisionalWidth)}px`,
+        height: `${String(provisionalWidth * (792 / 612))}px`,
+    };
+    const geometry = snapshot.openingPageGeometry;
+    const policy = {
+        zoom: readNumericAttr('zoom', 1),
+        zoomMode: readStringAttr('zoomMode', [
+            'custom',
+            'fit-width',
+            'fit-height',
+        ] as const, 'fit-width'),
+    };
+    const liveFrame = !isPdf && geometry !== null ? resolveDocumentPageSourceOpeningFrame({
+        geometry,
+        viewportWidth: readOpeningViewportSize().width,
+        viewportHeight: readOpeningViewportSize().height,
+        ...policy,
+    }) : null;
+    const style = liveFrame?.style ?? frame?.style ?? provisionalStyle;
+    const liveWidth = Number.parseFloat(style.width ?? '');
+    const liveHeight = Number.parseFloat(style.height ?? '');
+    if (
+        !Number.isFinite(liveWidth)
+        || liveWidth <= 0
+        || !Number.isFinite(liveHeight)
+        || liveHeight <= 0
+    ) {
+        return null;
+    }
+    const margin = resolveDocumentOpeningPageMargin(geometry, props.rendererKind);
+    return {
+        generation: snapshot.generation,
+        height: liveHeight,
+        id: resolveDocumentOpeningPageShellId(chassisAuthority.instanceId, snapshot.generation),
+        isPdf,
+        ownerId: frame?.ownerId ?? 'chassis-provisional',
+        pageNumber: frame?.pageNumber ?? chassisAuthority.currentPage.value,
+        provisional: frame === null,
+        style: {
+            ...style,
+            top: `${String(margin)}px`,
+            left: `max(${String(margin)}px, calc(50% - ${String(liveWidth / 2)}px))`,
+        },
+    };
+});
+const shouldRenderChassisOpeningPageShell = computed(() => chassisOpeningPageShell.value !== null);
+
+watch(
+    [
+        () => chassisAuthority.openSurface.snapshot.value.generation,
+        () => chassisAuthority.openSurface.snapshot.value.identity?.documentId ?? '',
+        () => chassisAuthority.openSurface.snapshot.value.phase,
+        () => chassisAuthority.openSurface.snapshot.value.openingPageGeometry,
+    ],
+    ([
+        generation,
+        documentId,
+        phase,
+        _openingPageGeometry,
+    ]) => {
+        const snapshot = chassisAuthority.openSurface.snapshot.value;
+        if (
+            phase !== 'pending'
+            || snapshot.openingPageFrame !== null
+            || !documentId
+        ) {
+            return;
+        }
+        if (snapshot.openingPageGeometry === null) {
+            const geometry = sourceKind.value === 'djvu'
+                ? readPrevalidatedTrustedDjvuOpenGeometry(documentId, chassisAuthority.currentPage.value)
+                : readPrevalidatedTrustedPdfOpenGeometry(documentId, chassisAuthority.currentPage.value);
+            if (
+                !geometry
+                || geometry.pageNumber !== chassisAuthority.currentPage.value
+                || !chassisAuthority.openSurface.commitOpeningPageGeometry(generation, geometry)
+            ) {
+                return;
+            }
+        }
+        if (
+            chassisAuthority.openSurface.snapshot.value.openingPageGeometry?.pageNumber
+            !== chassisAuthority.currentPage.value
+        ) {
+            return;
+        }
+        openingPageFrameAuthority.prepareOpeningPageFrame(generation);
+    },
+    {
+        flush: 'sync',
+        immediate: true,
+    },
+);
+watch(activeFeaturePackRef, (featurePack) => {
+    if (featurePack) {
+        emit('feature-pack-ready', openingPageFrameAuthority);
+    }
+}, {flush: 'sync'});
+const chassisViewportStyle = computed(() => {
+    const policy = resolveDocumentOpenSurfaceViewportPolicy(chassisAuthority.openSurface.snapshot.value);
+    return [
+        chassisAuthority.viewportStyle.value,
+        {
+            overflow: policy.overflow,
+            scrollbarGutter: policy.scrollbarGutter,
+            '--document-open-surface-margin': policy.committedMargin === null
+                ? undefined
+                : `${String(policy.committedMargin)}px`,
+        },
+    ];
+});
 let handoffGeneration = 0;
 provide(documentViewerChassisAuthorityKey, chassisAuthority);
 
 watch(() => props.currentPage, (pageNumber) => {
-    if (pageNumber !== undefined) {
+    if (
+        pageNumber !== undefined
+        && shouldApplyExternalChassisPage(
+            chassisAuthority.openSurface.viewportSession.value,
+            pageNumber,
+        )
+    ) {
         chassisAuthority.navigate(pageNumber);
     }
 }, {immediate: true});
 
 function handleCurrentPageUpdate(pageNumber: number) {
-    chassisAuthority.navigate(pageNumber);
+    if (shouldAcceptFeaturePackChassisPage(
+        chassisAuthority.openSurface.viewportSession.value,
+        pageNumber,
+    )) {
+        emit('update:current-page', chassisAuthority.navigate(pageNumber));
+    }
 }
 
 function handleTotalPagesUpdate(pageCount: number) {
     chassisAuthority.pageCount.value = Math.max(0, Math.trunc(pageCount));
+    if (chassisAuthority.pageCount.value > 0) {
+        chassisAuthority.openSurface.metadataReady(chassisAuthority.pageCount.value);
+    }
     chassisAuthority.navigate(chassisAuthority.currentPage.value);
+    emit('update:total-pages', chassisAuthority.pageCount.value);
 }
 
 watch(() => [
@@ -123,13 +431,30 @@ watch(() => [
     }
 }, {flush: 'pre'});
 
-// Preserve the established viewer port while the chassis takes ownership of source selection.
-// Every property read is forwarded to the active feature pack, including reactive expose fields.
-defineExpose(createDocumentViewerExposeForwarder(sourceViewerRef));
+// Navigation belongs to the stable chassis, not to the async feature pack
+// currently projected inside it. A command can arrive while that child is
+// absent or swapping; the session-backed requested page then mounts the next
+// child at the durable target.
+defineExpose(createDocumentViewerExposeForwarder(sourceViewerRef, {
+    getCurrentPage: () => (
+        chassisAuthority.openSurface.viewportSession.value.committedPage
+        ?? chassisAuthority.currentPage.value
+    ),
+    getPendingNavigationTargetPage: () => {
+        const session = chassisAuthority.openSurface.viewportSession.value;
+        return session.identity !== null && session.requestedPage !== session.committedPage
+            ? session.requestedPage
+            : null;
+    },
+    scrollToPage: (pageNumber: number) => {
+        chassisAuthority.navigate(pageNumber);
+    },
+}));
 </script>
 
 <style scoped>
 .document-viewer-chassis {
+    position: relative;
     display: flex;
     width: 100%;
     height: 100%;
@@ -137,9 +462,51 @@ defineExpose(createDocumentViewerExposeForwarder(sourceViewerRef));
 
 [data-document-viewer-chassis-viewport] {
     position: relative;
+    display: block;
+    box-sizing: border-box;
     flex: 1;
     min-width: 0;
     height: 100%;
+    padding: 0;
+    gap: 0;
     overflow: auto;
+    overflow-y: scroll;
+
+    /* Reserve the vertical scrollbar lane before the live page track mounts.
+       Otherwise fit-width opening geometry is computed against a viewport
+       that becomes one scrollbar narrower at commit, producing a visible
+       width/height jump and a transient horizontal scrollbar. */
+    scrollbar-gutter: stable;
+
+    /* The viewport authority is the only owner of document position. Chromium's
+       scroll anchoring must not move the track while an async feature pack
+       replaces provisional geometry with its live page layout. */
+    overflow-anchor: none;
 }
+
+.document-viewer-chassis__opening-page {
+    position: absolute;
+
+    /* This is the sole visible owner until the joined canvas/viewport commit.
+       Keep the mounted live page track underneath so it can render without
+       occluding the shell before the atomic ready handoff. */
+    z-index: var(--app-workspace-transition-overlay-z-index);
+    overflow: hidden;
+    pointer-events: none;
+    background: var(--app-pdf-page-bg);
+    border-radius: var(--app-pdf-page-radius);
+    box-shadow: var(--app-pdf-page-shadow);
+}
+
+.document-viewer-chassis__opening-layer {
+    position: sticky;
+    top: 0;
+    left: 0;
+    z-index: var(--app-workspace-transition-overlay-z-index);
+    width: 100%;
+    height: 0;
+    overflow: visible;
+    pointer-events: none;
+}
+
 </style>

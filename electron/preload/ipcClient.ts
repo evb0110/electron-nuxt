@@ -24,7 +24,7 @@ type TIpcInvokeTimeoutMap<TChannel extends string = string> = Readonly<Partial<R
 interface IIpcInvokerOptions<TChannel extends string = string> { invokeTimeoutMsByChannel?: TIpcInvokeTimeoutMap<TChannel>; }
 
 function logDecodedEventValidationFailure(
-    ipcRenderer: Pick<IpcRenderer, 'send'>,
+    ipcRenderer: Partial<Pick<IpcRenderer, 'send'>>,
     channel: string,
     payload: unknown,
 ) {
@@ -33,7 +33,7 @@ function logDecodedEventValidationFailure(
         console.warn(message, payload);
     }
     try {
-        ipcRenderer.send(CORE_IPC_SEND_CHANNELS.rendererLog, {
+        ipcRenderer.send?.(CORE_IPC_SEND_CHANNELS.rendererLog, {
             level: 'warn',
             section: 'ipc-client',
             message,
@@ -128,24 +128,71 @@ export function createCodecIpcInvoker<TMap extends {[TChannel in keyof TMap]: II
 
 export function createTypedIpcEventSubscriber<
     TEventMap extends {[TChannel in keyof TEventMap]: unknown},
->(ipcRenderer: IpcRenderer) {
+>(ipcRenderer: Partial<Pick<IpcRenderer, 'on' | 'removeListener' | 'send'>>) {
+    type TEventCallback = (event: IpcRendererEvent, payload: unknown) => void;
+    interface IChannelSubscription {
+        callbacks: Set<TEventCallback>;
+        handler: TEventCallback;
+    }
+
+    const subscriptions = new Map<string, IChannelSubscription>();
+
+    function subscribe(channel: string, callback: TEventCallback): TMenuEventUnsubscribe {
+        if (
+            typeof ipcRenderer.on !== 'function'
+            || typeof ipcRenderer.removeListener !== 'function'
+        ) {
+            return () => undefined;
+        }
+
+        let subscription = subscriptions.get(channel);
+        if (!subscription) {
+            const callbacks = new Set<TEventCallback>();
+            const handler: TEventCallback = (event, payload) => {
+                for (const subscriber of [...callbacks]) {
+                    subscriber(event, payload);
+                }
+            };
+            subscription = {
+                callbacks,
+                handler,
+            };
+            subscriptions.set(channel, subscription);
+            ipcRenderer.on(channel, handler);
+        }
+
+        subscription.callbacks.add(callback);
+        let active = true;
+        return () => {
+            if (!active) {
+                return;
+            }
+            active = false;
+            const current = subscriptions.get(channel);
+            if (!current) {
+                return;
+            }
+            current.callbacks.delete(callback);
+            if (current.callbacks.size === 0) {
+                ipcRenderer.removeListener?.(channel, current.handler);
+                subscriptions.delete(channel);
+            }
+        };
+    }
+
     return {
         onNoArg<TChannel extends TNoArgEventChannel<TEventMap>>(
             channel: TChannel,
             callback: () => void,
         ): TMenuEventUnsubscribe {
-            const handler = (_event: IpcRendererEvent) => callback();
-            ipcRenderer.on(channel, handler);
-            return () => ipcRenderer.removeListener(channel, handler);
+            return subscribe(channel, () => callback());
         },
 
         onPayloadUnchecked<TChannel extends TPayloadEventChannel<TEventMap>>(
             channel: TChannel,
             callback: (payload: TEventMap[TChannel]) => void,
         ): TMenuEventUnsubscribe {
-            const handler = (_event: IpcRendererEvent, payload: TEventMap[TChannel]) => callback(payload);
-            ipcRenderer.on(channel, handler);
-            return () => ipcRenderer.removeListener(channel, handler);
+            return subscribe(channel, (_event, payload) => callback(payload as TEventMap[TChannel]));
         },
 
         onDecodedPayload<TChannel extends TPayloadEventChannel<TEventMap>>(
@@ -153,16 +200,14 @@ export function createTypedIpcEventSubscriber<
             decode: TIpcPayloadDecoder<TEventMap[TChannel]>,
             callback: (payload: TEventMap[TChannel]) => void,
         ): TMenuEventUnsubscribe {
-            const handler = (_event: IpcRendererEvent, payload: unknown) => {
+            return subscribe(channel, (_event, payload) => {
                 const decoded = decode(payload);
                 if (decoded !== null) {
                     callback(decoded);
                     return;
                 }
                 logDecodedEventValidationFailure(ipcRenderer, channel, payload);
-            };
-            ipcRenderer.on(channel, handler);
-            return () => ipcRenderer.removeListener(channel, handler);
+            });
         },
     };
 }

@@ -1,16 +1,15 @@
 import type { IDocumentPageSlotRegistry } from '@app/utils/document-viewer/page-slots/createDocumentPageSlotRegistry';
 
-export type TDocumentPageVisual = 'none' | 'skeleton' | 'stale' | 'fresh';
+export type TDocumentPageVisual = 'skeleton' | 'fresh';
 
 export interface IDocumentViewerRenderSession {
     readonly ownerId: string;
     readonly pageSlots: ReturnType<IDocumentPageSlotRegistry['createOwner']>;
-    beginPageRender(pageNumber: number, hasRetainedVisual: boolean): number;
+    beginPageRender(pageNumber: number): number;
     commitPageRender(pageNumber: number, generation: number): boolean;
     failPageRender(pageNumber: number, generation: number): boolean;
     runPageRender<T>(
         pageNumber: number,
-        hasRetainedVisual: boolean,
         render: (generation: number) => Promise<T>,
     ): Promise<{
         committed: boolean;
@@ -39,14 +38,14 @@ export function createDocumentViewerRenderCoordinator(pageSlots: IDocumentPageSl
         return {
             ownerId,
             pageSlots: ownedSlots,
-            beginPageRender(pageNumber, hasRetainedVisual) {
+            beginPageRender(pageNumber) {
                 if (disposed) {
                     return -1;
                 }
                 const generation = (visuals.get(pageNumber)?.generation ?? 0) + 1;
                 visuals.set(pageNumber, {
                     generation,
-                    visual: hasRetainedVisual ? 'stale' : 'skeleton',
+                    visual: 'skeleton',
                 });
                 return generation;
             },
@@ -63,11 +62,11 @@ export function createDocumentViewerRenderCoordinator(pageSlots: IDocumentPageSl
                 if (disposed || state?.generation !== generation) {
                     return false;
                 }
-                state.visual = state.visual === 'stale' ? 'stale' : 'none';
+                state.visual = 'skeleton';
                 return true;
             },
-            async runPageRender(pageNumber, hasRetainedVisual, render) {
-                const generation = this.beginPageRender(pageNumber, hasRetainedVisual);
+            async runPageRender(pageNumber, render) {
+                const generation = this.beginPageRender(pageNumber);
                 try {
                     const value = await render(generation);
                     return {
@@ -80,7 +79,7 @@ export function createDocumentViewerRenderCoordinator(pageSlots: IDocumentPageSl
                     throw error;
                 }
             },
-            getPageVisual: pageNumber => visuals.get(pageNumber)?.visual ?? 'none',
+            getPageVisual: pageNumber => visuals.get(pageNumber)?.visual ?? 'skeleton',
             resolveMountedPages({
                 currentPage,
                 destinationPage,

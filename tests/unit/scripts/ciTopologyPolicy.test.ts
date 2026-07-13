@@ -247,6 +247,9 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('unpacked_dir="win-arm64-unpacked"');
         expect(workflow).toContain('"release/${unpacked_dir}/resources/app.asar"');
         expect(workflow).toContain('pnpm run test:packaged-core-pdf-smoke -- --executable "release/mac-arm64/EVB Viewer.app/Contents/MacOS/EVB Viewer"');
+        expect(workflow).toContain('name: Verify signed bundle through LaunchServices');
+        expect(workflow).toContain('if: runner.os == \'macOS\' && env.MAC_EXPECT_DEVELOPER_ID == \'true\'');
+        expect(workflow).toContain('bash scripts/verify-macos-launchservices-startup.sh "${{ matrix.platform }}" "${{ matrix.arch }}"');
         expect(macSigningScript).toContain('if [ "${CI:-}" = "true" ]; then');
         expect(macSigningScript).toContain('::error::$message');
         expect(macSigningScript).toContain('Partial macOS signing credentials detected; set both CSC_LINK and CSC_KEY_PASSWORD or neither');
@@ -362,9 +365,11 @@ describe('CI topology policy', () => {
         expect(workflow).toMatch(/nightly_electron_e2e_rapid_navigation:[\s\S]*if: \$\{\{ github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch' \}\}[\s\S]*continue-on-error: true[\s\S]*run: pnpm run test:e2e:electron:rapid-navigation/u);
         expect(workflow).toContain('name: Nightly Electron E2E Large PDF');
         expect(workflowJob(workflow, 'nightly_electron_e2e_large_pdf')).toContain('run: pnpm run check:electron:install');
-        expect(workflowJob(workflow, 'nightly_electron_e2e_large_pdf')).not.toContain('EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE');
-        expect(workflow).toMatch(/nightly_electron_e2e_large_pdf:[\s\S]*if: \$\{\{ github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch' \}\}[\s\S]*continue-on-error: true[\s\S]*run: pnpm run build:electron && pnpm exec vitest run --project e2e-large-pdf --reporter verbose/u);
-        expect(packageJson).toContain('"test:e2e:electron:large:no-build": "EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1 vitest run --project e2e-large-pdf --reporter verbose"');
+        expect(workflowJob(workflow, 'nightly_electron_e2e_large_pdf')).toContain('EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1');
+        expect(workflowJob(workflow, 'nightly_electron_e2e_large_pdf')).toContain('EVB_E2E_REQUIRE_NATIVE_LARGE_PDF_FIXTURE=1');
+        expect(workflow).toMatch(/nightly_electron_e2e_large_pdf:[\s\S]*if: \$\{\{ github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch' \}\}[\s\S]*continue-on-error: true[\s\S]*run: pnpm run test:e2e:electron:large/u);
+        expect(packageJson).toContain('"test:e2e:electron:large:no-build": "EVB_PDF_PAGE_OPS_ENABLE=1 EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1 vitest run --project e2e-large-pdf --reporter verbose"');
+        expect(packageJson).toContain('"test:e2e:electron:large": "pnpm run build:pdf-page-ops');
         expect(workflow).toContain('name: Nightly Electron E2E Quarantine');
         expect(workflowJob(workflow, 'nightly_electron_e2e_quarantine')).toContain('run: pnpm run check:electron:install');
         expect(workflow).toContain('run: pnpm run test:e2e:electron:quarantine');

@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { randomFillSync } from 'node:crypto';
 import {
     copyFileSync,
     existsSync,
@@ -334,6 +335,137 @@ export async function createMultiPageTextFixturePdf(filename: string, pageCount 
     writeFileSync(filePath, bytes);
 
     return filePath;
+}
+
+export async function createLargeMultiPageTextFixturePdf(
+    filename: string,
+    pageCount = 431,
+    attachmentSizeBytes = 28 * 1024 * 1024,
+) {
+    ensureFixtureDir();
+    const filePath = join(getFixtureDir(), filename);
+
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+
+    for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+        const page = doc.addPage([
+            612,
+            792,
+        ]);
+        page.drawText(`E2E Large PDF Fixture ${pageNumber}/${pageCount}`, {
+            x: 70,
+            y: 710,
+            size: 24,
+            font,
+            color: rgb(0.13, 0.13, 0.13),
+        });
+        for (let line = 0; line < 96; line += 1) {
+            page.drawText(
+                `Dense text layer page ${pageNumber} row ${line + 1} token ${pageNumber * 10_000 + line}`,
+                {
+                    x: 36,
+                    y: 680 - (line * 6.5),
+                    size: 5,
+                    font,
+                    color: rgb(0.2, 0.2, 0.2),
+                },
+            );
+        }
+    }
+
+    const attachment = new Uint8Array(attachmentSizeBytes);
+    let randomState = 0x6d2b79f5;
+    for (let index = 0; index < attachment.length; index += 1) {
+        randomState ^= randomState << 13;
+        randomState ^= randomState >>> 17;
+        randomState ^= randomState << 5;
+        attachment[index] = randomState & 0xff;
+    }
+    await doc.attach(attachment, 'deterministic-render-pressure.bin', {
+        mimeType: 'application/octet-stream',
+        description: 'Deterministic payload for large-PDF Electron rendering coverage',
+        creationDate: new Date('2026-01-01T00:00:00.000Z'),
+        modificationDate: new Date('2026-01-01T00:00:00.000Z'),
+    });
+
+    writeFileSync(filePath, await doc.save());
+    return filePath;
+}
+
+export async function createLargeScannedFixturePdf(
+    filename: string,
+    pageCount = 431,
+    attachmentSizeBytes = 28 * 1024 * 1024,
+) {
+    ensureFixtureDir();
+    const filePath = join(getFixtureDir(), filename);
+
+    const canvas = createCanvas(1224, 1584);
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#f8f7f3';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = '#242424';
+    context.font = 'bold 54px serif';
+    context.fillText('E2E scanned PDF fixture', 110, 150);
+    context.font = '28px serif';
+    for (let line = 0; line < 34; line += 1) {
+        context.fillText(
+            `Scanned page sample row ${String(line + 1).padStart(2, '0')}`,
+            110,
+            250 + (line * 34),
+        );
+    }
+
+    const doc = await PDFDocument.create();
+    const scannedPageImage = await doc.embedJpg(canvas.toBuffer('image/jpeg', 0.78));
+    for (let pageNumber = 0; pageNumber < pageCount; pageNumber += 1) {
+        const marker = resolveScannedFixturePageMarkerRgb(pageNumber + 1);
+        const page = doc.addPage([
+            612,
+            792,
+        ]);
+        page.drawImage(scannedPageImage, {
+            x: 0,
+            y: 0,
+            width: 612,
+            height: 792,
+        });
+        // A page-specific vector marker makes stale or incorrectly reused
+        // canvases observable without duplicating the large scanned image.
+        page.drawRectangle({
+            x: SCANNED_FIXTURE_MARKER_X,
+            y: SCANNED_FIXTURE_MARKER_Y,
+            width: SCANNED_FIXTURE_MARKER_SIZE,
+            height: SCANNED_FIXTURE_MARKER_SIZE,
+            color: rgb(marker.red / 255, marker.green / 255, marker.blue / 255),
+        });
+    }
+
+    const attachment = new Uint8Array(attachmentSizeBytes);
+    randomFillSync(attachment);
+    await doc.attach(attachment, 'scanned-source-payload.bin', {
+        mimeType: 'application/octet-stream',
+        description: 'Native-speed payload for large scanned-PDF Electron rendering coverage',
+        creationDate: new Date('2026-01-01T00:00:00.000Z'),
+        modificationDate: new Date('2026-01-01T00:00:00.000Z'),
+    });
+
+    writeFileSync(filePath, await doc.save());
+    return filePath;
+}
+
+export const SCANNED_FIXTURE_MARKER_X = 24;
+export const SCANNED_FIXTURE_MARKER_Y = 720;
+export const SCANNED_FIXTURE_MARKER_SIZE = 40;
+
+export function resolveScannedFixturePageMarkerRgb(pageNumber: number) {
+    const normalized = Math.max(1, Math.trunc(pageNumber));
+    return {
+        red: 32 + ((normalized * 53) % 192),
+        green: 32 + ((normalized * 97) % 192),
+        blue: 32 + ((normalized * 151) % 192),
+    };
 }
 
 export function createPngFixture(filename: string) {

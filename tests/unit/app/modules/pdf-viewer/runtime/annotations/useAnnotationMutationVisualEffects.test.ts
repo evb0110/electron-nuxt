@@ -96,6 +96,7 @@ describe('useAnnotationMutationVisualEffects', () => {
             viewerContainer: ref(viewerContainer),
             annotationCommentsCache: ref([comment]),
             annotationSettings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
+            invalidatePages: vi.fn(),
             renderVisiblePages,
             visualEffects: state,
         });
@@ -136,6 +137,7 @@ describe('useAnnotationMutationVisualEffects', () => {
             viewerContainer: ref({} as HTMLElement),
             annotationCommentsCache: ref([]),
             annotationSettings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
+            invalidatePages: vi.fn(),
             renderVisiblePages,
             visualEffects: state,
         });
@@ -166,10 +168,12 @@ describe('useAnnotationMutationVisualEffects', () => {
         });
         const state = createVisualEffectsState();
         const viewerContainer = {} as HTMLElement;
+        const invalidatePages = vi.fn();
         const runner = useAnnotationMutationVisualEffects({
             viewerContainer: ref(viewerContainer),
             annotationCommentsCache: ref([]),
             annotationSettings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
+            invalidatePages,
             renderVisiblePages: vi.fn(async () => undefined),
             visualEffects: state,
         });
@@ -184,6 +188,7 @@ describe('useAnnotationMutationVisualEffects', () => {
         await runner.flushVisualEffects();
 
         expect(removeAnnotationCommentDom).toHaveBeenCalledWith(viewerContainer, comment);
+        expect(invalidatePages).toHaveBeenCalledWith([comment.pageNumber]);
     });
 
     it('does not consume queued effects after its scope is disposed during rendering', async () => {
@@ -195,6 +200,7 @@ describe('useAnnotationMutationVisualEffects', () => {
             viewerContainer: ref({} as HTMLElement),
             annotationCommentsCache: ref([]),
             annotationSettings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
+            invalidatePages: vi.fn(),
             renderVisiblePages,
             visualEffects: state,
         }));

@@ -327,6 +327,11 @@ jobs:
         # Keep the fast startup marker alongside the stronger macOS arm64 core-PDF journey.
         run: bash scripts/verify-packaged-startup.sh "${{ matrix.platform }}" "${{ matrix.arch }}"
 
+      - name: Verify signed bundle through LaunchServices
+        if: runner.os == 'macOS' && env.MAC_EXPECT_DEVELOPER_ID == 'true'
+        shell: bash
+        run: bash scripts/verify-macos-launchservices-startup.sh "${{ matrix.platform }}" "${{ matrix.arch }}"
+
       - name: Prune updater metadata on unsupported updater targets
         if: |
           runner.os == 'Linux'

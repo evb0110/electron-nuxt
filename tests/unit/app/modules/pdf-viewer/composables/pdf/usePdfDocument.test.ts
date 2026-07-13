@@ -60,7 +60,10 @@ const electronApi = {
 
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => electronApi}));
 
-const {usePdfDocument} = await import('@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument');
+const {
+    leasePdfDocumentPage,
+    usePdfDocument,
+} = await import('@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument');
 const {maxCachedPdfPages} = await import('@app/modules/pdf-viewer/engine/maxCachedPdfPages');
 
 const rangePreloadTestTimeoutMs = 15_000;
@@ -80,14 +83,34 @@ describe('usePdfDocument range loading', () => {
         pdfjsState.getDocument.mockReturnValue({
             promise: Promise.resolve({
                 numPages: 1,
-                getPage: vi.fn(async () => ({getViewport: vi.fn(() => ({
-                    width: 100,
-                    height: 200,
-                }))})),
+                getPage: vi.fn(async () => ({
+                    cleanup: vi.fn(),
+                    getViewport: vi.fn(() => ({
+                        width: 100,
+                        height: 200,
+                    })),
+                })),
                 destroy: vi.fn(),
             }),
             destroy: vi.fn(),
         });
+    });
+
+    it('distinguishes an exact trusted target-page seed from normalized fallback pages', () => {
+        const documentState = usePdfDocument();
+
+        expect(documentState.hasExactPageGeometry(7)).toBe(false);
+        expect(documentState.seedTrustedPageGeometry({
+            pageNumber: 7,
+            pageCount: 431,
+            width: 478.8,
+            height: 765.3,
+        })).toBe(true);
+        expect(documentState.hasExactPageGeometry(7)).toBe(true);
+        expect(documentState.hasExactPageGeometry(1)).toBe(false);
+
+        documentState.cleanup();
+        expect(documentState.hasExactPageGeometry(7)).toBe(false);
     });
 
     it('loads a PDF through range transport and populates document state', async () => {
@@ -100,16 +123,18 @@ describe('usePdfDocument range loading', () => {
         ]));
 
         const documentState = usePdfDocument();
-        const result = await documentState.loadPdf({
+        const source = {
             kind: 'path',
             path: '/tmp/success.pdf',
             size,
-        });
+        } as const;
+        const result = await documentState.loadPdf(source);
 
         expect(result).not.toBeNull();
         expect(documentState.loadError.value).toBeNull();
         expect(documentState.pdfDocument.value).not.toBeNull();
         expect(documentState.pdfDocument.value).toBe(result?.document ?? null);
+        expect(documentState.acceptedSource.value).toBe(source);
         expect(documentState.numPages.value).toBe(1);
         expect(documentState.basePageWidth.value).toBe(100);
         expect(documentState.basePageHeight.value).toBe(200);
@@ -440,6 +465,7 @@ describe('usePdfDocument range loading', () => {
         });
 
         expect(result).toBeNull();
+        expect(documentState.acceptedSource.value).toBeNull();
         expect(documentState.isLoading.value).toBe(false);
         expect(documentState.loadError.value).toBeInstanceOf(Error);
         expect((documentState.loadError.value as Error).message).toBe('read failed');
@@ -771,9 +797,10 @@ describe('usePdfDocument range loading', () => {
         });
 
         expect(documentState.loadError.value).toBe(postLoadReadError);
+        expect(documentState.acceptedSource.value).toBeNull();
         expect(documentState.isLoading.value).toBe(false);
         expect(documentState.numPages.value).toBe(0);
-        expect(taskDestroy).toHaveBeenCalledTimes(1);
+        expect(taskDestroy).not.toHaveBeenCalled();
         expect(documentDestroy).toHaveBeenCalledTimes(1);
         expect(range?.abort).toHaveBeenCalledTimes(1);
     });
@@ -806,11 +833,79 @@ describe('usePdfDocument range loading', () => {
         });
 
         expect(result).toBeNull();
+        expect(documentState.acceptedSource.value).toBeNull();
         expect(documentState.pdfDocument.value).toBeNull();
         expect(documentState.numPages.value).toBe(0);
         expect(documentState.pageMetrics.value).toEqual([]);
-        expect(taskDestroy).toHaveBeenCalledTimes(1);
+        expect(taskDestroy).not.toHaveBeenCalled();
         expect(documentDestroy).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the accepted source bound to load B when stale load A resolves afterward', async () => {
+        const staleDocument = {
+            numPages: 1,
+            getPage: vi.fn(async () => ({getViewport: vi.fn(() => ({
+                width: 100,
+                height: 200,
+            }))})),
+            destroy: vi.fn(() => Promise.resolve()),
+        };
+        const currentDocument = {
+            numPages: 1,
+            getPage: vi.fn(async () => ({getViewport: vi.fn(() => ({
+                width: 300,
+                height: 400,
+            }))})),
+            destroy: vi.fn(() => Promise.resolve()),
+        };
+        const staleLoad = Promise.withResolvers<typeof staleDocument>();
+        pdfjsState.getDocument
+            .mockReturnValueOnce({
+                promise: staleLoad.promise,
+                destroy: vi.fn(() => Promise.resolve()),
+            })
+            .mockReturnValueOnce({
+                promise: Promise.resolve(currentDocument),
+                destroy: vi.fn(() => Promise.resolve()),
+            });
+
+        const documentState = usePdfDocument();
+        const sourceA = new Blob([Uint8Array.of(1)]);
+        const sourceB = new Blob([Uint8Array.of(2)]);
+        const loadA = documentState.loadPdf(sourceA);
+        await vi.waitFor(() => {
+            expect(pdfjsState.getDocument).toHaveBeenCalledTimes(1);
+        });
+
+        const loadB = documentState.loadPdf(sourceB);
+        await expect(loadB).resolves.toEqual(expect.objectContaining({ document: currentDocument }));
+        expect(documentState.pdfDocument.value).toBe(currentDocument);
+        expect(documentState.acceptedSource.value).toBe(sourceB);
+
+        staleLoad.resolve(staleDocument);
+        await expect(loadA).resolves.toBeNull();
+
+        expect(documentState.pdfDocument.value).toBe(currentDocument);
+        expect(documentState.acceptedSource.value).toBe(sourceB);
+        expect(staleDocument.destroy).toHaveBeenCalledOnce();
+    });
+
+    it('clears the accepted source on explicit cleanup', async () => {
+        electronApi.documentFiles.readFileRange.mockResolvedValue(Uint8Array.of(1, 2, 3, 4));
+        const documentState = usePdfDocument();
+        const source = {
+            kind: 'path',
+            path: '/tmp/cleanup-source.pdf',
+            size: 2048,
+        } as const;
+
+        await expect(documentState.loadPdf(source)).resolves.not.toBeNull();
+        expect(documentState.acceptedSource.value).toBe(source);
+
+        documentState.cleanup();
+
+        expect(documentState.acceptedSource.value).toBeNull();
+        expect(documentState.pdfDocument.value).toBeNull();
     });
 
     it('destroys the PDF.js loading task and aborts range transport when document parsing fails', async () => {
@@ -863,6 +958,66 @@ describe('usePdfDocument range loading', () => {
 
         expect(destroy).toHaveBeenCalledTimes(1);
         expect(revokeObjectURLMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('finishes accepted document teardown before submitting the next PDF.js load', async () => {
+        const firstDestroy = Promise.withResolvers<undefined>();
+        const firstTaskDestroy = vi.fn(() => Promise.resolve());
+        const firstDocumentDestroy = vi.fn(() => firstDestroy.promise);
+        const secondDocumentDestroy = vi.fn(() => Promise.resolve());
+        const createDocument = (destroy: ReturnType<typeof vi.fn>) => ({
+            numPages: 1,
+            getPage: vi.fn(async () => ({
+                cleanup: vi.fn(),
+                getViewport: vi.fn(() => ({
+                    width: 100,
+                    height: 200,
+                })),
+            })),
+            destroy,
+        });
+
+        pdfjsState.getDocument
+            .mockReturnValueOnce({
+                promise: Promise.resolve(createDocument(firstDocumentDestroy)),
+                destroy: firstTaskDestroy,
+            })
+            .mockReturnValueOnce({
+                promise: Promise.resolve(createDocument(secondDocumentDestroy)),
+                destroy: vi.fn(() => Promise.resolve()),
+            });
+        electronApi.documentFiles.readFileRange.mockResolvedValue(Uint8Array.of(1, 2, 3, 4));
+
+        const documentState = usePdfDocument();
+        await expect(documentState.loadPdf({
+            kind: 'path',
+            path: '/tmp/first.pdf',
+            size: 2048,
+        })).resolves.not.toBeNull();
+
+        documentState.cleanup();
+        await vi.waitFor(() => {
+            expect(firstDocumentDestroy).toHaveBeenCalledOnce();
+        });
+
+        electronApi.documentFiles.readFileRange.mockClear();
+        const secondLoad = documentState.loadPdf({
+            kind: 'path',
+            path: '/tmp/second.pdf',
+            size: 2048,
+        });
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(firstTaskDestroy).not.toHaveBeenCalled();
+        expect(pdfjsState.getDocument).toHaveBeenCalledTimes(1);
+        expect(electronApi.documentFiles.readFileRange).not.toHaveBeenCalled();
+
+        firstDestroy.resolve(undefined);
+
+        await expect(secondLoad).resolves.not.toBeNull();
+        expect(pdfjsState.getDocument).toHaveBeenCalledTimes(2);
+        expect(electronApi.documentFiles.readFileRange).toHaveBeenCalled();
     });
 
     it('bounds the cached PDF pages with an LRU policy', async () => {
@@ -987,6 +1142,58 @@ describe('usePdfDocument range loading', () => {
 
         expect(getPage).toHaveBeenCalledTimes(2);
         expect(loadedPages.get(1)?.[1]?.cleanup).not.toHaveBeenCalled();
+    });
+
+    it('keeps background inventory pages out of the visible render LRU', async () => {
+        const pages = new Map<number, Array<{
+            cleanup: ReturnType<typeof vi.fn>;
+            getViewport: ReturnType<typeof vi.fn>;
+            pageNumber: number;
+        }>>();
+        const getPage = vi.fn(async (pageNumber: number) => {
+            const page = {
+                cleanup: vi.fn(),
+                getViewport: vi.fn(() => ({
+                    width: 200,
+                    height: 400,
+                })),
+                pageNumber,
+            };
+            pages.set(pageNumber, [
+                ...(pages.get(pageNumber) ?? []),
+                page,
+            ]);
+            return page;
+        });
+        const pdfDocument = {
+            numPages: 2,
+            getPage,
+            destroy: vi.fn(),
+        };
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.resolve(pdfDocument),
+            destroy: vi.fn(),
+        });
+        electronApi.documentFiles.readFileRange.mockResolvedValue(Uint8Array.of(1, 2, 3, 4));
+
+        const documentState = usePdfDocument();
+        await documentState.loadPdf({
+            kind: 'path',
+            path: '/tmp/background-page-inventory.pdf',
+            size: 2048,
+        });
+
+        const backgroundLease = await leasePdfDocumentPage(
+            pdfDocument as never,
+            2,
+            'transient-background',
+        );
+        backgroundLease.release();
+
+        expect(pages.get(2)?.[0]?.cleanup).not.toHaveBeenCalled();
+        await documentState.getPage(2);
+        expect(getPage).toHaveBeenCalledTimes(3);
+        expect(pages.get(1)?.[0]?.cleanup).not.toHaveBeenCalled();
     });
 
     it('keeps stable cached page proxies attached to one exact lease entry across eviction', async () => {

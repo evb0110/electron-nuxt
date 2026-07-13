@@ -23,8 +23,10 @@ const mocks = vi.hoisted(() => {
         documentFilesCapability: {
             applyPdfNativeMutationsToWorkingCopy: vi.fn(),
             commitStagedPdfNativeMutations: vi.fn(),
+            createManagedTempFileHandle: vi.fn(),
             optimizePdfAsCopy: vi.fn(),
             optimizePdfForInteraction: vi.fn(),
+            releaseManagedTempFileHandle: vi.fn(),
             repairPdf: vi.fn(),
             saveFileStructured: vi.fn(),
             savePdfAs: vi.fn(),
@@ -143,6 +145,14 @@ describe('createDocumentPersistence', () => {
             pageCount: 1,
         });
         mocks.documentFilesCapability.optimizePdfForInteraction.mockResolvedValue(validPdfResult);
+        mocks.documentFilesCapability.releaseManagedTempFileHandle.mockResolvedValue(true);
+        mocks.documentFilesCapability.createManagedTempFileHandle.mockResolvedValue({
+            path: '/tmp/old-working.pdf',
+            size: 3,
+            sha256: 'c'.repeat(64),
+            leaseId: 'working-copy-expectation-lease',
+            revision: TEST_DOCUMENT_REVISION_TOKEN,
+        });
         mocks.documentFilesCapability.repairPdf.mockResolvedValue(validPdfResult);
         mocks.documentFilesCapability.saveFileStructured.mockResolvedValue({
             ok: true,
@@ -436,6 +446,130 @@ describe('createDocumentPersistence', () => {
         expect(mocks.documentFilesCapability.savePdfNoteTextUpdates).not.toHaveBeenCalled();
         expectBroadFilePersistenceFacadeNotUsed();
         expectBroadWorkingCopyFacadeNotUsed();
+    });
+
+    it('verifies the immutable staged native output before exposing it', async () => {
+        const { persistence } = createPersistenceHarness();
+        const callOrder: string[] = [];
+        const verifyPathBeforeExpose = vi.fn(async (path: string, knownSize: number) => {
+            callOrder.push('verify');
+            expect(path).toBe('/tmp/staged-native.pdf');
+            expect(knownSize).toBe(3);
+        });
+        const assertBeforeExpose = vi.fn(() => {
+            callOrder.push('assert');
+        });
+        mocks.documentFilesCapability.commitStagedPdfNativeMutations.mockImplementationOnce(async () => {
+            callOrder.push('commit');
+            return {
+                applied: true,
+                validation: {
+                    isValid: true,
+                    tool: 'native' as const,
+                    errors: [],
+                    warnings: [],
+                },
+            };
+        });
+
+        const result = await persistence.trySavePdfNativeMutations({updates: [{
+            objectNumber: 10,
+            generationNumber: 0,
+            text: 'Verified note text',
+        }]}, {
+            saveMode: 'rewrite',
+            expectedWorkingPath: '/tmp/old-working.pdf',
+            modifiedAt: 'D:20260628123456+03\'00\'',
+            verifyPathBeforeExpose,
+            assertBeforeExpose,
+        });
+
+        expect(result?.success).toBe(true);
+        expect(mocks.readDocumentBytes).not.toHaveBeenCalled();
+        expect(callOrder).toEqual([
+            'verify',
+            'assert',
+            'commit',
+        ]);
+    });
+
+    it('releases an unverifiable staged native output without exposing it', async () => {
+        const { persistence } = createPersistenceHarness();
+        const verifyPathBeforeExpose = vi.fn(async () => {
+            throw new Error('semantic verification failed');
+        });
+
+        await expect(persistence.trySavePdfNativeMutations({updates: [{
+            objectNumber: 10,
+            generationNumber: 0,
+            text: 'Rejected note text',
+        }]}, {
+            saveMode: 'rewrite',
+            expectedWorkingPath: '/tmp/old-working.pdf',
+            modifiedAt: 'D:20260628123456+03\'00\'',
+            verifyPathBeforeExpose,
+        })).rejects.toThrow('semantic verification failed');
+
+        expect(mocks.documentFilesCapability.releaseManagedTempFileHandle)
+            .toHaveBeenCalledWith('staged-native-lease');
+        expect(mocks.documentFilesCapability.commitStagedPdfNativeMutations).not.toHaveBeenCalled();
+    });
+
+    it('never allocates a renderer byte array for a large staged native artifact', async () => {
+        const { persistence } = createPersistenceHarness();
+        const largeSize = 512 * 1024 * 1024;
+        mocks.documentFilesCapability.applyPdfNativeMutationsToWorkingCopy.mockResolvedValueOnce({
+            applied: true,
+            validation: {
+                isValid: true,
+                tool: 'native',
+                errors: [],
+                warnings: [],
+            },
+            stagedOutput: {
+                path: '/tmp/large-staged-native.pdf',
+                size: largeSize,
+                sha256: 'b'.repeat(64),
+                leaseId: 'large-staged-native-lease',
+                revision: TEST_DOCUMENT_REVISION_TOKEN,
+            },
+        });
+        const callOrder: string[] = [];
+        const verifyPathBeforeExpose = vi.fn(async (path: string, knownSize: number) => {
+            callOrder.push('verify');
+            expect(path).toBe('/tmp/large-staged-native.pdf');
+            expect(knownSize).toBe(largeSize);
+        });
+        mocks.documentFilesCapability.commitStagedPdfNativeMutations.mockImplementationOnce(async () => {
+            callOrder.push('commit');
+            return {
+                applied: true,
+                validation: {
+                    isValid: true,
+                    tool: 'native' as const,
+                    errors: [],
+                    warnings: [],
+                },
+            };
+        });
+
+        const result = await persistence.trySavePdfNativeMutations({updates: [{
+            objectNumber: 10,
+            generationNumber: 0,
+            text: 'Large verified note text',
+        }]}, {
+            saveMode: 'rewrite',
+            expectedWorkingPath: '/tmp/old-working.pdf',
+            modifiedAt: 'D:20260628123456+03\'00\'',
+            verifyPathBeforeExpose,
+        });
+
+        expect(result?.success).toBe(true);
+        expect(mocks.readDocumentBytes).not.toHaveBeenCalled();
+        expect(callOrder).toEqual([
+            'verify',
+            'commit',
+        ]);
     });
 
     it('prefers generic native mutations over legacy note-change saves', async () => {

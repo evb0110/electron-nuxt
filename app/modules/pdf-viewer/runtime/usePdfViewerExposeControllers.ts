@@ -18,9 +18,8 @@ import type {
 import type { IPageRange } from '@app/types/pdfUi';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import type { TPdfRerenderSource } from '@app/modules/pdf-viewer/engine/pdf-rerender-protocol/pdfRerenderProtocol';
+import type {IAnnotationSaveVerificationOptions} from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
-
-
 interface IUsePdfViewerExposeControllersOptions {
     viewerContainer: Ref<HTMLElement | null>;
     currentPage: Ref<number>;
@@ -48,7 +47,6 @@ interface IUsePdfViewerExposeControllersOptions {
     reRenderAllVisiblePages: (
         getRange: () => IPageRange,
         options: {
-            preserveExistingPages?: boolean;
             rerenderSource?: TPdfRerenderSource;
             renderBufferOverride?: number;
         },
@@ -95,14 +93,32 @@ export const usePdfViewerExposeControllers = (options: IUsePdfViewerExposeContro
         getAllShapes: options.annotationRuntime.shapeComposable.getAllShapes,
         getDeletedEmbeddedShapeAnnotationIds: options.annotationRuntime.shapeComposable.getDeletedEmbeddedAnnotationIds,
         getDeletedEmbeddedShapeStableKeys: options.annotationRuntime.shapeComposable.getDeletedEmbeddedShapeStableKeys,
+        ensureManagedShapeBaselineReady: options.annotationRuntime.ensureManagedShapeBaselineReady,
         prepareAnnotationSave: () => {
             const application = options.annotationRuntime.annotationApplication.value;
             const session = application.beginSave(options.documentRevisionToken.value);
             return {
                 plan: session.plan,
                 verify: (bytes: Uint8Array) => application.verifySaveBytes(session, bytes),
+                verifyPath: (
+                    path: string,
+                    knownSize: number,
+                    verificationOptions?: IAnnotationSaveVerificationOptions,
+                ) => application.verifySavePath(
+                    session,
+                    path,
+                    knownSize,
+                    verificationOptions,
+                ),
                 assertCurrent: () => application.assertSaveCurrent(session),
-                commit: () => application.acknowledgeSave(session),
+                recordMaterializedIdentityBinding: binding => application.recordMaterializedIdentityBinding(
+                    session,
+                    binding.annotationId,
+                    binding.pdfRef,
+                ),
+                commit: () => {
+                    application.acknowledgeSave(session);
+                },
             };
         },
     });

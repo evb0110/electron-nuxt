@@ -522,7 +522,10 @@ describe('fileOps path security', () => {
 
         expect(mocks.findWorkingCopyPathByOriginalPath).toHaveBeenCalledWith('/Users/alice/Documents/file.pdf', 42);
         expect(mocks.statSync).toHaveBeenCalledWith('/tmp/electron-test/mapped.pdf');
-        expect(result).toEqual({ size: 123 });
+        expect(result).toEqual({
+            size: 123,
+            modifiedAt: 1,
+        });
     });
 
     it('falls back to mapped working copy for original file path range reads', async () => {
@@ -775,7 +778,10 @@ describe('fileOps path security', () => {
 
         expect(mocks.isAllowedDjvuViewingPath).toHaveBeenCalledWith('/Users/alice/Documents/file.djvu');
         expect(mocks.statSync).toHaveBeenCalledWith('/Users/alice/Documents/file.djvu');
-        expect(result).toEqual({ size: 123 });
+        expect(result).toEqual({
+            size: 123,
+            modifiedAt: 1,
+        });
     });
 
     it('allows direct range reads for DjVu files approved for native viewing', async () => {

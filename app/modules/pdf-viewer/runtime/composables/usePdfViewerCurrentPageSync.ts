@@ -12,6 +12,7 @@ import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import { isAnchoredCurrentPageSyncSource } from '@app/modules/pdf-viewer/runtime/rerender-strategy/isAnchoredCurrentPageSyncSource';
 import type { TZoomInteractionLockOperationId } from '@app/modules/pdf-viewer/runtime/zoom/pdfViewerZoomTypes';
 import type { IPdfSemanticAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
+import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
 const CURRENT_PAGE_SYNC_SAMPLE_COUNT = 3;
 export { summarizeViewerMetrics };
@@ -152,6 +153,16 @@ export const usePdfViewerCurrentPageSync = (options: IUsePdfViewerCurrentPageSyn
         const hasSampleDrift = Boolean(samples && new Set(samples).size > 1);
         const shouldLog = changed || hasSampleDrift || fallbackToCurrent || source.includes('resize');
         const eventId = ++currentPageEmitEventId;
+        logPdfRenderTrace('viewport-current-page-sync-resolved', () => ({
+            source,
+            eventId,
+            previousPage: previous,
+            nextPage: page,
+            changed,
+            fallbackToCurrent,
+            samples,
+            visibleRange: {...visibleRange.value},
+        }));
 
         if (shouldLog) {
             BrowserLogger.diagnostic(

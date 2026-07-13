@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import {
     mkdirSync,
+    readFileSync,
     rmSync,
     writeFileSync,
 } from 'node:fs';
@@ -236,7 +237,7 @@ export function prepareMacOSHiddenAppBundle(options: {
     return bundlePaths;
 }
 
-export function buildMacOSAutomationAppEntryPaths(destinationRoot: string) {
+export function buildAutomationAppEntryPaths(destinationRoot: string) {
     const appPath = join(destinationRoot, 'automation-app');
     return {
         appPath,
@@ -245,20 +246,41 @@ export function buildMacOSAutomationAppEntryPaths(destinationRoot: string) {
     };
 }
 
-export function prepareMacOSAutomationAppEntry(options: {
+export function buildAutomationAppEntryPackage(appVersion: string) {
+    const version = appVersion.trim();
+    if (!version) {
+        throw new Error('The development app entry requires the canonical application version.');
+    }
+
+    return {
+        name: 'evb-automation-app',
+        version,
+        main: 'main.js',
+    } satisfies PackageJson;
+}
+
+function readCanonicalApplicationVersion() {
+    const packageJson = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf8')) as PackageJson;
+    if (typeof packageJson.version !== 'string') {
+        throw new Error('The root package.json must define the canonical application version.');
+    }
+    return packageJson.version;
+}
+
+export function prepareAutomationAppEntry(options: {
     destinationRoot: string;
     mainJs: string;
+    appVersion?: string;
 }) {
-    const entryPaths = buildMacOSAutomationAppEntryPaths(options.destinationRoot);
+    const entryPaths = buildAutomationAppEntryPaths(options.destinationRoot);
     rmSync(entryPaths.appPath, {
         recursive: true,
         force: true,
     });
     mkdirSync(entryPaths.appPath, { recursive: true });
-    const packageJson = {
-        name: 'evb-automation-app',
-        main: 'main.js',
-    } satisfies PackageJson;
+    const packageJson = buildAutomationAppEntryPackage(
+        options.appVersion ?? readCanonicalApplicationVersion(),
+    );
     writeFileSync(entryPaths.packageJsonPath, JSON.stringify(packageJson, null, 2));
     writeFileSync(entryPaths.mainJsPath, [
         '(async () => {',

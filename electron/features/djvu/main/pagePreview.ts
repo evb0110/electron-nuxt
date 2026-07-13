@@ -40,6 +40,11 @@ const DJVU_PAGE_SIZE_MAX_STDOUT_BYTES = (() => {
     return parsed;
 })();
 const DJVU_PREVIEW_SUBSAMPLE_MAX = 12;
+const DJVU_PAGE_SIZE_CACHE_MAX_DOCUMENTS = 8;
+const pageSizesByDjvuPath = new Map<string, {
+    revision: string;
+    sizes: IDjvuPageSize[];
+}>();
 const DJVU_PREVIEW_MAX_PIXELS = parseIntegerEnv(
     'EVB_DJVU_PREVIEW_MAX_PIXELS',
     45_000_000,
@@ -121,13 +126,14 @@ function clampPreviewTargetWidth(
     subsample: number,
 ) {
     const renderedNativeWidth = Math.max(1, Math.round(pageSize.width / subsample));
-    if (requestedTargetWidth <= renderedNativeWidth) {
+    if (requestedTargetWidth >= renderedNativeWidth) {
         return undefined;
     }
 
     // ddjvu's over-native `-size` path softens text on low-resolution scans.
-    // Keep the native raster at source resolution and let the viewer scale it.
-    return undefined;
+    // Downsample in the native process when the viewport needs fewer pixels so
+    // rapid scrolling does not decode every preview at archival resolution.
+    return requestedTargetWidth;
 }
 
 async function resolvePreviewRenderPlan(
@@ -138,7 +144,7 @@ async function resolvePreviewRenderPlan(
 ): Promise<IDjvuPreviewRenderPlan> {
     const requestedSubsample = normalizePreviewSubsample(options) ?? 1;
     const requestedTargetWidth = normalizePreviewTargetWidth(options);
-    const pageSize = await readDjvuPageSizeForPreview(djvuPath, pageNumber, lifecycleOptions).catch(() => null);
+    const pageSize = await getDjvuPageSizeForViewing(djvuPath, pageNumber, lifecycleOptions).catch(() => null);
     const subsample = Math.max(requestedSubsample, getMinimumPreviewSubsample(pageSize));
     if (!pageSize || requestedTargetWidth === undefined) {
         return { subsample };
@@ -205,12 +211,29 @@ function throwIfAborted(signal?: AbortSignal) {
     }
 }
 
-async function readDjvuPageSizeForPreview(
+async function readDjvuFileRevision(djvuPath: string) {
+    const fileStat = await stat(djvuPath);
+    if (!fileStat.isFile()) {
+        throw new Error(`DjVu source is not a regular file: ${djvuPath}`);
+    }
+    return `${fileStat.size}:${fileStat.mtimeMs}`;
+}
+
+export async function getDjvuPageSizeForViewing(
     djvuPath: string,
     pageNumber: number,
     options: IDjvuPagePreviewLifecycleOptions = {},
 ) {
     throwIfAborted(options.signal);
+    const revision = await readDjvuFileRevision(djvuPath);
+    throwIfAborted(options.signal);
+    const cacheEntry = pageSizesByDjvuPath.get(djvuPath);
+    const cached = cacheEntry?.revision === revision
+        ? cacheEntry.sizes[pageNumber - 1]
+        : undefined;
+    if (cached) {
+        return cached;
+    }
     const dpi = await getDjvuResolution(djvuPath, options.signal ? { signal: options.signal } : {});
     throwIfAborted(options.signal);
     const { djvused } = getDjvuNativeToolPaths();
@@ -241,6 +264,8 @@ export async function getDjvuPageSizesForViewing(
     options: IDjvuPagePreviewLifecycleOptions = {},
 ): Promise<IDjvuPageSize[]> {
     throwIfAborted(options.signal);
+    const revision = await readDjvuFileRevision(djvuPath);
+    throwIfAborted(options.signal);
     const dpi = await getDjvuResolution(djvuPath, options.signal ? { signal: options.signal } : {});
     throwIfAborted(options.signal);
     const { djvused } = getDjvuNativeToolPaths();
@@ -266,7 +291,23 @@ export async function getDjvuPageSizesForViewing(
     if (sizes.length !== expectedPageCount) {
         throw new Error(`DjVu page size probe returned ${sizes.length} page(s), expected ${expectedPageCount}`);
     }
+    pageSizesByDjvuPath.delete(djvuPath);
+    pageSizesByDjvuPath.set(djvuPath, {
+        revision,
+        sizes,
+    });
+    while (pageSizesByDjvuPath.size > DJVU_PAGE_SIZE_CACHE_MAX_DOCUMENTS) {
+        const oldestPath = pageSizesByDjvuPath.keys().next().value;
+        if (typeof oldestPath !== 'string') {
+            break;
+        }
+        pageSizesByDjvuPath.delete(oldestPath);
+    }
     return sizes;
+}
+
+export function clearDjvuPageSizeCacheForTests() {
+    pageSizesByDjvuPath.clear();
 }
 
 export async function renderDjvuPagePreview(

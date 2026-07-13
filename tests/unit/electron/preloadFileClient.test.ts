@@ -531,6 +531,15 @@ describe('createDocumentsPreloadFileClient', () => {
     });
 
     it('invokes native PDF preview metadata, cancel, and render channels with validated inputs', async () => {
+        const openingGeometry = {
+            pageNumber: 1 as const,
+            pageCount: 431,
+            width: 612,
+            height: 792,
+            rotation: 0 as const,
+            size: 28_000_000,
+            modifiedAt: 1_720_000_000_000,
+        };
         const pageSizes = [{
             width: 612,
             height: 792,
@@ -543,6 +552,9 @@ describe('createDocumentsPreloadFileClient', () => {
         };
         const ipcRenderer = {
             invoke: vi.fn(async (channel: string) => {
+                if (channel === DOCUMENTS_CHANNELS.pdfOpeningGeometry) {
+                    return openingGeometry;
+                }
                 if (channel === DOCUMENTS_CHANNELS.pdfNativePageSizes) {
                     return pageSizes;
                 }
@@ -558,6 +570,7 @@ describe('createDocumentsPreloadFileClient', () => {
         } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
+        await expect(client.getPdfOpeningGeometry?.('/tmp/huge.pdf')).resolves.toStrictEqual(openingGeometry);
         await expect(client.getPdfNativePageSizes?.('/tmp/huge.pdf')).resolves.toStrictEqual(pageSizes);
         await expect(client.cancelPdfNativePagePreview?.(' preview-1 ')).resolves.toEqual(cancelResult);
         await expect(client.renderPdfNativePagePreview?.(
@@ -569,6 +582,10 @@ describe('createDocumentsPreloadFileClient', () => {
             },
         )).resolves.toStrictEqual(preview);
 
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+            DOCUMENTS_CHANNELS.pdfOpeningGeometry,
+            '/tmp/huge.pdf',
+        );
         expect(ipcRenderer.invoke).toHaveBeenCalledWith(
             DOCUMENTS_CHANNELS.pdfNativePageSizes,
             '/tmp/huge.pdf',
@@ -595,6 +612,8 @@ describe('createDocumentsPreloadFileClient', () => {
         } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
+        expect(() => client.getPdfOpeningGeometry?.('relative.pdf'))
+            .toThrow('getPdfOpeningGeometry.path must be an absolute path');
         expect(() => client.getPdfNativePageSizes?.('relative.pdf'))
             .toThrow('getPdfNativePageSizes.path must be an absolute path');
         expect(() => client.renderPdfNativePagePreview?.('/tmp/huge.pdf', 0))

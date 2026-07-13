@@ -10,6 +10,8 @@ function clonePageMetric(metric: IPdfPageMetric): IPdfPageMetric {
     return {
         width: metric.width,
         height: metric.height,
+        ...(metric.rotation !== undefined ? {rotation: metric.rotation} : {}),
+        ...(metric.userUnit !== undefined ? {userUnit: metric.userUnit} : {}),
     };
 }
 

@@ -70,9 +70,9 @@ export const useAnnotationMutationService = (
         _context: IAnnotationMutationContext,
     ) {
         return runHistoryTransaction(() => {
+            const id = options.resolveCanonicalAnnotationId?.(input.comment);
             const updated = options.updateAnnotationComment(input.comment, input.text);
-            const id = updated ? options.resolveCanonicalAnnotationId?.(input.comment) : null;
-            if (id) options.setCanonicalNoteText?.(id, input.text);
+            if (updated && id) options.setCanonicalNoteText?.(id, input.text);
             return updated;
         });
     }
@@ -85,6 +85,7 @@ export const useAnnotationMutationService = (
         _context: IAnnotationMutationContext,
     ) {
         return runHistoryTransaction(async () => {
+            const id = options.resolveCanonicalAnnotationId?.(input.comment);
             if (input.strategy === 'local-only') {
                 options.markAnnotationLocallyDeleted(input.comment);
                 enqueueAnnotationDomRemoval(input.comment);
@@ -93,7 +94,6 @@ export const useAnnotationMutationService = (
             const deleted = await options.deleteAnnotationComment(input.comment);
             if (deleted) {
                 enqueueAnnotationDomRemoval(input.comment);
-                const id = options.resolveCanonicalAnnotationId?.(input.comment);
                 if (id) options.deleteCanonicalAnnotation?.(id);
             }
             return deleted;
@@ -192,6 +192,7 @@ export const useAnnotationMutationService = (
     }
 
     function moveMarkerInTransaction(input: IAnnotationMoveMarkerInput) {
+        const id = options.resolveCanonicalAnnotationId?.(input.comment);
         const moved = options.handleMarkerMove(input.comment, input.rect, {
             markEditorPending: (updated, original, markerRect) => {
                 const editor = options.findEditorForComment(updated) ?? options.findEditorForComment(original);
@@ -202,8 +203,7 @@ export const useAnnotationMutationService = (
             },
             markModified: options.markModified,
         });
-        const id = moved ? options.resolveCanonicalAnnotationId?.(input.comment) : null;
-        if (id) options.moveCanonicalAnchor?.(id, input.rect);
+        if (moved && id) options.moveCanonicalAnchor?.(id, input.rect);
         return moved;
     }
 

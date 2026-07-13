@@ -12,6 +12,7 @@ interface IWorkspaceFileSwitchDeps {
     openFile: (preSelected?: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
     openFileDirect: (path: TDocumentRef, options?: TDocumentDirectOpenOptions) => Promise<TDocumentOpenOutcome>;
     openFileDirectBatch: (paths: TDocumentRef[]) => Promise<TDocumentOpenOutcome>;
+    finalizeOpen: (outcome: TDocumentOpenOutcome) => Promise<TDocumentOpenOutcome>;
     closeFile: () => void;
 }
 
@@ -23,19 +24,41 @@ export const useWorkspaceFileSwitch = (deps: IWorkspaceFileSwitchDeps) => {
         openFile,
         openFileDirect,
         openFileDirectBatch,
+        finalizeOpen,
         closeFile,
     } = deps;
+    let lifecycleGeneration = 0;
+
+    function markOutcomeStale(outcome: TDocumentOpenOutcome): TDocumentOpenOutcome {
+        return 'result' in outcome
+            ? {
+                status: 'stale',
+                result: outcome.result,
+            }
+            : outcome;
+    }
 
     async function openWithViewerLifecycle(
         openDocument: () => Promise<TDocumentOpenOutcome>,
     ) {
+        const generation = ++lifecycleGeneration;
         const previousWorkingCopyPath = workingCopyPath.value;
         for (const hooks of viewerLifecycleHooks) {
             await hooks.beforeOpen?.();
         }
-        const outcome = await openDocument();
+        const preparedOutcome = await openDocument();
+        if (generation !== lifecycleGeneration) {
+            return markOutcomeStale(preparedOutcome);
+        }
+        const outcome = await finalizeOpen(preparedOutcome);
+        if (generation !== lifecycleGeneration) {
+            return markOutcomeStale(outcome);
+        }
         for (const hooks of viewerLifecycleHooks) {
             await hooks.afterOpen?.(outcome, { previousWorkingCopyPath });
+            if (generation !== lifecycleGeneration) {
+                return markOutcomeStale(outcome);
+            }
         }
         return outcome;
     }
@@ -53,10 +76,20 @@ export const useWorkspaceFileSwitch = (deps: IWorkspaceFileSwitchDeps) => {
     }
 
     async function closeFileWithViewerLifecycle() {
+        const generation = ++lifecycleGeneration;
         for (const hooks of viewerLifecycleHooks) {
             await hooks.beforeClose?.();
         }
-        closeFile();
+        if (generation === lifecycleGeneration) {
+            closeFile();
+            // `closeFile` clears the source synchronously, while the mounted
+            // viewer owns derived document, navigation, toolbar, and chassis
+            // state through source watchers.  Do not commit the close to the
+            // tab/session layer until those owners have observed the empty
+            // source; otherwise a retained singleton workspace can expose a
+            // document-less viewport with stale document capabilities.
+            await nextTick();
+        }
     }
 
     return {

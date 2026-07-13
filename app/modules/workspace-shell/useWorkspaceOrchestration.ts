@@ -40,9 +40,9 @@ import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tab
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
 import { getDjvuCapability } from '@app/utils/getDjvuCapability';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
-import { WORKSPACE_PAGE_NAVIGATION_LOCK_MS } from '@app/modules/workspace-shell/workspacePageNavigationLockMs';
 import { useWorkspaceActiveViewerAdapter } from '@app/modules/workspace-shell/viewers/useWorkspaceActiveViewerAdapter';
 import type { IAnalyticsDocumentScope } from '@app/composables/useAnalytics';
+import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import type {
     IDocumentPageSource,
     IDocumentSourceCapabilities,
@@ -57,6 +57,7 @@ interface IWorkspaceOrchestrationDeps {
     isActive: Ref<boolean>;
     initialViewState?: ITabViewSessionState | null;
     pendingDocumentPath?: TReadableRef<TDocumentRef | null> | undefined;
+    openSurface?: IDocumentOpenSurfaceSession | undefined;
     sourceCapabilities: Ref<IDocumentSourceCapabilities>;
     emit: {
         (e: 'open-in-new-tab', result: TDocumentRef | TOpenFileResult): void;
@@ -72,7 +73,6 @@ interface IWorkspacePrintSubmitPayload {
 }
 type TReadableRef<T> = ComputedRef<T> | Ref<T>;
 const INVISIBLE_NOTE_PLACEHOLDER_RE = /[\u200B\uFEFF]/gu;
-const WORKSPACE_PAGE_NAVIGATION_TARGET_SETTLE_MS = 200;
 
 function createDjvuPrintRequestId() {
     return globalThis.crypto?.randomUUID?.()
@@ -106,11 +106,13 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     } = deps;
     const { t } = useTypedI18n();
 
-    const fileLifecycle = useWorkspaceFileLifecycleController({analyticsDocumentScope: deps.analyticsDocumentScope});
+    const fileLifecycle = useWorkspaceFileLifecycleController({
+        analyticsDocumentScope: deps.analyticsDocumentScope,
+        openSurface: deps.openSurface,
+    });
     const {
         isDjvuMode,
         djvuSourcePath,
-        openDjvuFile,
         loadRecentFiles,
         removeRecentFile,
         pickFileToOpen,
@@ -128,13 +130,11 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         fileName,
         isDirty,
         pdfError,
-        pendingDjvu,
         loadPdfFromPath,
         ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,
         loadPdfFromData,
         readWorkingCopyBytes,
-        closeFile,
         saveFile,
         repairWorkingCopy,
         optimizeWorkingCopy,
@@ -208,13 +208,23 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         workspaceCommandSink,
     } = metadataSession;
     watch(
-        pdfViewerRef,
-        (viewer, previousViewer) => {
-            if (previousViewer && previousViewer !== viewer) {
-                previousViewer.setWorkspaceCommandSink?.(null);
+        () => ({
+            viewer: pdfViewerRef.value,
+            setCommandSink: pdfViewerRef.value?.setWorkspaceCommandSink,
+        }),
+        (current, previous) => {
+            const viewerTargetChanged = Boolean(
+                previous?.viewer
+                && (
+                    previous.viewer !== current.viewer
+                    || previous.setCommandSink !== current.setCommandSink
+                ),
+            );
+            if (viewerTargetChanged) {
+                previous?.setCommandSink?.(null);
                 workspaceCommandSink.reset('annotation');
             }
-            viewer?.setWorkspaceCommandSink?.(workspaceCommandSink);
+            current.setCommandSink?.(workspaceCommandSink);
         },
         {
             flush: 'post',
@@ -291,7 +301,10 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         applyAnnotationComments: applyAnnotationCommentsFromSession,
     } = annotationSession;
 
-    const pendingEmbeddedAnnotationDeleteCount = computed(() => 0);
+    const pendingEmbeddedAnnotationDeleteCount = computed(() => {
+        void annotationComments.value;
+        return pdfViewerRef.value?.getDeletedPersistedCanonicalAnnotationCount?.() ?? 0;
+    });
     const undoableOpenEmptyEditorNoteCount = computed(() => (
         annotationNoteWindows.value.some((note) => {
             const noteText = note.draftText;
@@ -305,7 +318,13 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     const appAnnotationUndoDepth = computed(() => (
         pendingEmbeddedAnnotationDeleteCount.value + undoableOpenEmptyEditorNoteCount.value
     ));
-    const thumbnailHiddenAnnotationIds = computed<string[]>(() => []);
+    const thumbnailHiddenAnnotationIds = computed<string[]>(() => {
+        // Canonical projection updates invalidate this computed value while
+        // tombstones provide the durable PDF identities that thumbnail
+        // operator-list filtering needs.
+        void annotationComments.value;
+        return pdfViewerRef.value?.getDeletedCanonicalAnnotationIds?.() ?? [];
+    });
     const preservedAnnotationSourceDirty = ref(false);
 
     function applyAnnotationComments(comments: IAnnotationCommentSummary[]) {
@@ -338,10 +357,17 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         preservedAnnotationSourceDirty.value = false;
     });
 
+    const hasReactiveAnnotationChanges = computed(() => {
+        // Canonical annotation storage is intentionally framework-agnostic.
+        // Sidebar projection events provide the reactive invalidation edge;
+        // the viewer method remains the source of semantic dirty truth.
+        void annotationComments.value;
+        return hasAnnotationChanges();
+    });
     const hasPendingUnsavedChanges = computed(() => (
         annotationDirty.value
         || isDirty.value
-        || hasAnnotationChanges()
+        || hasReactiveAnnotationChanges.value
         || hasSavedPdfJsAnnotationBaselineChanges()
         || pendingEmbeddedAnnotationDeleteCount.value > 0
         || preservedAnnotationSourceDirty.value
@@ -350,7 +376,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     ));
     const hasPendingPrintSerializationChanges = computed(() => (
         annotationDirty.value
-        || hasAnnotationChanges()
+        || hasReactiveAnnotationChanges.value
         || pendingEmbeddedAnnotationDeleteCount.value > 0
         || preservedAnnotationSourceDirty.value
     ));
@@ -381,6 +407,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         isSavingAs,
         annotationDirty,
         annotationNoteWindowsCount: computed(() => annotationNoteWindows.value.length),
+        pendingEmbeddedAnnotationDeleteCount,
         hasAnnotationChanges,
         hasLivePdfJsAnnotationChanges,
         hasSavedPdfJsAnnotationBaselineChanges,
@@ -452,13 +479,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
 
     const programmaticPageNavigationTarget = ref<number | null>(null);
     const bookmarkNavigationIntentVersion = ref(0);
-    let programmaticPageNavigationTimer: ReturnType<typeof setTimeout> | null = null;
 
     function clearProgrammaticPageNavigationTarget(reason = 'clear') {
-        if (programmaticPageNavigationTimer !== null) {
-            clearTimeout(programmaticPageNavigationTimer);
-            programmaticPageNavigationTimer = null;
-        }
         logPdfRenderTrace('workspace-programmatic-page-navigation-cleared', {
             reason,
             targetPage: programmaticPageNavigationTarget.value,
@@ -469,26 +491,29 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     function beginProgrammaticPageNavigation(page: number) {
         const previousTargetPage = programmaticPageNavigationTarget.value;
         programmaticPageNavigationTarget.value = page;
-        if (programmaticPageNavigationTimer !== null) {
-            clearTimeout(programmaticPageNavigationTimer);
-        }
         logPdfRenderTrace('workspace-programmatic-page-navigation-begin', {
             page,
             previousTargetPage,
-            lockMs: WORKSPACE_PAGE_NAVIGATION_LOCK_MS,
             currentPage: currentPage.value,
         });
-        programmaticPageNavigationTimer = setTimeout(() => {
-            programmaticPageNavigationTimer = null;
-            if (programmaticPageNavigationTarget.value === page) {
-                logPdfRenderTrace('workspace-programmatic-page-navigation-expired', {
-                    page,
-                    currentPage: currentPage.value,
-                });
-                programmaticPageNavigationTarget.value = null;
-            }
-        }, WORKSPACE_PAGE_NAVIGATION_LOCK_MS);
     }
+
+    watch(totalPages, (pageCount) => {
+        const requestedPage = programmaticPageNavigationTarget.value;
+        if (requestedPage === null || pageCount <= 0) {
+            return;
+        }
+        const clampedPage = clamp(Math.trunc(requestedPage), 1, Math.trunc(pageCount));
+        if (clampedPage === requestedPage) {
+            return;
+        }
+        logPdfRenderTrace('workspace-programmatic-page-navigation-metadata-clamp', {
+            requestedPage,
+            clampedPage,
+            pageCount,
+        });
+        programmaticPageNavigationTarget.value = clampedPage;
+    }, {flush: 'sync'});
 
     function invalidateBookmarkNavigationRequests() {
         bookmarkNavigationIntentVersion.value += 1;
@@ -500,20 +525,13 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     }
 
     function settleProgrammaticPageNavigationTarget(page: number) {
-        if (programmaticPageNavigationTimer !== null) {
-            clearTimeout(programmaticPageNavigationTimer);
-        }
         logPdfRenderTrace('workspace-programmatic-page-navigation-settle', {
             page,
-            holdMs: WORKSPACE_PAGE_NAVIGATION_TARGET_SETTLE_MS,
             currentPage: currentPage.value,
         });
-        programmaticPageNavigationTimer = setTimeout(() => {
-            programmaticPageNavigationTimer = null;
-            if (programmaticPageNavigationTarget.value === page) {
-                clearProgrammaticPageNavigationTarget('target-settled');
-            }
-        }, WORKSPACE_PAGE_NAVIGATION_TARGET_SETTLE_MS);
+        if (programmaticPageNavigationTarget.value === page) {
+            clearProgrammaticPageNavigationTarget('target-settled');
+        }
     }
 
     function shouldAcceptViewerCurrentPageUpdate(page: number) {
@@ -567,6 +585,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         totalPages,
         invalidateBookmarkNavigationRequests,
         beginProgrammaticPageNavigation,
+        requestPageNavigation: page => deps.openSurface?.requestNavigation(page) ?? page,
         documentViewerRef,
     });
     const {
@@ -935,21 +954,14 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         runWithDocumentOperationLease: documentOperationLease.runExclusive,
     });
     useWorkspaceDocumentLifecycleEffects({
-        pendingDjvu,
-        openDjvuFile,
         currentPage,
         totalPages,
         pdfDocument,
         pdfViewerRef,
-        originalPath,
-        closeFile,
         isDjvuMode,
         djvuSourcePath,
         showSettings,
         emitOpenSettings: () => emit('open-settings'),
-        onOpenDjvuError: (error) => {
-            pdfError.value = error instanceof Error ? error.message : t('errors.djvu.open');
-        },
         pdfSrc,
         workingCopyPath,
         documentRevisionInfo,

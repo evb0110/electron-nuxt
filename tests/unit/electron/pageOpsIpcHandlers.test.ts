@@ -69,6 +69,7 @@ const mocks = vi.hoisted(() => ({
     assertWorkingCopyRevisionCurrent: vi.fn(),
     markWorkingCopyContentChanged: vi.fn(),
     transitionWorkingCopyContentRevision: vi.fn(),
+    awaitPageIdentityStoreInitialization: vi.fn(),
     commitPageIdentityDelta: vi.fn(),
     applyPageMetadataRemap: vi.fn(),
     allowOpenPath: vi.fn(),
@@ -122,6 +123,7 @@ vi.mock('@electron/file-access/documentRevisionStore', () => ({
 }));
 vi.mock('@electron/file-access/pageIdentityStore', async importOriginal => ({
     ...await importOriginal<typeof PageIdentityStore>(),
+    awaitPageIdentityStoreInitialization: (...args: unknown[]) => mocks.awaitPageIdentityStoreInitialization(...args),
     commitPageIdentityDelta: (...args: unknown[]) => mocks.commitPageIdentityDelta(...args),
 }));
 vi.mock('@electron/features/page-ops/main/pageMetadataRemap', () => ({applyPageMetadataRemap: (...args: unknown[]) => mocks.applyPageMetadataRemap(...args)}));
@@ -238,6 +240,7 @@ describe('registerPageOpsIpcAdapter', () => {
             await commit(revision);
             return revision;
         });
+        mocks.awaitPageIdentityStoreInitialization.mockResolvedValue(undefined);
         mocks.commitPageIdentityDelta.mockResolvedValue(undefined);
         mocks.applyPageMetadataRemap.mockResolvedValue(undefined);
         mocks.writeFile.mockResolvedValue(undefined);
@@ -315,6 +318,9 @@ describe('registerPageOpsIpcAdapter', () => {
             success: true,
             pageCount: 3,
         });
+
+        expect(mocks.awaitPageIdentityStoreInitialization).toHaveBeenNthCalledWith(1, '/tmp/same.pdf');
+        expect(mocks.awaitPageIdentityStoreInitialization).toHaveBeenNthCalledWith(2, '/tmp/same.pdf');
 
         expect(callOrder).toEqual([
             'start-1',

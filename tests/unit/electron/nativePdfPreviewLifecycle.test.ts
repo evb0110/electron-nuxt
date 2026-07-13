@@ -12,23 +12,29 @@ const mocks = vi.hoisted(() => ({
     mkdtemp: vi.fn(),
     readFile: vi.fn(),
     rm: vi.fn(),
+    stat: vi.fn(),
     resolveExistingReadablePdfPath: vi.fn(),
     buildPopplerEnv: vi.fn(),
     getPdfNativeToolPaths: vi.fn(),
     runNativeToolCommand: vi.fn(),
     cancelNativeCommandGroup: vi.fn(),
+    getRecentFiles: vi.fn(),
+    allowOpenPath: vi.fn(),
 }));
 
 vi.mock('fs/promises', () => ({
     mkdtemp: (...args: unknown[]) => mocks.mkdtemp(...args),
     readFile: (...args: unknown[]) => mocks.readFile(...args),
     rm: (...args: unknown[]) => mocks.rm(...args),
+    stat: (...args: unknown[]) => mocks.stat(...args),
 }));
 vi.mock('@electron/features/documents/main/documentFilePathResolution', () => ({resolveExistingReadablePdfPath: (...args: unknown[]) => mocks.resolveExistingReadablePdfPath(...args)}));
 vi.mock('@electron/native-tools/buildPopplerEnv', () => ({buildPopplerEnv: (...args: unknown[]) => mocks.buildPopplerEnv(...args)}));
 vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: (...args: unknown[]) => mocks.getPdfNativeToolPaths(...args)}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
 vi.mock('@electron/native-tools/runNativeCommand', () => ({cancelNativeCommandGroup: (...args: unknown[]) => mocks.cancelNativeCommandGroup(...args)}));
+vi.mock('@electron/recentFiles', () => ({getRecentFiles: (...args: unknown[]) => mocks.getRecentFiles(...args)}));
+vi.mock('@electron/file-access/openPathCapabilities', () => ({allowOpenPath: (...args: unknown[]) => mocks.allowOpenPath(...args)}));
 
 class FakeSender extends EventEmitter {
     destroyed = false;
@@ -64,6 +70,10 @@ describe('native PDF preview lifecycle', () => {
         mocks.mkdtemp.mockResolvedValue('/tmp/native-preview');
         mocks.readFile.mockResolvedValue(createPngBytes(640, 480));
         mocks.rm.mockResolvedValue(undefined);
+        mocks.stat.mockResolvedValue({
+            size: 28_000_000,
+            mtimeMs: 1_720_000_000_000,
+        });
         mocks.resolveExistingReadablePdfPath.mockResolvedValue('/tmp/input.pdf');
         mocks.buildPopplerEnv.mockReturnValue({POPPLER: '1'});
         mocks.getPdfNativeToolPaths.mockReturnValue({
@@ -75,6 +85,8 @@ describe('native PDF preview lifecycle', () => {
             stdout: '',
             stderr: '',
         });
+        mocks.getRecentFiles.mockResolvedValue([]);
+        mocks.allowOpenPath.mockReturnValue('/tmp/input.pdf');
     });
 
     afterEach(async () => {
@@ -178,6 +190,139 @@ describe('native PDF preview lifecycle', () => {
         expect(options.signal?.aborted).toBe(true);
         expect(mocks.cancelNativeCommandGroup).toHaveBeenCalledWith(expect.stringMatching(/^pdf-native-page-sizes:/u));
         expect(snapshotMainOperations()).toEqual([]);
+    });
+
+    it('aborts opening-geometry discovery when the requesting renderer is destroyed', async () => {
+        const sender = new FakeSender();
+        let commandOptions: {
+            signal?: AbortSignal;
+            cancelGroup?: string
+        } | undefined;
+        mocks.runNativeToolCommand.mockImplementationOnce((_command: string, _args: string[], options: {
+            signal?: AbortSignal;
+            cancelGroup?: string;
+        }) => {
+            commandOptions = options;
+            return new Promise((_resolve, reject) => {
+                options.signal?.addEventListener('abort', () => reject(options.signal?.reason), {once: true});
+            });
+        });
+        const { handlePdfOpeningGeometry } = await import('@electron/features/documents/main/nativePdfPreview');
+
+        const geometryPromise = handlePdfOpeningGeometry({
+            sender: sender as never,
+            senderId: sender.id,
+        }, '/tmp/input.pdf');
+        await vi.waitFor(() => expect(commandOptions).toBeDefined());
+        sender.destroyed = true;
+        sender.emit('destroyed');
+
+        await expect(geometryPromise).rejects.toThrow('Renderer lifecycle ended');
+        expect(commandOptions?.signal?.aborted).toBe(true);
+        expect(mocks.cancelNativeCommandGroup)
+            .toHaveBeenCalledWith(expect.stringMatching(/^pdf-opening-geometry:/u));
+    });
+
+    it('discovers only first-page opening geometry and fences the source identity', async () => {
+        const sender = new FakeSender();
+        mocks.runNativeToolCommand.mockResolvedValueOnce({
+            exitCode: 0,
+            stderr: '',
+            stdout: [
+                'Pages: 431',
+                'Page    1 size: 612 x 792 pts (letter)',
+                'Page    1 rot: 90',
+                '',
+            ].join('\n'),
+        });
+        const { handlePdfOpeningGeometry } = await import('@electron/features/documents/main/nativePdfPreview');
+
+        await expect(handlePdfOpeningGeometry({
+            sender: sender as never,
+            senderId: sender.id,
+        }, '/tmp/input.pdf')).resolves.toEqual({
+            pageNumber: 1,
+            pageCount: 431,
+            width: 612,
+            height: 792,
+            rotation: 90,
+            size: 28_000_000,
+            modifiedAt: 1_720_000_000_000,
+        });
+
+        expect(mocks.resolveExistingReadablePdfPath).toHaveBeenCalledWith('/tmp/input.pdf', sender.id);
+        expect(mocks.stat).toHaveBeenCalledTimes(2);
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledOnce();
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
+            '/mock/pdfinfo',
+            [
+                '-box',
+                '-f',
+                '1',
+                '-l',
+                '1',
+                '/tmp/input.pdf',
+            ],
+            expect.objectContaining({
+                commandLabel: 'pdfinfo-opening-geometry',
+                cancelGroup: expect.stringMatching(/^pdf-opening-geometry:/u),
+                signal: expect.any(AbortSignal),
+            }),
+        );
+    });
+
+    it('authorizes opening-geometry preflight for a current Recent PDF before open', async () => {
+        const sender = new FakeSender();
+        mocks.resolveExistingReadablePdfPath
+            .mockRejectedValueOnce(new Error('path capability missing'));
+        mocks.getRecentFiles.mockResolvedValueOnce([{
+            originalPath: '/tmp/recent.pdf',
+            fileName: 'recent.pdf',
+            lastOpened: 1,
+        }]);
+        mocks.allowOpenPath.mockReturnValueOnce('/tmp/recent.pdf');
+        mocks.runNativeToolCommand.mockResolvedValueOnce({
+            exitCode: 0,
+            stderr: '',
+            stdout: 'Pages: 1\nPage 1 size: 612 x 792 pts\nPage 1 rot: 0\n',
+        });
+        const { handlePdfOpeningGeometry } = await import('@electron/features/documents/main/nativePdfPreview');
+
+        await expect(handlePdfOpeningGeometry({
+            sender: sender as never,
+            senderId: sender.id,
+        }, '/tmp/recent.pdf')).resolves.toMatchObject({
+            pageNumber: 1,
+            pageCount: 1,
+            width: 612,
+            height: 792,
+        });
+
+        expect(mocks.getRecentFiles).toHaveBeenCalledOnce();
+        expect(mocks.allowOpenPath).toHaveBeenCalledWith('/tmp/recent.pdf', sender);
+        expect(mocks.resolveExistingReadablePdfPath).toHaveBeenCalledOnce();
+    });
+
+    it('rejects opening geometry when the original source changes during discovery', async () => {
+        mocks.stat
+            .mockResolvedValueOnce({
+                size: 10,
+                mtimeMs: 100,
+            })
+            .mockResolvedValueOnce({
+                size: 11,
+                mtimeMs: 101,
+            });
+        mocks.runNativeToolCommand.mockResolvedValueOnce({
+            exitCode: 0,
+            stderr: '',
+            stdout: 'Pages: 1\nPage 1 size: 612 x 792 pts\nPage 1 rot: 0\n',
+        });
+        const { handlePdfOpeningGeometry } = await import('@electron/features/documents/main/nativePdfPreview');
+
+        await expect(handlePdfOpeningGeometry({senderId: 42}, '/tmp/input.pdf'))
+            .rejects
+            .toThrow('PDF changed while opening geometry was being discovered');
     });
 
     it('uses one abort scope for both native page-size discovery commands', async () => {

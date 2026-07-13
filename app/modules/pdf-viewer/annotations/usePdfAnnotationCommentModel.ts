@@ -61,12 +61,13 @@ export const usePdfAnnotationCommentModel = (options: IUsePdfAnnotationCommentMo
     }
 
     function withTransientNoteCreationTimestamp(comment: IAnnotationCommentSummary) {
-        if (comment.source !== 'editor' || !isNoteEligibleComment(comment) || comment.createdAt) {
+        if (comment.source !== 'editor' || !isNoteEligibleComment(comment)) {
             return comment;
         }
         return {
             ...comment,
-            createdAt: Date.now(),
+            hasNote: true,
+            createdAt: comment.createdAt ?? Date.now(),
         };
     }
 
@@ -108,6 +109,7 @@ export const usePdfAnnotationCommentModel = (options: IUsePdfAnnotationCommentMo
     }
 
     function clearProjection() {
+        options.annotationProjection.value = [];
         options.emitAnnotationComments([]);
     }
 
@@ -120,8 +122,8 @@ export const usePdfAnnotationCommentModel = (options: IUsePdfAnnotationCommentMo
             return;
         }
         activeCommentStableKey.value = null;
+        clearProjection();
         if (!nextSource) {
-            options.emitAnnotationComments([]);
             return;
         }
         void sourceOptions.syncAnnotationComments?.();

@@ -69,12 +69,21 @@ class FakeWorker {
         queueMicrotask(() => {
             const request = message as {
                 id: number;
+                type: string;
                 payload: { data: Uint8Array };
             };
             this.emitMessage({
                 id: request.id,
                 ok: true,
-                data: request.payload.data,
+                data: request.type === 'bindCanonicalAnnotationIdentities'
+                    ? {
+                        data: request.payload.data,
+                        identityBindings: [{
+                            annotationId: 'canonical-1',
+                            pdfRef: '12R',
+                        }],
+                    }
+                    : request.payload.data,
             });
         });
     }
@@ -145,6 +154,55 @@ describe('pdfSerializationWorkerClient', () => {
             1,
             2,
             3,
+        ]);
+    }, workerCloneTimeoutMs);
+
+    it('binds canonical identities in the worker and replays serializable identity evidence', async () => {
+        const {bindCanonicalAnnotationIdentitiesOffThread} = await import(
+            '@app/modules/pdf-viewer/engine/pdf-serialization-worker-client/bindCanonicalAnnotationIdentitiesOffThread'
+        );
+        const data = new Uint8Array([
+            4,
+            5,
+            6,
+        ]);
+        const onIdentityBound = vi.fn();
+
+        const result = await bindCanonicalAnnotationIdentitiesOffThread(
+            data,
+            [],
+            [],
+            {onIdentityBound},
+        );
+
+        expect(result).toEqual({
+            data,
+            identityBindings: [{
+                annotationId: 'canonical-1',
+                pdfRef: '12R',
+            }],
+        });
+        expect(onIdentityBound).toHaveBeenCalledWith({
+            annotationId: 'canonical-1',
+            pdfRef: '12R',
+        });
+        const worker = FakeWorker.lastInstance;
+        const call = worker?.postMessageCalls[0];
+        const request = call?.message as {
+            type: string;
+            payload: {
+                data: Uint8Array;
+                evidence: Record<string, unknown>;
+            };
+        };
+        expect(request.type).toBe('bindCanonicalAnnotationIdentities');
+        expect(request.payload.evidence).not.toHaveProperty('onIdentityBound');
+        expect(call?.transfer).toEqual([request.payload.data.buffer]);
+        expect(request.payload.data.buffer).not.toBe(data.buffer);
+        expect(Array.from(data)).toEqual([
+            4,
+            5,
+            6,
         ]);
     }, workerCloneTimeoutMs);
 

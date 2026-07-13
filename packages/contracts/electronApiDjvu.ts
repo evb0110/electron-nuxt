@@ -1,5 +1,6 @@
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDjvuPdfExportStrategy } from '@contracts/djvuConversionPolicy';
+import type { TDjvuDocumentOutputOperation } from '@contracts/documentOutput';
 import type {
     TPdfViewMode,
     TPrintOrientation,
@@ -23,7 +24,7 @@ export interface IDjvuProgress {
     error?: string;
 }
 
-export type TDocumentOutputOperation = 'djvu-convert' | 'djvu-open' | 'djvu-print';
+export type TDocumentOutputOperation = TDjvuDocumentOutputOperation;
 
 export type TDocumentOutputJobState =
     | {
@@ -80,6 +81,15 @@ export interface IDjvuPageSize {
     dpi: number;
 }
 
+export interface IDjvuPageSourceInfo {
+    pageCount: number;
+    pageNumber: number;
+    pageSize: IDjvuPageSize;
+    /** Native source revision used to fence trusted pre-open geometry. */
+    sourceSize?: number;
+    sourceModifiedAt?: number;
+}
+
 export interface IDjvuPagePreview {
     bytes: Uint8Array;
     width: number;
@@ -120,6 +130,7 @@ export interface IDjvuPrintOptions {
 export interface IDjvuOpenResult {
     success: boolean;
     pageCount?: number;
+    pageSourceInfo?: IDjvuPageSourceInfo;
     jobId?: string;
     error?: string;
 }
@@ -154,6 +165,7 @@ export interface IDjvuAPI {
     subscribeJob: (jobId: string) => Promise<TDocumentOutputJobState | null>;
     cancelPagePreview: (requestId: string) => Promise<{ canceled: boolean }>;
     getInfo: (djvuPath: TDocumentRef) => Promise<IDjvuInfo>;
+    getPageSourceInfo: (djvuPath: TDocumentRef, pageNumber: number) => Promise<IDjvuPageSourceInfo>;
     getPageSizes: (djvuPath: TDocumentRef) => Promise<IDjvuPageSize[]>;
     renderPagePreview: (
         djvuPath: TDocumentRef,

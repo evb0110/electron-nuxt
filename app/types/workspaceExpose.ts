@@ -18,6 +18,7 @@ import type {
 
 export interface IWorkspaceToolbarSnapshot {
     hasPdf: boolean;
+    initialVisualReady: boolean;
     viewerCapabilities: IWorkspaceViewerCapabilities;
     isOpeningDocument: boolean;
     hasOpenError: boolean;
@@ -93,6 +94,7 @@ export function createDefaultWorkspaceViewerCapabilities(): IWorkspaceViewerCapa
 export function createDefaultWorkspaceToolbarSnapshot(): IWorkspaceToolbarSnapshot {
     return {
         hasPdf: false,
+        initialVisualReady: false,
         viewerCapabilities: createDefaultWorkspaceViewerCapabilities(),
         isOpeningDocument: false,
         hasOpenError: false,
@@ -113,7 +115,7 @@ export function createDefaultWorkspaceToolbarSnapshot(): IWorkspaceToolbarSnapsh
         isFitHeightActive: false,
         showSidebar: false,
         dragMode: false,
-        continuousScroll: false,
+        continuousScroll: true,
         isDjvuMode: false,
         isCapturingRegion: false,
         isCropSelecting: false,
@@ -193,7 +195,7 @@ export interface IWorkspaceSplitTransferPort {
 export interface IWorkspaceUiPort {
     closeAllDropdowns: () => void;
     getToolbarSnapshot: () => IWorkspaceToolbarSnapshot;
-    waitForDocumentOpenSettled: () => Promise<void>;
+    waitForDocumentOpenSettled: (options?: { acceptDocumentWithoutVisual?: boolean }) => Promise<void>;
 }
 
 export interface IWorkspaceAgentCommandContext {
@@ -236,6 +238,7 @@ export interface IWorkspaceAutomationStateSnapshot {
         pendingEmbeddedAnnotationDeleteCount: number;
     };
     originalPath: TDocumentRef | null;
+    requiresSaveAsOnFirstSave?: boolean;
     sortedAnnotationNoteWindows: IAnnotationNoteWindowViewModel[];
     workingCopyPath: TDocumentRef | null;
 }

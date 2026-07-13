@@ -12,6 +12,7 @@ import {
 import {
     decodeNoArgs,
     decodeUndefinedResult,
+    requireIpcArgumentCount,
 } from '@electron/platform-ipc/ipcCodecValidation';
 
 function decodeOptionalPageNumbers(args: readonly unknown[], index: number) {
@@ -64,6 +65,10 @@ function decodeMultiPageTiffResult(value: unknown) {
 }
 
 function decodeExportArgs(args: readonly unknown[]): IImageExportInvokeMap[typeof IMAGE_EXPORT_CHANNELS.exportImages]['args'] {
+    requireIpcArgumentCount(args, {
+        min: 1,
+        max: 4,
+    });
     const workingCopyPath = decodeStringArg(args, 0, 'workingCopyPath');
     const pageNumbers = decodeOptionalPageNumbers(args, 1);
     const requestId = decodeOptionalStringArg(args, 2, 'requestId');

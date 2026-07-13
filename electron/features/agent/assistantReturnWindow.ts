@@ -2,6 +2,7 @@ import {
     BrowserWindow,
     app,
 } from 'electron';
+import { focusWindowForUser } from '@electron/window/focusWindowForUser';
 
 export type TAssistantReturnWindow = BrowserWindow | null;
 
@@ -18,17 +19,12 @@ export function focusAssistantReturnWindow(
     const window = returnWindow && !returnWindow.isDestroyed()
         ? returnWindow
         : BrowserWindow.getAllWindows().find(candidate => !candidate.isDestroyed());
-    if (!window || window.isDestroyed() || options.noFocus === true) {
+    if (!window) {
         return;
     }
-    if (window.isMinimized()) {
-        window.restore();
-    }
-    if (!window.isVisible()) {
-        window.show();
-    }
-    window.focus();
-    if (process.platform === 'darwin') {
-        app.focus({ steal: true });
-    }
+
+    focusWindowForUser(window, {
+        application: app,
+        noFocus: options.noFocus === true,
+    });
 }

@@ -2,9 +2,11 @@ import {
     mkdirSync,
     mkdtempSync,
     readFileSync,
+    realpathSync,
     readdirSync,
     rmSync,
     unlinkSync,
+    utimesSync,
     writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
@@ -145,6 +147,30 @@ describe('recentFiles persistence', () => {
         ]);
     });
 
+    it('persists and refreshes modified-time identity for same-size source replacements', async () => {
+        const filePath = writeFixture('same-size.pdf', 'first');
+        const recentFiles = await loadRecentFilesModule();
+
+        await recentFiles.addRecentFile(filePath);
+        const initial = (await recentFiles.getRecentFiles())[0];
+        expect(initial).toMatchObject({
+            originalPath: filePath,
+            fileSize: 5,
+            modifiedAt: expect.any(Number),
+        });
+        const persisted = JSON.parse(readFileSync(join(userDataDir, 'recentFiles.json'), 'utf-8')) as {files: Array<{modifiedAt?: number}>};
+        expect(persisted.files[0]?.modifiedAt).toBe(initial?.modifiedAt);
+
+        writeFileSync(filePath, 'other');
+        const replacementTime = new Date((initial?.modifiedAt ?? Date.now()) + 10_000);
+        utimesSync(filePath, replacementTime, replacementTime);
+
+        const refreshed = (await recentFiles.getRecentFiles())[0];
+        expect(refreshed?.fileSize).toBe(initial?.fileSize);
+        expect(refreshed?.modifiedAt).not.toBe(initial?.modifiedAt);
+        expect(Math.abs((refreshed?.modifiedAt ?? 0) - replacementTime.getTime())).toBeLessThanOrEqual(2);
+    });
+
     it('serializes concurrent additions without losing either persisted entry', async () => {
         const fileA = writeFixture('concurrent-alpha.pdf');
         const fileB = writeFixture('concurrent-beta.pdf');
@@ -165,6 +191,100 @@ describe('recentFiles persistence', () => {
             fileA,
             fileB,
         ]));
+    });
+
+    it('persists the original document identity instead of a managed working-copy path', async () => {
+        const originalPath = writeFixture('original.pdf', 'original');
+        const workingDir = join(userDataDir, 'evb-viewer', 'pdf-work-recent-authority');
+        mkdirSync(workingDir, {recursive: true});
+        const workingPath = join(workingDir, 'original.pdf');
+        writeFileSync(workingPath, 'working');
+
+        const recentFiles = await loadRecentFilesModule();
+        const workingCopyStore = await import('@electron/file-access/workingCopyStore');
+        await workingCopyStore.setWorkingCopyOriginalPath(workingPath, originalPath, 42);
+
+        await recentFiles.addRecentFile(workingPath, 42);
+
+        expect(recentFiles.getRecentFilesSync()).toEqual([originalPath]);
+        expect((await recentFiles.getRecentFiles()).map(file => file.originalPath)).toEqual([originalPath]);
+        workingCopyStore.clearWorkingCopyOriginalPaths();
+    });
+
+    it('refuses to persist an unmapped managed working-copy temp path', async () => {
+        const workingDir = join(userDataDir, 'evb-viewer', 'pdf-work-unmapped');
+        mkdirSync(workingDir, {recursive: true});
+        const workingPath = join(workingDir, 'internal.pdf');
+        writeFileSync(workingPath, 'working');
+        const recentFiles = await loadRecentFilesModule();
+
+        await recentFiles.addRecentFile(workingPath, 42);
+
+        expect(recentFiles.getRecentFilesSync()).toEqual([]);
+        expect(mocks.logger.warn).toHaveBeenCalledWith(expect.stringContaining('Refusing to persist unmapped'));
+    });
+
+    it('removes historical unmanaged working-copy entries while loading and rewrites storage', async () => {
+        const workingDir = join(realpathSync.native(userDataDir), 'evb-viewer', 'pdf-work-historical');
+        mkdirSync(workingDir, {recursive: true});
+        const workingPath = join(workingDir, 'internal.pdf');
+        writeFileSync(workingPath, 'working');
+        const storagePath = join(userDataDir, 'recentFiles.json');
+        writeFileSync(storagePath, JSON.stringify({
+            version: 1,
+            files: [{
+                originalPath: workingPath,
+                fileName: 'internal.pdf',
+                timestamp: 123,
+                fileSize: 7,
+            }],
+        }));
+
+        const recentFiles = await loadRecentFilesModule();
+        await expect(recentFiles.getRecentFiles()).resolves.toEqual([]);
+        expect(JSON.parse(readFileSync(storagePath, 'utf-8'))).toEqual({
+            version: 1,
+            files: [],
+        });
+    });
+
+    it('migrates a historical owned working-copy entry to its canonical source while loading', async () => {
+        const originalPath = writeFixture('historical-original.pdf', 'original');
+        const workingDir = join(userDataDir, 'evb-viewer', 'pdf-work-historical-mapped');
+        mkdirSync(workingDir, {recursive: true});
+        const workingPath = join(workingDir, 'historical-original.pdf');
+        writeFileSync(workingPath, 'working');
+        writeFileSync(join(userDataDir, 'recentFiles.json'), JSON.stringify({
+            version: 1,
+            files: [{
+                originalPath: workingPath,
+                fileName: 'historical-original.pdf',
+                timestamp: 123,
+                fileSize: 7,
+            }],
+        }));
+        const recentFiles = await loadRecentFilesModule();
+        const workingCopyStore = await import('@electron/file-access/workingCopyStore');
+        await workingCopyStore.setWorkingCopyOriginalPath(workingPath, originalPath, 42);
+        await expect(recentFiles.getRecentFiles()).resolves.toMatchObject([{
+            originalPath,
+            fileName: 'historical-original.pdf',
+        }]);
+        const persisted = JSON.parse(readFileSync(join(userDataDir, 'recentFiles.json'), 'utf-8')) as {files: Array<{originalPath: string}>};
+        expect(persisted.files.map(file => file.originalPath)).toEqual([originalPath]);
+        workingCopyStore.clearWorkingCopyOriginalPaths();
+    });
+
+    it('does not reject a user document merely because its folder starts with pdf-work-', async () => {
+        const userFolder = join(appDataDir, 'pdf-work-publications');
+        mkdirSync(userFolder);
+        const filePath = join(userFolder, 'paper.pdf');
+        writeFileSync(filePath, 'paper');
+        const recentFiles = await loadRecentFilesModule();
+
+        await recentFiles.addRecentFile(filePath);
+
+        expect(recentFiles.getRecentFilesSync()).toEqual([filePath]);
     });
 
     it('preserves an existing target and removes staged data when atomic promotion fails', async () => {

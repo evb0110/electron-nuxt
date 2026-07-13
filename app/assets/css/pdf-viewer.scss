@@ -22,14 +22,21 @@
     opacity: 0;
 }
 
-.pdfViewer.pdfViewer--mode-facing .pdf-viewer-virtual-spacer,
-.pdfViewer.pdfViewer--mode-facing-first-single .pdf-viewer-virtual-spacer {
+.pdf-viewer-page-track.pdfViewer--mode-facing .pdf-viewer-virtual-spacer,
+.pdf-viewer-page-track.pdfViewer--mode-facing-first-single .pdf-viewer-virtual-spacer {
     grid-column: 1 / -1;
     justify-self: stretch;
 }
 
 .pdfViewer .page_container--rendered .pdf-page-skeleton {
     display: none;
+}
+
+/* Canvas pixels may finish before Vue projects the canonical rendered state.
+   Keep that backing store non-presentational until the same class transition
+   that removes the skeleton; users then observe one atomic shell handoff. */
+.pdfViewer .page_container:not(.page_container--rendered) .page_canvas__render-layer {
+    visibility: hidden;
 }
 
 .pdfViewer .page_container:not(.page_container--rendered) .text-layer,
@@ -47,16 +54,36 @@
     width: 100%;
     height: 100%;
     z-index: var(--app-z-pdf-canvas-layer);
-    background: var(--pdf-page-bg);
-    box-shadow: var(--pdf-page-shadow);
+    background: var(--app-pdf-page-bg);
+    box-shadow: var(--app-pdf-page-shadow);
     border-radius: var(--app-pdf-page-radius);
 
-    > canvas {
+    .page_canvas__render-layer {
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+    }
+
+    .page_canvas__render-layer > canvas {
         /* stylelint-disable declaration-no-important -- css-important-allow: PDF.js can set canvas sizing at runtime; the viewer owns this rendered box. */
         width: 100% !important;
         height: 100% !important;
         /* stylelint-enable declaration-no-important */
     }
+}
+
+.pdf-page-render-error {
+    position: absolute;
+    inset: 0;
+    z-index: var(--app-z-pdf-page-skeleton);
+    display: grid;
+    place-items: center;
+    padding: var(--app-document-page-error-padding);
+    box-sizing: border-box;
+    border-radius: inherit;
+    background: var(--app-pdf-page-bg);
+    color: var(--ui-error-600);
+    text-align: center;
 }
 
 /* ── Text Layer (PDF.js) ───────────────────────────────────────────── */
@@ -75,8 +102,15 @@
     z-index: var(--app-z-pdf-text-layer);
     pointer-events: auto;
     user-select: text;
+    /* stylelint-disable declaration-no-important -- css-important-allow: The layout authority must override stale PDF.js inline layer dimensions and scale variables after partial rerenders. */
+    width: 100% !important;
+    height: 100% !important;
 
     --min-font-size: 1;
+    --scale-factor: inherit !important;
+    --user-unit: inherit !important;
+    --total-scale-factor: inherit !important;
+    /* stylelint-enable declaration-no-important */
     --text-scale-factor: calc(var(--total-scale-factor, 1) * var(--min-font-size));
     --min-font-size-inv: calc(1 / var(--min-font-size));
 
@@ -137,6 +171,14 @@
     overflow: hidden;
     z-index: var(--app-z-pdf-link-layer);
     pointer-events: none;
+    /* stylelint-disable declaration-no-important -- css-important-allow: The layout authority must override stale PDF.js inline layer dimensions and scale variables after partial rerenders. */
+    width: 100% !important;
+    height: 100% !important;
+
+    --scale-factor: inherit !important;
+    --user-unit: inherit !important;
+    --total-scale-factor: inherit !important;
+    /* stylelint-enable declaration-no-important */
 
     a {
         pointer-events: auto;
@@ -163,6 +205,14 @@
     position: absolute;
     inset: 0;
     z-index: var(--app-z-pdf-annotation-editor-layer);
+    /* stylelint-disable declaration-no-important -- css-important-allow: The layout authority must override stale PDF.js inline layer dimensions and scale variables after partial rerenders. */
+    width: 100% !important;
+    height: 100% !important;
+
+    --scale-factor: inherit !important;
+    --user-unit: inherit !important;
+    --total-scale-factor: inherit !important;
+    /* stylelint-enable declaration-no-important */
 }
 
 .pdfViewer.is-selection-markup-tool .annotation-editor-layer,
@@ -229,39 +279,16 @@
     scroll-behavior: auto;
     overflow-anchor: none;
     background: var(--app-pdf-viewer-bg);
-    display: flex;
-    flex-direction: column;
-
-    &.pdfViewer--mode-facing,
-    &.pdfViewer--mode-facing-first-single {
-        display: grid;
-        grid-template-columns: repeat(2, max-content);
-        place-content: flex-start center;
-    }
 
     &.pdfViewer--fit-height {
         overflow-x: auto;
     }
 
-    &.pdfViewer--active-spread-fits-width {
-        overflow-x: hidden;
-        overscroll-behavior-x: none;
-    }
-
+    &.pdfViewer--active-spread-fits-width,
     &.pdfViewer--fit-width-page-fits {
         overflow-x: hidden;
         overscroll-behavior-x: none;
     }
-
-    /*
-     * Single-page mode is driven entirely by the viewport authority.
-     * CSS scroll-snap was previously enabled here but collided with the JS
-     * snap targets — `scroll-snap-align: center` resolves to a different
-     * scrollTop than the JS `centerTarget` calculation (margin handling
-     * differs), causing the engine to override JS-set positions. The most
-     * visible symptom was that wheel-up appeared to do nothing because the
-     * snap engine pulled the position back. JS owns paging end-to-end now.
-     */
 
     &.pdfViewer--hidden {
         opacity: 0;
@@ -282,8 +309,42 @@
     /* stylelint-enable selector-id-pattern */
 }
 
-.pdfViewer.pdfViewer--mode-facing .page_container,
-.pdfViewer.pdfViewer--mode-facing-first-single .page_container {
+/*
+ * This is the sole physical owner of PDF page layout. In chassis mode the
+ * outer .pdfViewer is only the scroll root; keeping the page nodes and virtual
+ * spacers as direct children of this track makes CSS gaps match analytical
+ * viewport geometry and prevents padding from inflating the scroll root.
+ */
+.pdf-viewer-page-track {
+    position: relative;
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 100%;
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+
+    &.pdfViewer--mode-facing,
+    &.pdfViewer--mode-facing-first-single {
+        display: grid;
+        grid-template-columns: repeat(2, max-content);
+        place-content: flex-start center;
+    }
+
+    /*
+     * Single-page mode is driven entirely by the viewport authority.
+     * CSS scroll-snap was previously enabled here but collided with the JS
+     * snap targets — `scroll-snap-align: center` resolves to a different
+     * scrollTop than the JS `centerTarget` calculation (margin handling
+     * differs), causing the engine to override JS-set positions. The most
+     * visible symptom was that wheel-up appeared to do nothing because the
+     * snap engine pulled the position back. JS owns paging end-to-end now.
+     */
+
+}
+
+.pdf-viewer-page-track.pdfViewer--mode-facing .page_container,
+.pdf-viewer-page-track.pdfViewer--mode-facing-first-single .page_container {
     margin: 0;
 }
 
@@ -463,7 +524,7 @@
     margin: var(--app-pdf-annotation-editor-margin) !important;
     border: 1px dashed transparent !important;
     /* stylelint-enable declaration-no-important */
-    box-shadow: var(--pdf-page-shadow);
+    box-shadow: var(--app-pdf-page-shadow);
     box-sizing: content-box;
     user-select: none;
     position: relative;

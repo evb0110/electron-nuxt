@@ -2,6 +2,7 @@ import {
     mkdtemp,
     readFile,
     rm,
+    stat,
 } from 'fs/promises';
 import {join} from 'path';
 import { tmpdir } from 'os';
@@ -9,9 +10,12 @@ import type {
     IPdfNativePagePreview,
     IPdfNativePagePreviewOptions,
     IPdfNativePageSize,
+    IPdfOpeningGeometry,
 } from '@contracts/electronApiDocuments';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
 import { resolveExistingReadablePdfPath } from '@electron/features/documents/main/documentFilePathResolution';
+import { allowOpenPath } from '@electron/file-access/openPathCapabilities';
+import { getRecentFiles } from '@electron/recentFiles';
 import { buildPopplerEnv } from '@electron/native-tools/buildPopplerEnv';
 import {
     runNativeToolCommand,
@@ -23,6 +27,8 @@ import { registerMainOperation } from '@electron/operation-lifecycle/mainOperati
 import { abortErrorFromSignal } from '@electron/utils/abort';
 import { mainJobBroker } from '@electron/resources/jobBroker';
 import type { IJobBrokerLease } from '@electron/resources/jobBroker';
+import { createLogger } from '@electron/utils/createLogger';
+import { acquireNativePdfPreviewAdmission } from '@electron/features/documents/main/acquireNativePdfPreviewAdmission';
 
 const PDFINFO_TIMEOUT_MS = 20_000;
 const PDF_RENDER_TIMEOUT_MS = 30_000;
@@ -32,10 +38,12 @@ const PDFINFO_PER_PAGE_STDOUT_BYTES = 512;
 const PDF_RENDER_DEFAULT_TARGET_WIDTH_PX = 1_200;
 const PDF_RENDER_MIN_TARGET_WIDTH_PX = 64;
 const PDF_RENDER_MAX_TARGET_WIDTH_PX = 4_096;
+const logger = createLogger('native-pdf-preview');
 
 const PAGE_COUNT_RE = /^Pages:\s+(\d+)\s*$/imu;
 const DEFAULT_PAGE_SIZE_RE = /^Page size:\s+([0-9.]+)\s+x\s+([0-9.]+)\s+pts\b/imu;
 const PAGE_SIZE_RE = /^Page\s+(\d+)\s+size:\s+([0-9.]+)\s+x\s+([0-9.]+)\s+pts\b/gimu;
+const PAGE_ROTATION_RE = /^Page\s+(\d+)\s+rot:\s+(-?\d+)\s*$/gimu;
 
 const activePreviewAborters = new Map<string, (reason: string) => void>();
 const activePreviewPromises = new Map<string, Promise<IPdfNativePagePreview>>();
@@ -112,6 +120,46 @@ export function parsePdfInfoPageSizes(
     return sizes.map(size => size ?? { ...firstResolvedSize });
 }
 
+function normalizeRightAngleRotation(rawRotation: string | undefined): 0 | 90 | 180 | 270 {
+    const parsed = Number.parseInt(rawRotation ?? '0', 10);
+    if (!Number.isSafeInteger(parsed)) {
+        throw new Error('Unable to determine PDF opening page rotation');
+    }
+    const normalized = ((parsed % 360) + 360) % 360;
+    if (normalized !== 0 && normalized !== 90 && normalized !== 180 && normalized !== 270) {
+        throw new Error('PDF opening page has an unsupported rotation');
+    }
+    return normalized;
+}
+
+export function parsePdfOpeningGeometryMetadata(
+    pdfInfoOutput: string,
+    identity: Pick<IPdfOpeningGeometry, 'size' | 'modifiedAt'>,
+): IPdfOpeningGeometry {
+    const pageCount = normalizePageCount(pdfInfoOutput);
+    PAGE_SIZE_RE.lastIndex = 0;
+    const firstPageSizeMatch = Array.from(pdfInfoOutput.matchAll(PAGE_SIZE_RE))
+        .find(match => Number.parseInt(match[1] ?? '', 10) === 1);
+    const fallbackPageSize = parseDefaultPageSize(pdfInfoOutput);
+    const width = parsePositiveFiniteNumber(firstPageSizeMatch?.[2]) ?? fallbackPageSize?.width ?? null;
+    const height = parsePositiveFiniteNumber(firstPageSizeMatch?.[3]) ?? fallbackPageSize?.height ?? null;
+    if (width === null || height === null) {
+        throw new Error('Unable to determine PDF opening page dimensions');
+    }
+    PAGE_ROTATION_RE.lastIndex = 0;
+    const firstPageRotationMatch = Array.from(pdfInfoOutput.matchAll(PAGE_ROTATION_RE))
+        .find(match => Number.parseInt(match[1] ?? '', 10) === 1);
+    return {
+        pageNumber: 1,
+        pageCount,
+        width,
+        height,
+        rotation: normalizeRightAngleRotation(firstPageRotationMatch?.[2]),
+        size: identity.size,
+        modifiedAt: identity.modifiedAt,
+    };
+}
+
 function normalizePreviewTargetWidth(options: IPdfNativePagePreviewOptions | undefined) {
     const rawTargetWidth = options?.targetWidthPx ?? PDF_RENDER_DEFAULT_TARGET_WIDTH_PX;
     if (!Number.isFinite(rawTargetWidth)) {
@@ -163,6 +211,37 @@ function readPngDimensions(bytes: Uint8Array) {
 
 async function resolvePdfPath(context: IDocumentsSenderIdContext, filePath: unknown) {
     return resolveExistingReadablePdfPath(filePath, context.senderId);
+}
+
+async function resolvePdfOpeningGeometryPath(
+    context: IDocumentsSenderIdContext,
+    filePath: unknown,
+) {
+    try {
+        return await resolvePdfPath(context, filePath);
+    } catch (error) {
+        if (
+            typeof filePath !== 'string'
+            || !(await getRecentFiles()).some(file => file.originalPath === filePath)
+        ) {
+            throw error;
+        }
+
+        // Recent-file metadata preflight runs before the open command mints its
+        // normal path capability. Grant only a path which is still present in
+        // the main-process Recent ledger, scoped to this renderer owner.
+        const owner = context.sender ?? context.senderId;
+        const trustedRecentPath = allowOpenPath(filePath, owner);
+        if (trustedRecentPath === null) {
+            throw error;
+        }
+        // Opening geometry is intentionally discovered from the immutable
+        // original source before a working copy exists. The Recent ledger plus
+        // the owner-scoped open capability is the authority boundary here;
+        // the normal readable-path resolver only accepts managed temp paths
+        // and therefore cannot resolve this pre-open source.
+        return trustedRecentPath;
+    }
 }
 
 function abortPreviewController(controller: AbortController, reason: string) {
@@ -308,6 +387,83 @@ export async function handlePdfNativePageSizes(
     }
 }
 
+async function readPdfOpeningGeometryIdentity(resolvedPath: string) {
+    const fileStat = await stat(resolvedPath);
+    return {
+        size: fileStat.size,
+        modifiedAt: Math.trunc(fileStat.mtimeMs),
+    };
+}
+
+export async function handlePdfOpeningGeometry(
+    context: IDocumentsSenderIdContext,
+    filePath: unknown,
+): Promise<IPdfOpeningGeometry> {
+    const resolvedPath = await resolvePdfOpeningGeometryPath(context, filePath);
+    const identityBefore = await readPdfOpeningGeometryIdentity(resolvedPath);
+    const tools = getPdfNativeToolPaths();
+    const env = buildPopplerEnv(tools);
+    const abortController = new AbortController();
+    let cancelGroup = '';
+    const cancelOpeningGeometry = (reason: string) => {
+        abortPreviewController(abortController, reason);
+        if (cancelGroup) {
+            cancelNativeCommandGroup(cancelGroup);
+        }
+    };
+    const mainOperation = registerMainOperation({
+        kind: 'abortable-work',
+        ownerWebContentsId: context.senderId,
+        workingCopyPath: resolvedPath,
+        cancel: cancelOpeningGeometry,
+    });
+    cancelGroup = `pdf-opening-geometry:${mainOperation.id}`;
+    const handleMainAbort = () => {
+        cancelOpeningGeometry('PDF opening geometry discovery canceled');
+    };
+    const unregisterSenderCleanup = registerNativePdfSenderCleanup(
+        context.sender,
+        cancelOpeningGeometry,
+        'Renderer navigation canceled PDF opening geometry discovery',
+    );
+    mainOperation.signal.addEventListener('abort', handleMainAbort, {once: true});
+
+    try {
+        const result = await runNativeToolCommand(
+            tools.pdfinfo,
+            [
+                '-box',
+                '-f',
+                '1',
+                '-l',
+                '1',
+                resolvedPath,
+            ],
+            withPopplerEnv(env, {
+                timeoutMs: PDFINFO_TIMEOUT_MS,
+                maxStdoutBytes: PDFINFO_BASE_STDOUT_BYTES,
+                rejectOnStdoutTruncation: true,
+                commandLabel: 'pdfinfo-opening-geometry',
+                signal: abortController.signal,
+                cancelGroup,
+            }),
+        );
+        throwIfAborted(abortController.signal);
+        const identityAfter = await readPdfOpeningGeometryIdentity(resolvedPath);
+        if (
+            identityAfter.size !== identityBefore.size
+            || identityAfter.modifiedAt !== identityBefore.modifiedAt
+        ) {
+            throw new Error('PDF changed while opening geometry was being discovered');
+        }
+        return parsePdfOpeningGeometryMetadata(result.stdout, identityAfter);
+    } finally {
+        mainOperation.signal.removeEventListener('abort', handleMainAbort);
+        unregisterSenderCleanup();
+        mainOperation.complete();
+    }
+}
+
 export function handleCancelPdfNativePagePreview(
     context: IDocumentsSenderIdContext,
     requestId: string,
@@ -369,24 +525,48 @@ async function runPdfNativePagePreview(
     mainOperation.signal.addEventListener('abort', handleMainAbort, { once: true });
     let tempDir: string | null = null;
     let resourceLease: IJobBrokerLease | null = null;
+    const requestStartedAt = performance.now();
+    let requestOutcome = 'failed';
 
     try {
-        resourceLease = await mainJobBroker.acquire({
-            ownerId: String(ownerId),
-            kind: 'native-pdf-preview',
-            priority: 'visible',
-            perOwnerLimit: 2,
-            resources: {
-                cpuTokens: 1,
-                estimatedResidentBytes: Math.max(16 * 1024 * 1024, targetWidthPx * targetWidthPx * 16),
-                nativeProcesses: 1,
-                ioWeight: 1,
+        logger.debug(`Native PDF preview admission started: ${JSON.stringify({
+            ownerId,
+            page,
+            previewRequestId,
+            targetWidthPx,
+        })}`);
+        resourceLease = await acquireNativePdfPreviewAdmission({
+            acquire: request => mainJobBroker.acquire(request),
+            ownerSignal: abortController.signal,
+            request: {
+                ownerId: String(ownerId),
+                kind: 'native-pdf-preview',
+                priority: 'visible',
+                perOwnerLimit: 2,
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: Math.max(16 * 1024 * 1024, targetWidthPx * targetWidthPx * 16),
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
             },
-            signal: abortController.signal,
         });
+        logger.debug(`Native PDF preview admission granted: ${JSON.stringify({
+            ownerId,
+            page,
+            previewRequestId,
+            targetWidthPx,
+            waitMs: Math.round((performance.now() - requestStartedAt) * 10) / 10,
+        })}`);
         tempDir = await mkdtemp(join(tmpdir(), 'evb-pdf-native-preview-'));
         const outputPrefix = join(tempDir, 'page');
         const outputPath = `${outputPrefix}.png`;
+        logger.debug(`Native PDF preview render started: ${JSON.stringify({
+            ownerId,
+            page,
+            previewRequestId,
+            targetWidthPx,
+        })}`);
         await runNativeToolCommand(
             tools.pdftoppm,
             [
@@ -417,6 +597,7 @@ async function runPdfNativePagePreview(
             width,
             height,
         } = readPngDimensions(bytes);
+        requestOutcome = 'completed';
         return {
             bytes,
             width,
@@ -439,6 +620,14 @@ async function runPdfNativePagePreview(
         unregisterSenderCleanup();
         mainOperation.complete();
         resourceLease?.release();
+        logger.debug(`Native PDF preview request finished: ${JSON.stringify({
+            ownerId,
+            page,
+            previewRequestId,
+            targetWidthPx,
+            outcome: abortController.signal.aborted ? 'canceled' : requestOutcome,
+            totalMs: Math.round((performance.now() - requestStartedAt) * 10) / 10,
+        })}`);
     }
 }
 

@@ -378,10 +378,16 @@ export async function handleFileRead(context: IDocumentsSenderIdContext, filePat
 export async function handleFileStat(
     context: IDocumentsSenderIdContext,
     filePath: unknown,
-): Promise<{ size: number }> {
+): Promise<{
+    size: number;
+    modifiedAt: number
+}> {
     const resolvedPath = await resolveExistingReadableBinaryPath(filePath, context.senderId);
     const s = statSync(resolvedPath);
-    return { size: s.size };
+    return {
+        size: s.size,
+        modifiedAt: Math.trunc(s.mtimeMs),
+    };
 }
 
 export async function handleFileReadRange(

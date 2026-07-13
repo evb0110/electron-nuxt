@@ -107,7 +107,7 @@ function getDesktopDjvuPreviewCapability(path: TDocumentRef) {
 
     const djvu = getValidatedElectronPlatformApi()?.djvu;
     if (
-        typeof djvu?.getPageSizes !== 'function'
+        typeof djvu?.getPageSourceInfo !== 'function'
         || typeof djvu.renderPagePreview !== 'function'
         || typeof djvu.cancelPagePreview !== 'function'
     ) {
@@ -381,6 +381,10 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
                 cancelPreviewRequest(requestId);
             },
             getPageSizes: () => nativeDjvu.getPageSizes(djvuPath),
+            getPageSize: async (pageNumber: number) => (
+                await nativeDjvu.getPageSourceInfo(djvuPath, pageNumber)
+            ).pageSize,
+            getPageSourceInfo: (pageNumber: number) => nativeDjvu.getPageSourceInfo(djvuPath, pageNumber),
             async renderPageObjectUrl(
                 pageNumber: number,
                 options?: IDjvuPagePreviewOptions,
@@ -495,11 +499,33 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
         })),
     );
 
+    const pageSizesPromise = worker.doc.getPagesSizes().run();
+
     return {
         cancelPagePreview(pageNumber: number) {
             latestPreviewRequestIdsByPage.delete(pageNumber);
         },
-        getPageSizes: (): Promise<IDjvuPageSize[]> => worker.doc.getPagesSizes().run(),
+        getPageSizes: (): Promise<IDjvuPageSize[]> => pageSizesPromise,
+        async getPageSize(pageNumber: number) {
+            const sizes = await pageSizesPromise;
+            const pageSize = sizes[pageNumber - 1];
+            if (!pageSize) {
+                throw new RangeError(`DjVu page ${pageNumber} is outside 1..${sizes.length}`);
+            }
+            return pageSize;
+        },
+        async getPageSourceInfo(pageNumber: number) {
+            const sizes = await pageSizesPromise;
+            const pageSize = sizes[pageNumber - 1];
+            if (!pageSize) {
+                throw new RangeError(`DjVu page ${pageNumber} is outside 1..${sizes.length}`);
+            }
+            return {
+                pageCount: sizes.length,
+                pageNumber,
+                pageSize,
+            };
+        },
         getPageText: (pageNumber: number) => worker.doc.getPage(pageNumber).getText().run(),
         async getOutline() {
             return mapOutline(await worker.doc.getContents().run() ?? []);

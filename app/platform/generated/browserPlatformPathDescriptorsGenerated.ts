@@ -251,6 +251,7 @@ export const browserPlatformPathDescriptorsGenerated = {
         subscribeJob: {kind: 'async', path: ["djvu","subscribeJob"]},
         cancelPagePreview: {kind: 'async', path: ["djvu","cancelPagePreview"]},
         getInfo: {kind: 'async', path: ["djvu","getInfo"]},
+        getPageSourceInfo: {kind: 'async', path: ["djvu","getPageSourceInfo"]},
         getPageSizes: {kind: 'async', path: ["djvu","getPageSizes"]},
         renderPagePreview: {kind: 'async', path: ["djvu","renderPagePreview"]},
         estimateSizes: {kind: 'async', path: ["djvu","estimateSizes"]},

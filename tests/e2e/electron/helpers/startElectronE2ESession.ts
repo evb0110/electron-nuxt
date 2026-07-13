@@ -31,7 +31,10 @@ import {
     waitForSessionReady,
 } from '@scripts/electron-run/sessionManager';
 import { cleanupSessionFixtures } from '@tests/e2e/electron/helpers/fixtures';
-import { waitForFunctionInPage } from '@tests/e2e/electron/helpers/pageRuntime';
+import {
+    installPageEvaluationShims,
+    waitForFunctionInPage,
+} from '@tests/e2e/electron/helpers/pageRuntime';
 
 const SESSION_READY_TIMEOUT_MS = 75_000;
 const RENDERER_READY_TIMEOUT_MS = 30_000;
@@ -126,14 +129,6 @@ async function waitForRendererReady(page: Page, timeoutMs = RENDERER_READY_TIMEO
         const hasElectronApi = typeof (window as IE2EWindow & { electronAPI?: unknown }).electronAPI === 'object';
         return hasNuxt && hasOpenFile && hasElectronApi;
     }, { timeout: timeoutMs });
-}
-
-async function installPageEvaluationShims(page: Page) {
-    const install = () => {
-        (window as IE2EWindow & { __name?: <TFunction extends (...args: never[]) => unknown>(fn: TFunction) => TFunction }).__name = fn => fn;
-    };
-    await page.evaluateOnNewDocument(install);
-    await page.evaluate(install);
 }
 
 async function waitForHealthReady(sessionName: string, timeoutMs = SESSION_READY_TIMEOUT_MS) {
@@ -303,11 +298,6 @@ export async function startElectronE2ESession(sessionName: string, options?: {
     };
 
     const stop = async () => {
-        try {
-            await browser.disconnect();
-        } catch {
-            // Disconnect best-effort for cleanup.
-        }
         await withSessionTimeout(
             scopedSessionName,
             `Stopping Electron E2E session '${scopedSessionName}'`,

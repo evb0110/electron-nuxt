@@ -10,6 +10,7 @@ import type {
     IDocumentMutationRevisionOptions,
     TOpenFileResult,
 } from '@contracts/electronApiDocuments';
+import { IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES } from '@contracts/electronApiDocuments';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { IPdfRasterDisplayProfileOpenOptions } from '@app/types/pdfRasterDisplayProfile';
 import {consumeRegisteredPdfRasterDisplayProfile} from '@app/types/pdfRasterDisplayProfile';
@@ -19,6 +20,7 @@ import type { IPdfLoadedState } from '@app/modules/workspace-shell/composables/d
 import type { IPdfConformanceDeferralOptions } from '@app/modules/workspace-shell/composables/document-session/createDocumentConformance';
 import type { createEpochGuard } from '@app/modules/workspace-shell/composables/document-session/createEpochGuard';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import {
     bucketFileSize,
@@ -67,7 +69,10 @@ interface ICreateDocumentOpenFlowDeps {
 }
 
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
-const MAX_IN_MEMORY_PDF_BYTES = 64 * 1024 * 1024;
+// Keep direct document reads within the IPC contract's binary-payload ceiling.
+// Larger PDFs should be handed to PDF.js as path-backed range sources instead
+// of being copied into the renderer and then copied again into a Blob/history.
+const MAX_IN_MEMORY_PDF_BYTES = IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES;
 
 function createDocumentMutationRevisionOptions(
     expectedDocumentRevisionToken: TDocumentRevisionToken | null | undefined,
@@ -133,11 +138,17 @@ export function createDocumentOpenFlow(
         const fileName = getDocumentRefBaseName(result.originalPath);
         let fileSizeBucket: string | null = null;
 
-        try {
-            const { size } = await getDocumentFilesCapability().statFile(result.originalPath);
-            fileSizeBucket = bucketFileSize(size);
-        } catch {
-            fileSizeBucket = null;
+        if (result.kind === 'pdf') {
+            try {
+                // The open result has already adopted a managed working copy.
+                // Renderer file capabilities deliberately cannot stat an
+                // arbitrary original path; the byte-identical working copy is
+                // the authoritative readable source for analytics size.
+                const { size } = await getDocumentFilesCapability().statFile(result.workingPath);
+                fileSizeBucket = bucketFileSize(size);
+            } catch {
+                fileSizeBucket = null;
+            }
         }
 
         deps.analyticsDocumentScope.set({
@@ -220,9 +231,14 @@ export function createDocumentOpenFlow(
             }
             if (result.kind === 'djvu') {
                 state.pendingDjvu.value = result.originalPath;
+                BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'DjVu open prepared', {
+                    reason: 'picker-result-ready',
+                    openRequestId,
+                    path: result.originalPath,
+                });
                 await trackOpenedDocument(result, preSelected ? 'preselected' : 'picker');
                 return {
-                    status: 'opened',
+                    status: 'prepared',
                     result,
                 } satisfies TDocumentOpenOutcome;
             }
@@ -298,9 +314,27 @@ export function createDocumentOpenFlow(
         state.error.value = null;
         state.pendingDjvu.value = null;
         state.openBatchProgress.value = null;
+        logPdfRenderTrace('pdf-open-direct-start', {
+            openRequestId,
+            path,
+            wallTimeMs: Date.now(),
+            performanceTimeOrigin: typeof performance === 'undefined' ? null : performance.timeOrigin,
+        });
         BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'openFileDirect started', {path});
         try {
+            const openCapabilityStartedAt = performance.now();
+            logPdfRenderTrace('pdf-open-capability-start', {
+                openRequestId,
+                path,
+            });
             const result = await getDocumentOpenCapability().openDocumentDirect(path);
+            logPdfRenderTrace('pdf-open-capability-end', {
+                openRequestId,
+                path,
+                elapsedMs: performance.now() - openCapabilityStartedAt,
+                resultKind: result?.kind ?? null,
+                workingPath: result?.kind === 'pdf' ? result.workingPath : null,
+            });
             if (!isCurrentOpenRequest(openRequestId)) {
                 if (result) {
                     await cleanupAbandonedPdfWorkingCopy(result, 'stale-direct-result');
@@ -342,6 +376,11 @@ export function createDocumentOpenFlow(
 
             if (result.kind === 'djvu') {
                 state.pendingDjvu.value = result.originalPath;
+                BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'DjVu open prepared', {
+                    reason: 'direct-result-ready',
+                    openRequestId,
+                    path: result.originalPath,
+                });
                 await trackOpenedDocument(result, 'direct');
                 BrowserLogger.debug(
                     RECENT_OPEN_LOG_SECTION,
@@ -352,7 +391,7 @@ export function createDocumentOpenFlow(
                     },
                 );
                 return {
-                    status: 'opened',
+                    status: 'prepared',
                     result,
                 } satisfies TDocumentOpenOutcome;
             }
@@ -382,6 +421,12 @@ export function createDocumentOpenFlow(
                 originalPath: result.originalPath,
                 requiresSaveAsOnFirstSave: state.requiresSaveAsOnFirstSave.value,
             });
+            logPdfRenderTrace('pdf-open-direct-end', {
+                openRequestId,
+                path,
+                status: outcome.status,
+                workingPath: result.workingPath,
+            });
             return outcome;
         } catch (e) {
             if (!isCurrentOpenRequest(openRequestId)) {
@@ -394,6 +439,12 @@ export function createDocumentOpenFlow(
             state.error.value = message;
             BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'openFileDirect failed', {
                 path,
+                error: getErrorMessage(e),
+            });
+            logPdfRenderTrace('pdf-open-direct-end', {
+                openRequestId,
+                path,
+                status: 'failed',
                 error: getErrorMessage(e),
             });
             return {
@@ -503,9 +554,14 @@ export function createDocumentOpenFlow(
             if (result.kind === 'djvu') {
                 state.openBatchProgress.value = null;
                 state.pendingDjvu.value = result.originalPath;
+                BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'DjVu open prepared', {
+                    reason: 'batch-result-ready',
+                    openRequestId,
+                    path: result.originalPath,
+                });
                 await trackOpenedDocument(result, 'batch');
                 return {
-                    status: 'opened',
+                    status: 'prepared',
                     result,
                 } satisfies TDocumentOpenOutcome;
             }
@@ -624,11 +680,35 @@ export function createDocumentOpenFlow(
         return true;
     }
 
-    async function readPdfStateFromPath(path: TDocumentRef): Promise<IPdfLoadedState> {
+    async function readPdfStateFromPath(
+        path: TDocumentRef,
+        traceContext?: {
+            openRequestId?: number;
+            loadRequestId: number
+        },
+    ): Promise<IPdfLoadedState> {
+        const statStartedAt = performance.now();
+        logPdfRenderTrace('pdf-open-source-stat-start', {
+            path,
+            ...traceContext,
+        });
         const { size } = await getDocumentFilesCapability().statFile(path);
+        logPdfRenderTrace('pdf-open-source-stat-end', {
+            path,
+            ...traceContext,
+            size,
+            elapsedMs: performance.now() - statStartedAt,
+        });
         assertPdfHasBytes(size);
 
         if (size > MAX_IN_MEMORY_PDF_BYTES) {
+            logPdfRenderTrace('pdf-open-source-ready', {
+                path,
+                ...traceContext,
+                sourceKind: 'path',
+                declaredSize: size,
+                directBinaryPayloadLimit: MAX_IN_MEMORY_PDF_BYTES,
+            });
             return {
                 pdfData: null,
                 pdfSrc: {
@@ -639,9 +719,23 @@ export function createDocumentOpenFlow(
             };
         }
 
+        const readStartedAt = performance.now();
+        logPdfRenderTrace('pdf-open-source-read-start', {
+            path,
+            ...traceContext,
+            declaredSize: size,
+        });
         const data = await readDocumentBytes(path, {
             knownSize: size,
             maxBytes: MAX_IN_MEMORY_PDF_BYTES,
+        });
+        logPdfRenderTrace('pdf-open-source-read-end', {
+            path,
+            ...traceContext,
+            sourceKind: 'data',
+            declaredSize: size,
+            bytesRead: data.byteLength,
+            elapsedMs: performance.now() - readStartedAt,
         });
         return {
             pdfData: data,
@@ -655,6 +749,10 @@ export function createDocumentOpenFlow(
         resetSourceBeforeCommit?: boolean;
     }) {
         const requestId = deps.loadEpoch.begin();
+        const traceContext = {
+            ...(opts?.openRequestId === undefined ? {} : { openRequestId: opts.openRequestId }),
+            loadRequestId: requestId,
+        };
         const isCurrent = () => (
             isCurrentLoadRequest(requestId)
             && (
@@ -665,7 +763,17 @@ export function createDocumentOpenFlow(
         // Yield one visual frame so upstream loading indicators (e.g. the
         // workspace host spinner) can paint before the potentially heavy file
         // read blocks the renderer thread during IPC deserialization.
+        const visualYieldStartedAt = performance.now();
+        logPdfRenderTrace('pdf-open-visual-yield-start', {
+            path,
+            ...traceContext,
+        });
         await waitForVisualFrames();
+        logPdfRenderTrace('pdf-open-visual-yield-end', {
+            path,
+            ...traceContext,
+            elapsedMs: performance.now() - visualYieldStartedAt,
+        });
         if (!isCurrent()) {
             return;
         }
@@ -677,7 +785,7 @@ export function createDocumentOpenFlow(
         // Only the file state is needed for rendering; conformance analysis
         // (used only for save restrictions) is deferred so it does not block
         // the initial display of the document.
-        const nextState = await readPdfStateFromPath(path);
+        const nextState = await readPdfStateFromPath(path, traceContext);
 
         if (!isCurrent()) {
             BrowserLogger.debug('pdf-file', 'Skipped stale PDF load result', {
@@ -699,10 +807,22 @@ export function createDocumentOpenFlow(
 
         // Keep the previous working copy until the new file is fully validated and loaded.
         // This avoids dropping recoverable state when opening the next file fails midway.
-        await applyLoadedPdfState(path, nextState, {
+        const commitStartedAt = performance.now();
+        logPdfRenderTrace('pdf-open-state-commit-start', {
+            path,
+            ...traceContext,
+            sourceKind: nextState.pdfData ? 'data' : 'path',
+        });
+        const didCommit = await applyLoadedPdfState(path, nextState, {
             isCurrent,
             markDirty: !!opts?.markDirty,
             previousPath: state.workingCopyPath.value,
+        });
+        logPdfRenderTrace('pdf-open-state-commit-end', {
+            path,
+            ...traceContext,
+            didCommit,
+            elapsedMs: performance.now() - commitStartedAt,
         });
     }
 

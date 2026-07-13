@@ -4,9 +4,9 @@ export function replayGirgas55To56() {
     const simulation = new viewportSimulation();
     simulation.setPageTop(55, 54_000);
     simulation.setPageTop(56, 55_000);
-    simulation.transitionVisual(55, 1, 'fresh');
+    simulation.transitionVisual(55, 1, 'ready');
     const intent = simulation.beginIntent('wheel-page', 56);
-    simulation.schedule(intent, 'canvas', () => simulation.transitionVisual(56, 1, 'fresh'));
+    simulation.schedule(intent, 'canvas', () => simulation.transitionVisual(56, 1, 'ready'));
     simulation.schedule(intent, 'scroll', () => simulation.applyScroll(intent, 55_000, 'exact-page-top'));
     simulation.flush([
         'canvas',
@@ -41,7 +41,7 @@ export function replayToolbarJumpTo500WithLateMetrics() {
         500,
         499_000,
     ]]), 1_200, 800);
-    simulation.transitionVisual(500, 1, 'fresh');
+    simulation.transitionVisual(500, 1, 'ready');
     simulation.applyScroll(intent, simulation.scrollTop, 'late-metrics-anchor');
     simulation.settle(intent);
     return simulation;
@@ -56,7 +56,7 @@ export function replayRapidOneToThirtyToLast() {
     simulation.schedule(thirty, 'late-thirty', () => simulation.applyScroll(thirty, 29_000, 'stale-thirty'));
     const last = simulation.beginIntent('navigate', 928);
     simulation.schedule(last, 'last', () => {
-        simulation.transitionVisual(928, 1, 'fresh');
+        simulation.transitionVisual(928, 1, 'ready');
         simulation.applyScroll(last, 927_000, 'latest-last');
     });
     simulation.flush([

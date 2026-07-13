@@ -69,6 +69,15 @@ export function createImageExportPreloadClient(
 ): IImageExportCapability {
     const invoke = createCodecIpcInvoker<IImageExportInvokeMap>(ipcRenderer, IMAGE_EXPORT_IPC_CODECS, {invokeTimeoutMsByChannel: IMAGE_EXPORT_INVOKE_TIMEOUT_MS_BY_CHANNEL});
     const eventSubscriber = createTypedIpcEventSubscriber<IImageExportEventMap>(ipcRenderer);
+    let progressSubscriptionRequested = false;
+
+    function ensureProgressSubscription() {
+        if (progressSubscriptionRequested) {
+            return;
+        }
+        progressSubscriptionRequested = true;
+        void invoke(IMAGE_EXPORT_CHANNELS.subscribeProgress);
+    }
 
     return {
         exportPdfToImages: (
@@ -87,7 +96,7 @@ export function createImageExportPreloadClient(
             invoke(IMAGE_EXPORT_CHANNELS.exportMultiPageTiff, workingPath, pageNumbers, requestId, sourceKind),
         onProgress: (callback: (progress: IImageExportProgress) => void): (() => void) => {
             const unsubscribe = eventSubscriber.onDecodedPayload(IMAGE_EXPORT_EVENT_CHANNELS.progress, decodeImageExportProgress, callback);
-            void invoke(IMAGE_EXPORT_CHANNELS.subscribeProgress);
+            ensureProgressSubscription();
             return unsubscribe;
         },
     };

@@ -4,6 +4,7 @@ import { extname } from 'path';
 import { fileURLToPath } from 'url';
 import { uniq } from 'es-toolkit/array';
 import { getErrorMessage } from '@electron/utils/error';
+import { focusWindowForUser } from '@electron/window/focusWindowForUser';
 
 const SUPPORTED_EXTENSIONS = new Set([
     '.pdf',
@@ -37,12 +38,18 @@ interface IExternalOpenManagerSink {
 }
 
 interface IWindowLike {
+    isDestroyed(): boolean;
     isMinimized(): boolean;
+    isVisible(): boolean;
     restore(): void;
+    show(): void;
     focus(): void;
 }
 
+interface IApplicationLike {focus(options: { steal: true; }): void;}
+
 interface ICreateExternalOpenManagerOptions {
+    application: IApplicationLike;
     logger: ILogger;
     noFocus: boolean;
     logStartupPhase: (phase: string) => void;
@@ -398,15 +405,10 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
             return;
         }
 
-        if (window.isMinimized()) {
-            window.restore();
-        }
-
-        if (options.noFocus) {
-            return;
-        }
-
-        window.focus();
+        focusWindowForUser(window, {
+            application: options.application,
+            noFocus: options.noFocus,
+        });
     }
 
     function clearRetryPendingFilesTimer() {

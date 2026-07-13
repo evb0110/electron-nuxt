@@ -5,6 +5,7 @@ import type {
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { IWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
+import type { IDocumentSourceActivation } from '@app/modules/workspace-shell/document-sessions/useDocumentSourceSession';
 
 export type TWorkspaceViewerAdapterId = 'pdf' | 'native-pdf' | 'djvu';
 export type TWorkspaceViewerDocumentType = 'pdf' | 'image' | 'djvu';
@@ -12,8 +13,9 @@ export type TWorkspaceViewerDocumentType = 'pdf' | 'image' | 'djvu';
 export interface IWorkspaceViewerOpenLifecycleState { previousWorkingCopyPath: TDocumentRef | null; }
 
 export interface IWorkspaceViewerLifecycleContext {
-    cleanupDjvuTemp: () => Promise<void>;
-    exitDjvuMode: () => void;
+    captureDjvuActivation: () => IDocumentSourceActivation | null;
+    cleanupDjvuTemp: (expectedActivation: IDocumentSourceActivation) => Promise<boolean>;
+    exitDjvuMode: (expectedActivation: IDocumentSourceActivation) => boolean;
     invalidatePendingDjvuOpen: () => void;
     isDjvuMode: Ref<boolean>;
     workingCopyPath: Ref<TDocumentRef | null>;

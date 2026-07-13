@@ -62,6 +62,32 @@ describe('pdf render supervisor', () => {
         }));
     });
 
+    it('clears a page-stage watchdog when its render lifecycle is aborted', async () => {
+        vi.useFakeTimers();
+        const events: IPdfRenderSupervisorEvent[] = [];
+        const supervisor = createPdfRenderSupervisor({onEvent: event => events.push(event)});
+        const controller = new AbortController();
+        const stalledPromise = withPageStageTimeout(
+            new Promise<never>(() => {}),
+            {
+                pageNumber: 1,
+                stage: 'text-layer',
+                timeoutMs: 15_000,
+            },
+            () => true,
+            undefined,
+            undefined,
+            supervisor,
+            controller.signal,
+        );
+
+        controller.abort();
+        await expect(stalledPromise).rejects.toMatchObject({name: 'AbortError'});
+        await vi.advanceTimersByTimeAsync(15_000);
+
+        expect(events).toEqual([]);
+    });
+
     it('drops superseded watchdog callbacks before they can run recovery', () => {
         const callbacks: Array<() => void> = [];
         const events: IPdfRenderSupervisorEvent[] = [];

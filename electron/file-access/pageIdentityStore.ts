@@ -6,10 +6,7 @@ import {
     rm,
     writeFile,
 } from 'node:fs/promises';
-import {
-    dirname,
-    join,
-} from 'node:path';
+import {join} from 'node:path';
 import type {IDocumentRevisionInfo} from '@contracts/documentRevision';
 import type {IPageIdentityDelta} from '@contracts/electronApiPageOps';
 import {parseOcrIndexV3Manifest} from '@contracts/ocrIndex';
@@ -29,6 +26,9 @@ import {
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
 import {getPdfPageCount} from '@electron/pdf/pdfPageCount';
+import {createLogger} from '@electron/utils/createLogger';
+import {getErrorMessage} from '@electron/utils/error';
+import {isAbortError} from '@electron/utils/abort';
 
 
 interface IPageIdentitySidecar {
@@ -37,13 +37,22 @@ interface IPageIdentitySidecar {
     pageIds: string[];
 }
 
+const logger = createLogger('page-identity');
+interface IPageIdentityInitializationTask {
+    abortController?: AbortController;
+    promise?: Promise<string[]>;
+    revision: IDocumentRevisionInfo;
+    sourcePath?: string;
+}
+
+const initializationTasks = new Map<string, IPageIdentityInitializationTask>();
+
 function sidecarPath(workingCopyPath: string) {
     return `${workingCopyPath}.evb-pages.json`;
 }
 
 async function writeJsonAtomic(path: string, value: unknown) {
     const tempPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
-    await mkdir(dirname(path), {recursive: true});
     await writeFile(tempPath, JSON.stringify(value), 'utf8');
     await rename(tempPath, path);
 }
@@ -63,22 +72,96 @@ async function readPageIds(workingCopyPath: string, pageCount: number) {
     return Array.from({length: pageCount}, () => randomUUID());
 }
 
-/** Creates the durable identity ledger when the WC is created, not at first mutation. */
-export async function initializePageIdentityStore(
+/** Creates the durable identity ledger before the first structural mutation. */
+async function initializePageIdentityStore(
+    workingCopyPath: string,
+    revision: IDocumentRevisionInfo,
+    sourcePath?: string,
+    shouldPublish: () => boolean = () => true,
+    signal?: AbortSignal,
+) {
+    signal?.throwIfAborted();
+    const pageCount = await getPdfPageCount(workingCopyPath, signal ? {signal} : {});
+    signal?.throwIfAborted();
+    const pageIds = sourcePath
+        ? await readPageIds(sourcePath, pageCount)
+        : Array.from({length: pageCount}, () => randomUUID());
+    signal?.throwIfAborted();
+    if (shouldPublish()) {
+        await writeJsonAtomic(sidecarPath(workingCopyPath), {
+            version: 1,
+            documentRevisionToken: revision.token,
+            pageIds,
+        } satisfies IPageIdentitySidecar);
+    }
+    return pageIds;
+}
+
+/**
+ * Registers the inputs needed for page-ledger discovery without starting qpdf.
+ * Opening a document is read-only, so page identities are not needed until the
+ * first structural mutation. Keeping this task cold prevents repeated opens
+ * from stacking page-count subprocesses behind the user-visible open path.
+ */
+export function schedulePageIdentityStoreInitialization(
     workingCopyPath: string,
     revision: IDocumentRevisionInfo,
     sourcePath?: string,
 ) {
-    const pageCount = await getPdfPageCount(workingCopyPath);
-    const pageIds = sourcePath
-        ? await readPageIds(sourcePath, pageCount)
-        : Array.from({length: pageCount}, () => randomUUID());
-    await writeJsonAtomic(sidecarPath(workingCopyPath), {
-        version: 1,
-        documentRevisionToken: revision.token,
-        pageIds,
-    } satisfies IPageIdentitySidecar);
-    return pageIds;
+    const existing = initializationTasks.get(workingCopyPath);
+    if (existing) {
+        return;
+    }
+    initializationTasks.set(workingCopyPath, {
+        revision,
+        ...(sourcePath ? {sourcePath} : {}),
+    });
+}
+
+/** Starts and joins the ledger task before any revision-changing mutation. */
+export async function awaitPageIdentityStoreInitialization(workingCopyPath: string) {
+    const entry = initializationTasks.get(workingCopyPath);
+    if (!entry) {
+        return;
+    }
+    if (!entry.promise) {
+        const startedAt = performance.now();
+        const abortController = new AbortController();
+        entry.abortController = abortController;
+        entry.promise = initializePageIdentityStore(
+            workingCopyPath,
+            entry.revision,
+            entry.sourcePath,
+            () => !abortController.signal.aborted && initializationTasks.get(workingCopyPath) === entry,
+            abortController.signal,
+        );
+        void entry.promise.then(
+            pageIds => logger.debug(`Page identity initialization complete: ${JSON.stringify({
+                durationMs: Math.round((performance.now() - startedAt) * 10) / 10,
+                pageCount: pageIds.length,
+                workingCopyPath,
+            })}`),
+            error => {
+                if (!isAbortError(error)) {
+                    logger.warn(`Page identity initialization failed for "${workingCopyPath}": ${getErrorMessage(error)}`);
+                }
+            },
+        );
+    }
+    await entry.promise;
+}
+
+export function forgetPageIdentityStoreInitialization(workingCopyPath: string) {
+    const entry = initializationTasks.get(workingCopyPath);
+    entry?.abortController?.abort();
+    initializationTasks.delete(workingCopyPath);
+}
+
+export function clearPageIdentityStoreInitializations() {
+    for (const entry of initializationTasks.values()) {
+        entry.abortController?.abort();
+    }
+    initializationTasks.clear();
 }
 
 export function createIdentityDelta(pageCount: number): IPageIdentityDelta {

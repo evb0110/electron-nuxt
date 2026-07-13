@@ -2,6 +2,10 @@ import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 
 export type TDocumentOpenOutcome =
     | {
+        status: 'prepared';
+        result: TOpenFileResult;
+    }
+    | {
         status: 'opened';
         result: TOpenFileResult;
     }

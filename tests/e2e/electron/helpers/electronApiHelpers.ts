@@ -213,13 +213,15 @@ export async function rotatePages(page: Page, workingCopyPath: string, pages: nu
         expectedTotalPages,
         targetAngle,
     }) => {
-        const api = (window as IE2EWindow & {electronAPI?: {pageOps?: {rotate?: (workingCopyPath: string, pages: number[], totalPages: number, angle: 90 | 180 | 270) => Promise<{ success: boolean }>;};};}).electronAPI;
+        const api = (window as IE2EWindow).electronAPI;
 
         const rotate = api?.pageOps?.rotate;
-        if (!rotate) {
-            throw new Error('electronAPI.pageOps.rotate is unavailable');
+        const getDocumentRevision = api?.documents?.getDocumentRevision;
+        if (!rotate || !getDocumentRevision) {
+            throw new Error('electronAPI page rotation capability is unavailable');
         }
-        return rotate(workingPath, targetPages, expectedTotalPages, targetAngle);
+        const revision = await getDocumentRevision(workingPath);
+        return rotate(workingPath, targetPages, expectedTotalPages, targetAngle, {expectedDocumentRevisionToken: revision.token});
     }, {
         workingPath: workingCopyPath,
         targetPages: pages,
@@ -233,16 +235,15 @@ export async function reorderPages(page: Page, workingCopyPath: string, newOrder
         workingPath,
         order,
     }) => {
-        const api = (window as IE2EWindow & {electronAPI?: {pageOps?: {reorder?: (workingCopyPath: string, newOrder: number[]) => Promise<{
-            success: boolean;
-            pageCount?: number
-        }>;};};}).electronAPI;
+        const api = (window as IE2EWindow).electronAPI;
 
         const reorder = api?.pageOps?.reorder;
-        if (!reorder) {
-            throw new Error('electronAPI.pageOps.reorder is unavailable');
+        const getDocumentRevision = api?.documents?.getDocumentRevision;
+        if (!reorder || !getDocumentRevision) {
+            throw new Error('electronAPI page reorder capability is unavailable');
         }
-        return reorder(workingPath, order);
+        const revision = await getDocumentRevision(workingPath);
+        return reorder(workingPath, order, {expectedDocumentRevisionToken: revision.token});
     }, {
         workingPath: workingCopyPath,
         order: newOrder,
@@ -255,16 +256,15 @@ export async function deletePages(page: Page, workingCopyPath: string, pages: nu
         targetPages,
         pageCount,
     }) => {
-        const api = (window as IE2EWindow & {electronAPI?: {pageOps?: {delete?: (workingCopyPath: string, pages: number[], totalPages: number) => Promise<{
-            success: boolean;
-            pageCount?: number
-        }>;};};}).electronAPI;
+        const api = (window as IE2EWindow).electronAPI;
 
         const remove = api?.pageOps?.delete;
-        if (!remove) {
-            throw new Error('electronAPI.pageOps.delete is unavailable');
+        const getDocumentRevision = api?.documents?.getDocumentRevision;
+        if (!remove || !getDocumentRevision) {
+            throw new Error('electronAPI page deletion capability is unavailable');
         }
-        return remove(workingPath, targetPages, pageCount);
+        const revision = await getDocumentRevision(workingPath);
+        return remove(workingPath, targetPages, pageCount, {expectedDocumentRevisionToken: revision.token});
     }, {
         workingPath: workingCopyPath,
         targetPages: pages,

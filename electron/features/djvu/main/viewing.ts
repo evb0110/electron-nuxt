@@ -1,7 +1,11 @@
 import { app } from 'electron';
-import {unlink} from 'fs/promises';
+import {
+    stat,
+    unlink,
+} from 'fs/promises';
 import {resolve} from 'path';
 import { getDjvuPageCount } from '@electron/djvu/metadata';
+import { getDjvuPageSizeForViewing } from '@electron/features/djvu/main/pagePreview';
 import { isAllowedDjvuTempPdfPath } from '@electron/djvu/isAllowedDjvuTempPdfPath';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
@@ -98,7 +102,7 @@ function registerSenderCleanup(context: IDjvuOperationContext) {
     sender.on('did-start-navigation', handleNavigation);
 }
 
-function addAllowedDjvuViewingPath(context: IDjvuOperationContext, djvuPath: string) {
+export function adoptDjvuViewingPath(context: IDjvuOperationContext, djvuPath: string) {
     const normalizedPath = normalizeDjvuViewingPath(djvuPath);
     if (!normalizedPath) {
         return;
@@ -165,7 +169,19 @@ export async function handleDjvuOpenForViewing(
     error?: string;
 }> {
     try {
-        const pageCount = await getDjvuPageCount(djvuPath, signal ? {signal} : {});
+        const [
+            pageCount,
+            firstPageSize,
+            sourceStat,
+        ] = await Promise.all([
+            getDjvuPageCount(djvuPath, signal ? {signal} : {}),
+            getDjvuPageSizeForViewing(
+                djvuPath,
+                1,
+                signal ? {signal} : {},
+            ).catch(() => null),
+            stat(djvuPath),
+        ]);
         if (pageCount <= 0) {
             return {
                 success: false,
@@ -174,13 +190,20 @@ export async function handleDjvuOpenForViewing(
         }
 
         if (adoptViewingPath) {
-            addAllowedDjvuViewingPath(context, djvuPath);
+            adoptDjvuViewingPath(context, djvuPath);
         }
 
         logger.info(`Native DjVu viewing ready: ${djvuPath} (${pageCount} pages)`);
         return {
             success: true,
             pageCount,
+            ...(firstPageSize ? {pageSourceInfo: {
+                pageCount,
+                pageNumber: 1,
+                pageSize: firstPageSize,
+                sourceSize: sourceStat.size,
+                sourceModifiedAt: Math.trunc(sourceStat.mtimeMs),
+            }} : {}),
         };
     } catch (error) {
         const message = getErrorMessage(error);

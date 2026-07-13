@@ -1,49 +1,14 @@
 import type { Ref } from 'vue';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { markStartupMetricOnce } from '@app/utils/startupMetrics';
+import type { IPdfCanvasDomCommit } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 
 interface IUsePdfViewerInitialVisualLifecycleOptions {
     renderedPageStateVersion: Ref<number>;
     emitInitialVisualReady: (payload: { pageNumber: number }) => void;
     markDelayedSkeletonPageRendered: (pageNumber: number) => void;
     syncManagedShapesAfterPageRendered: (pageNumber: number) => void;
-}
-
-const initialVisualReadyPaintFrames = 2;
-const initialVisualReadyFallbackMs = 120;
-
-function waitForInitialVisualPaintOpportunity() {
-    if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
-        return Promise.resolve();
-    }
-
-    return new Promise<void>((resolve) => {
-        let settled = false;
-        let remainingFrames = initialVisualReadyPaintFrames;
-        const timeoutId = setTimeout(finish, initialVisualReadyFallbackMs);
-
-        function finish() {
-            if (settled) {
-                return;
-            }
-
-            settled = true;
-            clearTimeout(timeoutId);
-            resolve();
-        }
-
-        function waitForNextFrame() {
-            if (remainingFrames <= 0) {
-                finish();
-                return;
-            }
-
-            remainingFrames -= 1;
-            window.requestAnimationFrame(waitForNextFrame);
-        }
-
-        waitForNextFrame();
-    });
+    isInitialVisualCanvasReady: (pageNumber: number) => boolean;
 }
 
 export const usePdfViewerInitialVisualLifecycle = (options: IUsePdfViewerInitialVisualLifecycleOptions) => {
@@ -52,18 +17,16 @@ export const usePdfViewerInitialVisualLifecycle = (options: IUsePdfViewerInitial
         emitInitialVisualReady,
         markDelayedSkeletonPageRendered,
         syncManagedShapesAfterPageRendered,
+        isInitialVisualCanvasReady,
     } = options;
     let pendingInitialVisualReadyToken: number | null = null;
-    let scheduledInitialVisualReadyToken: number | null = null;
 
     function setPendingInitialVisualReadyToken(token: number) {
         pendingInitialVisualReadyToken = token;
-        scheduledInitialVisualReadyToken = null;
     }
 
     function cancelInitialVisualReady() {
         pendingInitialVisualReadyToken = null;
-        scheduledInitialVisualReadyToken = null;
     }
 
     function handleRenderedPageStateChanged() {
@@ -71,42 +34,38 @@ export const usePdfViewerInitialVisualLifecycle = (options: IUsePdfViewerInitial
     }
 
     function markInitialVisualReady(pageNumber: number) {
-        if (pendingInitialVisualReadyToken === null) {
-            return;
+        if (
+            pendingInitialVisualReadyToken === null
+            || !isInitialVisualCanvasReady(pageNumber)
+        ) {
+            return false;
         }
 
         const token = pendingInitialVisualReadyToken;
         pendingInitialVisualReadyToken = null;
-        scheduledInitialVisualReadyToken = token;
-
-        // Page render completion can be reported before Chromium has composited
-        // the new canvas. The document-open skeleton uses this signal as its
-        // handoff point, so wait for paint opportunities to avoid a blank flash.
-        void waitForInitialVisualPaintOpportunity().then(() => {
-            if (scheduledInitialVisualReadyToken !== token) {
-                return;
-            }
-
-            scheduledInitialVisualReadyToken = null;
-            markStartupMetricOnce('evb:first-page-painted');
-            emitInitialVisualReady({ pageNumber });
-            BrowserLogger.debug('loader', 'PDF viewer initial visual ready', {
-                token,
-                pageNumber,
-                source: 'page-render',
-            });
+        markStartupMetricOnce('evb:first-page-painted');
+        emitInitialVisualReady({ pageNumber });
+        BrowserLogger.debug('loader', 'PDF viewer initial visual ready', {
+            token,
+            pageNumber,
+            source: 'canvas-dom-commit',
         });
+        return true;
     }
 
-    function handlePageCanvasMounted(pageNumber: number) {
+    function handlePageCanvasMounted(commit: IPdfCanvasDomCommit) {
+        const pageNumber = commit.pageNumber;
         renderedPageStateVersion.value += 1;
         syncManagedShapesAfterPageRendered(pageNumber);
+    }
+
+    function commitInitialVisualReady(pageNumber: number) {
+        return markInitialVisualReady(pageNumber);
     }
 
     function handlePageRendered(pageNumber: number) {
         markDelayedSkeletonPageRendered(pageNumber);
         syncManagedShapesAfterPageRendered(pageNumber);
-        markInitialVisualReady(pageNumber);
     }
 
     return {
@@ -114,6 +73,7 @@ export const usePdfViewerInitialVisualLifecycle = (options: IUsePdfViewerInitial
         cancelInitialVisualReady,
         handleRenderedPageStateChanged,
         handlePageCanvasMounted,
+        commitInitialVisualReady,
         handlePageRendered,
     };
 };

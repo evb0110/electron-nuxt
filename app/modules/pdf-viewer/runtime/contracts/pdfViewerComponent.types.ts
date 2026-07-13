@@ -49,6 +49,7 @@ export interface IPdfViewerProps {
     currentSearchMatchNavigationId?: number | undefined;
     currentPage?: number | undefined;
     workingCopyPath?: string | null | undefined;
+    originalPath?: string | null | undefined;
     documentRevisionToken?: TDocumentRevisionToken | null | undefined;
     authorName?: string | null | undefined;
 }

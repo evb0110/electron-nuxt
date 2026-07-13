@@ -141,6 +141,7 @@ describe('createDefaultWorkspaceToolbarSnapshot', () => {
     it('returns the documented default shape', () => {
         expect(createDefaultWorkspaceToolbarSnapshot()).toEqual({
             hasPdf: false,
+            initialVisualReady: false,
             isOpeningDocument: false,
             hasOpenError: false,
             isPreparingPrint: false,
@@ -160,7 +161,7 @@ describe('createDefaultWorkspaceToolbarSnapshot', () => {
             isFitHeightActive: false,
             showSidebar: false,
             dragMode: false,
-            continuousScroll: false,
+            continuousScroll: true,
             isDjvuMode: false,
             isCapturingRegion: false,
             isCropSelecting: false,

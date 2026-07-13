@@ -1,6 +1,5 @@
 import type { Ref } from 'vue';
 import { tryOnScopeDispose } from '@vueuse/core';
-import type { TOpenDjvuFile } from '@app/composables/useDjvu';
 import { useDocumentTransitions } from '@app/modules/workspace-shell/composables/useDocumentTransitions';
 import type { IDocumentTransitionDeps } from '@app/modules/workspace-shell/composables/useDocumentTransitions';
 import { useWorkspaceUiSyncWatchers } from '@app/modules/workspace-shell/composables/useWorkspaceUiSyncWatchers';
@@ -12,35 +11,25 @@ import type {
 import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
 
 interface IWorkspaceDocumentLifecycleEffectsOptions extends IDocumentTransitionDeps {
-    pendingDjvu: Ref<TDocumentRef | null>;
     documentRevisionInfo: Ref<IDocumentRevisionInfo | null>;
     documentRevisionToken: Ref<TDocumentRevisionToken | null>;
-    openDjvuFile: TOpenDjvuFile;
     pdfViewerRef: Ref<{
         scrollToPage: (page: number) => void;
         clearShapes: () => void;
         cancelCommentPlacement: () => void;
     } | null>;
-    originalPath: Ref<TDocumentRef | null>;
-    closeFile: () => void | Promise<void>;
     showSettings: Ref<boolean>;
     emitOpenSettings: () => void;
-    onOpenDjvuError: (error: unknown) => void;
 }
 
 export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocumentLifecycleEffectsOptions) => {
     const {
-        pendingDjvu,
         documentRevisionInfo,
         documentRevisionToken,
-        openDjvuFile,
         currentPage,
         pdfViewerRef,
-        originalPath,
-        closeFile,
         showSettings,
         emitOpenSettings,
-        onOpenDjvuError,
         pdfSrc,
         totalPages,
         pdfDocument,
@@ -122,13 +111,8 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
     });
 
     useWorkspaceUiSyncWatchers({
-        pendingDjvu,
-        openDjvuFile,
-        originalPath,
-        closeFile,
         showSettings,
         emitOpenSettings,
-        onOpenDjvuError,
     });
 
     useDocumentTransitions({

@@ -140,7 +140,10 @@ interface IBrowserDocumentsTestCreateOptions {
     storageMode?: string;
 }
 
-interface IBrowserDocumentsTestRevisionOptions { expectedDocumentRevisionToken: string }
+interface IBrowserDocumentsTestRevisionOptions {
+    expectedDocumentRevisionToken: string;
+    workingCopyOnly?: true;
+}
 
 interface IBrowserDocumentsTestStore {
     cloneAsWorkingCopy: (sourceRef: string) => Promise<string>;
@@ -1253,7 +1256,10 @@ describe('createBrowserDocumentsFileCapability', () => {
 
         expect(snapshotEntry.storageMode).toBe('chunked');
         expect(snapshotEntry.sourceRef).toBe(sourceRef);
-        await expect(browserDocumentStore.stat(snapshotRef)).resolves.toEqual({ size: BROWSER_MAX_FULL_READ_BYTES + 1 });
+        await expect(browserDocumentStore.stat(snapshotRef)).resolves.toEqual({
+            size: BROWSER_MAX_FULL_READ_BYTES + 1,
+            modifiedAt: expect.any(Number),
+        });
         await expect(browserDocumentStore.readRange(snapshotRef, 0, 4)).resolves.toEqual(new Uint8Array([
             37,
             80,
@@ -1482,7 +1488,10 @@ describe('createBrowserDocumentsFileCapability', () => {
         expect(requestPermission).not.toHaveBeenCalled();
         const savedEntry = await browserDocumentStore.requireEntry(sourceRef);
         expect(savedEntry.storageMode).toBe('handle');
-        await expect(browserDocumentStore.stat(sourceRef)).resolves.toEqual({ size: BROWSER_MAX_FULL_READ_BYTES + 1 });
+        await expect(browserDocumentStore.stat(sourceRef)).resolves.toEqual({
+            size: BROWSER_MAX_FULL_READ_BYTES + 1,
+            modifiedAt: expect.any(Number),
+        });
         expect(writes.length).toBeGreaterThan(1);
         expect(writes[0]?.slice(0, 4)).toEqual(new Uint8Array([
             37,
@@ -1680,6 +1689,121 @@ describe('createBrowserDocumentsFileCapability', () => {
         expect(result.isValid).toBe(false);
         expect(result.errors).toEqual([]);
         expect(clearSearchCaches).not.toHaveBeenCalled();
+    });
+
+    it('stages browser PDF data in the working copy without publishing the source', async () => {
+        const showSaveFilePicker = vi.fn(async () => {
+            throw new Error('Working-copy-only staging must not open a save picker');
+        });
+        const createWritable = vi.fn(async () => ({
+            write: vi.fn(async () => {}),
+            close: vi.fn(async () => {}),
+        }));
+        const sourceHandle = cast<FileSystemFileHandle>({
+            kind: 'file',
+            name: 'working-copy-only.pdf',
+            getFile: vi.fn(async () => new File([], 'working-copy-only.pdf', {type: 'application/pdf'})),
+            createWritable,
+        });
+        const clearSearchCaches = vi.fn();
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability({
+            clearSearchCaches,
+            windowOverrides: {showSaveFilePicker},
+        });
+        const sourceBytes = await createPdfBytes();
+        const sourceRef = await browserDocumentStore.createStoredDocument(
+            'working-copy-only.pdf',
+            sourceBytes,
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+                saveHandle: sourceHandle,
+            },
+        );
+        const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
+        const stagedDocument = await PDFDocument.create();
+        stagedDocument.addPage();
+        stagedDocument.addPage();
+        const stagedBytes = new Uint8Array(await stagedDocument.save());
+        const revisionOptions = await getRevisionOptions(browserDocumentStore, workingRef);
+
+        const result = await capability.savePdfData(
+            workingRef,
+            stagedBytes,
+            {
+                ...revisionOptions,
+                workingCopyOnly: true,
+            },
+        );
+
+        expect(result).toMatchObject({
+            isValid: true,
+            errors: [],
+            warnings: [],
+        });
+        await expect(browserDocumentStore.read(workingRef)).resolves.toEqual(stagedBytes);
+        await expect(browserDocumentStore.read(sourceRef)).resolves.toEqual(sourceBytes);
+        expect(showSaveFilePicker).not.toHaveBeenCalled();
+        expect(createWritable).not.toHaveBeenCalled();
+        expect(clearSearchCaches).toHaveBeenCalledOnce();
+    });
+
+    it('stages chunked browser PDF data without publishing the source', async () => {
+        const showSaveFilePicker = vi.fn(async () => {
+            throw new Error('Working-copy-only chunk staging must not open a save picker');
+        });
+        const clearSearchCaches = vi.fn();
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability({
+            clearSearchCaches,
+            windowOverrides: {showSaveFilePicker},
+        });
+        const sourceBytes = await createPdfBytes();
+        const sourceRef = await browserDocumentStore.createStoredDocument(
+            'chunked-working-copy-only.pdf',
+            sourceBytes,
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+        const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
+        const stagedDocument = await PDFDocument.create();
+        stagedDocument.addPage();
+        stagedDocument.addPage();
+        const stagedBytes = new Uint8Array(await stagedDocument.save());
+        const splitAt = Math.max(1, Math.floor(stagedBytes.byteLength / 2));
+        const revisionOptions = await getRevisionOptions(browserDocumentStore, workingRef);
+
+        const result = await capability.savePdfDataChunks(
+            workingRef,
+            stagedBytes.byteLength,
+            [
+                stagedBytes.subarray(0, splitAt),
+                stagedBytes.subarray(splitAt),
+            ],
+            {
+                ...revisionOptions,
+                workingCopyOnly: true,
+            },
+        );
+
+        expect(result).toMatchObject({
+            isValid: true,
+            errors: [],
+            warnings: [],
+        });
+        await expect(browserDocumentStore.read(workingRef)).resolves.toEqual(stagedBytes);
+        await expect(browserDocumentStore.read(sourceRef)).resolves.toEqual(sourceBytes);
+        expect(showSaveFilePicker).not.toHaveBeenCalled();
+        expect(clearSearchCaches).toHaveBeenCalledOnce();
     });
 
     it('streams browser PDF data chunks into staged document chunks before saving', async () => {
@@ -1979,7 +2103,10 @@ describe('createBrowserDocumentsFileCapability', () => {
             : null;
         expect(sourceEntry?.storageMode).toBe('handle');
         expect(sourceEntry?.saveHandle).toBe(handle);
-        await expect(browserDocumentStore.stat(sourceRef!)).resolves.toEqual({ size: BROWSER_MAX_FULL_READ_BYTES + 1 });
+        await expect(browserDocumentStore.stat(sourceRef!)).resolves.toEqual({
+            size: BROWSER_MAX_FULL_READ_BYTES + 1,
+            modifiedAt: expect.any(Number),
+        });
         expect(writes.length).toBeGreaterThan(1);
     });
 

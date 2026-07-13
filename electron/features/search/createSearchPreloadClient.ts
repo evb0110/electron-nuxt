@@ -106,6 +106,15 @@ function decodeSearchProgress(payload: unknown): IPdfSearchProgress | null {
 export function createSearchPreloadClient(ipcRenderer: IpcRenderer): ISearchPreloadClient {
     const invoke = createCodecIpcInvoker<ISearchInvokeMap>(ipcRenderer, SEARCH_IPC_CODECS, {invokeTimeoutMsByChannel: SEARCH_INVOKE_TIMEOUT_MS_BY_CHANNEL});
     const eventSubscriber = createTypedIpcEventSubscriber<ISearchEventMap>(ipcRenderer);
+    let progressSubscriptionRequested = false;
+
+    function ensureProgressSubscription() {
+        if (progressSubscriptionRequested) {
+            return;
+        }
+        progressSubscriptionRequested = true;
+        void invoke(SEARCH_CHANNELS.subscribeProgress);
+    }
 
     return {
         run: (
@@ -134,7 +143,7 @@ export function createSearchPreloadClient(ipcRenderer: IpcRenderer): ISearchPrel
             invoke(SEARCH_CHANNELS.cancel, normalizeOptionalSearchRequestId(requestId)),
         onProgress: (callback): (() => void) => {
             const unsubscribe = eventSubscriber.onDecodedPayload(SEARCH_EVENT_CHANNELS.progress, decodeSearchProgress, callback);
-            void invoke(SEARCH_CHANNELS.subscribeProgress);
+            ensureProgressSubscription();
             return unsubscribe;
         },
         resetCache: () => invoke(SEARCH_CHANNELS.resetCache),

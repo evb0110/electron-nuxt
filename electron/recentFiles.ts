@@ -7,6 +7,10 @@ import {
 import {
     join,
     basename,
+    dirname,
+    isAbsolute,
+    relative,
+    sep,
 } from 'path';
 import { app } from 'electron';
 import {
@@ -34,6 +38,13 @@ import {
 } from '@electron/utils/atomicReplace';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import { quarantineCorruptFile } from '@electron/utils/quarantineCorruptFile';
+import { isWorkingCopyDirectoryName } from '@electron/file-access/workingCopyDirectory';
+import {
+    getWorkingCopyOriginalPath,
+    getWorkingCopyOriginalPathForPersistence,
+    normalizePathForLookup,
+} from '@electron/file-access/workingCopyStore';
+import { getAppTempDirPath } from '@electron/utils/appTempDir';
 
 const logger = createLogger('recentFiles');
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
@@ -65,6 +76,7 @@ interface IFilteredRecentFiles {
 interface IPathInspectionResult {
     status: 'exists' | 'missing' | 'unreadable';
     size?: number;
+    modifiedAt?: number;
 }
 
 class RecentFileStatTimeoutError extends Error {
@@ -110,22 +122,35 @@ function normalizeRecentFilesData(raw: unknown): IRecentFilesData {
     const files: IRecentFile[] = [];
     if (Array.isArray(parsed.files)) {
         for (const candidate of parsed.files) {
+            if (!isRecord(candidate)) {
+                continue;
+            }
+            const originalPath = candidate.originalPath;
+            const fileName = candidate.fileName;
+            const timestamp = candidate.timestamp;
+            const fileSize = candidate.fileSize;
+            const modifiedAt = candidate.modifiedAt;
+            const backend = candidate.backend;
             if (
-                isRecord(candidate)
-                && typeof candidate.originalPath === 'string'
-                && isNativeLegacyDocumentRef(candidate.originalPath)
-                && typeof candidate.fileName === 'string'
-                && typeof candidate.timestamp === 'number'
-                && typeof candidate.fileSize === 'number'
-                && (candidate.backend === undefined || candidate.backend === 'electron')
-                && inferDocumentRefBackend(candidate.originalPath) === 'electron'
+                typeof originalPath === 'string'
+                && isNativeLegacyDocumentRef(originalPath)
+                && typeof fileName === 'string'
+                && typeof timestamp === 'number'
+                && typeof fileSize === 'number'
+                && (modifiedAt === undefined || (
+                    typeof modifiedAt === 'number'
+                    && Number.isSafeInteger(modifiedAt) && modifiedAt >= 0
+                ))
+                && (backend === undefined || backend === 'electron')
+                && inferDocumentRefBackend(originalPath) === 'electron'
             ) {
                 files.push({
-                    originalPath: candidate.originalPath,
+                    originalPath,
                     backend: 'electron',
-                    fileName: candidate.fileName,
-                    timestamp: candidate.timestamp,
-                    fileSize: candidate.fileSize,
+                    fileName,
+                    timestamp,
+                    fileSize,
+                    ...(typeof modifiedAt === 'number' ? {modifiedAt} : {}),
                 });
             }
         }
@@ -162,6 +187,7 @@ async function inspectPath(filePath: string): Promise<IPathInspectionResult> {
         return {
             status: 'exists',
             size: fileStat.size,
+            modifiedAt: Math.trunc(fileStat.mtimeMs),
         };
     } catch (error) {
         const code = isErrnoException(error) ? error.code : undefined;
@@ -200,7 +226,13 @@ async function filterExistingFiles(files: IRecentFile[]): Promise<IFilteredRecen
         if (inspection.status === 'unreadable') {
             unreadableCount += 1;
         }
-        checks.push(file);
+        checks.push(inspection.status === 'exists'
+            ? {
+                ...file,
+                ...(inspection.size === undefined ? {} : {fileSize: inspection.size}),
+                ...(inspection.modifiedAt === undefined ? {} : {modifiedAt: inspection.modifiedAt}),
+            }
+            : file);
     }
 
     return {
@@ -222,6 +254,8 @@ async function tryBootstrapRecentFiles(bootstrapPath: string): Promise<IRecentFi
         const content = await readFile(bootstrapPath, 'utf-8');
         const parsed: unknown = JSON.parse(content);
         const bootstrapData = normalizeRecentFilesData(parsed);
+        const canonicalized = canonicalizePersistedRecentFiles(bootstrapData.files);
+        bootstrapData.files = canonicalized.files;
         const filtered = await filterExistingFiles(bootstrapData.files);
         if (filtered.files.length === 0) {
             return null;
@@ -278,7 +312,13 @@ async function loadRecentFilesData(): Promise<IRecentFilesData> {
 
     try {
         const parsed: unknown = JSON.parse(content);
-        return normalizeRecentFilesData(parsed);
+        const normalizedData = normalizeRecentFilesData(parsed);
+        const canonicalized = canonicalizePersistedRecentFiles(normalizedData.files);
+        if (canonicalized.changed) {
+            normalizedData.files = canonicalized.files;
+            await saveRecentFilesData(normalizedData);
+        }
+        return normalizedData;
     } catch (err) {
         logger.error(`Failed to load recent files: ${getErrorMessage(err)}`);
         const emptyData = emptyRecentFilesData();
@@ -316,12 +356,75 @@ function enqueueMutation(task: () => Promise<void>) {
     return run;
 }
 
+function resolveRecentOriginalPath(filePath: string, senderWebContentsId?: number) {
+    const mappedOriginalPath = (
+        typeof senderWebContentsId === 'number'
+            ? getWorkingCopyOriginalPath(filePath, senderWebContentsId)
+            : getWorkingCopyOriginalPathForPersistence(filePath)
+    )?.originalPath;
+    if (mappedOriginalPath) {
+        return mappedOriginalPath;
+    }
+
+    // Internal working copies are implementation details, not user documents. If
+    // their ownership mapping has already expired, dropping the entry is safer
+    // than leaking a volatile temp path into persistent Recent Files state.
+    const parentPath = normalizePathForLookup(dirname(filePath));
+    const relativeParentPath = relative(normalizePathForLookup(getAppTempDirPath()), parentPath);
+    const isInsideAppTemp = relativeParentPath !== '..'
+        && !relativeParentPath.startsWith(`..${sep}`)
+        && !isAbsolute(relativeParentPath);
+    if (isInsideAppTemp && isWorkingCopyDirectoryName(basename(parentPath))) {
+        logger.warn(`Refusing to persist unmapped managed working-copy path as recent: ${filePath}`);
+        return null;
+    }
+
+    return filePath;
+}
+
+function canonicalizePersistedRecentFiles(files: IRecentFile[]) {
+    const canonicalFiles: IRecentFile[] = [];
+    const seenPaths = new Set<string>();
+    let changed = false;
+    for (const file of files) {
+        const originalPath = resolveRecentOriginalPath(file.originalPath);
+        if (!originalPath) {
+            changed = true;
+            continue;
+        }
+        if (seenPaths.has(originalPath)) {
+            changed = true;
+            continue;
+        }
+        seenPaths.add(originalPath);
+        if (originalPath === file.originalPath) {
+            canonicalFiles.push(file);
+            continue;
+        }
+        changed = true;
+        canonicalFiles.push({
+            ...file,
+            originalPath,
+            fileName: basename(originalPath),
+        });
+    }
+    return {
+        changed,
+        files: canonicalFiles,
+    };
+}
+
 /** Persists a recent-file entry; callers must validate or mint path capabilities before calling. */
-export async function addRecentFile(originalPath: string) {
+export async function addRecentFile(filePath: string, senderWebContentsId?: number) {
     await enqueueMutation(async () => {
         // Invalidate cache before mutation
         cacheTimestamp = 0;
 
+        if (!filePath) {
+            return;
+        }
+
+        const originalPath = resolveRecentOriginalPath(filePath, senderWebContentsId);
         if (!originalPath) {
             return;
         }
@@ -331,6 +434,7 @@ export async function addRecentFile(originalPath: string) {
             return;
         }
         const fileSize = inspection.size;
+        const modifiedAt = inspection.modifiedAt;
 
         const data = await loadRecentFilesData();
 
@@ -347,6 +451,7 @@ export async function addRecentFile(originalPath: string) {
             fileName,
             timestamp: Date.now(),
             fileSize,
+            ...(modifiedAt === undefined ? {} : {modifiedAt}),
         });
 
         // Enforce limit

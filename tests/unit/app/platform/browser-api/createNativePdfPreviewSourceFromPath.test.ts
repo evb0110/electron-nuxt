@@ -14,6 +14,7 @@ import { workspaceSurfaceBudgetController } from '@app/modules/workspace-shell/m
 
 describe('createNativePdfPreviewSourceFromPath', () => {
     afterEach(() => {
+        workspaceSurfaceBudgetController.setPressureLevel('healthy');
         vi.restoreAllMocks();
         vi.unstubAllGlobals();
     });
@@ -129,5 +130,36 @@ describe('createNativePdfPreviewSourceFromPath', () => {
         expect(workspaceSurfaceBudgetController.getSnapshot().reservedBytesByCategory['native-preview'])
             .toBe(before.reservedBytesByCategory['native-preview']);
         expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:leased-preview');
+    });
+
+    it('notifies the viewer when later pressure revokes a native preview URL', async () => {
+        const documentFiles: Pick<
+            IDocumentsFileIoCapability,
+            'cancelPdfNativePagePreview' | 'getPdfNativePageSizes' | 'renderPdfNativePagePreview'
+        > = {
+            cancelPdfNativePagePreview: vi.fn(async () => ({canceled: false})),
+            getPdfNativePageSizes: vi.fn(async () => []),
+            renderPdfNativePagePreview: vi.fn(async () => ({
+                bytes: new Uint8Array([1]),
+                width: 100_000_000,
+                height: 1,
+            })),
+        };
+        vi.stubGlobal('URL', {
+            createObjectURL: vi.fn(() => 'blob:pressure-preview'),
+            revokeObjectURL: vi.fn(),
+        });
+        workspaceSurfaceBudgetController.setPressureLevel('healthy');
+        const source = createNativePdfPreviewSourceFromPath('/tmp/pressure-preview.pdf', documentFiles);
+        const rendered = await source.renderPageObjectUrl(1);
+        const onInvalidated = vi.fn();
+        rendered.onInvalidated?.(onInvalidated);
+
+        workspaceSurfaceBudgetController.setPressureLevel('emergency');
+
+        expect(onInvalidated).toHaveBeenCalledOnce();
+        expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:pressure-preview');
+        workspaceSurfaceBudgetController.setPressureLevel('healthy');
+        source.terminate();
     });
 });

@@ -9,11 +9,20 @@ export interface IDocumentPreviewPageState {
 export interface IPreviewPageSize {
     width: number;
     height: number;
+    dpi?: number | undefined;
+}
+
+export interface IPagePreviewSourceInfo {
+    pageCount: number;
+    pageNumber: number;
+    pageSize: IPreviewPageSize;
 }
 
 export interface IPagePreviewRenderedObjectUrl {
     objectUrl: string;
     renderedPx: number;
+    onInvalidated?: (listener: () => void) => () => void;
+    promotePriority?: (priority: number) => void;
 }
 
 export interface IPagePreviewOutlineItem {
@@ -25,6 +34,8 @@ export interface IPagePreviewOutlineItem {
 export interface IPagePreviewSource {
     cancelPagePreview?(pageNumber: number): void;
     getPageSizes(): Promise<IPreviewPageSize[]>;
+    getPageSize?(pageNumber: number): Promise<IPreviewPageSize>;
+    getPageSourceInfo?(pageNumber: number): Promise<IPagePreviewSourceInfo>;
     getPageText?(pageNumber: number): Promise<string>;
     getOutline?(): Promise<IPagePreviewOutlineItem[]>;
     renderPageObjectUrl(

@@ -95,7 +95,10 @@ export function createDocumentViewportWritePort(): IDocumentViewportWritePort {
                 authorityWrites.delete(container);
                 return false;
             }
-            authorityWrites.delete(container);
+            // A single DOM scroll write may produce multiple trusted scroll
+            // events. Keep the origin fence while the browser remains at the
+            // exact authored coordinates; a real user scroll diverges from
+            // them and is rejected by the branch above.
             record(container);
             return true;
         },

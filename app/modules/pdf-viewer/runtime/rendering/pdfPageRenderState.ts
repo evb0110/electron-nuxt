@@ -1,4 +1,4 @@
-type TPdfPageRenderVisualState = 'none' | 'stale' | 'fresh';
+type TPdfPageRenderVisualState = 'none' | 'ready';
 type TPdfPageRenderJobState = 'idle' | 'rendering' | 'failed';
 
 interface IPdfPageRenderSlot {
@@ -177,18 +177,9 @@ export function createPdfPageRenderState() {
     }
 
     const renderedPages = createSetView({
-        includes: slot => slot.visual !== 'none',
-        add: pageNumber => updateSlot(pageNumber, { visual: 'fresh' }),
+        includes: slot => slot.visual === 'ready',
+        add: pageNumber => updateSlot(pageNumber, { visual: 'ready' }),
         remove: pageNumber => updateSlot(pageNumber, { visual: 'none' }),
-    });
-    const staleRenderedPages = createSetView({
-        includes: slot => slot.visual === 'stale',
-        add: pageNumber => updateSlot(pageNumber, { visual: 'stale' }),
-        remove: pageNumber => {
-            if (getSlot(pageNumber).visual === 'stale') {
-                updateSlot(pageNumber, { visual: 'fresh' });
-            }
-        },
     });
     const renderingPages = createMapView({
         getValue: slot => slot.job === 'rendering' ? slot.version : null,
@@ -218,16 +209,24 @@ export function createPdfPageRenderState() {
     return {
         slots: slots as ReadonlyMap<number, IPdfPageRenderSlot>,
         renderedPages,
-        staleRenderedPages,
         renderingPages,
         renderingPageRequestIds,
         getSlot,
         markRenderFailed(pageNumber: number, version: number, requestId: number) {
+            const current = getSlot(pageNumber);
+            if (
+                current.job !== 'rendering'
+                || current.version !== version
+                || current.requestId !== requestId
+            ) {
+                return false;
+            }
             updateSlot(pageNumber, {
                 job: 'failed',
                 version,
                 requestId,
             });
+            return true;
         },
         beginRender(
             pageNumber: number,
@@ -236,10 +235,8 @@ export function createPdfPageRenderState() {
             documentToken: string,
             targetScale: number,
         ) {
-            const current = getSlot(pageNumber);
-            const keepsPixels = current.visual !== 'none' && current.documentToken === documentToken;
             updateSlot(pageNumber, {
-                visual: keepsPixels ? 'stale' : 'none',
+                visual: 'none',
                 job: 'rendering',
                 version,
                 requestId,
@@ -247,18 +244,31 @@ export function createPdfPageRenderState() {
                 targetScale,
             });
         },
-        commitCanvas(pageNumber: number, version: number, requestId: number) {
+        commitVisual(pageNumber: number, version: number, requestId: number) {
+            const current = getSlot(pageNumber);
+            if (current.job !== 'rendering' || current.version !== version || current.requestId !== requestId) {
+                return false;
+            }
+            updateSlot(pageNumber, {visual: 'ready'});
+            return true;
+        },
+        completeRender(pageNumber: number, version: number, requestId: number) {
             const current = getSlot(pageNumber);
             if (current.job !== 'rendering' || current.version !== version || current.requestId !== requestId) {
                 return false;
             }
             updateSlot(pageNumber, {
-                visual: 'fresh',
                 job: 'idle',
                 version: null,
                 requestId: null,
             });
             return true;
+        },
+        commitCanvas(pageNumber: number, version: number, requestId: number) {
+            if (!this.commitVisual(pageNumber, version, requestId)) {
+                return false;
+            }
+            return this.completeRender(pageNumber, version, requestId);
         },
         clearPage(pageNumber: number) {
             slots.delete(pageNumber);

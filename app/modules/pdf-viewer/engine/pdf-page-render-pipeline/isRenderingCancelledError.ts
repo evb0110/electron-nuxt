@@ -7,7 +7,11 @@ export function isRenderingCancelledError(error: unknown) {
     if (
         typeof error === 'object'
         && 'name' in error
-        && (error as { name?: string }).name === 'RenderingCancelledException'
+        && (
+            (error as { name?: string }).name === 'RenderingCancelledException'
+            || (error as { name?: string }).name === 'AbortError'
+            || (error as { name?: string }).name === 'AbortException'
+        )
     ) {
         return true;
     }

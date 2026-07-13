@@ -36,7 +36,6 @@ export type TPdfViewerTransactionSource =
     | 'fit-paged-target'
     | 'zoom-change'
     | 'zoom-gesture'
-    | 'zoom-settle'
     | 'resize-observer'
     | 'resize-settle'
     | 'view-mode'
@@ -79,7 +78,6 @@ export interface IPdfViewerTransactionRenderRequest extends IDocumentViewportRen
     TPdfViewerTransactionPriority
 > {
     renderWindowOverride?: IPageRange | undefined;
-    maxCanvasPixelsOverride?: number | undefined;
     prioritizeTextLayer?: boolean | undefined;
 }
 

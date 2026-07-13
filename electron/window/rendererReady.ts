@@ -28,19 +28,21 @@ export function waitForInitialRendererReady(
     window: BrowserWindow,
     initialLoadPromise: Promise<void>,
 ) {
+    const windowId = window.id;
+    const windowWebContents = window.webContents;
     return new Promise<void>((resolve, reject) => {
         let settled = false;
 
         const cleanup = () => {
-            window.webContents.removeListener('did-fail-load', handleFailLoad);
-            window.webContents.removeListener('render-process-gone', handleRenderProcessGone);
+            windowWebContents.removeListener('did-fail-load', handleFailLoad);
+            windowWebContents.removeListener('render-process-gone', handleRenderProcessGone);
             window.removeListener('closed', handleClosed);
 
-            const waiter = windowStartupWaiters.get(window.id);
+            const waiter = windowStartupWaiters.get(windowId);
             if (waiter?.timeoutHandle) {
                 clearTimeout(waiter.timeoutHandle);
             }
-            windowStartupWaiters.delete(window.id);
+            windowStartupWaiters.delete(windowId);
         };
 
         const resolveReady = () => {
@@ -98,19 +100,19 @@ export function waitForInitialRendererReady(
         }, WINDOW_RENDERER_READY_TIMEOUT_MS);
         timeoutHandle.unref?.();
 
-        windowStartupWaiters.set(window.id, {
+        windowStartupWaiters.set(windowId, {
             resolve: resolveReady,
             reject: rejectReady,
             timeoutHandle,
         });
 
-        window.webContents.on('did-fail-load', handleFailLoad);
-        window.webContents.on('render-process-gone', handleRenderProcessGone);
+        windowWebContents.on('did-fail-load', handleFailLoad);
+        windowWebContents.on('render-process-gone', handleRenderProcessGone);
         window.on('closed', handleClosed);
 
         void initialLoadPromise.catch((error) => {
             queueMicrotask(() => {
-                const waiter = windowStartupWaiters.get(window.id);
+                const waiter = windowStartupWaiters.get(windowId);
                 if (!waiter) {
                     return;
                 }

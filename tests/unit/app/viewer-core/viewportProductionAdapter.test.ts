@@ -44,19 +44,16 @@ describe('viewportSimulation production seams', () => {
         });
     });
 
-    it('I10/I11 production render state keeps stale pixels through a failed successor', () => {
+    it('I10/I11 production render state clears replaced pixels through a failed successor', () => {
         const {renderState} = createProductionViewportAdapter();
         renderState.renderedPages.add(56);
-        renderState.staleRenderedPages.add(56);
-        renderState.renderingPages.set(56, 2);
-        renderState.renderingPageRequestIds.set(56, 9);
+        renderState.beginRender(56, 2, 9, 'document-1', 1);
         renderState.markRenderFailed(56, 2, 9);
 
-        expect(renderState.renderedPages.has(56)).toBe(true);
-        expect(renderState.staleRenderedPages.has(56)).toBe(true);
+        expect(renderState.renderedPages.has(56)).toBe(false);
         expect(renderState.getSlot(56)).toMatchObject({
             job: 'failed',
-            visual: 'stale',
+            visual: 'none',
         });
     });
 

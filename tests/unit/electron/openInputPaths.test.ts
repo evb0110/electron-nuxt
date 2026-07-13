@@ -144,6 +144,26 @@ describe('openInputPaths', () => {
         expect(mocks.addRecentInputs).toHaveBeenCalledWith(['/tmp/source.pdf'], owner);
     });
 
+    it('returns a PDF source before recent-file inspection and persistence settle', async () => {
+        let resolveRecent!: () => void;
+        const recentPersistence = new Promise<undefined>(resolve => {
+            resolveRecent = () => resolve(undefined);
+        });
+        mocks.addRecentInputs.mockImplementationOnce(() => recentPersistence);
+        const owner = {id: 42};
+        const {openInputPaths} = await import('@electron/features/documents/main/openInputPaths.service');
+
+        await expect(openInputPaths(['/tmp/slow-stat.pdf'], {}, owner as never)).resolves.toEqual({
+            kind: 'pdf',
+            workingPath: '/tmp/working/original.pdf',
+            originalPath: '/tmp/slow-stat.pdf',
+        });
+
+        expect(mocks.addRecentInputs).toHaveBeenCalledWith(['/tmp/slow-stat.pdf'], owner);
+        resolveRecent();
+        await recentPersistence;
+    });
+
     it('always generates a new PDF for a forced single-PDF combine', async () => {
         const owner = { id: 42 };
         const { openInputPaths } = await import('@electron/features/documents/main/openInputPaths.service');

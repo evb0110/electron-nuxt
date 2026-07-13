@@ -53,12 +53,20 @@ const documentsMock = vi.hoisted(() => ({
             warnings: [],
         },
     })),
+    createManagedTempFileHandle: vi.fn(async () => ({
+        path: '/tmp/work.pdf',
+        size: 4,
+        sha256: 'b'.repeat(64),
+        leaseId: 'working-copy-expectation-lease',
+        revision: null,
+    })),
     readFile: vi.fn(async () => new Uint8Array([
         37,
         80,
         68,
         70,
     ])),
+    releaseManagedTempFileHandle: vi.fn(async () => true),
     savePdfNativeMutations: vi.fn(async () => ({
         applied: true,
         validation: {
@@ -138,6 +146,8 @@ describe('usePdfFile native mutations', () => {
         });
 
         expect(result?.success).toBe(true);
+        expect(documentsMock.createManagedTempFileHandle).toHaveBeenCalledWith('/tmp/work.pdf');
+        expect(documentsMock.releaseManagedTempFileHandle).toHaveBeenCalledWith('working-copy-expectation-lease');
         expect(documentsMock.applyPdfNativeMutationsToWorkingCopy).toHaveBeenCalledWith(
             '/tmp/work.pdf',
             mutations,

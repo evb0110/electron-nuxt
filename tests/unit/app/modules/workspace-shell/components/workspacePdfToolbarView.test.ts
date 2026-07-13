@@ -40,11 +40,33 @@ describe('workspace PDF toolbar wiring', () => {
         }
     });
 
+    it('routes pre-mount shell page commands into the host viewport session', () => {
+        const appShell = readWorkspaceFile('app/modules/workspace-shell/components/AppShellRoot.vue');
+        const shellToolbar = readWorkspaceFile('app/modules/workspace-shell/components/ShellWorkspaceToolbar.vue');
+        const deferredHost = readWorkspaceFile('app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue');
+
+        expect(appShell).toContain('v-on="fallbackToolbarCommandListeners"');
+        expect(shellToolbar).toContain('@go-to-page="handleGoToPage"');
+        expect(deferredHost).toContain('handleGoToPage: page => {');
+        expect(deferredHost).toContain('documentOpenSurface.requestNavigation(page);');
+    });
+
     it('uses the same opening-document state for live and shell toolbar snapshots', () => {
         const documentWorkspace = readWorkspaceFile('app/modules/workspace-shell/components/DocumentWorkspace.vue');
 
         expect(documentWorkspace).toContain('isOpeningDocument: isOpeningDocumentForToolbarDisplay.value');
         expect(documentWorkspace).not.toContain('isOpeningDocument: pendingDocumentOpen.value');
+    });
+
+    it('keeps page-step navigation command-capable while opening metadata is unknown', () => {
+        const presenter = readWorkspaceFile('app/modules/workspace-shell/components/WorkspacePdfToolbarView.vue');
+        const pageDropdown = readWorkspaceFile('app/modules/pdf-viewer/components/PdfPageDropdown.vue');
+
+        expect(presenter).toContain(':disabled="pageNavigationDisabled"');
+        expect(presenter).toContain('toolbarDocumentBusy.value ? false : toolbarControlsDisabled.value');
+        expect(pageDropdown).toContain('totalPages > 0 && commandPage >= totalPages');
+        expect(pageDropdown).toContain('totalPages <= 0 || commandPage.value < totalPages');
+        expect(pageDropdown).toContain(':disabled="disabled || totalPages === 0 || commandPage >= totalPages"');
     });
 
     it('routes inline, app-menu, and overflow print commands through the shared busy predicate', () => {

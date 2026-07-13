@@ -27,6 +27,7 @@ import {
 import { te } from '@electron/te';
 import { createLogger } from '@electron/utils/createLogger';
 import { addRecentInputs } from '@electron/features/documents/main/addRecentInputs.service';
+import {getErrorMessage} from '@electron/utils/error';
 import { normalizePossiblyEncodedExistingPath } from '@electron/utils/normalizePossiblyEncodedExistingPath';
 import type { TOpenFileResult } from '@electron/features/documents/contract';
 import type { TOpenPathOwner } from '@electron/features/documents/main/openPathOwner';
@@ -193,7 +194,7 @@ export async function openInputPaths(
         const djvuPath = djvuPaths[0]!;
         const trustedDjvuPath = requireOpenPath(djvuPath, owner);
         logger.debug(`openInputPaths resolved DjVu path: ${djvuPath}`);
-        await addRecentInputs([djvuPath], owner);
+        persistRecentInputsAfterOpen([djvuPath], owner);
         return {
             kind: 'djvu',
             workingPath: '',
@@ -202,10 +203,15 @@ export async function openInputPaths(
     }
 
     if (!options.forceCombine && normalizedPaths.length === 1 && isPdfPath(normalizedPaths[0]!)) {
+        const sourceCriticalStartedAt = performance.now();
         const originalPath = normalizedPaths[0]!;
         logger.debug(`openInputPaths creating working copy for PDF: ${originalPath}`);
         const workingPath = await createWorkingCopy(requireOpenPath(originalPath, owner), getOwnerWebContentsId(owner));
-        await addRecentInputs([originalPath], owner);
+        persistRecentInputsAfterOpen([originalPath], owner);
+        logger.debug(`openInputPaths PDF source-critical timings: ${JSON.stringify({
+            recentPersistence: 'background',
+            totalMs: Math.round((performance.now() - sourceCriticalStartedAt) * 10) / 10,
+        })}`);
         return {
             kind: 'pdf',
             workingPath,
@@ -275,4 +281,10 @@ export async function openInputPaths(
         originalPath: outputPath,
         isGenerated: true,
     };
+}
+
+function persistRecentInputsAfterOpen(paths: string[], owner?: TOpenPathOwner) {
+    void addRecentInputs(paths, owner).catch(error => {
+        logger.warn(`Failed to persist opened input in Recent Files: ${getErrorMessage(error)}`);
+    });
 }

@@ -38,6 +38,22 @@ const documentsClientMock = vi.hoisted(() => ({
     readFile: vi.fn(async () => new Uint8Array()),
     statFile: vi.fn(async () => ({size: 0})),
     readFileRange: vi.fn(async () => new Uint8Array()),
+    createManagedTempFileHandle: vi.fn(async () => ({
+        path: '/tmp/managed.pdf',
+        size: 0,
+        sha256: '0'.repeat(64),
+        leaseId: 'managed-lease',
+    })),
+    releaseManagedTempFileHandle: vi.fn(async () => true),
+    getPdfOpeningGeometry: vi.fn(async () => ({
+        pageNumber: 1 as const,
+        pageCount: 1,
+        width: 612,
+        height: 792,
+        rotation: 0 as const,
+        size: 0,
+        modifiedAt: 0,
+    })),
     getPdfNativePageSizes: vi.fn(async () => []),
     cancelPdfNativePagePreview: vi.fn(async () => ({canceled: true})),
     renderPdfNativePagePreview: vi.fn(async () => ({
@@ -192,6 +208,32 @@ describe('createElectronApi', () => {
     afterEach(() => {
         expectedDecodedEventWarningSpy?.mockRestore();
         expectedDecodedEventWarningSpy = null;
+    });
+
+    it('provides a deterministic automation seam that defers direct document open', async () => {
+        const ipcRenderer = {
+            invoke: vi.fn(async () => undefined),
+            on: vi.fn(),
+            send: vi.fn(),
+        };
+        let release!: () => void;
+        const waitForDocumentOpenDirect = vi.fn(() => new Promise<void>((resolve) => {
+            release = resolve;
+        }));
+        const { createElectronApi } = await import('@electron/preload/createElectronApi');
+        const api = createElectronApi(
+            ipcRenderer as never,
+            { getPathForFile: () => '' },
+            {waitForDocumentOpenDirect},
+        );
+
+        const openPromise = api.documents.openDocumentDirect('/tmp/deferred.pdf');
+        await vi.waitFor(() => expect(waitForDocumentOpenDirect).toHaveBeenCalledWith('/tmp/deferred.pdf'));
+        expect(documentsClientMock.openDocumentDirect).not.toHaveBeenCalled();
+
+        release();
+        await expect(openPromise).resolves.toEqual({path: '/tmp/deferred.pdf'});
+        expect(documentsClientMock.openDocumentDirect).toHaveBeenCalledWith('/tmp/deferred.pdf');
     });
 
     it('keeps page operations and image export out of the documents capability', async () => {

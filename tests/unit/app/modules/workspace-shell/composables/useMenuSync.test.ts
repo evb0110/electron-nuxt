@@ -64,7 +64,7 @@ describe('useMenuSync', () => {
             canPrint: false,
             interactive: false,
             canContinuousScroll: false,
-            continuousScroll: false,
+            continuousScroll: true,
         });
         expect(mocks.setMenuTabCount).toHaveBeenCalledWith(1);
 
@@ -87,7 +87,7 @@ describe('useMenuSync', () => {
             canPrint: false,
             interactive: true,
             canContinuousScroll: false,
-            continuousScroll: false,
+            continuousScroll: true,
         });
         expect(mocks.setMenuTabCount).toHaveBeenLastCalledWith(2);
         expect(mocks.legacySetMenuDocumentState).not.toHaveBeenCalled();
@@ -124,7 +124,7 @@ describe('useMenuSync', () => {
             canPrint: false,
             interactive: true,
             canContinuousScroll: false,
-            continuousScroll: false,
+            continuousScroll: true,
         });
 
         activeDocumentRecord.value = createWorkspaceDocumentRecord({
@@ -145,7 +145,7 @@ describe('useMenuSync', () => {
             canPrint: false,
             interactive: true,
             canContinuousScroll: false,
-            continuousScroll: false,
+            continuousScroll: true,
         });
     });
 
@@ -181,7 +181,7 @@ describe('useMenuSync', () => {
             canPrint: false,
             interactive: true,
             canContinuousScroll: false,
-            continuousScroll: false,
+            continuousScroll: true,
         });
 
         activeDocumentRecord.value = createWorkspaceDocumentRecord({
@@ -205,7 +205,7 @@ describe('useMenuSync', () => {
             canPrint: false,
             interactive: true,
             canContinuousScroll: false,
-            continuousScroll: false,
+            continuousScroll: true,
         });
     });
 
@@ -239,7 +239,7 @@ describe('useMenuSync', () => {
             canPrint: false,
             interactive: true,
             canContinuousScroll: false,
-            continuousScroll: false,
+            continuousScroll: true,
         });
 
         activeDocumentRecord.value = createWorkspaceDocumentRecord({
@@ -260,7 +260,7 @@ describe('useMenuSync', () => {
             canPrint: false,
             interactive: true,
             canContinuousScroll: false,
-            continuousScroll: false,
+            continuousScroll: true,
         });
     });
 

@@ -7,10 +7,9 @@ import type {
 } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 import { PDF_PAGE_TEXT_LAYER_TIMEOUT_MS } from '@app/constants/timeouts';
 import { isPageRenderTimeoutError } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/isPageRenderTimeoutError';
-import type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
 import { withPageStageTimeout } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
 import { clearPdfSelectionForLayerTeardown } from '@app/modules/pdf-viewer/engine/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
-import type { IPdfRenderSupervisor } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
+import { BrowserLogger } from '@app/utils/browserLogger';
 
 interface ITextLayerRenderContext {
     container: HTMLElement;
@@ -41,8 +40,6 @@ interface IUsePdfRendererTextLayerControllerOptions {
     cancelActiveTextLayerRenderIfCurrent: (pageNumber: number, version: number, requestId: number) => void;
     clearSelectionBeforePageLayerTeardown: TClearSelectionBeforePageLayerTeardown;
     logNonCriticalStageError: (pageNumber: number, stage: string, error: unknown) => void;
-    onRenderStall?: ((payload: IPageRenderStallPayload) => void) | undefined;
-    renderSupervisor?: IPdfRenderSupervisor | undefined;
 }
 
 export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLayerControllerOptions) => {
@@ -57,8 +54,6 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
         cancelActiveTextLayerRenderIfCurrent,
         clearSelectionBeforePageLayerTeardown,
         logNonCriticalStageError,
-        onRenderStall,
-        renderSupervisor,
     } = options;
 
     async function renderTextLayerForPage(
@@ -124,8 +119,14 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
                 () => {
                     cancelActiveTextLayerRenderIfCurrent(pageNumber, version, requestId);
                 },
-                onRenderStall,
-                renderSupervisor,
+                // Optional enrichment must not enter the canonical render-stall
+                // recovery loop; the local timeout and diagnostic error are enough.
+                undefined,
+                // Text selection/search enrichment is optional once the canonical
+                // canvas is mounted. Its own stage timeout remains authoritative,
+                // but it must not trip the canonical render heartbeat circuit.
+                undefined,
+                controller.signal,
             );
             isTextLayerRendered = true;
         } catch (textLayerError) {
@@ -135,9 +136,19 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
                     root: container,
                 });
                 textLayerRenderer.cleanupTextLayerDom(textLayerDiv);
-                throw textLayerError;
-            }
-            if (
+                BrowserLogger.warn(
+                    'pdf-renderer',
+                    `Optional text layer enrichment timed out for page ${String(pageNumber)}`,
+                    {
+                        pageNumber,
+                        stage: textLayerError.stage,
+                        timeoutMs: textLayerError.timeoutMs,
+                    },
+                );
+                // The canvas is already mounted. A nonessential text layer must not
+                // turn a readable page into a blank page when it stalls.
+                isTextLayerRendered = false;
+            } else if (
                 getRenderVersion() !== version
                 || !shouldContinue()
                 || (
@@ -153,17 +164,18 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
                 textLayerRenderer.cleanupTextLayerDom(textLayerDiv);
                 cleanupPageIfCurrentRender(pageNumber, version, requestId);
                 return false;
+            } else {
+                logNonCriticalStageError(
+                    pageNumber,
+                    'text layer',
+                    textLayerError,
+                );
+                clearPdfSelectionForLayerTeardown({
+                    target: textLayerDiv,
+                    root: container,
+                });
+                textLayerRenderer.cleanupTextLayerDom(textLayerDiv);
             }
-            logNonCriticalStageError(
-                pageNumber,
-                'text layer',
-                textLayerError,
-            );
-            clearPdfSelectionForLayerTeardown({
-                target: textLayerDiv,
-                root: container,
-            });
-            textLayerRenderer.cleanupTextLayerDom(textLayerDiv);
         } finally {
             const activeTextLayer = activeTextLayerAbortControllers.get(pageNumber);
             if (

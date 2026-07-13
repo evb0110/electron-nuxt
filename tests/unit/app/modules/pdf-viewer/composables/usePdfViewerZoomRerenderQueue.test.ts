@@ -77,6 +77,36 @@ describe('usePdfViewerZoomRerenderQueue', () => {
         vi.useRealTimers();
     });
 
+    it('coalesces same-turn discrete zoom changes before the next visual frame', async () => {
+        vi.useFakeTimers();
+        const {
+            queue,
+            reRenderVisiblePagesAndSyncCurrentPage,
+        } = createQueueHarness({isZoomInteractionLocked: () => false});
+
+        queue.enqueueZoomSync({
+            source: 'zoom-mode-change',
+            resizeAnchor: createResizeAnchor(1),
+        });
+        queue.enqueueZoomSync({
+            source: 'zoom-change',
+            resizeAnchor: createResizeAnchor(7),
+        });
+        expect(reRenderVisiblePagesAndSyncCurrentPage).not.toHaveBeenCalled();
+
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(reRenderVisiblePagesAndSyncCurrentPage).toHaveBeenCalledOnce();
+        expect(reRenderVisiblePagesAndSyncCurrentPage).toHaveBeenCalledWith(
+            expect.objectContaining({
+                source: 'zoom-change',
+                resizeAnchor: expect.objectContaining({page: 7}),
+            }),
+        );
+        queue.cleanupZoomRerenderQueue();
+    });
+
     it('ends a deferred resize transition when the queue is reset', () => {
         vi.useFakeTimers();
         const {
@@ -198,7 +228,7 @@ describe('usePdfViewerZoomRerenderQueue', () => {
             expect(reRenderVisiblePagesAndSyncCurrentPage).toHaveBeenCalledOnce();
 
             await vi.advanceTimersByTimeAsync(1);
-            expect(reRenderVisiblePagesAndSyncCurrentPage).toHaveBeenCalledOnce();
+            expect(reRenderVisiblePagesAndSyncCurrentPage).toHaveBeenCalledTimes(2);
 
             await flushQueuedRerenderFrame();
 

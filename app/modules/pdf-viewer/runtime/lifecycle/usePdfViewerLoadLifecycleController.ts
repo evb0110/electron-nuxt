@@ -6,9 +6,10 @@ import type { usePdfViewerAnnotationRuntime } from '@app/modules/pdf-viewer/runt
 interface IUsePdfViewerLoadLifecycleControllerOptions {
     renderedPageStateVersion: Ref<number>;
     getAnnotationRuntime: () => ReturnType<typeof usePdfViewerAnnotationRuntime>;
-    emitInitialVisualPending: () => void;
+    emitInitialVisualPending: (token: number) => void;
     emitInitialVisualReady: (payload: {pageNumber: number;}) => void;
     markDelayedSkeletonPageRendered: (pageNumber: number) => void;
+    isInitialVisualCanvasReady: (pageNumber: number) => boolean;
 }
 
 export const usePdfViewerLoadLifecycleController = (options: IUsePdfViewerLoadLifecycleControllerOptions) => {
@@ -23,6 +24,7 @@ export const usePdfViewerLoadLifecycleController = (options: IUsePdfViewerLoadLi
         cancelInitialVisualReady,
         handleRenderedPageStateChanged,
         handlePageCanvasMounted,
+        commitInitialVisualReady,
         handlePageRendered,
     } = usePdfViewerInitialVisualLifecycle({
         renderedPageStateVersion: options.renderedPageStateVersion,
@@ -30,6 +32,7 @@ export const usePdfViewerLoadLifecycleController = (options: IUsePdfViewerLoadLi
         markDelayedSkeletonPageRendered: options.markDelayedSkeletonPageRendered,
         syncManagedShapesAfterPageRendered: pageNumber =>
             options.getAnnotationRuntime().managedEmbeddedPdfShapes.syncAfterPageRendered(pageNumber),
+        isInitialVisualCanvasReady: options.isInitialVisualCanvasReady,
     });
 
     function onDocumentLoadStateChange(payload: {
@@ -38,7 +41,7 @@ export const usePdfViewerLoadLifecycleController = (options: IUsePdfViewerLoadLi
     }) {
         if (payload.phase === 'started') {
             setPendingInitialVisualReadyToken(payload.token);
-            options.emitInitialVisualPending();
+            options.emitInitialVisualPending(payload.token);
             beginViewerLoadSettle(payload.token);
             return;
         }
@@ -54,6 +57,7 @@ export const usePdfViewerLoadLifecycleController = (options: IUsePdfViewerLoadLi
         cancelInitialVisualReady,
         handleRenderedPageStateChanged,
         handlePageCanvasMounted,
+        commitInitialVisualReady,
         handlePageRendered,
         onDocumentLoadStateChange,
     };

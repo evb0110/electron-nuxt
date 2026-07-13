@@ -50,9 +50,9 @@ interface IUsePdfViewerWheelZoomOptions {
     singlePageScroll: {
         suppressSnapFor: (ms: number) => void;
         handleWheel: (event: WheelEvent) => boolean;
-        handleScroll: (event?: Event) => void;
+        handleScroll: (event?: Event, authorityScrollConsumed?: boolean) => void;
         consumeAuthorityScroll?: () => boolean;
-        cancelProgrammaticNavigation: () => void;
+        cancelProgrammaticNavigation: (reason?: string) => void;
         isProgrammaticNavigationActive?: Ref<boolean>;
         shouldCancelProgrammaticNavigationForViewportScroll?: () => boolean;
     };
@@ -756,7 +756,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
                 markUserViewportInteraction();
                 return;
             }
-            singlePageScroll.cancelProgrammaticNavigation();
+            singlePageScroll.cancelProgrammaticNavigation('wheel-interaction');
         }
 
         if (
@@ -778,7 +778,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
 
     function handleViewerScroll(event: Event) {
         if (singlePageScroll.consumeAuthorityScroll?.()) {
-            singlePageScroll.handleScroll();
+            singlePageScroll.handleScroll(undefined, true);
             return;
         }
         const context = createViewerScrollContext();
@@ -796,18 +796,18 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
             });
         }
 
+        const shouldCancelProgrammaticNavigation = singlePageScroll.shouldCancelProgrammaticNavigationForViewportScroll
+            ? singlePageScroll.shouldCancelProgrammaticNavigationForViewportScroll()
+            : singlePageScroll.isProgrammaticNavigationActive?.value !== true;
         if (
             !context.zoomInteractionLocked
             && !context.zoomScrollExpected
-            && (
-                singlePageScroll.isProgrammaticNavigationActive?.value !== true
-                || singlePageScroll.shouldCancelProgrammaticNavigationForViewportScroll?.() === true
-            )
+            && shouldCancelProgrammaticNavigation
         ) {
             if (markUserViewportInteraction) {
                 markUserViewportInteraction();
             } else {
-                singlePageScroll.cancelProgrammaticNavigation();
+                singlePageScroll.cancelProgrammaticNavigation('viewer-scroll-interaction');
             }
         }
 

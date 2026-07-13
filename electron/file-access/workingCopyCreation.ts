@@ -34,12 +34,34 @@ import { createLogger } from '@electron/utils/createLogger';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import {
     ensureWorkingCopyRevision,
+    initializeFreshWorkingCopyRevision,
     markWorkingCopyContentChanged,
 } from '@electron/file-access/documentRevisionStore';
 import { readWorkingCopySyncRequiredJournalEntry } from '@electron/file-access/documentRevisionSidecar';
-import {initializePageIdentityStore} from '@electron/file-access/pageIdentityStore';
+import {schedulePageIdentityStoreInitialization} from '@electron/file-access/pageIdentityStore';
 
 const logger = createLogger('working-copy');
+
+interface IWorkingCopyPhaseTiming {
+    durationMs: number;
+    phase: string;
+}
+
+async function measureWorkingCopyPhase<T>(
+    timings: IWorkingCopyPhaseTiming[],
+    phase: string,
+    operation: () => Promise<T>,
+) {
+    const startedAt = performance.now();
+    try {
+        return await operation();
+    } finally {
+        timings.push({
+            durationMs: Math.round((performance.now() - startedAt) * 10) / 10,
+            phase,
+        });
+    }
+}
 
 function resolveWorkingCopyRoleForPathClone(
     sourcePath: string,
@@ -49,21 +71,40 @@ function resolveWorkingCopyRoleForPathClone(
 }
 
 export async function createWorkingCopy(originalPath: TOpenPath, ownerWebContentsId?: number) {
+    const operationStartedAt = performance.now();
+    const phaseTimings: IWorkingCopyPhaseTiming[] = [];
     const workDir = createWorkingDirectory();
     try {
         const fileName = basename(originalPath);
         const workingPath = join(workDir, fileName);
-        await copyFileCopyOnWrite(originalPath, workingPath);
+        await measureWorkingCopyPhase(phaseTimings, 'copy-on-write', () =>
+            copyFileCopyOnWrite(originalPath, workingPath));
         if (workingPath.toLowerCase().endsWith('.pdf')) {
-            await decryptPdfFileIfNeeded(workingPath);
+            await measureWorkingCopyPhase(phaseTimings, 'encryption-probe', () =>
+                decryptPdfFileIfNeeded(workingPath));
         }
 
-        await setWorkingCopyOriginalPath(workingPath, originalPath, ownerWebContentsId);
-        const revision = await ensureWorkingCopyRevision(workingPath, ownerWebContentsId);
+        await measureWorkingCopyPhase(phaseTimings, 'register-source', () => setWorkingCopyOriginalPath(
+            workingPath,
+            originalPath,
+            ownerWebContentsId,
+            {deferOriginalFileExpectation: true},
+        ));
+        const revision = await measureWorkingCopyPhase(phaseTimings, 'revision-sidecar', () =>
+            initializeFreshWorkingCopyRevision(workingPath, ownerWebContentsId));
         if (workingPath.toLowerCase().endsWith('.pdf')) {
-            await initializePageIdentityStore(workingPath, revision, originalPath);
+            void schedulePageIdentityStoreInitialization(workingPath, revision, originalPath);
         }
 
+        logger.debug(`Working copy source-critical timings: ${JSON.stringify({
+            deferredUntilNeeded: [
+                'original-file-expectation-on-save',
+                'page-identity-on-mutation',
+            ],
+            phases: phaseTimings,
+            totalMs: Math.round((performance.now() - operationStartedAt) * 10) / 10,
+            workingPath,
+        })}`);
         return workingPath;
     } catch (error) {
         await safeRemoveDirectory(workDir);
@@ -95,9 +136,12 @@ export async function createWorkingCopyFromPath(
         await decryptPdfFileIfNeeded(workingPath);
 
         const role = resolveWorkingCopyRoleForPathClone(sourcePath, ownerWebContentsId);
-        await setWorkingCopyOriginalPath(workingPath, mappedOriginalPath, ownerWebContentsId, {role});
-        const revision = await ensureWorkingCopyRevision(workingPath, ownerWebContentsId);
-        await initializePageIdentityStore(workingPath, revision, sourcePath);
+        await setWorkingCopyOriginalPath(workingPath, mappedOriginalPath, ownerWebContentsId, {
+            deferOriginalFileExpectation: true,
+            role,
+        });
+        const revision = await initializeFreshWorkingCopyRevision(workingPath, ownerWebContentsId);
+        void schedulePageIdentityStoreInitialization(workingPath, revision, sourcePath);
 
         return workingPath;
     } catch (error) {
@@ -132,10 +176,13 @@ export async function createWorkingCopyFromData(
 
         if (normalizedOriginalPath) {
             const role = isKnownWorkingCopyOriginalPath(normalizedOriginalPath, ownerWebContentsId) ? 'snapshot' : 'current';
-            await setWorkingCopyOriginalPath(workingPath, normalizedOriginalPath, ownerWebContentsId, {role});
+            await setWorkingCopyOriginalPath(workingPath, normalizedOriginalPath, ownerWebContentsId, {
+                deferOriginalFileExpectation: true,
+                role,
+            });
         }
-        const revision = await ensureWorkingCopyRevision(workingPath, ownerWebContentsId);
-        await initializePageIdentityStore(workingPath, revision);
+        const revision = await initializeFreshWorkingCopyRevision(workingPath, ownerWebContentsId);
+        void schedulePageIdentityStoreInitialization(workingPath, revision);
 
         return workingPath;
     } catch (error) {
@@ -200,6 +247,10 @@ export async function ensureWorkingCopyDirectory(workingPath: string, senderWebC
         const role = getWorkingCopyRole(normalizedWorkingPath, senderWebContentsId) ?? 'current';
         await setWorkingCopyOriginalPath(normalizedWorkingPath, originalPath, mapping.ownerWebContentsId, {role});
         forgetRetiredWorkingCopyOriginal(normalizedWorkingPath);
+    }
+    if (normalizedWorkingPath.toLowerCase().endsWith('.pdf')) {
+        const revision = await ensureWorkingCopyRevision(normalizedWorkingPath, senderWebContentsId);
+        void schedulePageIdentityStoreInitialization(normalizedWorkingPath, revision, originalPath);
     }
     await markWorkingCopyContentChanged(normalizedWorkingPath, 'replace-working-copy', senderWebContentsId);
     logger.warn(`Recreated missing working copy directory for "${normalizedWorkingPath}"`);

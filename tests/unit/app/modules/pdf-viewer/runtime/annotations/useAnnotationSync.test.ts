@@ -6,6 +6,7 @@ import {
 } from 'vitest';
 import {
     effectScope,
+    nextTick,
     ref,
     shallowRef,
 } from 'vue';
@@ -16,15 +17,29 @@ import type {
 import { useAnnotationIdentity } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationIdentity';
 import type { IPdfPageAnnotationBundle } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/annotationSyncHelpersTypes';
 
-const {loadPdfPageAnnotations} = vi.hoisted(() => {
+const {
+    leasePdfDocumentPage,
+    loadPdfPageAnnotations,
+} = vi.hoisted(() => {
     const mock = vi.fn<
-        (_doc: unknown, _pageNumber: number) => Promise<IPdfPageAnnotationBundle | null>
+        (
+            _doc: unknown,
+            _pageNumber: number,
+            _annotationNames?: ReadonlyMap<string, string> | null,
+            _options?: {leasePage?: (doc: unknown, page: number) => Promise<unknown>},
+        ) => Promise<IPdfPageAnnotationBundle | null>
     >();
-    return {loadPdfPageAnnotations: mock};
+    return {
+        leasePdfDocumentPage: vi.fn(async () => ({
+            page: {},
+            release: vi.fn(),
+        })),
+        loadPdfPageAnnotations: mock,
+    };
 });
 
 vi.mock('@app/services/pdfjs/runtimeLib', () => ({PDFDateString: {toDateObject: vi.fn(() => null)}}));
-vi.mock('@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument', () => ({leasePdfDocumentPage: vi.fn()}));
+vi.mock('@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument', () => ({leasePdfDocumentPage}));
 
 vi.mock('@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/loadPdfPageAnnotations', async (importOriginal) => {
     const actual = await importOriginal<object>();
@@ -111,6 +126,7 @@ describe('useAnnotationSync', () => {
                 markupSubtype,
             } = createMarkupSubtypeStore();
             const appliedColor = '#22c55e';
+            const documentIdentity = ref('document-1');
             const setAnnotations = vi.fn((comments: IAnnotationCommentSummary[]) => {
                 const appliedComments = comments.map(comment => ({
                     ...comment,
@@ -123,6 +139,7 @@ describe('useAnnotationSync', () => {
             const { useAnnotationSync } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationSync');
             const sync = useAnnotationSync({
                 pdfDocument: shallowRef({}),
+                documentIdentity,
                 numPages: ref(1),
                 currentPage: ref(1),
                 annotationUiManager: shallowRef(null),
@@ -139,14 +156,107 @@ describe('useAnnotationSync', () => {
 
             await sync.syncAnnotationComments();
 
-            expect(setAnnotations).toHaveBeenCalledWith([expect.objectContaining({
-                annotationId: '12R0',
-                color: '#ef4444',
-                subtype: 'Underline',
-            })]);
+            const inventoryLease = loadPdfPageAnnotations.mock.calls[0]?.[3]?.leasePage;
+            await inventoryLease?.({}, 1);
+            expect(leasePdfDocumentPage).toHaveBeenCalledWith(
+                {},
+                1,
+                'transient-background',
+            );
+
+            expect(setAnnotations).toHaveBeenCalledWith(
+                [expect.objectContaining({
+                    annotationId: '12R0',
+                    color: '#ef4444',
+                    subtype: 'Underline',
+                })],
+                {
+                    adoptAsSavedBaseline: false,
+                    reconcileMissingTransient: false,
+                },
+            );
+
+            await sync.syncAnnotationComments();
+            expect(setAnnotations).toHaveBeenLastCalledWith(
+                expect.any(Array),
+                {
+                    adoptAsSavedBaseline: false,
+                    reconcileMissingTransient: false,
+                },
+            );
+
+            documentIdentity.value = 'document-1-working-copy';
+            await nextTick();
+            await sync.syncAnnotationComments();
+            expect(setAnnotations).toHaveBeenLastCalledWith(
+                expect.any(Array),
+                {
+                    adoptAsSavedBaseline: false,
+                    reconcileMissingTransient: false,
+                },
+            );
             expect(colorOverrides.get('12R0')).toBe(appliedColor);
             expect(subtypeOverrides.get('12R0')).toBe('Underline');
-            expect(markupSubtype.syncMarkupSubtypePresentationForEditors).toHaveBeenCalledTimes(1);
+            expect(markupSubtype.syncMarkupSubtypePresentationForEditors).toHaveBeenCalledTimes(3);
+        });
+    });
+
+    it('does not adopt a post-open user editor when the first authoritative sync follows degraded hydration', async () => {
+        loadPdfPageAnnotations.mockResolvedValue({
+            annotations: [],
+            pageRotation: 0,
+            pageView: [
+                0,
+                0,
+                100,
+                100,
+            ],
+        });
+
+        await withAnnotationSyncScope(async () => {
+            const annotationCommentsCache = ref<IAnnotationCommentSummary[]>([]);
+            const identity = useAnnotationIdentity(annotationCommentsCache);
+            const {markupSubtype} = createMarkupSubtypeStore();
+            const annotationUiManager = shallowRef<null | {getEditors: () => Set<object>}>(null);
+            const setAnnotations = vi.fn((comments: IAnnotationCommentSummary[]) => {
+                annotationCommentsCache.value = comments;
+                return comments;
+            });
+            const { useAnnotationSync } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationSync');
+            const sync = useAnnotationSync({
+                pdfDocument: shallowRef({}),
+                documentIdentity: ref('document-chronology'),
+                numPages: ref(1),
+                currentPage: ref(1),
+                annotationUiManager,
+                authorName: ref(null),
+                getIdentity: () => identity,
+                getMarkupSubtype: () => markupSubtype,
+                getStore: () => ({
+                    setAnnotations,
+                    setLinkAnnotations: vi.fn(),
+                    setActiveKey: vi.fn(),
+                }),
+                syncInlineCommentIndicators: vi.fn(),
+            } as never);
+
+            await sync.syncAnnotationComments();
+
+            const userEditor = {
+                id: 'post-open-user-editor',
+                parentPageIndex: 0,
+            };
+            sync.trackedCreatedEditors.add(userEditor);
+            annotationUiManager.value = {getEditors: () => new Set([userEditor])};
+            await sync.syncAnnotationComments();
+
+            expect(setAnnotations).toHaveBeenLastCalledWith(
+                [expect.objectContaining({id: 'editor:0:post-open-user-editor'})],
+                {
+                    adoptAsSavedBaseline: false,
+                    reconcileMissingTransient: true,
+                },
+            );
         });
     });
 });

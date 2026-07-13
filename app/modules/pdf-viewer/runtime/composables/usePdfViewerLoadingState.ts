@@ -46,7 +46,9 @@ export const usePdfViewerLoadingState = (options: IUsePdfViewerLoadingStateOptio
             return false;
         }
 
-        return Boolean(container.querySelector('.page_container--rendered .page_canvas canvas'));
+        return Array.from(
+            container.querySelectorAll<HTMLCanvasElement>('.page_container--rendered .page_canvas canvas'),
+        ).some(canvas => canvas.isConnected && canvas.width > 0 && canvas.height > 0);
     }
 
     function markInitialRenderCompleteIfReady() {

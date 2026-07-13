@@ -356,10 +356,11 @@ describe('package scripts', () => {
         const pdfTabsCiScript = packageJson.scripts['diag:pdf-tabs:ci'] ?? '';
 
         expect(largeFixtureScript).toContain('EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1');
+        expect(largeFixtureScript).toContain('pnpm run build:pdf-page-ops');
         expect(largeFixtureScript).toContain('pnpm run test:e2e:electron:large:no-build');
         expect(largeFixtureScript).not.toContain('EVB_E2E_LARGE_PDF=1');
         expect(largeFixtureScript).not.toContain('EVB_E2E_LARGE_PDF_ANNOTATION_SAVE=1');
-        expect(largeFixtureNoBuildScript).toBe('EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1 vitest run --project e2e-large-pdf --reporter verbose');
+        expect(largeFixtureNoBuildScript).toBe('EVB_PDF_PAGE_OPS_ENABLE=1 EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1 vitest run --project e2e-large-pdf --reporter verbose');
         expect(pdfTabsCiScript).toContain('pdf-tabs-ci');
         expect(pdfTabsCiScript).toContain('pnpm diag:pdf-tabs --session pdf-tabs-ci');
         expect(pdfTabsCiScript).toContain('--max-inactive-canvases 0');

@@ -14,6 +14,7 @@
             "@electron-worker-bundles/*": ["packages/electron-worker-bundles/*"],
             "@evb/electron-worker-bundles/*": ["packages/electron-worker-bundles/*"],
             "@electron/*": ["electron/*"],
+            "@root-package": ["package.json"],
             "@i18n-core": ["packages/i18n-core/index.ts"],
             "@i18n-core/*": ["packages/i18n-core/*"],
             "@evb/i18n-core": ["packages/i18n-core/index.ts"],

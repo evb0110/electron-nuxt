@@ -15,9 +15,19 @@ export async function withPageStageTimeout<T>(
     onTimeout?: () => void,
     onRenderStall?: (payload: IPageRenderStallPayload) => void,
     renderSupervisor: IPdfRenderSupervisor = defaultPdfPageStageRenderSupervisor,
+    signal?: AbortSignal,
 ) {
     return new Promise<T>((resolve, reject) => {
         let settled = false;
+        const createAbortError = () => {
+            const error = new Error('Page render stage was aborted');
+            error.name = 'AbortError';
+            return error;
+        };
+        if (signal?.aborted) {
+            reject(createAbortError());
+            return;
+        }
         pageStageTimeoutSequence += 1;
         const timeoutHandle = renderSupervisor.armTimer({
             cause: 'page-stage-timeout',
@@ -33,6 +43,7 @@ export async function withPageStageTimeout<T>(
                     return;
                 }
                 settled = true;
+                signal?.removeEventListener('abort', handleAbort);
                 onTimeout?.();
                 if (shouldNotify()) {
                     onRenderStall?.(payload);
@@ -46,6 +57,16 @@ export async function withPageStageTimeout<T>(
                 );
             },
         });
+        const handleAbort = () => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            timeoutHandle.clear();
+            signal?.removeEventListener('abort', handleAbort);
+            reject(createAbortError());
+        };
+        signal?.addEventListener('abort', handleAbort, {once: true});
 
         promise.then(
             (value) => {
@@ -54,6 +75,7 @@ export async function withPageStageTimeout<T>(
                 }
                 settled = true;
                 timeoutHandle.clear();
+                signal?.removeEventListener('abort', handleAbort);
                 resolve(value);
             },
             (error) => {
@@ -62,6 +84,7 @@ export async function withPageStageTimeout<T>(
                 }
                 settled = true;
                 timeoutHandle.clear();
+                signal?.removeEventListener('abort', handleAbort);
                 reject(error);
             },
         );

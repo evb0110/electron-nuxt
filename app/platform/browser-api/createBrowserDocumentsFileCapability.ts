@@ -548,6 +548,10 @@ export function createBrowserDocumentsFileCapability(
             }
 
             await browserDocumentStore.write(path, data, options);
+            if (options?.workingCopyOnly === true) {
+                await clearSearchCaches();
+                return validation;
+            }
             const revision = await browserDocumentStore.getDocumentRevision(path);
             const saved = await saveWorkingBytesToSource(
                 path,
@@ -644,6 +648,10 @@ export function createBrowserDocumentsFileCapability(
                     options?.expectedDocumentRevisionToken,
                 );
                 await copyChunkedDocument(stagingPath, path, totalBytes);
+                if (options?.workingCopyOnly === true) {
+                    await clearSearchCaches();
+                    return validation;
+                }
                 const revision = await browserDocumentStore.getDocumentRevision(path);
                 const saved = await saveWorkingBytesToSource(
                     path,

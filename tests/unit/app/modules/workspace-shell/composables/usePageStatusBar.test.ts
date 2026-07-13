@@ -114,11 +114,44 @@ describe('usePageStatusBar', () => {
         ) }));
         statFileMock.mockResolvedValue({ size: 2048 });
 
-        const statusBar = usePageStatusBar(createDeps({ originalPath: ref('/tmp/book.djvu') }));
+        const statusBar = usePageStatusBar(createDeps({
+            originalPath: ref('/Users/evb/Desktop/book.djvu'),
+            workingCopyPath: ref('/tmp/managed/book.djvu'),
+        }));
 
         await vi.waitFor(() => {
             expect(statusBar.statusFileSizeLabel.value).toContain('2.00 KB');
         });
-        expect(statFileMock).toHaveBeenCalledWith('/tmp/book.djvu');
+        expect(statFileMock).toHaveBeenCalledWith('/tmp/managed/book.djvu');
+        expect(statFileMock).not.toHaveBeenCalledWith('/Users/evb/Desktop/book.djvu');
+    });
+
+    it('does not stat an unadopted filesystem path while its visual open is pending', async () => {
+        vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
+        const isDocumentVisualPending = ref(true);
+        usePageStatusBar(createDeps({
+            isDocumentVisualPending,
+            originalPath: ref('/tmp/pending-book.djvu'),
+        }));
+
+        await Promise.resolve();
+        expect(statFileMock).not.toHaveBeenCalled();
+
+        isDocumentVisualPending.value = false;
+        await Promise.resolve();
+        expect(statFileMock).not.toHaveBeenCalled();
+
+        const workingCopyPath = ref<string | null>(null);
+        usePageStatusBar(createDeps({
+            isDocumentVisualPending: ref(false),
+            originalPath: ref('/tmp/adopted-book.djvu'),
+            workingCopyPath,
+        }));
+        workingCopyPath.value = '/tmp/managed/adopted-book.djvu';
+        await vi.waitFor(() => {
+            expect(statFileMock).toHaveBeenCalledWith('/tmp/managed/adopted-book.djvu');
+        });
+        expect(statFileMock).not.toHaveBeenCalledWith('/tmp/pending-book.djvu');
+        expect(statFileMock).not.toHaveBeenCalledWith('/tmp/adopted-book.djvu');
     });
 });

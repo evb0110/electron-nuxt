@@ -6,7 +6,10 @@ import {
     vi,
 } from 'vitest';
 import type { Ref } from 'vue';
-import { ref } from 'vue';
+import {
+    nextTick,
+    ref,
+} from 'vue';
 
 const resizeObserverMock = vi.hoisted(() => ({callback: null as (() => void) | null}));
 
@@ -35,6 +38,7 @@ function createResizeLifecycle(
         pendingNavigationAnchorPage?: Readonly<Ref<number | null>>;
         transactionController?: TResizeLifecycleOptions['transactionController'];
         captureViewportAnchor?: TResizeLifecycleOptions['captureViewportAnchor'];
+        viewerContainer?: Ref<HTMLElement | null>;
     },
 ) {
     const getMostVisiblePage = vi.fn(() => 2);
@@ -45,7 +49,7 @@ function createResizeLifecycle(
     const isResizing = options?.isResizing ?? ref(false);
     const lifecycle = usePdfViewerResizeLifecycle({
         submitResizeIntent,
-        viewerContainer: ref(null),
+        viewerContainer: options?.viewerContainer ?? ref(null),
         isLoading: ref(false),
         isActive,
         isResizing,
@@ -178,6 +182,29 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         }));
     });
 
+    it('suppresses the initial observer callback when geometry and fit scale are unchanged', async () => {
+        vi.useFakeTimers();
+        const viewerContainer = ref({
+            clientWidth: 1200,
+            clientHeight: 800,
+        } as HTMLElement);
+        const {
+            computeFitWidthScale,
+            scheduleResizeAwareRerender,
+            setResizeTransitionVisible,
+        } = createResizeLifecycle(ref(true), {
+            computeFitWidthScale: () => false,
+            viewerContainer,
+        });
+
+        resizeObserverMock.callback?.();
+        await vi.advanceTimersByTimeAsync(400);
+
+        expect(computeFitWidthScale).toHaveBeenCalledOnce();
+        expect(scheduleResizeAwareRerender).not.toHaveBeenCalled();
+        expect(setResizeTransitionVisible).not.toHaveBeenCalled();
+    });
+
     it('uses a pending navigation page as the resize observer anchor', async () => {
         vi.useFakeTimers();
         const {
@@ -205,6 +232,29 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
                 stabilize: true,
             }),
         );
+    });
+
+    it('keeps the trusted page when new geometry reinterprets the old scroll position', () => {
+        const staleNewScaleAnchor = {
+            affinity: 'center' as const,
+            page: 2,
+            pageXFraction: 0.5,
+            pageYFraction: 0.28,
+            viewportXFraction: 0.5,
+            viewportYFraction: 0.5,
+        };
+        const {lifecycle} = createResizeLifecycle(ref(true), {captureViewportAnchor: () => staleNewScaleAnchor});
+
+        const anchor = lifecycle.buildResizeAnchorContext({
+            preferredAnchorPage: 7,
+            trustPreferredAnchorPage: true,
+        });
+
+        expect(anchor.page).toBe(7);
+        expect(anchor.semanticAnchor).toEqual({
+            ...staleNewScaleAnchor,
+            page: 7,
+        });
     });
 
     it('attaches resize observer transactions to scheduled rerenders', async () => {
@@ -258,6 +308,77 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
             're-render visible pages after resize',
             expect.objectContaining({ transactionId: 12 }),
         );
+    });
+
+    it('defers and replays resize after an authoritative reload transaction', async () => {
+        vi.useFakeTimers();
+        const activeTransaction = ref<{kind: 'reload'} | null>({kind: 'reload'});
+        const beginTransaction = vi.fn(() => null);
+        const transactionController: NonNullable<TResizeLifecycleOptions['transactionController']> = {
+            activeTransaction,
+            beginTransaction,
+            cancelActiveTransaction: vi.fn(() => true),
+            isTransactionCurrent: vi.fn(() => true),
+        };
+        const {
+            computeFitWidthScale,
+            scheduleResizeAwareRerender,
+        } = createResizeLifecycle(ref(true), {transactionController});
+
+        resizeObserverMock.callback?.();
+
+        expect(computeFitWidthScale).not.toHaveBeenCalled();
+        expect(beginTransaction).not.toHaveBeenCalled();
+        expect(scheduleResizeAwareRerender).not.toHaveBeenCalled();
+
+        activeTransaction.value = null;
+        await nextTick();
+        await vi.advanceTimersByTimeAsync(400);
+
+        expect(computeFitWidthScale).toHaveBeenCalledOnce();
+        expect(beginTransaction).toHaveBeenCalledOnce();
+        expect(scheduleResizeAwareRerender).toHaveBeenCalledOnce();
+    });
+
+    it('consumes zoom-owned resize geometry without replaying a second rerender', async () => {
+        vi.useFakeTimers();
+        const activeTransaction = ref<{kind: 'zoom'} | null>({kind: 'zoom'});
+        const beginTransaction = vi.fn(() => null);
+        const staleNewScaleAnchor = {
+            affinity: 'center' as const,
+            page: 2,
+            pageXFraction: 0.5,
+            pageYFraction: 0.25,
+            viewportXFraction: 0.5,
+            viewportYFraction: 0.5,
+        };
+        const transactionController: NonNullable<TResizeLifecycleOptions['transactionController']> = {
+            activeTransaction,
+            beginTransaction,
+            cancelActiveTransaction: vi.fn(() => true),
+            isTransactionCurrent: vi.fn(() => true),
+        };
+        const {
+            scheduleResizeAwareRerender,
+            submitResizeIntent,
+        } = createResizeLifecycle(ref(true), {
+            captureViewportAnchor: () => staleNewScaleAnchor,
+            transactionController,
+        });
+
+        resizeObserverMock.callback?.();
+
+        expect(submitResizeIntent).not.toHaveBeenCalled();
+        expect(beginTransaction).not.toHaveBeenCalled();
+        expect(scheduleResizeAwareRerender).not.toHaveBeenCalled();
+
+        activeTransaction.value = null;
+        await nextTick();
+        await vi.advanceTimersByTimeAsync(400);
+
+        expect(submitResizeIntent).not.toHaveBeenCalled();
+        expect(beginTransaction).not.toHaveBeenCalled();
+        expect(scheduleResizeAwareRerender).not.toHaveBeenCalled();
     });
 
     it('previews throughout a drag and performs exactly one anchored settle', async () => {

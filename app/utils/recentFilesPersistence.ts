@@ -46,6 +46,7 @@ function normalizeRecentFileTuple(value: unknown): IRecentFile | null {
     const timestamp = tuple[2];
     const fileSize = tuple[3];
     const backend = normalizeRecentFileBackend(tuple[4], originalPath);
+    const modifiedAt = tuple[5];
     if (
         typeof originalPath !== 'string'
         || typeof fileName !== 'string'
@@ -61,6 +62,7 @@ function normalizeRecentFileTuple(value: unknown): IRecentFile | null {
         fileName,
         timestamp,
         ...(typeof fileSize === 'number' ? {fileSize} : {}),
+        ...(typeof modifiedAt === 'number' ? {modifiedAt} : {}),
     };
 }
 
@@ -99,6 +101,7 @@ function buildRecentFilesCookiePayload(recentFiles: IRecentFile[], truncated: bo
             file.timestamp,
             file.fileSize ?? null,
             file.backend ?? inferDocumentRefBackend(file.originalPath),
+            file.modifiedAt ?? null,
         ]),
     };
 }
@@ -117,12 +120,14 @@ export function normalizeRecentFile(value: unknown): IRecentFile | null {
     }
 
     const fileSize = getOptionalNumber(value, 'fileSize');
+    const modifiedAt = getOptionalNumber(value, 'modifiedAt');
     return {
         originalPath,
         backend,
         fileName,
         timestamp,
         ...(fileSize === null ? {} : {fileSize}),
+        ...(modifiedAt === null ? {} : {modifiedAt}),
     };
 }
 

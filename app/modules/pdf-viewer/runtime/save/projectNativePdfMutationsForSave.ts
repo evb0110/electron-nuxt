@@ -68,7 +68,10 @@ export function projectNativePdfMutationsForSave(
     const freeTextNotes = nativeFreeTextNotesResult.value ?? [];
     const annotationDeletes = nativeAnnotationDeletesResult.value ?? [];
     const nativeNoteMutationCount = noteTextUpdates.length + freeTextNotes.length + annotationDeletes.length;
-    if (opts.savedPdfjsAnnotationBaselineDirty) {
+    const pendingDeleteCount = opts.pendingDeletes?.length ?? 0;
+    const pendingDeletesAreFullyCovered = pendingDeleteCount > 0
+        && annotationDeletes.length === pendingDeleteCount;
+    if (opts.savedPdfjsAnnotationBaselineDirty && !pendingDeletesAreFullyCovered) {
         // A preserved live PDF.js session can hide deleted/undone existing markup
         // outside annotationStorage until PDF.js serializes it.
         return skip('saved-pdfjs-baseline-dirty-requires-materialization');

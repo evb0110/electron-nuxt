@@ -13,7 +13,6 @@ import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/pdf-seri
 import type { IPdfPageMetric } from '@app/types/pdfUi';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
-import type { IPdfPagePreviewEntry } from '@app/modules/pdf-viewer/engine/pdf-page-preview/pdfPagePreviewTypes';
 import type {
     IPdfViewerSaveTransactionRequest,
     IPdfViewerSaveTransactionResult,
@@ -88,8 +87,6 @@ export interface IPdfViewerLoadExpose {
     getPageMetricsSnapshot?: () => IPdfPageMetric[];
 }
 
-export interface IPdfViewerPreviewExpose {getPagePreview: (page: number) => IPdfPagePreviewEntry | null;}
-
 export interface IPdfViewerRegionCaptureExpose {
     captureRegionToClipboard: () => Promise<boolean>;
     isCapturingRegion: boolean;
@@ -104,6 +101,7 @@ export interface IPdfViewerCropExpose {
 export interface IPdfViewerShapePersistenceExpose {
     adoptPersistedManagedShapesOnNextImport?: () => void;
     clearPendingManagedShapeImportAdoption?: () => void;
+    ensureManagedShapeBaselineReady?: () => Promise<void>;
     preparePersistedManagedShapesForSave?: (data: Uint8Array) => Promise<unknown>;
     restorePreparedManagedShapesAfterFailedSave?: (snapshot: unknown) => Promise<void>;
 }
@@ -126,6 +124,9 @@ export interface IPdfViewerBrowserPrintExpose {renderLoadedPdfPagesForBrowserPri
 export interface IPdfViewerAnnotationCommandExpose {
     annotationHistoryMutationVersion?: number | undefined;
     annotationHistoryResetVersion?: number | undefined;
+    hasCanonicalAnnotationChanges?: (() => boolean) | undefined;
+    getDeletedCanonicalAnnotationIds?: (() => string[]) | undefined;
+    getDeletedPersistedCanonicalAnnotationCount?: (() => number) | undefined;
     clearAnnotationHistory?: () => void;
     setWorkspaceCommandSink?: (sink: IWorkspaceCommandSink | null) => void;
     highlightSelection: () => Promise<boolean>;
@@ -205,7 +206,6 @@ export interface IPdfViewerImagePlacementExpose {
 export interface IPdfViewerExpose extends
     IDocumentViewerExpose,
     IPdfViewerLoadExpose,
-    IPdfViewerPreviewExpose,
     IPdfViewerRegionCaptureExpose,
     IPdfViewerCropExpose,
     IPdfViewerShapePersistenceExpose,

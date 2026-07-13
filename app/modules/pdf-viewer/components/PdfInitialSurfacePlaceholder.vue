@@ -4,7 +4,11 @@
         aria-hidden="true"
         data-evb-initial-visual-placeholder="true"
     >
-        <div class="pdf-initial-surface-placeholder__page-shell">
+        <div
+            class="pdf-initial-surface-placeholder__page-shell"
+            :class="{ 'pdf-initial-surface-placeholder__page-shell--measured': pageStyle != null }"
+            :style="pageStyle ?? undefined"
+        >
             <PdfPageSkeleton
                 :padding="skeletonPadding"
                 :content-height="skeletonContentHeight"
@@ -14,7 +18,10 @@
 </template>
 
 <script setup lang="ts">
+import type { StyleValue } from 'vue';
 import PdfPageSkeleton from '@app/modules/pdf-viewer/components/PdfPageSkeleton.vue';
+
+defineProps<{ pageStyle?: StyleValue | null }>();
 
 const skeletonPadding = {
     top: 56,
@@ -45,9 +52,14 @@ const skeletonContentHeight = 760;
     aspect-ratio: 1 / 1.409;
     margin-top: var(--app-initial-surface-offset);
     overflow: hidden;
-    border: 1px solid var(--ui-border);
-    border-radius: var(--app-radius-lg);
-    background: var(--ui-bg);
-    box-shadow: var(--shadow-popup);
+    border-radius: var(--app-pdf-page-radius);
+    background: var(--app-pdf-page-bg);
+    box-shadow: var(--app-pdf-page-shadow);
+}
+
+.pdf-initial-surface-placeholder__page-shell--measured {
+    max-width: 100%;
+    margin-inline: auto;
+    aspect-ratio: auto;
 }
 </style>

@@ -5,6 +5,22 @@ const placeholderSizeCache = new WeakMap<HTMLElement, {
     height: number;
 }>();
 
+function setStyleProperty(
+    style: CSSStyleDeclaration,
+    property: string,
+    value: string,
+) {
+    if (typeof style.setProperty === 'function') {
+        style.setProperty(property, value);
+        return;
+    }
+
+    // Some renderer unit tests intentionally use a minimal HTMLElement double.
+    // Keep this pure geometry helper compatible with those doubles without
+    // weakening the browser path, where CSSStyleDeclaration#setProperty exists.
+    Reflect.set(style, property, value);
+}
+
 export function setupPagePlaceholderSizes(
     containerRoot: HTMLElement,
     pageMetrics: IPdfPageMetric[],
@@ -22,6 +38,13 @@ export function setupPagePlaceholderSizes(
 
         const width = metric.width * scale;
         const height = metric.height * scale;
+        setStyleProperty(container.style, '--scale-factor', String(scale));
+        setStyleProperty(container.style, '--user-unit', String(metric.userUnit ?? 1));
+        setStyleProperty(
+            container.style,
+            '--total-scale-factor',
+            'calc(var(--scale-factor) * var(--user-unit, 1))',
+        );
         const cached = placeholderSizeCache.get(container);
         if (
             cached

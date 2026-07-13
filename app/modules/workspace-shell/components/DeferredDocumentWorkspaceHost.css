@@ -9,13 +9,15 @@
 }
 
 .workspace-host__placeholder {
-    position: relative;
-    z-index: var(--app-z-base);
+    position: absolute;
+    inset: 0;
+    z-index: var(--app-workspace-transition-overlay-z-index);
     display: flex;
     width: 100%;
     height: 100%;
     min-width: 0;
     min-height: 0;
+    background: var(--app-window-bg);
 }
 
 .workspace-host__workspace {
@@ -32,22 +34,8 @@
     position: absolute;
     inset: 0;
     z-index: var(--app-z-workspace-overlay);
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    display: block;
     pointer-events: none;
-    background: transparent;
-}
-
-.workspace-host__loading-chip {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--app-space-3xl);
-}
-
-.workspace-host__loading-label {
-    color: var(--ui-text-muted);
-    font-size: var(--app-text-size-body);
-    line-height: 1.25rem;
+    overflow: hidden;
+    background: var(--app-pdf-viewer-bg, var(--app-window-bg));
 }

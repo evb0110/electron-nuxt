@@ -154,7 +154,9 @@ function createTextMarkupOverlayPath(subtype: TMarkupSubtype, rect: IAnnotationM
 }
 
 function getEditedTextMarkupOverlayHost(pageContainer: HTMLElement) {
-    return pageContainer.querySelector<HTMLElement>('.page_canvas, .canvasWrapper') ?? pageContainer;
+    return pageContainer.querySelector<HTMLElement>('.page_canvas__render-layer')
+        ?? pageContainer.querySelector<HTMLElement>('.page_canvas, .canvasWrapper')
+        ?? pageContainer;
 }
 
 function getEditedTextMarkupOverlayRoot(pageContainer: HTMLElement) {

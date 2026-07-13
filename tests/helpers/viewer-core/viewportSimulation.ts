@@ -1,4 +1,4 @@
-export type TVisualState = 'none' | 'skeleton' | 'fresh' | 'stale';
+export type TVisualState = 'none' | 'skeleton' | 'ready';
 
 export interface IScrollRecord {
     author: 'ViewportAuthority' | 'user';
@@ -208,7 +208,7 @@ export class viewportSimulation {
             this.visualTransitions.push(`${page}:${generation}:none>${next}`);
             return true;
         }
-        if ((previous.state === 'fresh' || previous.state === 'stale') && next === 'skeleton') {
+        if (previous.state === 'ready' && next === 'skeleton') {
             return false;
         }
         this.visuals.set(page, {
@@ -239,7 +239,7 @@ export class viewportSimulation {
     }
 
     startOptionalWork() {
-        if (![...this.visuals.values()].some(visual => visual.state === 'fresh')) {
+        if (![...this.visuals.values()].some(visual => visual.state === 'ready')) {
             throw new Error('Optional work cannot precede the first stable visual');
         }
         this.optionalWorkStarted = true;

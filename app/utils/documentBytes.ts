@@ -8,6 +8,7 @@ export interface IReadDocumentBytesOptions {
     chunkSize?: number;
     knownSize?: number;
     maxBytes?: number;
+    signal?: AbortSignal;
 }
 
 function normalizeChunkSize(value: number | undefined) {
@@ -46,8 +47,10 @@ export async function readDocumentBytes(
     path: TDocumentRef,
     options: IReadDocumentBytesOptions = {},
 ) {
+    options.signal?.throwIfAborted();
     const documents = getDocumentFilesCapability();
     const size = await resolveDocumentSize(path, options.knownSize);
+    options.signal?.throwIfAborted();
 
     if (typeof options.maxBytes === 'number' && size > options.maxBytes) {
         throw new Error(`Document exceeds in-memory read limit (${options.maxBytes} bytes)`);
@@ -56,6 +59,7 @@ export async function readDocumentBytes(
     const chunkSize = normalizeChunkSize(options.chunkSize);
     if (size <= chunkSize) {
         const data = normalizeBytes(await documents.readFile(path));
+        options.signal?.throwIfAborted();
         assertWithinReadLimit(data.byteLength, options.maxBytes);
         assertReadSize(path, data.byteLength, size);
         return data;
@@ -65,8 +69,10 @@ export async function readDocumentBytes(
     let offset = 0;
 
     while (offset < size) {
+        options.signal?.throwIfAborted();
         const nextChunkLength = Math.min(chunkSize, size - offset);
         const chunk = await documents.readFileRange(path, offset, nextChunkLength);
+        options.signal?.throwIfAborted();
         assertReadSize(path, chunk.byteLength, nextChunkLength);
         output.set(chunk, offset);
         offset += chunk.byteLength;

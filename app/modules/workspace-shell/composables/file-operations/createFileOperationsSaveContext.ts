@@ -91,7 +91,7 @@ export function createFileOperationsSaveContext(
             bookmarks: state.metadata.bookmarksDirty.value,
             livePdfJsAnnotations: state.annotations.hasLivePdfJsAnnotationChanges?.() ?? false,
             pageLabels: state.metadata.pageLabelsDirty.value,
-            pendingDeletes: false,
+            pendingDeletes: state.annotations.hasPendingAnnotationDeletes?.() ?? false,
             pendingTexts: false,
             preservedAnnotationSource: state.annotations.hasPreservedAnnotationSourceChanges?.() ?? false,
             savedPdfjsAnnotationBaseline: state.annotations.hasSavedPdfJsAnnotationBaselineChanges?.() ?? false,
@@ -147,7 +147,7 @@ export function createFileOperationsSaveContext(
             return;
         }
 
-        BrowserLogger.debug('workspace', 'Starting handleSave', () => ({
+        BrowserLogger.diagnostic('workspace', 'Starting handleSave', () => ({
             hasWorkingCopyPath: Boolean(state.documentIdentity.workingCopyPath.value),
             annotationDirty: state.annotations.annotationDirty.value,
             pageLabelsDirty: state.metadata.pageLabelsDirty.value,
@@ -155,12 +155,14 @@ export function createFileOperationsSaveContext(
             hasAnnotationChanges: context.dirtyState.annotationChanges,
             hasShapeChanges: context.shapeStateDirty,
             hasLivePdfJsAnnotationChanges: context.dirtyState.livePdfJsAnnotations,
+            canAttemptNativeMutationSave: config.canAttemptNativeMutationSave,
             forceSerialize: config.forceSerialize === true,
             forceRewrite: config.forceRewrite === true,
             savePlanRoute: context.savePlan.persistenceRoute,
             preserveLivePdfjsAnnotationSession: context.savePlan.livePdfjsAnnotationSession.canPreserve,
             savedPdfjsAnnotationBaselineDirty: context.dirtyState.savedPdfjsAnnotationBaseline,
             preservedAnnotationSourceDirty: context.dirtyState.preservedAnnotationSource,
+            hasManagedShapes: viewer.shapes.hasManagedShapes?.() ?? false,
             includeManagedShapesForLiveSource: context.savePlan.pdfjsSourceMaterialization.includeManagedShapesForLiveSource,
             annotationNoteWindowsCount: annotationEdits.annotationNoteWindowsCount.value,
         }));

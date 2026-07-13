@@ -126,7 +126,11 @@ export const useWorkspaceDocumentSessions = (
             && current?.toolbarSnapshot.hasPdf !== true
             && !hasWorkspaceViewerDocumentCapabilities(current?.toolbarSnapshot.viewerCapabilities);
         const record = isPendingDocumentHint
-            ? createPendingWorkspaceDocumentRecord(nextTab)
+            ? createPendingWorkspaceDocumentRecord(
+                nextTab,
+                current?.toolbarSnapshot,
+                current?.viewState,
+            )
             : createWorkspaceDocumentRecord({
                 tab: nextTab,
                 documentIdentity: current?.documentIdentity,

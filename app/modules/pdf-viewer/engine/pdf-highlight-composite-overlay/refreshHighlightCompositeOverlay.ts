@@ -228,7 +228,8 @@ function buildCompositePlan(host: HTMLElement) {
  * by the MutationObserver installed via {@link observeHighlightCompositeOverlay}.
  */
 export function refreshHighlightCompositeOverlay(pageContainer: HTMLElement) {
-    const host = pageContainer.querySelector<IHighlightCompositeHost>('.page_canvas, .canvasWrapper');
+    const host = pageContainer.querySelector<IHighlightCompositeHost>('.page_canvas__render-layer')
+        ?? pageContainer.querySelector<IHighlightCompositeHost>('.page_canvas, .canvasWrapper');
     if (!host) {
         return;
     }

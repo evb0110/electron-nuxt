@@ -11,6 +11,8 @@ type TSerializableValue =
 
 type TPageFunction<TResult, TArgs extends TSerializableValue[]> = (...args: TArgs) => TResult;
 
+const PAGE_EVALUATION_SHIM_SOURCE = 'globalThis.__name = globalThis.__name || ((fn) => fn);';
+
 function serializeForPage(value: TSerializableValue) {
     if (value === undefined) {
         return 'undefined';
@@ -42,6 +44,11 @@ function buildPageInvocation<TResult, TArgs extends TSerializableValue[]>(
         const __name = (fn) => fn;
         return (${pageFunction.toString()})(${serializedArgs});
     })()`;
+}
+
+export async function installPageEvaluationShims(page: Page) {
+    await page.evaluateOnNewDocument(PAGE_EVALUATION_SHIM_SOURCE);
+    await page.evaluate(PAGE_EVALUATION_SHIM_SOURCE);
 }
 
 export async function evaluateInPage<TResult, TArgs extends TSerializableValue[]>(

@@ -1,5 +1,6 @@
 export {
     getDjvuPageSizesForViewing,
+    getDjvuPageSizeForViewing,
     renderDjvuPagePreview,
 } from '@electron/features/djvu/main/pagePreview';
 export {

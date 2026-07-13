@@ -459,6 +459,11 @@ export function registerDocumentsIpcAdapter(
         event: IpcMainInvokeEvent,
         ...[leaseId]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileReleaseManagedHandle>
     ) => service.releaseManagedTempFileHandle(createSenderIdContext(event), leaseId));
+    register(DOCUMENTS_CHANNELS.pdfOpeningGeometry, (
+        event: IpcMainInvokeEvent,
+        ...[filePath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.pdfOpeningGeometry>
+    ) =>
+        service.getPdfOpeningGeometry(createSenderIdContext(event), filePath));
     register(DOCUMENTS_CHANNELS.pdfNativePageSizes, (
         event: IpcMainInvokeEvent,
         ...[filePath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.pdfNativePageSizes>
@@ -770,10 +775,8 @@ export function registerDocumentsIpcAdapter(
     register(DOCUMENTS_CHANNELS.fileCleanup, (
         event: IpcMainInvokeEvent,
         ...[workingPath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileCleanup>
-    ) => {
-        service.cleanupFile(createSenderIdContext(event), workingPath);
-        return undefined;
-    });
+    ) => service.cleanupFile(createSenderIdContext(event), workingPath)
+        .then(() => undefined));
     register(DOCUMENTS_CHANNELS.recentFilesClear, () => service.clearRecentFiles());
     registerRawEvent(DOCUMENTS_CHANNELS.fileSavePdfDataPort, (event: IpcMainEvent, sessionId: unknown) => {
         try {

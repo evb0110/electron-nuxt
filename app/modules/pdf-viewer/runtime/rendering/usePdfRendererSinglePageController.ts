@@ -2,6 +2,7 @@ import { createPdfPageRenderState } from '@app/modules/pdf-viewer/runtime/render
 import type {
     IActivePdfRenderTask,
     ICancelableRenderTask,
+    IPdfCanvasDomCommit,
     IRenderVisiblePagesOptions,
     TClearSelectionBeforePageLayerTeardown,
 } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
@@ -21,13 +22,11 @@ import { isPageRenderTimeoutError } from '@app/modules/pdf-viewer/engine/pdf-pag
 import type { IPageRenderTimeoutError } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
 import { withPageStageTimeout } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
 import { PDF_PAGE_RENDER_TIMEOUT_MS } from '@app/constants/timeouts';
-import { pdfViewerDomClasses } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/pdfViewerDomClasses';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import type { IPdfDocumentPageLease } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument';
 import type {
     IPdfPageNumberStateMap,
-    IPdfPageNumberStateSet,
     TPdfPageRenderState,
 } from '@app/modules/pdf-viewer/runtime/rendering/pdfPageRenderState';
 
@@ -47,25 +46,38 @@ interface IRenderPageContext<TRenderResult> {
     annotationLayerInstance: unknown;
 }
 
+interface IPdfSinglePageRenderResult {canvas: HTMLCanvasElement;}
+
 type IPdfPageRenderLease = IPdfDocumentPageLease;
 
-interface IUsePdfRendererSinglePageControllerOptions<TRenderResult> {
+interface IUsePdfRendererSinglePageControllerOptions<TRenderResult extends IPdfSinglePageRenderResult> {
     isActive: MaybeRefOrGetter<boolean>;
     effectiveScale: MaybeRefOrGetter<number>;
     annotationUiManager: MaybeRefOrGetter<unknown>;
     getContainerRoot: () => HTMLElement | null;
     pageRenderState?: TPdfPageRenderState | undefined;
-    renderedPages: IPdfPageNumberStateSet;
-    staleRenderedPages: IPdfPageNumberStateSet;
     renderingPages: IPdfPageNumberStateMap;
     renderingPageRequestIds: IPdfPageNumberStateMap;
     activeRenderTasks: Map<number, IActivePdfRenderTask>;
     getRenderVersion: () => number;
     getRenderDocumentToken: () => string;
+    getDocumentRevision: () => string;
     getVisibleRenderRequestId: () => number;
     summarizePageDom: (pageNumber: number) => Record<string, unknown>;
     clearSelectionBeforePageLayerTeardown: TClearSelectionBeforePageLayerTeardown;
-    cleanupPageIfCurrentRender: (pageNumber: number, version: number, requestId?: number) => void;
+    clearPageVisual: (pageNumber: number) => boolean;
+    trackOptionalTextLayerTask: (
+        pageNumber: number,
+        version: number,
+        requestId: number,
+        task: Promise<unknown>,
+    ) => Promise<void>;
+    cleanupPageIfCurrentRender: (
+        pageNumber: number,
+        version: number,
+        requestId?: number,
+        options?: {terminalFailure?: boolean},
+    ) => void;
     cleanupCanvasRenderResult: (renderResult: TRenderResult) => void;
     loadPageForRender: (
         pageNumber: number,
@@ -104,10 +116,9 @@ interface IUsePdfRendererSinglePageControllerOptions<TRenderResult> {
         },
         shouldContinue: () => boolean,
     ) => Promise<TRenderResult | null>;
-    applyContainerDimensions: (
+    applyContainerUserUnit: (
         container: HTMLElement,
         renderResult: TRenderResult,
-        scale: number,
     ) => void;
     mountRenderedCanvas: (
         pageNumber: number,
@@ -167,14 +178,17 @@ interface IUsePdfRendererSinglePageControllerOptions<TRenderResult> {
     ) => Promise<TAnnotationEditorLayerRenderResult>;
     getViewportForAnnotationEditorLayer: (pdfPage: PDFPageProxy, scale: number) => ReturnType<PDFPageProxy['getViewport']>;
     scheduleOcrDebugForPage: (pageNumber: number, context: IRenderPageContext<TRenderResult>) => void;
-    onPageCanvasMounted?: ((pageNumber: number) => void) | undefined;
+    onPageCanvasMounted?: ((
+        commit: IPdfCanvasDomCommit,
+        renderOptions?: IRenderVisiblePagesOptions | undefined,
+    ) => void) | undefined;
     onPageRendered?: ((pageNumber: number) => void) | undefined;
     onRenderedPageStateChanged?: (() => void) | undefined;
     logNonCriticalStageError: (pageNumber: number, stage: string, error: unknown) => void;
     renderSupervisor?: IPdfRenderSupervisor | undefined;
 }
 
-export const usePdfRendererSinglePageController = <TRenderResult>(
+export const usePdfRendererSinglePageController = <TRenderResult extends IPdfSinglePageRenderResult>(
     options: IUsePdfRendererSinglePageControllerOptions<TRenderResult>,
 ) => {
     const {
@@ -182,23 +196,24 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
         effectiveScale,
         annotationUiManager: annotationUiManagerRef,
         getContainerRoot,
-        renderedPages,
-        staleRenderedPages,
         renderingPages,
         renderingPageRequestIds,
         activeRenderTasks,
         getRenderVersion,
         getRenderDocumentToken,
+        getDocumentRevision,
         getVisibleRenderRequestId,
         summarizePageDom,
         clearSelectionBeforePageLayerTeardown,
+        clearPageVisual,
+        trackOptionalTextLayerTask,
         cleanupPageIfCurrentRender,
         cleanupCanvasRenderResult,
         loadPageForRender,
         prepareCanvasRenderForPage,
         renderPreparedCanvasForPage,
         prepareCanvasForRender,
-        applyContainerDimensions,
+        applyContainerUserUnit,
         mountRenderedCanvas,
         scheduleRenderForSinglePage,
         scheduleMissingRenderTargetRetry,
@@ -233,6 +248,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
         pageLease: IPdfPageRenderLease,
         pageContainer: HTMLElement,
         shouldContinue: () => boolean,
+        releasePageLease = true,
     ) {
         if (getRenderVersion() !== version || !shouldContinue()) {
             logPdfRenderTrace('renderer-finalize-page-skip-stale', {
@@ -244,12 +260,13 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
             return false;
         }
 
-        pageLease.release();
-        if (!pageRenderState.commitCanvas(pageNumber, version, requestId)) {
+        if (releasePageLease) {
+            pageLease.release();
+        }
+        if (!pageRenderState.completeRender(pageNumber, version, requestId)) {
             return false;
         }
         options.markPageCanvasSurfaceEvictable(pageNumber);
-        pageContainer.classList.add(pdfViewerDomClasses.renderedPageContainer);
         logPdfRenderTrace('renderer-finalize-page', {
             pageNumber,
             version,
@@ -257,6 +274,18 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
             pageBeforeNotify: summarizePageDom(pageNumber),
         });
         onPageRendered?.(pageNumber);
+        onRenderedPageStateChanged?.();
+        return true;
+    }
+
+    function commitMountedCanvasVisual(
+        pageNumber: number,
+        version: number,
+        requestId: number,
+    ) {
+        if (!pageRenderState.commitVisual(pageNumber, version, requestId)) {
+            return false;
+        }
         onRenderedPageStateChanged?.();
         return true;
     }
@@ -276,12 +305,11 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
             return renderingPageRequestIds.get(pageNumber) === requestId;
         }
 
-        if (renderedPages.has(pageNumber)) {
-            const isStaleRender = staleRenderedPages.has(pageNumber);
+        if (pageRenderState.getSlot(pageNumber).visual === 'ready') {
             const hasMountedCanvas = Boolean(
                 target.container.querySelector<HTMLCanvasElement>('.page_canvas canvas'),
             );
-            if (!forceRerender && !isStaleRender && hasMountedCanvas) {
+            if (!forceRerender && hasMountedCanvas) {
                 return true;
             }
         }
@@ -299,7 +327,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
         }
 
         const canvasHost =
-            container.querySelector<HTMLDivElement>('.page_canvas');
+            container.querySelector<HTMLDivElement>('.page_canvas__render-layer');
         if (!canvasHost) {
             return null;
         }
@@ -319,6 +347,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
         renderResult: TRenderResult | null,
         requestId: number,
         shouldContinue: () => boolean,
+        renderOptions?: IRenderVisiblePagesOptions,
     ) {
         const pdfPage = pageLease.page;
         if (!renderResult) {
@@ -338,13 +367,23 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
         }
 
         mountRenderedCanvas(pageNumber, target.container, target.canvasHost, renderResult, scale);
+        if (!commitMountedCanvasVisual(pageNumber, version, requestId)) {
+            cleanupStaleMountedPageRender(pageNumber, version, requestId, pageLease);
+            return;
+        }
         logPdfRenderTrace('renderer-canvas-mounted', {
             pageNumber,
             version,
             requestId,
             page: summarizePageDom(pageNumber),
         });
-        onPageCanvasMounted?.(pageNumber);
+        onPageCanvasMounted?.({
+            openSurfaceGeneration: renderOptions?.openSurfaceGeneration ?? 0,
+            documentRevision: renderOptions?.openSurfaceRevision ?? getDocumentRevision(),
+            renderVersion: version,
+            requestId,
+            pageNumber,
+        }, renderOptions);
 
         const textLayerDiv =
             target.container.querySelector<HTMLDivElement>('.text-layer');
@@ -355,35 +394,38 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
             textLayerDiv,
             annotationLayerInstance: null,
         };
-        const shouldContinueAfterTextLayer = await renderTextLayerForPage(
-            pageNumber,
-            version,
-            requestId,
-            renderContext,
-            scale,
-            shouldContinue,
+        let canonicalRenderCompleted = false;
+        const tracksCanvasIdentity = renderResult.canvas.isConnected
+            && typeof target.container.contains === 'function';
+        const tracksTargetConnection = target.container.isConnected && target.canvasHost.isConnected;
+        const shouldContinueMountedLayers = () => (
+            getRenderVersion() === version
+            && (canonicalRenderCompleted || shouldContinue())
+            && (
+                !tracksTargetConnection
+                || (target.container.isConnected && target.canvasHost.isConnected)
+            )
+            && target.container.dataset.page === String(pageNumber)
+            && (
+                !tracksCanvasIdentity
+                || (
+                    renderResult.canvas.isConnected
+                    && target.container.contains(renderResult.canvas)
+                )
+            )
         );
-        if (!shouldContinueAfterTextLayer) {
-            cleanupStaleMountedPageRender(pageNumber, version, requestId, pageLease);
-            return;
-        }
-        if (!shouldContinue()) {
-            cleanupStaleMountedPageRender(pageNumber, version, requestId, pageLease);
-            return;
-        }
-
         const annotationRenderResult = await renderAnnotationLayersForPage(
             pageNumber,
             version,
             requestId,
             renderContext,
-            shouldContinue,
+            shouldContinueMountedLayers,
         );
         if (!annotationRenderResult.shouldContinue) {
             cleanupStaleMountedPageRender(pageNumber, version, requestId, pageLease);
             return;
         }
-        if (!shouldContinue()) {
+        if (!shouldContinueMountedLayers()) {
             cleanupStaleMountedPageRender(pageNumber, version, requestId, pageLease);
             return;
         }
@@ -391,7 +433,41 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
         renderContext.annotationLayerInstance =
             annotationRenderResult.annotationLayerInstance;
         scheduleOcrDebugForPage(pageNumber, renderContext);
-        finalizePageRender(pageNumber, version, requestId, pageLease, target.container, shouldContinue);
+        canonicalRenderCompleted = finalizePageRender(
+            pageNumber,
+            version,
+            requestId,
+            pageLease,
+            target.container,
+            shouldContinueMountedLayers,
+            false,
+        );
+        if (!canonicalRenderCompleted) {
+            cleanupStaleMountedPageRender(pageNumber, version, requestId, pageLease);
+            return;
+        }
+        const shouldRenderOptionalTextLayer = renderOptions?.continuationPriority !== 'nearby'
+            && renderOptions?.continuationPriority !== 'prefetch';
+        if (!shouldRenderOptionalTextLayer) {
+            pageLease.release();
+            return;
+        }
+        // The canonical render is complete before optional text work begins.
+        // The registry owns the continuation and its page lease, so source
+        // cleanup can cancel/drain it without keeping render/open readiness alive.
+        void trackOptionalTextLayerTask(
+            pageNumber,
+            version,
+            requestId,
+            renderTextLayerForPage(
+                pageNumber,
+                version,
+                requestId,
+                renderContext,
+                scale,
+                shouldContinueMountedLayers,
+            ).finally(() => pageLease.release()),
+        );
     }
 
     async function yieldForSearchNavigation(
@@ -426,6 +502,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
         requestId: number,
         documentToken: string,
         shouldContinue: () => boolean,
+        renderOptions?: IRenderVisiblePagesOptions,
     ) {
         const pdfPage = pageLease.page;
         if (getRenderVersion() !== version || !shouldContinue()) {
@@ -434,7 +511,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
             return;
         }
 
-        applyContainerDimensions(target.container, preparedCanvasRender, scale);
+        applyContainerUserUnit(target.container, preparedCanvasRender);
         const textLayerDiv =
             target.container.querySelector<HTMLDivElement>('.text-layer');
         const renderContext: IRenderPageContext<TRenderResult> = {
@@ -504,6 +581,10 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
         }
 
         mountRenderedCanvas(pageNumber, target.container, target.canvasHost, renderResult, scale);
+        if (!commitMountedCanvasVisual(pageNumber, version, requestId)) {
+            cleanupStaleMountedPageRender(pageNumber, version, requestId, pageLease);
+            return;
+        }
         logPdfRenderTrace('renderer-canvas-mounted', {
             pageNumber,
             version,
@@ -511,7 +592,13 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
             page: summarizePageDom(pageNumber),
             textLayerFirst: true,
         });
-        onPageCanvasMounted?.(pageNumber);
+        onPageCanvasMounted?.({
+            openSurfaceGeneration: renderOptions?.openSurfaceGeneration ?? 0,
+            documentRevision: renderOptions?.openSurfaceRevision ?? getDocumentRevision(),
+            renderVersion: version,
+            requestId,
+            pageNumber,
+        }, renderOptions);
 
         renderContext.renderResult = renderResult;
         const annotationRenderResult = await renderAnnotationLayersForPage(
@@ -541,6 +628,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
         version: number,
         requestId: number,
         documentToken: string,
+        renderOptions?: IRenderVisiblePagesOptions,
     ) {
         if (
             getRenderVersion() !== version
@@ -583,7 +671,12 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
                 });
                 return;
             }
+            const {
+                transactionRequest: _transactionRequest,
+                ...retryRenderOptions
+            } = renderOptions ?? {};
             scheduleRenderForSinglePage(pageNumber, {
+                ...retryRenderOptions,
                 preserveRenderedPages: true,
                 bufferOverride: 0,
             });
@@ -609,6 +702,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
         error: unknown,
         version: number,
         requestId: number,
+        renderOptions?: IRenderVisiblePagesOptions,
     ) {
         if (isRenderingCancelledError(error)) {
             scheduleCancelledPageRenderRetry(
@@ -616,14 +710,17 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
                 version,
                 requestId,
                 getRenderDocumentToken(),
+                renderOptions,
             );
             return;
         }
 
         if (isPageRenderTimeoutError(error)) {
             logPageRenderTimeout(error, version);
-            cleanupPageIfCurrentRender(pageNumber, version, requestId);
-            pageRenderState.markRenderFailed(pageNumber, version, requestId);
+            if (pageRenderState.markRenderFailed(pageNumber, version, requestId)) {
+                cleanupPageIfCurrentRender(pageNumber, version, requestId, {terminalFailure: true});
+                onRenderedPageStateChanged?.();
+            }
             return;
         }
 
@@ -631,8 +728,10 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
             'pdf-renderer',
             formatRenderError(error, pageNumber),
         );
-        cleanupPageIfCurrentRender(pageNumber, version, requestId);
-        pageRenderState.markRenderFailed(pageNumber, version, requestId);
+        if (pageRenderState.markRenderFailed(pageNumber, version, requestId)) {
+            cleanupPageIfCurrentRender(pageNumber, version, requestId, {terminalFailure: true});
+            onRenderedPageStateChanged?.();
+        }
     }
 
     function clearSinglePageRenderTracking(
@@ -751,8 +850,9 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
             scale,
             page: summarizePageDom(pageNumber),
         });
-        pageRenderState.beginRender(pageNumber, version, requestId, documentToken, scale);
         clearSelectionBeforePageLayerTeardown(pageNumber);
+        clearPageVisual(pageNumber);
+        pageRenderState.beginRender(pageNumber, version, requestId, documentToken, scale);
         let pageLease: IPdfPageRenderLease | null = null;
         try {
             logPdfRenderTrace('renderer-page-load-begin', {
@@ -812,6 +912,15 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
                         requestId,
                         renderVersion: getRenderVersion(),
                     });
+                    scheduleMissingRenderTargetRetry(
+                        pageNumber,
+                        version,
+                        requestId,
+                        requiredPages.has(pageNumber),
+                        visibleRange,
+                        documentToken,
+                        transactionRequest,
+                    );
                     pageLease.release();
                     return;
                 }
@@ -825,6 +934,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
                     requestId,
                     documentToken,
                     shouldContinuePage,
+                    renderOptions,
                 );
                 return;
             }
@@ -850,6 +960,15 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
                     requestId,
                     renderVersion: getRenderVersion(),
                 });
+                scheduleMissingRenderTargetRetry(
+                    pageNumber,
+                    version,
+                    requestId,
+                    requiredPages.has(pageNumber),
+                    visibleRange,
+                    documentToken,
+                    transactionRequest,
+                );
                 pageLease.release();
                 return;
             }
@@ -858,15 +977,18 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
                 version,
                 requestId,
             });
+            const mountedPageLease = pageLease;
+            pageLease = null;
             await mountSingleVisiblePageLayers(
                 pageNumber,
                 version,
                 scale,
                 target,
-                pageLease,
+                mountedPageLease,
                 renderResult,
                 requestId,
                 shouldContinuePage,
+                renderOptions,
             );
         } catch (error) {
             logPdfRenderTrace('renderer-single-page-error', {
@@ -881,6 +1003,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
                 error,
                 version,
                 requestId,
+                renderOptions,
             );
         } finally {
             pageLease?.release();
@@ -962,6 +1085,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
                     () => annotationEditorAbortController.abort(),
                     undefined,
                     options.renderSupervisor,
+                    annotationEditorAbortController.signal,
                 );
                 return editorLayerResult.ok
                     && editorLayerResult.rendered

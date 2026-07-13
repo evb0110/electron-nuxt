@@ -7,9 +7,7 @@ interface IWorkspaceHostPlaceholderSignals {
 
 export function shouldShowWorkspacePlaceholder(signals: IWorkspaceHostPlaceholderSignals) {
     return (
-        !signals.isDocumentOpenInFlight
-        && !signals.hasQueuedSplitRestore
-        && !signals.hasPendingDocumentHint
+        !signals.hasQueuedSplitRestore
         && !signals.hasVisibleDocument
     );
 }

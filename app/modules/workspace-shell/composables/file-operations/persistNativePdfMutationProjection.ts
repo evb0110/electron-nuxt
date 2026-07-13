@@ -19,7 +19,7 @@ export interface IPersistNativePdfMutationProjectionDeps {
             expectedWorkingPath?: TDocumentRef | null;
             expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
             modifiedAt: string;
-            verifyBeforeExpose?: (bytes: Uint8Array) => Promise<void>;
+            verifyPathBeforeExpose?: (path: TDocumentRef, knownSize: number) => Promise<void>;
             assertBeforeExpose?: () => Promise<void> | void;
         },
     ) => Promise<IPdfPersistResult | null>;
@@ -43,7 +43,7 @@ export interface IPersistNativePdfMutationProjectionOptions {
     expectedWorkingPath: TDocumentRef;
     expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
     modifiedAt: string;
-    verifyBeforeExpose?: (bytes: Uint8Array) => Promise<void>;
+    verifyPathBeforeExpose?: (path: TDocumentRef, knownSize: number) => Promise<void>;
     assertBeforeExpose?: () => Promise<void> | void;
 }
 

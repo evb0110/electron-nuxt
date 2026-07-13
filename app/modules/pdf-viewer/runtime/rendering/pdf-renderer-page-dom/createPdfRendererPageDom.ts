@@ -12,7 +12,6 @@ interface ICreatePdfRendererPageDomOptions {
     container: Ref<HTMLElement | null>;
     currentPage: Ref<number>;
     renderedPages: IPdfPageNumberStateSet;
-    staleRenderedPages: IPdfPageNumberStateSet;
     renderingPages: IPdfPageNumberStateMap;
     renderingPageRequestIds: IPdfPageNumberStateMap;
     pageCanvases: Map<number, HTMLCanvasElement>;
@@ -23,7 +22,6 @@ export function createPdfRendererPageDom(options: ICreatePdfRendererPageDomOptio
         container,
         currentPage,
         renderedPages,
-        staleRenderedPages,
         renderingPages,
         renderingPageRequestIds,
         pageCanvases,
@@ -50,6 +48,7 @@ export function createPdfRendererPageDom(options: ICreatePdfRendererPageDomOptio
     function summarizePageDom(pageNumber: number) {
         const pageContainer = getMountedPageContainer(pageNumber);
         const skeleton = pageContainer?.querySelector<HTMLElement>(pdfViewerDomSelectors.pageSkeleton) ?? null;
+        const canvas = pageContainer?.querySelector<HTMLCanvasElement>(pdfViewerDomSelectors.pageCanvasElement) ?? null;
         const getChildCount = (selector: string) => {
             const node = pageContainer?.querySelector(selector);
             return node?.childNodes?.length ?? null;
@@ -57,13 +56,14 @@ export function createPdfRendererPageDom(options: ICreatePdfRendererPageDomOptio
         return {
             hasContainer: Boolean(pageContainer),
             containerRenderedClass: pageContainer?.classList.contains(pdfViewerDomClasses.renderedPageContainer) ?? false,
-            hasCanvas: Boolean(pageContainer?.querySelector(pdfViewerDomSelectors.pageCanvasElement)),
+            hasCanvas: Boolean(canvas),
+            canvasPixelWidth: canvas?.width ?? null,
+            canvasPixelHeight: canvas?.height ?? null,
             skeletonDisplay: skeleton?.style.display ?? null,
             textLayerChildren: getChildCount(pdfViewerDomSelectors.textLayer),
             annotationLayerChildren: getChildCount(pdfViewerDomSelectors.annotationLayer),
             editorLayerChildren: getChildCount(pdfViewerDomSelectors.annotationEditorLayer),
             isRenderedState: renderedPages.has(pageNumber),
-            isStaleState: staleRenderedPages.has(pageNumber),
             renderingVersion: renderingPages.get(pageNumber) ?? null,
             renderingRequestId: renderingPageRequestIds.get(pageNumber) ?? null,
             trackedCanvas: pageCanvases.has(pageNumber),

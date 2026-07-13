@@ -9,11 +9,13 @@ import { fileURLToPath } from 'node:url';
 import {
     assertPublishUpdaterMetadataPolicy,
     assertPublishUpdaterMetadataReferences,
+    assertUpdaterMetadataVersion,
     expectsUpdaterMetadata,
     getRequiredArtifactPatterns,
     getUpdaterMetadataFileNames,
 } from './policy.mjs';
 import { assertMacUpdaterMetadataHashes } from './notarize-macos-dmgs.mjs';
+import { assertUpdaterArtifactIntegrity } from './assert-updater-artifact-integrity.mjs';
 
 function createBuildTarget(platform, arch) {
     if (![
@@ -49,6 +51,7 @@ export function assertBuildArtifacts({
     readMetadataText,
     readArtifactInfo,
     artifactNames,
+    expectedVersion,
 } = {}) {
     if (!platform || !arch) {
         throw new Error('Usage: assert-build-artifacts.mjs <artifactsDir> <platform> <arch>');
@@ -68,6 +71,22 @@ export function assertBuildArtifacts({
         files,
         readMetadataText ?? (metadataFileName => readFileSync(resolve(process.cwd(), artifactsDir, metadataFileName), 'utf8')),
     );
+    const metadataReader = readMetadataText ?? (metadataFileName => readFileSync(resolve(process.cwd(), artifactsDir, metadataFileName), 'utf8'));
+    if (hasUpdaterMetadata) {
+        const requiredVersion = expectedVersion
+            ?? (artifactNames == null ? JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8')).version : null);
+        if (requiredVersion !== null) {
+            assertUpdaterMetadataVersion(files, metadataReader, requiredVersion);
+        }
+        if (readArtifactInfo || artifactNames == null) {
+            assertUpdaterArtifactIntegrity({
+                artifactNames: files,
+                artifactsDir: resolve(process.cwd(), artifactsDir),
+                readArtifactInfo,
+                readMetadataText: metadataReader,
+            });
+        }
+    }
     const blockmaps = files.filter(fileName => fileName.endsWith('.blockmap'));
     const shouldPublishUpdaterMetadata = expectsUpdaterMetadata(target, env);
 
@@ -84,7 +103,7 @@ export function assertBuildArtifacts({
             artifactNames: files,
             artifactsDir,
             readArtifactInfo,
-            readMetadataText: readMetadataText ?? (metadataFileName => readFileSync(resolve(process.cwd(), artifactsDir, metadataFileName), 'utf8')),
+            readMetadataText: metadataReader,
         });
     }
     if (!shouldPublishUpdaterMetadata) {

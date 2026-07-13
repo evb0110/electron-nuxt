@@ -48,6 +48,58 @@ function createState(options?: {
 }
 
 describe('useWorkspaceViewState', () => {
+    it('preserves the latest of five immediate Recent-open page requests before metadata and viewer mount', () => {
+        const scrollToPage = vi.fn();
+        const beginProgrammaticPageNavigation = vi.fn();
+        const requestPageNavigation = vi.fn((page: number) => page);
+        const documentViewerRef = ref<Parameters<typeof useWorkspaceViewState>[0]['documentViewerRef']['value']>(null);
+        const state = useWorkspaceViewState({
+            fitMode: ref('width'),
+            zoomMode: ref('fit-width'),
+            zoom: ref(1),
+            dragMode: ref(false),
+            showSidebar: ref(false),
+            sidebarTab: ref('thumbnails'),
+            annotationTool: ref('none'),
+            annotationPlacingPageNote: ref(false),
+            annotationEditorState: ref({
+                isEditing: false,
+                isEmpty: true,
+                hasSomethingToUndo: false,
+                hasSomethingToRedo: false,
+                hasSelectedEditor: false,
+            }),
+            hasLivePdfJsAnnotationChanges: ref(false),
+            appAnnotationUndoDepth: ref(0),
+            hasOpenAnnotationNotes: ref(false),
+            canUndoHistory: ref(false),
+            canRedoHistory: ref(false),
+            currentPage: ref(1),
+            totalPages: ref(0),
+            beginProgrammaticPageNavigation,
+            requestPageNavigation,
+            documentViewerRef,
+        });
+
+        for (let page = 2; page <= 6; page += 1) {
+            state.handleGoToPage(page);
+        }
+
+        expect(beginProgrammaticPageNavigation).toHaveBeenCalledTimes(5);
+        expect(beginProgrammaticPageNavigation).toHaveBeenLastCalledWith(6);
+        expect(requestPageNavigation).toHaveBeenCalledTimes(5);
+        expect(requestPageNavigation).toHaveBeenLastCalledWith(6);
+        expect(scrollToPage).not.toHaveBeenCalled();
+
+        documentViewerRef.value = {
+            getViewerContainer: () => null,
+            scrollToPage,
+        };
+
+        expect(scrollToPage).toHaveBeenCalledOnce();
+        expect(scrollToPage).toHaveBeenCalledWith(6, undefined);
+    });
+
     it('marks fit width active at zoom 1', () => {
         const state = createState();
         expect(state.isFitWidthActive.value).toBe(true);
@@ -62,7 +114,7 @@ describe('useWorkspaceViewState', () => {
         expect(state.isFitWidthActive.value).toBe(false);
     });
 
-    it('cancels programmatic viewer navigation before changing fit mode', () => {
+    it('preserves viewport navigation authority while changing fit mode', () => {
         const cancelProgrammaticNavigation = vi.fn();
         const state = useWorkspaceViewState({
             fitMode: ref('width'),
@@ -97,7 +149,7 @@ describe('useWorkspaceViewState', () => {
 
         state.handleFitMode('height');
 
-        expect(cancelProgrammaticNavigation).toHaveBeenCalledOnce();
+        expect(cancelProgrammaticNavigation).not.toHaveBeenCalled();
     });
 
     it('contains fit-width apply failures after mode state changes', async () => {

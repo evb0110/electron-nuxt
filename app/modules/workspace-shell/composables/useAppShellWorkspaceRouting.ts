@@ -14,6 +14,8 @@ import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
+import { getDocumentOpenCapability } from '@app/utils/platformDocuments';
+import { readRecentOpenExactGeometry } from '@app/modules/workspace-shell/host/recentOpenGeometryReadiness';
 import type { TWindowTabsAction } from '@contracts/windowTabs';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 
@@ -107,21 +109,49 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
             || tabHasDocumentHint(record.tab);
     }
 
-    function recordHasSettledDocumentEvidence(record: IWorkspaceDocumentRecord | null) {
+    function recordMatchesDocumentTarget(
+        record: IWorkspaceDocumentRecord,
+        pathOrResult: TWorkspaceOpenDocumentTarget,
+    ) {
+        const expected = buildPendingTabDocumentHint(pathOrResult);
+        if (expected.originalPath) {
+            return record.tab.originalPath === expected.originalPath;
+        }
+
+        if (expected.fileName && record.tab.fileName !== expected.fileName) {
+            return false;
+        }
+
+        return typeof pathOrResult !== 'string'
+            && pathOrResult.kind === 'pdf'
+            && record.documentIdentity?.documentRef === pathOrResult.workingPath;
+    }
+
+    function recordHasSettledDocumentEvidence(
+        record: IWorkspaceDocumentRecord | null,
+        pathOrResult: TWorkspaceOpenDocumentTarget,
+    ) {
         if (!record || record.toolbarSnapshot.isOpeningDocument) {
             return false;
         }
 
-        return hasWorkspaceViewerDocumentCapabilities(record.toolbarSnapshot.viewerCapabilities)
-            || record.toolbarSnapshot.hasOpenError === true
-            || record.documentIdentity !== null
-            || record.tab.originalPath !== null
-            || record.tab.fileName !== null
-            || record.tab.isDjvu;
+        return record.toolbarSnapshot.hasOpenError === true
+            || (
+                recordMatchesDocumentTarget(record, pathOrResult)
+                && (
+                    record.toolbarSnapshot.initialVisualReady
+                    || record.toolbarSnapshot.hasPdf
+                    || hasWorkspaceViewerDocumentCapabilities(record.toolbarSnapshot.viewerCapabilities)
+                )
+            );
     }
 
-    function workspaceHasSettledDocumentEvidence(tabId: string, workspace: IWorkspaceExpose | null) {
-        if (recordHasSettledDocumentEvidence(getDocumentRecord(tabId))) {
+    function workspaceHasSettledDocumentEvidence(
+        tabId: string,
+        workspace: IWorkspaceExpose | null,
+        pathOrResult: TWorkspaceOpenDocumentTarget,
+    ) {
+        if (recordHasSettledDocumentEvidence(getDocumentRecord(tabId), pathOrResult)) {
             return true;
         }
 
@@ -130,25 +160,28 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         }
 
         const snapshot = readWorkspaceToolbarSnapshot(workspace);
-        return snapshot?.isOpeningDocument !== true
-            && (
-                hasWorkspaceViewerDocumentCapabilities(snapshot?.viewerCapabilities)
-                || snapshot?.hasOpenError === true
-                || workspaceHasPdf(workspace)
-            );
+        return Boolean(
+            snapshot
+            && !snapshot.isOpeningDocument
+            && snapshot.hasOpenError,
+        );
     }
 
-    async function waitForSettledDocumentEvidence(tabId: string, workspace: IWorkspaceExpose | null) {
+    async function waitForSettledDocumentEvidence(
+        tabId: string,
+        workspace: IWorkspaceExpose | null,
+        pathOrResult: TWorkspaceOpenDocumentTarget,
+    ) {
         const deadline = Date.now() + DOCUMENT_OPEN_RECOVERY_TIMEOUT_MS;
         while (Date.now() < deadline) {
-            if (workspaceHasSettledDocumentEvidence(tabId, workspace)) {
+            if (workspaceHasSettledDocumentEvidence(tabId, workspace, pathOrResult)) {
                 return true;
             }
 
             await new Promise(resolve => setTimeout(resolve, DOCUMENT_OPEN_RECOVERY_POLL_INTERVAL_MS));
         }
 
-        return workspaceHasSettledDocumentEvidence(tabId, workspace);
+        return workspaceHasSettledDocumentEvidence(tabId, workspace, pathOrResult);
     }
 
     function workspaceOccupiesTab(tabId: string, workspace: IWorkspaceExpose) {
@@ -212,6 +245,25 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         };
     }
 
+    function replaceTabDocumentHint(tabId: string, pathOrResult: TWorkspaceOpenDocumentTarget): ISeededTabDocumentHint | null {
+        const tab = getTabById(tabId);
+        if (!tab) {
+            return null;
+        }
+
+        const pending = buildPendingTabDocumentHint(pathOrResult);
+        const previous = {
+            fileName: tab.fileName,
+            originalPath: tab.originalPath,
+            isDjvu: tab.isDjvu,
+        };
+        updateTab(tab.id, pending);
+        return {
+            pending,
+            previous,
+        };
+    }
+
     function tabStillShowsSeededDocumentHint(tab: ITab, hint: Partial<ITab>) {
         return tab.fileName === (hint.fileName ?? null)
             && tab.originalPath === (hint.originalPath ?? null)
@@ -258,15 +310,21 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
             return false;
         }
 
-        const seededHint = openOptions.documentHintAlreadySeeded
-            ? null
-            : seedTabDocumentHint(tabId, pathOrResult);
+        // The workspace must claim the open transaction before its display hint
+        // changes. Otherwise DeferredDocumentWorkspaceHost interprets the live
+        // hint as a restored-session command and opens the same path twice.
         const opened = await openDocumentInWorkspace(workspace, pathOrResult);
+        const seededHint = opened && !openOptions.documentHintAlreadySeeded
+            ? seedTabDocumentHint(tabId, pathOrResult)
+            : null;
         if (opened) {
             return true;
         }
 
-        if (await waitForSettledDocumentEvidence(tabId, workspace)) {
+        if (await waitForSettledDocumentEvidence(tabId, workspace, pathOrResult)) {
+            if (!openOptions.documentHintAlreadySeeded) {
+                seedTabDocumentHint(tabId, pathOrResult);
+            }
             BrowserLogger.warn('workspace-routing', 'Keeping existing tab after open returned false because document state settled', {tabId});
             return true;
         }
@@ -299,7 +357,6 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         const tab = createTab({
             ...(targetPaneId !== undefined ? { paneId: targetPaneId } : {}),
             activate: true,
-            initial: buildPendingTabDocumentHint(pathOrResult),
         });
         const workspace = await waitForWorkspace(tab.id);
         if (!workspace) {
@@ -308,12 +365,15 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         }
 
         const opened = await openDocumentInWorkspace(workspace, pathOrResult);
+        const seededHint = opened ? seedTabDocumentHint(tab.id, pathOrResult) : null;
         if (!opened) {
-            if (await waitForSettledDocumentEvidence(tab.id, workspace)) {
+            if (await waitForSettledDocumentEvidence(tab.id, workspace, pathOrResult)) {
+                seedTabDocumentHint(tab.id, pathOrResult);
                 BrowserLogger.warn('workspace-routing', 'Keeping new tab after open returned false because document state settled', {tabId: tab.id});
                 return true;
             }
 
+            rollbackSeededTabDocumentHint(tab.id, seededHint);
             removeTabFromState(tab.id);
         }
         return opened;
@@ -334,11 +394,16 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
 
         const resolvedWorkspace = workspace ?? await resolveWorkspaceForTab(tabId);
         if (resolvedWorkspace && tabId && tabId !== attemptedExistingTabId && !workspaceOccupiesTab(tabId, resolvedWorkspace)) {
-            seedTabDocumentHint(tabId, pathOrResult);
             const opened = await openDocumentInWorkspace(resolvedWorkspace, pathOrResult);
+            const seededHint = opened ? seedTabDocumentHint(tabId, pathOrResult) : null;
             if (opened) {
                 return true;
             }
+            if (await waitForSettledDocumentEvidence(tabId, resolvedWorkspace, pathOrResult)) {
+                seedTabDocumentHint(tabId, pathOrResult);
+                return true;
+            }
+            rollbackSeededTabDocumentHint(tabId, seededHint);
         }
 
         return handleOpenInNewTab(pathOrResult, activePaneId.value ?? undefined);
@@ -349,21 +414,41 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
     }
 
     async function openPathInAppropriateTab(path: TDocumentRef) {
-        return openDocumentInAppropriateTab(path);
+        if (readRecentOpenExactGeometry(path)) {
+            // Recent/startup preparation already gave the host a validated,
+            // revision-fenced frame. Preserve the latency-sensitive immediate
+            // claim; its document flow may create the working copy in parallel.
+            return openDocumentInAppropriateTab(path);
+        }
+        // A cold path is resolved by the main process before the workspace
+        // claims its one opening-surface transaction. For PDFs this result
+        // carries authoritative first-page geometry discovered from the
+        // admitted working copy, so the host can begin atomically with
+        // the exact frame instead of retargeting a later viewer-local shell.
+        const result = await getDocumentOpenCapability().openDocumentDirect(path);
+        return result ? openDocumentInAppropriateTab(result) : false;
     }
 
-    async function openPathInReservedTab(tabId: string, path: TDocumentRef) {
+    async function openPathInReservedTab(tabId: string, path: TWorkspaceOpenDocumentTarget) {
         const tab = getTabById(tabId);
         if (!tab) {
             return false;
         }
-        updateTab(tabId, buildPendingTabDocumentHint(path));
-        await nextTick();
         const workspace = await resolveWorkspaceForTab(tabId);
         if (!workspace) {
             return false;
         }
-        return openDocumentInWorkspace(workspace, path);
+        const opened = await openDocumentInWorkspace(workspace, path);
+        const seededHint = opened ? replaceTabDocumentHint(tabId, path) : null;
+        if (!opened) {
+            if (await waitForSettledDocumentEvidence(tabId, workspace, path)) {
+                replaceTabDocumentHint(tabId, path);
+                BrowserLogger.warn('workspace-routing', 'Keeping reserved tab after open returned false because document state settled', {tabId});
+                return true;
+            }
+            rollbackSeededTabDocumentHint(tabId, seededHint);
+        }
+        return opened;
     }
 
     async function openPathsInAppropriateTab(paths: TDocumentRef[]) {
@@ -433,7 +518,6 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
             const tab = createTab({
                 paneId: activePaneId.value,
                 activate: index === normalizedPaths.length - 1,
-                initial: buildPendingTabDocumentHint(path),
             });
             startupOpenTasks.push((async () => {
                 const workspace = await waitForWorkspace(tab.id);
@@ -442,8 +526,10 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
                     return;
                 }
                 const opened = await workspace.handleOpenFileDirectWithPersist(path);
+                const seededHint = opened ? seedTabDocumentHint(tab.id, path) : null;
                 if (!opened) {
-                    if (await waitForSettledDocumentEvidence(tab.id, workspace)) {
+                    if (await waitForSettledDocumentEvidence(tab.id, workspace, path)) {
+                        seedTabDocumentHint(tab.id, path);
                         BrowserLogger.warn('workspace-routing', 'Keeping startup-created tab after open returned false because document state settled', {
                             tabId: tab.id,
                             pathIndex: index,
@@ -451,6 +537,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
                         return;
                     }
 
+                    rollbackSeededTabDocumentHint(tab.id, seededHint);
                     removeTabFromState(tab.id);
                     throw new Error('Startup tab document open did not complete');
                 }

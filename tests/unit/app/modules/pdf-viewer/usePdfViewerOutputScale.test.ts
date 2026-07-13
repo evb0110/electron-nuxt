@@ -83,7 +83,7 @@ describe('usePdfViewerOutputScale', () => {
 
         window.dispatchEvent(new Event('resize'));
 
-        expect(outputScale.value).toBe(1);
+        expect(outputScale.value).toBe(2);
         expect(window.matchMedia).toHaveBeenCalledOnce();
         expect(mediaQueries[0]?.removeEventListener).not.toHaveBeenCalled();
 
@@ -91,8 +91,15 @@ describe('usePdfViewerOutputScale', () => {
         window.dispatchEvent(new Event('resize'));
 
         expect(outputScale.value).toBe(2);
+        expect(window.matchMedia).toHaveBeenCalledOnce();
+        expect(mediaQueries[0]?.removeEventListener).not.toHaveBeenCalled();
+
+        setDevicePixelRatio(3);
+        window.dispatchEvent(new Event('resize'));
+
+        expect(outputScale.value).toBe(3);
         expect(window.matchMedia).toHaveBeenCalledTimes(2);
-        expect(window.matchMedia).toHaveBeenLastCalledWith('(resolution: 2dppx)');
+        expect(window.matchMedia).toHaveBeenLastCalledWith('(resolution: 3dppx)');
         expect(mediaQueries[0]?.removeEventListener).toHaveBeenCalledOnce();
 
         scope.stop();

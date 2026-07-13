@@ -34,8 +34,9 @@ const mocks = vi.hoisted(() => {
             stderr: '',
             exitCode: 0,
         })),
-        stat: vi.fn(async () => ({
+        stat: vi.fn(async (_path?: string) => ({
             isFile: () => true,
+            mtimeMs: 1,
             size: tinyPpm.byteLength,
         })),
     };
@@ -60,6 +61,8 @@ vi.mock('@electron/image/tryCreatePdfWithNativeImageCombiner', () => ({
 vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({convertDjvuPageToImage: mocks.convertDjvuPageToImage}));
 
 const {
+    clearDjvuPageSizeCacheForTests,
+    getDjvuPageSizesForViewing,
     parseDjvuPageSizeOutput,
     renderDjvuPagePreview,
 } = await import('@electron/features/djvu/main/pagePreview');
@@ -67,6 +70,7 @@ const {
 describe('DjVu native page preview helpers', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        clearDjvuPageSizeCacheForTests();
         mocks.convertDjvuPageToImage.mockResolvedValue({
             success: true,
             outputPath: '/tmp/djvu-preview-test/page.ppm',
@@ -88,6 +92,7 @@ describe('DjVu native page preview helpers', () => {
         });
         mocks.stat.mockResolvedValue({
             isFile: () => true,
+            mtimeMs: 1,
             size: mocks.tinyPpm.byteLength,
         });
     });
@@ -156,11 +161,96 @@ describe('DjVu native page preview helpers', () => {
         );
     });
 
-    it('rejects oversized PPM output before reading it into memory', async () => {
-        mocks.stat.mockResolvedValueOnce({
-            isFile: () => true,
-            size: 193 * 1024 * 1024,
+    it('downsamples viewport previews in ddjvu instead of decoding archival resolution', async () => {
+        mocks.runNativeCommand.mockResolvedValueOnce({
+            stdout: '1293 1966',
+            stderr: '',
+            exitCode: 0,
         });
+
+        await renderDjvuPagePreview('/tmp/book.djvu', 1, {targetWidthPx: 400});
+
+        expect(mocks.convertDjvuPageToImage).toHaveBeenCalledWith(
+            '/tmp/book.djvu',
+            expect.stringMatching(/^\/tmp\/djvu-preview-test\/page-1-.+\.ppm$/u),
+            1,
+            expect.stringMatching(/^djvu-preview-page-1-/u),
+            {
+                format: 'ppm',
+                targetHeightPx: 608,
+                targetWidthPx: 400,
+            },
+        );
+    });
+
+    it('reuses the page metrics loaded at open instead of spawning a size probe per preview', async () => {
+        mocks.runNativeCommand.mockResolvedValue({
+            stdout: '1293 1966',
+            stderr: '',
+            exitCode: 0,
+        });
+        await getDjvuPageSizesForViewing('/tmp/book.djvu', 1);
+
+        await renderDjvuPagePreview('/tmp/book.djvu', 1, {targetWidthPx: 400});
+
+        expect(mocks.runNativeCommand).toHaveBeenCalledOnce();
+        expect(mocks.convertDjvuPageToImage).toHaveBeenCalledWith(
+            '/tmp/book.djvu',
+            expect.any(String),
+            1,
+            expect.any(String),
+            expect.objectContaining({
+                targetHeightPx: 608,
+                targetWidthPx: 400,
+            }),
+        );
+    });
+
+    it('invalidates cached page metrics when the file revision changes at the same path', async () => {
+        mocks.stat
+            .mockResolvedValueOnce({
+                isFile: () => true,
+                mtimeMs: 1,
+                size: 100,
+            })
+            .mockResolvedValueOnce({
+                isFile: () => true,
+                mtimeMs: 2,
+                size: 101,
+            });
+        mocks.runNativeCommand
+            .mockResolvedValueOnce({
+                stdout: '100 200',
+                stderr: '',
+                exitCode: 0,
+            })
+            .mockResolvedValueOnce({
+                stdout: '300 400',
+                stderr: '',
+                exitCode: 0,
+            });
+
+        await getDjvuPageSizesForViewing('/tmp/reused.djvu', 1);
+        await renderDjvuPagePreview('/tmp/reused.djvu', 1, {targetWidthPx: 150});
+
+        expect(mocks.runNativeCommand).toHaveBeenCalledTimes(2);
+        expect(mocks.convertDjvuPageToImage).toHaveBeenCalledWith(
+            '/tmp/reused.djvu',
+            expect.any(String),
+            1,
+            expect.any(String),
+            expect.objectContaining({targetHeightPx: 200}),
+        );
+    });
+
+    it('rejects oversized PPM output before reading it into memory', async () => {
+        mocks.stat.mockImplementation(async (path?: string) => ({
+            isFile: () => true as const,
+            mtimeMs: 1,
+            size: path?.endsWith('.ppm') === true
+                ? 193 * 1024 * 1024
+                : mocks.tinyPpm.byteLength,
+        }));
 
         await expect(renderDjvuPagePreview('/tmp/book.djvu', 1, {subsample: 4}))
             .rejects

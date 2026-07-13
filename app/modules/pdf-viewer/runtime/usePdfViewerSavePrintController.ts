@@ -14,6 +14,7 @@ import { usePdfViewerSaveTransaction } from '@app/modules/pdf-viewer/runtime/sav
 import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
 import type { ISerializationPlan } from '@app/modules/pdf-viewer/serialization/serializationPlan';
+import type {ICanonicalAnnotationIdentityBinding} from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-annotations/applyCanonicalAnnotationIdentityBindings';
 
 interface IUsePdfViewerSavePrintControllerOptions {
     getPdfDocument: () => PDFDocumentProxy | null;
@@ -24,10 +25,13 @@ interface IUsePdfViewerSavePrintControllerOptions {
     getAllShapes?: () => IShapeAnnotation[];
     getDeletedEmbeddedShapeAnnotationIds?: () => string[];
     getDeletedEmbeddedShapeStableKeys?: () => string[];
+    ensureManagedShapeBaselineReady?: () => Promise<void>;
     prepareAnnotationSave?: () => {
         plan?: ISerializationPlan;
         verify(bytes: Uint8Array): Promise<void>;
+        verifyPath?(path: string, knownSize: number): Promise<void>;
         assertCurrent?(): Promise<void> | void;
+        recordMaterializedIdentityBinding?(binding: ICanonicalAnnotationIdentityBinding): void;
         commit(): void;
     };
 }
@@ -59,6 +63,7 @@ export const usePdfViewerSavePrintController = (options: IUsePdfViewerSavePrintC
         ...(options.getAllShapes ? {getAllShapes: options.getAllShapes} : {}),
         ...(options.getDeletedEmbeddedShapeAnnotationIds ? {getDeletedEmbeddedShapeAnnotationIds: options.getDeletedEmbeddedShapeAnnotationIds} : {}),
         ...(options.getDeletedEmbeddedShapeStableKeys ? {getDeletedEmbeddedShapeStableKeys: options.getDeletedEmbeddedShapeStableKeys} : {}),
+        ...(options.ensureManagedShapeBaselineReady ? {ensureManagedShapeBaselineReady: options.ensureManagedShapeBaselineReady} : {}),
         ...(options.prepareAnnotationSave ? {prepareAnnotationSave: options.prepareAnnotationSave} : {}),
     });
 

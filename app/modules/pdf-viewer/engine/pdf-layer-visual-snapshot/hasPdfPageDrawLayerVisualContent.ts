@@ -2,7 +2,9 @@ import { hasPdfDrawLayerVisualContent } from '@app/modules/pdf-viewer/engine/pdf
 
 function getCanvasHost(pageContainer: HTMLElement | null | undefined) {
     return typeof pageContainer?.querySelector === 'function'
-        ? pageContainer.querySelector<HTMLElement>('.page_canvas, .canvasWrapper') ?? null
+        ? pageContainer.querySelector<HTMLElement>('.page_canvas__render-layer')
+            ?? pageContainer.querySelector<HTMLElement>('.page_canvas, .canvasWrapper')
+            ?? null
         : null;
 }
 

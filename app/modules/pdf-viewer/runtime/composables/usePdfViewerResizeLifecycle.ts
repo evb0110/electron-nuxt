@@ -66,6 +66,7 @@ interface IUsePdfViewerResizeLifecycleOptions {
 }
 
 interface IResizeLifecycleTransactionController {
+    activeTransaction?: Readonly<Ref<Pick<IPdfViewerTransaction, 'kind'> | null>> | undefined;
     beginTransaction: (options: {
         kind: 'resize';
         source: 'resize-observer' | 'resize-settle';
@@ -107,6 +108,33 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
     let dragSettleClaimed = false;
     let dragSettleClaimReleaseTimer: ReturnType<typeof setTimeout> | null = null;
     let pendingResizeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+    let pendingTransactionOwnedResize = false;
+    let lastObservedViewportSize: {
+        width: number;
+        height: number
+    } | null = null;
+
+    function readViewportSize() {
+        const container = viewerContainer.value;
+        return container
+            ? {
+                width: container.clientWidth,
+                height: container.clientHeight,
+            }
+            : null;
+    }
+
+    function consumeViewportGeometryChange() {
+        const nextSize = readViewportSize();
+        const previousSize = lastObservedViewportSize;
+        lastObservedViewportSize = nextSize;
+        return !nextSize
+            || !previousSize
+            || nextSize.width !== previousSize.width
+            || nextSize.height !== previousSize.height;
+    }
+
+    lastObservedViewportSize = readViewportSize();
 
     function beginResizeTransaction(
         anchor: IResizeAnchorContext,
@@ -212,6 +240,17 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
             ? normalizePreferredAnchorPage(optionsOverride.preferredAnchorPage)
             : null;
         const anchorPage = preferredAnchorPage ?? currentPage.value;
+        const capturedSemanticAnchor = options.captureViewportAnchor?.() ?? null;
+        // Geometry may already reflect a new scale while scrollTop still
+        // belongs to the preceding geometry epoch. Preserve the trusted page
+        // owner and only reuse the point fractions from that physical sample;
+        // otherwise a resize caused by zoom can reinterpret page 7 as page 2.
+        const semanticAnchor = preferredAnchorPage !== null && capturedSemanticAnchor
+            ? {
+                ...capturedSemanticAnchor,
+                page: preferredAnchorPage,
+            }
+            : capturedSemanticAnchor;
         BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'anchor-build-captured', ZOOM_QUEUE_LOG_THROTTLE_MS, '[anchor-build] captured', {
             optionsOverride: optionsOverride ?? null,
             anchorPage,
@@ -226,7 +265,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
                 end: visibleRange.value.end,
             },
             viewerMetrics: summarizeViewerMetricsForLog(viewerContainer.value),
-            semanticAnchor: options.captureViewportAnchor?.() ?? null,
+            semanticAnchor,
         } satisfies IResizeAnchorContext;
     }
 
@@ -302,6 +341,24 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
         if (isActive?.value === false) {
             return;
         }
+        const activeTransactionKind = options.transactionController?.activeTransaction?.value?.kind;
+        if (activeTransactionKind === 'zoom') {
+            // A zoom transaction owns both the scale mutation and its semantic
+            // anchor. Record the client-size side effect (commonly scrollbar
+            // admission at high zoom), but do not replay it as an independent
+            // resize after the target-scale canvas commits. Such a replay would
+            // clear that crisp canvas and start a second skeleton/render cycle.
+            consumeViewportGeometryChange();
+            return;
+        }
+        if (activeTransactionKind === 'reload') {
+            // Reload owns a semantic anchor from the geometry epoch that
+            // preceded its layout mutation. Reload
+            // still replays after settlement because it may replace the whole
+            // document surface and therefore require a fresh fit calculation.
+            pendingTransactionOwnedResize = true;
+            return;
+        }
         if (isLoading.value) {
             return;
         }
@@ -320,7 +377,11 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
             preferredAnchorPage,
             trustPreferredAnchorPage: true,
         });
+        const viewportGeometryChanged = consumeViewportGeometryChange();
         const updated = computeFitWidthScale(viewerContainer.value);
+        if (!updated && !viewportGeometryChanged) {
+            return;
+        }
         if (pdfDocument.value) {
             if (pendingResizeAnchor) {
                 BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'resize-anchor-preserved', ZOOM_QUEUE_LOG_THROTTLE_MS, '[resize-anchor] preserved first anchor in resize burst', {
@@ -364,6 +425,26 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
     }
 
     useResizeObserver(viewerContainer, handleResize);
+
+    watch(viewerContainer, () => {
+        lastObservedViewportSize = readViewportSize();
+    }, { flush: 'sync' });
+
+    watch(
+        () => options.transactionController?.activeTransaction?.value?.kind ?? null,
+        (kind, previousKind) => {
+            if (
+                previousKind !== 'reload'
+                || kind === 'reload'
+                || kind === 'zoom'
+                || !pendingTransactionOwnedResize
+            ) {
+                return;
+            }
+            pendingTransactionOwnedResize = false;
+            void nextTick().then(handleResize);
+        },
+    );
 
     watch(isResizing, async (value, previous) => {
         const runId = ++dragSettleRunId;
@@ -439,6 +520,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
             pendingResizeTransitionHideTimer = null;
         }
         pendingResizeAnchor = null;
+        pendingTransactionOwnedResize = false;
         dragResizeAnchor = null;
         dragSettleRunId += 1;
         dragSettleClaimed = false;

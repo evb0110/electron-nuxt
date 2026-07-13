@@ -10,6 +10,7 @@ import {
 import {
     mkdir,
     readFile,
+    rename,
     unlink,
     writeFile,
 } from 'fs/promises';
@@ -465,13 +466,40 @@ export async function assertWorkingCopyRevisionSidecarCurrent(
 export async function writeWorkingCopyRevisionSidecar(
     workingCopyPath: string,
     sidecar: IWorkingCopyRevisionSidecar,
+    options: {markMutationCommitStarted?: boolean} = {},
 ) {
     const sidecarPath = getWorkingCopyRevisionSidecarPath(workingCopyPath);
     const tempPath = `${sidecarPath}.${process.pid}.${randomUUID()}.tmp`;
     await mkdir(dirname(sidecarPath), { recursive: true });
     try {
         await writeFile(tempPath, `${JSON.stringify(sidecar)}\n`, 'utf8');
-        await atomicReplace(tempPath, sidecarPath);
+        await atomicReplace(tempPath, sidecarPath, options);
+    } catch (error) {
+        await unlink(tempPath).catch(() => undefined);
+        throw error;
+    }
+}
+
+/**
+ * Publishes the initial revision for a newly-created, disposable working copy.
+ *
+ * The rename makes the sidecar immediately readable by the renderer and other
+ * read-only consumers, but deliberately does not fsync it. There is no user
+ * mutation to recover at this point: a crash may discard the new working copy
+ * and recreate it from its original. The revision store must promote this
+ * provisional sidecar through `writeWorkingCopyRevisionSidecar` before the
+ * first mutation is allowed to commit.
+ */
+export async function writeProvisionalWorkingCopyRevisionSidecar(
+    workingCopyPath: string,
+    sidecar: IWorkingCopyRevisionSidecar,
+) {
+    const sidecarPath = getWorkingCopyRevisionSidecarPath(workingCopyPath);
+    const tempPath = `${sidecarPath}.${process.pid}.${randomUUID()}.tmp`;
+    await mkdir(dirname(sidecarPath), { recursive: true });
+    try {
+        await writeFile(tempPath, `${JSON.stringify(sidecar)}\n`, 'utf8');
+        await rename(tempPath, sidecarPath);
     } catch (error) {
         await unlink(tempPath).catch(() => undefined);
         throw error;

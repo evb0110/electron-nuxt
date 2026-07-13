@@ -11,7 +11,11 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {PDFDocument} from 'pdf-lib';
 import puppeteer from 'puppeteer-core';
 import type {Page} from 'puppeteer-core';
-import {findFreePort} from '@scripts/electron-run/electronRunProcessTree';
+import {
+    findFreePort,
+    isProcessAlive,
+    killProcessTree,
+} from '@scripts/electron-run/electronRunProcessTree';
 import {
     getActiveWorkspaceWorkingCopyPath,
     rotatePages,
@@ -19,19 +23,20 @@ import {
 import {
     openAnnotationsTab,
     openPdfInApp,
+    saveViaWindowHandle,
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {createFreeTextAnnotation} from '@tests/e2e/electron/helpers/viewerAnnotations';
-import {
-    getLatestAutomationEventId,
-    getWorkspaceToolbarSnapshot,
-    waitForAutomationEvent,
-} from '@tests/e2e/electron/helpers/workspaceExpose';
+import {installPageEvaluationShims} from '@tests/e2e/electron/helpers/pageRuntime';
+import {getWorkspaceToolbarSnapshot} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {readPdfAnnotationSummary} from '@tests/e2e/electron/helpers/fixtures';
 
 const STARTUP_TIMEOUT_MS = 75_000;
 const OPERATION_TIMEOUT_MS = 45_000;
+const SHUTDOWN_TIMEOUT_MS = 8_000;
+
+type TConnectedBrowser = Awaited<ReturnType<typeof puppeteer.connect>>;
 
 function parseExecutablePath(args: string[]) {
     const index = args.indexOf('--executable');
@@ -89,16 +94,40 @@ async function waitForSaveEnabled(page: Page) {
     throw new Error('Packaged smoke Save action did not become enabled');
 }
 
-async function clickSave(page: Page) {
-    const clicked = await page.evaluate(() => {
-        const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]'))
-            .find(candidate => candidate.getAttribute('aria-label')?.trim() === 'Save' && !candidate.disabled);
-        button?.click();
-        return Boolean(button);
-    });
-    if (!clicked) {
-        throw new Error('Packaged smoke could not find the enabled Save toolbar button');
+async function waitForSavedAnnotation(filePath: string, timeoutMs: number) {
+    const deadline = Date.now() + timeoutMs;
+    let summary = await readPdfAnnotationSummary(filePath);
+
+    while (Date.now() < deadline) {
+        if ((summary.bySubtype.FreeText ?? 0) > 0) {
+            return summary;
+        }
+        await delay(150);
+        summary = await readPdfAnnotationSummary(filePath);
     }
+
+    throw new Error(`Packaged smoke annotation was not persisted to the source PDF: ${JSON.stringify(summary)}`);
+}
+
+async function waitForProcessExit(pid: number, timeoutMs: number) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        if (!isProcessAlive(pid)) {
+            return true;
+        }
+        await delay(100);
+    }
+    return !isProcessAlive(pid);
+}
+
+async function closeBrowserGracefully(browser: TConnectedBrowser | null) {
+    if (!browser) {
+        return;
+    }
+    await Promise.race([
+        browser.close().catch(() => {}),
+        delay(SHUTDOWN_TIMEOUT_MS),
+    ]);
 }
 
 async function run() {
@@ -133,7 +162,7 @@ async function run() {
     child.stdout?.pipe(process.stdout);
     child.stderr?.pipe(process.stderr);
 
-    let browser: Awaited<ReturnType<typeof puppeteer.connect>> | null = null;
+    let browser: TConnectedBrowser | null = null;
     try {
         const browserWSEndpoint = await waitForCdpEndpoint(cdpPort);
         browser = await puppeteer.connect({
@@ -147,7 +176,14 @@ async function run() {
         if (!page) {
             throw new Error('Packaged Electron exposed no renderer page');
         }
+        page.on('console', (message) => {
+            if (message.type() === 'error' || message.type() === 'warn') {
+                console.warn(`[packaged-renderer:${message.type()}] ${message.text()}`);
+            }
+        });
+        page.on('pageerror', error => console.warn('[packaged-renderer:pageerror]', error));
 
+        await installPageEvaluationShims(page);
         await openPdfInApp(page, fixturePath, STARTUP_TIMEOUT_MS);
         await waitForPdfLoaded(page, STARTUP_TIMEOUT_MS);
         await waitForViewerInteractive(page, STARTUP_TIMEOUT_MS);
@@ -159,18 +195,8 @@ async function run() {
         }
         await page.keyboard.press('Escape');
         await waitForSaveEnabled(page);
-        const saveBaselineEventId = await getLatestAutomationEventId(page);
-        const saveCommitted = waitForAutomationEvent(page, 'save-committed', {
-            afterEventId: saveBaselineEventId,
-            path: fixturePath,
-            timeoutMs: OPERATION_TIMEOUT_MS,
-        });
-        await clickSave(page);
-        await saveCommitted;
-        const annotationSummary = await readPdfAnnotationSummary(fixturePath);
-        if ((annotationSummary.bySubtype.FreeText ?? 0) < 1) {
-            throw new Error('Packaged smoke annotation was not persisted to the source PDF');
-        }
+        await saveViaWindowHandle(page, OPERATION_TIMEOUT_MS);
+        await waitForSavedAnnotation(fixturePath, OPERATION_TIMEOUT_MS);
 
         const workingCopyPath = await getActiveWorkspaceWorkingCopyPath(page);
         const rotateResult = await rotatePages(page, workingCopyPath, [1], 2, 90);
@@ -196,16 +222,30 @@ async function run() {
             throw new Error('Packaged smoke search returned no fixture matches');
         }
 
-        console.log('Packaged Linux core-PDF smoke passed: open, annotation save, rotate persistence, and search.');
+        console.log('Packaged core-PDF smoke passed: open, annotation save, rotate persistence, and search.');
     } finally {
-        await browser?.disconnect().catch(() => {});
-        if (child.exitCode === null) {
-            child.kill('SIGTERM');
+        await closeBrowserGracefully(browser);
+        if (typeof child.pid === 'number') {
+            await waitForProcessExit(child.pid, 5_000);
         }
-        await rm(workDirectory, {
-            force: true,
-            recursive: true,
-        });
+        await browser?.disconnect().catch(() => {});
+        if (typeof child.pid === 'number') {
+            if (isProcessAlive(child.pid)) {
+                await killProcessTree(child.pid, 3_000);
+            }
+        } else if (child.exitCode === null) {
+            child.kill('SIGKILL');
+        }
+        try {
+            await rm(workDirectory, {
+                force: true,
+                maxRetries: 10,
+                recursive: true,
+                retryDelay: 200,
+            });
+        } catch (error) {
+            console.warn(`Packaged smoke cleanup left temporary files at ${workDirectory}:`, error);
+        }
     }
 }
 

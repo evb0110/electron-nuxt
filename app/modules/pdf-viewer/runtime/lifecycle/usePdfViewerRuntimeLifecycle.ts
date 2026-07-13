@@ -65,6 +65,7 @@ export interface IUsePdfViewerRuntimeLifecycleOptions {
     captureViewportAnchor?: (() => IPdfSemanticAnchor | null) | undefined;
     viewerContainer: Ref<HTMLElement | null>;
     src: ComputedRef<TPdfSource | null>;
+    documentLifecycleKey?: ComputedRef<string | null> | undefined;
     reloadSrc?: ComputedRef<TPdfSource | null> | undefined;
     isAnySaving?: ComputedRef<boolean> | undefined;
     zoom: ComputedRef<number>;
@@ -109,12 +110,12 @@ export interface IUsePdfViewerRuntimeLifecycleOptions {
     syncHorizontalScrollForZoomMode?: () => boolean;
     invalidateScaleCache: () => void;
     resetScale: () => void;
+    seedOpeningFitScale?: (() => boolean) | undefined;
     computeSkeletonInsets: (
         pdfPage: PDFPageProxy,
         renderVersion: number,
         getCurrentVersion: () => number,
     ) => Promise<void>;
-    beforeInitialRender?: () => Promise<void>;
     resetInsets: () => void;
     setupPagePlaceholders: () => void;
     renderVisiblePages: (
@@ -128,16 +129,15 @@ export interface IUsePdfViewerRuntimeLifecycleOptions {
     reRenderAllVisiblePages: (
         getVisibleRange: () => IPageRange,
         options?: {
-            preserveExistingPages?: boolean;
             rerenderSource?: TPdfRerenderSource;
             renderBufferOverride?: number | undefined;
-            maxCanvasPixelsOverride?: number | undefined;
         },
     ) => Promise<void>;
     cancelInFlightPageRenders?: (() => Promise<void> | void) | undefined;
     cancelPendingSearchScroll?: (() => void) | undefined;
     cleanupRenderedPages: () => void;
     invalidateRenderedPages: (pages: number[]) => void;
+    shouldPreserveOpeningLayout?: (() => boolean) | undefined;
     applySearchHighlights: () => void;
     isPageRendered: (page: number) => boolean;
     getMostVisiblePage: (
@@ -152,6 +152,7 @@ export interface IUsePdfViewerRuntimeLifecycleOptions {
     ) => number;
     updateVisibleRange: (container: HTMLElement | null, numPages: number) => void;
     scrollToPage: (pageNumber: number, options?: IScrollToPageOptions) => void;
+    commitReloadViewport?: ((pageNumber: number, options?: IScrollToPageOptions) => void) | undefined;
     resetContinuousScrollState: () => void;
     cancelDestinationNavigationTarget?: (() => void) | undefined;
     getUserViewportInteractionEpoch?: (() => number) | undefined;
@@ -171,6 +172,9 @@ export interface IUsePdfViewerRuntimeLifecycleOptions {
         token: number;
         phase: 'started' | 'settled';
     }) => void) | undefined;
+    waitForInitialCanvasCommit?: ((pageNumber: number) => Promise<void>) | undefined;
+    isInitialCanvasCommitted?: (() => boolean) | undefined;
+    isInitialVisualCommitted?: (() => boolean) | undefined;
     pinCurrentPageDuringRecovery: (
         page: number,
         options?: {
@@ -198,6 +202,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
     const {
         viewerContainer,
         src,
+        documentLifecycleKey,
         reloadSrc,
         zoom,
         zoomMode,
@@ -228,7 +233,6 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         invalidateScaleCache,
         resetScale,
         computeSkeletonInsets,
-        beforeInitialRender,
         resetInsets,
         setupPagePlaceholders,
         renderVisiblePages,
@@ -399,7 +403,6 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
     ) => void = () => {};
     let resetZoomRerenderQueueState: (reason: string) => void = () => {};
     let enqueueZoomSync: (syncOptions: ICurrentPageSyncOptions) => void = () => {};
-    let markLowResZoomRerenderUsed: () => void = () => {};
     let suppressedZoomRerenderTarget: number | null = null;
 
     function suppressNextZoomRerender(targetZoom: number) {
@@ -477,6 +480,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
     } = usePdfViewerDocumentLifecycle({
         viewerContainer,
         src,
+        documentLifecycleKey,
         reloadSrc,
         zoom,
         zoomMode,
@@ -499,21 +503,23 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         getPage,
         renderVisiblePages: (range, options) => renderVisiblePages(range, options),
         getVisibleRange,
-        reRenderVisiblePagesAndSyncCurrentPage: () => rerenderVisiblePagesAndSyncCurrentPage(),
+        reRenderVisiblePagesAndSyncCurrentPage: (syncOptions) => rerenderVisiblePagesAndSyncCurrentPage(syncOptions),
         syncCurrentPageFromViewport: (options) => syncCurrentPageFromViewport(options),
         getUserViewportInteractionEpoch,
         applySearchHighlights,
         getVisiblePageRange,
         updateVisibleRange,
         scrollToPage,
+        commitReloadViewport: options.commitReloadViewport,
         cleanupRenderedPages,
         invalidateScaleCache,
+        shouldPreserveOpeningLayout: options.shouldPreserveOpeningLayout,
         resetScale,
+        seedOpeningFitScale: options.seedOpeningFitScale,
         resetInsets,
         setupPagePlaceholders,
         computeFitWidthScale,
         computeSkeletonInsets,
-        beforeInitialRender,
         invalidateRenderedPages,
         consumePendingInvalidation,
         commentSync,
@@ -525,6 +531,9 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         transactionController,
         emitLoadError,
         onDocumentLoadStateChange: options.onDocumentLoadStateChange,
+        waitForInitialCanvasCommit: options.waitForInitialCanvasCommit,
+        isInitialCanvasCommitted: options.isInitialCanvasCommitted,
+        isInitialVisualCommitted: options.isInitialVisualCommitted,
         emit,
     });
     const zoomRerenderQueue = usePdfViewerZoomRerenderQueue({
@@ -543,7 +552,6 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
     resetZoomRerenderQueueState = zoomRerenderQueue.resetZoomRerenderQueueState;
     scheduleResizeAwareRerender = zoomRerenderQueue.scheduleResizeAwareRerender;
     enqueueZoomSync = zoomRerenderQueue.enqueueZoomSync;
-    markLowResZoomRerenderUsed = zoomRerenderQueue.markLowResZoomRerenderUsed;
     const { cleanupZoomRerenderQueue } = zoomRerenderQueue;
     const {reRenderVisiblePagesAndSyncCurrentPage: reRenderVisiblePagesAndSyncCurrentPageFromCoordinator} = usePdfViewerRerenderCoordinator({
         viewerContainer,
@@ -562,11 +570,9 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         continuousScroll,
         getVisibleRange,
         reRenderAllVisiblePages,
-        isPageRendered,
         summarizeViewerMetricsForLog,
         summarizeVisiblePageSnapshotForLog,
         syncCurrentPageFromViewport,
-        markLowResZoomRerenderUsed: () => markLowResZoomRerenderUsed(),
         buildResizeAnchorContext,
         scheduleEndResizeTransition,
         enqueueZoomSync: (syncOptions) => enqueueZoomSync(syncOptions),
@@ -673,7 +679,13 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
             resetRenderStallRecoveryState();
             resetZoomRerenderQueueState('source-change');
             options.cancelInitialVisualReady?.();
-            cancelDestinationNavigationTarget?.();
+            // An initial source can arrive after the chassis has already
+            // accepted navigation for that opening session. Only replacement
+            // or close invalidates an existing document destination; clearing
+            // on first assignment races and drops the new session's request.
+            if (oldSrc) {
+                cancelDestinationNavigationTarget?.();
+            }
             const isReload = !!oldSrc && !!newSrc;
             if (!newSrc) {
                 invalidateDocumentLoad();

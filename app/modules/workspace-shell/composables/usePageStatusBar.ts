@@ -82,10 +82,13 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         return null;
     });
     const measurableFilePath = computed(() => {
-        if (inMemoryFileSizeBytes.value !== null) {
+        if (isDocumentVisualPending?.value || inMemoryFileSizeBytes.value !== null) {
             return null;
         }
-        const path = originalPath.value ?? workingCopyPath.value;
+        // Renderer file I/O is authorized only for the adopted managed copy.
+        // The original path may intentionally outlive the visual during close
+        // so it can label Recent/status UI, but it must never trigger file:stat.
+        const path = workingCopyPath.value;
         return typeof path === 'string' && path.trim().length > 0 ? path : null;
     });
     const statFileSizeBytes = ref<number | null>(null);

@@ -17,6 +17,7 @@ export const DJVU_CHANNELS = {
     subscribeJob: 'djvu:job:subscribe',
     cancelPagePreview: 'djvu:cancelPagePreview',
     getInfo: 'djvu:getInfo',
+    getPageSourceInfo: 'djvu:getPageSourceInfo',
     getPageSizes: 'djvu:getPageSizes',
     renderPagePreview: 'djvu:renderPagePreview',
     estimateSizes: 'djvu:estimateSizes',
@@ -81,6 +82,10 @@ export interface IDjvuInvokeMap {
     [DJVU_CHANNELS.getInfo]: {
         args: [djvuPath: string];
         result: Awaited<ReturnType<IDjvuCapability['getInfo']>>;
+    };
+    [DJVU_CHANNELS.getPageSourceInfo]: {
+        args: Parameters<IDjvuCapability['getPageSourceInfo']>;
+        result: Awaited<ReturnType<IDjvuCapability['getPageSourceInfo']>>;
     };
     [DJVU_CHANNELS.getPageSizes]: {
         args: [djvuPath: string];

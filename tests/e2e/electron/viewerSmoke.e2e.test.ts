@@ -284,7 +284,7 @@ function readDjvuWheelMetricSampleFromPage(): IDjvuWheelMetricSample {
             } else {
                 unloadedVisibleShellArea += visibleArea;
             }
-            if (pageElement.querySelector('.pdf-page-skeleton')) {
+            if (pageElement.querySelector('.document-source-viewer__skeleton')) {
                 visibleSkeletonCount += 1;
             }
         }
@@ -439,7 +439,7 @@ async function collectDjvuWheelMetricSamples(session: IElectronE2ESession) {
         });
         const sample = await readDjvuWheelMetricSample(session);
         samples.push(sample);
-        if ((sample.currentPage ?? 0) >= 30 && index >= 36) {
+        if ((sample.currentPage ?? 0) >= 30 && index >= 40) {
             break;
         }
     }

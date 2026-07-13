@@ -6,81 +6,59 @@ import {
 import { createPdfPageRenderState } from '@app/modules/pdf-viewer/runtime/rendering/pdfPageRenderState';
 
 describe('pdfPageRenderState', () => {
-    it('represents stale content while a replacement render is active', () => {
+    it('makes a page not ready as soon as a replacement render begins', () => {
         const state = createPdfPageRenderState();
+        state.beginRender(4, 1, 10, 'document-a', 1);
+        expect(state.commitCanvas(4, 1, 10)).toBe(true);
+        expect(state.getSlot(4).visual).toBe('ready');
 
-        state.renderedPages.add(4);
-        state.staleRenderedPages.add(4);
-        state.renderingPages.set(4, 8);
-        state.renderingPageRequestIds.set(4, 12);
+        state.beginRender(4, 2, 11, 'document-a', 2);
 
         expect(state.getSlot(4)).toEqual({
-            visual: 'stale',
+            visual: 'none',
             job: 'rendering',
-            version: 8,
-            requestId: 12,
-            documentToken: null,
-            targetScale: null,
+            version: 2,
+            requestId: 11,
+            documentToken: 'document-a',
+            targetScale: 2,
         });
-        expect(state.renderedPages.has(4)).toBe(true);
-        expect(state.staleRenderedPages.has(4)).toBe(true);
+        expect(state.renderedPages.has(4)).toBe(false);
     });
 
-    it('promotes a completed page atomically and removes empty idle slots', () => {
-        const state = createPdfPageRenderState();
-        state.renderingPages.set(2, 3);
-        state.renderingPageRequestIds.set(2, 7);
-        state.renderedPages.add(2);
-        state.staleRenderedPages.delete(2);
-        state.renderingPages.delete(2);
-
-        expect(state.getSlot(2)).toEqual({
-            visual: 'fresh',
-            job: 'idle',
-            version: null,
-            requestId: null,
-            documentToken: null,
-            targetScale: null,
-        });
-
-        state.renderedPages.delete(2);
-        expect(state.slots.has(2)).toBe(false);
-    });
-
-    it('retains failed jobs independently from visual availability', () => {
-        const state = createPdfPageRenderState();
-        state.renderedPages.add(6);
-        state.staleRenderedPages.add(6);
-        state.markRenderFailed(6, 11, 15);
-
-        expect(state.getSlot(6)).toEqual({
-            visual: 'stale',
-            job: 'failed',
-            version: 11,
-            requestId: 15,
-            documentToken: null,
-            targetScale: null,
-        });
-        expect(state.renderingPages.has(6)).toBe(false);
-    });
-
-    it('keeps stale pixels until the matching replacement canvas commits', () => {
+    it('commits only the matching canonical replacement', () => {
         const state = createPdfPageRenderState();
         state.beginRender(1, 1, 10, 'document-a', 1);
         expect(state.commitCanvas(1, 1, 10)).toBe(true);
 
         state.beginRender(1, 2, 11, 'document-a', 2);
-        expect(state.getSlot(1).visual).toBe('stale');
         expect(state.commitCanvas(1, 1, 10)).toBe(false);
+        expect(state.getSlot(1).visual).toBe('none');
         expect(state.commitCanvas(1, 2, 11)).toBe(true);
-        expect(state.getSlot(1).visual).toBe('fresh');
+        expect(state.getSlot(1).visual).toBe('ready');
     });
 
-    it('never preserves a previous document canvas as current', () => {
+    it('keeps a failed replacement not ready for skeleton or error presentation', () => {
         const state = createPdfPageRenderState();
-        state.beginRender(1, 1, 1, 'document-a', 1);
-        state.commitCanvas(1, 1, 1);
-        state.beginRender(1, 2, 2, 'document-b', 1);
-        expect(state.getSlot(1).visual).toBe('none');
+        state.beginRender(6, 10, 14, 'document-a', 1);
+        state.commitCanvas(6, 10, 14);
+        state.beginRender(6, 11, 15, 'document-a', 2);
+        state.markRenderFailed(6, 11, 15);
+
+        expect(state.getSlot(6)).toEqual({
+            visual: 'none',
+            job: 'failed',
+            version: 11,
+            requestId: 15,
+            documentToken: 'document-a',
+            targetScale: 2,
+        });
+    });
+
+    it('removes empty idle slots', () => {
+        const state = createPdfPageRenderState();
+        state.renderedPages.add(2);
+        expect(state.getSlot(2).visual).toBe('ready');
+        state.renderedPages.delete(2);
+        expect(state.slots.has(2)).toBe(false);
     });
 });

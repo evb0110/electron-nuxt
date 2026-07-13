@@ -157,6 +157,12 @@ export function createBrowserDocumentsCapability(
         cleanupOcrTemp: fileCapability.cleanupOcrTemp,
     } satisfies IDocumentsWorkingCopyCapability;
     const optionalDocumentFileMethods = {
+        ...(fileCapability.createManagedTempFileHandle
+            ? {createManagedTempFileHandle: fileCapability.createManagedTempFileHandle}
+            : {}),
+        ...(fileCapability.releaseManagedTempFileHandle
+            ? {releaseManagedTempFileHandle: fileCapability.releaseManagedTempFileHandle}
+            : {}),
         ...(fileCapability.repairPdf ? {repairPdf: fileCapability.repairPdf} : {}),
         ...(fileCapability.optimizePdfForInteraction ? {optimizePdfForInteraction: fileCapability.optimizePdfForInteraction} : {}),
         ...(fileCapability.optimizePdfAsCopy ? {optimizePdfAsCopy: fileCapability.optimizePdfAsCopy} : {}),

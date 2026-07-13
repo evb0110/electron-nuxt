@@ -23,6 +23,10 @@ import {
     killPids,
     killProcessTree,
 } from '@scripts/electron-run/electronRunProcessTree';
+import {
+    isVerifiedSessionProcess,
+    killVerifiedSessionProcess,
+} from '@scripts/electron-run/electronRunProcessIdentity';
 import { projectRoot } from '@scripts/electron-run/projectRoot';
 import {
     getSessionInfo,
@@ -166,12 +170,16 @@ async function cleanupStaleNuxtPortOwners(reason: string) {
         }
         const nuxtPid = info?.nuxtPid ?? null;
         const nuxtAlive = Boolean(nuxtPid && isProcessAlive(nuxtPid));
+        const sessionAlive = isVerifiedSessionProcess(info.pid, {
+            kind: 'controller',
+            sessionName: name,
+        });
         sessionMetadata.push({
             name,
             sessionPid: info.pid,
             nuxtPid,
             nuxtPort: info.nuxtPort,
-            sessionAlive: isProcessAlive(info.pid),
+            sessionAlive,
             nuxtAlive,
             descendantPids: nuxtAlive && nuxtPid ? getDescendantPids(nuxtPid) : [],
         });
@@ -187,8 +195,21 @@ async function cleanupStaleNuxtPortOwners(reason: string) {
     }
 
     console.log(`[Nuxt] Cleaning stale session-owned Nuxt process(es) on port ${nuxtPort} (${reason}): ${staleNuxtPids.join(', ')}`);
-    await killProcessTreeForPids(staleNuxtPids, 1200);
-    killPids(staleNuxtPids);
+    for (const staleNuxtPid of staleNuxtPids) {
+        const owner = sessionMetadata.find(session => session.nuxtPid === staleNuxtPid);
+        if (!owner) {
+            continue;
+        }
+        await killVerifiedSessionProcess({
+            pid: staleNuxtPid,
+            expectation: {
+                kind: 'nuxt',
+                sessionName: owner.name,
+                nuxtPort,
+            },
+            graceMs: 1200,
+        });
+    }
     await delay(500);
     return true;
 }

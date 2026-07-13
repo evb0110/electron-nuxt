@@ -98,6 +98,7 @@ export interface IBrowserRecentFilesRepository {
         saveName?: string;
         fileName: string;
         fileSize: number;
+        updatedAt: number;
     }>;
     getAllPersistedRecords: () => Promise<IBrowserPersistedDocumentRecordsLoadResult>;
     cleanupEvictedRecentRefs: (refs: string[]) => Promise<void>;
@@ -122,6 +123,7 @@ export class BrowserRecentFilesStore {
             fileName: entry.saveName ?? entry.fileName,
             timestamp: Date.now(),
             fileSize: entry.fileSize,
+            modifiedAt: entry.updatedAt,
         });
 
         const {

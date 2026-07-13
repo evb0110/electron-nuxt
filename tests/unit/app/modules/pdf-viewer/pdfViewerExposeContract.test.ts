@@ -10,7 +10,6 @@ describe('PDF viewer expose contract', () => {
         expect(new Set(requiredPdfViewerExposeMembers).size).toBe(requiredPdfViewerExposeMembers.length);
         expect(requiredPdfViewerExposeMembers).toEqual([
             'getViewerContainer',
-            'getPagePreview',
             'getCurrentPage',
             'getPendingNavigationTargetPage',
             'getUserViewportInteractionEpoch',
@@ -28,6 +27,7 @@ describe('PDF viewer expose contract', () => {
             'isCropSelecting',
             'adoptPersistedManagedShapesOnNextImport',
             'clearPendingManagedShapeImportAdoption',
+            'ensureManagedShapeBaselineReady',
             'preparePersistedManagedShapesForSave',
             'restorePreparedManagedShapesAfterFailedSave',
             'runSaveTransaction',
@@ -36,6 +36,9 @@ describe('PDF viewer expose contract', () => {
             'commitPdfEditorsForSave',
             'annotationHistoryMutationVersion',
             'annotationHistoryResetVersion',
+            'hasCanonicalAnnotationChanges',
+            'getDeletedCanonicalAnnotationIds',
+            'getDeletedPersistedCanonicalAnnotationCount',
             'clearAnnotationHistory',
             'setWorkspaceCommandSink',
             'renderLoadedPdfPagesForBrowserPrint',

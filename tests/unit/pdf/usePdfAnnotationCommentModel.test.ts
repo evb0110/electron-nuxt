@@ -95,6 +95,22 @@ describe('usePdfAnnotationCommentModel', () => {
         expect(merged[0]?.displayText).toBeNull();
     });
 
+    it('promotes an explicitly opened empty editor note into the canonical note projection', () => {
+        const {model} = createModel();
+        const opened = model.withTransientNoteCreationTimestamp(comment({
+            source: 'editor',
+            subtype: 'FreeText',
+            text: '',
+            hasNote: false,
+            createdAt: null,
+        }));
+
+        expect(opened).toMatchObject({
+            hasNote: true,
+            createdAt: new Date('2026-05-27T00:00:00Z').getTime(),
+        });
+    });
+
     it('updates cached text markup color through normalized annotation ids', () => {
         const { model } = createModel();
         const cached = comment({
@@ -204,7 +220,7 @@ describe('usePdfAnnotationCommentModel', () => {
         expect(model.annotationCommentsCache.value[0]?.markerRect?.left).toBe(0.1);
     });
 
-    it('clears transient reload state when source becomes empty', () => {
+    it('clears the canonical projection when the source changes', () => {
         const {
             emitted,
             model,
@@ -213,7 +229,20 @@ describe('usePdfAnnotationCommentModel', () => {
 
         model.handleSourceChanged(null, 'previous.pdf');
 
-        expect(model.annotationCommentsCache.value).toHaveLength(1);
+        expect(model.annotationCommentsCache.value).toEqual([]);
+        expect(emitted.at(-1)).toEqual([]);
+    });
+
+    it('does not expose annotations from the previous document while the next source syncs', () => {
+        const {
+            emitted,
+            model,
+        } = createModel();
+        model.upsertComment(comment());
+
+        model.handleSourceChanged('next.pdf', 'previous.pdf');
+
+        expect(model.annotationCommentsCache.value).toEqual([]);
         expect(emitted.at(-1)).toEqual([]);
     });
 

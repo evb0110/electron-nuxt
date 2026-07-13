@@ -29,6 +29,7 @@ import {normalizeIpcWritePayload} from '@electron/file-access/documentFileWriteA
 import { validatePdfFile } from '@electron/features/documents/main/pdfConformance';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
 import {
+    awaitWorkingCopyRevisionDurability,
     clearWorkingCopySyncRequired,
     markWorkingCopyContentChanged,
 } from '@electron/file-access/documentRevisionStore';
@@ -312,6 +313,7 @@ export async function handleResyncWorkingCopy(
                 senderId,
                 'resync-after-external-change',
             );
+            await awaitWorkingCopyRevisionDurability(normalizedWorkingPath);
             if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, senderId)) {
                 throw new WorkingCopyMissingError('Working copy path is not managed');
             }

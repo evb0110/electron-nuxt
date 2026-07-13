@@ -23,11 +23,12 @@ import {
     sessionsBaseDir,
 } from '@scripts/electron-run/electronRunSessionPaths';
 import { E2E_RUN_ID_ENV } from '@scripts/electron-run/electronRunRunId';
+import {isProcessAlive} from '@scripts/electron-run/electronRunProcessTree';
 import {
-    findPidsByCommandSubstring,
-    isProcessAlive,
-    killProcessTree,
-} from '@scripts/electron-run/electronRunProcessTree';
+    findSessionOwnedElectronPids,
+    isVerifiedSessionProcess,
+    killVerifiedSessionProcess,
+} from '@scripts/electron-run/electronRunProcessIdentity';
 import type {
     ISessionInfo,
     ISessionStartingInfo,
@@ -182,31 +183,45 @@ async function killRecordedStartingProcesses(
     starting: ISessionStartingInfo,
     options: { killNuxt?: boolean } = {},
 ) {
-    for (const electronPid of starting.electronPids) {
-        if (isProcessAlive(electronPid)) {
-            await killProcessTree(electronPid, 800);
-        }
-    }
-
-    for (const cdpPort of starting.cdpPorts) {
-        const cdpPids = findPidsByCommandSubstring(`--remote-debugging-port=${cdpPort}`);
-        for (const pid of cdpPids) {
-            if (isProcessAlive(pid)) {
-                await killProcessTree(pid, 800);
+    const electronUserDataDir = starting.electronUserDataDir ?? electronUserDataPath(name);
+    const killedElectronPids = new Set<number>();
+    const cdpPorts = starting.cdpPorts.length > 0 ? starting.cdpPorts : [null];
+    for (const cdpPort of cdpPorts) {
+        const expectation = {
+            kind: 'electron' as const,
+            sessionName: name,
+            cdpPort,
+            electronUserDataDir,
+        };
+        const candidatePids = new Set([
+            ...starting.electronPids,
+            ...findSessionOwnedElectronPids(expectation),
+        ]);
+        for (const electronPid of candidatePids) {
+            if (killedElectronPids.has(electronPid)) {
+                continue;
+            }
+            const killed = await killVerifiedSessionProcess({
+                pid: electronPid,
+                expectation,
+                graceMs: 800,
+            });
+            if (killed) {
+                killedElectronPids.add(electronPid);
             }
         }
     }
 
-    const userDataDir = starting.electronUserDataDir ?? electronUserDataPath(name);
-    const userDataPids = findPidsByCommandSubstring(`--user-data-dir=${userDataDir}`);
-    for (const pid of userDataPids) {
-        if (isProcessAlive(pid)) {
-            await killProcessTree(pid, 800);
-        }
-    }
-
     if (options.killNuxt !== false && starting.nuxtPid && isProcessAlive(starting.nuxtPid)) {
-        await killProcessTree(starting.nuxtPid, 1200);
+        await killVerifiedSessionProcess({
+            pid: starting.nuxtPid,
+            expectation: {
+                kind: 'nuxt',
+                sessionName: name,
+                nuxtPort: starting.nuxtPort,
+            },
+            graceMs: 1200,
+        });
     }
 }
 
@@ -229,7 +244,11 @@ export function isSessionStarting(name = getCurrentSessionName()) {
         return false;
     }
     const startupAge = Date.now() - info.startedAt;
-    if (startupAge > 5 * 60_000 || !isProcessAlive(info.pid)) {
+    const controllerOwned = isVerifiedSessionProcess(info.pid, {
+        kind: 'controller',
+        sessionName: name,
+    });
+    if (startupAge > 5 * 60_000 || !controllerOwned) {
         clearSessionStarting(name);
         return false;
     }
@@ -238,12 +257,32 @@ export function isSessionStarting(name = getCurrentSessionName()) {
 
 export async function cleanupStaleSessionArtifacts(name = getCurrentSessionName()) {
     const info = getSessionInfo(name);
-    if (info && !isProcessAlive(info.pid)) {
+    const controllerOwned = Boolean(info && isVerifiedSessionProcess(info.pid, {
+        kind: 'controller',
+        sessionName: name,
+    }));
+    if (info && !controllerOwned) {
         if (info.electronPid && isProcessAlive(info.electronPid)) {
-            await killProcessTree(info.electronPid, 800);
+            await killVerifiedSessionProcess({
+                pid: info.electronPid,
+                expectation: {
+                    kind: 'electron',
+                    sessionName: name,
+                    cdpPort: info.cdpPort,
+                },
+                graceMs: 800,
+            });
         }
         if (info.nuxtPid && isProcessAlive(info.nuxtPid)) {
-            await killProcessTree(info.nuxtPid, 1200);
+            await killVerifiedSessionProcess({
+                pid: info.nuxtPid,
+                expectation: {
+                    kind: 'nuxt',
+                    sessionName: name,
+                    nuxtPort: info.nuxtPort,
+                },
+                graceMs: 1200,
+            });
         }
         try {
             unlinkSync(sessionFilePath(name));
@@ -251,11 +290,14 @@ export async function cleanupStaleSessionArtifacts(name = getCurrentSessionName(
     }
 
     const starting = getSessionStartingInfo(name);
-    if (starting && !isProcessAlive(starting.pid)) {
+    if (starting && !isVerifiedSessionProcess(starting.pid, {
+        kind: 'controller',
+        sessionName: name,
+    })) {
         await cleanupSessionStartingAttempt(name);
     }
 
-    if (info && !(await isSessionRunning(name)) && !isProcessAlive(info.pid)) {
+    if (info && !(await isSessionRunning(name)) && !controllerOwned) {
         try {
             unlinkSync(sessionFilePath(name));
         } catch {}
@@ -265,6 +307,15 @@ export async function cleanupStaleSessionArtifacts(name = getCurrentSessionName(
 export async function isSessionRunning(name = getCurrentSessionName()) {
     const info = getSessionInfo(name);
     if (!info) {
+        return false;
+    }
+    if (!isVerifiedSessionProcess(info.pid, {
+        kind: 'controller',
+        sessionName: name,
+    })) {
+        try {
+            unlinkSync(sessionFilePath(name));
+        } catch {}
         return false;
     }
 
@@ -311,7 +362,10 @@ export function listRunningSessions(): string[] {
     const running: string[] = [];
     for (const name of all) {
         const info = getSessionInfo(name);
-        if (info && isProcessAlive(info.pid)) {
+        if (info && isVerifiedSessionProcess(info.pid, {
+            kind: 'controller',
+            sessionName: name,
+        })) {
             running.push(name);
         }
     }

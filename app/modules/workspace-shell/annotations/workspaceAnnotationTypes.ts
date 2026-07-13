@@ -10,6 +10,7 @@ import type { IPdfViewerSaveExpose } from '@app/modules/pdf-viewer/public';
 export interface IWorkspacePdfViewerForAnnotationUtils {
     runSaveTransaction: IPdfViewerSaveExpose['runSaveTransaction'];
     hasShapes?: boolean | Ref<boolean>;
+    hasCanonicalAnnotationChanges?: () => boolean;
     getAllShapes: () => IShapeAnnotation[];
 }
 

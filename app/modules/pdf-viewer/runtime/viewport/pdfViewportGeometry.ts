@@ -42,9 +42,10 @@ export function createPdfViewportGeometryFromLayout(
         for (let page = rowStartPage; page <= rowEndPage; page += 1) {
             rowWidth += metrics.pageWidths[page - 1] ?? 0;
         }
+        rowWidth += Math.max(0, rowEndPage - rowStartPage) * metrics.gap;
         let left = Math.max(0, (viewport.width - rowWidth) / 2);
         for (let page = rowStartPage; page < index + 1; page += 1) {
-            left += metrics.pageWidths[page - 1] ?? 0;
+            left += (metrics.pageWidths[page - 1] ?? 0) + metrics.gap;
         }
         return {
             left,
@@ -75,6 +76,7 @@ export function createPdfViewportGeometryFromLayout(
     });
     return {
         revision,
+        insetTop: metrics.paddingTop,
         viewportWidth: viewport.width,
         viewportHeight: viewport.height,
         contentWidth: Math.max(viewport.width, ...pageRects.map(rect => rect.left + rect.width)),
@@ -86,6 +88,7 @@ export function createPdfViewportGeometryFromLayout(
 
 export interface IPdfViewportGeometry {
     revision: number;
+    insetTop: number;
     viewportWidth: number;
     viewportHeight: number;
     contentWidth: number;
@@ -164,6 +167,7 @@ export function computePdfViewportGeometry(
 
     return {
         revision: options.revision,
+        insetTop: padding,
         viewportWidth: options.viewportWidth,
         viewportHeight: options.viewportHeight,
         contentWidth,
@@ -190,7 +194,8 @@ export function resolveScrollForAnchor(geometry: IPdfViewportGeometry, anchor: I
         ),
         top: clamp(
             rect.top + clamp(anchor.pageYFraction, 0, 1) * rect.height
-                - clamp(anchor.viewportYFraction, 0, 1) * geometry.viewportHeight,
+                - clamp(anchor.viewportYFraction, 0, 1) * geometry.viewportHeight
+                - (anchor.affinity === 'start' ? geometry.insetTop : 0),
             0,
             Math.max(0, geometry.contentHeight - geometry.viewportHeight),
         ),

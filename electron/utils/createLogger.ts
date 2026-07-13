@@ -92,7 +92,7 @@ const LOG_DIR_PRUNE_INTERVAL_MS = (() => {
     return parsed;
 })();
 
-const LOG_DIR = join(tmpdir(), 'electron-logs');
+const LOG_DIR = process.env.EVB_FILE_LOG_DIR ?? join(tmpdir(), 'electron-logs');
 const fileLogStates = new Map<string, IFileLogState>();
 let logDirPruneLastAt = 0;
 let logDirPrunePromise: Promise<void> | null = null;

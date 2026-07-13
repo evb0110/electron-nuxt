@@ -31,6 +31,7 @@ import {
 } from '@electron/features/documents/main/documentFileReadHandlers';
 import {
     handleCancelPdfNativePagePreview,
+    handlePdfOpeningGeometry,
     handlePdfNativePagePreview,
     handlePdfNativePageSizes,
 } from '@electron/features/documents/main/nativePdfPreview';
@@ -126,6 +127,8 @@ export function createDocumentsService(): IDocumentsService {
             createManagedTempFileHandle(...args),
         releaseManagedTempFileHandle: (...args: TDocumentsServiceArgs<'releaseManagedTempFileHandle'>) =>
             releaseManagedTempFileHandle(...args),
+        getPdfOpeningGeometry: (...args: TDocumentsServiceArgs<'getPdfOpeningGeometry'>) =>
+            handlePdfOpeningGeometry(...args),
         getPdfNativePageSizes: (...args: TDocumentsServiceArgs<'getPdfNativePageSizes'>) =>
             handlePdfNativePageSizes(...args),
         cancelPdfNativePagePreview: (...args: TDocumentsServiceArgs<'cancelPdfNativePagePreview'>) =>
@@ -182,7 +185,7 @@ export function createDocumentsService(): IDocumentsService {
                 context,
                 workingPath,
             ] = args;
-            cleanupWorkingCopy(workingPath, context.senderId);
+            return cleanupWorkingCopy(workingPath, context.senderId);
         },
         cleanupOcrTemp: (...args: TDocumentsServiceArgs<'cleanupOcrTemp'>) => handleCleanupOcrTemp(...args),
         setWindowTitle: (...args: TDocumentsServiceArgs<'setWindowTitle'>) => handleSetWindowTitle(...args),

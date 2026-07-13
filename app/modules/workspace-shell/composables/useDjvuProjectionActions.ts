@@ -12,12 +12,25 @@ const PDF_SOURCE_CAPABILITIES: IDocumentSourceCapabilities = {
     text: true,
 };
 
+const EMPTY_SOURCE_CAPABILITIES: IDocumentSourceCapabilities = {
+    annotations: false,
+    directImageExport: false,
+    outline: false,
+    pageEdits: false,
+    search: false,
+    text: false,
+};
+
 export const useWorkspaceSourceCapabilityProjection = (
     activeViewerAdapter: Ref<IWorkspaceViewerAdapter | null>,
     capabilities: Ref<IDocumentSourceCapabilities>,
 ) => {
     watch(activeViewerAdapter, (adapter) => {
-        if (adapter?.id === 'pdf') capabilities.value = PDF_SOURCE_CAPABILITIES;
+        if (!adapter) {
+            capabilities.value = EMPTY_SOURCE_CAPABILITIES;
+        } else if (adapter.id === 'pdf') {
+            capabilities.value = PDF_SOURCE_CAPABILITIES;
+        }
     }, {immediate: true});
 };
 

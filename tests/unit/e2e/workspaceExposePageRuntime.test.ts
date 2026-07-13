@@ -6,6 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { installPageEvaluationShims } from '@tests/e2e/electron/helpers/pageRuntime';
 import { installWorkspaceExposeProbe } from '@tests/e2e/electron/helpers/workspaceExpose';
 
 describe('workspace expose page runtime', () => {
@@ -41,5 +42,21 @@ describe('workspace expose page runtime', () => {
             __evbCollectWorkspaceExposeDebug: expect.any(Function),
             __evbFindWorkspaceExpose: expect.any(Function),
         }));
+    });
+
+    it('installs the compatibility shim for current and future documents', async () => {
+        const evaluate = vi.fn();
+        const evaluateOnNewDocument = vi.fn();
+        const page = Object.create(null) as Page;
+        Object.defineProperties(page, {
+            evaluate: { value: evaluate },
+            evaluateOnNewDocument: { value: evaluateOnNewDocument },
+        });
+
+        await installPageEvaluationShims(page);
+
+        const expectedSource = 'globalThis.__name = globalThis.__name || ((fn) => fn);';
+        expect(evaluateOnNewDocument).toHaveBeenCalledWith(expectedSource);
+        expect(evaluate).toHaveBeenCalledWith(expectedSource);
     });
 });

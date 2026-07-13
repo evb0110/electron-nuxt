@@ -18,6 +18,8 @@ interface IWorkspaceViewerVisibilityOptions {
     isOcrRunning: Ref<boolean>;
     isRestoringSplitPayload: Ref<boolean>;
     pendingDocumentOpen: ComputedRef<boolean> | Ref<boolean>;
+    pendingDocumentPath: ComputedRef<TDocumentRef | null> | Ref<TDocumentRef | null>;
+    pendingDocumentSize?: ComputedRef<number | null> | Ref<number | null>;
     pdfSrc: Ref<TPdfSource | null>;
     showSidebar: Ref<boolean>;
     conversionState: Ref<{isConverting: boolean;}>;
@@ -32,6 +34,10 @@ export const useWorkspaceViewerVisibility = (options: IWorkspaceViewerVisibility
         djvuSourcePath: options.djvuSourcePath,
         isDjvuMode: options.isDjvuMode,
         pdfSrc: options.pdfSrc,
+        pendingDocumentPath: options.pendingDocumentPath,
+        ...(options.pendingDocumentSize === undefined
+            ? {}
+            : {pendingDocumentSize: options.pendingDocumentSize}),
     });
     const showNativePdfViewer = computed(() => activeViewerAdapter.value?.id === 'native-pdf');
     const showStandardPdfViewer = computed(() => activeViewerAdapter.value?.id === 'pdf');

@@ -257,6 +257,7 @@ export function createLazyBrowserPlatformApiGenerated({
     const djvuSubscribeJobMethod = lazyAsync(pathDescriptors.djvu.subscribeJob.path);
     const djvuCancelPagePreviewMethod = lazyAsync(pathDescriptors.djvu.cancelPagePreview.path);
     const djvuGetInfoMethod = lazyAsync(pathDescriptors.djvu.getInfo.path);
+    const djvuGetPageSourceInfoMethod = lazyAsync(pathDescriptors.djvu.getPageSourceInfo.path);
     const djvuGetPageSizesMethod = lazyAsync(pathDescriptors.djvu.getPageSizes.path);
     const djvuRenderPagePreviewMethod = lazyAsync(pathDescriptors.djvu.renderPagePreview.path);
     const djvuEstimateSizesMethod = lazyAsync(pathDescriptors.djvu.estimateSizes.path);
@@ -573,6 +574,7 @@ export function createLazyBrowserPlatformApiGenerated({
         subscribeJob: djvuSubscribeJobMethod,
         cancelPagePreview: djvuCancelPagePreviewMethod,
         getInfo: djvuGetInfoMethod,
+        getPageSourceInfo: djvuGetPageSourceInfoMethod,
         getPageSizes: djvuGetPageSizesMethod,
         renderPagePreview: djvuRenderPagePreviewMethod,
         estimateSizes: djvuEstimateSizesMethod,

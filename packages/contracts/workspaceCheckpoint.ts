@@ -12,6 +12,7 @@ export interface IWorkspaceCheckpointTab {
     fileName: string | null;
     sourceRef: TDocumentRef | null;
     workingCopyRef: TDocumentRef | null;
+    requiresSaveAsOnFirstSave?: boolean;
     isDirty: boolean;
     isDjvu: boolean;
     currentPage: number | null;
@@ -133,6 +134,11 @@ export function decodeWorkspaceCheckpoint(value: unknown): IWorkspaceCheckpoint 
         const fileName = decodeNullableString(candidate.fileName);
         const sourceRef = decodeNullableString(candidate.sourceRef);
         const workingCopyRef = decodeNullableString(candidate.workingCopyRef);
+        const requiresSaveAsOnFirstSave = candidate.requiresSaveAsOnFirstSave === undefined
+            ? undefined
+            : typeof candidate.requiresSaveAsOnFirstSave === 'boolean'
+                ? candidate.requiresSaveAsOnFirstSave
+                : null;
         const currentPage = candidate.currentPage === null ? null
             : typeof candidate.currentPage === 'number' && Number.isSafeInteger(candidate.currentPage) && candidate.currentPage > 0
                 ? candidate.currentPage : undefined;
@@ -153,6 +159,7 @@ export function decodeWorkspaceCheckpoint(value: unknown): IWorkspaceCheckpoint 
                     ? candidate.viewMode as TPdfViewMode : undefined;
         if (typeof candidate.tabId !== 'string' || paneId === undefined || fileName === undefined
             || sourceRef === undefined || workingCopyRef === undefined || typeof candidate.isDirty !== 'boolean'
+            || requiresSaveAsOnFirstSave === null
             || typeof candidate.isDjvu !== 'boolean' || currentPage === undefined || zoom === undefined || zoomMode === undefined
             || (candidate.continuousScroll !== undefined && continuousScroll === undefined)
             || (candidate.viewMode !== undefined && viewMode === undefined)) {
@@ -164,6 +171,7 @@ export function decodeWorkspaceCheckpoint(value: unknown): IWorkspaceCheckpoint 
             fileName,
             sourceRef,
             workingCopyRef,
+            ...(requiresSaveAsOnFirstSave === undefined ? {} : {requiresSaveAsOnFirstSave}),
             isDirty: candidate.isDirty,
             isDjvu: candidate.isDjvu,
             currentPage,

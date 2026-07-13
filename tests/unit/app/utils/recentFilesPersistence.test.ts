@@ -68,6 +68,8 @@ describe('recentFilesPersistence', () => {
                 'example.pdf',
                 123,
                 456,
+                'electron',
+                789,
             ]],
         }));
 
@@ -78,10 +80,32 @@ describe('recentFilesPersistence', () => {
                 fileName: 'example.pdf',
                 timestamp: 123,
                 fileSize: 456,
+                modifiedAt: 789,
             }],
             hasSnapshot: true,
             truncated: false,
         });
+    });
+
+    it('keeps legacy compact tuples without a modified-time token compatible', () => {
+        const snapshot = parseRecentFilesCookieSnapshot(JSON.stringify({
+            v: 1,
+            t: false,
+            f: [[
+                '/tmp/legacy.pdf',
+                'legacy.pdf',
+                123,
+                456,
+            ]],
+        }));
+
+        expect(snapshot.recentFiles).toEqual([{
+            originalPath: '/tmp/legacy.pdf',
+            backend: 'electron',
+            fileName: 'legacy.pdf',
+            timestamp: 123,
+            fileSize: 456,
+        }]);
     });
 
     it('keeps only the newest entry for each recent file path', () => {

@@ -1,41 +1,29 @@
 import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 import type { MaybeRefOrGetter } from 'vue';
 import type { IPageRange } from '@app/types/pdfUi';
-import { collectPreservedRenderPageNumbers } from '@app/modules/pdf-viewer/engine/pdf-page-render-preservation/collectPreservedRenderPageNumbers';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import {
     normalizePdfRerenderSource,
     type TPdfRerenderSource,
 } from '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol';
-import type { IPdfPageNumberStateSet } from '@app/modules/pdf-viewer/runtime/rendering/pdfPageRenderState';
 
 interface IRerenderAllVisiblePagesOptions {
-    preserveExistingPages?: boolean;
     rerenderSource?: TPdfRerenderSource;
     renderBufferOverride?: number;
-    maxCanvasPixelsOverride?: number;
 }
 
 interface IRerenderAllVisiblePagesOptionsWithExplicitUndefined extends Omit<
     IRerenderAllVisiblePagesOptions,
-    'renderBufferOverride' | 'maxCanvasPixelsOverride'
-> {
-    renderBufferOverride?: number | undefined;
-    maxCanvasPixelsOverride?: number | undefined;
-}
+    'renderBufferOverride'
+> { renderBufferOverride?: number | undefined; }
 
 interface INormalizedRerenderOptions {
-    preserveExistingPages: boolean;
     rerenderSource: TPdfRerenderSource;
     renderBufferOverride?: number;
-    maxCanvasPixelsOverride?: number;
 }
 
 interface IUsePdfRendererRerenderControllerOptions {
     isActive: MaybeRefOrGetter<boolean>;
-    renderedPages: IPdfPageNumberStateSet;
-    staleRenderedPages: IPdfPageNumberStateSet;
-    pageCanvases: Map<number, HTMLCanvasElement>;
     renderMutex: {
         acquire: () => Promise<void>;
         release: () => void;
@@ -44,44 +32,38 @@ interface IUsePdfRendererRerenderControllerOptions {
     bumpRenderVersion: (reason: string, payload?: Record<string, unknown>) => number;
     setupPagePlaceholders: () => void;
     renderVisiblePages: (visibleRange: IPageRange, options?: IRenderVisiblePagesOptions) => Promise<void>;
+    requestMandatoryRender?: ((
+        visibleRange: IPageRange,
+        options?: IRenderVisiblePagesOptions,
+    ) => Promise<void>) | undefined;
     getTrackedPageNumbersForCleanup: () => Set<number>;
-    cleanupPage: (pageNumber: number) => void;
+    clearPageVisual: (pageNumber: number) => boolean;
 }
 
 export const usePdfRendererRerenderController = (options: IUsePdfRendererRerenderControllerOptions) => {
     const {
         isActive,
-        renderedPages,
-        staleRenderedPages,
-        pageCanvases,
         renderMutex,
         getRenderVersion,
         bumpRenderVersion,
         setupPagePlaceholders,
         renderVisiblePages,
+        requestMandatoryRender,
         getTrackedPageNumbersForCleanup,
-        cleanupPage,
+        clearPageVisual,
     } = options;
 
     function normalizeRerenderOptions(
         rerenderOptions?: IRerenderAllVisiblePagesOptionsWithExplicitUndefined,
     ): INormalizedRerenderOptions {
         const {
-            preserveExistingPages = false,
             rerenderSource,
             renderBufferOverride,
-            maxCanvasPixelsOverride,
         } = rerenderOptions ?? {};
 
-        const normalized: INormalizedRerenderOptions = {
-            preserveExistingPages,
-            rerenderSource: normalizePdfRerenderSource(rerenderSource),
-        };
+        const normalized: INormalizedRerenderOptions = {rerenderSource: normalizePdfRerenderSource(rerenderSource)};
         if (renderBufferOverride !== undefined) {
             normalized.renderBufferOverride = renderBufferOverride;
-        }
-        if (maxCanvasPixelsOverride !== undefined) {
-            normalized.maxCanvasPixelsOverride = maxCanvasPixelsOverride;
         }
         return normalized;
     }
@@ -106,7 +88,6 @@ export const usePdfRendererRerenderController = (options: IUsePdfRendererRerende
         version: number,
         getVisibleRange: () => IPageRange,
         renderBufferOverride: number | undefined,
-        maxCanvasPixelsOverride: number | undefined,
         optionsOverride?: {
             preserveRenderedPages?: boolean;
             forceRerender?: boolean;
@@ -124,10 +105,7 @@ export const usePdfRendererRerenderController = (options: IUsePdfRendererRerende
         if (renderBufferOverride !== undefined) {
             renderOptions.bufferOverride = renderBufferOverride;
         }
-        if (maxCanvasPixelsOverride !== undefined) {
-            renderOptions.maxCanvasPixelsOverride = maxCanvasPixelsOverride;
-        }
-        await renderVisiblePages(visibleRange, renderOptions);
+        await (requestMandatoryRender ?? renderVisiblePages)(visibleRange, renderOptions);
         return true;
     }
 
@@ -147,40 +125,11 @@ export const usePdfRendererRerenderController = (options: IUsePdfRendererRerende
             return;
         }
         const normalizedOptions = normalizeRerenderOptions(rerenderOptions);
-        const { preserveExistingPages } = normalizedOptions;
-        const pagesWithPreservedContent = preserveExistingPages
-            ? collectPreservedRenderPageNumbers({
-                renderedPages,
-                pageCanvases,
-            })
-            : null;
-        pagesWithPreservedContent?.forEach(page => staleRenderedPages.add(page));
-        const version = bumpRenderVersion('rerender-all-visible', {
-            preserveExistingPages,
-            rerenderSource: normalizedOptions.rerenderSource ?? null,
-        });
+        const version = bumpRenderVersion('rerender-all-visible', {rerenderSource: normalizedOptions.rerenderSource ?? null});
         await renderMutex.acquire();
 
         try {
             if (getRenderVersion() !== version) {
-                return;
-            }
-
-            if (preserveExistingPages) {
-                pagesWithPreservedContent?.forEach(page => staleRenderedPages.add(page));
-
-                setupPagePlaceholders();
-
-                await renderMountedVisiblePagesAfterRestore(
-                    version,
-                    getVisibleRange,
-                    normalizedOptions.renderBufferOverride,
-                    normalizedOptions.maxCanvasPixelsOverride,
-                    {
-                        preserveRenderedPages: true,
-                        forceRerender: true,
-                    },
-                );
                 return;
             }
 
@@ -190,7 +139,7 @@ export const usePdfRendererRerenderController = (options: IUsePdfRendererRerende
                 rerenderSource: normalizedOptions.rerenderSource ?? null,
                 pagesToCleanup,
             });
-            pagesToCleanup.forEach((page) => cleanupPage(page));
+            pagesToCleanup.forEach(page => clearPageVisual(page));
 
             setupPagePlaceholders();
 
@@ -198,7 +147,7 @@ export const usePdfRendererRerenderController = (options: IUsePdfRendererRerende
                 version,
                 getVisibleRange,
                 normalizedOptions.renderBufferOverride,
-                normalizedOptions.maxCanvasPixelsOverride,
+                {forceRerender: true},
             );
         } finally {
             renderMutex.release();

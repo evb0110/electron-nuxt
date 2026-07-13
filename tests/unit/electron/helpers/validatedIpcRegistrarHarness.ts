@@ -1,4 +1,5 @@
 import type {IpcMainInvokeEvent} from 'electron';
+import { expect } from 'vitest';
 import type {
     IIpcInvokeSpec,
     IIpcMainRegistrar,
@@ -60,4 +61,35 @@ export function getCapturedIpcHandler(
 
 export function createHarnessEvent(senderId = 7) {
     return {sender: {id: senderId}} as IpcMainInvokeEvent;
+}
+
+export async function assertValidatedRegistrarCases(options: {
+    cases: readonly IValidatedRegistrarCase[];
+    channels: Record<string, string>;
+    handlers: ReadonlyMap<string, TCapturedIpcHandler>;
+    setTrusted: (trusted: boolean) => void;
+}) {
+    const expectedChannels = [...new Set(Object.values(options.channels))].sort();
+    expect([...options.handlers.keys()].sort()).toEqual(expectedChannels);
+    expect(options.cases.map(testCase => testCase.channel).sort()).toEqual(expectedChannels);
+
+    for (const testCase of options.cases) {
+        const handler = getCapturedIpcHandler(options.handlers, testCase.channel);
+        options.setTrusted(true);
+        await expect(handler(createHarnessEvent(), ...testCase.validArgs)).resolves.not.toThrow();
+
+        for (let index = 0; index < testCase.validArgs.length; index += 1) {
+            const malformedArgs = [...testCase.validArgs];
+            malformedArgs[index] = Symbol('malformed');
+            await expect(handler(createHarnessEvent(), ...malformedArgs)).rejects.toThrow(
+                `Invalid IPC arguments for ${testCase.channel}`,
+            );
+        }
+        await expect(handler(createHarnessEvent(), ...testCase.validArgs, Symbol('extra'))).rejects.toThrow(
+            `Invalid IPC arguments for ${testCase.channel}`,
+        );
+
+        options.setTrusted(false);
+        await expect(handler(createHarnessEvent(), ...testCase.validArgs)).rejects.toThrow('IPC sender is not trusted');
+    }
 }

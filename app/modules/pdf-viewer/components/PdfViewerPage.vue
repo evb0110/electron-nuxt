@@ -8,9 +8,24 @@
             'page_container--rendered': rendered,
         }"
         :data-page="page"
+        :data-page-visual="pageVisualState"
         :style="placeholderStyle ?? undefined"
     >
-        <div class="page_canvas canvasWrapper"></div>
+        <div class="page_canvas">
+            <div class="page_canvas__render-layer canvasWrapper"></div>
+            <PdfPageSkeleton
+                v-if="showPageSkeleton && !rendered && !renderFailed"
+                :padding="pageSkeletonPadding"
+                :content-height="pageSkeletonContentHeight"
+            />
+            <div
+                v-else-if="renderFailed"
+                class="pdf-page-render-error"
+                role="alert"
+            >
+                {{ renderErrorLabel }}
+            </div>
+        </div>
         <div class="text-layer textLayer"></div>
         <div class="annotation-layer annotationLayer"></div>
         <div class="annotation-editor-layer annotationEditorLayer"></div>
@@ -43,11 +58,6 @@
             @select-shape="selectShape"
             @shape-contextmenu="openShapeContextMenu"
         />
-        <PdfPageSkeleton
-            v-if="showPageSkeleton"
-            :padding="scaledSkeletonPadding"
-            :content-height="scaledPageHeight"
-        />
     </div>
 </template>
 
@@ -72,6 +82,8 @@ import type {
 interface IProps {
     page: number;
     showSkeleton: boolean;
+    renderFailed?: boolean;
+    renderErrorLabel?: string;
     spreadSingle?: boolean;
     buffered?: boolean;
     rendered?: boolean;
@@ -84,6 +96,8 @@ interface IProps {
 const {
     page,
     showSkeleton,
+    renderFailed = false,
+    renderErrorLabel = '',
     spreadSingle = false,
     buffered = false,
     rendered = false,
@@ -105,11 +119,20 @@ const {
     scaledSkeletonPadding,
     scaledPageHeight,
 } = usePdfSkeletonContext();
+const fallbackSkeletonPadding = Object.freeze({
+    top: 56,
+    right: 56,
+    bottom: 56,
+    left: 56,
+});
+const pageSkeletonPadding = computed(() => scaledSkeletonPadding.value ?? fallbackSkeletonPadding);
+const pageSkeletonContentHeight = computed(() => scaledPageHeight.value ?? 760);
 
 const shapeContext = inject<IShapeContextProvide | null>('shapeContext', null);
 
 const pageShapes = computed(() => shapeContext?.getShapesForPage(page - 1) ?? []);
 const showPageSkeleton = computed(() => showSkeleton);
+const pageVisualState = computed(() => rendered ? 'ready' : 'none');
 const isPageVisualReadyForShapeOverlay = computed(() => shapeOverlayVisualReady);
 
 const pageDrawingShape = computed(() => {

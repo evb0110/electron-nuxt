@@ -5,7 +5,6 @@ import type { usePdfTextLayerRenderer } from '@app/modules/pdf-viewer/runtime/co
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { clearPdfSelectionForLayerTeardown } from '@app/modules/pdf-viewer/engine/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
-import { pdfViewerDomClasses } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/pdfViewerDomClasses';
 import type {
     IPdfPageNumberStateMap,
     IPdfPageNumberStateSet,
@@ -17,7 +16,6 @@ interface IUsePdfRendererCleanupControllerOptions {
     currentPage: Ref<number>;
     pageRenderState: TPdfPageRenderState;
     renderedPages: IPdfPageNumberStateSet;
-    staleRenderedPages: IPdfPageNumberStateSet;
     renderingPages: IPdfPageNumberStateMap;
     renderingPageRequestIds: IPdfPageNumberStateMap;
     missingRenderTargetRetries: Map<number, number>;
@@ -47,7 +45,6 @@ export const usePdfRendererCleanupController = (options: IUsePdfRendererCleanupC
         currentPage,
         pageRenderState,
         renderedPages,
-        staleRenderedPages,
         renderingPages,
         renderingPageRequestIds,
         missingRenderTargetRetries,
@@ -79,12 +76,7 @@ export const usePdfRendererCleanupController = (options: IUsePdfRendererCleanupC
         }
     }
 
-    function cleanupPage(pageNumber: number) {
-        logPdfRenderTrace('renderer-cleanup-page-begin', {
-            pageNumber,
-            renderVersion: getRenderVersion(),
-            page: summarizePageDom(pageNumber),
-        });
+    function clearPageVisual(pageNumber: number, notify = true) {
         const containerRoot = containerRef.value;
         const container = getMountedPageContainer(pageNumber, containerRoot);
         clearPdfSelectionForLayerTeardown({
@@ -93,13 +85,9 @@ export const usePdfRendererCleanupController = (options: IUsePdfRendererCleanupC
             includeDetached: true,
             includeAnyPdfTextSelection: pageNumber === currentPage.value,
         });
-        cancelActiveRenderTask(pageNumber);
-        cancelActiveTextLayerRender(pageNumber);
-
         cleanupTextLayer(pageNumber);
 
         let didChangeRenderedState = false;
-
         const canvas = pageCanvases.get(pageNumber);
         if (canvas) {
             canvasRenderer.cleanupCanvas(canvas);
@@ -107,55 +95,56 @@ export const usePdfRendererCleanupController = (options: IUsePdfRendererCleanupC
             didChangeRenderedState = true;
         }
         releasePageCanvasSurface(pageNumber);
-
         didChangeRenderedState = renderedPages.delete(pageNumber) || didChangeRenderedState;
-        didChangeRenderedState = staleRenderedPages.delete(pageNumber) || didChangeRenderedState;
-        didChangeRenderedState = renderingPages.delete(pageNumber) || didChangeRenderedState;
-        renderingPageRequestIds.delete(pageNumber);
 
         annotationLayerRenderer.cleanupEditorLayer(pageNumber);
-
         if (containerRoot) {
-            container?.classList.remove(pdfViewerDomClasses.renderedPageContainer);
-            const skeleton =
-                container?.querySelector<HTMLElement>('.pdf-page-skeleton');
-            const canvasHost =
-                container?.querySelector<HTMLDivElement>('.page_canvas');
-            const textLayerDiv =
-                container?.querySelector<HTMLDivElement>('.text-layer');
-            const annotationLayerDiv =
-                container?.querySelector<HTMLElement>('.annotation-layer');
-            const annotationEditorLayerDiv = container?.querySelector<HTMLElement>(
-                '.annotation-editor-layer',
-            );
+            const skeleton = container?.querySelector<HTMLElement>('.pdf-page-skeleton');
+            const canvasHost = container?.querySelector<HTMLDivElement>('.page_canvas__render-layer');
+            const textLayerDiv = container?.querySelector<HTMLDivElement>('.text-layer');
+            const annotationLayerDiv = container?.querySelector<HTMLElement>('.annotation-layer');
+            const annotationEditorLayerDiv = container?.querySelector<HTMLElement>('.annotation-editor-layer');
 
             if (canvasHost) {
                 zeroCanvasDescendants(canvasHost);
-                canvasHost.innerHTML = '';
+                canvasHost.replaceChildren();
             }
-
             if (skeleton) {
                 skeleton.style.display = '';
             }
-
             if (textLayerDiv) {
                 textLayerRenderer.cleanupTextLayerDom(textLayerDiv);
             }
-
             if (annotationLayerDiv) {
                 zeroCanvasDescendants(annotationLayerDiv);
-                annotationLayerDiv.innerHTML = '';
+                annotationLayerDiv.replaceChildren();
             }
-
             if (annotationEditorLayerDiv) {
                 zeroCanvasDescendants(annotationEditorLayerDiv);
-                annotationEditorLayerDiv.innerHTML = '';
+                annotationEditorLayerDiv.replaceChildren();
             }
-
             if (container) {
                 textLayerRenderer.clearOcrDebug(container);
             }
         }
+
+        if (notify && didChangeRenderedState) {
+            onRenderedPageStateChanged?.();
+        }
+        return didChangeRenderedState;
+    }
+
+    function cleanupPage(pageNumber: number) {
+        logPdfRenderTrace('renderer-cleanup-page-begin', {
+            pageNumber,
+            renderVersion: getRenderVersion(),
+            page: summarizePageDom(pageNumber),
+        });
+        cancelActiveRenderTask(pageNumber);
+        cancelActiveTextLayerRender(pageNumber);
+        let didChangeRenderedState = clearPageVisual(pageNumber, false);
+        didChangeRenderedState = renderingPages.delete(pageNumber) || didChangeRenderedState;
+        renderingPageRequestIds.delete(pageNumber);
 
         try {
             evictPage(pageNumber);
@@ -182,20 +171,22 @@ export const usePdfRendererCleanupController = (options: IUsePdfRendererCleanupC
         pageNumber: number,
         version: number,
         requestId?: number,
+        cleanupOptions?: {terminalFailure?: boolean},
     ) {
-        if (renderingPages.get(pageNumber) !== version) {
+        const slot = pageRenderState.getSlot(pageNumber);
+        const isCurrentTerminalFailure = cleanupOptions?.terminalFailure === true
+            && slot.job === 'failed'
+            && slot.version === version
+            && (requestId === undefined || slot.requestId === requestId);
+        if (!isCurrentTerminalFailure && renderingPages.get(pageNumber) !== version) {
             return;
         }
         if (
+            !isCurrentTerminalFailure
+            &&
             requestId !== undefined
             && renderingPageRequestIds.get(pageNumber) !== requestId
         ) {
-            return;
-        }
-
-        if (staleRenderedPages.has(pageNumber)) {
-            renderingPages.delete(pageNumber);
-            renderingPageRequestIds.delete(pageNumber);
             return;
         }
 
@@ -235,6 +226,7 @@ export const usePdfRendererCleanupController = (options: IUsePdfRendererCleanupC
 
     return {
         cleanupTextLayer,
+        clearPageVisual,
         cleanupPage,
         cleanupPageIfCurrentRender,
         cleanupAllPages,

@@ -537,7 +537,7 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
             const editorSubtype = createdEditor
                 ? detectEditorSubtype(createdEditor)
                 : null;
-            if (editorObject && !commentSync.trackedCreatedEditors.has(editorObject)) {
+            if (isNewStorageEditor && editorObject && !commentSync.trackedCreatedEditors.has(editorObject)) {
                 commentSync.trackedCreatedEditors.add(editorObject);
                 if (editorSubtype !== 'Stamp') {
                     toolManager.maybeAutoResetAnnotationTool();

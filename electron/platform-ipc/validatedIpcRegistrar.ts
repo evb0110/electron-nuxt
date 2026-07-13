@@ -162,6 +162,10 @@ export function createValidatedIpcMainRegistrar(
                     decodedArgs = noArgs as TArgs;
                 } else if (decode) {
                     decodedArgs = decode(args);
+                    const unexpectedArgs = args.slice(decodedArgs.length);
+                    if (unexpectedArgs.some(argument => argument !== undefined)) {
+                        throw new Error(`unexpected trailing arguments after position ${decodedArgs.length}`);
+                    }
                 } else {
                     throw new Error('argument decoder is unavailable');
                 }

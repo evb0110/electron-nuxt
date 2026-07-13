@@ -53,6 +53,7 @@ import {enqueueWorkingCopyMutation} from '@electron/file-access/workingCopyMutat
 import type { IWorkingCopyMutationOperation } from '@electron/file-access/workingCopyMutationQueue';
 import { transitionWorkingCopyContentRevision } from '@electron/file-access/documentRevisionStore';
 import {
+    awaitPageIdentityStoreInitialization,
     commitPageIdentityDelta,
     createDeleteIdentityDelta,
     createIdentityDelta,
@@ -106,6 +107,7 @@ async function transitionPageMutation<T>(input: {
         delta: IPageIdentityDelta
     }>;
 }) {
+    await awaitPageIdentityStoreInitialization(input.workingCopyPath);
     const values: T[] = [];
     let committedDelta: IPageIdentityDelta | null = null;
     const documentRevision = await transitionWorkingCopyContentRevision(

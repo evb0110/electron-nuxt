@@ -20,6 +20,7 @@ import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TPdfRasterDisplayProfile } from '@app/types/pdfRasterDisplayProfile';
 import type { IPdfPageSlotRegistry } from '@app/modules/pdf-viewer/runtime/page-slots/pdfPageSlotRegistry';
 import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
+import type { IPdfCanvasDomCommit } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 
 interface IUsePdfViewerRenderingRuntimeOptions {
     viewerContainer: Ref<HTMLElement | null>;
@@ -58,14 +59,17 @@ interface IUsePdfViewerRenderingRuntimeOptions {
     workingCopyPath: ComputedRef<string | null>;
     documentRevisionToken: ComputedRef<TDocumentRevisionToken | null>;
     onRenderStall: (payload: IPageRenderStallPayload) => void;
-    onPageCanvasMounted: (pageNumber: number) => void;
+    onPageCanvasMounted: (commit: IPdfCanvasDomCommit) => void;
+    resolveOpenSurfaceRenderContext?: IUsePdfPageRendererOptions['resolveOpenSurfaceRenderContext'];
     onPageRendered: (pageNumber: number) => void;
     onAnnotationLayersRendered?: ((pageNumber: number, container: HTMLElement) => void) | undefined;
     isVisibleRenderRangeCurrent?: ((visibleRange: IPageRange) => boolean) | undefined;
+    getProtectedVisibleRange: () => IPageRange;
     onRenderedPageStateChanged: () => void;
     renderedPageStateVersion: Ref<number>;
     pageSlots?: IPdfPageSlotRegistry | undefined;
     viewportWritePort: IPdfViewportWritePort;
+    requestMandatoryRender?: IUsePdfPageRendererOptions['requestMandatoryRender'];
 }
 
 export const usePdfViewerRenderingRuntime = (options: IUsePdfViewerRenderingRuntimeOptions) => {
@@ -102,24 +106,27 @@ export const usePdfViewerRenderingRuntime = (options: IUsePdfViewerRenderingRunt
         viewportWritePort: options.viewportWritePort,
         onRenderStall: options.onRenderStall,
         onPageCanvasMounted: options.onPageCanvasMounted,
+        resolveOpenSurfaceRenderContext: options.resolveOpenSurfaceRenderContext,
         onPageRendered: options.onPageRendered,
         onAnnotationLayersRendered: options.onAnnotationLayersRendered,
         isVisibleRenderRangeCurrent: options.isVisibleRenderRangeCurrent,
+        getProtectedVisibleRange: options.getProtectedVisibleRange,
         onRenderedPageStateChanged: options.onRenderedPageStateChanged,
         ...(options.pageSlots ? {pageSlots: options.pageSlots} : {}),
+        ...(options.requestMandatoryRender ? {requestMandatoryRender: options.requestMandatoryRender} : {}),
     });
 
     function cleanupRenderedPages() {
-        rendering.cleanupAllPages();
+        void rendering.cleanupAllPages();
         options.renderedPageStateVersion.value += 1;
     }
 
     function isPageRenderedForClass(page: number) {
-        return options.renderedPageStateVersion.value >= 0 && rendering.isPageRendered(page);
+        return options.renderedPageStateVersion.value >= 0 && rendering.isPageCanvasCommitted(page);
     }
 
     function isPageFreshlyRenderedForNavigation(page: number) {
-        return options.renderedPageStateVersion.value >= 0 && rendering.isPageFreshlyRendered(page);
+        return options.renderedPageStateVersion.value >= 0 && rendering.isPageCanvasCommitted(page);
     }
 
     return {
@@ -127,5 +134,6 @@ export const usePdfViewerRenderingRuntime = (options: IUsePdfViewerRenderingRunt
         cleanupRenderedPages,
         isPageFreshlyRenderedForNavigation,
         isPageRenderedForClass,
+        isPageCanvasCommitted: rendering.isPageCanvasCommitted,
     };
 };

@@ -29,8 +29,25 @@ function flushLifecycleTasks() {
 }
 
 describe('usePdfViewerDocumentLifecycle', () => {
-    it('reconciles fresh document opens to page one even when current page is already one', async () => {
+    it('has no pre-render hook that can hold the first canvas behind annotation work', () => {
+        type THasBlockingPreRenderHook = 'beforeInitialRender' extends keyof TDocumentLifecycleOptions
+            ? true
+            : false;
+        const hasBlockingPreRenderHook: THasBlockingPreRenderHook = false;
+
+        expect(hasBlockingPreRenderHook).toBe(false);
+    });
+
+    it('preserves the committed opening layout while committing the fresh reload viewport', async () => {
         const callOrder: string[] = [];
+        const committedOpeningScale = 760 / 364.2;
+        const effectiveScale = ref(committedOpeningScale);
+        const resetScale = vi.fn(() => {
+            effectiveScale.value = 1;
+        });
+        const resetInsets = vi.fn();
+        const invalidateScaleCache = vi.fn();
+        let placeholderScale = 0;
         const currentPage = ref(1);
         const visibleRange = ref({
             start: 1,
@@ -42,11 +59,22 @@ describe('usePdfViewerDocumentLifecycle', () => {
         const scrollToPage = vi.fn((pageNumber: number) => {
             callOrder.push(`scroll:${pageNumber}`);
         });
+        const commitReloadViewport = vi.fn((pageNumber: number) => {
+            callOrder.push(`commit-reload-viewport:${pageNumber}`);
+        });
         const renderVisiblePages = vi.fn(async () => {
             callOrder.push('render');
         });
         const updateVisibleRange = vi.fn(() => {
             callOrder.push('update-visible-range');
+        });
+        const ensurePageMetricsInRange = vi.fn(async () => {
+            callOrder.push('hydrate-metrics');
+            return true;
+        });
+        const computeFitWidthScale = vi.fn(() => {
+            callOrder.push('commit-fit-scale');
+            return true;
         });
 
         const { scheduleLoadFromSource } = usePdfViewerDocumentLifecycle({
@@ -56,7 +84,7 @@ describe('usePdfViewerDocumentLifecycle', () => {
             ),
             zoom: computed(() => 1),
             zoomMode: computed(() => 'fit-width' as const),
-            effectiveScale: ref(1),
+            effectiveScale,
             currentPage,
             visibleRange,
             basePageWidth: ref(612),
@@ -72,7 +100,7 @@ describe('usePdfViewerDocumentLifecycle', () => {
                 pdfDocument.value = { numPages: numPages.value } as PDFDocumentProxy;
                 return { version: 1 };
             }),
-            ensurePageMetricsInRange: vi.fn(async () => false),
+            ensurePageMetricsInRange,
             getPage: vi.fn(async () => ({}) as PDFPageProxy),
             renderVisiblePages,
             getVisibleRange: () => visibleRange.value,
@@ -83,14 +111,17 @@ describe('usePdfViewerDocumentLifecycle', () => {
             applySearchHighlights: vi.fn(),
             updateVisibleRange,
             scrollToPage,
+            commitReloadViewport,
             cleanupRenderedPages: vi.fn(),
-            invalidateScaleCache: vi.fn(),
-            resetScale: vi.fn(),
-            resetInsets: vi.fn(),
+            invalidateScaleCache,
+            shouldPreserveOpeningLayout: () => true,
+            resetScale,
+            resetInsets,
             setupPagePlaceholders: vi.fn(() => {
+                placeholderScale = effectiveScale.value;
                 callOrder.push('setup-placeholders');
             }),
-            computeFitWidthScale: vi.fn(() => true),
+            computeFitWidthScale,
             computeSkeletonInsets: vi.fn(async () => {}),
             invalidateRenderedPages: vi.fn(),
             consumePendingInvalidation: () => null,
@@ -112,9 +143,16 @@ describe('usePdfViewerDocumentLifecycle', () => {
         scheduleLoadFromSource();
         await flushLifecycleTasks();
 
-        expect(scrollToPage).toHaveBeenCalledWith(1);
-        expect(callOrder.indexOf('scroll:1')).toBeGreaterThan(callOrder.indexOf('setup-placeholders'));
-        expect(callOrder.indexOf('scroll:1')).toBeLessThan(callOrder.indexOf('render'));
+        expect(commitReloadViewport).toHaveBeenCalledWith(1);
+        expect(scrollToPage).not.toHaveBeenCalled();
+        expect(invalidateScaleCache).toHaveBeenCalledOnce();
+        expect(resetScale).not.toHaveBeenCalled();
+        expect(resetInsets).not.toHaveBeenCalled();
+        expect(placeholderScale).toBe(committedOpeningScale);
+        expect(callOrder.indexOf('commit-fit-scale')).toBeGreaterThan(callOrder.indexOf('hydrate-metrics'));
+        expect(callOrder.indexOf('commit-fit-scale')).toBeLessThan(callOrder.indexOf('setup-placeholders'));
+        expect(callOrder.indexOf('commit-reload-viewport:1')).toBeGreaterThan(callOrder.indexOf('setup-placeholders'));
+        expect(callOrder.indexOf('commit-reload-viewport:1')).toBeLessThan(callOrder.indexOf('render'));
     });
 
     it('re-applies the target page after the initial reload render before syncing viewport state', async () => {
@@ -529,7 +567,7 @@ describe('usePdfViewerDocumentLifecycle', () => {
         expect(endVisualReloadTransition).toHaveBeenCalledWith(17, 'preserved-load-complete');
     });
 
-    it('settles document loading before deferred warm render and annotation sync', async () => {
+    it('paints the bounded first canvas before deferred warm render and annotation sync', async () => {
         const callOrder: string[] = [];
         const currentPage = ref(1);
         const visibleRange = ref({
@@ -553,6 +591,7 @@ describe('usePdfViewerDocumentLifecycle', () => {
         const onDocumentLoadStateChange = vi.fn((payload: { phase: 'started' | 'settled' }) => {
             callOrder.push(`load:${payload.phase}`);
         });
+        const initialCanvasPaint = Promise.withResolvers<undefined>();
 
         const { scheduleLoadFromSource } = usePdfViewerDocumentLifecycle({
             viewerContainer: ref(cast<HTMLElement>({ querySelector: vi.fn(() => ({})) })),
@@ -613,10 +652,19 @@ describe('usePdfViewerDocumentLifecycle', () => {
             beginVisualReloadTransition: vi.fn(() => 17),
             endVisualReloadTransition: vi.fn(),
             onDocumentLoadStateChange,
+            waitForInitialCanvasCommit: (pageNumber: number) => {
+                callOrder.push(`canvas-commit-wait:${String(pageNumber)}`);
+                return initialCanvasPaint.promise;
+            },
             emit: vi.fn(),
         });
 
         scheduleLoadFromSource();
+        await flushLifecycleTasks();
+
+        expect(renderVisiblePages).toHaveBeenCalledTimes(1);
+        expect(callOrder).toContain('canvas-commit-wait:1');
+        initialCanvasPaint.resolve(undefined);
         await flushLifecycleTasks();
 
         expect(onDocumentLoadStateChange).toHaveBeenLastCalledWith({
@@ -626,13 +674,13 @@ describe('usePdfViewerDocumentLifecycle', () => {
         expect(renderVisiblePages).toHaveBeenCalledWith({
             start: 1,
             end: 1,
-        }, { bufferOverride: 0 });
+        }, {bufferOverride: 0});
         expect(renderVisiblePages).toHaveBeenLastCalledWith({
             start: 1,
             end: 3,
         });
         expect(applySearchHighlights).toHaveBeenCalledOnce();
-        expect(scheduleAnnotationCommentsSync).toHaveBeenCalledWith(true);
+        expect(scheduleAnnotationCommentsSync).toHaveBeenCalledWith();
 
         const settleIndex = callOrder.indexOf('load:settled');
         expect(settleIndex).toBeGreaterThan(callOrder.indexOf('sync'));
@@ -715,7 +763,7 @@ describe('usePdfViewerDocumentLifecycle', () => {
         scheduleLoadFromSource(true);
         await flushLifecycleTasks();
 
-        expect(loadPdf).toHaveBeenCalledWith(reloadSource, undefined);
+        expect(loadPdf).toHaveBeenCalledWith(reloadSource, {});
     });
 
     it('routes reload page and range commits through the reload transaction', async () => {

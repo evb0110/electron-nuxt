@@ -6,7 +6,7 @@ import {
 import { delay } from 'es-toolkit/promise';
 import { basename } from 'node:path';
 import {
-    createMultiPageTextFixturePdf,
+    createLargeScannedFixturePdf,
     resolveDjvuFixturePath,
     selectFixtureDescribe,
 } from '@tests/e2e/electron/helpers/fixtures';
@@ -22,12 +22,24 @@ import {
     evaluateInPage,
     waitForFunctionInPage,
 } from '@tests/e2e/electron/helpers/pageRuntime';
+import {
+    findCommittedSurfaceCausalOpenViolations,
+    installCommittedSurfaceSampler,
+    stopCommittedSurfaceSampler,
+    summarizeCommittedSurfaceTiming,
+} from '@tests/e2e/electron/helpers/viewerCommittedSurfaceContract';
 
 const RECENT_ROW_TIMEOUT_MS = 15_000;
 const RECENT_OPEN_TIMEOUT_MS = 12_000;
 const RECENT_STARTUP_STABILITY_MS = 1_500;
 const RECENT_OPEN_STABILITY_MS = 2_500;
 const RECENT_POLL_INTERVAL_MS = 50;
+const RECENT_EMPTY_TAB_ACTIONABLE_BUDGET_MS = 500;
+const RECENT_FIRST_PAGE_SHELL_BUDGET_MS = 100;
+const RECENT_FIRST_PAGE_SHELL_BUDGET_FRAMES = 2;
+const RECENT_FIRST_VISIBLE_PAGE_SHELL_BUDGET_FRAMES = 2;
+const RECENT_FIRST_CANVAS_BUDGET_MS = 2_500;
+const RECENT_READY_AFTER_CANVAS_BUDGET_MS = 1_000;
 const TOOLBAR_OPEN_TRANSITION_POLL_MS = 25;
 const TOOLBAR_MIN_VISIBLE_HEIGHT_PX = 40;
 const TOOLBAR_MAX_OPEN_SHIFT_PX = 2;
@@ -54,6 +66,31 @@ interface IToolbarTransitionSample {
     toolbarVisible: boolean;
     visibleControlCount: number;
     visibleIconCount: number;
+}
+
+interface IImmediateRecentOpenResult {
+    activeTabChanged: boolean;
+    actionableElapsedMs: number | null;
+    clickAtMs: number | null;
+    emptyTabCreatedAtMs: number | null;
+    framesAfterClick: number;
+    prewarmAtMs: number | null;
+    recentRowVisibleAtShell: boolean;
+    sawVisibleDisabledTargetRow: boolean;
+    shellAtMs: number | null;
+    shellElapsedMs: number | null;
+    shellFound: boolean;
+    targetReadyAtClick: boolean;
+    targetActionableAtClick: boolean;
+    firstPostClickFrame: {
+        activeTabTitle: string;
+        openSurfacePhase: string | null;
+        openSurfacePresentation: string | null;
+        recentRowVisible: boolean;
+        shellVisible: boolean;
+        skeletonVisible: boolean;
+    } | null;
+    visibleTextAtDeadline: string;
 }
 
 async function startToolbarTransitionSampling(session: IElectronE2ESession) {
@@ -177,17 +214,25 @@ async function readRecentOpenDomState(
 ): Promise<IRecentOpenDomState> {
     return evaluateInPage(session.page, (targetFileName: string) => {
         const isVisible = (element: HTMLElement) => {
+            let current: HTMLElement | null = element;
+            while (current) {
+                const style = window.getComputedStyle(current);
+                if (
+                    style.display === 'none'
+                    || style.visibility === 'hidden'
+                    || Number(style.opacity || '1') === 0
+                ) {
+                    return false;
+                }
+                current = current.parentElement;
+            }
             const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return (
-                rect.width > 0
-                && rect.height > 0
-                && style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && Number(style.opacity || '1') > 0
-            );
+            return rect.width > 0 && rect.height > 0;
         };
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host')
+        const activeHost = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+        )
+            ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host')
             ?? document.querySelector<HTMLElement>('.workspace-host');
         if (!activeHost) {
             return {
@@ -204,12 +249,18 @@ async function readRecentOpenDomState(
         const recentRows = Array.from(activeHost.querySelectorAll<HTMLButtonElement>('button.recent-row--data'))
             .filter(isVisible);
         const viewer = activeHost.querySelector<HTMLElement>('#pdf-viewer');
+        const hasOpeningSurface = Array.from(activeHost.querySelectorAll<HTMLElement>(
+            '.document-viewer-chassis__opening-page, .native-pdf-page-content, .document-page-source-feature-pack__page',
+        )).some(isVisible);
+        const hasRenderedContent = Array.from(viewer?.querySelectorAll<HTMLElement>(
+            '.page_canvas canvas, .text-layer span, .textLayer span',
+        ) ?? []).some(isVisible);
 
         return {
             hasHost: true,
             hasLoader: Array.from(activeHost.querySelectorAll<HTMLElement>('.workspace-host__loading')).some(isVisible),
-            hasViewer: Boolean(viewer && isVisible(viewer)),
-            hasRenderedContent: Boolean(viewer?.querySelector('.page_canvas canvas, .text-layer span, .textLayer span')),
+            hasViewer: hasOpeningSurface || hasRenderedContent,
+            hasRenderedContent,
             recentRowVisible: recentRows.some(row => row.textContent?.includes(targetFileName)),
             visibleRecentRows: recentRows.length,
             visibleText: (activeHost.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 300),
@@ -239,6 +290,153 @@ async function clickRecentFile(session: IElectronE2ESession, fileName: string) {
     }, fileName);
 
     expect(clicked).toBe(true);
+}
+
+async function waitForStartupOverlayRemoved(session: IElectronE2ESession) {
+    await waitForFunctionInPage(session.page, () => (
+        document.querySelector('#evb-startup-overlay') === null
+    ), {timeout: RECENT_ROW_TIMEOUT_MS});
+}
+
+async function emptyCurrentTabAndOpenRecentOnFirstFrame(
+    session: IElectronE2ESession,
+    fileName: string,
+): Promise<IImmediateRecentOpenResult> {
+    return evaluateInPage(session.page, (
+        targetFileName: string,
+        shellBudgetMs: number,
+    ) => new Promise<IImmediateRecentOpenResult>((resolve) => {
+        const previousActiveTabId = document.querySelector<HTMLElement>(
+            '.tab-list .tab.is-active[data-tab-id]',
+        )?.dataset.tabId ?? null;
+        const currentTabCloseButton = document.querySelector<HTMLButtonElement>(
+            '.tab-list .tab.is-active .tab-close',
+        );
+        const prewarmAtMs = performance
+            .getEntriesByName('evb:recent-pdf-geometry-prewarmed', 'mark')
+            .at(-1)?.startTime ?? null;
+        let emptyTabCreatedAtMs: number | null = null;
+        let clickAtMs: number | null = null;
+        let framesAfterClick = 0;
+        let sawVisibleDisabledTargetRow = false;
+        let targetReadyAtClick = false;
+        let targetActionableAtClick = false;
+        let firstPostClickFrame: IImmediateRecentOpenResult['firstPostClickFrame'] = null;
+
+        const isVisible = (element: HTMLElement | null) => {
+            if (!element?.isConnected) {
+                return false;
+            }
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return rect.width > 0
+                && rect.height > 0
+                && style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && Number(style.opacity || '1') > 0;
+        };
+        const getActiveHost = () => document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+        );
+        const getTargetRecentRows = () => Array.from(
+            getActiveHost()?.querySelectorAll<HTMLButtonElement>('button.recent-row--data') ?? [],
+        ).filter(row => (
+            row.textContent?.includes(targetFileName)
+            && isVisible(row)
+        ));
+        const getRecentRow = () => getTargetRecentRows().find(row => !row.disabled) ?? null;
+        const getExactPageShell = () => {
+            const openingShell = getActiveHost()?.querySelector<HTMLElement>(
+                '.document-viewer-chassis__opening-page',
+            ) ?? null;
+            if (isVisible(openingShell)) {
+                return openingShell;
+            }
+            const pageCanvas = getActiveHost()?.querySelector<HTMLElement>(
+                '#pdf-viewer .page_container[data-page="1"] .page_canvas',
+            ) ?? null;
+            return isVisible(pageCanvas) ? pageCanvas : null;
+        };
+        const finish = (shellAtMs: number | null) => {
+            const activeTabId = document.querySelector<HTMLElement>(
+                '.tab-list .tab.is-active[data-tab-id]',
+            )?.dataset.tabId ?? null;
+            resolve({
+                activeTabChanged: Boolean(activeTabId && activeTabId !== previousActiveTabId),
+                actionableElapsedMs: emptyTabCreatedAtMs !== null && clickAtMs !== null
+                    ? Math.round(clickAtMs - emptyTabCreatedAtMs)
+                    : null,
+                clickAtMs,
+                emptyTabCreatedAtMs,
+                framesAfterClick,
+                prewarmAtMs,
+                recentRowVisibleAtShell: isVisible(getRecentRow()),
+                sawVisibleDisabledTargetRow,
+                shellAtMs,
+                shellElapsedMs: clickAtMs !== null && shellAtMs !== null
+                    ? Math.round(shellAtMs - clickAtMs)
+                    : null,
+                shellFound: shellAtMs !== null,
+                targetReadyAtClick,
+                targetActionableAtClick,
+                firstPostClickFrame,
+                visibleTextAtDeadline: (getActiveHost()?.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 300),
+            });
+        };
+        const sample = () => {
+            if (clickAtMs === null) {
+                sawVisibleDisabledTargetRow ||= getTargetRecentRows().some(row => row.disabled);
+                const recentRow = getRecentRow();
+                if (recentRow) {
+                    targetReadyAtClick = recentRow.dataset.recentOpenReady === 'true';
+                    targetActionableAtClick = recentRow.dataset.recentOpenActionable === 'true';
+                    clickAtMs = performance.now();
+                    (window as Window & {__committedSurfaceInteractionCheckpoint?: string | null;})
+                        .__committedSurfaceInteractionCheckpoint = 'recent-click';
+                    recentRow.click();
+                }
+                window.requestAnimationFrame(sample);
+                return;
+            }
+            const sampledAtMs = performance.now();
+            framesAfterClick += 1;
+            if (firstPostClickFrame === null) {
+                const activeHost = getActiveHost();
+                const chassis = activeHost?.querySelector<HTMLElement>('.document-viewer-chassis') ?? null;
+                firstPostClickFrame = {
+                    activeTabTitle: document.querySelector<HTMLElement>(
+                        '.tab-list .tab.is-active .tab-label',
+                    )?.textContent?.trim() ?? '',
+                    openSurfacePhase: activeHost?.querySelector<HTMLElement>(
+                        '[data-document-viewer-chassis-viewport]',
+                    )?.dataset.openSurfacePhase ?? null,
+                    openSurfacePresentation: chassis?.dataset.openSurfacePresentation ?? null,
+                    recentRowVisible: isVisible(getRecentRow()),
+                    shellVisible: getExactPageShell() !== null,
+                    skeletonVisible: Boolean(
+                        getExactPageShell()?.querySelector('.pdf-page-skeleton'),
+                    ),
+                };
+            }
+            if (getExactPageShell()) {
+                finish(sampledAtMs);
+                return;
+            }
+            if (sampledAtMs - clickAtMs > shellBudgetMs) {
+                finish(null);
+                return;
+            }
+            window.requestAnimationFrame(sample);
+        };
+
+        if (!currentTabCloseButton || prewarmAtMs === null) {
+            finish(null);
+            return;
+        }
+        currentTabCloseButton.click();
+        emptyTabCreatedAtMs = performance.now();
+        window.requestAnimationFrame(sample);
+    }), fileName, RECENT_FIRST_PAGE_SHELL_BUDGET_MS);
 }
 
 async function assertRecentListStaysStableBeforeOpen(session: IElectronE2ESession, fileName: string) {
@@ -350,13 +548,13 @@ describe('Electron E2E - Recent Files', () => {
 
     const sessionFixture = createElectronE2ESessionFixture({sessionName});
 
-    it('opens a persisted recent PDF after restarting Electron', async () => {
+    it('opens Recent immediately from the current empty startup tab into the exact page shell', async () => {
         let session = sessionFixture.getSession();
         if (!session) {
             return;
         }
 
-        const fixturePath = await createMultiPageTextFixturePdf(`recent-file-${Date.now()}.pdf`, 2);
+        const fixturePath = await createLargeScannedFixturePdf(`recent-file-${Date.now()}.pdf`);
         await openPdfInApp(session.page, fixturePath);
         await waitForPdfLoaded(session.page);
         session = await sessionFixture.restart({
@@ -367,11 +565,247 @@ describe('Electron E2E - Recent Files', () => {
             return;
         }
 
-        await assertRecentListStaysStableBeforeOpen(session, basename(fixturePath));
+        await waitForStartupOverlayRemoved(session);
+        await installCommittedSurfaceSampler(session.page);
         await startToolbarTransitionSampling(session);
-        await clickRecentFile(session, basename(fixturePath));
+        const sourceDeferred = await evaluateInPage(session.page, (path: string) => (
+            window.__deferDocumentOpenForAutomation?.(path) ?? false
+        ), fixturePath);
+        expect(sourceDeferred).toBe(true);
+        const immediateOpen = await emptyCurrentTabAndOpenRecentOnFirstFrame(
+            session,
+            basename(fixturePath),
+        );
+        const openingShellState = await evaluateInPage(session.page, () => {
+            const shell = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .document-viewer-chassis__opening-page',
+            ) ?? document.querySelector<HTMLElement>(
+                '.editor-pane.is-active #pdf-viewer .page_container[data-page="1"] .page_canvas',
+            );
+            if (!shell) {
+                return {
+                    found: false,
+                    hasSkeleton: false,
+                    rect: null,
+                    borderRadius: '',
+                    boxShadow: '',
+                };
+            }
+            shell.dataset.e2eRecentOpeningShell = 'stable';
+            const rect = shell.getBoundingClientRect();
+            const style = window.getComputedStyle(shell);
+            const viewport = document.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]');
+            const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const workspace = document.querySelector<HTMLElement>('.workspace-main-shell');
+            const track = document.querySelector<HTMLElement>('[data-pdf-page-track]');
+            return {
+                found: true,
+                hasSkeleton: shell.querySelector('.pdf-page-skeleton') !== null,
+                rect: {
+                    height: rect.height,
+                    left: rect.left,
+                    top: rect.top,
+                    width: rect.width,
+                },
+                borderRadius: style.borderRadius,
+                boxShadow: style.boxShadow,
+                diagnostics: {
+                    frameOwner: shell.dataset.openSurfaceFrameOwner ?? '',
+                    hostClientWidth: host?.clientWidth ?? 0,
+                    viewportClientWidth: viewport?.clientWidth ?? 0,
+                    viewportOffsetWidth: viewport?.offsetWidth ?? 0,
+                    viewportScrollTop: viewport?.scrollTop ?? 0,
+                    viewportTop: viewport?.getBoundingClientRect().top ?? 0,
+                    workspaceTop: workspace?.getBoundingClientRect().top ?? 0,
+                    trackTop: track?.getBoundingClientRect().top ?? 0,
+                    shellOffsetTop: shell.offsetTop,
+                    shellStyleTop: style.top,
+                    shellPageNumber: shell.dataset.pageNumber ?? '',
+                },
+            };
+        });
+        expect(openingShellState.found).toBe(true);
+        expect(openingShellState.rect).not.toBeNull();
+        await delay(130);
+        const debouncedSkeletonVisible = await evaluateInPage(session.page, () => {
+            const shell = document.querySelector<HTMLElement>('[data-e2e-recent-opening-shell="stable"]');
+            return shell?.querySelector('.pdf-page-skeleton') !== null;
+        });
+        const sourceReleased = await evaluateInPage(session.page, (path: string) => (
+            window.__releaseDocumentOpenForAutomation?.(path) ?? false
+        ), fixturePath);
+        expect(debouncedSkeletonVisible).toBe(true);
+        expect(sourceReleased).toBe(true);
+        // Opening a Recent file consumes the current empty tab; it must not create
+        // another tab or replace the current tab identity.
+        expect(immediateOpen.activeTabChanged, JSON.stringify(immediateOpen)).toBe(false);
+        expect(immediateOpen.prewarmAtMs, JSON.stringify(immediateOpen)).not.toBeNull();
+        expect(immediateOpen.clickAtMs, JSON.stringify(immediateOpen)).not.toBeNull();
+        expect(
+            immediateOpen.actionableElapsedMs,
+            JSON.stringify(immediateOpen),
+        ).toBeLessThanOrEqual(RECENT_EMPTY_TAB_ACTIONABLE_BUDGET_MS);
+        expect(immediateOpen.targetReadyAtClick, JSON.stringify(immediateOpen)).toBe(true);
+        expect(immediateOpen.targetActionableAtClick, JSON.stringify(immediateOpen)).toBe(true);
+        expect(
+            immediateOpen.prewarmAtMs! <= immediateOpen.clickAtMs!,
+            JSON.stringify(immediateOpen),
+        ).toBe(true);
+        expect(immediateOpen.shellFound, JSON.stringify(immediateOpen)).toBe(true);
+        expect(
+            immediateOpen.framesAfterClick,
+            JSON.stringify(immediateOpen),
+        ).toBeLessThanOrEqual(RECENT_FIRST_PAGE_SHELL_BUDGET_FRAMES);
+        expect(immediateOpen.recentRowVisibleAtShell, JSON.stringify(immediateOpen)).toBe(false);
+        expect(immediateOpen.firstPostClickFrame, JSON.stringify(immediateOpen)).toMatchObject({
+            activeTabTitle: basename(fixturePath),
+            openSurfacePhase: 'pending',
+            openSurfacePresentation: 'page-shell',
+            recentRowVisible: false,
+            shellVisible: true,
+            skeletonVisible: false,
+        });
         await waitForRecentPdfOpen(session, basename(fixturePath));
+        const committedCanvasState = await evaluateInPage(session.page, () => {
+            const shell = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active #pdf-viewer .page_canvas',
+            );
+            if (!shell) {
+                return {
+                    found: false,
+                    rect: null,
+                    borderRadius: '',
+                    boxShadow: '',
+                    hasSkeleton: true,
+                };
+            }
+            const rect = shell.getBoundingClientRect();
+            const style = window.getComputedStyle(shell);
+            const viewport = document.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]');
+            const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const workspace = document.querySelector<HTMLElement>('.workspace-main-shell');
+            const track = document.querySelector<HTMLElement>('[data-pdf-page-track]');
+            const pageContainer = shell.closest<HTMLElement>('.page_container');
+            return {
+                found: shell.querySelector('canvas') !== null,
+                rect: {
+                    height: rect.height,
+                    left: rect.left,
+                    top: rect.top,
+                    width: rect.width,
+                },
+                borderRadius: style.borderRadius,
+                boxShadow: style.boxShadow,
+                hasSkeleton: shell.querySelector('.pdf-page-skeleton') !== null,
+                diagnostics: {
+                    hostClientWidth: host?.clientWidth ?? 0,
+                    viewportClientWidth: viewport?.clientWidth ?? 0,
+                    viewportOffsetWidth: viewport?.offsetWidth ?? 0,
+                    viewportScrollTop: viewport?.scrollTop ?? 0,
+                    viewportTop: viewport?.getBoundingClientRect().top ?? 0,
+                    workspaceTop: workspace?.getBoundingClientRect().top ?? 0,
+                    trackTop: track?.getBoundingClientRect().top ?? 0,
+                    pageContainerTop: pageContainer?.getBoundingClientRect().top ?? 0,
+                    pageContainerOffsetTop: pageContainer?.offsetTop ?? 0,
+                    trackPaddingTop: track ? window.getComputedStyle(track).paddingTop : '',
+                },
+            };
+        });
+        expect(committedCanvasState.found).toBe(true);
+        expect(committedCanvasState.hasSkeleton).toBe(false);
+        expect(committedCanvasState.borderRadius).toBe(openingShellState.borderRadius);
+        expect(committedCanvasState.boxShadow).toBe(openingShellState.boxShadow);
+        expect(committedCanvasState.rect).not.toBeNull();
+        for (const key of [
+            'height',
+            'left',
+            'top',
+            'width',
+        ] as const) {
+            expect(Math.abs(
+                committedCanvasState.rect![key] - openingShellState.rect![key],
+            ), JSON.stringify({
+                key,
+                committedCanvasState,
+                openingShellState,
+            })).toBeLessThanOrEqual(0.5);
+        }
         assertToolbarTransitionStable(await stopToolbarTransitionSampling(session));
+        await delay(250);
+        const committedSurfaceTrace = await stopCommittedSurfaceSampler(session.page);
+        const postClickFrames = committedSurfaceTrace.frames.filter(
+            frame => frame.interactionCheckpoint === 'recent-click',
+        );
+        const firstPostClickElapsedMs = postClickFrames[0]?.elapsedMs ?? 0;
+        const postClickSurfaceTrace = {frames: postClickFrames.map(frame => ({
+            ...frame,
+            elapsedMs: Math.max(0, frame.elapsedMs - firstPostClickElapsedMs),
+        }))};
+        const causalViolations = findCommittedSurfaceCausalOpenViolations(postClickSurfaceTrace, {
+            maxFirstCanvasMs: RECENT_FIRST_CANVAS_BUDGET_MS,
+            maxFirstPageShellMs: RECENT_FIRST_PAGE_SHELL_BUDGET_MS,
+            maxReadyAfterCanvasMs: RECENT_READY_AFTER_CANVAS_BUDGET_MS,
+            requirePageShell: true,
+        });
+        const firstPostClickFrame = postClickSurfaceTrace.frames[0];
+        const firstVisiblePageShellFrame = postClickSurfaceTrace.frames.find(frame => frame.kind === 'page-shell');
+        const visiblePageShellFrameDelta = firstPostClickFrame && firstVisiblePageShellFrame
+            ? firstVisiblePageShellFrame.frame - firstPostClickFrame.frame
+            : null;
+        console.info('[E2E recent PDF open timing]', JSON.stringify({
+            actionableElapsedMs: immediateOpen.actionableElapsedMs,
+            framesAfterClick: immediateOpen.framesAfterClick,
+            framesThroughFirstVisibleShell: postClickSurfaceTrace.frames
+                .slice(0, Math.max(1, postClickSurfaceTrace.frames.findIndex(frame => frame.kind === 'page-shell') + 1))
+                .map(frame => ({
+                    elapsedMs: frame.elapsedMs,
+                    frame: frame.frame,
+                    kind: frame.kind,
+                    openSurfacePhase: frame.openSurfacePhase,
+                    openSurfacePresentation: frame.openSurfacePresentation,
+                    outerPlaceholderOwnsCenter: frame.outerPlaceholderOwnsCenter,
+                    topElementPath: frame.topElementPath,
+                })),
+            prewarmLeadMs: immediateOpen.clickAtMs! - immediateOpen.prewarmAtMs!,
+            shellElapsedMs: immediateOpen.shellElapsedMs,
+            timing: summarizeCommittedSurfaceTiming(postClickSurfaceTrace),
+            visiblePageShellFrameDelta,
+        }));
+        expect(
+            visiblePageShellFrameDelta,
+            JSON.stringify({
+                immediateOpen,
+                frames: postClickSurfaceTrace.frames,
+            }),
+        ).not.toBeNull();
+        expect(
+            visiblePageShellFrameDelta!,
+            JSON.stringify({
+                immediateOpen,
+                frames: postClickSurfaceTrace.frames,
+            }),
+        ).toBeLessThanOrEqual(RECENT_FIRST_VISIBLE_PAGE_SHELL_BUDGET_FRAMES);
+        expect(
+            causalViolations,
+            JSON.stringify({
+                causalViolations,
+                immediateOpen,
+                frames: postClickSurfaceTrace.frames.map(frame => ({
+                    elapsedMs: frame.elapsedMs,
+                    frame: frame.frame,
+                    kind: frame.kind,
+                    openSurfacePhase: frame.openSurfacePhase,
+                    openSurfacePresentation: frame.openSurfacePresentation,
+                    outerPlaceholderOwnsCenter: frame.outerPlaceholderOwnsCenter,
+                    pageClassName: frame.pageClassName,
+                    shellRect: frame.shellRect,
+                    skeletonCount: frame.skeletonCount,
+                    skeletonRect: frame.skeletonRect,
+                    topElementPath: frame.topElementPath,
+                })),
+                timing: summarizeCommittedSurfaceTiming(postClickSurfaceTrace),
+            }),
+        ).toEqual([]);
         await assertRecentPdfStaysLoaded(session, basename(fixturePath));
     });
 });

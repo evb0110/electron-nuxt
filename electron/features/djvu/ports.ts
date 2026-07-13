@@ -65,6 +65,10 @@ export interface IDjvuService {
         context: IDjvuOperationContext,
         ...args: Parameters<TDjvuApi['getInfo']>
     ) => ReturnType<TDjvuApi['getInfo']>;
+    getPageSourceInfo: (
+        context: IDjvuOperationContext,
+        ...args: Parameters<TDjvuApi['getPageSourceInfo']>
+    ) => ReturnType<TDjvuApi['getPageSourceInfo']>;
     getPageSizes: (
         context: IDjvuOperationContext,
         ...args: Parameters<TDjvuApi['getPageSizes']>

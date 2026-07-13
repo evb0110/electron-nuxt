@@ -26,11 +26,13 @@ function readWorkspaceDocumentRefs(workspace: IWorkspaceExpose | null) {
         return {
             sourceRef: snapshot?.originalPath ?? null,
             workingCopyRef: snapshot?.workingCopyPath ?? null,
+            requiresSaveAsOnFirstSave: snapshot?.requiresSaveAsOnFirstSave ?? false,
         };
     } catch {
         return {
             sourceRef: null,
             workingCopyRef: null,
+            requiresSaveAsOnFirstSave: false,
         };
     }
 }
@@ -73,6 +75,7 @@ export function buildWorkspaceCheckpoint(
                 fileName: snapshot.fileName,
                 sourceRef: documentRefs.sourceRef ?? tab?.originalPath ?? null,
                 workingCopyRef: documentRefs.workingCopyRef,
+                requiresSaveAsOnFirstSave: documentRefs.requiresSaveAsOnFirstSave,
                 isDirty: snapshot.isDirty,
                 isDjvu: snapshot.isDjvu,
                 currentPage: toolbar?.hasPdf ? toolbar.currentPage : null,

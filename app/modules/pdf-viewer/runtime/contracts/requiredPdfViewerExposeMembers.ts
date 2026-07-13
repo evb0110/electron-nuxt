@@ -2,7 +2,6 @@ import type { IPdfViewerExpose } from '@app/modules/pdf-viewer/runtime/contracts
 
 export const requiredPdfViewerExposeMembers = [
     'getViewerContainer',
-    'getPagePreview',
     'getCurrentPage',
     'getPendingNavigationTargetPage',
     'getUserViewportInteractionEpoch',
@@ -20,6 +19,7 @@ export const requiredPdfViewerExposeMembers = [
     'isCropSelecting',
     'adoptPersistedManagedShapesOnNextImport',
     'clearPendingManagedShapeImportAdoption',
+    'ensureManagedShapeBaselineReady',
     'preparePersistedManagedShapesForSave',
     'restorePreparedManagedShapesAfterFailedSave',
     'runSaveTransaction',
@@ -28,6 +28,9 @@ export const requiredPdfViewerExposeMembers = [
     'commitPdfEditorsForSave',
     'annotationHistoryMutationVersion',
     'annotationHistoryResetVersion',
+    'hasCanonicalAnnotationChanges',
+    'getDeletedCanonicalAnnotationIds',
+    'getDeletedPersistedCanonicalAnnotationCount',
     'clearAnnotationHistory',
     'setWorkspaceCommandSink',
     'renderLoadedPdfPagesForBrowserPrint',

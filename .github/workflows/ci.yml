@@ -545,8 +545,18 @@ jobs:
       - name: Verify Electron install
         run: pnpm run check:electron:install
 
+      - name: Generate deterministic oversized PDF fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          fixture="$RUNNER_TEMP/evb-large-pdf-e2e-fixture.pdf"
+          node scripts/generate-large-pdf-e2e-fixture.mjs --output="$fixture"
+          echo "EVB_E2E_LARGE_PDF_FIXTURE=$fixture" >> "$GITHUB_ENV"
+          echo "EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1" >> "$GITHUB_ENV"
+          echo "EVB_E2E_REQUIRE_NATIVE_LARGE_PDF_FIXTURE=1" >> "$GITHUB_ENV"
+
       - name: Electron E2E large PDF
-        run: pnpm run build:electron && pnpm exec vitest run --project e2e-large-pdf --reporter verbose
+        run: pnpm run test:e2e:electron:large
 
   nightly_electron_e2e_quarantine:
     name: Nightly Electron E2E Quarantine

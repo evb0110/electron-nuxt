@@ -43,6 +43,7 @@ interface ICreateWorkspaceExposeDeps extends
     IWorkspaceAgentPort {
     hasPdf: Ref<boolean>;
     isOpeningDocument: Ref<boolean>;
+    initialVisualReady: Ref<boolean>;
     hasOpenError: Ref<boolean>;
     isPreparingPrint: Ref<boolean>;
     isPreparingCurrentPagePrint: Ref<boolean>;
@@ -101,6 +102,7 @@ interface ICreateWorkspaceExposeDeps extends
     waitForDocumentOpenSettled: IWorkspaceExpose['waitForDocumentOpenSettled'];
     workingCopyPath: Ref<TDocumentRef | null>;
     originalPath: Ref<TDocumentRef | null>;
+    requiresSaveAsOnFirstSave?: Ref<boolean>;
     annotationComments: Ref<IAnnotationCommentSummary[]>;
     annotationCommentsStatus: Ref<TAnnotationCommentsStatus>;
     annotationDirty: Ref<boolean>;
@@ -234,6 +236,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         const effectiveZoom = isOpeningDocument ? 1 : deps.effectiveZoom.value;
         return {
             hasPdf: deps.hasPdf.value,
+            initialVisualReady: deps.initialVisualReady.value,
             isOpeningDocument,
             hasOpenError: deps.hasOpenError.value,
             isPreparingPrint: deps.isPreparingPrint.value,
@@ -301,6 +304,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
                 pendingEmbeddedAnnotationDeleteCount: deps.pendingEmbeddedAnnotationDeleteCount?.value ?? 0,
             },
             originalPath: deps.originalPath.value,
+            requiresSaveAsOnFirstSave: deps.requiresSaveAsOnFirstSave?.value ?? false,
             sortedAnnotationNoteWindows: deps.sortedAnnotationNoteWindows.value.map(note => ({
                 ...note,
                 markerRect: note.markerRect ? {...note.markerRect} : null,

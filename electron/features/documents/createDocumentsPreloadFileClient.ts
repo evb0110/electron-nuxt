@@ -1,10 +1,8 @@
-import type {
-    IpcRenderer,
-    IpcRendererEvent,
-} from 'electron';
+import type { IpcRenderer } from 'electron';
 import {
     decodeDocumentRevisionChangedEvent,
     parseDocumentRevisionToken,
+    type IDocumentRevisionChangedEvent,
 } from '@contracts/documentRevision';
 import type {
     IDocumentsFileCapability,
@@ -43,7 +41,10 @@ import {
     DOCUMENTS_EVENT_CHANNELS,
     type IDocumentsInvokeMap,
 } from '@electron/features/documents/contract';
-import {createCodecIpcInvoker} from '@electron/preload/ipcClient';
+import {
+    createCodecIpcInvoker,
+    createTypedIpcEventSubscriber,
+} from '@electron/preload/ipcClient';
 import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
 import {
     assertAbsolutePath,
@@ -68,6 +69,7 @@ const PDF_PERSISTENCE_RESULT_TIMEOUT_MS = PDF_PERSISTENCE_DEFAULT_RESULT_TIMEOUT
 const LONG_NATIVE_IPC_TIMEOUT_MS = 30 * 60 * 1000;
 const DOCUMENTS_NATIVE_INVOKE_TIMEOUT_MS_BY_CHANNEL = {
     [DOCUMENTS_CHANNELS.openDocumentDirectBatch]: LONG_NATIVE_IPC_TIMEOUT_MS,
+    [DOCUMENTS_CHANNELS.pdfOpeningGeometry]: LONG_NATIVE_IPC_TIMEOUT_MS,
     [DOCUMENTS_CHANNELS.pdfNativePageSizes]: LONG_NATIVE_IPC_TIMEOUT_MS,
     [DOCUMENTS_CHANNELS.pdfNativePagePreview]: LONG_NATIVE_IPC_TIMEOUT_MS,
     [DOCUMENTS_CHANNELS.pdfAnalyzeConformance]: LONG_NATIVE_IPC_TIMEOUT_MS,
@@ -84,6 +86,8 @@ interface ISerializedPdfPersistencePortResult {
     path: string | null;
     validation: Awaited<ReturnType<IDocumentsFileCapability['validatePdfData']>>;
 }
+
+interface IDocumentsFileEventMap {[DOCUMENTS_EVENT_CHANNELS.documentRevisionChanged]: IDocumentRevisionChangedEvent;}
 
 type TDocumentChunkSource = Parameters<IDocumentsFileCapability['savePdfDataChunks']>[2];
 
@@ -152,11 +156,15 @@ function assertPdfSerializedSaveOptions(value: unknown, label: string): IPdfSeri
     )) {
         throw new TypeError(`${label}.changedObjectRefs must contain at most 128 canonical PDF object references`);
     }
+    if (value.workingCopyOnly !== undefined && value.workingCopyOnly !== true) {
+        throw new TypeError(`${label}.workingCopyOnly must be true when provided`);
+    }
     return {
         expectedDocumentRevisionToken: parsedToken,
         ...(Array.isArray(changedObjectRefs)
             ? {changedObjectRefs: [...new Set(changedObjectRefs as string[])]}
             : {}),
+        ...(value.workingCopyOnly === true ? {workingCopyOnly: true as const} : {}),
     };
 }
 
@@ -491,6 +499,7 @@ export function createDocumentsPreloadFileClient(
     ipcRenderer: TDocumentsFileIpcRenderer,
 ): TDocumentsPreloadFileClient {
     const invoke = createCodecIpcInvoker<IDocumentsInvokeMap>(ipcRenderer, DOCUMENTS_IPC_CODECS, {invokeTimeoutMsByChannel: DOCUMENTS_NATIVE_INVOKE_TIMEOUT_MS_BY_CHANNEL});
+    const eventSubscriber = createTypedIpcEventSubscriber<IDocumentsFileEventMap>(ipcRenderer);
     const openDocumentDialog = () => invoke(DOCUMENTS_CHANNELS.openDocumentDialog);
     const openDocumentDirect = (path: string) => invoke(DOCUMENTS_CHANNELS.openDocumentDirect, path);
     const openDocumentDirectBatch = (
@@ -569,6 +578,11 @@ export function createDocumentsPreloadFileClient(
                 DOCUMENTS_CHANNELS.fileReleaseManagedHandle,
                 assertNonEmptyString(leaseId, 'releaseManagedTempFileHandle.leaseId'),
             ),
+        getPdfOpeningGeometry: (path) =>
+            invoke(
+                DOCUMENTS_CHANNELS.pdfOpeningGeometry,
+                assertAbsolutePath(path, 'getPdfOpeningGeometry.path'),
+            ),
         getPdfNativePageSizes: (path) =>
             invoke(
                 DOCUMENTS_CHANNELS.pdfNativePageSizes,
@@ -620,25 +634,11 @@ export function createDocumentsPreloadFileClient(
                 assertAbsolutePath(path, 'getDocumentRevision.path'),
             ),
         onDocumentRevisionChanged: (callback) => {
-            if (
-                typeof ipcRenderer.on !== 'function'
-                || typeof ipcRenderer.removeListener !== 'function'
-            ) {
-                return () => undefined;
-            }
-            const handler = (
-                _event: IpcRendererEvent,
-                payload: unknown,
-            ) => {
-                const decoded = decodeDocumentRevisionChangedEvent(payload);
-                if (decoded !== null) {
-                    callback(decoded);
-                }
-            };
-            ipcRenderer.on(DOCUMENTS_EVENT_CHANNELS.documentRevisionChanged, handler);
-            return () => {
-                ipcRenderer.removeListener?.(DOCUMENTS_EVENT_CHANNELS.documentRevisionChanged, handler);
-            };
+            return eventSubscriber.onDecodedPayload(
+                DOCUMENTS_EVENT_CHANNELS.documentRevisionChanged,
+                decodeDocumentRevisionChangedEvent,
+                callback,
+            );
         },
         analyzePdfConformance: (path) =>
             invoke(

@@ -68,17 +68,13 @@ export interface IUsePdfViewerRerenderCoordinatorOptions {
     reRenderAllVisiblePages: (
         getVisibleRange: () => IPageRange,
         options?: {
-            preserveExistingPages?: boolean;
             rerenderSource?: TPdfRerenderSource;
             renderBufferOverride?: number | undefined;
-            maxCanvasPixelsOverride?: number | undefined;
         },
     ) => Promise<void>;
-    isPageRendered: (page: number) => boolean;
     summarizeViewerMetricsForLog: (container: HTMLElement | null) => unknown;
     summarizeVisiblePageSnapshotForLog: (container: HTMLElement | null) => unknown;
     syncCurrentPageFromViewport: (options?: ICurrentPageSyncOptions) => Promise<void>;
-    markLowResZoomRerenderUsed: () => void;
     buildResizeAnchorContext: (options?: IBuildResizeAnchorContextOptions) => IResizeAnchorContext;
     scheduleEndResizeTransition: (
         token: number,

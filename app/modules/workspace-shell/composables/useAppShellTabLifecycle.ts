@@ -454,7 +454,17 @@ export const useAppShellTabLifecycle = (
             && !workspaceHasPdf(workspace)
             && !hasWorkspaceViewerDocumentCapabilities(workspace.getToolbarSnapshot().viewerCapabilities)
         ) {
-            closeResolvedTabInState(paneId, tabId);
+            const pane = getPaneByTabId(tabId) ?? getPaneById(paneId);
+            const retainMountedSingletonOwner = panes.value.length === 1
+                && pane?.tabIds.length === 1
+                && pane.tabIds[0] === tabId;
+            // The final tab is already the product's required empty-tab slot.
+            // Keep its mounted workspace/chassis authority instead of deleting
+            // it and constructing an equivalent replacement asynchronously;
+            // Recent-file commands then remain actionable in the close commit.
+            if (!retainMountedSingletonOwner) {
+                closeResolvedTabInState(paneId, tabId);
+            }
         }
     }
 

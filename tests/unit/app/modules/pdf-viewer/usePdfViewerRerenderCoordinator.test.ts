@@ -102,7 +102,6 @@ function createDeps(overrides: Partial<TCoordinatorDeps> = {}): TCoordinatorDeps
         summarizeViewerMetricsForLog: vi.fn(() => null),
         summarizeVisiblePageSnapshotForLog: vi.fn(() => null),
         syncCurrentPageFromViewport: vi.fn(async () => {}),
-        markLowResZoomRerenderUsed: vi.fn(),
         buildResizeAnchorContext: vi.fn((options?: IBuildResizeAnchorContextOptions) => {
             return createResizeAnchor(options?.preferredAnchorPage ?? currentPage.value);
         }),
@@ -368,7 +367,6 @@ describe('usePdfViewerRerenderCoordinator', () => {
             expect(reRenderAllVisiblePages).toHaveBeenCalledWith(
                 expect.any(Function),
                 expect.objectContaining({
-                    preserveExistingPages: true,
                     renderBufferOverride: 0,
                     rerenderSource: 'fit-width-current-page',
                 }),
@@ -675,6 +673,42 @@ describe('usePdfViewerRerenderCoordinator', () => {
             expect(syncCurrentPageFromViewport).toHaveBeenCalledWith(
                 expect.objectContaining({source: 'fit-width-current-page'}),
             );
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('lets a matching paged target exclusively own the fit-width render', async () => {
+        vi.useFakeTimers();
+        try {
+            const currentPage = ref(1);
+            const pagedNavigationTargetPage = ref<number | null>(null);
+            const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
+
+            usePdfViewerRerenderCoordinator(createDeps({
+                currentPage,
+                pagedNavigationTargetPage,
+                zoomMode: computed(() => 'fit-width' as const),
+                fitMode: computed(() => 'width' as const),
+                reRenderAllVisiblePages,
+                ensurePageMetricsInRange: vi.fn(async () => true),
+                computeFitWidthScale: vi.fn(() => false),
+            }));
+
+            pagedNavigationTargetPage.value = 4;
+            currentPage.value = 4;
+            await flushCurrentPageFitRerender();
+
+            expect(reRenderAllVisiblePages).toHaveBeenCalledOnce();
+            expect(reRenderAllVisiblePages).toHaveBeenCalledWith(
+                expect.any(Function),
+                expect.objectContaining({rerenderSource: 'fit-width-paged-target'}),
+            );
+            expect(reRenderAllVisiblePages.mock.calls.some(([
+                , options,
+            ]) => (
+                options?.rerenderSource === 'fit-width-current-page'
+            ))).toBe(false);
         } finally {
             vi.useRealTimers();
         }
@@ -1065,9 +1099,8 @@ describe('usePdfViewerRerenderCoordinator', () => {
         expect(syncCurrentPageFromViewport).not.toHaveBeenCalled();
     });
 
-    it('renders gesture zoom frames through the low-resolution settle path', async () => {
+    it('schedules gesture zoom as an immediate visible-only rerender', async () => {
         const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
-        const markLowResZoomRerenderUsed = vi.fn();
 
         const {reRenderVisiblePagesAndSyncCurrentPage} = usePdfViewerRerenderCoordinator(createDeps({
             numPages: ref(348),
@@ -1081,7 +1114,6 @@ describe('usePdfViewerRerenderCoordinator', () => {
                 end: 157,
             }),
             reRenderAllVisiblePages,
-            markLowResZoomRerenderUsed,
             buildResizeAnchorContext: vi.fn(() => createResizeAnchor(157)),
             getMostVisiblePage: vi.fn(() => 157),
         }));
@@ -1092,20 +1124,17 @@ describe('usePdfViewerRerenderCoordinator', () => {
             resizeAnchor: createResizeAnchor(157),
         });
 
-        expect(markLowResZoomRerenderUsed).toHaveBeenCalled();
         expect(reRenderAllVisiblePages).toHaveBeenCalledWith(
             expect.any(Function),
             expect.objectContaining({
                 rerenderSource: 'zoom-gesture-change',
                 renderBufferOverride: 0,
-                maxCanvasPixelsOverride: 14_000_000,
             }),
         );
     });
 
-    it('renders toolbar zoom-change frames without the low-resolution canvas cap', async () => {
+    it('schedules toolbar zoom as an immediate visible-only rerender', async () => {
         const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
-        const markLowResZoomRerenderUsed = vi.fn();
 
         const {reRenderVisiblePagesAndSyncCurrentPage} = usePdfViewerRerenderCoordinator(createDeps({
             numPages: ref(348),
@@ -1119,7 +1148,6 @@ describe('usePdfViewerRerenderCoordinator', () => {
                 end: 157,
             }),
             reRenderAllVisiblePages,
-            markLowResZoomRerenderUsed,
             buildResizeAnchorContext: vi.fn(() => createResizeAnchor(157)),
             getMostVisiblePage: vi.fn(() => 157),
         }));
@@ -1130,7 +1158,6 @@ describe('usePdfViewerRerenderCoordinator', () => {
             resizeAnchor: createResizeAnchor(157),
         });
 
-        expect(markLowResZoomRerenderUsed).not.toHaveBeenCalled();
         expect(reRenderAllVisiblePages).toHaveBeenCalledWith(
             expect.any(Function),
             expect.objectContaining({
@@ -1138,12 +1165,10 @@ describe('usePdfViewerRerenderCoordinator', () => {
                 renderBufferOverride: 0,
             }),
         );
-        expect(reRenderAllVisiblePages.mock.calls[0]?.[1]).not.toHaveProperty('maxCanvasPixelsOverride');
     });
 
-    it('treats custom zoom-mode changes as zoom-like rerenders without gesture caps', async () => {
+    it('treats custom zoom-mode changes as zoom-like rerenders', async () => {
         const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
-        const markLowResZoomRerenderUsed = vi.fn();
         const syncCurrentPageFromViewport = vi.fn(async () => {});
         const resizeAnchor = createResizeAnchor(157);
 
@@ -1159,7 +1184,6 @@ describe('usePdfViewerRerenderCoordinator', () => {
                 end: 157,
             }),
             reRenderAllVisiblePages,
-            markLowResZoomRerenderUsed,
             syncCurrentPageFromViewport,
             buildResizeAnchorContext: vi.fn(() => resizeAnchor),
             getMostVisiblePage: vi.fn(() => 157),
@@ -1171,16 +1195,13 @@ describe('usePdfViewerRerenderCoordinator', () => {
             resizeAnchor,
         });
 
-        expect(markLowResZoomRerenderUsed).not.toHaveBeenCalled();
         expect(reRenderAllVisiblePages).toHaveBeenCalledWith(
             expect.any(Function),
             expect.objectContaining({
-                preserveExistingPages: true,
                 rerenderSource: PDF_RERENDER_SOURCE.ZoomModeChange,
                 renderBufferOverride: 0,
             }),
         );
-        expect(reRenderAllVisiblePages.mock.calls[0]?.[1]).not.toHaveProperty('maxCanvasPixelsOverride');
         expect(syncCurrentPageFromViewport).toHaveBeenCalledWith(
             expect.objectContaining({
                 source: PDF_RERENDER_SOURCE.ZoomModeChange,

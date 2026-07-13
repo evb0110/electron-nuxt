@@ -27,16 +27,17 @@ describe('browser worker entrypoints', () => {
 
         await Promise.all([
             import('@app/modules/pdf-viewer/engine/pdfSerialization.worker'),
+            import('@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations.worker'),
             import('@app/platform/browser-api/browserPageOps.worker'),
             import('@app/platform/browser-api/browserPdfCombine.worker'),
             import('@app/platform/browser-api/browserSearch.worker'),
         ]);
 
-        expect(messageHandlers).toHaveLength(4);
+        expect(messageHandlers).toHaveLength(5);
         for (const handler of messageHandlers) {
             await handler({data: {id: 17}} as MessageEvent<unknown>);
         }
-        expect(postMessage).toHaveBeenCalledTimes(4);
+        expect(postMessage).toHaveBeenCalledTimes(5);
         expect(postMessage.mock.calls.every(call => call[0]?.ok === false)).toBe(true);
     });
 });

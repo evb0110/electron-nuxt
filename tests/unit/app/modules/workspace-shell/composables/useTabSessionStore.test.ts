@@ -31,6 +31,7 @@ describe('tab session memory policy', () => {
     it('does not persist document page position in tab view state', () => {
         const state = createTabViewSessionState({
             hasPdf: true,
+            initialVisualReady: true,
             viewerCapabilities: {
                 ...createDefaultWorkspaceViewerCapabilities(),
                 closeableDocument: true,

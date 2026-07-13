@@ -130,14 +130,22 @@ function createNativeStagedCommitOptions(
 class NativeMutationPreExposeError extends Error {}
 
 async function createNativeWorkingCopyExpectation(path: TDocumentRef) {
-    const bytes = await readDocumentBytes(path);
-    const hashBytes = new Uint8Array(bytes.byteLength);
-    hashBytes.set(bytes);
-    const digest = await crypto.subtle.digest('SHA-256', hashBytes);
-    return {
-        byteLength: bytes.byteLength,
-        sha256: Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join(''),
-    };
+    const documentFiles = getDocumentFilesCapability();
+    if (
+        typeof documentFiles.createManagedTempFileHandle !== 'function'
+        || typeof documentFiles.releaseManagedTempFileHandle !== 'function'
+    ) {
+        throw new Error('Native mutation requires bounded main-process working-copy fingerprinting');
+    }
+    const handle = await documentFiles.createManagedTempFileHandle(path);
+    try {
+        return {
+            byteLength: handle.size,
+            sha256: handle.sha256,
+        };
+    } finally {
+        await documentFiles.releaseManagedTempFileHandle(handle.leaseId);
+    }
 }
 
 export function createDocumentPersistence(
@@ -719,7 +727,7 @@ export function createDocumentPersistence(
             expectedWorkingPath?: TDocumentRef | null;
             expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined;
             modifiedAt: string;
-            verifyBeforeExpose?: (bytes: Uint8Array) => Promise<void>;
+            verifyPathBeforeExpose?: (path: TDocumentRef, knownSize: number) => Promise<void>;
             assertBeforeExpose?: () => Promise<void> | void;
             freeTextNotes?: IPdfNativeFreeTextNote[];
             deletes?: IPdfNativeAnnotationDelete[];
@@ -740,7 +748,7 @@ export function createDocumentPersistence(
             expectedWorkingPath?: TDocumentRef | null;
             expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined;
             modifiedAt: string;
-            verifyBeforeExpose?: (bytes: Uint8Array) => Promise<void>;
+            verifyPathBeforeExpose?: (path: TDocumentRef, knownSize: number) => Promise<void>;
             assertBeforeExpose?: () => Promise<void> | void;
         },
     ): Promise<IPdfPersistResult | null> {
@@ -764,6 +772,7 @@ export function createDocumentPersistence(
             && !hasMarkup
             && !hasPlacedImages
         ) {
+            BrowserLogger.diagnostic('workspace', 'Native PDF mutation persistence returned no result', {reason: 'empty-mutation-set'});
             return null;
         }
         const canUseGenericNativeMutations = typeof documentFiles.applyPdfNativeMutationsToWorkingCopy === 'function'
@@ -789,6 +798,16 @@ export function createDocumentPersistence(
             && typeof documentFiles.savePdfNoteChanges === 'function'
         );
         if (!canUseGenericNativeMutations && !canUseLegacyNativeNoteText && !canUseLegacyNativeNoteChanges) {
+            BrowserLogger.diagnostic('workspace', 'Native PDF mutation persistence returned no result', () => ({
+                reason: 'native-document-capability-unavailable',
+                hasGenericApply: typeof documentFiles.applyPdfNativeMutationsToWorkingCopy === 'function',
+                hasGenericCommit: typeof documentFiles.commitStagedPdfNativeMutations === 'function',
+                hasLegacyNoteText: typeof documentFiles.savePdfNoteTextUpdates === 'function',
+                hasLegacyNoteChanges: typeof documentFiles.savePdfNoteChanges === 'function',
+                updateCount: updates.length,
+                freeTextNoteCount: freeTextNotes.length,
+                deleteCount: deletes.length,
+            }));
             return null;
         }
 
@@ -844,6 +863,7 @@ export function createDocumentPersistence(
                 return createStalePersistResult(requestedSaveMode, false);
             }
             if (forceSaveAs) {
+                BrowserLogger.diagnostic('workspace', 'Native PDF mutation persistence returned no result', {reason: 'force-save-as'});
                 logRendererTimings('force-save-as');
                 return null;
             }
@@ -868,6 +888,9 @@ export function createDocumentPersistence(
                             throw new NativeMutationPreExposeError('Native mutation did not return an immutable staged output');
                         }
                         try {
+                            if (opts.verifyPathBeforeExpose) {
+                                await opts.verifyPathBeforeExpose(applied.stagedOutput.path, applied.stagedOutput.size);
+                            }
                             await opts.assertBeforeExpose?.();
                         } catch (error) {
                             await documentFiles.releaseManagedTempFileHandle?.(applied.stagedOutput.leaseId);
@@ -899,6 +922,11 @@ export function createDocumentPersistence(
                 },
             );
             if (!result.applied || !result.validation?.isValid) {
+                BrowserLogger.diagnostic('workspace', 'Native PDF mutation persistence returned no result', () => ({
+                    reason: 'native-mutation-not-applied',
+                    applied: result.applied,
+                    validation: result.validation,
+                }));
                 logRendererTimings('not-applied', {validation: result.validation});
                 return null;
             }
@@ -954,7 +982,7 @@ export function createDocumentPersistence(
             if (isStaleRevisionError(saveError)) {
                 throw saveError;
             }
-            BrowserLogger.debug('workspace', 'Native PDF mutation save unavailable; falling back to serialized PDF save', {
+            BrowserLogger.diagnostic('workspace', 'Native PDF mutation save unavailable; falling back to serialized PDF save', {
                 error: getErrorMessage(saveError),
                 updateCount: updates.length,
                 freeTextNoteCount: freeTextNotes.length,

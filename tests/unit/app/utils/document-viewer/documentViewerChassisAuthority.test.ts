@@ -4,8 +4,14 @@ import {
     it,
 } from 'vitest';
 import { ref } from 'vue';
-import { createDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
+import {
+    createDocumentViewerChassisAuthority,
+    shouldAcceptFeaturePackChassisPage,
+    shouldApplyExternalChassisPage,
+} from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
+import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import type { IDocumentPageSource } from '@app/utils/document-viewer/source/documentPageSource';
+import { cast } from '@tests/helpers/cast';
 
 function createSource(kind: 'pdf' | 'djvu', pageCount: number): IDocumentPageSource {
     return {
@@ -25,6 +31,57 @@ function createSource(kind: 'pdf' | 'djvu', pageCount: number): IDocumentPageSou
 }
 
 describe('document viewer chassis authority', () => {
+    it('scopes opening-page elements to a unique chassis instance', () => {
+        const first = createDocumentViewerChassisAuthority(ref('djvu'));
+        const second = createDocumentViewerChassisAuthority(ref('djvu'));
+        const element = {} as HTMLElement;
+
+        expect(first.instanceId).not.toBe(second.instanceId);
+        expect(first.openingPageElement.value).toBeNull();
+        first.bindOpeningPageElement(element);
+        expect(first.openingPageElement.value).toBe(element);
+        expect(second.openingPageElement.value).toBeNull();
+        first.bindOpeningPageElement(null);
+        expect(first.openingPageElement.value).toBeNull();
+    });
+
+    it('publishes opening-page visual state only through the connected owned frame', () => {
+        const authority = createDocumentViewerChassisAuthority(ref('djvu'));
+        const generation = authority.openSurface.begin({
+            documentId: '/documents/scan.djvu',
+            documentRevision: 'revision-1',
+        });
+        expect(authority.openSurface.commitOpeningPageFrame(generation, {
+            generation,
+            ownerId: 'chassis-owner',
+            pageNumber: 3,
+            intentKey: 'fit-width:1',
+            style: {
+                width: '600px',
+                height: '800px',
+            },
+        })).toBe(true);
+        authority.bindOpeningPageElement(cast<HTMLElement>({
+            isConnected: true,
+            dataset: {
+                openSurfaceFrameOwner: 'chassis-owner',
+                openSurfaceGeneration: String(generation),
+                pageNumber: '3',
+            },
+        }));
+
+        expect(authority.commitOpeningPageVisual(generation - 1, 3, 'fresh')).toBe(false);
+        expect(authority.commitOpeningPageVisual(generation, 2, 'fresh')).toBe(false);
+        expect(authority.openingPageVisual.value).toBe('none');
+        expect(authority.commitOpeningPageVisual(generation, 3, 'fresh')).toBe(true);
+        expect(authority.openingPageVisual.value).toBe('fresh');
+        authority.openSurface.begin({
+            documentId: '/documents/next.djvu',
+            documentRevision: 'revision-2',
+        });
+        expect(authority.openingPageVisual.value).toBe('none');
+    });
+
     it('keeps one navigation, page-slot, and surface-budget authority across PDF and DjVu sources', async () => {
         const sourceKind = ref<'pdf' | 'djvu'>('pdf');
         const authority = createDocumentViewerChassisAuthority(sourceKind, 2);
@@ -63,11 +120,31 @@ describe('document viewer chassis authority', () => {
         });
 
         expect(authority.viewportWritePort.consumeAuthorityScroll(container)).toBe(true);
-        expect(authority.viewportWritePort.consumeAuthorityScroll(container)).toBe(false);
+        expect(authority.viewportWritePort.consumeAuthorityScroll(container)).toBe(true);
 
         container.scrollTop = 725;
+        expect(authority.viewportWritePort.consumeAuthorityScroll(container)).toBe(false);
         authority.viewportWritePort.observeUserScroll(container);
         expect(() => authority.viewportWritePort.assertNoRogueWrite(container)).not.toThrow();
+    });
+
+    it('resets a stale viewport offset synchronously when a document generation begins', () => {
+        const openSurface = createDocumentOpenSurfaceSession();
+        const authority = createDocumentViewerChassisAuthority(ref('pdf'), 1, openSurface);
+        const container = {
+            scrollLeft: 7,
+            scrollTop: 4,
+        } as HTMLElement;
+        authority.bindViewportElement(container);
+
+        openSurface.begin({
+            documentId: 'scan.pdf',
+            documentRevision: 'open-intent:1',
+        });
+
+        expect(container.scrollLeft).toBe(0);
+        expect(container.scrollTop).toBe(0);
+        expect(authority.viewportWritePort.consumeAuthorityScroll(container)).toBe(true);
     });
 
     it('rejects stale continuations after supersession, user input, and source revision changes', () => {
@@ -158,5 +235,59 @@ describe('document viewer chassis authority', () => {
         authority.pageCount.value = 8;
         expect(authority.navigate(20)).toBe(8);
         expect(authority.navigate(-4)).toBe(1);
+    });
+
+    it('mounts on the latest opening-session intent instead of the stale initial page', () => {
+        const openSurface = createDocumentOpenSurfaceSession();
+        openSurface.begin({
+            documentId: 'scan.pdf',
+            documentRevision: 'open-intent:1',
+        });
+        for (let page = 2; page <= 6; page += 1) {
+            openSurface.requestNavigation(page);
+        }
+
+        const authority = createDocumentViewerChassisAuthority(ref('pdf'), 1, openSurface);
+
+        expect(openSurface.viewportSession.value.requestedPage).toBe(6);
+        expect(authority.currentPage.value).toBe(6);
+        expect(shouldApplyExternalChassisPage(openSurface.viewportSession.value, 1)).toBe(false);
+        expect(shouldApplyExternalChassisPage(openSurface.viewportSession.value, 6)).toBe(true);
+        expect(shouldApplyExternalChassisPage({
+            ...openSurface.viewportSession.value,
+            lifecycle: 'transitioning',
+        }, 1)).toBe(false);
+        expect(shouldAcceptFeaturePackChassisPage(openSurface.viewportSession.value, 1)).toBe(false);
+        expect(shouldAcceptFeaturePackChassisPage(openSurface.viewportSession.value, 6)).toBe(true);
+        expect(shouldAcceptFeaturePackChassisPage({
+            ...openSurface.viewportSession.value,
+            committedPage: 6,
+        }, 7)).toBe(false);
+        expect(shouldAcceptFeaturePackChassisPage({
+            ...openSurface.viewportSession.value,
+            requestedPage: 7,
+            committedPage: 6,
+        }, 7)).toBe(true);
+    });
+
+    it('rejects navigation without a document owner instead of leaking it into the next open', () => {
+        const openSurface = createDocumentOpenSurfaceSession();
+        const authority = createDocumentViewerChassisAuthority(ref('pdf'), 1, openSurface);
+
+        expect(shouldAcceptFeaturePackChassisPage(openSurface.viewportSession.value, 6)).toBe(false);
+
+        for (let page = 2; page <= 6; page += 1) {
+            authority.navigate(page);
+        }
+        expect(authority.currentPage.value).toBe(6);
+        expect(openSurface.viewportSession.value.identity).toBeNull();
+
+        openSurface.begin({
+            documentId: 'scan.pdf',
+            documentRevision: 'open-intent:1',
+        });
+
+        expect(openSurface.viewportSession.value.requestedPage).toBe(1);
+        expect(authority.currentPage.value).toBe(1);
     });
 });

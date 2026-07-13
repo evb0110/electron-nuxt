@@ -425,6 +425,14 @@ async function openPathInApp(
     let openBaselineEventId = 0;
     let openedFreshTabAfterBlockedOpen = false;
 
+    try {
+        await waitForActiveDocumentPath(page, path, 300);
+        await waitForLoaded(page, timeoutMs);
+        return;
+    } catch {
+        // The requested document is not already active; proceed with a new open transaction.
+    }
+
     while (Date.now() - startedAt < timeoutMs) {
         const remainingMs = Math.max(1_000, timeoutMs - (Date.now() - startedAt));
 
@@ -1366,18 +1374,19 @@ export async function resizeSidebarBy(page: Page, deltaX: number, steps = 12) {
 
 export async function saveViaWindowHandle(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
     const saveBaselineEventId = await getLatestAutomationEventId(page);
-    const workspaceSave = await callWorkspaceCommand(page, 'handleSave');
-    const saved = workspaceSave.called || await page.evaluate(async () => {
-        const save = (window as IE2EWindow & { __handleSave?: () => Promise<unknown> }).__handleSave;
-        if (typeof save !== 'function') {
-            return false;
-        }
-        await save();
-        return true;
-    });
+    const workspaceSave = await callWorkspaceCommand<boolean>(page, 'handleSave');
+    const saved = workspaceSave.called
+        ? workspaceSave.value === true
+        : await page.evaluate(async () => {
+            const save = (window as IE2EWindow & { __handleSave?: () => Promise<unknown> }).__handleSave;
+            if (typeof save !== 'function') {
+                return false;
+            }
+            return await save() === true;
+        });
 
     if (!saved) {
-        throw new Error('window.__handleSave is not available');
+        throw new Error('Active workspace save did not commit');
     }
 
     const domWait = page.waitForFunction(() => {

@@ -1,28 +1,65 @@
-type TViewerChunkLoader = () => Promise<unknown>;
+import {
+    ALL_WORKSPACE_VIEWER_CHUNK_TARGETS,
+    DJVU_WORKSPACE_VIEWER_CHUNK_TARGETS,
+    PDF_WORKSPACE_VIEWER_CHUNK_TARGETS,
+    type TWorkspaceViewerChunkLoader,
+    type TWorkspaceViewerChunkLoaders,
+    type TWorkspaceViewerChunkTarget,
+    workspaceViewerChunkLoaders,
+} from '@app/modules/workspace-shell/viewers/workspaceViewerChunkLoaders';
 
 interface IDesktopViewerChunkWarmupOptions {
     isDesktopRuntime: boolean;
-    loaders?: TViewerChunkLoader[];
+    loaderOverrides?: Partial<Record<TWorkspaceViewerChunkTarget, TWorkspaceViewerChunkLoader>>;
 }
 
 interface IPrioritizedViewerChunkWarmupOptions {
     isDesktopRuntime: boolean;
     paths: readonly string[];
-    djvuLoader?: TViewerChunkLoader;
-    pdfLoader?: TViewerChunkLoader;
+    loaderOverrides?: Partial<Record<TWorkspaceViewerChunkTarget, TWorkspaceViewerChunkLoader>>;
 }
 
-const defaultDjvuChunkLoader: TViewerChunkLoader = () => (
-    import('@app/modules/workspace-shell/components/DocumentPageSourceFeaturePack.vue')
-);
-const defaultPdfChunkLoader: TViewerChunkLoader = () => (
-    import('@app/modules/native-pdf-viewer/public/component-exports/nativePdfViewer')
-);
+interface IViewerChunkTargetWarmupOptions {
+    targets: readonly TWorkspaceViewerChunkTarget[];
+    loaderOverrides?: Partial<Record<TWorkspaceViewerChunkTarget, TWorkspaceViewerChunkLoader>>;
+}
 
-const defaultViewerChunkLoaders: TViewerChunkLoader[] = [
-    defaultDjvuChunkLoader,
-    defaultPdfChunkLoader,
-];
+function resolveViewerChunkLoaders(
+    overrides: Partial<Record<TWorkspaceViewerChunkTarget, TWorkspaceViewerChunkLoader>> = {},
+): TWorkspaceViewerChunkLoaders {
+    return {
+        ...workspaceViewerChunkLoaders,
+        ...overrides,
+    };
+}
+
+function loadViewerChunkTargets(
+    targets: readonly TWorkspaceViewerChunkTarget[],
+    overrides?: Partial<Record<TWorkspaceViewerChunkTarget, TWorkspaceViewerChunkLoader>>,
+) {
+    const loaders = resolveViewerChunkLoaders(overrides);
+    return Promise.all(targets.map(target => loaders[target]()));
+}
+
+export function warmupDesktopViewerChunkTargets(options: IViewerChunkTargetWarmupOptions) {
+    return loadViewerChunkTargets(options.targets, options.loaderOverrides);
+}
+
+export function getWorkspaceViewerChunkTargetsForPaths(
+    paths: readonly string[],
+): TWorkspaceViewerChunkTarget[] {
+    const requiredTargets = new Set<TWorkspaceViewerChunkTarget>();
+    for (const path of paths) {
+        const normalizedPath = path.toLowerCase().split(/[?#]/u, 1)[0] ?? '';
+        const targets = normalizedPath.endsWith('.djvu') || normalizedPath.endsWith('.djv')
+            ? DJVU_WORKSPACE_VIEWER_CHUNK_TARGETS
+            : normalizedPath.endsWith('.pdf') ? PDF_WORKSPACE_VIEWER_CHUNK_TARGETS : [];
+        for (const target of targets) {
+            requiredTargets.add(target);
+        }
+    }
+    return ALL_WORKSPACE_VIEWER_CHUNK_TARGETS.filter(target => requiredTargets.has(target));
+}
 
 /** Loads only the viewer engine required by paths already handed to this renderer. */
 export function warmupDesktopViewerChunkForPaths(options: IPrioritizedViewerChunkWarmupOptions) {
@@ -30,20 +67,12 @@ export function warmupDesktopViewerChunkForPaths(options: IPrioritizedViewerChun
         return null;
     }
 
-    const loaders = new Set<TViewerChunkLoader>();
-    for (const path of options.paths) {
-        const normalizedPath = path.toLowerCase().split(/[?#]/u, 1)[0] ?? '';
-        if (normalizedPath.endsWith('.djvu') || normalizedPath.endsWith('.djv')) {
-            loaders.add(options.djvuLoader ?? defaultDjvuChunkLoader);
-        } else if (normalizedPath.endsWith('.pdf')) {
-            loaders.add(options.pdfLoader ?? defaultPdfChunkLoader);
-        }
-    }
-    return loaders.size > 0 ? Promise.all([...loaders].map(loadViewerChunk => loadViewerChunk())) : null;
+    const targets = getWorkspaceViewerChunkTargetsForPaths(options.paths);
+    return targets.length > 0 ? loadViewerChunkTargets(targets, options.loaderOverrides) : null;
 }
 
 /**
- * Warms the heavy document-viewer chunks (DjVu and native PDF) in the background after
+ * Warms the complete document-viewer stack (chassis, PDF.js, native PDF, and DjVu page source) after
  * desktop startup, so opening a document never waits on a local chunk fetch/parse.
  *
  * This is one mechanism of the app-wide code-splitting policy — "reserve statically,
@@ -68,6 +97,5 @@ export function warmupDesktopViewerChunks(options: IDesktopViewerChunkWarmupOpti
         return null;
     }
 
-    const loaders = options.loaders ?? defaultViewerChunkLoaders;
-    return Promise.all(loaders.map(loadViewerChunk => loadViewerChunk()));
+    return loadViewerChunkTargets(ALL_WORKSPACE_VIEWER_CHUNK_TARGETS, options.loaderOverrides);
 }

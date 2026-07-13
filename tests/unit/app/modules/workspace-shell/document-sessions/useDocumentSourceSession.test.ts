@@ -30,4 +30,25 @@ describe('useDocumentSourceSession', () => {
         expect(session.isDjvuSource.value).toBe(false);
         scope.stop();
     });
+
+    it('does not let an older activation clear a newer source with the same path', () => {
+        const scope = effectScope();
+        const session = scope.run(() => useDocumentSourceSession());
+        if (!session) {
+            throw new Error('Failed to create document source session');
+        }
+
+        const older = session.activateDocumentSource('djvu', '/books/source.djvu');
+        const newer = session.activateDocumentSource('djvu', '/books/source.djvu');
+
+        expect(session.clearDocumentSource(older)).toBe(false);
+        expect(session.captureDocumentSourceActivation()).toEqual(newer);
+        expect(session.sourceRef.value).toBe('/books/source.djvu');
+        expect(session.isDjvuSource.value).toBe(true);
+
+        expect(session.clearDocumentSource(newer)).toBe(true);
+        expect(session.captureDocumentSourceActivation()).toBeNull();
+        expect(session.sourceRef.value).toBeNull();
+        scope.stop();
+    });
 });

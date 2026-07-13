@@ -6,6 +6,7 @@ import {
     vi,
 } from 'vitest';
 import { runInitSequence } from '@electron/bootstrap/runInitSequence';
+import { canonicalBundledApplicationVersion } from '@electron/appVersion';
 
 vi.mock('@electron/config', () => ({config: {
     automation: { noFocus: false },
@@ -13,12 +14,17 @@ vi.mock('@electron/config', () => ({config: {
 }}));
 
 interface IRegisteredExternalOpenIpcHandlers {
+    onRendererReady?: (event: { sender: EventEmitter; }) => void;
     claimPendingExternalOpenPaths?: (event: { sender: EventEmitter; }) => Promise<string[]>;
     acknowledgePendingExternalOpenPaths?: (event: { sender: EventEmitter; }, failedPaths: string[]) => void;
 }
 
 describe('runInitSequence external open IPC', () => {
-    async function createHarness(options: {allowMultipleAutomationSessions?: boolean} = {}) {
+    async function createHarness(options: {
+        allowMultipleAutomationSessions?: boolean;
+        appVersion?: string;
+        isPackaged?: boolean;
+    } = {}) {
         const app = new EventEmitter() as EventEmitter & {
             dock?: { hide: () => void; };
             hide: () => void;
@@ -29,8 +35,8 @@ describe('runInitSequence external open IPC', () => {
             setAboutPanelOptions: (options: unknown) => void;
             whenReady: () => Promise<void>;
         };
-        app.isPackaged = true;
-        app.getVersion = vi.fn(() => '1.0.0');
+        app.isPackaged = options.isPackaged ?? true;
+        app.getVersion = vi.fn(() => options.appVersion ?? '1.0.0');
         app.hide = vi.fn();
         app.quit = vi.fn();
         app.requestSingleInstanceLock = vi.fn(() => true);
@@ -57,6 +63,7 @@ describe('runInitSequence external open IPC', () => {
             markBootstrapReady: vi.fn(),
         };
         const allowOpenPaths = vi.fn();
+        const focusMainWindow = vi.fn();
         const sweepStaleManagedScratchTempDirs = vi.fn(async () => {});
 
         await runInitSequence({
@@ -74,7 +81,7 @@ describe('runInitSequence external open IPC', () => {
             devDockBadgeText: '',
             devDockIconPath: '',
             externalOpenManager,
-            focusMainWindow: vi.fn(),
+            focusMainWindow,
             getMainWindow: vi.fn(() => mainWindow as never),
             getWindowFromWebContents: vi.fn((webContents: object) => {
                 if (webContents === mainWindow.webContents) {
@@ -118,6 +125,7 @@ describe('runInitSequence external open IPC', () => {
             allowOpenPaths,
             capturedHandlers,
             externalOpenManager,
+            focusMainWindow,
             mainWindow,
             otherWindow,
             sweepStaleManagedScratchTempDirs,
@@ -129,6 +137,39 @@ describe('runInitSequence external open IPC', () => {
             {sender: harness.mainWindow.webContents},
         )).resolves.toEqual(['/docs/startup.pdf']);
     }
+
+    it('uses the canonical application version in the macOS About panel', async () => {
+        const harness = await createHarness({appVersion: '0.1.387'});
+
+        expect(harness.app.setAboutPanelOptions).toHaveBeenCalledWith({
+            applicationName: 'EVB Viewer',
+            applicationVersion: '0.1.387',
+            version: 'Beta',
+            copyright: 'Copyright © 2026 Eugene Barsky',
+            iconPath: '/app/icon.png',
+            authors: ['Eugene Barsky'],
+        });
+    });
+
+    it('never displays the generic Electron runtime version in the development About panel', async () => {
+        const harness = await createHarness({
+            appVersion: '42.3.3',
+            isPackaged: false,
+        });
+
+        expect(harness.app.setAboutPanelOptions).toHaveBeenCalledWith(expect.objectContaining({
+            applicationVersion: canonicalBundledApplicationVersion,
+            version: 'Beta',
+        }));
+    });
+
+    it('shows and focuses the main window when its renderer becomes ready', async () => {
+        const harness = await createHarness();
+
+        harness.capturedHandlers.onRendererReady?.({sender: harness.mainWindow.webContents});
+
+        expect(harness.focusMainWindow).toHaveBeenCalledTimes(1);
+    });
 
     it('acknowledges failed startup opens only from the claiming WebContents and claimed paths', async () => {
         const harness = await createHarness();
@@ -207,6 +248,20 @@ describe('runInitSequence external open IPC', () => {
         await claimStartupPath(harness);
         harness.mainWindow.webContents.emit('render-process-gone');
 
+        expect(harness.externalOpenManager.acknowledgeClaimedOpenPaths).toHaveBeenCalledWith(['/docs/startup.pdf']);
+    });
+
+    it('uses creation-time window identities after Electron destroys closed-window getters', async () => {
+        const harness = await createHarness();
+        harness.app.emit('browser-window-created', {}, harness.mainWindow);
+        await claimStartupPath(harness);
+
+        Object.defineProperties(harness.mainWindow, {
+            id: {get: () => { throw new TypeError('Object has been destroyed'); }},
+            webContents: {get: () => { throw new TypeError('Object has been destroyed'); }},
+        });
+
+        expect(() => harness.mainWindow.emit('closed')).not.toThrow();
         expect(harness.externalOpenManager.acknowledgeClaimedOpenPaths).toHaveBeenCalledWith(['/docs/startup.pdf']);
     });
 

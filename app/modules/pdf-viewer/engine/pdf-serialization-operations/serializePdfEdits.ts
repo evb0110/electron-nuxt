@@ -9,6 +9,40 @@ import { applyPageLabels } from '@app/modules/pdf-viewer/engine/serialization/pd
 import { applyPlacedImage } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-placed-images/applyPlacedImage';
 import { applyShapeAnnotations } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-shape-annotations/applyShapeAnnotations';
 import type { IPdfSerializationSavePayload } from '@app/modules/pdf-viewer/engine/pdf-serialization-operations/pdfSerializationSavePayload';
+import {applyCanonicalAnnotationIdentityBindings} from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-annotations/applyCanonicalAnnotationIdentityBindings';
+import type {IAnnotationCommentSummary} from '@app/types/annotations';
+
+function canonicalEmbeddedDeletes(payload: IPdfSerializationSavePayload): IAnnotationCommentSummary[] {
+    return (payload.canonicalAnnotationProgram ?? []).flatMap((mutation) => {
+        if (mutation.operation !== 'delete-annotation') {
+            return [];
+        }
+        const identity = mutation.fields.identity;
+        const pageIndex = mutation.fields.pageIndex;
+        const pdfRef = identity && typeof identity === 'object'
+            ? (identity as Record<string, unknown>).pdfRef
+            : null;
+        if (typeof pdfRef !== 'string' || typeof pageIndex !== 'number') {
+            return [];
+        }
+        return [{
+            id: pdfRef,
+            appAnnotationId: mutation.annotationId,
+            stableKey: `ann:${pageIndex}:${pdfRef}`,
+            pageIndex,
+            pageNumber: pageIndex + 1,
+            text: '',
+            author: null,
+            modifiedAt: null,
+            color: null,
+            uid: null,
+            annotationId: pdfRef,
+            source: 'pdf',
+            hasNote: false,
+            markerRect: null,
+        }];
+    });
+}
 
 function hasSaveWork(payload: IPdfSerializationSavePayload) {
     return (payload.canonicalAnnotationProgram?.length ?? 0) > 0
@@ -46,10 +80,18 @@ export async function serializePdfEdits(
         payload.deletedShapeStableKeys,
         payload.rewriteShapeState,
     ) || modified;
-    modified = applyEmbeddedAnnotationDeletes(doc, payload.pendingEmbeddedAnnotationDeletes) || modified;
+    modified = applyEmbeddedAnnotationDeletes(doc, [
+        ...payload.pendingEmbeddedAnnotationDeletes,
+        ...canonicalEmbeddedDeletes(payload),
+    ]) || modified;
     modified = applyFreeTextNoteRects(doc, payload.freeTextComments) || modified;
     modified = applyNewFreeTextNoteAnnotations(doc, payload.freeTextComments) || modified;
     modified = applyEmbeddedNoteTextUpdates(doc, payload.annotationComments, payload.pendingEmbeddedTextUpdates) || modified;
+    modified = applyCanonicalAnnotationIdentityBindings(
+        doc,
+        payload.annotationComments,
+        payload.canonicalAnnotationProgram ?? [],
+    ) || modified;
     modified = applyPageLabels(doc, payload.pageLabelsDirty, payload.pageLabelRanges, payload.totalPages) || modified;
     modified = applyBookmarks(
         doc,

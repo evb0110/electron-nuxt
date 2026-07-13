@@ -324,6 +324,20 @@ export const usePdfScale = (
         lastPreviewFitScaleSignature.value = null;
     }
 
+    function seedOpeningFitScale(scale: number) {
+        if (!Number.isFinite(scale) || scale <= 0) {
+            return false;
+        }
+        const nextScale = clampFitScale(scale);
+        clearPreviewFitScale();
+        invalidateScaleCache();
+        if (Math.abs(nextScale - fitWidthScale.value) < 0.001) {
+            return false;
+        }
+        fitWidthScale.value = nextScale;
+        return true;
+    }
+
     function resetScale() {
         fitWidthScale.value = 1;
         clearPreviewFitScale();
@@ -341,6 +355,7 @@ export const usePdfScale = (
         clearPreviewFitScale,
         isFitWidthScaleCurrent,
         invalidateScaleCache,
+        seedOpeningFitScale,
         resetScale,
     };
 };

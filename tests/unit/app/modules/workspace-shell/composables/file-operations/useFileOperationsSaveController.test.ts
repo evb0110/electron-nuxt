@@ -465,6 +465,46 @@ describe('useFileOperationsSaveController', () => {
         expect(deps.markAnnotationSaved).toHaveBeenCalledWith({ preserveLivePdfjsSession: true });
     });
 
+    it('commits persisted annotation identities before capturing the successful-save baseline', async () => {
+        let annotationToken = 'annotation-before';
+        const commitAnnotationSave = vi.fn(() => {
+            annotationToken = 'annotation-after-identity-adoption';
+        });
+        const markAnnotationSaved = vi.fn(() => {
+            expect(annotationToken).toBe('annotation-after-identity-adoption');
+        });
+        const runSaveTransaction = vi.fn(async () => {
+            annotationToken = 'annotation-after-materialize';
+            return cast({
+                source: 'pdfjs-materialize',
+                baseBytes: new Uint8Array([9]),
+                serializedBytes: new Uint8Array([9]),
+                serializedResult: null,
+                nativeMutationProjection: null,
+                verifyAnnotationSave: vi.fn(async () => undefined),
+                assertAnnotationSaveCurrent: vi.fn(async () => undefined),
+                commitAnnotationSave,
+            });
+        });
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            annotationDirty: ref(true),
+            getAnnotationSaveStateToken: () => annotationToken,
+            hasAnnotationChanges: vi.fn(() => true),
+            markAnnotationSaved,
+            runSaveTransaction,
+        });
+        const { handleSave } = useFileOperationsSaveController(deps);
+
+        await expect(handleSave()).resolves.toBe(true);
+
+        expect(saveFile).toHaveBeenCalledOnce();
+        expect(commitAnnotationSave).toHaveBeenCalledOnce();
+        expect(markAnnotationSaved).toHaveBeenCalledWith({ preserveLivePdfjsSession: true });
+    });
+
     it('keeps newer live annotation edits dirty when they happen during serialized persistence', async () => {
         let annotationToken = 'annotation-before';
         const saveFile = vi.fn(async () => {
@@ -767,6 +807,10 @@ describe('useFileOperationsSaveController', () => {
         const result = await handleSave();
 
         expect(result).toBe(true);
+        expect(deps.runSaveTransaction).toHaveBeenCalledWith(expect.objectContaining({
+            planOnly: true,
+            serializeResult: false,
+        }));
         expect(trySavePdfNativeMutations).toHaveBeenCalledWith(
             {
                 pageLabels: {

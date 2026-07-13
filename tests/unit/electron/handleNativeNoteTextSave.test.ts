@@ -52,6 +52,9 @@ const mocks = vi.hoisted(() => ({
     releaseManagedTempFileHandle: vi.fn((_context: unknown, _leaseId: string) => true),
     transitionOriginalAndWorkingCopyRevision: vi.fn(),
     commitPdfTempFile: vi.fn(),
+    fingerprintFileWithUtilityProcess: vi.fn(),
+    loggerDebug: vi.fn(),
+    loggerWarn: vi.fn(),
 }));
 
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
@@ -88,6 +91,13 @@ vi.mock('@electron/features/documents/main/managedTempFileHandles', () => ({
 }));
 vi.mock('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision', () => ({transitionOriginalAndWorkingCopyRevision: (...args: unknown[]) => mocks.transitionOriginalAndWorkingCopyRevision(...args)}));
 vi.mock('@electron/features/documents/main/commitPdfTempFile', () => ({commitPdfTempFile: (...args: unknown[]) => mocks.commitPdfTempFile(...args)}));
+vi.mock('@electron/features/documents/main/fingerprintFileWithUtilityProcess', () => ({fingerprintFileWithUtilityProcess: (...args: unknown[]) => mocks.fingerprintFileWithUtilityProcess(...args)}));
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
+    debug: (...args: unknown[]) => mocks.loggerDebug(...args),
+    info: vi.fn(),
+    warn: (...args: unknown[]) => mocks.loggerWarn(...args),
+    error: vi.fn(),
+})}));
 
 function createOriginalFileExpectationForTest(originalPath: string) {
     const originalStat = statSync(originalPath);
@@ -230,6 +240,13 @@ describe('handleNativeNoteTextSave', () => {
                 sha256: createHash('sha256').update(bytes).digest('hex'),
                 leaseId: 'staged-native-output',
                 revision: null,
+            };
+        });
+        mocks.fingerprintFileWithUtilityProcess.mockImplementation(async (path: string) => {
+            const bytes = await readFile(path);
+            return {
+                bytes: bytes.byteLength,
+                sha256: createHash('sha256').update(bytes).digest('hex'),
             };
         });
         mocks.transitionOriginalAndWorkingCopyRevision.mockImplementation(async (input: {
@@ -815,6 +832,10 @@ describe('handleNativeNoteTextSave', () => {
         await expect(savePromise).resolves.toMatchObject({applied: false});
         expect(mocks.runNativeToolCommand).not.toHaveBeenCalled();
         expect(readFileSyncUtf8(workingPath)).toBe('changed-before-native');
+        expect(mocks.fingerprintFileWithUtilityProcess).toHaveBeenCalledWith(workingPath);
+        expect(mocks.loggerWarn).toHaveBeenCalledWith(expect.stringContaining(
+            'Native working-copy mutation skipped because base expectation no longer matches',
+        ));
     });
 
     it('stages native output without exposing it and commits the verified artifact once', async () => {
@@ -852,9 +873,11 @@ describe('handleNativeNoteTextSave', () => {
             validation: {isValid: true},
             stagedOutput: {leaseId: 'staged-native-output'},
         });
+        expect(staged.stagedOutput?.path).toBe(`${workingPath}.tmp.pdf`);
         expect(readFileSyncUtf8(workingPath)).toBe('base-before');
         expect(readFileSyncUtf8(originalPath)).toBe('base-before');
         expect(staged.stagedOutput && readFileSyncUtf8(staged.stagedOutput.path)).toContain('% staged mutation');
+        expect(mocks.fingerprintFileWithUtilityProcess).toHaveBeenCalledWith(workingPath);
 
         const committed = await handleCommitStagedPdfNativeMutations(
             context,

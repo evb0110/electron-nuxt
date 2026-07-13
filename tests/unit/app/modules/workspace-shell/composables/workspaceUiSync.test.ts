@@ -8,7 +8,6 @@ import {
     nextTick,
     ref,
 } from 'vue';
-import type { Ref } from 'vue';
 import { useWorkspaceUiSyncWatchers } from '@app/modules/workspace-shell/composables/useWorkspaceUiSyncWatchers';
 import { resolveWorkspaceTabUpdate } from '@app/modules/workspace-shell/state/resolveWorkspaceTabUpdate';
 import { resolveWorkspaceWindowTitle } from '@app/modules/workspace-shell/state/resolveWorkspaceWindowTitle';
@@ -109,64 +108,15 @@ describe('resolveWorkspaceTabUpdate', () => {
     });
 });
 
-interface IWorkspaceUiSyncTestDeps {
-    pendingDjvu: Ref<string | null>;
-    openDjvuFile: TWorkspaceUiSyncDeps['openDjvuFile'];
-    originalPath: Ref<string | null>;
-    closeFile: TWorkspaceUiSyncDeps['closeFile'];
-    showSettings: Ref<boolean>;
-    emitOpenSettings: TWorkspaceUiSyncDeps['emitOpenSettings'];
-    onOpenDjvuError: NonNullable<TWorkspaceUiSyncDeps['onOpenDjvuError']>;
-}
-
-function createWatcherDeps(overrides: Partial<IWorkspaceUiSyncTestDeps> = {}): IWorkspaceUiSyncTestDeps {
+function createWatcherDeps(overrides: Partial<TWorkspaceUiSyncDeps> = {}): TWorkspaceUiSyncDeps {
     return {
-        pendingDjvu: ref<string | null>(null),
-        openDjvuFile: vi.fn(async () => {}),
-        originalPath: ref<string | null>(null),
-        closeFile: vi.fn(async () => {}),
         showSettings: ref(false),
         emitOpenSettings: (vi.fn() as TWorkspaceUiSyncDeps['emitOpenSettings']),
-        onOpenDjvuError: vi.fn() as NonNullable<TWorkspaceUiSyncDeps['onOpenDjvuError']>,
         ...overrides,
     };
 }
 
 describe('useWorkspaceUiSyncWatchers', () => {
-    it('opens pending DjVu paths and clears pending state', async () => {
-        const deps = createWatcherDeps();
-        useWorkspaceUiSyncWatchers(deps);
-
-        deps.pendingDjvu.value = '/docs/test.djvu';
-        await nextTick();
-        await Promise.resolve();
-
-        expect(deps.pendingDjvu.value).toBeNull();
-        expect(deps.openDjvuFile).toHaveBeenCalledTimes(1);
-        expect(deps.openDjvuFile).toHaveBeenCalledWith(
-            '/docs/test.djvu',
-            {
-                closeActiveDocument: deps.closeFile,
-                setOriginalPath: expect.any(Function),
-            },
-        );
-    });
-
-    it('forwards DjVu open errors to callback', async () => {
-        const openError = new Error('DjVu opening failed');
-        const deps = createWatcherDeps({openDjvuFile: vi.fn(async () => {
-            throw openError;
-        })});
-        useWorkspaceUiSyncWatchers(deps);
-
-        deps.pendingDjvu.value = '/docs/broken.djvu';
-        await nextTick();
-        await Promise.resolve();
-
-        expect(deps.onOpenDjvuError).toHaveBeenCalledTimes(1);
-        expect(deps.onOpenDjvuError).toHaveBeenCalledWith(openError);
-    });
-
     it('forwards settings requests and clears the local flag', async () => {
         const deps = createWatcherDeps();
         useWorkspaceUiSyncWatchers(deps);

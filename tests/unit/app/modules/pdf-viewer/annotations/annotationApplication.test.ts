@@ -1,7 +1,9 @@
 import {
+    beforeEach,
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import {
@@ -9,6 +11,37 @@ import {
     type IStickyNoteEntity,
 } from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
 import type { IShapeAnnotation } from '@app/types/annotations';
+
+const pdfjsMocks = vi.hoisted(() => ({
+    configureWorker: vi.fn(),
+    createDocumentOptions: vi.fn(() => ({verbosity: 0})),
+    destroy: vi.fn(async () => {}),
+    getDocument: vi.fn(),
+}));
+
+const documentFileMocks = vi.hoisted(() => ({
+    readFileRange: vi.fn(),
+    statFile: vi.fn(),
+}));
+
+vi.mock('@app/services/pdfjs/runtimeLib', () => ({
+    configurePdfjsWorkerSrc: pdfjsMocks.configureWorker,
+    createPdfjsDocumentOptions: pdfjsMocks.createDocumentOptions,
+}));
+
+vi.mock('@app/utils/platformDocuments', () => ({getDocumentFilesCapability: () => documentFileMocks}));
+
+vi.mock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
+    getDocument: pdfjsMocks.getDocument,
+    PDFDataRangeTransport: class {
+        public constructor(
+            public readonly length: number,
+            public readonly initialData: Uint8Array,
+        ) {}
+
+        public onDataRange() {}
+    },
+}));
 
 function note(overrides: Partial<IStickyNoteEntity> = {}): IStickyNoteEntity {
     return {
@@ -55,6 +88,281 @@ function shape(overrides: Partial<IShapeAnnotation> = {}): IShapeAnnotation {
 }
 
 describe('AnnotationApplication', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        documentFileMocks.statFile.mockResolvedValue({size: 2 * 1024 * 1024});
+        documentFileMocks.readFileRange.mockResolvedValue(new Uint8Array(1024 * 1024));
+        pdfjsMocks.getDocument.mockReturnValue({promise: Promise.resolve({
+            destroy: pdfjsMocks.destroy,
+            getPage: vi.fn(),
+        })});
+    });
+
+    it('semantically verifies a large staged PDF through bounded range reads', async () => {
+        const application = new AnnotationApplication('document');
+        const session = application.beginSave();
+        const knownSize = 512 * 1024 * 1024;
+        documentFileMocks.statFile.mockResolvedValue({size: knownSize});
+
+        await application.verifySavePath(session, '/tmp/large-staged.pdf', knownSize);
+
+        expect(documentFileMocks.readFileRange).toHaveBeenCalledWith(
+            '/tmp/large-staged.pdf',
+            0,
+            1024 * 1024,
+        );
+        expect(documentFileMocks.readFileRange).toHaveBeenCalledTimes(1);
+        expect(pdfjsMocks.getDocument).toHaveBeenCalledWith(expect.objectContaining({
+            length: knownSize,
+            rangeChunkSize: 1024 * 1024,
+            disableAutoFetch: true,
+            disableStream: true,
+        }));
+        expect(pdfjsMocks.destroy).toHaveBeenCalledOnce();
+    });
+
+    it('configures the reopened PDF.js runtime before verifying saved bytes', async () => {
+        const application = new AnnotationApplication('document');
+        const session = application.beginSave();
+        const bytes = new Uint8Array([
+            1,
+            2,
+            3,
+        ]);
+
+        await application.verifySaveBytes(session, bytes);
+
+        expect(pdfjsMocks.configureWorker).toHaveBeenCalledOnce();
+        expect(pdfjsMocks.createDocumentOptions).toHaveBeenCalledOnce();
+        expect(pdfjsMocks.getDocument).toHaveBeenCalledWith({
+            data: bytes,
+            verbosity: 0,
+        });
+        expect(pdfjsMocks.configureWorker.mock.invocationCallOrder[0])
+            .toBeLessThan(pdfjsMocks.getDocument.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER);
+    });
+
+    it('rejects a pre-existing identical markup when the new canonical annotation identity is missing', async () => {
+        const application = new AnnotationApplication('document');
+        application.store.createTextMarkup({
+            kind: 'text-markup',
+            identity: {
+                id: asAnnotationId('anno_new_markup'),
+                elementId: 'pdfjs_internal_editor_17',
+                pdfjsUid: 'editor-uid-before-save',
+            },
+            pageIndex: 0,
+            revision: 0,
+            persistedRevision: -1,
+            deleted: false,
+            createdAt: null,
+            modifiedAt: null,
+            author: null,
+            subtype: 'Highlight',
+            text: '',
+            geometry: [{
+                left: 0.1,
+                top: 0.2,
+                width: 0.3,
+                height: 0.1,
+            }],
+            color: '#ffff00',
+            opacity: 1,
+        });
+        const getPage = vi.fn(async () => ({
+            view: [
+                0,
+                0,
+                100,
+                100,
+            ],
+            getAnnotations: vi.fn(async () => [{
+                id: '9R',
+                subtype: 'Highlight',
+                rect: [
+                    10,
+                    70,
+                    40,
+                    80,
+                ],
+            }]),
+        }));
+        pdfjsMocks.getDocument.mockReturnValue({promise: Promise.resolve({
+            destroy: pdfjsMocks.destroy,
+            getPage,
+        })});
+
+        await expect(application.verifySaveBytes(
+            application.beginSave(),
+            new Uint8Array([1]),
+        )).rejects.toThrow('anno_new_markup: missing');
+    });
+
+    it('verifies and adopts a newly persisted PDF.js markup through save-time identity evidence', async () => {
+        const application = new AnnotationApplication('document');
+        application.store.createTextMarkup({
+            kind: 'text-markup',
+            identity: {
+                id: asAnnotationId('anno_new_markup'),
+                elementId: 'pdfjs_internal_editor_17',
+                pdfjsUid: 'editor-uid-before-save',
+            },
+            pageIndex: 0,
+            revision: 0,
+            persistedRevision: -1,
+            deleted: false,
+            createdAt: null,
+            modifiedAt: null,
+            author: null,
+            subtype: 'Highlight',
+            text: '',
+            geometry: [{
+                left: 0.1,
+                top: 0.2,
+                width: 0.3,
+                height: 0.1,
+            }],
+            color: '#ffff00',
+            opacity: 1,
+        });
+        const record = {
+            subtype: 'Highlight',
+            rect: [
+                10,
+                70,
+                40,
+                80,
+            ],
+        };
+        pdfjsMocks.getDocument.mockReturnValue({promise: Promise.resolve({
+            destroy: pdfjsMocks.destroy,
+            getPage: vi.fn(async () => ({
+                view: [
+                    0,
+                    0,
+                    100,
+                    100,
+                ],
+                getAnnotations: vi.fn(async () => [{
+                    ...record,
+                    id: '9R',
+                }]),
+            })),
+        })});
+
+        const session = application.beginSave();
+        application.recordMaterializedIdentityBinding(session, 'anno_new_markup', '9R');
+
+        await expect(application.verifySaveBytes(
+            session,
+            new Uint8Array([1]),
+        )).resolves.toBeUndefined();
+        application.acknowledgeSave(session);
+        expect(application.store.get(asAnnotationId('anno_new_markup'))).toEqual(expect.objectContaining({
+            identity: expect.objectContaining({pdfRef: '9R'}),
+            persistedRevision: 0,
+        }));
+        expect(application.store.hasChangesSinceSavedBaseline()).toBe(false);
+    });
+
+    it('semantically verifies and binds a newly appended native FreeText note when PDF.js omits its annotation name', async () => {
+        const application = new AnnotationApplication('document');
+        const editorNote = note({
+            identity: {
+                id: asAnnotationId('anno_native_note'),
+                elementId: 'pdfjs_internal_editor_0',
+            },
+            createdAt: 1_781_000_000_000,
+            anchor: {
+                left: 0.1,
+                top: 0.2,
+                width: 0.0016,
+                height: 0.0016,
+            },
+            text: 'Native note text',
+        });
+        application.store.createStickyNote(editorNote);
+        pdfjsMocks.getDocument.mockReturnValue({promise: Promise.resolve({
+            destroy: pdfjsMocks.destroy,
+            getPage: vi.fn(async () => ({
+                view: [
+                    0,
+                    0,
+                    1000,
+                    1000,
+                ],
+                getAnnotations: vi.fn(async () => [{
+                    id: '42R',
+                    subtype: 'FreeText',
+                    contents: 'Native note text',
+                    rect: [
+                        100,
+                        798.4,
+                        101.6,
+                        800,
+                    ],
+                }]),
+            })),
+        })});
+
+        const session = application.beginSave();
+        await expect(application.verifySaveBytes(
+            session,
+            new Uint8Array([1]),
+            {preexistingPdfAnnotationRefs: []},
+        )).resolves.toBeUndefined();
+        expect(session.materializedPdfRefs.get(asAnnotationId('anno_native_note'))).toBe('42R');
+        application.acknowledgeSave(session);
+        expect(application.store.get(asAnnotationId('anno_native_note')))
+            .toEqual(expect.objectContaining({identity: expect.objectContaining({pdfRef: '42R'})}));
+    });
+
+    it('does not adopt a semantically identical pre-existing FreeText note as a new native append', async () => {
+        const application = new AnnotationApplication('document');
+        application.store.createStickyNote(note({
+            identity: {
+                id: asAnnotationId('anno_native_note'),
+                elementId: 'pdfjs_internal_editor_0',
+            },
+            createdAt: 1_781_000_000_000,
+            anchor: {
+                left: 0.1,
+                top: 0.2,
+                width: 0.0016,
+                height: 0.0016,
+            },
+            text: 'Native note text',
+        }));
+        pdfjsMocks.getDocument.mockReturnValue({promise: Promise.resolve({
+            destroy: pdfjsMocks.destroy,
+            getPage: vi.fn(async () => ({
+                view: [
+                    0,
+                    0,
+                    1000,
+                    1000,
+                ],
+                getAnnotations: vi.fn(async () => [{
+                    id: '42R',
+                    subtype: 'FreeText',
+                    contents: 'Native note text',
+                    rect: [
+                        100,
+                        798.4,
+                        101.6,
+                        800,
+                    ],
+                }]),
+            })),
+        })});
+
+        await expect(application.verifySaveBytes(
+            application.beginSave(),
+            new Uint8Array([1]),
+            {preexistingPdfAnnotationRefs: ['42R']},
+        )).rejects.toThrow('anno_native_note: missing');
+    });
+
     it('rejects a save when an edit advances the global frontier during verification', async () => {
         const application = new AnnotationApplication('document');
         application.store.createStickyNote(note());

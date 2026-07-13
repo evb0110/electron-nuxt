@@ -23,6 +23,7 @@ import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElect
 import {
     getLatestAutomationEventId,
     getWorkspaceToolbarSnapshot,
+    readWorkspaceStateValues,
     waitForAutomationEvent,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 
@@ -48,6 +49,21 @@ async function waitForToolbarCanSave(page: Page) {
     }
 
     throw new Error(`Save did not become available: ${JSON.stringify(snapshot)}`);
+}
+
+async function waitForLivePdfJsAnnotationChange(page: Page) {
+    const startedAt = Date.now();
+    let dirtyState = (await readWorkspaceStateValues<{dirtyState?: {hasLivePdfJsAnnotationChanges?: boolean;};}>(page, ['dirtyState'])).dirtyState;
+
+    while (Date.now() - startedAt < 15_000) {
+        if (dirtyState?.hasLivePdfJsAnnotationChanges === true) {
+            return;
+        }
+        await delay(150);
+        dirtyState = (await readWorkspaceStateValues<{dirtyState?: {hasLivePdfJsAnnotationChanges?: boolean;};}>(page, ['dirtyState'])).dirtyState;
+    }
+
+    throw new Error(`FreeText editor did not enter PDF.js annotation storage: ${JSON.stringify(dirtyState)}`);
 }
 
 async function clickVisibleSaveToolbarButton(page: Page) {
@@ -130,8 +146,8 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
         const annotationText = `Blocking smoke FreeText ${Date.now()}`;
         const createdCount = await createFreeTextAnnotation(page, annotationText);
         expect(createdCount).toBeGreaterThan(0);
-        await page.keyboard.press('Escape');
         await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        await waitForLivePdfJsAnnotationChange(page);
         await waitForToolbarCanSave(page);
 
         const saveBaselineEventId = await getLatestAutomationEventId(page);

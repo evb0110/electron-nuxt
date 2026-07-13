@@ -113,7 +113,13 @@ function readSystemMemoryInfo() {
     };
 }
 
-export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: typeof webUtils): IElectronAPI {
+interface ICreateElectronApiOptions {waitForDocumentOpenDirect?: (path: string) => Promise<void>;}
+
+export function createElectronApi(
+    ipcRenderer: IpcRenderer,
+    electronWebUtils: typeof webUtils,
+    options: ICreateElectronApiOptions = {},
+): IElectronAPI {
     const invokeCore = createCodecIpcInvoker<ICoreInvokeMap>(ipcRenderer, CORE_IPC_CODECS);
     const invokeDocuments = createCodecIpcInvoker<IDocumentsInvokeMap>(ipcRenderer, DOCUMENTS_IPC_CODECS);
     const eventSubscriber = createTypedIpcEventSubscriber<ICoreEventMap>(ipcRenderer);
@@ -207,6 +213,7 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         if (pendingAllow && !await pendingAllow) {
             return null;
         }
+        await options.waitForDocumentOpenDirect?.(path);
         return baseDocuments.openDocumentDirect(path);
     };
     const openDocumentDirectBatch = async (
@@ -322,6 +329,12 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         cleanupOcrTemp: baseDocuments.cleanupOcrTemp,
     } satisfies IDocumentsWorkingCopyCapability;
     const optionalDocumentFileMethods = {
+        ...(baseDocuments.createManagedTempFileHandle
+            ? {createManagedTempFileHandle: baseDocuments.createManagedTempFileHandle}
+            : {}),
+        ...(baseDocuments.releaseManagedTempFileHandle
+            ? {releaseManagedTempFileHandle: baseDocuments.releaseManagedTempFileHandle}
+            : {}),
         ...(baseDocuments.repairPdf ? {repairPdf: baseDocuments.repairPdf} : {}),
         ...(baseDocuments.optimizePdfForInteraction ? {optimizePdfForInteraction: baseDocuments.optimizePdfForInteraction} : {}),
         ...(baseDocuments.optimizePdfAsCopy ? {optimizePdfAsCopy: baseDocuments.optimizePdfAsCopy} : {}),
@@ -336,6 +349,9 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
             : {}),
         ...(baseDocuments.getPdfNativePageSizes
             ? {getPdfNativePageSizes: baseDocuments.getPdfNativePageSizes}
+            : {}),
+        ...(baseDocuments.getPdfOpeningGeometry
+            ? {getPdfOpeningGeometry: baseDocuments.getPdfOpeningGeometry}
             : {}),
         ...(baseDocuments.cancelPdfNativePagePreview
             ? {cancelPdfNativePagePreview: baseDocuments.cancelPdfNativePagePreview}

@@ -43,4 +43,83 @@ describe('createPagePreviewDocumentSource', () => {
         lease.release();
         expect(revokeObjectURL).toHaveBeenCalledOnce();
     });
+
+    it('forwards preview invalidation and detaches it when the surface is released', async () => {
+        const invalidationPort: { fire: () => void } = { fire: () => false };
+        const detachInvalidation = vi.fn();
+        const revokeObjectURL = vi.fn();
+        const source = createPagePreviewDocumentSource({
+            documentRef: '/tmp/document.pdf',
+            pageSizes: [{
+                width: 612,
+                height: 792,
+            }],
+            previewSource: {
+                getPageSizes: vi.fn(async () => []),
+                renderPageObjectUrl: vi.fn(async () => ({
+                    objectUrl: 'blob:page-1',
+                    renderedPx: 306,
+                    onInvalidated(listener: () => void) {
+                        invalidationPort.fire = listener;
+                        return detachInvalidation;
+                    },
+                })),
+                revokeObjectURL,
+                terminate: vi.fn(),
+            },
+        });
+        const lease = await source.renderPage({
+            pageNumber: 1,
+            widthPx: 306,
+            priority: 'navigation',
+            signal: new AbortController().signal,
+        });
+        const onInvalidated = vi.fn();
+        lease.onInvalidated?.(onInvalidated);
+
+        invalidationPort.fire();
+        invalidationPort.fire();
+        expect(onInvalidated).toHaveBeenCalledOnce();
+
+        lease.release();
+        expect(detachInvalidation).toHaveBeenCalledOnce();
+        expect(revokeObjectURL).toHaveBeenCalledOnce();
+    });
+
+    it('promotes an existing preview lease without rendering another surface', async () => {
+        const promotePriority = vi.fn();
+        const renderPageObjectUrl = vi.fn(async () => ({
+            objectUrl: 'blob:page-1',
+            renderedPx: 306,
+            promotePriority,
+        }));
+        const source = createPagePreviewDocumentSource({
+            documentRef: '/tmp/document.pdf',
+            pageSizes: [{
+                width: 612,
+                height: 792,
+            }],
+            previewSource: {
+                getPageSizes: vi.fn(async () => []),
+                renderPageObjectUrl,
+                revokeObjectURL: vi.fn(),
+                terminate: vi.fn(),
+            },
+        });
+
+        const lease = await source.renderPage({
+            pageNumber: 1,
+            widthPx: 306,
+            priority: 'nearby',
+            signal: new AbortController().signal,
+        });
+        lease.promotePriority?.('navigation');
+        lease.promotePriority?.('visible');
+
+        expect(renderPageObjectUrl).toHaveBeenCalledOnce();
+        expect(promotePriority.mock.calls).toEqual([
+            [50],
+            [100],
+        ]);
+    });
 });

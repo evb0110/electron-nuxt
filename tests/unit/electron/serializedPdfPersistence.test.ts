@@ -582,6 +582,39 @@ describe('serializedPdfPersistence', () => {
             .toBeLessThan(firstInvocationOrder(mocks.refreshWorkingCopyOriginalFileExpectation));
     });
 
+    it('streams a snapshot into the managed working copy without publishing the original', async () => {
+        const workingPath = join(tempRoot, 'snapshot-working.pdf');
+        const originalPath = join(tempRoot, 'snapshot-original.pdf');
+        writeFileSync(workingPath, 'old-working');
+        writeFileSync(originalPath, 'old-original');
+        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
+
+        const result = await runSaveToOriginalSession({
+            workingPath,
+            bytes: Buffer.from('staged-snapshot'),
+            serializedSaveOptions: {
+                ...SERIALIZED_TEST_REVISION_OPTIONS,
+                workingCopyOnly: true,
+            },
+        });
+
+        expect(result).toMatchObject({
+            type: 'result',
+            path: workingPath,
+            validation: {isValid: true},
+        });
+        expect(readFileSyncUtf8(workingPath)).toBe('staged-snapshot');
+        expect(readFileSyncUtf8(originalPath)).toBe('old-original');
+        expect(mocks.optimizeLargePdfForSave).not.toHaveBeenCalled();
+        expect(mocks.transitionOriginalAndWorkingCopyRevision).not.toHaveBeenCalled();
+        expect(mocks.markWorkingCopyContentChanged).toHaveBeenCalledWith(
+            workingPath,
+            'replace-working-copy',
+            42,
+        );
+        expect(mocks.addRecentFile).not.toHaveBeenCalled();
+    });
+
     it('rolls back streamed Save to original when expectation refresh fails', async () => {
         const workingPath = join(tempRoot, 'refresh-fail-working.pdf');
         const originalPath = join(tempRoot, 'refresh-fail-original.pdf');
@@ -1081,7 +1114,10 @@ describe('serializedPdfPersistence', () => {
     });
 });
 
-interface ISerializedPersistenceTestRevisionOptions { expectedDocumentRevisionToken: TDocumentRevisionToken }
+interface ISerializedPersistenceTestRevisionOptions {
+    expectedDocumentRevisionToken: TDocumentRevisionToken;
+    workingCopyOnly?: true;
+}
 
 async function runSaveAsSession(options: {
     workingPath: string;

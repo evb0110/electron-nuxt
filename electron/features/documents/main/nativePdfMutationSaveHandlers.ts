@@ -1,7 +1,5 @@
-import { createHash } from 'crypto';
 import {
     mkdtemp,
-    readFile,
     rm,
     stat,
     writeFile,
@@ -59,6 +57,7 @@ import {
     releaseManagedTempFileHandle,
     resolveManagedTempFileHandle,
 } from '@electron/features/documents/main/managedTempFileHandles';
+import {fingerprintFileWithUtilityProcess} from '@electron/features/documents/main/fingerprintFileWithUtilityProcess';
 
 const PDF_NATIVE_MUTATION_TIMEOUT_MS = 2 * 60 * 1000;
 const TAIL_ONLY_INCREMENTAL_VALIDATION_ENV = {EVB_PDF_PAGE_OPS_FULL_INCREMENTAL_VALIDATE: '0'} satisfies NodeJS.ProcessEnv;
@@ -172,14 +171,9 @@ async function workingCopyMatchesExpectation(
     workingPath: string,
     expectedBase: IPdfNativeWorkingCopyExpectation,
 ) {
-    const bytes = await readFile(workingPath);
-    if (bytes.byteLength !== expectedBase.byteLength) {
-        return false;
-    }
-    const sha256 = createHash('sha256')
-        .update(bytes)
-        .digest('hex');
-    return sha256 === expectedBase.sha256;
+    const fingerprint = await fingerprintFileWithUtilityProcess(workingPath);
+    return fingerprint.bytes === expectedBase.byteLength
+        && fingerprint.sha256 === expectedBase.sha256;
 }
 
 function getValidatedOriginalPath(workingPath: string, senderWebContentsId: number): string {
@@ -369,7 +363,7 @@ async function runNativeNoteCommand(
                 force: true,
             }).catch(() => undefined);
         }
-    });
+    }, {kind: `native-pdf-mutation-original:${options.command}`});
 }
 
 async function runNativeWorkingCopyCommand(
@@ -410,14 +404,17 @@ async function runNativeWorkingCopyCommand(
             throw new Error('Working copy path is not managed');
         }
         if (!await workingCopyMatchesExpectation(normalizedWorkingPath, expectedBase)) {
-            log.debug(`Native working-copy mutation skipped because base expectation no longer matches: ${JSON.stringify({
+            log.warn(`Native working-copy mutation skipped because base expectation no longer matches: ${JSON.stringify({
                 command: options.command,
                 totalMs: Math.round((performance.now() - operationStart) * 10) / 10,
             })}`);
             return createNotAppliedResult();
         }
 
-        const tempPath = makeSiblingTempPath(normalizedWorkingPath);
+        // Managed binary handles validate the artifact type from its extension.
+        // Keep this staging path recognizable as a PDF even though it is also a
+        // sibling temporary file used for atomic promotion.
+        const tempPath = `${makeSiblingTempPath(normalizedWorkingPath)}.pdf`;
         const tempDir = await mkdtemp(join(tmpdir(), 'pdf-working-copy-mutation-'));
         const payloadFilePath = join(tempDir, options.payloadFileName);
         let staged = false;
@@ -464,7 +461,7 @@ async function runNativeWorkingCopyCommand(
                 stagedOutput,
             };
         } catch (error) {
-            log.debug(`Native working-copy mutation failed, falling back to pdf-lib: ${JSON.stringify({
+            log.warn(`Native working-copy mutation failed: ${JSON.stringify({
                 command: options.command,
                 totalMs: Math.round((performance.now() - operationStart) * 10) / 10,
                 phases: phaseTimings,
@@ -478,7 +475,7 @@ async function runNativeWorkingCopyCommand(
                 force: true,
             }).catch(() => undefined);
         }
-    });
+    }, {kind: `native-pdf-mutation-working-copy:${options.command}`});
 }
 
 /** Promotes a verified immutable native artifact to original and WC exactly once. */
@@ -532,7 +529,7 @@ export async function handleCommitStagedPdfNativeMutations(
             } finally {
                 await cleanupTempPath(originalTempPath);
             }
-        });
+        }, {kind: 'native-pdf-mutation-staged-commit'});
     } finally {
         releaseManagedTempFileHandle(context, stagedOutput.leaseId);
         await cleanupTempPath(stagedOutput.path);

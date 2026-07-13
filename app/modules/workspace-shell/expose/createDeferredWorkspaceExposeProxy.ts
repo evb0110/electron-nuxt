@@ -250,6 +250,7 @@ export function createDeferredWorkspaceExposeProxy(
         )),
         handleOpenFileWithResult: async (result: TOpenFileResult) => openQueued({
             action: 'handleOpenFileWithResult',
+            preparedOpeningGeometry: result.kind === 'pdf' ? result.openingGeometry : undefined,
             target: buildPendingTabDocumentHint(result),
         }, async () => deps.withWorkspace(
             'handleOpenFileWithResult',

@@ -203,7 +203,7 @@ jobs:
           EVB_RELEASE_HAS_WINDOWS_SIGNING: ${{ secrets.WIN_CSC_LINK != '' && secrets.WIN_CSC_KEY_PASSWORD != '' }}
         run: |
           set -euo pipefail
-          node scripts/release/assert-publish-metadata-policy.mjs artifacts
+          node scripts/release/assert-publish-metadata-policy.mjs artifacts "${{ needs.prepare.outputs.version }}"
 
       - name: Create or update draft GitHub release
         id: draft_release
@@ -243,7 +243,7 @@ jobs:
           set -euo pipefail
           mkdir downloaded-assets
           gh release download "$RELEASE_TAG" --dir downloaded-assets
-          node scripts/release/assert-publish-metadata-policy.mjs downloaded-assets
+          node scripts/release/assert-publish-metadata-policy.mjs downloaded-assets "${{ needs.prepare.outputs.version }}"
 
           for source in artifacts/*; do
             name="$(basename "$source")"

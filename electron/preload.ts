@@ -67,7 +67,11 @@ function isRendererAutomationFileOpenHelperEnabled() {
         && process.env.EVB_ENABLE_RENDERER_FILE_OPEN_HELPER === '1';
 }
 
-const electronApi = createElectronApi(ipcRenderer, webUtils);
+const deferredAutomationDocumentOpens = new Map<string, {
+    promise: Promise<void>;
+    release: () => void;
+}>();
+const electronApi = createElectronApi(ipcRenderer, webUtils, {waitForDocumentOpenDirect: path => deferredAutomationDocumentOpens.get(path)?.promise ?? Promise.resolve()});
 contextBridge.exposeInMainWorld('electronAPI', electronApi);
 tracePreload('electronAPI exposed to renderer');
 
@@ -83,6 +87,31 @@ if (isRendererAutomationFileOpenHelperEnabled()) {
             filePath: path,
             token: automationFileOpenToken,
         }));
+    });
+    contextBridge.exposeInMainWorld('__deferDocumentOpenForAutomation', (filePath: string) => {
+        const path = typeof filePath === 'string' ? filePath : '';
+        if (!path || deferredAutomationDocumentOpens.has(path)) {
+            return false;
+        }
+        let release = () => {};
+        const promise = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        deferredAutomationDocumentOpens.set(path, {
+            promise,
+            release,
+        });
+        return true;
+    });
+    contextBridge.exposeInMainWorld('__releaseDocumentOpenForAutomation', (filePath: string) => {
+        const path = typeof filePath === 'string' ? filePath : '';
+        const deferred = deferredAutomationDocumentOpens.get(path);
+        if (!deferred) {
+            return false;
+        }
+        deferredAutomationDocumentOpens.delete(path);
+        deferred.release();
+        return true;
     });
     tracePreload('automation file-open capability helper exposed');
 }

@@ -106,6 +106,67 @@ describe('documentRevisionStore', () => {
             });
     });
 
+    it('keeps fresh revision fsync off the open path and fences the first mutation on durability', async () => {
+        let provisionalSidecar: DocumentRevisionSidecarModule.IWorkingCopyRevisionSidecar | null = null;
+        let releaseDurableWrite: (() => void) | undefined;
+        const durableWriteGate = new Promise<void>((resolve) => {
+            releaseDurableWrite = resolve;
+        });
+        const provisionalWrite = vi.fn(async (
+            _path: string,
+            sidecar: DocumentRevisionSidecarModule.IWorkingCopyRevisionSidecar,
+        ) => {
+            provisionalSidecar = sidecar;
+        });
+        const durableWrite = vi.fn(async () => durableWriteGate);
+        const stageCommit = vi.fn();
+        vi.doMock('@electron/file-access/documentRevisionSidecar', async (importOriginal) => {
+            const actual = await importOriginal<typeof DocumentRevisionSidecarModule>();
+            return {
+                ...actual,
+                clearWorkingCopyRevisionSidecarCommit: vi.fn(),
+                readWorkingCopyRevisionSidecar: vi.fn(async () => provisionalSidecar),
+                stageWorkingCopyRevisionSidecarCommit: stageCommit,
+                writeProvisionalWorkingCopyRevisionSidecar: provisionalWrite,
+                writeWorkingCopyRevisionSidecar: durableWrite,
+            };
+        });
+        try {
+            const originalPath = join(tempRoot, 'fresh-original.pdf');
+            const workingPath = join(tempRoot, 'pdf-work-fresh', 'fresh.pdf');
+            mkdirSync(dirname(workingPath), {recursive: true});
+            writeFileSync(originalPath, new Uint8Array([1]));
+            writeFileSync(workingPath, new Uint8Array([2]));
+            const {setWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
+            const {
+                initializeFreshWorkingCopyRevision,
+                markWorkingCopyRevisionChanged,
+            } = await import('@electron/file-access/documentRevisionStore');
+            await setWorkingCopyOriginalPath(workingPath, originalPath, 7);
+
+            const initial = await initializeFreshWorkingCopyRevision(workingPath, 7);
+            expect(provisionalWrite).toHaveBeenCalledOnce();
+            expect(durableWrite).not.toHaveBeenCalled();
+
+            const mutation = markWorkingCopyRevisionChanged(workingPath, 'write', 7);
+            await vi.waitFor(() => expect(durableWrite).toHaveBeenCalledOnce());
+            expect(durableWrite).toHaveBeenCalledWith(
+                workingPath,
+                provisionalSidecar,
+                {markMutationCommitStarted: false},
+            );
+            expect(stageCommit).not.toHaveBeenCalled();
+            releaseDurableWrite?.();
+            const changed = await mutation;
+
+            expect(stageCommit).toHaveBeenCalledOnce();
+            expect(changed.previousToken).toBe(initial.token);
+            expect(changed.contentRevision).toBe(2);
+        } finally {
+            vi.doUnmock('@electron/file-access/documentRevisionSidecar');
+        }
+    });
+
     it('publishes a transition revision only after its commit succeeds', async () => {
         const originalPath = join(tempRoot, 'transition-original.pdf');
         const workingPath = join(tempRoot, 'pdf-work-transition', 'transition.pdf');

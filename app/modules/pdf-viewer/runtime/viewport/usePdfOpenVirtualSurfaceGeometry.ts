@@ -1,0 +1,77 @@
+import type { Ref } from 'vue';
+import type { TPdfViewMode } from '@contracts/shared';
+import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
+import {
+    buildPdfCommittedOpenVirtualSpacerStyle,
+    resolvePdfCommittedOpenVirtualExtentMinimumScrollHeight,
+} from '@app/modules/pdf-viewer/engine/pdf-initial-surface-placeholder/buildPdfCommittedOpenVirtualSpacerStyle';
+
+interface IUsePdfOpenVirtualSurfaceGeometryOptions<TSpacerStyle, TPlaceholderStyle> {
+    chassisAuthority: IDocumentViewerChassisAuthority | null;
+    continuousScroll: Readonly<Ref<boolean>>;
+    viewMode: Readonly<Ref<TPdfViewMode>>;
+    scaledMargin: Readonly<Ref<number>>;
+    virtualizedBottomVirtualSpacerStyle: Readonly<Ref<TSpacerStyle>>;
+    getLastMountedPage: () => number | undefined;
+    viewerContainer: Readonly<Ref<HTMLElement | null>>;
+    zoomMode: Readonly<Ref<string>>;
+    hasExactPageGeometry: (pageNumber: number) => boolean;
+    isFitWidthScaleCurrent: (container: HTMLElement, options: { page: number }) => boolean;
+    getPagePlaceholderStyle: (pageNumber: number) => TPlaceholderStyle;
+}
+
+export const usePdfOpenVirtualSurfaceGeometry = <TSpacerStyle, TPlaceholderStyle>(
+    options: IUsePdfOpenVirtualSurfaceGeometryOptions<TSpacerStyle, TPlaceholderStyle>,
+) => {
+    const bottomVirtualSpacerStyle = computed(() => {
+        const snapshot = options.chassisAuthority?.openSurface.snapshot.value;
+        if (!snapshot) {
+            return options.virtualizedBottomVirtualSpacerStyle.value;
+        }
+        const lastMountedPage = options.getLastMountedPage()
+            ?? snapshot.openingPageFrame?.pageNumber
+            ?? 1;
+        return buildPdfCommittedOpenVirtualSpacerStyle({
+            snapshot,
+            continuousScroll: options.continuousScroll.value,
+            viewMode: options.viewMode.value,
+            gap: options.scaledMargin.value,
+            lastMountedPage,
+        }) ?? options.virtualizedBottomVirtualSpacerStyle.value;
+    });
+    const openingVirtualExtentMinimumScrollHeight = computed(() => {
+        const snapshot = options.chassisAuthority?.openSurface.snapshot.value;
+        if (!snapshot) {
+            return 0;
+        }
+        return resolvePdfCommittedOpenVirtualExtentMinimumScrollHeight({
+            snapshot,
+            continuousScroll: options.continuousScroll.value,
+            viewMode: options.viewMode.value,
+            gap: options.scaledMargin.value,
+        });
+    });
+
+    function getExactPagePlaceholderStyle(pageNumber: number) {
+        const fitViewport = options.viewerContainer.value;
+        if (
+            !options.hasExactPageGeometry(pageNumber)
+            || options.zoomMode.value !== 'custom'
+                && (
+                    !fitViewport
+                    || fitViewport.clientWidth <= 0
+                    || fitViewport.clientHeight <= 0
+                    || !options.isFitWidthScaleCurrent(fitViewport, { page: pageNumber })
+                )
+        ) {
+            return null;
+        }
+        return options.getPagePlaceholderStyle(pageNumber);
+    }
+
+    return {
+        bottomVirtualSpacerStyle,
+        openingVirtualExtentMinimumScrollHeight,
+        getExactPagePlaceholderStyle,
+    };
+};

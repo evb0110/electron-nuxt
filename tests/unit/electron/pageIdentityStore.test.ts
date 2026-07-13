@@ -12,6 +12,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {
     createDeleteIdentityDelta,
@@ -19,6 +20,9 @@ import {
     createInsertIdentityDelta,
     createReorderIdentityDelta,
     commitPageIdentityDelta,
+    awaitPageIdentityStoreInitialization,
+    forgetPageIdentityStoreInitialization,
+    schedulePageIdentityStoreInitialization,
 } from '@electron/file-access/pageIdentityStore';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {writeWorkingCopyRevisionSidecar} from '@electron/file-access/documentRevisionSidecar';
@@ -27,6 +31,9 @@ import {
     persistCompactSearchIndex,
 } from '@electron/search/searchIndexSidecar';
 import {loadSearchIndex} from '@electron/search/indexBuilder';
+import {getPdfPageCount} from '@electron/pdf/pdfPageCount';
+
+vi.mock('@electron/pdf/pdfPageCount', () => ({getPdfPageCount: vi.fn(async () => 3)}));
 
 describe('page identity deltas', () => {
     let root = '';
@@ -77,6 +84,34 @@ describe('page identity deltas', () => {
                 {fromPageNumber: 3},
             ],
         });
+    });
+
+    it('does not recreate a removed working-copy directory after background initialization is cancelled', async () => {
+        root = await mkdtemp(join(tmpdir(), 'evb-page-identity-cancel-'));
+        const path = join(root, 'working.pdf');
+        await writeFile(path, '%PDF fixture');
+        vi.mocked(getPdfPageCount).mockClear();
+        schedulePageIdentityStoreInitialization(path, {
+            version: 1,
+            documentRef: path,
+            authority: 'electron-working-copy',
+            token: requireDocumentRevisionToken('drt1:test:cancelled'),
+            contentRevision: 1,
+            mintedAt: 1,
+        });
+
+        expect(getPdfPageCount).not.toHaveBeenCalled();
+        const task = awaitPageIdentityStoreInitialization(path);
+        const rejection = expect(task).rejects.toMatchObject({name: 'AbortError'});
+        forgetPageIdentityStoreInitialization(path);
+        const signal = vi.mocked(getPdfPageCount).mock.calls.at(-1)?.[1]?.signal;
+        expect(signal?.aborted).toBe(true);
+        await rm(root, {
+            recursive: true,
+            force: true,
+        });
+        await rejection;
+        await expect(readFile(`${path}.evb-pages.json`, 'utf8')).rejects.toMatchObject({code: 'ENOENT'});
     });
 
     it('conserves page IDs, OCR, and both search indexes through one structural delta', async () => {

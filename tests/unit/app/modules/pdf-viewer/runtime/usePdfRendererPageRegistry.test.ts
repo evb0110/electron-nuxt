@@ -3,6 +3,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import { usePdfRendererPageRegistry } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererPageRegistry';
 import { workspaceSurfaceBudgetController } from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
@@ -68,6 +69,34 @@ describe('PDF renderer page surface registry', () => {
         expect(workspaceSurfaceBudgetController.getSnapshot().reservedBytes - baseline).toBe(
             (20 * 10 * 4) + (4 * 5 * 4),
         );
+        registry.releaseAllSurfaceResources();
+    });
+
+    it('protects the visible page from pressure eviction and reports eviction after it leaves the window', () => {
+        let protectedPage = 1;
+        const onPageEvicted = vi.fn();
+        const registry = usePdfRendererPageRegistry({
+            isPageProtected: pageNumber => pageNumber === protectedPage,
+            onPageEvicted,
+        });
+        const canvas = createCanvas(
+            Math.ceil(workspaceSurfaceBudgetController.getSnapshot().effectiveMaxBytes / 4) + 1,
+            1,
+        );
+        const lease = registry.reservePageCanvasSurface(1, canvas);
+        registry.pageCanvases.set(1, canvas);
+        registry.renderedPages.add(1);
+        registry.replacePageCanvasSurfaceLease(1, lease);
+        registry.markPageCanvasSurfaceEvictable(1);
+
+        workspaceSurfaceBudgetController.setPressureLevel('emergency');
+        expect(canvas.width).toBeGreaterThan(0);
+        expect(onPageEvicted).not.toHaveBeenCalled();
+
+        protectedPage = 2;
+        workspaceSurfaceBudgetController.enforceBudget();
+        expect(canvas.width).toBe(0);
+        expect(onPageEvicted).toHaveBeenCalledExactlyOnceWith(1);
         registry.releaseAllSurfaceResources();
     });
 

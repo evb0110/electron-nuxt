@@ -771,9 +771,9 @@ export const usePdfTextLayerRenderer = (deps: {
         pdfPage: PDFPageProxy,
         textLayerDiv: HTMLElement,
         viewport: ReturnType<PDFPageProxy['getViewport']>,
-        scale: number,
-        userUnit: number,
-        totalScaleFactor: number,
+        _scale: number,
+        _userUnit: number,
+        _totalScaleFactor: number,
         signal?: AbortSignal,
     ) {
         throwIfAborted(signal);
@@ -782,9 +782,11 @@ export const usePdfTextLayerRenderer = (deps: {
         clearHighlights(textLayerDiv);
         clearTextLayerTextMapping(textLayerDiv);
         textLayerDiv.innerHTML = '';
-        textLayerDiv.style.setProperty('--scale-factor', String(scale));
-        textLayerDiv.style.setProperty('--user-unit', String(userUnit));
-        textLayerDiv.style.setProperty('--total-scale-factor', String(totalScaleFactor));
+        // Mutable page scale belongs to the page shell. Layer-local copies can
+        // outlive their render request and corrupt geometry after a fit change.
+        textLayerDiv.style.removeProperty('--scale-factor');
+        textLayerDiv.style.removeProperty('--user-unit');
+        textLayerDiv.style.removeProperty('--total-scale-factor');
 
         const currentWorkingCopyPath = toValue(deps.workingCopyPath);
         const currentDocumentRevisionToken = toValue(deps.documentRevisionToken);

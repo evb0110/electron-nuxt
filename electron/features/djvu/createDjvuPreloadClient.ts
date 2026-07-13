@@ -38,6 +38,7 @@ const DJVU_INVOKE_TIMEOUT_MS_BY_CHANNEL = {
     [DJVU_CHANNELS.awaitConvertJob]: DJVU_NATIVE_IPC_TIMEOUT_MS,
     [DJVU_CHANNELS.printDjvuPath]: DJVU_NATIVE_IPC_TIMEOUT_MS,
     [DJVU_CHANNELS.getInfo]: DJVU_NATIVE_IPC_TIMEOUT_MS,
+    [DJVU_CHANNELS.getPageSourceInfo]: DJVU_NATIVE_IPC_TIMEOUT_MS,
     [DJVU_CHANNELS.getPageSizes]: DJVU_NATIVE_IPC_TIMEOUT_MS,
     [DJVU_CHANNELS.renderPagePreview]: DJVU_NATIVE_IPC_TIMEOUT_MS,
     [DJVU_CHANNELS.estimateSizes]: DJVU_NATIVE_IPC_TIMEOUT_MS,
@@ -260,6 +261,15 @@ function normalizeDjvuPrintOptions(options: IDjvuPrintOptions) {
 export function createDjvuPreloadClient(ipcRenderer: IpcRenderer): IDjvuCapability {
     const invoke = createCodecIpcInvoker<IDjvuInvokeMap>(ipcRenderer, DJVU_IPC_CODECS, {invokeTimeoutMsByChannel: DJVU_INVOKE_TIMEOUT_MS_BY_CHANNEL});
     const eventSubscriber = createTypedIpcEventSubscriber<IDjvuEventMap>(ipcRenderer);
+    let progressSubscriptionRequested = false;
+
+    function ensureProgressSubscription() {
+        if (progressSubscriptionRequested) {
+            return;
+        }
+        progressSubscriptionRequested = true;
+        void invoke(DJVU_CHANNELS.subscribeProgress);
+    }
 
     return {
         startOpenForViewing: (djvuPath, requestId) => invoke(
@@ -305,6 +315,11 @@ export function createDjvuPreloadClient(ipcRenderer: IpcRenderer): IDjvuCapabili
             normalizeOptionalIpcRequestId(requestId, 'cancelPagePreview.requestId') ?? '',
         ),
         getInfo: (djvuPath: TDocumentRef) => invoke(DJVU_CHANNELS.getInfo, djvuPath),
+        getPageSourceInfo: (djvuPath: TDocumentRef, pageNumber: number) => invoke(
+            DJVU_CHANNELS.getPageSourceInfo,
+            djvuPath,
+            pageNumber,
+        ),
         getPageSizes: (djvuPath: TDocumentRef) => invoke(DJVU_CHANNELS.getPageSizes, djvuPath),
         renderPagePreview: (
             djvuPath: TDocumentRef,
@@ -316,7 +331,7 @@ export function createDjvuPreloadClient(ipcRenderer: IpcRenderer): IDjvuCapabili
         cleanupTemp: (tempPdfPath: TDocumentRef) => invoke(DJVU_CHANNELS.cleanupTemp, tempPdfPath),
         onProgress: (callback: (progress: IDjvuProgress) => void): (() => void) => {
             const unsubscribe = eventSubscriber.onDecodedPayload(DJVU_EVENT_CHANNELS.progress, decodeDjvuProgress, callback);
-            void invoke(DJVU_CHANNELS.subscribeProgress);
+            ensureProgressSubscription();
             return unsubscribe;
         },
         onMenuConvertToPdf: (callback: TMenuEventCallback): TMenuEventUnsubscribe =>

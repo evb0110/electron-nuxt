@@ -107,27 +107,33 @@ describe('viewportSimulation invariants', () => {
     it('I10 rejects skeleton regression after a usable canvas', () => {
         const simulation = replayGirgas55To56();
         expect(simulation.transitionVisual(56, 1, 'skeleton')).toBe(false);
-        expect(simulation.getVisual(56)).toBe('fresh');
+        expect(simulation.getVisual(56)).toBe('ready');
     });
 
-    it('I11 retains stale pixels until replacement canvas commit', () => {
+    it('I11 clears a replaced raster before skeleton and canonical readiness', () => {
         const simulation = new viewportSimulation();
-        simulation.transitionVisual(3, 1, 'fresh');
-        simulation.transitionVisual(3, 1, 'stale');
-        expect(simulation.getVisual(3)).toBe('stale');
-        simulation.transitionVisual(3, 1, 'fresh');
-        expect(simulation.visualTransitions).not.toContain('3:1:stale>none');
+        simulation.transitionVisual(3, 1, 'ready');
+        simulation.transitionVisual(3, 1, 'none');
+        simulation.transitionVisual(3, 1, 'skeleton');
+        simulation.transitionVisual(3, 1, 'ready');
+        expect(simulation.getVisual(3)).toBe('ready');
+        expect(simulation.visualTransitions).toEqual([
+            '3:1:none>ready',
+            '3:1:ready>none',
+            '3:1:none>skeleton',
+            '3:1:skeleton>ready',
+        ]);
     });
 
     it('I12 commits both pages of a facing row as one readiness decision', () => {
         const simulation = new viewportSimulation();
-        const rowReady = (pages: number[]) => pages.every(page => simulation.getVisual(page) === 'fresh');
-        simulation.transitionVisual(10, 1, 'fresh');
+        const rowReady = (pages: number[]) => pages.every(page => simulation.getVisual(page) === 'ready');
+        simulation.transitionVisual(10, 1, 'ready');
         expect(rowReady([
             10,
             11,
         ])).toBe(false);
-        simulation.transitionVisual(11, 1, 'fresh');
+        simulation.transitionVisual(11, 1, 'ready');
         expect(rowReady([
             10,
             11,
@@ -182,7 +188,7 @@ describe('viewportSimulation invariants', () => {
     it('I16 starts optional work only after the first stable visual', () => {
         const simulation = new viewportSimulation();
         expect(() => simulation.startOptionalWork()).toThrow('first stable visual');
-        simulation.transitionVisual(1, 1, 'fresh');
+        simulation.transitionVisual(1, 1, 'ready');
         simulation.startOptionalWork();
         expect(simulation.optionalWorkStarted).toBe(true);
     });
@@ -208,7 +214,7 @@ describe('viewportSimulation invariants', () => {
             const latest = simulation.beginIntent('navigate', 928);
             simulation.schedule(latest, 'metrics', () => simulation.setPageTop(928, 927_000));
             simulation.schedule(latest, 'mount', () => simulation.mountedPages.add(928));
-            simulation.schedule(latest, 'canvas', () => simulation.transitionVisual(928, 1, 'fresh'));
+            simulation.schedule(latest, 'canvas', () => simulation.transitionVisual(928, 1, 'ready'));
             simulation.schedule(latest, 'commit', () => simulation.applyScroll(latest, 927_000, 'latest'));
             simulation.flush(order);
             return simulation;
@@ -231,7 +237,7 @@ describe('viewportSimulation invariants', () => {
         ]) {
             const simulation = run(order);
             expect(simulation.scrollWrites.map(write => write.reason)).toEqual(['latest']);
-            expect(simulation.getVisual(928)).toBe('fresh');
+            expect(simulation.getVisual(928)).toBe('ready');
         }
     });
 });

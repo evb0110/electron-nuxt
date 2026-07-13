@@ -42,6 +42,7 @@ interface IWorkspaceViewerAdapterBindingOptions {
     pdfRasterDisplayProfile: Ref<TPdfRasterDisplayProfile | null> | ComputedRef<TPdfRasterDisplayProfile | null>;
     pdfReloadSrc: Ref<TPdfSource | null>;
     pdfSrc: Ref<TPdfSource | null>;
+    pendingDocumentPath?: TReadableRef<TDocumentRef | null>;
     pdfViewerRef: Ref<IPdfViewerExpose | null>;
     nativePdfViewerRef: Ref<IDocumentViewerExpose | null>;
     djvuViewerRef: Ref<IDocumentViewerExpose | null>;
@@ -50,6 +51,7 @@ interface IWorkspaceViewerAdapterBindingOptions {
     showSidebar: Ref<boolean>;
     viewMode: Ref<TPdfViewMode>;
     workingCopyPath: Ref<TDocumentRef | null>;
+    originalPath: Ref<TDocumentRef | null>;
     zoom: Ref<number>;
     zoomMode: Ref<TZoomMode>;
     onAnnotationCommentClick: unknown;
@@ -95,12 +97,13 @@ export const useWorkspaceViewerAdapterBinding = (options: IWorkspaceViewerAdapte
             viewMode: options.viewMode.value,
             continuousScroll: options.continuousScroll.value,
             dragMode: options.dragMode.value,
+            documentRevisionToken: options.documentRevisionToken.value,
             isActive: options.isRenderActive.value,
         };
     }
 
     const activeViewerProps = computed<Record<string, unknown>>(() => {
-        if (options.activeViewerAdapter.value?.id === 'pdf' && options.pdfSrc.value) {
+        if (options.activeViewerAdapter.value?.id === 'pdf') {
             return {
                 sourceKind: 'pdf',
                 src: options.pdfSrc.value,
@@ -125,6 +128,7 @@ export const useWorkspaceViewerAdapterBinding = (options: IWorkspaceViewerAdapte
                 currentSearchMatch: options.currentSearchMatch.value,
                 currentSearchMatchNavigationId: options.currentResultNavigationId.value,
                 workingCopyPath: options.workingCopyPath.value,
+                originalPath: options.originalPath.value ?? options.pendingDocumentPath?.value ?? null,
                 documentRevisionToken: options.documentRevisionToken.value,
                 authorName: options.authorName.value,
             };

@@ -345,35 +345,49 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             return null;
         }
 
+        let captureResultClaimed = false;
+        const capturePromise = (async (): Promise<IPreparedTransferItem | null> => {
+            const workspace = await options.waitForWorkspace(tabId, timeoutMs);
+            if (!workspace) {
+                return null;
+            }
+
+            if (!isCommandTargetCurrent(session, commandTarget)) {
+                return null;
+            }
+
+            const payload = await workspace.captureSplitPayload();
+            if (!isCommandTargetCurrent(session, commandTarget)) {
+                await cleanupSplitPayloadSnapshot(payload, {
+                    logSection: 'tabs',
+                    context: 'capture-workspace-payload-stale-session',
+                    metadata: { tabId },
+                });
+                return null;
+            }
+
+            return {
+                tabId,
+                payload,
+                commandTarget,
+                session: getTransferSessionState(tabId),
+            };
+        })();
+
         try {
-            return await withTimeout(async () => {
-                const workspace = await options.waitForWorkspace(tabId, timeoutMs);
-                if (!workspace) {
-                    return null;
-                }
-
-                if (!isCommandTargetCurrent(session, commandTarget)) {
-                    return null;
-                }
-
-                const payload = await workspace.captureSplitPayload();
-                if (!isCommandTargetCurrent(session, commandTarget)) {
-                    await cleanupSplitPayloadSnapshot(payload, {
+            const result = await withTimeout(() => capturePromise, timeoutMs);
+            captureResultClaimed = true;
+            return result;
+        } catch (error) {
+            void capturePromise.then(async (lateResult) => {
+                if (!captureResultClaimed && lateResult) {
+                    await cleanupSplitPayloadSnapshot(lateResult.payload, {
                         logSection: 'tabs',
-                        context: 'capture-workspace-payload-stale-session',
+                        context: 'capture-workspace-payload-late-result',
                         metadata: { tabId },
                     });
-                    return null;
                 }
-
-                return {
-                    tabId,
-                    payload,
-                    commandTarget,
-                    session: getTransferSessionState(tabId),
-                };
-            }, timeoutMs);
-        } catch (error) {
+            }).catch(() => undefined);
             BrowserLogger.error('tabs', 'Failed to capture split payload', {
                 tabId,
                 error,

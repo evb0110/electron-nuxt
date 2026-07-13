@@ -34,6 +34,7 @@ interface IUseAnnotationMutationVisualEffectsOptions {
             bufferOverride?: number;
         },
     ) => Promise<void>;
+    invalidatePages: (pages: number[]) => void;
     visualEffects: IAnnotationMutationVisualEffectsState;
 }
 
@@ -149,6 +150,13 @@ export const useAnnotationMutationVisualEffects = (options: IUseAnnotationMutati
             return;
         }
         removeAnnotationCommentDom(container, comment);
+        const pageNumber = Math.floor(effect.pageNumber ?? comment.pageNumber);
+        if (Number.isFinite(pageNumber) && pageNumber > 0) {
+            // Annotation-layer invalidation also advances the thumbnail layer
+            // revision, preventing deleted markup from surviving in a
+            // previously rendered thumbnail canvas.
+            options.invalidatePages([pageNumber]);
+        }
     }
 
     async function applyEffect(effect: IAnnotationMutationVisualEffect) {

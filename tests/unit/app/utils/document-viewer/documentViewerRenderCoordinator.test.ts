@@ -12,8 +12,8 @@ describe('document viewer render coordinator', () => {
         const outgoing = coordinator.createSession('pdf:1');
         const incoming = coordinator.createSession('djvu:2');
         const incomingReady = incoming.pageSlots.whenMounted(5, new AbortController().signal);
-        const oldGeneration = outgoing.beginPageRender(5, false);
-        const newGeneration = incoming.beginPageRender(5, true);
+        const oldGeneration = outgoing.beginPageRender(5);
+        const newGeneration = incoming.beginPageRender(5);
 
         incoming.pageSlots.markMounted(5);
         outgoing.dispose();
@@ -46,12 +46,12 @@ describe('document viewer render coordinator', () => {
         const coordinator = createDocumentViewerRenderCoordinator(createDocumentPageSlotRegistry());
         const outgoing = coordinator.createSession('pdf:render-old');
         let finish!: (value: string) => void;
-        const pending = outgoing.runPageRender(3, false, () => new Promise<string>((resolve) => {
+        const pending = outgoing.runPageRender(3, () => new Promise<string>((resolve) => {
             finish = resolve;
         }));
         outgoing.dispose();
         const incoming = coordinator.createSession('djvu:render-new');
-        const latest = incoming.runPageRender(3, false, async () => 'new');
+        const latest = incoming.runPageRender(3, async () => 'new');
         finish('old');
 
         await expect(pending).resolves.toMatchObject({
@@ -63,5 +63,18 @@ describe('document viewer render coordinator', () => {
             value: 'new',
         });
         expect(incoming.getPageVisual(3)).toBe('fresh');
+    });
+
+    it('returns to a skeleton while replacing a fresh page and after a failed replacement', () => {
+        const session = createDocumentViewerRenderCoordinator(createDocumentPageSlotRegistry())
+            .createSession('djvu:replace');
+        const firstGeneration = session.beginPageRender(4);
+        expect(session.commitPageRender(4, firstGeneration)).toBe(true);
+        expect(session.getPageVisual(4)).toBe('fresh');
+
+        const replacementGeneration = session.beginPageRender(4);
+        expect(session.getPageVisual(4)).toBe('skeleton');
+        expect(session.failPageRender(4, replacementGeneration)).toBe(true);
+        expect(session.getPageVisual(4)).toBe('skeleton');
     });
 });

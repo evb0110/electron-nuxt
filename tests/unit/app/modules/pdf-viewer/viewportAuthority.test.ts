@@ -30,7 +30,113 @@ function intent(id: string, page: number): Omit<IPdfViewportIntent, 'interaction
 }
 
 describe('ViewportAuthority', () => {
-    it('retains the old viewport until destination visual readiness commits', async () => {
+    it('exposes an active state intent anchor without misclassifying it as navigation', async () => {
+        let releaseVisual!: () => void;
+        const authority = createViewportAuthority({
+            getDocumentRevision: () => 1,
+            getGeometryRevision: () => 1,
+            resolve: async request => ({
+                anchor: request.anchor ?? anchor,
+                left: 0,
+                top: 900,
+            }),
+            awaitMetrics: async () => {},
+            awaitSlots: async () => {},
+            apply: () => {},
+            awaitVisual: () => new Promise<void>((resolve) => {
+                releaseVisual = resolve;
+            }),
+        });
+
+        const pending = authority.submit({
+            id: 'fit-page-2',
+            kind: 'fit',
+            documentRevision: 1,
+            geometryRevision: 1,
+            priority: 5,
+            supersessionKey: 'viewport-state',
+            anchor: {
+                ...anchor,
+                page: 2,
+            },
+        });
+        await vi.waitFor(() => expect(releaseVisual).toBeTypeOf('function'));
+
+        expect(authority.pendingTargetPage.value).toBeNull();
+        expect(authority.pendingAnchorPage.value).toBe(2);
+        releaseVisual();
+        await expect(pending).resolves.toMatchObject({outcome: 'settled'});
+        expect(authority.currentPage.value).toBe(2);
+    });
+
+    it('bounds terminal outcomes while retaining the newest intent result', async () => {
+        const authority = createViewportAuthority({
+            getDocumentRevision: () => 1,
+            getGeometryRevision: () => 1,
+            resolve: async request => ({
+                anchor: {
+                    ...anchor,
+                    page: request.navigation!.target.kind === 'page' ? request.navigation!.target.page : 1,
+                },
+                left: 0,
+                top: 0,
+            }),
+            awaitMetrics: async () => {},
+            awaitSlots: async () => {},
+            apply: () => {},
+            awaitVisual: async () => {},
+        });
+
+        for (let index = 0; index < 130; index += 1) {
+            await authority.submit(intent(`bounded-${String(index)}`, index + 1));
+        }
+
+        expect(authority.getTerminalOutcome('bounded-0')).toBeNull();
+        expect(authority.getTerminalOutcome('bounded-129')).toBe('settled');
+    });
+
+    it('joins a transaction-owned settled viewport into the durable authority state', () => {
+        const onPositionCommitted = vi.fn();
+        const authority = createViewportAuthority({
+            getDocumentRevision: () => 3,
+            getGeometryRevision: () => 5,
+            resolve: async () => ({
+                anchor,
+                left: 0,
+                top: 0,
+            }),
+            awaitMetrics: async () => {},
+            awaitSlots: async () => {},
+            apply: () => {},
+            awaitVisual: async () => {},
+            onPositionCommitted,
+        });
+        const settledAnchor = {
+            ...anchor,
+            page: 7,
+        };
+
+        const commit = authority.commitSettledPosition({
+            intentId: 'reload-viewport-1-7',
+            documentRevision: 3,
+            geometryRevision: 5,
+            page: 7,
+            left: 12,
+            top: 640,
+            anchor: settledAnchor,
+        });
+
+        expect(commit).toMatchObject({
+            intentId: 'reload-viewport-1-7',
+            page: 7,
+            left: 12,
+            top: 640,
+        });
+        expect(authority.currentPage.value).toBe(7);
+        expect(onPositionCommitted).toHaveBeenCalledWith(commit);
+    });
+
+    it('commits the semantic destination before waiting for visual readiness', async () => {
         let releaseVisual!: () => void;
         const events: string[] = [];
         const authority = createViewportAuthority({
@@ -55,18 +161,48 @@ describe('ViewportAuthority', () => {
 
         const pending = authority.submit(intent('visual', 2));
         await vi.waitFor(() => expect(events).toContain('visual-requested'));
-        expect(events).not.toContain('applied');
-        expect(authority.currentPage.value).toBe(1);
+        expect(events).toContain('applied');
+        expect(authority.currentPage.value).toBe(2);
         releaseVisual();
         await expect(pending).resolves.toMatchObject({outcome: 'settled'});
         expect(events).toEqual([
             'metrics',
             'slots',
-            'visual-requested',
             'applied',
+            'visual-requested',
         ]);
         expect(authority.currentPage.value).toBe(2);
         expect(authority.pendingTargetPage.value).toBeNull();
+    });
+
+    it('refines against mounted slots before the single terminal viewport write', async () => {
+        const writes: number[] = [];
+        const authority = createViewportAuthority({
+            getDocumentRevision: () => 1,
+            getGeometryRevision: () => 1,
+            resolve: async request => ({
+                anchor: {
+                    ...anchor,
+                    page: request.navigation!.target.kind === 'page' ? request.navigation!.target.page : 1,
+                },
+                left: 0,
+                top: 900,
+            }),
+            awaitMetrics: async () => {},
+            awaitSlots: async () => {},
+            apply: (_request, commit) => writes.push(commit.top),
+            awaitVisual: async () => {},
+            refine: async (_request, commit) => ({
+                ...commit,
+                top: 920,
+            }),
+        });
+
+        await expect(authority.submit(intent('refined', 2)))
+            .resolves
+            .toMatchObject({outcome: 'settled'});
+        expect(writes).toEqual([920]);
+        expect(authority.currentPage.value).toBe(2);
     });
 
     it('serializes intents, executes aborts, and permits only latest commit', async () => {
@@ -155,7 +291,7 @@ describe('ViewportAuthority', () => {
         expect(writes).toEqual([]);
     });
 
-    it('rejects a continuation when the geometry revision changes', async () => {
+    it('rebases a live intent when visual hydration changes geometry', async () => {
         let geometryRevision = 1;
         let release!: () => void;
         const writes: string[] = [];
@@ -178,8 +314,8 @@ describe('ViewportAuthority', () => {
         geometryRevision = 2;
         release();
 
-        await expect(pending).resolves.toMatchObject({outcome: 'cancelled'});
-        expect(writes).toEqual([]);
+        await expect(pending).resolves.toMatchObject({outcome: 'settled'});
+        expect(writes).toEqual(['geometry-change']);
     });
 
     it('rebases geometry freshness after intent-owned metric hydration', async () => {

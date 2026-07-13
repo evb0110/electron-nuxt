@@ -926,6 +926,9 @@ const COMMAND_HANDLERS: Record<TElectronRunCommand, TSessionCommandHandler> = {
     },
     openPdf: handleOpenPdfCommand,
     health: handleHealthCommand,
+    shutdown() {
+        throw new Error('Shutdown must be handled by the Electron session controller');
+    },
 };
 
 function createCommandContext(sessionState: ISessionState): ICommandContext {

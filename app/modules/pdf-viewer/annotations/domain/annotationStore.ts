@@ -44,6 +44,43 @@ function cloneEntity<T extends AnnotationEntity>(entity: T): T {
     return structuredClone(entity);
 }
 
+function semanticEntityFingerprint(entity: AnnotationEntity) {
+    const {
+        revision: _revision,
+        persistedRevision: _persistedRevision,
+        ...semanticEntity
+    } = entity;
+    return JSON.stringify(semanticEntity);
+}
+
+function semanticSnapshot(entities: Iterable<AnnotationEntity>) {
+    return new Map(Array.from(entities, entity => (
+        [
+            entity.identity.id,
+            semanticEntityFingerprint(entity),
+        ] as const
+    )));
+}
+
+function saveFrontierEntityBaseline(entities: readonly AnnotationEntity[]) {
+    return JSON.stringify(entities.map(entity => [
+        entity.identity.id,
+        entity.revision,
+        entity.deleted,
+    ]));
+}
+
+function semanticSnapshotsEqual(
+    left: ReadonlyMap<AnnotationId, string>,
+    right: ReadonlyMap<AnnotationId, string>,
+) {
+    return left.size === right.size
+        && Array.from(left).every(([
+            id,
+            fingerprint,
+        ]) => right.get(id) === fingerprint);
+}
+
 class LocalAnnotationHistoryAuthority implements IAnnotationHistoryAuthority {
     readonly #undo: IAnnotationHistoryCommand[] = [];
     readonly #redo: IAnnotationHistoryCommand[] = [];
@@ -79,6 +116,7 @@ export class AnnotationStore {
     readonly #identities = new ExternalIdentityIndex();
     readonly #listeners = new Set<TListener>();
     readonly #history: IAnnotationHistoryAuthority;
+    #savedSemanticSnapshot = new Map<AnnotationId, string>();
     #mutationEpoch = 0;
 
     constructor(history: IAnnotationHistoryAuthority = new LocalAnnotationHistoryAuthority()) {
@@ -103,12 +141,16 @@ export class AnnotationStore {
     }
 
     import(entity: AnnotationEntity) {
+        const wasSemanticallyClean = !this.hasChangesSinceSavedBaseline();
         const current = this.#entities.get(entity.identity.id);
         if (current && current.revision > entity.revision) {
             return current;
         }
         this.#identities.bind(entity.identity);
         this.#entities.set(entity.identity.id, cloneEntity(entity));
+        if (entity.persistedRevision >= 0 && wasSemanticallyClean) {
+            this.#savedSemanticSnapshot = semanticSnapshot(this.#entities.values());
+        }
         this.#mutationEpoch += 1;
         this.#emit();
         return entity;
@@ -327,11 +369,7 @@ export class AnnotationStore {
         return {
             documentRevisionToken,
             epoch: this.#mutationEpoch,
-            entityBaselineHash: JSON.stringify(entities.map(entity => [
-                entity.identity.id,
-                entity.revision,
-                entity.deleted,
-            ])),
+            entityBaselineHash: saveFrontierEntityBaseline(entities),
             revisions: new Map(entities.map(entity => [
                 entity.identity.id,
                 entity.revision,
@@ -339,22 +377,76 @@ export class AnnotationStore {
         };
     }
 
-    acknowledgeSave(frontier: IAnnotationSaveFrontier) {
+    acknowledgeSave(
+        frontier: IAnnotationSaveFrontier,
+        materializedPdfRefs: ReadonlyMap<AnnotationId, string> = new Map(),
+    ) {
         this.assertSaveFrontierCurrent(frontier);
         frontier.revisions.forEach((revision, id) => {
             const entity = this.#entities.get(id);
             if (entity?.revision === revision) {
+                const pdfRef = materializedPdfRefs.get(id);
+                const identity = pdfRef
+                    ? {
+                        ...entity.identity,
+                        pdfRef,
+                    }
+                    : entity.identity;
+                this.#identities.bind(identity);
                 this.#entities.set(id, {
                     ...entity,
+                    identity,
                     persistedRevision: revision,
                 });
+            }
+        });
+        this.#savedSemanticSnapshot = semanticSnapshot(this.#entities.values());
+        this.#emit();
+    }
+
+    adoptEntitiesAsSavedBaseline(ids: ReadonlySet<AnnotationId>) {
+        ids.forEach((id) => {
+            const entity = this.#entities.get(id);
+            if (entity) {
+                this.#savedSemanticSnapshot.set(id, semanticEntityFingerprint(entity));
             }
         });
         this.#emit();
     }
 
+    hasChangesSinceSavedBaseline() {
+        return !semanticSnapshotsEqual(
+            semanticSnapshot(this.#entities.values()),
+            this.#savedSemanticSnapshot,
+        );
+    }
+
+    countDirtyPersistedDeletions() {
+        return this.dirtyAt(this.beginSave())
+            .filter(entity => entity.deleted && entity.persistedRevision >= 0)
+            .length;
+    }
+
     assertSaveFrontierCurrent(frontier: IAnnotationSaveFrontier) {
-        if (frontier.epoch !== this.#mutationEpoch) {
+        // External identity reconciliation can legitimately complete while a
+        // path-backed native save is being verified. The initial PDF.js scan
+        // can also discover already-persisted source annotations after a fast
+        // first paint. Neither event changes the user-authored save frontier.
+        // Reject changes to captured entities and any newly-created unsaved
+        // entity, while allowing identity bindings and late persisted imports.
+        const current = new Map(this.list({includeDeleted: true}).map(entity => [
+            entity.identity.id,
+            entity,
+        ]));
+        const capturedEntityChanged = Array.from(frontier.revisions).some(([
+            id,
+            revision,
+        ]) => current.get(id)?.revision !== revision);
+        const unsavedEntityCreatedAfterFrontier = Array.from(current.values()).some(entity => (
+            !frontier.revisions.has(entity.identity.id)
+            && entity.persistedRevision < 0
+        ));
+        if (capturedEntityChanged || unsavedEntityCreatedAfterFrontier) {
             throw new Error('staleRevisionError: annotations changed after the save frontier was captured');
         }
     }
@@ -362,7 +454,8 @@ export class AnnotationStore {
     dirtyAt(frontier: IAnnotationSaveFrontier) {
         return this.list({includeDeleted: true}).filter(entity => {
             const frontierRevision = frontier.revisions.get(entity.identity.id);
-            return frontierRevision !== undefined && frontierRevision > entity.persistedRevision;
+            return frontierRevision !== undefined
+                && semanticEntityFingerprint(entity) !== this.#savedSemanticSnapshot.get(entity.identity.id);
         });
     }
 

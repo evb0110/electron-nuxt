@@ -18,7 +18,7 @@ class ElectronRunCommandError extends Error {
     }
 }
 
-async function postCommand(
+export async function sendCommandToSession(
     info: ISessionInfo,
     command: TElectronRunCommand,
     args: unknown[],
@@ -83,7 +83,7 @@ export async function sendCommand(
         }
 
         try {
-            return await postCommand(info, command, args, requestTimeoutMs);
+            return await sendCommandToSession(info, command, args, requestTimeoutMs);
         } catch (error) {
             if (isRequestTimeout(error)) {
                 throw new Error(`Command "${command}" timed out after ${Math.round(requestTimeoutMs / 1000)}s`);

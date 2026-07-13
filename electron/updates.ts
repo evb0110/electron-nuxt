@@ -31,6 +31,7 @@ import {
     UPDATE_STARTUP_FAILURE_THRESHOLD,
 } from '@electron/updateHealthMarker';
 import { runDetached } from '@electron/utils/runDetached';
+import { resolveApplicationVersion } from '@electron/appVersion';
 
 const { autoUpdater } = electronUpdater;
 
@@ -87,7 +88,7 @@ export function configureUpdateInstallShutdown(requester: TUpdateInstallShutdown
 }
 
 function getCurrentVersion() {
-    return normalizeVersion(app.getVersion()) || null;
+    return normalizeVersion(resolveApplicationVersion(app)) || null;
 }
 
 function clearProgressBroadcastTimer() {
@@ -265,6 +266,39 @@ async function hasUpdaterMetadataForVersion(version: string) {
     return true;
 }
 
+function validateDownloadedUpdateForInstall(version: string) {
+    const currentVersion = getCurrentVersion();
+    if (!currentVersion || compareVersions(version, currentVersion) <= 0) {
+        throw new Error(`Downloaded update ${version} is not newer than the running version ${currentVersion ?? 'unknown'}`);
+    }
+}
+
+function clearDownloadedCandidate(version: string) {
+    if (downloadedVersion === version) {
+        downloadedVersion = null;
+    }
+    if (pendingVersion === version) {
+        pendingVersion = null;
+    }
+}
+
+function discardDownloadedCandidateIfNotNewer(context: string) {
+    if (!downloadedVersion) {
+        return false;
+    }
+    const currentVersion = getCurrentVersion();
+    if (!currentVersion || compareVersions(downloadedVersion, currentVersion) > 0) {
+        return false;
+    }
+
+    const invalidVersion = downloadedVersion;
+    clearDownloadedCandidate(invalidVersion);
+    logger.warn(
+        `Discarding downloaded update ${invalidVersion} during ${context}; running version is ${currentVersion}`,
+    );
+    return true;
+}
+
 async function maybeClearSupersededDownloadedVersion() {
     if (!downloadedVersion) {
         return false;
@@ -272,7 +306,25 @@ async function maybeClearSupersededDownloadedVersion() {
 
     try {
         const latestVersion = await fetchLatestMetadataVersion();
-        if (compareVersions(latestVersion, downloadedVersion) <= 0) {
+        const comparison = compareVersions(latestVersion, downloadedVersion);
+        if (comparison < 0) {
+            logger.warn(
+                `Discarding cached downloaded update ${downloadedVersion}; current metadata rolled back to ${latestVersion}`,
+            );
+            downloadedVersion = null;
+            pendingVersion = latestVersion;
+            return true;
+        }
+
+        if (comparison === 0) {
+            if (!await hasUpdaterMetadataForVersion(downloadedVersion)) {
+                logger.warn(
+                    `Discarding cached downloaded update ${downloadedVersion}; its updater feed is no longer published`,
+                );
+                downloadedVersion = null;
+                pendingVersion = null;
+                return true;
+            }
             return false;
         }
 
@@ -399,7 +451,7 @@ function setAutoUpdaterListeners() {
         updateStatus({
             phase: 'no-update',
             origin: 'manual',
-            version: normalizeVersion(info.version) || normalizeVersion(app.getVersion()) || null,
+            version: normalizeVersion(info.version) || getCurrentVersion(),
             percent: null,
             message: null,
         });
@@ -436,6 +488,21 @@ function setAutoUpdaterListeners() {
             const version = normalizedVersion.length > 0 ? normalizedVersion : pendingVersion;
             pendingVersion = version && version.length > 0 ? version : null;
             downloadedVersion = version && version.length > 0 ? version : null;
+
+            if (discardDownloadedCandidateIfNotNewer('download event')) {
+                if (currentCheckOrigin === 'manual') {
+                    updateStatus({
+                        phase: 'no-update',
+                        origin: 'manual',
+                        version: getCurrentVersion(),
+                        percent: null,
+                        message: null,
+                    });
+                } else {
+                    setIdleStatus('auto');
+                }
+                return;
+            }
 
             const skippedVersion = await readSkippedVersion();
             if (
@@ -480,7 +547,7 @@ function setAutoUpdaterListeners() {
 }
 
 async function shouldRunUpdaterCheck() {
-    const currentVersion = normalizeVersion(app.getVersion());
+    const currentVersion = normalizeVersion(resolveApplicationVersion(app));
     let latestVersion: string;
 
     try {
@@ -548,7 +615,7 @@ async function checkForUpdates(origin: TAppUpdateCheckOrigin) {
                 updateStatus({
                     phase: 'unsupported',
                     origin: 'manual',
-                    version: normalizeVersion(app.getVersion()) || null,
+                    version: getCurrentVersion(),
                     percent: null,
                     message: getUnsupportedRuntimeMessage(),
                 });
@@ -560,7 +627,7 @@ async function checkForUpdates(origin: TAppUpdateCheckOrigin) {
                 updateStatus({
                     phase: 'unsupported',
                     origin: 'manual',
-                    version: normalizeVersion(app.getVersion()) || null,
+                    version: getCurrentVersion(),
                     percent: null,
                     message: 'Updates require a signed packaged build.',
                 });
@@ -568,7 +635,7 @@ async function checkForUpdates(origin: TAppUpdateCheckOrigin) {
                 updateStatus({
                     phase: 'unsupported',
                     origin: 'auto',
-                    version: normalizeVersion(app.getVersion()) || null,
+                    version: getCurrentVersion(),
                     percent: null,
                     message: null,
                 });
@@ -593,6 +660,7 @@ async function checkForUpdates(origin: TAppUpdateCheckOrigin) {
             return;
         }
 
+        discardDownloadedCandidateIfNotNewer('update check');
         const supersededDownloadedVersion = await maybeClearSupersededDownloadedVersion();
         if (downloadedVersion && !supersededDownloadedVersion) {
             const skippedVersion = await readSkippedVersion();
@@ -755,8 +823,26 @@ export async function installDownloadedUpdate() {
         return { started: false };
     }
 
+    const candidateVersion = downloadedVersion;
+
     // Installation is always user-initiated, so errors must surface to the UI
     currentCheckOrigin = 'manual';
+
+    try {
+        validateDownloadedUpdateForInstall(candidateVersion);
+    } catch (error) {
+        clearDownloadedCandidate(candidateVersion);
+        const message = `Downloaded update validation failed: ${getErrorMessage(error)}`;
+        logger.error(message);
+        updateStatus({
+            phase: 'error',
+            origin: 'manual',
+            version: candidateVersion,
+            percent: null,
+            message,
+        });
+        return { started: false };
+    }
 
     try {
         await writeSkippedVersion(null);
@@ -764,7 +850,7 @@ export async function installDownloadedUpdate() {
         logger.warn(`Failed to clear skipped update version before install: ${getErrorMessage(error)}`);
     }
     try {
-        await markUpdateInstallPending(downloadedVersion);
+        await markUpdateInstallPending(candidateVersion);
     } catch (error) {
         logger.warn(`Failed to write update health marker before install: ${getErrorMessage(error)}`);
     }

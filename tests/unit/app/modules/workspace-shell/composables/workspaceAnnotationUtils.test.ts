@@ -43,6 +43,19 @@ describe('hasViewerShapeChanges', () => {
 });
 
 describe('hasAnnotationChanges', () => {
+    it('reports canonical annotation changes even when PDF.js storage is clean', () => {
+        const result = hasAnnotationChanges({
+            pdfViewerRef: ref({
+                getAllShapes: () => [],
+                hasCanonicalAnnotationChanges: () => true,
+                runSaveTransaction: vi.fn(),
+            }),
+            pdfDocument: shallowRef(null),
+        });
+
+        expect(result).toBe(true);
+    });
+
     it('returns true when viewer reports shape changes through a ref', () => {
         const result = hasAnnotationChanges({
             pdfViewerRef: ref({

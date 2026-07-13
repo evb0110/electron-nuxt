@@ -7,8 +7,9 @@ import type { TOpenPathOwner } from '@electron/features/documents/main/openPathO
 export async function addRecentInputs(paths: string[], owner?: TOpenPathOwner) {
     const uniquePaths = uniq(paths);
     allowOpenPaths(uniquePaths, owner);
+    const senderWebContentsId = typeof owner === 'number' ? owner : owner?.id;
     for (const path of uniquePaths) {
-        await addRecentFile(path);
+        await addRecentFile(path, senderWebContentsId);
     }
     updateRecentFilesMenu();
 }

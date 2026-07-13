@@ -72,6 +72,7 @@ function createReadyRecord(
             hasPdf: true,
             canSave: options.canSave ?? true,
             currentPage: 1,
+            initialVisualReady: true,
             totalPages: 4,
             viewerCapabilities: {
                 ...createDefaultWorkspaceViewerCapabilities(),

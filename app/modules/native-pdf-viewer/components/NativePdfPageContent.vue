@@ -1,28 +1,21 @@
 <template>
     <div
-        v-if="displayedObjectUrl"
+        v-if="pageState?.objectUrl"
         class="native-pdf-page-content"
+        :class="{'native-pdf-page-content--committed': visualCommitted}"
     >
         <img
-            :src="displayedObjectUrl"
+            :src="pageState.objectUrl"
             :alt="`PDF page ${pageNumber}`"
             class="native-pdf-page-image"
             decoding="async"
             draggable="false"
-            @load="handleDisplayedImageLoad(displayedObjectUrl)"
-        >
-        <img
-            v-if="pendingObjectUrl && pendingObjectUrl !== displayedObjectUrl"
-            :src="pendingObjectUrl"
-            :alt="`PDF page ${pageNumber}`"
-            class="native-pdf-page-image native-pdf-page-image--pending"
-            decoding="async"
-            draggable="false"
-            @load="handlePendingImageLoad(pendingObjectUrl)"
+            @load="handleImageLoad(pageState.objectUrl)"
+            @error="handleImageError(pageState.objectUrl)"
         >
     </div>
     <div
-        v-else-if="pageState?.status === 'error'"
+        v-if="pageState?.status === 'error'"
         class="native-pdf-page-placeholder"
     >
         <UIcon
@@ -41,7 +34,7 @@
         />
     </div>
     <div
-        v-else
+        v-else-if="!visualCommitted && showSkeleton"
         aria-hidden="true"
     >
         <PdfPageSkeleton
@@ -49,6 +42,11 @@
             :content-height="skeletonContentHeight"
         />
     </div>
+    <div
+        v-else-if="!visualCommitted"
+        class="native-pdf-page-pending-frame"
+        aria-hidden="true"
+    />
     <div
         v-if="showPageNumber"
         class="native-pdf-page-number"
@@ -64,6 +62,8 @@ import type { IDocumentPreviewPageState } from '@app/utils/document-viewer/pageP
 const props = defineProps<{
     pageNumber: number;
     pageState: IDocumentPreviewPageState | undefined;
+    showSkeleton?: boolean;
+    visualCommitted?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -72,12 +72,13 @@ const emit = defineEmits<{
         objectUrl: string;
         pageNumber: number;
     }];
+    'visual-error': [payload: {
+        objectUrl: string;
+        pageNumber: number;
+    }];
 }>();
 
 const { t } = useTypedI18n();
-
-const displayedObjectUrl = ref<string | null>(null);
-const pendingObjectUrl = ref<string | null>(null);
 
 const skeletonPadding = {
     top: 56,
@@ -87,7 +88,7 @@ const skeletonPadding = {
 };
 const skeletonContentHeight = 760;
 const showPageNumber = computed(() => (
-    Boolean(displayedObjectUrl.value)
+    props.visualCommitted === true
     || props.pageState?.status === 'error'
 ));
 
@@ -107,7 +108,6 @@ async function emitVisualReadyAfterPaint(objectUrl: string) {
     await waitForPaintFrame();
     if (
         props.pageState?.objectUrl !== objectUrl
-        || displayedObjectUrl.value !== objectUrl
     ) {
         return;
     }
@@ -118,58 +118,23 @@ async function emitVisualReadyAfterPaint(objectUrl: string) {
     });
 }
 
-function handleDisplayedImageLoad(objectUrl: string | null) {
+function handleImageLoad(objectUrl: string | null) {
     if (!objectUrl) {
         return;
     }
     void emitVisualReadyAfterPaint(objectUrl);
 }
 
-async function handlePendingImageLoad(objectUrl: string | null) {
-    if (!objectUrl) {
+function handleImageError(objectUrl: string | null) {
+    if (!objectUrl || props.pageState?.objectUrl !== objectUrl) {
         return;
     }
-
-    await waitForPaintFrame();
-    if (
-        pendingObjectUrl.value !== objectUrl
-        || props.pageState?.objectUrl !== objectUrl
-    ) {
-        return;
-    }
-
-    displayedObjectUrl.value = objectUrl;
-    pendingObjectUrl.value = null;
-    emit('visual-ready', {
+    emit('visual-error', {
         objectUrl,
         pageNumber: props.pageNumber,
     });
 }
 
-watch(
-    () => props.pageState?.objectUrl ?? null,
-    (nextObjectUrl) => {
-        if (!nextObjectUrl) {
-            displayedObjectUrl.value = null;
-            pendingObjectUrl.value = null;
-            return;
-        }
-
-        if (!displayedObjectUrl.value) {
-            displayedObjectUrl.value = nextObjectUrl;
-            pendingObjectUrl.value = null;
-            return;
-        }
-
-        if (displayedObjectUrl.value === nextObjectUrl) {
-            pendingObjectUrl.value = null;
-            return;
-        }
-
-        pendingObjectUrl.value = nextObjectUrl;
-    },
-    { immediate: true },
-);
 </script>
 
 <style scoped>
@@ -177,7 +142,12 @@ watch(
     position: relative;
     width: 100%;
     height: 100%;
+    visibility: hidden;
     background: var(--ui-bg);
+}
+
+.native-pdf-page-content--committed {
+    visibility: visible;
 }
 
 .native-pdf-page-image {
@@ -189,10 +159,6 @@ watch(
     object-fit: contain;
 }
 
-.native-pdf-page-image--pending {
-    z-index: var(--app-z-pdf-native-pending-image);
-}
-
 .native-pdf-page-placeholder {
     display: flex;
     height: 100%;
@@ -202,6 +168,12 @@ watch(
     justify-content: center;
     gap: var(--app-native-pdf-placeholder-gap);
     background: color-mix(in oklab, var(--ui-bg) 92%, var(--ui-bg-muted) 8%);
+}
+
+.native-pdf-page-pending-frame {
+    position: absolute;
+    inset: 0;
+    background: var(--ui-bg);
 }
 
 .native-pdf-page-number {

@@ -25,6 +25,10 @@ import {
     toPdfNavLogEntries,
     toPdfRenderTraceEntries,
 } from '@scripts/diagnostics/pdfTraceEntryGuards';
+import {
+    disablePdfDiagnosticSession,
+    enablePdfDiagnosticSession,
+} from '@tests/e2e/electron/helpers/pdfDiagnosticSession';
 
 const TARGET_PDF_PATH = [
     process.env.EVB_E2E_NAVIGATION_PDF_PATH,
@@ -131,25 +135,9 @@ function writeRapidNextToLastDiagnosticArtifact(payload: unknown) {
 }
 
 async function enablePdfNavLog(session: IElectronE2ESession) {
-    await session.page.evaluate(() => {
-        localStorage.setItem('evb-viewer:pdf-nav-log', '1');
-        localStorage.removeItem('evb-viewer:pdf-nav-log-console');
-        localStorage.setItem('evb-viewer:pdf-render-trace', '1');
-        localStorage.removeItem('evb-viewer:pdf-render-trace-console');
-        const logWindow = window as Window & {
-            __pdfNavLog?: boolean;
-            __pdfNavLogConsole?: boolean;
-            __clearPdfNavLog?: () => void;
-            __pdfRenderTrace?: boolean;
-            __pdfRenderTraceConsole?: boolean;
-            __clearPdfRenderTrace?: () => void;
-        };
-        logWindow.__pdfNavLog = true;
-        logWindow.__pdfNavLogConsole = false;
-        logWindow.__clearPdfNavLog?.();
-        logWindow.__pdfRenderTrace = true;
-        logWindow.__pdfRenderTraceConsole = false;
-        logWindow.__clearPdfRenderTrace?.();
+    await enablePdfDiagnosticSession(session.page, {
+        navigation: true,
+        render: true,
     });
 }
 
@@ -792,6 +780,7 @@ export async function runPdfSkeletonNavigationDiagnostics() {
         await runToolbarPageInputDiagnostic(session);
         await runRapidNextToLastPageDiagnostic(session);
     } finally {
+        await disablePdfDiagnosticSession(session.page).catch(() => {});
         await session.stop();
     }
 }

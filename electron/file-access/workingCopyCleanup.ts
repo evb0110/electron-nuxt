@@ -29,7 +29,15 @@ import {
 } from '@electron/file-access/workingCopyDirectory';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import { drainWorkingCopyMutations } from '@electron/file-access/workingCopyMutationQueue';
-import { hasWorkingCopySyncRequired } from '@electron/file-access/documentRevisionStore';
+import {
+    clearWorkingCopyRevisionInitializations,
+    forgetWorkingCopyRevisionInitialization,
+    hasWorkingCopySyncRequired,
+} from '@electron/file-access/documentRevisionStore';
+import {
+    clearPageIdentityStoreInitializations,
+    forgetPageIdentityStoreInitialization,
+} from '@electron/file-access/pageIdentityStore';
 
 const logger = createLogger('working-copy');
 const STALE_WORK_DIR_MAX_AGE_MS = (() => {
@@ -156,7 +164,7 @@ async function cleanupWorkingCopyDirectory(workingPath: string) {
     }
 }
 
-export function cleanupWorkingCopy(workingPath: string, senderWebContentsId?: number) {
+export async function cleanupWorkingCopy(workingPath: string, senderWebContentsId?: number) {
     const normalizedPath = typeof workingPath === 'string' ? workingPath.trim() : '';
     if (!normalizedPath) {
         return;
@@ -176,19 +184,33 @@ export function cleanupWorkingCopy(workingPath: string, senderWebContentsId?: nu
         return;
     }
 
+    await drainWorkingCopyMutations(normalizedPath);
+    const currentEntry = workingCopyMap.get(normalizedPath);
+    if (!currentEntry) {
+        return;
+    }
+    const currentOwnerWebContentsId = getWorkingCopyOwnerWebContentsId(normalizedPath);
+    if (
+        typeof currentOwnerWebContentsId === 'number'
+        && currentOwnerWebContentsId !== senderWebContentsId
+    ) {
+        logger.warn(`Rejected cleanup for working copy path whose owner changed while waiting "${normalizedPath}"`);
+        return;
+    }
+
     rememberRetiredWorkingCopyOriginal(
         normalizedPath,
-        originalEntry.originalPath,
-        ownerWebContentsId,
+        currentEntry.originalPath,
+        currentOwnerWebContentsId,
         {
-            ...(originalEntry.originalFileExpectation ? {originalFileExpectation: originalEntry.originalFileExpectation} : {}),
-            role: originalEntry.role,
+            ...(currentEntry.originalFileExpectation ? {originalFileExpectation: currentEntry.originalFileExpectation} : {}),
+            role: currentEntry.role,
         },
     );
     forgetWorkingCopyOriginalPath(normalizedPath);
-    cleanupWorkingCopyDirectory(normalizedPath).catch((err) => {
-        logger.warn(`Failed to cleanup working copy directory "${normalizedPath}": ${getErrorMessage(err)}`);
-    });
+    forgetWorkingCopyRevisionInitialization(normalizedPath);
+    forgetPageIdentityStoreInitialization(normalizedPath);
+    await cleanupWorkingCopyDirectory(normalizedPath);
 }
 
 export async function clearAllWorkingCopies(options: {skipPaths?: Iterable<string>} = {}) {
@@ -209,10 +231,14 @@ export async function clearAllWorkingCopies(options: {skipPaths?: Iterable<strin
     if (skipPaths.size === 0) {
         clearWorkingCopyOriginalPaths();
         clearRetiredWorkingCopyOriginals();
+        clearWorkingCopyRevisionInitializations();
+        clearPageIdentityStoreInitializations();
     } else {
         for (const workingPath of pathsToDelete) {
             forgetWorkingCopyOriginalPath(workingPath);
             forgetRetiredWorkingCopyOriginal(workingPath);
+            forgetWorkingCopyRevisionInitialization(workingPath);
+            forgetPageIdentityStoreInitialization(workingPath);
         }
         logger.error(
             `Skipped shutdown deletion for ${skipPaths.size} working copy path(s) with pending writes or dirty sync state: ${

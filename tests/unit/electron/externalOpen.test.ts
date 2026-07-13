@@ -89,6 +89,7 @@ describe('createExternalOpenManager', () => {
     function createManagerHarness(options: {
         isRendererReady?: boolean;
         hasWindows?: boolean;
+        noFocus?: boolean;
         dispatchOpenPaths?: (paths: string[]) => boolean;
         grantOpenPaths?: (paths: string[]) => void;
     } = {}) {
@@ -101,16 +102,24 @@ describe('createExternalOpenManager', () => {
         });
         const focus = vi.fn();
         const restore = vi.fn();
+        const show = vi.fn();
+        const applicationFocus = vi.fn();
+        const isDestroyed = vi.fn(() => false);
         const isMinimized = vi.fn(() => false);
+        const isVisible = vi.fn(() => true);
 
         const manager = createExternalOpenManager({
+            application: { focus: applicationFocus },
             logger,
-            noFocus: false,
+            noFocus: options.noFocus ?? false,
             logStartupPhase: vi.fn(),
             isMainWindowRendererReady: () => rendererReady,
             getMainWindow: () => ({
+                isDestroyed,
                 isMinimized,
+                isVisible,
                 restore,
+                show,
                 focus,
             }),
             hasWindows: () => hasWindows,
@@ -121,13 +130,48 @@ describe('createExternalOpenManager', () => {
 
         return {
             manager,
+            applicationFocus,
             logger,
             dispatchOpenPaths,
+            focus,
+            isVisible,
+            restore,
+            show,
             setRendererReady(value: boolean) {
                 rendererReady = value;
             },
         };
     }
+
+    it('uses the shared foreground recovery path for external document activation', async () => {
+        const harness = createManagerHarness();
+        harness.isVisible.mockReturnValue(false);
+
+        harness.manager.markBootstrapReady();
+        harness.manager.requestMainWindowForExternalOpen();
+        await vi.waitFor(() => expect(harness.focus).toHaveBeenCalledTimes(1));
+
+        expect(harness.show).toHaveBeenCalledTimes(1);
+        if (process.platform === 'darwin') {
+            expect(harness.applicationFocus).toHaveBeenCalledWith({ steal: true });
+        } else {
+            expect(harness.applicationFocus).not.toHaveBeenCalled();
+        }
+    });
+
+    it('keeps external activation inert in no-focus automation', async () => {
+        const harness = createManagerHarness({ noFocus: true });
+        harness.isVisible.mockReturnValue(false);
+
+        harness.manager.markBootstrapReady();
+        harness.manager.requestMainWindowForExternalOpen();
+        await Promise.resolve();
+
+        expect(harness.restore).not.toHaveBeenCalled();
+        expect(harness.show).not.toHaveBeenCalled();
+        expect(harness.focus).not.toHaveBeenCalled();
+        expect(harness.applicationFocus).not.toHaveBeenCalled();
+    });
 
     it('flushes newly queued paths immediately once bootstrap, window, and renderer are ready', () => {
         const harness = createManagerHarness();

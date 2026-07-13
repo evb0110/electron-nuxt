@@ -12,6 +12,7 @@ import {
     stat,
     writeFile,
 } from 'node:fs/promises';
+import { PDFDocument } from 'pdf-lib';
 import { join } from 'node:path';
 import {
     collectLiveDefaultDevSessionBlockers,
@@ -22,7 +23,9 @@ import type {
     ISessionStartingInfo,
 } from '@scripts/electron-run/electronRunSessionTypes';
 import {
+    createLargeScannedFixturePdf,
     type IFixtureDescribeSelector,
+    resolveScannedFixturePageMarkerRgb,
     resolveDjvuFixturePath,
     resolvePathFixtureAvailability,
     selectFixtureDescribe,
@@ -83,6 +86,56 @@ function createStartingSessionInfo(overrides: Partial<ISessionStartingInfo> = {}
 }
 
 describe('Electron E2E fixture policy', () => {
+    it('generates a scanned large-PDF fixture without constructing dense text layers', async () => {
+        const outputPath = await createLargeScannedFixturePdf(
+            'unit-large-scanned-policy.pdf',
+            7,
+            1024 * 1024,
+        );
+
+        try {
+            expect((await stat(outputPath)).size).toBeGreaterThan(1024 * 1024);
+            const parsed = await PDFDocument.load(await readFile(outputPath), { updateMetadata: false });
+            expect(parsed.getPageCount()).toBe(7);
+            expect(resolveScannedFixturePageMarkerRgb(1)).not.toEqual(
+                resolveScannedFixturePageMarkerRgb(7),
+            );
+        } finally {
+            await rm(outputPath, { force: true });
+        }
+    });
+
+    it('generates a valid sparse deterministic PDF at an exact requested size', async () => {
+        const outputPath = join(process.cwd(), '.devkit/tmp/generated-large-pdf-policy.pdf');
+        const { generateLargePdfE2eFixture } = await import('@scripts/generate-large-pdf-e2e-fixture.mjs');
+        await mkdir(join(process.cwd(), '.devkit/tmp'), { recursive: true });
+
+        try {
+            await generateLargePdfE2eFixture({
+                outputPath,
+                pageCount: 7,
+                targetBytes: 2 * 1024 * 1024,
+            });
+
+            expect((await stat(outputPath)).size).toBe(2 * 1024 * 1024);
+            const parsed = await PDFDocument.load(await readFile(outputPath), { updateMetadata: false });
+            expect(parsed.getPageCount()).toBe(7);
+        } finally {
+            await rm(outputPath, { force: true });
+        }
+    });
+
+    it('keeps nightly large-PDF CI required and self-provisioning', async () => {
+        const workflow = await readFile('.github/workflows/ci.yml', 'utf8');
+        const job = workflow.slice(workflow.indexOf('  nightly_electron_e2e_large_pdf:'), workflow.indexOf('  nightly_electron_e2e_quarantine:'));
+
+        expect(job).toContain('generate-large-pdf-e2e-fixture.mjs');
+        expect(job).toContain('EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1');
+        expect(job).toContain('EVB_E2E_REQUIRE_NATIVE_LARGE_PDF_FIXTURE=1');
+        expect(job).toContain('pnpm run test:e2e:electron:large');
+        expect(job).not.toContain('pnpm exec vitest run --project e2e-large-pdf');
+    });
+
     it('reports an optional missing fixture once and returns the skipped suite selector', () => {
         const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
         const describeLike = createDescribeSelectorDouble();
@@ -202,9 +255,52 @@ describe('Electron E2E fixture policy', () => {
     it('keeps rapid PDF navigation self-sufficient instead of silently skipped', async () => {
         const source = await readFile('tests/e2e/electron/rapidPdfNavigation.e2e.test.ts', 'utf8');
 
-        expect(source).toContain('createMultiPageTextFixturePdf');
+        expect(source).toContain('createLargeScannedFixturePdf');
+        expect(source).toContain('waitForScannedFixturePageIdentity');
         expect(source).not.toContain('selectFixtureDescribe');
         expect(source).not.toContain('EVB_E2E_REQUIRE_PAGE_JUMP_FIXTURE');
+    });
+
+    it('keeps the blocking large-PDF regression scanned and retry-isolated', async () => {
+        const source = await readFile('tests/e2e/electron/prBlockingSmoke.e2e.test.ts', 'utf8');
+
+        expect(source).toContain('createLargeScannedFixturePdf');
+        expect(source).toContain('findPdfVirtualizationContractViolations');
+        expect(source).toContain('wheelPdfViewportAndWaitForSettlement');
+        expect(source).toContain('sessionFixture.restart({');
+        expect(source).toContain('it(\'keeps large-PDF interaction transitions causally stable\'');
+        const interactionTestStart = source.indexOf('it(\'keeps large-PDF interaction transitions causally stable\'');
+        const interactionTestEnd = source.indexOf(
+            'it(\'does not report a delayed render error for a high-zoom current page\'',
+            interactionTestStart,
+        );
+        const interactionTestSource = source.slice(interactionTestStart, interactionTestEnd);
+        expect(interactionTestStart).toBeGreaterThan(
+            source.indexOf('it(\'keeps large-PDF opening, virtualization, and repeated reopen within budget\''),
+        );
+        expect(interactionTestSource.match(/waitForAnimationFrames\(session\.page, 10\)/gu)).toHaveLength(4);
+        expect(interactionTestSource).toContain('horizontalOverflowCheckpoint: \'high-zoom-transition\'');
+        expect(source).not.toContain('createLargeMultiPageTextFixturePdf');
+    });
+
+    it('keeps the committed-surface browser sampler self-contained and resilient', async () => {
+        const source = await readFile(
+            'tests/e2e/electron/helpers/viewerCommittedSurfaceContract.ts',
+            'utf8',
+        );
+        const samplerStart = source.indexOf('export async function installCommittedSurfaceSampler');
+        const samplerEnd = source.indexOf(
+            'export async function markCommittedSurfaceInteractionCheckpoint',
+            samplerStart,
+        );
+        const samplerSource = source.slice(samplerStart, samplerEnd);
+
+        expect(samplerSource).toContain('const browserOwnsPageFrameStyle =');
+        expect(samplerSource).toContain('browserOwnsPageFrameStyle(toStyle(pageCanvas))');
+        expect(samplerSource).toContain('} finally {');
+        expect(samplerSource).toContain('window.requestAnimationFrame(capture)');
+        expect(samplerSource).toContain('__committedSurfaceErrors');
+        expect(samplerSource).not.toContain('|| ownsPageFrameStyle(');
     });
 
     it('keeps large native preview explicitly opt-in instead of requiring a huge tracked PDF', async () => {

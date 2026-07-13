@@ -3,11 +3,13 @@ import {
     expect,
     it,
 } from 'vitest';
+import { readFile } from 'node:fs/promises';
 import {
     buildElectronAutomationArgs,
     buildElectronExecutablePath,
     buildHeadlessAutomationEnv,
-    buildMacOSAutomationAppEntryPaths,
+    buildAutomationAppEntryPackage,
+    buildAutomationAppEntryPaths,
     buildMacOSHiddenAppBundlePaths,
     buildNuxtDevServerEnv,
     resolveAutomationRendererReadyEnv,
@@ -53,6 +55,8 @@ import {
     selectStaleNuxtPortOwnerCleanupTargets,
 } from '@scripts/electron-run/sessionManager';
 import { shouldWaitForExternalDevServer } from '@electron/shouldWaitForExternalDevServer';
+
+const rootPackage = JSON.parse(await readFile('package.json', 'utf8')) as {version: string};
 
 describe('sessionManager automation launch args', () => {
     it('disables the Electron sandbox on Linux CI by default', () => {
@@ -273,12 +277,24 @@ describe('sessionManager automation launch args', () => {
         });
     });
 
-    it('builds wrapper app entry paths for dockless macOS automation launches', () => {
-        expect(buildMacOSAutomationAppEntryPaths('/tmp/evb-automation-entry')).toEqual({
+    it('builds wrapper app entry paths for managed development launches', () => {
+        expect(buildAutomationAppEntryPaths('/tmp/evb-automation-entry')).toEqual({
             appPath: '/tmp/evb-automation-entry/automation-app',
             packageJsonPath: '/tmp/evb-automation-entry/automation-app/package.json',
             mainJsPath: '/tmp/evb-automation-entry/automation-app/main.js',
         });
+    });
+
+    it('pins every development wrapper to the canonical EVB Viewer version', () => {
+        expect(rootPackage.version).toMatch(/^0\.1\.\d+$/u);
+        expect(buildAutomationAppEntryPackage(rootPackage.version)).toEqual({
+            name: 'evb-automation-app',
+            version: rootPackage.version,
+            main: 'main.js',
+        });
+        expect(() => buildAutomationAppEntryPackage('   ')).toThrow(
+            'requires the canonical application version',
+        );
     });
 
     it('prefers real Electron executables instead of the npm shim on supported platforms', () => {

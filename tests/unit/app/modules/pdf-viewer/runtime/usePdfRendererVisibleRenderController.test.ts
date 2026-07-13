@@ -70,7 +70,6 @@ function createControllerHarness(options?: {
         renderConcurrency: 3,
         effectiveScale: 1,
         renderedPages: new Set<number>(),
-        staleRenderedPages: new Set<number>(),
         renderingPages,
         renderingPageRequestIds,
         getRenderVersion: () => renderVersion,
@@ -161,7 +160,6 @@ describe('usePdfRendererVisibleRenderController', () => {
             renderConcurrency: 1,
             effectiveScale: 1,
             renderedPages,
-            staleRenderedPages: new Set<number>(),
             renderingPages: new Map<number, number>(),
             renderingPageRequestIds: new Map<number, number>(),
             getRenderVersion: () => 3,
@@ -209,7 +207,6 @@ describe('usePdfRendererVisibleRenderController', () => {
             renderConcurrency: 1,
             effectiveScale: 1,
             renderedPages: new Set<number>(),
-            staleRenderedPages: new Set<number>(),
             renderingPages: new Map<number, number>(),
             renderingPageRequestIds: new Map<number, number>(),
             getRenderVersion: () => 50,
@@ -246,12 +243,8 @@ describe('usePdfRendererVisibleRenderController', () => {
         warnSpy.mockRestore();
     });
 
-    it('renders over-budget buffer pages clamped, forward neighbor first, and marks them stale', async () => {
-        const resolveBufferPageCanvasClamp = vi.fn(() => ({
-            maxCanvasPixels: 16_700_000,
-            requestedPixels: 35_000_000,
-        }));
-        const harness = createBufferClampHarness({ resolveBufferPageCanvasClamp });
+    it('renders canonical buffer pages with the forward neighbor first', async () => {
+        const harness = createRenderPriorityHarness();
 
         await harness.renderVisiblePages({
             start: 10,
@@ -264,23 +257,12 @@ describe('usePdfRendererVisibleRenderController', () => {
             11,
             9,
         ]);
-        expect(resolveBufferPageCanvasClamp).toHaveBeenCalledTimes(2);
         expect(harness.renderSingleVisiblePage.mock.calls[0]?.[9])
             .toEqual({ continuationPriority: 'visible' });
         expect(harness.renderSingleVisiblePage.mock.calls[1]?.[9])
-            .toEqual({
-                continuationPriority: 'nearby',
-                maxCanvasPixelsOverride: 16_700_000,
-            });
+            .toEqual({ continuationPriority: 'nearby' });
         expect(harness.renderSingleVisiblePage.mock.calls[2]?.[9])
-            .toEqual({
-                continuationPriority: 'nearby',
-                maxCanvasPixelsOverride: 16_700_000,
-            });
-        expect(harness.staleRenderedPages).toEqual(new Set([
-            9,
-            11,
-        ]));
+            .toEqual({ continuationPriority: 'nearby' });
         expect(harness.renderedPages).toEqual(new Set([
             9,
             10,
@@ -288,71 +270,13 @@ describe('usePdfRendererVisibleRenderController', () => {
         ]));
     });
 
-    it('renders within-budget buffer pages unclamped without stale marking', async () => {
-        const harness = createBufferClampHarness({ resolveBufferPageCanvasClamp: () => null });
-
-        await harness.renderVisiblePages({
-            start: 10,
-            end: 10,
-        });
-
-        const renderedPageOrder = harness.renderSingleVisiblePage.mock.calls.map(call => call[1]);
-        expect(renderedPageOrder).toEqual([
+    it('uses a render-window override as buffer horizon while preserving the actual visible range', async () => {
+        const harness = createRenderPriorityHarness({pageNumbers: [
             10,
             11,
-            9,
-        ]);
-        expect(harness.renderSingleVisiblePage.mock.calls.map(call => call[9]?.continuationPriority))
-            .toEqual([
-                'visible',
-                'nearby',
-                'nearby',
-            ]);
-        expect(harness.staleRenderedPages.size).toBe(0);
-    });
-
-    it('passes explicit max-canvas overrides through untouched when the resolver declines', async () => {
-        const harness = createBufferClampHarness({resolveBufferPageCanvasClamp: (_pageNumber, context) => (
-            context.renderOptions?.maxCanvasPixelsOverride !== undefined
-                ? null
-                : {
-                    maxCanvasPixels: 8_400_000,
-                    requestedPixels: 20_000_000,
-                }
-        )});
-
-        await harness.renderVisiblePages(
-            {
-                start: 10,
-                end: 10,
-            },
-            {
-                preserveRenderedPages: true,
-                maxCanvasPixelsOverride: 14_000_000,
-            },
-        );
-
-        for (const call of harness.renderSingleVisiblePage.mock.calls) {
-            expect(call[9]).toEqual({
-                preserveRenderedPages: true,
-                maxCanvasPixelsOverride: 14_000_000,
-                continuationPriority: call[1] === 10 ? 'visible' : 'nearby',
-            });
-        }
-        expect(harness.staleRenderedPages.size).toBe(0);
-    });
-
-    it('uses a render-window override as buffer horizon while preserving the actual visible range', async () => {
-        const resolveBufferPageCanvasClamp = vi.fn(() => null);
-        const harness = createBufferClampHarness({
-            pageNumbers: [
-                10,
-                11,
-                12,
-                13,
-            ],
-            resolveBufferPageCanvasClamp,
-        });
+            12,
+            13,
+        ]});
 
         await harness.renderVisiblePages(
             {
@@ -378,7 +302,6 @@ describe('usePdfRendererVisibleRenderController', () => {
             13,
         ]);
         expect(harness.ensurePageMetricsInRange).toHaveBeenCalledWith(10, 13);
-        expect(resolveBufferPageCanvasClamp).toHaveBeenCalledTimes(3);
         for (const call of harness.renderSingleVisiblePage.mock.calls) {
             expect(call[7]).toEqual(new Set([10]));
             expect(call[8]).toEqual({
@@ -403,7 +326,6 @@ describe('usePdfRendererVisibleRenderController', () => {
             renderConcurrency: 1,
             effectiveScale: 1,
             renderedPages: new Set<number>(),
-            staleRenderedPages: new Set<number>(),
             renderingPages: new Map<number, number>(),
             renderingPageRequestIds: new Map<number, number>(),
             getRenderVersion: () => 50,
@@ -440,7 +362,6 @@ describe('usePdfRendererVisibleRenderController', () => {
         document.body.append(containerRoot);
 
         const renderedPages = new Set<number>();
-        const staleRenderedPages = new Set<number>();
         let visibleRenderRequestId = 1;
         const renderVisiblePages = usePdfRendererVisibleRenderController({
             container: ref(containerRoot),
@@ -451,7 +372,6 @@ describe('usePdfRendererVisibleRenderController', () => {
             renderConcurrency: 1,
             effectiveScale: 1,
             renderedPages,
-            staleRenderedPages,
             renderingPages: new Map<number, number>(),
             renderingPageRequestIds: new Map<number, number>(),
             getRenderVersion: () => 3,
@@ -476,10 +396,9 @@ describe('usePdfRendererVisibleRenderController', () => {
         await renderVisiblePages({
             start: 10,
             end: 10,
-        }, { markRenderedPageStale: true });
+        });
 
         expect(renderedPages.has(10)).toBe(true);
-        expect(staleRenderedPages.has(10)).toBe(false);
     });
 
     it('fences visible render requests when the render version changes mid-render', async () => {
@@ -501,7 +420,6 @@ describe('usePdfRendererVisibleRenderController', () => {
             renderConcurrency: 1,
             effectiveScale: 1,
             renderedPages: new Set<number>(),
-            staleRenderedPages: new Set<number>(),
             renderingPages: new Map<number, number>(),
             renderingPageRequestIds: new Map<number, number>(),
             getRenderVersion: () => documentVersion,
@@ -543,7 +461,6 @@ describe('usePdfRendererVisibleRenderController', () => {
             renderConcurrency: 1,
             effectiveScale: 1,
             renderedPages: new Set<number>(),
-            staleRenderedPages: new Set<number>(),
             renderingPages: new Map<number, number>(),
             renderingPageRequestIds: new Map<number, number>(),
             getRenderVersion: () => 50,
@@ -587,10 +504,7 @@ describe('usePdfRendererVisibleRenderController', () => {
 
 type TVisibleRenderControllerOptions = Parameters<typeof usePdfRendererVisibleRenderController>[0];
 
-function createBufferClampHarness(options: {
-    pageNumbers?: number[];
-    resolveBufferPageCanvasClamp: NonNullable<TVisibleRenderControllerOptions['resolveBufferPageCanvasClamp']>;
-}) {
+function createRenderPriorityHarness(options: {pageNumbers?: number[]} = {}) {
     const pageNumbers = options.pageNumbers ?? [
         9,
         10,
@@ -616,7 +530,6 @@ function createBufferClampHarness(options: {
         querySelectorAll: vi.fn(() => []),
     });
     const renderedPages = new Set<number>();
-    const staleRenderedPages = new Set<number>();
     const ensurePageMetricsInRange = vi.fn(async () => true);
     const renderSingleVisiblePage = vi.fn<TVisibleRenderControllerOptions['renderSingleVisiblePage']>(
         async (_containerRoot, pageNumber) => {
@@ -634,7 +547,6 @@ function createBufferClampHarness(options: {
         renderConcurrency: 3,
         effectiveScale: 1,
         renderedPages,
-        staleRenderedPages,
         renderingPages: new Map<number, number>(),
         renderingPageRequestIds: new Map<number, number>(),
         getRenderVersion: () => 3,
@@ -650,7 +562,6 @@ function createBufferClampHarness(options: {
         cancelObsoleteInFlightRenders: vi.fn(),
         renderSingleVisiblePage,
         scheduleMissingRenderTargetRetry: vi.fn(),
-        resolveBufferPageCanvasClamp: options.resolveBufferPageCanvasClamp,
         throttleMs: 0,
     });
 
@@ -659,6 +570,5 @@ function createBufferClampHarness(options: {
         ensurePageMetricsInRange,
         renderSingleVisiblePage,
         renderedPages,
-        staleRenderedPages,
     };
 }

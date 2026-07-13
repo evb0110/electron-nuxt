@@ -11,6 +11,7 @@ import {
 } from '@app/modules/pdf-viewer/runtime/annotations/useManagedEmbeddedPdfShapes';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import { isImportedEmbeddedShapeSubtype } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/isImportedEmbeddedShapeSubtype';
+import { shouldDemandManagedEmbeddedShapeBaseline } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-import-policy/shouldDemandManagedEmbeddedShapeBaseline';
 import type { usePdfAppAnnotationHistory } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAppAnnotationHistory';
 import { useAnnotationOrchestrator } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationOrchestrator';
 import {
@@ -42,13 +43,16 @@ import type { IPdfjsAnnotationEditorState } from '@app/modules/pdf-viewer/runtim
 import {createAttachablePdfAnnotationRenderingPort} from '@app/modules/pdf-viewer/runtime/annotations/createAttachablePdfAnnotationRenderingPort';
 import type { IPdfAnnotationRenderingPort } from '@app/modules/pdf-viewer/runtime/annotations/createAttachablePdfAnnotationRenderingPort';
 import { AnnotationStore } from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 
 
 interface IUsePdfViewerAnnotationRuntimeOptions {
     viewerContainer: Ref<HTMLElement | null>;
+    originalPath: ComputedRef<string | null>;
     src: ComputedRef<TPdfSource | null>;
     sourcePdfData: ComputedRef<Uint8Array | null>;
     workingCopyPath: ComputedRef<string | null>;
+    documentRevisionToken: ComputedRef<TDocumentRevisionToken | null>;
     isAnySaving: Ref<boolean>;
     bufferPages: ComputedRef<number>;
     pdfDocument: ShallowRef<PDFDocumentProxy | null>;
@@ -88,21 +92,6 @@ export const usePdfViewerAnnotationRuntime = (options: IUsePdfViewerAnnotationRu
         port: renderingPort,
         attachRenderingPort,
     } = createAttachablePdfAnnotationRenderingPort();
-    const sourcePdfFileSize = computed(() => {
-        const source = options.src.value;
-        if (!source) {
-            return null;
-        }
-        if (
-            typeof source === 'object'
-            && 'kind' in source
-            && source.kind === 'path'
-        ) {
-            return source.size;
-        }
-        return source instanceof Blob ? source.size : null;
-    });
-
     function emitForcedAnnotationMutation(mutationOptions: { scheduleCommentSync?: boolean } = {}) {
         options.emitAnnotationModified({ forceDirty: true });
         if (mutationOptions.scheduleCommentSync) {
@@ -184,9 +173,10 @@ export const usePdfViewerAnnotationRuntime = (options: IUsePdfViewerAnnotationRu
 
     const managedEmbeddedPdfShapes = useManagedEmbeddedPdfShapes({
         viewerContainer: options.viewerContainer,
+        originalPath: options.originalPath,
         workingCopyPath: options.workingCopyPath,
         sourcePdfData: options.sourcePdfData,
-        sourcePdfFileSize,
+        documentRevisionToken: options.documentRevisionToken,
         visibleRange: options.visibleRange,
         bufferPages: options.bufferPages,
         shapeComposable: canonicalShapeProjectionPort,
@@ -199,6 +189,19 @@ export const usePdfViewerAnnotationRuntime = (options: IUsePdfViewerAnnotationRu
         hideManagedAnnotationEditors: renderingPort.hideManagedAnnotationEditors,
         currentPage: options.currentPage,
     });
+    watch(options.annotationTool, (tool) => {
+        if (!shouldDemandManagedEmbeddedShapeBaseline(tool)) {
+            return;
+        }
+        runGuardedTask(
+            () => managedEmbeddedPdfShapes.ensureManagedShapeBaselineReady(),
+            {
+                category: 'user-visible-operation',
+                scope: 'pdf-shapes',
+                message: 'Failed to prepare embedded PDF shapes for editing',
+            },
+        );
+    }, {flush: 'sync'});
     deletedShapeHandler = (shape) => {
         managedEmbeddedPdfShapes.refreshDeletedEmbeddedShape(shape);
     };
@@ -271,6 +274,7 @@ export const usePdfViewerAnnotationRuntime = (options: IUsePdfViewerAnnotationRu
     watch(annotationDocumentIdentity, (documentKey) => {
         stopAnnotationApplicationProjection();
         canonicalColors = new Map();
+        annotationCommentModel.clearProjection();
         annotationApplication.value = createAnnotationApplication(documentKey);
         stopAnnotationApplicationProjection = annotationApplication.value.store.subscribe(projectCanonicalAnnotations);
     }, {immediate: true});
@@ -282,6 +286,8 @@ export const usePdfViewerAnnotationRuntime = (options: IUsePdfViewerAnnotationRu
     const annotations = useAnnotationOrchestrator({
         viewerContainer: options.viewerContainer,
         sourcePdf: options.src,
+        annotationDocumentIdentity,
+        documentRevisionToken: options.documentRevisionToken,
         pdfDocument: options.pdfDocument,
         numPages: options.numPages,
         currentPage: options.currentPage,
@@ -308,14 +314,18 @@ export const usePdfViewerAnnotationRuntime = (options: IUsePdfViewerAnnotationRu
         isPdfjsHistoryRouted: () => options.appAnnotationHistory.isRoutingPdfjsHistory(),
         routeAnnotationHistoryUndo: () => options.appAnnotationHistory.undo(),
         routeAnnotationHistoryRedo: () => options.appAnnotationHistory.redo(),
-        emitAnnotationComments: (comments) => {
-            annotationApplication.value.ingestLegacySummaries(comments);
+        emitAnnotationComments: (comments, syncOptions) => {
+            annotationApplication.value.reconcileLegacySummaries(comments, syncOptions);
             return annotationProjection.value.map(comment => ({...comment}));
         },
         emitAnnotationOpenNote: (comment) => {
             const noteComment = annotationCommentModel.withTransientNoteCreationTimestamp(comment);
             annotationCommentModel.upsertComment(noteComment);
-            options.emitAnnotationOpenNote(noteComment);
+            const canonicalAnnotationId = annotationApplication.value.annotationIdForSummary(noteComment);
+            const canonicalNoteComment = canonicalAnnotationId
+                ? annotationProjection.value.find(candidate => candidate.appAnnotationId === canonicalAnnotationId)
+                : null;
+            options.emitAnnotationOpenNote(canonicalNoteComment ?? noteComment);
         },
         emitAnnotationContextMenu: options.emitAnnotationContextMenu,
         emitAnnotationToolAutoReset: options.emitAnnotationToolAutoReset,
@@ -380,6 +390,7 @@ export const usePdfViewerAnnotationRuntime = (options: IUsePdfViewerAnnotationRu
         viewerContainer: options.viewerContainer,
         annotationCommentsCache,
         annotationSettings: options.annotationSettings,
+        invalidatePages: renderingPort.invalidatePages,
         renderVisiblePages: renderingPort.renderVisiblePages,
         visualEffects: annotationMutationService.visualEffects,
     });
@@ -417,6 +428,27 @@ export const usePdfViewerAnnotationRuntime = (options: IUsePdfViewerAnnotationRu
         annotations,
         annotationMutationService,
         annotationApplication,
+        hasCanonicalAnnotationChanges: () => {
+            // Establish a Vue dependency for workspace dirty-state computed
+            // values. The store is framework-agnostic, while every semantic
+            // mutation publishes a fresh canonical projection.
+            void annotationProjection.value;
+            return annotationApplication.value.store.hasChangesSinceSavedBaseline();
+        },
+        getDeletedCanonicalAnnotationIds: () => Array.from(new Set(
+            annotationApplication.value.store
+                .list({includeDeleted: true})
+                .filter(entity => entity.deleted)
+                .flatMap(entity => [
+                    entity.identity.id,
+                    entity.identity.pdfRef,
+                    entity.identity.pdfName,
+                    entity.identity.pdfjsUid,
+                    entity.identity.elementId,
+                ].filter((value): value is string => Boolean(value))),
+        )),
+        getDeletedPersistedCanonicalAnnotationCount: () => annotationApplication.value.store
+            .countDirtyPersistedDeletions(),
         annotationCommentModel,
         clearAnnotationProjection: annotationCommentModel.clearProjection,
         annotationCommentsCache,
@@ -434,6 +466,7 @@ export const usePdfViewerAnnotationRuntime = (options: IUsePdfViewerAnnotationRu
         renderHiddenEmbeddedAnnotationIds: managedEmbeddedPdfShapes.renderHiddenEmbeddedAnnotationIds,
         adoptPersistedManagedShapesOnNextImport: managedEmbeddedPdfShapes.adoptPersistedManagedShapesOnNextImport,
         clearPendingManagedShapeImportAdoption: managedEmbeddedPdfShapes.clearPendingManagedShapeImportAdoption,
+        ensureManagedShapeBaselineReady: managedEmbeddedPdfShapes.ensureManagedShapeBaselineReady,
         preparePersistedManagedShapesForSave: managedEmbeddedPdfShapes.preparePersistedManagedShapesForSave,
         restorePreparedManagedShapesAfterFailedSave: managedEmbeddedPdfShapes.restorePreparedManagedShapesAfterFailedSave,
         highlightComposable,

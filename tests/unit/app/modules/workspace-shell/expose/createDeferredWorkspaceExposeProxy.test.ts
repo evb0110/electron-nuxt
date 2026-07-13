@@ -15,6 +15,7 @@ import {
     type IWorkspaceExpose,
 } from '@app/types/workspaceExpose';
 import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
+import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import { cast } from '@tests/helpers/cast';
 
 function createWorkspace(overrides: Partial<IWorkspaceExpose> = {}) {
@@ -77,6 +78,26 @@ function replaceSessionDocument(
 }
 
 describe('createDeferredWorkspaceExposeProxy', () => {
+    it('lets the shell toolbar persist latest navigation before deferred workspace mount', () => {
+        const openSurface = createDocumentOpenSurfaceSession();
+        openSurface.begin({
+            documentId: 'scan.pdf',
+            documentRevision: 'open-intent:1',
+        });
+        const deps = createDeps(null);
+        deps.overrides = {handleGoToPage: (page) => {
+            openSurface.requestNavigation(page);
+        }};
+        const proxy = createDeferredWorkspaceExposeProxy(deps);
+
+        for (let page = 2; page <= 6; page += 1) {
+            proxy.handleGoToPage(page);
+        }
+
+        expect(openSurface.viewportSession.value.requestedPage).toBe(6);
+        expect(deps.withLoadedWorkspace).not.toHaveBeenCalled();
+    });
+
     it('forwards mount-wait methods and returns their result', async () => {
         const workspace = createWorkspace({handleSave: vi.fn(async () => true)});
         const deps = createDeps(workspace);

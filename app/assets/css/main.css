@@ -423,6 +423,8 @@
     --app-status-save-dot-saving-ring: oklch(43% 0.10 259);
     --app-toolbar-group-tint: transparent;
     --app-pdf-viewer-bg: var(--ui-bg-muted);
+    --app-pdf-page-bg: var(--ui-bg);
+    --app-pdf-page-shadow: 0 1px 4px color-mix(in srgb, var(--ui-bg-inverted) 18%, transparent);
 
     /* Start / landing screen */
     --app-start-bg: color-mix(in oklab, var(--ui-bg) 88%, var(--ui-bg-muted) 12%);
@@ -588,6 +590,7 @@
     --app-native-pdf-placeholder-gap: var(--app-space-9xl);
     --app-native-pdf-page-number-offset: var(--app-space-9xl);
     --app-native-pdf-page-number-padding: var(--app-space-3xs) var(--app-space-3xl);
+    --app-document-page-error-padding: 2rem;
     --app-native-pdf-page-number-font-size: var(--app-text-size-kicker);
     --app-pdf-image-placement-virtual-cursor-size: 24px;
     --app-pdf-image-placement-resizer-size: 0.9rem;
@@ -900,6 +903,8 @@
     --app-status-save-dot-saving-ring: oklch(51% 0.10 259);
     --app-toolbar-group-tint: transparent;
     --app-pdf-viewer-bg: color-mix(in oklab, var(--ui-bg-muted) 88%, var(--ui-text) 12%);
+    --app-pdf-page-bg: var(--ui-bg);
+    --app-pdf-page-shadow: 0 1px 5px color-mix(in srgb, #000 44%, transparent);
 
     /* Start / landing screen — dark */
     --app-start-bg: color-mix(in oklab, var(--ui-bg) 92%, black 8%);

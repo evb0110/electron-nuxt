@@ -14,11 +14,25 @@ export function handleDocumentWorkspaceCrash(
     info: string,
     options: IDocumentWorkspaceCrashOptions,
 ) {
+    const errorDiagnostic = error instanceof Error
+        ? {
+            name: error.name,
+            message: error.message,
+            stack: error.stack ?? null,
+            cause: error.cause instanceof Error
+                ? {
+                    name: error.cause.name,
+                    message: error.cause.message,
+                    stack: error.cause.stack ?? null,
+                }
+                : error.cause ?? null,
+        }
+        : error;
     BrowserLogger.error('workspace-host', 'Document tab crashed; isolating the failed workspace', {
         tabId: options.tabId,
         component: componentName,
         info,
-        error,
+        error: errorDiagnostic,
     });
     options.failActiveTransaction();
     options.releaseWorkspace();

@@ -116,6 +116,7 @@ export interface IPdfViewerSaveTransactionResult {
     nativeMutationProjection: INativePdfMutationProjection | null;
     annotationSavePlan: IPdfViewerAnnotationSavePlan;
     verifyAnnotationSave?(bytes: Uint8Array): Promise<void>;
+    verifyAnnotationSavePath?(path: string, knownSize: number): Promise<void>;
     assertAnnotationSaveCurrent?(): Promise<void> | void;
     commitAnnotationSave?(): void;
 }

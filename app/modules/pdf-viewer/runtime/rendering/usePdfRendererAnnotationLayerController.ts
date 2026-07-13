@@ -109,6 +109,7 @@ export const usePdfRendererAnnotationLayerController = (options: IUsePdfRenderer
                         () => annotationAbortController.abort(),
                         undefined,
                         options.renderSupervisor,
+                        annotationAbortController.signal,
                     );
             } catch (annotationError) {
                 logNonCriticalStageError(
@@ -166,6 +167,7 @@ export const usePdfRendererAnnotationLayerController = (options: IUsePdfRenderer
                     () => annotationEditorAbortController.abort(),
                     undefined,
                     options.renderSupervisor,
+                    annotationEditorAbortController.signal,
                 );
             } catch (annotationEditorError) {
                 logNonCriticalStageError(

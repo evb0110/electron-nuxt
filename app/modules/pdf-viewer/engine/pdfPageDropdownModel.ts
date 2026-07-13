@@ -1,3 +1,6 @@
+import type { TPdfViewMode } from '@contracts/shared';
+import { stepBySpread } from '@app/utils/pdfViewMode';
+
 export interface IPdfPageDropdownDisplayPageOptions {
     currentPage: number;
     navigationPage?: number | undefined;
@@ -11,15 +14,31 @@ export interface IPdfPageDropdownIndicatorOptions {
 }
 
 function normalizePdfPageDropdownPage(page: number, totalPages: number) {
+    if (!Number.isFinite(page)) {
+        return 1;
+    }
+    if (totalPages <= 0) {
+        return Math.max(Math.trunc(page), 1);
+    }
     const maxPage = Number.isFinite(totalPages)
         ? Math.max(Math.trunc(totalPages), 1)
         : 1;
 
-    if (!Number.isFinite(page)) {
-        return 1;
-    }
-
     return Math.min(Math.max(Math.trunc(page), 1), maxPage);
+}
+
+export function stepPdfPageDropdownCommand(
+    page: number,
+    viewMode: TPdfViewMode,
+    totalPages: number,
+    direction: -1 | 1,
+) {
+    return stepBySpread(
+        Math.max(1, Math.trunc(page)),
+        viewMode,
+        totalPages > 0 ? totalPages : Number.MAX_SAFE_INTEGER,
+        direction,
+    );
 }
 
 export function resolvePdfPageDropdownDisplayPage(options: IPdfPageDropdownDisplayPageOptions) {

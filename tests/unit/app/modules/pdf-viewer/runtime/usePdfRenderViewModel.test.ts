@@ -7,11 +7,9 @@ import {
 import {
     computed,
     effectScope,
-    nextTick,
     ref,
     shallowRef,
 } from 'vue';
-import type { Ref } from 'vue';
 import { usePdfRenderViewModel } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRenderViewModel';
 import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import type { TPdfSource } from '@app/types/pdfUi';
@@ -22,7 +20,7 @@ function createHarness(options?: {
     isPageBuffered?: (page: number) => boolean;
     isPageRenderedForClass?: (page: number) => boolean;
     isPageRendering?: (page: number) => boolean;
-    pagedNavigationTargetPage?: Ref<number | null>;
+    isPageRenderFailed?: (page: number) => boolean;
     shouldShowSkeletonImmediately?: (page: number) => boolean;
     shouldShowSkeleton?: (page: number) => boolean;
     suppressLoadingOverlay?: boolean;
@@ -33,11 +31,6 @@ function createHarness(options?: {
         start: 1,
         end: 1,
     });
-    const suppressPagedBufferRender = ref(false);
-    const renderVisiblePages = vi.fn(async () => {});
-    const runGuardedTask = vi.fn((task: () => Promise<void>) => {
-        void task();
-    });
 
     const viewModel = scope.run(() => usePdfRenderViewModel({
         src: computed(() => null as TPdfSource | null),
@@ -47,16 +40,14 @@ function createHarness(options?: {
         viewerContainer: ref(null),
         isVisualReloadTransitionActive: ref(false),
         suppressLoadingOverlay: computed(() => options?.suppressLoadingOverlay ?? false),
-        suppressPagedBufferRender,
         skeletonContentInsets: ref(null),
         pagesToRender: computed(() => mountedPages.value),
         isPageBuffered: options?.isPageBuffered ?? vi.fn(() => false),
         isPageRenderedForClass: options?.isPageRenderedForClass ?? vi.fn(() => false),
         isPageRendering: options?.isPageRendering ?? vi.fn(() => false),
-        hasMountedPageCanvas: options?.hasMountedPageCanvas ?? vi.fn(() => false),
+        isPageRenderFailed: options?.isPageRenderFailed ?? vi.fn(() => false),
         shouldShowSkeleton: options?.shouldShowSkeleton ?? vi.fn(() => false),
         visibleRange,
-        pagedNavigationTargetPage: options?.pagedNavigationTargetPage,
         currentPage: ref(1),
         zoom: computed(() => 1),
         zoomMode: computed(() => 'fit-height' as const),
@@ -66,123 +57,31 @@ function createHarness(options?: {
         numPages: ref(1_000),
         markersByPage: ref(new Map<number, never[]>()),
         linksByPage: computed<Record<number, never[]>>(() => ({})),
-        renderVisiblePages,
-        runGuardedTask,
     }));
 
     return {
-        mountedPages,
-        renderVisiblePages,
-        runGuardedTask,
         scope,
-        suppressPagedBufferRender,
-        visibleRange,
         viewModel,
     };
 }
 
 describe('usePdfRenderViewModel', () => {
-    it('does not schedule the paged buffer while current-page fit rerendering owns the row', async () => {
+    it('replaces the skeleton when render demand reaches a terminal error', () => {
         const {
-            mountedPages,
-            renderVisiblePages,
-            runGuardedTask,
             scope,
-            suppressPagedBufferRender,
-            visibleRange,
-        } = createHarness();
-        suppressPagedBufferRender.value = true;
-
-        mountedPages.value = [928];
-        visibleRange.value = {
-            start: 928,
-            end: 928,
-        };
-        await nextTick();
-        await nextTick();
-
-        expect(runGuardedTask).not.toHaveBeenCalled();
-        expect(renderVisiblePages).not.toHaveBeenCalled();
-
-        scope.stop();
-    });
-
-    it('skips a queued paged buffer render when current-page fit rerendering starts first', async () => {
-        const {
-            mountedPages,
-            renderVisiblePages,
-            runGuardedTask,
-            scope,
-            suppressPagedBufferRender,
-            visibleRange,
-        } = createHarness();
-
-        mountedPages.value = [928];
-        visibleRange.value = {
-            start: 928,
-            end: 928,
-        };
-        await nextTick();
-        suppressPagedBufferRender.value = true;
-        await nextTick();
-        await Promise.resolve();
-
-        expect(runGuardedTask).not.toHaveBeenCalled();
-        expect(renderVisiblePages).not.toHaveBeenCalled();
-
-        scope.stop();
-    });
-
-    it('renders only the latest paged navigation target row while held pages are mounted', async () => {
-        const pagedNavigationTargetPage = ref<number | null>(51);
-        const {
-            mountedPages,
-            renderVisiblePages,
-            scope,
-            visibleRange,
+            viewModel,
         } = createHarness({
-            isPageBuffered: page => page !== 51,
-            pagedNavigationTargetPage,
+            isPageRenderFailed: () => true,
+            shouldShowSkeleton: () => true,
         });
 
-        mountedPages.value = [
-            1,
-            50,
-            51,
-            52,
-            53,
-        ];
-        visibleRange.value = {
-            start: 1,
-            end: 1,
-        };
-        await nextTick();
-        await nextTick();
-        await Promise.resolve();
-
-        expect(renderVisiblePages).toHaveBeenCalledWith(
-            {
-                start: 51,
-                end: 51,
-            },
-            expect.objectContaining({
-                bufferOverride: 0,
-                preserveInFlightRequiredPages: true,
-                preserveRenderedPages: true,
-            }),
-        );
-        expect(renderVisiblePages).not.toHaveBeenCalledWith(
-            {
-                start: 1,
-                end: 53,
-            },
-            expect.anything(),
-        );
+        expect(viewModel?.shouldShowPageSkeleton(1)).toBe(false);
+        expect(viewModel?.isPageRenderFailed(1)).toBe(true);
 
         scope.stop();
     });
 
-    it('hides page skeletons when an active render has mounted a canvas before final class readiness', () => {
+    it('keeps page skeletons while an uncommitted canvas is mounted and rendering', () => {
         vi.useFakeTimers();
         try {
             const hasMountedCanvas = ref(false);
@@ -204,7 +103,7 @@ describe('usePdfRenderViewModel', () => {
 
             hasMountedCanvas.value = true;
             isRendering.value = true;
-            expect(viewModel.shouldShowPageSkeleton(1)).toBe(false);
+            expect(viewModel.shouldShowPageSkeleton(1)).toBe(true);
 
             scope.stop();
         } finally {
@@ -230,7 +129,7 @@ describe('usePdfRenderViewModel', () => {
                 throw new Error('Failed to create PDF render view model');
             }
 
-            expect(viewModel.shouldShowPageSkeleton(1)).toBe(false);
+            expect(viewModel.shouldShowPageSkeleton(1)).toBe(true);
 
             isRendered.value = true;
             expect(viewModel.shouldShowPageSkeleton(1)).toBe(false);
@@ -328,7 +227,7 @@ describe('usePdfRenderViewModel', () => {
         }
     });
 
-    it('hides recovery skeletons for an orphan mounted canvas without rendered-class readiness', () => {
+    it('keeps recovery skeletons for an orphan canvas without current-generation readiness', () => {
         vi.useFakeTimers();
         try {
             const hasMountedCanvas = ref(true);
@@ -345,7 +244,7 @@ describe('usePdfRenderViewModel', () => {
                 throw new Error('Failed to create PDF render view model');
             }
 
-            expect(viewModel.shouldShowPageSkeleton(1)).toBe(false);
+            expect(viewModel.shouldShowPageSkeleton(1)).toBe(true);
 
             scope.stop();
         } finally {
@@ -353,16 +252,14 @@ describe('usePdfRenderViewModel', () => {
         }
     });
 
-    it('never overlays a navigation skeleton on a usable canvas', () => {
+    it('does not treat DOM canvas existence as navigation visual readiness', () => {
         vi.useFakeTimers();
         try {
-            const pagedNavigationTargetPage = ref<number | null>(1);
             const {
                 scope,
                 viewModel,
             } = createHarness({
                 hasMountedPageCanvas: () => true,
-                pagedNavigationTargetPage,
                 shouldShowSkeleton: () => true,
             });
 
@@ -370,7 +267,7 @@ describe('usePdfRenderViewModel', () => {
                 throw new Error('Failed to create PDF render view model');
             }
 
-            expect(viewModel.shouldShowPageSkeleton(1)).toBe(false);
+            expect(viewModel.shouldShowPageSkeleton(1)).toBe(true);
 
             scope.stop();
         } finally {
@@ -378,7 +275,7 @@ describe('usePdfRenderViewModel', () => {
         }
     });
 
-    it('never overlays a recovery skeleton on an orphaned usable canvas', () => {
+    it('does not treat an orphaned canvas as recovery visual readiness', () => {
         vi.useFakeTimers();
         try {
             const {
@@ -394,7 +291,7 @@ describe('usePdfRenderViewModel', () => {
                 throw new Error('Failed to create PDF render view model');
             }
 
-            expect(viewModel.shouldShowPageSkeleton(1)).toBe(false);
+            expect(viewModel.shouldShowPageSkeleton(1)).toBe(true);
 
             scope.stop();
         } finally {

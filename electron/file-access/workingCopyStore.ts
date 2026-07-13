@@ -17,13 +17,17 @@ export interface IWorkingCopyOriginalFileExpectation {
 interface IWorkingCopyOriginalEntry {
     originalPath: string;
     ownerWebContentsId?: number;
+    originalFileExpectationAbortController?: AbortController;
     originalFileExpectation?: IWorkingCopyOriginalFileExpectation;
     registeredAtMs: number;
     registrationId: number;
     role: TWorkingCopyRole;
 }
 
-interface ISetWorkingCopyOriginalPathOptions {role?: TWorkingCopyRole;}
+interface ISetWorkingCopyOriginalPathOptions {
+    deferOriginalFileExpectation?: boolean;
+    role?: TWorkingCopyRole;
+}
 
 interface IRememberRetiredWorkingCopyOriginalOptions {
     originalFileExpectation?: IWorkingCopyOriginalFileExpectation;
@@ -87,15 +91,24 @@ export function normalizePathForLookup(filePath: string) {
     }
 }
 
-async function createOriginalFileExpectation(originalPath: string): Promise<IWorkingCopyOriginalFileExpectation | undefined> {
+async function createOriginalFileExpectation(
+    originalPath: string,
+    signal?: AbortSignal,
+): Promise<IWorkingCopyOriginalFileExpectation | undefined> {
     try {
+        signal?.throwIfAborted();
         const originalStat = await stat(originalPath);
+        signal?.throwIfAborted();
         if (!originalStat.isFile()) {
             return undefined;
         }
         let contentFingerprint: string | undefined;
         try {
-            contentFingerprint = await createOriginalFileContentFingerprint(originalPath, originalStat.size);
+            contentFingerprint = await createOriginalFileContentFingerprint(
+                originalPath,
+                originalStat.size,
+                signal,
+            );
         } catch {
             contentFingerprint = undefined;
         }
@@ -261,6 +274,18 @@ export function getWorkingCopyOriginalPath(workingPath: string, senderWebContent
     };
 }
 
+/** Main-process persistence migration only; renderer-facing lookups remain owner-scoped. */
+export function getWorkingCopyOriginalPathForPersistence(workingPath: string) {
+    const activeEntry = workingCopyMap.get(workingPath);
+    if (activeEntry) {
+        return {originalPath: activeEntry.originalPath};
+    }
+
+    pruneRetiredWorkingCopyOriginals();
+    const retiredEntry = retiredWorkingCopyOriginalMap.get(workingPath);
+    return retiredEntry ? {originalPath: retiredEntry.originalPath} : null;
+}
+
 function isSameWorkingCopyEntry(
     entry: IWorkingCopyOriginalEntry,
     expected: {
@@ -284,6 +309,7 @@ export async function setWorkingCopyOriginalPath(
 ) {
     const existingEntry = workingCopyMap.get(workingPath);
     if (existingEntry) {
+        existingEntry.originalFileExpectationAbortController?.abort();
         workingCopyMap.delete(workingPath);
         refreshCurrentWorkingCopyForOriginal(existingEntry.originalPath, existingEntry.ownerWebContentsId);
     }
@@ -300,11 +326,34 @@ export async function setWorkingCopyOriginalPath(
     retiredWorkingCopyOriginalMap.delete(workingPath);
     setCurrentWorkingCopyForOriginal(workingPath, entry);
 
-    const originalFileExpectation = await createOriginalFileExpectation(originalPath);
+    // Opening only needs the source mapping. Capturing a full-file fingerprint
+    // here competes with PDF.js for the same bytes and compounds across quick
+    // close/reopen cycles. Save conflict detection safely falls back to a
+    // chunked original-vs-working-copy comparison when no expectation exists.
+    if (options.deferOriginalFileExpectation) {
+        return;
+    }
+
+    const expectationAbortController = new AbortController();
+    entry.originalFileExpectationAbortController = expectationAbortController;
+    const expectationPromise = createOriginalFileExpectation(
+        originalPath,
+        expectationAbortController.signal,
+    );
+    const originalFileExpectation = await expectationPromise;
+    applyOriginalFileExpectation(entry, workingPath, originalFileExpectation);
+}
+
+function applyOriginalFileExpectation(
+    entry: IWorkingCopyOriginalEntry,
+    workingPath: string,
+    originalFileExpectation: IWorkingCopyOriginalFileExpectation | undefined,
+) {
     const activeEntry = workingCopyMap.get(workingPath);
     if (!activeEntry || activeEntry !== entry || !isSameWorkingCopyEntry(activeEntry, entry)) {
         return;
     }
+    delete activeEntry.originalFileExpectationAbortController;
     if (originalFileExpectation) {
         activeEntry.originalFileExpectation = originalFileExpectation;
     } else {
@@ -353,12 +402,16 @@ export function forgetWorkingCopyOriginalPath(workingPath: string) {
         return false;
     }
 
+    existingEntry.originalFileExpectationAbortController?.abort();
     workingCopyMap.delete(workingPath);
     refreshCurrentWorkingCopyForOriginal(existingEntry.originalPath, existingEntry.ownerWebContentsId);
     return true;
 }
 
 export function clearWorkingCopyOriginalPaths() {
+    for (const entry of workingCopyMap.values()) {
+        entry.originalFileExpectationAbortController?.abort();
+    }
     workingCopyMap.clear();
     currentWorkingCopyByOriginalPath.clear();
     nextWorkingCopyRegistrationId = 0;

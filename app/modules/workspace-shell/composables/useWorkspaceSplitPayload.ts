@@ -3,13 +3,17 @@ import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TSplitPayload } from '@contracts/windowTabs';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { createWorkingCopySnapshotFromData } from '@app/services/pdf-file/createWorkingCopySnapshotFromData';
 import { readDocumentBytes } from '@app/utils/documentBytes';
 import type {
     IWorkspaceDocumentViewerSplitPort,
     IWorkspacePdfViewerSplitPort,
 } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import type { TPdfSource } from '@app/types/pdfUi';
-import { getDocumentWorkingCopyCapability } from '@app/utils/platformDocuments';
+import {
+    getDocumentFilesCapability,
+    getDocumentWorkingCopyCapability,
+} from '@app/utils/platformDocuments';
 import { resolveDocumentRefBackend } from '@app/utils/documentRef';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
@@ -161,11 +165,15 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
             return { kind: 'empty' };
         }
 
-        const snapshotPath = await getDocumentWorkingCopyCapability().createWorkingCopyFromData(
-            options.fileName.value ?? 'document.pdf',
-            snapshot,
-            options.originalPath.value ?? undefined,
-        );
+        const sourcePath = options.workingCopyPath.value;
+        const snapshotPath = await createWorkingCopySnapshotFromData({
+            fileName: options.fileName.value ?? 'document.pdf',
+            data: snapshot,
+            ...(sourcePath ? {sourcePath} : {}),
+            originalPath: options.originalPath.value ?? undefined,
+            files: getDocumentFilesCapability(),
+            workingCopies: getDocumentWorkingCopyCapability(),
+        });
         return createPdfSnapshotPayload(snapshotPath, options.hasPendingTabChanges.value);
     }
 

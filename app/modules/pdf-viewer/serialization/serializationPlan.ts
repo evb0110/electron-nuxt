@@ -187,6 +187,9 @@ export function buildSerializationPlan(
     inputs: ISerializationPlanInputs = {},
 ): ISerializationPlan {
     const steps: IAnnotationMutationStep[] = [];
+    const knownPdfRefs = entities
+        .map(entity => entity.identity.pdfRef)
+        .filter((value): value is string => Boolean(value));
     dirty.forEach((entity) => {
         const prefix = entity.identity.id;
         if (entity.deleted) {
@@ -195,7 +198,11 @@ export function buildSerializationPlan(
                 annotationId: entity.identity.id,
                 operation: 'delete-annotation',
                 dependsOn: [],
-                fields: {},
+                fields: {
+                    identity: entity.identity,
+                    pageIndex: entity.pageIndex,
+                    kind: entity.kind,
+                },
             });
             return;
         }
@@ -229,7 +236,13 @@ export function buildSerializationPlan(
             annotationId: entity.identity.id,
             operation: 'bind-identities',
             dependsOn: steps.filter(step => step.annotationId === entity.identity.id).map(step => step.id),
-            fields: {identity: entity.identity},
+            fields: {
+                identity: entity.identity,
+                pageIndex: entity.pageIndex,
+                kind: entity.kind,
+                ...(entity.kind === 'text-markup' ? {subtype: entity.subtype} : {}),
+                knownPdfRefs,
+            },
         });
     });
     assertValidAnnotationSerializationPlan(steps);

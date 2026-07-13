@@ -145,6 +145,39 @@ describe('usePdfCanvasRenderer', () => {
         expect(result?.wasClamped).toBe(true);
     });
 
+    it('never exceeds a strict canvas budget after axis rounding', async () => {
+        const canvas = {
+            width: 0,
+            height: 0,
+            style: {} as CSSStyleDeclaration,
+            getContext: vi.fn(() => ({})),
+        };
+        (globalThis as Record<string, unknown>).document = { createElement: vi.fn(() => canvas) };
+        const renderTask = {
+            cancel: vi.fn(),
+            promise: Promise.resolve(),
+        };
+        const pdfPage = {
+            pageNumber: 1,
+            getViewport: vi.fn(() => ({
+                width: 1_690,
+                height: 2_187,
+                userUnit: 1,
+                rawDims: {
+                    pageWidth: 1_690,
+                    pageHeight: 2_187,
+                },
+            })),
+            render: vi.fn(() => renderTask),
+        } as const;
+
+        const renderer = usePdfCanvasRenderer({ outputScale: 1 });
+        const result = await renderer.renderCanvas(pdfPage as never, 1, {maxCanvasPixels: 2_500_000});
+
+        expect(result?.grantedPixels).toBeLessThanOrEqual(2_500_000);
+        expect(canvas.width * canvas.height).toBeLessThanOrEqual(2_500_000);
+    });
+
     it('keeps trusted raster source renders at or below source pixels', async () => {
         const canvas = {
             width: 0,

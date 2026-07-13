@@ -108,4 +108,20 @@ describe('deferredWorkspaceHostState', () => {
             '/tmp/first.pdf',
         )).toBe(false);
     });
+
+    it('does not treat stale seeded identity as opened after the session enters an error phase', () => {
+        const session = createColdDocumentSession('tab-1', '/tmp/failed.pdf');
+        session.applyWorkspaceRecord(createWorkspaceDocumentRecord({
+            tab: {
+                fileName: 'failed.pdf',
+                originalPath: '/tmp/failed.pdf',
+                isDirty: false,
+                isDjvu: false,
+            },
+            toolbarSnapshot: { hasOpenError: true },
+        }), 'host');
+
+        expect(session.snapshot.value.phase).toBe('error');
+        expect(workspaceHasOpenedDocument(null, session.snapshot.value)).toBe(false);
+    });
 });

@@ -352,7 +352,6 @@ export class BrowserDocumentStore {
         }
         return this.readEntryBytes(entry);
     }
-
     public async readRange(
         ref: string,
         offset: number,
@@ -361,26 +360,27 @@ export class BrowserDocumentStore {
         const entry = await this.requireEntry(ref);
         return this.readEntryRange(entry, offset, length);
     }
-
-    public async stat(ref: string): Promise<{ size: number; }> {
+    public async stat(ref: string): Promise<{
+        size: number;
+        modifiedAt: number
+    }> {
         const entry = await this.requireEntry(ref);
         if (entry.storageMode === 'source-proxy' && entry.sourceRef) {
             return this.stat(entry.sourceRef);
         }
-
         if (entry.storageMode === 'handle' && entry.saveHandle) {
             await this.refreshHandleBackedEntry(entry);
         }
-
-        return { size: entry.fileSize };
+        return {
+            size: entry.fileSize,
+            modifiedAt: entry.updatedAt,
+        };
     }
-
     public async getContentSignature(ref: string): Promise<string> {
         const entry = await this.requireEntry(ref);
         if (entry.storageMode === 'source-proxy' && entry.sourceRef) {
             return this.getContentSignature(entry.sourceRef);
         }
-
         if (entry.storageMode === 'handle' && entry.saveHandle) {
             await this.refreshHandleBackedEntry(entry);
         }

@@ -62,6 +62,7 @@ interface IPageSaveOrchestrationDeps {
     isSavingAs: Ref<boolean>;
     annotationDirty: Ref<boolean>;
     annotationNoteWindowsCount: Ref<number>;
+    pendingEmbeddedAnnotationDeleteCount: Ref<number>;
     hasAnnotationChanges: () => boolean;
     hasLivePdfJsAnnotationChanges?: () => boolean;
     hasSavedPdfJsAnnotationBaselineChanges?: () => boolean;
@@ -124,6 +125,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         isSavingAs,
         annotationDirty,
         annotationNoteWindowsCount,
+        pendingEmbeddedAnnotationDeleteCount,
         hasAnnotationChanges,
         hasLivePdfJsAnnotationChanges,
         hasSavedPdfJsAnnotationBaselineChanges,
@@ -182,6 +184,9 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         getAllShapes: () => pdfViewerRef.value?.getAllShapes() ?? [],
         getDeletedEmbeddedShapeAnnotationIds: () => pdfViewerRef.value?.getDeletedEmbeddedShapeAnnotationIds() ?? [],
         getDeletedEmbeddedShapeStableKeys: () => pdfViewerRef.value?.getDeletedEmbeddedShapeStableKeys?.() ?? [],
+        ensureManagedShapeBaselineReady: () => (
+            pdfViewerRef.value?.ensureManagedShapeBaselineReady?.() ?? Promise.resolve()
+        ),
     });
 
     const fileOperationsSavePorts: IFileOperationsSaveAdapterPorts = {
@@ -203,6 +208,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
                 ...(hasLivePdfJsAnnotationChanges ? { hasLivePdfJsAnnotationChanges } : {}),
                 ...(hasSavedPdfJsAnnotationBaselineChanges ? { hasSavedPdfJsAnnotationBaselineChanges } : {}),
                 ...(hasPreservedAnnotationSourceChanges ? { hasPreservedAnnotationSourceChanges } : {}),
+                hasPendingAnnotationDeletes: () => pendingEmbeddedAnnotationDeleteCount.value > 0,
             },
             metadata: {
                 totalPages,

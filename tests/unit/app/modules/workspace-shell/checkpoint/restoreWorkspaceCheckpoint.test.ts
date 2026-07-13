@@ -83,11 +83,89 @@ describe('restoreWorkspaceCheckpoint', () => {
         });
 
         expect(restoreGraph).toHaveBeenCalledOnce();
-        expect(openPathInReservedTab).toHaveBeenCalledWith('old-tab', '/tmp/working/draft.pdf');
+        expect(openPathInReservedTab).toHaveBeenCalledWith('old-tab', {
+            kind: 'pdf',
+            originalPath: '/documents/draft.pdf',
+            workingPath: '/tmp/working/draft.pdf',
+        });
         expect(workspace.handleGoToPage).toHaveBeenCalledWith(9);
         expect(workspace.setCustomZoomFromDisplay).toHaveBeenCalledWith(1.4);
         expect(workspace.handleToggleContinuousScroll).toHaveBeenCalledOnce();
         expect(workspace.handleViewModeFacing).toHaveBeenCalledOnce();
         expect(activateTab).toHaveBeenCalledWith('restored-tab');
+    });
+
+    it('restores an unsaved generated PDF from its working copy without losing Save As semantics', async () => {
+        const workspace = cast<IWorkspaceExpose>({
+            waitForDocumentOpenSettled: vi.fn().mockResolvedValue(undefined),
+            handleGoToPage: vi.fn(),
+            setCustomZoomFromDisplay: vi.fn(),
+            handleFitWidth: vi.fn(),
+            handleFitHeight: vi.fn(),
+            handleToggleContinuousScroll: vi.fn(),
+            handleViewModeSingle: vi.fn(),
+            handleViewModeFacing: vi.fn(),
+            handleViewModeFacingFirstSingle: vi.fn(),
+            getToolbarSnapshot: () => ({
+                continuousScroll: true,
+                viewerCapabilities: {
+                    continuousScroll: true,
+                    viewMode: true,
+                },
+            }),
+            getAutomationStateSnapshot: () => ({
+                originalPath: '/documents/Combined.pdf',
+                workingCopyPath: '/tmp/working/Combined.pdf',
+            }),
+        });
+        const openPathInReservedTab = vi.fn().mockResolvedValue(true);
+
+        await restoreWorkspaceCheckpoint({
+            version: 1,
+            capturedAt: 123,
+            activePaneId: 'pane-1',
+            activeTabId: 'tab-1',
+            layout: {
+                type: 'leaf',
+                paneId: 'pane-1',
+            },
+            panes: [{
+                paneId: 'pane-1',
+                tabIds: ['tab-1'],
+                activeTabId: 'tab-1',
+            }],
+            tabs: [{
+                tabId: 'tab-1',
+                paneId: 'pane-1',
+                fileName: 'Combined.pdf',
+                sourceRef: '/documents/Combined.pdf',
+                workingCopyRef: '/tmp/working/Combined.pdf',
+                requiresSaveAsOnFirstSave: true,
+                isDirty: true,
+                isDjvu: false,
+                currentPage: null,
+                zoom: null,
+                zoomMode: null,
+            }],
+        }, {
+            tabs: ref([{
+                id: 'tab-1',
+                fileName: 'Combined.pdf',
+                originalPath: '/documents/Combined.pdf',
+                isDirty: true,
+                isDjvu: false,
+            }]),
+            workspaceRefs: ref(new Map<string, IWorkspaceExpose>().set('tab-1', workspace)),
+            restoreGraph: vi.fn(),
+            openPathInReservedTab,
+            activateTab: vi.fn(),
+        });
+
+        expect(openPathInReservedTab).toHaveBeenCalledWith('tab-1', {
+            kind: 'pdf',
+            workingPath: '/tmp/working/Combined.pdf',
+            originalPath: '/documents/Combined.pdf',
+            isGenerated: true,
+        });
     });
 });

@@ -1,17 +1,11 @@
-import {
-    createHash,
-    randomUUID,
-} from 'node:crypto';
-import { createReadStream } from 'node:fs';
-import {
-    rm,
-    stat,
-} from 'node:fs/promises';
+import {randomUUID} from 'node:crypto';
+import {rm} from 'node:fs/promises';
 import type { IManagedTempFileHandle } from '@contracts/electronApiDocuments';
 import {decodeManagedTempFileHandle} from '@contracts/electronApiDocuments';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
 import { resolveExistingReadableBinaryPath } from '@electron/features/documents/main/documentFilePathResolution';
 import { readWorkingCopyRevisionSidecar } from '@electron/file-access/documentRevisionSidecar';
+import {fingerprintFileWithUtilityProcess} from '@electron/features/documents/main/fingerprintFileWithUtilityProcess';
 
 const MANAGED_HANDLE_TTL_MS = 5 * 60 * 1_000;
 const leases = new Map<string, {
@@ -44,14 +38,6 @@ function ensureLeaseSweep() {
     leaseSweepTimer.unref?.();
 }
 
-async function hashFile(path: string) {
-    const hash = createHash('sha256');
-    for await (const chunk of createReadStream(path) as AsyncIterable<Uint8Array>) {
-        hash.update(chunk);
-    }
-    return hash.digest('hex');
-}
-
 export async function createManagedTempFileHandle(
     context: IDocumentsSenderIdContext,
     filePath: unknown,
@@ -59,12 +45,10 @@ export async function createManagedTempFileHandle(
 ): Promise<IManagedTempFileHandle> {
     const path = await resolveExistingReadableBinaryPath(filePath, context.senderId);
     const [
-        {size},
-        sha256,
+        inspection,
         revisionSidecar,
     ] = await Promise.all([
-        stat(path),
-        hashFile(path),
+        fingerprintFileWithUtilityProcess(path),
         readWorkingCopyRevisionSidecar(path),
     ]);
     const leaseId = randomUUID();
@@ -77,8 +61,8 @@ export async function createManagedTempFileHandle(
     ensureLeaseSweep();
     return {
         path,
-        size,
-        sha256,
+        size: inspection.bytes,
+        sha256: inspection.sha256,
         leaseId,
         revision: revisionSidecar?.token ?? null,
     };
@@ -115,16 +99,14 @@ export async function resolveManagedTempFileHandle(
         throw new Error('Managed binary handle lease is missing, expired, or belongs to another renderer');
     }
     const [
-        {size},
-        sha256,
+        inspection,
         revisionSidecar,
     ] = await Promise.all([
-        stat(handle.path),
-        hashFile(handle.path),
+        fingerprintFileWithUtilityProcess(handle.path),
         readWorkingCopyRevisionSidecar(handle.path),
     ]);
     const revision = revisionSidecar?.token ?? null;
-    if (size !== handle.size || sha256 !== handle.sha256 || revision !== handle.revision) {
+    if (inspection.bytes !== handle.size || inspection.sha256 !== handle.sha256 || revision !== handle.revision) {
         throw new Error('Managed binary handle content or revision changed after staging');
     }
     lease.expiresAt = Date.now() + MANAGED_HANDLE_TTL_MS;

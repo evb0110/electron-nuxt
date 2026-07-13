@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => {
         getOwnerId,
         getRecentFiles: vi.fn(),
         logRejectedOpenPath: vi.fn(),
+        handlePdfOpeningGeometry: vi.fn(),
         openInputPaths: vi.fn(),
         showOpenDocumentDialog: vi.fn(),
         logger: {
@@ -35,6 +36,7 @@ vi.mock('@electron/image/pdfConversion', () => ({ isSupportedOpenPath: () => tru
 vi.mock('@electron/image/pdfCombineShared', () => ({PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS: ['.png']}));
 vi.mock('@electron/recentFiles', () => ({ getRecentFiles: mocks.getRecentFiles }));
 vi.mock('@electron/features/documents/main/openInputPaths.service', () => ({ openInputPaths: mocks.openInputPaths }));
+vi.mock('@electron/features/documents/main/nativePdfPreview', () => ({handlePdfOpeningGeometry: mocks.handlePdfOpeningGeometry}));
 vi.mock('@electron/features/documents/main/documentDialogCommon', () => ({
     errorWithDetails: (fallbackMessage: string, details: unknown) => (
         details instanceof Error
@@ -74,6 +76,7 @@ describe('document direct-open recent authorization', () => {
         vi.clearAllMocks();
         mocks.allowedPathsByOwner.clear();
         mocks.getRecentFiles.mockResolvedValue([]);
+        mocks.handlePdfOpeningGeometry.mockResolvedValue(null);
         mocks.openInputPaths.mockResolvedValue(null);
     });
 
@@ -123,6 +126,41 @@ describe('document direct-open recent authorization', () => {
         expect(mocks.getRecentFiles).not.toHaveBeenCalled();
         expect(mocks.openInputPaths).toHaveBeenCalledWith([grantedPath], {}, context.sender);
         expect(mocks.logRejectedOpenPath).not.toHaveBeenCalled();
+    });
+
+    it('discovers authoritative opening geometry only from the admitted working copy', async () => {
+        const directPath = '/tmp/cold-large.pdf';
+        const context = createOpenContext(42);
+        const geometry = {
+            pageNumber: 1 as const,
+            pageCount: 431,
+            width: 612,
+            height: 792,
+            rotation: 0 as const,
+            size: 538_000_000,
+            modifiedAt: 1_720_000_000_000,
+        };
+        mocks.allowedPathsByOwner.set(42, new Set([directPath]));
+        mocks.handlePdfOpeningGeometry.mockResolvedValueOnce(geometry);
+        mocks.openInputPaths.mockResolvedValueOnce({
+            kind: 'pdf',
+            originalPath: directPath,
+            workingPath: '/tmp/cold-large-working.pdf',
+        });
+        const { handleOpenPdfDirect } = await import('@electron/features/documents/main/documentOpenHandlers');
+
+        await expect(handleOpenPdfDirect(context, directPath)).resolves.toEqual({
+            kind: 'pdf',
+            originalPath: directPath,
+            workingPath: '/tmp/cold-large-working.pdf',
+            openingGeometry: geometry,
+        });
+        expect(mocks.handlePdfOpeningGeometry).toHaveBeenCalledWith(context, '/tmp/cold-large-working.pdf');
+        expect(mocks.handlePdfOpeningGeometry).not.toHaveBeenCalledWith(context, directPath);
+        expect(mocks.openInputPaths).toHaveBeenCalledWith([directPath], {}, context.sender);
+        expect(mocks.openInputPaths.mock.invocationCallOrder[0]).toBeLessThan(
+            mocks.handlePdfOpeningGeometry.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
+        );
     });
 
     it('rejects paths granted only to a different owner', async () => {

@@ -45,6 +45,110 @@ describe('workingCopy', () => {
         });
     });
 
+    it('publishes a PDF working copy without starting page identity discovery and joins it before mutation', async () => {
+        const pageCount = deferred<number>();
+        const {getPdfPageCount} = await import('@electron/pdf/pdfPageCount');
+        vi.mocked(getPdfPageCount).mockImplementationOnce(() => pageCount.promise);
+        const {createWorkingCopyFromPath} = await import('@electron/file-access/workingCopyCreation');
+        const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+        const {awaitPageIdentityStoreInitialization} = await import('@electron/file-access/pageIdentityStore');
+        const originalPath = join(tempRoot, 'background-page-identity.pdf');
+        writeFileSync(originalPath, new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+        const trustedOriginalPath = allowOpenPath(originalPath);
+        expect(trustedOriginalPath).not.toBeNull();
+
+        const workingPath = await createWorkingCopyFromPath(trustedOriginalPath!, undefined, 7);
+        expect(existsSync(workingPath)).toBe(true);
+        expect(getPdfPageCount).not.toHaveBeenCalled();
+
+        let mutationSettled = false;
+        const mutation = awaitPageIdentityStoreInitialization(workingPath)
+            .finally(() => {
+                mutationSettled = true;
+            });
+        await waitForSettledQueueTurn();
+        expect(mutationSettled).toBe(false);
+
+        pageCount.resolve(3);
+        await expect(mutation).resolves.toBeUndefined();
+        expect(JSON.parse(readFileSync(`${workingPath}.evb-pages.json`, 'utf8'))).toMatchObject({pageIds: expect.arrayContaining([
+            expect.any(String),
+            expect.any(String),
+            expect.any(String),
+        ])});
+    });
+
+    it('does not stack page-count or fingerprint work across repeated read-only opens', async () => {
+        const fingerprint = vi.fn(async () => 'fingerprint');
+        vi.doMock('@electron/file-access/workingCopyOriginalFileExpectation', () => ({
+            createOriginalFileContentFingerprint: fingerprint,
+            createOriginalFileContentFingerprintSync: vi.fn(() => 'sync-fingerprint'),
+        }));
+
+        try {
+            const {getPdfPageCount} = await import('@electron/pdf/pdfPageCount');
+            vi.mocked(getPdfPageCount).mockClear();
+            const {createWorkingCopyFromPath} = await import('@electron/file-access/workingCopyCreation');
+            const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+            const {clearAllWorkingCopies} = await import('@electron/file-access/workingCopyCleanup');
+            const originalPath = join(tempRoot, 'repeat-open.pdf');
+            writeFileSync(originalPath, new Uint8Array([
+                1,
+                2,
+                3,
+            ]));
+            const trustedOriginalPath = allowOpenPath(originalPath);
+            expect(trustedOriginalPath).not.toBeNull();
+
+            for (let index = 0; index < 3; index += 1) {
+                await createWorkingCopyFromPath(trustedOriginalPath!, undefined, 7);
+            }
+
+            expect(getPdfPageCount).not.toHaveBeenCalled();
+            expect(fingerprint).not.toHaveBeenCalled();
+            await clearAllWorkingCopies();
+        } finally {
+            vi.doUnmock('@electron/file-access/workingCopyOriginalFileExpectation');
+        }
+    });
+
+    it('keeps a readable working copy when background page identity discovery fails but blocks mutation', async () => {
+        const pageCount = deferred<number>();
+        const {getPdfPageCount} = await import('@electron/pdf/pdfPageCount');
+        vi.mocked(getPdfPageCount).mockImplementationOnce(() => pageCount.promise);
+        const {createWorkingCopyFromPath} = await import('@electron/file-access/workingCopyCreation');
+        const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+        const {awaitPageIdentityStoreInitialization} = await import('@electron/file-access/pageIdentityStore');
+        const originalPath = join(tempRoot, 'failed-page-identity.pdf');
+        writeFileSync(originalPath, new Uint8Array([
+            4,
+            5,
+            6,
+        ]));
+        const trustedOriginalPath = allowOpenPath(originalPath);
+        expect(trustedOriginalPath).not.toBeNull();
+
+        const workingPath = await createWorkingCopyFromPath(trustedOriginalPath!, undefined, 7);
+        expect(readFileSync(workingPath)).toEqual(Buffer.from([
+            4,
+            5,
+            6,
+        ]));
+        const mutation = awaitPageIdentityStoreInitialization(workingPath);
+        pageCount.reject(new Error('page count unavailable'));
+
+        await expect(mutation).rejects.toThrow('page count unavailable');
+        expect(readFileSync(workingPath)).toEqual(Buffer.from([
+            4,
+            5,
+            6,
+        ]));
+    });
+
     it('prunes retired working-copy metadata after its TTL without requiring a later lookup', async () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-07-10T00:00:00.000Z'));
@@ -116,10 +220,8 @@ describe('workingCopy', () => {
         const canonicalOriginalPath = realpathSync.native(originalPath);
 
         const workingPath = await createWorkingCopyFromPath(trustedOriginalPath!);
-        cleanupWorkingCopy(workingPath);
-        await vi.waitFor(() => {
-            expect(existsSync(dirname(workingPath))).toBe(false);
-        });
+        await cleanupWorkingCopy(workingPath);
+        expect(existsSync(dirname(workingPath))).toBe(false);
 
         expect(getWorkingCopyOriginalPath(workingPath)).toEqual({
             originalPath: canonicalOriginalPath,
@@ -410,20 +512,63 @@ describe('workingCopy', () => {
         await setWorkingCopyOriginalPath(secondWorkingPath, originalPath);
 
         expect(findWorkingCopyPathByOriginalPath(originalPath)).toBe(secondWorkingPath);
-        cleanupWorkingCopy(secondWorkingPath);
+        await cleanupWorkingCopy(secondWorkingPath);
 
         expect(findWorkingCopyPathByOriginalPath(originalPath)).toBe(firstWorkingPath);
 
         await clearAllWorkingCopies();
     });
 
+    it('waits for an in-flight mutation before retiring ownership and removing the working directory', async () => {
+        const {createWorkingCopyFromPath} = await import('@electron/file-access/workingCopyCreation');
+        const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+        const {cleanupWorkingCopy} = await import('@electron/file-access/workingCopyCleanup');
+        const {workingCopyMap} = await import('@electron/file-access/workingCopyStore');
+        const {enqueueWorkingCopyMutation} = await import('@electron/file-access/workingCopyMutationQueue');
+        const originalPath = join(tempRoot, 'cleanup-during-mutation.pdf');
+        writeFileSync(originalPath, new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+        const trustedOriginalPath = allowOpenPath(originalPath);
+        expect(trustedOriginalPath).not.toBeNull();
+        const workingPath = await createWorkingCopyFromPath(trustedOriginalPath!, undefined, 7);
+        const mutationStarted = deferred<undefined>();
+        const releaseMutation = deferred<undefined>();
+        const mutation = enqueueWorkingCopyMutation(workingPath, async () => {
+            mutationStarted.resolve(undefined);
+            await releaseMutation.promise;
+        });
+        await mutationStarted.promise;
+
+        const cleanup = cleanupWorkingCopy(workingPath, 7);
+        await waitForSettledQueueTurn();
+
+        expect(workingCopyMap.has(workingPath)).toBe(true);
+        expect(existsSync(dirname(workingPath))).toBe(true);
+
+        releaseMutation.resolve(undefined);
+        await mutation;
+        await cleanup;
+
+        expect(workingCopyMap.has(workingPath)).toBe(false);
+        expect(existsSync(dirname(workingPath))).toBe(false);
+    });
+
     it('does not let a delayed original expectation update overwrite a newer registration', async () => {
         const firstFingerprint = deferred<string | undefined>();
+        let firstFingerprintSignal: AbortSignal | undefined;
         let fingerprintCalls = 0;
         vi.doMock('@electron/file-access/workingCopyOriginalFileExpectation', () => ({
-            createOriginalFileContentFingerprint: vi.fn(async () => {
+            createOriginalFileContentFingerprint: vi.fn(async (
+                _path: string,
+                _size: number,
+                signal?: AbortSignal,
+            ) => {
                 fingerprintCalls += 1;
                 if (fingerprintCalls === 1) {
+                    firstFingerprintSignal = signal;
                     return firstFingerprint.promise;
                 }
                 return `fingerprint-${fingerprintCalls}`;
@@ -451,6 +596,7 @@ describe('workingCopy', () => {
                 expect(fingerprintCalls).toBe(1);
             });
             await setWorkingCopyOriginalPath(workingPath, secondOriginalPath, 10);
+            expect(firstFingerprintSignal?.aborted).toBe(true);
 
             expect(getWorkingCopyOriginalPath(workingPath, 10)).toMatchObject({
                 originalPath: secondOriginalPath,
@@ -719,6 +865,30 @@ describe('workingCopy', () => {
             await atomicReplace(tempPath, targetPath);
             expect(snapshotMainOperations()).toEqual([expect.objectContaining({
                 commitStarted: true,
+                workingCopyPath: targetPath,
+            })]);
+        });
+
+        expect(readFileSync(targetPath, 'utf8')).toBe('new');
+        resetMainOperationLifecycleForTests();
+    });
+
+    it('can durably replace a sidecar without marking user-document commit started', async () => {
+        const {atomicReplace} = await import('@electron/utils/atomicReplace');
+        const {enqueueWorkingCopyMutation} = await import('@electron/file-access/workingCopyMutationQueue');
+        const {
+            resetMainOperationLifecycleForTests,
+            snapshotMainOperations,
+        } = await import('@electron/operation-lifecycle/mainOperationLifecycle');
+        const targetPath = join(tempRoot, 'revision-sidecar.json');
+        const tempPath = join(tempRoot, 'revision-sidecar.tmp');
+        writeFileSync(targetPath, 'old');
+        writeFileSync(tempPath, 'new');
+
+        await enqueueWorkingCopyMutation(targetPath, async () => {
+            await atomicReplace(tempPath, targetPath, {markMutationCommitStarted: false});
+            expect(snapshotMainOperations()).toEqual([expect.objectContaining({
+                commitStarted: false,
                 workingCopyPath: targetPath,
             })]);
         });

@@ -33,6 +33,13 @@ export function deleteEditorWithUiManager(
 
     try {
         if (!deleted && editor) {
+            // PDF.js delete() starts by committing the active editor. Do that
+            // before selecting the deletion target, otherwise the commit can
+            // clear the new selection and make delete() a silent no-op.
+            const commitOrRemove = Reflect.get(uiManager, 'commitOrRemove');
+            if (typeof commitOrRemove === 'function') {
+                commitOrRemove.call(uiManager);
+            }
             setSelectedEditor(uiManager, editor);
             // PDF.js private uiManager.delete removes the selected annotation editor.
             uiManager.delete();

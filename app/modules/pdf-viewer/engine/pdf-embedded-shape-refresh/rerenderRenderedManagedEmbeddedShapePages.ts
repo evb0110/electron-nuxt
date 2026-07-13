@@ -1,4 +1,4 @@
-import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/renderVisiblePagesOptions';
+import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext';
 import type { IPageRange } from '@app/types/pdfUi';
 import { uniq } from 'es-toolkit/array';
 import type { IShapeAnnotation } from '@app/types/annotations';

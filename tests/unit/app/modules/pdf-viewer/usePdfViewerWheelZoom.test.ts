@@ -364,6 +364,7 @@ describe('usePdfViewerWheelZoom', () => {
         const setup = setupWheelZoom();
 
         try {
+            setup.singlePageScroll.shouldCancelProgrammaticNavigationForViewportScroll.mockReturnValue(true);
             setup.viewerContainer.value!.scrollTop = 180;
             setup.wheelZoom.handleViewerScroll(new Event('scroll'));
 
@@ -371,6 +372,7 @@ describe('usePdfViewerWheelZoom', () => {
             expect(setup.singlePageScroll.handleScroll).toHaveBeenCalledOnce();
 
             setup.isProgrammaticNavigationActive.value = true;
+            setup.singlePageScroll.shouldCancelProgrammaticNavigationForViewportScroll.mockReturnValue(false);
             setup.viewerContainer.value!.scrollTop = 260;
             setup.wheelZoom.handleViewerScroll(new Event('scroll'));
 

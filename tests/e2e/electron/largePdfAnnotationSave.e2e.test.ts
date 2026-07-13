@@ -509,7 +509,7 @@ async function placePageNote(page: Page, text: string) {
     }
 
     if (point.textApplied) {
-        return;
+        return point;
     }
     const noteAlreadyCreated = await page.$('textarea.note-window__textarea');
     if (!noteAlreadyCreated) {
@@ -588,7 +588,7 @@ async function placePageNote(page: Page, text: string) {
             };
         }, text);
         if (typedState.includesText) {
-            return;
+            return point;
         }
         await delay(100);
     }
@@ -599,10 +599,7 @@ async function placePageNote(page: Page, text: string) {
             debugState,
         })}`);
     }
-}
-
-async function waitForWorkspaceOpenSettled(page: Page) {
-    await callWorkspaceCommand(page, 'waitForDocumentOpenSettled');
+    return point;
 }
 
 async function collectLargePdfAnnotationDebugState(page: Page) {
@@ -711,15 +708,28 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
 
         const fixturePath = copyLargePdfFixture(`large-pdf-note-${Date.now()}.pdf`);
         const firstText = `large pdf note ${Date.now()}`;
-        const existingFixtureText = 'qerqerqwer';
+        const existingFixtureNotes = await readPdfNoteContents(fixturePath);
+        expect(existingFixtureNotes.length).toBeGreaterThan(0);
 
         await openPdfInApp(page, fixturePath, LARGE_PDF_TIMEOUT_MS);
         await waitForPdfLoaded(page, LARGE_PDF_TIMEOUT_MS);
         await waitForViewerInteractive(page, LARGE_PDF_TIMEOUT_MS);
-        await waitForWorkspaceOpenSettled(page);
+        await page.evaluate(() => {
+            (window as Window & {__diagnosticWarnAsWarn?: boolean}).__diagnosticWarnAsWarn = true;
+        });
 
-        await placePageNote(page, firstText);
-        const agentSaveResult = await saveLargePdfViaAgentAction(page);
+        const placement = await placePageNote(page, firstText);
+        let agentSaveResult: Awaited<ReturnType<typeof saveLargePdfViaAgentAction>>;
+        try {
+            agentSaveResult = await saveLargePdfViaAgentAction(page);
+        } catch (error) {
+            const debugState = await collectLargePdfAnnotationDebugState(page).catch(() => null);
+            throw new Error(`Large PDF save failed after ${placement.branch}: ${JSON.stringify({
+                placement,
+                debugState,
+                cause: error instanceof Error ? error.message : String(error),
+            })}`);
+        }
         if (!agentSaveResult) {
             await saveViaWindowHandle(page, LARGE_PDF_TIMEOUT_MS);
         }
@@ -742,23 +752,24 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
                 ? agentSaveResult.status.workingCopyPath
                 : fallbackSavedPath;
         const savedNotes = await expectPdfContainsE2ENote(savedPath, firstText);
-        expect(savedNotes.some(note => note.contents === existingFixtureText), JSON.stringify({
+        expect(savedNotes, JSON.stringify({
             savedPath,
             savedNotes: savedNotes.slice(0, 20),
-        })).toBe(true);
+        })).toEqual(expect.arrayContaining(existingFixtureNotes));
 
         const reopenPath = copyLargePdfFixture(`large-pdf-note-reopen-${Date.now()}.pdf`);
         copyFileSync(savedPath, reopenPath);
         await openPdfInApp(page, reopenPath, LARGE_PDF_TIMEOUT_MS);
         await waitForPdfLoaded(page, LARGE_PDF_TIMEOUT_MS);
+        await waitForViewerInteractive(page, LARGE_PDF_TIMEOUT_MS);
         const reopenedNotes = await readPdfNoteContents(reopenPath);
         expect(reopenedNotes.filter(note => note.contents === firstText), JSON.stringify({
             reopenPath,
             reopenedNotes: reopenedNotes.slice(0, 20),
         })).toHaveLength(1);
-        expect(reopenedNotes.some(note => note.contents === existingFixtureText), JSON.stringify({
+        expect(reopenedNotes, JSON.stringify({
             reopenPath,
             reopenedNotes: reopenedNotes.slice(0, 20),
-        })).toBe(true);
+        })).toEqual(expect.arrayContaining(existingFixtureNotes));
     }, LARGE_PDF_TIMEOUT_MS);
 });

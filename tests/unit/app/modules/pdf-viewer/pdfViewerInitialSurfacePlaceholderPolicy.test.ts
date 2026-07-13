@@ -18,6 +18,9 @@ describe('PDF viewer initial surface placeholder policy', () => {
         expect(viewerSource).toContain('initialSurfacePlaceholderPending.value = true;');
         expect(viewerSource).toContain('event === \'initial-visual-pending\'');
         expect(viewerSource).toContain('event === \'initial-visual-ready\' || event === \'load-error\'');
+        expect(viewerSource).toContain('openErrorLatch.consumeMatchingSuccess(generation)');
+        expect(viewerSource).toContain('(\'load-error\', null)');
+        expect(viewerSource).toContain('openErrorLatch.recordFailure(generation)');
         expect(viewerSource).toContain('usePdfViewerFeatureController(props, emit)');
     });
 });

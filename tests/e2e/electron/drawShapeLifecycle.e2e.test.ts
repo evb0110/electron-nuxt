@@ -34,6 +34,10 @@ import {
     waitForWorkspaceToolbarIdle,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import type { IPdfRenderTraceEntry } from '@app/utils/pdfRenderTrace';
+import {
+    disablePdfDiagnosticSession,
+    enablePdfDiagnosticSession,
+} from '@tests/e2e/electron/helpers/pdfDiagnosticSession';
 
 interface IRendererErrorTracker {
     errors: string[];
@@ -76,24 +80,7 @@ async function enableDebugBrowserLogging(page: Page) {
 }
 
 async function enableBufferedPdfRenderTrace(page: Page) {
-    await page.evaluate(() => {
-        localStorage.setItem('evb-viewer:pdf-render-trace', '1');
-        localStorage.removeItem('evb-viewer:pdf-render-trace-console');
-        const traceWindow = window as IE2EWindow & {
-            __pdfRenderTrace?: boolean;
-            __pdfRenderTraceConsole?: boolean;
-            __pdfRenderTraceBuffer?: IPdfRenderTraceEntry[];
-            __getPdfRenderTrace?: () => IPdfRenderTraceEntry[];
-            __clearPdfRenderTrace?: () => void;
-        };
-        traceWindow.__pdfRenderTrace = true;
-        traceWindow.__pdfRenderTraceConsole = false;
-        traceWindow.__pdfRenderTraceBuffer = [];
-        traceWindow.__getPdfRenderTrace = () => [...(traceWindow.__pdfRenderTraceBuffer ?? [])];
-        traceWindow.__clearPdfRenderTrace = () => {
-            traceWindow.__pdfRenderTraceBuffer = [];
-        };
-    });
+    await enablePdfDiagnosticSession(page, {render: true});
 }
 
 async function getBufferedPdfRenderTrace(page: Page) {
@@ -2344,6 +2331,10 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         try {
             expect(rendererErrorTracker?.errors ?? []).toEqual([]);
         } finally {
+            const activeSession = sessionFixture.getSession();
+            if (activeSession) {
+                await disablePdfDiagnosticSession(activeSession.page).catch(() => {});
+            }
             rendererErrorTracker?.detach();
             rendererErrorTracker = null;
             await sessionFixture.stop();

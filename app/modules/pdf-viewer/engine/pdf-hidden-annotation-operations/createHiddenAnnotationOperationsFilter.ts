@@ -75,7 +75,6 @@ function collectHiddenAnnotationOperatorIndices(
         annotationStack: [],
         hiddenDepth: 0,
     };
-
     for (const [
         index,
         fn,

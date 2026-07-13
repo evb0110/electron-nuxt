@@ -29,6 +29,7 @@ import {
     type TOpenFileResult,
 } from '@electron/features/documents/contract';
 import { openInputPaths } from '@electron/features/documents/main/openInputPaths.service';
+import { handlePdfOpeningGeometry } from '@electron/features/documents/main/nativePdfPreview';
 import {
     errorWithDetails,
     showOpenDocumentDialogForContext,
@@ -41,6 +42,34 @@ import type {
 const logger = createLogger('documents-dialogs');
 const MAX_DIRECT_OPEN_BATCH_PATHS = 512;
 const activeBatchCombines = new Map<string, AbortController>();
+
+function isSinglePdfPath(paths: readonly string[]) {
+    return paths.length === 1 && /\.pdf$/iu.test(paths[0] ?? '');
+}
+
+async function openInputPathsWithGeometryPreflight(
+    context: IDocumentsWebContentsContext,
+    paths: string[],
+) {
+    const result = await openInputPaths(paths, {}, context.sender);
+    if (result?.kind !== 'pdf' || !isSinglePdfPath(paths)) {
+        return result;
+    }
+    const openingGeometry = await handlePdfOpeningGeometry(context, result.workingPath)
+        .catch((error: unknown) => {
+            // Geometry improves the opening presentation but must not turn a
+            // readable document into a failed open. The viewer can still
+            // discover metadata from its managed working copy as a fallback.
+            logger.warn(`PDF opening geometry preflight failed: ${getErrorMessage(error)}`);
+            return null;
+        });
+    return openingGeometry
+        ? {
+            ...result,
+            openingGeometry,
+        }
+        : result;
+}
 
 function getBatchCombineKey(senderId: number, requestId: string) {
     return `${senderId}:${requestId}`;
@@ -118,7 +147,7 @@ export async function handleOpenPdfDirect(
 
     logger.info(`openDocumentDirect request: ${normalizedPath}`);
     try {
-        const result = await openInputPaths([normalizedPath], {}, context.sender);
+        const result = await openInputPathsWithGeometryPreflight(context, [normalizedPath]);
         logger.info(`openDocumentDirect result for ${normalizedPath}: ${result?.kind ?? 'null'}`);
         return result;
     } catch (err) {
@@ -191,7 +220,7 @@ export async function handleOpenPdfDialog(context: IDocumentsDialogContext): Pro
     }
 
     try {
-        return await openInputPaths(result.filePaths, {}, context.sender);
+        return await openInputPathsWithGeometryPreflight(context, result.filePaths);
     } catch (err) {
         logger.error(`Failed to create working copy: ${getErrorMessage(err)}`);
         throw errorWithDetails(te('errors.file.open'), err);

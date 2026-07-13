@@ -72,6 +72,7 @@ describe('createElectronPlatformApiFixture', () => {
         const api = createElectronPlatformApiFixture();
 
         expect(api.documentFiles?.repairPdf).toEqual(expect.any(Function));
+        expect(api.documentFiles?.getPdfOpeningGeometry).toEqual(expect.any(Function));
         expect(api.documentFiles?.getPdfNativePageSizes).toEqual(expect.any(Function));
         expect(api.documentFiles?.cancelPdfNativePagePreview).toEqual(expect.any(Function));
         expect(api.documents.renderPdfNativePagePreview).toEqual(expect.any(Function));

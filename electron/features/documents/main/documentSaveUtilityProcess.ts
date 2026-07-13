@@ -1,11 +1,5 @@
-import {
-    createHash,
-    randomBytes,
-} from 'node:crypto';
-import {
-    constants as fsConstants,
-    createReadStream,
-} from 'node:fs';
+import {randomBytes} from 'node:crypto';
+import {constants as fsConstants} from 'node:fs';
 import {
     copyFile,
     open,
@@ -16,14 +10,19 @@ import {
 import { dirname } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { parentPort } from 'electron';
 import {
     decodeDocumentSaveUtilityRequest,
     type TDocumentSaveUtilityResult,
 } from '@electron/features/documents/main/documentSaveUtilityProtocol';
+import {fingerprintFileBounded} from '@electron/features/documents/main/fingerprintFileBounded';
 import {validateTargetedPdfObjects} from '@electron/features/documents/main/validateTargetedPdfObjects';
 
 const execFileAsync = promisify(execFile);
+const {parentPort} = process;
+
+if (!parentPort) {
+    throw new Error('Document save utility started without a parent port');
+}
 
 async function exists(path: string) {
     try { await stat(path); return true; } catch { return false; }
@@ -43,24 +42,18 @@ async function fsyncDirectory(path: string) {
 }
 
 async function inspectPdf(path: string, expectedBytes: number) {
-    const info = await stat(path);
-    if (!info.isFile() || info.size !== expectedBytes) throw new Error('PDF save staging file size changed before commit');
+    const fingerprint = await fingerprintFileBounded(path, expectedBytes);
     const handle = await open(path, 'r');
     try {
         const header = Buffer.alloc(5);
         await handle.read(header, 0, header.length, 0);
         if (header.toString('ascii') !== '%PDF-') throw new Error('PDF save staging file has an invalid header');
-        const tailBytes = Math.min(info.size, 64 * 1024);
+        const tailBytes = Math.min(fingerprint.bytes, 64 * 1024);
         const tail = Buffer.alloc(tailBytes);
-        await handle.read(tail, 0, tailBytes, info.size - tailBytes);
+        await handle.read(tail, 0, tailBytes, fingerprint.bytes - tailBytes);
         if (!tail.includes(Buffer.from('%%EOF'))) throw new Error('PDF save staging file has no end-of-file marker');
     } finally { await handle.close(); }
-    const hash = createHash('sha256');
-    for await (const chunk of createReadStream(path)) hash.update(chunk as Buffer);
-    return {
-        bytes: info.size,
-        sha256: hash.digest('hex'),
-    };
+    return fingerprint;
 }
 
 async function validatePdf(path: string, validationBinary?: string, changedObjectRefs: readonly string[] = []) {
@@ -115,9 +108,13 @@ parentPort.once('message', (event) => {
     void (async () => {
         const request = decodeDocumentSaveUtilityRequest(event.data);
         if (!request) throw new Error('Invalid document save utility request');
-        const inspection = await inspectPdf(request.sourcePath, request.expectedBytes);
-        await validatePdf(request.sourcePath, request.validationBinary, request.changedObjectRefs ?? []);
-        await atomicReplace(request.sourcePath, request.targetPath);
+        const inspection = request.type === 'commit'
+            ? await inspectPdf(request.sourcePath, request.expectedBytes)
+            : await fingerprintFileBounded(request.sourcePath, request.expectedBytes);
+        if (request.type === 'commit') {
+            await validatePdf(request.sourcePath, request.validationBinary, request.changedObjectRefs ?? []);
+            await atomicReplace(request.sourcePath, request.targetPath);
+        }
         const result: TDocumentSaveUtilityResult = {
             type: 'result',
             ok: true,

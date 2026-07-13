@@ -1120,6 +1120,21 @@ export const browserDjvuCapability: IDjvuCapability = {
     getInfo(djvuPath) {
         return getDjvuInfo(djvuPath);
     },
+    getPageSourceInfo(djvuPath, pageNumber) {
+        return withDjvuWorker(djvuPath, async (worker) => {
+            const pageSizes = await worker.doc.getPagesSizes().run();
+            const effectivePageNumber = Math.min(pageNumber, pageSizes.length);
+            const pageSize = pageSizes[effectivePageNumber - 1];
+            if (!pageSize) {
+                throw new RangeError(`DjVu page ${pageNumber} is outside 1..${pageSizes.length}`);
+            }
+            return {
+                pageCount: pageSizes.length,
+                pageNumber: effectivePageNumber,
+                pageSize,
+            };
+        });
+    },
     getPageSizes(djvuPath) {
         return withDjvuWorker(djvuPath, worker => worker.doc.getPagesSizes().run());
     },

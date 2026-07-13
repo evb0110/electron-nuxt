@@ -28,4 +28,31 @@ describe('createDocumentViewerExposeForwarder', () => {
         expect(pdfScroll).toHaveBeenCalledWith(3);
         expect(djvuScroll).toHaveBeenCalledWith(7);
     });
+
+    it('keeps stable chassis navigation callable while a feature pack is absent or swapping', () => {
+        const transientPdfScroll = vi.fn();
+        const target = shallowRef<Record<PropertyKey, unknown> | null>(null);
+        const stableScroll = vi.fn();
+        const exposed = createDocumentViewerExposeForwarder(target, {
+            getPendingNavigationTargetPage: () => 6,
+            scrollToPage: stableScroll,
+        });
+        const scrollToPage = (page: number) => {
+            const method = Reflect.get(exposed, 'scrollToPage');
+            if (typeof method !== 'function') {
+                throw new Error('scrollToPage is unavailable');
+            }
+            method(page);
+        };
+
+        for (let page = 2; page <= 6; page += 1) {
+            scrollToPage(page);
+        }
+        target.value = {scrollToPage: transientPdfScroll};
+        expect(Reflect.get(exposed, 'getPendingNavigationTargetPage')()).toBe(6);
+
+        expect(stableScroll).toHaveBeenCalledTimes(5);
+        expect(stableScroll).toHaveBeenLastCalledWith(6);
+        expect(transientPdfScroll).not.toHaveBeenCalled();
+    });
 });

@@ -35,8 +35,17 @@ import {
 import {
     decodeNoArgs,
     decodeUndefinedResult,
+    requireIpcArgumentCount,
     requireDecoded,
 } from '@electron/platform-ipc/ipcCodecValidation';
+
+function requireArgs(args: readonly unknown[], count: number | {
+    min: number;
+    max: number
+}) {
+    requireIpcArgumentCount(args, count);
+    return args;
+}
 
 const OCR_JOB_STATUSES = [
     'queued',
@@ -448,18 +457,25 @@ function decodePreprocessPageResult(value: unknown) {
 
 export const OCR_IPC_CODECS = {
     [OCR_CHANNELS.recognize]: {
-        decodeArgs: (args: readonly unknown[]) => [decodeRecognizeRequest(args[0])],
+        decodeArgs: (args: readonly unknown[]) => [decodeRecognizeRequest(requireArgs(args, 1)[0])],
         decodeResult: decodeRecognizeResult,
     },
     [OCR_CHANNELS.recognizeBatch]: {
-        decodeArgs: (args: readonly unknown[]) => [
-            decodeRecognizeRequests(args[0]),
-            decodeStringArg(args, 1, 'requestId'),
-        ],
+        decodeArgs: (args: readonly unknown[]) => {
+            requireArgs(args, 2);
+            return [
+                decodeRecognizeRequests(args[0]),
+                decodeStringArg(args, 1, 'requestId'),
+            ];
+        },
         decodeResult: decodeRecognizeBatchResult,
     },
     [OCR_CHANNELS.createSearchablePdf]: {
         decodeArgs: (args: readonly unknown[]) => {
+            requireArgs(args, {
+                min: 3,
+                max: 4,
+            });
             const requiredArgs: [string, Array<{
                 pageNumber: number;
                 languages: string[]
@@ -477,26 +493,32 @@ export const OCR_IPC_CODECS = {
         decodeResult: decodeJobStartResult,
     },
     [OCR_CHANNELS.cancel]: {
-        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(args, 0, 'requestId')],
+        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(requireArgs(args, 1), 0, 'requestId')],
         decodeResult: decodeCancelResult,
     },
     [OCR_CHANNELS.getJobState]: {
-        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(args, 0, 'requestId')],
+        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(requireArgs(args, 1), 0, 'requestId')],
         decodeResult: decodeOcrJobProjection,
     },
     [OCR_CHANNELS.subscribeJob]: {
-        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(args, 0, 'requestId')],
+        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(requireArgs(args, 1), 0, 'requestId')],
         decodeResult: decodeOcrJobProjection,
     },
     [OCR_CHANNELS.reconnectJob]: {
-        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(args, 0, 'requestId')],
+        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(requireArgs(args, 1), 0, 'requestId')],
         decodeResult: decodeOcrJobProjection,
     },
     [OCR_CHANNELS.acknowledgeResultFile]: {
-        decodeArgs: (args: readonly unknown[]) => [
-            decodeStringArg(args, 0, 'requestId'),
-            args[1] === undefined ? undefined : decodeStringArg(args, 1, 'pdfPath'),
-        ],
+        decodeArgs: (args: readonly unknown[]) => {
+            requireArgs(args, {
+                min: 1,
+                max: 2,
+            });
+            return [
+                decodeStringArg(args, 0, 'requestId'),
+                args[1] === undefined ? undefined : decodeStringArg(args, 1, 'pdfPath'),
+            ];
+        },
         decodeResult: decodeAckResult,
     },
     [OCR_CHANNELS.getLanguages]: {
@@ -505,6 +527,10 @@ export const OCR_IPC_CODECS = {
     },
     [OCR_CHANNELS.resolveDocumentTextCatalog]: {
         decodeArgs: (args: readonly unknown[]) => {
+            requireArgs(args, {
+                min: 2,
+                max: 3,
+            });
             const documentRevision = parseDocumentRevisionToken(args[1]);
             if (documentRevision === null) {
                 throw new Error('documentRevision must be a valid revision token');
@@ -535,10 +561,13 @@ export const OCR_IPC_CODECS = {
         decodeResult: decodePreprocessingValidation,
     },
     [OCR_CHANNELS.preprocessingPreprocessPage]: {
-        decodeArgs: (args: readonly unknown[]) => [
-            decodeUint8ArrayArg(args, 0, 'imageData'),
-            decodeBooleanArg(args, 1, 'usePreprocessing'),
-        ],
+        decodeArgs: (args: readonly unknown[]) => {
+            requireArgs(args, 2);
+            return [
+                decodeUint8ArrayArg(args, 0, 'imageData'),
+                decodeBooleanArg(args, 1, 'usePreprocessing'),
+            ];
+        },
         decodeResult: decodePreprocessPageResult,
     },
     [OCR_CHANNELS.subscribeProgress]: {

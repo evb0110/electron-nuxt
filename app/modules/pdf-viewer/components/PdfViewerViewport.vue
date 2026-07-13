@@ -2,9 +2,10 @@
     <div
         :id="chassisAuthority ? undefined : 'pdf-viewer'"
         :ref="setViewerContainerElement"
-        class="pdfViewer app-scrollbar"
-        :class="chassisAuthority ? 'contents' : viewerClass"
-        :style="chassisAuthority ? undefined : containerStyle"
+        class="pdf-viewer-page-track"
+        :class="chassisAuthority ? viewerClass : ['pdfViewer app-scrollbar', viewerClass]"
+        :style="containerStyle"
+        data-pdf-page-track
         @scroll.passive="!chassisAuthority && emit('scroll', $event)"
         @wheel="!chassisAuthority && emit('wheel', $event)"
         @mousedown="!chassisAuthority && emit('mousedown', $event)"
@@ -16,29 +17,30 @@
         @contextmenu="!chassisAuthority && emit('contextmenu', $event)"
         @selectstart="!chassisAuthority && emit('selectstart', $event)"
     >
-        <template v-for="segment in virtualPageSegments" :key="segment.key">
+        <template v-for="item in virtualPageItems" :key="item.key">
             <div
-                v-if="segment.spacerBeforeStyle"
+                v-if="item.kind === 'spacer'"
                 class="pdf-viewer-virtual-spacer"
-                :style="segment.spacerBeforeStyle"
+                :style="item.style"
             />
             <PdfViewerPage
-            v-for="page in segment.pages"
-            :key="`${segment.key}:${page}`"
-            :page="page"
-            :show-skeleton="shouldShowSkeleton(page)"
-            :spread-single="isSpreadSingle(page)"
-            :buffered="isBufferedPage(page)"
-            :rendered="isRenderedPage(page)"
-            :shape-overlay-visual-ready="isShapeOverlayVisualReadyPage(page)"
-            :placeholder-style="getPagePlaceholderStyle(page)"
-            :placed-image="pendingImagePlacement?.pageNumber === page ? pendingImagePlacement : null"
-            :placed-image-busy="isPendingImagePlacementFinalizing"
-            @page-container-mounted="emit('page-container-mounted', $event)"
-            @page-container-unmounted="emit('page-container-unmounted', $event)"
-            @update-placed-image-rect="emit('update-placed-image-rect', $event)"
-            @finalize-placed-image="emit('finalize-placed-image')"
-            @cancel-placed-image="emit('cancel-placed-image')"
+                v-else
+                :page="item.page"
+                :show-skeleton="shouldRenderPageSkeleton(item.page)"
+                :render-failed="isPageRenderFailed(item.page)"
+                :render-error-label="pageRenderErrorLabel"
+                :spread-single="isSpreadSingle(item.page)"
+                :buffered="isBufferedPage(item.page)"
+                :rendered="isRenderedPage(item.page)"
+                :shape-overlay-visual-ready="isShapeOverlayVisualReadyPage(item.page)"
+                :placeholder-style="getEffectivePagePlaceholderStyle(item.page)"
+                :placed-image="pendingImagePlacement?.pageNumber === item.page ? pendingImagePlacement : null"
+                :placed-image-busy="isPendingImagePlacementFinalizing"
+                @page-container-mounted="emit('page-container-mounted', $event)"
+                @page-container-unmounted="emit('page-container-unmounted', $event)"
+                @update-placed-image-rect="emit('update-placed-image-rect', $event)"
+                @finalize-placed-image="emit('finalize-placed-image')"
+                @cancel-placed-image="emit('cancel-placed-image')"
             />
         </template>
         <div
@@ -55,6 +57,7 @@ import type {
     StyleValue,
 } from 'vue';
 import PdfViewerPage from '@app/modules/pdf-viewer/components/PdfViewerPage.vue';
+import { flattenPdfVirtualPageSegments } from '@app/modules/pdf-viewer/runtime/composables/flattenPdfVirtualPageSegments';
 import { injectDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
 import type {
     IPdfImagePlacementDraft,
@@ -67,7 +70,13 @@ interface IProps {
     viewerClass: Record<string, boolean>;
     containerStyle: StyleValue;
     virtualPageSegments: IPdfVirtualPageSegment[];
+    initialPageShell?: boolean;
+    initialPageShellPage?: number;
+    openingPageFramePage?: number | null;
+    openingPageFrameStyle?: Record<string, string> | null;
     shouldShowSkeleton: (page: number) => boolean;
+    isPageRenderFailed: (page: number) => boolean;
+    pageRenderErrorLabel: string;
     isSpreadSingle: (page: number) => boolean;
     isBufferedPage: (page: number) => boolean;
     isRenderedPage: (page: number) => boolean;
@@ -83,7 +92,13 @@ const {
     viewerClass,
     containerStyle,
     virtualPageSegments,
+    initialPageShell = false,
+    initialPageShellPage = 1,
+    openingPageFramePage = null,
+    openingPageFrameStyle = null,
     shouldShowSkeleton,
+    isPageRenderFailed,
+    pageRenderErrorLabel,
     isSpreadSingle,
     isBufferedPage,
     isRenderedPage,
@@ -115,6 +130,26 @@ const emit = defineEmits<{
 const chassisAuthority = injectDocumentViewerChassisAuthority();
 let releaseViewportFeature: (() => void) | null = null;
 
+const virtualPageItems = computed(() => {
+    return flattenPdfVirtualPageSegments(virtualPageSegments, {
+        initialPageShell,
+        initialPageShellPage,
+    });
+});
+
+function shouldRenderPageSkeleton(page: number) {
+    // The viewport-session projection is the only presentation authority.
+    // An opening shell remains a frame during the debounce window; it does not
+    // independently force a skeleton before the session delay elapses.
+    return shouldShowSkeleton(page);
+}
+
+function getEffectivePagePlaceholderStyle(page: number) {
+    return page === openingPageFramePage && openingPageFrameStyle
+        ? openingPageFrameStyle
+        : getPagePlaceholderStyle(page);
+}
+
 function setViewerContainerElement(element: Element | ComponentPublicInstance | null) {
     setViewerContainer(chassisAuthority?.viewportElement.value
         ?? (element instanceof HTMLElement ? element : null));
@@ -130,7 +165,9 @@ onMounted(() => {
             'pdfViewer app-scrollbar',
             viewerClass,
         ],
-        getStyle: () => containerStyle,
+        // The chassis owns scrolling only. Page spacing and viewer-specific
+        // inherited variables belong to the physical page track above.
+        getStyle: () => ({}),
         events: {
             scroll: event => emit('scroll', event as Event),
             wheel: event => emit('wheel', event as WheelEvent),

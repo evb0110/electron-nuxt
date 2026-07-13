@@ -8,8 +8,6 @@ import {
 } from 'vitest';
 
 const LOG_LEVEL_STORAGE_KEY = 'evb-viewer:log-level';
-const PDF_NAV_LOG_CONSOLE_STORAGE_KEY = 'evb-viewer:pdf-nav-log-console';
-
 interface IWindowStubOptions {
     logLevel?: string;
     diagnosticWarnAsWarn?: boolean;
@@ -20,16 +18,15 @@ function createWindowStub(options: IWindowStubOptions = {}) {
     const rendererLog = vi.fn();
     const windowStub: Record<string, unknown> = {
         localStorage: {getItem: vi.fn((key: string) => (
-            key === LOG_LEVEL_STORAGE_KEY
-                ? options.logLevel ?? null
-                : key === PDF_NAV_LOG_CONSOLE_STORAGE_KEY && options.pdfNavLogConsole === true
-                    ? '1'
-                    : null
+            key === LOG_LEVEL_STORAGE_KEY ? options.logLevel ?? null : null
         ))},
         electronAPI: {settings: {rendererLog}},
     };
     if (options.diagnosticWarnAsWarn !== undefined) {
         windowStub.__diagnosticWarnAsWarn = options.diagnosticWarnAsWarn;
+    }
+    if (options.pdfNavLogConsole !== undefined) {
+        windowStub.__pdfNavLogConsole = options.pdfNavLogConsole;
     }
     return {
         windowStub,

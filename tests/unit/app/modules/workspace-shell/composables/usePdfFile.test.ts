@@ -286,7 +286,7 @@ describe('usePdfFile', () => {
             const file = createTestPdfFile();
             const outcome = await file.openFile();
 
-            expect(outcome.status).toBe('opened');
+            expect(outcome.status).toBe('prepared');
             expect(file.pendingDjvu.value).toBe('/docs/split-picker.djvu');
             expect(mockDocumentPicker.openDocumentDialog).toHaveBeenCalledOnce();
             expect(mockDocuments.openDocumentDialog).not.toHaveBeenCalled();
@@ -301,7 +301,7 @@ describe('usePdfFile', () => {
             const file = createTestPdfFile();
             const outcome = await file.openFile();
 
-            expect(outcome.status).toBe('opened');
+            expect(outcome.status).toBe('prepared');
             expect(file.pendingDjvu.value).toBe('/docs/scan.djvu');
             expect(file.pdfData.value).toBeNull();
         });
@@ -541,7 +541,7 @@ describe('usePdfFile', () => {
             const file = createTestPdfFile();
             const outcome = await file.openFileDirect('/path/split-direct.djvu');
 
-            expect(outcome.status).toBe('opened');
+            expect(outcome.status).toBe('prepared');
             expect(file.pendingDjvu.value).toBe('/path/split-direct.djvu');
             expect(mockDocumentOpen.openDocumentDirect).toHaveBeenCalledWith('/path/split-direct.djvu');
             expect(mockDocuments.openDocumentDirect).not.toHaveBeenCalled();
@@ -641,7 +641,7 @@ describe('usePdfFile', () => {
             const file = createTestPdfFile();
             const outcome = await file.openFileDirectBatch(['/path/split-batch.djvu']);
 
-            expect(outcome.status).toBe('opened');
+            expect(outcome.status).toBe('prepared');
             expect(file.pendingDjvu.value).toBe('/path/split-batch.djvu');
             expect(mockDocumentOpen.openDocumentDirectBatch).toHaveBeenCalledWith(
                 ['/path/split-batch.djvu'],

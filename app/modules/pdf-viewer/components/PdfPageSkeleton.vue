@@ -115,14 +115,8 @@ const repeatParagraphs = computed(() => {
 .pdf-page-skeleton {
     position: absolute;
     inset: 0;
-    border-radius: var(--app-pdf-page-skeleton-radius);
-    box-shadow: var(--shadow-sm);
-    background:
-        linear-gradient(
-            180deg,
-            color-mix(in oklab, var(--ui-bg) 86%, var(--ui-bg-muted) 14%),
-            color-mix(in oklab, var(--ui-bg) 78%, var(--ui-bg-muted) 22%)
-        );
+    border-radius: inherit;
+    background: inherit;
     display: flex;
     justify-content: center;
     align-items: flex-start;

@@ -18,4 +18,5 @@ describe('requested current-page policy', () => {
     it('does not resubmit an acknowledgement matching the pending target', () => {
         expect(shouldSubmitRequestedCurrentPage(4, 4, 4)).toBe(false);
     });
+
 });

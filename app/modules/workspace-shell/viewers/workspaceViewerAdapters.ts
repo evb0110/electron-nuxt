@@ -12,9 +12,10 @@ import type {
     TWorkspaceViewerAdapterId,
     TWorkspaceViewerDocumentType,
 } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
+import { workspaceViewerChunkLoaders } from '@app/modules/workspace-shell/viewers/workspaceViewerChunkLoaders';
 
 const DocumentViewerChassis = defineAsyncComponent(
-    () => import('@app/modules/workspace-shell/components/DocumentViewerChassis.vue')
+    () => workspaceViewerChunkLoaders.chassis()
         .then(componentModule => componentModule.default),
 ) as Component;
 
@@ -63,18 +64,23 @@ function createDjvuLifecycleHooks(context: IWorkspaceViewerLifecycleContext): IW
         afterOpen: async (outcome, state) => {
             if (
                 didOpenDocument(outcome)
+                && outcome.result.kind === 'pdf'
                 && context.isDjvuMode.value
                 && context.workingCopyPath.value !== state.previousWorkingCopyPath
             ) {
-                await context.cleanupDjvuTemp();
-                context.exitDjvuMode();
+                const activation = context.captureDjvuActivation();
+                if (activation) {
+                    await context.cleanupDjvuTemp(activation);
+                    context.exitDjvuMode(activation);
+                }
             }
         },
         beforeClose: async () => {
             context.invalidatePendingDjvuOpen();
-            if (context.isDjvuMode.value) {
-                await context.cleanupDjvuTemp();
-                context.exitDjvuMode();
+            const activation = context.captureDjvuActivation();
+            if (activation) {
+                await context.cleanupDjvuTemp(activation);
+                context.exitDjvuMode(activation);
             }
         },
     };

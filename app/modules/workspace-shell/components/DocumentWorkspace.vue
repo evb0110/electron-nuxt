@@ -39,14 +39,14 @@
                 @update:current-page="currentPage = $event"
                 @update:ocr-running="isOcrRunning = $event"
                 @open-file="documentControls.handleOpenFileFromUi"
-                @open-settings="handleOpenSettings"
+                @open-settings="workspaceCommandBindings.handleOpenSettings"
                 @save="handleToolbarSave"
                 @repair-save="handleToolbarRepairSave"
                 @optimize-pdf-for-interaction="handleToolbarOptimizePdfForInteraction"
                 @save-as="handleToolbarSaveAs"
                 @print="handlePrint"
                 @print-current-page="handlePrintCurrentPage"
-                @combine-files="handleOpenCombine"
+                @combine-files="workspaceCommandBindings.handleOpenCombine"
                 @export-docx="handleToolbarExportDocx"
                 @ocr-export-docx="handleExportDocx"
                 @export-images="handleExportImages()"
@@ -70,7 +70,7 @@
                 @capture-region="handleToolbarCaptureRegion"
                 @crop="handleToolbarCrop"
                 @quick-note="handleToolbarQuickNote"
-                @toggle-fullscreen="handleToggleFullscreen"
+                @toggle-fullscreen="workspaceCommandBindings.handleToggleFullscreen"
                 @set-view-mode="handleOverflowSetViewMode"
                 @go-to-page="handleGoToPage"
                 @ocr-complete="handleOcrComplete"
@@ -163,23 +163,20 @@
                 />
             </template>
 
-            <!-- The overlay prop is lease-only once a viewer is mounted; the transition slot also serves the pre-viewer fallback path. -->
             <WorkspaceViewerHost
                 :has-document="showWorkspaceViewerDocument"
-                :show-transition-overlay="showWorkspaceTransitionSkeleton"
-                :suppress-empty-state="suppressEmptyState || isDocumentOpenPlaceholderVisible"
+                :keep-document-layout-mounted="suppressEmptyStateProp"
+                :suppress-empty-state="suppressEmptyStateProp || suppressEmptyStateForRestore || isDocumentOpenPlaceholderVisible"
             >
                 <template #document>
                     <component
                         :is="activeViewerComponent"
-                        v-if="activeViewerAdapter"
+                        v-if="mountedViewerAdapter"
                         :ref="bindActiveViewerRef"
                         v-bind="activeViewerProps"
                         v-on="activeViewerListeners"
+                        @feature-pack-ready="emit('viewer-owner-ready', $event)"
                     />
-                </template>
-                <template #transition>
-                    <WorkspaceDocumentTransitionSkeleton v-if="showWorkspaceTransitionSkeleton" />
                 </template>
                 <template #empty>
                     <PdfEmptyState
@@ -190,15 +187,15 @@
                         :start-section="startSection"
                         can-combine-files
                         :open-combine-result="documentControls.handleOpenFileWithResult"
-                        @update:start-section="handleStartSectionUpdate"
+                        @update:start-section="workspaceCommandBindings.handleStartSectionUpdate"
                         @open-file="documentControls.handleOpenFileFromUi"
                         @open-folder="documentControls.handleOpenFolderFromUi"
                         @open-recent="documentControls.openRecentFile"
                         @remove-recent="removeRecentFile"
                         @reveal-recent="revealRecentFile"
                         @clear-recent="clearRecentFiles"
-                        @open-settings="handleOpenSettings"
-                        @combine-files="handleOpenCombine"
+                        @open-settings="workspaceCommandBindings.handleOpenSettings"
+                        @combine-files="workspaceCommandBindings.handleOpenCombine"
                     />
                 </template>
             </WorkspaceViewerHost>
@@ -366,18 +363,13 @@ import { createDeferredWorkspaceSearch } from '@app/modules/workspace-shell/comp
 import { useWorkspaceOrchestration } from '@app/modules/workspace-shell/useWorkspaceOrchestration';
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
-import type { IWorkspaceSplitCacheSessionState } from '@app/modules/workspace-shell/composables/workspaceSplitTypes';
 import { useWorkspaceViewerVisibility } from '@app/modules/workspace-shell/composables/useWorkspaceViewerVisibility';
 import { useDocumentWorkspaceViewerPresentation } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceViewerPresentation';
 import { useDocumentWorkspaceVisualOpeningState } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceVisualOpeningState';
-import { useDocumentTransitionSkeletonLease } from '@app/modules/workspace-shell/composables/useDocumentTransitionSkeletonLease';
+import { useDocumentOpenSurfaceLifecycle } from '@app/modules/workspace-shell/composables/useDocumentOpenSurfaceLifecycle';
 import { useDocumentWorkspaceDocumentRecord } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceDocumentRecord';
 import { useDocumentWorkspacePageOperationHandlers } from '@app/modules/workspace-shell/composables/useDocumentWorkspacePageOperationHandlers';
 import { useWorkspaceHostTeleportAvailability } from '@app/modules/workspace-shell/composables/useWorkspaceHostTeleportAvailability';
-import WorkspaceDocumentTransitionSkeleton from '@app/modules/workspace-shell/components/WorkspaceDocumentTransitionSkeleton.vue';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import type { TStartSection } from '@app/types/startSection';
 import type { IPdfPageMatches } from '@app/types/pdfUi';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type {
@@ -391,20 +383,33 @@ import {
 } from '@app/utils/platformDocuments';
 import { formatEtaDuration } from '@app/utils/progressFormatting';
 import { getErrorMessage } from '@app/utils/error';
-import { getDocumentKindFromPath } from '@app/utils/supportedDocumentPaths';
 import { DESKTOP_EDITOR_READER_COMMAND_SURFACE } from '@app/utils/readerCommandSurface';
 import type { IRecentFile } from '@contracts/shared';
-import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
-import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
-import type { IWorkspaceDocumentSessionController } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
 import { useWorkspaceViewerAdapterBinding } from '@app/modules/workspace-shell/viewers/useWorkspaceViewerAdapterBinding';
-import { emitAutomationEvent } from '@app/modules/workspace-shell/automation/automationReadinessEvents';
+import { createDocumentWorkspaceAutomationHandlers } from '@app/modules/workspace-shell/automation/createDocumentWorkspaceAutomationHandlers';
+import { useDocumentOpenedAutomationEvent } from '@app/modules/workspace-shell/automation/useDocumentOpenedAutomationEvent';
+import { usePendingWorkspaceDocumentOpen } from '@app/modules/workspace-shell/composables/usePendingWorkspaceDocumentOpen';
 import {
     useDjvuProjectionActions,
     useWorkspaceSourceCapabilityProjection,
 } from '@app/modules/workspace-shell/composables/useDjvuProjectionActions';
 import { createWorkspaceViewerUpdateHandlers } from '@app/modules/workspace-shell/viewers/createWorkspaceViewerUpdateHandlers';
+import {
+    documentOpenSurfaceSessionKey,
+    injectDocumentOpenSurfaceSession,
+} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import { getWorkspaceViewerAdapter } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
+import {
+    createDocumentWorkspaceCommandBindings,
+    type IDocumentWorkspaceEmits,
+    type IDocumentWorkspaceProps,
+} from '@app/modules/workspace-shell/composables/createDocumentWorkspaceCommandBindings';
 const DjvuConversionOverlay = defineAsyncComponent(() => import('@app/modules/djvu-viewer/public').then(componentModule => componentModule.DjvuConversionOverlay));
+const documentOpenSurface = injectDocumentOpenSurfaceSession();
+if (!documentOpenSurface) {
+    throw new Error('DocumentWorkspace requires the host-owned document open surface session');
+}
+provide(documentOpenSurfaceSessionKey, documentOpenSurface);
 const {
     fullscreenSupported,
     isActive,
@@ -416,24 +421,11 @@ const {
     initialViewState = null,
     pendingDocumentOpen: pendingDocumentOpenProp = false,
     pendingDocumentPath = null,
+    suppressEmptyState: suppressEmptyStateProp = false,
     splitCacheSession = null,
     startSection = 'recent',
     tabId,
-} = defineProps<{
-    tabId: string;
-    isActive: boolean;
-    isRenderActive?: boolean | undefined;
-    isTabTransitionBusy: boolean;
-    isFullscreen: boolean;
-    fullscreenSupported: boolean;
-    isWorkspaceLayoutResizing?: boolean | undefined;
-    documentSession?: IWorkspaceDocumentSessionController | null | undefined;
-    initialViewState?: ITabViewSessionState | null | undefined;
-    pendingDocumentOpen?: boolean | undefined;
-    pendingDocumentPath?: TDocumentRef | null | undefined;
-    splitCacheSession?: IWorkspaceSplitCacheSessionState | null | undefined;
-    startSection?: TStartSection | undefined;
-}>();
+} = defineProps<IDocumentWorkspaceProps>();
 const {
     canTeleportStatus,
     canTeleportToolbar,
@@ -448,21 +440,8 @@ const canUseDjvu = true;
 const toolbarSurface = DESKTOP_EDITOR_READER_COMMAND_SURFACE;
 const isOcrRunning = ref(false);
 const ocrPopupRef = ref<IOcrPopupAgentExpose | null>(null);
-const emit = defineEmits<{
-    'update-document-record': [record: IWorkspaceDocumentRecord];
-    'update:start-section': [section: TStartSection];
-    'open-in-new-tab': [result: TDocumentRef | TOpenFileResult];
-    'request-close-tab': [];
-    'open-settings': [];
-    'open-combine': [];
-    'toggle-fullscreen': [];
-    'expose-ready': [expose: IWorkspaceExpose];
-    'expose-released': [];
-}>();
-const handleStartSectionUpdate = (section: TStartSection) => emit('update:start-section', section);
-const handleOpenSettings = () => emit('open-settings');
-const handleOpenCombine = () => emit('open-combine');
-const handleToggleFullscreen = () => emit('toggle-fullscreen');
+const emit = defineEmits<IDocumentWorkspaceEmits>();
+const workspaceCommandBindings = createDocumentWorkspaceCommandBindings(emit);
 const { t } = useTypedI18n();
 const analytics = useAnalytics();
 const analyticsDocumentScope = analytics.createDocumentScope(
@@ -481,16 +460,14 @@ const currentPageTransitionHistory = ref<Array<{
     at: number 
 }>>([]);
 const navigationFeedbackPage = ref<number | null>(null);
-const pendingDocumentOpen = computed(() => pendingDocumentOpenProp === true);
-const pendingDocumentStatusPath = computed<TDocumentRef | null>(() => (
-    pendingDocumentOpen.value ? pendingDocumentPath : null
-));
-const pendingDjvuDocumentOpen = computed(() => (
-    pendingDocumentOpen.value
-    && typeof pendingDocumentPath === 'string'
-    && getDocumentKindFromPath(pendingDocumentPath) === 'djvu'
-));
-let latestDocumentOpenedToken: symbol | null = null;
+const {
+    pendingDjvuDocumentOpen,
+    pendingDocumentOpen,
+    pendingDocumentStatusPath,
+} = usePendingWorkspaceDocumentOpen({
+    isPending: () => pendingDocumentOpenProp === true,
+    path: () => pendingDocumentPath,
+});
 const isActiveRef = computed({
     get: () => isActive,
     set: () => {},
@@ -506,7 +483,6 @@ watch(
     },
     { immediate: true },
 );
-
 const documentSourceCapabilities = ref({
     annotations: false,
     directImageExport: false,
@@ -519,6 +495,7 @@ const orchestration = useWorkspaceOrchestration({
     analyticsDocumentScope,
     isActive: isActiveRef,
     initialViewState,
+    openSurface: documentOpenSurface,
     pendingDocumentPath: pendingDocumentStatusPath,
     sourceCapabilities: documentSourceCapabilities,
     emit,
@@ -546,9 +523,10 @@ const {
     pdfRasterDisplayProfile,
     pdfError,
     workingCopyPath,
+    originalPath,
+    requiresSaveAsOnFirstSave,
     documentRevisionInfo,
     documentRevisionToken,
-    originalPath,
     isDjvuMode,
     djvuSourcePath,
     conversionState,
@@ -629,9 +607,7 @@ const isExternalWorkspaceLayoutResizingRef = toRef(() => isExternalWorkspaceLayo
 const isActiveViewerLayoutResizing = computed(() => (
     isResizingSidebar.value || isExternalWorkspaceLayoutResizingRef.value
 ));
-
 const { appSettings } = workspaceSettings;
-
 const {
     exportOverlay,
     exportScopeDialogOpen,
@@ -799,7 +775,7 @@ const viewerSourcePdfData = computed(() => pdfData.value);
 const {
     hasQueuedSplitRestore,
     isExternallyRestoring,
-    suppressEmptyState,
+    suppressEmptyState: suppressEmptyStateForRestore,
 } = useDocumentWorkspaceSplitRestore({
     tabId: tabId,
     pendingDocumentOpen,
@@ -856,10 +832,26 @@ const {
     isOcrRunning,
     isRestoringSplitPayload,
     pendingDocumentOpen,
+    pendingDocumentPath: pendingDocumentStatusPath,
+    pendingDocumentSize: computed(() => (
+        documentOpenSurface.snapshot.value.openingPageGeometry?.size ?? null
+    )),
     pdfSrc,
     showSidebar,
 });
+watch(activeViewerAdapter, (adapter) => {
+    if (!adapter) {
+        currentPage.value = 1;
+        totalPages.value = 0;
+        isLoading.value = false;
+    }
+});
 useWorkspaceSourceCapabilityProjection(activeViewerAdapter, documentSourceCapabilities);
+// Keep the actual PDF chassis and feature pack mounted under the empty state.
+// Opening a PDF then changes presentation and data, not component ownership.
+const mountedViewerAdapter = computed(() => (
+    activeViewerAdapter.value ?? getWorkspaceViewerAdapter('pdf')
+));
 
 const {
     scheduleStartupOpenVisualReady,
@@ -884,18 +876,31 @@ const {
     djvuError,
     showDjvuSource,
     showNativePdfViewer,
+    openSurface: documentOpenSurface,
     markAnnotationCommentsLoading,
 });
 const {
     handleDocumentInitialVisualPending,
     handleDocumentInitialVisualReady,
-    showDocumentTransitionSkeleton,
-} = useDocumentTransitionSkeletonLease({
-    djvuError,
+} = useDocumentOpenSurfaceLifecycle({
+    openSurface: documentOpenSurface,
     onInitialVisualPending: handlePdfInitialVisualPending,
     onInitialVisualReady: handlePdfInitialVisualReady,
     pendingDocumentOpen,
-    pdfError,
+    pendingDocumentIdentity: computed(() => String(pendingDocumentPath ?? tabId)),
+});
+const {
+    handleInitialVisualReady: handleDocumentInitialVisualReadyWithAutomationEvent,
+    handleSave: handleSaveWithAutomationEvent,
+} = createDocumentWorkspaceAutomationHandlers({
+    getContext: () => ({
+        currentPage: currentPage.value,
+        path: originalPath.value ?? workingCopyPath.value,
+        tabId,
+        totalPages: totalPages.value,
+    }),
+    handleInitialVisualReady: handleDocumentInitialVisualReady,
+    handleSave,
 });
 const {
     handleCurrentPage: handleViewerCurrentPageUpdate,
@@ -923,9 +928,11 @@ const {
     activeViewerListeners,
     bindActiveViewerRef,
 } = useWorkspaceViewerAdapterBinding({
-    activeViewerAdapter,
+    activeViewerAdapter: mountedViewerAdapter,
     onSourceCapabilitiesUpdate: (capabilities) => {
-        documentSourceCapabilities.value = capabilities;
+        if (activeViewerAdapter.value) {
+            documentSourceCapabilities.value = capabilities;
+        }
     },
     annotationCursorMode,
     annotationKeepActive,
@@ -947,6 +954,7 @@ const {
     pdfReloadSrc,
     pdfRasterDisplayProfile,
     pdfSrc,
+    pendingDocumentPath: pendingDocumentStatusPath,
     pdfViewerRef,
     nativePdfViewerRef,
     djvuViewerRef,
@@ -954,6 +962,7 @@ const {
     showSidebar,
     viewMode,
     workingCopyPath,
+    originalPath,
     documentRevisionToken,
     zoom,
     zoomMode,
@@ -978,7 +987,11 @@ const {
     onLoading: value => { isLoading.value = value; },
     onNavigationFeedbackPageUpdate: value => { navigationFeedbackPage.value = value; },
     onShapeContextMenu: annotationSession.handleShapeContextMenu,
-    onTotalPagesUpdate: handleViewerTotalPagesUpdate,
+    onTotalPagesUpdate: (value) => {
+        if (activeViewerAdapter.value || value === 0) {
+            handleViewerTotalPagesUpdate(value);
+        }
+    },
     onZoomModeUpdate: value => { zoomMode.value = value; },
     onZoomUpdate: value => { zoom.value = value; },
 });
@@ -1012,8 +1025,7 @@ const {
 const {
     djvuBannerOpening,
     showDjvuConversionUi,
-    showWorkspaceTransitionSkeleton,
-    showWorkspaceViewerDocument,
+    showWorkspaceViewerDocument: showWorkspaceViewerDocumentFromAdapter,
 } = useDocumentWorkspaceViewerPresentation({
     activeViewerAdapter,
     activeViewerCapabilities: computed(() => activeViewerCapabilities.value ?? null),
@@ -1030,10 +1042,17 @@ const {
     pdfError,
     pdfSrc,
     pendingDjvuDocumentOpen,
-    showDocumentTransitionSkeleton,
     showDjvuSource,
     showNativePdfViewer,
     showStandardPdfViewer,
+});
+const showWorkspaceViewerDocument = computed(() => {
+    const phase = documentOpenSurface.snapshot.value.phase;
+    return showWorkspaceViewerDocumentFromAdapter.value
+        || phase === 'pending'
+        || phase === 'geometry-committed'
+        || phase === 'canvas-committed'
+        || phase === 'viewport-committed';
 });
 const {
     handleOptimizeDialogOpenChange,
@@ -1138,6 +1157,7 @@ const {
 });
 const workspaceToolbarSnapshot = computed<IWorkspaceToolbarSnapshot>(() => ({
     hasPdf: toolbarHasPdf.value,
+    initialVisualReady: initialDocumentVisualReady.value,
     viewerCapabilities: activeViewerCapabilities.value ?? createDefaultWorkspaceViewerCapabilities(),
     isOpeningDocument: isOpeningDocumentForToolbarDisplay.value,
     hasOpenError: Boolean(pdfError.value) || Boolean(djvuError.value),
@@ -1206,27 +1226,6 @@ const {
     selectedThumbnailPages,
     totalPages,
 });
-
-function handleDocumentInitialVisualReadyWithAutomationEvent() {
-    handleDocumentInitialVisualReady();
-    emitAutomationEvent('first-page-rendered', {
-        currentPage: currentPage.value,
-        path: originalPath.value ?? workingCopyPath.value,
-        tabId,
-        totalPages: totalPages.value,
-    });
-}
-
-async function handleSaveWithAutomationEvent() {
-    const saved = await handleSave();
-    if (saved) {
-        emitAutomationEvent('save-committed', {
-            path: originalPath.value ?? workingCopyPath.value,
-            tabId,
-        });
-    }
-    return saved;
-}
 watch(pdfSrc, (src) => {
     navigationFeedbackPage.value = null;
     if (src) {
@@ -1235,6 +1234,10 @@ watch(pdfSrc, (src) => {
     }
 });
 function handlePdfViewerLoadError(error: unknown) {
+    if (error === null || error === undefined) {
+        pdfError.value = null;
+        return;
+    }
     const message = getErrorMessage(error).trim();
     pdfError.value = message || t('errors.file.open');
 }
@@ -1244,33 +1247,13 @@ watch(showNativePreviewViewer, (visible) => {
         scheduleStartupOpenVisualReady(showNativePdfViewer.value ? 'native-pdf-src' : 'djvu-src');
     }
 });
-watch([
-    workingCopyPath,
+useDocumentOpenedAutomationEvent({
+    currentPage,
     originalPath,
-], ([
-    nextWorkingCopyPath,
-    nextOriginalPath,
-]) => {
-    const documentPath = nextOriginalPath ?? nextWorkingCopyPath;
-    if (!documentPath) {
-        return;
-    }
-
-    const openToken = Symbol('document-opened');
-    latestDocumentOpenedToken = openToken;
-    void waitForDocumentOpenSettled()
-        .then(() => {
-            if (latestDocumentOpenedToken !== openToken) {
-                return;
-            }
-            emitAutomationEvent('document-opened', {
-                currentPage: currentPage.value,
-                path: documentPath,
-                tabId,
-                totalPages: totalPages.value,
-            });
-        })
-        .catch(() => {});
+    tabId,
+    totalPages,
+    waitForDocumentOpenSettled,
+    workingCopyPath,
 });
 watch([
     pdfError,
@@ -1438,6 +1421,7 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     handleExportImages,
     handleExportMultiPageTiff,
     hasPdf,
+    initialVisualReady: initialDocumentVisualReady,
     isOpeningDocument: isOpeningDocumentForToolbarDisplay,
     hasOpenError: computed(() => Boolean(pdfError.value) || Boolean(djvuError.value)),
     isPreparingPrint,
@@ -1499,6 +1483,7 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     readAgentResource,
     workingCopyPath,
     originalPath,
+    requiresSaveAsOnFirstSave,
     annotationComments,
     annotationCommentsStatus,
     annotationDirty,
@@ -1514,9 +1499,7 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     sortedAnnotationNoteWindows,
     handleOcrComplete: payload => handleOcrComplete(payload as Parameters<typeof handleOcrComplete>[0]),
 });
-
 let unsubscribeOptimizeProgress: (() => void) | null = null;
-
 onMounted(() => {
     unsubscribeOptimizeProgress = getDocumentMenuCapability().onPdfOptimizeProgress?.((progress) => {
         handleOptimizeProgress(progress);

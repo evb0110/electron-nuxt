@@ -1,7 +1,7 @@
 import type { Ref } from 'vue';
 import { BrowserLogger } from '@app/utils/browserLogger';
-
-const DOCUMENT_OPEN_VISUAL_SETTLE_TIMEOUT_MS = 4_000;
+import { DEFERRED_WORKSPACE_HOST_POLICY } from '@app/modules/workspace-shell/host/deferredWorkspaceHostPolicy';
+import type {IDocumentOpenSurfaceSession} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 
 interface IUseDocumentOpenVisualSettleOptions {
     tabId: string;
@@ -15,6 +15,7 @@ interface IUseDocumentOpenVisualSettleOptions {
     djvuError: Ref<unknown>;
     showDjvuSource: Ref<boolean>;
     showNativePdfViewer?: Ref<boolean>;
+    openSurface?: Pick<IDocumentOpenSurfaceSession, 'snapshot'>;
     markAnnotationCommentsLoading: () => void;
 }
 
@@ -22,6 +23,8 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
     const initialDocumentVisualReady = ref(false);
     let documentOpenVisualSettlePromise: Promise<void> | null = null;
     let resolveDocumentOpenVisualSettlePromise: (() => void) | null = null;
+    let documentOpenAcceptedPromise: Promise<void> | null = null;
+    let resolveDocumentOpenAcceptedPromise: (() => void) | null = null;
 
     function ensureDocumentOpenVisualSettlePromise() {
         documentOpenVisualSettlePromise ??= new Promise<void>((resolve) => {
@@ -35,6 +38,20 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
         resolveDocumentOpenVisualSettlePromise?.();
         documentOpenVisualSettlePromise = null;
         resolveDocumentOpenVisualSettlePromise = null;
+    }
+
+    function ensureDocumentOpenAcceptedPromise() {
+        documentOpenAcceptedPromise ??= new Promise<void>((resolve) => {
+            resolveDocumentOpenAcceptedPromise = resolve;
+        });
+
+        return documentOpenAcceptedPromise;
+    }
+
+    function resolveDocumentOpenAccepted() {
+        resolveDocumentOpenAcceptedPromise?.();
+        documentOpenAcceptedPromise = null;
+        resolveDocumentOpenAcceptedPromise = null;
     }
 
     function resetDocumentOpenVisualSettleWaiter() {
@@ -57,13 +74,35 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
             options.pdfSrc.value
             && options.pdfDocument.value
             && options.totalPages.value > 0
-            && options.pageLabelsResolved.value
             && !options.isLoading.value
             && initialDocumentVisualReady.value,
         );
     }
 
+    function hasAcceptedDocumentOpenState() {
+        if (options.pdfError.value || options.djvuError.value) {
+            return true;
+        }
+
+        if (options.showDjvuSource.value || options.showNativePdfViewer?.value) {
+            return Boolean(
+                !options.isLoading.value
+                && options.totalPages.value > 0,
+            );
+        }
+
+        return Boolean(
+            options.pdfSrc.value
+            && options.pdfDocument.value
+            && options.totalPages.value > 0
+            && !options.isLoading.value,
+        );
+    }
+
     function resolveDocumentOpenVisualSettleIfReady() {
+        if (hasAcceptedDocumentOpenState()) {
+            resolveDocumentOpenAccepted();
+        }
         if (hasSettledDocumentOpenVisualState()) {
             resolveDocumentOpenVisualSettle();
         }
@@ -85,7 +124,7 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
             timeoutId = setTimeout(() => {
                 timeoutId = null;
                 resolve('timeout');
-            }, DOCUMENT_OPEN_VISUAL_SETTLE_TIMEOUT_MS);
+            }, DEFERRED_WORKSPACE_HOST_POLICY.DOCUMENT_OPEN_SETTLE_TIMEOUT_MS);
         });
 
         return {
@@ -99,23 +138,31 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
         };
     }
 
-    async function waitForDocumentOpenSettled() {
+    async function waitForDocumentOpenSettled(waitOptions?: { acceptDocumentWithoutVisual?: boolean }) {
         await nextTick();
         resolveDocumentOpenVisualSettleIfReady();
-        if (hasSettledDocumentOpenVisualState()) {
+        const acceptDocumentWithoutVisual = waitOptions?.acceptDocumentWithoutVisual === true;
+        const hasRequiredState = () => acceptDocumentWithoutVisual
+            ? hasAcceptedDocumentOpenState()
+            : hasSettledDocumentOpenVisualState();
+        if (hasRequiredState()) {
             return;
         }
 
         const timeout = createDocumentOpenVisualSettleTimeout();
         const settleResult = await Promise.race([
-            ensureDocumentOpenVisualSettlePromise().then(() => 'settled' as const),
+            (
+                acceptDocumentWithoutVisual
+                    ? ensureDocumentOpenAcceptedPromise()
+                    : ensureDocumentOpenVisualSettlePromise()
+            ).then(() => 'settled' as const),
             timeout.promise,
         ]).finally(() => {
             timeout.cancel();
         });
         await nextTick();
 
-        if (hasSettledDocumentOpenVisualState()) {
+        if (hasRequiredState()) {
             return;
         }
 
@@ -124,6 +171,7 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
         }
 
         const error = new Error('Document open visual settle timed out');
+        const openSurface = options.openSurface?.snapshot.value;
         BrowserLogger.warn('recent-open', error.message, {
             tabId: options.tabId,
             hasPdf: options.hasPdf.value,
@@ -136,6 +184,25 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
             showNativePdfViewer: options.showNativePdfViewer?.value ?? false,
             hasPdfError: Boolean(options.pdfError.value),
             hasDjvuError: Boolean(options.djvuError.value),
+            initialVisualReady: initialDocumentVisualReady.value,
+            openSurface: openSurface ? {
+                generation: openSurface.generation,
+                phase: openSurface.phase,
+                presentation: openSurface.presentation,
+                committedRender: openSurface.committedRender ? {
+                    pageNumber: openSurface.committedRender.pageNumber,
+                    documentRevision: openSurface.committedRender.documentRevision,
+                    renderVersion: openSurface.committedRender.renderVersion,
+                    requestId: openSurface.committedRender.requestId,
+                } : null,
+                committedViewport: openSurface.committedViewport ? {
+                    pageNumber: openSurface.committedViewport.pageNumber,
+                    documentRevision: openSurface.committedViewport.documentRevision,
+                    viewportIntentId: openSurface.committedViewport.viewportIntentId,
+                    documentGeometryRevision: openSurface.committedViewport.documentGeometryRevision,
+                    interactionEpoch: openSurface.committedViewport.interactionEpoch,
+                } : null,
+            } : null,
         });
         throw error;
     }

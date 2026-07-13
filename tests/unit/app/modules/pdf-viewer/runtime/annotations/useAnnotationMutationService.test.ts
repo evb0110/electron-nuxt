@@ -246,6 +246,29 @@ describe('useAnnotationMutationService', () => {
         })]);
     });
 
+    it('captures canonical identity before PDF.js deletion invalidates the projection', async () => {
+        const comment = createComment();
+        const annotationId = asAnnotationId('annotation-before-delete');
+        let projectionAvailable = true;
+        const options = createOptions({
+            resolveCanonicalAnnotationId: vi.fn(() => projectionAvailable ? annotationId : null),
+            deleteAnnotationComment: vi.fn(async () => {
+                projectionAvailable = false;
+                return true;
+            }),
+            deleteCanonicalAnnotation: vi.fn(),
+        });
+        const service = useAnnotationMutationService(options);
+
+        await expect(service.deleteAnnotation(
+            {comment},
+            {source: 'user'},
+        )).resolves.toBe(true);
+
+        expect(options.resolveCanonicalAnnotationId).toHaveBeenCalledTimes(1);
+        expect(options.deleteCanonicalAnnotation).toHaveBeenCalledWith(annotationId);
+    });
+
     it('updates moved note marker editor anchors before dirtying the viewer', () => {
         const comment = createComment({ pageIndex: 2 });
         const markerRect = createMarkerRect();

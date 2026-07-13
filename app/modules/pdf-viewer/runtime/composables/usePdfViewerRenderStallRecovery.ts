@@ -37,12 +37,7 @@ interface IUsePdfViewerRenderStallRecoveryOptions {
     transactionController?: unknown;
 }
 
-/**
- * A render heartbeat circuit breaker, not a second recovery scheduler.
- * The render supervisor owns heartbeat detection. This boundary only aborts a
- * stalled job, marks its page invalid, and emits telemetry; normal slot demand
- * decides if/when a successor render is admitted.
- */
+/** A bounded heartbeat recovery boundary for a page render that stopped making progress. */
 export const usePdfViewerRenderStallRecovery = (options: IUsePdfViewerRenderStallRecoveryOptions) => {
     let pendingInvalidation: number[] | null = null;
     const trippedPages = new Set<number>();
@@ -84,6 +79,23 @@ export const usePdfViewerRenderStallRecovery = (options: IUsePdfViewerRenderStal
             currentPage: options.currentPage.value,
             visibleRange: options.visibleRange.value,
             viewer: options.summarizeViewerMetricsForLog(options.viewerContainer.value),
+        });
+        const range = {
+            start: page,
+            end: page,
+        };
+        void options.renderVisiblePages(range, {
+            preserveRenderedPages: true,
+            forceRerender: true,
+            bufferOverride: 0,
+        }).then(() => {
+            trippedPages.delete(page);
+        }).catch((error: unknown) => {
+            BrowserLogger.warn('pdf-renderer', 'PDF render heartbeat recovery failed; reloading source', {
+                page,
+                error: error instanceof Error ? error.message : String(error),
+            });
+            options.scheduleReload(true);
         });
     }
 

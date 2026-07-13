@@ -1,25 +1,28 @@
 <template>
     <div class="workspace-viewer-host">
-        <template v-if="hasDocument">
+        <div
+            v-show="documentLayoutVisible"
+            class="workspace-viewer-host__document"
+            :aria-hidden="!hasDocument ? 'true' : undefined"
+        >
             <slot name="document" />
-            <div
-                v-if="showTransitionOverlay"
-                class="workspace-viewer-host__transition-overlay"
-            >
-                <slot name="transition" />
-            </div>
-        </template>
-        <slot v-else-if="suppressEmptyState" name="transition" />
-        <slot v-else name="empty" />
+        </div>
+        <slot v-if="!hasDocument && !suppressEmptyState" name="empty" />
     </div>
 </template>
 
 <script setup lang="ts">
-defineProps<{
+import { shouldKeepWorkspaceDocumentLayoutVisible } from '@app/modules/workspace-shell/host/shouldKeepWorkspaceDocumentLayoutVisible';
+
+const props = defineProps<{
     hasDocument: boolean;
-    showTransitionOverlay?: boolean | undefined;
+    keepDocumentLayoutMounted?: boolean;
     suppressEmptyState: boolean;
 }>();
+const documentLayoutVisible = computed(() => shouldKeepWorkspaceDocumentLayoutVisible({
+    hasDocument: props.hasDocument,
+    keepDocumentLayoutMounted: props.keepDocumentLayoutMounted === true,
+}));
 </script>
 
 <style scoped>
@@ -29,10 +32,9 @@ defineProps<{
     height: 100%;
 }
 
-.workspace-viewer-host__transition-overlay {
-    position: absolute;
-    inset: 0;
-    z-index: var(--app-workspace-transition-overlay-z-index);
-    pointer-events: auto;
+.workspace-viewer-host__document {
+    width: 100%;
+    height: 100%;
 }
+
 </style>

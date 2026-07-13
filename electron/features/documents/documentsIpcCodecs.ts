@@ -359,6 +359,7 @@ function decodeRecentFile(value: unknown): IRecentFile {
         || !isFiniteNumber(value.timestamp)
         || (value.backend !== undefined && value.backend !== 'electron' && value.backend !== 'browser')
         || (value.fileSize !== undefined && (!isFiniteNumber(value.fileSize) || value.fileSize < 0))
+        || (value.modifiedAt !== undefined && (!Number.isSafeInteger(value.modifiedAt) || Number(value.modifiedAt) < 0))
     ) {
         throw new Error('invalid recent file');
     }
@@ -368,6 +369,7 @@ function decodeRecentFile(value: unknown): IRecentFile {
         timestamp: value.timestamp,
         ...(value.backend === undefined ? {} : {backend: value.backend}),
         ...(value.fileSize === undefined ? {} : {fileSize: value.fileSize}),
+        ...(value.modifiedAt === undefined ? {} : {modifiedAt: Number(value.modifiedAt)}),
     };
 }
 
@@ -395,11 +397,15 @@ function decodeOpenFileResult(value: unknown): TOpenFileResult | null {
     ) {
         throw new Error('invalid PDF open-file result');
     }
+    const openingGeometry = value.openingGeometry === undefined
+        ? undefined
+        : decodeOpeningGeometryResult(value.openingGeometry);
     return {
         kind: 'pdf',
         workingPath: value.workingPath,
         originalPath: value.originalPath,
         ...(value.isGenerated === undefined ? {} : {isGenerated: value.isGenerated}),
+        ...(openingGeometry === undefined ? {} : {openingGeometry}),
     };
 }
 
@@ -443,6 +449,43 @@ function decodePageSizesResult(value: unknown) {
             height: item.height,
         };
     });
+}
+
+function decodeOpeningGeometryResult(value: unknown) {
+    if (
+        !isRecord(value)
+        || value.pageNumber !== 1
+        || typeof value.pageCount !== 'number'
+        || !Number.isSafeInteger(value.pageCount)
+        || value.pageCount < 1
+        || !isFiniteNumber(value.width)
+        || value.width <= 0
+        || !isFiniteNumber(value.height)
+        || value.height <= 0
+        || ![
+            0,
+            90,
+            180,
+            270,
+        ].includes(value.rotation as number)
+        || typeof value.size !== 'number'
+        || !Number.isSafeInteger(value.size)
+        || value.size < 0
+        || typeof value.modifiedAt !== 'number'
+        || !Number.isSafeInteger(value.modifiedAt)
+        || value.modifiedAt < 0
+    ) {
+        throw new Error('invalid PDF opening geometry result');
+    }
+    return {
+        pageNumber: 1 as const,
+        pageCount: value.pageCount,
+        width: value.width,
+        height: value.height,
+        rotation: value.rotation as 0 | 90 | 180 | 270,
+        size: value.size,
+        modifiedAt: value.modifiedAt,
+    };
 }
 
 function decodePagePreviewResult(value: unknown) {
@@ -493,11 +536,15 @@ function decodeRevisionOptions(value: unknown): IPdfSerializedSaveOptions | unde
     )) {
         throw new Error('invalid changed PDF object references');
     }
+    if (decoded.workingCopyOnly !== undefined && decoded.workingCopyOnly !== true) {
+        throw new Error('invalid working-copy-only PDF staging option');
+    }
     return {
         expectedDocumentRevisionToken: decoded.expectedDocumentRevisionToken,
         ...(decoded.changedObjectRefs?.length
             ? {changedObjectRefs: [...new Set(decoded.changedObjectRefs)]}
             : {}),
+        ...(decoded.workingCopyOnly === true ? {workingCopyOnly: true as const} : {}),
     };
 }
 
@@ -681,7 +728,20 @@ export const DOCUMENTS_IPC_CODECS = {
         decodeArgs: (args: readonly unknown[]) => [decodeStringArg(args, 0, 'path')],
         decodeResult: (value: unknown) => {
             if (!isRecord(value) || typeof value.size !== 'number' || !Number.isSafeInteger(value.size) || value.size < 0) throw new Error('invalid file stat');
-            return {size: value.size};
+            if (
+                value.modifiedAt !== undefined
+                && (
+                    typeof value.modifiedAt !== 'number'
+                    || !Number.isSafeInteger(value.modifiedAt)
+                    || value.modifiedAt < 0
+                )
+            ) {
+                throw new Error('invalid file modification time');
+            }
+            return {
+                size: value.size,
+                ...(value.modifiedAt === undefined ? {} : {modifiedAt: value.modifiedAt}),
+            };
         },
     },
     [DOCUMENTS_CHANNELS.fileReadRange]: {
@@ -703,6 +763,10 @@ export const DOCUMENTS_IPC_CODECS = {
     [DOCUMENTS_CHANNELS.fileReleaseManagedHandle]: {
         decodeArgs: (args: readonly unknown[]) => [decodeStringArg(args, 0, 'leaseId')],
         decodeResult: decodeBooleanResult,
+    },
+    [DOCUMENTS_CHANNELS.pdfOpeningGeometry]: {
+        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(args, 0, 'path')],
+        decodeResult: decodeOpeningGeometryResult,
     },
     [DOCUMENTS_CHANNELS.pdfNativePageSizes]: {
         decodeArgs: (args: readonly unknown[]) => [decodeStringArg(args, 0, 'path')],

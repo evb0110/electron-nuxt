@@ -24,6 +24,44 @@ function getPdfJsAnnotationStorage(document: PDFDocumentProxy | null | undefined
     return document?.annotationStorage;
 }
 
+/**
+ * PDF.js serializes new editors in AnnotationStorage map insertion order, then
+ * preserves that per-page order while allocating and appending annotation refs.
+ * Capture the editor keys before saveDocument so post-save identity binding can
+ * correlate canonical editor UIDs to refs without geometry matching.
+ */
+export function collectNewPdfJsAnnotationStorageEditorOrder(
+    document: PDFDocumentProxy | null | undefined,
+) {
+    const storage = getPdfJsAnnotationStorage(document);
+    if (!storage || typeof storage !== 'object') {
+        return [];
+    }
+    const serializable = Reflect.get(storage, 'serializable') as unknown;
+    if (!isRecord(serializable)) {
+        return [];
+    }
+    const map = serializable.map;
+    if (!(map instanceof Map)) {
+        return [];
+    }
+    return [...map.entries()].flatMap(([
+        key,
+        value,
+    ]) => {
+        if (
+            typeof key !== 'string'
+            || !key.startsWith('pdfjs_internal_editor_')
+            || !isRecord(value)
+            || value.deleted === true
+            || getExistingPdfAnnotationIdFromStorageValue(value)
+        ) {
+            return [];
+        }
+        return [key];
+    });
+}
+
 function callPdfJsAnnotationStorageResetMethod(
     document: PDFDocumentProxy | null | undefined,
     method: TAnnotationStorageResetMethod,

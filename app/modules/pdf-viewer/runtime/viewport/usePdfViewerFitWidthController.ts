@@ -36,7 +36,6 @@ interface IUsePdfViewerFitWidthControllerOptions {
     reRenderAllVisiblePages: (
         getRange: () => IPageRange,
         options: {
-            preserveExistingPages?: boolean;
             rerenderSource?: TPdfRerenderSource;
             renderBufferOverride?: number;
         },
@@ -60,7 +59,6 @@ export const usePdfViewerFitWidthController = (options: IUsePdfViewerFitWidthCon
         await options.reRenderAllVisiblePages(
             () => ({ ...options.visibleRange.value }),
             {
-                preserveExistingPages: true,
                 rerenderSource: PDF_RERENDER_SOURCE.FitWidthExplicit,
                 renderBufferOverride: 0,
             },

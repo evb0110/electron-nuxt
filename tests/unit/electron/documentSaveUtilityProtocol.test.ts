@@ -39,6 +39,23 @@ describe('document save utility protocol', () => {
         });
     });
 
+    it('accepts a bounded inspection request without a target path', () => {
+        expect(decodeDocumentSaveUtilityRequest({
+            type: 'inspect',
+            sourcePath: '/tmp/document.pdf',
+            expectedBytes: 123,
+        })).toEqual({
+            type: 'inspect',
+            sourcePath: '/tmp/document.pdf',
+            expectedBytes: 123,
+        });
+        expect(decodeDocumentSaveUtilityRequest({
+            type: 'inspect',
+            sourcePath: 'document.pdf',
+            expectedBytes: 123,
+        })).toBeNull();
+    });
+
     it.each([
         {
             sourcePath: 'relative.tmp',

@@ -14,6 +14,7 @@ import {
     decodeBooleanResult,
     decodeNoArgs,
     decodeUndefinedResult,
+    requireIpcArgumentCount,
 } from '@electron/platform-ipc/ipcCodecValidation';
 
 function decodeSearchResponse(value: unknown) {
@@ -33,15 +34,25 @@ function decodeCancelResult(value: unknown) {
 
 export const SEARCH_IPC_CODECS = {
     [SEARCH_CHANNELS.search]: {
-        decodeArgs: (args: readonly unknown[]) => [normalizePdfSearchRequestPayload(args[0])],
+        decodeArgs: (args: readonly unknown[]) => {
+            requireIpcArgumentCount(args, 1);
+            return [normalizePdfSearchRequestPayload(args[0])];
+        },
         decodeResult: decodeSearchResponse,
     },
     [SEARCH_CHANNELS.warmIndex]: {
-        decodeArgs: (args: readonly unknown[]) => [normalizePdfSearchWarmIndexPayload(args[0])],
+        decodeArgs: (args: readonly unknown[]) => {
+            requireIpcArgumentCount(args, 1);
+            return [normalizePdfSearchWarmIndexPayload(args[0])];
+        },
         decodeResult: decodeBooleanResult,
     },
     [SEARCH_CHANNELS.cancel]: {
         decodeArgs: (args: readonly unknown[]) => {
+            requireIpcArgumentCount(args, {
+                min: 0,
+                max: 1,
+            });
             const requestId = normalizeOptionalSearchRequestId(args[0]);
             return requestId === undefined ? [] : [requestId];
         },

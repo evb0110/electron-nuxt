@@ -37,6 +37,8 @@ interface IAnnotationNoteWindowRuntime {
     createdAtMs: number;
 }
 
+const ANNOTATION_NOTE_DISAPPEARANCE_GRACE_MS = 5_000;
+
 export interface IAnnotationNoteWindowDeps {
     annotationComments: Ref<IAnnotationCommentSummary[]>;
     markAnnotationDirty: () => void;
@@ -57,6 +59,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
     const states = ref<IAnnotationNoteWindowState[]>([]);
     const runtime = new Map<AnnotationId, IAnnotationNoteWindowRuntime>();
     const timers = new Map<AnnotationId, ReturnType<typeof setTimeout>>();
+    const disappearanceTimers = new Map<AnnotationId, ReturnType<typeof setTimeout>>();
     let nextOrder = 0;
 
     function stateById(annotationId: string) {
@@ -284,6 +287,48 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         timers.delete(id);
     }
 
+    function clearDisappearanceTimer(id: AnnotationId) {
+        const timer = disappearanceTimers.get(id);
+        if (timer !== undefined) clearTimeout(timer);
+        disappearanceTimers.delete(id);
+    }
+
+    function removeIfStillMissing(id: AnnotationId) {
+        const metadata = runtime.get(id);
+        if (
+            !metadata
+            || metadata.dirty
+            || deps.annotationComments.value.some(comment => (
+                isNoteEligibleComment(comment) && commandId(comment) === id
+            ))
+        ) {
+            return;
+        }
+        removeAnnotationNoteWindow(id);
+    }
+
+    function scheduleRemovalAfterProjectionGap(id: AnnotationId) {
+        if (disappearanceTimers.has(id)) {
+            return;
+        }
+        const metadata = runtime.get(id);
+        if (!metadata) {
+            return;
+        }
+        const remainingGraceMs = Math.max(
+            0,
+            ANNOTATION_NOTE_DISAPPEARANCE_GRACE_MS - (Date.now() - metadata.createdAtMs),
+        );
+        if (remainingGraceMs === 0) {
+            removeIfStillMissing(id);
+            return;
+        }
+        disappearanceTimers.set(id, setTimeout(() => {
+            disappearanceTimers.delete(id);
+            removeIfStillMissing(id);
+        }, remainingGraceMs));
+    }
+
     function schedulePersist(id: AnnotationId) {
         clearTimer(id);
         timers.set(id, setTimeout(() => {
@@ -368,6 +413,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         states.value = states.value.filter(state => state.annotationId !== id);
         runtime.delete(id);
         clearTimer(id);
+        clearDisappearanceTimer(id);
     }
 
     function closeAnnotationNote(value: string, options: {saveIfDirty?: boolean} = {}) {
@@ -383,7 +429,8 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             return false;
         }
         timers.forEach(timer => clearTimeout(timer));
-        timers.clear(); runtime.clear(); states.value = [];
+        disappearanceTimers.forEach(timer => clearTimeout(timer));
+        timers.clear(); disappearanceTimers.clear(); runtime.clear(); states.value = [];
         return true;
     }
 
@@ -415,16 +462,20 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             metadata.subtype = comment.subtype ?? null;
             metadata.source = comment.source;
             metadata.hasNote = comment.hasNote === true;
+            clearDisappearanceTimer(id);
         });
         states.value.filter(state => !ids.has(asAnnotationId(state.annotationId))).forEach((state) => {
             const metadata = runtime.get(asAnnotationId(state.annotationId));
-            if (metadata && !metadata.dirty && Date.now() - metadata.createdAtMs >= 5_000) {
-                removeAnnotationNoteWindow(state.annotationId);
+            if (metadata && !metadata.dirty) {
+                scheduleRemovalAfterProjectionGap(asAnnotationId(state.annotationId));
             }
         });
     });
 
-    tryOnScopeDispose(() => timers.forEach(timer => clearTimeout(timer)));
+    tryOnScopeDispose(() => {
+        timers.forEach(timer => clearTimeout(timer));
+        disappearanceTimers.forEach(timer => clearTimeout(timer));
+    });
 
     return {
         annotationNoteWindows,

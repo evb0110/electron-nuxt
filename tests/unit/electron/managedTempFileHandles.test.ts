@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import {
     mkdtempSync,
+    readFileSync,
     rmSync,
     writeFileSync,
 } from 'node:fs';
@@ -16,12 +17,14 @@ import {
 } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+    inspect: vi.fn(),
     path: '',
     revision: null as null | {token: string},
 }));
 
 vi.mock('@electron/features/documents/main/documentFilePathResolution', () => ({resolveExistingReadableBinaryPath: vi.fn(async () => mocks.path)}));
 vi.mock('@electron/file-access/documentRevisionSidecar', () => ({readWorkingCopyRevisionSidecar: vi.fn(async () => mocks.revision)}));
+vi.mock('@electron/features/documents/main/fingerprintFileWithUtilityProcess', () => ({fingerprintFileWithUtilityProcess: mocks.inspect}));
 
 describe('managed temporary file handles', () => {
     let directory = '';
@@ -31,6 +34,13 @@ describe('managed temporary file handles', () => {
         mocks.path = join(directory, 'large.pdf');
         mocks.revision = null;
         writeFileSync(mocks.path, Buffer.from('managed-file-content'));
+        mocks.inspect.mockImplementation(async (path: string) => {
+            const bytes = readFileSync(path);
+            return {
+                bytes: bytes.byteLength,
+                sha256: createHash('sha256').update(bytes).digest('hex'),
+            };
+        });
         const { clearManagedTempFileHandlesForTests } = await import('@electron/features/documents/main/managedTempFileHandles');
         clearManagedTempFileHandlesForTests();
     });
@@ -44,7 +54,7 @@ describe('managed temporary file handles', () => {
         });
     });
 
-    it('issues a streaming-hash lease that only its owner can release', async () => {
+    it('issues an off-main fingerprint lease that only its owner can release', async () => {
         const {
             createManagedTempFileHandle,
             releaseManagedTempFileHandle,
@@ -58,6 +68,7 @@ describe('managed temporary file handles', () => {
             sha256: createHash('sha256').update('managed-file-content').digest('hex'),
             revision: null,
         });
+        expect(mocks.inspect).toHaveBeenCalledWith(mocks.path);
         expect(releaseManagedTempFileHandle({senderId: 7}, handle.leaseId)).toBe(false);
         expect(releaseManagedTempFileHandle({senderId: 42}, handle.leaseId)).toBe(true);
         expect(releaseManagedTempFileHandle({senderId: 42}, handle.leaseId)).toBe(false);

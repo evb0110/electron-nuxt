@@ -6,7 +6,6 @@ import type {
 } from '@app/types/pdfContracts';
 import type { IPageRange } from '@app/types/pdfUi';
 import type { ICurrentPageSyncOptions } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
-import { shouldPreserveExistingRerenderContent } from '@app/modules/pdf-viewer/runtime/rerender-strategy/shouldPreserveExistingRerenderContent';
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 import type { TPdfViewerTransactionState } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
 import type { IUsePdfViewerRerenderCoordinatorOptions } from '@app/modules/pdf-viewer/runtime/composables/pdfRerenderCoordinatorTypes';
@@ -15,12 +14,10 @@ import {
     isZoomRestorePdfRerenderSource,
     normalizePdfRerenderSource,
     shouldUseMinimalPdfRerenderBuffer,
-    shouldUseZoomGestureCanvasCap,
 } from '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol';
+import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
 const ZOOM_QUEUE_LOG_THROTTLE_MS = 420;
-const ZOOM_CHANGE_MAX_CANVAS_PIXELS = 14_000_000;
-const ZOOM_CHANGE_SETTLE_CLAMP_SCALE_THRESHOLD = 0.98;
 
 export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCoordinatorOptions) => {
     const {
@@ -41,11 +38,9 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         continuousScroll,
         getVisibleRange,
         reRenderAllVisiblePages,
-        isPageRendered,
         summarizeViewerMetricsForLog,
         summarizeVisiblePageSnapshotForLog,
         syncCurrentPageFromViewport,
-        markLowResZoomRerenderUsed,
         buildResizeAnchorContext,
         scheduleEndResizeTransition,
         enqueueZoomSync,
@@ -135,60 +130,6 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         return shouldUseMinimalPdfRerenderBuffer(source)
             ? 0
             : undefined;
-    }
-
-    function resolveMaxCanvasPixelsOverride(source: string) {
-        if (!shouldUseZoomGestureCanvasCap(source)) {
-            return undefined;
-        }
-        return ZOOM_CHANGE_MAX_CANVAS_PIXELS;
-    }
-
-    function getPageElement(pageNumber: number) {
-        const container = viewerContainer.value;
-        return container?.querySelector<HTMLElement>(
-            `.page_container[data-page="${pageNumber}"]`,
-        ) ?? null;
-    }
-
-    function shouldScheduleZoomSettleForClamp(
-        visibleRangeForDecision: IPageRange,
-        maxCanvasPixels: number,
-    ) {
-        if (typeof window === 'undefined') {
-            return true;
-        }
-
-        const outputScale = window.devicePixelRatio || 1;
-        for (
-            let pageNumber = visibleRangeForDecision.start;
-            pageNumber <= visibleRangeForDecision.end;
-            pageNumber += 1
-        ) {
-            const pageElement = getPageElement(pageNumber);
-            if (!pageElement) {
-                return true;
-            }
-
-            const width = pageElement.offsetWidth || pageElement.clientWidth;
-            const height = pageElement.offsetHeight || pageElement.clientHeight;
-            if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-                return true;
-            }
-
-            const requestedPixels = Math.max(1, Math.round(width * outputScale))
-                * Math.max(1, Math.round(height * outputScale));
-            if (requestedPixels <= maxCanvasPixels) {
-                continue;
-            }
-
-            const pixelScaleFactor = Math.sqrt(maxCanvasPixels / requestedPixels);
-            if (pixelScaleFactor < ZOOM_CHANGE_SETTLE_CLAMP_SCALE_THRESHOLD) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     function canTrustCurrentPageAsZoomAnchor() {
@@ -412,31 +353,13 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             }
             return;
         }
-        const visibleRangeForDecision = getVisibleRange();
-        const preserveExistingPages = shouldPreserveExistingRerenderContent({
-            source,
-            visibleRange: visibleRangeForDecision,
-            isPageRendered,
-        });
-        const maxCanvasPixelsOverride = resolveMaxCanvasPixelsOverride(source);
-        if (
-            maxCanvasPixelsOverride !== undefined
-            && shouldScheduleZoomSettleForClamp(
-                visibleRangeForDecision,
-                maxCanvasPixelsOverride,
-            )
-        ) {
-            markLowResZoomRerenderUsed();
-        }
         const renderBufferOverride = resolveRerenderBufferOverride(source);
         if (!advanceSyncTransaction(syncOptions, 'render-requested')) {
             return;
         }
         await reRenderAllVisiblePages(getVisibleRange, {
-            preserveExistingPages,
             rerenderSource: source,
             ...(renderBufferOverride !== undefined ? { renderBufferOverride } : {}),
-            ...(maxCanvasPixelsOverride !== undefined ? { maxCanvasPixelsOverride } : {}),
         });
         syncHorizontalScrollAfterLayoutUpdate();
         if (runId !== reRenderSyncRunId) {
@@ -503,11 +426,15 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         isRunActive: () => boolean,
         options: {forceRerender?: boolean} = {},
     ) {
-        cancelDestinationNavigationTarget?.();
+        // Navigation/viewport authority owns the semantic anchor across fit
+        // geometry changes. Cancelling it here reinterprets the pre-fit pixel
+        // scroll position under changing page metrics and can advance the
+        // current page without any user navigation.
         resetZoomRerenderQueueState(`${source}-change`);
+        const pageToPreserve = navigationAnchorPage?.value ?? currentPage.value;
         const pageToSnapTo =
             mode === 'height'
-                ? getMostVisiblePage(viewerContainer.value, numPages.value)
+                ? pageToPreserve
                 : null;
         const updated = pageToSnapTo === null
             ? computeFitWidthScale(viewerContainer.value)
@@ -529,23 +456,33 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             }
             void cancelInFlightPageRenders?.();
             await reRenderAllVisiblePages(getVisibleRange, {
-                preserveExistingPages: true,
                 rerenderSource: normalizePdfRerenderSource(source),
                 renderBufferOverride: 0,
             });
             if (!isRunActive()) {
                 return;
             }
-            syncHorizontalScrollAfterLayoutUpdate();
             if (pageToSnapTo === null) {
-                await syncCurrentPageFromViewport({
-                    source,
-                    stabilize: true,
-                });
-                if (!isRunActive()) {
+                // Fit-width changes every row's physical top. The old
+                // scrollTop is not meaningful under the new geometry and can
+                // make the viewport observer overwrite a committed page-2
+                // navigation with page 1. Re-project the semantic page owner
+                // before any post-render viewport sampling runs.
+                await nextTick();
+                if (
+                    !isRunActive()
+                    || !canApplyDelayedViewportScroll(source, runId, interactionEpoch)
+                ) {
                     return;
                 }
+                await Promise.resolve(scrollToPage(pageToPreserve, {
+                    preferExactDom: true,
+                    suppressRenderAfterSnap: true,
+                }));
+                syncHorizontalScrollAfterLayoutUpdate();
+                return;
             }
+            syncHorizontalScrollAfterLayoutUpdate();
             if (pageToSnapTo !== null && !snappedBeforeRender) {
                 await nextTick();
                 if (
@@ -674,6 +611,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             || !document
             || isLoading.value
             || isResizing.value
+            || pagedNavigationTargetPage?.value === next
         ) {
             return;
         }
@@ -733,7 +671,6 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                     return;
                 }
                 await reRenderAllVisiblePages(() => range, {
-                    preserveExistingPages: true,
                     rerenderSource: PDF_RERENDER_SOURCE.FitHeightCurrentPage,
                     renderBufferOverride: 0,
                 });
@@ -858,7 +795,6 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                     transactionController?.advanceTransaction(transaction.id, 'render-requested');
                 }
                 await reRenderAllVisiblePages(() => range, {
-                    preserveExistingPages: true,
                     rerenderSource: fitMode.value === 'height'
                         ? PDF_RERENDER_SOURCE.FitHeightPagedTarget
                         : PDF_RERENDER_SOURCE.FitWidthPagedTarget,
@@ -926,6 +862,17 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 preferredAnchorPage: currentPage.value,
                 trustPreferredAnchorPage: trustCurrentPageAnchor,
             });
+            logPdfRenderTrace('zoom-rerender-anchor-captured', () => ({
+                previousZoom,
+                nextZoom,
+                currentPage: currentPage.value,
+                visibleRange: {...visibleRange.value},
+                trustCurrentPageAnchor,
+                anchorPage: zoomAnchor.page,
+                semanticAnchorPage: zoomAnchor.semanticAnchor?.page ?? null,
+                navigationAnchorPage: navigationAnchorPage?.value ?? null,
+                pagedNavigationTargetPage: pagedNavigationTargetPage?.value ?? null,
+            }));
             BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'zoom-watch-schedule-rerender', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-watch] schedule zoom rerender', {
                 previousZoom,
                 nextZoom,

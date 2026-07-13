@@ -5,13 +5,16 @@ import { refreshDeletedEmbeddedShapePage } from '@app/modules/pdf-viewer/engine/
 import { rerenderRenderedManagedEmbeddedShapePages } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/rerenderRenderedManagedEmbeddedShapePages';
 import { shouldRefreshManagedShapePage } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/shouldRefreshManagedShapePage';
 import { syncHiddenEmbeddedAnnotationDom as syncHiddenEmbeddedAnnotationDomForContainer } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/syncHiddenEmbeddedAnnotationDom';
-import { resolveEmbeddedShapeImportLoadPolicy } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-import-policy/resolveEmbeddedShapeImportLoadPolicy';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import { tracePdfAnnotationSaveEvent } from '@app/modules/pdf-viewer/engine/pdf-annotation-save-trace/tracePdfAnnotationSaveEvent';
-import { readDocumentBytes } from '@app/utils/documentBytes';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import type { IGuardAsyncOptions } from '@app/utils/asyncGuard';
 import { tryOnScopeDispose } from '@vueuse/core';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import {
+    acquireEmbeddedShapeImport,
+    createEmbeddedShapeImportCacheKey,
+} from '@app/modules/pdf-viewer/runtime/annotations/embeddedShapeImportCache';
 
 interface IManagedEmbeddedPdfShapesPageRange {
     start: number;
@@ -27,6 +30,16 @@ interface IManagedEmbeddedPdfShapesRenderOptions {
     preserveRenderedPages?: boolean;
     forceRerender?: boolean;
     bufferOverride?: number;
+}
+
+interface IPendingPostPaintEmbeddedShapeImport {
+    data: Uint8Array | null;
+    path: string | null;
+    revision: TDocumentRevisionToken | null;
+    documentKey: string | null;
+    token: number;
+    visibleStart: number;
+    visibleEnd: number;
 }
 
 export interface IManagedEmbeddedPdfShapeStateSnapshot {
@@ -57,9 +70,10 @@ export interface IManagedEmbeddedPdfShapeProjectionPort {
 
 interface IUseManagedEmbeddedPdfShapesOptions {
     viewerContainer: Ref<HTMLElement | null>;
+    originalPath?: Ref<string | null>;
     workingCopyPath: Ref<string | null>;
     sourcePdfData: Ref<Uint8Array | null>;
-    sourcePdfFileSize: Ref<number | null>;
+    documentRevisionToken: Ref<TDocumentRevisionToken | null>;
     visibleRange: Ref<IManagedEmbeddedPdfShapesPageRange>;
     bufferPages: Ref<number>;
     shapeComposable: IManagedEmbeddedPdfShapeProjectionPort;
@@ -81,9 +95,10 @@ interface IUseManagedEmbeddedPdfShapesOptions {
 
 export const useManagedEmbeddedPdfShapes = ({
     viewerContainer,
+    originalPath,
     workingCopyPath,
     sourcePdfData,
-    sourcePdfFileSize,
+    documentRevisionToken,
     visibleRange,
     bufferPages,
     shapeComposable,
@@ -99,8 +114,11 @@ export const useManagedEmbeddedPdfShapes = ({
     let embeddedShapeImportToken = 0;
     let pendingEmbeddedShapeImportData: Uint8Array | null = null;
     let pendingEmbeddedShapeImportPath: string | null = null;
+    let pendingEmbeddedShapeImportRevision: TDocumentRevisionToken | null = null;
     let embeddedShapeImportPromise: Promise<void> = Promise.resolve();
+    let embeddedShapeImportAbortController: AbortController | null = null;
     let lastEmbeddedShapeImportPath: string | null = null;
+    let lastEmbeddedShapeImportDocumentKey: string | null = null;
     let hasEmbeddedShapeImportBaseline = false;
     let shouldAdoptSelfSaveMetadataOnNextImport = false;
     const pendingDeletedEmbeddedShapeRefreshPages = new Set<number>();
@@ -108,6 +126,96 @@ export const useManagedEmbeddedPdfShapes = ({
     let isDeferredHiddenEmbeddedAnnotationDomSyncScheduled = false;
     let deferredHiddenAnnotationSyncFrame: number | null = null;
     let disposed = false;
+    let pendingPostPaintImport: IPendingPostPaintEmbeddedShapeImport | null = null;
+    let lastRenderedSource: {
+        data: Uint8Array | null;
+        path: string | null;
+        revision: TDocumentRevisionToken | null;
+        documentKey: string | null;
+        token: number;
+        pageNumber: number;
+    } | null = null;
+    let scheduledPostPaintImport: {
+        captured: IPendingPostPaintEmbeddedShapeImport;
+        pageNumber: number;
+    } | null = null;
+
+    function runAfterInitialVisualPaint(
+        captured: IPendingPostPaintEmbeddedShapeImport,
+        pageNumber: number,
+        task: (canvasStillMounted: boolean) => void,
+    ) {
+        if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+            setTimeout(() => {
+                if (isCapturedImportCurrent(captured)) {
+                    task(hasRenderedCanvasOnPage(pageNumber));
+                }
+            }, 0);
+            return;
+        }
+
+        let remainingPaintFrames = 2;
+        const waitForFrame = () => {
+            if (!isCapturedImportCurrent(captured)) {
+                return;
+            }
+            remainingPaintFrames -= 1;
+            if (remainingPaintFrames <= 0) {
+                setTimeout(() => {
+                    if (isCapturedImportCurrent(captured)) {
+                        task(hasRenderedCanvasOnPage(pageNumber));
+                    }
+                }, 0);
+                return;
+            }
+            window.requestAnimationFrame(waitForFrame);
+        };
+        window.requestAnimationFrame(waitForFrame);
+    }
+
+    function isCapturedImportCurrent(captured: IPendingPostPaintEmbeddedShapeImport) {
+        return !disposed
+            && embeddedShapeImportToken === captured.token
+            && sourcePdfData.value === captured.data
+            && workingCopyPath.value === captured.path
+            && documentRevisionToken.value === captured.revision
+            && (originalPath?.value ?? null) === captured.documentKey;
+    }
+
+    function scheduleCapturedImportAfterRenderedPage(
+        captured: IPendingPostPaintEmbeddedShapeImport,
+        pageNumber: number,
+    ) {
+        if (
+            !isCapturedImportCurrent(captured)
+            || pageNumber < captured.visibleStart
+            || pageNumber > captured.visibleEnd
+            || scheduledPostPaintImport?.captured === captured
+        ) {
+            return;
+        }
+        scheduledPostPaintImport = {
+            captured,
+            pageNumber,
+        };
+        runAfterInitialVisualPaint(captured, pageNumber, (canvasStillMounted) => {
+            if (
+                scheduledPostPaintImport?.captured === captured
+                && scheduledPostPaintImport.pageNumber === pageNumber
+            ) {
+                scheduledPostPaintImport = null;
+            }
+            if (!canvasStillMounted || pendingPostPaintImport !== captured) {
+                return;
+            }
+            pendingPostPaintImport = null;
+            runGuardedTask(() => ensureManagedShapeBaselineReady(), {
+                category: 'background-diagnostic',
+                scope: 'pdf-shapes',
+                message: 'Failed to import managed shapes after initial PDF paint',
+            });
+        });
+    }
 
     function adoptPersistedManagedShapesOnNextImport() {
         shouldAdoptSelfSaveMetadataOnNextImport = true;
@@ -214,6 +322,7 @@ export const useManagedEmbeddedPdfShapes = ({
     async function resetEmbeddedShapeImportBaseline(token?: number, path?: string | null) {
         shouldAdoptSelfSaveMetadataOnNextImport = false;
         lastEmbeddedShapeImportPath = null;
+        lastEmbeddedShapeImportDocumentKey = null;
         hasEmbeddedShapeImportBaseline = false;
         shapeComposable.replaceShapes([]);
         await waitForNextTick();
@@ -224,29 +333,12 @@ export const useManagedEmbeddedPdfShapes = ({
         syncHiddenEmbeddedAnnotationDom();
     }
 
-    async function resolveEmbeddedShapeImportBytes(
-        data: Uint8Array | null,
-        path: string | null,
-        token: number,
-    ) {
-        if (data && data.length > 0) {
-            return data;
-        }
-        const bytes = path
-            ? readDocumentBytes(path)
-            : null;
-        const resolvedBytes = bytes ? await bytes : null;
-        if (isStaleEmbeddedShapeImport(token, path)) {
-            logStaleEmbeddedShapeImport(token, path);
-            return null;
-        }
-        return resolvedBytes;
-    }
-
     async function importEmbeddedShapesFromResolvedSource(
         data: Uint8Array | null,
         path: string | null,
+        revision: TDocumentRevisionToken | null,
         token: number,
+        signal: AbortSignal,
     ): Promise<
         | { status: 'empty' }
         | { status: 'failed' }
@@ -257,22 +349,46 @@ export const useManagedEmbeddedPdfShapes = ({
         }
     > {
         try {
-            const sourceData = await resolveEmbeddedShapeImportBytes(data, path, token);
-            if (isStaleEmbeddedShapeImport(token, path)) {
-                logStaleEmbeddedShapeImport(token, path);
-                return { status: 'stale' };
-            }
-            if (!sourceData || sourceData.length === 0) {
+            // Raw PDF-name scans are only positive hints. Object streams can
+            // compress /Annots, /EVBShapeKey, and /Subtype names, so a negative
+            // byte scan must never establish an authoritative empty baseline.
+            if ((!data || data.length === 0) && !path) {
                 return { status: 'empty' };
             }
             if (isStaleEmbeddedShapeImport(token, path)) {
                 logStaleEmbeddedShapeImport(token, path);
                 return { status: 'stale' };
             }
-            const { importEmbeddedShapeAnnotations } = await import(
-                '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations'
-            );
-            const shapes = await importEmbeddedShapeAnnotations(sourceData);
+            // The original path is not a renderer-readable source. Cache and
+            // worker identity are therefore derived only from the adopted
+            // working copy/data plus the document revision token.
+            const documentKey = originalPath?.value ?? null;
+            const stableSourceIdentity = documentKey && revision !== null
+                ? JSON.stringify([
+                    documentKey,
+                    revision,
+                ])
+                : null;
+            const key = createEmbeddedShapeImportCacheKey({
+                data,
+                path,
+                documentRevisionToken: revision,
+                stableSourceIdentity,
+            });
+            const shapes = await acquireEmbeddedShapeImport(key, async (sharedSignal) => {
+                const {
+                    importEmbeddedShapeAnnotationsFromPathInWorker,
+                    importEmbeddedShapeAnnotationsUsingWorker,
+                } = await import(
+                    '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeAnnotationsWorkerClient'
+                );
+                return data && data.length > 0
+                    ? importEmbeddedShapeAnnotationsUsingWorker(data, {signal: sharedSignal})
+                    : importEmbeddedShapeAnnotationsFromPathInWorker(
+                        path!,
+                        {signal: sharedSignal},
+                    );
+            }, signal);
             if (isStaleEmbeddedShapeImport(token, path)) {
                 logStaleEmbeddedShapeImport(token, path);
                 return { status: 'stale' };
@@ -282,6 +398,9 @@ export const useManagedEmbeddedPdfShapes = ({
                 shapes,
             };
         } catch (error) {
+            if (signal.aborted || isStaleEmbeddedShapeImport(token, path)) {
+                return { status: 'stale' };
+            }
             logger.warn('pdf-shapes', 'Failed to import embedded PDF shapes', error);
             return { status: 'failed' };
         }
@@ -311,7 +430,10 @@ export const useManagedEmbeddedPdfShapes = ({
     }
 
     function planEmbeddedShapeImportApply(path: string | null) {
-        const isSameSource = path === lastEmbeddedShapeImportPath;
+        const documentKey = originalPath?.value ?? null;
+        const isSameSource = documentKey !== null
+            ? documentKey === lastEmbeddedShapeImportDocumentKey
+            : path === lastEmbeddedShapeImportPath;
         if (
             shouldAdoptSelfSaveMetadataOnNextImport
             && isSameSource
@@ -331,6 +453,14 @@ export const useManagedEmbeddedPdfShapes = ({
                 reason: shapeComposable.hasShapes.value
                     ? 'same-source-dirty-shape-reconcile'
                     : 'same-source-clean-shape-reconcile',
+            };
+        }
+
+        if (hasShapeStateForSelfSaveImport()) {
+            return {
+                mode: 'reconcile',
+                skipRerender: false,
+                reason: 'live-state-created-during-deferred-import',
             };
         }
 
@@ -374,6 +504,7 @@ export const useManagedEmbeddedPdfShapes = ({
         shouldAdoptSelfSaveMetadataOnNextImport = false;
         hasEmbeddedShapeImportBaseline = true;
         lastEmbeddedShapeImportPath = path ?? null;
+        lastEmbeddedShapeImportDocumentKey = originalPath?.value ?? null;
 
         await waitForNextTick();
         if (isStaleEmbeddedShapeImport(token, path)) {
@@ -414,15 +545,21 @@ export const useManagedEmbeddedPdfShapes = ({
     function importEmbeddedShapesForSource(
         data: Uint8Array | null,
         path: string | null,
+        revision: TDocumentRevisionToken | null,
     ) {
         if (disposed) {
             return Promise.resolve();
         }
         pendingEmbeddedShapeImportData = data;
         pendingEmbeddedShapeImportPath = path;
+        pendingEmbeddedShapeImportRevision = revision;
+        embeddedShapeImportAbortController?.abort();
+        const abortController = new AbortController();
+        embeddedShapeImportAbortController = abortController;
         const localToken = ++embeddedShapeImportToken;
 
-        embeddedShapeImportPromise = (async () => {
+        const request = {promise: null as Promise<void> | null};
+        const importPromise = (async () => {
             logPdfRenderTrace('managed-shapes-import-start', {
                 path,
                 hasData: Boolean(data),
@@ -445,14 +582,20 @@ export const useManagedEmbeddedPdfShapes = ({
                 return;
             }
 
-            const result = await importEmbeddedShapesFromResolvedSource(data, path, localToken);
+            const result = await importEmbeddedShapesFromResolvedSource(
+                data,
+                path,
+                revision,
+                localToken,
+                abortController.signal,
+            );
             if (result.status === 'empty') {
                 await resetEmbeddedShapeImportBaseline(localToken, path);
                 return;
             }
             if (result.status === 'failed') {
                 shouldAdoptSelfSaveMetadataOnNextImport = false;
-                return;
+                throw new Error('Failed to establish embedded PDF shape baseline');
             }
             if (result.status === 'stale') {
                 return;
@@ -480,23 +623,83 @@ export const useManagedEmbeddedPdfShapes = ({
             });
         })();
 
+        const cachedPromise = importPromise.catch((error: unknown) => {
+            if (
+                embeddedShapeImportPromise === request.promise
+                && embeddedShapeImportToken === localToken
+                && pendingEmbeddedShapeImportData === data
+                && pendingEmbeddedShapeImportPath === path
+                && pendingEmbeddedShapeImportRevision === revision
+            ) {
+                // Clear only the rejected request. A newer source/import may
+                // already own the cache and must not be disturbed.
+                pendingEmbeddedShapeImportData = null;
+                pendingEmbeddedShapeImportPath = null;
+                pendingEmbeddedShapeImportRevision = null;
+                embeddedShapeImportPromise = Promise.resolve();
+                if (embeddedShapeImportAbortController === abortController) {
+                    embeddedShapeImportAbortController = null;
+                }
+            }
+            throw error;
+        }).finally(() => {
+            if (embeddedShapeImportAbortController === abortController) {
+                embeddedShapeImportAbortController = null;
+            }
+        });
+        request.promise = cachedPromise;
+        embeddedShapeImportPromise = cachedPromise;
+
         return embeddedShapeImportPromise;
     }
 
     function ensureEmbeddedShapesImportedForCurrentSource() {
         const data = sourcePdfData.value;
         const path = workingCopyPath.value;
-        if (pendingEmbeddedShapeImportData !== data || pendingEmbeddedShapeImportPath !== path) {
-            return importEmbeddedShapesForSource(data, path);
+        const revision = documentRevisionToken.value;
+        if (
+            pendingEmbeddedShapeImportData !== data
+            || pendingEmbeddedShapeImportPath !== path
+            || pendingEmbeddedShapeImportRevision !== revision
+        ) {
+            return importEmbeddedShapesForSource(data, path, revision);
         }
         return embeddedShapeImportPromise;
     }
 
+    async function ensureManagedShapeBaselineReady() {
+        if (!sourcePdfData.value && !workingCopyPath.value) {
+            return;
+        }
+        const data = sourcePdfData.value;
+        const path = workingCopyPath.value;
+        const revision = documentRevisionToken.value;
+        await ensureEmbeddedShapesImportedForCurrentSource();
+        if (disposed) {
+            return;
+        }
+        if (
+            sourcePdfData.value !== data
+            || workingCopyPath.value !== path
+            || documentRevisionToken.value !== revision
+        ) {
+            throw new Error('PDF source changed while establishing embedded shape baseline');
+        }
+        if (!hasEmbeddedShapeImportBaseline) {
+            throw new Error('Embedded PDF shape baseline is unavailable');
+        }
+    }
+
     async function clearManagedShapesForDeferredImport() {
+        embeddedShapeImportAbortController?.abort();
+        embeddedShapeImportAbortController = null;
+        pendingPostPaintImport = null;
+        scheduledPostPaintImport = null;
         const localToken = ++embeddedShapeImportToken;
         const path = workingCopyPath.value;
         shouldAdoptSelfSaveMetadataOnNextImport = false;
         lastEmbeddedShapeImportPath = null;
+        lastEmbeddedShapeImportDocumentKey = null;
         hasEmbeddedShapeImportBaseline = false;
         shapeComposable.replaceShapes([]);
         await waitForNextTick();
@@ -507,10 +710,56 @@ export const useManagedEmbeddedPdfShapes = ({
         syncHiddenEmbeddedAnnotationDom();
     }
 
+    function queueCurrentSourceImportAfterInitialPaint() {
+        const data = sourcePdfData.value;
+        const path = workingCopyPath.value;
+        if (!data && !path) {
+            pendingPostPaintImport = null;
+            scheduledPostPaintImport = null;
+            return false;
+        }
+        const captured: IPendingPostPaintEmbeddedShapeImport = {
+            data,
+            path,
+            revision: documentRevisionToken.value,
+            documentKey: originalPath?.value ?? null,
+            token: embeddedShapeImportToken,
+            visibleStart: visibleRange.value.start,
+            visibleEnd: visibleRange.value.end,
+        };
+        const pending = pendingPostPaintImport;
+        if (
+            pending
+            && pending.data === captured.data
+            && pending.path === captured.path
+            && pending.revision === captured.revision
+            && pending.documentKey === captured.documentKey
+            && pending.token === captured.token
+        ) {
+            return true;
+        }
+        pendingPostPaintImport = captured;
+        const rendered = lastRenderedSource;
+        const sameRenderedDocument = rendered && (
+            captured.documentKey !== null
+                ? rendered.documentKey === captured.documentKey
+                : rendered.data === captured.data
+                    && rendered.path === captured.path
+                    && rendered.revision === captured.revision
+        );
+        if (sameRenderedDocument && hasRenderedCanvasOnPage(rendered.pageNumber)) {
+            scheduleCapturedImportAfterRenderedPage(captured, rendered.pageNumber);
+        }
+        return true;
+    }
+
     async function preparePersistedManagedShapesForSave(data: Uint8Array) {
         const snapshot = shapeComposable.captureShapeStateSnapshot();
 
         try {
+            // The saved bytes may use compressed object streams. Always parse
+            // them before adopting the persisted shape baseline; raw-name
+            // absence is not evidence that the document is shape-free.
             const { importEmbeddedShapeAnnotations } = await import(
                 '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations'
             );
@@ -634,63 +883,31 @@ export const useManagedEmbeddedPdfShapes = ({
         token: number,
         settleViewerLoadSettle: (token: number) => void,
     ) {
-        const loadPolicy = resolveEmbeddedShapeImportLoadPolicy(
-            sourcePdfData.value,
-            workingCopyPath.value,
-            sourcePdfFileSize.value,
-        );
-        if (loadPolicy.skipAutomaticImport) {
-            logger.debug('pdf-shapes', 'Skipping automatic managed shape import for large path-backed source', {
+        if (queueCurrentSourceImportAfterInitialPaint()) {
+            logger.debug('pdf-shapes', 'Deferring managed shape import until after initial PDF paint', {
                 token,
                 path: workingCopyPath.value,
-                sourceFileSize: sourcePdfFileSize.value,
             });
             settleViewerLoadSettle(token);
             return;
         }
-        if (loadPolicy.deferUntilAfterInitialRender) {
-            logger.debug('pdf-shapes', 'Deferring managed shape import until after initial PDF render', {
-                token,
-                path: workingCopyPath.value,
-            });
-            runGuardedTask(() => ensureEmbeddedShapesImportedForCurrentSource(), {
-                category: 'background-diagnostic',
-                scope: 'pdf-shapes',
-                message: 'Failed to import managed shapes after initial PDF render',
-            });
-            settleViewerLoadSettle(token);
-            return;
-        }
-
-        runGuardedTask(async () => {
-            try {
-                await ensureEmbeddedShapesImportedForCurrentSource();
-            } catch (error) {
-                logger.warn('pdf-shapes', 'Managed shape import did not settle before viewer load completion', error);
-            } finally {
-                settleViewerLoadSettle(token);
-            }
-        }, {
-            category: 'background-diagnostic',
-            scope: 'pdf-shapes',
-            message: 'Failed to settle managed shapes after PDF load',
-        });
-    }
-
-    function importBeforeInitialRender() {
-        const loadPolicy = resolveEmbeddedShapeImportLoadPolicy(
-            sourcePdfData.value,
-            workingCopyPath.value,
-            sourcePdfFileSize.value,
-        );
-        if (!loadPolicy.awaitBeforeInitialRender) {
-            return Promise.resolve();
-        }
-
-        return ensureEmbeddedShapesImportedForCurrentSource();
+        // The source can be published after the viewer load state. The source
+        // watcher will queue it against the already committed document paint.
+        settleViewerLoadSettle(token);
     }
 
     function syncAfterPageRendered(pageNumber: number) {
+        lastRenderedSource = {
+            data: sourcePdfData.value,
+            path: workingCopyPath.value,
+            revision: documentRevisionToken.value,
+            documentKey: originalPath?.value ?? null,
+            token: embeddedShapeImportToken,
+            pageNumber,
+        };
+        if (pendingPostPaintImport) {
+            scheduleCapturedImportAfterRenderedPage(pendingPostPaintImport, pageNumber);
+        }
         syncHiddenEmbeddedAnnotationDom();
         hideManagedAnnotationEditors(pageNumber);
     }
@@ -717,45 +934,49 @@ export const useManagedEmbeddedPdfShapes = ({
         () => [
             sourcePdfData.value,
             workingCopyPath.value,
-            sourcePdfFileSize.value,
+            documentRevisionToken.value,
         ] as const,
         async ([
             data,
             path,
-            fileSize,
+            ,
         ]) => {
-            const loadPolicy = resolveEmbeddedShapeImportLoadPolicy(data, path, fileSize);
-            if (loadPolicy.skipAutomaticImport) {
-                logger.debug('pdf-shapes', 'Skipped managed shape import for large path-backed source', {
-                    path,
-                    sourceFileSize: fileSize,
-                    lastImportedPath: lastEmbeddedShapeImportPath,
-                    hasBaseline: hasEmbeddedShapeImportBaseline,
-                });
-                if (path !== lastEmbeddedShapeImportPath || !hasEmbeddedShapeImportBaseline) {
+            if (!data && !path) {
+                if (
+                    pendingPostPaintImport
+                    || pendingEmbeddedShapeImportData
+                    || pendingEmbeddedShapeImportPath
+                    || hasEmbeddedShapeImportBaseline
+                ) {
                     await clearManagedShapesForDeferredImport();
                 }
                 return;
             }
-            if (loadPolicy.deferUntilAfterInitialRender) {
-                logger.debug('pdf-shapes', 'Queued managed shape import for deferred path-backed source', {
-                    path,
-                    lastImportedPath: lastEmbeddedShapeImportPath,
-                    hasBaseline: hasEmbeddedShapeImportBaseline,
-                });
-                if (path !== lastEmbeddedShapeImportPath || !hasEmbeddedShapeImportBaseline) {
-                    await clearManagedShapesForDeferredImport();
-                }
-                return;
+            logger.debug('pdf-shapes', 'Queued managed shape import for deferred path-backed source', {
+                path,
+                lastImportedPath: lastEmbeddedShapeImportPath,
+                hasBaseline: hasEmbeddedShapeImportBaseline,
+            });
+            const documentKey = originalPath?.value ?? null;
+            const preservesExistingBaseline = hasEmbeddedShapeImportBaseline && (
+                shouldAdoptSelfSaveMetadataOnNextImport
+                || documentKey !== null && documentKey === lastEmbeddedShapeImportDocumentKey
+                || documentKey === null && path !== null && path === lastEmbeddedShapeImportPath
+            );
+            if (!preservesExistingBaseline) {
+                await clearManagedShapesForDeferredImport();
             }
-
-            await importEmbeddedShapesForSource(data, path);
+            queueCurrentSourceImportAfterInitialPaint();
         },
         { immediate: true },
     );
 
     tryOnScopeDispose(() => {
         disposed = true;
+        embeddedShapeImportAbortController?.abort();
+        embeddedShapeImportAbortController = null;
+        pendingPostPaintImport = null;
+        scheduledPostPaintImport = null;
         embeddedShapeImportToken += 1;
         pendingDeletedEmbeddedShapeRefreshPages.clear();
         if (deferredHiddenAnnotationSyncFrame !== null && typeof window !== 'undefined') {
@@ -773,7 +994,7 @@ export const useManagedEmbeddedPdfShapes = ({
         refreshHiddenAnnotationPage,
         refreshDeletedEmbeddedShape,
         settleViewerLoadSettledWithManagedShapes,
-        importBeforeInitialRender,
+        ensureManagedShapeBaselineReady,
         adoptPersistedManagedShapesOnNextImport,
         clearPendingManagedShapeImportAdoption,
         preparePersistedManagedShapesForSave,

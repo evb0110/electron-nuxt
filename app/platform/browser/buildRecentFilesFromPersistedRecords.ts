@@ -17,5 +17,6 @@ export function buildRecentFilesFromPersistedRecords(
             fileName: record.saveName ?? record.fileName,
             timestamp: record.updatedAt,
             fileSize: record.fileSize,
+            modifiedAt: record.updatedAt,
         }));
 }

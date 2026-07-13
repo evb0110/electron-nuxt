@@ -1,4 +1,7 @@
-export interface IWorkspaceSurfaceBudgetLeasePort {release: () => void;}
+export interface IWorkspaceSurfaceBudgetLeasePort {
+    promotePriority?: (priority: number) => void;
+    release: () => void;
+}
 
 export interface IWorkspaceSurfaceBudgetPort {
     reserve: (options: {

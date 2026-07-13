@@ -301,18 +301,27 @@ describe('useAnnotationNoteWindows', () => {
     });
 
     it('keeps a freshly opened note window while annotation sync catches up', async () => {
+        vi.useFakeTimers();
         const comment = createComment();
         const {
             deps,
             windows,
         } = createHarness(comment);
 
-        windows.handleOpenAnnotationNote(comment);
+        try {
+            windows.handleOpenAnnotationNote(comment);
 
-        deps.annotationComments.value = [];
-        await nextTick();
+            deps.annotationComments.value = [];
+            await nextTick();
 
-        expect(windows.findAnnotationNoteWindow('ann:0:note-1:0')).not.toBeNull();
+            await vi.advanceTimersByTimeAsync(4_999);
+            expect(windows.findAnnotationNoteWindow('ann:0:note-1:0')).not.toBeNull();
+
+            await vi.advanceTimersByTimeAsync(1);
+            expect(windows.findAnnotationNoteWindow('ann:0:note-1:0')).toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('keeps a dirty note window when annotation sync temporarily misses it', async () => {

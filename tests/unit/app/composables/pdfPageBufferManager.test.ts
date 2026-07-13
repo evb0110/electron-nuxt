@@ -52,14 +52,21 @@ describe('pdfPageBufferManager.getPageContainer', () => {
     });
 
     it('sizes mounted placeholders from each page metric instead of one shared size', () => {
+        function createStyle() {
+            const customProperties = new Map<string, string>();
+            return {
+                setProperty: (name: string, value: string) => customProperties.set(name, value),
+                getPropertyValue: (name: string) => customProperties.get(name) ?? '',
+            };
+        }
         const containers = [
             cast<HTMLElement>({
                 dataset: { page: '1' },
-                style: {},
+                style: createStyle(),
             }),
             cast<HTMLElement>({
                 dataset: { page: '2' },
-                style: {},
+                style: createStyle(),
             }),
         ];
 
@@ -71,6 +78,7 @@ describe('pdfPageBufferManager.getPageContainer', () => {
             {
                 width: 100,
                 height: 200,
+                userUnit: 2,
             },
             {
                 width: 50,
@@ -82,5 +90,10 @@ describe('pdfPageBufferManager.getPageContainer', () => {
         expect(containers[0]?.style.height).toBe('400px');
         expect(containers[1]?.style.width).toBe('100px');
         expect(containers[1]?.style.height).toBe('160px');
+        expect(containers[0]?.style.getPropertyValue('--scale-factor')).toBe('2');
+        expect(containers[0]?.style.getPropertyValue('--user-unit')).toBe('2');
+        expect(containers[0]?.style.getPropertyValue('--total-scale-factor')).toBe(
+            'calc(var(--scale-factor) * var(--user-unit, 1))',
+        );
     });
 });

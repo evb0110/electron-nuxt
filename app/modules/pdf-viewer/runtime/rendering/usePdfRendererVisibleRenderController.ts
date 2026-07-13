@@ -8,7 +8,6 @@ import { chunk } from 'es-toolkit/array';
 import { range } from 'es-toolkit/math';
 import type { IPageRange } from '@app/types/pdfUi';
 import { getPageContainer } from '@app/modules/pdf-viewer/engine/pdf-page-buffer-manager/getPageContainer';
-import { shouldRenderPageWithPreservedState } from '@app/modules/pdf-viewer/engine/pdf-page-render-preservation/shouldRenderPageWithPreservedState';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import type {
@@ -29,18 +28,6 @@ interface IRenderVisiblePagesRequest extends IVisibleRenderBounds {
     forceRerender: boolean;
 }
 
-interface IRenderPageDecisionContext {
-    containerRoot: HTMLElement;
-    visibleRange: IPageRange;
-    renderOptions?: IRenderVisiblePagesOptions | undefined;
-    isBufferPage: boolean;
-}
-
-interface IBufferPageCanvasClamp {
-    maxCanvasPixels: number;
-    requestedPixels: number;
-}
-
 interface IUsePdfRendererVisibleRenderControllerOptions {
     container: Ref<HTMLElement | null>;
     currentPage: Ref<number>;
@@ -50,7 +37,6 @@ interface IUsePdfRendererVisibleRenderControllerOptions {
     renderConcurrency: MaybeRefOrGetter<number>;
     effectiveScale: MaybeRefOrGetter<number>;
     renderedPages: IPdfPageNumberStateSet;
-    staleRenderedPages: IPdfPageNumberStateSet;
     renderingPages: IPdfPageNumberStateMap;
     renderingPageRequestIds: IPdfPageNumberStateMap;
     getRenderVersion: () => number;
@@ -85,10 +71,6 @@ interface IUsePdfRendererVisibleRenderControllerOptions {
         documentToken: string,
         transactionRequest?: IPdfViewerTransactionRenderRequest | undefined,
     ) => void;
-    resolveBufferPageCanvasClamp?: ((
-        pageNumber: number,
-        context: IRenderPageDecisionContext,
-    ) => IBufferPageCanvasClamp | null) | undefined;
     throttleMs: number;
 }
 
@@ -102,7 +84,6 @@ export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVi
         renderConcurrency,
         effectiveScale,
         renderedPages,
-        staleRenderedPages,
         renderingPages,
         renderingPageRequestIds,
         getRenderVersion,
@@ -118,7 +99,6 @@ export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVi
         renderSingleVisiblePage,
         isVisibleRenderRangeCurrent,
         scheduleMissingRenderTargetRetry,
-        resolveBufferPageCanvasClamp,
         throttleMs,
     } = options;
 
@@ -270,13 +250,9 @@ export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVi
                 return true;
             }
 
-            return shouldRenderPageWithPreservedState({
-                pageNumber,
-                renderedPages,
-                staleRenderedPages,
-                forceRerender,
-                hasMountedCanvas: candidatePage => hasMountedPageCanvas(containerRoot, candidatePage),
-            });
+            return forceRerender
+                || !renderedPages.has(pageNumber)
+                || !hasMountedPageCanvas(containerRoot, pageNumber);
         });
         return orderPagesForRender(pagesToRender, visibleRange);
     }
@@ -313,9 +289,6 @@ export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVi
             transactionRequest,
             ...(transactionRequest.renderWindowOverride
                 ? { renderWindowOverride: transactionRequest.renderWindowOverride }
-                : {}),
-            ...(transactionRequest.maxCanvasPixelsOverride !== undefined
-                ? { maxCanvasPixelsOverride: transactionRequest.maxCanvasPixelsOverride }
                 : {}),
             ...(transactionRequest.prioritizeTextLayer !== undefined
                 ? { prioritizeTextLayer: transactionRequest.prioritizeTextLayer }
@@ -379,7 +352,7 @@ export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVi
         return true;
     }
 
-    async function renderSinglePageWithBufferClamp(
+    async function renderSinglePageWithPriority(
         containerRoot: HTMLElement,
         pageNumber: number,
         version: number,
@@ -395,22 +368,6 @@ export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVi
         const bufferDistance = isBufferPage
             ? getBufferPageDistance(pageNumber, visibleRange)
             : 0;
-        const bufferClamp = isBufferPage
-            ? resolveBufferPageCanvasClamp?.(pageNumber, {
-                containerRoot,
-                visibleRange,
-                renderOptions,
-                isBufferPage,
-            }) ?? null
-            : null;
-        if (bufferClamp) {
-            logPdfRenderTrace('renderer-visible-render-clamp-buffer-page', {
-                pageNumber,
-                visibleRange,
-                requestedPixels: bufferClamp.requestedPixels,
-                grantedMaxCanvasPixels: bufferClamp.maxCanvasPixels,
-            });
-        }
         const continuationPriority = renderOptions?.transactionRequest?.priority === 'authoritative'
             && requiredPages.has(pageNumber)
             ? 'navigation-target'
@@ -420,12 +377,7 @@ export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVi
         const pageRenderOptions = {
             ...renderOptions,
             continuationPriority,
-            ...(bufferClamp ? {maxCanvasPixelsOverride: bufferClamp.maxCanvasPixels} : {}),
         } satisfies IRenderVisiblePagesOptions;
-        const hadFreshMountedRender = !forceRerender
-            && renderedPages.has(pageNumber)
-            && !staleRenderedPages.has(pageNumber)
-            && hasMountedPageCanvas(containerRoot, pageNumber);
         await renderSingleVisiblePage(
             containerRoot,
             pageNumber,
@@ -438,27 +390,6 @@ export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVi
             visibleRange,
             pageRenderOptions,
         );
-        if (!shouldContinue()) {
-            logPdfRenderTrace('renderer-visible-render-skip-stale-mark-stale', {
-                pageNumber,
-                version,
-                requestId,
-                currentRenderVersion: getRenderVersion(),
-            });
-            return;
-        }
-        /**
-         * A clamped canvas is below full quality on purpose; marking the page
-         * stale makes the next render pass that promotes it into the visible
-         * range rerender it at full resolution (atomic canvas swap, no flash).
-         */
-        if (
-            (bufferClamp || renderOptions?.markRenderedPageStale === true)
-            && !hadFreshMountedRender
-            && renderedPages.has(pageNumber)
-        ) {
-            staleRenderedPages.add(pageNumber);
-        }
     }
 
     async function renderVisiblePageBatches(
@@ -485,7 +416,7 @@ export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVi
                 return;
             }
             await Promise.all(
-                batch.map((pageNumber) => renderSinglePageWithBufferClamp(
+                batch.map((pageNumber) => renderSinglePageWithPriority(
                     containerRoot,
                     pageNumber,
                     version,
@@ -593,7 +524,6 @@ export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVi
             bufferOverride: activeRenderOptions?.bufferOverride ?? null,
             renderWindowOverride: activeRenderOptions?.renderWindowOverride ?? null,
             renderedPages: Array.from(renderedPages),
-            staleRenderedPages: Array.from(staleRenderedPages),
         });
         if (!await hydratePageMetricsForVisibleRender(request)) {
             logPdfRenderTrace('renderer-visible-render-abort-hydrate', {
@@ -676,7 +606,6 @@ export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVi
                 renderEnd,
                 forceRerender,
                 renderedPages: Array.from(renderedPages),
-                staleRenderedPages: Array.from(staleRenderedPages),
             });
             return;
         }
@@ -772,7 +701,6 @@ export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVi
             version,
             pagesToRenderNow: mountedPagesToRenderNow,
             renderedPages: Array.from(renderedPages),
-            staleRenderedPages: Array.from(staleRenderedPages),
         });
     }
 

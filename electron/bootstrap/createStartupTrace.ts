@@ -4,7 +4,8 @@ import { randomUUID } from 'node:crypto';
 export function createStartupTrace(logger: ILogger) {
     const startupStartedAt = Date.now();
     const startupSessionId = `${startupStartedAt}-${randomUUID()}`;
-    const enabled = process.env.EVB_STARTUP_TRACE === '1';
+    const enabled = process.env.EVB_STARTUP_TRACE === '1'
+        || process.argv.includes('--evb-startup-trace');
 
     function log(phase: string) {
         if (!enabled) {

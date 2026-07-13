@@ -4,7 +4,7 @@ import {
 } from 'node:path';
 import { isRecord } from '@contracts/runtimeGuards';
 
-export interface IDocumentSaveUtilityRequest {
+export interface IDocumentSaveUtilityCommitRequest {
     type: 'commit';
     sourcePath: string;
     targetPath: string;
@@ -12,6 +12,16 @@ export interface IDocumentSaveUtilityRequest {
     validationBinary?: string;
     changedObjectRefs?: string[];
 }
+
+export interface IDocumentSaveUtilityInspectRequest {
+    type: 'inspect';
+    sourcePath: string;
+    expectedBytes: number;
+}
+
+export type TDocumentSaveUtilityRequest =
+    | IDocumentSaveUtilityCommitRequest
+    | IDocumentSaveUtilityInspectRequest;
 
 const PDF_OBJECT_REF_PATTERN = /^\d+ \d+ R$/u;
 const MAX_CHANGED_OBJECT_REFS = 128;
@@ -29,7 +39,20 @@ export type TDocumentSaveUtilityResult =
         error: string
     };
 
-export function decodeDocumentSaveUtilityRequest(value: unknown): IDocumentSaveUtilityRequest | null {
+export function decodeDocumentSaveUtilityRequest(value: unknown): TDocumentSaveUtilityRequest | null {
+    if (isRecord(value)
+        && value.type === 'inspect'
+        && typeof value.sourcePath === 'string'
+        && isAbsolute(value.sourcePath)
+        && typeof value.expectedBytes === 'number'
+        && Number.isSafeInteger(value.expectedBytes)
+        && value.expectedBytes > 0) {
+        return {
+            type: 'inspect',
+            sourcePath: value.sourcePath,
+            expectedBytes: value.expectedBytes,
+        };
+    }
     if (!isRecord(value)
         || value.type !== 'commit'
         || typeof value.sourcePath !== 'string'

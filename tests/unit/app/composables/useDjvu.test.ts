@@ -55,6 +55,12 @@ const mockDocumentWorkingCopyCapability = vi.hoisted(() => ({cleanupFile: vi.fn(
 const toastAddMock = vi.hoisted(() => vi.fn());
 
 const mockDjvuModeState = {
+    activationGeneration: 0,
+    activeActivation: null as {
+        generation: number;
+        kind: 'djvu';
+        documentRef: string;
+    } | null,
     isDjvuMode: ref(false),
     djvuSourcePath: ref<string | null>(null),
     djvuTempPdfPath: ref<string | null>(null),
@@ -72,14 +78,27 @@ vi.stubGlobal('useToast', () => ({add: toastAddMock}));
 
 vi.mock('@app/modules/workspace-shell/document-sessions/useDocumentSourceSession', () => {
     const activateDocumentSource = vi.fn((_kind: 'pdf' | 'djvu', source: string, temp: string | null = null) => {
+        mockDjvuModeState.activationGeneration += 1;
+        mockDjvuModeState.activeActivation = {
+            generation: mockDjvuModeState.activationGeneration,
+            kind: 'djvu',
+            documentRef: source,
+        };
         mockDjvuModeState.isDjvuMode.value = true;
         mockDjvuModeState.djvuSourcePath.value = source;
         mockDjvuModeState.djvuTempPdfPath.value = temp;
+        return mockDjvuModeState.activeActivation;
     });
-    const clearDocumentSource = vi.fn(() => {
+    const clearDocumentSource = vi.fn((expected?: {generation: number}) => {
+        if (expected && expected.generation !== mockDjvuModeState.activeActivation?.generation) {
+            return false;
+        }
+        mockDjvuModeState.activationGeneration += 1;
+        mockDjvuModeState.activeActivation = null;
         mockDjvuModeState.isDjvuMode.value = false;
         mockDjvuModeState.djvuSourcePath.value = null;
         mockDjvuModeState.djvuTempPdfPath.value = null;
+        return true;
     });
 
     return {useDocumentSourceSession: () => ({
@@ -87,6 +106,7 @@ vi.mock('@app/modules/workspace-shell/document-sessions/useDocumentSourceSession
         sourceRef: mockDjvuModeState.djvuSourcePath,
         projectionRef: mockDjvuModeState.djvuTempPdfPath,
         activateDocumentSource,
+        captureDocumentSourceActivation: () => mockDjvuModeState.activeActivation,
         clearDocumentSource,
     })};
 });
@@ -116,6 +136,8 @@ describe('useDjvu', () => {
         vi.clearAllMocks();
         clearRegisteredPdfRasterDisplayProfilesForTests();
         mockDjvuModeState.isDjvuMode.value = false;
+        mockDjvuModeState.activationGeneration = 0;
+        mockDjvuModeState.activeActivation = null;
         mockDjvuModeState.djvuSourcePath.value = null;
         mockDjvuModeState.djvuTempPdfPath.value = null;
         mockElectronAPI.djvu.onProgress.mockReturnValue(vi.fn());
@@ -247,6 +269,31 @@ describe('useDjvu', () => {
             expect(djvu.openingPath.value).toBeNull();
         });
 
+        it('finishes previous document cleanup before admitting the native DjVu open', async () => {
+            mockElectronAPI.djvu.openForViewing.mockResolvedValue({
+                success: true,
+                pageCount: 100,
+                jobId: 'job-source-handoff',
+            });
+
+            const djvu = useDjvu();
+            const close = createDeferred<undefined>();
+            const closeActiveDocument = vi.fn(() => close.promise);
+
+            const opening = djvu.openDjvuFile('/handoff.djvu', {closeActiveDocument});
+            await Promise.resolve();
+
+            expect(closeActiveDocument).toHaveBeenCalledTimes(1);
+            expect(mockElectronAPI.djvu.startOpenForViewing).not.toHaveBeenCalled();
+            expect(djvu.isDjvuMode.value).toBe(false);
+
+            close.resolve(undefined);
+            await opening;
+
+            expect(mockElectronAPI.djvu.startOpenForViewing).toHaveBeenCalledTimes(1);
+            expect(djvu.djvuSourcePath.value).toBe('/handoff.djvu');
+        });
+
         it('releases the previous DjVu viewing path when switching files', async () => {
             mockElectronAPI.djvu.openForViewing.mockResolvedValue({
                 success: true,
@@ -287,7 +334,7 @@ describe('useDjvu', () => {
                 pageCount: 0,
                 jobId: 'older-job',
             });
-            await expect(staleOpen).resolves.toBeUndefined();
+            await expect(staleOpen).resolves.toBe(false);
 
             expect(djvu.djvuSourcePath.value).toBe('/new.djvu');
             expect(djvu.openingPath.value).toBeNull();

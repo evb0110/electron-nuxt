@@ -2,6 +2,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import { requireDocumentInstanceId } from '@contracts/documentInstanceId';
@@ -44,10 +45,13 @@ describe('createWorkspaceDocumentSessionCore', () => {
                 isDjvu: false,
             },
             documentIdentity: createDocumentRevision(),
-            toolbarSnapshot: {viewerCapabilities: {
-                ...createDefaultWorkspaceViewerCapabilities(),
-                closeableDocument: true,
-            }},
+            toolbarSnapshot: {
+                initialVisualReady: true,
+                viewerCapabilities: {
+                    ...createDefaultWorkspaceViewerCapabilities(),
+                    closeableDocument: true,
+                },
+            },
         }), 'workspace');
 
         expect(session.snapshot.value.identity).toMatchObject({
@@ -62,6 +66,64 @@ describe('createWorkspaceDocumentSessionCore', () => {
         });
         expect(session.snapshot.value.dirty).toBe(true);
         expect(session.snapshot.value.closeable).toBe(true);
+        expect(session.snapshot.value.phase).toBe('ready');
+    });
+
+    it('does not infer readiness from document identity and viewer capabilities alone', () => {
+        const session = createWorkspaceDocumentSessionCore({
+            tabId: 'tab-1',
+            sessionId: 'session-1',
+        });
+
+        session.applyWorkspaceRecord(createWorkspaceDocumentRecord({
+            tab: {
+                fileName: 'Document.pdf',
+                originalPath: '/tmp/original.pdf',
+            },
+            documentIdentity: createDocumentRevision(),
+            toolbarSnapshot: {viewerCapabilities: {
+                ...createDefaultWorkspaceViewerCapabilities(),
+                closeableDocument: true,
+                pdfDocument: true,
+            }},
+        }), 'workspace');
+
+        expect(session.snapshot.value.phase).toBe('empty');
+    });
+
+    it('preserves a failed open phase until a visual-ready record arrives', () => {
+        const session = createWorkspaceDocumentSessionCore({
+            tabId: 'tab-1',
+            sessionId: 'session-1',
+        });
+        const transaction = session.beginTransaction({
+            kind: 'open',
+            documentRef: '/tmp/original.pdf',
+        });
+        session.finishTransaction(transaction.id, 'failed');
+
+        const baseRecord = createWorkspaceDocumentRecord({
+            tab: {
+                fileName: 'Document.pdf',
+                originalPath: '/tmp/original.pdf',
+            },
+            documentIdentity: createDocumentRevision(),
+            toolbarSnapshot: {viewerCapabilities: {
+                ...createDefaultWorkspaceViewerCapabilities(),
+                closeableDocument: true,
+                pdfDocument: true,
+            }},
+        });
+        session.applyWorkspaceRecord(baseRecord, 'workspace');
+        expect(session.snapshot.value.phase).toBe('error');
+
+        session.applyWorkspaceRecord(createWorkspaceDocumentRecord({
+            ...baseRecord,
+            toolbarSnapshot: {
+                ...baseRecord.toolbarSnapshot,
+                initialVisualReady: true,
+            },
+        }), 'workspace');
         expect(session.snapshot.value.phase).toBe('ready');
     });
 
@@ -304,6 +366,28 @@ describe('createWorkspaceDocumentSessionCore', () => {
 
         await expect(wait).resolves.toBe(workspace);
         expect(session.snapshot.value.mounted).toBe(true);
+    });
+
+    it('keeps the default workspace mount wait open for slow large documents', async () => {
+        vi.useFakeTimers();
+        try {
+            const session = createWorkspaceDocumentSessionCore({
+                tabId: 'tab-1',
+                sessionId: 'session-1',
+            });
+            let settled = false;
+            const wait = session.waitForWorkspace(session.createCommandTarget()).finally(() => {
+                settled = true;
+            });
+
+            await vi.advanceTimersByTimeAsync(29_999);
+            expect(settled).toBe(false);
+
+            await vi.advanceTimersByTimeAsync(1);
+            await expect(wait).resolves.toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('does not change command revision for view-only updates or mounting', () => {

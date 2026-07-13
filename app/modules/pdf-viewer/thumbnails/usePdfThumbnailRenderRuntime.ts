@@ -14,7 +14,7 @@ import type {
     IAnnotationSettings,
 } from '@app/types/annotations';
 import { THUMBNAIL_WIDTH } from '@app/constants/pdfLayout';
-import { createHiddenAnnotationOperationsFilter } from '@app/modules/pdf-viewer/engine/pdf-hidden-annotation-operations/createHiddenAnnotationOperationsFilter';
+import { createRenderTaskHiddenAnnotationOperationsFilter } from '@app/modules/pdf-viewer/engine/pdf-hidden-annotation-operations/createRenderTaskHiddenAnnotationOperationsFilter';
 import { runCoordinatedPdfPageRender } from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
 import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
 import {
@@ -501,6 +501,7 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
                 return;
             }
 
+            const hasHiddenAnnotations = visuals.hiddenAnnotationIdSet.value.size > 0;
             const annotationMode = AnnotationMode?.ENABLE_STORAGE
                 ?? AnnotationMode?.ENABLE_FORMS
                 ?? AnnotationMode?.ENABLE
@@ -508,18 +509,9 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
             const metrics = resolveThumbnailRenderMetrics(page, pageNum);
             const renderCoordination = resolveThumbnailRenderCoordination(pageNum, source.currentPage.value);
             thumbnailRenderState.trackAbortController(pageNum, renderAbortController);
-            const operationsFilter = await createHiddenAnnotationOperationsFilter(
-                page,
-                annotationMode,
-                visuals.hiddenAnnotationIdSet.value,
-                {
-                    owner: renderCoordination.owner,
-                    priority: renderCoordination.priority,
-                    signal: renderAbortController.signal,
-                    shouldStart: isCurrentThumbnailRender,
-                    shouldContinue: isCurrentThumbnailRender,
-                },
-            );
+            const hiddenAnnotationFilter = hasHiddenAnnotations
+                ? createRenderTaskHiddenAnnotationOperationsFilter(visuals.hiddenAnnotationIdSet.value)
+                : null;
             if (!isCurrentThumbnailRender()) {
                 return;
             }
@@ -567,14 +559,30 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
                     },
                     signal: renderAbortController.signal,
                     shouldStart: isCurrentThumbnailRender,
-                    startRender: () => page.render({
-                        canvasContext: context,
-                        viewport: metrics.scaledViewport,
-                        canvas: renderCanvas,
-                        transform: buildThumbnailRenderTransform(metrics.scaleX, metrics.scaleY),
-                        annotationMode,
-                        operationsFilter,
-                    }),
+                    startRender: () => {
+                        const renderOptions = {
+                            canvasContext: context,
+                            viewport: metrics.scaledViewport,
+                            canvas: renderCanvas,
+                            transform: buildThumbnailRenderTransform(metrics.scaleX, metrics.scaleY),
+                            annotationMode,
+                        };
+                        if (!hiddenAnnotationFilter) {
+                            return page.render(renderOptions);
+                        }
+                        const guardedTask = page.render({
+                            ...renderOptions,
+                            operationsFilter: hiddenAnnotationFilter.filter,
+                        });
+                        if (hiddenAnnotationFilter.bindTask(guardedTask)) {
+                            return guardedTask;
+                        }
+                        guardedTask.cancel();
+                        return page.render({
+                            ...renderOptions,
+                            annotationMode: AnnotationMode?.DISABLE ?? 0,
+                        });
+                    },
                     onTask: (nextTask) => {
                         task = nextTask;
                         thumbnailRenderState.trackRenderTask(pageNum, nextTask);
@@ -585,6 +593,44 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
                     runId,
                     renderKey,
                 });
+                const hiddenFilterDiagnostics = hiddenAnnotationFilter?.getDiagnostics();
+                if (
+                    hiddenFilterDiagnostics
+                    && hiddenFilterDiagnostics.callCount > 0
+                    && hiddenFilterDiagnostics.hiddenMatchCount === 0
+                    && isCurrentThumbnailRender()
+                ) {
+                    // Some PDF.js render intents flatten annotation boundaries out of
+                    // the QueueOptimizer operator list. In that unsupported private
+                    // runtime shape, fail closed rather than showing a deleted source
+                    // annotation until the persisted bytes replace the live source.
+                    context.clearRect(0, 0, renderCanvas.width, renderCanvas.height);
+                    await runCoordinatedPdfPageRender({
+                        owner: renderCoordination.owner,
+                        pageNumber: pageNum,
+                        pdfPage: page,
+                        priority: renderCoordination.priority,
+                        continuation: {
+                            key: `thumbnail-hidden-fallback:${documentRenderEpoch.value}:${pageNum}:${renderKey}`,
+                            priority: renderCoordination.owner === 'thumbnail-current'
+                                ? 'thumbnail'
+                                : 'prefetch',
+                        },
+                        signal: renderAbortController.signal,
+                        shouldStart: isCurrentThumbnailRender,
+                        startRender: () => page.render({
+                            canvasContext: context,
+                            viewport: metrics.scaledViewport,
+                            canvas: renderCanvas,
+                            transform: buildThumbnailRenderTransform(metrics.scaleX, metrics.scaleY),
+                            annotationMode: AnnotationMode?.DISABLE ?? 0,
+                        }),
+                        onTask: (nextTask) => {
+                            task = nextTask;
+                            thumbnailRenderState.trackRenderTask(pageNum, nextTask);
+                        },
+                    });
+                }
             } catch (error) {
                 logPdfRenderTrace('thumbnail-render-reject', {
                     pageNumber: pageNum,

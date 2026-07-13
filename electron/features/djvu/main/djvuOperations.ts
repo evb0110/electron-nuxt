@@ -1,6 +1,7 @@
 import type { WebContents } from 'electron';
 import { randomUUID } from 'crypto';
 import { existsSync } from 'fs';
+import {stat} from 'fs/promises';
 import { resolve } from 'path';
 import { estimateSizes } from '@electron/djvu/estimateSizes';
 import {
@@ -25,6 +26,7 @@ import {
 } from '@electron/features/djvu/main/viewing';
 import {
     getDjvuPageSizesForViewing,
+    getDjvuPageSizeForViewing,
     renderDjvuPagePreview,
 } from '@electron/features/djvu/main/pagePreview';
 import { isDjvuPath } from '@electron/image/pdfConversion';
@@ -33,6 +35,7 @@ import {
     type TOpenPath,
 } from '@electron/file-access/openPathCapabilities';
 import { normalizePossiblyEncodedExistingPath } from '@electron/utils/normalizePossiblyEncodedExistingPath';
+import { getRecentFiles } from '@electron/recentFiles';
 import type { IDjvuOperationContext } from '@electron/features/djvu/ports';
 import { cancelConversion } from '@electron/features/djvu/main/ddjvuConversion';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
@@ -157,6 +160,19 @@ function normalizePreviewPriority(priority: number | undefined) {
     return typeof priority === 'number' && Number.isFinite(priority)
         ? priority
         : 0;
+}
+
+export function resolveDjvuPreviewBrokerPriority(priority: number) {
+    if (priority >= 90) {
+        return 'visible' as const;
+    }
+    if (priority >= 50) {
+        return 'foreground' as const;
+    }
+    if (priority >= 20) {
+        return 'user' as const;
+    }
+    return 'background' as const;
 }
 
 async function cancelPreviewOperation(ownerWebContentsId: number, requestId: string, reason: string) {
@@ -408,7 +424,7 @@ async function runCoalescedPreviewRequest<TResult>(
     const brokerLease = await mainJobBroker.acquire({
         ownerId: `djvu-preview:${senderId}`,
         kind: 'djvu-preview',
-        priority: priority >= 10 ? 'visible' : priority > 0 ? 'foreground' : 'background',
+        priority: resolveDjvuPreviewBrokerPriority(priority),
         perOwnerLimit: DJVU_PREVIEW_MAX_IN_FLIGHT_PER_SENDER,
         resources: {
             cpuTokens: 1,
@@ -501,6 +517,35 @@ function requireDjvuOpenPath(
         throw new Error(`DjVu file not found: ${normalizedPath}`);
     }
     return requireOpenPath(normalizedPath, owner);
+}
+
+/**
+ * Opening-frame prewarm is intentionally read-only and runs before a Recent
+ * item is clicked, so it must not grant the renderer general file access or an
+ * active viewing lease. Accept only a canonical path already present in the
+ * application's persisted Recent list; all render operations continue to use
+ * `requireDjvuOpenPath` plus `isAllowedDjvuViewingPath`.
+ */
+async function requireDjvuPageSourceInfoPath(path: unknown, owner: WebContents) {
+    try {
+        return requireDjvuOpenPath(path, owner);
+    } catch (error) {
+        const rawPath = typeof path === 'string' ? path.trim() : '';
+        const normalizedPath = rawPath
+            ? normalizePossiblyEncodedExistingPath(rawPath)
+            : null;
+        if (!normalizedPath || !isDjvuPath(normalizedPath)) {
+            throw error;
+        }
+        const recentFiles = await getRecentFiles();
+        const isPersistedRecent = recentFiles.some(file => (
+            normalizePossiblyEncodedExistingPath(String(file.originalPath)) === normalizedPath
+        ));
+        if (!isPersistedRecent) {
+            throw error;
+        }
+        return normalizedPath as TOpenPath;
+    }
 }
 
 function normalizeDjvuReleasePath(path: unknown, owner?: WebContents) {
@@ -638,6 +683,12 @@ export async function handleDjvuCancelPagePreview(
         return { canceled: false };
     }
 
+    const pending = previewStateBySender.get(context.senderId)?.pendingRequests.get(normalizedRequestId);
+    if (pending && !pending.abortController.signal.aborted) {
+        pending.abortController.abort(new Error('DjVu preview request canceled'));
+        return {canceled: true};
+    }
+
     const active = activePreviewOperationsBySenderRequestKey.get(
         getActivePreviewOperationKey(context.senderId, normalizedRequestId),
     );
@@ -745,6 +796,43 @@ export async function handleDjvuGetPageSizes(
     }
     const pageCount = await getDjvuPageCount(normalizedDjvuPath);
     return getDjvuPageSizesForViewing(normalizedDjvuPath, pageCount);
+}
+
+export async function handleDjvuGetPageSourceInfo(
+    context: IDjvuOperationContext,
+    djvuPath: string,
+    pageNumber: number,
+) {
+    const normalizedDjvuPath = await requireDjvuPageSourceInfoPath(djvuPath, context.sender);
+    if (!Number.isSafeInteger(pageNumber) || pageNumber < 1) {
+        throw new Error(`Invalid DjVu page number: ${pageNumber}`);
+    }
+    const [
+        pageCount,
+        pageSize,
+        sourceStat,
+    ] = await Promise.all([
+        getDjvuPageCount(normalizedDjvuPath),
+        getDjvuPageSizeForViewing(normalizedDjvuPath, pageNumber).catch(() => null),
+        stat(normalizedDjvuPath),
+    ]);
+    if (pageCount < 1) {
+        throw new Error('DjVu document has no pages');
+    }
+    const effectivePageNumber = Math.min(pageNumber, pageCount);
+    const effectivePageSize = effectivePageNumber === pageNumber && pageSize
+        ? pageSize
+        : await getDjvuPageSizeForViewing(normalizedDjvuPath, effectivePageNumber);
+    if (!effectivePageSize) {
+        throw new Error(`DjVu page size probe returned no size for page ${effectivePageNumber}`);
+    }
+    return {
+        pageCount,
+        pageNumber: effectivePageNumber,
+        pageSize: effectivePageSize,
+        sourceSize: sourceStat.size,
+        sourceModifiedAt: Math.trunc(sourceStat.mtimeMs),
+    };
 }
 
 export async function handleDjvuRenderPagePreview(

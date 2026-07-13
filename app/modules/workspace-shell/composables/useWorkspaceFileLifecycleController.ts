@@ -7,8 +7,13 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { createWorkspaceViewerLifecycleHooks } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import type { IAnalyticsDocumentScope } from '@app/composables/useAnalytics';
 import type { TPdfProjectionReason } from '@app/utils/document-viewer/session/documentSession';
+import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 
-interface IUseWorkspaceFileLifecycleControllerOptions { analyticsDocumentScope?: IAnalyticsDocumentScope | undefined; }
+interface IUseWorkspaceFileLifecycleControllerOptions {
+    analyticsDocumentScope?: IAnalyticsDocumentScope | undefined;
+    openSurface?: IDocumentOpenSurfaceSession | undefined;
+}
 
 export const useWorkspaceFileLifecycleController = (
     options: IUseWorkspaceFileLifecycleControllerOptions = {},
@@ -21,6 +26,7 @@ export const useWorkspaceFileLifecycleController = (
         documentRevisionInfo,
         documentRevisionToken,
         originalPath,
+        requiresSaveAsOnFirstSave,
         fileName,
         isDirty,
         pdfConformanceProfile,
@@ -75,10 +81,11 @@ export const useWorkspaceFileLifecycleController = (
         ensurePdfProjectionForAction: ensureDjvuPdfProjectionForAction,
         cancelActiveJobs: cancelDjvuJobs,
         cleanupDjvuTemp,
+        captureDjvuActivation,
         exitDjvuMode,
         openConvertDialog,
         dismissBanner: djvuDismissBanner,
-    } = useDjvu();
+    } = useDjvu({openSurface: options.openSurface});
 
     const {
         recentFiles,
@@ -86,6 +93,93 @@ export const useWorkspaceFileLifecycleController = (
         removeRecentFile,
         clearRecentFiles,
     } = useRecentFiles();
+
+    async function commitPendingDjvuOpen(outcome: TDocumentOpenOutcome) {
+        BrowserLogger.info('djvu-open-transaction', 'Finalize requested', {
+            status: outcome.status,
+            resultKind: 'result' in outcome ? outcome.result.kind : null,
+            resultPath: 'result' in outcome ? outcome.result.originalPath : null,
+            pendingPath: pendingDjvu.value,
+        });
+        if (outcome.status !== 'prepared') {
+            return outcome;
+        }
+        if (outcome.result.kind !== 'djvu') {
+            return {
+                status: 'failed',
+                error: 'Only DjVu opens may require activation',
+            } satisfies TDocumentOpenOutcome;
+        }
+        const djvuPath = outcome.result.originalPath;
+        if (pendingDjvu.value !== djvuPath) {
+            BrowserLogger.warn('djvu-open-transaction', 'Finalize rejected', {
+                reason: 'pending-path-mismatch',
+                djvuPath,
+                pendingPath: pendingDjvu.value,
+            });
+            return {
+                status: 'stale',
+                result: outcome.result,
+            } satisfies TDocumentOpenOutcome;
+        }
+        pendingDjvu.value = null;
+        BrowserLogger.info('djvu-open-transaction', 'Pending command consumed', {
+            reason: 'activation-owner-acquired',
+            djvuPath,
+        });
+        try {
+            const activated = await openDjvuFile(djvuPath, {
+                closeActiveDocument: closeFile,
+                setOriginalPath: (path) => {
+                    originalPath.value = path;
+                },
+            });
+            BrowserLogger.info('djvu-open-transaction', 'Activation returned', {
+                activated,
+                djvuPath,
+                isDjvuMode: isDjvuMode.value,
+                sourcePath: djvuSourcePath.value,
+            });
+            if (!activated) {
+                return {
+                    status: 'stale',
+                    result: outcome.result,
+                } satisfies TDocumentOpenOutcome;
+            }
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            pdfError.value = message;
+            BrowserLogger.error('djvu-open-transaction', 'Activation failed', {
+                reason: 'open-djvu-threw',
+                djvuPath,
+                error: message,
+            });
+            return {
+                status: 'failed',
+                error: message,
+            } satisfies TDocumentOpenOutcome;
+        }
+        if (!isDjvuMode.value || djvuSourcePath.value !== djvuPath) {
+            BrowserLogger.warn('djvu-open-transaction', 'Activation state rejected', {
+                reason: !isDjvuMode.value ? 'djvu-mode-inactive' : 'source-path-mismatch',
+                djvuPath,
+                isDjvuMode: isDjvuMode.value,
+                sourcePath: djvuSourcePath.value,
+            });
+            return {
+                status: 'stale',
+                result: outcome.result,
+            } satisfies TDocumentOpenOutcome;
+        }
+        BrowserLogger.info('djvu-open-transaction', 'Finalize committed', {
+            reason: 'source-active',
+            djvuPath,
+        });
+        return {
+            status: 'opened',
+            result: outcome.result,
+        } satisfies TDocumentOpenOutcome;
+    }
 
     const {
         openFileWithViewerLifecycle,
@@ -96,6 +190,7 @@ export const useWorkspaceFileLifecycleController = (
         workingCopyPath,
         viewerLifecycleHooks: createWorkspaceViewerLifecycleHooks({
             cleanupDjvuTemp,
+            captureDjvuActivation,
             exitDjvuMode,
             invalidatePendingDjvuOpen,
             isDjvuMode,
@@ -105,6 +200,7 @@ export const useWorkspaceFileLifecycleController = (
         openFile,
         openFileDirect,
         openFileDirectBatch,
+        finalizeOpen: commitPendingDjvuOpen,
         closeFile,
     });
 
@@ -147,6 +243,7 @@ export const useWorkspaceFileLifecycleController = (
         documentRevisionInfo,
         documentRevisionToken,
         originalPath,
+        requiresSaveAsOnFirstSave,
         fileName,
         isDirty,
         pdfConformanceProfile,

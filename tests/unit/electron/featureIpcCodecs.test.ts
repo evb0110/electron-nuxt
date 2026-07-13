@@ -50,6 +50,125 @@ describe('feature IPC codec maps', () => {
         })).toThrow();
     });
 
+    it('preserves the source identity needed to validate cached opening geometry', () => {
+        expect(DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.fileStat].decodeResult({
+            size: 28_000_000,
+            modifiedAt: 1_720_000_000_000,
+        })).toEqual({
+            size: 28_000_000,
+            modifiedAt: 1_720_000_000_000,
+        });
+        expect(() => DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.fileStat].decodeResult({
+            size: 28_000_000,
+            modifiedAt: -1,
+        })).toThrow('invalid file modification time');
+        expect(DJVU_IPC_CODECS[DJVU_CHANNELS.getPageSourceInfo].decodeResult({
+            pageCount: 431,
+            pageNumber: 1,
+            pageSize: {
+                width: 600,
+                height: 800,
+                dpi: 300,
+            },
+            sourceSize: 28_000_000,
+            sourceModifiedAt: 1_720_000_000_000,
+        })).toEqual({
+            pageCount: 431,
+            pageNumber: 1,
+            pageSize: {
+                width: 600,
+                height: 800,
+                dpi: 300,
+            },
+            sourceSize: 28_000_000,
+            sourceModifiedAt: 1_720_000_000_000,
+        });
+        expect(DJVU_IPC_CODECS[DJVU_CHANNELS.awaitOpenJob].decodeResult({
+            success: true,
+            pageCount: 431,
+            pageSourceInfo: {
+                pageCount: 431,
+                pageNumber: 1,
+                pageSize: {
+                    width: 600,
+                    height: 800,
+                    dpi: 300,
+                },
+                sourceSize: 28_000_000,
+                sourceModifiedAt: 1_720_000_000_000,
+            },
+        })).toMatchObject({
+            success: true,
+            pageSourceInfo: {
+                sourceSize: 28_000_000,
+                sourceModifiedAt: 1_720_000_000_000,
+            },
+        });
+    });
+
+    it('validates exact first-page opening geometry at the IPC boundary', () => {
+        const validGeometry = {
+            pageNumber: 1,
+            pageCount: 431,
+            width: 612,
+            height: 792,
+            rotation: 90,
+            size: 28_000_000,
+            modifiedAt: 1_720_000_000_000,
+        };
+        expect(DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.pdfOpeningGeometry].decodeResult(validGeometry))
+            .toEqual(validGeometry);
+        expect(DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.openDocumentDirect].decodeResult({
+            kind: 'pdf',
+            workingPath: '/managed/scan.pdf',
+            originalPath: '/documents/scan.pdf',
+            openingGeometry: validGeometry,
+        })).toEqual({
+            kind: 'pdf',
+            workingPath: '/managed/scan.pdf',
+            originalPath: '/documents/scan.pdf',
+            openingGeometry: validGeometry,
+        });
+        expect(() => DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.pdfOpeningGeometry].decodeResult({
+            ...validGeometry,
+            pageNumber: 2,
+        })).toThrow('invalid PDF opening geometry result');
+        expect(() => DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.pdfOpeningGeometry].decodeResult({
+            ...validGeometry,
+            rotation: 45,
+        })).toThrow('invalid PDF opening geometry result');
+        expect(() => DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.openDocumentDirect].decodeResult({
+            kind: 'pdf',
+            workingPath: '/managed/scan.pdf',
+            originalPath: '/documents/scan.pdf',
+            openingGeometry: {
+                ...validGeometry,
+                rotation: 45,
+            },
+        })).toThrow('invalid PDF opening geometry result');
+    });
+
+    it.each([
+        'djvu-convert',
+        'djvu-open',
+        'djvu-print',
+    ] as const)('decodes %s document-output job state', (operation) => {
+        expect(DJVU_IPC_CODECS[DJVU_CHANNELS.subscribeJob].decodeResult({
+            jobId: `${operation}-job`,
+            operation,
+            status: 'queued',
+            progress: {
+                jobId: `${operation}-job`,
+                phase: operation === 'djvu-open' ? 'loading' : 'converting',
+                percent: 0,
+            },
+            updatedAtMs: 1,
+        })).toMatchObject({
+            operation,
+            status: 'queued',
+        });
+    });
+
     it('reject malformed renderer arguments before handler dispatch', () => {
         expect(() => AGENT_IPC_CODECS[AGENT_CHANNELS.setMcpIntegrationEnabled].decodeArgs(['yes'])).toThrow();
         expect(() => DJVU_IPC_CODECS[DJVU_CHANNELS.getInfo].decodeArgs([''])).toThrow();

@@ -110,7 +110,7 @@ const MAX_SERIALIZED_PDF_RESERVED_BYTES_PER_SENDER = (() => {
     return Math.max(parsed, MIN_SERIALIZED_PDF_PERSISTENCE_MAX_BYTES);
 })();
 
-type TSerializedPdfPersistenceMode = 'save' | 'save_as';
+type TSerializedPdfPersistenceMode = 'save' | 'save_as' | 'working_copy';
 
 interface ISerializedPdfPersistenceSession {
     id: string;
@@ -419,16 +419,19 @@ export async function beginSerializedPdfSaveToOriginal(
 ): Promise<IBeginSerializedPdfPersistenceResult> {
     const normalizedWorkingPath = normalizeWorkingPath(workingPath);
     const normalizedTotalBytes = normalizeTotalBytes(totalBytes);
-    const originalPath = getValidatedOriginalPath(normalizedWorkingPath, context.senderId);
+    const workingCopyOnly = serializedSaveOptions?.workingCopyOnly === true;
+    const targetPath = workingCopyOnly
+        ? normalizedWorkingPath
+        : getValidatedOriginalPath(normalizedWorkingPath, context.senderId);
 
     if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, context.senderId)) {
         throw new Error('Working copy path is not managed');
     }
     const session = await createSession({
-        mode: 'save',
+        mode: workingCopyOnly ? 'working_copy' : 'save',
         sender: context.sender,
         workingPath: normalizedWorkingPath,
-        targetPath: originalPath,
+        targetPath,
         serializedSaveOptions,
         totalBytes: normalizedTotalBytes,
     });
@@ -500,7 +503,9 @@ async function finishSession(session: ISerializedPdfPersistenceSession): Promise
     }
     const optimizedValidation = session.mode === 'save_as'
         ? await optimizePdfForSaveAs(session.tempPath, session.saveAsOptions)
-        : await optimizeLargePdfForSave(session.tempPath);
+        : session.mode === 'save'
+            ? await optimizeLargePdfForSave(session.tempPath)
+            : null;
     const committedValidation = optimizedValidation ?? validation;
 
     let conflictValidation: IPdfValidationResult | null = null;
@@ -516,7 +521,16 @@ async function finishSession(session: ISerializedPdfPersistenceSession): Promise
             session.expectedDocumentRevisionToken,
         );
 
-        if (session.mode === 'save_as') {
+        if (session.mode === 'working_copy') {
+            await commitPdfTempFile(session.tempPath, session.workingPath, {
+                signal: session.lifecycleOperation.signal,
+                ownerId: `serialized-pdf:${session.id}`,
+                ...(session.changedObjectRefs.length ? {changedObjectRefs: session.changedObjectRefs} : {}),
+            });
+            await markWorkingCopyContentChanged(session.workingPath, 'replace-working-copy', session.senderId);
+            targetWriteCommitted = true;
+            workingCopyRefreshed = true;
+        } else if (session.mode === 'save_as') {
             await commitPdfTempFile(session.tempPath, session.targetPath, {
                 signal: session.lifecycleOperation.signal,
                 ownerId: `serialized-pdf:${session.id}`,

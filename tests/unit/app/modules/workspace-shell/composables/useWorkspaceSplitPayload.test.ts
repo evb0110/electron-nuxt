@@ -9,10 +9,15 @@ import { ref } from 'vue';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import { useWorkspaceSplitPayload } from '@app/modules/workspace-shell/composables/useWorkspaceSplitPayload';
+import { IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES } from '@contracts/electronApiDocuments';
+import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 
 const mocks = vi.hoisted(() => ({
     createWorkingCopyFromPath: vi.fn(),
     createWorkingCopyFromData: vi.fn(),
+    cleanupFile: vi.fn(),
+    getDocumentRevision: vi.fn(),
+    savePdfData: vi.fn(),
     legacyCreateWorkingCopyFromPath: vi.fn(),
     legacyCreateWorkingCopyFromData: vi.fn(),
     legacyCleanupFile: vi.fn(),
@@ -21,8 +26,13 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@app/utils/platformDocuments', () => ({
     getDocumentWorkingCopyCapability: () => ({
+        cleanupFile: mocks.cleanupFile,
         createWorkingCopyFromPath: mocks.createWorkingCopyFromPath,
         createWorkingCopyFromData: mocks.createWorkingCopyFromData,
+    }),
+    getDocumentFilesCapability: () => ({
+        getDocumentRevision: mocks.getDocumentRevision,
+        savePdfData: mocks.savePdfData,
     }),
     getDocumentsCapability: () => ({
         createWorkingCopyFromPath: mocks.legacyCreateWorkingCopyFromPath,
@@ -87,6 +97,21 @@ describe('useWorkspaceSplitPayload', () => {
         vi.clearAllMocks();
         mocks.createWorkingCopyFromPath.mockResolvedValue('/tmp/split-path.pdf');
         mocks.createWorkingCopyFromData.mockResolvedValue('/tmp/split-data.pdf');
+        mocks.cleanupFile.mockResolvedValue(undefined);
+        mocks.getDocumentRevision.mockResolvedValue({
+            version: 1,
+            documentRef: '/tmp/split-path.pdf',
+            authority: 'electron-working-copy',
+            token: requireDocumentRevisionToken('split-revision'),
+            contentRevision: 1,
+            mintedAt: 1,
+        });
+        mocks.savePdfData.mockResolvedValue({
+            isValid: true,
+            tool: 'qpdf',
+            errors: [],
+            warnings: [],
+        });
         mocks.readDocumentBytes.mockResolvedValue(new Uint8Array([9]));
         installLegacyThrowingMocks();
     });
@@ -148,6 +173,31 @@ describe('useWorkspaceSplitPayload', () => {
         expect(mocks.legacyCreateWorkingCopyFromData).not.toHaveBeenCalled();
     });
 
+    it('stages a small in-memory split snapshot without a working source path', async () => {
+        const pdfBytes = new Uint8Array([
+            4,
+            5,
+            6,
+        ]);
+        const { captureSplitPayload } = useWorkspaceSplitPayload(createOptions({
+            hasPendingTabChanges: ref(true),
+            pdfData: ref(pdfBytes),
+            workingCopyPath: ref(null),
+        }));
+
+        await expect(captureSplitPayload()).resolves.toMatchObject({
+            kind: 'pdfSnapshot',
+            snapshotPath: '/tmp/split-data.pdf',
+            isDirty: true,
+        });
+        expect(mocks.createWorkingCopyFromData).toHaveBeenCalledWith(
+            'sample.pdf',
+            pdfBytes,
+            '/tmp/original.pdf',
+        );
+        expect(mocks.createWorkingCopyFromPath).not.toHaveBeenCalled();
+    });
+
     it('serializes dirty split snapshots inside the viewer canonical save transaction', async () => {
         const serializedBytes = Uint8Array.of(7, 8, 9);
         const serializePdfForSave = vi.fn(async () => serializedBytes);
@@ -193,5 +243,31 @@ describe('useWorkspaceSplitPayload', () => {
             serializedBytes,
             '/tmp/original.pdf',
         );
+    });
+
+    it('streams oversized dirty snapshots into a cloned working copy', async () => {
+        const pdfBytes = new Uint8Array(IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES + 1);
+        const { captureSplitPayload } = useWorkspaceSplitPayload(createOptions({
+            hasPendingTabChanges: ref(true),
+            pdfData: ref(pdfBytes),
+        }));
+
+        await expect(captureSplitPayload()).resolves.toMatchObject({
+            kind: 'pdfSnapshot',
+            snapshotPath: '/tmp/split-path.pdf',
+            isDirty: true,
+        });
+        expect(mocks.createWorkingCopyFromData).not.toHaveBeenCalled();
+        expect(mocks.createWorkingCopyFromPath).toHaveBeenCalledWith(
+            '/tmp/working.pdf',
+            '/tmp/original.pdf',
+        );
+        const saveArgs = mocks.savePdfData.mock.calls[0]!;
+        expect(saveArgs[0]).toBe('/tmp/split-path.pdf');
+        expect(saveArgs[1]).toBe(pdfBytes);
+        expect(saveArgs[2]).toEqual({
+            expectedDocumentRevisionToken: requireDocumentRevisionToken('split-revision'),
+            workingCopyOnly: true,
+        });
     });
 });

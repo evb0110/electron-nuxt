@@ -65,6 +65,25 @@ function isTextMarkupElement(element: HTMLElement) {
         || className.includes('squiggly');
 }
 
+function isMatchingLiveEditorElement(
+    element: HTMLElement,
+    comment: IAnnotationCommentSummary,
+) {
+    if (!element.classList.contains('highlightEditor')) {
+        return true;
+    }
+    const editorIdentity = [
+        element.id,
+        element.dataset.editorId,
+        element.dataset.annotationId,
+    ].find(value => Boolean(value));
+    if (!editorIdentity) {
+        return false;
+    }
+    return editorIdentity === comment.uid
+        || editorIdentity === comment.id;
+}
+
 function rectFromElement(
     pageContainer: HTMLElement,
     element: Element & { getBoundingClientRect: () => DOMRect; },
@@ -125,8 +144,15 @@ function collectGeometryMatchedTextMarkupElements(
     const matchedCandidates: ITextMarkupElementCandidate[] = [];
 
     findPageContainers(container, comment, []).forEach((pageContainer) => {
-        const candidates = Array.from(pageContainer.querySelectorAll<HTMLElement>('[data-annotation-id]'))
-            .filter(isTextMarkupElement);
+        const candidates = Array.from(pageContainer.querySelectorAll<HTMLElement>([
+            '[data-annotation-id]',
+            '.annotationEditorLayer .highlightEditor',
+            '.annotation-editor-layer .highlightEditor',
+        ].join(', ')))
+            .filter(element => (
+                isTextMarkupElement(element)
+                && isMatchingLiveEditorElement(element, comment)
+            ));
         candidates.forEach((element) => {
             const elementRect = rectFromElement(pageContainer, element);
             if (!elementRect) {

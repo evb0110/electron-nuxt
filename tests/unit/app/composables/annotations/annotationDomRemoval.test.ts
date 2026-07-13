@@ -412,6 +412,94 @@ describe('removeAnnotationCommentDom', () => {
         expect(distantHighlight.parentElement).not.toBeNull();
         expect(refresh).toHaveBeenCalledWith(page);
     });
+
+    it('removes a PDF.js highlight editor only when its editor identity matches', () => {
+        const container = createTestElement('viewer', {
+            left: 0,
+            top: 0,
+            width: 1000,
+            height: 1000,
+        });
+        const page = createTestElement('page_container', {
+            left: 0,
+            top: 0,
+            width: 1000,
+            height: 1000,
+        });
+        const editorLayer = createTestElement('annotationEditorLayer', {
+            left: 0,
+            top: 0,
+            width: 1000,
+            height: 1000,
+        });
+        const matchingEditor = createTestElement('highlightEditor', {
+            left: 100,
+            top: 200,
+            width: 200,
+            height: 50,
+        });
+        const distantEditor = createTestElement('highlightEditor', {
+            left: 600,
+            top: 600,
+            width: 150,
+            height: 40,
+        });
+        matchingEditor.id = 'pdfjs_internal_editor_0';
+        distantEditor.id = 'pdfjs_internal_editor_1';
+        connectPage(container, page);
+        connectToPage(page, editorLayer);
+        editorLayer.append(matchingEditor, distantEditor);
+
+        removeAnnotationCommentDom(toHTMLElement(container), createComment({
+            annotationId: null,
+            id: 'pdfjs_internal_editor_0',
+            uid: 'pdfjs_internal_editor_0',
+            subtype: 'Highlight',
+        }));
+
+        expect(matchingEditor.parentElement).toBeNull();
+        expect(distantEditor.parentElement).toBe(editorLayer);
+    });
+
+    it('preserves an overlapping live highlight editor when only geometry matches', () => {
+        const container = createTestElement('viewer', {
+            left: 0,
+            top: 0,
+            width: 1000,
+            height: 1000,
+        });
+        const page = createTestElement('page_container', {
+            left: 0,
+            top: 0,
+            width: 1000,
+            height: 1000,
+        });
+        const editorLayer = createTestElement('annotationEditorLayer', {
+            left: 0,
+            top: 0,
+            width: 1000,
+            height: 1000,
+        });
+        const overlappingEditor = createTestElement('highlightEditor', {
+            left: 100,
+            top: 200,
+            width: 200,
+            height: 50,
+        });
+        overlappingEditor.id = 'pdfjs_internal_editor_neighbor';
+        connectPage(container, page);
+        connectToPage(page, editorLayer);
+        editorLayer.append(overlappingEditor);
+
+        removeAnnotationCommentDom(toHTMLElement(container), createComment({
+            annotationId: null,
+            id: 'pdfjs_internal_editor_target',
+            uid: 'pdfjs_internal_editor_target',
+            subtype: 'Highlight',
+        }));
+
+        expect(overlappingEditor.parentElement).toBe(editorLayer);
+    });
 });
 
 describe('applyAnnotationCommentTextMarkupColor', () => {

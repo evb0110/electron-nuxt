@@ -36,7 +36,8 @@ function removeCompositeOverlay(host: HTMLElement) {
 }
 
 export function disconnectHighlightCompositeOverlay(pageContainer: HTMLElement) {
-    const host = pageContainer.querySelector<IHighlightCompositeHost>('.page_canvas, .canvasWrapper');
+    const host = pageContainer.querySelector<IHighlightCompositeHost>('.page_canvas__render-layer')
+        ?? pageContainer.querySelector<IHighlightCompositeHost>('.page_canvas, .canvasWrapper');
     host?.[OBSERVER_KEY]?.disconnect();
     if (host) {
         const rafId = host[RAF_ID_KEY];

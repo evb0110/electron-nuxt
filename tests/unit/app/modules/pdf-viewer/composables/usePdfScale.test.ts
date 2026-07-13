@@ -70,6 +70,18 @@ function createScaleComposable(options: {
 }
 
 describe('usePdfScale', () => {
+    it('seeds the canonical first render from the prepared opening frame scale', () => {
+        const {scale} = createScaleComposable({
+            width: 612,
+            height: 792,
+            mode: 'width',
+        });
+
+        expect(scale.seedOpeningFitScale(845 / 612)).toBe(true);
+        expect(scale.effectiveScale.value * 612).toBeCloseTo(845, 6);
+        expect(scale.seedOpeningFitScale(Number.NaN)).toBe(false);
+    });
+
     it('keeps viewer spacing fixed while fitting width', () => {
         const { scale } = createScaleComposable({
             width: 227.04,

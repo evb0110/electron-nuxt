@@ -1,26 +1,9 @@
 <template>
     <div ref="rootRef" class="empty-state">
-        <div
+        <PdfOpenBatchProgress
             v-if="openBatchProgress"
-            class="batch-progress"
-            role="status"
-            aria-live="polite"
-        >
-            <div class="batch-progress-status">
-                <AppSpinner size="sm" tone="inherit" />
-                <span>{{ t('emptyState.preparingBatch') }}</span>
-            </div>
-            <p class="batch-progress-detail">
-                {{ t('emptyState.preparingBatchProgress', {
-                    processed: displayProcessedCount(openBatchProgress.processed, openBatchProgress.total),
-                    total: openBatchProgress.total,
-                }) }}
-            </p>
-            <AppProgressBar :value="openBatchProgress.percent" class="mt-2" />
-            <p v-if="batchEtaText" class="batch-progress-eta">
-                {{ t('emptyState.preparingBatchEta', { eta: batchEtaText }) }}
-            </p>
-        </div>
+            :progress="openBatchProgress"
+        />
 
         <div v-else class="start-shell">
             <aside class="start-rail" :aria-label="t('emptyState.start')">
@@ -176,8 +159,11 @@
                                 type="button"
                                 class="recent-row recent-row--data"
                                 role="row"
-                                :class="{ 'is-disabled': openInProgress }"
-                                :disabled="openInProgress"
+                                :class="{ 'is-disabled': isRecentRowDisabled(file) }"
+                                :disabled="isRecentRowDisabled(file)"
+                                :data-recent-open-actionable="isRecentOpenReady(file) ? 'true' : 'false'"
+                                :data-recent-open-exact-frame-ready="isRecentOpenExactFrameReady(file) ? 'true' : 'false'"
+                                :data-recent-open-ready="isRecentOpenReady(file) ? 'true' : 'false'"
                                 @click="openRecent(file)"
                             >
                                 <span class="recent-col recent-col--name" role="cell">
@@ -315,40 +301,35 @@ import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { IRecentFile } from '@contracts/shared';
 import { useElementSize } from '@vueuse/core';
 import { formatRelativeTime } from '@app/utils/formatters';
-import {
-    displayProcessedCount,
-    formatEtaDuration,
-} from '@app/utils/progressFormatting';
 import { isBrowserDocumentRef } from '@app/utils/documentRef';
 import { isBrowserPlatformActive } from '@app/utils/platform';
-import AppProgressBar from '@app/components/AppProgressBar.vue';
-import AppSpinner from '@app/components/AppSpinner.vue';
 import CombinePdfPage from '@app/components/combine/CombinePdfPage.vue';
 import FileTypeIcon from '@app/components/icons/FileTypeIcon.vue';
 import SettingsPage from '@app/components/settings/SettingsPage.vue';
 import type { TStartSection } from '@app/types/startSection';
 import { getDocumentKindFromPath } from '@app/utils/supportedDocumentPaths';
-
-interface IOpenBatchProgress {
-    processed: number;
-    total: number;
-    percent: number;
-    estimatedRemainingMs: number | null;
-}
+import PdfOpenBatchProgress from '@app/modules/pdf-viewer/components/PdfOpenBatchProgress.vue';
+import type { IPdfOpenBatchProgress } from '@app/modules/pdf-viewer/runtime/contracts/pdfOpenBatchProgress.types';
 
 const {
     recentFiles,
     recentFilesResolved = true,
     openBatchProgress = null,
     openInProgress = false,
+    recentOpenDisabled = false,
+    isRecentOpenReady = () => true,
+    isRecentOpenExactFrameReady = () => false,
     canCombineFiles = false,
     startSection = 'recent',
     openCombineResult = undefined,
 } = defineProps<{
     recentFiles: IRecentFile[];
     recentFilesResolved?: boolean | undefined;
-    openBatchProgress?: IOpenBatchProgress | null | undefined;
+    openBatchProgress?: IPdfOpenBatchProgress | null | undefined;
     openInProgress?: boolean | undefined;
+    recentOpenDisabled?: boolean | undefined;
+    isRecentOpenReady?: ((file: IRecentFile) => boolean) | undefined;
+    isRecentOpenExactFrameReady?: ((file: IRecentFile) => boolean) | undefined;
     canCombineFiles?: boolean | undefined;
     startSection?: TStartSection | undefined;
     openCombineResult?: (result: TOpenFileResult) => Promise<boolean>;
@@ -380,7 +361,6 @@ const recentClearLabelProps = computed(() => (
     isRecentControlsCompact.value ? {} : { label: t('emptyState.clearHistory') }
 ));
 
-const batchEtaText = computed(() => formatEtaDuration(openBatchProgress?.estimatedRemainingMs ?? null));
 const filteredRecentFiles = computed(() => {
     const query = recentSearch.value.trim().toLocaleLowerCase();
     if (!query) {
@@ -446,6 +426,13 @@ function openRecent(file: IRecentFile) {
     emit('open-recent', file);
 }
 
+function isRecentRowDisabled(file: IRecentFile) {
+    // `openInProgress` drives the picker CTA, not Recent command eligibility.
+    // The host's row-specific predicate owns transaction conflicts; missing
+    // prewarmed geometry is a cold-path concern, never a disabled-command gate.
+    return recentOpenDisabled || !isRecentOpenReady(file);
+}
+
 function revealRecent(file: IRecentFile) {
     emit('reveal-recent', file);
 }
@@ -485,37 +472,6 @@ watch(() => startSection, (section) => {
     background: var(--app-start-bg);
     color: var(--ui-text);
     container-type: inline-size;
-}
-
-.batch-progress {
-    width: min(100%, 38rem);
-    margin: var(--app-empty-state-margin) auto;
-    border: 1px solid var(--ui-border);
-    border-radius: var(--app-radius-2xl);
-    background: var(--ui-bg-elevated);
-    padding: var(--app-space-9xl) var(--app-space-12xl);
-}
-
-.batch-progress-status {
-    display: flex;
-    align-items: center;
-    gap: var(--app-space-3xl);
-    color: var(--ui-text);
-    font-size: var(--app-text-size-body);
-}
-
-.batch-progress-detail,
-.batch-progress-eta {
-    margin: var(--app-space-3xl) 0 0;
-    font-size: var(--app-text-size-kicker);
-}
-
-.batch-progress-detail {
-    color: var(--ui-text-muted);
-}
-
-.batch-progress-eta {
-    color: var(--ui-text-dimmed);
 }
 
 .clear-history-confirm {

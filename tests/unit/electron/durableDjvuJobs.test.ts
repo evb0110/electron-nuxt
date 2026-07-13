@@ -16,7 +16,7 @@ import {
     startDurableDjvuOpenJob,
 } from '@electron/features/djvu/main/durableDjvuJobs';
 
-const viewingMocks = vi.hoisted(() => ({handleDjvuOpenForViewing: vi.fn()}));
+const viewingMocks = vi.hoisted(() => ({adoptDjvuViewingPath: vi.fn()}));
 const openPathMocks = vi.hoisted(() => ({
     allowOpenPath: vi.fn(),
     requireOpenPath: vi.fn((path: string) => path),
@@ -41,21 +41,16 @@ const context = {senderId: 42} as IDjvuOperationContext;
 describe('durable DjVu jobs', () => {
     afterEach(() => {
         documentOutputService.clearForTests();
-        viewingMocks.handleDjvuOpenForViewing.mockReset();
+        viewingMocks.adoptDjvuViewingPath.mockReset();
         openPathMocks.allowOpenPath.mockReset();
     });
 
-    it('publishes an open handle before work settles and re-adopts on await', async () => {
+    it('publishes an open handle before work settles and adopts without re-probing on await', async () => {
         const work = deferred<{
             success: true;
             pageCount: number
         }>();
         const run = vi.fn(() => work.promise);
-        viewingMocks.handleDjvuOpenForViewing.mockResolvedValue({
-            success: true,
-            pageCount: 3,
-        });
-
         startDurableDjvuOpenJob('djvu-open-reload', requireOpenPath('/tmp/source.djvu', 42), run);
         expect(documentOutputService.getState('djvu-open-reload')).toMatchObject({
             operation: 'djvu-open',
@@ -71,7 +66,7 @@ describe('durable DjVu jobs', () => {
             jobId: 'djvu-open-reload',
             pageCount: 3,
         });
-        expect(viewingMocks.handleDjvuOpenForViewing).toHaveBeenCalledWith(
+        expect(viewingMocks.adoptDjvuViewingPath).toHaveBeenCalledWith(
             context,
             '/tmp/source.djvu',
         );
@@ -97,7 +92,7 @@ describe('durable DjVu jobs', () => {
             error: 'superseded',
         });
         expect(documentOutputService.getState('djvu-open-cancel')).toMatchObject({status: 'canceled'});
-        expect(viewingMocks.handleDjvuOpenForViewing).not.toHaveBeenCalled();
+        expect(viewingMocks.adoptDjvuViewingPath).not.toHaveBeenCalled();
     });
 
     it('retains conversion identity independently from the initiating renderer', async () => {

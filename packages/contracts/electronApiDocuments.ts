@@ -98,7 +98,10 @@ export const MAX_DOCUMENT_ALLOCATION_BYTES = 512 * 1024 * 1024;
 export function decodeFileStatResult(
     value: unknown,
     maxBytes = Number.MAX_SAFE_INTEGER,
-): {size: number} | null {
+): {
+    size: number;
+    modifiedAt?: number
+} | null {
     if (
         !isRecord(value)
         || typeof value.size !== 'number'
@@ -108,7 +111,18 @@ export function decodeFileStatResult(
     ) {
         return null;
     }
-    return {size: value.size};
+    const modifiedAt = value.modifiedAt;
+    if (modifiedAt !== undefined && (
+        typeof modifiedAt !== 'number'
+        || !Number.isSafeInteger(modifiedAt)
+        || modifiedAt < 0
+    )) {
+        return null;
+    }
+    return {
+        size: value.size,
+        ...(modifiedAt === undefined ? {} : {modifiedAt}),
+    };
 }
 
 export function assertDocumentAllocationSize(
@@ -154,6 +168,12 @@ export interface IOpenPdfResult {
     workingPath: TDocumentRef;
     originalPath: TDocumentRef;
     isGenerated?: boolean;
+    /**
+     * Authoritative first-page metadata discovered by the main process from
+     * the admitted working copy. The workspace host can therefore publish
+     * the exact opening frame in the same transaction that claims the file.
+     */
+    openingGeometry?: IPdfOpeningGeometry;
 }
 
 export interface IOpenDjvuResult {
@@ -200,7 +220,11 @@ export interface IPdfOptimizeOptions { preset: TPdfOptimizePreset; }
 
 export interface IDocumentMutationRevisionOptions {expectedDocumentRevisionToken: TDocumentRevisionToken;}
 
-export interface IPdfSerializedSaveOptions extends IDocumentMutationRevisionOptions {changedObjectRefs?: string[];}
+export interface IPdfSerializedSaveOptions extends IDocumentMutationRevisionOptions {
+    changedObjectRefs?: string[];
+    /** Stage validated bytes into the managed working copy without publishing its original file. */
+    workingCopyOnly?: true;
+}
 export interface IPdfNativeStagedCommitOptions extends IDocumentMutationRevisionOptions {changedObjectRefs?: string[];}
 
 export interface IPdfOptimizeProgress {
@@ -224,6 +248,16 @@ export interface IPdfOptimizeResult {
 export interface IPdfNativePageSize {
     width: number;
     height: number;
+}
+
+export interface IPdfOpeningGeometry {
+    pageNumber: 1;
+    pageCount: number;
+    width: number;
+    height: number;
+    rotation: 0 | 90 | 180 | 270;
+    size: number;
+    modifiedAt: number;
 }
 
 export interface IPdfNativePagePreviewOptions {
@@ -515,10 +549,14 @@ export interface IDocumentsFileCapability {
     savePdfDialog: (suggestedName: string) => Promise<string | null>;
     saveDocxAs: (workingCopyPath: TDocumentRef) => Promise<TDocumentRef | null>;
     readFile: (path: TDocumentRef) => Promise<Uint8Array>;
-    statFile: (path: TDocumentRef) => Promise<{ size: number }>;
+    statFile: (path: TDocumentRef) => Promise<{
+        size: number;
+        modifiedAt?: number
+    }>;
     readFileRange: (path: TDocumentRef, offset: number, length: number) => Promise<Uint8Array>;
     createManagedTempFileHandle?: (path: TDocumentRef) => Promise<IManagedTempFileHandle>;
     releaseManagedTempFileHandle?: (leaseId: string) => Promise<boolean>;
+    getPdfOpeningGeometry?: (path: TDocumentRef) => Promise<IPdfOpeningGeometry>;
     getPdfNativePageSizes?: (path: TDocumentRef) => Promise<IPdfNativePageSize[]>;
     cancelPdfNativePagePreview?: (requestId: string) => Promise<{ canceled: boolean }>;
     renderPdfNativePagePreview?: (
@@ -700,6 +738,7 @@ export interface IDocumentsReadCapability extends Pick<
     | 'readFileRange'
     | 'createManagedTempFileHandle'
     | 'releaseManagedTempFileHandle'
+    | 'getPdfOpeningGeometry'
     | 'getPdfNativePageSizes'
     | 'cancelPdfNativePagePreview'
     | 'renderPdfNativePagePreview'

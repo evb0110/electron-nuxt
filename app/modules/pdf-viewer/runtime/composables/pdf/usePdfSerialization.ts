@@ -49,6 +49,7 @@ export interface IPdfSerializationDeps {
     getAllShapes: () => IShapeAnnotation[];
     getDeletedEmbeddedShapeAnnotationIds?: () => string[];
     getDeletedEmbeddedShapeStableKeys?: () => string[];
+    ensureManagedShapeBaselineReady?: () => Promise<void>;
 }
 
 interface ISerializePdfForSaveOptions {
@@ -75,6 +76,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         getAllShapes,
         getDeletedEmbeddedShapeAnnotationIds,
         getDeletedEmbeddedShapeStableKeys,
+        ensureManagedShapeBaselineReady,
     } = deps;
 
     async function getSourcePdfData() {
@@ -384,6 +386,13 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
     async function buildSavePayload(
         options?: ISerializePdfForSaveOptions,
     ): Promise<IPdfSerializationSavePayload> {
+        if (
+            options?.includeShapes === true
+            || options?.rewriteShapeState === true
+            || options?.forceRewrite === true
+        ) {
+            await ensureManagedShapeBaselineReady?.();
+        }
         const payload = createEmptySavePayload();
         payload.canonicalAnnotationProgram = options?.annotationSerializationPlan
             ? projectAnnotationBackendMutations(options.annotationSerializationPlan, 'pdf-lib-rewrite')

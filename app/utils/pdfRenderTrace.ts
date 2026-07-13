@@ -1,7 +1,5 @@
 import { BrowserLogger } from '@app/utils/browserLogger';
 
-const PDF_RENDER_TRACE_STORAGE_KEY = 'evb-viewer:pdf-render-trace';
-const PDF_RENDER_TRACE_CONSOLE_STORAGE_KEY = 'evb-viewer:pdf-render-trace-console';
 const PDF_RENDER_TRACE_SECTION = 'pdf-render-trace';
 const PDF_RENDER_TRACE_BUFFER_LIMIT = 20_000;
 
@@ -32,16 +30,7 @@ export function isPdfRenderTraceEnabled() {
         return false;
     }
 
-    const traceWindow = window as TPdfRenderTraceWindow;
-    if (traceWindow.__pdfRenderTrace === true) {
-        return true;
-    }
-
-    try {
-        return window.localStorage.getItem(PDF_RENDER_TRACE_STORAGE_KEY) === '1';
-    } catch {
-        return false;
-    }
+    return (window as TPdfRenderTraceWindow).__pdfRenderTrace === true;
 }
 
 function isPdfRenderTraceConsoleEnabled() {
@@ -49,16 +38,7 @@ function isPdfRenderTraceConsoleEnabled() {
         return false;
     }
 
-    const traceWindow = window as TPdfRenderTraceWindow;
-    if (traceWindow.__pdfRenderTraceConsole === true) {
-        return true;
-    }
-
-    try {
-        return window.localStorage.getItem(PDF_RENDER_TRACE_CONSOLE_STORAGE_KEY) === '1';
-    } catch {
-        return false;
-    }
+    return (window as TPdfRenderTraceWindow).__pdfRenderTraceConsole === true;
 }
 
 function getTraceWindow() {

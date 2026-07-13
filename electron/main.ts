@@ -62,6 +62,7 @@ import {
     getRegisteredMainWindow,
 } from '@electron/window/registry';
 import { markWindowRendererReady } from '@electron/window/rendererReady';
+import { focusWindowForUser } from '@electron/window/focusWindowForUser';
 import {
     markWindowTabTransferNotReady,
     markWindowTabTransferReady,
@@ -99,6 +100,7 @@ import {
 } from '@electron/processDeathRecovery';
 import { markPendingUpdateHealthy } from '@electron/updateHealthMarker';
 import { runDetached } from '@electron/utils/runDetached';
+import { resolveApplicationVersion } from '@electron/appVersion';
 import { createUnhandledRejectionRecovery } from '@electron/unhandledRejectionRecovery';
 import { clearWorkspaceCheckpoint } from '@electron/workspaceCheckpointStore';
 
@@ -246,17 +248,13 @@ function focusMainWindow() {
         return;
     }
 
-    if (window.isMinimized()) {
-        window.restore();
-    }
-
-    if (config.automation.noFocus) {
-        return;
-    }
-
-    window.focus();
+    focusWindowForUser(window, {
+        application: app,
+        noFocus: config.automation.noFocus,
+    });
 }
 const externalOpenManager = createExternalOpenManager({
+    application: app,
     logger,
     noFocus: config.automation.noFocus,
     logStartupPhase: startupTrace.log,
@@ -458,7 +456,7 @@ void runInitSequence({
             return;
         }
         runDetached(
-            () => markPendingUpdateHealthy(app.getVersion()),
+            () => markPendingUpdateHealthy(resolveApplicationVersion(app)),
             {
                 label: 'mark current update healthy',
                 logger,
@@ -482,5 +480,5 @@ void runInitSequence({
 })
     .then(() => syncAgentMcpServerWithSettings())
     .catch((error) => {
-        requestFatalShutdown(`Application bootstrap failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
+        requestFatalShutdown(`Application bootstrap failed: ${getErrorMessage(error)}`);
     });

@@ -16,6 +16,7 @@ import {
 } from '@electron/utils/atomicReplace';
 import {
     claimWorkingCopyOwnership,
+    getWorkingCopyOriginalPath,
     getWorkingCopyOwnerWebContentsId,
     setWorkingCopyOriginalPath,
 } from '@electron/file-access/workingCopyStore';
@@ -44,18 +45,58 @@ function decodeStoredCheckpoint(value: unknown): IStoredWorkspaceCheckpoint | nu
         : null;
 }
 
+function canonicalizeCheckpointSources(
+    checkpoint: IWorkspaceCheckpoint,
+    ownerWebContentsId: number,
+    options: {rejectUnmappedWorkingCopy: boolean},
+) {
+    return {
+        ...checkpoint,
+        tabs: checkpoint.tabs.map((tab) => {
+            const workingCopySourceRef = tab.workingCopyRef
+                ? getWorkingCopyOriginalPath(tab.workingCopyRef, ownerWebContentsId)?.originalPath
+                : null;
+            const sourceMapping = tab.sourceRef
+                ? getWorkingCopyOriginalPath(tab.sourceRef, ownerWebContentsId)?.originalPath
+                : null;
+            const canonicalSourceRef = workingCopySourceRef ?? sourceMapping ?? tab.sourceRef;
+            if (tab.workingCopyRef && !workingCopySourceRef && canonicalSourceRef === tab.workingCopyRef) {
+                if (options.rejectUnmappedWorkingCopy) {
+                    throw new Error('Workspace checkpoint working copy has no canonical source mapping');
+                }
+                return {
+                    ...tab,
+                    sourceRef: null,
+                    workingCopyRef: null,
+                };
+            }
+            return canonicalSourceRef === tab.sourceRef
+                ? tab
+                : {
+                    ...tab,
+                    sourceRef: canonicalSourceRef,
+                };
+        }),
+    } satisfies IWorkspaceCheckpoint;
+}
+
 export async function saveWorkspaceCheckpoint(checkpoint: IWorkspaceCheckpoint, ownerWebContentsId: number) {
     for (const tab of checkpoint.tabs) {
         if (tab.workingCopyRef && getWorkingCopyOwnerWebContentsId(tab.workingCopyRef) !== ownerWebContentsId) {
             throw new Error('Workspace checkpoint contains an unowned working copy');
         }
     }
+    const canonicalCheckpoint = canonicalizeCheckpointSources(
+        checkpoint,
+        ownerWebContentsId,
+        {rejectUnmappedWorkingCopy: true},
+    );
     const storagePath = getStoragePath();
     const tempPath = makeSiblingTempPath(storagePath);
     const stored: IStoredWorkspaceCheckpoint = {
         version: 1,
         ownerWebContentsId,
-        checkpoint,
+        checkpoint: canonicalCheckpoint,
     };
     await writeFile(tempPath, JSON.stringify(stored, null, 2), 'utf-8');
     await atomicReplace(tempPath, storagePath);
@@ -71,7 +112,12 @@ export async function claimWorkspaceCheckpoint(newOwnerWebContentsId: number) {
     if (!stored) {
         return null;
     }
-    for (const tab of stored.checkpoint.tabs) {
+    const canonicalCheckpoint = canonicalizeCheckpointSources(
+        stored.checkpoint,
+        stored.ownerWebContentsId,
+        {rejectUnmappedWorkingCopy: false},
+    );
+    for (const tab of canonicalCheckpoint.tabs) {
         if (tab.workingCopyRef) {
             const transferred = claimWorkingCopyOwnership(
                 tab.workingCopyRef,
@@ -84,7 +130,7 @@ export async function claimWorkspaceCheckpoint(newOwnerWebContentsId: number) {
         }
     }
     await rm(getStoragePath(), {force: true});
-    return stored.checkpoint;
+    return canonicalCheckpoint;
 }
 
 export function clearWorkspaceCheckpoint() {

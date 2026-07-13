@@ -10,7 +10,6 @@ import {
 } from 'vue';
 import { stepBySpread } from '@app/utils/pdfViewMode';
 import { useWorkspaceToolbarPageModel } from '@app/modules/workspace-shell/composables/useWorkspaceToolbarPageModel';
-import { WORKSPACE_PAGE_NAVIGATION_LOCK_MS } from '@app/modules/workspace-shell/workspacePageNavigationLockMs';
 
 describe('useWorkspaceToolbarPageModel', () => {
     it('advances rapid next-page clicks through command state while displaying the authoritative source', async () => {
@@ -89,15 +88,17 @@ describe('useWorkspaceToolbarPageModel', () => {
         scope.stop();
     });
 
-    it('reconciles to the authoritative source page if the pending target never catches up', async () => {
+    it('retains pending navigation without a correctness timer until explicit viewer cancellation', async () => {
         vi.useFakeTimers();
         const scope = effectScope();
         try {
             const sourcePage = ref(1);
+            const feedbackPage = ref<number | null>(null);
             const goToPage = vi.fn();
 
             const model = scope.run(() => useWorkspaceToolbarPageModel({
                 sourcePage,
+                feedbackPage,
                 goToPage,
             }));
 
@@ -112,20 +113,42 @@ describe('useWorkspaceToolbarPageModel', () => {
             expect(model.currentPage.value).toBe(3);
             expect(model.navigationPage.value).toBe(8);
 
-            vi.advanceTimersByTime(WORKSPACE_PAGE_NAVIGATION_LOCK_MS);
+            vi.advanceTimersByTime(60_000);
             await nextTick();
 
             expect(model.currentPage.value).toBe(3);
-            expect(model.navigationPage.value).toBe(3);
+            expect(model.navigationPage.value).toBe(8);
 
-            sourcePage.value = 4;
-            await nextTick();
-            expect(model.currentPage.value).toBe(4);
-            expect(model.navigationPage.value).toBe(4);
+            model.cancelPendingNavigation();
+            expect(model.currentPage.value).toBe(3);
+            expect(model.navigationPage.value).toBe(3);
         } finally {
             scope.stop();
             vi.useRealTimers();
         }
+    });
+
+    it('cancels a pending command when the document session ends', async () => {
+        const scope = effectScope();
+        const sourcePage = ref(1);
+        const sessionActive = ref(true);
+        const model = scope.run(() => useWorkspaceToolbarPageModel({
+            sourcePage,
+            sessionActive,
+            goToPage: vi.fn(),
+        }));
+
+        if (!model) {
+            throw new Error('Failed to create workspace toolbar page model');
+        }
+
+        model.handleGoToPage(6);
+        expect(model.navigationPage.value).toBe(6);
+
+        sessionActive.value = false;
+        expect(model.navigationPage.value).toBe(1);
+
+        scope.stop();
     });
 
     it('syncs back to the authoritative snapshot page', async () => {
@@ -149,7 +172,7 @@ describe('useWorkspaceToolbarPageModel', () => {
         scope.stop();
     });
 
-    it('uses viewer navigation feedback for display without replacing the committed source page', async () => {
+    it('uses viewer navigation feedback only as the command cursor until presentation commits', async () => {
         const scope = effectScope();
         const sourcePage = ref(1);
         const feedbackPage = ref<number | null>(null);
@@ -173,7 +196,7 @@ describe('useWorkspaceToolbarPageModel', () => {
         feedbackPage.value = 4;
         await nextTick();
         expect(sourcePage.value).toBe(1);
-        expect(model.currentPage.value).toBe(4);
+        expect(model.currentPage.value).toBe(1);
         expect(model.navigationPage.value).toBe(4);
 
         feedbackPage.value = null;

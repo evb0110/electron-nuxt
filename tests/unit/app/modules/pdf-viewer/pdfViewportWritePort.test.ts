@@ -7,7 +7,7 @@ import { cast } from '@tests/helpers/cast';
 import { createPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
 
 describe('PDF viewport write port ownership tags', () => {
-    it('consumes exactly one authority-authored scroll and rejects drift as user input', () => {
+    it('consumes an authority-authored scroll burst and rejects drift as user input', () => {
         const container = cast<HTMLElement>({
             scrollLeft: 0,
             scrollTop: 0,
@@ -20,7 +20,7 @@ describe('PDF viewport write port ownership tags', () => {
             top: 120,
         });
         expect(port.consumeAuthorityScroll(container)).toBe(true);
-        expect(port.consumeAuthorityScroll(container)).toBe(false);
+        expect(port.consumeAuthorityScroll(container)).toBe(true);
 
         const secondIntent = port.beginIntent('navigation-2');
         port.apply(container, {

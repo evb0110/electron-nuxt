@@ -32,7 +32,6 @@ interface IUsePdfViewerPublicApiControllerOptions {
         },
     ) => Promise<void>;
     preserveNextSourceReloadVisibleContent: NonNullable<IPdfViewerExpose['preserveNextSourceReloadVisibleContent']>;
-    getPagePreview: IPdfViewerExpose['getPagePreview'];
     runSaveTransaction: IPdfViewerExpose['runSaveTransaction'];
     saveViewerDocument: IPdfViewerExpose['saveDocument'];
     materializePdfJsDocumentForInternalUse: IPdfViewerExpose['materializePdfJsDocumentForInternalUse'];
@@ -110,7 +109,6 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
 
     return createPdfViewerPublicApi({
         getViewerContainer: () => options.viewerContainer.value,
-        getPagePreview: options.getPagePreview,
         getCurrentPage: () => currentPage.value,
         getPendingNavigationTargetPage: () => options.singlePageScroll.navigationAnchorPage.value,
         getUserViewportInteractionEpoch: options.getUserViewportInteractionEpoch,
@@ -120,7 +118,7 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
         },
         cancelProgrammaticNavigation: () => {
             options.cancelPendingSearchScroll();
-            options.singlePageScroll.cancelProgrammaticNavigation();
+            options.singlePageScroll.cancelProgrammaticNavigation('public-api');
         },
         applyFitWidthToCurrentPage: options.applyFitWidthToCurrentPage,
         ensurePageMetricsInRange: viewerRuntime.document.ensurePageMetricsInRange,
@@ -129,6 +127,7 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
         preserveNextSourceReloadVisibleContent: options.preserveNextSourceReloadVisibleContent,
         adoptPersistedManagedShapesOnNextImport: annotationRuntime.adoptPersistedManagedShapesOnNextImport,
         clearPendingManagedShapeImportAdoption: annotationRuntime.clearPendingManagedShapeImportAdoption,
+        ensureManagedShapeBaselineReady: annotationRuntime.ensureManagedShapeBaselineReady,
         preparePersistedManagedShapesForSave: annotationRuntime.preparePersistedManagedShapesForSave,
         restorePreparedManagedShapesAfterFailedSave: annotationRuntime.restorePreparedManagedShapesAfterFailedSave,
         runSaveTransaction: options.runSaveTransaction,
@@ -233,6 +232,9 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
         },
         annotationHistoryMutationVersion: options.appAnnotationHistory.annotationHistoryMutationVersion,
         annotationHistoryResetVersion: options.appAnnotationHistory.annotationHistoryResetVersion,
+        hasCanonicalAnnotationChanges: annotationRuntime.hasCanonicalAnnotationChanges,
+        getDeletedCanonicalAnnotationIds: annotationRuntime.getDeletedCanonicalAnnotationIds,
+        getDeletedPersistedCanonicalAnnotationCount: annotationRuntime.getDeletedPersistedCanonicalAnnotationCount,
         setWorkspaceCommandSink: options.appAnnotationHistory.setWorkspaceCommandSink,
         startCommentPlacement: annotationRuntime.highlightComposable.startCommentPlacement,
         cancelCommentPlacement: annotationRuntime.highlightComposable.cancelCommentPlacement,

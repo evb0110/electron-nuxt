@@ -31,7 +31,6 @@ vi.mock('@app/utils/browserLogger', () => ({ BrowserLogger: {
 function createPdfViewerExpose(overrides: Partial<IPdfViewerExpose> = {}): IPdfViewerExpose {
     const viewer: IPdfViewerExpose = {
         getViewerContainer: () => null,
-        getPagePreview: () => null,
         scrollToPage: vi.fn(),
         moveAnnotationMarker: vi.fn(),
         captureRegionToClipboard: vi.fn(async () => false),

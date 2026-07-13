@@ -33,6 +33,7 @@ export interface IRecentFile {
     fileName: string;
     timestamp: number;
     fileSize?: number;
+    modifiedAt?: number;
 }
 
 export interface IOcrLanguage {

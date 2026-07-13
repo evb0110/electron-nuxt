@@ -113,6 +113,77 @@ describe('useWindowTabTransfers', () => {
         });
     });
 
+    it('cleans a split snapshot that resolves after capture timeout relinquishes ownership', async () => {
+        vi.useFakeTimers();
+        try {
+            const payload = createPayload();
+            const tab = {
+                id: 'tab-1',
+                fileName: 'sample.pdf',
+                originalPath: '/tmp/sample.pdf',
+                isDirty: true,
+                isDjvu: false,
+            };
+            const pane = {
+                paneId: 'pane-1',
+                activeTabId: 'tab-1',
+                tabIds: ['tab-1'],
+            };
+            const captureDeferred: {resolve?: (payload: TSplitPayload) => void} = {};
+            const workspace = cast<IWorkspaceExpose>({
+                hasPdf: true,
+                captureSplitPayload: vi.fn(() => new Promise<TSplitPayload>((resolve) => {
+                    captureDeferred.resolve = resolve;
+                })),
+            });
+            const transfers = useWindowTabTransfers({
+                activePaneId: ref('pane-1'),
+                panes: ref([pane]),
+                tabs: ref([tab]),
+                layout: ref(null),
+                createTab: vi.fn(),
+                getPaneById: vi.fn(() => pane),
+                getTabById: vi.fn((tabId: string | null | undefined) => tabId === tab.id ? tab : null),
+                getPaneByTabId: vi.fn(() => pane),
+                activatePane: vi.fn(),
+                activateTab: vi.fn(),
+                removeTabFromState: vi.fn(),
+                updateTab: vi.fn(),
+                cleanupEmptyPanes: vi.fn(),
+                closeTabInState: vi.fn(),
+                workspaceRefs: ref(new Map([[
+                    tab.id,
+                    workspace,
+                ]])),
+                waitForWorkspace: vi.fn(async () => workspace),
+                workspaceRestoreTracker: {
+                    start: vi.fn(),
+                    finish: vi.fn(),
+                },
+                handleCloseTab: vi.fn(),
+                handoffActiveTabBeforeClose: vi.fn(),
+            });
+
+            const resultPromise = transfers.captureWorkspacePayload(tab.id, 25);
+            await vi.advanceTimersByTimeAsync(25);
+            await expect(resultPromise).resolves.toBeNull();
+            expect(mocks.cleanupSplitPayloadSnapshot).not.toHaveBeenCalled();
+
+            captureDeferred.resolve?.(payload);
+            await Promise.resolve();
+            await Promise.resolve();
+            await Promise.resolve();
+
+            expect(mocks.cleanupSplitPayloadSnapshot).toHaveBeenCalledWith(payload, {
+                logSection: 'tabs',
+                context: 'capture-workspace-payload-late-result',
+                metadata: {tabId: tab.id},
+            });
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('includes source session metadata in outgoing transfers', async () => {
         const payload = createPayload();
         const tab = {

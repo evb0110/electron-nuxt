@@ -720,7 +720,10 @@ describe('BrowserDocumentStore', () => {
             4,
             5,
         ]));
-        await expect(store.stat(workingRef)).resolves.toEqual({ size: 6 });
+        await expect(store.stat(workingRef)).resolves.toEqual({
+            size: 6,
+            modifiedAt: expect.any(Number),
+        });
     });
 
     it('returns browser document revisions that follow source-proxy content changes', async () => {
@@ -983,7 +986,10 @@ describe('BrowserDocumentStore', () => {
             7,
             6,
         ]));
-        await expect(store.stat(ref)).resolves.toEqual({ size: 5 });
+        await expect(store.stat(ref)).resolves.toEqual({
+            size: 5,
+            modifiedAt: expect.any(Number),
+        });
     });
 
     it('mirrors picked source bytes even when a save handle is present', async () => {

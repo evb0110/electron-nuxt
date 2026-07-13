@@ -73,6 +73,58 @@ describe('document page sources', () => {
         source.dispose();
     });
 
+    it('constructs a DjVu source from one prioritized page size and hydrates other metrics lazily', async () => {
+        const getPageSizes = vi.fn(() => new Promise<never>(() => undefined));
+        const getPageSize = vi.fn(async (pageNumber: number) => ({
+            width: pageNumber === 3 ? 900 : 600,
+            height: pageNumber === 3 ? 1_200 : 800,
+            dpi: 300,
+        }));
+        const previewSource = {
+            getPageSizes,
+            getPageSize,
+            getPageSourceInfo: vi.fn().mockResolvedValue({
+                pageCount: 4,
+                pageNumber: 2,
+                pageSize: {
+                    width: 600,
+                    height: 800,
+                    dpi: 300,
+                },
+            }),
+            renderPageObjectUrl: vi.fn(),
+            revokeObjectURL: vi.fn(),
+            terminate: vi.fn(),
+        } satisfies IPagePreviewSource;
+
+        const source = await createDjvuPageSource(
+            'book.djvu',
+            previewSource,
+            createWorkspaceSurfaceBudgetController(),
+            {initialPageNumber: 2},
+        );
+
+        expect(source.pageCount).toBe(4);
+        expect(previewSource.getPageSourceInfo).toHaveBeenCalledWith(2);
+        expect(getPageSizes).not.toHaveBeenCalled();
+        expect(await source.getPageMetrics(2)).toEqual({
+            widthPoints: 144,
+            heightPoints: 192,
+            rotation: 0,
+        });
+        expect(getPageSize).not.toHaveBeenCalled();
+
+        expect(await source.getPageMetrics(3)).toEqual({
+            widthPoints: 216,
+            heightPoints: 288,
+            rotation: 0,
+        });
+        expect(getPageSize).toHaveBeenCalledOnce();
+        expect(getPageSize).toHaveBeenCalledWith(3);
+        expect(getPageSizes).not.toHaveBeenCalled();
+        source.dispose();
+    });
+
     it('exposes leased raster, thumbnail, text, outline, and annotation providers', async () => {
         const previewSource = {
             getPageSizes: vi.fn().mockResolvedValue([{
@@ -162,6 +214,112 @@ describe('document page sources', () => {
             signal: new AbortController().signal,
         })).rejects.toThrow('DjVu preview evicted under memory pressure');
         expect(previewSource.revokeObjectURL).toHaveBeenCalledWith('blob:oversized-page');
+        source.dispose();
+    });
+
+    it('cancels the native preview when its page render leaves the mount window', async () => {
+        let rejectRender!: (error: Error) => void;
+        const previewSource = {
+            cancelPagePreview: vi.fn(() => rejectRender(new Error('canceled'))),
+            getPageSizes: vi.fn().mockResolvedValue([{
+                width: 1_200,
+                height: 1_800,
+                dpi: 300,
+            }]),
+            renderPageObjectUrl: vi.fn(() => new Promise<never>((_resolve, reject) => {
+                rejectRender = reject;
+            })),
+            revokeObjectURL: vi.fn(),
+            terminate: vi.fn(),
+        } satisfies IPagePreviewSource;
+        const source = await createDjvuPageSource(
+            'book.djvu',
+            previewSource,
+            createWorkspaceSurfaceBudgetController(),
+        );
+        const controller = new AbortController();
+        const render = source.renderPage({
+            pageNumber: 1,
+            widthPx: 200,
+            priority: 'nearby',
+            signal: controller.signal,
+        });
+
+        controller.abort();
+
+        await expect(render).rejects.toThrow('canceled');
+        expect(previewSource.cancelPagePreview).toHaveBeenCalledWith(1);
+        source.dispose();
+    });
+
+    it('notifies a mounted DjVu surface when later memory pressure invalidates it', async () => {
+        const previewSource = {
+            getPageSizes: vi.fn().mockResolvedValue([{
+                width: 1_200,
+                height: 1_800,
+                dpi: 300,
+            }]),
+            renderPageObjectUrl: vi.fn().mockResolvedValue({
+                objectUrl: 'blob:pressure-page',
+                renderedPx: 200,
+            }),
+            revokeObjectURL: vi.fn(),
+            terminate: vi.fn(),
+        } satisfies IPagePreviewSource;
+        const budget = createWorkspaceSurfaceBudgetController(800_000);
+        const source = await createDjvuPageSource('book.djvu', previewSource, budget);
+        const surface = await source.renderPage({
+            pageNumber: 1,
+            widthPx: 200,
+            priority: 'visible',
+            signal: new AbortController().signal,
+        });
+        const onInvalidated = vi.fn();
+        surface.onInvalidated?.(onInvalidated);
+
+        budget.setPressureLevel('emergency');
+
+        expect(onInvalidated).toHaveBeenCalledOnce();
+        expect(previewSource.revokeObjectURL).toHaveBeenCalledWith('blob:pressure-page');
+        source.dispose();
+    });
+
+    it('promotes a completed DjVu surface lease without rerendering the page', async () => {
+        const previewSource = {
+            getPageSizes: vi.fn().mockResolvedValue([{
+                width: 1_200,
+                height: 1_800,
+                dpi: 300,
+            }]),
+            renderPageObjectUrl: vi.fn().mockResolvedValue({
+                objectUrl: 'blob:promoted-page',
+                renderedPx: 200,
+            }),
+            revokeObjectURL: vi.fn(),
+            terminate: vi.fn(),
+        } satisfies IPagePreviewSource;
+        const promotePriority = vi.fn();
+        const source = await createDjvuPageSource('book.djvu', previewSource, {
+            reserve: vi.fn(() => ({
+                promotePriority,
+                release: vi.fn(),
+            })),
+            releaseScope: vi.fn(),
+        });
+        const surface = await source.renderPage({
+            pageNumber: 1,
+            widthPx: 200,
+            priority: 'nearby',
+            signal: new AbortController().signal,
+        });
+
+        surface.promotePriority?.('navigation');
+        surface.promotePriority?.('visible');
+
+        expect(previewSource.renderPageObjectUrl).toHaveBeenCalledOnce();
+        expect(promotePriority).toHaveBeenCalledOnce();
+        expect(promotePriority).toHaveBeenCalledWith(100);
+        surface.release();
         source.dispose();
     });
 

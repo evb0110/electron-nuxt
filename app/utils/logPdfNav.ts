@@ -1,7 +1,5 @@
 import { BrowserLogger } from '@app/utils/browserLogger';
 
-const PDF_NAV_LOG_STORAGE_KEY = 'evb-viewer:pdf-nav-log';
-const PDF_NAV_LOG_CONSOLE_STORAGE_KEY = 'evb-viewer:pdf-nav-log-console';
 const PDF_NAV_LOG_SECTION = 'pdf-nav';
 const PDF_NAV_LOG_BUFFER_LIMIT = 5_000;
 
@@ -38,16 +36,7 @@ function isPdfNavLogEnabled() {
         return false;
     }
 
-    const logWindow = window as TPdfNavLogWindow;
-    if (logWindow.__pdfNavLog === true) {
-        return true;
-    }
-
-    try {
-        return window.localStorage.getItem(PDF_NAV_LOG_STORAGE_KEY) === '1';
-    } catch {
-        return false;
-    }
+    return (window as TPdfNavLogWindow).__pdfNavLog === true;
 }
 
 function isPdfNavLogConsoleEnabled() {
@@ -55,16 +44,7 @@ function isPdfNavLogConsoleEnabled() {
         return false;
     }
 
-    const logWindow = window as TPdfNavLogWindow;
-    if (logWindow.__pdfNavLogConsole === true) {
-        return true;
-    }
-
-    try {
-        return window.localStorage.getItem(PDF_NAV_LOG_CONSOLE_STORAGE_KEY) === '1';
-    } catch {
-        return false;
-    }
+    return (window as TPdfNavLogWindow).__pdfNavLogConsole === true;
 }
 
 export function logPdfNav(message: string, ...args: unknown[]) {

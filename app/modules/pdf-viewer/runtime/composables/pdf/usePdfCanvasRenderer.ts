@@ -124,8 +124,18 @@ export const usePdfCanvasRenderer = (deps: {
         const pixelScaleFactor = shouldClampPixels
             ? Math.sqrt(maxCanvasPixels / requestedPixelCount)
             : 1;
-        const pixelWidth = Math.max(1, Math.round(requestedPixelWidth * pixelScaleFactor));
-        const pixelHeight = Math.max(1, Math.round(requestedPixelHeight * pixelScaleFactor));
+        let pixelWidth = Math.max(1, Math.round(requestedPixelWidth * pixelScaleFactor));
+        let pixelHeight = Math.max(1, Math.round(requestedPixelHeight * pixelScaleFactor));
+        // Rounding both axes independently can overshoot a strict pixel budget
+        // by one row or column. Correct the longer axis after rounding so the
+        // granted canvas is mathematically guaranteed to remain within budget.
+        if (maxCanvasPixels !== null && pixelWidth * pixelHeight > maxCanvasPixels) {
+            if (pixelHeight >= pixelWidth) {
+                pixelHeight = Math.max(1, Math.floor(maxCanvasPixels / pixelWidth));
+            } else {
+                pixelWidth = Math.max(1, Math.floor(maxCanvasPixels / pixelHeight));
+            }
+        }
 
         return {
             pixelWidth,
@@ -307,21 +317,14 @@ export const usePdfCanvasRenderer = (deps: {
         }
     }
 
-    function applyContainerDimensions(
+    function applyContainerUserUnit(
         container: HTMLElement,
-        viewport: ReturnType<PDFPageProxy['getViewport']>,
-        scale: number,
         userUnit: number,
-        totalScaleFactor: number,
     ) {
-        container.style.width = `${viewport.width}px`;
-        container.style.height = `${viewport.height}px`;
-        container.style.setProperty('--scale-factor', String(scale));
+        // The layout owner writes width, height, and mutable scale for every
+        // mounted page synchronously. The renderer contributes only immutable
+        // PDF metadata discovered from the concrete page proxy.
         container.style.setProperty('--user-unit', String(userUnit));
-        container.style.setProperty(
-            '--total-scale-factor',
-            String(totalScaleFactor),
-        );
     }
 
     function mountCanvas(
@@ -342,7 +345,7 @@ export const usePdfCanvasRenderer = (deps: {
         estimateRequestedPixels,
         prepareCanvasRender,
         renderCanvas,
-        applyContainerDimensions,
+        applyContainerUserUnit,
         mountCanvas,
     };
 };

@@ -8,10 +8,13 @@ import {
     getSessionInfo,
     getSessionStartingInfo,
 } from '@scripts/electron-run/electronRunSessionArtifacts';
+import {isProcessAlive} from '@scripts/electron-run/electronRunProcessTree';
 import {
-    isProcessAlive,
-    killProcessTree,
-} from '@scripts/electron-run/electronRunProcessTree';
+    inspectProcessIdentity,
+    killVerifiedSessionProcess,
+    matchesSessionProcessIdentity,
+    type ISessionProcessIdentityExpectation,
+} from '@scripts/electron-run/electronRunProcessIdentity';
 import {
     sessionDir,
     sessionsBaseDir,
@@ -73,37 +76,81 @@ function listE2ESessionDirCandidates(): IE2ESessionDirCandidate[] {
     }
 }
 
-function uniqueLivePids(pids: Array<number | null | undefined>) {
-    const unique = new Set<number>();
-    for (const pid of pids) {
-        if (!pid || !Number.isFinite(pid) || pid <= 0) {
-            continue;
-        }
-        if (pid === process.pid || pid === process.ppid) {
-            continue;
-        }
-        if (isProcessAlive(pid)) {
-            unique.add(pid);
-        }
-    }
-    return [...unique];
-}
-
 async function stopLiveMetadataProcesses(name: string) {
     const info = getSessionInfo(name);
     const starting = getSessionStartingInfo(name);
-    const livePids = uniqueLivePids([
-        info?.pid,
-        info?.electronPid,
-        info?.nuxtPid,
-        starting?.pid,
-    ]);
-
-    for (const pid of livePids) {
-        await killProcessTree(pid, PROCESS_STOP_GRACE_MS);
+    const candidates: Array<{
+        pid: number | null | undefined;
+        expectation: ISessionProcessIdentityExpectation;
+    }> = [
+        {
+            pid: info?.pid,
+            expectation: {
+                kind: 'controller',
+                sessionName: name,
+            },
+        },
+        {
+            pid: starting?.pid,
+            expectation: {
+                kind: 'controller',
+                sessionName: name,
+            },
+        },
+        {
+            pid: info?.electronPid,
+            expectation: {
+                kind: 'electron',
+                sessionName: name,
+                cdpPort: info?.cdpPort,
+            },
+        },
+        {
+            pid: info?.nuxtPid ?? starting?.nuxtPid,
+            expectation: {
+                kind: 'nuxt',
+                sessionName: name,
+                nuxtPort: info?.nuxtPort ?? starting?.nuxtPort,
+            },
+        },
+    ];
+    for (const electronPid of starting?.electronPids ?? []) {
+        const cdpPorts = starting?.cdpPorts.length ? starting.cdpPorts : [null];
+        for (const cdpPort of cdpPorts) {
+            candidates.push({
+                pid: electronPid,
+                expectation: {
+                    kind: 'electron',
+                    sessionName: name,
+                    cdpPort,
+                    electronUserDataDir: starting?.electronUserDataDir,
+                },
+            });
+        }
+    }
+    const verifiedOwnedPids = new Set<number>();
+    for (const candidate of candidates) {
+        const pid = candidate.pid;
+        if (!pid || pid === process.pid || pid === process.ppid || !isProcessAlive(pid)) {
+            continue;
+        }
+        const snapshot = inspectProcessIdentity(
+            pid,
+            candidate.expectation.kind === 'nuxt' ? candidate.expectation.nuxtPort : null,
+        );
+        if (!snapshot || !matchesSessionProcessIdentity(snapshot, candidate.expectation)) {
+            console.warn(`[Session '${name}'] Ignoring stale metadata PID ${pid}: process identity was reused or unrelated.`);
+            continue;
+        }
+        verifiedOwnedPids.add(pid);
+        await killVerifiedSessionProcess({
+            pid,
+            expectation: candidate.expectation,
+            graceMs: PROCESS_STOP_GRACE_MS,
+        });
     }
 
-    return livePids.filter(pid => isProcessAlive(pid));
+    return [...verifiedOwnedPids].filter(pid => isProcessAlive(pid));
 }
 
 export async function pruneStaleE2ESessions(options: ISelectStaleE2ESessionsOptions = {}): Promise<IStaleE2ESessionPruneResult> {

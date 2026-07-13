@@ -5,8 +5,6 @@ type TBrowserLogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent';
 type TEmitLogLevel = Exclude<TBrowserLogLevel, 'silent'>;
 type TLazyValue = unknown | (() => unknown);
 
-const PDF_NAV_LOG_CONSOLE_STORAGE_KEY = 'evb-viewer:pdf-nav-log-console';
-
 const LOG_LEVELS: Record<TBrowserLogLevel, number> = {
     debug: 10,
     info: 20,
@@ -81,16 +79,7 @@ function isPdfNavConsoleDiagnosticEnabled() {
         return false;
     }
 
-    const logWindow = window as Window & {__pdfNavLogConsole?: boolean;};
-    if (logWindow.__pdfNavLogConsole === true) {
-        return true;
-    }
-
-    try {
-        return window.localStorage.getItem(PDF_NAV_LOG_CONSOLE_STORAGE_KEY) === '1';
-    } catch {
-        return false;
-    }
+    return (window as Window & {__pdfNavLogConsole?: boolean;}).__pdfNavLogConsole === true;
 }
 
 function serializeForRendererLog(value: unknown) {

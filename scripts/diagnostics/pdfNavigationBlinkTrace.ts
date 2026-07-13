@@ -24,6 +24,10 @@ import {
     waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import type { IEvbTestApi } from '@app/types/evbTestApi';
+import {
+    disablePdfDiagnosticSession,
+    enablePdfDiagnosticSession,
+} from '@tests/e2e/electron/helpers/pdfDiagnosticSession';
 
 const DEFAULT_TARGET_PDF_PATH = process.env.EVB_DIAGNOSTIC_PDF_PATH?.length
     ? process.env.EVB_DIAGNOSTIC_PDF_PATH
@@ -186,25 +190,9 @@ export function resolveVideoDirectory(options: Pick<IPdfNavigationBlinkTraceOpti
 }
 
 async function enablePdfDiagnostics(page: Awaited<ReturnType<typeof startElectronE2ESession>>['page']) {
-    await page.evaluate(() => {
-        localStorage.setItem('evb-viewer:pdf-nav-log', '1');
-        localStorage.removeItem('evb-viewer:pdf-nav-log-console');
-        localStorage.setItem('evb-viewer:pdf-render-trace', '1');
-        localStorage.removeItem('evb-viewer:pdf-render-trace-console');
-        const logWindow = window as Window & {
-            __pdfNavLog?: boolean;
-            __pdfNavLogConsole?: boolean;
-            __clearPdfNavLog?: () => void;
-            __pdfRenderTrace?: boolean;
-            __pdfRenderTraceConsole?: boolean;
-            __clearPdfRenderTrace?: () => void;
-        };
-        logWindow.__pdfNavLog = true;
-        logWindow.__pdfNavLogConsole = false;
-        logWindow.__clearPdfNavLog?.();
-        logWindow.__pdfRenderTrace = true;
-        logWindow.__pdfRenderTraceConsole = false;
-        logWindow.__clearPdfRenderTrace?.();
+    await enablePdfDiagnosticSession(page, {
+        navigation: true,
+        render: true,
     });
 }
 
@@ -1721,6 +1709,7 @@ async function main() {
             assertTraceSummary(payload.summary);
         }
     } finally {
+        await disablePdfDiagnosticSession(session.page).catch(() => {});
         await session.stop();
     }
 }

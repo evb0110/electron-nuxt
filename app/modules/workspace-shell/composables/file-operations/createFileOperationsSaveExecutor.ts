@@ -217,7 +217,7 @@ export function createFileOperationsSaveExecutor(
                 getSourcePdfData: pdf.source.getSourcePdfData,
                 serializePdfForSave: pdf.serialization.serializePdfForSave,
             },
-            serializeResult: true,
+            serializeResult: options.planOnly !== true,
         };
     }
 
@@ -275,6 +275,9 @@ export function createFileOperationsSaveExecutor(
         expectedWorkingPath: TDocumentRef | null = null,
         expectedDocumentRevisionToken: TDocumentRevisionToken | null = null,
         saveStateSnapshot?: ISaveStateSnapshot,
+        onPersistenceSucceededBeforeCompletion?: (
+            saveStateSnapshot: ISaveStateSnapshot | undefined,
+        ) => ISaveStateSnapshot | undefined,
     ) {
         let preparedShapeStateSnapshot: unknown = null;
         try {
@@ -302,11 +305,14 @@ export function createFileOperationsSaveExecutor(
                     didSaveAs: result.didSaveAs,
                 }),
             );
+            const completionSaveStateSnapshot = persisted.success
+                ? onPersistenceSucceededBeforeCompletion?.(saveStateSnapshot) ?? saveStateSnapshot
+                : saveStateSnapshot;
             if (completion.finalizeSuccessfulSave(persisted, {
                 completeSaveState: !reloadWaiter,
                 markShapeStateSaved: !reloadWaiter,
                 preserveLivePdfjsSession: preserveLoadedSource && !reloadWaiter,
-                saveStateSnapshot,
+                saveStateSnapshot: completionSaveStateSnapshot,
             })) {
                 preparedShapeStateSnapshot = null;
                 services.trackSaveCompleted(mode, persisted, true);
@@ -438,6 +444,9 @@ export function createFileOperationsSaveExecutor(
         expectedDocumentRevisionToken: TDocumentRevisionToken | null,
         saveStateSnapshot: ISaveStateSnapshot,
         onPersistenceSettled?: () => void,
+        onPersistenceSucceededBeforeCompletion?: (
+            saveStateSnapshot: ISaveStateSnapshot | undefined,
+        ) => ISaveStateSnapshot | undefined,
     ) {
         const completionSaveStateSnapshot = preserveLoadedSource && !reloadWaiter
             ? completion.refreshAnnotationSaveStateSnapshot(saveStateSnapshot)
@@ -453,6 +462,7 @@ export function createFileOperationsSaveExecutor(
                 expectedWorkingPath,
                 expectedDocumentRevisionToken,
                 completionSaveStateSnapshot,
+                onPersistenceSucceededBeforeCompletion,
             )
             : false;
         onPersistenceSettled?.();
@@ -521,7 +531,7 @@ export function createFileOperationsSaveExecutor(
         config: IFileOperationsSaveExecutionConfig,
         context: IFileOperationsSaveContext,
         nativeMutationProjection: INativePdfMutationProjection,
-        verifyBeforeExpose?: (bytes: Uint8Array) => Promise<void>,
+        verifyPathBeforeExpose?: (path: TDocumentRef, knownSize: number) => Promise<void>,
         assertBeforeExpose?: () => Promise<void> | void,
     ) {
         const persistenceExpectedWorkingPath = resolveExpectedWorkingPathForPersistence(
@@ -529,10 +539,22 @@ export function createFileOperationsSaveExecutor(
             context.savePlan.staleTargetProtection.expectedOriginalPath,
         );
         if (!persistenceExpectedWorkingPath) {
+            BrowserLogger.diagnostic('workspace', 'Skipped native PDF mutation persistence', {reason: 'missing-expected-working-path'});
             return null;
         }
 
-        return services.timedSavePhase(
+        BrowserLogger.diagnostic('workspace', 'Starting native PDF mutation persistence', () => ({
+            phase: nativeMutationProjection.phase,
+            updateCount: nativeMutationProjection.noteTextUpdates.length,
+            freeTextNoteCount: nativeMutationProjection.freeTextNotes.length,
+            deleteCount: nativeMutationProjection.annotationDeletes.length,
+            hasMarkupMutations: nativeMutationProjection.hasMarkupMutations,
+            hasShapeMutations: nativeMutationProjection.hasShapeMutations,
+            hasMetadataMutations: nativeMutationProjection.hasMetadataMutations,
+            hasGenericNativePersistence: Boolean(persistence.nativeMutations?.trySavePdfNativeMutations),
+            hasLegacyNativeNotePersistence: Boolean(persistence.nativeMutations?.trySaveEmbeddedNoteTextUpdates),
+        }));
+        const result = await services.timedSavePhase(
             nativeMutationProjection.phase,
             () => persistNativePdfMutationProjection(
                 {
@@ -550,7 +572,7 @@ export function createFileOperationsSaveExecutor(
                     expectedWorkingPath: persistenceExpectedWorkingPath,
                     expectedDocumentRevisionToken: context.savePlan.staleTargetProtection.expectedDocumentRevisionToken,
                     modifiedAt: toPdfDateString(new Date()),
-                    ...(verifyBeforeExpose ? {verifyBeforeExpose} : {}),
+                    ...(verifyPathBeforeExpose ? {verifyPathBeforeExpose} : {}),
                     ...(assertBeforeExpose ? {assertBeforeExpose} : {}),
                 },
             ),
@@ -568,6 +590,11 @@ export function createFileOperationsSaveExecutor(
                 preserveLoadedSource: true,
             }),
         );
+        BrowserLogger.diagnostic('workspace', 'Completed native PDF mutation persistence', () => ({
+            returnedResult: result !== null,
+            success: result?.success ?? false,
+        }));
+        return result;
     }
 
     async function prepareNativeShapeSaveCompletion(nativeMutationProjection: INativePdfMutationProjection) {
@@ -648,6 +675,11 @@ export function createFileOperationsSaveExecutor(
                 planOnly: true,
             },
         );
+        BrowserLogger.diagnostic('workspace', 'Completed native PDF mutation projection probe', () => ({
+            source: saveTransaction.source,
+            hasProjection: Boolean(saveTransaction.nativeMutationProjection),
+            annotationSavePlan: saveTransaction.annotationSavePlan,
+        }));
         const nativeMutationProjection = saveTransaction.nativeMutationProjection;
         if (!nativeMutationProjection) {
             return {status: 'fall-through' as const};
@@ -659,7 +691,7 @@ export function createFileOperationsSaveExecutor(
                 config,
                 context,
                 nativeMutationProjection,
-                saveTransaction.verifyAnnotationSave,
+                saveTransaction.verifyAnnotationSavePath,
                 saveTransaction.assertAnnotationSaveCurrent,
             );
             if (!persisted) {
@@ -778,10 +810,18 @@ export function createFileOperationsSaveExecutor(
                 context.savePlan.staleTargetProtection.expectedDocumentRevisionToken,
                 context.saveStateSnapshot,
                 () => services.clearSaveIndicator(config.mode),
+                (saveStateSnapshot) => {
+                    const annotationTokenBeforeCommit = completion.refreshAnnotationSaveStateSnapshot(
+                        saveStateSnapshot,
+                    )?.annotation;
+                    const saveFrontierIsStillCurrent = !saveStateSnapshot
+                        || Object.is(annotationTokenBeforeCommit, saveStateSnapshot.annotation);
+                    saveTransaction.commitAnnotationSave?.();
+                    return saveFrontierIsStillCurrent
+                        ? completion.refreshAnnotationSaveStateSnapshot(saveStateSnapshot)
+                        : saveStateSnapshot;
+                },
             );
-            if (saveSucceeded) {
-                saveTransaction.commitAnnotationSave?.();
-            }
         } else {
             await completion.finalizeSaveReload(context.reloadWaiter.current, false);
         }

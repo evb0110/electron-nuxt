@@ -28,10 +28,13 @@ import { useAnnotationCrud } from '@app/modules/pdf-viewer/runtime/annotations/u
 import { useFreeTextResize } from '@app/modules/pdf-viewer/runtime/annotations/useFreeTextResize';
 import { useAnnotationMarkerViewModel } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationMarkerViewModel';
 import type { IPdfAnnotationRenderingPort } from '@app/modules/pdf-viewer/runtime/annotations/createAttachablePdfAnnotationRenderingPort';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 
 interface IUseAnnotationOrchestratorOptions {
     viewerContainer: Ref<HTMLElement | null>;
     sourcePdf: ComputedRef<TPdfSource | null>;
+    annotationDocumentIdentity: ComputedRef<string>;
+    documentRevisionToken: ComputedRef<TDocumentRevisionToken | null>;
     pdfDocument: ShallowRef<PDFDocumentProxy | null>;
     numPages: Ref<number>;
     currentPage: Ref<number>;
@@ -61,7 +64,10 @@ interface IUseAnnotationOrchestratorOptions {
     isPdfjsHistoryRouted?: () => boolean;
     routeAnnotationHistoryUndo?: () => boolean;
     routeAnnotationHistoryRedo?: () => boolean;
-    emitAnnotationComments: (comments: IAnnotationCommentSummary[]) => IAnnotationCommentSummary[] | undefined;
+    emitAnnotationComments: (
+        comments: IAnnotationCommentSummary[],
+        options?: { adoptAsSavedBaseline?: boolean },
+    ) => IAnnotationCommentSummary[] | undefined;
     emitAnnotationOpenNote: (comment: IAnnotationCommentSummary) => void;
     emitAnnotationContextMenu: (payload: IAnnotationContextMenuPayload) => void;
     emitAnnotationToolAutoReset: () => void;
@@ -105,6 +111,8 @@ export const useAnnotationOrchestrator = (
     const {
         viewerContainer,
         sourcePdf,
+        annotationDocumentIdentity,
+        documentRevisionToken,
         pdfDocument,
         numPages,
         currentPage,
@@ -184,6 +192,8 @@ export const useAnnotationOrchestrator = (
 
     const commentSync = useAnnotationSync({
         pdfDocument,
+        documentIdentity: annotationDocumentIdentity,
+        documentRevisionToken,
         numPages,
         currentPage,
         annotationUiManager,
@@ -191,8 +201,8 @@ export const useAnnotationOrchestrator = (
         getIdentity: () => identity,
         getMarkupSubtype: () => toolState,
         getStore: () => ({
-            setAnnotations: (comments) => {
-                const appliedComments = emitAnnotationComments(comments) ?? comments;
+            setAnnotations: (comments, syncOptions) => {
+                const appliedComments = emitAnnotationComments(comments, syncOptions) ?? comments;
                 return appliedComments;
             },
             setLinkAnnotations: (links) => {

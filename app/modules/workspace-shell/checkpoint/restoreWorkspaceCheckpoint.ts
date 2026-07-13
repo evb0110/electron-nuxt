@@ -1,5 +1,6 @@
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type {
     IWorkspaceCheckpoint,
     IWorkspaceCheckpointTab,
@@ -11,12 +12,23 @@ interface IRestoreWorkspaceCheckpointOptions {
     tabs: Ref<ITab[]>;
     workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
     restoreGraph: (checkpoint: IWorkspaceCheckpoint) => void;
-    openPathInReservedTab: (tabId: string, path: TDocumentRef) => Promise<boolean>;
+    openPathInReservedTab: (tabId: string, target: TDocumentRef | TOpenFileResult) => Promise<boolean>;
     activateTab: (tabId: string) => void;
 }
 
-function getRestoreRef(tab: IWorkspaceCheckpointTab) {
-    return tab.workingCopyRef ?? tab.sourceRef;
+function getRestoreTarget(tab: IWorkspaceCheckpointTab): TDocumentRef | TOpenFileResult | null {
+    if (tab.isDjvu) {
+        return tab.sourceRef;
+    }
+    if (tab.workingCopyRef && tab.sourceRef) {
+        return {
+            kind: 'pdf',
+            workingPath: tab.workingCopyRef,
+            originalPath: tab.sourceRef,
+            ...(tab.requiresSaveAsOnFirstSave ? {isGenerated: true} : {}),
+        };
+    }
+    return tab.sourceRef;
 }
 
 function findRestoredWorkspace(
@@ -86,16 +98,16 @@ export async function restoreWorkspaceCheckpoint(
     await nextTick();
     const failedPaths: TDocumentRef[] = [];
     await Promise.all(checkpoint.tabs.map(async (tab) => {
-        const restoreRef = getRestoreRef(tab);
-        if (!restoreRef) {
+        const restoreTarget = getRestoreTarget(tab);
+        if (!restoreTarget) {
             return;
         }
         try {
-            if (!await options.openPathInReservedTab(tab.tabId, restoreRef)) {
-                failedPaths.push(restoreRef);
+            if (!await options.openPathInReservedTab(tab.tabId, restoreTarget)) {
+                failedPaths.push(tab.sourceRef ?? tab.workingCopyRef!);
             }
         } catch {
-            failedPaths.push(restoreRef);
+            failedPaths.push(tab.sourceRef ?? tab.workingCopyRef!);
         }
     }));
     await nextTick();

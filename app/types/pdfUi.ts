@@ -31,6 +31,8 @@ export interface IContentInsets {
 export interface IPdfPageMetric {
     width: number;
     height: number;
+    rotation?: number;
+    userUnit?: number;
 }
 
 export type IPageRange = IDocumentPageRange;

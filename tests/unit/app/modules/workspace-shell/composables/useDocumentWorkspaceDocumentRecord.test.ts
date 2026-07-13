@@ -45,7 +45,7 @@ describe('useDocumentWorkspaceDocumentRecord', () => {
                 isOpeningDocument: true,
                 isDjvuMode: false,
             },
-            viewState: {continuousScroll: false},
+            viewState: {continuousScroll: true},
         });
     });
 

@@ -32,6 +32,7 @@ function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[
         handleExportMultiPageTiff: vi.fn(async () => {}),
         hasPdf: ref(false),
         isOpeningDocument: ref(false),
+        initialVisualReady: ref(false),
         hasOpenError: ref(false),
         isPreparingPrint: ref(false),
         isPreparingCurrentPagePrint: ref(false),

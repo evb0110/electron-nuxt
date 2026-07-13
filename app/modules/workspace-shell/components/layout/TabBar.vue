@@ -561,7 +561,7 @@ useEventListener(window, 'keydown', (event) => {
     display: flex;
     align-items: center;
     gap: var(--app-space-sm);
-    padding: 0 var(--app-space-3xl) 0 var(--app-space-9xl);
+    padding: 0 calc(var(--app-tab-close-size, 1.25rem) + var(--app-space-3xl) + var(--app-space-sm)) 0 var(--app-space-9xl);
     min-width: 0;
     max-width: var(--app-tab-max-width);
     height: 100%;
@@ -580,11 +580,6 @@ useEventListener(window, 'keydown', (event) => {
 .tab:not(.is-active):hover {
     color: var(--ui-text);
     background: var(--app-tab-hover-bg);
-}
-
-.tab.is-active,
-.tab.is-dirty {
-    padding-right: calc(var(--app-tab-close-size, 1.25rem) + var(--app-space-3xl));
 }
 
 .tab.is-active {

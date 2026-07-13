@@ -17,6 +17,7 @@ export const ELECTRON_RUN_COMMANDS = [
     'viewport',
     'openPdf',
     'health',
+    'shutdown',
 ] as const;
 
 export type TElectronRunCommand = typeof ELECTRON_RUN_COMMANDS[number];

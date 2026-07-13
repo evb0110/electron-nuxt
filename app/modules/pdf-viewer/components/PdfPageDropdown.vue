@@ -4,7 +4,7 @@
             <ToolbarButton
                 icon="ph:caret-double-left"
                 :tooltip="t('pageDropdown.firstPage')"
-                :disabled="disabled || totalPages === 0 || commandPage <= 1"
+                :disabled="disabled || commandPage <= 1"
                 grouped
                 icon-class="size-[var(--app-toolbar-icon-size)]"
                 @click="goToFirst"
@@ -14,7 +14,7 @@
             <ToolbarButton
                 icon="ph:caret-left"
                 :tooltip="t('pageDropdown.previousPage')"
-                :disabled="disabled || totalPages === 0 || commandPage <= 1"
+                :disabled="disabled || commandPage <= 1"
                 grouped
                 icon-class="size-[var(--app-toolbar-icon-size)]"
                 @click="goToPrevious"
@@ -75,7 +75,7 @@
             <ToolbarButton
                 icon="ph:caret-right"
                 :tooltip="t('pageDropdown.nextPage')"
-                :disabled="disabled || totalPages === 0 || commandPage >= totalPages"
+                :disabled="disabled || (totalPages > 0 && commandPage >= totalPages)"
                 grouped
                 icon-class="size-[var(--app-toolbar-icon-size)]"
                 @click="goToNext"
@@ -103,11 +103,11 @@ import {
     findPageByPageLabelInput,
     getPageIndicatorLayoutMetrics,
 } from '@app/utils/pdfPageLabels';
-import { stepBySpread } from '@app/utils/pdfViewMode';
 import {
     getPdfPageDropdownIndicatorParts,
     getPdfPageDropdownInputLabel,
     resolvePdfPageDropdownDisplayPage,
+    stepPdfPageDropdownCommand,
 } from '@app/modules/pdf-viewer/engine/pdfPageDropdownModel';
 
 const { t } = useTypedI18n();
@@ -227,7 +227,7 @@ function goToFirst() {
 
 function goToPrevious() {
     if (commandPage.value > 1) {
-        const newPage = stepBySpread(commandPage.value, viewMode, totalPages, -1);
+        const newPage = stepPdfPageDropdownCommand(commandPage.value, viewMode, totalPages, -1);
         if (newPage === commandPage.value) {
             return;
         }
@@ -236,8 +236,8 @@ function goToPrevious() {
 }
 
 function goToNext() {
-    if (commandPage.value < totalPages) {
-        const newPage = stepBySpread(commandPage.value, viewMode, totalPages, 1);
+    if (totalPages <= 0 || commandPage.value < totalPages) {
+        const newPage = stepPdfPageDropdownCommand(commandPage.value, viewMode, totalPages, 1);
         if (newPage === commandPage.value) {
             return;
         }

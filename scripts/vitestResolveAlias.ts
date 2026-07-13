@@ -14,5 +14,6 @@ export const vitestResolveAlias = {
     '@scripts': resolve(projectRoot, 'scripts'),
     '@server': resolve(projectRoot, 'server'),
     '@tests': resolve(projectRoot, 'tests'),
+    '@root-package': resolve(projectRoot, 'package.json'),
     electron: resolve(projectRoot, 'tests/mocks/electron.ts'),
 } as const;

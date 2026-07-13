@@ -16,7 +16,11 @@ export function createWorkspaceRestoreAttemptState(): IWorkspaceRestoreAttemptSt
 }
 
 export function workspaceSessionHasOpenedDocument(snapshot: IWorkspaceDocumentSessionSnapshot | null | undefined) {
-    if (!snapshot || snapshot.phase !== 'ready') {
+    if (
+        !snapshot
+        || snapshot.phase === 'closing'
+        || snapshot.phase === 'error'
+    ) {
         return false;
     }
 

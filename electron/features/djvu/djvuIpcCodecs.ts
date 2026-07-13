@@ -6,6 +6,7 @@ import type {
     TDocumentOutputJobState,
 } from '@contracts/electronApiDjvu';
 import type { TIpcCodecMap } from '@contracts/ipcMain';
+import { isDjvuDocumentOutputOperation } from '@contracts/documentOutput';
 import {
     isFiniteNumber,
     isRecord,
@@ -23,7 +24,16 @@ import {
     decodeNoArgs,
     decodeUndefinedResult,
     decodeUint8ArrayResult,
+    requireIpcArgumentCount,
 } from '@electron/platform-ipc/ipcCodecValidation';
+
+function requireArgs(args: readonly unknown[], count: number | {
+    min: number;
+    max: number
+}) {
+    requireIpcArgumentCount(args, count);
+    return args;
+}
 
 function decodeOptionalPositiveInteger(value: unknown, fieldName: string) {
     if (value === undefined) {
@@ -145,9 +155,13 @@ function decodeOpenResult(value: unknown) {
     const jobId = decodeOptionalResultString(result.jobId, 'jobId');
     const error = decodeOptionalResultString(result.error, 'error');
     const pageCount = decodeOptionalPositiveInteger(result.pageCount, 'pageCount');
+    const pageSourceInfo = result.pageSourceInfo === undefined
+        ? undefined
+        : decodePageSourceInfoResult(result.pageSourceInfo);
     return {
         success: result.success,
         ...(pageCount === undefined ? {} : {pageCount}),
+        ...(pageSourceInfo === undefined ? {} : {pageSourceInfo}),
         ...(jobId === undefined ? {} : {jobId}),
         ...(error === undefined ? {} : {error}),
     };
@@ -236,10 +250,13 @@ function decodeJobState(value: unknown): TDocumentOutputJobState | null {
     if (value === null) {
         return null;
     }
+    if (!isRecord(value)) {
+        throw new Error('invalid document output job state');
+    }
+    const operation = value.operation;
     if (
-        !isRecord(value)
-        || typeof value.jobId !== 'string'
-        || (value.operation !== 'djvu-convert' && value.operation !== 'djvu-print')
+        typeof value.jobId !== 'string'
+        || !isDjvuDocumentOutputOperation(operation)
         || ![
             'queued',
             'running',
@@ -257,7 +274,7 @@ function decodeJobState(value: unknown): TDocumentOutputJobState | null {
         if (typeof value.artifactPath !== 'string') throw new Error('handoff state requires artifactPath');
         return {
             jobId: value.jobId,
-            operation: value.operation,
+            operation,
             status: 'handoff',
             artifactPath: value.artifactPath,
             progress,
@@ -267,7 +284,7 @@ function decodeJobState(value: unknown): TDocumentOutputJobState | null {
     if (value.status === 'completed') {
         return {
             jobId: value.jobId,
-            operation: value.operation,
+            operation,
             status: 'completed',
             ...(typeof value.artifactPath === 'string' ? {artifactPath: value.artifactPath} : {}),
             progress,
@@ -277,7 +294,7 @@ function decodeJobState(value: unknown): TDocumentOutputJobState | null {
     if (value.status === 'failed' || value.status === 'canceled') {
         return {
             jobId: value.jobId,
-            operation: value.operation,
+            operation,
             status: value.status,
             ...(typeof value.error === 'string' ? {error: value.error} : {}),
             progress,
@@ -286,7 +303,7 @@ function decodeJobState(value: unknown): TDocumentOutputJobState | null {
     }
     return {
         jobId: value.jobId,
-        operation: value.operation,
+        operation,
         status: value.status === 'queued' ? 'queued' : 'running',
         progress,
         updatedAtMs: value.updatedAtMs,
@@ -344,6 +361,30 @@ function decodePageSizesResult(value: unknown) {
     return value.map(decodePageSize);
 }
 
+function decodePageSourceInfoResult(value: unknown) {
+    if (
+        !isRecord(value)
+        || !Number.isSafeInteger(value.pageCount)
+        || Number(value.pageCount) < 1
+        || !Number.isSafeInteger(value.pageNumber)
+        || Number(value.pageNumber) < 1
+        || Number(value.pageNumber) > Number(value.pageCount)
+    ) {
+        throw new Error('invalid DjVu page source info');
+    }
+    return {
+        pageCount: Number(value.pageCount),
+        pageNumber: Number(value.pageNumber),
+        pageSize: decodePageSize(value.pageSize),
+        ...(Number.isSafeInteger(value.sourceSize) && Number(value.sourceSize) >= 0
+            ? {sourceSize: Number(value.sourceSize)}
+            : {}),
+        ...(Number.isSafeInteger(value.sourceModifiedAt) && Number(value.sourceModifiedAt) >= 0
+            ? {sourceModifiedAt: Number(value.sourceModifiedAt)}
+            : {}),
+    };
+}
+
 function decodePagePreviewResult(value: unknown) {
     if (!isRecord(value) || !isFiniteNumber(value.width) || !isFiniteNumber(value.height)) {
         throw new Error('invalid DjVu page preview');
@@ -388,89 +429,114 @@ function decodeSizeEstimatesResult(value: unknown) {
 
 export const DJVU_IPC_CODECS = {
     [DJVU_CHANNELS.startOpenForViewing]: {
-        decodeArgs: (args: readonly unknown[]) => [
-            decodeStringArg(args, 0, 'djvuPath'),
-            decodeStringArg(args, 1, 'requestId'),
-        ],
+        decodeArgs: (args: readonly unknown[]) => {
+            requireArgs(args, 2);
+            return [
+                decodeStringArg(args, 0, 'djvuPath'),
+                decodeStringArg(args, 1, 'requestId'),
+            ];
+        },
         decodeResult: decodeJobStartHandle,
     },
     [DJVU_CHANNELS.awaitOpenJob]: {
-        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(args, 0, 'jobId')],
+        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(requireArgs(args, 1), 0, 'jobId')],
         decodeResult: decodeOpenResult,
     },
     [DJVU_CHANNELS.openForViewing]: {
-        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(args, 0, 'djvuPath')],
+        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(requireArgs(args, 1), 0, 'djvuPath')],
         decodeResult: decodeOpenResult,
     },
     [DJVU_CHANNELS.releaseViewingPath]: {
-        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(args, 0, 'djvuPath')],
+        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(requireArgs(args, 1), 0, 'djvuPath')],
         decodeResult: decodeUndefinedResult,
     },
     [DJVU_CHANNELS.convertToPdf]: {
-        decodeArgs: (args: readonly unknown[]) => [
-            decodeStringArg(args, 0, 'djvuPath'),
-            decodeStringArg(args, 1, 'outputPath'),
-            decodeConvertOptions(args[2]),
-        ],
+        decodeArgs: (args: readonly unknown[]) => {
+            requireArgs(args, 3);
+            return [
+                decodeStringArg(args, 0, 'djvuPath'),
+                decodeStringArg(args, 1, 'outputPath'),
+                decodeConvertOptions(args[2]),
+            ];
+        },
         decodeResult: decodeConvertResult,
     },
     [DJVU_CHANNELS.startConvertToPdf]: {
-        decodeArgs: (args: readonly unknown[]) => [
-            decodeStringArg(args, 0, 'djvuPath'),
-            decodeStringArg(args, 1, 'outputPath'),
-            decodeConvertOptions(args[2]),
-        ],
+        decodeArgs: (args: readonly unknown[]) => {
+            requireArgs(args, 3);
+            return [
+                decodeStringArg(args, 0, 'djvuPath'),
+                decodeStringArg(args, 1, 'outputPath'),
+                decodeConvertOptions(args[2]),
+            ];
+        },
         decodeResult: decodeJobStartHandle,
     },
     [DJVU_CHANNELS.awaitConvertJob]: {
-        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(args, 0, 'jobId')],
+        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(requireArgs(args, 1), 0, 'jobId')],
         decodeResult: decodeConvertResult,
     },
     [DJVU_CHANNELS.printDjvuPath]: {
-        decodeArgs: (args: readonly unknown[]) => [
-            decodeStringArg(args, 0, 'djvuPath'),
-            decodePrintOptions(args[1]),
-        ],
+        decodeArgs: (args: readonly unknown[]) => {
+            requireArgs(args, 2);
+            return [
+                decodeStringArg(args, 0, 'djvuPath'),
+                decodePrintOptions(args[1]),
+            ];
+        },
         decodeResult: decodePrintResult,
     },
     [DJVU_CHANNELS.cancel]: {
-        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(args, 0, 'jobId')],
+        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(requireArgs(args, 1), 0, 'jobId')],
         decodeResult: decodeCanceledResult,
     },
     [DJVU_CHANNELS.getJobState]: {
-        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(args, 0, 'jobId')],
+        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(requireArgs(args, 1), 0, 'jobId')],
         decodeResult: decodeJobState,
     },
     [DJVU_CHANNELS.subscribeJob]: {
-        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(args, 0, 'jobId')],
+        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(requireArgs(args, 1), 0, 'jobId')],
         decodeResult: decodeJobState,
     },
     [DJVU_CHANNELS.cancelPagePreview]: {
-        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(args, 0, 'requestId')],
+        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(requireArgs(args, 1), 0, 'requestId')],
         decodeResult: decodeCanceledResult,
     },
     [DJVU_CHANNELS.getInfo]: {
-        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(args, 0, 'djvuPath')],
+        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(requireArgs(args, 1), 0, 'djvuPath')],
         decodeResult: decodeInfoResult,
     },
+    [DJVU_CHANNELS.getPageSourceInfo]: {
+        decodeArgs: (args: readonly unknown[]) => [
+            decodeStringArg(requireArgs(args, 2), 0, 'djvuPath'),
+            decodeSafeIntegerArg(args, 1, 'pageNumber', 1),
+        ],
+        decodeResult: decodePageSourceInfoResult,
+    },
     [DJVU_CHANNELS.getPageSizes]: {
-        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(args, 0, 'djvuPath')],
+        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(requireArgs(args, 1), 0, 'djvuPath')],
         decodeResult: decodePageSizesResult,
     },
     [DJVU_CHANNELS.renderPagePreview]: {
-        decodeArgs: (args: readonly unknown[]) => [
-            decodeStringArg(args, 0, 'djvuPath'),
-            decodeSafeIntegerArg(args, 1, 'pageNumber', 1),
-            decodePreviewOptions(args[2]),
-        ],
+        decodeArgs: (args: readonly unknown[]) => {
+            requireArgs(args, {
+                min: 2,
+                max: 3,
+            });
+            return [
+                decodeStringArg(args, 0, 'djvuPath'),
+                decodeSafeIntegerArg(args, 1, 'pageNumber', 1),
+                decodePreviewOptions(args[2]),
+            ];
+        },
         decodeResult: decodePagePreviewResult,
     },
     [DJVU_CHANNELS.estimateSizes]: {
-        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(args, 0, 'djvuPath')],
+        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(requireArgs(args, 1), 0, 'djvuPath')],
         decodeResult: decodeSizeEstimatesResult,
     },
     [DJVU_CHANNELS.cleanupTemp]: {
-        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(args, 0, 'tempPdfPath')],
+        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(requireArgs(args, 1), 0, 'tempPdfPath')],
         decodeResult: decodeUndefinedResult,
     },
     [DJVU_CHANNELS.subscribeProgress]: {

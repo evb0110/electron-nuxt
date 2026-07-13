@@ -7,6 +7,7 @@ import type { IPdfPageMetric } from '@app/types/pdfUi';
 import type { TPdfViewMode } from '@contracts/shared';
 import { buildPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/buildPageLayoutMetrics';
 import { getLeadingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getLeadingSpacerHeightForPage';
+import { getInterSegmentSpacerHeight } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getInterSegmentSpacerHeight';
 import { getPageRowBounds } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBounds';
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 import { getTrailingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getTrailingSpacerHeightForPage';
@@ -57,6 +58,15 @@ const NAVIGATION_ANCHOR_VIRTUAL_BUFFER_MIN = 18;
 const PAGED_MOUNT_ROW_BUFFER_BEFORE_MIN = 1;
 const PAGED_MOUNT_ROW_BUFFER_AFTER_MIN = 2;
 const CONTINUOUS_LAYOUT_PENDING_FALLBACK_RADIUS = 30;
+
+function createVirtualSpacerStyle(height: number) {
+    const value = `${height}px`;
+    return {
+        height: value,
+        minHeight: value,
+        flexBasis: value,
+    };
+}
 
 export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationOptions) => {
     const {
@@ -126,6 +136,9 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         return {
             width: `${metric.width * effectiveScale.value}px`,
             height: `${metric.height * effectiveScale.value}px`,
+            '--scale-factor': String(effectiveScale.value),
+            '--user-unit': String(metric.userUnit ?? 1),
+            '--total-scale-factor': 'calc(var(--scale-factor) * var(--user-unit, 1))',
         };
     }
 
@@ -291,14 +304,19 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         if (!virtualizedContinuousMode.value) {
             return pagedWindowBounds.value.start;
         }
+        // A navigation transaction owns the continuous-scroll structure until
+        // its target viewport has been applied. Keeping the stale visible
+        // window in this range can make an intervening scroll observation
+        // replace the target segment and clamp scrollTop before awaitSlots has
+        // finished mounting the destination row.
+        if (navigationAnchorWindow.value) {
+            return navigationAnchorWindow.value.start;
+        }
         if (activeZoomVirtualizationFreeze.value) {
             return activeZoomVirtualizationFreeze.value.windowStart;
         }
 
         let nextStart = baseVirtualWindowStart.value;
-        if (navigationAnchorWindow.value) {
-            nextStart = Math.min(nextStart, navigationAnchorWindow.value.start);
-        }
         if (resizeTransitionWindow.value) {
             nextStart = Math.min(nextStart, resizeTransitionWindow.value.start);
         }
@@ -309,14 +327,14 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         if (!virtualizedContinuousMode.value) {
             return pagedWindowBounds.value.end;
         }
+        if (navigationAnchorWindow.value) {
+            return navigationAnchorWindow.value.end;
+        }
         if (activeZoomVirtualizationFreeze.value) {
             return activeZoomVirtualizationFreeze.value.windowEnd;
         }
 
         let nextEnd = baseVirtualWindowEnd.value;
-        if (navigationAnchorWindow.value) {
-            nextEnd = Math.max(nextEnd, navigationAnchorWindow.value.end);
-        }
         if (resizeTransitionWindow.value) {
             nextEnd = Math.max(nextEnd, resizeTransitionWindow.value.end);
         }
@@ -336,7 +354,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
             return null;
         }
 
-        return {height: `${spacerHeight}px`};
+        return createVirtualSpacerStyle(spacerHeight);
     });
 
     const bottomVirtualSpacerStyle = computed<Record<string, string> | null>(() => {
@@ -352,7 +370,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
             return null;
         }
 
-        return {height: `${spacerHeight}px`};
+        return createVirtualSpacerStyle(spacerHeight);
     });
 
     const pagesToRender = computed(() => {
@@ -415,22 +433,29 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
             }];
         }
 
-        const requestedWindows = activeZoomVirtualizationFreeze.value
-            ? [{
+        let requestedWindows: Array<{
+            start: number;
+            end: number;
+        }>;
+        if (navigationAnchorWindow.value) {
+            requestedWindows = [navigationAnchorWindow.value];
+        } else if (activeZoomVirtualizationFreeze.value) {
+            requestedWindows = [{
                 start: activeZoomVirtualizationFreeze.value.windowStart,
                 end: activeZoomVirtualizationFreeze.value.windowEnd,
-            }]
-            : [
+            }];
+        } else {
+            requestedWindows = [
                 {
                     start: baseVirtualWindowStart.value,
                     end: baseVirtualWindowEnd.value,
                 },
-                navigationAnchorWindow.value,
                 resizeTransitionWindow.value,
             ].filter((window): window is {
                 start: number;
                 end: number;
             } => window !== null);
+        }
 
         const rowWindows = requestedWindows
             .map((window) => ({
@@ -455,19 +480,18 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
             const previous = mergedWindows[index - 1];
             let spacerHeight = getLeadingSpacerHeightForPage(layout, window.start);
             if (previous) {
-                const previousPageIndex = previous.end - 1;
-                const previousRowIndex = layout.pageRowIndices[previousPageIndex] ?? 0;
-                const previousTop = layout.pageTops[previousPageIndex] ?? 0;
-                const previousHeight = layout.rowHeights[previousRowIndex] ?? 0;
-                const nextTop = layout.pageTops[window.start - 1] ?? previousTop + previousHeight;
-                spacerHeight = Math.max(0, nextTop - previousTop - previousHeight);
+                spacerHeight = getInterSegmentSpacerHeight(
+                    layout,
+                    previous.end,
+                    window.start,
+                );
             }
             return {
                 ...window,
                 key: `${window.start}:${window.end}`,
                 pages: range(window.start, window.end + 1),
                 spacerBeforeStyle: spacerHeight > 0
-                    ? {height: `${spacerHeight}px`}
+                    ? createVirtualSpacerStyle(spacerHeight)
                     : null,
             };
         });

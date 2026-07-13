@@ -526,6 +526,24 @@ describe('native PDF mutation projection', () => {
         });
     });
 
+    it('uses an exact native delete when it fully covers a dirty saved PDF.js baseline', () => {
+        const deletedComment = createComment();
+        const result = projectNativePdfMutationsForSave(createMutationProjectionInput({
+            savedPdfjsAnnotationBaselineDirty: true,
+            pendingDeletes: [deletedComment],
+            canonicalComments: [],
+            annotationDirty: true,
+            hasAnnotationChanges: true,
+            hasLivePdfJsAnnotationChanges: true,
+        }));
+
+        expect(result.projection?.mutations.deletes).toEqual([{
+            pageIndex: 0,
+            objectNumber: 12,
+            generationNumber: 0,
+        }]);
+    });
+
     it('uses native note updates when PDF.js materialization is requested but source replay covers the work', () => {
         const result = projectNativePdfMutationsForSave(createMutationProjectionInput({
             forcePdfjsMaterialize: true,

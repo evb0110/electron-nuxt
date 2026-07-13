@@ -85,7 +85,6 @@ vi.mock('@app/modules/pdf-viewer/runtime/composables/usePdfViewerZoomRerenderQue
     resetZoomRerenderQueueState: lifecycleMocks.resetZoomRerenderQueueState,
     scheduleResizeAwareRerender: vi.fn(),
     enqueueZoomSync: vi.fn(),
-    markLowResZoomRerenderUsed: vi.fn(),
     cleanupZoomRerenderQueue: lifecycleMocks.cleanupZoomRerenderQueue,
 })}));
 

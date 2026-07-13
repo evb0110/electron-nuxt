@@ -22,6 +22,9 @@ function createPageRoot() {
 
     const canvasHost = document.createElement('div');
     canvasHost.classList.add('page_canvas');
+    const renderLayer = document.createElement('div');
+    renderLayer.classList.add('page_canvas__render-layer');
+    canvasHost.append(renderLayer);
     const textLayer = document.createElement('div');
     textLayer.classList.add('text-layer');
     const annotationLayer = document.createElement('div');
@@ -42,6 +45,7 @@ function createPageRoot() {
         root,
         page,
         canvasHost,
+        renderLayer,
         pageClassAdd,
     };
 }
@@ -57,13 +61,13 @@ describe('usePdfRendererSinglePageController', () => {
     it('cleans a mounted canvas when a later async text-layer stage goes stale', async () => {
         const {
             root,
-            canvasHost,
+            renderLayer,
             pageClassAdd,
         } = createPageRoot();
         let renderVersion = 1;
         const pdfPage = { cleanup: vi.fn() } as PDFPageProxy & {cleanup: ReturnType<typeof vi.fn>};
         const cleanupPageIfCurrentRender = vi.fn(() => {
-            canvasHost.replaceChildren();
+            renderLayer.replaceChildren();
         });
         const pageLease = createPageLease(pdfPage);
         const renderingPages = new Map<number, number>();
@@ -74,16 +78,19 @@ describe('usePdfRendererSinglePageController', () => {
             effectiveScale: 1,
             annotationUiManager: null,
             getContainerRoot: () => root,
-            renderedPages: new Set<number>(),
-            staleRenderedPages: new Set<number>(),
             renderingPages,
             renderingPageRequestIds,
             activeRenderTasks: new Map(),
             getRenderVersion: () => renderVersion,
             getRenderDocumentToken: () => 'doc-1',
+            getDocumentRevision: () => 'rev-1',
             getVisibleRenderRequestId: () => 1,
             summarizePageDom: () => ({}),
             clearSelectionBeforePageLayerTeardown: vi.fn(),
+            clearPageVisual: vi.fn(() => false),
+            trackOptionalTextLayerTask: vi.fn(async (_pageNumber, _version, _requestId, task) => {
+                await task;
+            }),
             cleanupPageIfCurrentRender,
             cleanupCanvasRenderResult: vi.fn(),
             loadPageForRender: vi.fn(async () => pageLease),
@@ -93,9 +100,9 @@ describe('usePdfRendererSinglePageController', () => {
             })),
             renderPreparedCanvasForPage: vi.fn(async prepared => ({ canvas: prepared.canvas })),
             prepareCanvasForRender: vi.fn(async () => ({ canvas: document.createElement('canvas') })),
-            applyContainerDimensions: vi.fn(),
+            applyContainerUserUnit: vi.fn(),
             mountRenderedCanvas: vi.fn((_pageNumber, _container, _host, renderResult) => {
-                canvasHost.append(renderResult.canvas);
+                renderLayer.append(renderResult.canvas);
             }),
             scheduleRenderForSinglePage: vi.fn(),
             scheduleMissingRenderTargetRetry: vi.fn(),
@@ -134,7 +141,7 @@ describe('usePdfRendererSinglePageController', () => {
             },
         );
 
-        expect(canvasHost.children).toHaveLength(0);
+        expect(renderLayer.children).toHaveLength(0);
         expect(pageClassAdd).not.toHaveBeenCalledWith('page_container--rendered');
         expect(cleanupPageIfCurrentRender).not.toHaveBeenCalled();
         expect(pageLease.release).toHaveBeenCalled();
@@ -153,16 +160,19 @@ describe('usePdfRendererSinglePageController', () => {
             annotationUiManager: null,
             getContainerRoot: () => root,
             pageRenderState,
-            renderedPages: new Set<number>(),
-            staleRenderedPages: new Set<number>(),
             renderingPages: pageRenderState.renderingPages,
             renderingPageRequestIds: pageRenderState.renderingPageRequestIds,
             activeRenderTasks: new Map(),
             getRenderVersion: () => 1,
             getRenderDocumentToken: () => 'doc-1',
+            getDocumentRevision: () => 'rev-1',
             getVisibleRenderRequestId: () => 1,
             summarizePageDom: () => ({}),
             clearSelectionBeforePageLayerTeardown: vi.fn(),
+            clearPageVisual: vi.fn(() => false),
+            trackOptionalTextLayerTask: vi.fn(async (_pageNumber, _version, _requestId, task) => {
+                await task;
+            }),
             cleanupPageIfCurrentRender,
             cleanupCanvasRenderResult: vi.fn(),
             loadPageForRender: vi.fn(async () => pageLease),
@@ -174,7 +184,7 @@ describe('usePdfRendererSinglePageController', () => {
             prepareCanvasForRender: vi.fn(async () => {
                 throw new Error('canvas prepare failed');
             }),
-            applyContainerDimensions: vi.fn(),
+            applyContainerUserUnit: vi.fn(),
             mountRenderedCanvas: vi.fn(),
             scheduleRenderForSinglePage: vi.fn(),
             scheduleMissingRenderTargetRetry: vi.fn(),
@@ -210,7 +220,7 @@ describe('usePdfRendererSinglePageController', () => {
             },
         );
 
-        expect(cleanupPageIfCurrentRender).toHaveBeenCalledWith(1, 1, 1);
+        expect(cleanupPageIfCurrentRender).toHaveBeenCalledWith(1, 1, 1, {terminalFailure: true});
         expect(pageLease.release).toHaveBeenCalled();
         expect(pageRenderState.getSlot(1)).toEqual(expect.objectContaining({
             visual: 'none',
@@ -220,27 +230,115 @@ describe('usePdfRendererSinglePageController', () => {
         }));
     });
 
-    it('does not retry a cancelled render outside the transaction coordinator', async () => {
+    it('reschedules a required page when its slot remount invalidates canvas preparation', async () => {
         const { root } = createPageRoot();
         const pdfPage = { cleanup: vi.fn() } as PDFPageProxy & {cleanup: ReturnType<typeof vi.fn>};
         const pageLease = createPageLease(pdfPage);
-        const scheduleRenderForSinglePage = vi.fn();
-        const cancelledError = Object.assign(new Error('rendering cancelled'), {name: 'RenderingCancelledException'});
+        const scheduleMissingRenderTargetRetry = vi.fn();
+        const pageRenderState = createPdfPageRenderState();
         const controller = usePdfRendererSinglePageController({
             isActive: true,
             effectiveScale: 1,
             annotationUiManager: null,
             getContainerRoot: () => root,
-            renderedPages: new Set<number>(),
-            staleRenderedPages: new Set<number>(),
-            renderingPages: new Map(),
-            renderingPageRequestIds: new Map(),
+            pageRenderState,
+            renderingPages: pageRenderState.renderingPages,
+            renderingPageRequestIds: pageRenderState.renderingPageRequestIds,
             activeRenderTasks: new Map(),
             getRenderVersion: () => 1,
             getRenderDocumentToken: () => 'doc-1',
+            getDocumentRevision: () => 'rev-1',
+            getVisibleRenderRequestId: () => 7,
+            summarizePageDom: () => ({}),
+            clearSelectionBeforePageLayerTeardown: vi.fn(),
+            clearPageVisual: vi.fn(() => false),
+            trackOptionalTextLayerTask: vi.fn(async (_pageNumber, _version, _requestId, task) => {
+                await task;
+            }),
+            cleanupPageIfCurrentRender: vi.fn(),
+            cleanupCanvasRenderResult: vi.fn(),
+            loadPageForRender: vi.fn(async () => pageLease),
+            prepareCanvasRenderForPage: vi.fn(async () => ({
+                canvas: document.createElement('canvas'),
+                startRender: vi.fn(),
+            })),
+            renderPreparedCanvasForPage: vi.fn(async prepared => ({ canvas: prepared.canvas })),
+            prepareCanvasForRender: vi.fn(async () => null),
+            applyContainerUserUnit: vi.fn(),
+            mountRenderedCanvas: vi.fn(),
+            scheduleRenderForSinglePage: vi.fn(),
+            scheduleMissingRenderTargetRetry,
+            clearMissingRenderTargetRetry: vi.fn(),
+            waitForRenderLifecycleDelay: vi.fn(async () => true),
+            renderTextLayerForPage: vi.fn(async () => true),
+            renderAnnotationLayersForPage: vi.fn(async () => ({
+                shouldContinue: true,
+                annotationLayerInstance: null,
+            })),
+            renderAnnotationEditorLayer: vi.fn(async () => ({
+                ok: true,
+                rendered: true,
+            } as const)),
+            getViewportForAnnotationEditorLayer: vi.fn(() => ({}) as never),
+            scheduleOcrDebugForPage: vi.fn(),
+            markPageCanvasSurfaceEvictable: vi.fn(),
+            logNonCriticalStageError: vi.fn(),
+        });
+        const visibleRange = {
+            start: 1,
+            end: 1,
+        };
+
+        await controller.renderSingleVisiblePage(
+            root,
+            1,
+            1,
+            1,
+            false,
+            7,
+            () => true,
+            new Set([1]),
+            visibleRange,
+        );
+
+        expect(scheduleMissingRenderTargetRetry).toHaveBeenCalledWith(
+            1,
+            1,
+            7,
+            true,
+            visibleRange,
+            'doc-1',
+            undefined,
+        );
+        expect(pageLease.release).toHaveBeenCalled();
+    });
+
+    it('retries a cancelled required render with the same canonical render request', async () => {
+        const { root } = createPageRoot();
+        const pdfPage = { cleanup: vi.fn() } as PDFPageProxy & {cleanup: ReturnType<typeof vi.fn>};
+        const pageLease = createPageLease(pdfPage);
+        const scheduleRenderForSinglePage = vi.fn();
+        const cancelledError = Object.assign(new Error('rendering cancelled'), {name: 'RenderingCancelledException'});
+        const pageRenderState = createPdfPageRenderState();
+        const controller = usePdfRendererSinglePageController({
+            isActive: true,
+            effectiveScale: 1,
+            annotationUiManager: null,
+            getContainerRoot: () => root,
+            pageRenderState,
+            renderingPages: pageRenderState.renderingPages,
+            renderingPageRequestIds: pageRenderState.renderingPageRequestIds,
+            activeRenderTasks: new Map(),
+            getRenderVersion: () => 1,
+            getRenderDocumentToken: () => 'doc-1',
+            getDocumentRevision: () => 'rev-1',
             getVisibleRenderRequestId: () => 1,
             summarizePageDom: () => ({}),
             clearSelectionBeforePageLayerTeardown: vi.fn(),
+            clearPageVisual: vi.fn(() => false),
+            trackOptionalTextLayerTask: vi.fn(async (_pageNumber, _version, _requestId, task) => {
+                await task;
+            }),
             cleanupPageIfCurrentRender: vi.fn(),
             cleanupCanvasRenderResult: vi.fn(),
             loadPageForRender: vi.fn(async () => pageLease),
@@ -252,7 +350,7 @@ describe('usePdfRendererSinglePageController', () => {
             prepareCanvasForRender: vi.fn(async () => {
                 throw cancelledError;
             }),
-            applyContainerDimensions: vi.fn(),
+            applyContainerUserUnit: vi.fn(),
             mountRenderedCanvas: vi.fn(),
             scheduleRenderForSinglePage,
             scheduleMissingRenderTargetRetry: vi.fn(),
@@ -288,9 +386,12 @@ describe('usePdfRendererSinglePageController', () => {
             },
             {transactionRequest: {transactionId: 99} as never},
         );
-        await Promise.resolve();
-
-        expect(scheduleRenderForSinglePage).not.toHaveBeenCalled();
+        await vi.waitFor(() => {
+            expect(scheduleRenderForSinglePage).toHaveBeenCalledWith(1, {
+                bufferOverride: 0,
+                preserveRenderedPages: true,
+            });
+        });
     });
 
     it('uses the invocation scale for standalone annotation-editor layer renders', async () => {
@@ -310,16 +411,19 @@ describe('usePdfRendererSinglePageController', () => {
             effectiveScale,
             annotationUiManager: {},
             getContainerRoot: () => root,
-            renderedPages: new Set<number>(),
-            staleRenderedPages: new Set<number>(),
             renderingPages: new Map(),
             renderingPageRequestIds: new Map(),
             activeRenderTasks: new Map(),
             getRenderVersion: () => renderVersion,
             getRenderDocumentToken: () => 'doc-1',
+            getDocumentRevision: () => 'rev-1',
             getVisibleRenderRequestId: () => 1,
             summarizePageDom: () => ({}),
             clearSelectionBeforePageLayerTeardown: vi.fn(),
+            clearPageVisual: vi.fn(() => false),
+            trackOptionalTextLayerTask: vi.fn(async (_pageNumber, _version, _requestId, task) => {
+                await task;
+            }),
             cleanupPageIfCurrentRender: vi.fn(),
             cleanupCanvasRenderResult: vi.fn(),
             loadPageForRender: vi.fn(async () => {
@@ -332,7 +436,7 @@ describe('usePdfRendererSinglePageController', () => {
             })),
             renderPreparedCanvasForPage: vi.fn(async prepared => ({ canvas: prepared.canvas })),
             prepareCanvasForRender: vi.fn(async () => ({ canvas: document.createElement('canvas') })),
-            applyContainerDimensions: vi.fn(),
+            applyContainerUserUnit: vi.fn(),
             mountRenderedCanvas: vi.fn(),
             scheduleRenderForSinglePage: vi.fn(),
             scheduleMissingRenderTargetRetry: vi.fn(),
@@ -374,16 +478,19 @@ describe('usePdfRendererSinglePageController', () => {
             effectiveScale: 1,
             annotationUiManager: {},
             getContainerRoot: () => root,
-            renderedPages: new Set<number>(),
-            staleRenderedPages: new Set<number>(),
             renderingPages: new Map(),
             renderingPageRequestIds: new Map(),
             activeRenderTasks: new Map(),
             getRenderVersion: () => 1,
             getRenderDocumentToken: () => 'doc-1',
+            getDocumentRevision: () => 'rev-1',
             getVisibleRenderRequestId: () => 1,
             summarizePageDom: () => ({}),
             clearSelectionBeforePageLayerTeardown: vi.fn(),
+            clearPageVisual: vi.fn(() => false),
+            trackOptionalTextLayerTask: vi.fn(async (_pageNumber, _version, _requestId, task) => {
+                await task;
+            }),
             cleanupPageIfCurrentRender: vi.fn(),
             cleanupCanvasRenderResult: vi.fn(),
             loadPageForRender: vi.fn(async () => pageLease),
@@ -393,7 +500,7 @@ describe('usePdfRendererSinglePageController', () => {
             })),
             renderPreparedCanvasForPage: vi.fn(async prepared => ({ canvas: prepared.canvas })),
             prepareCanvasForRender: vi.fn(async () => ({ canvas: document.createElement('canvas') })),
-            applyContainerDimensions: vi.fn(),
+            applyContainerUserUnit: vi.fn(),
             mountRenderedCanvas: vi.fn(),
             scheduleRenderForSinglePage: vi.fn(),
             scheduleMissingRenderTargetRetry: vi.fn(),
@@ -436,16 +543,19 @@ describe('usePdfRendererSinglePageController', () => {
                 effectiveScale: 1,
                 annotationUiManager: {},
                 getContainerRoot: () => root,
-                renderedPages: new Set<number>(),
-                staleRenderedPages: new Set<number>(),
                 renderingPages: new Map(),
                 renderingPageRequestIds: new Map(),
                 activeRenderTasks: new Map(),
                 getRenderVersion: () => 1,
                 getRenderDocumentToken: () => 'doc-1',
+                getDocumentRevision: () => 'rev-1',
                 getVisibleRenderRequestId: () => 1,
                 summarizePageDom: () => ({}),
                 clearSelectionBeforePageLayerTeardown: vi.fn(),
+                clearPageVisual: vi.fn(() => false),
+                trackOptionalTextLayerTask: vi.fn(async (_pageNumber, _version, _requestId, task) => {
+                    await task;
+                }),
                 cleanupPageIfCurrentRender: vi.fn(),
                 cleanupCanvasRenderResult: vi.fn(),
                 loadPageForRender: vi.fn(async () => pageLease),
@@ -455,7 +565,7 @@ describe('usePdfRendererSinglePageController', () => {
                 })),
                 renderPreparedCanvasForPage: vi.fn(async prepared => ({ canvas: prepared.canvas })),
                 prepareCanvasForRender: vi.fn(async () => ({ canvas: document.createElement('canvas') })),
-                applyContainerDimensions: vi.fn(),
+                applyContainerUserUnit: vi.fn(),
                 mountRenderedCanvas: vi.fn(),
                 scheduleRenderForSinglePage: vi.fn(),
                 scheduleMissingRenderTargetRetry: vi.fn(),

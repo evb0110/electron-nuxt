@@ -33,10 +33,12 @@ const mocks = vi.hoisted(() => ({
     cancelConversion: vi.fn(),
     isAllowedDjvuViewingPath: vi.fn(),
     getDjvuPageSizesForViewing: vi.fn(),
+    getDjvuPageSizeForViewing: vi.fn(),
     renderDjvuPagePreview: vi.fn(),
     releaseDjvuViewingPath: vi.fn(),
     cleanupDjvuTempPdfPath: vi.fn(),
     pruneStaleDjvuArtifactJobs: vi.fn(),
+    getRecentFiles: vi.fn(),
 }));
 
 vi.mock('electron', () => ({
@@ -71,7 +73,9 @@ vi.mock('@electron/features/djvu/main/viewing', () => ({
     cleanupDjvuTempPdfPath: mocks.cleanupDjvuTempPdfPath,
 }));
 vi.mock('@electron/features/djvu/main/djvuArtifactManifest', () => ({pruneStaleDjvuArtifactJobs: mocks.pruneStaleDjvuArtifactJobs}));
+vi.mock('@electron/recentFiles', () => ({getRecentFiles: mocks.getRecentFiles}));
 vi.mock('@electron/features/djvu/main/pagePreview', () => ({
+    getDjvuPageSizeForViewing: mocks.getDjvuPageSizeForViewing,
     getDjvuPageSizesForViewing: mocks.getDjvuPageSizesForViewing,
     renderDjvuPagePreview: mocks.renderDjvuPagePreview,
 }));
@@ -84,6 +88,7 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
 })}));
 
 const { registerDjvuIpcAdapter } = await import('@electron/features/djvu/registerDjvuIpcAdapter');
+const { resolveDjvuPreviewBrokerPriority } = await import('@electron/features/djvu/main/djvuOperations');
 
 function createIpcEvent(senderId: number) {
     type TListener = (...args: unknown[]) => void;
@@ -153,6 +158,14 @@ function createDeferred<T>() {
 }
 
 describe('registerDjvuIpcAdapter', () => {
+    it('prioritizes visible page previews ahead of nearby and background work', () => {
+        expect(resolveDjvuPreviewBrokerPriority(100)).toBe('visible');
+        expect(resolveDjvuPreviewBrokerPriority(90)).toBe('visible');
+        expect(resolveDjvuPreviewBrokerPriority(50)).toBe('foreground');
+        expect(resolveDjvuPreviewBrokerPriority(20)).toBe('user');
+        expect(resolveDjvuPreviewBrokerPriority(10)).toBe('background');
+    });
+
     beforeEach(() => {
         mocks.handlers.clear();
         vi.clearAllMocks();
@@ -175,6 +188,11 @@ describe('registerDjvuIpcAdapter', () => {
             height: 200,
             dpi: 300,
         }]);
+        mocks.getDjvuPageSizeForViewing.mockResolvedValue({
+            width: 100,
+            height: 200,
+            dpi: 300,
+        });
         mocks.renderDjvuPagePreview.mockResolvedValue({
             bytes: new Uint8Array([1]),
             width: 100,
@@ -183,6 +201,7 @@ describe('registerDjvuIpcAdapter', () => {
         mocks.releaseDjvuViewingPath.mockReturnValue(undefined);
         mocks.cleanupDjvuTempPdfPath.mockResolvedValue(undefined);
         mocks.pruneStaleDjvuArtifactJobs.mockResolvedValue(0);
+        mocks.getRecentFiles.mockResolvedValue([]);
     });
 
     it('prunes only manifest-owned stale artifact jobs during registration', () => {
@@ -315,6 +334,94 @@ describe('registerDjvuIpcAdapter', () => {
             await expect(handler(event, realPath)).rejects.toThrow('DjVu viewing path is not active');
 
             expect(mocks.getDjvuPageSizesForViewing).not.toHaveBeenCalled();
+        } finally {
+            rmSync(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('probes only the prioritized page size when creating a viewing source', async () => {
+        const tempRoot = mkdtempSync(join(tmpdir(), 'evb-djvu-source-info-test-'));
+        try {
+            const realPath = join(tempRoot, 'real.djvu');
+            writeFileSync(realPath, new Uint8Array([1]));
+            const canonicalRealPath = realpathSync.native(realPath);
+            const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
+            const event = createIpcEvent(1);
+            allowOpenPath(realPath, event.sender as never);
+            mocks.getDjvuPageCount.mockResolvedValue(431);
+            registerDjvuIpcAdapter();
+
+            await expect(getHandler('djvu:getPageSourceInfo')(event, realPath, 7)).resolves.toEqual({
+                pageCount: 431,
+                pageNumber: 7,
+                pageSize: {
+                    width: 100,
+                    height: 200,
+                    dpi: 300,
+                },
+                sourceSize: 1,
+                sourceModifiedAt: expect.any(Number),
+            });
+
+            expect(mocks.getDjvuPageSizeForViewing).toHaveBeenCalledWith(canonicalRealPath, 7);
+            expect(mocks.getDjvuPageSizesForViewing).not.toHaveBeenCalled();
+        } finally {
+            rmSync(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('allows read-only opening geometry prewarm for a persisted Recent DjVu without granting file access', async () => {
+        const tempRoot = mkdtempSync(join(tmpdir(), 'evb-djvu-recent-source-info-test-'));
+        try {
+            const realPath = join(tempRoot, 'recent.djvu');
+            writeFileSync(realPath, new Uint8Array([1]));
+            const canonicalRealPath = realpathSync.native(realPath);
+            mocks.getRecentFiles.mockResolvedValue([{
+                originalPath: realPath,
+                fileName: 'recent.djvu',
+                timestamp: 1,
+            }]);
+            registerDjvuIpcAdapter();
+
+            await expect(getHandler('djvu:getPageSourceInfo')(
+                createIpcEvent(1),
+                realPath,
+                1,
+            )).resolves.toMatchObject({
+                pageCount: 1,
+                pageNumber: 1,
+            });
+
+            expect(mocks.getDjvuPageSizeForViewing).toHaveBeenCalledWith(canonicalRealPath, 1);
+            expect(mocks.isAllowedDjvuViewingPath).not.toHaveBeenCalled();
+        } finally {
+            rmSync(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('rejects opening geometry prewarm for an ungranted DjVu outside the persisted Recent list', async () => {
+        const tempRoot = mkdtempSync(join(tmpdir(), 'evb-djvu-untrusted-source-info-test-'));
+        try {
+            const realPath = join(tempRoot, 'untrusted.djvu');
+            writeFileSync(realPath, new Uint8Array([1]));
+            registerDjvuIpcAdapter();
+
+            await expect(getHandler('djvu:getPageSourceInfo')(
+                createIpcEvent(1),
+                realPath,
+                1,
+            )).rejects.toThrow('Path not allowed');
+
+            expect(mocks.getDjvuPageSizeForViewing).not.toHaveBeenCalled();
         } finally {
             rmSync(tempRoot, {
                 force: true,
@@ -678,6 +785,60 @@ describe('registerDjvuIpcAdapter', () => {
             });
             await expect(firstRun).resolves.toMatchObject({width: 100});
             await expect(secondRun).resolves.toMatchObject({width: 100});
+        } finally {
+            rmSync(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('cancels a queued native preview before it consumes a native-process slot', async () => {
+        const tempRoot = mkdtempSync(join(tmpdir(), 'evb-djvu-preview-cancel-queued-test-'));
+        try {
+            const realPath = join(tempRoot, 'real.djvu');
+            writeFileSync(realPath, new Uint8Array([1]));
+            const firstPreview = createDeferred<{
+                bytes: Uint8Array;
+                width: number;
+                height: number
+            }>();
+            const secondPreview = createDeferred<{
+                bytes: Uint8Array;
+                width: number;
+                height: number
+            }>();
+            mocks.renderDjvuPagePreview
+                .mockReturnValueOnce(firstPreview.promise)
+                .mockReturnValueOnce(secondPreview.promise);
+
+            const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
+            const event = createIpcEvent(14);
+            allowOpenPath(realPath, event.sender as never);
+            registerDjvuIpcAdapter();
+            const renderHandler = getHandler('djvu:renderPagePreview');
+            const cancelHandler = getHandler('djvu:cancelPagePreview');
+            const firstRun = renderHandler(event, realPath, 1, {previewRequestId: 'preview-active-1'});
+            const secondRun = renderHandler(event, realPath, 2, {previewRequestId: 'preview-active-2'});
+            const queuedRun = renderHandler(event, realPath, 3, {previewRequestId: 'preview-queued'});
+
+            await vi.waitFor(() => expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(2));
+            await expect(cancelHandler(event, 'preview-queued')).resolves.toEqual({canceled: true});
+            await expect(queuedRun).rejects.toThrow('DjVu preview request canceled');
+
+            firstPreview.resolve({
+                bytes: new Uint8Array([1]),
+                width: 100,
+                height: 200,
+            });
+            secondPreview.resolve({
+                bytes: new Uint8Array([2]),
+                width: 100,
+                height: 200,
+            });
+            await expect(firstRun).resolves.toMatchObject({width: 100});
+            await expect(secondRun).resolves.toMatchObject({width: 100});
+            expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(2);
         } finally {
             rmSync(tempRoot, {
                 force: true,

@@ -18,6 +18,8 @@ export function attachShowLifecycle(
     window: BrowserWindow,
     options: IAttachShowLifecycleOptions,
 ) {
+    const windowId = window.id;
+    const windowWebContents = window.webContents;
     let hasShownWindow = false;
     let pendingShowTimeout: NodeJS.Timeout | null = null;
     let forceShowTimeout: NodeJS.Timeout | null = null;
@@ -48,13 +50,13 @@ export function attachShowLifecycle(
 
     const cleanupShowHandlers = () => {
         try {
-            window.webContents.removeListener('did-start-navigation', onStartNavigation);
-            window.webContents.removeListener('did-finish-load', onFinishLoad);
-            window.webContents.removeListener('did-fail-load', onFailLoad);
+            windowWebContents.removeListener('did-start-navigation', onStartNavigation);
+            windowWebContents.removeListener('did-finish-load', onFinishLoad);
+            windowWebContents.removeListener('did-fail-load', onFailLoad);
         } catch (error) {
-            options.logger.warn(`Failed to cleanup startup show listeners for window ${window.id}: ${error instanceof Error ? error.message : String(error)}`);
+            options.logger.warn(`Failed to cleanup startup show listeners for window ${windowId}: ${error instanceof Error ? error.message : String(error)}`);
         }
-        deleteWindowRendererReadyState(window.id);
+        deleteWindowRendererReadyState(windowId);
     };
 
     const showWindowNow = async () => {
@@ -249,10 +251,10 @@ export function attachShowLifecycle(
         void showWindowNow();
     };
 
-    setWindowRendererReadyCallback(window.id, onRendererReadyForShow);
-    window.webContents.on('did-start-navigation', onStartNavigation);
-    window.webContents.on('did-finish-load', onFinishLoad);
-    window.webContents.on('did-fail-load', onFailLoad);
+    setWindowRendererReadyCallback(windowId, onRendererReadyForShow);
+    windowWebContents.on('did-start-navigation', onStartNavigation);
+    windowWebContents.on('did-finish-load', onFinishLoad);
+    windowWebContents.on('did-fail-load', onFailLoad);
 
     scheduleForceShowTimeout();
 
@@ -271,6 +273,6 @@ export function attachShowLifecycle(
             stabilityCheckTimeout = null;
         }
 
-        unregisterAppWindow(window.id);
+        unregisterAppWindow(windowId);
     });
 }
