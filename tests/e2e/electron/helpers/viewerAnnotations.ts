@@ -1142,13 +1142,25 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
             const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
                 ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
                 ?? (visibleHosts.length === 1 ? visibleHosts[0] : null);
-            if ((host?.querySelectorAll('.freeTextEditor').length ?? 0) > minCount) {
+            const editors = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? []);
+            const createdEditor = editors.length > minCount ? editors[editors.length - 1] : null;
+            const createdEditable = createdEditor?.querySelector<HTMLElement>('[contenteditable], .internal')
+                ?? createdEditor;
+            if (createdEditable) {
+                // Seed the editor in the same browser task that observes it.
+                // PDF.js may remove an empty editor between this predicate and
+                // the next CDP round trip, particularly on headless Linux.
+                createdEditable.textContent ||= '\u200B';
                 return true;
             }
 
             const targetLayer = host?.querySelector<HTMLElement>('.annotationEditorLayer.freetextEditing, .annotation-editor-layer.freetextEditing');
             const activeEditor = targetLayer?.querySelector<HTMLElement>('.freeTextEditor .internal[contenteditable="true"], .freeTextEditor [contenteditable="true"]');
-            return Boolean(activeEditor);
+            if (!activeEditor) {
+                return false;
+            }
+            activeEditor.textContent ||= '\u200B';
+            return true;
         }, {timeout: timeoutMs}, before);
     };
 
