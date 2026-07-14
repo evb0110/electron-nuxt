@@ -131,8 +131,19 @@ jobs:
           # installed application and Windows DLL loader. tar.exe leaves the
           # encoded names on disk and produces false missing-DLL failures for
           # libc++.dll and libstdc++-6.dll.
-          $makeAppx = Get-Command makeappx.exe -ErrorAction Stop
-          & $makeAppx.Source unpack /o /p $packages[0].FullName /d $extractDir
+          $makeAppxPath = (Get-Command makeappx.exe -ErrorAction SilentlyContinue).Source
+          if (-not $makeAppxPath) {
+            $sdkBinRoot = Join-Path "${env:ProgramFiles(x86)}" "Windows Kits\10\bin"
+            $makeAppxPath = Get-ChildItem -Path $sdkBinRoot -Filter makeappx.exe -File -Recurse -ErrorAction Stop |
+              Where-Object { $_.FullName -match '[\\/]x64[\\/]makeappx\.exe$' } |
+              Sort-Object FullName -Descending |
+              Select-Object -ExpandProperty FullName -First 1
+          }
+          if (-not $makeAppxPath) {
+            Write-Error "MakeAppx is not installed or discoverable in the Windows SDK."
+            exit 1
+          }
+          & $makeAppxPath unpack /o /p $packages[0].FullName /d $extractDir
           if ($LASTEXITCODE -ne 0) {
             Write-Error "MakeAppx failed to unpack the Store package."
             exit $LASTEXITCODE

@@ -214,12 +214,15 @@ describe('CI topology policy', () => {
 
     it('runs regular packaged-content verification against extracted Store AppX contents', async () => {
         const storeWorkflow = await readProjectFile('.github/workflows/store-appx.yml');
-        const extractIndex = storeWorkflow.indexOf('makeappx.exe -ErrorAction Stop');
+        const extractIndex = storeWorkflow.indexOf('Get-Command makeappx.exe -ErrorAction SilentlyContinue');
         const nativeVerifyIndex = storeWorkflow.indexOf('bash scripts/verify-packaged-native-tools.sh win');
         const contentsVerifyIndex = storeWorkflow.indexOf('node scripts/release/assert-packaged-app-contents.mjs');
 
         expect(extractIndex).toBeGreaterThan(-1);
-        expect(storeWorkflow).toContain('& $makeAppx.Source unpack /o /p $packages[0].FullName /d $extractDir');
+        expect(storeWorkflow).toContain('${env:ProgramFiles(x86)}');
+        expect(storeWorkflow).toContain('Windows Kits\\10\\bin');
+        expect(storeWorkflow).toContain('Where-Object { $_.FullName -match \'[\\\\/]x64[\\\\/]makeappx\\.exe$\' }');
+        expect(storeWorkflow).toContain('& $makeAppxPath unpack /o /p $packages[0].FullName /d $extractDir');
         expect(storeWorkflow).not.toContain('tar.exe -xf $packages[0].FullName');
         expect(nativeVerifyIndex).toBeGreaterThan(extractIndex);
         expect(contentsVerifyIndex).toBeGreaterThan(nativeVerifyIndex);
