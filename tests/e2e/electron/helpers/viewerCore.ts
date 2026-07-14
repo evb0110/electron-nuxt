@@ -1,6 +1,8 @@
 import type { Page } from 'puppeteer-core';
+import {realpath} from 'node:fs/promises';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/getE2EWindow';
 import { delay } from 'es-toolkit/promise';
+import {collectDocumentOpenDiagnostics} from '@tests/e2e/electron/helpers/collectDocumentOpenDiagnostics';
 import {
     evaluateInPage,
     waitForFunctionInPage,
@@ -90,6 +92,14 @@ async function runWithExecutionContextRetry<T>(
     }
 }
 
+async function resolveDocumentSourcePath(path: string) {
+    try {
+        return await realpath(path);
+    } catch {
+        return path;
+    }
+}
+
 async function waitForRendererBindings(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
     const startedAt = Date.now();
     let lastState: {
@@ -134,6 +144,7 @@ async function waitForRendererBindings(page: Page, timeoutMs = DEFAULT_TIMEOUT_M
 }
 
 export async function waitForActiveDocumentSource(page: Page, path: string, timeoutMs = DEFAULT_TIMEOUT_MS) {
+    const sourcePath = await resolveDocumentSourcePath(path);
     await installWorkspaceExposeProbe(page);
     await waitForFunctionInPage(page, (payload: {path: string}) => {
         const normalize = (value: unknown) => typeof value === 'string'
@@ -153,7 +164,7 @@ export async function waitForActiveDocumentSource(page: Page, path: string, time
             activeState.pendingDocumentPath,
         ];
         return candidates.some(candidate => normalize(candidate) === requestedPath);
-    }, {timeout: timeoutMs}, {path});
+    }, {timeout: timeoutMs}, {path: sourcePath});
 }
 
 async function openFreshTabForDocumentOpen(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
@@ -423,13 +434,14 @@ async function openPathInApp(
     timeoutMs = DEFAULT_TIMEOUT_MS,
 ) {
     const startedAt = Date.now();
+    const sourcePath = await resolveDocumentSourcePath(path);
     let lastError: Error | null = null;
     let openTriggered = false;
     let openBaselineEventId = 0;
     let openedFreshTabAfterBlockedOpen = false;
 
     try {
-        await waitForActiveDocumentSource(page, path, 300);
+        await waitForActiveDocumentSource(page, sourcePath, 300);
         await waitForLoaded(page, timeoutMs);
         return;
     } catch {
@@ -469,7 +481,7 @@ async function openPathInApp(
                 if (!openResult) {
                     lastError = new Error('window.__openFileDirect returned false');
                     try {
-                        await waitForActiveDocumentSource(page, path, Math.min(3_000, remainingMs));
+                        await waitForActiveDocumentSource(page, sourcePath, Math.min(3_000, remainingMs));
                         await waitForLoaded(page, remainingMs);
                         return;
                     } catch (error) {
@@ -489,18 +501,18 @@ async function openPathInApp(
             }
 
             const domWait = (async () => {
-                await waitForActiveDocumentSource(page, path, remainingMs);
+                await waitForActiveDocumentSource(page, sourcePath, remainingMs);
                 await waitForLoaded(page, remainingMs);
             })();
             const eventWait = Promise.all([
                 waitForAutomationEvent(page, 'document-opened', {
                     afterEventId: openBaselineEventId,
-                    path,
+                    path: sourcePath,
                     timeoutMs: remainingMs,
                 }),
                 waitForAutomationEvent(page, 'first-page-rendered', {
                     afterEventId: openBaselineEventId,
-                    path,
+                    path: sourcePath,
                     timeoutMs: remainingMs,
                 }),
             ])
@@ -527,7 +539,8 @@ async function openPathInApp(
     }
 
     const detail = lastError ? ` Last error: ${lastError.message}` : '';
-    throw new Error(`Failed to open document in app within ${timeoutMs}ms.${detail}`);
+    const diagnostics = await collectDocumentOpenDiagnostics(page);
+    throw new Error(`Failed to open document in app within ${timeoutMs}ms.${detail} Diagnostics: ${JSON.stringify(diagnostics)}`);
 }
 
 export async function triggerOpenPathInApp(page: Page, path: string, timeoutMs = DEFAULT_TIMEOUT_MS) {

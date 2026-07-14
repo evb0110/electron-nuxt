@@ -132,7 +132,8 @@ describe('CI topology policy', () => {
         expect(packageJson).toContain('"lint": "pnpm run lint:eslint && pnpm run lint:style && pnpm run check:static:fast"');
         expect(packageJson).toContain('"lint:eslint": "eslint app electron packages scripts server tests eslint-plugin-custom.mjs vitest.config.ts vitest.shared.config.ts --max-warnings=0 --report-unused-disable-directives"');
         expect(packageJson).toContain('"lint:style": "stylelint \\"app/**/*.{vue,scss,css}\\""');
-        expect(packageJson).toContain('"check:static:fast": "pnpm run check:platform-api-generated');
+        expect(packageJson).toContain('"check:static:fast": "pnpm run check:github-actions-syntax && pnpm run check:platform-api-generated');
+        expect(packageJson).toContain('"check:github-actions-syntax": "pnpm exec tsx scripts/checkGithubActionsSyntax.ts"');
         expect(packageJson).toContain('pnpm run check:native-tool-protocols');
         expect(packageJson).toContain('"check:static:reports": "pnpm run check:platform-manifest-consumers"');
         expect(packageJson).toContain('"check:static:assets": "pnpm run check:web-deploy-source && pnpm run check:ocr-language-model-registry && pnpm run check:vendor-sync"');
@@ -206,17 +207,20 @@ describe('CI topology policy', () => {
         expect(workflowJob(workflow, 'manual_landing')).not.toContain('continue-on-error: true');
         expect(sharedVitestConfig).toContain('tests/unit/landing/**/*.test.ts');
         expect(testsTsconfig.exclude).toContain('./unit/landing/**/*.ts');
-        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('python -m pip install --require-hashes --only-binary=:all: -r python/page-processor/requirements-lock.txt');
+        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('python -m pip install --require-hashes --only-binary=:all:');
+        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('-r python/page-processor/requirements-lock.txt');
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm run test:python-page-processor');
     });
 
     it('runs regular packaged-content verification against extracted Store AppX contents', async () => {
         const storeWorkflow = await readProjectFile('.github/workflows/store-appx.yml');
-        const extractIndex = storeWorkflow.indexOf('tar.exe -xf $packages[0].FullName -C $extractDir');
+        const extractIndex = storeWorkflow.indexOf('makeappx.exe -ErrorAction Stop');
         const nativeVerifyIndex = storeWorkflow.indexOf('bash scripts/verify-packaged-native-tools.sh win');
         const contentsVerifyIndex = storeWorkflow.indexOf('node scripts/release/assert-packaged-app-contents.mjs');
 
         expect(extractIndex).toBeGreaterThan(-1);
+        expect(storeWorkflow).toContain('& $makeAppx.Source unpack /o /p $packages[0].FullName /d $extractDir');
+        expect(storeWorkflow).not.toContain('tar.exe -xf $packages[0].FullName');
         expect(nativeVerifyIndex).toBeGreaterThan(extractIndex);
         expect(contentsVerifyIndex).toBeGreaterThan(nativeVerifyIndex);
         expect(storeWorkflow).toContain('".tmp/store-appx-${{ matrix.arch }}"');
@@ -253,6 +257,8 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('name: Verify signed bundle through LaunchServices');
         expect(workflow).toContain('if: runner.os == \'macOS\' && env.MAC_EXPECT_DEVELOPER_ID == \'true\'');
         expect(workflow).toContain('bash scripts/verify-macos-launchservices-startup.sh "${{ matrix.platform }}" "${{ matrix.arch }}"');
+        expect(workflow).toContain('name: Upload macOS LaunchServices diagnostics');
+        expect(workflow).toContain('.devkit/test/macos-launchservices-startup/**');
         expect(macSigningScript).toContain('if [ "${CI:-}" = "true" ]; then');
         expect(macSigningScript).toContain('::error::$message');
         expect(macSigningScript).toContain('Partial macOS signing credentials detected; set both CSC_LINK and CSC_KEY_PASSWORD or neither');
@@ -270,7 +276,9 @@ describe('CI topology policy', () => {
         expect(releaseWorkflow).not.toContain('tags:');
         expect(releaseWorkflow).toContain('workflow_dispatch:');
         expect(releaseWorkflow).toContain('target_ref:');
-        expect(releaseWorkflow).toContain('ref: ${{ steps.target.outputs.target_ref }}');
+        expect(releaseWorkflow).toContain('git rev-parse --verify "${DISPATCH_TARGET_REF}^{commit}"');
+        expect(releaseWorkflow).toContain('"repos/${GITHUB_REPOSITORY}/commits/${DISPATCH_TARGET_REF}"');
+        expect(releaseWorkflow).toContain('git checkout --detach "$target_sha"');
         expect(qualityJob).toContain('run: rustup target add wasm32-unknown-unknown');
         expect(qualityJob).toContain('EVB_NATIVE_TOOLS_ALLOW_HOST_CI_GEN: \'1\'');
         expect(qualityJob).toContain('run: pnpm --dir landing install --frozen-lockfile');
@@ -292,6 +300,8 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('target_ref:');
         expect(workflow).toContain('permissions:\n  contents: read');
         expect(workflow).not.toContain('contents: write');
+        expect(workflow).toContain('git rev-parse --verify "${DISPATCH_TARGET_REF}^{commit}"');
+        expect(workflow).toContain('"repos/${GITHUB_REPOSITORY}/commits/${DISPATCH_TARGET_REF}"');
         expect(qualityJob).toContain('run: pnpm run release:verify:checks');
         expect(qualityJob).toContain('run: pnpm --dir landing install --frozen-lockfile');
         expect(qualityJob).toContain('run: pnpm exec playwright install --with-deps chromium');
@@ -339,7 +349,8 @@ describe('CI topology policy', () => {
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm --dir landing install --frozen-lockfile');
         expect(workflowJob(workflow, 'nightly_maintenance')).not.toContain('playwright install');
         expect(workflowJob(workflow, 'manual_quality')).not.toContain('run: pnpm run check:production-dependency-audit');
-        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('python -m pip install --require-hashes --only-binary=:all: -r python/page-processor/requirements-lock.txt');
+        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('python -m pip install --require-hashes --only-binary=:all:');
+        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('-r python/page-processor/requirements-lock.txt');
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm run test:python-page-processor');
         expect(nvmrc.trim()).toBe('24.11.1');
         expect(workflow).toContain('NODE_VERSION: \'24.11.1\'');

@@ -453,7 +453,9 @@ jobs:
         run: pnpm run check:wasm:portable
 
       - name: Install page processor smoke dependencies
-        run: python -m pip install --require-hashes --only-binary=:all: -r python/page-processor/requirements-lock.txt
+        run: >-
+          python -m pip install --require-hashes --only-binary=:all:
+          -r python/page-processor/requirements-lock.txt
 
       - name: Lint
         run: pnpm run lint

@@ -16,6 +16,7 @@ import {
     isProcessAlive,
     killProcessTree,
 } from '@scripts/electron-run/electronRunProcessTree';
+import {capturePackagedCorePdfFailureArtifacts} from '@tests/e2e/electron/helpers/capturePackagedCorePdfFailureArtifacts';
 import {
     getActiveWorkspaceWorkingCopyPath,
     rotatePages,
@@ -35,7 +36,6 @@ import {readPdfAnnotationSummary} from '@tests/e2e/electron/helpers/fixtures';
 const STARTUP_TIMEOUT_MS = 75_000;
 const OPERATION_TIMEOUT_MS = 45_000;
 const SHUTDOWN_TIMEOUT_MS = 8_000;
-
 type TConnectedBrowser = Awaited<ReturnType<typeof puppeteer.connect>>;
 
 function parseExecutablePath(args: string[]) {
@@ -223,6 +223,9 @@ async function run() {
         }
 
         console.log('Packaged core-PDF smoke passed: open, annotation save, rotate persistence, and search.');
+    } catch (error) {
+        await capturePackagedCorePdfFailureArtifacts(browser, error);
+        throw error;
     } finally {
         await closeBrowserGracefully(browser);
         if (typeof child.pid === 'number') {

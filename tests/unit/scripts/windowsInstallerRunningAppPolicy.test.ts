@@ -13,6 +13,8 @@ describe('Windows installer running-app policy', () => {
         expect(installer).toContain('${nsProcess::FindProcess} "${APP_EXECUTABLE_FILENAME}"');
         expect(installer).toContain('MB_RETRYCANCEL|MB_ICONEXCLAMATION');
         expect(installer).toContain('installer will not force-close the app');
+        expect(installer).not.toContain('${GetProcessInfo}');
+        expect(installer).not.toMatch(/\$pid\b/u);
         expect(installer).not.toMatch(/Stop-Process|taskkill|KILL_PROCESS/u);
     });
 

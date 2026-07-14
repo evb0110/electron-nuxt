@@ -125,7 +125,18 @@ jobs:
           $extractDir = Join-Path "${{ github.workspace }}" ".tmp\store-appx-${{ matrix.arch }}"
           Remove-Item -Recurse -Force $extractDir -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path $extractDir | Out-Null
-          tar.exe -xf $packages[0].FullName -C $extractDir
+          # AppX is an OPC package: reserved characters such as '+' are
+          # percent-encoded in raw ZIP entry names. MakeAppx decodes those
+          # package URIs while unpacking, matching the filenames exposed to the
+          # installed application and Windows DLL loader. tar.exe leaves the
+          # encoded names on disk and produces false missing-DLL failures for
+          # libc++.dll and libstdc++-6.dll.
+          $makeAppx = Get-Command makeappx.exe -ErrorAction Stop
+          & $makeAppx.Source unpack /o /p $packages[0].FullName /d $extractDir
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "MakeAppx failed to unpack the Store package."
+            exit $LASTEXITCODE
+          }
 
           $manifestPath = Join-Path $extractDir "AppxManifest.xml"
           if (-not (Test-Path $manifestPath)) {

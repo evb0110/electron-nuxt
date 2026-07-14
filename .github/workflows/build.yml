@@ -321,6 +321,15 @@ jobs:
         shell: bash
         run: pnpm run test:packaged-core-pdf-smoke -- --executable "release/mac-arm64/EVB Viewer.app/Contents/MacOS/EVB Viewer"
 
+      - name: Upload packaged core PDF diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: packaged-core-pdf-smoke-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.run_attempt }}
+          path: .devkit/test/packaged-core-pdf-smoke/**
+          include-hidden-files: true
+          if-no-files-found: ignore
+
       - name: Verify packaged startup
         if: runner.os == 'macOS'
         shell: bash
@@ -330,7 +339,20 @@ jobs:
       - name: Verify signed bundle through LaunchServices
         if: runner.os == 'macOS' && env.MAC_EXPECT_DEVELOPER_ID == 'true'
         shell: bash
-        run: bash scripts/verify-macos-launchservices-startup.sh "${{ matrix.platform }}" "${{ matrix.arch }}"
+        run: |
+          mkdir -p .devkit/test/macos-launchservices-startup
+          set -o pipefail
+          bash scripts/verify-macos-launchservices-startup.sh "${{ matrix.platform }}" "${{ matrix.arch }}" \
+            2>&1 | tee .devkit/test/macos-launchservices-startup/verify.log
+
+      - name: Upload macOS LaunchServices diagnostics
+        if: failure() && runner.os == 'macOS' && env.MAC_EXPECT_DEVELOPER_ID == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-launchservices-${{ matrix.arch }}-${{ github.run_attempt }}
+          path: .devkit/test/macos-launchservices-startup/**
+          include-hidden-files: true
+          if-no-files-found: ignore
 
       - name: Prune updater metadata on unsupported updater targets
         if: |

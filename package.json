@@ -152,8 +152,9 @@
     "check:layout-tokens": "pnpm exec tsx scripts/checkLayoutTokenPolicy.ts",
     "check:vendor-sync": "node --import tsx scripts/checkLandingVendorSync.ts",
     "check:static:assets": "pnpm run check:web-deploy-source && pnpm run check:ocr-language-model-registry && pnpm run check:vendor-sync",
-    "check:static:fast": "pnpm run check:platform-api-generated && pnpm run check:style-assets && pnpm run check:pdfjs-viewer-css && pnpm run check:css-custom-properties && pnpm run check:css-important && pnpm run check:layout-tokens && pnpm run check:locales && pnpm run check:icons:bundle && pnpm run check:commonjs-imports && pnpm run check:dependency-lockstep && pnpm run check:native-tool-protocols && pnpm run check:naming && pnpm run check:architecture:imports",
-    "check:static:fast:all": "pnpm run check:platform-api-generated && pnpm run check:style-assets:all && pnpm run check:pdfjs-viewer-css && pnpm run check:css-custom-properties && pnpm run check:css-important:all && pnpm run check:layout-tokens && pnpm run check:locales:all && pnpm run check:icons:bundle:all && pnpm run check:commonjs-imports && pnpm run check:dependency-lockstep && pnpm run check:native-tool-protocols && pnpm run check:naming:all && pnpm run check:architecture:imports",
+    "check:static:fast": "pnpm run check:github-actions-syntax && pnpm run check:platform-api-generated && pnpm run check:style-assets && pnpm run check:pdfjs-viewer-css && pnpm run check:css-custom-properties && pnpm run check:css-important && pnpm run check:layout-tokens && pnpm run check:locales && pnpm run check:icons:bundle && pnpm run check:commonjs-imports && pnpm run check:dependency-lockstep && pnpm run check:native-tool-protocols && pnpm run check:naming && pnpm run check:architecture:imports",
+    "check:static:fast:all": "pnpm run check:github-actions-syntax && pnpm run check:platform-api-generated && pnpm run check:style-assets:all && pnpm run check:pdfjs-viewer-css && pnpm run check:css-custom-properties && pnpm run check:css-important:all && pnpm run check:layout-tokens && pnpm run check:locales:all && pnpm run check:icons:bundle:all && pnpm run check:commonjs-imports && pnpm run check:dependency-lockstep && pnpm run check:native-tool-protocols && pnpm run check:naming:all && pnpm run check:architecture:imports",
+    "check:github-actions-syntax": "pnpm exec tsx scripts/checkGithubActionsSyntax.ts",
     "check:static:reports": "pnpm run check:platform-manifest-consumers",
     "check:style-assets": "pnpm exec tsx scripts/checkStyleAssetConventions.ts --target=app",
     "check:style-assets:landing": "pnpm exec tsx scripts/checkStyleAssetConventions.ts --target=landing",
@@ -280,7 +281,8 @@
     "vitest": "^4.1.8",
     "vue-eslint-parser": "10.4.1",
     "vue-i18n": "^11.4.4",
-    "vue-tsc": "3.3.3"
+    "vue-tsc": "3.3.3",
+    "yaml-eslint-parser": "1.3.2"
   },
   "packageManager": "pnpm@10.32.1",
   "pnpm": {
