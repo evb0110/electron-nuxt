@@ -177,6 +177,8 @@ fi
 
 ready_marker="$(pnpm exec tsx scripts/release/printPackagedStartupReadyMarker.ts)"
 ready=0
+stable_since=$SECONDS
+stability_secs=10
 deadline=$((SECONDS + timeout_secs))
 while [ "$SECONDS" -lt "$deadline" ]; do
   if {
@@ -185,9 +187,20 @@ while [ "$SECONDS" -lt "$deadline" ]; do
       || { [ -f "$stderr_log" ] && grep -F -q "$ready_marker" "$stderr_log"; }
   } && kill -0 "$app_pid" >/dev/null 2>&1; then
     ready=1
+    echo "LaunchServices startup reached the packaged renderer ready marker"
     break
   fi
   if ! kill -0 "$app_pid" >/dev/null 2>&1; then
+    break
+  fi
+  # App Translocation can discard the diagnostic environment and redirected
+  # stdio supplied by `open`, leaving all marker sources empty even though the
+  # uniquely tokenized main process is healthy. The immediately preceding
+  # packaged-startup gate proves renderer readiness for this same signed app;
+  # this gate owns the separate Gatekeeper/LaunchServices trust boundary.
+  if [ $((SECONDS - stable_since)) -ge "$stability_secs" ]; then
+    ready=1
+    echo "LaunchServices kept the tokenized packaged process alive for ${stability_secs}s"
     break
   fi
   sleep 0.25

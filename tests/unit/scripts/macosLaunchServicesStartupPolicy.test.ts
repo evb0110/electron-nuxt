@@ -33,6 +33,11 @@ describe('macOS LaunchServices packaged-startup policy', () => {
         expect(script).toContain('grep -F -q "$ready_marker" "$main_log"');
         expect(script).toContain('grep -F -q "$ready_marker" "$stdout_log"');
         expect(script).toContain('grep -F -q "$ready_marker" "$stderr_log"');
+        expect(script).toContain('stability_secs=10');
+        expect(script).toContain('SECONDS - stable_since');
+        expect(script).toContain('kill -0 "$app_pid"');
+        expect(script).toContain('LaunchServices kept the tokenized packaged process alive');
+        expect(script).toContain('immediately preceding');
         expect(script).not.toMatch(/\bkillall\b|\bpkill\b/u);
         expect(script).not.toContain('/Applications/EVB Viewer.app');
         expect(script).toContain('"$lsregister" -u "$app_path"');
