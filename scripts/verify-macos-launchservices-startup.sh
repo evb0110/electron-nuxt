@@ -37,19 +37,42 @@ dmg_path="$(cd "$(dirname "$dmg_path")" && pwd -P)/$(basename "$dmg_path")"
 
 token="evb-launchservices-smoke-$$-$(date +%s)"
 user_data_dir="$(mktemp -d "${TMPDIR:-/tmp}/evb-launchservices-smoke.XXXXXX")"
+profile_dir="$user_data_dir/profile"
 mount_point="$user_data_dir/mount"
 install_dir="$user_data_dir/install"
 quarantined_dmg="$user_data_dir/candidate.dmg"
 app_path="$install_dir/EVB Viewer.app"
 app_exec="$app_path/Contents/MacOS/EVB Viewer"
-log_dir="$user_data_dir/electron-logs"
+artifact_root="${EVB_LAUNCHSERVICES_ARTIFACT_DIR:-.devkit/test/macos-launchservices-startup}"
+artifact_dir="$artifact_root/$token"
+mkdir -p "$artifact_dir"
+artifact_dir="$(cd "$artifact_dir" && pwd -P)"
+log_dir="$artifact_dir/electron-logs"
 main_log="$log_dir/main.log"
 window_log="$log_dir/window.log"
 open_pid=""
 app_pid=""
 mounted=0
+passed=0
+
+capture_diagnostics() {
+  ps -axo pid=,ppid=,command= \
+    | awk -v token="$token" 'index($0, token) { print }' \
+    > "$artifact_dir/processes.txt" 2>&1 || true
+  xattr -lr "$app_path" > "$artifact_dir/quarantine.txt" 2>&1 || true
+  {
+    echo "--- main.log ---"
+    tail -n 200 "$main_log" 2>/dev/null || true
+    echo "--- window.log ---"
+    tail -n 200 "$window_log" 2>/dev/null || true
+  } > "$artifact_dir/renderer-tail.log"
+}
 
 cleanup() {
+  if [ "$passed" -ne 1 ]; then
+    capture_diagnostics
+    echo "LaunchServices diagnostic evidence retained at: $artifact_dir"
+  fi
   if [ -n "$app_pid" ] && kill -0 "$app_pid" >/dev/null 2>&1; then
     kill "$app_pid" >/dev/null 2>&1 || true
   fi
@@ -64,10 +87,13 @@ cleanup() {
     "$lsregister" -u "$app_path" >/dev/null 2>&1 || true
   fi
   rm -rf "$user_data_dir"
+  if [ "$passed" -eq 1 ]; then
+    rm -rf "$artifact_dir"
+  fi
 }
 trap cleanup EXIT
 
-mkdir -p "$mount_point" "$install_dir" "$log_dir"
+mkdir -p "$profile_dir" "$mount_point" "$install_dir" "$log_dir"
 
 # Exercise the same trust boundary as a browser download and Finder install.
 # Quarantining a disposable DMG copy causes DiskImages to propagate quarantine
@@ -100,19 +126,31 @@ fi
 # attaching to or mutating an installed production instance.
 env -u ELECTRON_RUN_AS_NODE open -n -W -a "$app_path" \
   --env "EVB_FILE_LOG_DIR=$log_dir" \
-  --env "EVB_AUTOMATION_USER_DATA_DIR=$user_data_dir" \
+  --env "EVB_AUTOMATION_USER_DATA_DIR=$profile_dir" \
   --env "EVB_ALLOW_MULTI_AUTOMATION_SESSIONS=1" \
   --args \
   --evb-startup-trace \
   --evb-launchservices-smoke="$token" \
-  --user-data-dir="$user_data_dir" &
+  --user-data-dir="$profile_dir" &
 open_pid=$!
 
 timeout_secs=60
 deadline=$((SECONDS + timeout_secs))
 while [ "$SECONDS" -lt "$deadline" ]; do
-  app_pid="$(ps -axo pid=,command= | awk -v executable="$app_exec" -v token="$token" '
-    !found && index($0, executable) && index($0, token) { pid = $1; found = 1 }
+  # Gatekeeper can launch a quarantined app from a randomized App Translocation
+  # root. Match the stable path inside the bundle plus the unique canary token,
+  # with the executable marker preceding the token. This excludes `open`, this
+  # awk probe, Electron helpers, and unrelated production instances while still
+  # accepting both installed and translocated main executables.
+  app_pid="$(ps -axo pid=,command= | awk -v token="$token" '
+    !found {
+      executable_position = index($0, "/Contents/MacOS/EVB Viewer")
+      token_position = index($0, token)
+      if (executable_position > 0 && token_position > executable_position) {
+        pid = $1
+        found = 1
+      }
+    }
     END { if (found) print pid }
   ')"
   if [ -n "$app_pid" ]; then
@@ -131,6 +169,7 @@ fi
 
 ready_marker="$(pnpm exec tsx scripts/release/printPackagedStartupReadyMarker.ts)"
 ready=0
+deadline=$((SECONDS + timeout_secs))
 while [ "$SECONDS" -lt "$deadline" ]; do
   if [ -f "$main_log" ] && grep -F -q "$ready_marker" "$main_log" && kill -0 "$app_pid" >/dev/null 2>&1; then
     ready=1
@@ -151,4 +190,5 @@ if [ "$ready" -ne 1 ]; then
   exit 1
 fi
 
+passed=1
 echo "Quarantined DMG install and LaunchServices startup verification passed for $platform-$arch"
