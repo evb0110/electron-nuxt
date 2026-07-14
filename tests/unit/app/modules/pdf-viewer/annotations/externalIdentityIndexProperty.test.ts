@@ -18,6 +18,7 @@ const nonBlankString = fc.string({
     maxLength: 64,
 })
     .filter(value => value.trim().length > 0);
+const normalizedNonBlankString = nonBlankString.map(value => value.trim());
 
 describe('ExternalIdentityIndex properties', () => {
     it('derives the same canonical id independently of geometry jitter', () => {
@@ -125,7 +126,7 @@ describe('ExternalIdentityIndex properties', () => {
 
     it('rejects a lookup whose explicit bindings point at different annotations', () => {
         fc.assert(fc.property(
-            fc.uniqueArray(nonBlankString, {
+            fc.uniqueArray(normalizedNonBlankString, {
                 minLength: 4,
                 maxLength: 4,
             }),
@@ -153,6 +154,23 @@ describe('ExternalIdentityIndex properties', () => {
                     .toThrow(ExternalIdentityConflictError);
             },
         ));
+    });
+
+    it('treats whitespace-equivalent annotation ids as the same owner', () => {
+        const index = new ExternalIdentityIndex();
+        index.bind({
+            id: asAnnotationId(' !'),
+            pdfRef: 'ref',
+        });
+        index.bind({
+            id: asAnnotationId('!'),
+            pdfName: 'name',
+        });
+
+        expect(index.resolve({
+            pdfRef: 'ref',
+            pdfName: 'name',
+        })).toBe(asAnnotationId('!'));
     });
 });
 
