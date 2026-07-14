@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import {decodeViewerAnalyticsEventsBody} from '@server/api/analytics/decodeViewerAnalyticsEventsBody.post';
+import {decodeViewerAnalyticsEventsBody} from '@server/api/analytics/events.post';
 import {isAnalyticsWriteAllowedForHost} from '@server/utils/analytics';
 import {
     ANALYTICS_ADMISSION_REJECTED_SQLSTATE,
