@@ -19,8 +19,14 @@ const fixtures = [
                 linux: 0.01082,
             },
             luminance: {
-                default: 253.947,
-                linux: 254.066,
+                default: {
+                    max: 253.997,
+                    min: 253.897,
+                },
+                linux: {
+                    max: 254.116,
+                    min: 254.016,
+                },
             },
             textItems: 6,
         },
@@ -37,8 +43,19 @@ const fixtures = [
                 linux: 0.00613,
             },
             luminance: {
-                default: 253.961,
-                linux: 254.134,
+                default: {
+                    max: 254.011,
+                    min: 253.911,
+                },
+                // GitHub's Ubuntu runners have produced both 254.053779 and
+                // 254.134063 for this annotation-heavy fixture with identical
+                // source and dependency revisions. Ink and dark-pixel ratios
+                // remain tightly asserted above; this narrow band permits only
+                // the backend's antialiasing variation.
+                linux: {
+                    max: 254.17,
+                    min: 254.02,
+                },
             },
             textItems: 3,
         },
@@ -55,8 +72,14 @@ const fixtures = [
                 linux: 0.01284,
             },
             luminance: {
-                default: 252.209,
-                linux: 252.209,
+                default: {
+                    max: 252.259,
+                    min: 252.159,
+                },
+                linux: {
+                    max: 252.259,
+                    min: 252.159,
+                },
             },
             textItems: 0,
         },
@@ -86,10 +109,11 @@ describe('PDF canvas fidelity corpus', () => {
                 ? fixture.expected.dark.linux
                 : fixture.expected.dark.default;
             expect(metrics.darkPixelRatio).toBeCloseTo(expectedDark, 3);
-            const expectedLuminance = process.platform === 'linux'
+            const expectedLuminanceRange = process.platform === 'linux'
                 ? fixture.expected.luminance.linux
                 : fixture.expected.luminance.default;
-            expect(metrics.meanLuminance).toBeCloseTo(expectedLuminance, 1);
+            expect(metrics.meanLuminance).toBeGreaterThanOrEqual(expectedLuminanceRange.min);
+            expect(metrics.meanLuminance).toBeLessThanOrEqual(expectedLuminanceRange.max);
         });
     }
 });
