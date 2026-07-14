@@ -10,7 +10,10 @@ const fixtures = [
     {
         file: 'generated-text.pdf',
         expected: {
-            dark: 0.00380,
+            dark: {
+                default: 0.00380,
+                linux: 0.00322,
+            },
             ink: {
                 default: 0.01138,
                 linux: 0.01082,
@@ -25,7 +28,10 @@ const fixtures = [
     {
         file: 'freetext-lifecycle-test.pdf',
         expected: {
-            dark: 0.00383,
+            dark: {
+                default: 0.00383,
+                linux: 0.00332,
+            },
             ink: {
                 default: 0.00728,
                 linux: 0.00613,
@@ -40,7 +46,10 @@ const fixtures = [
     {
         file: 'test-scanned.pdf',
         expected: {
-            dark: 0.01040,
+            dark: {
+                default: 0.01040,
+                linux: 0.01040,
+            },
             ink: {
                 default: 0.01284,
                 linux: 0.01284,
@@ -73,7 +82,10 @@ describe('PDF canvas fidelity corpus', () => {
                 ? fixture.expected.ink.linux
                 : fixture.expected.ink.default;
             expect(metrics.inkPixelRatio).toBeCloseTo(expectedInk, 3);
-            expect(metrics.darkPixelRatio).toBeCloseTo(fixture.expected.dark, 3);
+            const expectedDark = process.platform === 'linux'
+                ? fixture.expected.dark.linux
+                : fixture.expected.dark.default;
+            expect(metrics.darkPixelRatio).toBeCloseTo(expectedDark, 3);
             const expectedLuminance = process.platform === 'linux'
                 ? fixture.expected.luminance.linux
                 : fixture.expected.luminance.default;
