@@ -202,4 +202,38 @@ describe('usePdfAppAnnotationHistory', () => {
         history.clear();
         expect(reset).toHaveBeenCalledWith('annotation');
     });
+
+    it('runs the projection replay effect after workspace undo and redo', async () => {
+        const registrations: Array<{
+            undo: () => Promise<boolean> | boolean;
+            cmd: () => Promise<boolean> | boolean;
+        }> = [];
+        const calls: string[] = [];
+        const history = usePdfAppAnnotationHistory({
+            pdfjsAnnotationState: ref(createAnnotationState()),
+            emitAnnotationState: () => {},
+            markModified: () => calls.push('modified'),
+        });
+        history.setReplayEffect(() => calls.push('projection-sync'));
+        history.setWorkspaceCommandSink({
+            register: command => registrations.push(command),
+            reset: vi.fn(),
+        });
+        history.registerCommand({
+            undo: () => calls.push('undo'),
+            cmd: () => calls.push('redo'),
+        });
+
+        await registrations[0]?.undo();
+        await registrations[0]?.cmd();
+
+        expect(calls).toEqual([
+            'undo',
+            'modified',
+            'projection-sync',
+            'redo',
+            'modified',
+            'projection-sync',
+        ]);
+    });
 });

@@ -167,7 +167,7 @@ export class AnnotationStore {
         return () => this.#listeners.delete(listener);
     }
 
-    import(entity: AnnotationEntity) {
+    import(entity: AnnotationEntity, options: { preserveSavedBaseline?: boolean } = {}) {
         const wasSemanticallyClean = !this.hasChangesSinceSavedBaseline();
         const current = this.#entities.get(entity.identity.id);
         if (current && current.revision > entity.revision) {
@@ -175,7 +175,7 @@ export class AnnotationStore {
         }
         this.#identities.bind(entity.identity);
         this.#entities.set(entity.identity.id, cloneEntity(entity));
-        if (entity.persistedRevision >= 0 && wasSemanticallyClean) {
+        if (entity.persistedRevision >= 0 && wasSemanticallyClean && !options.preserveSavedBaseline) {
             this.#savedSemanticSnapshot = semanticSnapshot(this.#entities.values());
         }
         this.#mutationEpoch += 1;

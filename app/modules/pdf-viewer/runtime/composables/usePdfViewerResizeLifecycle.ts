@@ -304,6 +304,13 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
             }
             return;
         }
+        if (anchor) {
+            // ResizeObserver rerenders clear the renderer canvas before the
+            // replacement is ready. Preserve the committed pixels just as we
+            // do for divider-drag settle so scrollbar admission and other
+            // one-shot geometry changes cannot expose a blank page shell.
+            captureResizeVisualSnapshots(anchor);
+        }
         scheduleResizeAwareRerender('re-render visible pages after resize', {
             source: PDF_RERENDER_SOURCE.ResizeObserver,
             stabilize: true,
@@ -484,6 +491,14 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
     watch(
         () => options.transactionController?.activeTransaction?.value?.kind ?? null,
         (kind, previousKind) => {
+            if (previousKind === 'zoom' && kind !== 'zoom') {
+                // ResizeObserver delivery can trail the zoom transaction that
+                // caused the geometry change. Advance the observed baseline at
+                // settlement so that delayed notification cannot launch a
+                // redundant full cleanup after the crisp zoom canvas commits.
+                consumeViewportGeometryChange();
+                return;
+            }
             if (
                 previousKind !== 'reload'
                 || kind === 'reload'
@@ -611,6 +626,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
     return {
         buildResizeAnchorContext,
         beginResizeTransition,
+        captureResizeVisualSnapshots,
         scheduleEndResizeTransition,
         cleanupResizeLifecycle,
     };

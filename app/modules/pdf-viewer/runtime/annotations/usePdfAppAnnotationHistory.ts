@@ -27,6 +27,17 @@ export const usePdfAppAnnotationHistory = (options: {
     let transactionDepth = 0;
     let transactionCommands: IPdfAppAnnotationHistoryCommand[] = [];
     let workspaceCommandSink: IWorkspaceCommandSink | null = null;
+    let replayEffect: (() => void) | null = null;
+
+    function setReplayEffect(effect: (() => void) | null) {
+        replayEffect = effect;
+    }
+
+    function finishReplay() {
+        options.markModified();
+        emitCombinedState();
+        replayEffect?.();
+    }
 
     function setWorkspaceCommandSink(sink: IWorkspaceCommandSink | null) {
         workspaceCommandSink = sink;
@@ -73,14 +84,12 @@ export const usePdfAppAnnotationHistory = (options: {
                 estimatedBytes: Math.max(0, command.estimatedBytes ?? DEFAULT_COMMAND_BYTES),
                 undo: () => {
                     withRoutedPdfjsHistory(command.undo);
-                    options.markModified();
-                    emitCombinedState();
+                    finishReplay();
                     return true;
                 },
                 cmd: () => {
                     withRoutedPdfjsHistory(command.cmd);
-                    options.markModified();
-                    emitCombinedState();
+                    finishReplay();
                     return true;
                 },
             });
@@ -165,8 +174,7 @@ export const usePdfAppAnnotationHistory = (options: {
         trimHistory();
         syncDepths();
         withRoutedPdfjsHistory(command.undo);
-        options.markModified();
-        emitCombinedState();
+        finishReplay();
         return true;
     }
 
@@ -180,8 +188,7 @@ export const usePdfAppAnnotationHistory = (options: {
         trimHistory();
         syncDepths();
         withRoutedPdfjsHistory(command.cmd);
-        options.markModified();
-        emitCombinedState();
+        finishReplay();
         return true;
     }
 
@@ -208,5 +215,6 @@ export const usePdfAppAnnotationHistory = (options: {
         clear,
         emitCombinedState,
         setWorkspaceCommandSink,
+        setReplayEffect,
     };
 };

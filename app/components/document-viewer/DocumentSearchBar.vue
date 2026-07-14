@@ -4,6 +4,7 @@
             ref="inputRef"
             v-model="searchQuery"
             class="w-full"
+            :aria-label="t('documentSourceSidebar.searchPlaceholder')"
             :placeholder="t('search.placeholder')"
             autofocus
             @keydown.enter.exact.prevent="onSearch"

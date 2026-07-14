@@ -3,6 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
+import {copyFileSync} from 'node:fs';
 import { delay } from 'es-toolkit/promise';
 import type { Page } from 'puppeteer-core';
 import {
@@ -27,6 +28,7 @@ import {
     saveViaWindowHandle,
     waitForPdfLoaded,
     waitForViewerInteractive,
+    waitForWorkspaceHistorySettled,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import { waitForActiveWorkspaceHost } from '@tests/e2e/electron/helpers/viewerDom';
 import {
@@ -1242,7 +1244,10 @@ async function setLatestNoteWindowText(page: Page, text: string) {
 }
 
 describe('Electron E2E - Annotation Lifecycle', () => {
-    const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-annotation-lifecycle-${Date.now()}`});
+    const sessionFixture = createElectronE2ESessionFixture({
+        restartBeforeEach: true,
+        sessionName: () => `e2e-annotation-lifecycle-${Date.now()}`,
+    });
 
     it('creates and edits a FreeText annotation in the active workspace', async () => {
         const session = sessionFixture.getSession();
@@ -1544,7 +1549,9 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await waitForPdfAnnotationSubtypeCount(highlightFixturePath, 'Highlight', 1);
         await waitForActiveTabDirtyState(page, false);
 
-        await openPdfInApp(page, highlightFixturePath);
+        const reopenFixturePath = highlightFixturePath.replace(/\.pdf$/u, '-reopen.pdf');
+        copyFileSync(highlightFixturePath, reopenFixturePath);
+        await openPdfInApp(page, reopenFixturePath);
         await waitForPdfLoaded(page);
         await openAnnotationsTab(page);
         await waitForHighlightEditorCount(page, baselineCount + 1);
@@ -1569,15 +1576,16 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await openAnnotationsTab(page);
 
         await saveViaWindowHandle(page);
-        await waitForPdfAnnotationSubtypeCount(highlightFixturePath, 'Highlight', 0);
+        await waitForPdfAnnotationSubtypeCount(reopenFixturePath, 'Highlight', 0);
         await waitForActiveTabDirtyState(page, false);
 
         await clickEnabledToolbarAction(page, 'Undo');
         await waitForHighlightEditorCount(page, baselineCount + 1);
         await waitForActiveTabDirtyState(page, true);
+        await waitForWorkspaceHistorySettled(page);
 
         await saveViaWindowHandle(page);
-        const restoredSummary = await waitForPdfAnnotationSubtypeCount(highlightFixturePath, 'Highlight', 1);
+        const restoredSummary = await waitForPdfAnnotationSubtypeCount(reopenFixturePath, 'Highlight', 1);
         expect(restoredSummary.bySubtype.Highlight ?? 0).toBe(1);
         await waitForActiveTabDirtyState(page, false);
     });

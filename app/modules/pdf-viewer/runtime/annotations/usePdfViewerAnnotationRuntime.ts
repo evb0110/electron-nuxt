@@ -3,7 +3,10 @@ import type {
     Ref,
     ShallowRef,
 } from 'vue';
-import type { TPdfjsAnnotationManager } from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
+import {
+    getEditorsOnPage,
+    type TPdfjsAnnotationManager,
+} from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
 import type { GenericL10n } from 'pdfjs-dist/web/pdf_viewer.mjs';
 import {
     useManagedEmbeddedPdfShapes,
@@ -334,6 +337,30 @@ export const usePdfViewerAnnotationRuntime = (options: IUsePdfViewerAnnotationRu
         emitAnnotationToolCancel: options.emitAnnotationToolCancel,
         emitAnnotationNotePlacementChange: options.emitAnnotationNotePlacementChange,
     });
+    options.appAnnotationHistory.setReplayEffect(() => {
+        const manager = options.annotationUiManager.value;
+        if (manager) {
+            const presentExternalIds = new Set<string>();
+            const relevantPageIndexes = new Set(
+                annotationApplication.value.store.list({includeDeleted: true})
+                    .filter(entity => entity.kind !== 'shape')
+                    .map(entity => entity.pageIndex),
+            );
+            for (const pageIndex of relevantPageIndexes) {
+                getEditorsOnPage(manager, pageIndex).forEach((editor) => {
+                    if (editor.uid) presentExternalIds.add(editor.uid);
+                    if (editor.annotationElementId) presentExternalIds.add(editor.annotationElementId);
+                });
+            }
+            annotationApplication.value.reconcilePdfjsEditorPresence(presentExternalIds);
+        }
+        // Layer teardown/rebuild and annotation-storage bookkeeping can finish
+        // in the next task. Refresh the richer comment snapshot once that settles.
+        setTimeout(() => {
+            void annotations.commentSync.syncAnnotationComments();
+        }, 0);
+    });
+    onScopeDispose(() => options.appAnnotationHistory.setReplayEffect(null));
 
     const highlightComposable = annotations.highlight;
     const commentCrud = annotations.crud;

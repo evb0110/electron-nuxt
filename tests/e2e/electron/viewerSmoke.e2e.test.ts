@@ -1183,6 +1183,13 @@ describe('Electron E2E - Viewer Smoke', () => {
             '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-bar input',
         );
         expect(searchInput).not.toBeNull();
+        expect(await searchInput!.evaluate(input => ({
+            accessibleName: input.getAttribute('aria-label'),
+            placeholder: input.getAttribute('placeholder'),
+        }))).toEqual({
+            accessibleName: 'Search document',
+            placeholder: 'Search...',
+        });
         await searchInput!.type('Page 3 sample text');
         const searchStarted = await session.page.evaluate(() => {
             const button = document.querySelector<HTMLButtonElement>(

@@ -349,6 +349,17 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
     it('consumes zoom-owned resize geometry without replaying a second rerender', async () => {
         vi.useFakeTimers();
         const activeTransaction = ref<{kind: 'zoom'} | null>({kind: 'zoom'});
+        const viewer = {} as HTMLElement;
+        Object.defineProperties(viewer, {
+            clientHeight: {
+                configurable: true,
+                value: 600,
+            },
+            clientWidth: {
+                configurable: true,
+                value: 800,
+            },
+        });
         const beginTransaction = vi.fn(() => null);
         const staleNewScaleAnchor = {
             affinity: 'center' as const,
@@ -369,7 +380,9 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
             submitResizeIntent,
         } = createResizeLifecycle(ref(true), {
             captureViewportAnchor: () => staleNewScaleAnchor,
+            computeFitWidthScale: () => false,
             transactionController,
+            viewerContainer: ref(viewer),
         });
 
         resizeObserverMock.callback?.();
@@ -378,8 +391,13 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         expect(beginTransaction).not.toHaveBeenCalled();
         expect(scheduleResizeAwareRerender).not.toHaveBeenCalled();
 
+        Object.defineProperty(viewer, 'clientWidth', {
+            configurable: true,
+            value: 700,
+        });
         activeTransaction.value = null;
         await nextTick();
+        resizeObserverMock.callback?.();
         await vi.advanceTimersByTimeAsync(400);
 
         expect(submitResizeIntent).not.toHaveBeenCalled();

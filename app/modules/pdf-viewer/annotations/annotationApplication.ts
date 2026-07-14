@@ -256,6 +256,31 @@ export class AnnotationApplication {
         }
     }
 
+    reconcilePdfjsEditorPresence(presentExternalIds: ReadonlySet<string>) {
+        this.store.list({includeDeleted: true}).forEach((entity) => {
+            if (entity.kind === 'shape') {
+                return;
+            }
+            const candidates = [
+                entity.identity.pdfRef,
+                entity.identity.pdfjsUid,
+                entity.identity.elementId,
+            ].filter((value): value is string => Boolean(value));
+            const present = candidates.some(candidate => presentExternalIds.has(candidate));
+            const shouldRestore = present && entity.deleted;
+            const shouldDeleteTransient = !present && entity.persistedRevision < 0 && !entity.deleted;
+            if (!shouldRestore && !shouldDeleteTransient) {
+                return;
+            }
+            this.store.import({
+                ...entity,
+                deleted: !present,
+                revision: entity.revision + 1,
+                modifiedAt: Date.now(),
+            }, {preserveSavedBaseline: true});
+        });
+    }
+
     ingestShapes(shapes: readonly IShapeAnnotation[]) {
         const present = new Set<AnnotationId>();
         shapes.forEach((shape) => {
@@ -541,6 +566,14 @@ export class AnnotationApplication {
     }
 
     delete(annotationId: AnnotationId) {
+        const existing = this.store.get(annotationId);
+        if (existing?.deleted) {
+            // PDF.js projection reconciliation can observe the editor's removal
+            // before the originating mutation reaches this canonical boundary.
+            // Treat that repeated delivery as the same delete command instead of
+            // crashing the document workspace or recording a second history step.
+            return existing;
+        }
         return this.store.delete(annotationId);
     }
 

@@ -22,6 +22,21 @@ function expectedPdfSubtype(comment: IAnnotationCommentSummary) {
     return subtype && subtype.toLowerCase() !== 'typewriter' ? subtype : 'FreeText';
 }
 
+function materializedPdfSubtypes(expectedSubtype: string) {
+    // PDF.js authors every text-markup editor as /Highlight. EVB's
+    // Underline, StrikeOut, and Squiggly presentation is rewritten in the
+    // subsequent serialization pass, so identity binding must work both
+    // before and after that rewrite.
+    return expectedSubtype === 'Underline'
+        || expectedSubtype === 'StrikeOut'
+        || expectedSubtype === 'Squiggly'
+        ? new Set([
+            expectedSubtype,
+            'Highlight',
+        ])
+        : new Set([expectedSubtype]);
+}
+
 /** Exact AnnotationStorage serialization order captured before saveDocument. */
 export interface ICanonicalAnnotationIdentityBinding {
     readonly annotationId: string;
@@ -140,6 +155,8 @@ export function applyCanonicalAnnotationIdentityBindings(
         ] = key.split(':');
         const page = doc.getPages()[Number(pageIndexText)];
         const annots = page?.node.Annots();
+        const candidateSubtypes = materializedPdfSubtypes(subtype!);
+        const candidateSubtypeNames = new Set(Array.from(candidateSubtypes, value => PDFName.of(value)));
         const allCandidates = annots
             ? Array.from(iterateAnnotationRefDicts(doc, annots))
                 .filter(({
@@ -147,7 +164,7 @@ export function applyCanonicalAnnotationIdentityBindings(
                     dict,
                 }) => (
                     !knownRefs.has(`${ref.objectNumber}:${ref.generationNumber}`)
-                    && dict.get(PDFName.of('Subtype')) === PDFName.of(subtype!)
+                    && candidateSubtypeNames.has(dict.get(PDFName.of('Subtype')) as PDFName)
                 ))
             : [];
         const expectedIds = new Set(bucketExpected

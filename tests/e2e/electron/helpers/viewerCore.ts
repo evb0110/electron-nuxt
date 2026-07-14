@@ -276,6 +276,25 @@ export async function waitForPdfLoaded(page: Page, timeoutMs = DEFAULT_TIMEOUT_M
     });
 }
 
+export async function waitForWorkspaceHistorySettled(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
+    const startedAt = Date.now();
+    let toolbar = await getWorkspaceToolbarSnapshot(page);
+    while (Date.now() - startedAt < timeoutMs) {
+        if (
+            toolbar
+            && !toolbar.isHistoryBusy
+            && !toolbar.isOpeningDocument
+            && toolbar.initialVisualReady
+            && toolbar.totalPages > 0
+        ) {
+            return toolbar;
+        }
+        await delay(50);
+        toolbar = await getWorkspaceToolbarSnapshot(page);
+    }
+    throw new Error(`Workspace history did not settle: ${JSON.stringify(toolbar)}`);
+}
+
 export async function waitForDjvuLoaded(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
     await runWithExecutionContextRetry(page, async () => {
         await waitForActiveWorkspaceHost(page, timeoutMs);
@@ -1454,7 +1473,12 @@ export async function saveViaWindowHandle(page: Page, timeoutMs = DEFAULT_TIMEOU
         });
 
     if (!saved) {
-        throw new Error('Active workspace save did not commit');
+        const toolbar = await getWorkspaceToolbarSnapshot(page);
+        throw new Error(`Active workspace save did not commit: ${JSON.stringify({
+            called: workspaceSave.called,
+            value: workspaceSave.value,
+            toolbar,
+        })}`);
     }
 
     const domWait = page.waitForFunction(() => {

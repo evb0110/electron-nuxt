@@ -257,7 +257,7 @@ const shortcutItems = computed(() => {
             ],
         },
         {
-            label: t('searchResults.enterSearchTerm'),
+            label: t('documentSourceSidebar.searchPlaceholder'),
             keys: [
                 mod,
                 'F',

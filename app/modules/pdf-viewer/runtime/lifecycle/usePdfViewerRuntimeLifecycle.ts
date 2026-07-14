@@ -450,6 +450,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
     const {
         buildResizeAnchorContext,
         beginResizeTransition,
+        captureResizeVisualSnapshots,
         scheduleEndResizeTransition,
         cleanupResizeLifecycle,
     } = usePdfViewerResizeLifecycle({
@@ -576,6 +577,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         summarizeVisiblePageSnapshotForLog,
         syncCurrentPageFromViewport,
         buildResizeAnchorContext,
+        captureResizeVisualSnapshots,
         scheduleEndResizeTransition,
         enqueueZoomSync: (syncOptions) => enqueueZoomSync(syncOptions),
         scheduleResizeAwareRerender: (stage, syncOptions) => scheduleResizeAwareRerender(stage, syncOptions),

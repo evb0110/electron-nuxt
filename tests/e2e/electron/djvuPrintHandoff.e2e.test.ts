@@ -35,6 +35,7 @@ const PRINT_HANDOFF_SELECTED_PAGES = [
     2,
     3,
 ];
+const PRINT_VALIDATION_DPI = 96;
 const smokeDir = resolve(process.cwd(), '.devkit', 'tmp', `djvu-print-handoff-${Date.now()}`);
 const capturedPdfPath = join(smokeDir, 'captured-print.pdf');
 const renderedFirstPagePrefix = join(smokeDir, 'captured-first-page');
@@ -93,7 +94,7 @@ async function renderFirstPdfPage(pdfPath: string) {
         '-png',
         '-singlefile',
         '-r',
-        '50',
+        String(PRINT_VALIDATION_DPI),
         '-f',
         '1',
         '-l',

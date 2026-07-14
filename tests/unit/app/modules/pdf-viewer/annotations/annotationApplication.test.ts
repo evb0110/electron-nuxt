@@ -142,6 +142,40 @@ describe('AnnotationApplication', () => {
             .toBeLessThan(pdfjsMocks.getDocument.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER);
     });
 
+    it('reconciles PDF.js editor undo and redo without adopting a new saved baseline', () => {
+        const application = new AnnotationApplication('document');
+        const annotationId = asAnnotationId('persisted-note');
+        application.store.import(note({
+            identity: {
+                id: annotationId,
+                pdfjsUid: 'pdfjs-editor-1',
+            },
+            persistedRevision: 0,
+        }));
+        application.delete(annotationId);
+        const savedDelete = application.store.beginSave();
+        application.store.acknowledgeSave(savedDelete);
+        expect(application.store.hasChangesSinceSavedBaseline()).toBe(false);
+
+        application.reconcilePdfjsEditorPresence(new Set(['pdfjs-editor-1']));
+
+        expect(application.store.get(annotationId)?.deleted).toBe(false);
+        expect(application.store.hasChangesSinceSavedBaseline()).toBe(true);
+
+        const transientId = asAnnotationId('transient-note');
+        application.store.import(note({identity: {
+            id: transientId,
+            pdfjsUid: 'pdfjs-editor-2',
+        }}));
+        application.reconcilePdfjsEditorPresence(new Set(['pdfjs-editor-1']));
+        expect(application.store.get(transientId)?.deleted).toBe(true);
+        application.reconcilePdfjsEditorPresence(new Set([
+            'pdfjs-editor-1',
+            'pdfjs-editor-2',
+        ]));
+        expect(application.store.get(transientId)?.deleted).toBe(false);
+    });
+
     it('rejects a pre-existing identical markup when the new canonical annotation identity is missing', async () => {
         const application = new AnnotationApplication('document');
         application.store.createTextMarkup({
@@ -424,6 +458,26 @@ describe('AnnotationApplication', () => {
         });
         expect(application.redo()).toBe(true);
         expect(application.store.get(asAnnotationId('anno_test'))).toMatchObject({deleted: true});
+    });
+
+    it('treats a repeated canonical delete delivery as an idempotent no-op', () => {
+        const application = new AnnotationApplication('document');
+        const annotationId = asAnnotationId('anno_test');
+        application.store.createStickyNote(note());
+
+        const firstDelete = application.delete(annotationId);
+        const repeatedDelete = application.delete(annotationId);
+
+        expect(repeatedDelete).toEqual(firstDelete);
+        expect(repeatedDelete).toMatchObject({
+            deleted: true,
+            revision: 1,
+        });
+        expect(application.undo()).toBe(true);
+        expect(application.store.get(annotationId)).toMatchObject({
+            deleted: false,
+            revision: 0,
+        });
     });
 
     it('rejects reopen results with stale text or geometry', async () => {

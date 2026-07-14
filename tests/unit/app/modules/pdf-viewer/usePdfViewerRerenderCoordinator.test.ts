@@ -1170,6 +1170,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
     it('treats custom zoom-mode changes as zoom-like rerenders', async () => {
         const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
         const syncCurrentPageFromViewport = vi.fn(async () => {});
+        const captureResizeVisualSnapshots = vi.fn();
         const resizeAnchor = createResizeAnchor(157);
 
         const {reRenderVisiblePagesAndSyncCurrentPage} = usePdfViewerRerenderCoordinator(createDeps({
@@ -1185,6 +1186,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
             }),
             reRenderAllVisiblePages,
             syncCurrentPageFromViewport,
+            captureResizeVisualSnapshots,
             buildResizeAnchorContext: vi.fn(() => resizeAnchor),
             getMostVisiblePage: vi.fn(() => 157),
         }));
@@ -1202,6 +1204,8 @@ describe('usePdfViewerRerenderCoordinator', () => {
                 renderBufferOverride: 0,
             }),
         );
+        expect(captureResizeVisualSnapshots).toHaveBeenCalledOnce();
+        expect(captureResizeVisualSnapshots).toHaveBeenCalledWith(resizeAnchor);
         expect(syncCurrentPageFromViewport).toHaveBeenCalledWith(
             expect.objectContaining({
                 source: PDF_RERENDER_SOURCE.ZoomModeChange,

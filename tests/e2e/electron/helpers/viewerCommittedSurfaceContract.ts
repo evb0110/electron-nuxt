@@ -941,7 +941,9 @@ export async function installCommittedSurfaceSampler(page: Page) {
                 const pageCanvasRenderLayer = pageCanvas?.querySelector<HTMLElement>(
                     ':scope > .page_canvas__render-layer',
                 ) ?? null;
-                const canvas = page?.querySelector<HTMLCanvasElement>('.page_canvas canvas') ?? null;
+                const canvas = page?.querySelector<HTMLCanvasElement>(
+                    '.page_canvas__render-layer canvas',
+                ) ?? null;
                 const pageSourceImage = page?.querySelector<HTMLImageElement>(
                     ':scope > [data-testid="document-page-source-image"]',
                 ) ?? null;
@@ -1054,7 +1056,9 @@ export async function installCommittedSurfaceSampler(page: Page) {
                 const targetPage = requestedTargetPage === null
                     ? null
                     : host?.querySelector<HTMLElement>(`.page_container[data-page="${String(requestedTargetPage)}"]`) ?? null;
-                const targetCanvas = targetPage?.querySelector<HTMLCanvasElement>('.page_canvas canvas') ?? null;
+                const targetCanvas = targetPage?.querySelector<HTMLCanvasElement>(
+                    '.page_canvas__render-layer canvas',
+                ) ?? null;
                 const targetCanvasRect = targetCanvas?.getBoundingClientRect() ?? null;
                 testWindow.__committedSurfaceFrames!.push({
                     bodyOverflow: Math.max(0, Math.round(document.body.scrollWidth - document.body.clientWidth)),
@@ -1105,7 +1109,9 @@ export async function installCommittedSurfaceSampler(page: Page) {
                         return `${child.tagName.toLowerCase()}${classes ? `.${classes}` : ''}${dimensions}`;
                     }),
                     pageCanvasNonzeroCanvasCount: Array.from(
-                        pageCanvas?.querySelectorAll<HTMLCanvasElement>('canvas') ?? [],
+                        pageCanvas?.querySelectorAll<HTMLCanvasElement>(
+                            '.page_canvas__render-layer canvas',
+                        ) ?? [],
                     ).filter((candidate) => {
                         const rect = candidate.getBoundingClientRect();
                         return candidate.isConnected

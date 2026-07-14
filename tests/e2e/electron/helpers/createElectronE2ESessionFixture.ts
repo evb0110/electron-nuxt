@@ -27,6 +27,7 @@ interface IElectronE2ESessionFixtureControls {
 interface IElectronE2ESessionFixtureOptions {
     sessionName: TSessionNameFactory;
     clean?: boolean;
+    restartBeforeEach?: boolean;
     timeoutMs?: number;
     windowMode?: TElectronE2EWindowMode;
 }
@@ -53,6 +54,7 @@ export function createElectronE2ESessionFixture(options: IElectronE2ESessionFixt
     let sessionName = resolveSessionName(options.sessionName);
     let bootFailure: Error | null = null;
     let preserveFailureArtifacts = false;
+    let testExecutionCount = 0;
 
     const controls: IElectronE2ESessionFixtureControls = {
         getSession: () => {
@@ -147,6 +149,19 @@ export function createElectronE2ESessionFixture(options: IElectronE2ESessionFixt
             }
         }, 15_000);
     });
+
+    beforeEach(async () => {
+        if (!options.restartBeforeEach) {
+            return;
+        }
+        if (testExecutionCount > 0) {
+            await controls.restart({
+                clean: true,
+                sessionName: options.sessionName,
+            });
+        }
+        testExecutionCount += 1;
+    }, options.timeoutMs);
 
     afterAll(async () => {
         await controls.stop({ preserveArtifacts: preserveFailureArtifacts });

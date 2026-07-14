@@ -76,6 +76,7 @@ export interface IUsePdfViewerRerenderCoordinatorOptions {
     summarizeVisiblePageSnapshotForLog: (container: HTMLElement | null) => unknown;
     syncCurrentPageFromViewport: (options?: ICurrentPageSyncOptions) => Promise<void>;
     buildResizeAnchorContext: (options?: IBuildResizeAnchorContextOptions) => IResizeAnchorContext;
+    captureResizeVisualSnapshots?: ((anchor: IResizeAnchorContext) => void) | undefined;
     scheduleEndResizeTransition: (
         token: number,
         reason: string,

@@ -127,6 +127,20 @@ describe('applyCanonicalAnnotationIdentityBindings', () => {
         }]);
     });
 
+    it('binds a custom text-markup identity before PDF.js Highlight materialization is rewritten', async () => {
+        const {
+            doc,
+            refs,
+        } = await createDocumentWithHighlights(1);
+
+        expect(applyCanonicalAnnotationIdentityBindings(
+            doc,
+            [comment({subtype: 'Squiggly'})],
+            bindingProgram(),
+        )).toBe(true);
+        expect(getPdfStringValue(refs[0]?.dict.get(PDFName.of('NM')))).toBe('anno_new_markup');
+    });
+
     it('refuses to bind when unclaimed records make the identity mapping ambiguous', async () => {
         const {doc} = await createDocumentWithHighlights(2);
 

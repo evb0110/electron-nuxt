@@ -434,6 +434,34 @@ describe('useAnnotationEditorBridge', () => {
         expect(scheduleAnnotationCommentsSync).toHaveBeenCalledWith();
     });
 
+    it('syncs annotation projections when app history replays a PDF.js command', async () => {
+        const {
+            emitAnnotationModified,
+            recordPdfjsExecutorCommand,
+            scheduleAnnotationCommentsSync,
+            uiManager,
+        } = await createBridgeHarness('text');
+        const cmd = vi.fn();
+        const undo = vi.fn();
+
+        uiManager.addCommands(cast<Parameters<AnnotationEditorUIManager['addCommands']>[0]>({
+            cmd,
+            undo,
+        }));
+        const command = recordPdfjsExecutorCommand.mock.calls[0]?.[0];
+        emitAnnotationModified.mockClear();
+        scheduleAnnotationCommentsSync.mockClear();
+
+        command.undo();
+        command.cmd();
+
+        expect(undo).toHaveBeenCalledOnce();
+        expect(cmd).toHaveBeenCalledOnce();
+        expect(emitAnnotationModified).toHaveBeenCalledTimes(2);
+        expect(scheduleAnnotationCommentsSync).toHaveBeenNthCalledWith(1, true);
+        expect(scheduleAnnotationCommentsSync).toHaveBeenNthCalledWith(2, true);
+    });
+
     it('decodes PDF.js state events before updating internal state', async () => {
         const {
             emitAnnotationState,

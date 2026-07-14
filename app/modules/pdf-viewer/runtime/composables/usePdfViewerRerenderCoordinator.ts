@@ -42,6 +42,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         summarizeVisiblePageSnapshotForLog,
         syncCurrentPageFromViewport,
         buildResizeAnchorContext,
+        captureResizeVisualSnapshots,
         scheduleEndResizeTransition,
         enqueueZoomSync,
         cancelInFlightPageRenders,
@@ -356,6 +357,13 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         const renderBufferOverride = resolveRerenderBufferOverride(source);
         if (!advanceSyncTransaction(syncOptions, 'render-requested')) {
             return;
+        }
+        if (syncOptions.resizeAnchor && isZoomRestorePdfRerenderSource(source)) {
+            // Custom zoom replaces the committed backing canvas after the page
+            // geometry has already changed. Keep a raster snapshot outside the
+            // render layer until the target-scale canvas commits so the viewer
+            // never exposes an old canvas or a bare page shell between frames.
+            captureResizeVisualSnapshots?.(syncOptions.resizeAnchor);
         }
         await reRenderAllVisiblePages(getVisibleRange, {
             rerenderSource: source,

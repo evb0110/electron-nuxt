@@ -66,7 +66,10 @@ async function waitForPdfAnnotationSubtypeCount(filePath: string, subtype: strin
 }
 
 describe('Electron E2E - Squiggly text markup', () => {
-    const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-squiggly-${Date.now()}`});
+    const sessionFixture = createElectronE2ESessionFixture({
+        restartBeforeEach: true,
+        sessionName: () => `e2e-squiggly-${Date.now()}`,
+    });
 
     it('authors and persists a Squiggly annotation that survives save', async () => {
         const session = sessionFixture.getSession();

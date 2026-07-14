@@ -655,8 +655,16 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
                 && typeof params.undo === 'function'
             ) {
                 recordPdfjsExecutorCommand?.({
-                    cmd: params.cmd as () => void,
-                    undo: params.undo as () => void,
+                    cmd: () => {
+                        (params.cmd as () => void)();
+                        emitAnnotationModified();
+                        commentSync.scheduleAnnotationCommentsSync(true);
+                    },
+                    undo: () => {
+                        (params.undo as () => void)();
+                        emitAnnotationModified();
+                        commentSync.scheduleAnnotationCommentsSync(true);
+                    },
                 });
             }
             commentSync.scheduleAnnotationCommentsSync();
