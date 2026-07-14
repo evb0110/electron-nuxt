@@ -41,6 +41,13 @@
 - `vercel build`
 - `vc-private --prod`
 
+## Production Database Migrations
+
+- A production deploy does not apply Drizzle migrations automatically. Apply pending root viewer migrations with `pnpm run db:migrate` before deploying server code that depends on them.
+- Pull the Vercel Production environment into a permission-restricted temporary file, export it only for the migration command, and remove it immediately afterward. Never print or commit the file.
+- After deployment, send a valid event to `/api/analytics/events` and require an HTTP 200 response whose JSON body contains `"ok": true` and `"persisted": true`. A 200 response by itself is insufficient because the endpoint deliberately reports database failures in its response body.
+- The root `drizzle/` migrations belong to `evb-viewer-web`. The separate `landing/drizzle/` migrations are for the landing project and must not be substituted for them.
+
 ## Private Email CLI Deploys
 
 - Keep Git commits authored with the GitHub no-reply address to avoid leaking a personal email in public repositories.
