@@ -138,6 +138,12 @@ function handleClick() {
     color: var(--app-toolbar-control-disabled-fg);
 }
 
+.toolbar-btn:disabled.is-active:hover {
+    background: var(--app-toolbar-control-active-bg);
+    border-color: var(--app-toolbar-control-active-border);
+    box-shadow: var(--app-toolbar-control-active-shadow);
+}
+
 .toolbar-btn:disabled.is-loading {
     opacity: 1;
     color: var(--ui-text-muted);

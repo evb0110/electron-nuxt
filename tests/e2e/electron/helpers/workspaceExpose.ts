@@ -30,6 +30,7 @@ export interface IWorkspaceToolbarSnapshotRequirements {
     hasPdf?: boolean;
     minEffectiveZoom?: number;
     minTotalPages?: number;
+    showSidebar?: boolean;
 }
 
 export interface IWaitForWorkspaceToolbarSnapshotOptions extends IFindWorkspaceExposeOptions {timeoutMs?: number;}
@@ -205,6 +206,7 @@ export async function waitForWorkspaceToolbarSnapshot(
 
         return (
             (typeof payload.requirements.hasPdf !== 'boolean' || snapshot.hasPdf === payload.requirements.hasPdf)
+            && (typeof payload.requirements.showSidebar !== 'boolean' || snapshot.showSidebar === payload.requirements.showSidebar)
             && (typeof payload.requirements.currentPage !== 'number' || snapshot.currentPage === payload.requirements.currentPage)
             && (typeof payload.requirements.continuousScroll !== 'boolean' || snapshot.continuousScroll === payload.requirements.continuousScroll)
             && (typeof payload.requirements.minTotalPages !== 'number' || (snapshot.totalPages ?? 0) >= payload.requirements.minTotalPages)

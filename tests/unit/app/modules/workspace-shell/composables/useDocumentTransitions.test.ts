@@ -74,6 +74,7 @@ function createDeps() {
 describe('useDocumentTransitions', () => {
     it('clears viewer page state when the document unloads', async () => {
         const deps = createDeps();
+        deps.showSidebar.value = true;
 
         useDocumentTransitions(deps);
 
@@ -83,6 +84,7 @@ describe('useDocumentTransitions', () => {
         expect(deps.currentPage.value).toBe(1);
         expect(deps.totalPages.value).toBe(0);
         expect(deps.pdfDocument.value).toBeNull();
+        expect(deps.showSidebar.value).toBe(false);
         expect(deps.clearAnnotationComments).toHaveBeenCalledOnce();
     });
 

@@ -43,8 +43,12 @@ import {
 export const PDF_THUMBNAIL_LOG_SECTION = 'pdf-thumbnails';
 const THUMBNAIL_RENDER_CONCURRENCY = getPerformanceProfile().thumbnailBaseConcurrency;
 
-export function shouldPreserveThumbnailBitmap(canvas: Pick<HTMLCanvasElement, 'height' | 'width'>) {
-    return canvas.width > 0 && canvas.height > 0;
+export function shouldPreserveThumbnailBitmap(
+    canvas: Pick<HTMLCanvasElement, 'dataset' | 'height' | 'width'>,
+) {
+    return canvas.dataset.thumbnailRendered === 'true'
+        && canvas.width > 0
+        && canvas.height > 0;
 }
 const THUMBNAIL_NAVIGATION_CONCURRENCY_COOLDOWN_MS = 250;
 const IMMEDIATE_RENDER_RADIUS = 2;

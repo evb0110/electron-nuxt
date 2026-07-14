@@ -63,6 +63,7 @@
             </button>
           </AppTooltip>
         </template>
+        <span class="pdf-thumbnail-skeleton" aria-hidden="true" />
         <canvas class="pdf-thumbnail-canvas" />
         <template #label>{{ formatPageIndicatorWithOptions(page, pageLabels ?? null) }}</template>
       </DocumentThumbnailItem>
@@ -187,9 +188,6 @@ const editedTextMarkupVisualSignature = computed(() => createEditedTextMarkupThu
     editedTextMarkupComments.value,
     annotationSettings,
 ));
-function getThumbnailAspectRatio(page: number) {
-    return thumbnailAspectRatios.value[page - 1] ?? null;
-}
 function getThumbnailTop(page: number) {
     return thumbnailLayout.value.getPageTop(page);
 }
@@ -295,7 +293,7 @@ const virtualWrapperStyle = computed(() => {
 });
 
 function getThumbnailCanvasStyle(page: number) {
-    return createThumbnailCanvasStyle(getThumbnailAspectRatio(page));
+    return createThumbnailCanvasStyle(thumbnailLayout.value.getPageAspect(page));
 }
 
 function getThumbnailStyle(page: number) {

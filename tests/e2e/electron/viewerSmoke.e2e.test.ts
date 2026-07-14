@@ -4,6 +4,7 @@ import {
     it,
 } from 'vitest';
 import {
+    createLargeScannedFixturePdf,
     createNativeDjvuLatePageSearchFixture,
     createMultiPageTextFixturePdf,
     createPngFixture,
@@ -1007,6 +1008,86 @@ async function collectDjvuProjectedScrollMetricSamples(session: IElectronE2ESess
 describe('Electron E2E - Viewer Smoke', () => {
     const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-viewer-smoke-${Date.now()}`});
 
+    it('keeps disabled selected toolbar controls visually selected on hover', async () => {
+        let session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-viewer-disabled-selected-toolbar-${Date.now()}`,
+        });
+        if (!session) {
+            return;
+        }
+
+        await session.page.setViewport({
+            deviceScaleFactor: 1,
+            height: 1_152,
+            width: 2_048,
+        });
+        const fixturePath = await createMultiPageTextFixturePdf(
+            `viewer-disabled-selected-toolbar-${Date.now()}.pdf`,
+            2,
+        );
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await session.page.evaluate(() => {
+            document.querySelector<HTMLButtonElement>('.tab-list .tab.is-active .tab-close')?.click();
+        });
+        await waitForWorkspaceToolbarSnapshot(
+            session.page,
+            {hasPdf: false},
+            {timeoutMs: VIEWER_SMOKE_OPEN_TIMEOUT_MS},
+        );
+        await session.page.waitForSelector('.toolbar-btn.is-active:disabled', {
+            timeout: 10_000,
+            visible: true,
+        });
+        const buttons = await session.page.$$('.toolbar-btn.is-active:disabled');
+        expect(buttons.length).toBeGreaterThanOrEqual(3);
+
+        const visualSamples = [];
+        for (const button of buttons) {
+            await session.page.mouse.move(1, 1);
+            await session.page.evaluate(async () => {
+                await new Promise(resolve => setTimeout(resolve, 180));
+            });
+            const before = await button.evaluate((element) => {
+                const style = getComputedStyle(element);
+                return {
+                    backgroundColor: style.backgroundColor,
+                    borderColor: style.borderColor,
+                    boxShadow: style.boxShadow,
+                };
+            });
+            await button.hover();
+            await session.page.evaluate(async () => {
+                await new Promise(resolve => setTimeout(resolve, 180));
+            });
+            const after = await button.evaluate((element) => {
+                const style = getComputedStyle(element);
+                return {
+                    backgroundColor: style.backgroundColor,
+                    borderColor: style.borderColor,
+                    boxShadow: style.boxShadow,
+                };
+            });
+            visualSamples.push({
+                after,
+                before,
+                label: await button.evaluate(element => element.getAttribute('aria-label')),
+            });
+        }
+
+        expect(visualSamples.every(sample => (
+            sample.after.backgroundColor === sample.before.backgroundColor
+            && sample.after.borderColor === sample.before.borderColor
+            && sample.after.boxShadow === sample.before.boxShadow
+        )), JSON.stringify(visualSamples)).toBe(true);
+    });
+
     it('keeps the PDF viewport scrollable, navigable, and scalable', async () => {
         let session = sessionFixture.getSession();
         if (!session) {
@@ -1527,6 +1608,226 @@ describe('Electron E2E - Viewer Smoke', () => {
         expect(metricSpread(visibleCurrentPageSamples.map(sample => sample.containerScrollTop))).toBeLessThanOrEqual(1);
         expect(metricSpread(visibleCurrentPageSamples.map(sample => sample.itemViewportTop))).toBeLessThanOrEqual(1);
     }, 120_000);
+
+    it('keeps rapidly scrolled large-scan thumbnails visibly occupied and paints the settled viewport', async () => {
+        let session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-viewer-thumbnail-fast-scroll-${Date.now()}`,
+        });
+        if (!session) {
+            return;
+        }
+
+        await session.page.setViewport({
+            deviceScaleFactor: 2,
+            height: 900,
+            width: 1_400,
+        });
+        const fixturePath = process.env.EVB_E2E_THUMBNAIL_STRESS_PDF
+            ?? await createLargeScannedFixturePdf(
+                `viewer-thumbnail-fast-scroll-${Date.now()}.pdf`,
+                348,
+                0,
+            );
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await ensureSidebarOpen(session.page);
+        await openDocumentSidebarTab(session.page, 'Pages');
+        await waitForFunctionInPage(session.page, () => Boolean(document.querySelector(
+            '.editor-pane.is-active .pdf-thumbnail-canvas[data-thumbnail-rendered="true"]',
+        )), {timeout: 10_000});
+
+        const visualContinuity = await session.page.evaluate(async () => {
+            const rail = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .pdf-sidebar-pages-thumbnails .pdf-thumbnails',
+            );
+            if (!rail) {
+                throw new Error('PDF thumbnail rail was not found');
+            }
+
+            const defaultCanvasPreservation: Array<{
+                height: number;
+                page: number;
+                width: number;
+            }> = [];
+            const observer = new MutationObserver((mutations) => {
+                for (const mutation of mutations) {
+                    const canvas = mutation.target;
+                    if (
+                        !(canvas instanceof HTMLCanvasElement)
+                        || mutation.attributeName !== 'data-thumbnail-preserved-bitmap'
+                        || canvas.dataset.thumbnailPreservedBitmap !== 'true'
+                        || canvas.width !== 300
+                        || canvas.height !== 150
+                    ) {
+                        continue;
+                    }
+                    const page = Number(canvas.closest<HTMLElement>('.pdf-thumbnail')?.dataset.page);
+                    defaultCanvasPreservation.push({
+                        height: canvas.height,
+                        page,
+                        width: canvas.width,
+                    });
+                }
+            });
+            observer.observe(rail, {
+                attributeFilter: ['data-thumbnail-preserved-bitmap'],
+                attributes: true,
+                subtree: true,
+            });
+
+            const sampleVisibleItems = () => {
+                const railRect = rail.getBoundingClientRect();
+                return Array.from(rail.querySelectorAll<HTMLElement>('.pdf-thumbnail')).flatMap((item) => {
+                    const itemRect = item.getBoundingClientRect();
+                    if (itemRect.bottom <= railRect.top || itemRect.top >= railRect.bottom) {
+                        return [];
+                    }
+                    const canvas = item.querySelector<HTMLCanvasElement>('.pdf-thumbnail-canvas');
+                    const skeleton = item.querySelector<HTMLElement>('.pdf-thumbnail-skeleton');
+                    let contentPixels = 0;
+                    if (canvas && canvas.width > 0 && canvas.height > 0) {
+                        const probe = document.createElement('canvas');
+                        probe.width = 32;
+                        probe.height = 32;
+                        const context = probe.getContext('2d', {willReadFrequently: true});
+                        if (context) {
+                            context.drawImage(canvas, 0, 0, probe.width, probe.height);
+                            const pixels = context.getImageData(0, 0, probe.width, probe.height).data;
+                            for (let index = 0; index < pixels.length; index += 4) {
+                                const red = pixels[index] ?? 255;
+                                const green = pixels[index + 1] ?? 255;
+                                const blue = pixels[index + 2] ?? 255;
+                                const alpha = pixels[index + 3] ?? 0;
+                                if (
+                                    alpha > 0
+                                    && (
+                                        red < 245
+                                        || green < 245
+                                        || blue < 245
+                                    )
+                                ) {
+                                    contentPixels += 1;
+                                }
+                            }
+                        }
+                    }
+                    const skeletonStyle = skeleton ? getComputedStyle(skeleton) : null;
+                    const skeletonRect = skeleton?.getBoundingClientRect() ?? null;
+                    const skeletonVisible = Boolean(
+                        skeleton
+                        && skeletonStyle
+                        && skeletonStyle.display !== 'none'
+                        && skeletonStyle.visibility !== 'hidden'
+                        && Number.parseFloat(skeletonStyle.opacity || '1') > 0.01
+                        && (skeletonRect?.width ?? 0) > 0
+                        && (skeletonRect?.height ?? 0) > 0,
+                    );
+                    const canvasCommitted = canvas?.dataset.thumbnailRendered === 'true';
+                    const preserved = canvas?.dataset.thumbnailPreservedBitmap === 'true';
+                    const painted = canvasCommitted && contentPixels > 0;
+                    return [{
+                        canvasCommitted,
+                        contentPixels,
+                        page: Number(item.dataset.page),
+                        painted,
+                        preserved,
+                        skeletonDisplay: skeletonStyle?.display ?? null,
+                        skeletonHeight: skeletonRect?.height ?? 0,
+                        skeletonOpacity: skeletonStyle?.opacity ?? null,
+                        skeletonVisible,
+                        skeletonWidth: skeletonRect?.width ?? 0,
+                    }];
+                });
+            };
+
+            const blankExposures: Array<{
+                canvasCommitted: boolean;
+                contentPixels: number;
+                elapsedMs: number;
+                page: number;
+                preserved: boolean;
+                skeletonDisplay: string | null;
+                skeletonHeight: number;
+                skeletonOpacity: string | null;
+                skeletonVisible: boolean;
+                skeletonWidth: number;
+            }> = [];
+            const startedAt = performance.now();
+            const sampleFrame = () => {
+                for (const item of sampleVisibleItems()) {
+                    if (
+                        !item.canvasCommitted
+                        && !item.preserved
+                        && !item.skeletonVisible
+                    ) {
+                        blankExposures.push({
+                            canvasCommitted: item.canvasCommitted,
+                            contentPixels: item.contentPixels,
+                            elapsedMs: Math.round(performance.now() - startedAt),
+                            page: item.page,
+                            preserved: item.preserved,
+                            skeletonDisplay: item.skeletonDisplay,
+                            skeletonHeight: item.skeletonHeight,
+                            skeletonOpacity: item.skeletonOpacity,
+                            skeletonVisible: item.skeletonVisible,
+                            skeletonWidth: item.skeletonWidth,
+                        });
+                    }
+                }
+            };
+
+            const maxScrollTop = Math.max(0, rail.scrollHeight - rail.clientHeight);
+            for (const target of [
+                0.05,
+                0.82,
+                0.18,
+                0.67,
+                0.31,
+                0.94,
+                0.48,
+            ]) {
+                rail.scrollTop = maxScrollTop * target;
+                rail.dispatchEvent(new Event('scroll', {bubbles: true}));
+                await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+                sampleFrame();
+                await new Promise(resolve => setTimeout(resolve, 20));
+            }
+
+            const settleDeadline = performance.now() + 10_000;
+            let settledItems = sampleVisibleItems();
+            while (
+                performance.now() < settleDeadline
+                && (
+                    settledItems.length === 0
+                    || settledItems.some(item => !item.painted)
+                )
+            ) {
+                sampleFrame();
+                await new Promise(resolve => setTimeout(resolve, 50));
+                settledItems = sampleVisibleItems();
+            }
+            observer.disconnect();
+            return {
+                blankExposures,
+                defaultCanvasPreservation,
+                settledItems,
+            };
+        });
+
+        expect(visualContinuity.defaultCanvasPreservation).toEqual([]);
+        expect(visualContinuity.blankExposures).toEqual([]);
+        expect(visualContinuity.settledItems.length).toBeGreaterThan(0);
+        expect(
+            visualContinuity.settledItems.every(item => item.painted),
+            JSON.stringify(visualContinuity.settledItems),
+        ).toBe(true);
+    }, 180_000);
 
     it('opens a PNG image through the same document entrypoint', async () => {
         let session = sessionFixture.getSession();

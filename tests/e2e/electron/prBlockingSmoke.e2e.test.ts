@@ -1359,6 +1359,13 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             );
             await openPdfInApp(session.page, fixturePath, PR_BLOCKING_SMOKE_TIMEOUT_MS);
             await waitForPdfLoaded(session.page, PR_BLOCKING_SMOKE_TIMEOUT_MS);
+            const sidebarToggle = await callWorkspaceCommand(session.page, 'handleToggleSidebar');
+            expect(sidebarToggle.called).toBe(true);
+            await waitForWorkspaceToolbarSnapshot(
+                session.page,
+                {showSidebar: true},
+                {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS},
+            );
             await evaluateInPage(session.page, () => {
                 document.querySelector<HTMLButtonElement>('.tab-list .tab.is-active .tab-close')?.click();
             });
@@ -1378,6 +1385,11 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                 row?.click();
             }, fixturePath);
             await waitForPdfLoaded(session.page, PR_BLOCKING_SMOKE_TIMEOUT_MS);
+            await waitForWorkspaceToolbarSnapshot(
+                session.page,
+                {showSidebar: false},
+                {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS},
+            );
             expect(rendererExceptions).toEqual([]);
         } catch (error) {
             throw new Error(`${String(error)}; rendererExceptions=${JSON.stringify(rendererExceptions)}`);

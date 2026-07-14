@@ -155,6 +155,7 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
             currentPage.value = 1;
             totalPages.value = 0;
             pdfDocument.value = null;
+            showSidebar.value = false;
             if (previousDocument?.destroy) {
                 previousDocument.destroy().catch((error) => {
                     BrowserLogger.debug(

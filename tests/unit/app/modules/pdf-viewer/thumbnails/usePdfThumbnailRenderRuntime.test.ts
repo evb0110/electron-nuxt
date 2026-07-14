@@ -42,12 +42,21 @@ describe('usePdfThumbnailRenderRuntime', () => {
 
     it('retains an existing bitmap while its replacement is rendering', () => {
         expect(shouldPreserveThumbnailBitmap({
+            dataset: {thumbnailRendered: 'true'},
             width: 240,
             height: 320,
         })).toBe(true);
         expect(shouldPreserveThumbnailBitmap({
+            dataset: {thumbnailRendered: 'true'},
             width: 0,
             height: 320,
+        })).toBe(false);
+        expect(shouldPreserveThumbnailBitmap({
+            dataset: {},
+            // Fresh canvas elements have these non-zero intrinsic dimensions
+            // before any thumbnail pixels have been painted.
+            width: 300,
+            height: 150,
         })).toBe(false);
     });
 
