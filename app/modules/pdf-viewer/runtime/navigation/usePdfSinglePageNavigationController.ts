@@ -94,6 +94,7 @@ export function shouldSubmitRequestedCurrentPage(
  */
 export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageNavigationControllerOptions) => {
     let intentSequence = 0;
+    let resizePreviewWriteSequence = 0;
     let activeNavigationSequence: number | null = null;
     const retainedNavigationAnchorPage = ref<number | null>(null);
     let queuedNavigation: {
@@ -677,6 +678,24 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             : viewportAuthority.committedAnchor.value;
     }
 
+    function applyResizeAnchorPreview(anchor: IPdfSemanticAnchor | null | undefined) {
+        const container = options.viewerContainer.value;
+        const snapshot = refreshGeometry();
+        if (!anchor || !container || !snapshot) {
+            return false;
+        }
+        const scroll = resolveScrollForAnchor(snapshot, anchor);
+        const applied = options.viewportWritePort.apply(container, {
+            intent: options.viewportWritePort.beginIntent(
+                `pdf-resize-preview-${String(++resizePreviewWriteSequence)}`,
+            ),
+            reason: 'resize-anchor-preview',
+            ...scroll,
+        });
+        options.updateVisibleRange(container, options.numPages.value);
+        return applied;
+    }
+
     function commitCurrentViewportPosition(pageNumber: number, intentId: string) {
         const container = options.viewerContainer.value;
         const snapshot = refreshGeometry();
@@ -1023,6 +1042,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         submitNavigationRequest,
         submitViewportStateIntent,
         captureCurrentSemanticAnchor,
+        applyResizeAnchorPreview,
         commitCurrentViewportPosition,
         commitCurrentViewportIfSettled,
         navigationAnchorPage,

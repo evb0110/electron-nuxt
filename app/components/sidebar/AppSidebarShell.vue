@@ -95,12 +95,12 @@ watch(() => tabs, async () => {
 .app-sidebar-shell {
     position: relative;
     display: flex;
+    flex: 1;
     height: 100%;
     min-width: 0;
     flex-direction: column;
     overflow: hidden;
     background: var(--app-sidebar-bg);
-    border-inline-end: 1px solid var(--app-sidebar-border);
 }
 
 .app-sidebar-shell__content {

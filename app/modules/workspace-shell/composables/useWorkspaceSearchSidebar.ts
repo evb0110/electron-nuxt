@@ -13,6 +13,7 @@ interface IWorkspaceSearchSidebarOptions {
     sidebarTab: Ref<TPdfSidebarTab>;
     dragMode: Ref<boolean>;
     totalPages: Ref<number>;
+    initialSidebarWidth?: number | undefined;
 }
 
 export const useWorkspaceSearchSidebar = (options: IWorkspaceSearchSidebarOptions) => {
@@ -78,7 +79,10 @@ export const useWorkspaceSearchSidebar = (options: IWorkspaceSearchSidebarOption
         startSidebarResize,
         setSidebarContainerWidth,
         cleanupSidebarResizeListeners,
-    } = useSidebarResize({ showSidebar });
+    } = useSidebarResize({
+        showSidebar,
+        initialWidth: options.initialSidebarWidth,
+    });
 
     return {
         searchQuery,

@@ -115,19 +115,21 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         tabId: string | null | undefined,
         workspace: IWorkspaceExpose | null,
     ): IWorkspaceToolbarSnapshot | null {
-        const recordSnapshot = tabId
-            ? documentRecordsByTabId.value[tabId]?.toolbarSnapshot ?? null
-            : null;
-        if (recordSnapshot) {
-            return recordSnapshot;
-        }
-
         try {
-            return workspace?.getToolbarSnapshot() ?? null;
+            const liveSnapshot = workspace?.getToolbarSnapshot() ?? null;
+            if (liveSnapshot) {
+                return liveSnapshot;
+            }
         } catch (error) {
             BrowserLogger.warn('tabs-shell', 'Failed to read workspace toolbar snapshot for automation API', error);
-            return null;
         }
+
+        // A mounted workspace owns the current navigation and zoom revision.
+        // The document record is a suspension/checkpoint fallback and can lag
+        // behind a live source adapter between persistence publications.
+        return tabId
+            ? documentRecordsByTabId.value[tabId]?.toolbarSnapshot ?? null
+            : null;
     }
 
     function readWorkspaceAutomationState(

@@ -1,4 +1,4 @@
-import type { TPdfViewMode } from '@contracts/shared';
+import type { TDocumentViewMode } from '@contracts/shared';
 import { stepBySpread } from '@app/utils/pdfViewMode';
 import { resolveSnapAnchorForWheelDirection } from '@app/utils/document-viewer/single-page-wheel/resolveSnapAnchorForWheelDirection';
 import type {
@@ -87,7 +87,7 @@ export function resolveNextTopWithinPageBounds(
 
 export function resolveWheelTargetPage(
     activePage: number,
-    viewMode: TPdfViewMode,
+    viewMode: TDocumentViewMode,
     pageCount: number,
     direction: TWheelDirection,
 ) {

@@ -56,6 +56,8 @@ describe('tab session memory policy', () => {
             isFitWidthActive: true,
             isFitHeightActive: false,
             showSidebar: false,
+            sidebarTab: 'search',
+            sidebarWidth: 384,
             dragMode: false,
             continuousScroll: true,
             isDjvuMode: false,
@@ -72,6 +74,8 @@ describe('tab session memory policy', () => {
         });
 
         expect(state).not.toHaveProperty('currentPage');
+        expect(state.sidebarTab).toBe('search');
+        expect(state.sidebarWidth).toBe(384);
     });
 
     it('keeps the active tab hot and recent tabs warm in conservative mode', () => {

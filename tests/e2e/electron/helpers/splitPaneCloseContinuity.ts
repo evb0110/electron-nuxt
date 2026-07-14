@@ -1,0 +1,524 @@
+import type { Page } from 'puppeteer-core';
+import { expect } from 'vitest';
+import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
+
+export type TSplitPaneCloseDocumentKind = 'pdf' | 'djvu';
+
+export interface ISplitPaneCloseContinuityResult {
+    anchorDriftFrames: number;
+    blankFrames: number;
+    blankFramesByPhase: Record<string, number>;
+    blankSamples: unknown[];
+    disconnectedDocumentFrames: number;
+    disconnectedHostFrames: number;
+    disconnectedPaneFrames: number;
+    disconnectedTabFrames: number;
+    documentSurfaceChangedFrames: number;
+    expectedPageNumber: number;
+    finalAnchorRatio: number;
+    finalPageNumber: number | null;
+    finalReadyVisiblePageCount: number;
+    loadingFrames: number;
+    maxAnchorDrift: number;
+    newTabFrames: number;
+    pageChangedFrames: number;
+    pageChangedFramesByPhase: Record<string, number>;
+    sampleCount: number;
+    sourcePaneId: string;
+    sourceTabId: string;
+    sourceTabTitle: string;
+}
+
+interface IProbeInstallResult {
+    installed: boolean;
+    reason: string;
+    sourcePaneId: string;
+}
+
+const CONTINUITY_TIMEOUT_MS = 30_000;
+const ANCHOR_RATIO_TOLERANCE = 0.2;
+
+async function centerTargetPage(
+    page: Page,
+    documentKind: TSplitPaneCloseDocumentKind,
+    targetPageNumber: number,
+) {
+    await page.waitForFunction((payload: {
+        documentKind: TSplitPaneCloseDocumentKind;
+        targetPageNumber: number;
+    }) => {
+        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const pageSelector = payload.documentKind === 'pdf'
+            ? `.page_container[data-page="${String(payload.targetPageNumber)}"]`
+            : `[data-testid="document-page-source-page"][data-page-number="${String(payload.targetPageNumber)}"]`;
+        const pageElement = host?.querySelector<HTMLElement>(pageSelector) ?? null;
+        if (!pageElement) {
+            return false;
+        }
+        if (payload.documentKind === 'pdf') {
+            const canvas = pageElement.querySelector<HTMLCanvasElement>('.page_canvas canvas, canvas');
+            return Boolean(canvas && canvas.width > 0 && canvas.height > 0);
+        }
+        const image = pageElement.querySelector<HTMLImageElement>('[data-testid="document-page-source-image"]');
+        return Boolean(image?.complete && image.naturalWidth > 0 && image.naturalHeight > 0);
+    }, {timeout: CONTINUITY_TIMEOUT_MS}, {
+        documentKind,
+        targetPageNumber,
+    });
+
+    const centered = await page.evaluate((payload: {
+        documentKind: TSplitPaneCloseDocumentKind;
+        targetPageNumber: number;
+    }) => {
+        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const surface = payload.documentKind === 'pdf'
+            ? host?.querySelector<HTMLElement>('#pdf-viewer') ?? null
+            : host?.querySelector<HTMLElement>('[data-testid="document-page-source-viewer"]') ?? null;
+        const viewport = payload.documentKind === 'pdf'
+            ? surface
+            : surface?.closest<HTMLElement>('[data-document-viewer-chassis-viewport]') ?? null;
+        const pageSelector = payload.documentKind === 'pdf'
+            ? `.page_container[data-page="${String(payload.targetPageNumber)}"]`
+            : `[data-testid="document-page-source-page"][data-page-number="${String(payload.targetPageNumber)}"]`;
+        const pageElement = surface?.querySelector<HTMLElement>(pageSelector) ?? null;
+        if (!viewport || !pageElement) {
+            return false;
+        }
+
+        const viewportRect = viewport.getBoundingClientRect();
+        const pageRect = pageElement.getBoundingClientRect();
+        viewport.scrollTop += (
+            pageRect.top
+            + (pageRect.height / 2)
+            - viewportRect.top
+            - (viewportRect.height / 2)
+        );
+        viewport.dispatchEvent(new Event('scroll', {bubbles: true}));
+        return true;
+    }, {
+        documentKind,
+        targetPageNumber,
+    });
+    if (!centered) {
+        throw new Error(`Could not center ${documentKind} page ${String(targetPageNumber)}`);
+    }
+
+    await page.evaluate(async () => {
+        await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    });
+}
+
+async function installContinuityProbe(
+    page: Page,
+    documentKind: TSplitPaneCloseDocumentKind,
+    expectedPageNumber: number,
+): Promise<IProbeInstallResult> {
+    return page.evaluate((payload: {
+        documentKind: TSplitPaneCloseDocumentKind;
+        expectedPageNumber: number;
+        anchorRatioTolerance: number;
+    }) => {
+        interface IAnchorSnapshot {
+            pageNumber: number | null;
+            pageRatio: number;
+            readyVisiblePageCount: number;
+        }
+        interface IContinuityProbe extends ISplitPaneCloseContinuityResult {
+            expectedAnchorRatio: number;
+            frameId: number;
+            sample: (scheduleNextFrame: boolean) => void;
+            sourceDocumentSurface: HTMLElement;
+            sourceHost: HTMLElement;
+            sourcePane: HTMLElement;
+            sourceTab: HTMLElement;
+            phase: string;
+            timerId: number;
+        }
+        type TProbeWindow = Window & {__splitPaneCloseContinuityProbe?: IContinuityProbe};
+
+        const sourcePane = document.querySelector<HTMLElement>('.editor-pane.is-active');
+        const sourceHost = sourcePane?.querySelector<HTMLElement>('.workspace-host') ?? null;
+        const sourceTab = sourcePane?.querySelector<HTMLElement>('.tab.is-active[data-tab-id]') ?? null;
+        const sourceDocumentSurface = payload.documentKind === 'pdf'
+            ? sourceHost?.querySelector<HTMLElement>('#pdf-viewer') ?? null
+            : sourceHost?.querySelector<HTMLElement>('[data-testid="document-page-source-viewer"]') ?? null;
+        const sourcePaneId = sourcePane?.dataset.editorPaneId ?? '';
+        const sourceTabId = sourceTab?.dataset.tabId ?? '';
+        const sourceTabTitle = sourceTab?.textContent?.trim() ?? '';
+
+        if (!sourcePane || !sourceHost || !sourceTab || !sourceDocumentSurface) {
+            return {
+                installed: false,
+                reason: 'Source pane, tab, host, or document surface was unavailable',
+                sourcePaneId,
+            };
+        }
+        if (!sourcePaneId || !sourceTabId || sourceTabTitle.includes('New Tab')) {
+            return {
+                installed: false,
+                reason: 'Source pane/tab identity was incomplete or already empty',
+                sourcePaneId,
+            };
+        }
+
+        const readAnchor = (): IAnchorSnapshot => {
+            const viewport = payload.documentKind === 'pdf'
+                ? sourceDocumentSurface
+                : sourceDocumentSurface.closest<HTMLElement>('[data-document-viewer-chassis-viewport]');
+            const pageSelector = payload.documentKind === 'pdf'
+                ? '.page_container[data-page]'
+                : '[data-testid="document-page-source-page"][data-page-number]';
+            const viewportRect = viewport?.getBoundingClientRect() ?? null;
+            const pages = Array.from(sourceDocumentSurface.querySelectorAll<HTMLElement>(pageSelector));
+            const visiblePages = viewportRect
+                ? pages.filter((pageElement) => {
+                    const rect = pageElement.getBoundingClientRect();
+                    return Math.min(rect.bottom, viewportRect.bottom) - Math.max(rect.top, viewportRect.top) > 8;
+                })
+                : [];
+            const centerY = viewportRect ? viewportRect.top + (viewportRect.height / 2) : 0;
+            const anchorPage = visiblePages.find((pageElement) => {
+                const rect = pageElement.getBoundingClientRect();
+                return rect.top <= centerY && rect.bottom >= centerY;
+            }) ?? null;
+            const anchorRect = anchorPage?.getBoundingClientRect() ?? null;
+            const readyVisiblePageCount = visiblePages.filter((pageElement) => {
+                if (payload.documentKind === 'pdf') {
+                    const canvas = pageElement.querySelector<HTMLCanvasElement>('.page_canvas canvas, canvas');
+                    return Boolean(canvas && canvas.width > 0 && canvas.height > 0);
+                }
+                const image = pageElement.querySelector<HTMLImageElement>('[data-testid="document-page-source-image"]');
+                return Boolean(image?.complete && image.naturalWidth > 0 && image.naturalHeight > 0);
+            }).length;
+
+            return {
+                pageNumber: anchorPage
+                    ? Number.parseInt(
+                        payload.documentKind === 'pdf'
+                            ? anchorPage.dataset.page ?? ''
+                            : anchorPage.dataset.pageNumber ?? '',
+                        10,
+                    ) || null
+                    : null,
+                pageRatio: anchorRect && anchorRect.height > 0
+                    ? (centerY - anchorRect.top) / anchorRect.height
+                    : 0,
+                readyVisiblePageCount,
+            };
+        };
+
+        const initialAnchor = readAnchor();
+        if (
+            initialAnchor.pageNumber !== payload.expectedPageNumber
+            || initialAnchor.readyVisiblePageCount === 0
+        ) {
+            return {
+                installed: false,
+                reason: `Initial anchor was page ${String(initialAnchor.pageNumber)} with ${String(initialAnchor.readyVisiblePageCount)} ready pages`,
+                sourcePaneId,
+            };
+        }
+
+        const probe: IContinuityProbe = {
+            anchorDriftFrames: 0,
+            blankFrames: 0,
+            blankFramesByPhase: {},
+            blankSamples: [],
+            disconnectedDocumentFrames: 0,
+            disconnectedHostFrames: 0,
+            disconnectedPaneFrames: 0,
+            disconnectedTabFrames: 0,
+            documentSurfaceChangedFrames: 0,
+            expectedAnchorRatio: initialAnchor.pageRatio,
+            expectedPageNumber: payload.expectedPageNumber,
+            finalAnchorRatio: initialAnchor.pageRatio,
+            finalPageNumber: initialAnchor.pageNumber,
+            finalReadyVisiblePageCount: initialAnchor.readyVisiblePageCount,
+            frameId: 0,
+            loadingFrames: 0,
+            maxAnchorDrift: 0,
+            newTabFrames: 0,
+            pageChangedFrames: 0,
+            pageChangedFramesByPhase: {},
+            phase: 'before-split',
+            sample: () => {},
+            sampleCount: 0,
+            sourceDocumentSurface,
+            sourceHost,
+            sourcePane,
+            sourcePaneId,
+            sourceTab,
+            sourceTabId,
+            sourceTabTitle,
+            timerId: 0,
+        };
+
+        probe.sample = (scheduleNextFrame: boolean) => {
+            probe.sampleCount += 1;
+            const currentPane = Array.from(document.querySelectorAll<HTMLElement>('.editor-pane'))
+                .find(candidate => candidate.dataset.editorPaneId === sourcePaneId) ?? null;
+            const currentHost = currentPane?.querySelector<HTMLElement>('.workspace-host') ?? null;
+            const currentTab = currentPane?.querySelector<HTMLElement>(`.tab[data-tab-id="${CSS.escape(sourceTabId)}"]`) ?? null;
+            const currentDocumentSurface = payload.documentKind === 'pdf'
+                ? currentHost?.querySelector<HTMLElement>('#pdf-viewer') ?? null
+                : currentHost?.querySelector<HTMLElement>('[data-testid="document-page-source-viewer"]') ?? null;
+            const anchor = readAnchor();
+            const anchorDrift = Math.abs(anchor.pageRatio - probe.expectedAnchorRatio);
+            const banner = sourceHost.querySelector<HTMLElement>('.djvu-banner');
+            const hasLoadingState = Boolean(
+                sourceHost.querySelector([
+                    '.workspace-host__loading',
+                    '.document-viewer-chassis__opening-page',
+                    '.pdf-loading',
+                    '.pdf-loading-overlay',
+                    '[data-loading="true"]',
+                    '[data-error="true"]',
+                ].join(','))
+                || banner?.getAttribute('aria-busy') === 'true'
+                || banner?.textContent?.includes('Opening DjVu'),
+            );
+
+            probe.disconnectedPaneFrames += Number(!sourcePane.isConnected || currentPane !== sourcePane);
+            probe.disconnectedHostFrames += Number(!sourceHost.isConnected || currentHost !== sourceHost);
+            probe.disconnectedTabFrames += Number(!sourceTab.isConnected || currentTab !== sourceTab);
+            probe.disconnectedDocumentFrames += Number(!sourceDocumentSurface.isConnected);
+            probe.documentSurfaceChangedFrames += Number(currentDocumentSurface !== sourceDocumentSurface);
+            probe.newTabFrames += Number(sourceTab.textContent?.includes('New Tab') ?? false);
+            probe.loadingFrames += Number(hasLoadingState);
+            probe.blankFrames += Number(anchor.readyVisiblePageCount === 0);
+            probe.pageChangedFrames += Number(anchor.pageNumber !== payload.expectedPageNumber);
+            if (anchor.readyVisiblePageCount === 0) {
+                probe.blankFramesByPhase[probe.phase] = (probe.blankFramesByPhase[probe.phase] ?? 0) + 1;
+                if (probe.blankSamples.length < 10) {
+                    const viewport = payload.documentKind === 'pdf'
+                        ? sourceDocumentSurface
+                        : sourceDocumentSurface.closest<HTMLElement>('[data-document-viewer-chassis-viewport]');
+                    probe.blankSamples.push({
+                        phase: probe.phase,
+                        chassis: (() => {
+                            const element = sourceDocumentSurface.closest<HTMLElement>(
+                                '.document-viewer-chassis',
+                            );
+                            return {
+                                anchorPage: element?.dataset.chassisResizeAnchorPage ?? '',
+                                resizing: element?.dataset.chassisResizing ?? '',
+                            };
+                        })(),
+                        viewport: viewport ? {
+                            clientHeight: viewport.clientHeight,
+                            scrollHeight: viewport.scrollHeight,
+                            scrollTop: viewport.scrollTop,
+                        } : null,
+                        pages: Array.from(sourceDocumentSurface.querySelectorAll<HTMLElement>(
+                            payload.documentKind === 'pdf'
+                                ? '.page_container[data-page]'
+                                : '[data-testid="document-page-source-page"][data-page-number]',
+                        )).slice(0, 20).map(element => ({
+                            page: element.dataset.page ?? element.dataset.pageNumber ?? '',
+                            display: getComputedStyle(element).display,
+                            rect: {
+                                height: element.getBoundingClientRect().height,
+                                top: element.getBoundingClientRect().top,
+                            },
+                        })),
+                    });
+                }
+            }
+            if (anchor.pageNumber !== payload.expectedPageNumber) {
+                probe.pageChangedFramesByPhase[probe.phase] = (probe.pageChangedFramesByPhase[probe.phase] ?? 0) + 1;
+            }
+            probe.anchorDriftFrames += Number(anchorDrift > payload.anchorRatioTolerance);
+            probe.maxAnchorDrift = Math.max(probe.maxAnchorDrift, anchorDrift);
+            probe.finalAnchorRatio = anchor.pageRatio;
+            probe.finalPageNumber = anchor.pageNumber;
+            probe.finalReadyVisiblePageCount = anchor.readyVisiblePageCount;
+
+            if (scheduleNextFrame) {
+                // rAF callbacks run before paint and may observe the transient
+                // layout before a later ResizeObserver-owned rAF restores the
+                // semantic anchor in the same rendering opportunity. Sample
+                // after that paint boundary so a counted blank corresponds to
+                // pixels a user could actually have seen.
+                probe.frameId = requestAnimationFrame(() => {
+                    probe.timerId = window.setTimeout(() => probe.sample(true), 0);
+                });
+            }
+        };
+
+        (window as TProbeWindow).__splitPaneCloseContinuityProbe = probe;
+        probe.sample(true);
+        return {
+            installed: true,
+            reason: '',
+            sourcePaneId,
+        };
+    }, {
+        documentKind,
+        expectedPageNumber,
+        anchorRatioTolerance: ANCHOR_RATIO_TOLERANCE,
+    });
+}
+
+async function splitAndCloseEmptyRightPane(page: Page, sourcePaneId: string) {
+    await page.evaluate(() => {
+        const probe = (window as Window & {__splitPaneCloseContinuityProbe?: {phase: string}})
+            .__splitPaneCloseContinuityProbe;
+        if (probe) probe.phase = 'split';
+    });
+    const split = await page.evaluate(async () => {
+        interface ISplitWindow extends Window { __splitEditorEmptyForE2E?: (direction: 'right') => Promise<void> | void; }
+        const splitEditor = (window as ISplitWindow).__splitEditorEmptyForE2E;
+        if (typeof splitEditor !== 'function') {
+            return false;
+        }
+        await splitEditor('right');
+        return true;
+    });
+    if (!split) {
+        throw new Error('Empty split automation hook was unavailable');
+    }
+    await page.waitForFunction(
+        () => document.querySelectorAll('.editor-pane').length === 2,
+        {timeout: CONTINUITY_TIMEOUT_MS},
+    );
+
+    await page.evaluate(() => {
+        const probe = (window as Window & {__splitPaneCloseContinuityProbe?: {phase: string}})
+            .__splitPaneCloseContinuityProbe;
+        if (probe) probe.phase = 'close';
+    });
+
+    const closeResult = await page.evaluate((retainedPaneId: string) => {
+        const activePane = document.querySelector<HTMLElement>('.editor-pane.is-active');
+        const activePaneId = activePane?.dataset.editorPaneId ?? '';
+        const activeTabTitle = activePane?.querySelector<HTMLElement>('.tab.is-active')?.textContent?.trim() ?? '';
+        const closeButton = activePane?.querySelector<HTMLButtonElement>('.tab.is-active .tab-close') ?? null;
+        if (!activePane || activePaneId === retainedPaneId || !closeButton) {
+            return {
+                activePaneId,
+                activeTabTitle,
+                closed: false,
+            };
+        }
+        closeButton.click();
+        return {
+            activePaneId,
+            activeTabTitle,
+            closed: true,
+        };
+    }, sourcePaneId);
+    if (!closeResult.closed) {
+        throw new Error(`Could not close empty split pane (${JSON.stringify(closeResult)})`);
+    }
+    if (!closeResult.activeTabTitle.includes('New Tab')) {
+        throw new Error(`Split target was not empty: '${closeResult.activeTabTitle}'`);
+    }
+
+    await page.waitForFunction(
+        () => document.querySelectorAll('.editor-pane').length === 1,
+        {timeout: CONTINUITY_TIMEOUT_MS},
+    );
+    await page.evaluate(async () => {
+        for (let frame = 0; frame < 12; frame += 1) {
+            await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+        }
+    });
+}
+
+async function stopContinuityProbe(page: Page): Promise<ISplitPaneCloseContinuityResult> {
+    return page.evaluate(() => {
+        interface IContinuityProbe extends ISplitPaneCloseContinuityResult {
+            expectedAnchorRatio: number;
+            frameId: number;
+            sample: (scheduleNextFrame: boolean) => void;
+            sourceDocumentSurface: HTMLElement;
+            sourceHost: HTMLElement;
+            sourcePane: HTMLElement;
+            sourceTab: HTMLElement;
+            phase: string;
+            timerId: number;
+        }
+        type TProbeWindow = Window & {__splitPaneCloseContinuityProbe?: IContinuityProbe};
+        const probeWindow = window as TProbeWindow;
+        const probe = probeWindow.__splitPaneCloseContinuityProbe;
+        if (!probe) {
+            throw new Error('Split-pane close continuity probe was not installed');
+        }
+        cancelAnimationFrame(probe.frameId);
+        clearTimeout(probe.timerId);
+        probe.sample(false);
+        delete probeWindow.__splitPaneCloseContinuityProbe;
+        return {
+            anchorDriftFrames: probe.anchorDriftFrames,
+            blankFrames: probe.blankFrames,
+            blankFramesByPhase: probe.blankFramesByPhase,
+            blankSamples: probe.blankSamples,
+            disconnectedDocumentFrames: probe.disconnectedDocumentFrames,
+            disconnectedHostFrames: probe.disconnectedHostFrames,
+            disconnectedPaneFrames: probe.disconnectedPaneFrames,
+            disconnectedTabFrames: probe.disconnectedTabFrames,
+            documentSurfaceChangedFrames: probe.documentSurfaceChangedFrames,
+            expectedPageNumber: probe.expectedPageNumber,
+            finalAnchorRatio: probe.finalAnchorRatio,
+            finalPageNumber: probe.finalPageNumber,
+            finalReadyVisiblePageCount: probe.finalReadyVisiblePageCount,
+            loadingFrames: probe.loadingFrames,
+            maxAnchorDrift: probe.maxAnchorDrift,
+            newTabFrames: probe.newTabFrames,
+            pageChangedFrames: probe.pageChangedFrames,
+            pageChangedFramesByPhase: probe.pageChangedFramesByPhase,
+            sampleCount: probe.sampleCount,
+            sourcePaneId: probe.sourcePaneId,
+            sourceTabId: probe.sourceTabId,
+            sourceTabTitle: probe.sourceTabTitle,
+        };
+    });
+}
+
+export async function runSplitPaneCloseContinuity(
+    session: IElectronE2ESession,
+    options: {
+        documentKind: TSplitPaneCloseDocumentKind;
+        expectedPageNumber: number;
+    },
+) {
+    await centerTargetPage(session.page, options.documentKind, options.expectedPageNumber);
+    const installResult = await installContinuityProbe(
+        session.page,
+        options.documentKind,
+        options.expectedPageNumber,
+    );
+    if (!installResult.installed) {
+        throw new Error(`Could not install split-pane close continuity probe: ${installResult.reason}`);
+    }
+
+    try {
+        await splitAndCloseEmptyRightPane(session.page, installResult.sourcePaneId);
+        return await stopContinuityProbe(session.page);
+    } catch (error) {
+        await stopContinuityProbe(session.page).catch(() => null);
+        throw error;
+    }
+}
+
+export function expectSplitPaneCloseContinuity(result: ISplitPaneCloseContinuityResult) {
+    const detail = JSON.stringify(result);
+
+    expect(result.sampleCount, detail).toBeGreaterThan(10);
+    expect(result.sourcePaneId, detail).not.toBe('');
+    expect(result.sourceTabId, detail).not.toBe('');
+    expect(result.sourceTabTitle, detail).not.toContain('New Tab');
+    expect(result.disconnectedPaneFrames, detail).toBe(0);
+    expect(result.disconnectedHostFrames, detail).toBe(0);
+    expect(result.disconnectedTabFrames, detail).toBe(0);
+    expect(result.disconnectedDocumentFrames, detail).toBe(0);
+    expect(result.documentSurfaceChangedFrames, detail).toBe(0);
+    expect(result.newTabFrames, detail).toBe(0);
+    expect(result.loadingFrames, detail).toBe(0);
+    expect(result.blankFrames, detail).toBe(0);
+    expect(result.pageChangedFrames, detail).toBe(0);
+    expect(result.anchorDriftFrames, detail).toBe(0);
+    expect(result.maxAnchorDrift, detail).toBeLessThanOrEqual(ANCHOR_RATIO_TOLERANCE);
+    expect(result.finalPageNumber, detail).toBe(result.expectedPageNumber);
+    expect(result.finalReadyVisiblePageCount, detail).toBeGreaterThan(0);
+}

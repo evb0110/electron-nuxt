@@ -10,7 +10,10 @@ import {
     join,
 } from 'node:path';
 import { projectRoot } from '@scripts/electron-run/projectRoot';
-import { getCurrentSessionName } from '@scripts/electron-run/electronRunSessionPaths';
+import {
+    getCurrentSessionName,
+    sessionDir,
+} from '@scripts/electron-run/electronRunSessionPaths';
 import type { PackageJson } from 'type-fest';
 
 const TRUTHY_ENV_VALUES = new Set([
@@ -19,6 +22,34 @@ const TRUTHY_ENV_VALUES = new Set([
     'yes',
     'on',
 ]);
+
+export const NUXT_BUILD_DIR_ENV = 'EVB_NUXT_BUILD_DIR';
+export const NUXT_VITE_CACHE_DIR_ENV = 'EVB_NUXT_VITE_CACHE_DIR';
+
+function normalizeOptionalPath(value: string | undefined) {
+    const normalized = value?.trim();
+    if (!normalized) {
+        return undefined;
+    }
+    return normalized;
+}
+
+export function resolveNuxtDevServerArtifactDirs(
+    env: NodeJS.ProcessEnv = process.env,
+    sessionName = getCurrentSessionName(),
+) {
+    const explicitBuildDir = normalizeOptionalPath(env[NUXT_BUILD_DIR_ENV]);
+    const explicitViteCacheDir = normalizeOptionalPath(env[NUXT_VITE_CACHE_DIR_ENV]);
+    if (sessionName === 'default' && !explicitBuildDir && !explicitViteCacheDir) {
+        return null;
+    }
+
+    const artifactsDir = sessionDir(sessionName);
+    return {
+        buildDir: explicitBuildDir ?? join(artifactsDir, 'nuxt-build'),
+        viteCacheDir: explicitViteCacheDir ?? join(artifactsDir, 'vite-cache'),
+    };
+}
 
 export function shouldDisableAutomationSandbox(
     env: NodeJS.ProcessEnv = process.env,
@@ -70,7 +101,11 @@ export function sanitizeElectronLaunchEnv(env: NodeJS.ProcessEnv) {
     return launchEnv;
 }
 
-export function buildNuxtDevServerEnv(env: NodeJS.ProcessEnv, port: number) {
+export function buildNuxtDevServerEnv(
+    env: NodeJS.ProcessEnv,
+    port: number,
+    sessionName = getCurrentSessionName(),
+) {
     const launchEnv: NodeJS.ProcessEnv = {};
     for (const [
         key,
@@ -82,12 +117,19 @@ export function buildNuxtDevServerEnv(env: NodeJS.ProcessEnv, port: number) {
         launchEnv[key] = value;
     }
 
+    const artifactDirs = resolveNuxtDevServerArtifactDirs(env, sessionName);
     return {
         ...launchEnv,
         NODE_ENV: 'development',
         PORT: String(port),
         HOST: '127.0.0.1',
         NUXT_IGNORE_LOCK: env.NUXT_IGNORE_LOCK ?? '1',
+        ...(artifactDirs
+            ? {
+                [NUXT_BUILD_DIR_ENV]: artifactDirs.buildDir,
+                [NUXT_VITE_CACHE_DIR_ENV]: artifactDirs.viteCacheDir,
+            }
+            : {}),
     };
 }
 

@@ -6,8 +6,10 @@ import {
 import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import {
     createDocumentOpeningPageFrameAuthority,
+    resolveDocumentOpeningPageMargin,
     resolveDocumentOpeningPageShellId,
 } from '@app/utils/document-viewer/chassis/documentOpeningPageFrameAuthority';
+import { DOCUMENT_PAGE_GUTTER_PX } from '@app/utils/document-viewer/layout/documentPageGutterPx';
 
 const pdfGeometry = Object.freeze({
     documentId: '/documents/scan.pdf',
@@ -47,6 +49,15 @@ describe('documentOpeningPageFrameAuthority', () => {
         expect(resolveDocumentOpeningPageShellId('chassis-b', 7)).not.toBe(
             resolveDocumentOpeningPageShellId('chassis-a', 7),
         );
+    });
+
+    it('uses one shared page gutter for every renderer before and after handoff', () => {
+        expect(resolveDocumentOpeningPageMargin(pdfGeometry, 'pdfjs')).toBe(DOCUMENT_PAGE_GUTTER_PX);
+        expect(resolveDocumentOpeningPageMargin({
+            ...pdfGeometry,
+            documentId: '/documents/scan.djvu',
+        }, 'page-source')).toBe(DOCUMENT_PAGE_GUTTER_PX);
+        expect(resolveDocumentOpeningPageMargin(pdfGeometry, 'native-pdf')).toBe(DOCUMENT_PAGE_GUTTER_PX);
     });
 
     it('commits the exact PDF page shell synchronously from trusted geometry and the live chassis viewport', () => {
@@ -161,8 +172,8 @@ describe('documentOpeningPageFrameAuthority', () => {
 
         expect(createAuthority(surface).prepareOpeningPageFrame(generation)).toBe(true);
         expect(surface.snapshot.value.openingPageFrame?.style).toEqual({
-            width: '968px',
-            height: '1290.6666666666665px',
+            width: '960px',
+            height: '1280px',
         });
     });
 
@@ -179,8 +190,8 @@ describe('documentOpeningPageFrameAuthority', () => {
 
         expect(createAuthority(surface).prepareOpeningPageFrame(generation)).toBe(true);
         expect(surface.snapshot.value.openingPageFrame?.style).toEqual({
-            width: '968px',
-            height: '1290.6666666666665px',
+            width: '960px',
+            height: '1280px',
         });
     });
 });

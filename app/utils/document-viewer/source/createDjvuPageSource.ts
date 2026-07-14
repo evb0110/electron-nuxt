@@ -78,6 +78,7 @@ export async function createDjvuPageSource(
         return size;
     };
     const scopeId = `djvu-page-source:${++nextDjvuPageSourceId}`;
+    let nextRenderRequestId = 0;
     const urlLeases = new Map<string, {
         lease: {
             promotePriority?(priority: number): void;
@@ -95,14 +96,17 @@ export async function createDjvuPageSource(
     const renderSurface = async (request: Parameters<IDocumentPageSource['renderPage']>[0]) => {
         assertDocumentPageNumber(request.pageNumber, pageCount);
         request.signal.throwIfAborted();
+        nextRenderRequestId += 1;
+        const previewRequestId = `${scopeId}:${request.pageNumber}:${nextRenderRequestId}`;
         const pageSizePromise = getPageSize(request.pageNumber);
-        const cancelPreview = () => previewSource.cancelPagePreview?.(request.pageNumber);
+        const cancelPreview = () => previewSource.cancelPagePreview?.(request.pageNumber, previewRequestId);
         request.signal.addEventListener('abort', cancelPreview, {once: true});
         let rendered;
         try {
             [rendered] = await Promise.all([
                 previewSource.renderPageObjectUrl(request.pageNumber, {
                     previewPriority: previewPriorityByClass[request.priority],
+                    previewRequestId,
                     targetWidthPx: request.widthPx,
                 }),
                 pageSizePromise,
@@ -185,16 +189,19 @@ export async function createDjvuPageSource(
             signal.throwIfAborted();
             return text;
         }}} : {}),
+        ...(previewSource.searchText ? {searchProvider: {search(request) {
+            return previewSource.searchText!({
+                ...request,
+                pageCount,
+            });
+        }}} : {}),
         ...(previewSource.getOutline ? {outlineProvider: {async getOutline(signal) {
             signal.throwIfAborted();
             const outline = await previewSource.getOutline!();
             signal.throwIfAborted();
             return outline;
         }}} : {}),
-        thumbnailProvider: {renderThumbnail: request => renderSurface({
-            ...request,
-            priority: 'thumbnail',
-        })},
+        thumbnailProvider: {renderThumbnail: renderSurface},
         rasterProvider: {renderRaster: renderSurface},
         async getPageMetrics(pageNumber, signal) {
             assertDocumentPageNumber(pageNumber, pageCount);

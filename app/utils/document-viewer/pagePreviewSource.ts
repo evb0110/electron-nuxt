@@ -1,3 +1,9 @@
+import type {
+    IPdfSearchProgress,
+    IPdfSearchResponse,
+    IResolvedSearchMatchOptions,
+} from '@contracts/search';
+
 export interface IDocumentPreviewPageState {
     failedRenderPx: number;
     objectUrl: string | null;
@@ -32,11 +38,19 @@ export interface IPagePreviewOutlineItem {
 }
 
 export interface IPagePreviewSource {
-    cancelPagePreview?(pageNumber: number): void;
+    cancelPagePreview?(pageNumber: number, requestId?: string): void;
     getPageSizes(): Promise<IPreviewPageSize[]>;
     getPageSize?(pageNumber: number): Promise<IPreviewPageSize>;
     getPageSourceInfo?(pageNumber: number): Promise<IPagePreviewSourceInfo>;
     getPageText?(pageNumber: number): Promise<string>;
+    searchText?(request: {
+        matchOptions: IResolvedSearchMatchOptions;
+        onProgress?: ((progress: IPdfSearchProgress) => void) | undefined;
+        pageCount: number;
+        query: string;
+        requestId: string;
+        signal: AbortSignal;
+    }): Promise<IPdfSearchResponse>;
     getOutline?(): Promise<IPagePreviewOutlineItem[]>;
     renderPageObjectUrl(
         pageNumber: number,

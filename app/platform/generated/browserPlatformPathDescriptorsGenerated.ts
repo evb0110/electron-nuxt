@@ -250,6 +250,8 @@ export const browserPlatformPathDescriptorsGenerated = {
         getJobState: {kind: 'async', path: ["djvu","getJobState"]},
         subscribeJob: {kind: 'async', path: ["djvu","subscribeJob"]},
         cancelPagePreview: {kind: 'async', path: ["djvu","cancelPagePreview"]},
+        searchText: {kind: 'async', path: ["djvu","searchText"]},
+        cancelTextSearch: {kind: 'async', path: ["djvu","cancelTextSearch"]},
         getInfo: {kind: 'async', path: ["djvu","getInfo"]},
         getPageSourceInfo: {kind: 'async', path: ["djvu","getPageSourceInfo"]},
         getPageSizes: {kind: 'async', path: ["djvu","getPageSizes"]},
@@ -257,6 +259,7 @@ export const browserPlatformPathDescriptorsGenerated = {
         estimateSizes: {kind: 'async', path: ["djvu","estimateSizes"]},
         cleanupTemp: {kind: 'async', path: ["djvu","cleanupTemp"]},
         onProgress: {kind: 'event', path: ["djvu","onProgress"]},
+        onTextSearchProgress: {kind: 'event', path: ["djvu","onTextSearchProgress"]},
         onMenuConvertToPdf: {kind: 'event', path: ["djvu","onMenuConvertToPdf"]},
     },
     settings: {

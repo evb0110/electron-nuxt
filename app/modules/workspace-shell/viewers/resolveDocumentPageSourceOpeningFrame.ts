@@ -1,4 +1,5 @@
 import type { IDocumentOpenSurfacePageGeometry } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import { DOCUMENT_PAGE_GUTTER_PX } from '@app/utils/document-viewer/layout/documentPageGutterPx';
 import {
     clampDocumentFitScale,
     clampDocumentManualZoom,
@@ -21,16 +22,14 @@ export interface IDocumentPageSourceOpeningFrame {
     }>;
 }
 
-const DOCUMENT_PAGE_SOURCE_MARGIN = 16;
-
 export function resolveDocumentPageSourceOpeningFrame(
     input: IDocumentPageSourceOpeningFrameInput,
 ): IDocumentPageSourceOpeningFrame | null {
     if (
         !Number.isFinite(input.viewportWidth)
         || !Number.isFinite(input.viewportHeight)
-        || input.viewportWidth <= DOCUMENT_PAGE_SOURCE_MARGIN * 2
-        || input.viewportHeight <= DOCUMENT_PAGE_SOURCE_MARGIN * 2
+        || input.viewportWidth <= DOCUMENT_PAGE_GUTTER_PX * 2
+        || input.viewportHeight <= DOCUMENT_PAGE_GUTTER_PX * 2
         || !Number.isFinite(input.geometry.width)
         || !Number.isFinite(input.geometry.height)
         || input.geometry.width <= 0
@@ -43,10 +42,10 @@ export function resolveDocumentPageSourceOpeningFrame(
         ? clampDocumentManualZoom(input.zoom)
         : input.zoomMode === 'fit-height'
             ? clampDocumentFitScale(
-                (input.viewportHeight - DOCUMENT_PAGE_SOURCE_MARGIN * 2) / input.geometry.height,
+                (input.viewportHeight - DOCUMENT_PAGE_GUTTER_PX * 2) / input.geometry.height,
             )
             : clampDocumentFitScale(
-                (input.viewportWidth - DOCUMENT_PAGE_SOURCE_MARGIN * 2) / input.geometry.width,
+                (input.viewportWidth - DOCUMENT_PAGE_GUTTER_PX * 2) / input.geometry.width,
             );
     const width = input.geometry.width * scale;
     const height = input.geometry.height * scale;

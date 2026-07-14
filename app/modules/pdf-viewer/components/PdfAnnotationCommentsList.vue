@@ -118,7 +118,7 @@
             </button>
             </div>
 
-            <PdfPanelEmptyState
+            <DocumentPanelEmptyState
                 v-if="showEmptyState"
                 icon="i-ph-note"
                 :title="t('annotations.noAnnotationsFound')"
@@ -145,7 +145,7 @@ import type {
     IAnnotationCommentSummary,
     TAnnotationCommentsStatus,
 } from '@app/types/annotations';
-import PdfPanelEmptyState from '@app/modules/pdf-viewer/components/PdfPanelEmptyState.vue';
+import DocumentPanelEmptyState from '@app/components/document-viewer/DocumentPanelEmptyState.vue';
 import { annotationIdForSummary } from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
 import {
     compareAnnotationCommentSummaries,

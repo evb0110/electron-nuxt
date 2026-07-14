@@ -17,6 +17,7 @@ import {
     type TElectronE2EWindowMode,
 } from '@scripts/electron-run/electronRunLaunchConfig';
 import { DEFAULT_NUXT_PORT } from '@scripts/electron-run/electronRunPortConfig';
+import { assertE2ESessionName } from '@scripts/electron-run/electronRunE2ESessionPrune';
 import { isProcessAlive } from '@scripts/electron-run/electronRunProcessTree';
 import { formatElectronStartupDiagnostics } from '@scripts/electron-run/electronRunStartupDiagnostics';
 import {
@@ -86,6 +87,7 @@ function sanitizeArtifactLabel(label: string) {
 }
 
 function cleanupSessionArtifacts(sessionName: string) {
+    assertE2ESessionName(sessionName);
     cleanupSessionFixtures(sessionName);
     rmSync(sessionDir(sessionName), {
         recursive: true,
@@ -94,6 +96,7 @@ function cleanupSessionArtifacts(sessionName: string) {
 }
 
 export function prunePreservedSessionArtifacts(sessionName: string) {
+    assertE2ESessionName(sessionName);
     cleanupSessionFixtures(sessionName);
     for (const directoryName of [
         'automation-electron-app',
@@ -312,7 +315,7 @@ export async function startElectronE2ESession(sessionName: string, options?: {
     initialOpenPaths?: string[];
     windowMode?: TElectronE2EWindowMode;
 }): Promise<IElectronE2ESession> {
-    const scopedSessionName = createE2ERunScopedSessionName(sessionName, process.env);
+    const scopedSessionName = assertE2ESessionName(createE2ERunScopedSessionName(sessionName, process.env));
     const clean = options?.clean ?? true;
 
     await withSessionTimeout(

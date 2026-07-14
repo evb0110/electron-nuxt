@@ -126,6 +126,7 @@ export const useAppShellTabLifecycle = (
         const chained = tabTransitionQueue.then(async () => {
             activeTabTransitions.value += 1;
             try {
+                await nextTick();
                 return await task();
             } finally {
                 await nextTick();

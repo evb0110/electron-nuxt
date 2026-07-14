@@ -10,7 +10,6 @@ export type {
     ISearchMatchOptions,
 } from '@contracts/search';
 export type { TPageIndex } from '@contracts/pageNumbers';
-export { PDF_PAGE_LABEL_STYLE_VALUES as PAGE_LABEL_STYLE_VALUES } from '@contracts/pdfPageLabels';
 export type {
     IPdfPageLabelRange,
     TPdfPageLabelStyle as TPageLabelStyle,

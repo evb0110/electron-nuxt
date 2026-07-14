@@ -814,12 +814,10 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
     });
     const runtimeLifecycle = usePdfViewerRuntimeLifecycle({
         viewportWritePort: viewerRuntime.scroll.viewportWritePort,
-        submitResizeIntent: anchor => {
-            void singlePageScroll.submitViewportStateIntent(
-                'resize',
-                anchor ? {anchor} : {},
-            );
-        },
+        submitResizeIntent: anchor => void singlePageScroll.submitViewportStateIntent(
+            'resize', anchor ? {anchor} : {},
+        ),
+        applyResizeAnchorPreview: singlePageScroll.applyResizeAnchorPreview,
         captureViewportAnchor: singlePageScroll.captureCurrentSemanticAnchor,
         viewerContainer,
         src,

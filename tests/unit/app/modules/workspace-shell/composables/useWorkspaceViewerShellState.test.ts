@@ -14,6 +14,8 @@ describe('workspace viewer zoom state', () => {
             fitMode: 'height',
             viewMode: 'single',
             showSidebar: false,
+            sidebarTab: 'search',
+            sidebarWidth: 396,
             continuousScroll: true,
         });
 
@@ -22,6 +24,7 @@ describe('workspace viewer zoom state', () => {
             axis: 'width',
         });
         expect(state.fitMode.value).toBe('width');
+        expect(state.sidebarTab.value).toBe('search');
 
         state.zoomMode.value = 'custom';
         state.zoom.value = 2;

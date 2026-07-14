@@ -129,6 +129,30 @@ describe('preload global event fan-out', () => {
         expect(ipcRenderer.removeListener).toHaveBeenCalledOnce();
     });
 
+    it('fans out validated DjVu text-search progress through one native listener', () => {
+        const {
+            ipcRenderer,
+            listeners,
+        } = createIpcRendererHarness();
+        const client = createDjvuPreloadClient(ipcRenderer);
+        const callbacks = Array.from({length: 24}, () => vi.fn());
+        const unsubscribes = callbacks.map(callback => client.onTextSearchProgress(callback));
+
+        expect(ipcRenderer.on).toHaveBeenCalledOnce();
+        listeners.get(DJVU_EVENT_CHANNELS.textSearchProgress)?.({}, {
+            requestId: 'djvu-search-1',
+            processed: 8,
+            total: 431,
+            resultsStartIndex: 0,
+            results: [],
+            status: 'running',
+        });
+        expect(callbacks.every(callback => callback.mock.calls.length === 1)).toBe(true);
+
+        unsubscribes.forEach(unsubscribe => unsubscribe());
+        expect(ipcRenderer.removeListener).toHaveBeenCalledOnce();
+    });
+
     it('requests each related process-global progress stream only once for many consumers', () => {
         const {
             ipcRenderer,

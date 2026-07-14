@@ -18,6 +18,7 @@ function createBindingHarness() {
     const isWorkspaceLayoutResizing = ref(false);
     const pdfRasterDisplayProfile = ref<TPdfRasterDisplayProfile | null>(null);
     const onSourceCapabilitiesUpdate = vi.fn();
+    const onPageSourceUpdate = vi.fn();
     const binding = useWorkspaceViewerAdapterBinding({
         activeViewerAdapter: computed(() => activeViewerAdapter.value),
         annotationCursorMode: ref(null),
@@ -28,7 +29,15 @@ function createBindingHarness() {
         continuousScroll: ref(true),
         currentResultNavigationId: ref(0),
         currentSearchMatch: ref(null),
+        documentSourceCurrentResultIndex: ref(1),
+        documentSourceSearchResults: ref([{
+            pageIndex: 0,
+            matchIndex: 0,
+            startOffset: 0,
+            endOffset: 4,
+        }]),
         currentPage: ref(1),
+        documentSourceAnnotationRevision: ref(0),
         djvuSourcePath: ref('/tmp/source.djvu'),
         dragMode: ref(false),
         fitMode: ref('width'),
@@ -48,7 +57,6 @@ function createBindingHarness() {
         nativePdfViewerRef: ref(null),
         djvuViewerRef: ref(null),
         sourcePdfData: ref(null),
-        showSidebar: ref(true),
         viewMode: ref('single'),
         workingCopyPath: ref(null),
         originalPath: ref('/tmp/source.pdf'),
@@ -77,6 +85,7 @@ function createBindingHarness() {
         onNavigationFeedbackPageUpdate: vi.fn(),
         onShapeContextMenu: vi.fn(),
         onSourceCapabilitiesUpdate,
+        onPageSourceUpdate,
         onTotalPagesUpdate: vi.fn(),
         onZoomModeUpdate: vi.fn(),
         onZoomUpdate: vi.fn(),
@@ -89,6 +98,7 @@ function createBindingHarness() {
         isWorkspaceLayoutResizing,
         pdfRasterDisplayProfile,
         onSourceCapabilitiesUpdate,
+        onPageSourceUpdate,
     };
 }
 
@@ -144,6 +154,37 @@ describe('useWorkspaceViewerAdapterBinding', () => {
         activeViewerAdapter.value = getWorkspaceViewerAdapter('djvu');
 
         expect(binding.activeViewerProps.value.isResizing).toBe(true);
+    });
+
+    it('passes workspace-owned source search presentation only to the DjVu page source', () => {
+        const {
+            activeViewerAdapter,
+            binding,
+        } = createBindingHarness();
+
+        expect(binding.activeViewerProps.value).not.toHaveProperty('searchResults');
+
+        activeViewerAdapter.value = getWorkspaceViewerAdapter('djvu');
+
+        expect(binding.activeViewerProps.value.searchResults).toEqual([expect.objectContaining({
+            pageIndex: 0,
+            matchIndex: 0,
+        })]);
+        expect(binding.activeViewerProps.value.currentSearchResultIndex).toBe(1);
+    });
+
+    it('publishes the active page source to the workspace-owned sidebar', () => {
+        const {
+            binding,
+            onPageSourceUpdate,
+        } = createBindingHarness();
+        const pageSource = {pageCount: 3};
+        const listener = binding.activeViewerListeners.value['update:pageSource'];
+
+        expect(listener).toBe(onPageSourceUpdate);
+        (listener as (value: typeof pageSource) => void)(pageSource);
+
+        expect(onPageSourceUpdate).toHaveBeenCalledWith(pageSource);
     });
 
     it('forwards source capability updates from the active source viewer', () => {

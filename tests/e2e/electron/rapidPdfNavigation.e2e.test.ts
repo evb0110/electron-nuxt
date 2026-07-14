@@ -433,7 +433,7 @@ async function jumpToPageAndWaitForCanvas(session: IElectronE2ESession, pageNumb
         }
     }
 
-    await callWorkspaceCommand(session.page, 'scrollToPage', [pageNumber]);
+    await callWorkspaceCommand(session.page, 'handleGoToPage', [pageNumber]);
 
     const canvasMounted = await waitForVisiblePageCanvas(session, pageNumber, 8_000);
 

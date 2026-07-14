@@ -123,6 +123,22 @@ const KEEP_NUXT_ON_STOP_MARKER = 'keep-nuxt-on-stop';
 const INITIAL_OPEN_PATHS_ENV = 'EVB_AUTOMATION_INITIAL_OPEN_PATHS';
 const ELECTRON_GRACEFUL_SHUTDOWN_TIMEOUT_MS = 10_000;
 
+export function shouldClearAutomationWorkspaceCrashCheckpointOnExit(exitCode: number) {
+    return [
+        0,
+        130,
+        143,
+    ].includes(exitCode);
+}
+
+export function clearAutomationWorkspaceCrashCheckpointAfterSessionExit(
+    exitCode: number,
+    sessionName = getCurrentSessionName(),
+) {
+    return shouldClearAutomationWorkspaceCrashCheckpointOnExit(exitCode)
+        && clearAutomationWorkspaceCrashCheckpoint(sessionName);
+}
+
 function formatElapsedMs(startedAt: number) {
     return `${((Date.now() - startedAt) / 1000).toFixed(2)}s`;
 }
@@ -451,10 +467,13 @@ async function killStaleElectronForCurrentSession() {
     }
 }
 
-async function allocateAutomationPorts(logTiming: (message: string) => void) {
+export async function allocateAutomationPorts(logTiming: (message: string) => void) {
+    const serverPort = await findFreePort();
+    let cdpPort = await findFreePort();
+    while (cdpPort === serverPort) cdpPort = await findFreePort();
     const ports = {
-        serverPort: await findFreePort(),
-        cdpPort: await findFreePort(),
+        serverPort,
+        cdpPort,
     };
     console.log(`[Ports] CDP: ${ports.cdpPort}, HTTP server: ${ports.serverPort}`);
     logTiming('Automation ports allocated');
@@ -735,9 +754,10 @@ async function cleanupSessionAndExit(exitCode: number, httpServer: ReturnType<ty
     clearRuntimeSessionFiles();
     httpServer?.close();
     await stopSessionElectronProcess(sessionState);
-    if (exitCode === 0) {
-        clearAutomationWorkspaceCrashCheckpoint(getCurrentSessionName());
-    }
+    // SIGINT/SIGTERM are normal developer-owned restarts. Electron has already
+    // been closed gracefully above, so retaining its checkpoint here turns a
+    // successful `pnpm dev` restart into an accidental document restore.
+    clearAutomationWorkspaceCrashCheckpointAfterSessionExit(exitCode);
     await stopSessionNuxtProcess(sessionState, keepNuxtOnStop);
     sessionState = null;
     closeActiveDevServerOutputTee();

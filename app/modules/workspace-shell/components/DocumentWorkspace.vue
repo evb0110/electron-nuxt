@@ -17,6 +17,7 @@
                 :page-dropdown-total-pages="documentMetadataReady ? totalPages : 0"
                 :page-labels="toolbarPageLabels"
                 :navigation-feedback-page="navigationFeedbackPage"
+                :navigation-command="navigationCommand"
                 :ocr-pdf-document="pdfDocument"
                 :ocr-working-copy-path="workingCopyPath"
                 :ocr-external-error="docxExportError"
@@ -90,7 +91,7 @@
             @dismiss="djvuDismissBanner"
         />
         <WorkspaceSidebarHost
-            :show-sidebar="Boolean(showStandardPdfViewer && showSidebar)"
+            :show-sidebar="toolbarShowSidebar"
             :sidebar-wrapper-style="sidebarWrapperStyle"
             :is-resizing-sidebar="isResizingSidebar"
             :resize-aria-label="t('sidebar.resize')"
@@ -99,6 +100,7 @@
         >
             <template #sidebar>
                 <PdfSidebar
+                    v-if="showStandardPdfViewer"
                     v-model:active-tab="sidebarTab"
                     v-model:search-query="searchQuery"
                     :submitted-search-query="submittedSearchQuery"
@@ -113,7 +115,6 @@
                     :search-results="results"
                     :current-result-index="currentResultIndex"
                     :current-result-navigation-id="currentResultNavigationId"
-                    :total-matches="totalMatches"
                     :is-searching="isSearching"
                     :search-error="searchError"
                     :search-focus-request="searchFocusRequest"
@@ -161,6 +162,18 @@
                     @page-delete="handlePageDelete"
                     @page-reorder="handlePageReorder"
                     @page-file-drop="documentControls.handlePageFileDrop"
+                />
+                <DocumentSourceSidebar
+                    v-else
+                    v-model:active-tab="sidebarTab"
+                    :source="documentSourceSidebar.source.value"
+                    :current-page="currentPage"
+                    :annotation-revision="documentSourceSidebar.annotationRevision.value"
+                    :is-resizing="isResizingSidebar"
+                    :search-session="documentSourceSidebar.searchSession"
+                    :search-focus-request="searchFocusRequest"
+                    @go-to-page="handleGoToPage"
+                    @annotations-changed="documentSourceSidebar.invalidateAnnotations"
                 />
             </template>
 
@@ -343,6 +356,7 @@ import { useAnalytics } from '@app/composables/useAnalytics';
 import { createWorkspaceExpose } from '@app/modules/workspace-shell/expose/createWorkspaceExpose';
 import WorkspaceAnnotationOverlays from '@app/modules/workspace-shell/components/WorkspaceAnnotationOverlays.vue';
 import WorkspaceDocumentAlerts from '@app/modules/workspace-shell/components/WorkspaceDocumentAlerts.vue';
+import DocumentSourceSidebar from '@app/modules/workspace-shell/components/DocumentSourceSidebar.vue';
 import WorkspaceExportProgressOverlay from '@app/modules/workspace-shell/components/WorkspaceExportProgressOverlay.vue';
 import WorkspacePageOpProgressOverlay from '@app/modules/workspace-shell/components/WorkspacePageOpProgressOverlay.vue';
 import WorkspacePdfToolbarView from '@app/modules/workspace-shell/components/WorkspacePdfToolbarView.vue';
@@ -372,11 +386,11 @@ import { useDocumentWorkspaceDocumentRecord } from '@app/modules/workspace-shell
 import { useDocumentWorkspacePageOperationHandlers } from '@app/modules/workspace-shell/composables/useDocumentWorkspacePageOperationHandlers';
 import { useWorkspaceHostTeleportAvailability } from '@app/modules/workspace-shell/composables/useWorkspaceHostTeleportAvailability';
 import type { IPdfPageMatches } from '@app/types/pdfUi';
+import { useDocumentSourceSidebarSession } from '@app/modules/workspace-shell/composables/useDocumentSourceSidebarSession';
+import { useWorkspacePageNavigationCommand } from '@app/modules/workspace-shell/composables/useWorkspacePageNavigationCommand';
+import { createWorkspacePdfSearchResultNavigation } from '@app/modules/workspace-shell/composables/createWorkspacePdfSearchResultNavigation';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import type {
-    IWorkspaceExpose,
-    IWorkspaceToolbarSnapshot,
-} from '@app/types/workspaceExpose';
+import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
 import {
     getDocumentMenuCapability,
@@ -501,7 +515,6 @@ const orchestration = useWorkspaceOrchestration({
     sourceCapabilities: documentSourceCapabilities,
     emit,
 });
-
 const {
     fileLifecycle,
     viewerShell,
@@ -516,7 +529,6 @@ const {
     printWorkflow,
     workspaceSettings,
 } = orchestration;
-
 const {
     pdfSrc,
     pdfReloadSrc,
@@ -550,7 +562,6 @@ const {
     hasPdf,
     initFromStorage,
 } = fileLifecycle;
-
 const {
     pdfViewerRef,
     nativePdfViewerRef,
@@ -588,14 +599,13 @@ const {
     currentResult,
     isSearching,
     searchError,
-    totalMatches,
     searchProgress,
     isTruncated,
     minQueryLength,
     handleSearch,
     handleSearchNext,
     handleSearchPrevious,
-    handleGoToResult,
+    handleGoToResult: selectPdfSearchResult,
     searchFocusRequest,
     sidebarWidth,
     sidebarWrapperStyle,
@@ -606,7 +616,7 @@ const {
 } = viewerShell;
 const isExternalWorkspaceLayoutResizingRef = toRef(() => isExternalWorkspaceLayoutResizing === true);
 const isActiveViewerLayoutResizing = computed(() => (
-    isResizingSidebar.value || isExternalWorkspaceLayoutResizingRef.value
+    isResizingSidebar.value || isExternalWorkspaceLayoutResizingRef.value || isTabTransitionBusy
 ));
 const { appSettings } = workspaceSettings;
 const {
@@ -619,7 +629,6 @@ const {
     handleExportScopeDialogSubmit,
     handleExportScopeDialogOpenChange,
 } = exportWorkflow;
-
 const {
     pageLabels,
     pageLabelRanges,
@@ -632,7 +641,6 @@ const {
     bookmarkNavigationIntentVersion,
     handleBookmarksChange,
 } = metadata;
-
 const {
     annotationContextMenu,
     annotationContextMenuStyle,
@@ -680,13 +688,11 @@ const {
     textMarkupPropertiesPopover,
     selectedTextMarkupForProperties,
 } = annotationSession;
-
 const {
     pageContextMenu,
     pageContextMenuStyle,
     showPageContextMenu,
 } = pageContextMenuControls;
-
 const {
     handleSave,
     handleRepairSave,
@@ -704,7 +710,6 @@ const {
     isHistoryBusy,
     hasPendingUnsavedChanges,
 } = saveWorkflow;
-
 const {
     handlePrint,
     handlePrintCurrentPage,
@@ -717,7 +722,6 @@ const {
     printError,
     printStatus,
 } = printWorkflow;
-
 const {
     isFitWidthActive,
     isFitHeightActive,
@@ -728,10 +732,19 @@ const {
     handleRedo,
     handleFitMode,
     enableDragMode,
-    handleGoToPage,
+    handleGoToPage: performGoToPage,
+    beginProgrammaticPageNavigation,
     shouldAcceptViewerCurrentPageUpdate,
 } = viewNavigation;
-
+const {
+    handleGoToPage,
+    navigationCommand,
+} = useWorkspacePageNavigationCommand(performGoToPage);
+const handleGoToResult = createWorkspacePdfSearchResultNavigation({
+    results,
+    navigate: handleGoToPage,
+    select: selectPdfSearchResult,
+});
 const {
     handleCaptureRegion,
     isCapturingRegion,
@@ -751,7 +764,6 @@ const {
     captureSplitPayload,
     restoreSplitPayload,
 } = interactionControls;
-
 const {
     statusFilePath,
     statusFileSizeLabel,
@@ -922,7 +934,7 @@ const {
     viewerRef: documentViewerRef,
     shouldAcceptPage: shouldAcceptViewerCurrentPageUpdate,
 });
-
+const documentSourceSidebar = useDocumentSourceSidebarSession({onNavigate: pageIndex => handleGoToPage(pageIndex + 1, {navigationSource: 'search'})});
 const {
     activeViewerComponent,
     activeViewerProps,
@@ -935,6 +947,7 @@ const {
             documentSourceCapabilities.value = capabilities;
         }
     },
+    onPageSourceUpdate: documentSourceSidebar.publishSource,
     annotationCursorMode,
     annotationKeepActive,
     annotationSettings,
@@ -943,7 +956,10 @@ const {
     continuousScroll,
     currentResultNavigationId,
     currentSearchMatch: viewerCurrentSearchMatch,
+    documentSourceCurrentResultIndex: computed(() => isActiveRef.value && showSidebar.value ? documentSourceSidebar.searchSession.currentResultIndex.value : -1),
+    documentSourceSearchResults: computed(() => isActiveRef.value && showSidebar.value ? documentSourceSidebar.searchSession.results.value : []),
     currentPage,
+    documentSourceAnnotationRevision: documentSourceSidebar.annotationRevision,
     djvuSourcePath,
     dragMode,
     fitMode,
@@ -960,7 +976,6 @@ const {
     nativePdfViewerRef,
     djvuViewerRef,
     sourcePdfData: viewerSourcePdfData,
-    showSidebar,
     viewMode,
     workingCopyPath,
     originalPath,
@@ -986,7 +1001,7 @@ const {
     onInitialVisualReady: handleDocumentInitialVisualReadyWithAutomationEvent,
     onLoadError: handlePdfViewerLoadError,
     onLoading: value => { isLoading.value = value; },
-    onNavigationFeedbackPageUpdate: value => { navigationFeedbackPage.value = value; },
+    onNavigationFeedbackPageUpdate: value => { navigationFeedbackPage.value = value; if (value !== null) beginProgrammaticPageNavigation(value); },
     onShapeContextMenu: annotationSession.handleShapeContextMenu,
     onTotalPagesUpdate: (value) => {
         if (activeViewerAdapter.value || value === 0) {
@@ -1155,57 +1170,6 @@ const {
     zoom,
     pdfViewerRef,
     isResizingSidebar,
-});
-const workspaceToolbarSnapshot = computed<IWorkspaceToolbarSnapshot>(() => ({
-    hasPdf: toolbarHasPdf.value,
-    initialVisualReady: initialDocumentVisualReady.value,
-    viewerCapabilities: activeViewerCapabilities.value ?? createDefaultWorkspaceViewerCapabilities(),
-    isOpeningDocument: isOpeningDocumentForToolbarDisplay.value,
-    hasOpenError: Boolean(pdfError.value) || Boolean(djvuError.value),
-    isPreparingPrint: isPreparingPrint.value,
-    isPreparingCurrentPagePrint: isPreparingCurrentPagePrint.value,
-    canSave: canSave.value,
-    canRepairSave: canRepairSaveForDisplay.value,
-    canOptimizePdf: canOptimizePdfForDisplay.value,
-    canUndo: canUndo.value,
-    canRedo: canRedo.value,
-    canExportDocx: canExportDocx.value,
-    isSaving: isSaving.value,
-    isSavingAs: isSavingAs.value,
-    isAnySaving: isAnySaving.value,
-    isHistoryBusy: isHistoryBusy.value,
-    isExportingDocx: isExportingDocx.value,
-    isFitWidthActive: isFitWidthActive.value,
-    isFitHeightActive: isFitHeightActive.value,
-    showSidebar: toolbarShowSidebar.value,
-    dragMode: dragMode.value,
-    continuousScroll: continuousScroll.value,
-    isDjvuMode: isDjvuMode.value,
-    isCapturingRegion: isCapturingRegion.value,
-    isCropSelecting: isCropSelecting.value,
-    isPlacingPageNote: annotationPlacingPageNote.value,
-    zoom: zoom.value,
-    effectiveZoom: effectiveZoom.value,
-    zoomMode: zoomMode.value,
-    fitMode: fitMode.value,
-    viewMode: viewMode.value,
-    currentPage: isOpeningDocumentForToolbarDisplay.value ? 1 : currentPage.value,
-    totalPages: isOpeningDocumentForToolbarDisplay.value ? 0 : totalPages.value,
-}));
-useDocumentWorkspaceDocumentRecord({
-    pendingDocumentOpen,
-    pendingDocumentPath: computed(() => pendingDocumentPath),
-    openBatchProgress,
-    hasPdf,
-    isDjvuMode,
-    fileName: fileLifecycle.fileName,
-    originalPath,
-    documentIdentity: documentRevisionInfo,
-    isDirty: hasPendingUnsavedChanges,
-    djvuSourcePath,
-    toolbarSnapshot: workspaceToolbarSnapshot,
-    formatPendingBatchLabel: values => t('tabs.preparingBatch', values),
-    publishRecord: record => emit('update-document-record', record),
 });
 const pageOpBatchEtaText = computed(() => formatEtaDuration(pageOpBatchProgress.value?.estimatedRemainingMs ?? null));
 const {
@@ -1442,6 +1406,8 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     isFitWidthActive,
     isFitHeightActive,
     showSidebar,
+    sidebarTab,
+    sidebarWidth,
     dragMode,
     continuousScroll,
     isCapturingRegion,
@@ -1454,7 +1420,6 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     fitMode,
     viewMode,
     currentPage,
-    pdfToolbarSnapshotViewerRef: pdfViewerRef,
     pdfAutomationViewerRef: pdfViewerRef,
     documentViewerRef,
     handleFitMode,
@@ -1499,6 +1464,22 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     bookmarksDirty,
     sortedAnnotationNoteWindows,
     handleOcrComplete: payload => handleOcrComplete(payload as Parameters<typeof handleOcrComplete>[0]),
+});
+const workspaceToolbarSnapshot = computed(workspaceExpose.getToolbarSnapshot);
+useDocumentWorkspaceDocumentRecord({
+    pendingDocumentOpen,
+    pendingDocumentPath: computed(() => pendingDocumentPath),
+    openBatchProgress,
+    hasPdf,
+    isDjvuMode,
+    fileName: fileLifecycle.fileName,
+    originalPath,
+    documentIdentity: documentRevisionInfo,
+    isDirty: hasPendingUnsavedChanges,
+    djvuSourcePath,
+    toolbarSnapshot: workspaceToolbarSnapshot,
+    formatPendingBatchLabel: values => t('tabs.preparingBatch', values),
+    publishRecord: record => emit('update-document-record', record),
 });
 let unsubscribeOptimizeProgress: (() => void) | null = null;
 onMounted(() => {

@@ -37,5 +37,5 @@
     display: block;
     pointer-events: none;
     overflow: hidden;
-    background: var(--app-pdf-viewer-bg, var(--app-window-bg));
+    background: var(--app-document-viewer-bg, var(--app-window-bg));
 }

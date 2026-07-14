@@ -34,8 +34,8 @@ import {
 import type {
     IWorkspaceDocumentViewerNavigationPort,
     IWorkspacePdfViewerExposeAutomationPort,
-    IWorkspacePdfViewerExposeToolbarSnapshotPort,
 } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
+import type { TDocumentSidebarTab } from '@app/utils/document-viewer/sidebar/documentSidebarTabs';
 
 interface ICreateWorkspaceExposeDeps extends
     IWorkspaceFilePort,
@@ -62,6 +62,8 @@ interface ICreateWorkspaceExposeDeps extends
     isFitWidthActive: Ref<boolean>;
     isFitHeightActive: Ref<boolean>;
     showSidebar: Ref<boolean>;
+    sidebarTab?: Ref<TDocumentSidebarTab>;
+    sidebarWidth?: Ref<number>;
     dragMode: Ref<boolean>;
     continuousScroll: Ref<boolean>;
     isCapturingRegion: Ref<boolean>;
@@ -74,7 +76,6 @@ interface ICreateWorkspaceExposeDeps extends
     fitMode: Ref<TFitMode>;
     viewMode: Ref<TPdfViewMode>;
     currentPage: Ref<number>;
-    pdfToolbarSnapshotViewerRef?: Ref<IWorkspacePdfViewerExposeToolbarSnapshotPort | null>;
     pdfAutomationViewerRef?: Ref<IWorkspacePdfViewerExposeAutomationPort | null>;
     documentViewerRef?: Ref<IWorkspaceDocumentViewerNavigationPort | null>;
     handleFitMode: (mode: TFitMode) => void;
@@ -224,11 +225,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         const isOpeningDocument = deps.isOpeningDocument.value;
         const currentPage = isOpeningDocument
             ? 1
-            : normalizeToolbarSnapshotPage(
-                deps.documentViewerRef?.value?.getCurrentPage?.()
-                    ?? deps.pdfToolbarSnapshotViewerRef?.value?.getCurrentPage?.()
-                    ?? deps.currentPage.value,
-            );
+            : normalizeToolbarSnapshotPage(deps.currentPage.value);
         const totalPages = isOpeningDocument
             ? 0
             : normalizeToolbarSnapshotTotalPages(deps.totalPages.value, currentPage);
@@ -255,6 +252,8 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
             isFitWidthActive: deps.isFitWidthActive.value,
             isFitHeightActive: deps.isFitHeightActive.value,
             showSidebar: deps.showSidebar.value,
+            sidebarTab: deps.sidebarTab?.value ?? 'thumbnails',
+            sidebarWidth: deps.sidebarWidth?.value ?? 272,
             dragMode: deps.dragMode.value,
             continuousScroll: deps.continuousScroll.value,
             isDjvuMode: deps.isDjvuMode.value,

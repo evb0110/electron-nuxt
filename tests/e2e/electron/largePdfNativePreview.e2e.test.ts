@@ -363,7 +363,7 @@ largePdfDescribe('Electron E2E - Large PDF Native Preview', () => {
         const targetPage = Math.min(5, initial.toolbar?.totalPages ?? 1);
         expect(targetPage).toBeGreaterThan(1);
 
-        const command = await callWorkspaceCommand(session.page, 'scrollToPage', [targetPage]);
+        const command = await callWorkspaceCommand(session.page, 'handleGoToPage', [targetPage]);
         expect(command.called).toBe(true);
         await waitForWorkspaceToolbarSnapshot(
             session.page,

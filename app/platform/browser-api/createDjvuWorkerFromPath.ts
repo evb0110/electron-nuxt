@@ -11,10 +11,27 @@ import {
 import {
     loadDjvuJs,
     type IDjvuContentsItem,
+    type IDjvuNormalizedTextZone,
     type IDjvuPageSize,
 } from '@app/platform/browser-api/djvujsLoader';
 import type { IPagePreviewOutlineItem } from '@app/utils/document-viewer/pagePreviewSource';
 import { getValidatedElectronPlatformApi } from '@app/utils/electronPlatformBridge';
+import {
+    SEARCH_EXCERPT_CONTEXT_CHARS,
+    SEARCH_RESULT_LIMIT,
+    type IPdfSearchProgress,
+    type IPdfSearchResponse,
+} from '@contracts/search';
+import {
+    assembleSearchablePageText,
+    buildPdfSearchExcerpt,
+    findPdfSearchMatches,
+    PDF_SEARCH_PROGRESS_RESULT_BATCH_LIMIT,
+    validateSearchQuery,
+    type IResolvedSearchMatchOptions,
+} from '@pdf-core';
+import type { IOcrWord } from '@contracts/shared';
+import { createNativeDjvuTextSearchBridge } from '@app/platform/browser-api/createNativeDjvuTextSearchBridge';
 
 const DJVU_READ_CHUNK_BYTES = 4 * 1024 * 1024;
 const DJVU_BROWSER_WORKER_MAX_SOURCE_BYTES = 192 * 1024 * 1024;
@@ -23,6 +40,15 @@ const DJVU_DESKTOP_DJVUJS_PREVIEW_MAX_BYTES = 96 * 1024 * 1024;
 interface IDjvuWorkerReadOptions {signal?: AbortSignal;}
 
 type TBrowserDjvuWorker = Awaited<ReturnType<typeof createDjvuWorkerFromPath>>;
+
+interface IDjvuWorkerTextSearchOptions {
+    matchOptions: IResolvedSearchMatchOptions;
+    onProgress?: ((progress: IPdfSearchProgress) => void) | undefined;
+    pageCount: number;
+    query: string;
+    requestId: string;
+    signal: AbortSignal;
+}
 
 interface ISharedBrowserDjvuWorker {
     refs: number;
@@ -178,6 +204,144 @@ function throwIfCanceled(signal?: AbortSignal) {
     if (signal?.aborted) {
         throw new Error('DjVu conversion canceled');
     }
+}
+
+function buildBrowserDjvuSearchPage(
+    text: string,
+    zones: IDjvuNormalizedTextZone[] | null,
+) {
+    if (!zones || zones.length === 0) {
+        return {
+            text,
+            offsets: [] as Array<{
+                startOffset: number;
+                endOffset: number
+            }>,
+            words: [] as IOcrWord[],
+        };
+    }
+    const assembled = assembleSearchablePageText(zones.map(zone => ({
+        text: zone.text,
+        separatorAfter: 'space',
+    })));
+    return {
+        text: assembled.text,
+        offsets: assembled.itemOffsets.map(offset => ({
+            startOffset: offset.startOffset,
+            endOffset: offset.endOffset,
+        })),
+        words: zones.map(zone => ({
+            text: zone.text,
+            x: zone.x,
+            y: zone.y,
+            width: zone.width,
+            height: zone.height,
+        })),
+    };
+}
+
+export async function searchDjvuWorkerText(
+    worker: TBrowserDjvuWorker,
+    options: IDjvuWorkerTextSearchOptions,
+): Promise<IPdfSearchResponse> {
+    validateSearchQuery(options.query, options.matchOptions);
+    const pageSizes = await worker.doc.getPagesSizes().run();
+    const pageCount = Math.min(options.pageCount, pageSizes.length);
+    const results: IPdfSearchResponse['results'] = [];
+    let truncated = false;
+    let progressResultsStartIndex = 0;
+
+    for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+        options.signal.throwIfAborted();
+        const page = worker.doc.getPage(pageNumber);
+        const [
+            text,
+            zones,
+        ] = await Promise.all([
+            page.getText().run(),
+            page.getNormalizedTextZones().run().catch(() => null),
+        ]);
+        options.signal.throwIfAborted();
+        const searchable = buildBrowserDjvuSearchPage(text, zones);
+        const pageMatches = findPdfSearchMatches(searchable.text, options.query, options.matchOptions);
+        const progressResults: IPdfSearchResponse['results'] = [];
+        for (const [
+            pageMatchIndex,
+            match,
+        ] of pageMatches.entries()) {
+            if (results.length >= SEARCH_RESULT_LIMIT) {
+                truncated = true;
+                break;
+            }
+            const words = searchable.offsets.flatMap((offset, index) => (
+                offset.endOffset > match.startOffset && offset.startOffset < match.endOffset
+                    ? searchable.words[index] ? [searchable.words[index]] : []
+                    : []
+            )).slice(0, 256);
+            const pageSize = pageSizes[pageNumber - 1];
+            const result: IPdfSearchResponse['results'][number] = {
+                pageNumber: pageNumber as IPdfSearchResponse['results'][number]['pageNumber'],
+                pageMatchIndex,
+                matchIndex: results.length,
+                startOffset: match.startOffset,
+                endOffset: match.endOffset,
+                excerpt: buildPdfSearchExcerpt(
+                    searchable.text,
+                    match.startOffset,
+                    match.endOffset,
+                    SEARCH_EXCERPT_CONTEXT_CHARS,
+                ),
+                ...(words.length > 0 && pageSize ? {
+                    words,
+                    pageWidth: pageSize.width,
+                    pageHeight: pageSize.height,
+                    rotation: 0 as const,
+                } : {}),
+            };
+            results.push(result);
+            progressResults.push(result);
+        }
+        if (progressResults.length === 0) {
+            options.onProgress?.({
+                requestId: options.requestId,
+                processed: pageNumber,
+                total: pageCount,
+                results: [],
+                resultsStartIndex: progressResultsStartIndex,
+                truncated,
+                status: 'running',
+            });
+        } else {
+            for (
+                let resultOffset = 0;
+                resultOffset < progressResults.length;
+                resultOffset += PDF_SEARCH_PROGRESS_RESULT_BATCH_LIMIT
+            ) {
+                options.onProgress?.({
+                    requestId: options.requestId,
+                    processed: pageNumber,
+                    total: pageCount,
+                    results: progressResults.slice(
+                        resultOffset,
+                        resultOffset + PDF_SEARCH_PROGRESS_RESULT_BATCH_LIMIT,
+                    ),
+                    resultsStartIndex: progressResultsStartIndex + resultOffset,
+                    truncated,
+                    status: 'running',
+                });
+            }
+        }
+        progressResultsStartIndex = results.length;
+        if (truncated) {
+            break;
+        }
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
+    }
+
+    return {
+        results,
+        truncated,
+    };
 }
 
 export async function createDjvuWorkerFromPath(
@@ -351,11 +515,13 @@ async function scaleDjvuPageObjectUrl(
 
 export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef) {
     const nativeDjvu = await shouldUseNativeDesktopDjvuPreview(djvuPath);
+    const nativeTextSearch = createNativeDjvuTextSearchBridge(djvuPath);
     if (nativeDjvu) {
         let terminated = false;
         let nextPreviewRequestId = 0;
         const activePreviewRequestIds = new Set<string>();
-        const activePreviewRequestIdsByPage = new Map<number, string>();
+        const activePreviewRequestIdsByPage = new Map<number, Set<string>>();
+        const canceledPreviewRequestIds = new Set<string>();
         const cancelPreviewRequest = (requestId: string) => {
             void nativeDjvu.cancelPagePreview(requestId).catch(() => undefined);
         };
@@ -371,20 +537,21 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
             return `native-preview:${pageNumber}:${nextPreviewRequestId}`;
         };
         return {
-            cancelPagePreview(pageNumber: number) {
-                const requestId = activePreviewRequestIdsByPage.get(pageNumber);
-                if (!requestId) {
-                    return;
+            cancelPagePreview(pageNumber: number, requestId?: string) {
+                const pageRequestIds = activePreviewRequestIdsByPage.get(pageNumber);
+                const requestIds = requestId ? [requestId] : [...pageRequestIds ?? []];
+                for (const activeRequestId of requestIds) {
+                    if (!activePreviewRequestIds.has(activeRequestId)) continue;
+                    canceledPreviewRequestIds.add(activeRequestId);
+                    cancelPreviewRequest(activeRequestId);
                 }
-                activePreviewRequestIdsByPage.delete(pageNumber);
-                activePreviewRequestIds.delete(requestId);
-                cancelPreviewRequest(requestId);
             },
             getPageSizes: () => nativeDjvu.getPageSizes(djvuPath),
             getPageSize: async (pageNumber: number) => (
                 await nativeDjvu.getPageSourceInfo(djvuPath, pageNumber)
             ).pageSize,
             getPageSourceInfo: (pageNumber: number) => nativeDjvu.getPageSourceInfo(djvuPath, pageNumber),
+            ...(nativeTextSearch ? {searchText: nativeTextSearch.searchText} : {}),
             async renderPageObjectUrl(
                 pageNumber: number,
                 options?: IDjvuPagePreviewOptions,
@@ -393,12 +560,10 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
                     throw new Error('DjVu conversion canceled');
                 }
                 const previewRequestId = createPreviewRequestId(pageNumber, options);
-                const previousRequestId = activePreviewRequestIdsByPage.get(pageNumber);
-                if (previousRequestId && previousRequestId !== previewRequestId) {
-                    cancelPreviewRequest(previousRequestId);
-                }
                 activePreviewRequestIds.add(previewRequestId);
-                activePreviewRequestIdsByPage.set(pageNumber, previewRequestId);
+                const pageRequestIds = activePreviewRequestIdsByPage.get(pageNumber) ?? new Set<string>();
+                pageRequestIds.add(previewRequestId);
+                activePreviewRequestIdsByPage.set(pageNumber, pageRequestIds);
                 const renderOptions: IDjvuPagePreviewOptions = {
                     ...options,
                     previewRequestId,
@@ -406,14 +571,16 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
                 let preview;
                 try {
                     preview = await nativeDjvu.renderPagePreview(djvuPath, pageNumber, renderOptions);
+                    if (terminated || canceledPreviewRequestIds.has(previewRequestId)) {
+                        throw new Error('DjVu conversion canceled');
+                    }
                 } finally {
                     activePreviewRequestIds.delete(previewRequestId);
-                    if (activePreviewRequestIdsByPage.get(pageNumber) === previewRequestId) {
+                    canceledPreviewRequestIds.delete(previewRequestId);
+                    pageRequestIds.delete(previewRequestId);
+                    if (pageRequestIds.size === 0) {
                         activePreviewRequestIdsByPage.delete(pageNumber);
                     }
-                }
-                if (terminated) {
-                    throw new Error('DjVu conversion canceled');
                 }
                 return {
                     objectUrl: createPngObjectUrl(preview.bytes),
@@ -428,6 +595,8 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
                 }
                 activePreviewRequestIds.clear();
                 activePreviewRequestIdsByPage.clear();
+                canceledPreviewRequestIds.clear();
+                nativeTextSearch?.dispose();
             },
         };
     }
@@ -439,7 +608,9 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
     let terminated = false;
     let nextPreviewRequestId = 0;
     let fallbackRenderQueue = Promise.resolve();
-    const latestPreviewRequestIdsByPage = new Map<number, string>();
+    const activePreviewRequestIds = new Set<string>();
+    const activePreviewRequestIdsByPage = new Map<number, Set<string>>();
+    const canceledPreviewRequestIds = new Set<string>();
     const fallbackWindowObjectUrls = new Set<string>();
 
     const registerFallbackWindowObjectUrl = (url: string) => {
@@ -484,10 +655,8 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
     };
 
     const throwIfFallbackRenderCanceled = (pageNumber: number, previewRequestId: string) => {
-        if (
-            terminated
-            || latestPreviewRequestIdsByPage.get(pageNumber) !== previewRequestId
-        ) {
+        void pageNumber;
+        if (terminated || canceledPreviewRequestIds.has(previewRequestId)) {
             throw new Error('DjVu conversion canceled');
         }
     };
@@ -502,8 +671,14 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
     const pageSizesPromise = worker.doc.getPagesSizes().run();
 
     return {
-        cancelPagePreview(pageNumber: number) {
-            latestPreviewRequestIdsByPage.delete(pageNumber);
+        cancelPagePreview(pageNumber: number, requestId?: string) {
+            const pageRequestIds = activePreviewRequestIdsByPage.get(pageNumber);
+            const requestIds = requestId ? [requestId] : [...pageRequestIds ?? []];
+            for (const activeRequestId of requestIds) {
+                if (activePreviewRequestIds.has(activeRequestId)) {
+                    canceledPreviewRequestIds.add(activeRequestId);
+                }
+            }
         },
         getPageSizes: (): Promise<IDjvuPageSize[]> => pageSizesPromise,
         async getPageSize(pageNumber: number) {
@@ -527,6 +702,8 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
             };
         },
         getPageText: (pageNumber: number) => worker.doc.getPage(pageNumber).getText().run(),
+        searchText: nativeTextSearch?.searchText
+            ?? ((request: IDjvuWorkerTextSearchOptions) => searchDjvuWorkerText(worker, request)),
         async getOutline() {
             return mapOutline(await worker.doc.getContents().run() ?? []);
         },
@@ -538,39 +715,54 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
                 throw new Error('DjVu conversion canceled');
             }
             const previewRequestId = createFallbackPreviewRequestId(pageNumber, options);
-            latestPreviewRequestIdsByPage.set(pageNumber, previewRequestId);
-            const pageObject = await enqueueFallbackRender(async () => {
-                throwIfFallbackRenderCanceled(pageNumber, previewRequestId);
-                const renderedPageObject = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
-                try {
+            activePreviewRequestIds.add(previewRequestId);
+            const pageRequestIds = activePreviewRequestIdsByPage.get(pageNumber) ?? new Set<string>();
+            pageRequestIds.add(previewRequestId);
+            activePreviewRequestIdsByPage.set(pageNumber, pageRequestIds);
+            try {
+                const pageObject = await enqueueFallbackRender(async () => {
                     throwIfFallbackRenderCanceled(pageNumber, previewRequestId);
-                    return renderedPageObject;
+                    const renderedPageObject = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
+                    try {
+                        throwIfFallbackRenderCanceled(pageNumber, previewRequestId);
+                        return renderedPageObject;
+                    } catch (error) {
+                        revokeFallbackObjectUrl(renderedPageObject.url);
+                        throw error;
+                    }
+                });
+                let renderedPageObjectUrl: IDjvuRenderedPageObjectUrl | null = null;
+
+                try {
+                    renderedPageObjectUrl = await scaleDjvuPageObjectUrl(
+                        pageObject,
+                        options?.subsample,
+                        options?.targetWidthPx,
+                        revokeFallbackObjectUrl,
+                        registerFallbackWindowObjectUrl,
+                    );
+                    throwIfFallbackRenderCanceled(pageNumber, previewRequestId);
+                    return renderedPageObjectUrl;
                 } catch (error) {
-                    revokeFallbackObjectUrl(renderedPageObject.url);
+                    revokeFallbackObjectUrl(renderedPageObjectUrl?.objectUrl ?? pageObject.url);
                     throw error;
                 }
-            });
-            let renderedPageObjectUrl: IDjvuRenderedPageObjectUrl | null = null;
-
-            try {
-                renderedPageObjectUrl = await scaleDjvuPageObjectUrl(
-                    pageObject,
-                    options?.subsample,
-                    options?.targetWidthPx,
-                    revokeFallbackObjectUrl,
-                    registerFallbackWindowObjectUrl,
-                );
-                throwIfFallbackRenderCanceled(pageNumber, previewRequestId);
-                return renderedPageObjectUrl;
-            } catch (error) {
-                revokeFallbackObjectUrl(renderedPageObjectUrl?.objectUrl ?? pageObject.url);
-                throw error;
+            } finally {
+                activePreviewRequestIds.delete(previewRequestId);
+                canceledPreviewRequestIds.delete(previewRequestId);
+                pageRequestIds.delete(previewRequestId);
+                if (pageRequestIds.size === 0) {
+                    activePreviewRequestIdsByPage.delete(pageNumber);
+                }
             }
         },
         revokeObjectURL: revokeFallbackObjectUrl,
         terminate() {
             terminated = true;
-            latestPreviewRequestIdsByPage.clear();
+            nativeTextSearch?.dispose();
+            activePreviewRequestIds.clear();
+            activePreviewRequestIdsByPage.clear();
+            canceledPreviewRequestIds.clear();
             for (const url of fallbackWindowObjectUrls) {
                 if (typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
                     URL.revokeObjectURL(url);

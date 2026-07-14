@@ -4,6 +4,7 @@ import {
     it,
 } from 'vitest';
 import {
+    createNativeDjvuLatePageSearchFixture,
     createMultiPageTextFixturePdf,
     createPngFixture,
     resolveDjvuFixturePath,
@@ -16,10 +17,12 @@ import {
     ensureSidebarOpen,
     goToPageViaToolbar,
     openDjvuInApp,
+    openDocumentSidebarTab,
     openPdfInApp,
     waitForDjvuLoaded,
     waitForPdfLoaded,
     waitForToolbarCurrentPage,
+    triggerOpenPathInApp,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import { waitForFunctionInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 import {
@@ -34,10 +37,10 @@ interface IViewerSmokeSnapshot {
     scrollTop: number;
     scrollHeight: number;
     clientHeight: number;
-    currentPage: number | null;
     visiblePages: number[];
     firstPageWidth: number;
     firstPageHeight: number;
+    firstPagePainted: boolean;
 }
 
 interface IViewerScrollAttempt {
@@ -115,6 +118,46 @@ interface IDjvuSplitResizeContinuityProbe {
 }
 
 interface IDjvuSplitResizeContinuityWindow extends Window {__djvuSplitResizeContinuityProbe?: IDjvuSplitResizeContinuityProbe;}
+
+interface IDjvuSidebarLifecycleFrame {
+    busy: boolean;
+    currentPage: number | null;
+    errorText: string;
+    readyVisiblePageCount: number;
+    runtimeErrorText: string;
+    visiblePageCount: number;
+}
+
+interface IDjvuSidebarLifecycleProbe {
+    active: boolean;
+    frames: IDjvuSidebarLifecycleFrame[];
+}
+
+interface IDjvuSidebarLifecycleWindow extends Window {__djvuSidebarLifecycleProbe?: IDjvuSidebarLifecycleProbe;}
+
+interface IDocumentSidebarResizeGeometry {
+    configuredSashWidth: number;
+    sashBackground: string;
+    sashRight: number;
+    sashWidth: number;
+    sidebarWidth: number;
+    viewerLeft: number;
+    wrapperRight: number;
+}
+
+interface IDjvuNativeSearchProgressEvent {
+    processed: number;
+    requestId: string;
+    status?: 'running' | 'success' | 'canceled' | 'failed';
+    total: number;
+}
+
+interface IDjvuNativeSearchProgressProbe {
+    events: IDjvuNativeSearchProgressEvent[];
+    unsubscribe: () => void;
+}
+
+interface IDjvuNativeSearchProgressWindow extends Window {__djvuNativeSearchProgressProbe?: IDjvuNativeSearchProgressProbe;}
 
 const VIEWER_SMOKE_OPEN_TIMEOUT_MS = 45_000;
 const DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS = 90_000;
@@ -378,6 +421,71 @@ async function dragEditorDividerToRatio(session: IElectronE2ESession, targetRati
     });
 }
 
+async function readDocumentSidebarResizeGeometry(session: IElectronE2ESession) {
+    return session.page.evaluate((): IDocumentSidebarResizeGeometry | null => {
+        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const wrapper = host?.querySelector<HTMLElement>('.sidebar-wrapper') ?? null;
+        const sidebar = wrapper?.querySelector<HTMLElement>('[data-testid="document-sidebar"]') ?? null;
+        const sash = wrapper?.querySelector<HTMLElement>('.sidebar-resizer') ?? null;
+        const viewer = host?.querySelector<HTMLElement>('.workspace-main__viewer') ?? null;
+        if (!wrapper || !sidebar || !sash || !viewer) {
+            return null;
+        }
+        const rootStyle = window.getComputedStyle(document.documentElement);
+        const sashRect = sash.getBoundingClientRect();
+        return {
+            configuredSashWidth: Number.parseFloat(rootStyle.getPropertyValue('--app-editor-sash-width')) || 0,
+            sashBackground: window.getComputedStyle(sash).backgroundColor,
+            sashRight: sashRect.right,
+            sashWidth: sashRect.width,
+            sidebarWidth: sidebar.getBoundingClientRect().width,
+            viewerLeft: viewer.getBoundingClientRect().left,
+            wrapperRight: wrapper.getBoundingClientRect().right,
+        };
+    });
+}
+
+async function dragDocumentSidebarDividerBy(session: IElectronE2ESession, deltaX: number) {
+    const before = await readDocumentSidebarResizeGeometry(session);
+    if (!before) {
+        throw new Error('Visible document sidebar divider was not found');
+    }
+    const point = await session.page.evaluate(() => {
+        const sash = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host .sidebar-resizer',
+        );
+        if (!sash) {
+            return null;
+        }
+        const rect = sash.getBoundingClientRect();
+        return {
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+        };
+    });
+    if (!point) {
+        throw new Error('Visible document sidebar divider geometry was unavailable');
+    }
+
+    await session.page.mouse.move(point.x, point.y);
+    await session.page.mouse.down();
+    await session.page.mouse.move(point.x + deltaX, point.y, {steps: 8});
+    await session.page.mouse.up();
+    await session.page.evaluate(async () => {
+        await new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        });
+    });
+    const after = await readDocumentSidebarResizeGeometry(session);
+    if (!after) {
+        throw new Error('Document sidebar divider disappeared after resize');
+    }
+    return {
+        after,
+        before,
+    };
+}
+
 async function installDjvuSplitResizeContinuityProbe(session: IElectronE2ESession, paneId: string) {
     return session.page.evaluate((sourcePaneId: string) => {
         const probeWindow = window as IDjvuSplitResizeContinuityWindow;
@@ -474,6 +582,7 @@ async function readViewerSmokeSnapshot(session: IElectronE2ESession) {
         const viewerRect = viewer?.getBoundingClientRect() ?? null;
         const firstPage = viewer?.querySelector<HTMLElement>('.page_container[data-page="1"]') ?? null;
         const firstPageRect = firstPage?.getBoundingClientRect() ?? null;
+        const firstPageCanvas = firstPage?.querySelector<HTMLCanvasElement>('.page_canvas canvas, canvas') ?? null;
         const visiblePages = viewer && viewerRect
             ? Array.from(viewer.querySelectorAll<HTMLElement>('.page_container'))
                 .filter((pageElement) => {
@@ -490,13 +599,14 @@ async function readViewerSmokeSnapshot(session: IElectronE2ESession) {
             scrollTop: Math.round(viewer?.scrollTop ?? 0),
             scrollHeight: Math.round(viewer?.scrollHeight ?? 0),
             clientHeight: Math.round(viewer?.clientHeight ?? 0),
-            currentPage: Number.parseInt(
-                visibleHost?.querySelector('.page-controls-current')?.textContent ?? '',
-                10,
-            ) || null,
             visiblePages,
             firstPageWidth: Math.round(firstPageRect?.width ?? 0),
             firstPageHeight: Math.round(firstPageRect?.height ?? 0),
+            firstPagePainted: Boolean(
+                firstPageCanvas
+                && firstPageCanvas.width > 0
+                && firstPageCanvas.height > 0,
+            ),
         };
     });
 }
@@ -522,7 +632,13 @@ async function waitForViewerSmokeSnapshot(
 
         const viewerRect = viewer.getBoundingClientRect();
         const firstPageRect = firstPage.getBoundingClientRect();
-        return viewerRect.height > expected.viewerHeight && firstPageRect.height > expected.firstPageHeight;
+        const canvas = firstPage.querySelector<HTMLCanvasElement>('.page_canvas canvas, canvas');
+        const visibleHeight = Math.min(firstPageRect.bottom, viewerRect.bottom)
+            - Math.max(firstPageRect.top, viewerRect.top);
+        return viewerRect.height > expected.viewerHeight
+            && firstPageRect.height > expected.firstPageHeight
+            && visibleHeight > 8
+            && Boolean(canvas && canvas.width > 0 && canvas.height > 0);
     }, { timeout: VIEWER_SMOKE_OPEN_TIMEOUT_MS }, minimums);
 
     return readViewerSmokeSnapshot(session);
@@ -757,7 +873,7 @@ async function configureDjvuWheelMetricStart(
     const toolbarSnapshot = await getWorkspaceToolbarSnapshot(session.page);
     expect(toolbarSnapshot?.effectiveZoom ?? 0).toBeCloseTo(DJVU_VIDEO_ZOOM, 1);
 
-    const scrollResult = await callWorkspaceCommand(session.page, 'scrollToPage', [startPage]);
+    const scrollResult = await callWorkspaceCommand(session.page, 'handleGoToPage', [startPage]);
     expect(scrollResult.called).toBe(true);
     await waitForWorkspaceToolbarSnapshot(
         session.page,
@@ -849,7 +965,10 @@ describe('Electron E2E - Viewer Smoke', () => {
             return;
         }
 
-        session = await sessionFixture.restart({sessionName: () => `e2e-viewer-pdf-smoke-${Date.now()}`});
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-viewer-pdf-smoke-${Date.now()}`,
+        });
         if (!session) {
             return;
         }
@@ -862,6 +981,7 @@ describe('Electron E2E - Viewer Smoke', () => {
         expect(initial.hostHeight).toBeGreaterThan(300);
         expect(initial.viewerHeight).toBeGreaterThan(300);
         expect(initial.firstPageHeight).toBeGreaterThan(300);
+        expect(initial.firstPagePainted).toBe(true);
         expect(initial.visiblePages).toContain(1);
 
         const zoomed = await zoomInUntilScrollable(session, initial);
@@ -970,7 +1090,10 @@ describe('Electron E2E - Viewer Smoke', () => {
             return;
         }
 
-        session = await sessionFixture.restart({sessionName: () => `e2e-viewer-sidebar-search-${Date.now()}`});
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-viewer-sidebar-search-${Date.now()}`,
+        });
         if (!session) {
             return;
         }
@@ -985,56 +1108,77 @@ describe('Electron E2E - Viewer Smoke', () => {
 
         const tabNames = await session.page.evaluate(() => (
             Array.from(document.querySelectorAll<HTMLElement>(
-                '.editor-pane.is-active .pdf-sidebar [role="tab"]',
+                '.editor-pane.is-active [data-testid="document-sidebar"] [role="tab"]',
             )).map(tab => tab.textContent?.trim() ?? '')
         ));
-        expect(tabNames).toEqual([
+        const commonTabOrder = [
             'Annotations',
             'Pages',
             'Bookmarks',
             'Search',
-        ]);
+        ];
+        expect(tabNames).toEqual(commonTabOrder);
 
         const sidebarTabs = await session.page.$$(
-            '.editor-pane.is-active .pdf-sidebar [role="tab"]',
+            '.editor-pane.is-active [data-testid="document-sidebar"] [role="tab"]',
         );
         expect(sidebarTabs).toHaveLength(4);
-        await sidebarTabs[3]!.click();
+        await openDocumentSidebarTab(session.page, 'Search');
 
         await waitForFunctionInPage(session.page, () => {
             const input = document.querySelector<HTMLInputElement>(
-                '.editor-pane.is-active .pdf-sidebar .pdf-search-bar input',
+                '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-bar input',
             );
             return Boolean(input && input.getBoundingClientRect().width > 0);
         }, { timeout: 10_000 });
         const searchInput = await session.page.$(
-            '.editor-pane.is-active .pdf-sidebar .pdf-search-bar input',
+            '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-bar input',
         );
         expect(searchInput).not.toBeNull();
         await searchInput!.type('Page 3 sample text');
         const searchStarted = await session.page.evaluate(() => {
             const button = document.querySelector<HTMLButtonElement>(
-                '.editor-pane.is-active .pdf-sidebar .search-run-button',
+                '.editor-pane.is-active [data-testid="document-sidebar"] .search-run-button',
             );
-            button?.click();
-            return Boolean(button && !button.disabled);
+            if (!button || button.disabled) {
+                return false;
+            }
+            button.click();
+            return true;
         });
         expect(searchStarted).toBe(true);
 
         await waitForFunctionInPage(session.page, () => (
             Array.from(document.querySelectorAll<HTMLElement>(
-                '.editor-pane.is-active .pdf-sidebar .pdf-search-result',
+                '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-result',
             )).some(result => result.textContent?.includes('Page 3 sample text'))
         ), { timeout: 15_000 });
         const clickedResult = await session.page.evaluate(() => {
             const result = Array.from(document.querySelectorAll<HTMLElement>(
-                '.editor-pane.is-active .pdf-sidebar .pdf-search-result',
+                '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-result',
             )).find(candidate => candidate.textContent?.includes('Page 3 sample text'));
             result?.click();
             return Boolean(result);
         });
         expect(clickedResult).toBe(true);
         await waitForToolbarCurrentPage(session.page, 3);
+        await waitForFunctionInPage(session.page, () => {
+            const viewer = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host #pdf-viewer',
+            );
+            const page = viewer?.querySelector<HTMLElement>('.page_container[data-page="3"]') ?? null;
+            const currentResult = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-result[aria-current="true"]',
+            );
+            if (!viewer || !page || !currentResult) {
+                return false;
+            }
+            const viewerRect = viewer.getBoundingClientRect();
+            const pageRect = page.getBoundingClientRect();
+            const canvas = page.querySelector<HTMLCanvasElement>('.page_canvas canvas, canvas');
+            return Math.min(viewerRect.bottom, pageRect.bottom) - Math.max(viewerRect.top, pageRect.top) > 8
+                && Boolean(canvas && canvas.width > 0 && canvas.height > 0);
+        }, {timeout: 15_000});
     });
 
     it('keeps the visible thumbnail triplet painted through sustained raster pressure', async () => {
@@ -1043,7 +1187,10 @@ describe('Electron E2E - Viewer Smoke', () => {
             return;
         }
 
-        session = await sessionFixture.restart({sessionName: () => `e2e-viewer-thumbnail-open-${Date.now()}`});
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-viewer-thumbnail-open-${Date.now()}`,
+        });
         if (!session) {
             return;
         }
@@ -1061,11 +1208,7 @@ describe('Electron E2E - Viewer Smoke', () => {
         await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await ensureSidebarOpen(session.page);
-        const sidebarTabs = await session.page.$$(
-            '.editor-pane.is-active .pdf-sidebar [role="tab"]',
-        );
-        expect(sidebarTabs).toHaveLength(4);
-        await sidebarTabs[1]!.click();
+        await openDocumentSidebarTab(session.page, 'Pages');
         await waitForFunctionInPage(session.page, () => {
             const pages = document.querySelector<HTMLElement>(
                 '.editor-pane.is-active .pdf-sidebar-pages',
@@ -1322,14 +1465,16 @@ describe('Electron E2E - Viewer Smoke', () => {
             return;
         }
 
-        session = await sessionFixture.restart({sessionName: () => `e2e-viewer-smoke-image-${Date.now()}`});
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-viewer-smoke-image-${Date.now()}`,
+        });
         if (!session) {
             return;
         }
 
         const pngPath = createPngFixture(`viewer-smoke-image-${Date.now()}.png`);
-        await openPdfInApp(session.page, pngPath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
-        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await triggerOpenPathInApp(session.page, pngPath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
 
         const snapshot = await waitForViewerSmokeSnapshot(session, {
             viewerHeight: 300,
@@ -1340,11 +1485,587 @@ describe('Electron E2E - Viewer Smoke', () => {
         expect(snapshot.visiblePages).toEqual([1]);
         expect(snapshot.firstPageWidth).toBeGreaterThan(0);
         expect(snapshot.firstPageHeight).toBeGreaterThan(0);
+        expect(snapshot.firstPagePainted).toBe(true);
     });
 });
 
 runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
     const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-djvu-viewer-smoke-${Date.now()}`});
+
+    it('searches deterministic late-page native DjVu text through the common sidebar with visible result geometry', async (context) => {
+        let session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-djvu-native-search-${Date.now()}`,
+        });
+        if (!session) {
+            return;
+        }
+
+        const searchFixture = await createNativeDjvuLatePageSearchFixture();
+        if (!searchFixture.path) {
+            console.info(`SKIPPED (native tool unavailable): ${searchFixture.reason}`);
+            context.skip();
+            return;
+        }
+
+        const rendererErrors: string[] = [];
+        const onConsole = (message: {
+            type: () => string;
+            text: () => string;
+        }) => {
+            if (message.type() !== 'error') {
+                return;
+            }
+            const text = message.text();
+            if (text.includes('[renderer-guard]') || text.includes('Unhandled window error')) {
+                rendererErrors.push(text);
+            }
+        };
+        const onPageError = (error: unknown) => {
+            rendererErrors.push(`pageerror:${error instanceof Error ? error.message : String(error)}`);
+        };
+        session.page.on('console', onConsole);
+        session.page.on('pageerror', onPageError);
+
+        try {
+            await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
+            await openDjvuInApp(
+                session.page,
+                searchFixture.path,
+                DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS,
+            );
+            await waitForDjvuLoaded(session.page, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+            await ensureSidebarOpen(session.page);
+
+            const progressProbeInstalled = await session.page.evaluate(() => {
+                const probeWindow = window as IDjvuNativeSearchProgressWindow;
+                probeWindow.__djvuNativeSearchProgressProbe?.unsubscribe();
+                const events: IDjvuNativeSearchProgressEvent[] = [];
+                const unsubscribe = probeWindow.electronAPI?.djvu.onTextSearchProgress((progress) => {
+                    events.push({
+                        processed: progress.processed,
+                        requestId: progress.requestId,
+                        ...(progress.status ? {status: progress.status} : {}),
+                        total: progress.total,
+                    });
+                });
+                if (!unsubscribe) {
+                    return false;
+                }
+                probeWindow.__djvuNativeSearchProgressProbe = {
+                    events,
+                    unsubscribe,
+                };
+                return true;
+            });
+            expect(progressProbeInstalled).toBe(true);
+
+            await openDocumentSidebarTab(session.page, 'Search');
+
+            await waitForFunctionInPage(session.page, () => {
+                const input = document.querySelector<HTMLInputElement>(
+                    '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-bar input',
+                );
+                const rect = input?.getBoundingClientRect();
+                return Boolean(rect && rect.width > 20 && rect.height > 10);
+            }, {timeout: 10_000});
+            const searchInput = await session.page.$(
+                '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-bar input',
+            );
+            expect(searchInput).not.toBeNull();
+            await searchInput!.type(searchFixture.sentinel);
+            const searchStarted = await session.page.evaluate(() => {
+                const button = document.querySelector<HTMLButtonElement>(
+                    '.editor-pane.is-active [data-testid="document-sidebar"] .search-run-button',
+                );
+                if (!button || button.disabled) {
+                    return false;
+                }
+                button.click();
+                return true;
+            });
+            expect(searchStarted).toBe(true);
+
+            await waitForFunctionInPage(session.page, (
+                args: {
+                    pageNumber: number;
+                    sentinel: string
+                },
+            ) => {
+                const resultHighlights = Array.from(document.querySelectorAll<HTMLElement>(
+                    '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-result-highlight',
+                ));
+                const groupLabel = document.querySelector<HTMLElement>(
+                    '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-results-group-label',
+                )?.textContent ?? '';
+                const spinner = document.querySelector(
+                    '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-results-spinner',
+                );
+                return !spinner
+                    && groupLabel.includes(String(args.pageNumber))
+                    && resultHighlights.length === 2
+                    && resultHighlights.every(highlight => highlight.textContent?.trim() === args.sentinel);
+            }, {timeout: 60_000}, {
+                pageNumber: searchFixture.pageNumber,
+                sentinel: searchFixture.sentinel,
+            });
+
+            const completedProgressEvents = await session.page.evaluate(() => (
+                (window as IDjvuNativeSearchProgressWindow).__djvuNativeSearchProgressProbe?.events ?? []
+            ));
+            expect(completedProgressEvents.some(event => (
+                event.status === 'running'
+                && event.processed > 0
+                && event.processed < searchFixture.pageCount
+            )), JSON.stringify(completedProgressEvents)).toBe(true);
+            expect(completedProgressEvents.at(-1), JSON.stringify(completedProgressEvents)).toMatchObject({
+                processed: searchFixture.pageCount,
+                status: 'success',
+                total: searchFixture.pageCount,
+            });
+
+            await waitForToolbarCurrentPage(session.page, searchFixture.pageNumber, 30_000);
+            await waitForFunctionInPage(session.page, (pageNumber: number) => {
+                const page = document.querySelector<HTMLElement>(
+                    `[data-testid="document-page-source-page"][data-page-number="${String(pageNumber)}"]`,
+                );
+                const highlights = page?.querySelectorAll<HTMLElement>(
+                    '[data-testid="document-page-source-search-highlight"]',
+                );
+                return highlights?.length === 2
+                    && Array.from(highlights).filter(highlight => (
+                        highlight.dataset.searchHighlightCurrent === 'true'
+                    )).length === 1;
+            }, {timeout: 30_000}, searchFixture.pageNumber);
+
+            await goToPageViaToolbar(session.page, 1);
+            await waitForFunctionInPage(session.page, (pageNumber: number) => {
+                const viewer = document.querySelector<HTMLElement>(
+                    '.editor-pane.is-active [data-document-viewer-chassis-viewport]',
+                );
+                const page = viewer?.querySelector<HTMLElement>(
+                    `[data-testid="document-page-source-page"][data-page-number="${String(pageNumber)}"]`,
+                );
+                const image = page?.querySelector<HTMLImageElement>(
+                    '[data-testid="document-page-source-image"]',
+                );
+                if (!viewer || !page || !image?.complete || image.naturalWidth <= 0) {
+                    return false;
+                }
+                const viewerRect = viewer.getBoundingClientRect();
+                const pageRect = page.getBoundingClientRect();
+                return Math.min(viewerRect.bottom, pageRect.bottom)
+                    - Math.max(viewerRect.top, pageRect.top) > 8;
+            }, {timeout: 30_000}, 1);
+            const clickedSecondResult = await session.page.evaluate(() => {
+                const results = Array.from(document.querySelectorAll<HTMLElement>(
+                    '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-result',
+                ));
+                results[1]?.click();
+                return results.length === 2;
+            });
+            expect(clickedSecondResult).toBe(true);
+            await waitForToolbarCurrentPage(session.page, searchFixture.pageNumber, 30_000);
+
+            await waitForFunctionInPage(session.page, (pageNumber: number) => {
+                const page = document.querySelector<HTMLElement>(
+                    `[data-testid="document-page-source-page"][data-page-number="${String(pageNumber)}"]`,
+                );
+                const highlights = Array.from(page?.querySelectorAll<HTMLElement>(
+                    '[data-testid="document-page-source-search-highlight"]',
+                ) ?? []);
+                return highlights.length === 2
+                    && highlights.some(highlight => (
+                        highlight.dataset.searchResultIndex === '1'
+                        && highlight.dataset.searchHighlightCurrent === 'true'
+                    ));
+            }, {timeout: 30_000}, searchFixture.pageNumber);
+
+            const searchEvidence = await session.page.evaluate((pageNumber: number) => {
+                const page = document.querySelector<HTMLElement>(
+                    `[data-testid="document-page-source-page"][data-page-number="${String(pageNumber)}"]`,
+                );
+                const pageRect = page?.getBoundingClientRect() ?? null;
+                const highlights = Array.from(page?.querySelectorAll<HTMLElement>(
+                    '[data-testid="document-page-source-search-highlight"]',
+                ) ?? []).map((highlight) => {
+                    const rect = highlight.getBoundingClientRect();
+                    return {
+                        background: window.getComputedStyle(highlight).backgroundColor,
+                        bottom: rect.bottom,
+                        current: highlight.dataset.searchHighlightCurrent === 'true',
+                        height: rect.height,
+                        left: rect.left,
+                        resultIndex: Number(highlight.dataset.searchResultIndex),
+                        right: rect.right,
+                        top: rect.top,
+                        width: rect.width,
+                    };
+                });
+                const progressEvents = (window as IDjvuNativeSearchProgressWindow)
+                    .__djvuNativeSearchProgressProbe?.events ?? [];
+                return {
+                    highlights,
+                    pageRect: pageRect ? {
+                        bottom: pageRect.bottom,
+                        left: pageRect.left,
+                        right: pageRect.right,
+                        top: pageRect.top,
+                    } : null,
+                    progressEvents,
+                    runtimeErrorText: document.querySelector<HTMLElement>(
+                        '.runtime-error-reports',
+                    )?.textContent?.trim() ?? '',
+                    workspaceErrorText: document.querySelector<HTMLElement>(
+                        '.editor-pane.is-active [data-testid="workspace-document-djvu-error"]',
+                    )?.textContent?.trim() ?? '',
+                };
+            }, searchFixture.pageNumber);
+
+            expect(searchEvidence.highlights).toHaveLength(2);
+            expect(searchEvidence.highlights.filter(highlight => highlight.current)).toHaveLength(1);
+            expect(searchEvidence.highlights.find(highlight => highlight.current)?.resultIndex).toBe(1);
+            expect(searchEvidence.pageRect).not.toBeNull();
+            for (const highlight of searchEvidence.highlights) {
+                expect(highlight.width).toBeGreaterThan(2);
+                expect(highlight.height).toBeGreaterThan(2);
+                expect(highlight.background).not.toBe('rgba(0, 0, 0, 0)');
+                expect(highlight.left).toBeGreaterThanOrEqual(searchEvidence.pageRect!.left);
+                expect(highlight.right).toBeLessThanOrEqual(searchEvidence.pageRect!.right);
+                expect(highlight.top).toBeGreaterThanOrEqual(searchEvidence.pageRect!.top);
+                expect(highlight.bottom).toBeLessThanOrEqual(searchEvidence.pageRect!.bottom);
+            }
+            expect(searchEvidence.workspaceErrorText).toBe('');
+            expect(searchEvidence.runtimeErrorText).toBe('');
+            expect(rendererErrors).toEqual([]);
+        } finally {
+            session.page.off('console', onConsole);
+            session.page.off('pageerror', onPageError);
+            await session.page.evaluate(() => {
+                const probeWindow = window as IDjvuNativeSearchProgressWindow;
+                probeWindow.__djvuNativeSearchProgressProbe?.unsubscribe();
+                delete probeWindow.__djvuNativeSearchProgressProbe;
+            }).catch(() => undefined);
+        }
+    }, 120_000);
+
+    it('keeps the live DjVu viewport intact while the common sidebar and virtual thumbnail rail settle', async () => {
+        let session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+        if (!djvuFixture.path) {
+            throw new Error(djvuFixture.reason);
+        }
+
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-djvu-sidebar-lifecycle-${Date.now()}`,
+        });
+        if (!session) {
+            return;
+        }
+
+        await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
+        await openDjvuInApp(session.page, djvuFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForDjvuLoaded(session.page, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        const initialToolbar = await getWorkspaceToolbarSnapshot(session.page);
+        expect(initialToolbar?.currentPage ?? 0).toBeGreaterThan(0);
+
+        const sidebarWasVisible = await session.page.evaluate(() => {
+            const sidebar = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-testid="document-sidebar"]',
+            );
+            const rect = sidebar?.getBoundingClientRect();
+            return Boolean(rect && rect.width > 10 && rect.height > 10);
+        });
+        if (sidebarWasVisible) {
+            await clickVisibleToolbarButton(session.page, 'Toggle Sidebar');
+            await waitForFunctionInPage(session.page, () => {
+                const sidebar = document.querySelector<HTMLElement>(
+                    '.editor-pane.is-active [data-testid="document-sidebar"]',
+                );
+                const rect = sidebar?.getBoundingClientRect();
+                return !rect || rect.width <= 10 || rect.height <= 10;
+            }, {timeout: 10_000});
+        }
+
+        const probeInstalled = await session.page.evaluate(() => {
+            const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const surface = host?.querySelector<HTMLElement>('[data-testid="document-page-source-viewer"]');
+            const viewport = surface?.closest<HTMLElement>('[data-document-viewer-chassis-viewport]');
+            if (!host || !viewport) {
+                return false;
+            }
+            const probe: IDjvuSidebarLifecycleProbe = {
+                active: true,
+                frames: [],
+            };
+            const sample = () => {
+                if (!probe.active) {
+                    return;
+                }
+                const viewportRect = viewport.getBoundingClientRect();
+                const visiblePages = Array.from(viewport.querySelectorAll<HTMLElement>(
+                    '[data-testid="document-page-source-page"]',
+                )).filter((page) => {
+                    const rect = page.getBoundingClientRect();
+                    return Math.min(rect.bottom, viewportRect.bottom) - Math.max(rect.top, viewportRect.top) > 8;
+                });
+                const readyVisiblePageCount = visiblePages.filter((page) => {
+                    const image = page.querySelector<HTMLImageElement>(
+                        ':scope > [data-testid="document-page-source-image"]',
+                    );
+                    return Boolean(
+                        image?.complete
+                        && image.naturalWidth > 0
+                        && image.naturalHeight > 0,
+                    );
+                }).length;
+                const banner = host.querySelector<HTMLElement>('.djvu-banner');
+                const error = host.querySelector<HTMLElement>('[data-testid="workspace-document-djvu-error"]');
+                const runtimeError = document.querySelector<HTMLElement>('.runtime-error-reports');
+                const currentPage = visiblePages.find((page) => {
+                    const rect = page.getBoundingClientRect();
+                    const viewportCenter = viewportRect.top + viewportRect.height / 2;
+                    return rect.top <= viewportCenter && rect.bottom >= viewportCenter;
+                }) ?? visiblePages[0] ?? null;
+                probe.frames.push({
+                    busy: Boolean(
+                        host.querySelector('.workspace-host__loading')
+                        || banner?.getAttribute('aria-busy') === 'true'
+                        || banner?.textContent?.includes('Opening DjVu'),
+                    ),
+                    currentPage: currentPage
+                        ? Number.parseInt(currentPage.dataset.pageNumber ?? '', 10) || null
+                        : null,
+                    errorText: error?.textContent?.trim() ?? '',
+                    readyVisiblePageCount,
+                    runtimeErrorText: runtimeError?.textContent?.trim() ?? '',
+                    visiblePageCount: visiblePages.length,
+                });
+                window.requestAnimationFrame(sample);
+            };
+            (window as IDjvuSidebarLifecycleWindow).__djvuSidebarLifecycleProbe = probe;
+            window.requestAnimationFrame(sample);
+            return true;
+        });
+        expect(probeInstalled).toBe(true);
+
+        await clickVisibleToolbarButton(session.page, 'Toggle Sidebar');
+        await waitForFunctionInPage(session.page, () => {
+            const sidebar = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-testid="document-sidebar"]',
+            );
+            const rect = sidebar?.getBoundingClientRect();
+            return Boolean(rect && rect.width > 10 && rect.height > 10);
+        }, {timeout: 10_000});
+
+        const sidebarResize = await dragDocumentSidebarDividerBy(session, 120);
+        const resizeDetail = JSON.stringify(sidebarResize);
+        expect(sidebarResize.before.configuredSashWidth, resizeDetail).toBeGreaterThanOrEqual(5);
+        expect(
+            Math.abs(
+                sidebarResize.before.sashWidth
+                - sidebarResize.before.configuredSashWidth,
+            ),
+            resizeDetail,
+        ).toBeLessThanOrEqual(1);
+        expect(sidebarResize.before.sashBackground, resizeDetail).not.toBe('rgba(0, 0, 0, 0)');
+        expect(sidebarResize.before.sashBackground, resizeDetail).not.toBe('rgb(255, 255, 255)');
+        expect(
+            Math.abs(sidebarResize.before.wrapperRight - sidebarResize.before.sashRight),
+            resizeDetail,
+        ).toBeLessThanOrEqual(1);
+        expect(
+            Math.abs(sidebarResize.before.viewerLeft - sidebarResize.before.sashRight),
+            resizeDetail,
+        ).toBeLessThanOrEqual(1);
+        expect(sidebarResize.after.sidebarWidth, resizeDetail)
+            .toBeGreaterThan(sidebarResize.before.sidebarWidth + 80);
+        await session.page.evaluate(async () => {
+            await new Promise(resolve => setTimeout(resolve, 600));
+        });
+        const lifecycleFrames = await session.page.evaluate(() => {
+            const probe = (window as IDjvuSidebarLifecycleWindow).__djvuSidebarLifecycleProbe;
+            if (!probe) {
+                return [];
+            }
+            probe.active = false;
+            return probe.frames;
+        });
+        const lifecycleDetail = JSON.stringify(lifecycleFrames);
+        expect(lifecycleFrames.length, lifecycleDetail).toBeGreaterThan(10);
+        expect(lifecycleFrames.every(frame => !frame.busy), lifecycleDetail).toBe(true);
+        expect(lifecycleFrames.every(frame => frame.visiblePageCount > 0), lifecycleDetail).toBe(true);
+        expect(lifecycleFrames.every(frame => frame.readyVisiblePageCount > 0), lifecycleDetail).toBe(true);
+        expect(lifecycleFrames.every(frame => frame.errorText === ''), lifecycleDetail).toBe(true);
+        expect(lifecycleFrames.every(frame => frame.runtimeErrorText === ''), lifecycleDetail).toBe(true);
+        expect(lifecycleFrames.every(frame => frame.currentPage !== null), lifecycleDetail).toBe(true);
+
+        const tabNames = await session.page.evaluate(() => (
+            Array.from(document.querySelectorAll<HTMLElement>(
+                '.editor-pane.is-active [data-testid="document-sidebar"] [role="tab"]',
+            )).map(tab => tab.textContent?.trim() ?? '')
+        ));
+        expect(tabNames).toEqual([
+            'Annotations',
+            'Pages',
+            'Bookmarks',
+            'Search',
+        ]);
+        const sidebarTabs = await session.page.$$(
+            '.editor-pane.is-active [data-testid="document-sidebar"] [role="tab"]',
+        );
+        const sidebarTabLabels = await Promise.all(sidebarTabs.map(tab => (
+            tab.evaluate(element => element.textContent?.trim() ?? '')
+        )));
+        const pagesTabIndex = sidebarTabLabels.indexOf('Pages');
+        expect(pagesTabIndex).toBeGreaterThanOrEqual(0);
+        await sidebarTabs[pagesTabIndex]!.click();
+        await waitForFunctionInPage(session.page, () => {
+            const rail = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-testid="document-thumbnail-list"]',
+            );
+            return Boolean(
+                rail
+                && rail.getBoundingClientRect().height > 100
+                && rail.querySelectorAll('[data-thumbnail-page]').length > 0,
+            );
+        }, {timeout: 20_000});
+
+        const thumbnailProbe = await session.page.evaluate(async () => {
+            interface IAspectRecord {
+                placeholderRatio?: number;
+                placeholderSeen?: boolean;
+                renderedRatio?: number;
+            }
+            const rail = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-testid="document-thumbnail-list"]',
+            );
+            if (!rail) {
+                throw new Error('DjVu thumbnail rail was not found');
+            }
+            const aspects = new Map<number, IAspectRecord>();
+            let active = true;
+            let maxDomCount = 0;
+            const sample = () => {
+                if (!active) {
+                    return;
+                }
+                const items = Array.from(rail.querySelectorAll<HTMLElement>('[data-thumbnail-page]'));
+                maxDomCount = Math.max(maxDomCount, items.length);
+                for (const item of items) {
+                    const pageNumber = Number(item.dataset.thumbnailPage);
+                    const frame = item.querySelector<HTMLElement>('.document-thumbnail-list__frame');
+                    const frameRect = frame?.getBoundingClientRect();
+                    if (!frameRect || frameRect.width <= 0 || frameRect.height <= 0) {
+                        continue;
+                    }
+                    const record = aspects.get(pageNumber) ?? {};
+                    // The frame owns placeholder geometry before paint and
+                    // must keep that exact aspect after its renderer arrives.
+                    record.placeholderRatio = frameRect.width / frameRect.height;
+                    record.placeholderSeen ||= Boolean(
+                        item.querySelector('.document-thumbnail-list__placeholder'),
+                    );
+                    const image = item.querySelector<HTMLImageElement>('img');
+                    const canvas = item.querySelector<HTMLCanvasElement>('canvas');
+                    if (image?.complete && image.naturalWidth > 0 && image.naturalHeight > 0) {
+                        record.renderedRatio = image.naturalWidth / image.naturalHeight;
+                    } else if (canvas && canvas.width > 0 && canvas.height > 0) {
+                        record.renderedRatio = canvas.width / canvas.height;
+                    }
+                    aspects.set(pageNumber, record);
+                }
+                window.requestAnimationFrame(sample);
+            };
+            window.requestAnimationFrame(sample);
+            for (let step = 1; step <= 28; step += 1) {
+                const maxScrollTop = Math.max(0, rail.scrollHeight - rail.clientHeight);
+                rail.scrollTop = maxScrollTop * step / 28;
+                rail.dispatchEvent(new Event('scroll'));
+                await new Promise(resolve => setTimeout(resolve, 12));
+            }
+            const deadline = performance.now() + 20_000;
+            while (performance.now() < deadline) {
+                const matchedCount = [...aspects.values()].filter(record => (
+                    record.placeholderRatio !== undefined
+                    && record.renderedRatio !== undefined
+                )).length;
+                if (matchedCount >= 3) {
+                    break;
+                }
+                await new Promise(resolve => setTimeout(resolve, 50));
+            }
+            active = false;
+            const items = Array.from(rail.querySelectorAll<HTMLElement>('[data-thumbnail-page]'));
+            const renderedCount = items.filter(item => {
+                const image = item.querySelector<HTMLImageElement>('img');
+                const canvas = item.querySelector<HTMLCanvasElement>('canvas');
+                return Boolean(
+                    (image?.complete && image.naturalWidth > 0 && image.naturalHeight > 0)
+                    || (canvas && canvas.width > 0 && canvas.height > 0),
+                );
+            }).length;
+            return {
+                finalDomCount: items.length,
+                maxDomCount,
+                maxPageNumberSeen: Math.max(0, ...aspects.keys()),
+                maxScrollTop: Math.max(0, rail.scrollHeight - rail.clientHeight),
+                matchedAspects: [...aspects.entries()].flatMap(([
+                    pageNumber,
+                    record,
+                ]) => (
+                    record.placeholderRatio !== undefined && record.renderedRatio !== undefined
+                        ? [{
+                            pageNumber,
+                            placeholderRatio: record.placeholderRatio,
+                            renderedRatio: record.renderedRatio,
+                        }]
+                        : []
+                )),
+                placeholderPagesSeen: [...aspects.values()].filter(record => (
+                    record.placeholderSeen
+                )).length,
+                renderedCount,
+                scrollTop: rail.scrollTop,
+            };
+        });
+        const toolbar = await getWorkspaceToolbarSnapshot(session.page);
+        const thumbnailDetail = JSON.stringify({
+            thumbnailProbe,
+            totalPages: toolbar?.totalPages,
+        });
+        expect(toolbar?.currentPage, thumbnailDetail).toBe(initialToolbar?.currentPage);
+        expect(thumbnailProbe.maxPageNumberSeen, thumbnailDetail).toBeGreaterThan(50);
+        expect(thumbnailProbe.maxScrollTop, thumbnailDetail).toBeGreaterThan(1_000);
+        expect(thumbnailProbe.scrollTop, thumbnailDetail).toBeGreaterThan(1_000);
+        expect(thumbnailProbe.maxDomCount, thumbnailDetail).toBeLessThanOrEqual(24);
+        expect(thumbnailProbe.maxDomCount, thumbnailDetail).toBeLessThan(thumbnailProbe.maxPageNumberSeen);
+        expect(thumbnailProbe.finalDomCount, thumbnailDetail).toBeLessThanOrEqual(24);
+        expect(thumbnailProbe.renderedCount, thumbnailDetail).toBeGreaterThan(0);
+        expect(thumbnailProbe.placeholderPagesSeen, thumbnailDetail).toBeGreaterThan(0);
+        expect(thumbnailProbe.matchedAspects.length, thumbnailDetail).toBeGreaterThanOrEqual(3);
+        expect(thumbnailProbe.matchedAspects.every(sample => (
+            Math.abs(sample.placeholderRatio - sample.renderedRatio) <= 0.03
+        )), thumbnailDetail).toBe(true);
+
+        const errorSurface = await session.page.evaluate(() => ({
+            runtimeError: document.querySelector<HTMLElement>('.runtime-error-reports')?.textContent?.trim() ?? '',
+            workspaceError: document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-testid="workspace-document-djvu-error"]',
+            )?.textContent?.trim() ?? '',
+        }));
+        expect(errorSurface.workspaceError).toBe('');
+        expect(errorSurface.runtimeError).toBe('');
+        expect(`${errorSurface.workspaceError} ${errorSurface.runtimeError}`).not.toMatch(/cancell?ed/iu);
+    }, 150_000);
 
     it('preserves the DjVu viewport anchor and ready surface through separate split-divider drags', async () => {
         let session = sessionFixture.getSession();
@@ -1367,7 +2088,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         await waitForDjvuLoaded(session.page, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         const fitWidth = await callWorkspaceCommand(session.page, 'handleFitWidth');
         expect(fitWidth.called).toBe(true);
-        const navigation = await callWorkspaceCommand(session.page, 'scrollToPage', [18]);
+        const navigation = await callWorkspaceCommand(session.page, 'handleGoToPage', [18]);
         expect(navigation.called).toBe(true);
         await waitForWorkspaceToolbarSnapshot(session.page, {currentPage: 18}, {timeoutMs: 20_000});
         await nudgeActiveDocumentViewportWithWheel(session, 'djvu', 160);
@@ -1431,12 +2152,20 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
     }, 120_000);
 
     it('keeps DjVu continuous wheel scroll geometry stable on the exact fixture', async () => {
-        const session = sessionFixture.getSession();
+        let session = sessionFixture.getSession();
         if (!session) {
             return;
         }
         if (!djvuFixture.path) {
             throw new Error(djvuFixture.reason);
+        }
+
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-djvu-continuous-scroll-${Date.now()}`,
+        });
+        if (!session) {
+            return;
         }
 
         await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
@@ -1488,7 +2217,10 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             throw new Error(djvuFixture.reason);
         }
 
-        session = await sessionFixture.restart({sessionName: () => `e2e-djvu-projected-scroll-${Date.now()}`});
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-djvu-projected-scroll-${Date.now()}`,
+        });
         if (!session) {
             return;
         }
@@ -1547,13 +2279,15 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             [DJVU_HIGH_ZOOM_REGRESSION_ZOOM],
         );
         expect(zoomResult.called).toBe(true);
-        await waitForWorkspaceToolbarSnapshot(
+        const toolbar = await waitForWorkspaceToolbarSnapshot(
             session.page,
-            {minEffectiveZoom: DJVU_HIGH_ZOOM_REGRESSION_ZOOM - 0.005},
+            {
+                minEffectiveZoom: DJVU_HIGH_ZOOM_REGRESSION_ZOOM - 0.005,
+                minTotalPages: 11,
+            },
             {timeoutMs: 20_000},
         );
-        const toolbar = await getWorkspaceToolbarSnapshot(session.page);
-        const totalPages = toolbar?.totalPages ?? 0;
+        const totalPages = toolbar.totalPages;
         expect(totalPages).toBeGreaterThan(10);
         const targetPage = Math.max(2, totalPages - 8);
         const navigation = await callWorkspaceCommand(session.page, 'handleGoToPage', [targetPage]);

@@ -5,7 +5,10 @@ import {
     vi,
 } from 'vitest';
 import type { IpcRenderer } from 'electron';
-import { DJVU_EVENT_CHANNELS } from '@electron/features/djvu/contract';
+import {
+    DJVU_CHANNELS,
+    DJVU_EVENT_CHANNELS,
+} from '@electron/features/djvu/contract';
 import type * as DjvuPreloadClientModule from '@electron/features/djvu/createDjvuPreloadClient';
 import { cast } from '@tests/helpers/cast';
 
@@ -89,5 +92,50 @@ describe('createDjvuPreloadClient', () => {
             status: 'failed',
             error: 'failed',
         });
+    });
+
+    it('normalizes bounded native text-search requests before invoking main', async () => {
+        const invoke = vi.fn().mockResolvedValue({
+            results: [],
+            truncated: false,
+        });
+        const ipcRenderer: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener'> = {
+            invoke,
+            on: vi.fn(),
+            removeListener: vi.fn(),
+        };
+        const {createDjvuPreloadClient}: typeof DjvuPreloadClientModule =
+            await import('@electron/features/djvu/createDjvuPreloadClient');
+        const client = createDjvuPreloadClient(cast<IpcRenderer>(ipcRenderer));
+
+        await expect(client.searchText('/tmp/book.djvu', 'needle', {
+            requestId: 'djvu-search-1',
+            pageCount: 431,
+            wholeWord: true,
+        })).resolves.toEqual({
+            results: [],
+            truncated: false,
+        });
+
+        expect(invoke).toHaveBeenCalledWith(
+            DJVU_CHANNELS.searchText,
+            '/tmp/book.djvu',
+            'needle',
+            {
+                requestId: 'djvu-search-1',
+                pageCount: 431,
+                matchCase: false,
+                wholeWord: true,
+                useRegex: false,
+            },
+        );
+        expect(() => client.searchText('/tmp/book.djvu', 'needle', {
+            requestId: 'x'.repeat(129),
+            pageCount: 431,
+        })).toThrow('searchText.options.requestId exceeds maximum length (128)');
+        expect(() => client.searchText('/tmp/book.djvu', 'needle', {
+            requestId: 'djvu-search-2',
+            pageCount: 0,
+        })).toThrow('searchText.options.pageCount must be a positive safe integer');
     });
 });

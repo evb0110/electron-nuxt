@@ -9,6 +9,8 @@ export function createTabViewSessionState(snapshot: IWorkspaceToolbarSnapshot): 
         fitMode: snapshot.fitMode,
         viewMode: snapshot.viewMode,
         showSidebar: snapshot.showSidebar,
+        sidebarTab: snapshot.sidebarTab ?? 'thumbnails',
+        sidebarWidth: snapshot.sidebarWidth ?? 272,
         continuousScroll: snapshot.continuousScroll,
     };
 }

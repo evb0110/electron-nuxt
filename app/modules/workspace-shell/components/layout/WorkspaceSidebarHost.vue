@@ -121,7 +121,8 @@ watch(
     display: flex;
     height: 100%;
     min-width: 0;
-    max-width: max(0px, calc(100% - var(--app-sidebar-min-viewer-width)));
+    max-width: 100%;
+    flex-shrink: 0;
     background: var(--app-sidebar-bg);
 }
 

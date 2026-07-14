@@ -217,6 +217,23 @@ export async function waitForWorkspaceToolbarSnapshot(
             requiredMethods: collectRequiredMethods(searchOptions, 'getToolbarSnapshot'),
         },
     });
+
+    const settleDeadline = Date.now() + Math.min(timeoutMs, 3_000);
+    while (Date.now() < settleDeadline) {
+        const snapshot = await getWorkspaceToolbarSnapshot(page, searchOptions);
+        if (
+            snapshot
+            && (typeof requirements.hasPdf !== 'boolean' || snapshot.hasPdf === requirements.hasPdf)
+            && (typeof requirements.currentPage !== 'number' || snapshot.currentPage === requirements.currentPage)
+            && (typeof requirements.continuousScroll !== 'boolean' || snapshot.continuousScroll === requirements.continuousScroll)
+            && (typeof requirements.minTotalPages !== 'number' || snapshot.totalPages >= requirements.minTotalPages)
+            && (typeof requirements.minEffectiveZoom !== 'number' || snapshot.effectiveZoom >= requirements.minEffectiveZoom)
+        ) {
+            return snapshot;
+        }
+        await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    throw new Error('Workspace toolbar snapshot disappeared after satisfying the requested state');
 }
 
 export async function waitForWorkspaceToolbarIdle(

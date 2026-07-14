@@ -41,7 +41,8 @@ export function createNativePdfPreviewSourceFromPath(
     let terminated = false;
     let nextPreviewRequestId = 0;
     const activePreviewRequestIds = new Set<string>();
-    const activePreviewRequestIdsByPage = new Map<number, string>();
+    const activePreviewRequestIdsByPage = new Map<number, Set<string>>();
+    const canceledPreviewRequestIds = new Set<string>();
     const objectUrlLeases = new Map<string, {
         lease: IWorkspaceSurfaceBudgetLeasePort | null;
         invalidationListeners: Set<() => void>;
@@ -51,14 +52,14 @@ export function createNativePdfPreviewSourceFromPath(
     const cancelPreviewRequest = (requestId: string) => {
         void cancelPdfNativePagePreview(requestId).catch(() => undefined);
     };
-    const cancelPagePreview = (pageNumber: number) => {
-        const requestId = activePreviewRequestIdsByPage.get(pageNumber);
-        if (!requestId) {
-            return;
+    const cancelPagePreview = (pageNumber: number, requestId?: string) => {
+        const pageRequestIds = activePreviewRequestIdsByPage.get(pageNumber);
+        const requestIds = requestId ? [requestId] : [...pageRequestIds ?? []];
+        for (const activeRequestId of requestIds) {
+            if (!activePreviewRequestIds.has(activeRequestId)) continue;
+            canceledPreviewRequestIds.add(activeRequestId);
+            cancelPreviewRequest(activeRequestId);
         }
-        activePreviewRequestIds.delete(requestId);
-        activePreviewRequestIdsByPage.delete(pageNumber);
-        cancelPreviewRequest(requestId);
     };
     const createPreviewRequestId = (pageNumber: number, options?: IPdfNativePagePreviewOptions) => {
         const requestId = options?.previewRequestId?.trim();
@@ -80,26 +81,26 @@ export function createNativePdfPreviewSourceFromPath(
                 throw new Error('Native PDF preview canceled');
             }
             const previewRequestId = createPreviewRequestId(pageNumber, options);
-            const previousRequestId = activePreviewRequestIdsByPage.get(pageNumber);
-            if (previousRequestId && previousRequestId !== previewRequestId) {
-                cancelPagePreview(pageNumber);
-            }
             activePreviewRequestIds.add(previewRequestId);
-            activePreviewRequestIdsByPage.set(pageNumber, previewRequestId);
+            const pageRequestIds = activePreviewRequestIdsByPage.get(pageNumber) ?? new Set<string>();
+            pageRequestIds.add(previewRequestId);
+            activePreviewRequestIdsByPage.set(pageNumber, pageRequestIds);
             let preview;
             try {
                 preview = await renderPdfNativePagePreview(pdfPath, pageNumber, {
                     ...options,
                     previewRequestId,
                 });
+                if (terminated || canceledPreviewRequestIds.has(previewRequestId)) {
+                    throw new Error('Native PDF preview canceled');
+                }
             } finally {
                 activePreviewRequestIds.delete(previewRequestId);
-                if (activePreviewRequestIdsByPage.get(pageNumber) === previewRequestId) {
+                canceledPreviewRequestIds.delete(previewRequestId);
+                pageRequestIds.delete(previewRequestId);
+                if (pageRequestIds.size === 0) {
                     activePreviewRequestIdsByPage.delete(pageNumber);
                 }
-            }
-            if (terminated) {
-                throw new Error('Native PDF preview canceled');
             }
             const objectUrl = createPngObjectUrl(preview.bytes);
             const leaseEntry = {
@@ -150,6 +151,7 @@ export function createNativePdfPreviewSourceFromPath(
             }
             activePreviewRequestIds.clear();
             activePreviewRequestIdsByPage.clear();
+            canceledPreviewRequestIds.clear();
             for (const [
                 objectUrl,
                 entry,

@@ -1,4 +1,5 @@
 import {
+    existsSync,
     mkdirSync,
     readFileSync,
     rmSync,
@@ -23,6 +24,10 @@ import {
     workspaceCrashCheckpointPath,
 } from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 import { sessionDir } from '@scripts/electron-run/electronRunSessionPaths';
+import {
+    clearAutomationWorkspaceCrashCheckpointAfterSessionExit,
+    shouldClearAutomationWorkspaceCrashCheckpointOnExit,
+} from '@scripts/electron-run/sessionManager';
 
 const projectRoot = process.cwd();
 
@@ -85,9 +90,33 @@ describe('Electron automation graceful shutdown policy', () => {
         );
 
         expect(startBody).not.toContain('clearAutomationWorkspaceCrashCheckpoint');
-        expect(sessionSource).toContain('if (exitCode === 0)');
+        expect(sessionSource).toContain('130,');
+        expect(sessionSource).toContain('143,');
         expect(readProjectSource('scripts/electron-run/stopSession.ts'))
             .toContain('clearAutomationWorkspaceCrashCheckpoint(name)');
+    });
+
+    it('clears restart checkpoints for controlled exits while retaining genuine crash recovery', () => {
+        const sessionName = `restart-checkpoint-policy-${String(process.pid)}-${String(Date.now())}`;
+        const checkpointPath = workspaceCrashCheckpointPath(sessionName);
+        try {
+            mkdirSync(dirname(checkpointPath), {recursive: true});
+            writeFileSync(checkpointPath, '{"checkpoint":true}', 'utf8');
+
+            expect(shouldClearAutomationWorkspaceCrashCheckpointOnExit(1)).toBe(false);
+            expect(clearAutomationWorkspaceCrashCheckpointAfterSessionExit(1, sessionName)).toBe(false);
+            expect(existsSync(checkpointPath)).toBe(true);
+
+            expect(shouldClearAutomationWorkspaceCrashCheckpointOnExit(130)).toBe(true);
+            expect(shouldClearAutomationWorkspaceCrashCheckpointOnExit(143)).toBe(true);
+            expect(clearAutomationWorkspaceCrashCheckpointAfterSessionExit(143, sessionName)).toBe(true);
+            expect(existsSync(checkpointPath)).toBe(false);
+        } finally {
+            rmSync(sessionDir(sessionName), {
+                recursive: true,
+                force: true,
+            });
+        }
     });
 
     it('keeps the E2E browser attached until the controller initiates app shutdown', () => {

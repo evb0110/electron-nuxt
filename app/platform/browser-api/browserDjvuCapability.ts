@@ -21,6 +21,7 @@ import {
     releaseBrowserDjvuViewingWorker,
     retainBrowserDjvuViewingWorker,
 } from '@app/platform/browser-api/createDjvuWorkerFromPath';
+import { browserDjvuTextSearchCapability } from '@app/platform/browser-api/browserDjvuTextSearchCapability';
 import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
 import { browserDurableDjvuJobs } from '@app/platform/browser-api/browserDurableDjvuJobs';
 import { StreamingImagePdfWriter } from '@app/platform/browser-api/streamingImagePdfWriter';
@@ -932,6 +933,7 @@ export const browserDjvuCapability: IDjvuCapability = {
     cancelPagePreview(_requestId) {
         return Promise.resolve({ canceled: false });
     },
+    ...browserDjvuTextSearchCapability,
     async convertToPdf(djvuPath, outputPath, options) {
         if (!isBrowserDocumentRef(outputPath)) {
             return {

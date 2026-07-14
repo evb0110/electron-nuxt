@@ -11,12 +11,16 @@ import type {
 } from '@app/modules/pdf-viewer/public';
 import type { TPdfRasterDisplayProfile } from '@app/types/pdfRasterDisplayProfile';
 import type { IWorkspaceViewerAdapter } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
-import type { IDocumentSourceCapabilities } from '@app/utils/document-viewer/source/documentPageSource';
+import type {
+    IDocumentPageSource,
+    IDocumentSourceCapabilities,
+} from '@app/utils/document-viewer/source/documentPageSource';
 import type {
     TFitMode,
     TPdfViewMode,
     TZoomMode,
 } from '@contracts/shared';
+import type { IDocumentSearchMatch } from '@app/utils/document-viewer/search/documentSearch';
 
 type TReadableRef<T> = ComputedRef<T> | Ref<T>;
 
@@ -30,7 +34,10 @@ interface IWorkspaceViewerAdapterBindingOptions {
     continuousScroll: Ref<boolean>;
     currentResultNavigationId: Ref<number>;
     currentSearchMatch: Ref<unknown> | ComputedRef<unknown>;
+    documentSourceCurrentResultIndex: TReadableRef<number>;
+    documentSourceSearchResults: TReadableRef<readonly IDocumentSearchMatch[]>;
     currentPage: Ref<number>;
+    documentSourceAnnotationRevision: Ref<number>;
     djvuSourcePath: Ref<TDocumentRef | null>;
     dragMode: Ref<boolean>;
     fitMode: Ref<TFitMode>;
@@ -48,7 +55,6 @@ interface IWorkspaceViewerAdapterBindingOptions {
     djvuViewerRef: Ref<IDocumentViewerExpose | null>;
     documentRevisionToken: Ref<TDocumentRevisionToken | null>;
     sourcePdfData: Ref<Uint8Array | null> | ComputedRef<Uint8Array | null>;
-    showSidebar: Ref<boolean>;
     viewMode: Ref<TPdfViewMode>;
     workingCopyPath: Ref<TDocumentRef | null>;
     originalPath: Ref<TDocumentRef | null>;
@@ -76,6 +82,7 @@ interface IWorkspaceViewerAdapterBindingOptions {
     onNavigationFeedbackPageUpdate: (value: number | null) => void;
     onShapeContextMenu: unknown;
     onSourceCapabilitiesUpdate: (capabilities: IDocumentSourceCapabilities) => void;
+    onPageSourceUpdate: (source: IDocumentPageSource | null) => void;
     onTotalPagesUpdate: (value: number) => void;
     onZoomModeUpdate: (value: TZoomMode) => void;
     onZoomUpdate: (value: number) => void;
@@ -147,8 +154,10 @@ export const useWorkspaceViewerAdapterBinding = (options: IWorkspaceViewerAdapte
                 ...createNativeViewerProps(options.djvuSourcePath.value),
                 sourceKind: 'djvu',
                 rendererKind: 'page-source',
-                showSidebar: options.showSidebar.value,
+                annotationRevision: options.documentSourceAnnotationRevision.value,
                 isResizing: options.isWorkspaceLayoutResizing.value,
+                searchResults: options.documentSourceSearchResults.value,
+                currentSearchResultIndex: options.documentSourceCurrentResultIndex.value,
             };
         }
 
@@ -169,6 +178,7 @@ export const useWorkspaceViewerAdapterBinding = (options: IWorkspaceViewerAdapte
         initialVisualPending: options.onInitialVisualPending,
         initialVisualReady: options.onInitialVisualReady,
         'update:sourceCapabilities': options.onSourceCapabilitiesUpdate,
+        'update:pageSource': options.onPageSourceUpdate,
     };
 
     const activeViewerListeners = computed<Record<string, unknown>>(() => {

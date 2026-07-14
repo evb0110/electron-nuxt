@@ -475,9 +475,16 @@ function getMissingNuxtBuildLabels(attempt: INuxtStartupAttempt) {
     return missing;
 }
 
+export function resolveNuxtPortStrategy(sessionName = getCurrentSessionName()) {
+    return sessionName === 'default' ? 'fixed-default' : 'isolated-free';
+}
+
+export function shouldCleanupOrphanedProjectNuxtRoots(sessionName = getCurrentSessionName()) {
+    return sessionName === 'default';
+}
+
 async function selectNuxtPort() {
-    const isDefaultSession = getCurrentSessionName() === 'default';
-    if (isDefaultSession) {
+    if (resolveNuxtPortStrategy() === 'fixed-default') {
         setNuxtPort(DEFAULT_NUXT_PORT);
         console.log(`[Nuxt] Using fixed dev port ${getNuxtPort()}`);
         return;
@@ -490,8 +497,13 @@ async function selectNuxtPort() {
 async function prepareNuxtServerStart(forceClean: boolean, logTiming: (message: string) => void) {
     await selectNuxtPort();
     console.log(`[Nuxt] Browser dev server: http://localhost:${getNuxtPort()}/`);
-    await cleanupOrphanedProjectNuxtRoots('before reuse check');
-    logTiming('Nuxt orphan cleanup complete');
+    if (shouldCleanupOrphanedProjectNuxtRoots()) {
+        await cleanupOrphanedProjectNuxtRoots('before reuse check');
+        logTiming('Nuxt orphan cleanup complete');
+    } else {
+        console.log(`[Nuxt] Skipping project-wide orphan cleanup for isolated session '${getCurrentSessionName()}'`);
+        logTiming('Nuxt isolated-session cleanup boundary applied');
+    }
 
     if (!forceClean && await isReusableNuxtServerReady()) {
         console.log(`[Nuxt] Reusing existing dev server at http://127.0.0.1:${getNuxtPort()}`);

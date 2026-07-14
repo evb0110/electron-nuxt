@@ -39,6 +39,7 @@ export const useWorkspaceSidebarSearchSyncController = (
         sidebarTab,
         dragMode,
         totalPages,
+        initialSidebarWidth: deps.initialViewState?.sidebarWidth,
     });
 
     watch(currentPage, (next, previous) => {

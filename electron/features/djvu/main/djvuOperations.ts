@@ -38,11 +38,16 @@ import { normalizePossiblyEncodedExistingPath } from '@electron/utils/normalizeP
 import { getRecentFiles } from '@electron/recentFiles';
 import type { IDjvuOperationContext } from '@electron/features/djvu/ports';
 import { cancelConversion } from '@electron/features/djvu/main/ddjvuConversion';
+import { searchDjvuText } from '@electron/djvu/textSearch';
+import { DJVU_EVENT_CHANNELS } from '@electron/features/djvu/contract';
+import { isAbortError } from '@electron/utils/abort';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import type {
     IDjvuConvertOptions,
     IDjvuPagePreviewOptions,
     IDjvuPrintOptions,
+    IDjvuTextSearchOptions,
+    IDjvuTextSearchProgress,
 } from '@contracts/electronApiDjvu';
 import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
 import { mainJobBroker } from '@electron/resources/jobBroker';
@@ -88,6 +93,29 @@ const activeEstimateOperationsById = new Map<string, {
     documentKey: string;
     ownerWebContentsId: number;
 }>();
+interface IActiveDjvuTextSearchOperation {
+    abortController: AbortController;
+    ownerWebContentsId: number;
+}
+
+const activeTextSearchesBySenderRequestKey = new Map<string, IActiveDjvuTextSearchOperation>();
+
+function sendDjvuTextSearchProgress(
+    context: IDjvuOperationContext,
+    progress: IDjvuTextSearchProgress,
+) {
+    if (context.sender.isDestroyed()) {
+        return;
+    }
+    try {
+        // Search progress belongs to the exact WebContents that invoked the
+        // operation. BrowserWindow lookup is neither required nor reliable for
+        // request-scoped events (for example, during isolated Electron E2E).
+        context.sender.send(DJVU_EVENT_CHANNELS.textSearchProgress, progress);
+    } catch (error) {
+        logger.debug(`Failed to send DjVu text search progress: ${String(error)}`);
+    }
+}
 const previewSenderCleanupById = new Map<number, {
     handleDestroyed: () => void;
     handleNavigation: (
@@ -131,6 +159,10 @@ function getPreviewRequestKey(djvuPath: string, pageNumber: number) {
 }
 
 function getActivePreviewOperationKey(ownerWebContentsId: number, requestId: string) {
+    return `${ownerWebContentsId}\u0000${requestId}`;
+}
+
+function getActiveTextSearchKey(ownerWebContentsId: number, requestId: string) {
     return `${ownerWebContentsId}\u0000${requestId}`;
 }
 
@@ -701,6 +733,133 @@ export async function handleDjvuCancelPagePreview(
         'DjVu preview request canceled',
     );
     return { canceled };
+}
+
+export async function handleDjvuSearchText(
+    context: IDjvuOperationContext,
+    djvuPath: string,
+    query: string,
+    options: IDjvuTextSearchOptions,
+) {
+    const requestId = normalizeOptionalIpcRequestId(options.requestId, 'searchText.options.requestId');
+    if (!requestId) {
+        throw new Error('searchText.options.requestId is required');
+    }
+    const normalizedDjvuPath = requireDjvuOpenPath(djvuPath, context.sender);
+    const operationKey = getActiveTextSearchKey(context.senderId, requestId);
+    const previous = activeTextSearchesBySenderRequestKey.get(operationKey);
+    previous?.abortController.abort(new Error('DjVu text search superseded'));
+    const abortController = new AbortController();
+    const activeOperation: IActiveDjvuTextSearchOperation = {
+        abortController,
+        ownerWebContentsId: context.senderId,
+    };
+    activeTextSearchesBySenderRequestKey.set(operationKey, activeOperation);
+    let lastProcessedPage = 0;
+    const isCurrentGeneration = () => (
+        activeTextSearchesBySenderRequestKey.get(operationKey) === activeOperation
+    );
+    const canceledResponse = () => ({
+        results: [],
+        truncated: false,
+        canceled: true,
+    });
+    const emitCanceledProgress = () => {
+        sendDjvuTextSearchProgress(context, {
+            requestId,
+            processed: lastProcessedPage,
+            total: options.pageCount,
+            status: 'canceled',
+            canceled: true,
+        });
+    };
+    const handleSenderGone = () => abortController.abort(new Error('Renderer lifecycle ended'));
+    context.sender.once('destroyed', handleSenderGone);
+    context.sender.once('render-process-gone', handleSenderGone);
+
+    try {
+        const response = await searchDjvuText(normalizedDjvuPath, {
+            requestId,
+            pageCount: options.pageCount,
+            query,
+            matchOptions: {
+                matchCase: Boolean(options.matchCase),
+                wholeWord: Boolean(options.wholeWord),
+                useRegex: Boolean(options.useRegex),
+            },
+            signal: abortController.signal,
+            onPageProcessed(processed) {
+                if (!isCurrentGeneration()) {
+                    return;
+                }
+                lastProcessedPage = Math.max(lastProcessedPage, processed);
+            },
+            onProgress(progress) {
+                if (!isCurrentGeneration()) {
+                    return;
+                }
+                lastProcessedPage = Math.max(lastProcessedPage, progress.processed);
+                sendDjvuTextSearchProgress(context, progress);
+            },
+        });
+        if (!isCurrentGeneration()) {
+            return canceledResponse();
+        }
+        if (abortController.signal.aborted) {
+            emitCanceledProgress();
+            return canceledResponse();
+        }
+        sendDjvuTextSearchProgress(context, {
+            requestId,
+            processed: lastProcessedPage,
+            total: options.pageCount,
+            status: 'success',
+            truncated: response.truncated,
+        });
+        return response;
+    } catch (error) {
+        if (abortController.signal.aborted || isAbortError(error)) {
+            if (isCurrentGeneration()) {
+                emitCanceledProgress();
+            }
+            return canceledResponse();
+        }
+        if (!isCurrentGeneration()) {
+            return canceledResponse();
+        }
+        sendDjvuTextSearchProgress(context, {
+            requestId,
+            processed: lastProcessedPage,
+            total: options.pageCount,
+            status: 'failed',
+            error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+    } finally {
+        if (isCurrentGeneration()) {
+            activeTextSearchesBySenderRequestKey.delete(operationKey);
+        }
+        context.sender.removeListener('destroyed', handleSenderGone);
+        context.sender.removeListener('render-process-gone', handleSenderGone);
+    }
+}
+
+export function handleDjvuCancelTextSearch(
+    context: IDjvuOperationContext,
+    requestId: string,
+) {
+    const normalizedRequestId = normalizeOptionalIpcRequestId(requestId, 'cancelTextSearch.requestId');
+    if (!normalizedRequestId) {
+        return Promise.resolve({canceled: false});
+    }
+    const operation = activeTextSearchesBySenderRequestKey.get(
+        getActiveTextSearchKey(context.senderId, normalizedRequestId),
+    );
+    if (!operation || operation.abortController.signal.aborted) {
+        return Promise.resolve({canceled: false});
+    }
+    operation.abortController.abort(new Error('DjVu text search canceled'));
+    return Promise.resolve({canceled: true});
 }
 
 export async function handleDjvuGetInfo(

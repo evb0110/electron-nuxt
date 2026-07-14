@@ -4,7 +4,7 @@ import {
     it,
 } from 'vitest';
 import type { TTranslateFn } from '@i18n-app';
-import { formatPdfSearchResultsSummary } from '@app/modules/pdf-viewer/search/formatPdfSearchResultsSummary';
+import { formatDocumentSearchResultsSummary } from '@app/utils/document-viewer/providers/formatDocumentSearchResultsSummary';
 
 const t: TTranslateFn = (key, ...args) => {
     const params = args[0];
@@ -20,9 +20,9 @@ const t: TTranslateFn = (key, ...args) => {
     return key;
 };
 
-describe('formatPdfSearchResultsSummary', () => {
+describe('formatDocumentSearchResultsSummary', () => {
     it('uses a stable searching label for active searches with no streamed matches yet', () => {
-        expect(formatPdfSearchResultsSummary({
+        expect(formatDocumentSearchResultsSummary({
             isSearching: true,
             query: 'редац',
             resultCount: 0,
@@ -31,14 +31,14 @@ describe('formatPdfSearchResultsSummary', () => {
     });
 
     it('uses the result count once matches exist or the search has completed', () => {
-        expect(formatPdfSearchResultsSummary({
+        expect(formatDocumentSearchResultsSummary({
             isSearching: true,
             query: 'редац',
             resultCount: 3,
             t,
         })).toBe('3 results for "редац"');
 
-        expect(formatPdfSearchResultsSummary({
+        expect(formatDocumentSearchResultsSummary({
             isSearching: false,
             query: 'редац',
             resultCount: 0,

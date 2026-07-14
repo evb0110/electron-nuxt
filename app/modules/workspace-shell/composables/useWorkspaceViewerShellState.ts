@@ -10,8 +10,8 @@ import { useDropdownManager } from '@app/modules/workspace-shell/composables/use
 import type {
     IDocumentViewerExpose,
     IPdfViewerExpose,
-    TPdfSidebarTab,
 } from '@app/modules/pdf-viewer/public';
+import type { TDocumentSidebarTab } from '@app/utils/document-viewer/sidebar/documentSidebarTabs';
 
 export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState | null) => {
     const pdfViewerRef = ref<IPdfViewerExpose | null>(null);
@@ -128,7 +128,7 @@ export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState
     const continuousScroll = ref(initialState?.continuousScroll ?? true);
     const showSidebar = ref(initialState?.showSidebar ?? false);
     const showSettings = ref(false);
-    const sidebarTab = ref<TPdfSidebarTab>('thumbnails');
+    const sidebarTab = ref<TDocumentSidebarTab>(initialState?.sidebarTab ?? 'thumbnails');
 
     return {
         pdfViewerRef,

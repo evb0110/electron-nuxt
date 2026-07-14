@@ -17,6 +17,9 @@ const mocks = vi.hoisted(() => ({
     unload: vi.fn(),
     nativeGetPageSizes: vi.fn(),
     nativeRenderPagePreview: vi.fn(),
+    nativeSearchText: vi.fn(),
+    nativeCancelTextSearch: vi.fn(),
+    nativeOnTextSearchProgress: vi.fn(),
     getPagesSizes: vi.fn(),
     getPage: vi.fn(),
     createPngObjectUrlRun: vi.fn(),
@@ -37,12 +40,34 @@ vi.mock('@app/platform/browserDocumentStore', () => ({
 }));
 
 interface IDjvuPreviewSourceForTest {
-    cancelPagePreview(pageNumber: number): void;
-    renderPageObjectUrl(pageNumber: number, options?: { targetWidthPx?: number }): Promise<{
+    cancelPagePreview(pageNumber: number, requestId?: string): void;
+    renderPageObjectUrl(pageNumber: number, options?: {
+        previewRequestId?: string;
+        targetWidthPx?: number
+    }): Promise<{
         objectUrl: string;
         renderedPx: number;
     }>;
     revokeObjectURL(url: string): void;
+    searchText?(request: {
+        requestId: string;
+        pageCount: number;
+        query: string;
+        matchOptions: {
+            matchCase: boolean;
+            wholeWord: boolean;
+            useRegex: boolean
+        };
+        signal: AbortSignal;
+        onProgress?: (progress: {
+            requestId: string;
+            processed: number;
+            total: number
+        }) => void;
+    }): Promise<{
+        results: unknown[];
+        truncated: boolean
+    }>;
 }
 
 function stubScaledPreviewDom() {
@@ -120,6 +145,58 @@ describe('createDjvuWorkerFromPath', () => {
             width: 100,
             height: 200,
         });
+        mocks.nativeSearchText.mockResolvedValue({
+            results: [],
+            truncated: false,
+        });
+        mocks.nativeCancelTextSearch.mockResolvedValue({canceled: true});
+        mocks.nativeOnTextSearchProgress.mockReturnValue(() => undefined);
+    });
+
+    it('caps browser same-page search progress batches at the shared contract limit', async () => {
+        const {searchDjvuWorkerText} =
+            await import('@app/platform/browser-api/createDjvuWorkerFromPath');
+        const progress = vi.fn();
+        const text = Array.from({length: 130}, () => 'hit').join(' ');
+        const worker = {doc: {
+            getPagesSizes: () => ({run: async () => [{
+                width: 100,
+                height: 200,
+            }]}),
+            getPage: () => ({
+                getText: () => ({run: async () => text}),
+                getNormalizedTextZones: () => ({run: async () => null}),
+            }),
+        }};
+
+        const response = await searchDjvuWorkerText(worker as never, {
+            requestId: 'browser-batched-search',
+            pageCount: 1,
+            query: 'hit',
+            matchOptions: {
+                matchCase: false,
+                wholeWord: true,
+                useRegex: false,
+            },
+            signal: new AbortController().signal,
+            onProgress: progress,
+        });
+
+        expect(response.results).toHaveLength(130);
+        expect(progress.mock.calls.map(call => call[0].results.length)).toEqual([
+            64,
+            64,
+            2,
+        ]);
+        expect(progress.mock.calls.map(call => call[0].resultsStartIndex)).toEqual([
+            0,
+            64,
+            128,
+        ]);
+        expect(progress.mock.calls.every(call => (
+            call[0].processed === 1
+            && call[0].results.length <= 64
+        ))).toBe(true);
     });
 
     it('reads DjVu bytes through the active platform document capability', async () => {
@@ -369,7 +446,163 @@ describe('createDjvuWorkerFromPath', () => {
         expect(mocks.nativeRenderPagePreview).toHaveBeenCalled();
     });
 
-    it('skips stale browser fallback preview renders before starting queued djvu.js work', async () => {
+    it('uses one native full-document search for a huge DjVu and forwards filtered progress', async () => {
+        const documentFiles = {
+            statFile: vi.fn(async () => ({size: 100 * 1024 * 1024})),
+            readFile: vi.fn(),
+            readFileRange: vi.fn(),
+        };
+        let emitProgress: ((progress: {
+            requestId: string;
+            processed: number;
+            total: number;
+        }) => void) | undefined;
+        mocks.nativeOnTextSearchProgress.mockImplementation((callback) => {
+            emitProgress = callback;
+            return () => undefined;
+        });
+        mocks.nativeSearchText.mockImplementation(async () => {
+            emitProgress?.({
+                requestId: 'native-search',
+                processed: 8,
+                total: 431,
+            });
+            return {
+                results: [],
+                truncated: false,
+            };
+        });
+        vi.stubGlobal('window', {electronAPI: createElectronPlatformApiFixture({
+            documentFiles,
+            djvu: {
+                getPageSizes: mocks.nativeGetPageSizes,
+                renderPagePreview: mocks.nativeRenderPagePreview,
+                searchText: mocks.nativeSearchText,
+                cancelTextSearch: mocks.nativeCancelTextSearch,
+                onTextSearchProgress: mocks.nativeOnTextSearchProgress,
+            },
+        })});
+        const {createDjvuPagePreviewSourceFromPath} =
+            await import('@app/platform/browser-api/createDjvuWorkerFromPath');
+        const source = await createDjvuPagePreviewSourceFromPath('/Users/test/huge.djvu') as IDjvuPreviewSourceForTest;
+        const onProgress = vi.fn();
+
+        await expect(source.searchText!({
+            requestId: 'native-search',
+            pageCount: 431,
+            query: 'needle',
+            matchOptions: {
+                matchCase: false,
+                wholeWord: true,
+                useRegex: false,
+            },
+            signal: new AbortController().signal,
+            onProgress,
+        })).resolves.toEqual({
+            results: [],
+            truncated: false,
+        });
+
+        expect(mocks.nativeSearchText).toHaveBeenCalledOnce();
+        expect(mocks.nativeSearchText).toHaveBeenCalledWith('/Users/test/huge.djvu', 'needle', {
+            requestId: 'native-search',
+            pageCount: 431,
+            matchCase: false,
+            wholeWord: true,
+            useRegex: false,
+        });
+        expect(onProgress).toHaveBeenCalledWith({
+            requestId: 'native-search',
+            processed: 8,
+            total: 431,
+        });
+        expect(documentFiles.readFile).not.toHaveBeenCalled();
+        expect(documentFiles.readFileRange).not.toHaveBeenCalled();
+    });
+
+    it('keeps native streaming search when a small desktop DjVu uses the browser raster renderer', async () => {
+        const documentFiles = {
+            statFile: vi.fn(async () => ({size: 3})),
+            readFile: vi.fn(async () => new Uint8Array([
+                1,
+                2,
+                3,
+            ])),
+            readFileRange: vi.fn(),
+        };
+        let emitProgress: ((progress: {
+            requestId: string;
+            processed: number;
+            total: number;
+        }) => void) | undefined;
+        mocks.nativeOnTextSearchProgress.mockImplementation((callback) => {
+            emitProgress = callback;
+            return () => undefined;
+        });
+        mocks.nativeSearchText.mockImplementation(async () => {
+            emitProgress?.({
+                requestId: 'small-native-search',
+                processed: 1,
+                total: 1,
+            });
+            return {
+                results: [],
+                truncated: false,
+            };
+        });
+        vi.stubGlobal('window', {electronAPI: createElectronPlatformApiFixture({
+            documentFiles,
+            djvu: {
+                getPageSizes: mocks.nativeGetPageSizes,
+                renderPagePreview: mocks.nativeRenderPagePreview,
+                searchText: mocks.nativeSearchText,
+                cancelTextSearch: mocks.nativeCancelTextSearch,
+                onTextSearchProgress: mocks.nativeOnTextSearchProgress,
+            },
+        })});
+        const {createDjvuPagePreviewSourceFromPath} =
+            await import('@app/platform/browser-api/createDjvuWorkerFromPath');
+        const source = await createDjvuPagePreviewSourceFromPath('/Users/test/small.djvu') as IDjvuPreviewSourceForTest;
+        const onProgress = vi.fn();
+
+        await expect(source.renderPageObjectUrl(1)).resolves.toEqual({
+            objectUrl: 'blob:fallback-page-1',
+            renderedPx: 100,
+        });
+        await expect(source.searchText!({
+            requestId: 'small-native-search',
+            pageCount: 1,
+            query: 'needle',
+            matchOptions: {
+                matchCase: false,
+                wholeWord: true,
+                useRegex: false,
+            },
+            signal: new AbortController().signal,
+            onProgress,
+        })).resolves.toEqual({
+            results: [],
+            truncated: false,
+        });
+
+        expect(mocks.loadDjvuJs).toHaveBeenCalledOnce();
+        expect(mocks.createPngObjectUrlRun).toHaveBeenCalledWith(1);
+        expect(mocks.nativeRenderPagePreview).not.toHaveBeenCalled();
+        expect(mocks.nativeSearchText).toHaveBeenCalledWith('/Users/test/small.djvu', 'needle', {
+            requestId: 'small-native-search',
+            pageCount: 1,
+            matchCase: false,
+            wholeWord: true,
+            useRegex: false,
+        });
+        expect(onProgress).toHaveBeenCalledWith({
+            requestId: 'small-native-search',
+            processed: 1,
+            total: 1,
+        });
+    });
+
+    it('keeps concurrent browser fallback consumers of the same page independent', async () => {
         const firstRender = Promise.withResolvers<{
             height: number;
             url: string;
@@ -391,8 +624,8 @@ describe('createDjvuWorkerFromPath', () => {
 
         const blockingRender = source.renderPageObjectUrl(2, { previewRequestId: 'blocker' });
         await vi.waitFor(() => expect(mocks.createPngObjectUrlRun).toHaveBeenCalledWith(2));
-        const staleRender = source.renderPageObjectUrl(1, { previewRequestId: 'page-1-stale' });
-        const freshRender = source.renderPageObjectUrl(1, { previewRequestId: 'page-1-fresh' });
+        const viewportRender = source.renderPageObjectUrl(1, { previewRequestId: 'page-1-viewport' });
+        const thumbnailRender = source.renderPageObjectUrl(1, { previewRequestId: 'page-1-thumbnail' });
 
         firstRender.resolve({
             height: 200,
@@ -404,8 +637,11 @@ describe('createDjvuWorkerFromPath', () => {
             objectUrl: 'blob:fallback-page-2',
             renderedPx: 100,
         });
-        await expect(staleRender).rejects.toThrow('DjVu conversion canceled');
-        await expect(freshRender).resolves.toEqual({
+        await expect(viewportRender).resolves.toEqual({
+            objectUrl: 'blob:fallback-page-1',
+            renderedPx: 100,
+        });
+        await expect(thumbnailRender).resolves.toEqual({
             objectUrl: 'blob:fallback-page-1',
             renderedPx: 100,
         });
@@ -413,9 +649,11 @@ describe('createDjvuWorkerFromPath', () => {
         expect(mocks.getPage.mock.calls.map(([pageNumber]) => pageNumber)).toEqual([
             2,
             1,
+            1,
         ]);
         expect(mocks.createPngObjectUrlRun.mock.calls.map(([pageNumber]) => pageNumber)).toEqual([
             2,
+            1,
             1,
         ]);
     });
@@ -425,7 +663,7 @@ describe('createDjvuWorkerFromPath', () => {
             await import('@app/platform/browser-api/createDjvuWorkerFromPath');
         const source = await createDjvuPagePreviewSourceFromPath('browser://documents/source/book.djvu');
         mocks.createPngObjectUrlRun.mockImplementation(async () => {
-            source.cancelPagePreview(1);
+            source.cancelPagePreview(1, 'stale');
             return {
                 height: 200,
                 url: 'blob:fallback-page-1',
@@ -469,7 +707,7 @@ describe('createDjvuWorkerFromPath', () => {
         let source: IDjvuPreviewSourceForTest | null = null;
         vi.stubGlobal('URL', {
             createObjectURL: vi.fn(() => {
-                source?.cancelPagePreview(1);
+                source?.cancelPagePreview(1, 'scaled-stale');
                 return 'blob:scaled-stale-preview';
             }),
             revokeObjectURL: revokeWindowObjectURL,
@@ -478,9 +716,13 @@ describe('createDjvuWorkerFromPath', () => {
         const { createDjvuPagePreviewSourceFromPath } =
             await import('@app/platform/browser-api/createDjvuWorkerFromPath');
 
-        source = await createDjvuPagePreviewSourceFromPath('browser://documents/source/book.djvu');
+        const previewSource = await createDjvuPagePreviewSourceFromPath('browser://documents/source/book.djvu');
+        source = previewSource;
 
-        await expect(source.renderPageObjectUrl(1, { targetWidthPx: 50 }))
+        await expect(previewSource.renderPageObjectUrl(1, {
+            previewRequestId: 'scaled-stale',
+            targetWidthPx: 50,
+        }))
             .rejects
             .toThrow('DjVu conversion canceled');
 

@@ -211,4 +211,32 @@ describe('useWorkspaceToolbarPageModel', () => {
 
         scope.stop();
     });
+
+    it('retires a stale toolbar target when a different authoritative command supersedes it', async () => {
+        const scope = effectScope();
+        const sourcePage = ref(450);
+        const authoritativeCommand = ref<{
+            page: number;
+            revision: number
+        } | null>(null);
+        const model = scope.run(() => useWorkspaceToolbarPageModel({
+            sourcePage,
+            authoritativeCommand,
+            goToPage: vi.fn(),
+        }));
+
+        if (!model) throw new Error('Failed to create workspace toolbar page model');
+
+        model.handleGoToPage(1);
+        expect(model.navigationPage.value).toBe(1);
+
+        authoritativeCommand.value = {
+            page: 450,
+            revision: 2,
+        };
+        expect(model.navigationPage.value).toBe(450);
+        expect(model.currentPage.value).toBe(450);
+
+        scope.stop();
+    });
 });

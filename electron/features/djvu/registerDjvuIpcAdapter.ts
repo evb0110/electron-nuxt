@@ -53,6 +53,10 @@ export function registerDjvuIpcAdapter(
         service.subscribeJob(createDjvuOperationContext(event), jobId));
     registrar.handle(DJVU_CHANNELS.cancelPagePreview, (event, requestId) =>
         service.cancelPagePreview(createDjvuOperationContext(event), requestId));
+    registrar.handle(DJVU_CHANNELS.searchText, (event, djvuPath, query, options) =>
+        service.searchText(createDjvuOperationContext(event), djvuPath, query, options));
+    registrar.handle(DJVU_CHANNELS.cancelTextSearch, (event, requestId) =>
+        service.cancelTextSearch(createDjvuOperationContext(event), requestId));
     registrar.handle(DJVU_CHANNELS.getInfo, (event, djvuPath) =>
         service.getInfo(createDjvuOperationContext(event), djvuPath));
     registrar.handle(DJVU_CHANNELS.getPageSourceInfo, (event, djvuPath, pageNumber) =>

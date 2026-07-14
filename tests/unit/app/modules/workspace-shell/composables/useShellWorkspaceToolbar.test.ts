@@ -160,6 +160,8 @@ describe('createDefaultWorkspaceToolbarSnapshot', () => {
             isFitWidthActive: false,
             isFitHeightActive: false,
             showSidebar: false,
+            sidebarTab: 'thumbnails',
+            sidebarWidth: 272,
             dragMode: false,
             continuousScroll: true,
             isDjvuMode: false,

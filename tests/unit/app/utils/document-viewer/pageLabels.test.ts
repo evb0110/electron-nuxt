@@ -10,9 +10,9 @@ import {
     formatPageIndicatorWithOptions,
     getMaxPageIndicatorLength,
     getPageIndicatorLayoutMetrics,
-} from '@app/utils/pdfPageLabels';
+} from '@app/utils/document-viewer/pageLabels';
 
-describe('pdfPageLabels', () => {
+describe('document page labels', () => {
     it('uses the last numeric page for default labels', () => {
         expect(getMaxPageIndicatorLength(348, null)).toBe(3);
     });

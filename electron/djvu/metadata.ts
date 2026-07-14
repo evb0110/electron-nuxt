@@ -3,6 +3,7 @@ import { getDjvuNativeToolPaths } from '@electron/djvu/nativeToolPaths';
 import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
 import { createLogger } from '@electron/utils/createLogger';
 import { isAbortError } from '@electron/utils/abort';
+import {getCachedDjvuHasText} from '@electron/djvu/getCachedDjvuHasText';
 
 const logger = createLogger('djvu-metadata');
 
@@ -147,12 +148,7 @@ export async function getDjvuResolution(filePath: string, options: IDjvuMetadata
 
 export async function getDjvuHasText(filePath: string, options: IDjvuMetadataOptions = {}) {
     try {
-        const result = await runDjvused([
-            filePath,
-            '-e',
-            'select 1; print-txt',
-        ], options);
-        return result.stdout.trim().length > 0;
+        return await getCachedDjvuHasText(filePath, options.signal);
     } catch (error) {
         if (isAbortError(error)) {
             throw error;

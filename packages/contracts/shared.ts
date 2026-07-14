@@ -68,7 +68,9 @@ export type TPdfZoomState =
         kind: 'fit';
         axis: TFitMode
     };
-export type TPdfViewMode = 'single' | 'facing' | 'facing-first-single';
+export type TDocumentViewMode = 'single' | 'facing' | 'facing-first-single';
+/** @deprecated Use TDocumentViewMode in format-neutral code. */
+export type TPdfViewMode = TDocumentViewMode;
 export type TPrintOrientation = 'auto' | 'portrait' | 'landscape';
 export type TDefaultZoomPreset = 'fit-width' | 'fit-height' | '100' | '125' | '150';
 

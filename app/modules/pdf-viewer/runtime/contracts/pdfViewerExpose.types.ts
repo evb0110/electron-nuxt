@@ -18,8 +18,10 @@ import type {
     IPdfViewerSaveTransactionResult,
 } from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
 import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
+import type { TDocumentSidebarTab } from '@app/utils/document-viewer/sidebar/documentSidebarTabs';
 
-export type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
+/** @deprecated Use the format-neutral document sidebar tab contract. */
+export type TPdfSidebarTab = TDocumentSidebarTab;
 export type TAgentTextMarkupKind = 'highlight' | 'underline' | 'strikethrough' | 'squiggly';
 
 export interface ICreateTextMarkupFromTextOptions {

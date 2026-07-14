@@ -84,10 +84,6 @@ export interface IWorkspacePdfViewerAgentPort extends
     IWorkspacePdfViewerAgentAnnotationNotePort,
     IWorkspacePdfViewerAgentPageImageCapturePort {}
 
-export interface IWorkspacePdfViewerExposeToolbarSnapshotPort extends Pick<IDocumentViewerExpose,
-    'getCurrentPage'
-> {}
-
 export interface IWorkspacePdfViewerExposeAutomationPort extends
     Partial<Pick<IPdfViewerAnnotationCommandExpose,
         'commentAtPoint'

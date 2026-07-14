@@ -16,6 +16,15 @@ interface IDjvuPageTask {
     createPngObjectUrl(): IDjvuWorkerTask<IDjvuPngObjectData>;
     getImageData(rotate?: boolean): IDjvuWorkerTask<IDjvuImageData>;
     getText(): IDjvuWorkerTask<string>;
+    getNormalizedTextZones(): IDjvuWorkerTask<IDjvuNormalizedTextZone[] | null>;
+}
+
+export interface IDjvuNormalizedTextZone {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    text: string;
 }
 
 export interface IDjvuContentsItem {

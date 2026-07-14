@@ -1,13 +1,13 @@
 import type { TTranslateFn } from '@i18n-app';
 
-interface IPdfSearchResultsSummaryOptions {
+interface IDocumentSearchResultsSummaryOptions {
     isSearching: boolean;
     query: string;
     resultCount: number;
     t: TTranslateFn;
 }
 
-export function formatPdfSearchResultsSummary(options: IPdfSearchResultsSummaryOptions) {
+export function formatDocumentSearchResultsSummary(options: IDocumentSearchResultsSummaryOptions) {
     const {
         isSearching,
         query,

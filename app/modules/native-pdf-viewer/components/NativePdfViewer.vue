@@ -84,6 +84,7 @@ import {
     clampDocumentFitScale,
     clampDocumentManualZoom,
 } from '@app/utils/document-viewer/zoomPolicy';
+import { DOCUMENT_PAGE_GUTTER_PX } from '@app/utils/document-viewer/layout/documentPageGutterPx';
 import {
     captureDocumentZoomAnchor,
     resolveDocumentZoomAnchorScroll,
@@ -136,7 +137,6 @@ interface IPageLayout {
     height: number;
 }
 
-const NATIVE_PDF_BASE_MARGIN = 16;
 const NATIVE_PDF_RENDER_OVERSCAN_VIEWPORTS = 2;
 const NATIVE_PDF_RENDER_MARGIN_PAGES = 3;
 const NATIVE_PDF_RENDER_CONCURRENCY = 2;
@@ -204,11 +204,11 @@ const zoomMode = computed(() => zoomModeProp ?? (
 ));
 
 function fitWidthAvailable() {
-    return Math.max(1, containerWidth.value - NATIVE_PDF_BASE_MARGIN * 2);
+    return Math.max(1, containerWidth.value - DOCUMENT_PAGE_GUTTER_PX * 2);
 }
 
 function fitHeightAvailable() {
-    return Math.max(1, containerHeight.value - NATIVE_PDF_BASE_MARGIN * 2);
+    return Math.max(1, containerHeight.value - DOCUMENT_PAGE_GUTTER_PX * 2);
 }
 
 function resolveFitHeightZoomForPageSize(pageSize: IPdfNativePageSize | null | undefined) {
@@ -261,25 +261,25 @@ const pageLayouts = computed<IPageLayout[]>(() => {
         };
     });
     const geometry = resolveDocumentContinuousScrollGeometry({
-        pageGapPx: NATIVE_PDF_BASE_MARGIN,
+        pageGapPx: DOCUMENT_PAGE_GUTTER_PX,
         pageHeights: dimensions.map(page => page.height),
         totalPages: dimensions.length,
     });
     return dimensions.map((page, index) => ({
         ...page,
-        top: geometry.pageTops[index] ?? NATIVE_PDF_BASE_MARGIN,
+        top: geometry.pageTops[index] ?? DOCUMENT_PAGE_GUTTER_PX,
     }));
 });
 
 const continuousGeometry = computed(() => resolveDocumentContinuousScrollGeometry({
-    pageGapPx: NATIVE_PDF_BASE_MARGIN,
+    pageGapPx: DOCUMENT_PAGE_GUTTER_PX,
     pageHeights: pageLayouts.value.map(page => page.height),
     totalPages: totalPages.value,
 }));
 
 const continuousSurfaceWidth = computed(() => {
     const maxPageWidth = pageLayouts.value.reduce((maxWidth, layout) => Math.max(maxWidth, layout.width), 0);
-    return Math.max(containerWidth.value, maxPageWidth + NATIVE_PDF_BASE_MARGIN * 2, 1);
+    return Math.max(containerWidth.value, maxPageWidth + DOCUMENT_PAGE_GUTTER_PX * 2, 1);
 });
 
 const continuousDocumentHeight = computed(() => {
@@ -293,7 +293,7 @@ const renderedPageNumbers = computed(() => {
 
     const pages = resolveDocumentViewportPageNumbers({
         geometry: continuousGeometry.value,
-        pageGapPx: NATIVE_PDF_BASE_MARGIN,
+        pageGapPx: DOCUMENT_PAGE_GUTTER_PX,
         scrollTop: scrollTop.value,
         totalPages: totalPages.value,
         viewportHeight: containerHeight.value,
@@ -376,7 +376,7 @@ function commitPageVisualToViewportSession(generation: number, pageNumber: numbe
     if (snapshot.phase === 'pending' && !openSurface.commitGeometry(snapshot.generation, {
         width: layout.width,
         height: layout.height,
-        margin: NATIVE_PDF_BASE_MARGIN,
+        margin: DOCUMENT_PAGE_GUTTER_PX,
     })) {
         return false;
     }
@@ -474,7 +474,7 @@ function getPageShellStyle(pageNumber: number) {
     }
 
     return {
-        left: `${Math.max(NATIVE_PDF_BASE_MARGIN, Math.round((continuousSurfaceWidth.value - layout.width) / 2))}px`,
+        left: `${Math.max(DOCUMENT_PAGE_GUTTER_PX, Math.round((continuousSurfaceWidth.value - layout.width) / 2))}px`,
         top: `${layout.top}px`,
         width: `${layout.width}px`,
         height: `${layout.height}px`,
@@ -632,7 +632,7 @@ function getVisiblePageNumber() {
     return resolveDocumentContinuousScrollWindow({
         currentPage: activePage.value,
         geometry: continuousGeometry.value,
-        pageGapPx: NATIVE_PDF_BASE_MARGIN,
+        pageGapPx: DOCUMENT_PAGE_GUTTER_PX,
         pageHeights: continuousGeometry.value.pageHeights,
         renderMarginPages: 0,
         scrollTop: container.scrollTop,
@@ -1076,7 +1076,7 @@ async function projectViewportSessionNavigation() {
         reason: 'source-neutral-page-navigation',
         top: visiblePage === normalizedPage
             ? container.scrollTop
-            : Math.max(0, layout.top - NATIVE_PDF_BASE_MARGIN),
+            : Math.max(0, layout.top - DOCUMENT_PAGE_GUTTER_PX),
     });
     scrollTop.value = Math.max(0, container.scrollTop);
     syncLoadedPages();
@@ -1173,7 +1173,7 @@ watch(
                 viewportWritePort.apply(viewerContainer.value, {
                     intent: viewportWritePort.beginIntent(intentId),
                     reason: 'document-load',
-                    top: Math.max(0, (layout?.top ?? NATIVE_PDF_BASE_MARGIN) - NATIVE_PDF_BASE_MARGIN),
+                    top: Math.max(0, (layout?.top ?? DOCUMENT_PAGE_GUTTER_PX) - DOCUMENT_PAGE_GUTTER_PX),
                     left: 0,
                 });
             }

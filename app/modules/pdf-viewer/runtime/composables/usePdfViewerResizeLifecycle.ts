@@ -30,6 +30,7 @@ export interface IBuildResizeAnchorContextOptions {
 
 interface IUsePdfViewerResizeLifecycleOptions {
     submitResizeIntent: (anchor?: IPdfSemanticAnchor | null) => void;
+    applyResizeAnchorPreview?: ((anchor?: IPdfSemanticAnchor | null) => unknown) | undefined;
     captureViewportAnchor?: (() => IPdfSemanticAnchor | null) | undefined;
     viewerContainer: Ref<HTMLElement | null>;
     isLoading: Ref<boolean>;
@@ -327,6 +328,12 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
     }
 
     function restoreResizeAnchorAfterLayout(anchor: IResizeAnchorContext, source: string) {
+        options.applyResizeAnchorPreview?.(anchor.semanticAnchor);
+        // Fit-preview scale is reactive: the ResizeObserver updates it before
+        // Vue has patched the page geometry. Reapply once that patch lands so
+        // the semantic page never leaves the painted viewport while the
+        // asynchronous authority hydrates/refines the canonical intent.
+        void nextTick(() => options.applyResizeAnchorPreview?.(anchor.semanticAnchor));
         options.submitResizeIntent(anchor.semanticAnchor);
         BrowserLogger.diagnosticThrottled(
             'pdf-zoom-debug',
@@ -528,10 +535,29 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
         if (
             runId !== dragSettleRunId
             || isResizing.value
-            || isActive?.value === false
+        ) {
+            return;
+        }
+
+        if (
+            isActive?.value === false
             || isLoading.value
             || !pdfDocument.value
         ) {
+            // A host/tab transition can end while the document is still
+            // opening. It legitimately cannot schedule a resize rerender yet,
+            // but it must still retire the visual transition it began. Leaving
+            // this anchor live permanently marks the ready canvas as resizing
+            // and prevents interaction/readiness after Recent close/reopen.
+            const cancelledAnchor = dragResizeAnchor;
+            dragResizeAnchor = null;
+            dragSettleClaimed = false;
+            options.clearPreviewFitScale?.();
+            scheduleEndResizeTransition(
+                cancelledAnchor.transitionToken,
+                'resize-settle-cancelled',
+                cancelledAnchor.page,
+            );
             return;
         }
 

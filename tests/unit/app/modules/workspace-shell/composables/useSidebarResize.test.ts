@@ -83,7 +83,7 @@ describe('useSidebarResize', () => {
         expect(resize.sidebarWrapperStyle.value.width).toBe(`${SIDEBAR.MAX_WIDTH + SIDEBAR.RESIZER_WIDTH}px`);
     });
 
-    it('preserves the minimum viewer width inside a narrow split pane', async () => {
+    it('preserves viewer space when possible without collapsing the sidebar below its readable minimum', async () => {
         const showSidebar = ref(true);
         const {
             resolveSidebarEffectiveMaxWidth,
@@ -94,6 +94,23 @@ describe('useSidebarResize', () => {
 
         expect(resolveSidebarEffectiveMaxWidth(760)).toBe(440);
         expect(resize.effectiveMaxWidth.value).toBe(440);
+        expect(resolveSidebarEffectiveMaxWidth(400)).toBe(SIDEBAR.MIN_WIDTH);
+    });
+
+    it('restores the tab-owned width without snapping back on reopen', async () => {
+        const showSidebar = ref(false);
+        const { useSidebarResize } = await import('@app/modules/workspace-shell/composables/useSidebarResize');
+        const resize = useSidebarResize({
+            showSidebar,
+            initialWidth: 396,
+        });
+
+        expect(resize.sidebarWidth.value).toBe(396);
+
+        showSidebar.value = true;
+        await nextTick();
+
+        expect(resize.sidebarWidth.value).toBe(396);
     });
 
     it('ignores resize starts while the sidebar is closed', async () => {

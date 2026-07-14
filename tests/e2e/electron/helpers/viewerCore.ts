@@ -219,27 +219,24 @@ export async function waitForPdfLoaded(page: Page, timeoutMs = DEFAULT_TIMEOUT_M
                 return false;
             }
 
-            const pages = viewer.querySelectorAll('.page_container');
+            const host = viewer.closest<HTMLElement>('.workspace-host');
+            if (!host) {
+                return false;
+            }
+
+            const pages = Array.from(viewer.querySelectorAll<HTMLElement>('.page_container'));
             if (pages.length === 0) {
                 return false;
             }
 
-            const visibleRenderedPageCount = Array.from(pages)
-                .filter(pageElement => pageElement.classList.contains('page_container--rendered'))
-                .filter((pageElement) => {
-                    const rect = pageElement.getBoundingClientRect();
-                    return rect.width > 0 && rect.height > 0;
-                })
-                .length;
-            if (visibleRenderedPageCount === 0) {
-                return false;
-            }
-
-            const blockingState = viewer.querySelector([
+            const blockingState = host.querySelector([
+                '.workspace-host__loading',
+                '.document-viewer-chassis__opening-page',
                 '.pdf-loading',
                 '.pdf-loading-overlay',
                 '.pdf-error',
                 '.viewer-error',
+                '[data-testid="workspace-document-pdf-error"]',
                 '[data-loading="true"]',
                 '[data-error="true"]',
             ].join(','));
@@ -247,9 +244,21 @@ export async function waitForPdfLoaded(page: Page, timeoutMs = DEFAULT_TIMEOUT_M
                 return false;
             }
 
-            const renderedCanvasCount = viewer.querySelectorAll('.page_container .page_canvas canvas').length;
-            const renderedTextSpanCount = viewer.querySelectorAll('.page_container .text-layer span, .page_container .textLayer span').length;
-            return renderedCanvasCount + renderedTextSpanCount > 0;
+            const viewerRect = viewer.getBoundingClientRect();
+            return pages.some((pageElement) => {
+                if (!pageElement.classList.contains('page_container--rendered')) {
+                    return false;
+                }
+                const pageRect = pageElement.getBoundingClientRect();
+                const visibleHeight = Math.min(pageRect.bottom, viewerRect.bottom)
+                    - Math.max(pageRect.top, viewerRect.top);
+                if (visibleHeight <= 8 || pageRect.width <= 0) {
+                    return false;
+                }
+
+                const canvas = pageElement.querySelector<HTMLCanvasElement>('.page_canvas canvas, canvas');
+                return Boolean(canvas && canvas.width > 0 && canvas.height > 0);
+            });
         }, {timeout: timeoutMs});
 
         await waitForViewerInteractive(page, timeoutMs);
@@ -277,12 +286,48 @@ export async function waitForDjvuLoaded(page: Page, timeoutMs = DEFAULT_TIMEOUT_
                 return false;
             }
 
-            const pages = host.querySelectorAll('[data-testid="document-page-source-page"]');
-            if (pages.length === 0) {
+            const surface = host.querySelector<HTMLElement>('[data-testid="document-page-source-viewer"]');
+            const viewer = surface?.closest<HTMLElement>('[data-document-viewer-chassis-viewport]') ?? null;
+            if (!surface || !viewer) {
                 return false;
             }
 
-            return host.querySelectorAll('[data-testid="document-page-source-image"]').length > 0;
+            const banner = host.querySelector<HTMLElement>('.djvu-banner');
+            const blockingState = host.querySelector([
+                '.workspace-host__loading',
+                '.document-viewer-chassis__opening-page',
+                '[data-testid="workspace-document-djvu-error"]',
+                '[data-loading="true"]',
+                '[data-error="true"]',
+            ].join(','));
+            if (
+                blockingState
+                || banner?.getAttribute('aria-busy') === 'true'
+                || banner?.textContent?.includes('Opening DjVu')
+            ) {
+                return false;
+            }
+
+            const viewerRect = viewer.getBoundingClientRect();
+            const visiblePages = Array.from(viewer.querySelectorAll<HTMLElement>(
+                '[data-testid="document-page-source-page"]',
+            )).filter((pageElement) => {
+                const pageRect = pageElement.getBoundingClientRect();
+                return Math.min(pageRect.bottom, viewerRect.bottom)
+                    - Math.max(pageRect.top, viewerRect.top) > 8;
+            });
+            return visiblePages.some((pageElement) => {
+                const image = pageElement.querySelector<HTMLImageElement>(
+                    ':scope > [data-testid="document-page-source-image"]',
+                );
+                return pageElement.dataset.pageSourceVisual === 'fresh'
+                    && !pageElement.querySelector('.document-source-viewer__skeleton')
+                    && Boolean(
+                        image?.complete
+                        && image.naturalWidth > 0
+                        && image.naturalHeight > 0,
+                    );
+            });
         }, {timeout: timeoutMs});
     });
 }
@@ -588,23 +633,39 @@ export async function waitForViewerInteractive(page: Page, timeoutMs = DEFAULT_T
             return false;
         }
 
-        const viewer = host.querySelector('.pdfViewer');
-        if (!viewer) {
+        const chassis = host.querySelector<HTMLElement>('.document-viewer-chassis');
+        const chassisViewport = chassis?.querySelector<HTMLElement>(
+            '[data-document-viewer-chassis-viewport]',
+        ) ?? null;
+        const legacyViewer = chassis ? null : host.querySelector<HTMLElement>('.pdfViewer');
+        const viewport = chassisViewport ?? legacyViewer;
+        const pageTrack = chassisViewport?.querySelector<HTMLElement>('[data-pdf-page-track]')
+            ?? legacyViewer;
+        if (!viewport || !pageTrack) {
             return false;
         }
 
-        const viewerStyle = window.getComputedStyle(viewer);
+        const viewportStyle = window.getComputedStyle(viewport);
+        const pageTrackStyle = window.getComputedStyle(pageTrack);
+        const pageTrackPresented = pageTrackStyle.display !== 'none'
+            && pageTrackStyle.visibility !== 'hidden'
+            && Number(pageTrackStyle.opacity || '1') > 0;
+        const viewportPresented = viewportStyle.display !== 'none'
+            && viewportStyle.visibility !== 'hidden'
+            && Number(viewportStyle.opacity || '1') > 0;
         if (
-            viewer.classList.contains('pdfViewer--resize-transition')
-            || viewer.classList.contains('pdfViewer--hidden')
-            || viewerStyle.display === 'none'
-            || viewerStyle.visibility === 'hidden'
-            || Number(viewerStyle.opacity || '1') === 0
+            !pageTrackPresented
+            || !viewportPresented
+            || pageTrack.classList.contains('pdfViewer--resize-transition')
+            || pageTrack.classList.contains('pdfViewer--hidden')
         ) {
             return false;
         }
 
-        return true;
+        return !chassis || (
+            chassisViewport?.dataset.openSurfacePhase === 'ready'
+            && chassis.dataset.openSurfacePresentation === 'committed'
+        );
     }, {timeout: timeoutMs});
 }
 
@@ -909,7 +970,7 @@ export async function ensureSidebarOpen(page: Page, timeoutMs = DEFAULT_TIMEOUT_
         if (!host) {
             return false;
         }
-        const sidebar = host.querySelector('.pdf-sidebar');
+        const sidebar = host.querySelector('[data-testid="document-sidebar"]');
         if (!sidebar) {
             return false;
         }
@@ -942,7 +1003,7 @@ export async function ensureSidebarOpen(page: Page, timeoutMs = DEFAULT_TIMEOUT_
         if (!host) {
             return false;
         }
-        const sidebar = host.querySelector('.pdf-sidebar');
+        const sidebar = host.querySelector('[data-testid="document-sidebar"]');
         if (!sidebar) {
             return false;
         }
@@ -950,6 +1011,40 @@ export async function ensureSidebarOpen(page: Page, timeoutMs = DEFAULT_TIMEOUT_
         const style = window.getComputedStyle(sidebar);
         return rect.width > 10 && rect.height > 10 && style.display !== 'none' && style.visibility !== 'hidden';
     }, {timeout: timeoutMs});
+}
+
+export async function openDocumentSidebarTab(
+    page: Page,
+    label: string,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+) {
+    await ensureSidebarOpen(page, timeoutMs);
+    const tabs = await page.$$('.editor-pane.is-active [data-testid="document-sidebar"] [role="tab"]');
+    const tabLabels = await Promise.all(tabs.map(tab => tab.evaluate(element => (
+        `${element.getAttribute('aria-label') ?? ''} ${element.textContent ?? ''}`.trim()
+    ))));
+    const normalizedLabel = label.trim().toLocaleLowerCase();
+    const tabIndex = tabLabels.findIndex(tabLabel => (
+        tabLabel.toLocaleLowerCase().includes(normalizedLabel)
+    ));
+    if (tabIndex < 0) {
+        throw new Error(`Document sidebar tab '${label}' was unavailable: ${JSON.stringify(tabLabels)}`);
+    }
+    await tabs[tabIndex]!.click();
+    await page.waitForFunction((expectedLabel: string) => {
+        const normalized = expectedLabel.trim().toLocaleLowerCase();
+        return Array.from(document.querySelectorAll<HTMLElement>(
+            '.editor-pane.is-active [data-testid="document-sidebar"] [role="tab"]',
+        )).some((tab) => {
+            const tabLabel = `${tab.getAttribute('aria-label') ?? ''} ${tab.textContent ?? ''}`
+                .trim()
+                .toLocaleLowerCase();
+            return tabLabel.includes(normalized) && (
+                tab.getAttribute('aria-selected') === 'true'
+                || tab.dataset.state === 'active'
+            );
+        });
+    }, {timeout: timeoutMs}, label);
 }
 
 async function isAnnotationsPanelVisible(page: Page) {
@@ -1009,7 +1104,9 @@ async function tryActivateAnnotationsTab(page: Page) {
             }
         }
 
-        const tabs = Array.from(host.querySelectorAll<HTMLElement>('.pdf-sidebar [role="tab"]'));
+        const tabs = Array.from(host.querySelectorAll<HTMLElement>(
+            '[data-testid="document-sidebar"] [role="tab"]',
+        ));
         if (tabs.length === 0) {
             return 'missing-tabs';
         }
@@ -1105,7 +1202,7 @@ export async function openAnnotationsTab(page: Page, timeoutMs = DEFAULT_TIMEOUT
 export async function scrollViewerToPage(page: Page, pageNumber: number) {
     await waitForActiveWorkspaceHost(page);
 
-    const scrollCommand = await callWorkspaceCommand(page, 'scrollToPage', [pageNumber]);
+    const scrollCommand = await callWorkspaceCommand(page, 'handleGoToPage', [pageNumber]);
     if (scrollCommand.called) {
         try {
             await waitForToolbarCurrentPage(page, pageNumber, 5_000);

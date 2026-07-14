@@ -18,7 +18,7 @@
             <span>{{ t('bookmarks.loading') }}</span>
         </div>
 
-        <PdfPanelEmptyState
+        <DocumentPanelEmptyState
             v-else-if="bookmarks.length === 0"
             icon="i-ph-book-open"
             :title="t('bookmarks.noBookmarks')"
@@ -35,7 +35,7 @@
                     @click="addRootBookmark"
                 />
             </template>
-        </PdfPanelEmptyState>
+        </DocumentPanelEmptyState>
 
         <div
             v-else
@@ -119,7 +119,7 @@ import { pdfOutlineTreeKey } from '@app/modules/pdf-viewer/engine/pdf-outline-tr
 import AppSpinner from '@app/components/AppSpinner.vue';
 import PdfOutlineContextMenu from '@app/modules/pdf-viewer/components/PdfOutlineContextMenu.vue';
 import PdfOutlineItem from '@app/modules/pdf-viewer/components/PdfOutlineItem.vue';
-import PdfPanelEmptyState from '@app/modules/pdf-viewer/components/PdfPanelEmptyState.vue';
+import DocumentPanelEmptyState from '@app/components/document-viewer/DocumentPanelEmptyState.vue';
 import PdfOutlineToolbar from '@app/modules/pdf-viewer/components/PdfOutlineToolbar.vue';
 
 interface IProps {

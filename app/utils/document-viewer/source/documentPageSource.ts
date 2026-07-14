@@ -1,12 +1,17 @@
 import type { TDocumentRef } from '@contracts/documentRef';
+import type {
+    IPdfSearchProgress,
+    IPdfSearchResponse,
+    IResolvedSearchMatchOptions,
+} from '@contracts/search';
 
 export type TDocumentPageSourceKind = 'pdf' | 'djvu';
 export type TDocumentRenderPriority = 'navigation' | 'visible' | 'nearby' | 'thumbnail' | 'prefetch';
 
 export interface IDocumentPageMetrics {
-    /** Page width in PDF points (1/72 inch). */
+    /** Page width in document points (1/72 inch). */
     widthPoints: number;
-    /** Page height in PDF points (1/72 inch). */
+    /** Page height in document points (1/72 inch). */
     heightPoints: number;
     rotation: 0 | 90 | 180 | 270;
 }
@@ -29,6 +34,16 @@ export interface IDocumentPageRenderRequest {
 }
 
 export interface IDocumentTextProvider {getPageText(pageNumber: number, signal: AbortSignal): Promise<string>;}
+
+export interface IDocumentSearchRequest {
+    matchOptions: IResolvedSearchMatchOptions;
+    onProgress?: ((progress: IPdfSearchProgress) => void) | undefined;
+    query: string;
+    requestId: string;
+    signal: AbortSignal;
+}
+
+export interface IDocumentSearchProvider {search(request: IDocumentSearchRequest): Promise<IPdfSearchResponse>;}
 
 export interface IDocumentOutlineItem {
     title: string;
@@ -59,6 +74,7 @@ export interface IDocumentPageSource {
     readonly documentRef: TDocumentRef;
     readonly pageCount: number;
     readonly textProvider?: IDocumentTextProvider | undefined;
+    readonly searchProvider?: IDocumentSearchProvider | undefined;
     readonly outlineProvider?: IDocumentOutlineProvider | undefined;
     readonly thumbnailProvider?: IDocumentThumbnailProvider | undefined;
     readonly rasterProvider?: IDocumentRasterProvider | undefined;

@@ -2,6 +2,7 @@
     <AppSidebarShell
         v-show="isOpen"
         class="pdf-sidebar"
+        data-testid="document-sidebar"
         :style="sidebarStyle"
         :model-value="activeTab"
         :tabs="localizedTabs"
@@ -84,38 +85,13 @@
                 @bookmarks-change="updateBookmarks"
                 @update:is-edit-mode="updateBookmarkEditMode"
             />
-            <div
+            <DocumentSearchPanel
                 v-show="activeTab === 'search'"
-                class="flex h-full min-h-0 flex-col"
-            >
-                <div class="sticky top-0 z-1 border-b border-[var(--ui-border)] bg-inherit">
-                    <PdfSearchBar
-                        ref="searchBarRef"
-                        v-model="searchQueryProxy"
-                        :options="searchOptions"
-                        :total-matches="totalMatches"
-                        @update:options="handleSearchOptionsUpdate"
-                        @search="search"
-                        @next="nextSearchResult"
-                        @previous="previousSearchResult"
-                    />
-                </div>
-                <div class="flex min-h-0 flex-1 flex-col">
-                    <PdfSearchResults
-                        :results="searchResults"
-                        :current-result-index="currentResultIndex"
-                        :current-result-navigation-id="currentResultNavigationId"
-                        :search-query="submittedSearchQuery ?? ''"
-                        :page-labels="pageLabels"
-                        :is-searching="isSearching"
-                        :search-error="searchError"
-                        :search-progress="searchProgress"
-                        :is-truncated="isTruncated"
-                        :min-query-length="minQueryLength"
-                        @go-to-result="goToResult"
-                    />
-                </div>
-            </div>
+                :session="searchSession"
+                :is-active="isOpen && activeTab === 'search'"
+                :focus-request="searchFocusRequest ?? 0"
+                :page-labels="pageLabels ?? null"
+            />
     </AppSidebarShell>
 </template>
 
@@ -143,11 +119,12 @@ import type { TPdfSidebarTab } from '@app/modules/pdf-viewer/runtime/contracts/p
 import PdfAnnotationsPanel from '@app/modules/pdf-viewer/components/PdfAnnotationsPanel.vue';
 import PdfOutline from '@app/modules/pdf-viewer/components/PdfOutline.vue';
 import PdfPageSelectionBar from '@app/modules/pdf-viewer/components/PdfPageSelectionBar.vue';
-import PdfSearchBar from '@app/modules/pdf-viewer/components/PdfSearchBar.vue';
-import PdfSearchResults from '@app/modules/pdf-viewer/components/PdfSearchResults.vue';
+import DocumentSearchPanel from '@app/components/document-viewer/DocumentSearchPanel.vue';
 import PdfSidebarPageNumbering from '@app/modules/pdf-viewer/components/PdfSidebarPageNumbering.vue';
 import PdfThumbnails from '@app/modules/pdf-viewer/components/PdfThumbnails.vue';
 import AppSidebarShell from '@app/components/sidebar/AppSidebarShell.vue';
+import { resolveDocumentSidebarTabs } from '@app/utils/document-viewer/sidebar/documentSidebarTabs';
+import { createPdfDocumentSearchSession } from '@app/modules/pdf-viewer/search/createPdfDocumentSearchSession';
 
 interface IProps {
     isOpen: boolean;
@@ -163,7 +140,6 @@ interface IProps {
     searchQuery: string;
     submittedSearchQuery?: string | undefined;
     searchOptions: IResolvedSearchMatchOptions;
-    totalMatches: number;
     isSearching: boolean;
     searchError?: string | null | undefined;
     searchFocusRequest?: number | undefined;
@@ -232,7 +208,6 @@ const {
     thumbnailHiddenAnnotationIds = undefined,
     submittedSearchQuery = undefined,
     thumbnailInvalidationRequest = undefined,
-    totalMatches,
     totalPages,
     width = undefined,
 } = defineProps<IProps>();
@@ -278,6 +253,33 @@ const emit = defineEmits<{
     }];
 }>();
 
+const searchSession = createPdfDocumentSearchSession({
+    query: computed(() => searchQuery),
+    submittedQuery: computed(() => submittedSearchQuery ?? ''),
+    options: computed(() => searchOptions),
+    results: computed(() => searchResults),
+    currentResultIndex: computed(() => currentResultIndex),
+    currentResultNavigationId: computed(() => currentResultNavigationId),
+    isSearching: computed(() => isSearching),
+    error: computed(() => searchError ?? null),
+    progress: computed(() => searchProgress),
+    isTruncated: computed(() => isTruncated ?? false),
+    minQueryLength: computed(() => minQueryLength ?? 1),
+    setQuery: value => emit('update:searchQuery', value),
+    setOptions: value => emit('update:searchOptions', value),
+    run: () => emit('search'),
+    clear: () => emit('update:searchQuery', ''),
+    cancel: () => undefined,
+    select: index => emit('goToResult', index),
+    navigate: (direction) => {
+        if (direction === 'next') {
+            emit('next');
+        } else {
+            emit('previous');
+        }
+    },
+});
+
 const activeTabLocal = ref<TPdfSidebarTab>('thumbnails');
 
 const activeTab = computed<TPdfSidebarTab>({
@@ -291,25 +293,10 @@ const activeTab = computed<TPdfSidebarTab>({
     },
 });
 
-const searchQueryProxy = computed({
-    get: () => searchQuery,
-    set: (value: string) => emit('update:searchQuery', value),
-});
-
-const searchBarRef = ref<{ focus: () => void } | null>(null);
 const selectedThumbnailPages = computed(() => selectedThumbnailPagesProp);
-
-async function focusSearch() {
-    await nextTick();
-    searchBarRef.value?.focus();
-}
 
 function handleSelectedPagesUpdate(pages: number[]) {
     emit('update:selectedThumbnailPages', pages);
-}
-
-function handleSearchOptionsUpdate(value: IResolvedSearchMatchOptions) {
-    emit('update:searchOptions', value);
 }
 
 function clearPageSelection() {
@@ -402,52 +389,22 @@ function updateBookmarkEditMode(value: boolean) {
     emit('update:bookmark-edit-mode', value);
 }
 
-function search() {
-    emit('search');
-}
-
-function nextSearchResult() {
-    emit('next');
-}
-
-function previousSearchResult() {
-    emit('previous');
-}
-
-function goToResult(index: number) {
-    emit('goToResult', index);
-}
-
 watch(
     () => [
         isOpen,
         activeTab.value,
     ] as const,
-    async ([
-        isOpen,
+    ([
+        _isOpen,
         activeSidebarTab,
     ], [
         wasOpen,
         previousTab,
     ]) => {
-        if (isOpen && activeSidebarTab === 'search') {
-            await focusSearch();
-        }
-
         const leftAnnotations = previousTab === 'annotations' && activeSidebarTab !== 'annotations';
         const sidebarClosed = wasOpen && !isOpen;
         if (leftAnnotations || sidebarClosed) {
             emit('update:annotation-tool', 'none');
-        }
-    },
-    { flush: 'post' },
-);
-
-watch(
-    () => searchFocusRequest,
-    async () => {
-        if (isOpen && activeTab.value === 'search') {
-            await focusSearch();
         }
     },
     { flush: 'post' },
@@ -478,42 +435,22 @@ interface IPdfSidebarTabItem {
 }
 
 
-const allTabs: IPdfSidebarTabItem[] = [
-    {
-        value: 'annotations',
-        label: '',
-        icon: 'i-ph-chat',
-        title: '',
-    },
-    {
-        value: 'thumbnails',
-        label: '',
-        icon: 'i-ph-file',
-        title: '',
-    },
-    {
-        value: 'bookmarks',
-        label: '',
-        icon: 'i-ph-bookmark',
-        title: '',
-    },
-    {
-        value: 'search',
-        label: '',
-        icon: 'i-ph-magnifying-glass',
-        title: '',
-    },
-];
-
 const localizedTabs = computed<IPdfSidebarTabItem[]>(() => {
-    const items = isDjvuMode
-        ? allTabs.filter((tab) => tab.value !== 'annotations')
-        : allTabs;
-
-    return items.map((tab) => ({
-        ...tab,
-        label: t(`sidebar.${tab.value === 'thumbnails' ? 'pages' : tab.value}`),
-        title: t(`sidebar.${tab.value === 'thumbnails' ? 'pages' : tab.value}`),
+    return resolveDocumentSidebarTabs({
+        annotations: !isDjvuMode,
+        bookmarks: true,
+        pages: true,
+        search: true,
+    }).map((value) => ({
+        value,
+        icon: {
+            annotations: 'i-ph-chat',
+            thumbnails: 'i-ph-file',
+            bookmarks: 'i-ph-bookmark',
+            search: 'i-ph-magnifying-glass',
+        }[value],
+        label: t(`sidebar.${value === 'thumbnails' ? 'pages' : value}`),
+        title: t(`sidebar.${value === 'thumbnails' ? 'pages' : value}`),
     }));
 });
 function handleShellTabUpdate(value: string) {

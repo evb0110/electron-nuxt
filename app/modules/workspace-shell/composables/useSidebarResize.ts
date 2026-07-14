@@ -16,11 +16,19 @@ export function resolveSidebarEffectiveMaxWidth(containerWidth: number) {
     );
 }
 
-export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
+export const useSidebarResize = (deps: {
+    showSidebar: Ref<boolean>;
+    initialWidth?: number | undefined;
+}) => {
     const { showSidebar } = deps;
 
-    const sidebarWidth = ref(SIDEBAR.DEFAULT_WIDTH);
-    const lastOpenSidebarWidth = ref(SIDEBAR.DEFAULT_WIDTH);
+    const initialWidth = clamp(
+        deps.initialWidth ?? SIDEBAR.DEFAULT_WIDTH,
+        SIDEBAR.MIN_WIDTH,
+        SIDEBAR.MAX_WIDTH,
+    );
+    const sidebarWidth = ref(initialWidth);
+    const lastOpenSidebarWidth = ref(initialWidth);
     const isPointerResizingSidebar = ref(false);
     const isResizingSidebar = computed(() => isPointerResizingSidebar.value);
     const containerWidth = ref(Number.POSITIVE_INFINITY);
@@ -118,7 +126,7 @@ export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
         });
         if (isOpen) {
             const width = Math.min(
-                Math.max(lastOpenSidebarWidth.value, SIDEBAR.DEFAULT_WIDTH),
+                Math.max(lastOpenSidebarWidth.value, SIDEBAR.MIN_WIDTH),
                 effectiveMaxWidth.value,
             );
             sidebarWidth.value = width;

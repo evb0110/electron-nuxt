@@ -264,6 +264,7 @@ const {
     pageDropdownTotalPages: pageDropdownTotalPagesProp = undefined,
     pageLabels = null,
     navigationFeedbackPage = null,
+    navigationCommand = null,
     snapshot,
     surface,
     zoomDropdownOpen,
@@ -285,6 +286,10 @@ const {
     pageDropdownTotalPages?: number | undefined;
     pageLabels?: string[] | null | undefined;
     navigationFeedbackPage?: number | null | undefined;
+    navigationCommand?: {
+        page: number;
+        revision: number
+    } | null | undefined;
     ocrPdfDocument?: PDFDocumentProxy | null | undefined;
     ocrWorkingCopyPath?: TDocumentRef | null | undefined;
     ocrExternalError?: string | null | undefined;
@@ -388,6 +393,7 @@ const {
 } = useWorkspaceToolbarPageModel({
     sourcePage: () => snapshot.currentPage,
     feedbackPage: () => navigationFeedbackPage,
+    authoritativeCommand: () => navigationCommand,
     sessionActive: () => toolbarHasPdf.value || toolbarDocumentBusy.value,
     goToPage: page => emit('go-to-page', page),
 });

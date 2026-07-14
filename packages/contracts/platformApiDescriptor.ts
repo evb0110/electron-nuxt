@@ -637,6 +637,14 @@ const otherMethodPaths = defineMethodPaths([
     ],
     [
         'djvu',
+        'searchText',
+    ],
+    [
+        'djvu',
+        'cancelTextSearch',
+    ],
+    [
+        'djvu',
         'getInfo',
     ],
     [
@@ -662,6 +670,10 @@ const otherMethodPaths = defineMethodPaths([
     [
         'djvu',
         'onProgress',
+    ],
+    [
+        'djvu',
+        'onTextSearchProgress',
     ],
     [
         'djvu',

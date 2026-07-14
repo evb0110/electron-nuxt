@@ -86,6 +86,37 @@ describe('runNativeCommand', () => {
         });
     });
 
+    it('decodes UTF-8 incrementally when multibyte characters straddle process chunks', async () => {
+        const proc = new MockNativeProcess();
+        const onStdout = vi.fn();
+        const onStderr = vi.fn();
+        mocks.spawn.mockReturnValue(proc);
+        const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
+
+        const resultPromise = runNativeCommand('/bin/tool', [], {
+            onStderr,
+            onStdout,
+        });
+        const russian = Buffer.from('Предисловие', 'utf8');
+        const splitAt = russian.indexOf(0xd1) + 1;
+        const stderr = Buffer.from('ошибка', 'utf8');
+        proc.stdout.emit('data', russian.subarray(0, splitAt));
+        proc.stdout.emit('data', russian.subarray(splitAt));
+        proc.stderr.emit('data', stderr.subarray(0, 1));
+        proc.stderr.emit('data', stderr.subarray(1));
+        proc.emit('close', 0, null);
+
+        await expect(resultPromise).resolves.toEqual({
+            stdout: 'Предисловие',
+            stderr: 'ошибка',
+            exitCode: 0,
+        });
+        expect(onStdout.mock.calls.flat().join('')).toBe('Предисловие');
+        expect(onStderr.mock.calls.flat().join('')).toBe('ошибка');
+        expect(onStdout.mock.calls.flat().join('')).not.toContain('\ufffd');
+        expect(onStderr.mock.calls.flat().join('')).not.toContain('\ufffd');
+    });
+
     it('formats nonzero exits with truncated output and close signal details', async () => {
         const proc = new MockNativeProcess();
         const log = vi.fn();

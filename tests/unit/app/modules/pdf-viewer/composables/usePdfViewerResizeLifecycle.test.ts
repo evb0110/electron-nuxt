@@ -34,10 +34,13 @@ function createResizeLifecycle(
     isActive = ref(true),
     options?: {
         computeFitWidthScale?: () => boolean;
+        isLoading?: Ref<boolean>;
         isResizing?: Ref<boolean>;
+        pdfDocument?: Ref<unknown | null>;
         pendingNavigationAnchorPage?: Readonly<Ref<number | null>>;
         transactionController?: TResizeLifecycleOptions['transactionController'];
         captureViewportAnchor?: TResizeLifecycleOptions['captureViewportAnchor'];
+        applyResizeAnchorPreview?: TResizeLifecycleOptions['applyResizeAnchorPreview'];
         viewerContainer?: Ref<HTMLElement | null>;
     },
 ) {
@@ -46,14 +49,16 @@ function createResizeLifecycle(
     const scheduleResizeAwareRerender = vi.fn();
     const setResizeTransitionVisible = vi.fn();
     const submitResizeIntent = vi.fn();
+    const applyResizeAnchorPreview = vi.fn(options?.applyResizeAnchorPreview);
     const isResizing = options?.isResizing ?? ref(false);
     const lifecycle = usePdfViewerResizeLifecycle({
         submitResizeIntent,
+        applyResizeAnchorPreview,
         viewerContainer: options?.viewerContainer ?? ref(null),
-        isLoading: ref(false),
+        isLoading: options?.isLoading ?? ref(false),
         isActive,
         isResizing,
-        pdfDocument: ref({}),
+        pdfDocument: options?.pdfDocument ?? ref({}),
         currentPage: ref(4),
         pendingNavigationAnchorPage: options?.pendingNavigationAnchorPage,
         visibleRange: ref({
@@ -73,6 +78,7 @@ function createResizeLifecycle(
     });
 
     return {
+        applyResizeAnchorPreview,
         computeFitWidthScale,
         getMostVisiblePage,
         isActive,
@@ -393,6 +399,7 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         };
         const isResizing = ref(false);
         const {
+            applyResizeAnchorPreview,
             computeFitWidthScale,
             scheduleResizeAwareRerender,
             submitResizeIntent,
@@ -404,6 +411,7 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         isResizing.value = true;
         resizeObserverMock.callback?.();
         resizeObserverMock.callback?.();
+        await nextTick();
 
         expect(computeFitWidthScale).toHaveBeenCalledWith(null, {
             page: 4,
@@ -412,6 +420,9 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         expect(submitResizeIntent).toHaveBeenCalledTimes(2);
         expect(submitResizeIntent).toHaveBeenNthCalledWith(1, semanticAnchor);
         expect(submitResizeIntent).toHaveBeenNthCalledWith(2, semanticAnchor);
+        expect(applyResizeAnchorPreview).toHaveBeenCalledTimes(4);
+        expect(applyResizeAnchorPreview).toHaveBeenNthCalledWith(1, semanticAnchor);
+        expect(applyResizeAnchorPreview).toHaveBeenNthCalledWith(2, semanticAnchor);
         expect(scheduleResizeAwareRerender).not.toHaveBeenCalled();
 
         isResizing.value = false;
@@ -420,6 +431,8 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
 
         expect(submitResizeIntent).toHaveBeenCalledTimes(3);
         expect(submitResizeIntent).toHaveBeenNthCalledWith(3, semanticAnchor);
+        expect(applyResizeAnchorPreview).toHaveBeenCalledTimes(6);
+        expect(applyResizeAnchorPreview).toHaveBeenNthCalledWith(6, semanticAnchor);
         expect(scheduleResizeAwareRerender).toHaveBeenCalledOnce();
         expect(scheduleResizeAwareRerender).toHaveBeenCalledWith(
             're-render visible pages after resize settle',
@@ -434,6 +447,36 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
 
         await vi.advanceTimersByTimeAsync(400);
         expect(scheduleResizeAwareRerender).toHaveBeenCalledOnce();
+    });
+
+    it('retires a drag transition that settles while a Recent document is still loading', async () => {
+        vi.useFakeTimers();
+        const isLoading = ref(true);
+        const isResizing = ref(false);
+        const {
+            scheduleResizeAwareRerender,
+            setResizeTransitionVisible,
+        } = createResizeLifecycle(ref(true), {
+            isLoading,
+            isResizing,
+        });
+
+        isResizing.value = true;
+        await nextTick();
+        expect(setResizeTransitionVisible).toHaveBeenLastCalledWith(expect.objectContaining({
+            active: true,
+            source: 'resize-settle',
+        }));
+
+        isResizing.value = false;
+        await nextTick();
+        await vi.runAllTimersAsync();
+
+        expect(scheduleResizeAwareRerender).not.toHaveBeenCalled();
+        expect(setResizeTransitionVisible).toHaveBeenLastCalledWith(expect.objectContaining({
+            active: false,
+            source: 'resize-settle-cancelled',
+        }));
     });
 
     it('reapplies the drag anchor when viewport geometry changes without a fit-scale delta', () => {

@@ -5,6 +5,8 @@ import type {
     IDjvuPrintOptions,
     IDjvuProgress,
     IDjvuPagePreviewOptions,
+    IDjvuTextSearchOptions,
+    IDjvuTextSearchProgress,
 } from '@contracts/electronApiDjvu';
 import type {
     TMenuEventCallback,
@@ -21,7 +23,10 @@ import {
     type IDjvuEventMap,
     type IDjvuInvokeMap,
 } from '@electron/features/djvu/contract';
-import { DJVU_IPC_CODECS } from '@electron/features/djvu/djvuIpcCodecs';
+import {
+    decodeDjvuTextSearchProgress,
+    DJVU_IPC_CODECS,
+} from '@electron/features/djvu/djvuIpcCodecs';
 import {
     createCodecIpcInvoker,
     createTypedIpcEventSubscriber,
@@ -41,8 +46,29 @@ const DJVU_INVOKE_TIMEOUT_MS_BY_CHANNEL = {
     [DJVU_CHANNELS.getPageSourceInfo]: DJVU_NATIVE_IPC_TIMEOUT_MS,
     [DJVU_CHANNELS.getPageSizes]: DJVU_NATIVE_IPC_TIMEOUT_MS,
     [DJVU_CHANNELS.renderPagePreview]: DJVU_NATIVE_IPC_TIMEOUT_MS,
+    [DJVU_CHANNELS.searchText]: DJVU_NATIVE_IPC_TIMEOUT_MS,
     [DJVU_CHANNELS.estimateSizes]: DJVU_NATIVE_IPC_TIMEOUT_MS,
 } as const;
+
+function normalizeDjvuTextSearchOptions(options: IDjvuTextSearchOptions) {
+    if (!options || typeof options !== 'object') {
+        throw new TypeError('searchText.options must be an object');
+    }
+    const requestId = normalizeOptionalIpcRequestId(options.requestId, 'searchText.options.requestId');
+    if (!requestId) {
+        throw new TypeError('searchText.options.requestId is required');
+    }
+    if (!Number.isSafeInteger(options.pageCount) || options.pageCount < 1) {
+        throw new TypeError('searchText.options.pageCount must be a positive safe integer');
+    }
+    return {
+        requestId,
+        pageCount: options.pageCount,
+        matchCase: Boolean(options.matchCase),
+        wholeWord: Boolean(options.wholeWord),
+        useRegex: Boolean(options.useRegex),
+    };
+}
 
 
 function decodeDjvuProgress(payload: unknown): IDjvuProgress | null {
@@ -314,6 +340,16 @@ export function createDjvuPreloadClient(ipcRenderer: IpcRenderer): IDjvuCapabili
             DJVU_CHANNELS.cancelPagePreview,
             normalizeOptionalIpcRequestId(requestId, 'cancelPagePreview.requestId') ?? '',
         ),
+        searchText: (djvuPath, query, options) => invoke(
+            DJVU_CHANNELS.searchText,
+            djvuPath,
+            query,
+            normalizeDjvuTextSearchOptions(options),
+        ),
+        cancelTextSearch: requestId => invoke(
+            DJVU_CHANNELS.cancelTextSearch,
+            normalizeOptionalIpcRequestId(requestId, 'cancelTextSearch.requestId') ?? '',
+        ),
         getInfo: (djvuPath: TDocumentRef) => invoke(DJVU_CHANNELS.getInfo, djvuPath),
         getPageSourceInfo: (djvuPath: TDocumentRef, pageNumber: number) => invoke(
             DJVU_CHANNELS.getPageSourceInfo,
@@ -334,6 +370,12 @@ export function createDjvuPreloadClient(ipcRenderer: IpcRenderer): IDjvuCapabili
             ensureProgressSubscription();
             return unsubscribe;
         },
+        onTextSearchProgress: (callback: (progress: IDjvuTextSearchProgress) => void): (() => void) =>
+            eventSubscriber.onDecodedPayload(
+                DJVU_EVENT_CHANNELS.textSearchProgress,
+                decodeDjvuTextSearchProgress,
+                callback,
+            ),
         onMenuConvertToPdf: (callback: TMenuEventCallback): TMenuEventUnsubscribe =>
             eventSubscriber.onNoArg(DJVU_EVENT_CHANNELS.menuConvertToPdf, callback),
     };

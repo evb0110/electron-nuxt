@@ -1,32 +1,50 @@
 <template>
     <AppSidebarShell
         class="document-source-sidebar"
-        data-testid="document-source-sidebar"
+        data-testid="document-sidebar"
         :aria-label="t('documentSourceSidebar.navLabel')"
         :model-value="activeTab"
         :tabs="availableShellTabs"
-        :outer-scroll="false"
+        :outer-scroll="activeTab === 'annotations'"
         @update:model-value="handleShellTabUpdate"
     >
-        <div v-if="activeTab === 'thumbnails'" class="document-source-sidebar__content app-panel-scroll app-scrollbar">
-            <button
-                v-for="page in thumbnailPages"
-                :key="page"
-                type="button"
-                class="document-source-sidebar__thumbnail"
-                :class="{'is-current': page === currentPage}"
-                :aria-label="t('documentSourceSidebar.goToPage', {page})"
-                @click="emit('go-to-page', page)"
-            >
-                <img v-if="thumbnailUrls.get(page)" :src="thumbnailUrls.get(page)" alt="">
-                <span v-else class="document-source-sidebar__thumbnail-placeholder" />
-                <span>{{ page }}</span>
+        <div v-show="activeTab === 'annotations'" class="document-source-sidebar__content">
+            <button type="button" class="document-source-sidebar__add" @click="addNote">
+                {{ t('documentSourceSidebar.addNoteOnPage', {page: currentPage}) }}
             </button>
+            <DocumentPanelEmptyState
+                v-if="pageAnnotations.length === 0"
+                icon="i-ph-chat"
+                :title="t('documentSourceSidebar.noAnnotations')"
+            />
+            <div v-for="annotation in pageAnnotations" :key="annotation.id" class="document-source-sidebar__annotation">
+                <span>{{ String(annotation.payload.label ?? t('documentSourceSidebar.note')) }}</span>
+                <button type="button" :aria-label="t('documentSourceSidebar.deleteAnnotation', {id: annotation.id})" @click="removeAnnotation(annotation.id)">×</button>
+            </div>
         </div>
 
-        <div v-else-if="activeTab === 'outline'" class="document-source-sidebar__content app-panel-scroll app-scrollbar">
+        <DocumentThumbnailList
+            v-if="source?.thumbnailProvider"
+            v-show="activeTab === 'thumbnails'"
+            :source="source"
+            :current-page="currentPage"
+            :is-resizing="isResizing"
+            @go-to-page="emit('go-to-page', $event)"
+        />
+
+        <div v-show="activeTab === 'bookmarks'" class="document-source-sidebar__content app-panel-scroll app-scrollbar">
             <p v-if="outlineLoading" class="document-source-sidebar__status">{{ t('documentSourceSidebar.loadingOutline') }}</p>
-            <p v-else-if="outlineItems.length === 0" class="document-source-sidebar__status">{{ t('documentSourceSidebar.noOutline') }}</p>
+            <DocumentPanelEmptyState
+                v-else-if="outlineError"
+                icon="i-ph-warning"
+                :title="t('searchResults.unavailable')"
+                :description="outlineError"
+            />
+            <DocumentPanelEmptyState
+                v-else-if="outlineItems.length === 0"
+                icon="i-ph-bookmark"
+                :title="t('documentSourceSidebar.noOutline')"
+            />
             <button
                 v-for="item in outlineItems"
                 :key="`${item.depth}:${item.title}:${item.pageNumber}`"
@@ -38,208 +56,117 @@
             >{{ item.title }}</button>
         </div>
 
-        <div v-else-if="activeTab === 'search'" class="document-source-sidebar__search app-panel-scroll app-scrollbar">
-            <form @submit.prevent="runSearch">
-                <input v-model="searchQuery" type="search" :placeholder="t('documentSourceSidebar.searchPlaceholder')" :aria-label="t('documentSourceSidebar.searchPlaceholder')">
-                <button type="submit" :disabled="searching || searchQuery.trim().length < 2">{{ t('documentSourceSidebar.searchAction') }}</button>
-            </form>
-            <p v-if="searching" class="document-source-sidebar__status">{{ t('documentSourceSidebar.searching') }}</p>
-            <p v-else-if="searchComplete && searchResults.length === 0" class="document-source-sidebar__status">{{ t('documentSourceSidebar.noResults') }}</p>
-            <button
-                v-for="result in searchResults"
-                :key="`${result.pageNumber}:${result.excerpt}`"
-                type="button"
-                class="document-source-sidebar__search-result"
-                @click="emit('go-to-page', result.pageNumber)"
-            >
-                <strong>{{ t('documentSourceSidebar.page', {page: result.pageNumber}) }}</strong>
-                <span>{{ result.excerpt }}</span>
-            </button>
-        </div>
-
-        <div v-else class="document-source-sidebar__content app-panel-scroll app-scrollbar">
-            <button type="button" class="document-source-sidebar__add" @click="addNote">{{ t('documentSourceSidebar.addNoteOnPage', {page: currentPage}) }}</button>
-            <p v-if="pageAnnotations.length === 0" class="document-source-sidebar__status">{{ t('documentSourceSidebar.noAnnotations') }}</p>
-            <div v-for="annotation in pageAnnotations" :key="annotation.id" class="document-source-sidebar__annotation">
-                <span>{{ String(annotation.payload.label ?? t('documentSourceSidebar.note')) }}</span>
-                <button type="button" :aria-label="t('documentSourceSidebar.deleteAnnotation', {id: annotation.id})" @click="removeAnnotation(annotation.id)">×</button>
-            </div>
-        </div>
+        <DocumentSearchPanel
+            v-show="activeTab === 'search'"
+            :session="searchSession"
+            :is-active="activeTab === 'search'"
+            :focus-request="searchFocusRequest ?? 0"
+        />
     </AppSidebarShell>
 </template>
 
 <script setup lang="ts">
-import type {
-    IDocumentPageSource,
-    IDocumentSurfaceLease,
-} from '@app/utils/document-viewer/source/documentPageSource';
+import type { IDocumentPageSource } from '@app/utils/document-viewer/source/documentPageSource';
 import {
     flattenDocumentOutline,
-    searchDocumentText,
     type IDocumentFlatOutlineItem,
-    type IDocumentTextSearchResult,
-} from '@app/utils/document-viewer/providers/documentSourceNavigation';
+} from '@app/utils/document-viewer/providers/flattenDocumentOutline';
+import type { IDocumentSearchSession } from '@app/utils/document-viewer/search/documentSearch';
+import {
+    reconcileDocumentSidebarTab,
+    resolveDocumentSidebarTabs,
+    type TDocumentSidebarTab,
+} from '@app/utils/document-viewer/sidebar/documentSidebarTabs';
 import AppSidebarShell from '@app/components/sidebar/AppSidebarShell.vue';
-
-type TSourceSidebarTab = 'thumbnails' | 'outline' | 'search' | 'annotations';
+import DocumentPanelEmptyState from '@app/components/document-viewer/DocumentPanelEmptyState.vue';
+import DocumentSearchPanel from '@app/components/document-viewer/DocumentSearchPanel.vue';
+import DocumentThumbnailList from '@app/components/document-viewer/DocumentThumbnailList.vue';
 
 const { t } = useTypedI18n();
-
 const props = defineProps<{
     source: IDocumentPageSource | null;
     currentPage: number;
     annotationRevision: number;
+    searchSession: IDocumentSearchSession;
+    isResizing?: boolean;
+    searchFocusRequest?: number;
 }>();
 const emit = defineEmits<{
     'go-to-page': [pageNumber: number];
     'annotations-changed': [];
 }>();
 
-const activeTab = ref<TSourceSidebarTab>('thumbnails');
-const thumbnailLeases = new Map<number, IDocumentSurfaceLease>();
-const thumbnailUrls = shallowReactive(new Map<number, string>());
+const activeTab = defineModel<TDocumentSidebarTab>('activeTab', {required: true});
 const outlineItems = ref<IDocumentFlatOutlineItem[]>([]);
 const outlineLoading = ref(false);
-const searchQuery = ref('');
-const searchResults = ref<IDocumentTextSearchResult[]>([]);
-const searching = ref(false);
-const searchComplete = ref(false);
-let operationController: AbortController | null = null;
+const outlineError = ref<string | null>(null);
+let outlineController: AbortController | null = null;
+let sourceGeneration = 0;
 
-const availableTabs = computed<TSourceSidebarTab[]>(() => [
-    'thumbnails',
-    ...(props.source?.outlineProvider ? ['outline' as const] : []),
-    ...(props.source?.textProvider ? ['search' as const] : []),
-    ...(props.source?.annotationProvider ? ['annotations' as const] : []),
-]);
+const availableTabs = computed(() => resolveDocumentSidebarTabs({
+    annotations: Boolean(props.source?.annotationProvider),
+    bookmarks: Boolean(props.source?.outlineProvider),
+    pages: Boolean(props.source?.thumbnailProvider),
+    search: Boolean(props.source?.searchProvider ?? props.source?.textProvider),
+}));
 const availableShellTabs = computed(() => availableTabs.value.map(tab => ({
     value: tab,
     label: getTabLabel(tab),
     title: getTabLabel(tab),
     icon: {
-        thumbnails: 'i-ph-file',
-        outline: 'i-ph-bookmark',
-        search: 'i-ph-magnifying-glass',
         annotations: 'i-ph-chat',
+        thumbnails: 'i-ph-file',
+        bookmarks: 'i-ph-bookmark',
+        search: 'i-ph-magnifying-glass',
     }[tab],
 })));
-const thumbnailPages = computed(() => {
-    const count = props.source?.pageCount ?? 0;
-    const start = Math.max(1, props.currentPage - 12);
-    const end = Math.min(count, props.currentPage + 12);
-    return Array.from({length: Math.max(0, end - start + 1)}, (_, index) => start + index);
-});
 const pageAnnotations = computed(() => {
     void props.annotationRevision;
     return props.source?.annotationProvider?.getPageAnnotations(props.currentPage) ?? [];
 });
 
-function getTabLabel(tab: TSourceSidebarTab) {
-    const labels = {
-        thumbnails: t('sidebar.pages'),
-        outline: t('sidebar.bookmarks'),
-        search: t('sidebar.search'),
-        annotations: t('sidebar.annotations'),
-    } satisfies Record<TSourceSidebarTab, string>;
-    return labels[tab];
+function getTabLabel(tab: TDocumentSidebarTab) {
+    return t(`sidebar.${tab === 'thumbnails' ? 'pages' : tab}`);
 }
 
 function handleShellTabUpdate(value: string) {
-    if (availableTabs.value.includes(value as TSourceSidebarTab)) {
-        activeTab.value = value as TSourceSidebarTab;
+    if (!availableTabs.value.includes(value as TDocumentSidebarTab)) {
+        return;
     }
+    activeTab.value = value as TDocumentSidebarTab;
 }
 
-function releaseThumbnails() {
-    thumbnailLeases.forEach(lease => lease.release());
-    thumbnailLeases.clear();
-    thumbnailUrls.clear();
+function cancelOutline() {
+    outlineController?.abort();
+    outlineController = null;
+    outlineLoading.value = false;
 }
-async function loadThumbnails() {
-    const source = props.source;
-    const provider = source?.thumbnailProvider;
-    if (!source || !provider || activeTab.value !== 'thumbnails') {
-        return;
-    }
-    const retained = new Set(thumbnailPages.value);
-    for (const [
-        page,
-        lease,
-    ] of thumbnailLeases) {
-        if (!retained.has(page)) {
-            lease.release();
-            thumbnailLeases.delete(page);
-            thumbnailUrls.delete(page);
-        }
-    }
-    await Promise.all(thumbnailPages.value.map(async (pageNumber) => {
-        if (thumbnailLeases.has(pageNumber)) {
-            return;
-        }
-        const controller = new AbortController();
-        try {
-            const lease = await provider.renderThumbnail({
-                pageNumber,
-                widthPx: 132,
-                priority: 'thumbnail',
-                signal: controller.signal,
-            });
-            if (props.source !== source || activeTab.value !== 'thumbnails') {
-                lease.release();
-                return;
-            }
-            thumbnailLeases.set(pageNumber, lease);
-            if (typeof lease.surface === 'string') {
-                thumbnailUrls.set(pageNumber, lease.surface);
-            }
-        } catch {
-            // A failed thumbnail must not disable document navigation.
-        }
-    }));
-}
+
 async function loadOutline() {
-    const provider = props.source?.outlineProvider;
-    if (!provider || activeTab.value !== 'outline') {
+    const source = props.source;
+    const provider = source?.outlineProvider;
+    if (!source || !provider || activeTab.value !== 'bookmarks') {
         return;
     }
-    operationController?.abort();
+    cancelOutline();
     const controller = new AbortController();
-    operationController = controller;
+    const generation = sourceGeneration;
+    outlineController = controller;
     outlineLoading.value = true;
+    outlineError.value = null;
     try {
-        outlineItems.value = flattenDocumentOutline(await provider.getOutline(controller.signal));
-    } catch {
-        outlineItems.value = [];
+        const items = flattenDocumentOutline(await provider.getOutline(controller.signal));
+        if (props.source === source && generation === sourceGeneration) outlineItems.value = items;
+    } catch (error) {
+        if (!controller.signal.aborted) outlineError.value = error instanceof Error ? error.message : String(error);
     } finally {
-        if (operationController === controller) {
+        if (outlineController === controller) {
+            outlineController = null;
             outlineLoading.value = false;
         }
     }
 }
-async function runSearch() {
-    const source = props.source;
-    const provider = source?.textProvider;
-    const query = searchQuery.value.trim().toLocaleLowerCase();
-    if (!source || !provider || query.length < 2) {
-        return;
-    }
-    operationController?.abort();
-    const controller = new AbortController();
-    operationController = controller;
-    searching.value = true;
-    searchComplete.value = false;
-    searchResults.value = [];
-    try {
-        searchResults.value = await searchDocumentText(source, query, controller.signal);
-        searchComplete.value = true;
-    } catch {
-        searchComplete.value = false;
-    } finally {
-        if (operationController === controller) {
-            searching.value = false;
-        }
-    }
-}
+
 function addNote() {
     props.source?.annotationProvider?.upsert({
         id: `note-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -256,41 +183,39 @@ function addNote() {
     });
     emit('annotations-changed');
 }
+
 function removeAnnotation(annotationId: string) {
-    if (props.source?.annotationProvider?.remove(annotationId)) {
-        emit('annotations-changed');
-    }
+    if (props.source?.annotationProvider?.remove(annotationId)) emit('annotations-changed');
 }
 
 watch(() => props.source, () => {
-    releaseThumbnails();
+    sourceGeneration += 1;
+    cancelOutline();
     outlineItems.value = [];
-    searchResults.value = [];
-    searchComplete.value = false;
-});
-watch([
-    () => props.source,
-    activeTab,
-    thumbnailPages,
-], () => {
-    if (!availableTabs.value.includes(activeTab.value)) activeTab.value = 'thumbnails';
-    if (activeTab.value === 'thumbnails') void loadThumbnails();
-    if (activeTab.value === 'outline') void loadOutline();
+    outlineError.value = null;
+    const reconciled = reconcileDocumentSidebarTab(activeTab.value, availableTabs.value);
+    if (reconciled) activeTab.value = reconciled;
+    if (activeTab.value === 'bookmarks') void nextTick(loadOutline);
+}, {flush: 'post'});
+watch(availableTabs, (tabs) => {
+    const reconciled = reconcileDocumentSidebarTab(activeTab.value, tabs);
+    if (reconciled) activeTab.value = reconciled;
 }, {immediate: true});
-onBeforeUnmount(() => {
-    operationController?.abort();
-    releaseThumbnails();
+watch(activeTab, (tab) => {
+    if (tab === 'bookmarks') void loadOutline();
+    else cancelOutline();
 });
+onBeforeUnmount(cancelOutline);
 </script>
 
 <style scoped>
 .document-source-sidebar {
-    width: min(100%, var(--app-document-source-sidebar-width));
+    width: 100%;
+    height: 100%;
     min-width: 0;
 }
 
-.document-source-sidebar__content,
-.document-source-sidebar__search {
+.document-source-sidebar__content {
     display: flex;
     flex-direction: column;
     gap: var(--app-sidebar-row-gap);
@@ -298,52 +223,12 @@ onBeforeUnmount(() => {
     padding: var(--app-sidebar-content-padding);
 }
 
-.document-source-sidebar__thumbnail {
-    display: grid;
-    gap: var(--app-space-xs);
-    justify-items: center;
-    padding: var(--app-sidebar-row-padding-block);
-    border: 1px solid transparent;
-    border-radius: var(--app-radius-md);
-}
-
-.document-source-sidebar__thumbnail.is-current { border-color: var(--ui-primary); }
-
-.document-source-sidebar__thumbnail img,
-.document-source-sidebar__thumbnail-placeholder {
-    width: var(--app-document-source-thumbnail-width);
-    min-height: var(--app-document-source-thumbnail-min-height);
-    object-fit: contain;
-    background: var(--ui-bg-elevated);
-}
-
-.document-source-sidebar__row,
-.document-source-sidebar__search-result {
+.document-source-sidebar__row {
     padding: var(--app-sidebar-row-padding-block) var(--app-sidebar-row-padding-inline);
     text-align: left;
     border-radius: var(--app-radius-md);
 }
 
-.document-source-sidebar__search form {
-    display: flex;
-    gap: var(--app-space-xs);
-}
-
-.document-source-sidebar__search input {
-    flex: 1;
-    min-width: 0;
-    padding: var(--app-sidebar-row-padding-block);
-    border: 1px solid var(--ui-border);
-    border-radius: var(--app-radius-md);
-}
-
-.document-source-sidebar__search-result {
-    display: flex;
-    flex-direction: column;
-    gap: var(--app-space-2xs);
-}
-
-.document-source-sidebar__search-result span,
 .document-source-sidebar__status {
     color: var(--ui-text-muted);
     font-size: var(--app-sidebar-caption-font-size);

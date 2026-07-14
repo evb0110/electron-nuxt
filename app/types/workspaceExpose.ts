@@ -15,6 +15,7 @@ import type {
     TPdfViewMode,
     TZoomMode,
 } from '@contracts/shared';
+import type { TDocumentSidebarTab } from '@app/utils/document-viewer/sidebar/documentSidebarTabs';
 
 export interface IWorkspaceToolbarSnapshot {
     hasPdf: boolean;
@@ -38,6 +39,8 @@ export interface IWorkspaceToolbarSnapshot {
     isFitWidthActive: boolean;
     isFitHeightActive: boolean;
     showSidebar: boolean;
+    sidebarTab?: TDocumentSidebarTab;
+    sidebarWidth?: number;
     dragMode: boolean;
     continuousScroll: boolean;
     isDjvuMode: boolean;
@@ -114,6 +117,8 @@ export function createDefaultWorkspaceToolbarSnapshot(): IWorkspaceToolbarSnapsh
         isFitWidthActive: false,
         isFitHeightActive: false,
         showSidebar: false,
+        sidebarTab: 'thumbnails',
+        sidebarWidth: 272,
         dragMode: false,
         continuousScroll: true,
         isDjvuMode: false,

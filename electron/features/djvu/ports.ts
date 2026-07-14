@@ -61,6 +61,14 @@ export interface IDjvuService {
         context: IDjvuOperationContext,
         ...args: Parameters<TDjvuApi['cancelPagePreview']>
     ) => ReturnType<TDjvuApi['cancelPagePreview']>;
+    searchText: (
+        context: IDjvuOperationContext,
+        ...args: Parameters<TDjvuApi['searchText']>
+    ) => ReturnType<TDjvuApi['searchText']>;
+    cancelTextSearch: (
+        context: IDjvuOperationContext,
+        ...args: Parameters<TDjvuApi['cancelTextSearch']>
+    ) => ReturnType<TDjvuApi['cancelTextSearch']>;
     getInfo: (
         context: IDjvuOperationContext,
         ...args: Parameters<TDjvuApi['getInfo']>

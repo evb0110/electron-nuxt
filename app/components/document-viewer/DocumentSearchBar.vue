@@ -1,5 +1,5 @@
 <template>
-    <div class="pdf-search-bar flex flex-col gap-1.5 px-2 py-1.5">
+    <div class="document-search-bar flex flex-col gap-1.5 px-2 py-1.5">
         <UInput
             ref="inputRef"
             v-model="searchQuery"
@@ -114,7 +114,7 @@ interface IProps {
     options: IResolvedSearchMatchOptions;
 }
 
-interface IPdfSearchBarExpose {focus: () => void;}
+interface IDocumentSearchBarExpose {focus: () => void;}
 
 const {
     modelValue,
@@ -179,7 +179,7 @@ function toggleOption(key: keyof IProps['options']) {
     focus();
 }
 
-defineExpose<IPdfSearchBarExpose>({ focus });
+defineExpose<IDocumentSearchBarExpose>({ focus });
 </script>
 
 <style scoped>

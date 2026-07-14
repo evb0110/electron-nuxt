@@ -1,5 +1,6 @@
 import type {
     IDocumentAnnotationRecord,
+    IDocumentPageMetrics,
     IDocumentSurfaceLease,
     TDocumentRenderPriority,
 } from '@app/utils/document-viewer/source/documentPageSource';
@@ -116,5 +117,24 @@ export function getDocumentPageSourceAnnotationStyle(annotation: IDocumentAnnota
         width: `${getAnnotationNumber(payload, 'width', 0.18) * 100}%`,
         height: `${getAnnotationNumber(payload, 'height', 0.08) * 100}%`,
         borderColor: typeof payload.color === 'string' ? payload.color : '#f59e0b',
+    };
+}
+
+export function resolveDocumentPageSourcePageStyle(
+    metrics: IDocumentPageMetrics,
+    effectiveZoom: number,
+    pageTop: number | undefined,
+    gutterPx: number,
+    continuousScroll: boolean,
+    isCurrentPage: boolean,
+) {
+    const width = metrics.widthPoints * effectiveZoom;
+    const height = metrics.heightPoints * effectiveZoom;
+    return {
+        width: `${String(width)}px`,
+        height: `${String(height)}px`,
+        top: `${String(continuousScroll ? pageTop ?? gutterPx : gutterPx)}px`,
+        left: `max(${String(gutterPx)}px, calc(50% - ${String(width / 2)}px))`,
+        display: !continuousScroll && !isCurrentPage ? 'none' : undefined,
     };
 }

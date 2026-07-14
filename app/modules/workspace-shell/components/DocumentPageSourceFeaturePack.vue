@@ -4,16 +4,6 @@
         data-document-feature-pack="page-source"
         data-testid="document-page-source-viewer"
     >
-        <Teleport to="#document-viewer-chassis-sidebar">
-            <DocumentSourceSidebar
-                v-if="showSidebar"
-                :source="source"
-                :current-page="currentPage"
-                :annotation-revision="annotationRevision"
-                @go-to-page="scrollToPage"
-                @annotations-changed="annotationRevision += 1"
-            />
-        </Teleport>
         <div
             class="document-source-viewer__surface"
             :style="surfaceStyle"
@@ -45,6 +35,7 @@
                         @load="handleSurfaceLoad(pageNumber, getSurface(pageNumber)!, $event)"
                         @error="handleSurfaceError(pageNumber, getSurface(pageNumber)!)"
                     >
+                    <DocumentPageSourceSearchLayer v-if="getVisual(pageNumber) === 'fresh'" :page-number="pageNumber" :results="searchResults" :current-result-index="currentSearchResultIndex" />
                     <div
                         v-if="getVisual(pageNumber) === 'error'"
                         class="document-source-viewer__error"
@@ -69,6 +60,7 @@
                     class="document-source-viewer__page"
                     :style="getPageStyle(pageNumber)"
                     :data-page-number="pageNumber"
+                    :data-document-page-number="pageNumber"
                     :data-page-source-visual="getVisual(pageNumber)"
                     data-testid="document-page-source-page"
                 >
@@ -98,6 +90,7 @@
                         @load="handleSurfaceLoad(pageNumber, getSurface(pageNumber)!, $event)"
                         @error="handleSurfaceError(pageNumber, getSurface(pageNumber)!)"
                     >
+                    <DocumentPageSourceSearchLayer v-if="getVisual(pageNumber) === 'fresh'" :page-number="pageNumber" :results="searchResults" :current-result-index="currentSearchResultIndex" />
                     <template v-if="getVisual(pageNumber) === 'fresh'">
                         <button
                             v-for="annotation in getAnnotations(pageNumber)"
@@ -118,9 +111,8 @@ import type { ComponentPublicInstance } from 'vue';
 import { useResizeObserver } from '@vueuse/core';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import type { TPdfViewMode } from '@contracts/shared';
+import type { TDocumentViewMode } from '@contracts/shared';
 import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
-import DocumentSourceSidebar from '@app/modules/workspace-shell/components/DocumentSourceSidebar.vue';
 import { createDjvuPagePreviewSourceFromPath } from '@app/platform/browser-api/public';
 import { createDjvuPageSource } from '@app/utils/document-viewer/source/createDjvuPageSource';
 import type {
@@ -162,9 +154,12 @@ import {
     hasHigherDocumentRenderPriority,
     isOwnedConnectedDocumentPageImage,
     prepareDocumentPageSurface,
+    resolveDocumentPageSourcePageStyle,
     waitForDocumentPageImagePaint,
 } from '@app/modules/workspace-shell/viewers/documentPageSourcePresentation';
 import { useDocumentPageSourceResizeLifecycle } from '@app/modules/workspace-shell/viewers/useDocumentPageSourceResizeLifecycle';
+import type { IDocumentSearchMatch } from '@app/utils/document-viewer/search/documentSearch';
+import DocumentPageSourceSearchLayer from '@app/modules/workspace-shell/components/DocumentPageSourceSearchLayer.vue';
 
 interface IPageVisualState {
     generation: number;
@@ -192,20 +187,24 @@ const {
     isActive = true,
     isResizing = false,
     currentPage = 1,
-    showSidebar = false,
+    annotationRevision = 0,
+    searchResults = [],
+    currentSearchResultIndex = -1,
 } = defineProps<{
     src: TDocumentRef | null;
     zoom?: number;
     zoomMode?: 'custom' | 'fit-width' | 'fit-height';
     fitMode?: 'width' | 'height';
-    viewMode?: TPdfViewMode;
+    viewMode?: TDocumentViewMode;
     continuousScroll?: boolean;
     dragMode?: boolean;
     documentRevisionToken?: TDocumentRevisionToken | null;
     isActive?: boolean;
     isResizing?: boolean;
     currentPage?: number;
-    showSidebar?: boolean;
+    annotationRevision?: number;
+    searchResults?: readonly IDocumentSearchMatch[];
+    currentSearchResultIndex?: number;
 }>();
 void fitMode;
 void dragMode;
@@ -217,6 +216,7 @@ const emit = defineEmits<{
     'update:totalPages': [number];
     'update:document': [null];
     'update:sourceCapabilities': [IDocumentSourceCapabilities];
+    'update:pageSource': [IDocumentPageSource | null];
     loading: [boolean];
     loadError: [unknown];
     'initial-visual-pending': [];
@@ -246,7 +246,6 @@ const DOCUMENT_SOURCE_VISUAL_ERROR_MAX_RETRIES = 2;
 const visualRetryState = createDocumentPageSourceVisualRetryState(DOCUMENT_SOURCE_VISUAL_ERROR_MAX_RETRIES);
 const DOCUMENT_SOURCE_CONTINUOUS_MOUNT_RADIUS = 12;
 const loadGeneration = ref(0);
-const annotationRevision = ref(0);
 let loadSettled = Promise.resolve();
 let loadController: AbortController | null = null;
 let releaseViewportFeature: (() => void) | null = null;
@@ -283,7 +282,7 @@ onMounted(() => {
     viewerContainer.value = chassisAuthority?.viewportElement.value ?? null;
     measureViewport();
     releaseViewportFeature = chassisAuthority?.bindViewportFeature({
-        getClass: () => 'document-source-viewer app-scrollbar',
+        getClass: () => 'document-viewer-viewport document-source-viewer app-scrollbar',
         getStyle: () => ({}),
         events: {
             scroll: () => handleScroll(),
@@ -366,20 +365,7 @@ const surfaceStyle = computed(() => ({height: continuousScroll ? `${Math.max(1, 
 
 function getPageStyle(pageNumber: number) {
     const metrics = pageMetrics.value[pageNumber - 1];
-    if (!metrics) {
-        return {};
-    }
-    const width = metrics.widthPoints * effectiveZoom.value;
-    const height = metrics.heightPoints * effectiveZoom.value;
-    return {
-        width: `${width}px`,
-        height: `${height}px`,
-        top: continuousScroll
-            ? `${String(pageTops.value[pageNumber - 1] ?? DOCUMENT_PAGE_GUTTER_PX)}px`
-            : `${String(DOCUMENT_PAGE_GUTTER_PX)}px`,
-        left: `max(${String(DOCUMENT_PAGE_GUTTER_PX)}px, calc(50% - ${String(width / 2)}px))`,
-        display: !continuousScroll && pageNumber !== currentPage ? 'none' : undefined,
-    };
+    return metrics ? resolveDocumentPageSourcePageStyle(metrics, effectiveZoom.value, pageTops.value[pageNumber - 1], DOCUMENT_PAGE_GUTTER_PX, continuousScroll, pageNumber === currentPage) : {};
 }
 function isChassisOpeningPage(pageNumber: number) {
     const snapshot = chassisAuthority?.openSurface.snapshot.value;
@@ -507,7 +493,7 @@ function getRenderGeneration(pageNumber: number) {
     return pageStates.get(pageNumber)?.generation ?? '';
 }
 function getAnnotations(pageNumber: number) {
-    void annotationRevision.value;
+    void annotationRevision;
     return source.value?.annotationProvider?.getPageAnnotations(pageNumber) ?? [];
 }
 const getAnnotationStyle =
@@ -874,10 +860,9 @@ async function handleSurfaceLoad(pageNumber: number, surface: string, event: Eve
     if (!commitReadyPageToViewportSession(pageNumber, state)) {
         return;
     }
-    // markReady transfers the opening surface into the normal viewer and may
-    // detach this exact image on the next tick. The successful paint above is
-    // the readiness proof; waiting on the retired node makes initial visual
-    // readiness impossible to emit even though the document is visible.
+    // markReady may detach this image on the next tick. The successful paint
+    // above is the readiness proof; waiting on the retired node makes initial
+    // visual readiness impossible to emit even though the document is visible.
     if (isInitialOpenTransition) emit('initial-visual-ready', {pageNumber});
 }
 
@@ -1195,6 +1180,7 @@ watch(() => src, (documentRef, previousDocumentRef) => {
         chassisAuthority.bindSource(null);
     }
     source.value = null;
+    emit('update:pageSource', null);
     if (!seedOpeningPageMetrics()) {
         if (documentRef) {
             seedColdOpenProvisionalPageMetrics();
@@ -1231,13 +1217,14 @@ watch(() => src, (documentRef, previousDocumentRef) => {
                 return;
             }
             source.value = nextSource;
+            emit('update:pageSource', nextSource);
             chassisAuthority?.bindSource(nextSource);
             emit('update:sourceCapabilities', {
                 annotations: Boolean(nextSource.annotationProvider),
                 directImageExport: Boolean(nextSource.rasterProvider),
                 outline: Boolean(nextSource.outlineProvider),
                 pageEdits: false,
-                search: Boolean(nextSource.textProvider),
+                search: Boolean(nextSource.searchProvider ?? nextSource.textProvider),
                 text: Boolean(nextSource.textProvider),
             });
             const initialPage = Math.max(1, Math.min(
@@ -1386,6 +1373,7 @@ onBeforeUnmount(() => {
     renderControllers.forEach(controller => controller.abort());
     renderControllers.clear();
     const activeSource = source.value;
+    emit('update:pageSource', null);
     activeSource?.dispose();
     if (chassisAuthority?.source.value === activeSource) {
         chassisAuthority.bindSource(null);
@@ -1431,9 +1419,9 @@ defineExpose<IDocumentViewerExpose & {
 .document-source-viewer__page {
     position: absolute;
     overflow: hidden;
-    background: var(--app-pdf-page-bg);
-    box-shadow: var(--app-pdf-page-shadow);
-    border-radius: var(--app-pdf-page-radius);
+    background: var(--app-document-page-bg);
+    box-shadow: var(--app-document-page-shadow);
+    border-radius: var(--app-document-page-radius);
 }
 
 .document-source-viewer__image {
@@ -1452,14 +1440,14 @@ defineExpose<IDocumentViewerExpose & {
     position: absolute;
     z-index: var(--app-z-local-overlay);
     inset: 0;
-    background: var(--app-pdf-page-bg);
+    background: var(--app-document-page-bg);
     border-radius: inherit;
 }
 
 .document-source-viewer__skeleton {
     position: absolute;
     inset: 0;
-    background: var(--app-pdf-page-bg);
+    background: var(--app-document-page-bg);
     box-shadow: none;
     border-radius: inherit;
 }
@@ -1473,7 +1461,7 @@ defineExpose<IDocumentViewerExpose & {
     padding: var(--app-document-page-error-padding);
     color: var(--ui-error);
     text-align: center;
-    background: var(--app-pdf-page-bg);
+    background: var(--app-document-page-bg);
     border-radius: inherit;
 }
 

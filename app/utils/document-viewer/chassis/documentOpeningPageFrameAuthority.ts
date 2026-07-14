@@ -1,6 +1,6 @@
 import type {
     TFitMode,
-    TPdfViewMode,
+    TDocumentViewMode,
     TZoomMode,
 } from '@contracts/shared';
 import { getViewColumnCount } from '@app/utils/pdfViewMode';
@@ -14,11 +14,11 @@ import type {
     IDocumentOpenSurfaceSession,
 } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import { resolveDocumentPageSourceOpeningFrame } from '@app/modules/workspace-shell/viewers/resolveDocumentPageSourceOpeningFrame';
-import { PDFJS_NATIVE_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/runtime/pdfNativePreviewRouting';
+import { DOCUMENT_PAGE_GUTTER_PX } from '@app/utils/document-viewer/layout/documentPageGutterPx';
 
 export interface IDocumentOpeningPageFramePolicy {
     readonly fitMode: TFitMode;
-    readonly viewMode: TPdfViewMode;
+    readonly viewMode: TDocumentViewMode;
     readonly zoom: number;
     readonly zoomMode: TZoomMode;
 }
@@ -39,8 +39,6 @@ interface ICreateDocumentOpeningPageFrameAuthorityOptions {
     };
 }
 
-const PDF_PAGE_MARGIN = 20;
-const PAGE_SOURCE_MARGIN = 16;
 let nextOpeningPageFrameAuthorityId = 0;
 
 export function resolveDocumentOpeningPageShellId(chassisInstanceId: string, generation: number) {
@@ -52,21 +50,10 @@ function isDjvuDocument(documentId: string) {
 }
 
 export function resolveDocumentOpeningPageMargin(
-    geometry: IDocumentOpenSurfacePageGeometry | null,
-    rendererKind?: 'pdfjs' | 'native-pdf' | 'page-source',
+    _geometry: IDocumentOpenSurfacePageGeometry | null,
+    _rendererKind?: 'pdfjs' | 'native-pdf' | 'page-source',
 ) {
-    if (rendererKind === 'native-pdf' || rendererKind === 'page-source') {
-        return PAGE_SOURCE_MARGIN;
-    }
-    if (
-        geometry !== null
-        && !isDjvuDocument(geometry.documentId)
-        && Number.isFinite(geometry.size)
-        && Number(geometry.size) >= PDFJS_NATIVE_PREVIEW_MIN_BYTES
-    ) {
-        return PAGE_SOURCE_MARGIN;
-    }
-    return isDjvuDocument(geometry?.documentId ?? '') ? PAGE_SOURCE_MARGIN : PDF_PAGE_MARGIN;
+    return DOCUMENT_PAGE_GUTTER_PX;
 }
 
 function resolvePdfOpeningPageFrameStyle(

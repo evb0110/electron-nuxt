@@ -3,8 +3,14 @@ import type {
     IDjvuPagePreviewOptions,
     IDjvuPrintOptions,
     IDjvuProgress,
+    IDjvuTextSearchOptions,
+    IDjvuTextSearchProgress,
     TDocumentOutputJobState,
 } from '@contracts/electronApiDjvu';
+import {
+    SEARCH_PAGE_COUNT_DEFAULT_MAX,
+    SEARCH_WIRE_CODEC,
+} from '@contracts/search';
 import type { TIpcCodecMap } from '@contracts/ipcMain';
 import { isDjvuDocumentOutputOperation } from '@contracts/documentOutput';
 import {
@@ -133,6 +139,100 @@ function decodePreviewOptions(value: unknown): IDjvuPagePreviewOptions | undefin
         ...(previewRequestId === undefined ? {} : {previewRequestId}),
         ...(subsample === undefined ? {} : {subsample}),
         ...(targetWidthPx === undefined ? {} : {targetWidthPx}),
+    };
+}
+
+function decodeTextSearchOptions(value: unknown): IDjvuTextSearchOptions {
+    if (!isRecord(value)) {
+        throw new Error('text search options must be an object');
+    }
+    const requestId = decodeOptionalString(value.requestId, 'requestId');
+    const pageCount = decodeOptionalPositiveInteger(value.pageCount, 'pageCount');
+    if (!requestId || pageCount === undefined || pageCount > SEARCH_PAGE_COUNT_DEFAULT_MAX) {
+        throw new Error('text search options require a valid requestId and pageCount');
+    }
+    const decodeOptionalBoolean = (field: 'matchCase' | 'wholeWord' | 'useRegex') => {
+        const option = value[field];
+        if (option !== undefined && typeof option !== 'boolean') {
+            throw new Error(`${field} must be a boolean`);
+        }
+        return option;
+    };
+    const matchCase = decodeOptionalBoolean('matchCase');
+    const wholeWord = decodeOptionalBoolean('wholeWord');
+    const useRegex = decodeOptionalBoolean('useRegex');
+    return {
+        requestId,
+        pageCount,
+        ...(matchCase === undefined ? {} : {matchCase}),
+        ...(wholeWord === undefined ? {} : {wholeWord}),
+        ...(useRegex === undefined ? {} : {useRegex}),
+    };
+}
+
+function decodeOptionalNonNegativeInteger(value: unknown) {
+    if (value === undefined) {
+        return undefined;
+    }
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+        ? value
+        : null;
+}
+
+function decodeTextSearchResponse(value: unknown) {
+    const response = SEARCH_WIRE_CODEC.decodeResponse(value);
+    if (!response) {
+        throw new Error('DjVu text search result is invalid');
+    }
+    return response;
+}
+
+export function decodeDjvuTextSearchProgress(value: unknown): IDjvuTextSearchProgress | null {
+    const resultsStartIndex = isRecord(value)
+        ? decodeOptionalNonNegativeInteger(value.resultsStartIndex)
+        : null;
+    if (
+        !isRecord(value)
+        || typeof value.requestId !== 'string'
+        || typeof value.processed !== 'number'
+        || !Number.isSafeInteger(value.processed)
+        || value.processed < 0
+        || typeof value.total !== 'number'
+        || !Number.isSafeInteger(value.total)
+        || value.total < 0
+        || resultsStartIndex === null
+        || (value.truncated !== undefined && typeof value.truncated !== 'boolean')
+        || (value.canceled !== undefined && typeof value.canceled !== 'boolean')
+        || (value.error !== undefined && typeof value.error !== 'string')
+        || (
+            value.status !== undefined
+            && value.status !== 'running'
+            && value.status !== 'success'
+            && value.status !== 'canceled'
+            && value.status !== 'failed'
+        )
+    ) {
+        return null;
+    }
+    const results = value.results === undefined
+        ? undefined
+        : SEARCH_WIRE_CODEC.decodeResponse({
+            results: value.results,
+            truncated: Boolean(value.truncated),
+        })?.results;
+    if (value.results !== undefined && !results) {
+        return null;
+    }
+    return {
+        requestId: value.requestId,
+        processed: value.processed,
+        total: value.total,
+        ...(results === undefined ? {} : {results}),
+        ...(resultsStartIndex === undefined ? {} : {resultsStartIndex}),
+        ...(value.truncated === undefined ? {} : {truncated: value.truncated}),
+        ...(value.canceled === undefined ? {} : {canceled: value.canceled}),
+        ...(value.status === undefined ? {} : {status: value.status}),
+        ...(value.error === undefined ? {} : {error: value.error}),
     };
 }
 
@@ -499,6 +599,21 @@ export const DJVU_IPC_CODECS = {
         decodeResult: decodeJobState,
     },
     [DJVU_CHANNELS.cancelPagePreview]: {
+        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(requireArgs(args, 1), 0, 'requestId')],
+        decodeResult: decodeCanceledResult,
+    },
+    [DJVU_CHANNELS.searchText]: {
+        decodeArgs: (args: readonly unknown[]) => {
+            requireArgs(args, 3);
+            return [
+                decodeStringArg(args, 0, 'djvuPath'),
+                decodeStringArg(args, 1, 'query'),
+                decodeTextSearchOptions(args[2]),
+            ];
+        },
+        decodeResult: decodeTextSearchResponse,
+    },
+    [DJVU_CHANNELS.cancelTextSearch]: {
         decodeArgs: (args: readonly unknown[]) => [decodeStringArg(requireArgs(args, 1), 0, 'requestId')],
         decodeResult: decodeCanceledResult,
     },

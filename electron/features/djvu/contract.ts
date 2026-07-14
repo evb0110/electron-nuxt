@@ -1,6 +1,7 @@
 import type {
     IDjvuCapability,
     IDjvuProgress,
+    IDjvuTextSearchProgress,
 } from '@contracts/electronApiDjvu';
 
 export const DJVU_CHANNELS = {
@@ -16,6 +17,8 @@ export const DJVU_CHANNELS = {
     getJobState: 'djvu:job:getState',
     subscribeJob: 'djvu:job:subscribe',
     cancelPagePreview: 'djvu:cancelPagePreview',
+    searchText: 'djvu:text:search',
+    cancelTextSearch: 'djvu:text:cancel',
     getInfo: 'djvu:getInfo',
     getPageSourceInfo: 'djvu:getPageSourceInfo',
     getPageSizes: 'djvu:getPageSizes',
@@ -27,6 +30,7 @@ export const DJVU_CHANNELS = {
 
 export const DJVU_EVENT_CHANNELS = {
     progress: 'djvu:progress',
+    textSearchProgress: 'djvu:text:progress',
     menuConvertToPdf: 'menu:convertToPdf',
 } as const;
 
@@ -79,6 +83,14 @@ export interface IDjvuInvokeMap {
         args: [requestId: string];
         result: Awaited<ReturnType<IDjvuCapability['cancelPagePreview']>>;
     };
+    [DJVU_CHANNELS.searchText]: {
+        args: Parameters<IDjvuCapability['searchText']>;
+        result: Awaited<ReturnType<IDjvuCapability['searchText']>>;
+    };
+    [DJVU_CHANNELS.cancelTextSearch]: {
+        args: Parameters<IDjvuCapability['cancelTextSearch']>;
+        result: Awaited<ReturnType<IDjvuCapability['cancelTextSearch']>>;
+    };
     [DJVU_CHANNELS.getInfo]: {
         args: [djvuPath: string];
         result: Awaited<ReturnType<IDjvuCapability['getInfo']>>;
@@ -115,5 +127,6 @@ export interface IDjvuInvokeMap {
 
 export interface IDjvuEventMap {
     [DJVU_EVENT_CHANNELS.progress]: IDjvuProgress;
+    [DJVU_EVENT_CHANNELS.textSearchProgress]: IDjvuTextSearchProgress;
     [DJVU_EVENT_CHANNELS.menuConvertToPdf]: undefined;
 }

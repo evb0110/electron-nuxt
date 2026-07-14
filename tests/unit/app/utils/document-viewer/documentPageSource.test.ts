@@ -16,6 +16,60 @@ import { createWorkspaceSurfaceBudgetController } from '@app/modules/workspace-s
 import { createDocumentAnnotationSidecar } from '@app/utils/document-viewer/providers/createDocumentAnnotationSidecar';
 
 describe('document page sources', () => {
+    it('exposes one cancellable full-document DjVu search provider with the known page count', async () => {
+        const searchText = vi.fn().mockResolvedValue({
+            results: [{
+                pageNumber: 3,
+                pageMatchIndex: 0,
+                matchIndex: 0,
+                startOffset: 0,
+                endOffset: 6,
+                excerpt: {
+                    before: '',
+                    match: 'needle',
+                    after: '',
+                },
+            }],
+            truncated: false,
+        });
+        const previewSource = {
+            getPageSizes: vi.fn().mockResolvedValue(Array.from({length: 4}, () => ({
+                width: 600,
+                height: 800,
+                dpi: 300,
+            }))),
+            searchText,
+            renderPageObjectUrl: vi.fn(),
+            revokeObjectURL: vi.fn(),
+            terminate: vi.fn(),
+        } satisfies IPagePreviewSource;
+        const source = await createDjvuPageSource(
+            'book.djvu',
+            previewSource,
+            createWorkspaceSurfaceBudgetController(),
+        );
+        const controller = new AbortController();
+
+        const response = await source.searchProvider?.search({
+            requestId: 'source-search',
+            query: 'needle',
+            matchOptions: {
+                matchCase: false,
+                wholeWord: false,
+                useRegex: false,
+            },
+            signal: controller.signal,
+        });
+
+        expect(response?.results[0]?.pageNumber).toBe(3);
+        expect(searchText).toHaveBeenCalledWith(expect.objectContaining({
+            requestId: 'source-search',
+            pageCount: 4,
+            signal: controller.signal,
+        }));
+        source.dispose();
+    });
+
     it('persists app-owned DjVu annotations independently of the immutable source', () => {
         window.localStorage.clear();
         const first = createDocumentAnnotationSidecar('/library/book.djvu');
@@ -248,7 +302,7 @@ describe('document page sources', () => {
         controller.abort();
 
         await expect(render).rejects.toThrow('canceled');
-        expect(previewSource.cancelPagePreview).toHaveBeenCalledWith(1);
+        expect(previewSource.cancelPagePreview).toHaveBeenCalledWith(1, expect.stringMatching(/^djvu-page-source:\d+:1:1$/u));
         source.dispose();
     });
 

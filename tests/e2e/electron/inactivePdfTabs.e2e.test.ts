@@ -8,7 +8,9 @@ import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/cre
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/getE2EWindow';
 import {assertInactiveDocumentPressureReleased} from '@tests/e2e/electron/helpers/viewerPressure';
+import {waitForWorkspaceToolbarSnapshot} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
+    goToPageViaToolbar,
     getToolbarCurrentPage,
     openPdfInApp,
     scrollViewerToPage,
@@ -16,6 +18,10 @@ import {
     waitForPdfLoaded,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {waitForTabCount} from '@tests/e2e/electron/helpers/viewerTabs';
+import {
+    expectSplitPaneCloseContinuity,
+    runSplitPaneCloseContinuity,
+} from '@tests/e2e/electron/helpers/splitPaneCloseContinuity';
 
 interface IWorkspaceHostPressure {
     index: number;
@@ -238,4 +244,35 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
         expect(pressure.filter(host => host.active).length).toBeGreaterThanOrEqual(2);
         expect(pressure.filter(host => host.active).every(host => host.renderedPages > 0)).toBe(true);
     });
+
+    it('keeps the exact PDF pane, tab, document surface, and viewport anchor while closing an empty split', async () => {
+        let session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-pdf-empty-split-continuity-${Date.now()}`,
+        });
+        if (!session) {
+            return;
+        }
+
+        const fixturePath = await createMultiPageTextFixturePdf(
+            `pdf-empty-split-continuity-${Date.now()}.pdf`,
+            8,
+        );
+        await openPdfInApp(session.page, fixturePath);
+        await waitForPdfLoaded(session.page);
+        await goToPageViaToolbar(session.page, 4);
+        await waitForWorkspaceToolbarSnapshot(session.page, {currentPage: 4});
+        expect(await getToolbarCurrentPage(session.page)).toBe(4);
+
+        const continuity = await runSplitPaneCloseContinuity(session, {
+            documentKind: 'pdf',
+            expectedPageNumber: 4,
+        });
+        expectSplitPaneCloseContinuity(continuity);
+    }, 120_000);
 });

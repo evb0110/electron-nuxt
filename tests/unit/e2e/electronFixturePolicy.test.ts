@@ -14,15 +14,20 @@ import {
 } from 'node:fs/promises';
 import { PDFDocument } from 'pdf-lib';
 import { join } from 'node:path';
+import { resolveE2EGlobalSetupSessionName } from '@tests/e2e/electron/resolveE2EGlobalSetupSessionName';
 import {
-    collectLiveDefaultDevSessionBlockers,
-    formatLiveDefaultDevSessionError,
-} from '@tests/e2e/electron/globalSetup';
-import type {
-    ISessionInfo,
-    ISessionStartingInfo,
-} from '@scripts/electron-run/electronRunSessionTypes';
-import { sessionDir } from '@scripts/electron-run/electronRunSessionPaths';
+    electronUserDataPath,
+    sessionDir,
+} from '@scripts/electron-run/electronRunSessionPaths';
+import {
+    E2E_RUN_ID_ENV,
+    createE2ERunScopedSessionName,
+} from '@scripts/electron-run/electronRunRunId';
+import {
+    assertE2ESessionName,
+    isE2ESessionName,
+    selectStaleE2ESessionDirs,
+} from '@scripts/electron-run/electronRunE2ESessionPrune';
 import {
     prunePreservedSessionArtifacts,
     shouldPreserveE2EArtifacts,
@@ -60,36 +65,6 @@ function createDescribeSelectorDouble() {
     const selector = ((_name: string, _fn: () => void) => undefined) as IFixtureDescribeSelector;
     selector.skip = skipSelector;
     return selector;
-}
-
-function createReadySessionInfo(overrides: Partial<ISessionInfo> = {}): ISessionInfo {
-    return {
-        port: 39001,
-        pid: 101,
-        cdpPort: 39002,
-        electronPid: 102,
-        nuxtPid: 103,
-        nuxtPort: 3235,
-        runId: null,
-        ...overrides,
-    };
-}
-
-function createStartingSessionInfo(overrides: Partial<ISessionStartingInfo> = {}): ISessionStartingInfo {
-    return {
-        pid: 201,
-        startedAt: 10_000,
-        electronPids: [
-            202,
-            203,
-        ],
-        cdpPorts: [39003],
-        electronUserDataDir: null,
-        nuxtPid: 204,
-        nuxtPort: 3235,
-        runId: null,
-        ...overrides,
-    };
 }
 
 describe('Electron E2E fixture policy', () => {
@@ -480,75 +455,42 @@ describe('Electron E2E fixture policy', () => {
 });
 
 describe('Electron E2E deterministic isolation policy', () => {
-    it('blocks a live default session before Electron E2E global setup starts shared infrastructure', () => {
-        const livePids = new Set([
-            101,
-            103,
-        ]);
-        const blockers = collectLiveDefaultDevSessionBlockers({
-            isAlive: pid => livePids.has(pid),
-            ownPids: [999],
-            sessionInfo: createReadySessionInfo(),
-            startingInfo: null,
-        });
+    it('keeps shared renderer and requested default sessions run-scoped with separate profiles', () => {
+        const env = {[E2E_RUN_ID_ENV]: 'coexistence'};
+        const sharedRendererSession = resolveE2EGlobalSetupSessionName(env);
+        const testSession = createE2ERunScopedSessionName('default', env);
 
-        expect(blockers).toEqual([
-            {
-                label: 'session manager',
-                pid: 101,
-                source: 'ready',
-            },
-            {
-                label: 'Nuxt dev server',
-                pid: 103,
-                source: 'ready',
-            },
-        ]);
-        expect(formatLiveDefaultDevSessionError(blockers))
-            .toContain('pnpm electron:run stop --session=default');
+        expect(sharedRendererSession).toBe('e2e-coexistence-shared-renderer');
+        expect(testSession).toBe('e2e-coexistence-default');
+        expect(isE2ESessionName(sharedRendererSession)).toBe(true);
+        expect(isE2ESessionName(testSession)).toBe(true);
+        expect(sessionDir(sharedRendererSession)).not.toBe(sessionDir('default'));
+        expect(electronUserDataPath(testSession)).not.toBe(electronUserDataPath('default'));
     });
 
-    it('blocks fresh default startup attempts and ignores stale starting metadata', () => {
-        const livePids = new Set([
-            201,
-            202,
-            204,
-        ]);
-        const freshBlockers = collectLiveDefaultDevSessionBlockers({
-            isAlive: pid => livePids.has(pid),
-            nowMs: 11_000,
-            ownPids: [999],
-            sessionInfo: null,
-            startingInfo: createStartingSessionInfo(),
-            startingMaxAgeMs: 5_000,
+    it('never selects default developer artifacts for stale E2E pruning', () => {
+        const selected = selectStaleE2ESessionDirs([
+            {
+                name: 'default',
+                path: sessionDir('default'),
+                mtimeMs: 0,
+            },
+            {
+                name: 'e2e-old-run-viewer-smoke',
+                path: sessionDir('e2e-old-run-viewer-smoke'),
+                mtimeMs: 0,
+            },
+        ], {
+            maxAgeMs: 1,
+            nowMs: 10,
         });
 
-        expect(freshBlockers).toEqual([
-            {
-                label: 'starting session manager',
-                pid: 201,
-                source: 'starting',
-            },
-            {
-                label: 'starting Electron app',
-                pid: 202,
-                source: 'starting',
-            },
-            {
-                label: 'starting Nuxt dev server',
-                pid: 204,
-                source: 'starting',
-            },
-        ]);
+        expect(selected.map(candidate => candidate.name)).toEqual(['e2e-old-run-viewer-smoke']);
+    });
 
-        const staleBlockers = collectLiveDefaultDevSessionBlockers({
-            isAlive: pid => livePids.has(pid),
-            nowMs: 20_000,
-            ownPids: [999],
-            sessionInfo: null,
-            startingInfo: createStartingSessionInfo(),
-            startingMaxAgeMs: 5_000,
-        });
-        expect(staleBlockers).toEqual([]);
+    it('refuses cleanup against the default developer session', () => {
+        expect(() => assertE2ESessionName('default')).toThrow(/refused non-isolated session/u);
+        expect(() => prunePreservedSessionArtifacts('default')).toThrow(/refused non-isolated session/u);
+        expect(isE2ESessionName('e2e-')).toBe(false);
     });
 });

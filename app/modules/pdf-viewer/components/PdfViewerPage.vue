@@ -8,6 +8,7 @@
             'page_container--rendered': rendered,
         }"
         :data-page="page"
+        :data-document-page-number="page"
         :data-page-visual="pageVisualState"
         :style="placeholderStyle ?? undefined"
     >

@@ -331,6 +331,31 @@ describe('useTabsShellBindings', () => {
         unmount();
     });
 
+    it('prefers the mounted workspace revision over a lagging persisted toolbar snapshot', async () => {
+        window.__allowRendererFileOpenForAutomation = vi.fn(async () => true);
+        const options = createOptions();
+        options.activeWorkspace.value.getToolbarSnapshot = vi.fn(() => ({
+            ...createDefaultWorkspaceToolbarSnapshot(),
+            currentPage: 18,
+            effectiveZoom: 4.72,
+            totalPages: 501,
+        }));
+
+        const unmount = await mountBindingsClient(options);
+
+        expect(window.__evbTestApi?.getActiveToolbarSnapshot()).toMatchObject({
+            currentPage: 18,
+            effectiveZoom: 4.72,
+            totalPages: 501,
+        });
+        expect(options.documentRecordsByTabId.value['tab-1']?.toolbarSnapshot).toMatchObject({
+            currentPage: 1,
+            effectiveZoom: 1,
+        });
+
+        unmount();
+    });
+
     it('settles startup open claim after mounted startup work', async () => {
         const options = createOptions();
         options.isStartupOpenClaimPending.value = false;

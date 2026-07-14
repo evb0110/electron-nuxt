@@ -600,7 +600,7 @@ describe('dependency graph', () => {
         ));
 
         expect(checkArchitectureBoundarySource(
-            'app/modules/pdf-viewer/components/PdfSearchBar.vue',
+            'app/components/document-viewer/DocumentSearchBar.vue',
             '<script setup lang="ts">\nimport type { IResolvedSearchMatchOptions } from \'@contracts/search\';\nconst options = {} as IResolvedSearchMatchOptions;\n</script>\n',
         )).toEqual([]);
 

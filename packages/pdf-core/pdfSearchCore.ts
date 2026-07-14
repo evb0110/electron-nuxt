@@ -8,6 +8,8 @@ export type {
     TPdfSearchUtf16Offset,
 } from '@contracts/search';
 
+export { PDF_SEARCH_PROGRESS_RESULT_BATCH_LIMIT } from '@pdf-core/pdfSearchProgressResultBatchLimit';
+
 export {
     assertSafePdfSearchRegex,
     buildPdfSearchExcerpt,

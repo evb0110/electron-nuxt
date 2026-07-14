@@ -106,6 +106,75 @@ describe('feature IPC codec maps', () => {
         });
     });
 
+    it('validates streamed DjVu text-search options and word geometry', () => {
+        expect(DJVU_IPC_CODECS[DJVU_CHANNELS.searchText].decodeArgs([
+            '/tmp/book.djvu',
+            'needle',
+            {
+                requestId: 'djvu-search-1',
+                pageCount: 431,
+                matchCase: false,
+                wholeWord: true,
+                useRegex: false,
+            },
+        ])).toEqual([
+            '/tmp/book.djvu',
+            'needle',
+            {
+                requestId: 'djvu-search-1',
+                pageCount: 431,
+                matchCase: false,
+                wholeWord: true,
+                useRegex: false,
+            },
+        ]);
+        expect(DJVU_IPC_CODECS[DJVU_CHANNELS.searchText].decodeResult({
+            truncated: false,
+            results: [{
+                pageNumber: 9,
+                pageMatchIndex: 0,
+                matchIndex: 0,
+                startOffset: 5,
+                endOffset: 11,
+                excerpt: {
+                    prefix: false,
+                    suffix: false,
+                    before: '',
+                    match: 'needle',
+                    after: '',
+                },
+                pageWidth: 1000,
+                pageHeight: 2000,
+                rotation: 0,
+                words: [{
+                    text: 'needle',
+                    x: 150,
+                    y: 400,
+                    width: 200,
+                    height: 100,
+                }],
+            }],
+        })).toMatchObject({results: [{
+            pageNumber: 9,
+            words: [{y: 400}],
+        }]});
+        expect(() => DJVU_IPC_CODECS[DJVU_CHANNELS.searchText].decodeArgs([
+            '/tmp/book.djvu',
+            'needle',
+            {
+                requestId: 'djvu-search-1',
+                pageCount: 20_001,
+            },
+        ])).toThrow('valid requestId and pageCount');
+        expect(() => DJVU_IPC_CODECS[DJVU_CHANNELS.searchText].decodeResult({
+            truncated: false,
+            results: [{
+                pageNumber: 9,
+                words: [{width: -1}],
+            }],
+        })).toThrow('invalid');
+    });
+
     it('validates exact first-page opening geometry at the IPC boundary', () => {
         const validGeometry = {
             pageNumber: 1,

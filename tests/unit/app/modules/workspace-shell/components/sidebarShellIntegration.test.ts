@@ -74,8 +74,15 @@ describe('shared sidebar shell integration', () => {
             /\.sidebar-wrapper\s*\{[^}]*background: var\(--app-sidebar-bg\);/su,
         );
         expect(sidebarHost).toMatch(
+            /\.sidebar-wrapper\s*\{[^}]*max-width: 100%;[^}]*flex-shrink: 0;/su,
+        );
+        expect(sidebarHost).toMatch(
             /\.sidebar-resizer\s*\{[^}]*margin-inline-start: auto;/su,
         );
         expect(sidebarHost).not.toMatch(/\.sidebar-resizer\s*\{[^}]*border-left:/su);
+
+        const shell = readWorkspaceFile('app/components/sidebar/AppSidebarShell.vue');
+        expect(shell).toMatch(/\.app-sidebar-shell\s*\{[^}]*flex: 1;/su);
+        expect(shell).not.toMatch(/\.app-sidebar-shell\s*\{[^}]*border-inline-end:/su);
     });
 });

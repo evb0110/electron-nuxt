@@ -1,6 +1,7 @@
 import {
     handleDjvuCancelOperation,
     handleDjvuCancelPagePreview,
+    handleDjvuCancelTextSearch,
     handleDjvuCleanupTemp,
     handleDjvuConvertToPdfOperation,
     handleDjvuEstimateSizes,
@@ -15,6 +16,7 @@ import {
     handleDjvuPrintPathOperation,
     handleDjvuReleaseViewingPath,
     handleDjvuRenderPagePreview,
+    handleDjvuSearchText,
 } from '@electron/features/djvu/main/djvuOperations';
 import {
     getDjvuOutputJobState,
@@ -40,6 +42,8 @@ export function createDjvuService(): IDjvuService {
         getJobState: (_context, jobId) => Promise.resolve(getDjvuOutputJobState(jobId)),
         subscribeJob: (context, jobId) => Promise.resolve(subscribeDjvuOutputJob(context, jobId)),
         cancelPagePreview: handleDjvuCancelPagePreview,
+        searchText: handleDjvuSearchText,
+        cancelTextSearch: handleDjvuCancelTextSearch,
         getInfo: handleDjvuGetInfo,
         getPageSourceInfo: handleDjvuGetPageSourceInfo,
         getPageSizes: handleDjvuGetPageSizes,

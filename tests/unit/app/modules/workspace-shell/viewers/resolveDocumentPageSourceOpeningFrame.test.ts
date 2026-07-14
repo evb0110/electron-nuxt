@@ -23,10 +23,10 @@ describe('resolveDocumentPageSourceOpeningFrame', () => {
             zoom: 1,
             zoomMode: 'fit-width',
         });
-        expect(frame?.width).toBeCloseTo(868);
-        expect(frame?.height).toBeCloseTo(1157.3333333333333);
-        expect(Number.parseFloat(frame?.style.width ?? '')).toBeCloseTo(868);
-        expect(Number.parseFloat(frame?.style.height ?? '')).toBeCloseTo(1157.3333333333333);
+        expect(frame?.width).toBeCloseTo(860);
+        expect(frame?.height).toBeCloseTo(1146.6666666666667);
+        expect(Number.parseFloat(frame?.style.width ?? '')).toBeCloseTo(860);
+        expect(Number.parseFloat(frame?.style.height ?? '')).toBeCloseTo(1146.6666666666667);
     });
 
     it('uses the live viewport height for fit-height and the zoom policy for custom scale', () => {
@@ -36,7 +36,7 @@ describe('resolveDocumentPageSourceOpeningFrame', () => {
             viewportHeight: 832,
             zoom: 1,
             zoomMode: 'fit-height',
-        })?.height).toBe(800);
+        })?.height).toBe(792);
         expect(resolveDocumentPageSourceOpeningFrame({
             geometry,
             viewportWidth: 900,

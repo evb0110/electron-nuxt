@@ -8,6 +8,7 @@ import {
     nextTick,
     ref,
     shallowRef,
+    watch,
 } from 'vue';
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import type { IEditorPaneState } from '@contracts/editorPanes';
@@ -88,6 +89,119 @@ function createReadyRecord(
 }
 
 describe('useAppShellTabLifecycle', () => {
+    it('keeps split close and retained-pane handoff inside the tab transition', async () => {
+        const panes = ref<IEditorPaneState[]>([
+            {
+                paneId: 'pane-left',
+                activeTabId: 'tab-document',
+                tabIds: ['tab-document'],
+            },
+            {
+                paneId: 'pane-right',
+                activeTabId: 'tab-empty',
+                tabIds: ['tab-empty'],
+            },
+        ]);
+        const tabs = ref<ITab[]>([
+            {
+                id: 'tab-document',
+                fileName: 'retained.pdf',
+                originalPath: '/docs/retained.pdf',
+                isDirty: false,
+                isDjvu: false,
+            },
+            {
+                id: 'tab-empty',
+                fileName: null,
+                originalPath: null,
+                isDirty: false,
+                isDjvu: false,
+            },
+        ]);
+        const activePaneId = ref('pane-right');
+        const activeTabId = ref<string | null>('tab-empty');
+        const transitionStates = {
+            closeTab: false,
+            closePane: false,
+            activateRetainedTab: false,
+        };
+        const getPaneById = (paneId: string | null | undefined) => (
+            panes.value.find(pane => pane.paneId === paneId) ?? null
+        );
+        const getTabById = (tabId: string | null | undefined) => (
+            tabs.value.find(tab => tab.id === tabId) ?? null
+        );
+        const getPaneByTabId = (tabId: string | null | undefined) => (
+            panes.value.find(pane => tabId ? pane.tabIds.includes(tabId) : false) ?? null
+        );
+        const lifecycle = useAppShellTabLifecycle({
+            panes,
+            tabs,
+            activePaneId,
+            activeTabId,
+            workspaceRefs: ref(new Map()),
+            documentSessionsByTabId: shallowRef({}),
+            getDocumentRecord: vi.fn(() => null),
+            workspaceSplitCache: {
+                set: vi.fn(),
+                peek: vi.fn(),
+                consume: vi.fn(),
+                has: vi.fn(() => false),
+                clear: vi.fn(),
+            },
+            workspaceRestoreTracker: {
+                start: vi.fn(),
+                finish: vi.fn(),
+                has: vi.fn(() => false),
+            },
+            getPaneById,
+            getTabById,
+            getPaneByTabId,
+            activatePane: vi.fn((paneId: string) => {
+                activePaneId.value = paneId;
+            }),
+            activateTab: vi.fn((paneId: string, tabId: string) => {
+                transitionStates.activateRetainedTab = lifecycle.isTabTransitionBusy.value;
+                activePaneId.value = paneId;
+                activeTabId.value = tabId;
+            }),
+            closeTab: vi.fn((paneId: string, tabId: string) => {
+                transitionStates.closeTab = lifecycle.isTabTransitionBusy.value;
+                const pane = getPaneById(paneId);
+                if (pane) {
+                    pane.tabIds = pane.tabIds.filter(candidate => candidate !== tabId);
+                    pane.activeTabId = pane.tabIds[0] ?? null;
+                }
+                tabs.value = tabs.value.filter(tab => tab.id !== tabId);
+            }),
+            closePane: vi.fn((paneId: string) => {
+                transitionStates.closePane = lifecycle.isTabTransitionBusy.value;
+                panes.value = panes.value.filter(pane => pane.paneId !== paneId);
+            }),
+            requestDirtyTabCloseConfirmation: vi.fn(async () => true),
+        });
+        let publishedBusyState = false;
+        const stopWatchingBusyState = watch(lifecycle.isTabTransitionBusy, (isBusy) => {
+            publishedBusyState = isBusy;
+        }, {flush: 'post'});
+
+        await lifecycle.enqueueTabTransition(async () => {
+            expect(publishedBusyState).toBe(true);
+        });
+        stopWatchingBusyState();
+
+        await lifecycle.handleCloseTab('pane-right', 'tab-empty');
+
+        expect(transitionStates).toEqual({
+            closeTab: true,
+            closePane: true,
+            activateRetainedTab: true,
+        });
+        expect(activePaneId.value).toBe('pane-left');
+        expect(activeTabId.value).toBe('tab-document');
+        expect(lifecycle.isTabTransitionBusy.value).toBe(false);
+    });
+
     it('wraps workspace close commands in a document session close transaction', async () => {
         const pane = {
             paneId: 'pane-1',

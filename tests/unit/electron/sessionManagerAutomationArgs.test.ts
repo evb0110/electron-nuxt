@@ -5,6 +5,8 @@ import {
 } from 'vitest';
 import { readFile } from 'node:fs/promises';
 import {
+    NUXT_BUILD_DIR_ENV,
+    NUXT_VITE_CACHE_DIR_ENV,
     buildElectronAutomationArgs,
     buildElectronExecutablePath,
     buildHeadlessAutomationEnv,
@@ -13,6 +15,7 @@ import {
     buildElectronE2EAutomationEnv,
     buildMacOSHiddenAppBundlePaths,
     buildNuxtDevServerEnv,
+    resolveNuxtDevServerArtifactDirs,
     resolveAutomationRendererReadyEnv,
     resolveAutomationWindowEnv,
     sanitizeElectronLaunchEnv,
@@ -30,6 +33,8 @@ import {
 } from '@scripts/electron-run/electronRunE2ESharedRenderer';
 import {
     checkNuxtHttpReadiness,
+    resolveNuxtPortStrategy,
+    shouldCleanupOrphanedProjectNuxtRoots,
     warmupElectronAppDependencies,
     warmupElectronAppDependenciesBestEffort,
 } from '@scripts/electron-run/electronRunNuxtServer';
@@ -48,6 +53,7 @@ import {
 } from '@scripts/electron-run/electronRunRunId';
 import { isReusableNuxtResponse } from '@scripts/electron-run/isReusableNuxtResponse';
 import {
+    allocateAutomationPorts,
     hasOtherAliveSessionUsingNuxt,
     isElectronAppPageUrl,
     isNuxtDevServerUrl,
@@ -117,6 +123,39 @@ describe('sessionManager automation launch args', () => {
         });
 
         expect(buildNuxtDevServerEnv({ NUXT_IGNORE_LOCK: '0' }, 3124).NUXT_IGNORE_LOCK).toBe('0');
+    });
+
+    it('isolates non-default Nuxt build and Vite caches from the live developer renderer', () => {
+        expect(resolveNuxtDevServerArtifactDirs({}, 'default')).toBeNull();
+
+        const isolated = resolveNuxtDevServerArtifactDirs({}, 'e2e-coexistence-shared-renderer');
+        expect(isolated).toEqual({
+            buildDir: expect.stringMatching(/\.devkit\/sessions\/e2e-coexistence-shared-renderer\/nuxt-build$/u),
+            viteCacheDir: expect.stringMatching(/\.devkit\/sessions\/e2e-coexistence-shared-renderer\/vite-cache$/u),
+        });
+        expect(buildNuxtDevServerEnv({}, 3125, 'e2e-coexistence-shared-renderer')).toMatchObject({
+            [NUXT_BUILD_DIR_ENV]: isolated?.buildDir,
+            [NUXT_VITE_CACHE_DIR_ENV]: isolated?.viteCacheDir,
+        });
+    });
+
+    it('preserves explicit isolated Nuxt artifact directories', () => {
+        expect(resolveNuxtDevServerArtifactDirs({
+            [NUXT_BUILD_DIR_ENV]: '/tmp/custom-nuxt',
+            [NUXT_VITE_CACHE_DIR_ENV]: '/tmp/custom-vite',
+        }, 'e2e-custom')).toEqual({
+            buildDir: '/tmp/custom-nuxt',
+            viteCacheDir: '/tmp/custom-vite',
+        });
+    });
+
+    it('wires isolated artifact directories into Nuxt and Vite configuration', async () => {
+        const source = await readFile('nuxt.config.ts', 'utf8');
+
+        expect(source).toContain('process.env.EVB_NUXT_BUILD_DIR?.trim()');
+        expect(source).toContain('{buildDir: isolatedNuxtBuildDir}');
+        expect(source).toContain('process.env.EVB_NUXT_VITE_CACHE_DIR?.trim()');
+        expect(source).toContain('{cacheDir: isolatedNuxtViteCacheDir}');
     });
 
     it('does not leak Vitest worker mode into the Nuxt dev server', () => {
@@ -607,6 +646,18 @@ describe('sessionManager automation launch args', () => {
         expect(shouldUseStrictE2EIsolation({CI: 'true'})).toBe(true);
         expect(shouldUseStrictE2EIsolation({[E2E_STRICT_ISOLATION_ENV]: '1'})).toBe(true);
         expect(shouldRequireNuxtWarmup({[NUXT_WARMUP_REQUIRED_ENV]: 'true'})).toBe(true);
+    });
+
+    it('uses isolated Nuxt and distinct automation ports for non-default sessions', async () => {
+        expect(resolveNuxtPortStrategy('default')).toBe('fixed-default');
+        expect(resolveNuxtPortStrategy('e2e-coexistence-viewer-smoke')).toBe('isolated-free');
+        expect(shouldCleanupOrphanedProjectNuxtRoots('default')).toBe(true);
+        expect(shouldCleanupOrphanedProjectNuxtRoots('e2e-coexistence-shared-renderer')).toBe(false);
+
+        const ports = await allocateAutomationPorts(() => {});
+        expect(ports.serverPort).toBeGreaterThan(0);
+        expect(ports.cdpPort).toBeGreaterThan(0);
+        expect(ports.cdpPort).not.toBe(ports.serverPort);
     });
 
     it('cleans only stale session-owned Nuxt port owners', () => {

@@ -4,7 +4,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import { ref } from 'vue';
+import {
+    computed,
+    ref,
+} from 'vue';
 import { createWorkspaceExpose } from '@app/modules/workspace-shell/expose/createWorkspaceExpose';
 import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
 import type { IWorkspaceDocumentViewerNavigationPort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
@@ -353,25 +356,25 @@ describe('createWorkspaceExpose', () => {
         expect(exposed.getToolbarSnapshot().isPreparingCurrentPagePrint).toBe(true);
     });
 
-    it('reads toolbar current page through narrow viewer snapshot ports', () => {
-        const documentViewerRef = ref<IWorkspaceDocumentViewerNavigationPort | null>(null);
-        const pdfToolbarSnapshotViewerRef = ref({ getCurrentPage: () => 6 });
+    it('keeps toolbar current page owned by the reactive workspace authority', () => {
+        const currentPage = ref(2);
+        const documentViewerRef = ref<IWorkspaceDocumentViewerNavigationPort | null>({
+            getCurrentPage: () => 8,
+            scrollToPage: vi.fn(),
+        });
         const deps = createDeps({
-            currentPage: ref(2),
+            currentPage,
             totalPages: ref(10),
-            pdfToolbarSnapshotViewerRef,
             documentViewerRef,
         });
         const exposed = createWorkspaceExpose(deps);
+        const snapshot = computed(exposed.getToolbarSnapshot);
 
-        expect(exposed.getToolbarSnapshot().currentPage).toBe(6);
+        expect(snapshot.value.currentPage).toBe(2);
 
-        documentViewerRef.value = {
-            getCurrentPage: () => 8,
-            scrollToPage: vi.fn(),
-        };
+        currentPage.value = 6;
 
-        expect(exposed.getToolbarSnapshot().currentPage).toBe(8);
+        expect(snapshot.value.currentPage).toBe(6);
     });
 
     it('keeps toolbar page and zoom metadata pending while the document visual is opening', () => {

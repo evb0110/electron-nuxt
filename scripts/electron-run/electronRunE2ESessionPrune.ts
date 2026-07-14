@@ -44,7 +44,14 @@ interface ISelectStaleE2ESessionsOptions {
 }
 
 export function isE2ESessionName(name: string) {
-    return name.startsWith('e2e-');
+    return /^e2e-[a-zA-Z0-9]/u.test(name);
+}
+
+export function assertE2ESessionName(name: string) {
+    if (!isE2ESessionName(name)) {
+        throw new Error(`Electron E2E operation refused non-isolated session: ${name}`);
+    }
+    return name;
 }
 
 export function selectStaleE2ESessionDirs(

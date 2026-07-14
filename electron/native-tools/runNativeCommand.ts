@@ -1,4 +1,5 @@
 import { spawn } from 'child_process';
+import { StringDecoder } from 'string_decoder';
 import {
     formatArgForLog,
     formatCommandFailureMessage,
@@ -242,6 +243,8 @@ export async function runNativeCommand(
 
         const context = createCommandRunContext(command, args, contextOptions);
         const output = createBoundedOutputCapture(maxStdoutBytes, maxStderrBytes);
+        const stdoutDecoder = new StringDecoder('utf8');
+        const stderrDecoder = new StringDecoder('utf8');
         let timeoutHandle: NodeJS.Timeout | null = null;
         let forceRejectHandle: NodeJS.Timeout | null = null;
         let pendingTerminationError: Error | null = null;
@@ -390,14 +393,22 @@ export async function runNativeCommand(
             return;
         }
 
-        stdoutDataHandler = (data: Buffer) => {
-            output.appendStdout(data);
-            onStdout?.(data.toString());
+        const appendDecodedStdout = (text: string) => {
+            if (!text) {
+                return;
+            }
+            output.appendStdout(Buffer.from(text, 'utf8'));
+            onStdout?.(text);
         };
-        stderrDataHandler = (data: Buffer) => {
-            output.appendStderr(data);
-            onStderr?.(data.toString());
+        const appendDecodedStderr = (text: string) => {
+            if (!text) {
+                return;
+            }
+            output.appendStderr(Buffer.from(text, 'utf8'));
+            onStderr?.(text);
         };
+        stdoutDataHandler = (data: Buffer) => appendDecodedStdout(stdoutDecoder.write(data));
+        stderrDataHandler = (data: Buffer) => appendDecodedStderr(stderrDecoder.write(data));
         proc.stdout?.on('data', stdoutDataHandler);
         proc.stderr?.on('data', stderrDataHandler);
 
@@ -428,6 +439,9 @@ export async function runNativeCommand(
                 });
                 return;
             }
+
+            appendDecodedStdout(stdoutDecoder.end());
+            appendDecodedStderr(stderrDecoder.end());
 
             const exitCode = typeof code === 'number' ? code : -1;
             const outputSnapshot = output.snapshot();

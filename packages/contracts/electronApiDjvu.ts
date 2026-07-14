@@ -9,6 +9,11 @@ import type {
     TMenuEventCallback,
     TMenuEventUnsubscribe,
 } from '@contracts/electronApiCommon';
+import type {
+    IPdfSearchProgress,
+    IPdfSearchResponse,
+    ISearchMatchOptions,
+} from '@contracts/search';
 
 export type { TDjvuPdfExportStrategy } from '@contracts/djvuConversionPolicy';
 
@@ -103,6 +108,15 @@ export interface IDjvuPagePreviewOptions {
     targetWidthPx?: number;
 }
 
+export interface IDjvuTextSearchOptions extends ISearchMatchOptions {
+    requestId: string;
+    pageCount: number;
+}
+
+export interface IDjvuTextSearchProgress extends IPdfSearchProgress {}
+
+export interface IDjvuTextSearchResponse extends IPdfSearchResponse {}
+
 export interface IDjvuConvertOptions {
     jobId?: string;
     subsample?: number;
@@ -164,6 +178,12 @@ export interface IDjvuAPI {
     getJobState: (jobId: string) => Promise<TDocumentOutputJobState | null>;
     subscribeJob: (jobId: string) => Promise<TDocumentOutputJobState | null>;
     cancelPagePreview: (requestId: string) => Promise<{ canceled: boolean }>;
+    searchText: (
+        djvuPath: TDocumentRef,
+        query: string,
+        options: IDjvuTextSearchOptions,
+    ) => Promise<IDjvuTextSearchResponse>;
+    cancelTextSearch: (requestId: string) => Promise<{ canceled: boolean }>;
     getInfo: (djvuPath: TDocumentRef) => Promise<IDjvuInfo>;
     getPageSourceInfo: (djvuPath: TDocumentRef, pageNumber: number) => Promise<IDjvuPageSourceInfo>;
     getPageSizes: (djvuPath: TDocumentRef) => Promise<IDjvuPageSize[]>;
@@ -175,6 +195,7 @@ export interface IDjvuAPI {
     estimateSizes: (djvuPath: TDocumentRef) => Promise<IDjvuSizeEstimate[]>;
     cleanupTemp: (tempPdfPath: TDocumentRef) => Promise<void>;
     onProgress: (callback: (progress: IDjvuProgress) => void) => () => void;
+    onTextSearchProgress: (callback: (progress: IDjvuTextSearchProgress) => void) => () => void;
 }
 
 export interface IDjvuCapability extends IDjvuAPI {onMenuConvertToPdf: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;}

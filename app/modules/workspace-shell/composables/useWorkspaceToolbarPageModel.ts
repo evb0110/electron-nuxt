@@ -4,6 +4,10 @@ import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 interface IUseWorkspaceToolbarPageModelOptions {
     sourcePage: MaybeRefOrGetter<number>;
     feedbackPage?: MaybeRefOrGetter<number | null | undefined>;
+    authoritativeCommand?: MaybeRefOrGetter<{
+        page: number;
+        revision: number;
+    } | null | undefined>;
     sessionActive?: MaybeRefOrGetter<boolean>;
     goToPage: (page: number) => void;
 }
@@ -47,6 +51,20 @@ export const useWorkspaceToolbarPageModel = (options: IUseWorkspaceToolbarPageMo
                 }
             },
             { flush: 'sync' },
+        );
+    }
+
+    if (options.authoritativeCommand !== undefined) {
+        watch(
+            () => toValue(options.authoritativeCommand),
+            (command) => {
+                if (
+                    command
+                    && pendingNavigationPage.value !== null
+                    && command.page !== pendingNavigationPage.value
+                ) clearPendingNavigation('authoritative-command-superseded');
+            },
+            {flush: 'sync'},
         );
     }
 

@@ -1028,6 +1028,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             ...viewState,
             ...pdfHistory,
             handleUndo,
+            beginProgrammaticPageNavigation,
             shouldAcceptViewerCurrentPageUpdate,
         },
         saveWorkflow: {

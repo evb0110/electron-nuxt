@@ -220,6 +220,21 @@ describe('feature validated IPC decoders', () => {
                     validArgs: ['request-1'],
                 },
                 {
+                    channel: DJVU_CHANNELS.searchText,
+                    validArgs: [
+                        '/tmp/a.djvu',
+                        'needle',
+                        {
+                            requestId: 'request-1',
+                            pageCount: 12,
+                        },
+                    ],
+                },
+                {
+                    channel: DJVU_CHANNELS.cancelTextSearch,
+                    validArgs: ['request-1'],
+                },
+                {
                     channel: DJVU_CHANNELS.getInfo,
                     validArgs: ['/tmp/a.djvu'],
                 },

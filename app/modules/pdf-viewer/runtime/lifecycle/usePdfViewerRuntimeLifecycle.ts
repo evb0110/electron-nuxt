@@ -62,6 +62,7 @@ interface IZoomRerenderBusySignal {
 export interface IUsePdfViewerRuntimeLifecycleOptions {
     viewportWritePort: IPdfViewportWritePort;
     submitResizeIntent: (anchor?: IPdfSemanticAnchor | null) => void;
+    applyResizeAnchorPreview?: ((anchor?: IPdfSemanticAnchor | null) => unknown) | undefined;
     captureViewportAnchor?: (() => IPdfSemanticAnchor | null) | undefined;
     viewerContainer: Ref<HTMLElement | null>;
     src: ComputedRef<TPdfSource | null>;
@@ -453,6 +454,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         cleanupResizeLifecycle,
     } = usePdfViewerResizeLifecycle({
         submitResizeIntent: options.submitResizeIntent,
+        applyResizeAnchorPreview: options.applyResizeAnchorPreview,
         viewerContainer,
         isLoading,
         isActive,

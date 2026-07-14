@@ -1,24 +1,24 @@
 <template>
-    <div class="pdf-search-results flex flex-col">
-        <PdfPanelEmptyState
+    <div class="document-search-results flex flex-col">
+        <DocumentPanelEmptyState
             v-if="!trimmedQuery"
             icon="i-ph-magnifying-glass"
             :title="t('searchResults.enterSearchTerm')"
             :description="t('searchResults.enterSearchHint')"
         />
-        <PdfPanelEmptyState
+        <DocumentPanelEmptyState
             v-else-if="isQueryTooShort"
             icon="i-ph-text-t"
             :title="t('searchResults.typeMinChars', { count: minQueryLength })"
             :description="t('searchResults.enterSearchHint')"
         />
-        <PdfPanelEmptyState
+        <DocumentPanelEmptyState
             v-else-if="!isSearching && searchError"
             icon="i-ph-warning"
             :title="t('searchResults.unavailable')"
             :description="searchError"
         />
-        <PdfPanelEmptyState
+        <DocumentPanelEmptyState
             v-else-if="!isSearching && results.length === 0"
             icon="i-ph-magnifying-glass"
             :title="t('searchResults.noResults')"
@@ -26,28 +26,28 @@
         />
         <div
             v-else-if="isSearching || results.length > 0"
-            class="pdf-search-results-list-shell flex flex-1 min-h-0 flex-col"
+            class="document-search-results-list-shell flex flex-1 min-h-0 flex-col"
         >
-            <div class="pdf-search-results-header">
-                <span class="pdf-search-results-header-summary">
+            <div class="document-search-results-header">
+                <span class="document-search-results-header-summary">
                     {{ searchSummaryText }}
                 </span>
                 <UIcon
                     v-if="isSearching"
                     name="i-ph-circle-notch"
-                    class="pdf-search-results-spinner pdf-search-results-header-spinner size-4"
+                    class="document-search-results-spinner document-search-results-header-spinner size-4"
                     aria-live="polite"
                     :aria-label="t('searchResults.searching')"
                 />
                 <span
                     v-if="isSearching && progressText"
-                    class="pdf-search-results-header-progress"
+                    class="document-search-results-header-progress"
                 >
                     {{ progressText }}
                 </span>
                 <div
                     v-if="!isSearching && isTruncated"
-                    class="pdf-search-results-truncated"
+                    class="document-search-results-truncated"
                 >
                     {{ t('searchResults.showingFirst', { count: results.length }) }}
                 </div>
@@ -55,11 +55,11 @@
             <AppProgressBar
                 v-if="isSearching"
                 :value="searchProgressPercent"
-                class="pdf-search-results-progress-bar"
+                class="document-search-results-progress-bar"
             />
             <div
                 v-bind="containerProps"
-                class="pdf-search-results-list app-scrollbar"
+                class="document-search-results-list app-scrollbar"
             >
                 <div v-bind="wrapperProps">
                     <template
@@ -69,16 +69,16 @@
                     <button
                         v-if="virtualRow.data.kind === 'group'"
                         type="button"
-                        class="pdf-search-results-group-toggle"
+                        class="document-search-results-group-toggle"
                         :aria-expanded="isGroupExpanded(virtualRow.data.pageIndex)"
                         @click="togglePage(virtualRow.data.pageIndex)"
                     >
                         <UIcon
                             name="i-ph-caret-right"
-                            class="pdf-search-results-group-chevron"
+                            class="document-search-results-group-chevron"
                             :class="{ 'is-open': isGroupExpanded(virtualRow.data.pageIndex) }"
                         />
-                        <span class="pdf-search-results-group-label">
+                        <span class="document-search-results-group-label">
                             {{ t('searchResults.pageWithCount', {
                                 page: formatPageIndicatorWithOptions(virtualRow.data.pageIndex + 1, pageLabels ?? null),
                                 count: virtualRow.data.matchCount,
@@ -86,14 +86,14 @@
                         </span>
                     </button>
 
-                    <PdfSearchResultItem
+                    <DocumentSearchResultItem
                             v-else
                             :ref="element => setResultRef(asMatchRow(virtualRow.data).resultIndex, element)"
                             :result="asMatchRow(virtualRow.data).match"
                             :is-active="asMatchRow(virtualRow.data).resultIndex === currentResultIndex"
                             :page-labels="pageLabels"
                             :show-page-label="false"
-                            class="pdf-search-results-virtual-match"
+                            class="document-search-results-virtual-match"
                             @activate="goToResult(asMatchRow(virtualRow.data).resultIndex)"
                         />
                     </template>
@@ -107,17 +107,17 @@
 import type { ComponentPublicInstance } from 'vue';
 import { useVirtualList } from '@vueuse/core';
 import { groupBy } from 'es-toolkit/array';
-import type { IPdfSearchMatch } from '@app/types/pdfUi';
+import type { IDocumentSearchMatch } from '@app/utils/document-viewer/providers/documentSearch';
 import AppProgressBar from '@app/components/AppProgressBar.vue';
-import PdfPanelEmptyState from '@app/modules/pdf-viewer/components/PdfPanelEmptyState.vue';
-import PdfSearchResultItem from '@app/modules/pdf-viewer/components/PdfSearchResultItem.vue';
-import { formatPdfSearchResultsSummary } from '@app/modules/pdf-viewer/search/formatPdfSearchResultsSummary';
-import { formatPageIndicatorWithOptions } from '@app/utils/pdfPageLabels';
+import DocumentPanelEmptyState from '@app/components/document-viewer/DocumentPanelEmptyState.vue';
+import DocumentSearchResultItem from '@app/components/document-viewer/DocumentSearchResultItem.vue';
+import { formatDocumentSearchResultsSummary } from '@app/utils/document-viewer/providers/formatDocumentSearchResultsSummary';
+import { formatPageIndicatorWithOptions } from '@app/utils/document-viewer/pageLabels';
 
 const { t } = useTypedI18n();
 
 interface IProps {
-    results: IPdfSearchMatch[];
+    results: IDocumentSearchMatch[];
     currentResultIndex: number;
     currentResultNavigationId: number;
     searchQuery: string;
@@ -155,7 +155,7 @@ const knownGroupPages = ref<Set<number>>(new Set());
 const previousSearchQuery = ref('');
 const resultItemRefs = new Map<number, HTMLElement>();
 
-const searchSummaryText = computed(() => formatPdfSearchResultsSummary({
+const searchSummaryText = computed(() => formatDocumentSearchResultsSummary({
     isSearching: Boolean(isSearching),
     query: trimmedQuery.value,
     resultCount: results.length,
@@ -186,7 +186,7 @@ type TSearchVirtualRow = {
     kind: 'match';
     key: string;
     pageIndex: number;
-    match: IPdfSearchMatch;
+    match: IDocumentSearchMatch;
     resultIndex: number;
 };
 
@@ -374,17 +374,17 @@ watch(
 </script>
 
 <style lang="scss" scoped>
-.pdf-search-results {
+.document-search-results {
     min-height: 100%;
 }
 
-.pdf-search-results-virtual-match {
+.document-search-results-virtual-match {
     height: var(--app-search-virtual-row-height);
     overflow: hidden;
 }
 
 
-.pdf-search-results-header {
+.document-search-results-header {
     display: flex;
     min-width: 0;
     min-height: var(--app-control-height-md);
@@ -398,44 +398,44 @@ watch(
     white-space: nowrap;
 }
 
-.pdf-search-results-header-summary {
+.document-search-results-header-summary {
     flex: 1 1 auto;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
-.pdf-search-results-header-spinner {
+.document-search-results-header-spinner {
     color: var(--ui-text-dimmed);
 }
 
-.pdf-search-results-header-progress {
+.document-search-results-header-progress {
     flex: 0 0 auto;
     margin-left: 0;
     color: var(--ui-text-dimmed);
 }
 
-.pdf-search-results-header-spinner:first-of-type {
+.document-search-results-header-spinner:first-of-type {
     margin-left: auto;
 }
 
-.pdf-search-results-progress-bar {
+.document-search-results-progress-bar {
     height: var(--app-search-progress-height);
     border-radius: 0;
 }
 
-.pdf-search-results-truncated {
+.document-search-results-truncated {
     margin-left: auto;
     font-size: var(--app-sidebar-caption-font-size);
     color: var(--ui-text-dimmed);
 }
 
-.pdf-search-results-spinner {
+.document-search-results-spinner {
     flex: 0 0 auto;
-    animation: pdf-search-spin 1s linear infinite;
+    animation: document-search-spin 1s linear infinite;
 }
 
-.pdf-search-results-list {
+.document-search-results-list {
     flex: 1;
     min-height: 0;
     overflow: auto;
@@ -443,11 +443,11 @@ watch(
 }
 
 
-.pdf-search-results-group + .pdf-search-results-group {
+.document-search-results-group + .document-search-results-group {
     border-top: 1px solid var(--ui-border);
 }
 
-.pdf-search-results-group-toggle {
+.document-search-results-group-toggle {
     display: flex;
     width: 100%;
     align-items: center;
@@ -462,19 +462,19 @@ watch(
     cursor: pointer;
 }
 
-.pdf-search-results-group-chevron {
+.document-search-results-group-chevron {
     transition: transform $ease-standard;
 }
 
-.pdf-search-results-group-chevron.is-open {
+.document-search-results-group-chevron.is-open {
     transform: rotate(90deg);
 }
 
-.pdf-search-results-group-label {
+.document-search-results-group-label {
     min-width: 0;
 }
 
-@keyframes pdf-search-spin {
+@keyframes document-search-spin {
     from {
         transform: rotate(0deg);
     }

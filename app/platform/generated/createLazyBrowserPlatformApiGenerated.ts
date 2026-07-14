@@ -256,6 +256,8 @@ export function createLazyBrowserPlatformApiGenerated({
     const djvuGetJobStateMethod = lazyAsync(pathDescriptors.djvu.getJobState.path);
     const djvuSubscribeJobMethod = lazyAsync(pathDescriptors.djvu.subscribeJob.path);
     const djvuCancelPagePreviewMethod = lazyAsync(pathDescriptors.djvu.cancelPagePreview.path);
+    const djvuSearchTextMethod = lazyAsync(pathDescriptors.djvu.searchText.path);
+    const djvuCancelTextSearchMethod = lazyAsync(pathDescriptors.djvu.cancelTextSearch.path);
     const djvuGetInfoMethod = lazyAsync(pathDescriptors.djvu.getInfo.path);
     const djvuGetPageSourceInfoMethod = lazyAsync(pathDescriptors.djvu.getPageSourceInfo.path);
     const djvuGetPageSizesMethod = lazyAsync(pathDescriptors.djvu.getPageSizes.path);
@@ -263,6 +265,7 @@ export function createLazyBrowserPlatformApiGenerated({
     const djvuEstimateSizesMethod = lazyAsync(pathDescriptors.djvu.estimateSizes.path);
     const djvuCleanupTempMethod = lazyAsync(pathDescriptors.djvu.cleanupTemp.path);
     const djvuOnProgressMethod = lazyEvent(pathDescriptors.djvu.onProgress.path);
+    const djvuOnTextSearchProgressMethod = lazyEvent(pathDescriptors.djvu.onTextSearchProgress.path);
     const djvuOnMenuConvertToPdfMethod = lazyEvent(pathDescriptors.djvu.onMenuConvertToPdf.path);
     const settingsGetMethod = lazyAsync(pathDescriptors.settings.get.path);
     const settingsSaveMethod = lazyAsync(pathDescriptors.settings.save.path);
@@ -573,6 +576,8 @@ export function createLazyBrowserPlatformApiGenerated({
         getJobState: djvuGetJobStateMethod,
         subscribeJob: djvuSubscribeJobMethod,
         cancelPagePreview: djvuCancelPagePreviewMethod,
+        searchText: djvuSearchTextMethod,
+        cancelTextSearch: djvuCancelTextSearchMethod,
         getInfo: djvuGetInfoMethod,
         getPageSourceInfo: djvuGetPageSourceInfoMethod,
         getPageSizes: djvuGetPageSizesMethod,
@@ -580,6 +585,7 @@ export function createLazyBrowserPlatformApiGenerated({
         estimateSizes: djvuEstimateSizesMethod,
         cleanupTemp: djvuCleanupTempMethod,
         onProgress: djvuOnProgressMethod,
+        onTextSearchProgress: djvuOnTextSearchProgressMethod,
         onMenuConvertToPdf: djvuOnMenuConvertToPdfMethod,
     },
     settings: {
