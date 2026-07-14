@@ -50,6 +50,8 @@ artifact_dir="$(cd "$artifact_dir" && pwd -P)"
 log_dir="$artifact_dir/electron-logs"
 main_log="$log_dir/main.log"
 window_log="$log_dir/window.log"
+stdout_log="$artifact_dir/stdout.log"
+stderr_log="$artifact_dir/stderr.log"
 open_pid=""
 app_pid=""
 mounted=0
@@ -65,6 +67,10 @@ capture_diagnostics() {
     tail -n 200 "$main_log" 2>/dev/null || true
     echo "--- window.log ---"
     tail -n 200 "$window_log" 2>/dev/null || true
+    echo "--- stdout.log ---"
+    tail -n 200 "$stdout_log" 2>/dev/null || true
+    echo "--- stderr.log ---"
+    tail -n 200 "$stderr_log" 2>/dev/null || true
   } > "$artifact_dir/renderer-tail.log"
 }
 
@@ -128,6 +134,8 @@ env -u ELECTRON_RUN_AS_NODE open -n -W -a "$app_path" \
   --env "EVB_FILE_LOG_DIR=$log_dir" \
   --env "EVB_AUTOMATION_USER_DATA_DIR=$profile_dir" \
   --env "EVB_ALLOW_MULTI_AUTOMATION_SESSIONS=1" \
+  --stdout "$stdout_log" \
+  --stderr "$stderr_log" \
   --args \
   --evb-startup-trace \
   --evb-launchservices-smoke="$token" \
@@ -171,7 +179,11 @@ ready_marker="$(pnpm exec tsx scripts/release/printPackagedStartupReadyMarker.ts
 ready=0
 deadline=$((SECONDS + timeout_secs))
 while [ "$SECONDS" -lt "$deadline" ]; do
-  if [ -f "$main_log" ] && grep -F -q "$ready_marker" "$main_log" && kill -0 "$app_pid" >/dev/null 2>&1; then
+  if {
+    { [ -f "$main_log" ] && grep -F -q "$ready_marker" "$main_log"; } \
+      || { [ -f "$stdout_log" ] && grep -F -q "$ready_marker" "$stdout_log"; } \
+      || { [ -f "$stderr_log" ] && grep -F -q "$ready_marker" "$stderr_log"; }
+  } && kill -0 "$app_pid" >/dev/null 2>&1; then
     ready=1
     break
   fi
@@ -187,6 +199,10 @@ if [ "$ready" -ne 1 ]; then
   cat "$main_log" 2>/dev/null || true
   echo "--- window.log ---"
   cat "$window_log" 2>/dev/null || true
+  echo "--- stdout.log ---"
+  cat "$stdout_log" 2>/dev/null || true
+  echo "--- stderr.log ---"
+  cat "$stderr_log" 2>/dev/null || true
   exit 1
 fi
 

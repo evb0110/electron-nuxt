@@ -23,12 +23,16 @@ describe('macOS LaunchServices packaged-startup policy', () => {
         expect(script).toContain('EVB_LAUNCHSERVICES_ARTIFACT_DIR');
         expect(script).toContain('log_dir="$artifact_dir/electron-logs"');
         expect(script).toContain('--env "EVB_FILE_LOG_DIR=$log_dir"');
+        expect(script).toContain('--stdout "$stdout_log"');
+        expect(script).toContain('--stderr "$stderr_log"');
         expect(script).not.toContain('rm -rf "$log_dir"');
         expect(script).toContain('index($0, "/Contents/MacOS/EVB Viewer")');
         expect(script).toContain('token_position > executable_position');
         expect(script).toContain('> "$artifact_dir/processes.txt"');
         expect(script).toContain('if [ "$passed" -ne 1 ]');
         expect(script).toContain('grep -F -q "$ready_marker" "$main_log"');
+        expect(script).toContain('grep -F -q "$ready_marker" "$stdout_log"');
+        expect(script).toContain('grep -F -q "$ready_marker" "$stderr_log"');
         expect(script).not.toMatch(/\bkillall\b|\bpkill\b/u);
         expect(script).not.toContain('/Applications/EVB Viewer.app');
         expect(script).toContain('"$lsregister" -u "$app_path"');
