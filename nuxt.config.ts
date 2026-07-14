@@ -477,6 +477,11 @@ export default defineNuxtConfig({
         // Vercel's Nuxt builder only recognizes Build Output API artifacts from
         // `.vercel/output`; local desktop flows still consume `nuxt-output`.
         output: nitroOutput,
+        ...(isVercelBuildOutput ? {
+            // Vercel's file tracer can omit modules re-exported only by this
+            // package's barrel, which leaves the server function unable to boot.
+            externals: {inline: ['@iconify/utils']},
+        } : {}),
         prerender: {
             routes: [
                 '/',

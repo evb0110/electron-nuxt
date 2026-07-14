@@ -3,7 +3,10 @@ import {
     stat,
 } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import {
+    fileURLToPath,
+    pathToFileURL,
+} from 'node:url';
 import {
     REQUIRED_WEB_DEPLOY_ASSETS,
     REQUIRED_WEB_OUTPUT_CONTRACTS,
@@ -122,12 +125,33 @@ export async function validateWebDeployAssets({
     };
 }
 
+export async function validateVercelFunctionBoot({projectRoot = defaultProjectRoot} = {}) {
+    const entryPath = path.join(
+        projectRoot,
+        '.vercel/output/functions/__fallback.func/index.mjs',
+    );
+    await assertFileAsset(
+        path.dirname(entryPath),
+        'Vercel server function',
+        {relativePath: path.basename(entryPath)},
+    );
+
+    try {
+        await import(`${pathToFileURL(entryPath).href}?boot-check=${Date.now()}`);
+    } catch (error) {
+        throw new Error('Vercel server function failed to load', {cause: error});
+    }
+}
+
 const isDirectCliRun = process.argv[1]
     && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
 if (isDirectCliRun) {
     try {
         const result = await validateWebDeployAssets();
+        if (isVercelBuildOutputEnv()) {
+            await validateVercelFunctionBoot();
+        }
         const outputRoots = result.outputResults.map(entry => entry.root).join(', ');
         console.log(`Web deploy asset check passed for ${outputRoots}.`);
     } catch (error) {

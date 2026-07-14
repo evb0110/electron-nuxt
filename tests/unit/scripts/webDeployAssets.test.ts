@@ -25,6 +25,7 @@ interface IWebDeployAssetsModule {
         projectRoot?: string;
         sourceRoot?: string;
     }) => Promise<unknown>;
+    validateVercelFunctionBoot: (options?: {projectRoot?: string}) => Promise<void>;
 }
 
 const {
@@ -33,6 +34,7 @@ const {
     REQUIRED_WEB_WASM_ASSETS,
     getExpectedWebDeployOutputRoots,
     validateWebDeployAssets,
+    validateVercelFunctionBoot,
 } = await import(
     pathToFileURL(resolve(process.cwd(), 'scripts/check-web-deploy-assets.mjs')).href
 ) as IWebDeployAssetsModule;
@@ -111,6 +113,41 @@ describe('web deploy assets check', () => {
         expect(getExpectedWebDeployOutputRoots({})).toEqual(['nuxt-output/public']);
         expect(getExpectedWebDeployOutputRoots({VERCEL: '1'})).toEqual(['.vercel/output/static']);
         expect(getExpectedWebDeployOutputRoots({NOW_BUILDER: '1'})).toEqual(['.vercel/output/static']);
+    });
+
+    it('loads the generated Vercel server function entry', async () => {
+        const tempRoot = await createTempProject();
+        const functionRoot = path.join(tempRoot, '.vercel/output/functions/__fallback.func');
+        try {
+            await mkdir(functionRoot, {recursive: true});
+            await writeFile(path.join(functionRoot, 'index.mjs'), 'export default {};\n', 'utf8');
+            await expect(validateVercelFunctionBoot({projectRoot: tempRoot})).resolves.toBeUndefined();
+        } finally {
+            await rm(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('fails when a generated Vercel server dependency is missing', async () => {
+        const tempRoot = await createTempProject();
+        const functionRoot = path.join(tempRoot, '.vercel/output/functions/__fallback.func');
+        try {
+            await mkdir(functionRoot, {recursive: true});
+            await writeFile(
+                path.join(functionRoot, 'index.mjs'),
+                'import "./missing-dependency.mjs";\nexport default {};\n',
+                'utf8',
+            );
+            await expect(validateVercelFunctionBoot({projectRoot: tempRoot}))
+                .rejects.toThrow('Vercel server function failed to load');
+        } finally {
+            await rm(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
     });
 
     it('fails when the expected build output is absent', async () => {
