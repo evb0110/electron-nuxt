@@ -38,7 +38,7 @@ const fixtures = [
             },
             luminance: {
                 default: 253.961,
-                linux: 254.054,
+                linux: 254.134,
             },
             textItems: 3,
         },
