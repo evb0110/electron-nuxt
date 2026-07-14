@@ -11,7 +11,6 @@ interface IUseDocumentSourceSidebarSessionOptions {onNavigate: (pageIndex: numbe
  */
 export const useDocumentSourceSidebarSession = (options: IUseDocumentSourceSidebarSessionOptions) => {
     const source = shallowRef<IDocumentPageSource | null>(null);
-    const annotationRevision = ref(0);
     const backend = computed(() => createDocumentPageSourceSearchBackend(source.value));
     const searchSession = useDocumentSearchSession({
         backend,
@@ -20,16 +19,9 @@ export const useDocumentSourceSidebarSession = (options: IUseDocumentSourceSideb
 
     function publishSource(nextSource: IDocumentPageSource | null) {
         source.value = nextSource;
-        annotationRevision.value = 0;
-    }
-
-    function invalidateAnnotations() {
-        annotationRevision.value += 1;
     }
 
     return {
-        annotationRevision,
-        invalidateAnnotations,
         publishSource,
         searchSession,
         source,

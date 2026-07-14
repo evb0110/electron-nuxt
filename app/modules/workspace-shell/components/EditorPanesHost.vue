@@ -1,5 +1,5 @@
 <template>
-    <div class="editor-panes-host flex-1 min-h-0 min-w-0">
+    <div ref="hostRef" class="editor-panes-host flex-1 min-h-0 min-w-0">
         <div
             ref="parkingTarget"
             class="editor-pane-parking"
@@ -81,6 +81,10 @@ import type {
 } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import type { IWorkspaceDocumentSessionController } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
+import {
+    capturePaneRelocationScroll,
+    restorePaneRelocationScroll,
+} from '@app/modules/workspace-shell/layout/preservePaneRelocationScroll';
 
 defineOptions({ name: 'EditorPanesHost' });
 
@@ -123,6 +127,7 @@ const {
 }>();
 
 const parkingTarget = ref<HTMLElement | null>(null);
+const hostRef = ref<HTMLElement | null>(null);
 const paneSlotTargets = shallowReactive(new Map<string, HTMLElement>());
 const zenActivePaneId = computed(() => (
     zenActiveTabId
@@ -138,6 +143,40 @@ watchEffect(() => {
         }
     }
 });
+
+let paneRelocationRestoreGeneration = 0;
+function waitForPaneRelocationFrame() {
+    return new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+}
+
+watch(
+    () => layout,
+    () => {
+        const snapshots = capturePaneRelocationScroll(hostRef.value);
+        if (snapshots.length === 0) {
+            return;
+        }
+        const generation = ++paneRelocationRestoreGeneration;
+        void (async () => {
+            await nextTick();
+            if (generation !== paneRelocationRestoreGeneration) {
+                return;
+            }
+            restorePaneRelocationScroll(snapshots);
+            await waitForPaneRelocationFrame();
+            if (generation !== paneRelocationRestoreGeneration) {
+                return;
+            }
+            restorePaneRelocationScroll(snapshots);
+            await waitForPaneRelocationFrame();
+            if (generation !== paneRelocationRestoreGeneration) {
+                return;
+            }
+            restorePaneRelocationScroll(snapshots);
+        })();
+    },
+    {flush: 'sync'},
+);
 
 const emit = defineEmits<{
     'activate-pane': [paneId: string];

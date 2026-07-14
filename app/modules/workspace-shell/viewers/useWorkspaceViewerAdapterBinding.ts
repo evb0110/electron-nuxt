@@ -37,7 +37,6 @@ interface IWorkspaceViewerAdapterBindingOptions {
     documentSourceCurrentResultIndex: TReadableRef<number>;
     documentSourceSearchResults: TReadableRef<readonly IDocumentSearchMatch[]>;
     currentPage: Ref<number>;
-    documentSourceAnnotationRevision: Ref<number>;
     djvuSourcePath: Ref<TDocumentRef | null>;
     dragMode: Ref<boolean>;
     fitMode: Ref<TFitMode>;
@@ -154,7 +153,6 @@ export const useWorkspaceViewerAdapterBinding = (options: IWorkspaceViewerAdapte
                 ...createNativeViewerProps(options.djvuSourcePath.value),
                 sourceKind: 'djvu',
                 rendererKind: 'page-source',
-                annotationRevision: options.documentSourceAnnotationRevision.value,
                 isResizing: options.isWorkspaceLayoutResizing.value,
                 searchResults: options.documentSourceSearchResults.value,
                 currentSearchResultIndex: options.documentSourceCurrentResultIndex.value,

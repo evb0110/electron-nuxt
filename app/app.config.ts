@@ -3,6 +3,7 @@ export default defineAppConfig({ui: {
         primary: 'brand',
         neutral: 'zinc',
     },
+    dropdownMenu: {slots: {viewport: 'app-scrollbar app-scroll-region--balanced'}},
     icons: {
         arrowDown: 'i-ph-arrow-down',
         arrowLeft: 'i-ph-arrow-left',
@@ -46,4 +47,19 @@ export default defineAppConfig({ui: {
         upload: 'i-ph-upload',
         warning: 'i-ph-warning',
     },
+    modal: {
+        slots: {body: 'app-scrollbar'},
+        variants: {scrollable: {
+            false: {
+                // Keep fixed chrome aligned with a classically scrolling body.
+                body: 'app-scroll-region--balanced',
+                footer: 'overflow-hidden app-scroll-region--balanced',
+                header: 'overflow-hidden app-scroll-region--balanced',
+            },
+            // In this mode Nuxt UI moves scroll ownership to the overlay.
+            true: {overlay: 'app-scrollbar app-scroll-region--balanced'},
+        }},
+    },
+    select: {slots: {viewport: 'app-scrollbar app-scroll-region--balanced'}},
+    selectMenu: {slots: {viewport: 'app-scrollbar app-scroll-region--balanced'}},
 }});

@@ -1,31 +1,5 @@
-.pdf-thumbnails {
-  position: relative;
-  height: 100%;
-  min-height: 0;
-  box-sizing: border-box;
-  overflow: auto;
-  overflow-anchor: none;
-  scrollbar-gutter: stable;
-  padding: var(--app-sidebar-content-padding);
-}
-
 .pdf-thumbnails-virtual-wrapper {
   position: relative;
-}
-
-.pdf-thumbnail {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--app-sidebar-row-gap);
-  padding: var(--app-sidebar-row-padding-block);
-  border-radius: var(--app-thumbnail-row-radius);
-  border: 1px solid transparent;
-  cursor: pointer;
-  transition:
-    background-color 0.15s,
-    border-color 0.15s;
 }
 
 .pdf-thumbnail-selection-toggle {
@@ -80,51 +54,10 @@
   right: 0;
 }
 
-.pdf-thumbnail:hover {
-  background: var(--app-sidebar-control-hover-bg);
-}
-
-.pdf-thumbnail.is-selected {
-  background: color-mix(in oklab, var(--ui-bg) 65%, var(--ui-primary) 12%);
-}
-
 .pdf-thumbnail-canvas {
   display: block;
   width: 100%;
-  height: auto;
-  max-width: 100%;
-  border: 1px solid var(--ui-border);
-  border-radius: var(--app-space-3xs);
-  transition:
-    border-color 0.15s ease,
-    box-shadow 0.15s ease;
-}
-
-.pdf-thumbnail.is-active .pdf-thumbnail-canvas {
-  border-color: var(--ui-text);
-  box-shadow: 0 0 0 1px var(--ui-text);
-}
-
-.pdf-thumbnail.is-selected .pdf-thumbnail-canvas {
-  border-color: var(--ui-primary);
-}
-
-.pdf-thumbnail-number {
-  display: block;
-  font-size: var(--app-sidebar-caption-font-size);
-  line-height: var(--app-thumbnail-min-label-height);
-  min-height: var(--app-thumbnail-min-label-height);
-  color: var(--ui-text-muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.pdf-thumbnail.is-active .pdf-thumbnail-number {
-  color: var(--ui-text);
-  font-weight: 600;
-}
-
-.pdf-thumbnail.is-selected .pdf-thumbnail-number {
-  color: var(--ui-text);
+  height: 100%;
 }
 
 .pdf-thumbnail.is-dragged {

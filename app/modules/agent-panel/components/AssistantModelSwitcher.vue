@@ -27,7 +27,7 @@
         </button>
 
         <template #content>
-            <div class="assistant-model-switcher-menu">
+            <div class="assistant-model-switcher-menu app-floating-scroll-region app-scrollbar app-scroll-region--balanced">
                 <div
                     class="assistant-model-switcher-tabs"
                     role="tablist"

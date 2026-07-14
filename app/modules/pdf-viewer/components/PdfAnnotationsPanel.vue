@@ -42,7 +42,7 @@
 
             <template #content>
                 <div
-                    class="annotation-style-popover"
+                    class="annotation-style-popover app-floating-scroll-region app-scrollbar app-scroll-region--balanced"
                     role="dialog"
                     :aria-label="stylePopoverLabel"
                 >
@@ -264,7 +264,7 @@ function placeNote() {
     flex-direction: column;
     gap: var(--app-sidebar-row-gap);
     padding: var(--app-sidebar-content-padding);
-    min-height: 100%;
+    min-height: 0;
     height: 100%;
     overflow: visible;
     box-sizing: border-box;

@@ -6,7 +6,6 @@ import {
     type IDocumentSurfaceLease,
     type TDocumentRenderPriority,
 } from '@app/utils/document-viewer/source/documentPageSource';
-import { createDocumentAnnotationSidecar } from '@app/utils/document-viewer/providers/createDocumentAnnotationSidecar';
 
 const POINTS_PER_INCH = 72;
 let nextDjvuPageSourceId = 0;
@@ -181,7 +180,6 @@ export async function createDjvuPageSource(
         kind: 'djvu',
         documentRef,
         pageCount,
-        annotationProvider: createDocumentAnnotationSidecar(documentRef),
         ...(previewSource.getPageText ? {textProvider: {async getPageText(pageNumber, signal) {
             assertDocumentPageNumber(pageNumber, pageCount);
             signal.throwIfAborted();

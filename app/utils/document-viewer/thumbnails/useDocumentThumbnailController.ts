@@ -19,6 +19,11 @@ import {
     type IDocumentThumbnailDemand,
     type TDocumentThumbnailQuality,
 } from '@app/utils/document-viewer/thumbnails/documentThumbnailScheduler';
+import {createDocumentThumbnailResizeAnchorLifecycle} from '@app/utils/document-viewer/thumbnails/createDocumentThumbnailResizeAnchorLifecycle';
+import {
+    resolveDocumentThumbnailPageBounds,
+    resolveDocumentThumbnailRevealScrollTop,
+} from '@app/utils/document-viewer/thumbnails/documentThumbnailViewport';
 
 const MIN_CSS_WIDTH = 96;
 const VIRTUAL_OVERSCAN_PX = 700;
@@ -36,6 +41,7 @@ export interface IDocumentThumbnailVirtualItem {
 
 interface IUseDocumentThumbnailControllerOptions {
     currentPage: Ref<number>;
+    isActive: Ref<boolean>;
     isResizing: Ref<boolean>;
     scrollRoot: Ref<HTMLElement | null>;
     source: Ref<IDocumentPageSource | null>;
@@ -92,12 +98,39 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
     let hasSourceAspectEstimate = false;
     let mounted = false;
 
+    function captureResizeAnchor() {
+        const root = options.scrollRoot.value;
+        return root && root.clientHeight > 0 ? layout.captureAnchor(root.scrollTop) : null;
+    }
+
+    function restoreResizeAnchor(anchor: ReturnType<typeof layout.captureAnchor>) {
+        const root = options.scrollRoot.value;
+        if (!root || !anchor || root.clientHeight <= 0) {
+            return false;
+        }
+        const nextScrollTop = Math.min(
+            Math.max(0, layout.getTotalHeight() - root.clientHeight),
+            layout.resolveAnchorScrollTop(anchor),
+        );
+        if (Math.abs(root.scrollTop - nextScrollTop) >= 1) {
+            root.scrollTop = nextScrollTop;
+        }
+        viewportRevision.value += 1;
+        return true;
+    }
+
+    const resizeAnchorLifecycle = createDocumentThumbnailResizeAnchorLifecycle({
+        capture: captureResizeAnchor,
+        restore: restoreResizeAnchor,
+    });
+
     function applyPageMetrics(pageNumber: number, metrics: IDocumentPageMetrics) {
         if (metrics.widthPoints <= 0 || metrics.heightPoints <= 0) {
             return;
         }
         const root = options.scrollRoot.value;
-        const anchor = root ? layout.captureAnchor(root.scrollTop) : null;
+        const anchor = resizeAnchorLifecycle.read()
+            ?? (root ? layout.captureAnchor(root.scrollTop) : null);
         const aspectRatio = metrics.heightPoints / metrics.widthPoints;
         const estimateChanged = !hasSourceAspectEstimate && layout.setEstimatedAspectRatio(aspectRatio);
         hasSourceAspectEstimate = true;
@@ -107,6 +140,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         }
         layoutRevision.value += 1;
         if (root && anchor) root.scrollTop = layout.resolveAnchorScrollTop(anchor);
+        if (resizeAnchorLifecycle.isActive()) resizeAnchorLifecycle.preserve();
     }
 
     async function getPageMetrics(
@@ -164,7 +198,8 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
             return;
         }
         const root = options.scrollRoot.value;
-        const anchor = root ? layout.captureAnchor(root.scrollTop) : null;
+        const anchor = resizeAnchorLifecycle.read()
+            ?? (root ? layout.captureAnchor(root.scrollTop) : null);
         cssWidth.value = nextWidth;
         layout.reset({
             pageCount: options.source.value?.pageCount ?? 0,
@@ -172,6 +207,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         });
         layoutRevision.value += 1;
         if (root && anchor) root.scrollTop = layout.resolveAnchorScrollTop(anchor);
+        if (resizeAnchorLifecycle.isActive()) resizeAnchorLifecycle.preserve();
     }
 
     function measureViewport() {
@@ -185,6 +221,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
                 settledCssWidth.value = measuredWidth;
             }
         }
+        if (resizeAnchorLifecycle.isActive()) resizeAnchorLifecycle.preserve();
         viewportRevision.value += 1;
     }
 
@@ -276,17 +313,18 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         }, SCROLL_SETTLE_MS);
     }
 
-    function ensureCurrentPageVisible() {
+    function revealCurrentPage() {
         const source = options.source.value;
         const root = options.scrollRoot.value;
-        if (!source || !root || root.clientHeight <= 0) {
+        if (!source || !root || !options.isActive.value || root.clientHeight <= 0) {
             return;
         }
         const page = Math.min(source.pageCount, Math.max(1, options.currentPage.value));
-        const top = layout.getPageTop(page);
-        const bottom = top + layout.getPageHeight(page);
-        if (top < root.scrollTop) root.scrollTop = top;
-        else if (bottom > root.scrollTop + root.clientHeight) root.scrollTop = bottom - root.clientHeight;
+        const nextScrollTop = resolveDocumentThumbnailRevealScrollTop(
+            root,
+            resolveDocumentThumbnailPageBounds(page, layout),
+        );
+        if (nextScrollTop !== null) root.scrollTop = nextScrollTop;
     }
 
     const virtualItems = computed<IDocumentThumbnailVirtualItem[]>(() => {
@@ -331,21 +369,34 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
             layoutRevision.value += 1;
             await nextTick();
             measureViewport();
+            revealCurrentPage();
             scheduleRefresh();
         },
         {immediate: true},
     );
     watch(options.currentPage, async () => {
         await nextTick();
-        ensureCurrentPageVisible();
+        revealCurrentPage();
+        viewportRevision.value += 1;
+        scheduleRefresh();
+    });
+    watch(options.isActive, async active => {
+        if (!active) {
+            return;
+        }
+        await nextTick();
+        measureViewport();
+        revealCurrentPage();
         viewportRevision.value += 1;
         scheduleRefresh();
     });
     watch(options.isResizing, resizing => {
         if (resizing) {
+            resizeAnchorLifecycle.begin();
             if (resizeSettleTimer) clearTimeout(resizeSettleTimer);
             scheduleRefresh();
         } else {
+            void resizeAnchorLifecycle.finish().then(scheduleRefresh);
             scheduleResizeSettle();
         }
     });
@@ -353,13 +404,16 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
     onMounted(() => {
         mounted = true;
         resizeObserver = new ResizeObserver(() => {
+            const wasVisible = isVisible.value;
             measureViewport();
+            if (!wasVisible && isVisible.value && options.isActive.value) revealCurrentPage();
             scheduleRefresh();
             scheduleResizeSettle();
         });
         const root = options.scrollRoot.value;
         if (root) resizeObserver.observe(root);
         measureViewport();
+        revealCurrentPage();
         scheduleRefresh();
     });
     onBeforeUnmount(() => {
@@ -367,6 +421,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         if (scheduledFrame !== null) cancelAnimationFrame(scheduledFrame);
         if (resizeSettleTimer) clearTimeout(resizeSettleTimer);
         if (scrollSettleTimer) clearTimeout(scrollSettleTimer);
+        resizeAnchorLifecycle.cancel();
         resizeObserver?.disconnect();
         scheduler.dispose();
         states.clear();

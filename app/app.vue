@@ -5,7 +5,7 @@
             v-if="fatalRuntimeError"
             class="fixed inset-0 z-50 flex items-center justify-center bg-[color:var(--app-window-bg)]/96 p-6 backdrop-blur-sm"
         >
-            <div class="w-full max-w-xl rounded-2xl border border-default bg-default p-6 shadow-[var(--shadow-popup)]">
+            <div class="app-scrollbar app-scroll-region--balanced max-h-[calc(100dvh-3rem)] w-full max-w-xl overflow-y-auto rounded-2xl border border-default bg-default p-6 shadow-[var(--shadow-popup)]">
                 <UAlert
                     color="error"
                     variant="soft"
@@ -71,7 +71,7 @@
                         </p>
                         <div
                             v-if="showRuntimeErrorDetails"
-                            class="runtime-error-report-details mt-3 space-y-3 overflow-y-auto pr-1"
+                            class="runtime-error-report-details app-scrollbar app-scroll-region--balanced mt-3 space-y-3 overflow-y-auto"
                         >
                             <div
                                 v-for="report in runtimeErrorReports"
@@ -104,7 +104,7 @@
                                 <p class="mt-1 text-xs text-dimmed">
                                     {{ report.source }}
                                 </p>
-                                <pre class="mt-2 max-h-24 overflow-auto whitespace-pre-wrap break-words text-xs text-muted">{{ report.detail }}</pre>
+                                <pre class="app-scrollbar app-scroll-region--balanced mt-2 max-h-24 overflow-auto whitespace-pre-wrap break-words text-xs text-muted">{{ report.detail }}</pre>
                             </div>
                         </div>
                     </div>

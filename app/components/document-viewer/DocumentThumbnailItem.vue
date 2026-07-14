@@ -1,0 +1,136 @@
+<template>
+    <component
+        :is="tag"
+        v-bind="$attrs"
+        class="document-thumbnail-item"
+        data-document-thumbnail-item
+        :class="{
+            'is-current': current,
+            'is-selected': selected,
+        }"
+        :type="tag === 'button' ? 'button' : undefined"
+        :aria-current="current ? 'page' : undefined"
+    >
+        <slot name="overlay" />
+        <span
+            class="document-thumbnail-item__frame"
+            :class="frameClass"
+            data-document-thumbnail-frame
+            :style="frameStyle"
+        >
+            <slot />
+        </span>
+        <span
+            class="document-thumbnail-item__label"
+            :class="labelClass"
+            data-document-thumbnail-label
+        >
+            <slot name="label" />
+        </span>
+    </component>
+</template>
+
+<script setup lang="ts">
+import type {CSSProperties} from 'vue';
+
+defineOptions({inheritAttrs: false});
+
+const {
+    current = false,
+    frameStyle = undefined,
+    frameClass = undefined,
+    labelClass = undefined,
+    selected = false,
+    tag = 'button',
+} = defineProps<{
+    current?: boolean | undefined;
+    frameStyle?: CSSProperties | undefined;
+    frameClass?: string | undefined;
+    labelClass?: string | undefined;
+    selected?: boolean | undefined;
+    tag?: 'button' | 'div' | undefined;
+}>();
+</script>
+
+<style scoped>
+.document-thumbnail-item {
+    position: relative;
+    display: flex;
+    box-sizing: border-box;
+    width: 100%;
+    flex-direction: column;
+    gap: var(--app-thumbnail-row-gap);
+    align-items: center;
+    padding: var(--app-sidebar-row-padding-block);
+    border: 1px solid transparent;
+    border-radius: var(--app-thumbnail-row-radius);
+    cursor: pointer;
+    contain: layout paint;
+    transition:
+        background-color 0.15s,
+        border-color 0.15s;
+}
+
+.document-thumbnail-item:hover { background: var(--app-sidebar-control-hover-bg); }
+
+.document-thumbnail-item.is-selected {
+    background: color-mix(in oklab, var(--ui-bg) 65%, var(--ui-primary) 12%);
+}
+
+.document-thumbnail-item__frame {
+    display: grid;
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 0;
+    flex: 0 0 auto;
+    place-items: center;
+    overflow: hidden;
+    border: 1px solid var(--ui-border);
+    border-radius: var(--app-space-3xs);
+    background: var(--app-document-page-bg);
+    box-shadow: var(--app-document-page-shadow);
+    transition:
+        border-color 0.15s ease,
+        box-shadow 0.15s ease;
+}
+
+.document-thumbnail-item.is-current .document-thumbnail-item__frame {
+    border-color: var(--ui-text);
+    box-shadow:
+        0 0 0 1px var(--ui-text),
+        var(--app-document-page-shadow);
+}
+
+.document-thumbnail-item.is-selected .document-thumbnail-item__frame {
+    border-color: var(--ui-primary);
+    box-shadow:
+        0 0 0 1px var(--ui-primary),
+        var(--app-document-page-shadow);
+}
+
+.document-thumbnail-item__frame :deep(img),
+.document-thumbnail-item__frame :deep(canvas),
+.document-thumbnail-item__frame :deep(.document-thumbnail-list__canvas-host) {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.document-thumbnail-item__label {
+    display: block;
+    min-height: var(--app-thumbnail-min-label-height);
+    flex: 0 0 auto;
+    color: var(--ui-text-muted);
+    font-size: var(--app-sidebar-caption-font-size);
+    line-height: var(--app-thumbnail-min-label-height);
+    font-variant-numeric: tabular-nums;
+}
+
+.document-thumbnail-item.is-current .document-thumbnail-item__label,
+.document-thumbnail-item.is-selected .document-thumbnail-item__label {
+    color: var(--ui-text);
+}
+
+.document-thumbnail-item.is-current .document-thumbnail-item__label { font-weight: 600; }
+</style>

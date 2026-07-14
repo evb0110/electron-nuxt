@@ -30,6 +30,7 @@ import {
     getWorkspaceToolbarSnapshot,
     waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
+import { captureDocumentThumbnailParitySnapshot } from '@tests/e2e/electron/helpers/captureDocumentThumbnailParitySnapshot';
 
 interface IViewerSmokeSnapshot {
     hostHeight: number;
@@ -46,6 +47,15 @@ interface IViewerSmokeSnapshot {
 interface IViewerScrollAttempt {
     maxScrollTop: number;
     scrollTop: number;
+}
+
+interface IBalancedScrollRegionGeometry {
+    clientWidth: number;
+    gutter: string;
+    horizontalOverflow: number;
+    leftBand: number;
+    overflowY: string;
+    rightBand: number;
 }
 
 interface IDjvuWheelMetricSample {
@@ -92,6 +102,44 @@ interface IDjvuVisibleInterval {
 interface IDjvuToolbarPageSnapshot {currentPage?: number | null;}
 
 interface IDjvuWheelMetricWindow {__evbTestApi?: {getActiveToolbarSnapshot?: () => IDjvuToolbarPageSnapshot | null;};}
+
+async function readBalancedScrollRegionGeometry(
+    session: IElectronE2ESession,
+    containerSelector: string,
+    contentSelector: string,
+): Promise<IBalancedScrollRegionGeometry> {
+    return session.page.evaluate((selectors) => {
+        const container = document.querySelector<HTMLElement>(selectors.container);
+        const content = document.querySelector<HTMLElement>(selectors.content);
+        if (!container || !content) {
+            throw new Error(`Balanced scroll geometry was not found: ${selectors.container} -> ${selectors.content}`);
+        }
+        const containerRect = container.getBoundingClientRect();
+        const contentRect = content.getBoundingClientRect();
+        const style = getComputedStyle(container);
+        return {
+            clientWidth: container.clientWidth,
+            gutter: style.scrollbarGutter,
+            horizontalOverflow: Math.max(0, container.scrollWidth - container.clientWidth),
+            leftBand: contentRect.left - containerRect.left,
+            overflowY: style.overflowY,
+            rightBand: containerRect.right - contentRect.right,
+        };
+    }, {
+        container: containerSelector,
+        content: contentSelector,
+    });
+}
+
+function expectBalancedScrollRegion(
+    geometry: IBalancedScrollRegionGeometry,
+    detail: string,
+) {
+    expect(geometry.gutter, detail).toBe('stable both-edges');
+    expect(geometry.clientWidth, detail).toBeGreaterThan(0);
+    expect(geometry.horizontalOverflow, detail).toBeLessThanOrEqual(2);
+    expect(Math.abs(geometry.leftBand - geometry.rightBand), detail).toBeLessThanOrEqual(1.5);
+}
 
 type TSplitResizeDocumentKind = 'pdf' | 'djvu';
 
@@ -1224,6 +1272,20 @@ describe('Electron E2E - Viewer Smoke', () => {
                 && firstCanvas.height > 0,
             );
         }, {timeout: 10_000});
+
+        const pdfPageGeometry = await readBalancedScrollRegionGeometry(
+            session,
+            '.editor-pane.is-active #pdf-viewer',
+            '.editor-pane.is-active #pdf-viewer .page_container[data-page="1"]',
+        );
+        expectBalancedScrollRegion(pdfPageGeometry, JSON.stringify({pdfPageGeometry}));
+        const pdfThumbnailGeometry = await readBalancedScrollRegionGeometry(
+            session,
+            '.editor-pane.is-active .pdf-thumbnails',
+            '.editor-pane.is-active .pdf-thumbnail[data-page="1"] .pdf-thumbnail-canvas',
+        );
+        expectBalancedScrollRegion(pdfThumbnailGeometry, JSON.stringify({pdfThumbnailGeometry}));
+
         await goToPageViaToolbar(session.page, 18);
         await waitForFunctionInPage(session.page, () => Boolean(document.querySelector(
             '.editor-pane.is-active .pdf-thumbnail[data-page="18"]',
@@ -1491,6 +1553,53 @@ describe('Electron E2E - Viewer Smoke', () => {
 
 runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
     const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-djvu-viewer-smoke-${Date.now()}`});
+
+    it('uses one thumbnail rail presentation and late-page activation contract for PDF and DjVu', async () => {
+        let session = sessionFixture.getSession();
+        if (!session || !djvuFixture.path) {
+            return;
+        }
+
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-thumbnail-parity-pdf-${Date.now()}`,
+        });
+        if (!session) {
+            return;
+        }
+        await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
+        const pdfPath = await createMultiPageTextFixturePdf(`thumbnail-parity-${Date.now()}.pdf`, 36);
+        await openPdfInApp(session.page, pdfPath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        const pdf = await captureDocumentThumbnailParitySnapshot(session, 18);
+
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-thumbnail-parity-djvu-${Date.now()}`,
+        });
+        if (!session) {
+            return;
+        }
+        await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
+        await openDjvuInApp(session.page, djvuFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForDjvuLoaded(session.page, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        const djvu = await captureDocumentThumbnailParitySnapshot(session, 18);
+
+        for (const snapshot of [
+            pdf,
+            djvu,
+        ]) {
+            expect(snapshot.activeTab).toBe('Pages');
+            expect(snapshot.currentPage).toBe(18);
+            expect(snapshot.currentVisible).toBe(true);
+            expect(snapshot.observedCurrentPages.length).toBeGreaterThan(0);
+            expect(snapshot.observedCurrentPages.every(page => page === 18)).toBe(true);
+        }
+        expect(djvu.rail).toEqual(pdf.rail);
+        expect(djvu.item).toEqual(pdf.item);
+        expect(djvu.frame).toEqual(pdf.frame);
+        expect(djvu.label).toEqual(pdf.label);
+    }, 150_000);
 
     it('searches deterministic late-page native DjVu text through the common sidebar with visible result geometry', async (context) => {
         let session = sessionFixture.getSession();
@@ -1914,30 +2023,64 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             )).map(tab => tab.textContent?.trim() ?? '')
         ));
         expect(tabNames).toEqual([
-            'Annotations',
             'Pages',
             'Bookmarks',
             'Search',
         ]);
-        const sidebarTabs = await session.page.$$(
-            '.editor-pane.is-active [data-testid="document-sidebar"] [role="tab"]',
-        );
-        const sidebarTabLabels = await Promise.all(sidebarTabs.map(tab => (
-            tab.evaluate(element => element.textContent?.trim() ?? '')
-        )));
-        const pagesTabIndex = sidebarTabLabels.indexOf('Pages');
-        expect(pagesTabIndex).toBeGreaterThanOrEqual(0);
-        await sidebarTabs[pagesTabIndex]!.click();
         await waitForFunctionInPage(session.page, () => {
+            const activeTab = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-testid="document-sidebar"] [role="tab"][aria-selected="true"]',
+            );
             const rail = document.querySelector<HTMLElement>(
                 '.editor-pane.is-active [data-testid="document-thumbnail-list"]',
             );
             return Boolean(
+                activeTab?.textContent?.trim() === 'Pages'
+                &&
                 rail
                 && rail.getBoundingClientRect().height > 100
                 && rail.querySelectorAll('[data-thumbnail-page]').length > 0,
             );
         }, {timeout: 20_000});
+
+        const currentPage = initialToolbar?.currentPage ?? 1;
+        await waitForFunctionInPage(session.page, (pageNumber: number) => Boolean(
+            document.querySelector(
+                `.editor-pane.is-active [data-testid="document-page-source-page"][data-page-number="${String(pageNumber)}"]`,
+            )
+            && document.querySelector(
+                `.editor-pane.is-active [data-testid="document-thumbnail-list"] [data-thumbnail-page="${String(pageNumber)}"] [data-document-thumbnail-frame]`,
+            ),
+        ), {timeout: 20_000}, currentPage);
+        const djvuPageGeometry = await readBalancedScrollRegionGeometry(
+            session,
+            '.editor-pane.is-active [data-document-viewer-chassis-viewport]',
+            `.editor-pane.is-active [data-testid="document-page-source-page"][data-page-number="${String(currentPage)}"]`,
+        );
+        expectBalancedScrollRegion(djvuPageGeometry, JSON.stringify({djvuPageGeometry}));
+        const djvuThumbnailGeometry = await readBalancedScrollRegionGeometry(
+            session,
+            '.editor-pane.is-active [data-testid="document-thumbnail-list"]',
+            `.editor-pane.is-active [data-testid="document-thumbnail-list"] [data-thumbnail-page="${String(currentPage)}"] [data-document-thumbnail-frame]`,
+        );
+        expectBalancedScrollRegion(djvuThumbnailGeometry, JSON.stringify({djvuThumbnailGeometry}));
+        const sourceSidebarOwnership = await session.page.evaluate(() => {
+            const shellContent = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-testid="document-sidebar"] .app-sidebar-shell__content',
+            );
+            if (!shellContent) {
+                throw new Error('Source sidebar shell content was not found');
+            }
+            const style = getComputedStyle(shellContent);
+            return {
+                gutter: style.scrollbarGutter,
+                overflowY: style.overflowY,
+            };
+        });
+        expect(sourceSidebarOwnership).toEqual({
+            gutter: 'auto',
+            overflowY: 'hidden',
+        });
 
         const thumbnailProbe = await session.page.evaluate(async () => {
             interface IAspectRecord {
@@ -1962,7 +2105,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
                 maxDomCount = Math.max(maxDomCount, items.length);
                 for (const item of items) {
                     const pageNumber = Number(item.dataset.thumbnailPage);
-                    const frame = item.querySelector<HTMLElement>('.document-thumbnail-list__frame');
+                    const frame = item.querySelector<HTMLElement>('[data-document-thumbnail-frame]');
                     const frameRect = frame?.getBoundingClientRect();
                     if (!frameRect || frameRect.width <= 0 || frameRect.height <= 0) {
                         continue;

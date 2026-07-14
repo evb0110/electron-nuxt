@@ -102,7 +102,7 @@
 
                         <div
                             v-if="shouldShowRecentTable"
-                            class="recent-table"
+                            class="recent-table app-scrollbar app-scroll-region--balanced"
                             :class="{ 'recent-table--compact': !shouldShowRecentLocationColumn }"
                             role="table"
                             :aria-busy="!recentFilesResolved"

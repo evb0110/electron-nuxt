@@ -193,7 +193,7 @@
                         <li>{{ t('settings.agentMcpSetupCodexVerify') }}</li>
                     </ol>
                     <div class="settings-agent-code-block">
-                        <pre><code>{{ codexCommand }}</code></pre>
+                        <pre class="app-scrollbar"><code>{{ codexCommand }}</code></pre>
                         <UButton
                             :label="copyButtonLabel('codex')"
                             :icon="copyButtonIcon('codex')"
@@ -210,7 +210,7 @@
                     <h3>{{ t('settings.agentMcpSetupClaudeTitle') }}</h3>
                     <p class="settings-field-hint">{{ t('settings.agentMcpSetupClaudeDescription') }}</p>
                     <div class="settings-agent-code-block">
-                        <pre><code>{{ claudeCommand }}</code></pre>
+                        <pre class="app-scrollbar"><code>{{ claudeCommand }}</code></pre>
                         <UButton
                             :label="copyButtonLabel('claude')"
                             :icon="copyButtonIcon('claude')"
@@ -227,7 +227,7 @@
                     <h3>{{ t('settings.agentMcpSetupCursorTitle') }}</h3>
                     <p class="settings-field-hint">{{ t('settings.agentMcpSetupCursorDescription') }}</p>
                     <div class="settings-agent-code-block">
-                        <pre><code>{{ cursorConfig }}</code></pre>
+                        <pre class="app-scrollbar"><code>{{ cursorConfig }}</code></pre>
                         <UButton
                             :label="copyButtonLabel('cursor')"
                             :icon="copyButtonIcon('cursor')"

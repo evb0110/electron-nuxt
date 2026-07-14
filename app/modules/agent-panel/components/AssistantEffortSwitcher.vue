@@ -23,7 +23,7 @@
         </button>
 
         <template #content>
-            <div class="assistant-effort-switcher-menu">
+            <div class="assistant-effort-switcher-menu app-floating-scroll-region app-scrollbar app-scroll-region--balanced">
                 <span class="assistant-effort-switcher-section-label">{{ t('assistant.reasoning') }}</span>
                 <div
                     class="assistant-effort-switcher-list"

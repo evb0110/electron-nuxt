@@ -3,7 +3,7 @@
         :id="chassisAuthority ? undefined : 'pdf-viewer'"
         :ref="setViewerContainerElement"
         class="pdf-viewer-page-track"
-        :class="chassisAuthority ? viewerClass : ['pdfViewer app-scrollbar', viewerClass]"
+        :class="chassisAuthority ? viewerClass : ['pdfViewer app-scrollbar app-scroll-region--balanced', viewerClass]"
         :style="containerStyle"
         data-pdf-page-track
         @scroll.passive="!chassisAuthority && emit('scroll', $event)"
@@ -162,7 +162,7 @@ onMounted(() => {
     setViewerContainer(chassisAuthority.viewportElement.value);
     releaseViewportFeature = chassisAuthority.bindViewportFeature({
         getClass: () => [
-            'document-viewer-viewport pdfViewer app-scrollbar',
+            'document-viewer-viewport pdfViewer app-scrollbar app-scroll-region--balanced',
             viewerClass,
         ],
         // The chassis owns scrolling only. Page spacing and viewer-specific

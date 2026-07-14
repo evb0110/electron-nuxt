@@ -1567,7 +1567,7 @@ describe('document open surface session', () => {
         });
         expect(resolveDocumentOpenSurfaceViewportPolicy(session.snapshot.value)).toEqual({
             overflow: 'hidden',
-            scrollbarGutter: 'stable',
+            scrollbarGutter: 'stable both-edges',
             committedMargin: null,
         });
         session.commitGeometry(generation, {
@@ -1588,7 +1588,7 @@ describe('document open surface session', () => {
 
         expect(resolveDocumentOpenSurfaceViewportPolicy(session.snapshot.value)).toEqual({
             overflow: 'auto',
-            scrollbarGutter: 'stable',
+            scrollbarGutter: 'stable both-edges',
             committedMargin: 20,
         });
     });

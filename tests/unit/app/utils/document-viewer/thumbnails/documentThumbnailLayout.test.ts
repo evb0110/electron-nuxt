@@ -85,4 +85,52 @@ describe('DocumentThumbnailLayout', () => {
         expect(layout.resolvePageAtOffset(restored)).toBe(220);
         expect(restored - layout.getPageTop(220)).toBe(42);
     });
+
+    it('updates one page in a large document without rebuilding unrelated prefix geometry', () => {
+        const layout = new DocumentThumbnailLayout({
+            estimatedAspectRatio: 1,
+            pageCount: 10_000,
+            renderWidth: 100,
+        });
+        const beforePageTwo = layout.getPageTop(2);
+        const beforePageThree = layout.getPageTop(3);
+        const beforePageTwoHeight = layout.getPageHeight(2);
+
+        expect(layout.updatePageAspect(2, 2)).toBe(true);
+        expect(layout.getPageTop(2)).toBe(beforePageTwo);
+        expect(layout.getPageTop(3)).toBe(
+            beforePageThree - beforePageTwoHeight + layout.getPageHeight(2),
+        );
+    });
+
+    it('finds pages at exact offset boundaries and snapshots shared geometry', () => {
+        const layout = new DocumentThumbnailLayout({
+            pageCount: 3,
+            renderWidth: 100,
+        });
+        layout.updatePageAspect(1, 1);
+        layout.updatePageAspect(2, 2);
+        layout.updatePageAspect(3, 1);
+
+        expect(layout.resolvePageAtOffset(0)).toBe(1);
+        expect(layout.resolvePageAtOffset(layout.getPageTop(2))).toBe(2);
+        expect(layout.resolvePageAtOffset(layout.getPageTop(3))).toBe(3);
+        expect(layout.resolvePageAtOffset(Number.MAX_SAFE_INTEGER)).toBe(3);
+        expect(layout.snapshot().totalHeight).toBe(layout.getTotalHeight());
+    });
+
+    it('can adopt the first measured aspect for unknown PDF placeholders and later invalidate it', () => {
+        const layout = new DocumentThumbnailLayout({
+            adoptFirstAspectAsEstimate: true,
+            pageCount: 100,
+            renderWidth: 120,
+        });
+
+        expect(layout.updatePageAspect(2, 1.5)).toBe(true);
+        expect(layout.getPageAspect(1)).toBe(1.5);
+        expect(layout.getPageAspect(100)).toBe(1.5);
+        expect(layout.updatePageAspect(1, 2)).toBe(true);
+        expect(layout.updatePageAspect(1, null)).toBe(true);
+        expect(layout.getPageAspect(1)).toBe(1.5);
+    });
 });

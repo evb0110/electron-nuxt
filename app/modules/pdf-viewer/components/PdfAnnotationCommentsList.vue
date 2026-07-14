@@ -34,7 +34,7 @@
 
         <div
             v-bind="commentsContainerProps"
-            class="notes-list app-scrollbar"
+            class="notes-list app-scrollbar app-scroll-region--balanced"
         >
             <div v-bind="commentsWrapperProps">
                 <button
@@ -519,7 +519,6 @@ function placeNote() {
     flex: 1 1 0;
     min-height: var(--app-annotation-list-min-height);
     overflow: auto;
-    scrollbar-gutter: stable;
     gap: var(--app-sidebar-row-gap);
     padding-right: 0.1rem;
 }

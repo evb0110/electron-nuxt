@@ -29,7 +29,7 @@
                 </button>
 
                 <template #content>
-                    <div class="zoom-dropdown">
+                    <div class="zoom-dropdown app-floating-scroll-region app-scrollbar app-scroll-region--balanced">
                         <div class="zoom-chip-grid">
                             <button
                                 v-for="preset in zoomPresets"

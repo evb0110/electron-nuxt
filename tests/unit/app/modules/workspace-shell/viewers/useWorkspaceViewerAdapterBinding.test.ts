@@ -37,7 +37,6 @@ function createBindingHarness() {
             endOffset: 4,
         }]),
         currentPage: ref(1),
-        documentSourceAnnotationRevision: ref(0),
         djvuSourcePath: ref('/tmp/source.djvu'),
         dragMode: ref(false),
         fitMode: ref('width'),

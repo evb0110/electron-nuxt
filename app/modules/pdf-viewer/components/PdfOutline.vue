@@ -1,7 +1,8 @@
 <template>
     <div class="pdf-bookmarks flex flex-col gap-3">
-        <PdfOutlineToolbar
+        <DocumentBookmarkToolbar
             :display-mode="displayMode"
+            editable
             :is-edit-mode="isEditMode"
             :selected-delete-count="selectedBookmarkDeleteCount"
             @set-display-mode="setDisplayMode"
@@ -38,8 +39,8 @@
         </DocumentPanelEmptyState>
 
         <div
-            v-else
-            class="pdf-bookmarks-tree flex flex-col app-scrollbar"
+            v-else-if="isEditMode"
+            class="pdf-bookmarks-tree flex flex-col app-scrollbar app-scroll-region--balanced"
             @click="closeBookmarkContextMenu"
         >
             <PdfOutlineItem
@@ -66,6 +67,17 @@
                 @drop.prevent="handleTreeEndDrop"
             />
         </div>
+
+        <DocumentBookmarkTree
+            v-else
+            :items="sharedBookmarkItems"
+            :active-id="activeItemId"
+            :display-mode="displayMode"
+            :expanded-ids="expandedBookmarkIds"
+            :active-path-ids="activePathBookmarkIds"
+            @activate="activateSharedBookmark"
+            @toggle-expand="toggleExpanded"
+        />
 
         <PdfOutlineContextMenu
             :visible="bookmarkContextMenu.visible"
@@ -101,6 +113,7 @@ import type {
 } from '@app/types/pdfOutline';
 import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
 import type { IPdfBookmarkChangePayload } from '@app/types/pdfUi';
+import type { IDocumentBookmarkTreeItem } from '@app/utils/document-viewer/bookmarks/documentBookmarks';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import { isPdfDocumentUsable } from '@app/utils/isPdfDocumentUsable';
 import {
@@ -120,7 +133,9 @@ import AppSpinner from '@app/components/AppSpinner.vue';
 import PdfOutlineContextMenu from '@app/modules/pdf-viewer/components/PdfOutlineContextMenu.vue';
 import PdfOutlineItem from '@app/modules/pdf-viewer/components/PdfOutlineItem.vue';
 import DocumentPanelEmptyState from '@app/components/document-viewer/DocumentPanelEmptyState.vue';
-import PdfOutlineToolbar from '@app/modules/pdf-viewer/components/PdfOutlineToolbar.vue';
+import DocumentBookmarkToolbar from '@app/components/document-viewer/DocumentBookmarkToolbar.vue';
+import DocumentBookmarkTree from '@app/components/document-viewer/DocumentBookmarkTree.vue';
+import { navigateToBookmarkDestination } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/navigateToBookmarkDestination';
 
 interface IProps {
     pdfDocument: PDFDocumentProxy | null;
@@ -203,6 +218,21 @@ function createBookmarkId() {
 }
 
 const flatBookmarks = computed(() => flattenBookmarks(bookmarks.value));
+const sharedBookmarkItems = computed<IDocumentBookmarkTreeItem[]>(() => {
+    function mapItems(items: readonly IBookmarkItem[]): IDocumentBookmarkTreeItem[] {
+        return items.map(item => ({
+            id: item.id,
+            title: item.title,
+            pageNumber: item.pageIndex === null ? null : item.pageIndex + 1,
+            children: mapItems(item.items),
+            bold: item.bold,
+            italic: item.italic,
+            color: item.color,
+        }));
+    }
+
+    return mapItems(bookmarks.value);
+});
 
 const bookmarkOrderIndexMap = computed(() => {
     const map = new Map<string, number>();
@@ -672,6 +702,35 @@ function handleActivate(payload: IBookmarkActivatePayload) {
     closeBookmarkContextMenu();
 }
 
+function activateSharedBookmark(id: string) {
+    const item = flatBookmarks.value.find(candidate => candidate.id === id);
+    if (!item) {
+        return;
+    }
+
+    const wasActive = activeItemId.value === item.id;
+    handleActivate({
+        id: item.id,
+        hasChildren: item.items.length > 0,
+        wasActive,
+        multiSelect: false,
+        rangeSelect: false,
+    });
+    if (wasActive && item.items.length > 0) {
+        toggleExpanded(item.id);
+        return;
+    }
+
+    const navigationRequestId = beginBookmarkNavigationRequest();
+    void navigateToBookmarkDestination({
+        item,
+        pdfDocument: props.pdfDocument,
+        navigationRequestId,
+        isBookmarkNavigationRequestCurrent,
+        emitGoToPage: (page, options) => emit('goToPage', page, options),
+    });
+}
+
 function toggleExpanded(id: string) {
     if (displayMode.value !== 'top-level') {
         displayMode.value = 'top-level';
@@ -767,7 +826,6 @@ onBeforeUnmount(() => {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    scrollbar-gutter: stable;
     user-select: none;
 }
 

@@ -13,7 +13,6 @@ import {
     ensurePdfProjection,
 } from '@app/utils/document-viewer/session/documentSession';
 import { createWorkspaceSurfaceBudgetController } from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
-import { createDocumentAnnotationSidecar } from '@app/utils/document-viewer/providers/createDocumentAnnotationSidecar';
 
 describe('document page sources', () => {
     it('exposes one cancellable full-document DjVu search provider with the known page count', async () => {
@@ -70,26 +69,6 @@ describe('document page sources', () => {
         source.dispose();
     });
 
-    it('persists app-owned DjVu annotations independently of the immutable source', () => {
-        window.localStorage.clear();
-        const first = createDocumentAnnotationSidecar('/library/book.djvu');
-        first.upsert({
-            id: 'durable-note',
-            pageNumber: 2,
-            payload: {label: 'Review'},
-        });
-
-        const reopened = createDocumentAnnotationSidecar('/library/book.djvu');
-        expect(reopened.getPageAnnotations(2)).toEqual([{
-            id: 'durable-note',
-            pageNumber: 2,
-            payload: {label: 'Review'},
-        }]);
-        expect(createDocumentAnnotationSidecar('/library/other.djvu').getPageAnnotations(2)).toEqual([]);
-
-        reopened.remove('durable-note');
-        expect(createDocumentAnnotationSidecar('/library/book.djvu').getPageAnnotations(2)).toEqual([]);
-    });
     it('normalizes DjVu pixel geometry to points using each page DPI', async () => {
         const previewSource = {
             getPageSizes: vi.fn().mockResolvedValue([
@@ -212,18 +191,6 @@ describe('document page sources', () => {
             pageNumber: 1,
             children: [],
         }]);
-        source.annotationProvider?.upsert({
-            id: 'note',
-            pageNumber: 1,
-            payload: {text: 'hello'},
-        });
-        expect(source.annotationProvider?.getPageAnnotations(1)).toEqual([{
-            id: 'note',
-            pageNumber: 1,
-            payload: {text: 'hello'},
-        }]);
-        expect(source.annotationProvider?.remove('note')).toBe(true);
-
         const thumbnail = await source.thumbnailProvider!.renderThumbnail({
             pageNumber: 1,
             widthPx: 200,

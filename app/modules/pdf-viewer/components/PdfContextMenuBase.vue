@@ -1,7 +1,7 @@
 <template>
     <div
         v-if="visible"
-        class="pdf-context-menu-base"
+        class="pdf-context-menu-base app-floating-scroll-region app-scrollbar app-scroll-region--balanced"
         :class="`pdf-context-menu-base--${variant}`"
         :style="resolvedStyle"
         @click.stop

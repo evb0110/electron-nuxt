@@ -1,6 +1,7 @@
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
+import type { TDocumentBookmarkDisplayMode } from '@app/utils/document-viewer/bookmarks/documentBookmarks';
 
-export type TBookmarkDisplayMode = 'top-level' | 'all-expanded' | 'current-expanded';
+export type TBookmarkDisplayMode = TDocumentBookmarkDisplayMode;
 export type TBookmarkDropPosition = 'before' | 'after' | 'child';
 
 type TBookmarkContractCore = Pick<

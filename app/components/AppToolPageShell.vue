@@ -26,7 +26,10 @@
             {{ title }}
         </h1>
 
-        <main class="tool-page-body">
+        <main
+            class="tool-page-body"
+            :class="bodyScroll ? 'app-scrollbar app-scroll-region--balanced' : 'tool-page-body--no-scroll'"
+        >
             <slot />
         </main>
     </section>
@@ -41,6 +44,7 @@ const {
     showBack = true,
     showEyebrow = true,
     showHeader = true,
+    bodyScroll = true,
 } = defineProps<{
     title: string;
     eyebrow: string;
@@ -49,6 +53,7 @@ const {
     showBack?: boolean;
     showEyebrow?: boolean;
     showHeader?: boolean;
+    bodyScroll?: boolean;
 }>();
 
 const emit = defineEmits<{ 'close': [] }>();
@@ -123,5 +128,9 @@ function close() {
     overflow: auto;
     padding: var(--app-tool-page-padding);
     container-type: inline-size;
+}
+
+.tool-page-body--no-scroll {
+    overflow: hidden;
 }
 </style>

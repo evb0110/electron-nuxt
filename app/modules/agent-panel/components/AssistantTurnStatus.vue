@@ -5,7 +5,7 @@
     </div>
     <details v-if="reasoning" class="agent-assistant-reasoning" open>
         <summary>Thinking…</summary>
-        <pre>{{ reasoning }}</pre>
+        <pre class="app-scrollbar app-scroll-region--balanced">{{ reasoning }}</pre>
     </details>
     <div
         v-for="tool in tools"

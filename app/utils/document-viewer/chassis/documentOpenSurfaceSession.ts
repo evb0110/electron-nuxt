@@ -135,7 +135,7 @@ export function resolveDocumentOpenSurfaceViewportPolicy(snapshot: IDocumentOpen
         || snapshot.phase === 'viewport-committed';
     return {
         overflow: isTransitioning ? 'hidden' : 'auto',
-        scrollbarGutter: 'stable',
+        scrollbarGutter: 'stable both-edges',
         committedMargin: snapshot.geometry?.margin ?? null,
     } as const;
 }

@@ -414,7 +414,7 @@ export default {
     'djvu': {
         'loadingPages': 'Seiten werden geladen... {current}/{total}',
         'opening': 'DjVu wird geöffnet...',
-        'bannerHint': 'DjVu-Seiten werden bei Bedarf gerendert – in PDF konvertieren, um Bearbeitungsfunktionen zu aktivieren',
+        'bannerHint': 'Diese DjVu-Datei ist schreibgeschützt – zum Bearbeiten in PDF konvertieren',
         'pageAlt': 'DjVu-Seite {page}',
         'convertToPdf': 'In PDF konvertieren...',
         'overlayConverting': 'DjVu wird in PDF konvertiert...',

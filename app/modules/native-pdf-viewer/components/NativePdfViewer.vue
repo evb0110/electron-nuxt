@@ -165,7 +165,7 @@ onMounted(() => {
     viewerContainer.value = chassisAuthority?.viewportElement.value ?? null;
     releaseViewportFeature = chassisAuthority?.bindViewportFeature({
         getClass: () => [
-            'native-pdf-viewer-container h-full w-full overflow-auto app-scrollbar',
+            'native-pdf-viewer-container h-full w-full overflow-auto app-scrollbar app-scroll-region--balanced',
             {
                 'cursor-grab': dragMode.value,
                 'cursor-default': !dragMode.value,

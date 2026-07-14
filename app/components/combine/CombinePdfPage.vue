@@ -6,6 +6,7 @@
         :show-back="showBack"
         :show-eyebrow="showEyebrow"
         :show-header="showHeader"
+        :body-scroll="false"
         @close="closePage"
     >
         <div
@@ -120,7 +121,7 @@
 
                 <ol
                     ref="listRef"
-                    class="combine-file-list"
+                    class="combine-file-list app-scrollbar app-scroll-region--balanced"
                     :class="{ 'is-reordering': isReordering }"
                 >
                     <li

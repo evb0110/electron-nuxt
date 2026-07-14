@@ -42,7 +42,7 @@
 
         <textarea
             ref="noteInputRef"
-            class="note-window__textarea"
+            class="note-window__textarea app-scrollbar app-scroll-region--balanced"
             :value="text"
             rows="8"
             :placeholder="t('noteWindow.writeNote')"

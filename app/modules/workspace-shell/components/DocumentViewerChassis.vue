@@ -586,11 +586,10 @@ defineExpose(createDocumentViewerExposeForwarder(sourceViewerRef, {
     overflow-y: scroll;
     background: var(--app-document-viewer-bg);
 
-    /* Reserve the vertical scrollbar lane before the live page track mounts.
-       Otherwise fit-width opening geometry is computed against a viewport
-       that becomes one scrollbar narrower at commit, producing a visible
-       width/height jump and a transient horizontal scrollbar. */
-    scrollbar-gutter: stable;
+    /* Reserve matching inline gutters before the live page track mounts.
+       Classic scrollbar width then extends the background padding on both
+       sides instead of shifting centered pages toward inline-start. */
+    scrollbar-gutter: stable both-edges;
 
     /* The viewport authority is the only owner of document position. Chromium's
        scroll anchoring must not move the track while an async feature pack

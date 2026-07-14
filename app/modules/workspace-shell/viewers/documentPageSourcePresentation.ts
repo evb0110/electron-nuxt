@@ -1,5 +1,4 @@
 import type {
-    IDocumentAnnotationRecord,
     IDocumentPageMetrics,
     IDocumentSurfaceLease,
     TDocumentRenderPriority,
@@ -102,22 +101,6 @@ export async function prepareDocumentPageSurface(
         }
     }
     signal.throwIfAborted();
-}
-
-function getAnnotationNumber(payload: Readonly<Record<string, unknown>>, key: string, fallback: number) {
-    const value = payload[key];
-    return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
-}
-
-export function getDocumentPageSourceAnnotationStyle(annotation: IDocumentAnnotationRecord) {
-    const {payload} = annotation;
-    return {
-        left: `${getAnnotationNumber(payload, 'x', 0.08) * 100}%`,
-        top: `${getAnnotationNumber(payload, 'y', 0.08) * 100}%`,
-        width: `${getAnnotationNumber(payload, 'width', 0.18) * 100}%`,
-        height: `${getAnnotationNumber(payload, 'height', 0.08) * 100}%`,
-        borderColor: typeof payload.color === 'string' ? payload.color : '#f59e0b',
-    };
 }
 
 export function resolveDocumentPageSourcePageStyle(

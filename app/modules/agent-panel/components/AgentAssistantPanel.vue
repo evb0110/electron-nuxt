@@ -260,7 +260,7 @@
                     <div
                         v-else
                         ref="messagesRef"
-                        class="agent-assistant-messages"
+                        class="agent-assistant-messages app-scrollbar app-scroll-region--balanced"
                     >
                         <article
                             v-for="{ message, blocks } in renderedMessages"
@@ -304,7 +304,7 @@
                                         >
                                             <pre
                                                 v-if="block.kind === 'code'"
-                                                class="agent-assistant-message-code-block"
+                                                class="agent-assistant-message-code-block app-scrollbar"
                                             ><AssistantHighlightedCode :code="block.code" :language="block.language" /></pre>
                                             <table
                                                 v-else-if="block.kind === 'table'"
@@ -473,7 +473,7 @@
                             <textarea
                                 ref="composerInputRef"
                                 v-model="draft"
-                                class="agent-assistant-input"
+                                class="agent-assistant-input app-scrollbar app-scroll-region--balanced"
                                 :placeholder="placeholderText"
                                 rows="3"
                                 :disabled="!hasComposer"
@@ -544,7 +544,7 @@
             >
                 <div class="agent-assistant-composer-field">
                     <textarea
-                        class="agent-assistant-input"
+                        class="agent-assistant-input app-scrollbar app-scroll-region--balanced"
                         :placeholder="placeholderText"
                         rows="3"
                         tabindex="-1"

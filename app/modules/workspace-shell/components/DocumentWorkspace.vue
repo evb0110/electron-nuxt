@@ -168,12 +168,10 @@
                     v-model:active-tab="sidebarTab"
                     :source="documentSourceSidebar.source.value"
                     :current-page="currentPage"
-                    :annotation-revision="documentSourceSidebar.annotationRevision.value"
                     :is-resizing="isResizingSidebar"
                     :search-session="documentSourceSidebar.searchSession"
                     :search-focus-request="searchFocusRequest"
                     @go-to-page="handleGoToPage"
-                    @annotations-changed="documentSourceSidebar.invalidateAnnotations"
                 />
             </template>
 
@@ -959,7 +957,6 @@ const {
     documentSourceCurrentResultIndex: computed(() => isActiveRef.value && showSidebar.value ? documentSourceSidebar.searchSession.currentResultIndex.value : -1),
     documentSourceSearchResults: computed(() => isActiveRef.value && showSidebar.value ? documentSourceSidebar.searchSession.results.value : []),
     currentPage,
-    documentSourceAnnotationRevision: documentSourceSidebar.annotationRevision,
     djvuSourcePath,
     dragMode,
     fitMode,

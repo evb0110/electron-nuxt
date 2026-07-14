@@ -55,9 +55,9 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Static audit Stage 15 - assistant controller domain extraction',
     },
     'app/modules/pdf-viewer/components/PdfThumbnails.vue': {
-        maxLines: 967,
-        reason: 'transitional PDF thumbnail orchestration hotspot after extracting component styles',
-        stage: 'Latest overhaul audit - thumbnail style extraction',
+        maxLines: 936,
+        reason: 'PDF thumbnail augmentation after shared rail, chrome, geometry, and component-contract extraction',
+        stage: 'Document-format parity - shared thumbnail architecture',
     },
     'app/modules/native-pdf-viewer/components/NativePdfViewer.vue': {
         maxLines: 1334,
@@ -80,12 +80,12 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Worker 6 - Diagnostic trace analysis extraction',
     },
     'app/modules/workspace-shell/components/DocumentWorkspace.vue': {
-        maxLines: 1499,
+        maxLines: 1496,
         reason: 'workspace component after deferred-search and component-binding extraction',
         stage: 'Static audit Stage 15 - workspace binding extraction',
     },
     'app/modules/workspace-shell/components/DocumentPageSourceFeaturePack.vue': {
-        maxLines: 1475,
+        maxLines: 1439,
         reason: 'page-source feature pack after shared chassis, retry, and committed-surface lifecycle integration',
         stage: 'Viewer core follow-up - page-source controller extraction',
     },

@@ -1,6 +1,7 @@
 import type { Page } from 'puppeteer-core';
 import { expect } from 'vitest';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import {openDocumentSidebarTab} from '@tests/e2e/electron/helpers/viewerCore';
 
 export type TSplitPaneCloseDocumentKind = 'pdf' | 'djvu';
 
@@ -27,6 +28,14 @@ export interface ISplitPaneCloseContinuityResult {
     sourcePaneId: string;
     sourceTabId: string;
     sourceTabTitle: string;
+    thumbnailBlankFrames: number;
+    thumbnailDisconnectedFrames: number;
+    thumbnailFinalPageNumber: number | null;
+    thumbnailInitialPageNumber: number;
+    thumbnailInitialScrollTop: number;
+    thumbnailPageChangedFrames: number;
+    thumbnailScrollResetFrames: number;
+    thumbnailSurfaceChangedFrames: number;
 }
 
 interface IProbeInstallResult {
@@ -37,6 +46,68 @@ interface IProbeInstallResult {
 
 const CONTINUITY_TIMEOUT_MS = 30_000;
 const ANCHOR_RATIO_TOLERANCE = 0.2;
+
+async function prepareThumbnailRail(
+    page: Page,
+    documentKind: TSplitPaneCloseDocumentKind,
+    targetPageNumber: number,
+) {
+    await openDocumentSidebarTab(page, 'Pages', CONTINUITY_TIMEOUT_MS);
+    const prepared = await page.evaluate((payload: {
+        documentKind: TSplitPaneCloseDocumentKind;
+        targetPageNumber: number;
+    }) => {
+        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const root = payload.documentKind === 'pdf'
+            ? host?.querySelector<HTMLElement>('.pdf-sidebar-pages-thumbnails .pdf-thumbnails') ?? null
+            : host?.querySelector<HTMLElement>('[data-testid="document-thumbnail-list"]') ?? null;
+        const item = payload.documentKind === 'pdf'
+            ? root?.querySelector<HTMLElement>(`.pdf-thumbnail[data-page="${String(payload.targetPageNumber)}"]`) ?? null
+            : root?.querySelector<HTMLElement>(`[data-thumbnail-page="${String(payload.targetPageNumber)}"]`) ?? null;
+        if (!root || !item || root.clientHeight <= 0) {
+            return false;
+        }
+        const rootRect = root.getBoundingClientRect();
+        const itemRect = item.getBoundingClientRect();
+        root.scrollTop += itemRect.top + (itemRect.height / 2) - rootRect.top - (rootRect.height / 2);
+        root.dispatchEvent(new Event('scroll', {bubbles: true}));
+        return true;
+    }, {
+        documentKind,
+        targetPageNumber,
+    });
+    if (!prepared) {
+        throw new Error(`Could not prepare ${documentKind} thumbnail page ${String(targetPageNumber)}`);
+    }
+
+    await page.waitForFunction((payload: {
+        documentKind: TSplitPaneCloseDocumentKind;
+        targetPageNumber: number;
+    }) => {
+        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const root = payload.documentKind === 'pdf'
+            ? host?.querySelector<HTMLElement>('.pdf-sidebar-pages-thumbnails .pdf-thumbnails') ?? null
+            : host?.querySelector<HTMLElement>('[data-testid="document-thumbnail-list"]') ?? null;
+        const item = payload.documentKind === 'pdf'
+            ? root?.querySelector<HTMLElement>(`.pdf-thumbnail[data-page="${String(payload.targetPageNumber)}"]`) ?? null
+            : root?.querySelector<HTMLElement>(`[data-thumbnail-page="${String(payload.targetPageNumber)}"]`) ?? null;
+        const canvas = item?.querySelector<HTMLCanvasElement>('canvas') ?? null;
+        const image = item?.querySelector<HTMLImageElement>('img') ?? null;
+        if (!root || !item || root.clientHeight <= 0) {
+            return false;
+        }
+        const rootRect = root.getBoundingClientRect();
+        const itemRect = item.getBoundingClientRect();
+        const visible = Math.min(rootRect.bottom, itemRect.bottom) - Math.max(rootRect.top, itemRect.top) > 8;
+        return visible && Boolean(
+            (canvas && canvas.width > 0 && canvas.height > 0)
+            || (image?.complete && image.naturalWidth > 0 && image.naturalHeight > 0),
+        );
+    }, {timeout: CONTINUITY_TIMEOUT_MS}, {
+        documentKind,
+        targetPageNumber,
+    });
+}
 
 async function centerTargetPage(
     page: Page,
@@ -123,6 +194,11 @@ async function installContinuityProbe(
             pageRatio: number;
             readyVisiblePageCount: number;
         }
+        interface IThumbnailSnapshot {
+            pageNumber: number | null;
+            readyVisiblePageCount: number;
+            scrollTop: number;
+        }
         interface IContinuityProbe extends ISplitPaneCloseContinuityResult {
             expectedAnchorRatio: number;
             frameId: number;
@@ -131,6 +207,7 @@ async function installContinuityProbe(
             sourceHost: HTMLElement;
             sourcePane: HTMLElement;
             sourceTab: HTMLElement;
+            sourceThumbnailSurface: HTMLElement;
             phase: string;
             timerId: number;
         }
@@ -142,14 +219,17 @@ async function installContinuityProbe(
         const sourceDocumentSurface = payload.documentKind === 'pdf'
             ? sourceHost?.querySelector<HTMLElement>('#pdf-viewer') ?? null
             : sourceHost?.querySelector<HTMLElement>('[data-testid="document-page-source-viewer"]') ?? null;
+        const sourceThumbnailSurface = payload.documentKind === 'pdf'
+            ? sourceHost?.querySelector<HTMLElement>('.pdf-sidebar-pages-thumbnails .pdf-thumbnails') ?? null
+            : sourceHost?.querySelector<HTMLElement>('[data-testid="document-thumbnail-list"]') ?? null;
         const sourcePaneId = sourcePane?.dataset.editorPaneId ?? '';
         const sourceTabId = sourceTab?.dataset.tabId ?? '';
         const sourceTabTitle = sourceTab?.textContent?.trim() ?? '';
 
-        if (!sourcePane || !sourceHost || !sourceTab || !sourceDocumentSurface) {
+        if (!sourcePane || !sourceHost || !sourceTab || !sourceDocumentSurface || !sourceThumbnailSurface) {
             return {
                 installed: false,
-                reason: 'Source pane, tab, host, or document surface was unavailable',
+                reason: 'Source pane, tab, host, document surface, or thumbnail rail was unavailable',
                 sourcePaneId,
             };
         }
@@ -207,14 +287,55 @@ async function installContinuityProbe(
             };
         };
 
+        const readThumbnailAnchor = (): IThumbnailSnapshot => {
+            const itemSelector = payload.documentKind === 'pdf'
+                ? '.pdf-thumbnail[data-page]'
+                : '[data-thumbnail-page]';
+            const viewportRect = sourceThumbnailSurface.getBoundingClientRect();
+            const visibleItems = Array.from(
+                sourceThumbnailSurface.querySelectorAll<HTMLElement>(itemSelector),
+            ).filter((item) => {
+                const rect = item.getBoundingClientRect();
+                return Math.min(rect.bottom, viewportRect.bottom) - Math.max(rect.top, viewportRect.top) > 8;
+            });
+            const centerY = viewportRect.top + (viewportRect.height / 2);
+            const anchorItem = visibleItems.find((item) => {
+                const rect = item.getBoundingClientRect();
+                return rect.top <= centerY && rect.bottom >= centerY;
+            }) ?? visibleItems[0] ?? null;
+            const readyVisiblePageCount = visibleItems.filter((item) => {
+                const canvas = item.querySelector<HTMLCanvasElement>('canvas');
+                const image = item.querySelector<HTMLImageElement>('img');
+                return Boolean(
+                    (canvas && canvas.width > 0 && canvas.height > 0)
+                    || (image?.complete && image.naturalWidth > 0 && image.naturalHeight > 0),
+                );
+            }).length;
+            return {
+                pageNumber: anchorItem
+                    ? Number.parseInt(
+                        payload.documentKind === 'pdf'
+                            ? anchorItem.dataset.page ?? ''
+                            : anchorItem.dataset.thumbnailPage ?? '',
+                        10,
+                    ) || null
+                    : null,
+                readyVisiblePageCount,
+                scrollTop: sourceThumbnailSurface.scrollTop,
+            };
+        };
+
         const initialAnchor = readAnchor();
+        const initialThumbnailAnchor = readThumbnailAnchor();
         if (
             initialAnchor.pageNumber !== payload.expectedPageNumber
             || initialAnchor.readyVisiblePageCount === 0
+            || initialThumbnailAnchor.pageNumber === null
+            || initialThumbnailAnchor.readyVisiblePageCount === 0
         ) {
             return {
                 installed: false,
-                reason: `Initial anchor was page ${String(initialAnchor.pageNumber)} with ${String(initialAnchor.readyVisiblePageCount)} ready pages`,
+                reason: `Initial page anchor was ${String(initialAnchor.pageNumber)} (${String(initialAnchor.readyVisiblePageCount)} ready); thumbnail anchor was ${String(initialThumbnailAnchor.pageNumber)} (${String(initialThumbnailAnchor.readyVisiblePageCount)} ready)`,
                 sourcePaneId,
             };
         }
@@ -250,6 +371,15 @@ async function installContinuityProbe(
             sourceTab,
             sourceTabId,
             sourceTabTitle,
+            sourceThumbnailSurface,
+            thumbnailBlankFrames: 0,
+            thumbnailDisconnectedFrames: 0,
+            thumbnailFinalPageNumber: initialThumbnailAnchor.pageNumber,
+            thumbnailInitialPageNumber: initialThumbnailAnchor.pageNumber,
+            thumbnailInitialScrollTop: initialThumbnailAnchor.scrollTop,
+            thumbnailPageChangedFrames: 0,
+            thumbnailScrollResetFrames: 0,
+            thumbnailSurfaceChangedFrames: 0,
             timerId: 0,
         };
 
@@ -262,7 +392,11 @@ async function installContinuityProbe(
             const currentDocumentSurface = payload.documentKind === 'pdf'
                 ? currentHost?.querySelector<HTMLElement>('#pdf-viewer') ?? null
                 : currentHost?.querySelector<HTMLElement>('[data-testid="document-page-source-viewer"]') ?? null;
+            const currentThumbnailSurface = payload.documentKind === 'pdf'
+                ? currentHost?.querySelector<HTMLElement>('.pdf-sidebar-pages-thumbnails .pdf-thumbnails') ?? null
+                : currentHost?.querySelector<HTMLElement>('[data-testid="document-thumbnail-list"]') ?? null;
             const anchor = readAnchor();
+            const thumbnailAnchor = readThumbnailAnchor();
             const anchorDrift = Math.abs(anchor.pageRatio - probe.expectedAnchorRatio);
             const banner = sourceHost.querySelector<HTMLElement>('.djvu-banner');
             const hasLoadingState = Boolean(
@@ -283,6 +417,16 @@ async function installContinuityProbe(
             probe.disconnectedTabFrames += Number(!sourceTab.isConnected || currentTab !== sourceTab);
             probe.disconnectedDocumentFrames += Number(!sourceDocumentSurface.isConnected);
             probe.documentSurfaceChangedFrames += Number(currentDocumentSurface !== sourceDocumentSurface);
+            probe.thumbnailDisconnectedFrames += Number(!sourceThumbnailSurface.isConnected);
+            probe.thumbnailSurfaceChangedFrames += Number(currentThumbnailSurface !== sourceThumbnailSurface);
+            probe.thumbnailBlankFrames += Number(thumbnailAnchor.readyVisiblePageCount === 0);
+            probe.thumbnailPageChangedFrames += Number(
+                thumbnailAnchor.pageNumber !== probe.thumbnailInitialPageNumber,
+            );
+            probe.thumbnailScrollResetFrames += Number(
+                probe.thumbnailInitialScrollTop >= 1 && thumbnailAnchor.scrollTop < 1,
+            );
+            probe.thumbnailFinalPageNumber = thumbnailAnchor.pageNumber;
             probe.newTabFrames += Number(sourceTab.textContent?.includes('New Tab') ?? false);
             probe.loadingFrames += Number(hasLoadingState);
             probe.blankFrames += Number(anchor.readyVisiblePageCount === 0);
@@ -435,6 +579,7 @@ async function stopContinuityProbe(page: Page): Promise<ISplitPaneCloseContinuit
             sourceHost: HTMLElement;
             sourcePane: HTMLElement;
             sourceTab: HTMLElement;
+            sourceThumbnailSurface: HTMLElement;
             phase: string;
             timerId: number;
         }
@@ -471,6 +616,14 @@ async function stopContinuityProbe(page: Page): Promise<ISplitPaneCloseContinuit
             sourcePaneId: probe.sourcePaneId,
             sourceTabId: probe.sourceTabId,
             sourceTabTitle: probe.sourceTabTitle,
+            thumbnailBlankFrames: probe.thumbnailBlankFrames,
+            thumbnailDisconnectedFrames: probe.thumbnailDisconnectedFrames,
+            thumbnailFinalPageNumber: probe.thumbnailFinalPageNumber,
+            thumbnailInitialPageNumber: probe.thumbnailInitialPageNumber,
+            thumbnailInitialScrollTop: probe.thumbnailInitialScrollTop,
+            thumbnailPageChangedFrames: probe.thumbnailPageChangedFrames,
+            thumbnailScrollResetFrames: probe.thumbnailScrollResetFrames,
+            thumbnailSurfaceChangedFrames: probe.thumbnailSurfaceChangedFrames,
         };
     });
 }
@@ -482,6 +635,7 @@ export async function runSplitPaneCloseContinuity(
         expectedPageNumber: number;
     },
 ) {
+    await prepareThumbnailRail(session.page, options.documentKind, options.expectedPageNumber);
     await centerTargetPage(session.page, options.documentKind, options.expectedPageNumber);
     const installResult = await installContinuityProbe(
         session.page,
@@ -513,6 +667,11 @@ export function expectSplitPaneCloseContinuity(result: ISplitPaneCloseContinuity
     expect(result.disconnectedTabFrames, detail).toBe(0);
     expect(result.disconnectedDocumentFrames, detail).toBe(0);
     expect(result.documentSurfaceChangedFrames, detail).toBe(0);
+    expect(result.thumbnailDisconnectedFrames, detail).toBe(0);
+    expect(result.thumbnailSurfaceChangedFrames, detail).toBe(0);
+    expect(result.thumbnailBlankFrames, detail).toBe(0);
+    expect(result.thumbnailPageChangedFrames, detail).toBe(0);
+    expect(result.thumbnailScrollResetFrames, detail).toBe(0);
     expect(result.newTabFrames, detail).toBe(0);
     expect(result.loadingFrames, detail).toBe(0);
     expect(result.blankFrames, detail).toBe(0);
@@ -521,4 +680,5 @@ export function expectSplitPaneCloseContinuity(result: ISplitPaneCloseContinuity
     expect(result.maxAnchorDrift, detail).toBeLessThanOrEqual(ANCHOR_RATIO_TOLERANCE);
     expect(result.finalPageNumber, detail).toBe(result.expectedPageNumber);
     expect(result.finalReadyVisiblePageCount, detail).toBeGreaterThan(0);
+    expect(result.thumbnailFinalPageNumber, detail).toBe(result.thumbnailInitialPageNumber);
 }

@@ -4,13 +4,13 @@
         class="pdf-sidebar"
         data-testid="document-sidebar"
         :style="sidebarStyle"
-        :model-value="activeTab"
+        :model-value="effectiveTab"
         :tabs="localizedTabs"
-        :outer-scroll="activeTab === 'annotations'"
+        :outer-scroll="false"
         @update:model-value="handleShellTabUpdate"
     >
             <PdfAnnotationsPanel
-                v-show="activeTab === 'annotations'"
+                v-show="effectiveTab === 'annotations'"
                 :tool="annotationTool"
                 :settings="annotationSettings"
                 :comments="annotationComments"
@@ -26,10 +26,12 @@
                 @place-note="placeAnnotationNote"
             />
 
-            <div
-                v-show="activeTab === 'thumbnails'"
+            <DocumentSidebarPagesPanel
+                v-show="effectiveTab === 'thumbnails'"
                 class="pdf-sidebar-pages"
+                rail-class="pdf-sidebar-pages-thumbnails"
             >
+                <template #header>
                 <PdfPageSelectionBar
                     :selected-count="selectedThumbnailPages.length"
                     :is-operation-in-progress="isPageOperationInProgress ?? false"
@@ -41,7 +43,7 @@
                     @delete-pages="deleteSelectedPages"
                     @deselect="clearPageSelection"
                 />
-                <div class="pdf-sidebar-pages-thumbnails">
+                </template>
                     <PdfThumbnails
                         :pdf-document="pdfDocument"
                         :current-page="currentPage"
@@ -52,7 +54,7 @@
                         :hidden-annotation-ids="thumbnailHiddenAnnotationIds"
                         :annotation-comments="annotationComments"
                         :annotation-settings="annotationSettings"
-                        :is-active="isOpen && activeTab === 'thumbnails'"
+                        :is-active="isOpen && effectiveTab === 'thumbnails'"
                         :is-resizing="isResizing"
                         @go-to-page="goToPage"
                         @update:selected-pages="handleSelectedPagesUpdate"
@@ -60,8 +62,7 @@
                         @reorder="reorderPages"
                         @file-drop="dropPageFiles"
                     />
-                </div>
-
+                <template #footer>
                 <PdfSidebarPageNumbering
                     :total-pages="totalPages"
                     :selected-pages="selectedThumbnailPages"
@@ -71,10 +72,11 @@
                     @update:page-label-ranges="updatePageLabelRanges"
                     @clear="clearPageSelection"
                 />
-            </div>
+                </template>
+            </DocumentSidebarPagesPanel>
 
             <PdfOutline
-                v-show="activeTab === 'bookmarks'"
+                v-show="effectiveTab === 'bookmarks'"
                 :pdf-document="pdfDocument"
                 :current-page="currentPage"
                 :is-edit-mode="bookmarkEditMode"
@@ -86,9 +88,9 @@
                 @update:is-edit-mode="updateBookmarkEditMode"
             />
             <DocumentSearchPanel
-                v-show="activeTab === 'search'"
+                v-show="effectiveTab === 'search'"
                 :session="searchSession"
-                :is-active="isOpen && activeTab === 'search'"
+                :is-active="isOpen && effectiveTab === 'search'"
                 :focus-request="searchFocusRequest ?? 0"
                 :page-labels="pageLabels ?? null"
             />
@@ -123,7 +125,8 @@ import DocumentSearchPanel from '@app/components/document-viewer/DocumentSearchP
 import PdfSidebarPageNumbering from '@app/modules/pdf-viewer/components/PdfSidebarPageNumbering.vue';
 import PdfThumbnails from '@app/modules/pdf-viewer/components/PdfThumbnails.vue';
 import AppSidebarShell from '@app/components/sidebar/AppSidebarShell.vue';
-import { resolveDocumentSidebarTabs } from '@app/utils/document-viewer/sidebar/documentSidebarTabs';
+import DocumentSidebarPagesPanel from '@app/components/document-viewer/DocumentSidebarPagesPanel.vue';
+import {useDocumentSidebarCapabilitySession} from '@app/utils/document-viewer/sidebar/useDocumentSidebarCapabilitySession';
 import { createPdfDocumentSearchSession } from '@app/modules/pdf-viewer/search/createPdfDocumentSearchSession';
 
 interface IProps {
@@ -292,6 +295,21 @@ const activeTab = computed<TPdfSidebarTab>({
         activeTabLocal.value = value;
     },
 });
+const sidebarCapabilities = computed(() => ({
+    annotations: !isDjvuMode,
+    bookmarks: true,
+    pages: true,
+    search: true,
+}));
+const {
+    availableTabs,
+    effectiveTab,
+    select: selectTab,
+} = useDocumentSidebarCapabilitySession({
+    capabilities: sidebarCapabilities,
+    capabilitiesReady: computed(() => true),
+    preferredTab: activeTab,
+});
 
 const selectedThumbnailPages = computed(() => selectedThumbnailPagesProp);
 
@@ -392,7 +410,7 @@ function updateBookmarkEditMode(value: boolean) {
 watch(
     () => [
         isOpen,
-        activeTab.value,
+        effectiveTab.value,
     ] as const,
     ([
         _isOpen,
@@ -436,12 +454,7 @@ interface IPdfSidebarTabItem {
 
 
 const localizedTabs = computed<IPdfSidebarTabItem[]>(() => {
-    return resolveDocumentSidebarTabs({
-        annotations: !isDjvuMode,
-        bookmarks: true,
-        pages: true,
-        search: true,
-    }).map((value) => ({
+    return availableTabs.value.map((value) => ({
         value,
         icon: {
             annotations: 'i-ph-chat',
@@ -454,7 +467,7 @@ const localizedTabs = computed<IPdfSidebarTabItem[]>(() => {
     }));
 });
 function handleShellTabUpdate(value: string) {
-    activeTab.value = value as TPdfSidebarTab;
+    selectTab(value as TPdfSidebarTab);
 }
 
 const sidebarStyle = computed(() => {
@@ -467,19 +480,3 @@ const sidebarStyle = computed(() => {
     };
 });
 </script>
-
-<style scoped>
-.pdf-sidebar-pages {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    min-height: 0;
-}
-
-.pdf-sidebar-pages-thumbnails {
-    flex: 1;
-    min-height: var(--app-sidebar-content-min-height);
-    overflow: hidden;
-}
-
-</style>

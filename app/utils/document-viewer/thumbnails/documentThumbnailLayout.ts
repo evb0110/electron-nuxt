@@ -13,7 +13,14 @@ export interface IDocumentThumbnailLayoutAnchor {
     page: number;
 }
 
+export interface IDocumentThumbnailLayoutSnapshot {
+    heights: number[];
+    tops: number[];
+    totalHeight: number;
+}
+
 interface IDocumentThumbnailLayoutOptions {
+    adoptFirstAspectAsEstimate?: boolean;
     estimatedAspectRatio?: number;
     itemChromeHeight?: number;
     itemGap?: number;
@@ -30,6 +37,7 @@ function normalizePositive(value: number, fallback: number) {
  * Aspect ratios are expressed as height / width, matching page metrics and raster leases.
  */
 export class DocumentThumbnailLayout {
+    private adoptFirstAspectAsEstimate: boolean;
     private readonly exactAspectRatios = new Map<number, number>();
     private readonly heights: number[] = [];
     private readonly tree: number[] = [0];
@@ -40,6 +48,7 @@ export class DocumentThumbnailLayout {
     private renderWidth: number;
 
     constructor(options: IDocumentThumbnailLayoutOptions) {
+        this.adoptFirstAspectAsEstimate = options.adoptFirstAspectAsEstimate ?? false;
         this.pageCount = Math.max(0, Math.trunc(options.pageCount));
         this.renderWidth = normalizePositive(options.renderWidth, 1);
         this.estimatedAspectRatio = normalizePositive(
@@ -66,6 +75,9 @@ export class DocumentThumbnailLayout {
         if (options.itemGap !== undefined) {
             this.itemGap = Math.max(0, options.itemGap);
         }
+        if (options.adoptFirstAspectAsEstimate !== undefined) {
+            this.adoptFirstAspectAsEstimate = options.adoptFirstAspectAsEstimate;
+        }
         for (const page of this.exactAspectRatios.keys()) {
             if (page > this.pageCount) this.exactAspectRatios.delete(page);
         }
@@ -91,13 +103,25 @@ export class DocumentThumbnailLayout {
         return true;
     }
 
-    updatePageAspect(page: number, aspectRatio: number) {
+    updatePageAspect(page: number, aspectRatio: number | null) {
         if (page < 1 || page > this.pageCount) {
             return false;
         }
-        const normalized = normalizePositive(aspectRatio, this.estimatedAspectRatio);
         const previousHeight = this.heights[page - 1] ?? 0;
-        this.exactAspectRatios.set(page, normalized);
+        if (aspectRatio === null) {
+            this.exactAspectRatios.delete(page);
+        } else {
+            const normalized = normalizePositive(aspectRatio, this.estimatedAspectRatio);
+            if (
+                this.adoptFirstAspectAsEstimate
+                && this.exactAspectRatios.size === 0
+                && this.estimatedAspectRatio !== normalized
+            ) {
+                this.estimatedAspectRatio = normalized;
+                this.rebuild();
+            }
+            this.exactAspectRatios.set(page, normalized);
+        }
         const nextHeight = this.resolvePageHeight(page);
         if (nextHeight === previousHeight) {
             return false;
@@ -123,6 +147,14 @@ export class DocumentThumbnailLayout {
         return this.prefix(this.pageCount);
     }
 
+    snapshot(): IDocumentThumbnailLayoutSnapshot {
+        return {
+            heights: Array.from({length: this.pageCount}, (_, index) => this.getPageHeight(index + 1)),
+            tops: Array.from({length: this.pageCount}, (_, index) => this.getPageTop(index + 1)),
+            totalHeight: this.getTotalHeight(),
+        };
+    }
+
     resolvePageAtOffset(offset: number) {
         if (this.pageCount === 0) {
             return null;
@@ -140,6 +172,16 @@ export class DocumentThumbnailLayout {
             }
         }
         return Math.min(this.pageCount, index + 1);
+    }
+
+    resolveInsertionIndex(offset: number) {
+        const page = this.resolvePageAtOffset(offset);
+        if (page === null) {
+            return 0;
+        }
+        return offset < this.getPageTop(page) + this.getPageHeight(page) / 2
+            ? page - 1
+            : page;
     }
 
     resolveVirtualRange(scrollTop: number, viewportHeight: number, overscanPx: number): IDocumentThumbnailVirtualRange {

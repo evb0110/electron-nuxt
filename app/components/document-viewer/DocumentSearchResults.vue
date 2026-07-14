@@ -59,7 +59,7 @@
             />
             <div
                 v-bind="containerProps"
-                class="document-search-results-list app-scrollbar"
+                class="document-search-results-list app-scrollbar app-scroll-region--balanced"
             >
                 <div v-bind="wrapperProps">
                     <template
@@ -439,7 +439,6 @@ watch(
     flex: 1;
     min-height: 0;
     overflow: auto;
-    scrollbar-gutter: stable;
 }
 
 

@@ -1047,10 +1047,31 @@
     scrollbar-color: var(--app-scrollbar-thumb) var(--app-scrollbar-track);
 }
 
+/* Keep padded and centered content symmetric when the user agent uses
+   classic vertical scrollbars. Overlay scrollbars create no gutter, so this
+   is a deliberate no-op on platforms where they do not consume layout space.
+   Keep this separate from scrollbar paint: horizontal-only scroll regions do
+   not need an inline-axis mirror gutter. */
+.app-scroll-region--balanced {
+    scrollbar-gutter: stable both-edges;
+}
+
+/* Opt in only surfaces whose content can exceed the available block size.
+   ReKa publishes the collision-aware height for popovers; fixed custom menus
+   fall back to the same viewport gutter used by other floating panels. */
+.app-floating-scroll-region {
+    max-block-size: var(
+        --reka-popover-content-available-height,
+        calc(100dvh - var(--app-overlay-viewport-gutter))
+    );
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
 .app-panel-scroll {
     min-height: 0;
     overflow: auto;
-    scrollbar-gutter: stable;
+    scrollbar-gutter: stable both-edges;
     scrollbar-color: var(--app-scrollbar-thumb) var(--app-scrollbar-track);
 }
 

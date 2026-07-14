@@ -6,7 +6,6 @@ import {
 } from 'vitest';
 import {
     findConnectedDocumentPageImage,
-    getDocumentPageSourceAnnotationStyle,
     hasHigherDocumentRenderPriority,
     isOwnedConnectedDocumentPageImage,
     prepareDocumentPageSurface,
@@ -56,19 +55,7 @@ describe('documentPageSourcePresentation', () => {
         })).toBeNull();
     });
 
-    it('keeps annotation defaults and aborts paint waits synchronously', async () => {
-        expect(getDocumentPageSourceAnnotationStyle({
-            id: 'annotation-1',
-            pageNumber: 1,
-            payload: {},
-        })).toEqual({
-            left: '8%',
-            top: '8%',
-            width: '18%',
-            height: '8%',
-            borderColor: '#f59e0b',
-        });
-
+    it('aborts paint waits synchronously', async () => {
         const controller = new AbortController();
         controller.abort();
         expect(await waitForDocumentPageImagePaint(document.createElement('img'), controller.signal)).toBe(false);

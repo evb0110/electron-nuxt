@@ -44,7 +44,7 @@ interface IAppSidebarShellTab {
 
 const {
     modelValue,
-    outerScroll = true,
+    outerScroll = false,
     tabs,
 } = defineProps<{
     modelValue: string;

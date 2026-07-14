@@ -1,8 +1,8 @@
 <template>
-  <div
-    ref="containerRef"
+  <DocumentThumbnailRail
+    :set-root="setContainerRef"
     tabindex="0"
-    class="pdf-thumbnails app-scrollbar"
+    class="pdf-thumbnails"
     :class="{
       'is-reorder-dragging': isDragging,
       'is-external-drag': isExternalDragOver,
@@ -19,51 +19,55 @@
     @keydown="handleContainerKeyDown"
   >
     <div class="pdf-thumbnails-virtual-wrapper" :style="virtualWrapperStyle">
-      <div
+      <DocumentThumbnailItem
         v-for="page in virtualPages"
         :key="page"
+        tag="div"
         class="pdf-thumbnail pdf-thumbnail--virtual"
+        :current="page === currentPage"
+        label-class="pdf-thumbnail-number"
+        :selected="isSelected(page)"
+        :frame-style="getThumbnailCanvasStyle(page)"
         :class="{
           'is-active': page === currentPage,
-          'is-selected': isSelected(page),
           'is-dragged': isDragging && draggedPages.includes(page),
           'is-drop-before': dropInsertIndex === page - 1,
           'is-drop-after': page === totalPages && dropInsertIndex === totalPages,
         }"
         :data-page="page"
+        data-pane-relocation-scroll-item
         :style="getThumbnailStyle(page)"
         @mousedown="handleDragMouseDown($event, page)"
         @click="handleThumbnailClick($event, page)"
         @contextmenu.prevent="handleThumbnailContextMenu($event, page)"
       >
-        <AppTooltip
-          :text="getThumbnailSelectionLabel(page)"
-          :delay-duration="400"
-        >
-          <button
-            type="button"
-            class="pdf-thumbnail-selection-toggle"
-            :class="{ 'is-selected': isSelected(page) }"
-            :aria-label="getThumbnailSelectionLabel(page)"
-            :aria-pressed="isSelected(page) ? 'true' : 'false'"
-            @mousedown.stop
-            @click.stop="toggleSinglePageSelection(page)"
+        <template #overlay>
+          <AppTooltip
+            :text="getThumbnailSelectionLabel(page)"
+            :delay-duration="400"
           >
-            <UIcon
-              v-if="isSelected(page)"
-              name="i-ph-check"
-              class="pdf-thumbnail-selection-icon"
-            />
-          </button>
-        </AppTooltip>
-        <canvas
-          class="pdf-thumbnail-canvas"
-          :style="getThumbnailCanvasStyle(page)"
-        />
-        <span class="pdf-thumbnail-number">{{ formatPageIndicatorWithOptions(page, pageLabels ?? null) }}</span>
-      </div>
+            <button
+              type="button"
+              class="pdf-thumbnail-selection-toggle"
+              :class="{ 'is-selected': isSelected(page) }"
+              :aria-label="getThumbnailSelectionLabel(page)"
+              :aria-pressed="isSelected(page) ? 'true' : 'false'"
+              @mousedown.stop
+              @click.stop="toggleSinglePageSelection(page)"
+            >
+              <UIcon
+                v-if="isSelected(page)"
+                name="i-ph-check"
+                class="pdf-thumbnail-selection-icon"
+              />
+            </button>
+          </AppTooltip>
+        </template>
+        <canvas class="pdf-thumbnail-canvas" />
+        <template #label>{{ formatPageIndicatorWithOptions(page, pageLabels ?? null) }}</template>
+      </DocumentThumbnailItem>
     </div>
-  </div>
+  </DocumentThumbnailRail>
 </template>
 
 <script setup lang="ts">
@@ -72,12 +76,6 @@ import {
     useResizeObserver,
 } from '@vueuse/core';
 import { clamp } from 'es-toolkit/math';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type {
-    IAnnotationCommentSummary,
-    IAnnotationSettings,
-} from '@app/types/annotations';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { formatPageIndicatorWithOptions } from '@app/utils/pdfPageLabels';
 import { THUMBNAIL_WIDTH } from '@app/constants/pdfLayout';
@@ -93,18 +91,8 @@ import {
     VIRTUAL_OVERSCAN,
     createThumbnailCanvasStyle,
     createThumbnailItemStyle,
-    getMaxThumbnailScrollTop,
-    getThumbnailComfortPaddingPx,
-    isThumbnailPageWithinComfortViewport,
     isValidThumbnailAspectRatio,
-    resolveCurrentPageThumbnailScrollTop,
-    resolvePageAtScrollOffset as resolvePageAtThumbnailScrollOffset,
-    resolveThumbnailInsertionIndex,
-    resolveThumbnailPageBounds,
-    type IThumbnailLayoutAnchor,
-    type IThumbnailLayoutSnapshot,
 } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailLayout';
-import { ThumbnailFenwickLayout } from '@app/modules/pdf-viewer/thumbnails/thumbnailFenwickLayout';
 import { usePdfThumbnailSelection } from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailSelection';
 import {
     resolveThumbnailRasterWidth,
@@ -115,24 +103,28 @@ import {
     usePdfThumbnailRenderRuntime,
 } from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailRenderRuntime';
 import { createThumbnailMeasurementDiagnostics } from '@app/modules/pdf-viewer/thumbnails/createThumbnailMeasurementDiagnostics';
-import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/scrollToPageOptions';
-
-interface IProps {
-    pdfDocument: PDFDocumentProxy | null;
-    currentPage: number;
-    totalPages: number;
-    pageLabels?: string[] | null | undefined;
-    selectedPages?: number[] | undefined;
-    invalidationRequest?: {
-        id: number;
-        pages: number[];
-    } | null | undefined;
-    hiddenAnnotationIds?: string[] | undefined;
-    annotationComments?: IAnnotationCommentSummary[] | undefined;
-    annotationSettings?: IAnnotationSettings | null | undefined;
-    isActive?: boolean | undefined;
-    isResizing?: boolean | undefined;
-}
+import {createDocumentThumbnailResizeAnchorLifecycle} from '@app/utils/document-viewer/thumbnails/createDocumentThumbnailResizeAnchorLifecycle';
+import DocumentThumbnailItem from '@app/components/document-viewer/DocumentThumbnailItem.vue';
+import DocumentThumbnailRail from '@app/components/document-viewer/DocumentThumbnailRail.vue';
+import {
+    DocumentThumbnailLayout,
+    type IDocumentThumbnailLayoutAnchor,
+} from '@app/utils/document-viewer/thumbnails/documentThumbnailLayout';
+import {
+    getDocumentThumbnailComfortPadding,
+    getDocumentThumbnailMaxScrollTop,
+    isDocumentThumbnailWithinComfortViewport,
+    resolveDocumentThumbnailPageBounds,
+    resolveDocumentThumbnailRevealScrollTop,
+} from '@app/utils/document-viewer/thumbnails/documentThumbnailViewport';
+import {
+    describeContainerGeometry,
+    isContainerVisible,
+} from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailContainerGeometry';
+import type {
+    IPdfThumbnailsEmits,
+    IPdfThumbnailsProps,
+} from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailComponentContract';
 
 const THUMBNAIL_WIDTH_CHANGE_THRESHOLD = 1;
 const THUMBNAIL_RASTER_RESIZE_SETTLE_MS = 120;
@@ -152,24 +144,14 @@ const {
     pdfDocument,
     selectedPages = undefined,
     totalPages,
-} = defineProps<IProps>();
+} = defineProps<IPdfThumbnailsProps>();
 
-const emit = defineEmits<{
-    'go-to-page': [page: number, options?: IScrollToPageOptions];
-    'update:selected-pages': [pages: number[]];
-    'page-context-menu': [payload: {
-        clientX: number;
-        clientY: number;
-        pages: number[];
-    }];
-    reorder: [newOrder: number[]];
-    'file-drop': [payload: {
-        afterPage: number;
-        filePaths: TDocumentRef[];
-    }];
-}>();
+const emit = defineEmits<IPdfThumbnailsEmits>();
 
 const containerRef = ref<HTMLElement | null>(null);
+function setContainerRef(element: HTMLElement | null) {
+    containerRef.value = element;
+}
 let containerVisibilityState: 'unknown' | 'visible' | 'hidden' = 'unknown';
 let lastUserInteractionAtMs = 0;
 let lastUserInteractionLogAtMs = 0;
@@ -179,11 +161,6 @@ let currentPageSyncRunId = 0;
 let thumbnailSourceCycleId = 0;
 let manualScrollSourceCycleId = -1;
 let activePaneRefreshRunId = 0;
-let resizeViewportAnchor: {
-    offset: number;
-    page: number;
-} | null = null;
-
 const scrollTop = ref(0);
 const viewportHeight = ref(0);
 const thumbnailLayoutWidth = ref(THUMBNAIL_WIDTH);
@@ -214,20 +191,20 @@ function getThumbnailAspectRatio(page: number) {
     return thumbnailAspectRatios.value[page - 1] ?? null;
 }
 function getThumbnailTop(page: number) {
-    return thumbnailFenwickLayout.value.getPageTop(page);
+    return thumbnailLayout.value.getPageTop(page);
 }
 
 const thumbnailLayoutRevision = ref(0);
-const thumbnailFenwickLayout = shallowRef(new ThumbnailFenwickLayout(
-    totalPages,
-    thumbnailLayoutWidth.value,
-    thumbnailAspectRatios.value,
-));
+const thumbnailLayout = shallowRef(new DocumentThumbnailLayout({
+    adoptFirstAspectAsEstimate: true,
+    pageCount: totalPages,
+    renderWidth: thumbnailLayoutWidth.value,
+}));
 function updateThumbnailAspectRatio(page: number, aspectRatio: number | null) {
     const anchor = captureThumbnailLayoutAnchor();
     thumbnailAspectRatios.value[page - 1] = aspectRatio;
     triggerRef(thumbnailAspectRatios);
-    if (thumbnailFenwickLayout.value.updatePageAspect(page, aspectRatio)) {
+    if (thumbnailLayout.value.updatePageAspect(page, aspectRatio)) {
         thumbnailLayoutRevision.value += 1;
         scheduleThumbnailLayoutReaction(anchor);
     }
@@ -235,7 +212,10 @@ function updateThumbnailAspectRatio(page: number, aspectRatio: number | null) {
 function clearThumbnailAspectRatios() {
     const anchor = captureThumbnailLayoutAnchor();
     thumbnailAspectRatios.value = [];
-    thumbnailFenwickLayout.value.reset(totalPages, thumbnailLayoutWidth.value, [], null);
+    thumbnailLayout.value.resetDocument({
+        pageCount: totalPages,
+        renderWidth: thumbnailLayoutWidth.value,
+    });
     thumbnailLayoutRevision.value += 1;
     scheduleThumbnailLayoutReaction(anchor);
 }
@@ -244,30 +224,25 @@ watch([
     thumbnailLayoutWidth,
 ], () => {
     const anchor = captureThumbnailLayoutAnchor();
-    thumbnailFenwickLayout.value.reset(totalPages, thumbnailLayoutWidth.value, thumbnailAspectRatios.value);
+    thumbnailLayout.value.reset({
+        pageCount: totalPages,
+        renderWidth: thumbnailLayoutWidth.value,
+    });
     thumbnailLayoutRevision.value += 1;
     scheduleThumbnailLayoutReaction(anchor);
 });
 const thumbnailContentHeight = computed(() => {
     void thumbnailLayoutRevision.value;
-    return thumbnailFenwickLayout.value.getTotalHeight();
+    return thumbnailLayout.value.getTotalHeight();
 });
-const thumbnailLayoutSnapshot = computed<IThumbnailLayoutSnapshot>(() => {
+function resolvePageAtScrollOffset(offset: number) {
     void thumbnailLayoutRevision.value;
-    return thumbnailFenwickLayout.value.snapshot();
-});
-
-function resolvePageAtScrollOffset(
-    offset: number,
-    layout = thumbnailLayoutSnapshot.value,
-) {
-    return layout === thumbnailLayoutSnapshot.value
-        ? thumbnailFenwickLayout.value.resolvePageAtOffset(offset)
-        : resolvePageAtThumbnailScrollOffset(offset, totalPages, layout);
+    return thumbnailLayout.value.resolvePageAtOffset(offset);
 }
 
 function resolveInsertionIndex(offset: number) {
-    return resolveThumbnailInsertionIndex(offset, totalPages, thumbnailLayoutSnapshot.value);
+    void thumbnailLayoutRevision.value;
+    return thumbnailLayout.value.resolveInsertionIndex(offset);
 }
 
 const viewportStartIndex = computed(() => {
@@ -414,17 +389,6 @@ function getThumbnailElement(pageNum: number) {
     );
 }
 
-function describeContainerGeometry(container: HTMLElement) {
-    const rect = container.getBoundingClientRect();
-    return {
-        scrollTop: roundMetric(container.scrollTop),
-        clientWidth: roundMetric(container.clientWidth),
-        clientHeight: roundMetric(container.clientHeight),
-        rectWidth: roundMetric(rect.width),
-        rectHeight: roundMetric(rect.height),
-    };
-}
-
 function markUserInteraction(reason: string) {
     const now = Date.now();
     lastUserInteractionAtMs = now;
@@ -484,14 +448,12 @@ function clampPage(page: number) {
     return clamp(page, 1, Math.max(1, totalPages));
 }
 
-function resolveViewportAnchorPage(
-    layout = thumbnailLayoutSnapshot.value,
-) {
+function resolveViewportAnchorPage() {
     if (totalPages <= 0) {
         return null;
     }
 
-    return clampPage(resolvePageAtScrollOffset(scrollTop.value, layout) ?? 1);
+    return clampPage(resolvePageAtScrollOffset(scrollTop.value) ?? 1);
 }
 
 function shouldPreferVisibleAnchorOverCurrentPage() {
@@ -503,7 +465,7 @@ function markManualThumbnailScroll(reason: string) {
     markUserInteraction(reason);
 }
 
-function captureThumbnailLayoutAnchor(): IThumbnailLayoutAnchor | null {
+function captureThumbnailLayoutAnchor(): IDocumentThumbnailLayoutAnchor | null {
     if (!isResizing && manualScrollSourceCycleId !== thumbnailSourceCycleId) {
         return null;
     }
@@ -513,6 +475,7 @@ function captureThumbnailLayoutAnchor(): IThumbnailLayoutAnchor | null {
         return null;
     }
 
+    const resizeViewportAnchor = thumbnailResizeAnchorLifecycle.read();
     const anchorPage = resizeViewportAnchor?.page ?? resolveViewportAnchorPage();
     if (anchorPage === null) {
         return null;
@@ -524,7 +487,7 @@ function captureThumbnailLayoutAnchor(): IThumbnailLayoutAnchor | null {
     };
 }
 
-function preserveVisibleAnchorAfterThumbnailLayoutChange(anchor: IThumbnailLayoutAnchor | null) {
+function preserveVisibleAnchorAfterThumbnailLayoutChange(anchor: IDocumentThumbnailLayoutAnchor | null) {
     if (!anchor) {
         return false;
     }
@@ -535,13 +498,28 @@ function preserveVisibleAnchorAfterThumbnailLayoutChange(anchor: IThumbnailLayou
     const nextScrollTop = getThumbnailTop(anchor.page) + anchor.offset;
     return applyThumbnailScrollTop(
         container,
-        clamp(nextScrollTop, 0, getMaxThumbnailScrollTop(container)),
+        clamp(nextScrollTop, 0, getDocumentThumbnailMaxScrollTop(container)),
     );
 }
 
-let pendingThumbnailLayoutAnchor: IThumbnailLayoutAnchor | null | undefined;
+const thumbnailResizeAnchorLifecycle = createDocumentThumbnailResizeAnchorLifecycle<IDocumentThumbnailLayoutAnchor>({
+    capture: () => {
+        const container = resolveVisibleContainer('thumbnail-resize-anchor-capture');
+        if (!container || totalPages <= 0) {
+            return null;
+        }
+        const page = clampPage(resolvePageAtScrollOffset(container.scrollTop) ?? 1);
+        return {
+            page,
+            offset: container.scrollTop - getThumbnailTop(page),
+        };
+    },
+    restore: preserveVisibleAnchorAfterThumbnailLayoutChange,
+});
+
+let pendingThumbnailLayoutAnchor: IDocumentThumbnailLayoutAnchor | null | undefined;
 function scheduleThumbnailLayoutReaction(
-    capturedAnchor: IThumbnailLayoutAnchor | null = captureThumbnailLayoutAnchor(),
+    capturedAnchor: IDocumentThumbnailLayoutAnchor | null = captureThumbnailLayoutAnchor(),
 ) {
     if (pendingThumbnailLayoutAnchor !== undefined) {
         return;
@@ -572,9 +550,9 @@ function scrollPageIntoKeyboardView(page: number) {
 }
 
 function resolveCurrentPageSyncScrollTop(container: HTMLElement, page: number) {
-    return resolveCurrentPageThumbnailScrollTop(
+    return resolveDocumentThumbnailRevealScrollTop(
         container,
-        resolveThumbnailPageBounds(page, thumbnailLayoutSnapshot.value),
+        resolveDocumentThumbnailPageBounds(page, thumbnailLayout.value),
     );
 }
 
@@ -582,9 +560,9 @@ function resolveRefinedCurrentPageScrollTop(container: HTMLElement, page: number
     const thumbnail = getThumbnailElement(page);
     if (
         !thumbnail
-        || isThumbnailPageWithinComfortViewport(
+        || isDocumentThumbnailWithinComfortViewport(
             container,
-            resolveThumbnailPageBounds(page, thumbnailLayoutSnapshot.value),
+            resolveDocumentThumbnailPageBounds(page, thumbnailLayout.value),
         )
     ) {
         return null;
@@ -594,7 +572,7 @@ function resolveRefinedCurrentPageScrollTop(container: HTMLElement, page: number
     const thumbnailRect = thumbnail.getBoundingClientRect();
     const thumbnailTop = container.scrollTop + thumbnailRect.top - containerRect.top;
     const thumbnailBottom = thumbnailTop + thumbnailRect.height;
-    const comfortPadding = getThumbnailComfortPaddingPx(container);
+    const comfortPadding = getDocumentThumbnailComfortPadding(container);
     const scrollsTowardBottom = thumbnailBottom > (
         container.scrollTop + container.clientHeight - comfortPadding
     );
@@ -602,7 +580,7 @@ function resolveRefinedCurrentPageScrollTop(container: HTMLElement, page: number
         ? thumbnailBottom + comfortPadding - container.clientHeight
         : thumbnailTop - comfortPadding;
 
-    return clamp(nextScrollTop, 0, getMaxThumbnailScrollTop(container));
+    return clamp(nextScrollTop, 0, getDocumentThumbnailMaxScrollTop(container));
 }
 
 function isThumbnailElementFullyVisible(container: HTMLElement, page: number) {
@@ -639,7 +617,7 @@ function resolveCurrentPageSyncRequest(
     if (
         !container ||
         totalPages <= 0 ||
-        isResizing ||
+        (isResizing || thumbnailResizeAnchorLifecycle.isActive()) ||
         isDragging.value ||
         isExternalDragOver.value ||
         (!options.force && isCurrentPageAutoSyncSuppressed())
@@ -670,16 +648,6 @@ function applyRefinedCurrentPageSync(
     if (refinedScrollTop !== null) {
         applyThumbnailScrollTop(container, refinedScrollTop);
     }
-}
-
-function isContainerVisible(container: HTMLElement) {
-    const rect = container.getBoundingClientRect();
-    return (
-        container.clientWidth > 0
-        && container.clientHeight > 0
-        && rect.width > 0
-        && rect.height > 0
-    );
 }
 
 function resolveVisibleContainer(reason: string) {
@@ -924,13 +892,16 @@ watch(
 
 useResizeObserver(containerRef, () => {
     resolveVisibleContainer('resize-observer');
+    if (thumbnailResizeAnchorLifecycle.isActive()) {
+        thumbnailResizeAnchorLifecycle.preserve();
+    }
     updateViewportMetrics();
-    if (!isResizing) {
+    if (!isResizing && !thumbnailResizeAnchorLifecycle.isActive()) {
         void scheduleThumbnailRasterWidthCommit();
         void scheduleVisibleThumbnailRender();
     }
     void measureThumbnailHeight();
-    if (!isResizing) {
+    if (!isResizing && !thumbnailResizeAnchorLifecycle.isActive()) {
         void syncCurrentPageIntoView('resize-observer');
     }
 });
@@ -938,18 +909,13 @@ useResizeObserver(containerRef, () => {
 watch(
     () => isResizing,
     (resizing, wasResizing) => {
-        updateViewportMetrics();
         if (resizing) {
-            const anchorPage = resolveViewportAnchorPage();
-            resizeViewportAnchor = anchorPage === null
-                ? null
-                : {
-                    page: anchorPage,
-                    offset: scrollTop.value - getThumbnailTop(anchorPage),
-                };
+            thumbnailResizeAnchorLifecycle.begin();
+            updateViewportMetrics();
             currentPageSyncRunId += 1;
             return;
         }
+        updateViewportMetrics();
         if (!wasResizing) {
             return;
         }
@@ -957,11 +923,14 @@ watch(
             void nextTick(() => scheduleVisibleThumbnailRender());
         }
         void measureThumbnailHeight();
-        void nextTick(() => {
-            resizeViewportAnchor = null;
+        void thumbnailResizeAnchorLifecycle.finish().then(() => {
+            updateViewportMetrics();
+            void scheduleVisibleThumbnailRender();
         });
     },
 );
+
+onBeforeUnmount(() => thumbnailResizeAnchorLifecycle.cancel());
 </script>
 
 <style scoped src="./PdfThumbnails.css"></style>

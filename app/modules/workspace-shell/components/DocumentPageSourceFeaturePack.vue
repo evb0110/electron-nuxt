@@ -43,16 +43,6 @@
                     >
                         {{ getVisualError(pageNumber) }}
                     </div>
-                    <template v-if="getVisual(pageNumber) === 'fresh'">
-                        <button
-                            v-for="annotation in getAnnotations(pageNumber)"
-                            :key="annotation.id"
-                            type="button"
-                            class="document-source-viewer__annotation"
-                            :style="getAnnotationStyle(annotation)"
-                            :aria-label="String(annotation.payload.label ?? 'Annotation')"
-                        />
-                    </template>
                 </Teleport>
                 <section
                     v-else
@@ -91,16 +81,6 @@
                         @error="handleSurfaceError(pageNumber, getSurface(pageNumber)!)"
                     >
                     <DocumentPageSourceSearchLayer v-if="getVisual(pageNumber) === 'fresh'" :page-number="pageNumber" :results="searchResults" :current-result-index="currentSearchResultIndex" />
-                    <template v-if="getVisual(pageNumber) === 'fresh'">
-                        <button
-                            v-for="annotation in getAnnotations(pageNumber)"
-                            :key="annotation.id"
-                            type="button"
-                            class="document-source-viewer__annotation"
-                            :style="getAnnotationStyle(annotation)"
-                            :aria-label="String(annotation.payload.label ?? 'Annotation')"
-                        />
-                    </template>
                 </section>
             </template>
         </div>
@@ -150,7 +130,6 @@ import { DOCUMENT_PAGE_GUTTER_PX } from '@app/utils/document-viewer/layout/docum
 import { resolveDocumentPageSourceRenderDemand } from '@app/modules/workspace-shell/viewers/resolveDocumentPageSourceRenderDemand';
 import {
     findConnectedDocumentPageImage,
-    getDocumentPageSourceAnnotationStyle,
     hasHigherDocumentRenderPriority,
     isOwnedConnectedDocumentPageImage,
     prepareDocumentPageSurface,
@@ -187,7 +166,6 @@ const {
     isActive = true,
     isResizing = false,
     currentPage = 1,
-    annotationRevision = 0,
     searchResults = [],
     currentSearchResultIndex = -1,
 } = defineProps<{
@@ -202,7 +180,6 @@ const {
     isActive?: boolean;
     isResizing?: boolean;
     currentPage?: number;
-    annotationRevision?: number;
     searchResults?: readonly IDocumentSearchMatch[];
     currentSearchResultIndex?: number;
 }>();
@@ -282,7 +259,7 @@ onMounted(() => {
     viewerContainer.value = chassisAuthority?.viewportElement.value ?? null;
     measureViewport();
     releaseViewportFeature = chassisAuthority?.bindViewportFeature({
-        getClass: () => 'document-viewer-viewport document-source-viewer app-scrollbar',
+        getClass: () => 'document-viewer-viewport document-source-viewer app-scrollbar app-scroll-region--balanced',
         getStyle: () => ({}),
         events: {
             scroll: () => handleScroll(),
@@ -492,12 +469,6 @@ function getSurface(pageNumber: number) {
 function getRenderGeneration(pageNumber: number) {
     return pageStates.get(pageNumber)?.generation ?? '';
 }
-function getAnnotations(pageNumber: number) {
-    void annotationRevision;
-    return source.value?.annotationProvider?.getPageAnnotations(pageNumber) ?? [];
-}
-const getAnnotationStyle =
-    getDocumentPageSourceAnnotationStyle;
 function setPageElement(pageNumber: number, element: Element | ComponentPublicInstance | null) {
     if (element instanceof HTMLElement) {
         pageSlots?.markMounted(pageNumber);
@@ -1220,7 +1191,7 @@ watch(() => src, (documentRef, previousDocumentRef) => {
             emit('update:pageSource', nextSource);
             chassisAuthority?.bindSource(nextSource);
             emit('update:sourceCapabilities', {
-                annotations: Boolean(nextSource.annotationProvider),
+                annotations: false,
                 directImageExport: Boolean(nextSource.rasterProvider),
                 outline: Boolean(nextSource.outlineProvider),
                 pageEdits: false,
@@ -1465,11 +1436,4 @@ defineExpose<IDocumentViewerExpose & {
     border-radius: inherit;
 }
 
-.document-source-viewer__annotation {
-    position: absolute;
-    z-index: var(--app-z-local-overlay);
-    background: color-mix(in srgb, currentcolor 18%, transparent);
-    border: 2px solid;
-    border-radius: var(--app-document-source-badge-radius);
-}
 </style>
