@@ -4,17 +4,18 @@
 
 .pdf-thumbnail-selection-toggle {
   position: absolute;
-  z-index: var(--app-z-local-raised);
-  top: 0.5rem;
-  left: 0.5rem;
+  z-index: var(--app-z-local-overlay);
+  top: var(--app-thumbnail-selection-offset);
+  left: var(--app-thumbnail-selection-offset);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: var(--app-sidebar-action-size);
   height: var(--app-sidebar-action-size);
   border: 1px solid var(--ui-border);
-  border-radius: 0.25rem;
+  border-radius: var(--app-radius-xs);
   background: var(--ui-bg);
+  box-shadow: var(--app-document-page-shadow);
   color: var(--ui-primary);
   opacity: 0;
   cursor: pointer;

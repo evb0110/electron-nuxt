@@ -85,6 +85,7 @@ const {
     flex: 0 0 auto;
     place-items: center;
     overflow: hidden;
+    padding: var(--app-thumbnail-frame-inset);
     border: 1px solid var(--ui-border);
     border-radius: var(--app-space-3xs);
     background: var(--app-document-page-bg);
