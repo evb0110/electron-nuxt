@@ -22,8 +22,6 @@ import { createThumbnailRenderState } from '@app/modules/pdf-viewer/thumbnails/c
 import { isThumbnailRenderGenerationCurrent as isThumbnailRenderGenerationSnapshotCurrent } from '@app/modules/pdf-viewer/thumbnails/isThumbnailRenderGenerationCurrent';
 import {
     buildThumbnailRenderTransform,
-    isThumbnailRasterWidthReady,
-    resolveThumbnailRasterWidth,
     resolveThumbnailRenderWidthFromStyles,
     roundMetric,
 } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailRenderMetrics';
@@ -42,6 +40,7 @@ import {
 } from '@app/utils/document-viewer/workspaceSurfaceBudget';
 import { createThumbnailRenderFrameScheduler } from '@app/modules/pdf-viewer/thumbnails/createThumbnailRenderFrameScheduler';
 import { shouldPreserveThumbnailBitmap } from '@app/modules/pdf-viewer/thumbnails/shouldPreserveThumbnailBitmap';
+import { usePdfThumbnailRasterReadiness } from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailRasterReadiness';
 
 export const PDF_THUMBNAIL_LOG_SECTION = 'pdf-thumbnails';
 const THUMBNAIL_RENDER_CONCURRENCY = getPerformanceProfile().thumbnailBaseConcurrency;
@@ -201,57 +200,6 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
         resetThumbnailCanvasBitmap(canvas, renderKey);
     }
 
-    function clearVisibleThumbnailCanvases(pages: number[] | null = null) {
-        const container = dom.resolveVisibleContainer('clear-visible-thumbnails');
-        if (!container) {
-            return;
-        }
-
-        const pageFilter = pages ? new Set(pages) : null;
-        const thumbnails = container.querySelectorAll<HTMLElement>('.pdf-thumbnail');
-        for (const thumbnail of thumbnails) {
-            const page = Number(thumbnail.dataset.page);
-            if (pageFilter && !pageFilter.has(page)) {
-                continue;
-            }
-            const canvas = thumbnail.querySelector<HTMLCanvasElement>('canvas');
-            if (canvas) {
-                clearThumbnailCanvas(page, canvas, null);
-            }
-        }
-    }
-
-    function clearUnderResolutionVisibleThumbnailCanvases() {
-        const container = dom.resolveVisibleContainer('clear-under-resolution-thumbnails');
-        if (!container) {
-            return;
-        }
-
-        const minimumPixelWidth = Math.ceil(
-            resolveThumbnailRasterWidth(layout.thumbnailLayoutWidth.value)
-            * resolveThumbnailOutputScale(),
-        );
-        const thumbnails = container.querySelectorAll<HTMLElement>('.pdf-thumbnail');
-        for (const thumbnail of thumbnails) {
-            const page = Number(thumbnail.dataset.page);
-            const canvas = thumbnail.querySelector<HTMLCanvasElement>('canvas');
-            if (
-                canvas
-                && (isCanvasRendered(canvas) || canvas.dataset.thumbnailPreservedBitmap === 'true')
-                && canvas.width < minimumPixelWidth
-            ) {
-                clearThumbnailCanvas(page, canvas, null);
-            }
-        }
-    }
-
-    function isThumbnailRasterReady() {
-        return isThumbnailRasterWidthReady(
-            layout.thumbnailLayoutWidth.value,
-            layout.thumbnailRenderWidth.value,
-        );
-    }
-
     function updateThumbnailAspectRatioForPage(
         page: number,
         viewportWidth: number,
@@ -358,9 +306,7 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
             cancelRenderForPage(pageNum);
         }
 
-        const minimumPixelWidth = Math.ceil(
-            layout.thumbnailRenderWidth.value * resolveThumbnailOutputScale(),
-        );
+        const minimumPixelWidth = thumbnailRasterReadiness.resolveMinimumRenderPixelWidth();
         if (shouldPreserveThumbnailBitmap(canvas, minimumPixelWidth)) {
             canvas.dataset.thumbnailRenderKey = renderKey;
             canvas.dataset.thumbnailPreservedBitmap = 'true';
@@ -943,8 +889,8 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
         if (!dom.resolveVisibleContainer('schedule-visible-render')) {
             return;
         }
-        if (!isThumbnailRasterReady()) {
-            clearUnderResolutionVisibleThumbnailCanvases();
+        if (!thumbnailRasterReadiness.isReady()) {
+            thumbnailRasterReadiness.clearUnderResolutionCanvases();
             return;
         }
         const runId = renderRunId;
@@ -970,27 +916,17 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
     const visibleThumbnailRenderScheduler = createThumbnailRenderFrameScheduler(runVisibleThumbnailRender);
     const scheduleVisibleThumbnailRender = visibleThumbnailRenderScheduler.schedule;
 
-    watch(
-        () => [
-            layout.thumbnailLayoutWidth.value,
-            layout.thumbnailRenderWidth.value,
-        ] as const,
-        () => {
-            if (isThumbnailRasterReady()) {
-                void scheduleVisibleThumbnailRender();
-                return;
-            }
-
-            visibleThumbnailRenderScheduler.cancel();
-            cancelAllRenders();
-            incrementRenderGeneration();
-            clearUnderResolutionVisibleThumbnailCanvases();
-        },
-        {
-            flush: 'sync',
-            immediate: true,
-        },
-    );
+    const thumbnailRasterReadiness = usePdfThumbnailRasterReadiness({
+        cancelActiveRenders: cancelAllRenders,
+        cancelPendingRender: visibleThumbnailRenderScheduler.cancel,
+        clearThumbnailCanvas,
+        incrementRenderGeneration,
+        layoutWidth: layout.thumbnailLayoutWidth,
+        renderWidth: layout.thumbnailRenderWidth,
+        resolveOutputScale: resolveThumbnailOutputScale,
+        resolveVisibleContainer: dom.resolveVisibleContainer,
+        scheduleRender: scheduleVisibleThumbnailRender,
+    });
 
     async function preloadThumbnailAspectRatio(pdfDocument: PDFDocumentProxy, runId: number) {
         const pageNum = clamp(source.currentPage.value || 1, 1, Math.max(1, source.totalPages.value));
@@ -1033,7 +969,7 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
         surfaceResidency.releaseAll();
         demandRetryAttempts.clear();
         thumbnailRenderState.clearAllState();
-        clearVisibleThumbnailCanvases();
+        thumbnailRasterReadiness.clearVisibleCanvases();
         if (!options.preserveRenderWidth) {
             layout.thumbnailRenderWidth.value = THUMBNAIL_WIDTH;
         }
@@ -1103,7 +1039,7 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
             documentRenderEpoch.value += 1;
             thumbnailKeySignal.value += 1;
             thumbnailRenderState.clearPageRenderEpochs();
-            clearVisibleThumbnailCanvases();
+            thumbnailRasterReadiness.clearVisibleCanvases();
             BrowserLogger.diagnostic(PDF_THUMBNAIL_LOG_SECTION, 'Thumbnail source/watch cycle started', {
                 hasDocument: Boolean(doc),
                 hadDocument: Boolean(oldDoc),

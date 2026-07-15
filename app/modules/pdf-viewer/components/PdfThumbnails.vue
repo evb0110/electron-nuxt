@@ -132,7 +132,6 @@ const THUMBNAIL_RASTER_RESIZE_SETTLE_MS = 120;
 const AUTO_SYNC_INTERACTION_COOLDOWN_MS = 700;
 const AUTO_SYNC_PROGRAMMATIC_SCROLL_GUARD_MS = 160;
 const AUTO_SYNC_LAYOUT_RETRY_COUNT = 4;
-
 const {
     annotationComments = undefined,
     annotationSettings = undefined,
