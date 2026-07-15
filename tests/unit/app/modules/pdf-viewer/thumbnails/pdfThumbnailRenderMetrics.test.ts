@@ -5,6 +5,7 @@ import {
 } from 'vitest';
 import {
     buildThumbnailRenderTransform,
+    isThumbnailRasterWidthReady,
     parseCssPixelValue,
     resolveHorizontalInset,
     resolveSeededThumbnailMetrics,
@@ -78,6 +79,12 @@ describe('pdfThumbnailRenderMetrics', () => {
         expect(resolveThumbnailRasterWidth(225)).toBe(256);
         expect(resolveThumbnailRasterWidth(0)).toBe(32);
         expect(resolveThumbnailRasterWidth(218, 16)).toBe(224);
+    });
+
+    it('requires the raster bucket to cover the measured thumbnail width', () => {
+        expect(isThumbnailRasterWidthReady(218, 224)).toBe(true);
+        expect(isThumbnailRasterWidthReady(225, 224)).toBe(false);
+        expect(isThumbnailRasterWidthReady(150, 150)).toBe(false);
     });
 
     it('resolves seeded preview metrics from source dimensions and output scale', () => {

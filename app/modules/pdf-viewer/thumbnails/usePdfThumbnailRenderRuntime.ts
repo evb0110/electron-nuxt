@@ -22,6 +22,8 @@ import { createThumbnailRenderState } from '@app/modules/pdf-viewer/thumbnails/c
 import { isThumbnailRenderGenerationCurrent as isThumbnailRenderGenerationSnapshotCurrent } from '@app/modules/pdf-viewer/thumbnails/isThumbnailRenderGenerationCurrent';
 import {
     buildThumbnailRenderTransform,
+    isThumbnailRasterWidthReady,
+    resolveThumbnailRasterWidth,
     resolveThumbnailRenderWidthFromStyles,
     roundMetric,
 } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailRenderMetrics';
@@ -219,6 +221,37 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
         }
     }
 
+    function clearUnderResolutionVisibleThumbnailCanvases() {
+        const container = dom.resolveVisibleContainer('clear-under-resolution-thumbnails');
+        if (!container) {
+            return;
+        }
+
+        const minimumPixelWidth = Math.ceil(
+            resolveThumbnailRasterWidth(layout.thumbnailLayoutWidth.value)
+            * resolveThumbnailOutputScale(),
+        );
+        const thumbnails = container.querySelectorAll<HTMLElement>('.pdf-thumbnail');
+        for (const thumbnail of thumbnails) {
+            const page = Number(thumbnail.dataset.page);
+            const canvas = thumbnail.querySelector<HTMLCanvasElement>('canvas');
+            if (
+                canvas
+                && (isCanvasRendered(canvas) || canvas.dataset.thumbnailPreservedBitmap === 'true')
+                && canvas.width < minimumPixelWidth
+            ) {
+                clearThumbnailCanvas(page, canvas, null);
+            }
+        }
+    }
+
+    function isThumbnailRasterReady() {
+        return isThumbnailRasterWidthReady(
+            layout.thumbnailLayoutWidth.value,
+            layout.thumbnailRenderWidth.value,
+        );
+    }
+
     function updateThumbnailAspectRatioForPage(
         page: number,
         viewportWidth: number,
@@ -325,7 +358,10 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
             cancelRenderForPage(pageNum);
         }
 
-        if (shouldPreserveThumbnailBitmap(canvas)) {
+        const minimumPixelWidth = Math.ceil(
+            layout.thumbnailRenderWidth.value * resolveThumbnailOutputScale(),
+        );
+        if (shouldPreserveThumbnailBitmap(canvas, minimumPixelWidth)) {
             canvas.dataset.thumbnailRenderKey = renderKey;
             canvas.dataset.thumbnailPreservedBitmap = 'true';
             delete canvas.dataset.thumbnailRendered;
@@ -907,6 +943,10 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
         if (!dom.resolveVisibleContainer('schedule-visible-render')) {
             return;
         }
+        if (!isThumbnailRasterReady()) {
+            clearUnderResolutionVisibleThumbnailCanvases();
+            return;
+        }
         const runId = renderRunId;
         const queueRunId = ++renderQueueRunId;
         const pages = buildRenderQueue(source.totalPages.value);
@@ -929,6 +969,28 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
 
     const visibleThumbnailRenderScheduler = createThumbnailRenderFrameScheduler(runVisibleThumbnailRender);
     const scheduleVisibleThumbnailRender = visibleThumbnailRenderScheduler.schedule;
+
+    watch(
+        () => [
+            layout.thumbnailLayoutWidth.value,
+            layout.thumbnailRenderWidth.value,
+        ] as const,
+        () => {
+            if (isThumbnailRasterReady()) {
+                void scheduleVisibleThumbnailRender();
+                return;
+            }
+
+            visibleThumbnailRenderScheduler.cancel();
+            cancelAllRenders();
+            incrementRenderGeneration();
+            clearUnderResolutionVisibleThumbnailCanvases();
+        },
+        {
+            flush: 'sync',
+            immediate: true,
+        },
+    );
 
     async function preloadThumbnailAspectRatio(pdfDocument: PDFDocumentProxy, runId: number) {
         const pageNum = clamp(source.currentPage.value || 1, 1, Math.max(1, source.totalPages.value));

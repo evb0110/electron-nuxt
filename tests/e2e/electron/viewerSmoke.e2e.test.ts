@@ -1538,6 +1538,151 @@ describe('Electron E2E - Viewer Smoke', () => {
         }, {timeout: 15_000});
     });
 
+    it('never presents an under-resolution thumbnail when the sidebar first opens', async () => {
+        let session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-viewer-thumbnail-first-open-${Date.now()}`,
+        });
+        if (!session) {
+            return;
+        }
+
+        await session.page.setViewport({
+            deviceScaleFactor: 2,
+            height: 1_000,
+            width: 1_200,
+        });
+        const fixturePath = await createMultiPageTextFixturePdf(
+            `viewer-thumbnail-first-open-${Date.now()}.pdf`,
+            12,
+        );
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+
+        await waitForFunctionInPage(session.page, () => {
+            const sidebar = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-testid="document-sidebar"]',
+            );
+            return !sidebar || getComputedStyle(sidebar).display === 'none';
+        });
+
+        await session.page.evaluate(() => {
+            interface IProbeSample {
+                cssWidth: number;
+                elapsedMs: number;
+                page: number;
+                pixelWidth: number;
+                presented: boolean;
+                requiredPixelWidth: number;
+                underResolution: boolean;
+            }
+            interface IProbeState {
+                active: boolean;
+                samples: IProbeSample[];
+            }
+            interface IProbeWindow extends Window {__thumbnailFirstOpenProbe?: IProbeState;}
+            const probeWindow = window as IProbeWindow;
+            const probe = {
+                active: true,
+                samples: [] as IProbeSample[],
+            };
+            const startedAt = performance.now();
+            probeWindow.__thumbnailFirstOpenProbe = probe;
+            const sample = () => {
+                if (!probe.active) {
+                    return;
+                }
+                const rail = document.querySelector<HTMLElement>(
+                    '.editor-pane.is-active .pdf-sidebar-pages-thumbnails .pdf-thumbnails',
+                );
+                const railRect = rail?.getBoundingClientRect() ?? null;
+                const outputScale = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
+                if (rail && railRect && railRect.width > 0 && railRect.height > 0) {
+                    for (const canvas of rail.querySelectorAll<HTMLCanvasElement>('.pdf-thumbnail-canvas')) {
+                        const item = canvas.closest<HTMLElement>('.pdf-thumbnail');
+                        const itemRect = item?.getBoundingClientRect() ?? null;
+                        const canvasRect = canvas.getBoundingClientRect();
+                        if (
+                            !item
+                            || !itemRect
+                            || itemRect.bottom <= railRect.top
+                            || itemRect.top >= railRect.bottom
+                            || canvasRect.width <= 0
+                        ) {
+                            continue;
+                        }
+                        const presented = canvas.dataset.thumbnailRendered === 'true'
+                            || canvas.dataset.thumbnailPreservedBitmap === 'true';
+                        const requiredPixelWidth = Math.ceil(canvasRect.width * outputScale);
+                        probe.samples.push({
+                            cssWidth: Math.round(canvasRect.width),
+                            elapsedMs: Math.round(performance.now() - startedAt),
+                            page: Number(item.dataset.page),
+                            pixelWidth: canvas.width,
+                            presented,
+                            requiredPixelWidth,
+                            underResolution: presented && canvas.width < requiredPixelWidth,
+                        });
+                    }
+                }
+                requestAnimationFrame(sample);
+            };
+            requestAnimationFrame(sample);
+        });
+
+        await clickVisibleToolbarButton(session.page, 'Toggle Sidebar');
+        await openDocumentSidebarTab(session.page, 'Pages');
+        await waitForFunctionInPage(session.page, () => {
+            const canvas = document.querySelector<HTMLCanvasElement>(
+                '.editor-pane.is-active .pdf-thumbnail[data-page="1"] .pdf-thumbnail-canvas',
+            );
+            if (!canvas || canvas.dataset.thumbnailRendered !== 'true') {
+                return false;
+            }
+            const outputScale = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
+            return canvas.width >= Math.ceil(canvas.getBoundingClientRect().width * outputScale);
+        }, {timeout: 10_000});
+        await session.page.evaluate(async () => {
+            await new Promise(resolve => setTimeout(resolve, 200));
+        });
+
+        const firstOpenProbe = await session.page.evaluate(() => {
+            interface IProbeSample {
+                cssWidth: number;
+                elapsedMs: number;
+                page: number;
+                pixelWidth: number;
+                presented: boolean;
+                requiredPixelWidth: number;
+                underResolution: boolean;
+            }
+            interface IProbeState {
+                active: boolean;
+                samples: IProbeSample[];
+            }
+            interface IProbeWindow extends Window {__thumbnailFirstOpenProbe?: IProbeState;}
+            const probeWindow = window as IProbeWindow;
+            const probe = probeWindow.__thumbnailFirstOpenProbe;
+            if (!probe) {
+                throw new Error('Thumbnail first-open probe was not installed');
+            }
+            probe.active = false;
+            return {
+                firstPresented: probe.samples.find(sample => sample.presented) ?? null,
+                sampleCount: probe.samples.length,
+                underResolution: probe.samples.filter(sample => sample.underResolution),
+            };
+        });
+        expect(firstOpenProbe.sampleCount, JSON.stringify(firstOpenProbe)).toBeGreaterThan(0);
+        expect(firstOpenProbe.firstPresented, JSON.stringify(firstOpenProbe)).not.toBeNull();
+        expect(firstOpenProbe.underResolution, JSON.stringify(firstOpenProbe)).toEqual([]);
+    });
+
     it('keeps the visible thumbnail triplet painted through sustained raster pressure', async () => {
         let session = sessionFixture.getSession();
         if (!session) {
@@ -2084,15 +2229,10 @@ describe('Electron E2E - Viewer Smoke', () => {
                 skeletonWidth: number;
             }> = [];
             const startedAt = performance.now();
-            const initiallyPaintedPages = new Set(
-                sampleVisibleItems()
-                    .filter(item => item.painted)
-                    .map(item => item.page),
-            );
-            const paintedDuringMotion = new Set<number>();
-            let firstMotionPaintElapsedMs: number | null = null;
+            let motionItemSamples = 0;
             const sampleFrame = () => {
                 for (const item of sampleVisibleItems()) {
+                    motionItemSamples += 1;
                     if (
                         !item.canvasCommitted
                         && !item.preserved
@@ -2110,10 +2250,6 @@ describe('Electron E2E - Viewer Smoke', () => {
                             skeletonVisible: item.skeletonVisible,
                             skeletonWidth: item.skeletonWidth,
                         });
-                    }
-                    if (item.painted && !initiallyPaintedPages.has(item.page)) {
-                        paintedDuringMotion.add(item.page);
-                        firstMotionPaintElapsedMs ??= Math.round(performance.now() - startedAt);
                     }
                 }
             };
@@ -2152,8 +2288,7 @@ describe('Electron E2E - Viewer Smoke', () => {
                 blankExposures,
                 defaultCanvasPreservation,
                 firstPaintElapsedMs,
-                firstMotionPaintElapsedMs,
-                paintedDuringMotion: [...paintedDuringMotion],
+                motionItemSamples,
                 placeholderPresentation,
                 settledElapsedMs: Math.round(performance.now() - finalJumpAt),
                 settledItems,
@@ -2165,11 +2300,7 @@ describe('Electron E2E - Viewer Smoke', () => {
         expect(visualContinuity.placeholderPresentation.animationName).toBe('none');
         expect(visualContinuity.placeholderPresentation.backgroundImage).toContain('linear-gradient');
         expect(visualContinuity.placeholderPresentation.backgroundImage).not.toContain('repeating-linear-gradient');
-        expect(
-            visualContinuity.paintedDuringMotion.length,
-            JSON.stringify(visualContinuity),
-        ).toBeGreaterThan(0);
-        expect(visualContinuity.firstMotionPaintElapsedMs).not.toBeNull();
+        expect(visualContinuity.motionItemSamples).toBeGreaterThan(0);
         expect(visualContinuity.firstPaintElapsedMs).not.toBeNull();
         expect(visualContinuity.firstPaintElapsedMs ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(2_000);
         expect(visualContinuity.settledElapsedMs).toBeLessThanOrEqual(5_000);

@@ -851,6 +851,7 @@ const thumbnailRenderRuntime = usePdfThumbnailRenderRuntime({
         resolveViewportAnchorPage,
         shouldPreferVisibleAnchorOverCurrentPage,
         thumbnailAspectRatios,
+        thumbnailLayoutWidth,
         thumbnailRenderWidth,
         viewportPages,
         clearThumbnailAspectRatios,

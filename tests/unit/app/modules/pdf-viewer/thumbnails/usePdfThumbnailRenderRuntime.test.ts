@@ -43,7 +43,12 @@ describe('usePdfThumbnailRenderRuntime', () => {
             dataset: {thumbnailRendered: 'true'},
             width: 240,
             height: 320,
-        })).toBe(true);
+        }, 240)).toBe(true);
+        expect(shouldPreserveThumbnailBitmap({
+            dataset: {thumbnailRendered: 'true'},
+            width: 240,
+            height: 320,
+        }, 241)).toBe(false);
         expect(shouldPreserveThumbnailBitmap({
             dataset: {thumbnailRendered: 'true'},
             width: 0,
@@ -111,6 +116,7 @@ describe('usePdfThumbnailRenderRuntime', () => {
                 resolveViewportAnchorPage: () => null,
                 shouldPreferVisibleAnchorOverCurrentPage: () => false,
                 thumbnailAspectRatios,
+                thumbnailLayoutWidth: ref(96),
                 thumbnailRenderWidth,
                 updateThumbnailAspectRatio,
                 viewportPages: computed(() => [1]),
@@ -198,6 +204,7 @@ describe('usePdfThumbnailRenderRuntime', () => {
                 resolveViewportAnchorPage: () => null,
                 shouldPreferVisibleAnchorOverCurrentPage: () => false,
                 thumbnailAspectRatios: ref<Array<number | null>>([2]),
+                thumbnailLayoutWidth: ref(96),
                 thumbnailRenderWidth,
                 updateThumbnailAspectRatio: vi.fn(),
                 viewportPages: computed(() => [1]),
@@ -297,6 +304,7 @@ describe('usePdfThumbnailRenderRuntime', () => {
                 resolveViewportAnchorPage: () => null,
                 shouldPreferVisibleAnchorOverCurrentPage: () => false,
                 thumbnailAspectRatios: ref<Array<number | null>>([]),
+                thumbnailLayoutWidth: ref(96),
                 thumbnailRenderWidth: ref(100),
                 updateThumbnailAspectRatio,
                 viewportPages: computed(() => [1]),

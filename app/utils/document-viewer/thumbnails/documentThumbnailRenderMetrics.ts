@@ -67,6 +67,14 @@ export function resolveThumbnailRasterWidth(
     );
 }
 
+export function isThumbnailRasterWidthReady(
+    cssWidth: number,
+    rasterWidth: number,
+    bucketSize = DEFAULT_THUMBNAIL_RASTER_WIDTH_BUCKET,
+) {
+    return rasterWidth >= resolveThumbnailRasterWidth(cssWidth, bucketSize);
+}
+
 export function resolveThumbnailOutputScale(devicePixelRatio: number, maxOutputScale = 2) {
     return Math.min(
         Math.max(1, maxOutputScale),
