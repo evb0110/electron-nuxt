@@ -105,7 +105,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
     const PDF_RESIZE_VISUAL_SNAPSHOT_MAX_DELAY_MS = 2_500;
     let resizeTransitionToken = 0;
     let pendingResizeTransitionHideTimer: ReturnType<typeof setTimeout> | null = null;
-    const activeResizeVisualSnapshotReleases = new Set<() => void>();
+    const activeResizeVisualSnapshotReleases = new Map<number, () => void>();
     let pendingResizeAnchor: IResizeAnchorContext | null = null;
     let pendingResizeTransactionId: number | null = null;
     let dragResizeAnchor: IResizeAnchorContext | null = null;
@@ -356,25 +356,40 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
     }
 
     function captureResizeVisualSnapshots(anchor: IResizeAnchorContext) {
-        activeResizeVisualSnapshotReleases.forEach(release => release());
-        activeResizeVisualSnapshotReleases.clear();
         const container = viewerContainer.value;
         if (!container) {
             return;
         }
+        const candidatePages = new Set<number>();
+        container.querySelectorAll<HTMLElement>('.page_container[data-page]').forEach((pageContainer) => {
+            const page = Number(pageContainer.dataset.page);
+            if (Number.isInteger(page) && page > 0) {
+                candidatePages.add(page);
+            }
+        });
         for (let page = anchor.visibleRange.start; page <= anchor.visibleRange.end; page += 1) {
+            candidatePages.add(page);
+        }
+        for (const page of candidatePages) {
             const pageContainer = container.querySelector<HTMLElement>(
                 `.page_container[data-page="${page}"]`,
             );
             const snapshot = preservePdfResizeCanvasVisualSnapshot(pageContainer);
             if (!snapshot) {
+                // A rapid zoom packet can arrive after the renderer has cleared
+                // its source canvas but before the replacement commits. Keep the
+                // previous snapshot for this page instead of exposing the bare
+                // page shell during that gap.
                 continue;
             }
+            activeResizeVisualSnapshotReleases.get(page)?.();
             const release = () => {
                 snapshot.release();
-                activeResizeVisualSnapshotReleases.delete(release);
+                if (activeResizeVisualSnapshotReleases.get(page) === release) {
+                    activeResizeVisualSnapshotReleases.delete(page);
+                }
             };
-            activeResizeVisualSnapshotReleases.add(release);
+            activeResizeVisualSnapshotReleases.set(page, release);
             schedulePdfLayerVisualSnapshotRelease(release, {
                 maxDelayMs: PDF_RESIZE_VISUAL_SNAPSHOT_MAX_DELAY_MS,
                 minFrames: 2,

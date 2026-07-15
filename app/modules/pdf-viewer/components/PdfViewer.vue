@@ -237,11 +237,13 @@ const showCommittedInitialPageShell = computed(() => (
     && chassisAuthority?.openSurface.viewportSession.value.visual.kind === 'page'
 ));
 function shouldShowViewportPageSkeleton(pageNumber: number) {
-    const visual = chassisAuthority?.openSurface.viewportSession.value.visual;
+    const viewportSession = chassisAuthority?.openSurface.viewportSession.value;
+    const visual = viewportSession?.visual;
     if (visual) {
         return shouldShowPdfViewportPageSkeleton({
             fallbackVisible: shouldShowPageSkeleton(pageNumber),
             isEmptyToDocumentTransition: isCommittedInitialPageTransition.value,
+            isViewportTransitionActive: viewportSession.lifecycle !== 'ready',
             pageNumber,
             totalPages: chassisAuthority?.pageCount.value ?? 0,
             viewMode: props.viewMode ?? 'single',

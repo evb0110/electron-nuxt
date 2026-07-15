@@ -58,6 +58,7 @@ interface IUsePdfViewerWheelZoomOptions {
     };
     cancelPendingSearchScroll: () => void;
     markUserViewportInteraction?: (() => void) | undefined;
+    captureZoomVisualSnapshots?: (() => void) | undefined;
     submitZoomIntent: (intent: {
         zoom: number;
         x: number;
@@ -108,6 +109,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         singlePageScroll,
         cancelPendingSearchScroll,
         markUserViewportInteraction,
+        captureZoomVisualSnapshots,
         submitZoomIntent,
         isSnipActive,
         emit,
@@ -696,6 +698,12 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
             wheel: summarizeWheelEventForDebug(event),
         });
 
+        // Capture committed pixels before the reactive scale mutation can
+        // clear or replace renderer canvases. The rerender coordinator also
+        // captures at its boundary, but that is intentionally downstream of
+        // this synchronous wheel packet and is too late to cover the first
+        // geometry frame of a rapid modifier-wheel gesture.
+        captureZoomVisualSnapshots?.();
         if (zoomMode.value !== 'custom') {
             emit('update:zoomMode', 'custom');
         }

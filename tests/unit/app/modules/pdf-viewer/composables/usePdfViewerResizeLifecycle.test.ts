@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import {
     afterEach,
     describe,
@@ -238,6 +240,42 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
                 stabilize: true,
             }),
         );
+    });
+
+    it('retains the prior page snapshot when a rapid zoom rerender has no source bitmap', () => {
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({drawImage: vi.fn()} as never);
+        const viewer = document.createElement('div');
+        const page = document.createElement('div');
+        page.className = 'page_container';
+        page.dataset.page = '4';
+        const pageCanvas = document.createElement('div');
+        pageCanvas.className = 'page_canvas';
+        const renderLayer = document.createElement('div');
+        renderLayer.className = 'page_canvas__render-layer';
+        const sourceCanvas = document.createElement('canvas');
+        sourceCanvas.width = 640;
+        sourceCanvas.height = 960;
+        renderLayer.append(sourceCanvas);
+        pageCanvas.append(renderLayer);
+        page.append(pageCanvas);
+        viewer.append(page);
+        document.body.append(viewer);
+        const { lifecycle } = createResizeLifecycle(ref(true), {viewerContainer: ref(viewer)});
+        const anchor = lifecycle.buildResizeAnchorContext();
+
+        lifecycle.captureResizeVisualSnapshots(anchor);
+        expect(pageCanvas.querySelectorAll('.pdf-resize-canvas-snapshot')).toHaveLength(1);
+
+        sourceCanvas.width = 0;
+        sourceCanvas.height = 0;
+        lifecycle.captureResizeVisualSnapshots(anchor);
+
+        expect(page.classList.contains('page_container--resize-visual-snapshot')).toBe(true);
+        expect(pageCanvas.querySelectorAll('.pdf-resize-canvas-snapshot')).toHaveLength(1);
+
+        lifecycle.cleanupResizeLifecycle();
+        expect(pageCanvas.querySelector('.pdf-resize-canvas-snapshot')).toBeNull();
+        document.body.replaceChildren();
     });
 
     it('keeps the trusted page when new geometry reinterprets the old scroll position', () => {

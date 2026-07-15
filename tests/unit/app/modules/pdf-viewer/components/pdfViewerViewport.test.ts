@@ -104,4 +104,32 @@ describe('PdfViewerViewport virtual page identity', () => {
 
         app.unmount();
     });
+
+    it('keeps the leading spacer identity stable across distant virtual windows', () => {
+        const first = flattenPdfVirtualPageSegments([{
+            start: 20,
+            end: 22,
+            key: '20:22',
+            pages: [
+                20,
+                21,
+                22,
+            ],
+            spacerBeforeStyle: {height: '1900px'},
+        }]);
+        const distant = flattenPdfVirtualPageSegments([{
+            start: 200,
+            end: 202,
+            key: '200:202',
+            pages: [
+                200,
+                201,
+                202,
+            ],
+            spacerBeforeStyle: {height: '19900px'},
+        }]);
+
+        expect(first[0]?.key).toBe('spacer:0');
+        expect(distant[0]?.key).toBe(first[0]?.key);
+    });
 });

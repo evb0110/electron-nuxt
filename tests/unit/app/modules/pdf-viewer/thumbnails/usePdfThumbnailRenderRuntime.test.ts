@@ -13,10 +13,8 @@ import type {
     PDFDocumentProxy,
     PDFPageProxy,
 } from 'pdfjs-dist';
-import {
-    shouldPreserveThumbnailBitmap,
-    usePdfThumbnailRenderRuntime,
-} from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailRenderRuntime';
+import { usePdfThumbnailRenderRuntime } from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailRenderRuntime';
+import { shouldPreserveThumbnailBitmap } from '@app/modules/pdf-viewer/thumbnails/shouldPreserveThumbnailBitmap';
 import {
     resetCoordinatedPdfPageRendersForTest,
     runCoordinatedPdfPageRender,

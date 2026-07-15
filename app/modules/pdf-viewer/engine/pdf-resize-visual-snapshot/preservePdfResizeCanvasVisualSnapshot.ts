@@ -53,7 +53,9 @@ export function preservePdfResizeCanvasVisualSnapshot(
             }
             released = true;
             snapshot.remove();
-            pageContainer.classList.remove(RESIZE_SNAPSHOT_PAGE_CLASS);
+            if (!pageCanvas.querySelector(`.${RESIZE_SNAPSHOT_CLASS}`)) {
+                pageContainer.classList.remove(RESIZE_SNAPSHOT_PAGE_CLASS);
+            }
         },
     };
 }

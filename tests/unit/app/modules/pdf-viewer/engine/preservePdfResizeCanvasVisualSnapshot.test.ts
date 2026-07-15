@@ -68,4 +68,33 @@ describe('preservePdfResizeCanvasVisualSnapshot', () => {
         expect(preservePdfResizeCanvasVisualSnapshot(pageContainer)).toBeNull();
         expect(drawImage).not.toHaveBeenCalled();
     });
+
+    it('keeps the page in snapshot mode while a newer snapshot remains', () => {
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({drawImage: vi.fn()} as never);
+        const pageContainer = document.createElement('div');
+        pageContainer.className = 'page_container';
+        const pageCanvas = document.createElement('div');
+        pageCanvas.className = 'page_canvas';
+        const canvasHost = document.createElement('div');
+        canvasHost.className = 'page_canvas__render-layer';
+        const sourceCanvas = document.createElement('canvas');
+        sourceCanvas.width = 640;
+        sourceCanvas.height = 960;
+        canvasHost.append(sourceCanvas);
+        pageCanvas.append(canvasHost);
+        pageContainer.append(pageCanvas);
+        document.body.append(pageContainer);
+
+        const first = preservePdfResizeCanvasVisualSnapshot(pageContainer);
+        const second = preservePdfResizeCanvasVisualSnapshot(pageContainer);
+        expect(pageCanvas.querySelectorAll('.pdf-resize-canvas-snapshot')).toHaveLength(2);
+
+        first?.release();
+
+        expect(pageContainer.classList.contains('page_container--resize-visual-snapshot')).toBe(true);
+        expect(pageCanvas.querySelectorAll('.pdf-resize-canvas-snapshot')).toHaveLength(1);
+
+        second?.release();
+        expect(pageContainer.classList.contains('page_container--resize-visual-snapshot')).toBe(false);
+    });
 });

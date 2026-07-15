@@ -21,7 +21,7 @@ export function flattenPdfVirtualPageSegments(
         initialPageShellPage?: number;
     } = {},
 ): TPdfVirtualPageItem[] {
-    const items: TPdfVirtualPageItem[] = segments.flatMap((segment): TPdfVirtualPageItem[] => {
+    const items: TPdfVirtualPageItem[] = segments.flatMap((segment, segmentIndex): TPdfVirtualPageItem[] => {
         const pages: TPdfVirtualPageItem[] = segment.pages.map(page => ({
             key: `page:${page}`,
             kind: 'page',
@@ -32,7 +32,11 @@ export function flattenPdfVirtualPageSegments(
         }
         return [
             {
-                key: `spacer:${segment.start}`,
+                // Keep the structural spacer node stable while its height and
+                // page window move. Replacing it lets the browser observe a
+                // transiently shortened scroll tree and clamp scrollTop before
+                // the new far-window spacer is inserted.
+                key: `spacer:${segmentIndex}`,
                 kind: 'spacer',
                 style: segment.spacerBeforeStyle,
             },

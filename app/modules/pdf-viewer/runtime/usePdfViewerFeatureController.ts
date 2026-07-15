@@ -720,8 +720,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         isFitWidthScaleCurrent,
         getPagePlaceholderStyle,
     });
-    getOpeningVirtualExtentMinimumScrollHeight = () =>
-        openingVirtualExtentMinimumScrollHeight.value;
+    getOpeningVirtualExtentMinimumScrollHeight = () => openingVirtualExtentMinimumScrollHeight.value;
     const {
         zoomSnapSuppressed: wheelZoomSnapSuppressed,
         handleViewerWheel,
@@ -754,6 +753,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         },
         cancelPendingSearchScroll,
         markUserViewportInteraction,
+        captureZoomVisualSnapshots: () => runtimeLifecycle.captureZoomVisualSnapshots(),
         submitZoomIntent: (intent) => {
             markAnchoredZoomSubmitted(intent.zoom);
             void singlePageScroll.submitViewportStateIntent('zoom', {

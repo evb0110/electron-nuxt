@@ -10,6 +10,7 @@ describe('PDF viewport-session visual projection', () => {
         expect(shouldShowPdfViewportPageSkeleton({
             fallbackVisible: true,
             isEmptyToDocumentTransition: true,
+            isViewportTransitionActive: true,
             pageNumber: 1,
             totalPages: 10,
             viewMode: 'single',
@@ -28,6 +29,7 @@ describe('PDF viewport-session visual projection', () => {
         expect(shouldShowPdfViewportPageSkeleton({
             fallbackVisible: true,
             isEmptyToDocumentTransition: true,
+            isViewportTransitionActive: true,
             pageNumber: 6,
             totalPages: 10,
             viewMode: 'single',
@@ -46,6 +48,7 @@ describe('PDF viewport-session visual projection', () => {
         expect(shouldShowPdfViewportPageSkeleton({
             fallbackVisible: false,
             isEmptyToDocumentTransition: false,
+            isViewportTransitionActive: true,
             pageNumber: 2,
             totalPages: 10,
             viewMode: 'single',
@@ -64,6 +67,7 @@ describe('PDF viewport-session visual projection', () => {
         expect(shouldShowPdfViewportPageSkeleton({
             fallbackVisible: true,
             isEmptyToDocumentTransition: false,
+            isViewportTransitionActive: true,
             pageNumber: 6,
             totalPages: 10,
             viewMode: 'single',
@@ -82,6 +86,7 @@ describe('PDF viewport-session visual projection', () => {
         expect(shouldShowPdfViewportPageSkeleton({
             fallbackVisible: true,
             isEmptyToDocumentTransition: false,
+            isViewportTransitionActive: true,
             pageNumber: 10,
             totalPages: 10,
             viewMode: 'facing',
@@ -92,6 +97,25 @@ describe('PDF viewport-session visual projection', () => {
                 kind: 'page',
                 pageNumber: 9,
                 presentation: 'skeleton',
+            },
+        })).toBe(true);
+    });
+
+    it('returns skeleton ownership to freely scrolled rows after the viewport settles', () => {
+        expect(shouldShowPdfViewportPageSkeleton({
+            fallbackVisible: true,
+            isEmptyToDocumentTransition: false,
+            isViewportTransitionActive: false,
+            pageNumber: 42,
+            totalPages: 100,
+            viewMode: 'single',
+            visual: {
+                error: null,
+                frameKey: null,
+                generation: 2,
+                kind: 'page',
+                pageNumber: 1,
+                presentation: 'canvas',
             },
         })).toBe(true);
     });

@@ -719,6 +719,10 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
 
     const isEffectivelyLoading = computed(() => !!src.value && isLoading.value);
 
+    function captureZoomVisualSnapshots() {
+        captureResizeVisualSnapshots(buildResizeAnchorContext());
+    }
+
     watch(
         isEffectivelyLoading,
         (value) => {
@@ -737,5 +741,6 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         invalidatePages,
         handlePageRenderStall,
         preserveNextSourceReloadVisibleContent,
+        captureZoomVisualSnapshots,
     };
 };

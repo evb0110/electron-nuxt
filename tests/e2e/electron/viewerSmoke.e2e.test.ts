@@ -258,6 +258,30 @@ interface IThumbnailPaintProbeWindow extends Window {
     __thumbnailPaintProbe?: IThumbnailPaintProbe;
 }
 
+interface IMacWheelVisualProbe {
+    samples: Array<{
+        hasVisual: boolean;
+        timeMs: number;
+        visiblePageCount: number;
+    }>;
+    stop: () => void;
+}
+
+interface IMacWheelE2EWindow extends Window {
+    __macWheelHeartbeat?: {
+        lastAt: number;
+        maxGapMs: number;
+        sampleCount: number;
+    };
+    __macWheelHeartbeatTimer?: number;
+    __macWheelModifierSamples?: Array<{
+        ctrlKey: boolean;
+        defaultPrevented: boolean;
+        metaKey: boolean;
+    }>;
+    __macWheelVisualProbe?: IMacWheelVisualProbe;
+}
+
 const djvuFixture = resolveDjvuFixturePath();
 const runDjvuSmokeOrSkip = selectFixtureDescribe(describe, djvuFixture);
 
@@ -1186,34 +1210,81 @@ describe('Electron E2E - Viewer Smoke', () => {
         ), {timeout: 5_000});
         const toolbarAfterControl = await getWorkspaceToolbarSnapshot(session.page);
 
+        await session.page.evaluate(() => {
+            const samples: Array<{
+                hasVisual: boolean;
+                timeMs: number;
+                visiblePageCount: number;
+            }> = [];
+            let active = true;
+            const sample = () => {
+                if (!active) {
+                    return;
+                }
+                const viewer = document.querySelector<HTMLElement>(
+                    '.editor-pane.is-active .workspace-host #pdf-viewer',
+                );
+                const viewerRect = viewer?.getBoundingClientRect() ?? null;
+                const visiblePages = viewerRect
+                    ? Array.from(viewer?.querySelectorAll<HTMLElement>('.page_container[data-page]') ?? [])
+                        .filter((page) => {
+                            const rect = page.getBoundingClientRect();
+                            return rect.bottom > viewerRect.top && rect.top < viewerRect.bottom;
+                        })
+                    : [];
+                const hasVisual = visiblePages.some((page) => {
+                    const snapshot = page.querySelector<HTMLCanvasElement>('.pdf-resize-canvas-snapshot');
+                    if (snapshot && snapshot.width > 0 && snapshot.height > 0) {
+                        return true;
+                    }
+                    const renderLayer = page.querySelector<HTMLElement>('.page_canvas__render-layer');
+                    const renderedCanvas = renderLayer?.querySelector<HTMLCanvasElement>('canvas');
+                    return page.classList.contains('page_container--rendered')
+                        && renderLayer !== null
+                        && getComputedStyle(renderLayer).visibility !== 'hidden'
+                        && renderedCanvas != null
+                        && renderedCanvas.width > 0
+                        && renderedCanvas.height > 0;
+                });
+                samples.push({
+                    hasVisual,
+                    timeMs: Math.round(performance.now()),
+                    visiblePageCount: visiblePages.length,
+                });
+                requestAnimationFrame(sample);
+            };
+            const probeWindow = window as IMacWheelE2EWindow;
+            probeWindow.__macWheelVisualProbe = {
+                samples,
+                stop() {
+                    active = false;
+                },
+            };
+            requestAnimationFrame(sample);
+        });
+
         await session.page.keyboard.down('Meta');
-        await session.page.mouse.wheel({deltaY: -160});
+        for (let index = 0; index < 16; index += 1) {
+            await session.page.mouse.wheel({deltaY: -18});
+            await new Promise(resolve => setTimeout(resolve, 8));
+        }
         await session.page.keyboard.up('Meta');
         await waitForWorkspaceToolbarSnapshot(
             session.page,
             {minEffectiveZoom: (toolbarAfterControl?.effectiveZoom ?? 0) + 0.005},
             {timeoutMs: 10_000},
         );
+        await new Promise(resolve => setTimeout(resolve, 700));
         const result = await session.page.evaluate(() => {
-            const testWindow = window as Window & {
-                __macWheelHeartbeat?: {
-                    lastAt: number;
-                    maxGapMs: number;
-                    sampleCount: number;
-                };
-                __macWheelHeartbeatTimer?: number;
-                __macWheelModifierSamples?: Array<{
-                    ctrlKey: boolean;
-                    defaultPrevented: boolean;
-                    metaKey: boolean;
-                }>;
-            };
+            const testWindow = window as IMacWheelE2EWindow;
             if (testWindow.__macWheelHeartbeatTimer !== undefined) {
                 window.clearInterval(testWindow.__macWheelHeartbeatTimer);
             }
+            testWindow.__macWheelVisualProbe?.stop();
             return {
                 heartbeat: testWindow.__macWheelHeartbeat ?? null,
                 samples: testWindow.__macWheelModifierSamples ?? [],
+                visualSamples: testWindow.__macWheelVisualProbe?.samples ?? [],
                 scrollTop: document.querySelector<HTMLElement>(
                     '.editor-pane.is-active .workspace-host #pdf-viewer',
                 )?.scrollTop ?? 0,
@@ -1231,6 +1302,11 @@ describe('Electron E2E - Viewer Smoke', () => {
         expect(result.samples.some(sample => (
             sample.metaKey && sample.defaultPrevented
         )), JSON.stringify(result.samples)).toBe(true);
+        expect(result.visualSamples.length).toBeGreaterThan(5);
+        expect(
+            result.visualSamples.filter(sample => !sample.hasVisual),
+            JSON.stringify(result.visualSamples),
+        ).toEqual([]);
     }, 120_000);
 
     it('keeps the PDF viewport scrollable, navigable, and scalable', async () => {
@@ -1754,7 +1830,7 @@ describe('Electron E2E - Viewer Smoke', () => {
         expect(metricSpread(visibleCurrentPageSamples.map(sample => sample.itemViewportTop))).toBeLessThanOrEqual(1);
     }, 120_000);
 
-    it('keeps rapidly scrolled large-scan thumbnails visibly occupied and paints the settled viewport', async () => {
+    it('keeps rapidly scrolled large-scan pages and thumbnails visibly occupied', async () => {
         let session = sessionFixture.getSession();
         if (!session) {
             return;
@@ -1781,6 +1857,103 @@ describe('Electron E2E - Viewer Smoke', () => {
             );
         await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+
+        const pageContinuity = await session.page.evaluate(async () => {
+            const viewer = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host #pdf-viewer',
+            );
+            if (!viewer) {
+                throw new Error('PDF viewer was not found');
+            }
+
+            const sample = () => {
+                const viewerRect = viewer.getBoundingClientRect();
+                const mountedPages = Array.from(viewer.querySelectorAll<HTMLElement>('.page_container[data-page]'));
+                const visiblePages = mountedPages
+                    .filter((page) => {
+                        const rect = page.getBoundingClientRect();
+                        return rect.bottom > viewerRect.top && rect.top < viewerRect.bottom;
+                    });
+                const occupied = visiblePages.some((page) => {
+                    const canvas = Array.from(page.querySelectorAll<HTMLCanvasElement>(
+                        '.page_canvas__render-layer canvas, .pdf-resize-canvas-snapshot',
+                    )).find(candidate => candidate.width > 0 && candidate.height > 0);
+                    const skeleton = page.querySelector<HTMLElement>('.pdf-page-skeleton');
+                    const skeletonRect = skeleton?.getBoundingClientRect() ?? null;
+                    return Boolean(canvas || (
+                        skeleton
+                        && getComputedStyle(skeleton).display !== 'none'
+                        && (skeletonRect?.width ?? 0) > 0
+                        && (skeletonRect?.height ?? 0) > 0
+                    ));
+                });
+                return {
+                    firstMountedPage: Number(mountedPages[0]?.dataset.page ?? 0),
+                    firstMountedTop: Math.round(mountedPages[0]?.getBoundingClientRect().top ?? 0),
+                    lastMountedBottom: Math.round(mountedPages.at(-1)?.getBoundingClientRect().bottom ?? 0),
+                    lastMountedPage: Number(mountedPages.at(-1)?.dataset.page ?? 0),
+                    occupied,
+                    scrollHeight: viewer.scrollHeight,
+                    scrollTop: Math.round(viewer.scrollTop),
+                    visiblePageCount: visiblePages.length,
+                };
+            };
+
+            let consecutiveBlankFrames = 0;
+            let maxConsecutiveBlankFrames = 0;
+            let zeroVisiblePageFrames = 0;
+            const motionSamples: Array<{
+                firstMountedPage: number;
+                firstMountedTop: number;
+                lastMountedBottom: number;
+                lastMountedPage: number;
+                occupied: boolean;
+                scrollHeight: number;
+                scrollTop: number;
+                visiblePageCount: number;
+            }> = [];
+            const maxScrollTop = Math.max(0, viewer.scrollHeight - viewer.clientHeight);
+            for (let frame = 0; frame < 90; frame += 1) {
+                const target = frame < 45
+                    ? 0.5 + 0.46 * Math.sin(frame * 0.82)
+                    : 0.92 - 0.3 * (1 - ((frame - 45) / 44)) ** 3;
+                viewer.scrollTop = maxScrollTop * target;
+                viewer.dispatchEvent(new Event('scroll', {bubbles: true}));
+                await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+                const frameSample = sample();
+                motionSamples.push(frameSample);
+                if (frameSample.visiblePageCount === 0) {
+                    zeroVisiblePageFrames += 1;
+                }
+                if (frameSample.occupied) {
+                    consecutiveBlankFrames = 0;
+                } else {
+                    consecutiveBlankFrames += 1;
+                    maxConsecutiveBlankFrames = Math.max(
+                        maxConsecutiveBlankFrames,
+                        consecutiveBlankFrames,
+                    );
+                }
+            }
+
+            const finalScrollAt = performance.now();
+            let finalSample = sample();
+            while (!finalSample.occupied && performance.now() - finalScrollAt < 5_000) {
+                await new Promise(resolve => setTimeout(resolve, 25));
+                finalSample = sample();
+            }
+            return {
+                finalOccupiedElapsedMs: Math.round(performance.now() - finalScrollAt),
+                finalSample,
+                lastMotionSample: motionSamples.at(-1) ?? null,
+                maxConsecutiveBlankFrames,
+                zeroVisiblePageFrames,
+            };
+        });
+        expect(pageContinuity.maxConsecutiveBlankFrames, JSON.stringify(pageContinuity)).toBeLessThanOrEqual(4);
+        expect(pageContinuity.finalSample.occupied, JSON.stringify(pageContinuity)).toBe(true);
+        expect(pageContinuity.finalOccupiedElapsedMs).toBeLessThanOrEqual(2_000);
+
         await ensureSidebarOpen(session.page);
         await openDocumentSidebarTab(session.page, 'Pages');
         await waitForFunctionInPage(session.page, () => Boolean(document.querySelector(
@@ -1911,6 +2084,13 @@ describe('Electron E2E - Viewer Smoke', () => {
                 skeletonWidth: number;
             }> = [];
             const startedAt = performance.now();
+            const initiallyPaintedPages = new Set(
+                sampleVisibleItems()
+                    .filter(item => item.painted)
+                    .map(item => item.page),
+            );
+            const paintedDuringMotion = new Set<number>();
+            let firstMotionPaintElapsedMs: number | null = null;
             const sampleFrame = () => {
                 for (const item of sampleVisibleItems()) {
                     if (
@@ -1931,24 +2111,22 @@ describe('Electron E2E - Viewer Smoke', () => {
                             skeletonWidth: item.skeletonWidth,
                         });
                     }
+                    if (item.painted && !initiallyPaintedPages.has(item.page)) {
+                        paintedDuringMotion.add(item.page);
+                        firstMotionPaintElapsedMs ??= Math.round(performance.now() - startedAt);
+                    }
                 }
             };
 
             const maxScrollTop = Math.max(0, rail.scrollHeight - rail.clientHeight);
-            for (const target of [
-                0.05,
-                0.82,
-                0.18,
-                0.67,
-                0.31,
-                0.94,
-                0.48,
-            ]) {
+            for (let frame = 0; frame < 90; frame += 1) {
+                const target = frame < 45
+                    ? 0.5 + 0.44 * Math.sin(frame * 0.9)
+                    : 0.48 + 0.32 * (1 - ((frame - 45) / 44)) ** 3;
                 rail.scrollTop = maxScrollTop * target;
                 rail.dispatchEvent(new Event('scroll', {bubbles: true}));
                 await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
                 sampleFrame();
-                await new Promise(resolve => setTimeout(resolve, 20));
             }
 
             const finalJumpAt = performance.now();
@@ -1974,6 +2152,8 @@ describe('Electron E2E - Viewer Smoke', () => {
                 blankExposures,
                 defaultCanvasPreservation,
                 firstPaintElapsedMs,
+                firstMotionPaintElapsedMs,
+                paintedDuringMotion: [...paintedDuringMotion],
                 placeholderPresentation,
                 settledElapsedMs: Math.round(performance.now() - finalJumpAt),
                 settledItems,
@@ -1985,6 +2165,11 @@ describe('Electron E2E - Viewer Smoke', () => {
         expect(visualContinuity.placeholderPresentation.animationName).toBe('none');
         expect(visualContinuity.placeholderPresentation.backgroundImage).toContain('linear-gradient');
         expect(visualContinuity.placeholderPresentation.backgroundImage).not.toContain('repeating-linear-gradient');
+        expect(
+            visualContinuity.paintedDuringMotion.length,
+            JSON.stringify(visualContinuity),
+        ).toBeGreaterThan(0);
+        expect(visualContinuity.firstMotionPaintElapsedMs).not.toBeNull();
         expect(visualContinuity.firstPaintElapsedMs).not.toBeNull();
         expect(visualContinuity.firstPaintElapsedMs ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(2_000);
         expect(visualContinuity.settledElapsedMs).toBeLessThanOrEqual(5_000);

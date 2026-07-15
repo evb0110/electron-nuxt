@@ -5,11 +5,19 @@ import type { TDocumentViewportVisualOwner } from '@app/utils/document-viewer/se
 export function shouldShowPdfViewportPageSkeleton(options: {
     fallbackVisible: boolean;
     isEmptyToDocumentTransition: boolean;
+    isViewportTransitionActive: boolean;
     pageNumber: number;
     totalPages: number;
     viewMode: TPdfViewMode;
     visual: TDocumentViewportVisualOwner;
 }) {
+    if (!options.isViewportTransitionActive) {
+        // A settled open-surface canvas does not own future rows reached by
+        // free scrolling. Those rows must use the normal render-demand
+        // skeleton while their own canvas is pending.
+        return options.fallbackVisible;
+    }
+
     const visual = options.visual;
     const visualRow = visual.kind === 'page' && options.totalPages > 0
         ? getPageRowBoundsForViewMode({

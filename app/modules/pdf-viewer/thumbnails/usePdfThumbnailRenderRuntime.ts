@@ -1,4 +1,3 @@
-import { useDebounceFn } from '@vueuse/core';
 import { clamp } from 'es-toolkit/math';
 import type {
     PDFDocumentProxy,
@@ -39,17 +38,12 @@ import {
     estimateCanvasSurfaceBytes,
     workspaceSurfaceBudgetController,
 } from '@app/utils/document-viewer/workspaceSurfaceBudget';
+import { createThumbnailRenderFrameScheduler } from '@app/modules/pdf-viewer/thumbnails/createThumbnailRenderFrameScheduler';
+import { shouldPreserveThumbnailBitmap } from '@app/modules/pdf-viewer/thumbnails/shouldPreserveThumbnailBitmap';
 
 export const PDF_THUMBNAIL_LOG_SECTION = 'pdf-thumbnails';
 const THUMBNAIL_RENDER_CONCURRENCY = getPerformanceProfile().thumbnailBaseConcurrency;
 
-export function shouldPreserveThumbnailBitmap(
-    canvas: Pick<HTMLCanvasElement, 'dataset' | 'height' | 'width'>,
-) {
-    return canvas.dataset.thumbnailRendered === 'true'
-        && canvas.width > 0
-        && canvas.height > 0;
-}
 const THUMBNAIL_NAVIGATION_CONCURRENCY_COOLDOWN_MS = 250;
 const IMMEDIATE_RENDER_RADIUS = 2;
 const PREFETCH_RENDER_RADIUS = 4;
@@ -902,7 +896,7 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
         void scheduleVisibleThumbnailRender();
     }
 
-    const scheduleVisibleThumbnailRender = useDebounceFn(() => {
+    function runVisibleThumbnailRender() {
         const doc = source.pdfDocument.value;
         if (!doc || source.totalPages.value <= 0) {
             return;
@@ -931,7 +925,10 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
             scope: PDF_THUMBNAIL_LOG_SECTION,
             message: 'Failed to render virtual thumbnail list',
         });
-    }, 20);
+    }
+
+    const visibleThumbnailRenderScheduler = createThumbnailRenderFrameScheduler(runVisibleThumbnailRender);
+    const scheduleVisibleThumbnailRender = visibleThumbnailRenderScheduler.schedule;
 
     async function preloadThumbnailAspectRatio(pdfDocument: PDFDocumentProxy, runId: number) {
         const pageNum = clamp(source.currentPage.value || 1, 1, Math.max(1, source.totalPages.value));
@@ -1126,6 +1123,7 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
             surfaceResidency.reconcile();
             if (!isActive) {
                 effects.cancelActivePaneRefresh();
+                visibleThumbnailRenderScheduler.cancel();
                 cancelAllRenders();
                 incrementRenderGeneration();
                 return;
@@ -1183,6 +1181,7 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
 
     onBeforeUnmount(() => {
         effects.cancelActivePaneRefresh();
+        visibleThumbnailRenderScheduler.cancel();
         cancelAllRenders();
         incrementRenderGeneration();
         clearRenderedState();
