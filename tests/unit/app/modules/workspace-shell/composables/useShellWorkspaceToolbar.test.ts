@@ -175,6 +175,8 @@ describe('createDefaultWorkspaceToolbarSnapshot', () => {
             viewMode: 'single',
             currentPage: 1,
             totalPages: 0,
+            selectedPageCount: 0,
+            isPageOperationInProgress: false,
             viewerCapabilities: {
                 closeableDocument: false,
                 continuousScroll: false,

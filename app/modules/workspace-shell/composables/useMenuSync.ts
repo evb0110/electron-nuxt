@@ -6,74 +6,105 @@ import type {
 import { useWorkspaceShellState } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
 import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHasPdf';
 import { getDocumentMenuCapability } from '@app/utils/platformDocuments';
+import type { IApplicationMenuDocumentState } from '@contracts/electronApiDocuments';
+import type { Ref } from 'vue';
+import type { ITabContextAvailability } from '@app/types/tabContextMenu';
 
-interface IUseMenuSyncDeps extends IUseWorkspaceShellStateOptions {shellState?: IWorkspaceShellState;}
+interface IMenuSyncShellContext {
+    canCloseTab: boolean;
+    canCreatePane: boolean;
+    canTransferActiveTab: boolean;
+    canToggleAssistant: boolean;
+}
+
+interface IUseMenuSyncDeps extends IUseWorkspaceShellStateOptions {
+    shellState?: IWorkspaceShellState;
+    menuContext?: Readonly<Ref<IMenuSyncShellContext>>;
+}
+
+interface IUseAppShellMenuSyncDeps extends IUseWorkspaceShellStateOptions {
+    activePaneId: Ref<string | null>;
+    assistantPanelEnabled: Readonly<Ref<boolean>>;
+    shellState: IWorkspaceShellState;
+    tabContextAvailabilityByPane: Readonly<Ref<Record<string, ITabContextAvailability>>>;
+}
 
 export const useMenuSync = (deps: IUseMenuSyncDeps) => {
     const shellState = deps.shellState ?? useWorkspaceShellState(deps);
-    let lastSyncedMenuDocumentState: {
-        hasDocument: boolean;
-        canPrint: boolean;
-        canSave: boolean;
-        canSaveAs: boolean;
-        canRepairSave: boolean;
-        canOptimizePdf: boolean;
-        interactive: boolean;
-        canContinuousScroll: boolean;
-        continuousScroll: boolean;
-    } | null = null;
+    let lastSyncedMenuDocumentState: IApplicationMenuDocumentState | null = null;
     let lastSyncedMenuTabCount: number | null = null;
 
     function syncMenuDocumentState() {
-        const hasDocument = shellState.hasDocument.value;
-        const canPrint = shellState.activeWorkspaceCanPrint.value;
-        const canSave = shellState.activeWorkspaceCanSave.value;
-        const canSaveAs = shellState.activeWorkspaceCanSaveAs.value;
-        const canRepairSave = shellState.activeWorkspaceCanRepairSave.value;
-        const canOptimizePdf = shellState.activeWorkspaceCanOptimizePdf.value;
-        const interactive = shellState.activeWorkspaceInteractive.value;
         const toolbar = deps.activeDocumentRecord.value?.toolbarSnapshot;
-        const canContinuousScroll = toolbar?.viewerCapabilities.continuousScroll === true;
-        const continuousScroll = toolbar?.continuousScroll ?? false;
-        if (
-            lastSyncedMenuDocumentState?.hasDocument === hasDocument
-            && lastSyncedMenuDocumentState.canPrint === canPrint
-            && lastSyncedMenuDocumentState.canSave === canSave
-            && lastSyncedMenuDocumentState.canSaveAs === canSaveAs
-            && lastSyncedMenuDocumentState.canRepairSave === canRepairSave
-            && lastSyncedMenuDocumentState.canOptimizePdf === canOptimizePdf
-            && lastSyncedMenuDocumentState.interactive === interactive
-            && lastSyncedMenuDocumentState.canContinuousScroll === canContinuousScroll
-            && lastSyncedMenuDocumentState.continuousScroll === continuousScroll
-        ) {
+        const capabilities = toolbar?.viewerCapabilities;
+        const context = deps.menuContext?.value;
+        const hasDocument = shellState.hasDocument.value;
+        const interactive = shellState.activeWorkspaceInteractive.value;
+        const isAnySaving = toolbar?.isAnySaving === true;
+        const isHistoryBusy = toolbar?.isHistoryBusy === true;
+        const isDocumentBusy = !interactive || isAnySaving || isHistoryBusy;
+        const supportsPdfMutation = capabilities?.pdfMutationActions === true;
+        const canMutatePages = supportsPdfMutation
+            && !isDocumentBusy
+            && toolbar?.isPageOperationInProgress !== true;
+        const isActualSizeActive = toolbar?.zoomMode === 'custom'
+            && Math.abs((toolbar.effectiveZoom ?? 0) - 1) < 0.0001;
+        const state: IApplicationMenuDocumentState = {
+            hasDocument,
+            interactive,
+            canSave: shellState.activeWorkspaceCanSave.value && !isDocumentBusy,
+            supportsSaveAs: capabilities?.saveAs === true,
+            canSaveAs: shellState.activeWorkspaceCanSaveAs.value && !isDocumentBusy,
+            supportsRepairSave: capabilities?.repairSave === true,
+            canRepairSave: shellState.activeWorkspaceCanRepairSave.value && !isDocumentBusy,
+            supportsOptimizePdf: capabilities?.optimizePdf === true,
+            canOptimizePdf: shellState.activeWorkspaceCanOptimizePdf.value && !isDocumentBusy,
+            supportsPrint: capabilities?.print === true,
+            canPrint: shellState.activeWorkspaceCanPrint.value
+                && !isDocumentBusy
+                && toolbar?.isPreparingPrint !== true,
+            supportsExportDocx: capabilities?.pdfDocument === true,
+            canExportDocx: interactive
+                && toolbar?.canExportDocx === true
+                && !isAnySaving
+                && !isHistoryBusy
+                && toolbar?.isExportingDocx !== true,
+            supportsRasterExport: hasDocument,
+            canExportRaster: interactive && !isAnySaving && !isHistoryBusy,
+            canUndo: interactive
+                && toolbar?.canUndo === true
+                && !isAnySaving
+                && !isHistoryBusy,
+            canRedo: interactive
+                && toolbar?.canRedo === true
+                && !isAnySaving
+                && !isHistoryBusy,
+            supportsPdfMutation,
+            canMutatePages,
+            selectedPageCount: toolbar?.selectedPageCount ?? 0,
+            totalPages: toolbar?.totalPages ?? 0,
+            supportsContinuousScroll: capabilities?.continuousScroll === true,
+            canContinuousScroll: interactive && capabilities?.continuousScroll === true,
+            continuousScroll: toolbar?.continuousScroll ?? false,
+            supportsViewMode: capabilities?.viewMode === true,
+            viewMode: toolbar?.viewMode ?? 'single',
+            isActualSizeActive,
+            isFitWidthActive: toolbar?.isFitWidthActive ?? false,
+            isFitHeightActive: toolbar?.isFitHeightActive ?? false,
+            canToggleAssistant: interactive && context?.canToggleAssistant === true,
+            canCreatePane: context?.canCreatePane ?? true,
+            canCloseTab: context?.canCloseTab ?? false,
+            canTransferActiveTab: context?.canTransferActiveTab ?? false,
+        };
+        if (JSON.stringify(lastSyncedMenuDocumentState) === JSON.stringify(state)) {
             return;
         }
-        lastSyncedMenuDocumentState = {
-            hasDocument,
-            canPrint,
-            canSave,
-            canSaveAs,
-            canRepairSave,
-            canOptimizePdf,
-            interactive,
-            canContinuousScroll,
-            continuousScroll,
-        };
+        lastSyncedMenuDocumentState = state;
         const setMenuDocumentState = getDocumentMenuCapability().setMenuDocumentState;
         if (!setMenuDocumentState) {
             return;
         }
-        guardAsync(setMenuDocumentState({
-            hasDocument,
-            canPrint,
-            canSave,
-            canSaveAs,
-            canRepairSave,
-            canOptimizePdf,
-            interactive,
-            canContinuousScroll,
-            continuousScroll,
-        }), {
+        guardAsync(setMenuDocumentState(state), {
             category: 'background-diagnostic',
             scope: 'menu-sync',
             message: 'Failed to sync menu document state',
@@ -107,4 +138,26 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
         shellState,
         workspaceHasPdf,
     };
+};
+
+export const useAppShellMenuSync = (deps: IUseAppShellMenuSyncDeps) => {
+    const menuContext = computed<IMenuSyncShellContext>(() => {
+        const availability = deps.activePaneId.value
+            ? deps.tabContextAvailabilityByPane.value[deps.activePaneId.value]
+            : undefined;
+        return {
+            canCloseTab: availability?.canClose === true,
+            canCreatePane: availability?.splitEmpty.right === true
+                || availability?.splitEmpty.down === true,
+            canTransferActiveTab: availability?.canMoveToWindow === true,
+            canToggleAssistant: deps.assistantPanelEnabled.value,
+        };
+    });
+    return useMenuSync({
+        activeDocumentRecord: deps.activeDocumentRecord,
+        activeTabId: deps.activeTabId,
+        tabs: deps.tabs,
+        shellState: deps.shellState,
+        menuContext,
+    });
 };

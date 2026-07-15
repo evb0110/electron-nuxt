@@ -208,6 +208,11 @@ function getViewMenuSubmenu(template: IMenuItemLike[]) {
     return Array.isArray(viewMenu?.submenu) ? viewMenu.submenu : [];
 }
 
+function getPagesMenuSubmenu(template: IMenuItemLike[]) {
+    const pagesMenu = template.find(item => item.label === 'menu.pages');
+    return Array.isArray(pagesMenu?.submenu) ? pagesMenu.submenu : [];
+}
+
 describe('menu per-window document state', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -495,5 +500,154 @@ describe('menu per-window document state', () => {
 
         expect(window.webContents.undo).not.toHaveBeenCalled();
         expect(window.webContents.send).toHaveBeenCalledWith('menu:undo');
+    });
+
+    it('replaces the multi-level pane matrix with two direct pane-creation commands', () => {
+        const window = mocks.createWindow(1, 'Window');
+        mocks.windows.push(window);
+        mocks.focusWindow(window);
+        setupMenu();
+
+        setMenuDocumentState(1, {
+            hasDocument: false,
+            canSave: false,
+            canCreatePane: true,
+        });
+
+        const viewItems = getViewMenuSubmenu(getLastMenuTemplate());
+        expect(viewItems.find(item => item.label === 'menu.editorPanes')).toBeUndefined();
+        expect(viewItems.filter(item => item.label === 'menu.newPaneRight')).toHaveLength(1);
+        expect(viewItems.filter(item => item.label === 'menu.newPaneDown')).toHaveLength(1);
+        expect(viewItems.some(item => item.label?.includes('focusPane'))).toBe(false);
+
+        setMenuDocumentState(1, {
+            hasDocument: false,
+            canSave: false,
+            canCreatePane: false,
+        });
+
+        const disabledViewItems = getViewMenuSubmenu(getLastMenuTemplate());
+        expect(disabledViewItems.find(item => item.label === 'menu.newPaneRight')?.enabled).toBe(false);
+        expect(disabledViewItems.find(item => item.label === 'menu.newPaneDown')?.enabled).toBe(false);
+    });
+
+    it('shows Pages only for mutable PDFs and requires a valid selection', () => {
+        const window = mocks.createWindow(1, 'Window');
+        mocks.windows.push(window);
+        mocks.focusWindow(window);
+        setupMenu();
+
+        setMenuDocumentState(1, {
+            hasDocument: true,
+            canSave: false,
+            supportsPdfMutation: false,
+        });
+        expect(getLastMenuTemplate().find(item => item.label === 'menu.pages')).toBeUndefined();
+
+        setMenuDocumentState(1, {
+            hasDocument: true,
+            canSave: false,
+            supportsPdfMutation: true,
+            canMutatePages: true,
+            selectedPageCount: 0,
+            totalPages: 3,
+        });
+        let pagesItems = getPagesMenuSubmenu(getLastMenuTemplate());
+        expect(pagesItems.find(item => item.label === 'menu.deleteSelectedPages')?.enabled).toBe(false);
+        expect(pagesItems.find(item => item.label === 'menu.rotateClockwise')?.enabled).toBe(false);
+        expect(pagesItems.find(item => item.label === 'menu.insertPages')?.enabled).toBe(true);
+
+        setMenuDocumentState(1, {
+            hasDocument: true,
+            canSave: false,
+            supportsPdfMutation: true,
+            canMutatePages: true,
+            selectedPageCount: 2,
+            totalPages: 3,
+        });
+        pagesItems = getPagesMenuSubmenu(getLastMenuTemplate());
+        expect(pagesItems.find(item => item.label === 'menu.deleteSelectedPages')?.enabled).toBe(true);
+        expect(pagesItems.find(item => item.label === 'menu.extractSelectedPages')?.enabled).toBe(true);
+
+        setMenuDocumentState(1, {
+            hasDocument: true,
+            canSave: false,
+            supportsPdfMutation: true,
+            canMutatePages: true,
+            selectedPageCount: 3,
+            totalPages: 3,
+        });
+        pagesItems = getPagesMenuSubmenu(getLastMenuTemplate());
+        expect(pagesItems.find(item => item.label === 'menu.deleteSelectedPages')?.enabled).toBe(false);
+    });
+
+    it('reports current fit and page-layout state with native radio items', () => {
+        const window = mocks.createWindow(1, 'Window');
+        mocks.windows.push(window);
+        mocks.focusWindow(window);
+        setupMenu();
+
+        setMenuDocumentState(1, {
+            hasDocument: true,
+            canSave: false,
+            interactive: true,
+            supportsViewMode: true,
+            viewMode: 'facing',
+            isFitWidthActive: true,
+        });
+
+        const viewItems = getViewMenuSubmenu(getLastMenuTemplate());
+        expect(viewItems.find(item => item.label === 'menu.fitWidth')).toMatchObject({
+            type: 'radio',
+            checked: true,
+        });
+        expect(viewItems.find(item => item.label === 'menu.facingPages')).toMatchObject({
+            type: 'radio',
+            checked: true,
+        });
+        expect(viewItems.find(item => item.label === 'menu.singlePage')?.checked).toBe(false);
+    });
+
+    it('omits inapplicable exports and assistant controls', () => {
+        const window = mocks.createWindow(1, 'Window');
+        mocks.windows.push(window);
+        mocks.focusWindow(window);
+        setupMenu();
+
+        setMenuDocumentState(1, {
+            hasDocument: true,
+            canSave: false,
+            supportsExportDocx: false,
+            supportsRasterExport: true,
+            canExportRaster: true,
+            canToggleAssistant: false,
+        });
+
+        const fileItems = getFileMenuSubmenu(getLastMenuTemplate());
+        const exportMenu = fileItems.find(item => item.label === 'menu.export');
+        const exportItems = Array.isArray(exportMenu?.submenu) ? exportMenu.submenu : [];
+        expect(exportItems.map((item: IMenuItemLike) => item.label)).toEqual([
+            'menu.exportImages',
+            'menu.exportMultiPageTiff',
+        ]);
+        expect(getViewMenuSubmenu(getLastMenuTemplate()).find(item => item.label === 'menu.assistant')).toBeUndefined();
+    });
+
+    it('uses active-tab applicability for close and window transfer commands', () => {
+        const window = mocks.createWindow(1, 'Window');
+        mocks.windows.push(window);
+        mocks.focusWindow(window);
+        setupMenu();
+        setMenuTabCount(1, 2);
+
+        setMenuDocumentState(1, {
+            hasDocument: false,
+            canSave: false,
+            canCloseTab: false,
+            canTransferActiveTab: false,
+        });
+
+        expect(getFileMenuSubmenu(getLastMenuTemplate()).find(item => item.label === 'menu.closeTab')?.enabled).toBe(false);
+        expect(isMoveToNewWindowEnabled(getLastMenuTemplate())).toBe(false);
     });
 });

@@ -13,6 +13,7 @@ import {
 } from 'es-toolkit/array';
 import { basename } from 'path';
 import type { TWindowTabsAction } from '@contracts/windowTabs';
+import type { IApplicationMenuDocumentState } from '@contracts/electronApiDocuments';
 import { config } from '@electron/config';
 import { createLogger } from '@electron/utils/createLogger';
 import { getRecentFilesSync } from '@electron/recentFiles';
@@ -34,15 +35,45 @@ import { shouldExposeDevToolsMenu } from '@electron/menuDevToolsPolicy';
 
 const logger = createLogger('menu');
 const MENU_REBUILD_DEBOUNCE_MS = 40;
-const menuDocumentStateByWindow = new Map<number, boolean>();
-const menuPrintStateByWindow = new Map<number, boolean>();
-const menuSaveStateByWindow = new Map<number, boolean>();
-const menuSaveAsStateByWindow = new Map<number, boolean>();
-const menuRepairSaveStateByWindow = new Map<number, boolean>();
-const menuOptimizePdfStateByWindow = new Map<number, boolean>();
-const menuInteractiveStateByWindow = new Map<number, boolean>();
-const menuContinuousScrollCapabilityByWindow = new Map<number, boolean>();
-const menuContinuousScrollStateByWindow = new Map<number, boolean>();
+type TResolvedApplicationMenuDocumentState = Required<IApplicationMenuDocumentState>;
+
+const EMPTY_MENU_DOCUMENT_STATE: TResolvedApplicationMenuDocumentState = {
+    hasDocument: false,
+    interactive: false,
+    canSave: false,
+    supportsSaveAs: false,
+    canSaveAs: false,
+    supportsRepairSave: false,
+    canRepairSave: false,
+    supportsOptimizePdf: false,
+    canOptimizePdf: false,
+    supportsPrint: false,
+    canPrint: false,
+    supportsExportDocx: false,
+    canExportDocx: false,
+    supportsRasterExport: false,
+    canExportRaster: false,
+    canUndo: false,
+    canRedo: false,
+    supportsPdfMutation: false,
+    canMutatePages: false,
+    selectedPageCount: 0,
+    totalPages: 0,
+    supportsContinuousScroll: false,
+    canContinuousScroll: false,
+    continuousScroll: false,
+    supportsViewMode: false,
+    viewMode: 'single',
+    isActualSizeActive: false,
+    isFitWidthActive: false,
+    isFitHeightActive: false,
+    canToggleAssistant: false,
+    canCreatePane: true,
+    canCloseTab: false,
+    canTransferActiveTab: false,
+};
+
+const menuDocumentStateByWindow = new Map<number, TResolvedApplicationMenuDocumentState>();
 const menuTabCountByWindow = new Map<number, number>();
 const trackedWindowIds = new Set<number>();
 let listenersRegistered = false;
@@ -57,9 +88,6 @@ type TNativeMenuEventMap = IDocumentsEventMap & Pick<
     | typeof CORE_IPC_EVENT_CHANNELS.menuNewTab
     | typeof CORE_IPC_EVENT_CHANNELS.menuCloseTab
     | typeof CORE_IPC_EVENT_CHANNELS.menuSplitEditor
-    | typeof CORE_IPC_EVENT_CHANNELS.menuFocusEditorPane
-    | typeof CORE_IPC_EVENT_CHANNELS.menuMoveTabToPane
-    | typeof CORE_IPC_EVENT_CHANNELS.menuCopyTabToPane
 >;
 type TNativeMenuChannel = Extract<keyof TNativeMenuEventMap, string>;
 type TNativeMenuArgs<TChannel extends TNativeMenuChannel> =
@@ -112,51 +140,9 @@ function resolveWindowFromMenuContext(window: BaseWindow | undefined) {
 }
 
 function getWindowDocumentState(window: BrowserWindow | null) {
-    if (!window) {
-        return false;
-    }
-
-    return menuDocumentStateByWindow.get(window.id) ?? false;
-}
-
-function getWindowSaveState(window: BrowserWindow | null) {
-    if (!window) {
-        return false;
-    }
-
-    return menuSaveStateByWindow.get(window.id) ?? getWindowDocumentState(window);
-}
-
-function getWindowSaveAsState(window: BrowserWindow | null) {
-    if (!window) {
-        return false;
-    }
-
-    return menuSaveAsStateByWindow.get(window.id) ?? getWindowDocumentState(window);
-}
-
-function getWindowPrintState(window: BrowserWindow | null) {
-    if (!window) {
-        return false;
-    }
-
-    return menuPrintStateByWindow.get(window.id) ?? getWindowDocumentState(window);
-}
-
-function getWindowRepairSaveState(window: BrowserWindow | null) {
-    if (!window) {
-        return false;
-    }
-
-    return menuRepairSaveStateByWindow.get(window.id) ?? getWindowDocumentState(window);
-}
-
-function getWindowOptimizePdfState(window: BrowserWindow | null) {
-    if (!window) {
-        return false;
-    }
-
-    return menuOptimizePdfStateByWindow.get(window.id) ?? getWindowRepairSaveState(window);
+    return window
+        ? menuDocumentStateByWindow.get(window.id) ?? EMPTY_MENU_DOCUMENT_STATE
+        : EMPTY_MENU_DOCUMENT_STATE;
 }
 
 function getWindowTabCount(window: BrowserWindow | null) {
@@ -165,18 +151,6 @@ function getWindowTabCount(window: BrowserWindow | null) {
     }
 
     return menuTabCountByWindow.get(window.id) ?? 0;
-}
-
-function getWindowInteractiveState(window: BrowserWindow | null) {
-    return window ? menuInteractiveStateByWindow.get(window.id) ?? getWindowDocumentState(window) : false;
-}
-
-function getWindowContinuousScrollCapability(window: BrowserWindow | null) {
-    return window ? menuContinuousScrollCapabilityByWindow.get(window.id) ?? false : false;
-}
-
-function getWindowContinuousScrollState(window: BrowserWindow | null) {
-    return window ? menuContinuousScrollStateByWindow.get(window.id) ?? false : false;
 }
 
 function getWindowDisplayLabel(window: BrowserWindow, duplicateCountByTitle: Record<string, number>) {
@@ -374,14 +348,28 @@ function buildRecentFilesSubmenu(): MenuItemConstructorOptions[] {
     ];
 }
 
-function getFileMenu(
-    documentActionsEnabled: boolean,
-    printActionEnabled: boolean,
-    saveActionEnabled: boolean,
-    saveAsActionEnabled: boolean,
-    repairSaveActionEnabled: boolean,
-    optimizePdfActionEnabled: boolean,
-): MenuItemConstructorOptions {
+function getFileMenu(state: TResolvedApplicationMenuDocumentState): MenuItemConstructorOptions {
+    const exportItems: MenuItemConstructorOptions[] = [
+        ...(state.supportsExportDocx ? [createWindowMenuAction({
+            label: te('menu.exportDocx'),
+            accelerator: 'CmdOrCtrl+Shift+E',
+            enabled: state.canExportDocx,
+            channel: DOCUMENTS_EVENT_CHANNELS.menuExportDocx,
+        })] : []),
+        ...(state.supportsRasterExport ? [
+            createWindowMenuAction({
+                label: te('menu.exportImages'),
+                enabled: state.canExportRaster,
+                channel: DOCUMENTS_EVENT_CHANNELS.menuExportImages,
+            }),
+            createWindowMenuAction({
+                label: te('menu.exportMultiPageTiff'),
+                enabled: state.canExportRaster,
+                channel: DOCUMENTS_EVENT_CHANNELS.menuExportMultiPageTiff,
+            }),
+        ] : []),
+    ];
+
     return {
         label: te('menu.file'),
         submenu: [
@@ -397,55 +385,42 @@ function getFileMenu(
             createWindowMenuAction({
                 label: te('menu.save'),
                 accelerator: 'CmdOrCtrl+S',
-                enabled: saveActionEnabled,
+                enabled: state.canSave,
                 channel: DOCUMENTS_EVENT_CHANNELS.menuSave,
             }),
-            createWindowMenuAction({
+            ...(state.supportsRepairSave ? [createWindowMenuAction({
                 label: te('menu.repairAndSave'),
-                enabled: repairSaveActionEnabled,
+                enabled: state.canRepairSave,
                 channel: DOCUMENTS_EVENT_CHANNELS.menuRepairSave,
-            }),
-            createWindowMenuAction({
+            })] : []),
+            ...(state.supportsOptimizePdf ? [createWindowMenuAction({
                 label: te('menu.optimizePdfForInteraction'),
-                enabled: optimizePdfActionEnabled,
+                enabled: state.canOptimizePdf,
                 channel: DOCUMENTS_EVENT_CHANNELS.menuOptimizePdfForInteraction,
-            }),
-            createWindowMenuAction({
+            })] : []),
+            ...(state.supportsSaveAs ? [createWindowMenuAction({
                 label: te('menu.saveAs'),
                 accelerator: 'CmdOrCtrl+Shift+S',
-                enabled: saveAsActionEnabled,
+                enabled: state.canSaveAs,
                 channel: DOCUMENTS_EVENT_CHANNELS.menuSaveAs,
-            }),
-            createWindowMenuAction({
-                label: te('menu.print'),
-                accelerator: 'CmdOrCtrl+P',
-                enabled: printActionEnabled,
-                channel: DOCUMENTS_EVENT_CHANNELS.menuPrint,
-            }),
-            createWindowMenuAction({
-                label: te('menu.printCurrentPage'),
-                enabled: printActionEnabled,
-                channel: DOCUMENTS_EVENT_CHANNELS.menuPrintCurrentPage,
-            }),
-            {
+            })] : []),
+            ...(state.supportsPrint ? [
+                createWindowMenuAction({
+                    label: te('menu.print'),
+                    accelerator: 'CmdOrCtrl+P',
+                    enabled: state.canPrint,
+                    channel: DOCUMENTS_EVENT_CHANNELS.menuPrint,
+                }),
+                createWindowMenuAction({
+                    label: te('menu.printCurrentPage'),
+                    enabled: state.canPrint,
+                    channel: DOCUMENTS_EVENT_CHANNELS.menuPrintCurrentPage,
+                }),
+            ] : []),
+            ...(exportItems.length > 0 ? [{
                 label: te('menu.export'),
-                enabled: documentActionsEnabled,
-                submenu: [
-                    createWindowMenuAction({
-                        label: te('menu.exportDocx'),
-                        accelerator: 'CmdOrCtrl+Shift+E',
-                        channel: DOCUMENTS_EVENT_CHANNELS.menuExportDocx,
-                    }),
-                    createWindowMenuAction({
-                        label: te('menu.exportImages'),
-                        channel: DOCUMENTS_EVENT_CHANNELS.menuExportImages,
-                    }),
-                    createWindowMenuAction({
-                        label: te('menu.exportMultiPageTiff'),
-                        channel: DOCUMENTS_EVENT_CHANNELS.menuExportMultiPageTiff,
-                    }),
-                ],
-            },
+                submenu: exportItems,
+            } satisfies MenuItemConstructorOptions] : []),
             { type: 'separator' },
             createWindowMenuAction({
                 label: te('menu.newTab'),
@@ -455,6 +430,7 @@ function getFileMenu(
             createWindowMenuAction({
                 label: te('menu.closeTab'),
                 accelerator: 'CmdOrCtrl+W',
+                enabled: state.canCloseTab,
                 channel: CORE_IPC_EVENT_CHANNELS.menuCloseTab,
             }),
             ...(config.isMac ? [] : [
@@ -471,34 +447,36 @@ function getFileMenu(
     };
 }
 
-function getEditMenu(documentActionsEnabled: boolean): MenuItemConstructorOptions {
+function getEditMenu(state: TResolvedApplicationMenuDocumentState): MenuItemConstructorOptions {
     return {
         label: te('menu.edit'),
         submenu: [
-            createWindowMenuAction({
-                label: te('menu.insertImageFromFile'),
-                accelerator: 'CmdOrCtrl+Shift+I',
-                enabled: documentActionsEnabled,
-                channel: DOCUMENTS_EVENT_CHANNELS.menuInsertImageFromFile,
-            }),
-            createWindowMenuAction({
-                label: te('menu.pasteImageFromClipboard'),
-                accelerator: 'CmdOrCtrl+Shift+V',
-                enabled: documentActionsEnabled,
-                channel: DOCUMENTS_EVENT_CHANNELS.menuPasteImageFromClipboard,
-            }),
-            { type: 'separator' },
+            ...(state.supportsPdfMutation ? [
+                createWindowMenuAction({
+                    label: te('menu.insertImageFromFile'),
+                    accelerator: 'CmdOrCtrl+Shift+I',
+                    enabled: state.canMutatePages,
+                    channel: DOCUMENTS_EVENT_CHANNELS.menuInsertImageFromFile,
+                }),
+                createWindowMenuAction({
+                    label: te('menu.pasteImageFromClipboard'),
+                    accelerator: 'CmdOrCtrl+Shift+V',
+                    enabled: state.canMutatePages,
+                    channel: DOCUMENTS_EVENT_CHANNELS.menuPasteImageFromClipboard,
+                }),
+                { type: 'separator' as const },
+            ] : []),
             createTextAwareWindowMenuAction({
                 label: te('menu.undo'),
                 accelerator: 'CmdOrCtrl+Z',
-                enabled: documentActionsEnabled,
+                enabled: state.canUndo,
                 channel: DOCUMENTS_EVENT_CHANNELS.menuUndo,
                 nativeEditCommand: 'undo',
             }),
             createTextAwareWindowMenuAction({
                 label: te('menu.redo'),
                 accelerator: config.isMac ? 'Cmd+Shift+Z' : 'Ctrl+Y',
-                enabled: documentActionsEnabled,
+                enabled: state.canRedo,
                 channel: DOCUMENTS_EVENT_CHANNELS.menuRedo,
                 nativeEditCommand: 'redo',
             }),
@@ -511,42 +489,45 @@ function getEditMenu(documentActionsEnabled: boolean): MenuItemConstructorOption
     };
 }
 
-function getPagesMenu(documentActionsEnabled: boolean): MenuItemConstructorOptions {
+function getPagesMenu(state: TResolvedApplicationMenuDocumentState): MenuItemConstructorOptions {
+    const hasSelection = state.selectedPageCount > 0;
+    const canOperateOnSelection = state.canMutatePages && hasSelection;
     return {
         label: te('menu.pages'),
-        enabled: documentActionsEnabled,
         submenu: [
             createWindowMenuAction({
                 label: te('menu.deleteSelectedPages'),
+                enabled: canOperateOnSelection && state.selectedPageCount < state.totalPages,
                 channel: DOCUMENTS_EVENT_CHANNELS.menuDeletePages,
             }),
             createWindowMenuAction({
                 label: te('menu.extractSelectedPages'),
+                enabled: canOperateOnSelection,
                 channel: DOCUMENTS_EVENT_CHANNELS.menuExtractPages,
             }),
             { type: 'separator' },
             createWindowMenuAction({
                 label: te('menu.rotateClockwise'),
+                enabled: canOperateOnSelection,
                 channel: DOCUMENTS_EVENT_CHANNELS.menuRotateCw,
             }),
             createWindowMenuAction({
                 label: te('menu.rotateCounterclockwise'),
+                enabled: canOperateOnSelection,
                 channel: DOCUMENTS_EVENT_CHANNELS.menuRotateCcw,
             }),
             { type: 'separator' },
             createWindowMenuAction({
                 label: te('menu.insertPages'),
+                enabled: state.canMutatePages,
                 channel: DOCUMENTS_EVENT_CHANNELS.menuInsertPages,
             }),
         ],
     };
 }
 
-function getViewMenu(
-    documentActionsEnabled: boolean,
-    continuousScrollEnabled: boolean,
-    continuousScrollChecked: boolean,
-): MenuItemConstructorOptions {
+function getViewMenu(state: TResolvedApplicationMenuDocumentState): MenuItemConstructorOptions {
+    const documentActionsEnabled = state.interactive;
     return {
         label: te('menu.view'),
         submenu: [
@@ -562,164 +543,101 @@ function getViewMenu(
                 enabled: documentActionsEnabled,
                 channel: DOCUMENTS_EVENT_CHANNELS.menuZoomOut,
             }),
-            createWindowMenuAction({
-                label: te('menu.actualSize'),
-                accelerator: 'CmdOrCtrl+0',
-                enabled: documentActionsEnabled,
-                channel: DOCUMENTS_EVENT_CHANNELS.menuActualSize,
-            }),
             { type: 'separator' },
-            createWindowMenuAction({
-                label: te('menu.fitWidth'),
-                accelerator: 'CmdOrCtrl+1',
-                enabled: documentActionsEnabled,
-                channel: DOCUMENTS_EVENT_CHANNELS.menuFitWidth,
-            }),
-            createWindowMenuAction({
-                label: te('menu.fitHeight'),
-                accelerator: 'CmdOrCtrl+2',
-                enabled: documentActionsEnabled,
-                channel: DOCUMENTS_EVENT_CHANNELS.menuFitHeight,
-            }),
             {
                 ...createWindowMenuAction({
-                    label: te('zoom.continuousScroll'),
-                    enabled: documentActionsEnabled && continuousScrollEnabled,
-                    channel: DOCUMENTS_EVENT_CHANNELS.menuToggleContinuousScroll,
+                    label: te('menu.actualSize'),
+                    accelerator: 'CmdOrCtrl+0',
+                    enabled: documentActionsEnabled,
+                    channel: DOCUMENTS_EVENT_CHANNELS.menuActualSize,
                 }),
-                type: 'checkbox',
-                checked: continuousScrollChecked,
+                type: 'radio',
+                checked: state.isActualSizeActive,
             },
-            { type: 'separator' },
-            createWindowMenuAction({
-                label: te('menu.singlePage'),
-                enabled: documentActionsEnabled,
-                channel: DOCUMENTS_EVENT_CHANNELS.menuViewModeSingle,
-            }),
-            createWindowMenuAction({
-                label: te('menu.facingPages'),
-                enabled: documentActionsEnabled,
-                channel: DOCUMENTS_EVENT_CHANNELS.menuViewModeFacing,
-            }),
-            createWindowMenuAction({
-                label: te('menu.facingWithFirstSingle'),
-                enabled: documentActionsEnabled,
-                channel: DOCUMENTS_EVENT_CHANNELS.menuViewModeFacingFirstSingle,
-            }),
-            { type: 'separator' },
-            createWindowMenuAction({
-                label: te('menu.assistant'),
-                accelerator: 'CmdOrCtrl+Shift+A',
-                enabled: documentActionsEnabled,
-                channel: DOCUMENTS_EVENT_CHANNELS.menuToggleAssistant,
-            }),
-            { type: 'separator' },
             {
-                label: te('menu.editorPanes'),
-                submenu: [
-                    {
-                        label: te('menu.splitEditor'),
-                        submenu: [
-                            createWindowMenuAction({
-                                label: te('menu.splitEditorRight'),
-                                channel: CORE_IPC_EVENT_CHANNELS.menuSplitEditor,
-                                accelerator: 'CmdOrCtrl+\\',
-                                args: ['right'],
-                            }),
-                            createWindowMenuAction({
-                                label: te('menu.splitEditorLeft'),
-                                channel: CORE_IPC_EVENT_CHANNELS.menuSplitEditor,
-                                args: ['left'],
-                            }),
-                            createWindowMenuAction({
-                                label: te('menu.splitEditorUp'),
-                                channel: CORE_IPC_EVENT_CHANNELS.menuSplitEditor,
-                                args: ['up'],
-                            }),
-                            createWindowMenuAction({
-                                label: te('menu.splitEditorDown'),
-                                channel: CORE_IPC_EVENT_CHANNELS.menuSplitEditor,
-                                args: ['down'],
-                            }),
-                        ],
-                    },
-                    {
-                        label: te('menu.focusEditorPane'),
-                        submenu: [
-                            createWindowMenuAction({
-                                label: te('menu.focusPaneRight'),
-                                channel: CORE_IPC_EVENT_CHANNELS.menuFocusEditorPane,
-                                args: ['right'],
-                            }),
-                            createWindowMenuAction({
-                                label: te('menu.focusPaneLeft'),
-                                channel: CORE_IPC_EVENT_CHANNELS.menuFocusEditorPane,
-                                args: ['left'],
-                            }),
-                            createWindowMenuAction({
-                                label: te('menu.focusPaneUp'),
-                                channel: CORE_IPC_EVENT_CHANNELS.menuFocusEditorPane,
-                                args: ['up'],
-                            }),
-                            createWindowMenuAction({
-                                label: te('menu.focusPaneDown'),
-                                channel: CORE_IPC_EVENT_CHANNELS.menuFocusEditorPane,
-                                args: ['down'],
-                            }),
-                        ],
-                    },
-                    {
-                        label: te('menu.moveTabToPane'),
-                        submenu: [
-                            createWindowMenuAction({
-                                label: te('menu.moveTabRight'),
-                                channel: CORE_IPC_EVENT_CHANNELS.menuMoveTabToPane,
-                                args: ['right'],
-                            }),
-                            createWindowMenuAction({
-                                label: te('menu.moveTabLeft'),
-                                channel: CORE_IPC_EVENT_CHANNELS.menuMoveTabToPane,
-                                args: ['left'],
-                            }),
-                            createWindowMenuAction({
-                                label: te('menu.moveTabUp'),
-                                channel: CORE_IPC_EVENT_CHANNELS.menuMoveTabToPane,
-                                args: ['up'],
-                            }),
-                            createWindowMenuAction({
-                                label: te('menu.moveTabDown'),
-                                channel: CORE_IPC_EVENT_CHANNELS.menuMoveTabToPane,
-                                args: ['down'],
-                            }),
-                        ],
-                    },
-                    {
-                        label: te('menu.copyTabToPane'),
-                        submenu: [
-                            createWindowMenuAction({
-                                label: te('menu.copyTabRight'),
-                                channel: CORE_IPC_EVENT_CHANNELS.menuCopyTabToPane,
-                                args: ['right'],
-                            }),
-                            createWindowMenuAction({
-                                label: te('menu.copyTabLeft'),
-                                channel: CORE_IPC_EVENT_CHANNELS.menuCopyTabToPane,
-                                args: ['left'],
-                            }),
-                            createWindowMenuAction({
-                                label: te('menu.copyTabUp'),
-                                channel: CORE_IPC_EVENT_CHANNELS.menuCopyTabToPane,
-                                args: ['up'],
-                            }),
-                            createWindowMenuAction({
-                                label: te('menu.copyTabDown'),
-                                channel: CORE_IPC_EVENT_CHANNELS.menuCopyTabToPane,
-                                args: ['down'],
-                            }),
-                        ],
-                    },
-                ],
+                ...createWindowMenuAction({
+                    label: te('menu.fitWidth'),
+                    accelerator: 'CmdOrCtrl+1',
+                    enabled: documentActionsEnabled,
+                    channel: DOCUMENTS_EVENT_CHANNELS.menuFitWidth,
+                }),
+                type: 'radio',
+                checked: state.isFitWidthActive,
             },
+            {
+                ...createWindowMenuAction({
+                    label: te('menu.fitHeight'),
+                    accelerator: 'CmdOrCtrl+2',
+                    enabled: documentActionsEnabled,
+                    channel: DOCUMENTS_EVENT_CHANNELS.menuFitHeight,
+                }),
+                type: 'radio',
+                checked: state.isFitHeightActive,
+            },
+            ...(state.supportsContinuousScroll ? [
+                { type: 'separator' as const },
+                {
+                    ...createWindowMenuAction({
+                        label: te('zoom.continuousScroll'),
+                        enabled: state.canContinuousScroll,
+                        channel: DOCUMENTS_EVENT_CHANNELS.menuToggleContinuousScroll,
+                    }),
+                    type: 'checkbox' as const,
+                    checked: state.continuousScroll,
+                },
+            ] : []),
+            ...(state.supportsViewMode ? [
+                { type: 'separator' as const },
+                {
+                    ...createWindowMenuAction({
+                        label: te('menu.singlePage'),
+                        enabled: documentActionsEnabled,
+                        channel: DOCUMENTS_EVENT_CHANNELS.menuViewModeSingle,
+                    }),
+                    type: 'radio' as const,
+                    checked: state.viewMode === 'single',
+                },
+                {
+                    ...createWindowMenuAction({
+                        label: te('menu.facingPages'),
+                        enabled: documentActionsEnabled,
+                        channel: DOCUMENTS_EVENT_CHANNELS.menuViewModeFacing,
+                    }),
+                    type: 'radio' as const,
+                    checked: state.viewMode === 'facing',
+                },
+                {
+                    ...createWindowMenuAction({
+                        label: te('menu.facingWithFirstSingle'),
+                        enabled: documentActionsEnabled,
+                        channel: DOCUMENTS_EVENT_CHANNELS.menuViewModeFacingFirstSingle,
+                    }),
+                    type: 'radio' as const,
+                    checked: state.viewMode === 'facing-first-single',
+                },
+            ] : []),
+            ...(state.canToggleAssistant ? [
+                { type: 'separator' as const },
+                createWindowMenuAction({
+                    label: te('menu.assistant'),
+                    accelerator: 'CmdOrCtrl+Shift+A',
+                    channel: DOCUMENTS_EVENT_CHANNELS.menuToggleAssistant,
+                }),
+            ] : []),
+            { type: 'separator' },
+            createWindowMenuAction({
+                label: te('menu.newPaneRight'),
+                channel: CORE_IPC_EVENT_CHANNELS.menuSplitEditor,
+                accelerator: 'CmdOrCtrl+\\',
+                enabled: state.canCreatePane,
+                args: ['right'],
+            }),
+            createWindowMenuAction({
+                label: te('menu.newPaneDown'),
+                channel: CORE_IPC_EVENT_CHANNELS.menuSplitEditor,
+                enabled: state.canCreatePane,
+                args: ['down'],
+            }),
             ...(shouldExposeDevToolsMenu()
                 ? [
                     { type: 'separator' as const },
@@ -730,12 +648,15 @@ function getViewMenu(
     };
 }
 
-function getWindowMenu(activeWindow: BrowserWindow | null): MenuItemConstructorOptions {
+function getWindowMenu(
+    activeWindow: BrowserWindow | null,
+    state: TResolvedApplicationMenuDocumentState,
+): MenuItemConstructorOptions {
     const sourceWindowId = activeWindow?.id ?? null;
     const hasTargets = sourceWindowId === null
         ? false
         : getOtherWindows(sourceWindowId).length > 0;
-    const canMoveActiveTabToNewWindow = getWindowTabCount(activeWindow) > 1;
+    const canMoveActiveTabToNewWindow = state.canTransferActiveTab && getWindowTabCount(activeWindow) > 1;
 
     return {
         label: te('menu.window'),
@@ -752,7 +673,7 @@ function getWindowMenu(activeWindow: BrowserWindow | null): MenuItemConstructorO
             },
             {
                 label: te('menu.moveActiveTabToWindow'),
-                enabled: sourceWindowId !== null && hasTargets,
+                enabled: sourceWindowId !== null && state.canTransferActiveTab && hasTargets,
                 submenu: sourceWindowId === null
                     ? [{
                         label: te('menu.noOtherWindows'),
@@ -816,28 +737,18 @@ function getMacAppMenu(): MenuItemConstructorOptions {
 
 function buildMenuTemplate(activeWindow: BrowserWindow | null): MenuItemConstructorOptions[] {
     const template: MenuItemConstructorOptions[] = [];
-    const documentActionsEnabled = getWindowDocumentState(activeWindow);
-    const viewActionsEnabled = getWindowInteractiveState(activeWindow);
-    const printActionEnabled = getWindowPrintState(activeWindow);
-    const saveActionEnabled = getWindowSaveState(activeWindow);
-    const saveAsActionEnabled = getWindowSaveAsState(activeWindow);
-    const repairSaveActionEnabled = getWindowRepairSaveState(activeWindow);
-    const optimizePdfActionEnabled = getWindowOptimizePdfState(activeWindow);
+    const state = getWindowDocumentState(activeWindow);
 
     if (config.isMac) {
         template.push(getMacAppMenu());
     }
 
     template.push(
-        getFileMenu(documentActionsEnabled, printActionEnabled, saveActionEnabled, saveAsActionEnabled, repairSaveActionEnabled, optimizePdfActionEnabled),
-        getEditMenu(documentActionsEnabled),
-        getPagesMenu(documentActionsEnabled),
-        getViewMenu(
-            viewActionsEnabled,
-            getWindowContinuousScrollCapability(activeWindow),
-            getWindowContinuousScrollState(activeWindow),
-        ),
-        getWindowMenu(activeWindow),
+        getFileMenu(state),
+        getEditMenu(state),
+        ...(state.supportsPdfMutation ? [getPagesMenu(state)] : []),
+        getViewMenu(state),
+        getWindowMenu(activeWindow, state),
         getHelpMenu(),
     );
 
@@ -897,14 +808,6 @@ function trackWindowForMenu(window: BrowserWindow) {
     window.on('closed', () => {
         trackedWindowIds.delete(window.id);
         menuDocumentStateByWindow.delete(window.id);
-        menuPrintStateByWindow.delete(window.id);
-        menuSaveStateByWindow.delete(window.id);
-        menuSaveAsStateByWindow.delete(window.id);
-        menuRepairSaveStateByWindow.delete(window.id);
-        menuOptimizePdfStateByWindow.delete(window.id);
-        menuInteractiveStateByWindow.delete(window.id);
-        menuContinuousScrollCapabilityByWindow.delete(window.id);
-        menuContinuousScrollStateByWindow.delete(window.id);
         menuTabCountByWindow.delete(window.id);
         rebuildMenu();
     });
@@ -948,67 +851,61 @@ export function refreshMenu() {
     rebuildMenu(true);
 }
 
-export function setMenuDocumentState(windowId: number, state: boolean | {
-    hasDocument: boolean;
-    canPrint?: boolean;
-    canSave: boolean;
-    canSaveAs?: boolean;
-    canRepairSave?: boolean;
-    canOptimizePdf?: boolean;
-    interactive?: boolean;
-    canContinuousScroll?: boolean;
-    continuousScroll?: boolean;
-}) {
-    const normalizedDocument = typeof state === 'boolean'
-        ? Boolean(state)
-        : Boolean(state.hasDocument);
-    const normalizedPrint = typeof state === 'boolean'
-        ? normalizedDocument
-        : state.canPrint ?? normalizedDocument;
-    const normalizedSave = typeof state === 'boolean'
-        ? normalizedDocument
-        : Boolean(state.canSave);
-    const normalizedSaveAs = typeof state === 'boolean'
-        ? normalizedDocument
-        : state.canSaveAs ?? normalizedDocument;
-    const normalizedRepairSave = typeof state === 'boolean'
-        ? normalizedDocument
-        : state.canRepairSave ?? normalizedDocument;
-    const normalizedOptimizePdf = typeof state === 'boolean'
-        ? normalizedDocument
-        : state.canOptimizePdf ?? normalizedRepairSave;
-    const normalizedInteractive = typeof state === 'boolean'
-        ? normalizedDocument
-        : state.interactive ?? normalizedDocument;
-    const normalizedContinuousScrollCapability = typeof state === 'boolean'
-        ? false
-        : state.canContinuousScroll ?? false;
-    const normalizedContinuousScroll = typeof state === 'boolean'
-        ? false
-        : state.continuousScroll ?? false;
-    if (
-        menuDocumentStateByWindow.get(windowId) === normalizedDocument
-        && menuPrintStateByWindow.get(windowId) === normalizedPrint
-        && menuSaveStateByWindow.get(windowId) === normalizedSave
-        && menuSaveAsStateByWindow.get(windowId) === normalizedSaveAs
-        && menuRepairSaveStateByWindow.get(windowId) === normalizedRepairSave
-        && menuOptimizePdfStateByWindow.get(windowId) === normalizedOptimizePdf
-        && menuInteractiveStateByWindow.get(windowId) === normalizedInteractive
-        && menuContinuousScrollCapabilityByWindow.get(windowId) === normalizedContinuousScrollCapability
-        && menuContinuousScrollStateByWindow.get(windowId) === normalizedContinuousScroll
-    ) {
+function normalizeMenuDocumentState(
+    state: boolean | IApplicationMenuDocumentState,
+): TResolvedApplicationMenuDocumentState {
+    const hasDocument = typeof state === 'boolean' ? state : state.hasDocument;
+    const value = typeof state === 'boolean' ? null : state;
+    const interactive = value?.interactive ?? hasDocument;
+    const canRepairSave = value?.canRepairSave ?? hasDocument;
+    const canContinuousScroll = value?.canContinuousScroll ?? false;
+    return {
+        hasDocument,
+        interactive,
+        canSave: value?.canSave ?? hasDocument,
+        supportsSaveAs: value?.supportsSaveAs ?? hasDocument,
+        canSaveAs: value?.canSaveAs ?? hasDocument,
+        supportsRepairSave: value?.supportsRepairSave ?? hasDocument,
+        canRepairSave,
+        supportsOptimizePdf: value?.supportsOptimizePdf ?? hasDocument,
+        canOptimizePdf: value?.canOptimizePdf ?? canRepairSave,
+        supportsPrint: value?.supportsPrint ?? hasDocument,
+        canPrint: value?.canPrint ?? hasDocument,
+        supportsExportDocx: value?.supportsExportDocx ?? hasDocument,
+        canExportDocx: value?.canExportDocx ?? hasDocument,
+        supportsRasterExport: value?.supportsRasterExport ?? hasDocument,
+        canExportRaster: value?.canExportRaster ?? hasDocument,
+        canUndo: value?.canUndo ?? hasDocument,
+        canRedo: value?.canRedo ?? hasDocument,
+        supportsPdfMutation: value?.supportsPdfMutation ?? hasDocument,
+        canMutatePages: value?.canMutatePages ?? hasDocument,
+        selectedPageCount: value?.selectedPageCount ?? 0,
+        totalPages: value?.totalPages ?? 0,
+        supportsContinuousScroll: value?.supportsContinuousScroll ?? canContinuousScroll,
+        canContinuousScroll: interactive && canContinuousScroll,
+        continuousScroll: value?.continuousScroll ?? false,
+        supportsViewMode: value?.supportsViewMode ?? hasDocument,
+        viewMode: value?.viewMode ?? 'single',
+        isActualSizeActive: value?.isActualSizeActive ?? false,
+        isFitWidthActive: value?.isFitWidthActive ?? false,
+        isFitHeightActive: value?.isFitHeightActive ?? false,
+        canToggleAssistant: value?.canToggleAssistant ?? hasDocument,
+        canCreatePane: value?.canCreatePane ?? true,
+        canCloseTab: value?.canCloseTab ?? true,
+        canTransferActiveTab: value?.canTransferActiveTab ?? true,
+    };
+}
+
+export function setMenuDocumentState(
+    windowId: number,
+    state: boolean | IApplicationMenuDocumentState,
+) {
+    const normalized = normalizeMenuDocumentState(state);
+    if (JSON.stringify(menuDocumentStateByWindow.get(windowId)) === JSON.stringify(normalized)) {
         return;
     }
 
-    menuDocumentStateByWindow.set(windowId, normalizedDocument);
-    menuPrintStateByWindow.set(windowId, normalizedPrint);
-    menuSaveStateByWindow.set(windowId, normalizedSave);
-    menuSaveAsStateByWindow.set(windowId, normalizedSaveAs);
-    menuRepairSaveStateByWindow.set(windowId, normalizedRepairSave);
-    menuOptimizePdfStateByWindow.set(windowId, normalizedOptimizePdf);
-    menuInteractiveStateByWindow.set(windowId, normalizedInteractive);
-    menuContinuousScrollCapabilityByWindow.set(windowId, normalizedContinuousScrollCapability);
-    menuContinuousScrollStateByWindow.set(windowId, normalizedContinuousScroll);
+    menuDocumentStateByWindow.set(windowId, normalized);
     rebuildMenuForWindowStateChange(windowId);
 }
 

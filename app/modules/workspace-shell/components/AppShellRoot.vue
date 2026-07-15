@@ -167,7 +167,7 @@ import { useAppShellWorkspaceRouting } from '@app/modules/workspace-shell/compos
 import { useExternalFileDrop } from '@app/modules/workspace-shell/composables/useExternalFileDrop';
 import { useDirtyTabCloseDialog } from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
 import { useShellWorkspaceToolbar } from '@app/modules/workspace-shell/composables/useShellWorkspaceToolbar';
-import { useMenuSync } from '@app/modules/workspace-shell/composables/useMenuSync';
+import { useAppShellMenuSync } from '@app/modules/workspace-shell/composables/useMenuSync';
 import { useWorkspaceShellState } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
 import { useWorkspaceDocumentSessions } from '@app/modules/workspace-shell/document-sessions/useWorkspaceDocumentSessions';
 import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
@@ -568,12 +568,6 @@ function handleShellToolbarOverflowSetViewMode(mode: TPdfViewMode) {
     handleShellToolbarOverflowSetViewModeInternal(mode, runFallbackWorkspaceCommand);
 }
 
-useMenuSync({
-    activeDocumentRecord,
-    activeTabId,
-    tabs,
-    shellState,
-});
 const updatesDialogBindings = reactive(useAppShellUpdatesDialog({
     updatesDialog,
     updatesDialogVersion,
@@ -702,18 +696,15 @@ const assistantChatScope = computed<IAgentAssistantChatScope | null>(() => {
     };
 });
 const assistantPanelEnabled = computed(() => isDesktopRuntime.value && appSettings.value.assistantPanelEnabled);
-
 watch(assistantPanelEnabled, (enabled) => {
     if (!enabled) {
         assistantPanelOpen.value = false;
     }
 });
-
 watchEffect(() => {
     assistantPanel.isEnabled.value = assistantPanelEnabled.value && !isFullscreen.value;
     assistantPanel.hasActiveDocument.value = assistantHasActiveDocument.value;
 });
-
 function findEmptyTab() {
     if (activeTabId.value && isTabEmpty(activeTabId.value)) {
         return getTabById(activeTabId.value);
@@ -721,7 +712,6 @@ function findEmptyTab() {
 
     return tabs.value.find(tab => isTabEmpty(tab.id)) ?? null;
 }
-
 function activateTabById(tabId: string) {
     const pane = getPaneByTabId(tabId);
     if (!pane) {
@@ -814,6 +804,16 @@ const {
     moveTabToNewWindow,
     moveTabToWindow,
     handleCloseTab,
+});
+
+useAppShellMenuSync({
+    activeDocumentRecord,
+    activePaneId,
+    activeTabId,
+    assistantPanelEnabled,
+    shellState,
+    tabContextAvailabilityByPane,
+    tabs,
 });
 
 const { cleanup: cleanupExternalFileDrop } = useExternalFileDrop({

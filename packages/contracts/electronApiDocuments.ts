@@ -31,7 +31,10 @@ import {
     isOneOf,
     isRecord,
 } from '@contracts/runtimeGuards';
-import type { IRecentFile } from '@contracts/shared';
+import type {
+    IRecentFile,
+    TPdfViewMode,
+} from '@contracts/shared';
 import type {
     IPdfConformanceProfile,
     IPdfValidationResult,
@@ -471,18 +474,44 @@ export interface IImageExportCapability {
     onProgress: (callback: (progress: IImageExportProgress) => void) => TMenuEventUnsubscribe;
 }
 
+export interface IApplicationMenuDocumentState {
+    hasDocument: boolean;
+    interactive?: boolean;
+    canSave: boolean;
+    supportsSaveAs?: boolean;
+    canSaveAs?: boolean;
+    supportsRepairSave?: boolean;
+    canRepairSave?: boolean;
+    supportsOptimizePdf?: boolean;
+    canOptimizePdf?: boolean;
+    supportsPrint?: boolean;
+    canPrint?: boolean;
+    supportsExportDocx?: boolean;
+    canExportDocx?: boolean;
+    supportsRasterExport?: boolean;
+    canExportRaster?: boolean;
+    canUndo?: boolean;
+    canRedo?: boolean;
+    supportsPdfMutation?: boolean;
+    canMutatePages?: boolean;
+    selectedPageCount?: number;
+    totalPages?: number;
+    supportsContinuousScroll?: boolean;
+    canContinuousScroll?: boolean;
+    continuousScroll?: boolean;
+    supportsViewMode?: boolean;
+    viewMode?: TPdfViewMode;
+    isActualSizeActive?: boolean;
+    isFitWidthActive?: boolean;
+    isFitHeightActive?: boolean;
+    canToggleAssistant?: boolean;
+    canCreatePane?: boolean;
+    canCloseTab?: boolean;
+    canTransferActiveTab?: boolean;
+}
+
 export interface IDocumentsMenuCapability {
-    setMenuDocumentState: (state: boolean | {
-        hasDocument: boolean;
-        canPrint?: boolean;
-        canSave: boolean;
-        canSaveAs?: boolean;
-        canRepairSave?: boolean;
-        canOptimizePdf?: boolean;
-        interactive?: boolean;
-        canContinuousScroll?: boolean;
-        continuousScroll?: boolean;
-    }) => Promise<void>;
+    setMenuDocumentState: (state: boolean | IApplicationMenuDocumentState) => Promise<void>;
     setMenuTabCount: (tabCount: number) => Promise<void>;
     onPdfOptimizeProgress: (callback: (progress: IPdfOptimizeProgress) => void) => TMenuEventUnsubscribe;
     onMenuOpenPdf: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;

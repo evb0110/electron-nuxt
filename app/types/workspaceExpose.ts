@@ -54,6 +54,8 @@ export interface IWorkspaceToolbarSnapshot {
     viewMode: TPdfViewMode;
     currentPage: number;
     totalPages: number;
+    selectedPageCount?: number;
+    isPageOperationInProgress?: boolean;
 }
 
 export interface IWorkspaceViewerCapabilities {
@@ -132,6 +134,8 @@ export function createDefaultWorkspaceToolbarSnapshot(): IWorkspaceToolbarSnapsh
         viewMode: 'single',
         currentPage: 1,
         totalPages: 0,
+        selectedPageCount: 0,
+        isPageOperationInProgress: false,
     };
 }
 

@@ -282,6 +282,11 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
 
     async function copyActiveTab(direction: TPaneDirection) {
         await enqueueTabTransition(async () => {
+            const route = ensureTargetPaneForDirection(direction);
+            if (!route) {
+                return;
+            }
+
             const activeTabPayload = await captureActiveTabPayload();
             if (!activeTabPayload) {
                 return;
@@ -292,11 +297,6 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
                 sourceTab,
                 sourceTabId,
             } = activeTabPayload;
-
-            const route = ensureTargetPaneForDirection(direction);
-            if (!route) {
-                return;
-            }
 
             const targetTab = createTab({
                 paneId: route.targetPaneId,

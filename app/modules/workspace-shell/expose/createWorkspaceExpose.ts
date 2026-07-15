@@ -90,6 +90,7 @@ interface ICreateWorkspaceExposeDeps extends
     handleInsertImageFromFile: () => Promise<void>;
     handlePasteImageFromClipboard: () => Promise<void>;
     selectedThumbnailPages: Ref<number[]>;
+    isPageOperationInProgress?: Ref<boolean>;
     pageOpsDelete: (pages: number[], totalPages: number) => Promise<boolean>;
     pageOpsExtract: (pages: number[]) => Promise<boolean>;
     handlePageRotate: (pages: number[], angle: 90 | 270) => Promise<boolean>;
@@ -268,6 +269,8 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
             viewMode: deps.viewMode.value,
             currentPage,
             totalPages,
+            selectedPageCount: deps.selectedThumbnailPages.value.length,
+            isPageOperationInProgress: deps.isPageOperationInProgress?.value ?? false,
         };
     }
 

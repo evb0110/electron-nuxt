@@ -55,7 +55,7 @@ describe('useMenuSync', () => {
         });
         await nextTick();
 
-        expect(mocks.setMenuDocumentState).toHaveBeenCalledWith({
+        expect(mocks.setMenuDocumentState).toHaveBeenCalledWith(expect.objectContaining({
             hasDocument: false,
             canSave: false,
             canSaveAs: false,
@@ -65,7 +65,7 @@ describe('useMenuSync', () => {
             interactive: false,
             canContinuousScroll: false,
             continuousScroll: true,
-        });
+        }));
         expect(mocks.setMenuTabCount).toHaveBeenCalledWith(1);
 
         activeDocumentRecord.value = createWorkspaceDocumentRecord({toolbarSnapshot: { hasPdf: true }});
@@ -78,7 +78,7 @@ describe('useMenuSync', () => {
         });
         await nextTick();
 
-        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith({
+        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith(expect.objectContaining({
             hasDocument: true,
             canSave: false,
             canSaveAs: false,
@@ -88,7 +88,7 @@ describe('useMenuSync', () => {
             interactive: true,
             canContinuousScroll: false,
             continuousScroll: true,
-        });
+        }));
         expect(mocks.setMenuTabCount).toHaveBeenLastCalledWith(2);
         expect(mocks.legacySetMenuDocumentState).not.toHaveBeenCalled();
         expect(mocks.legacySetMenuTabCount).not.toHaveBeenCalled();
@@ -115,7 +115,7 @@ describe('useMenuSync', () => {
         });
         await nextTick();
 
-        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith({
+        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith(expect.objectContaining({
             hasDocument: true,
             canSave: false,
             canSaveAs: false,
@@ -125,7 +125,7 @@ describe('useMenuSync', () => {
             interactive: true,
             canContinuousScroll: false,
             continuousScroll: true,
-        });
+        }));
 
         activeDocumentRecord.value = createWorkspaceDocumentRecord({
             ...activeDocumentRecord.value,
@@ -136,7 +136,7 @@ describe('useMenuSync', () => {
         });
         await nextTick();
 
-        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith({
+        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith(expect.objectContaining({
             hasDocument: true,
             canSave: true,
             canSaveAs: false,
@@ -146,7 +146,7 @@ describe('useMenuSync', () => {
             interactive: true,
             canContinuousScroll: false,
             continuousScroll: true,
-        });
+        }));
     });
 
     it('syncs save-as availability from viewer capabilities', async () => {
@@ -172,7 +172,7 @@ describe('useMenuSync', () => {
         });
         await nextTick();
 
-        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith({
+        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith(expect.objectContaining({
             hasDocument: true,
             canSave: false,
             canSaveAs: true,
@@ -182,7 +182,7 @@ describe('useMenuSync', () => {
             interactive: true,
             canContinuousScroll: false,
             continuousScroll: true,
-        });
+        }));
 
         activeDocumentRecord.value = createWorkspaceDocumentRecord({
             ...activeDocumentRecord.value,
@@ -196,7 +196,7 @@ describe('useMenuSync', () => {
         });
         await nextTick();
 
-        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith({
+        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith(expect.objectContaining({
             hasDocument: true,
             canSave: false,
             canSaveAs: false,
@@ -206,7 +206,7 @@ describe('useMenuSync', () => {
             interactive: true,
             canContinuousScroll: false,
             continuousScroll: true,
-        });
+        }));
     });
 
     it('syncs optimize availability independently from repair availability', async () => {
@@ -230,7 +230,7 @@ describe('useMenuSync', () => {
         });
         await nextTick();
 
-        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith({
+        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith(expect.objectContaining({
             hasDocument: true,
             canSave: true,
             canSaveAs: false,
@@ -240,7 +240,7 @@ describe('useMenuSync', () => {
             interactive: true,
             canContinuousScroll: false,
             continuousScroll: true,
-        });
+        }));
 
         activeDocumentRecord.value = createWorkspaceDocumentRecord({
             ...activeDocumentRecord.value,
@@ -251,7 +251,7 @@ describe('useMenuSync', () => {
         });
         await nextTick();
 
-        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith({
+        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith(expect.objectContaining({
             hasDocument: true,
             canSave: true,
             canSaveAs: false,
@@ -261,7 +261,7 @@ describe('useMenuSync', () => {
             interactive: true,
             canContinuousScroll: false,
             continuousScroll: true,
-        });
+        }));
     });
 
     it('syncs document readiness and continuous-scroll capability independently from the tab hint', async () => {
@@ -291,7 +291,8 @@ describe('useMenuSync', () => {
         expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith(expect.objectContaining({
             hasDocument: true,
             interactive: false,
-            canContinuousScroll: true,
+            supportsContinuousScroll: true,
+            canContinuousScroll: false,
             continuousScroll: true,
         }));
 
@@ -303,6 +304,61 @@ describe('useMenuSync', () => {
         await nextTick();
 
         expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith(expect.objectContaining({interactive: true}));
+    });
+
+    it('syncs selection, view, feature, and tab applicability from authoritative shell state', async () => {
+        const activeDocumentRecord = ref(createWorkspaceDocumentRecord({toolbarSnapshot: {
+            hasPdf: true,
+            canUndo: true,
+            canRedo: false,
+            selectedPageCount: 2,
+            totalPages: 5,
+            viewMode: 'facing-first-single',
+            isFitHeightActive: true,
+            viewerCapabilities: {
+                ...createDefaultWorkspaceViewerCapabilities(),
+                pdfDocument: true,
+                pdfMutationActions: true,
+                continuousScroll: true,
+                viewMode: true,
+            },
+        }}));
+        const menuContext = ref({
+            canCloseTab: true,
+            canCreatePane: false,
+            canTransferActiveTab: true,
+            canToggleAssistant: true,
+        });
+
+        useMenuSync({
+            activeDocumentRecord,
+            activeTabId: ref<string | null>('tab-1'),
+            tabs: ref([{
+                id: 'tab-1',
+                fileName: 'example.pdf',
+                originalPath: null,
+                isDirty: false,
+                isDjvu: false,
+            }]),
+            menuContext,
+        });
+        await nextTick();
+
+        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith(expect.objectContaining({
+            supportsPdfMutation: true,
+            canMutatePages: true,
+            selectedPageCount: 2,
+            totalPages: 5,
+            canUndo: true,
+            canRedo: false,
+            supportsViewMode: true,
+            viewMode: 'facing-first-single',
+            isFitHeightActive: true,
+            canCloseTab: true,
+            canCreatePane: false,
+            canTransferActiveTab: true,
+            canToggleAssistant: true,
+        }));
     });
 
     it('resolves hasPdf from boolean, ref, or null workspace', () => {

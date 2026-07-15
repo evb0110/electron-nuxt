@@ -1431,6 +1431,7 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     handleInsertImageFromFile,
     handlePasteImageFromClipboard,
     selectedThumbnailPages,
+    isPageOperationInProgress,
     pageOpsDelete: documentControls.pageOpsDelete,
     pageOpsExtract: documentControls.pageOpsExtract,
     handlePageRotate: documentControls.handlePageRotate,
@@ -1491,6 +1492,5 @@ onBeforeUnmount(() => {
     unsubscribeOptimizeProgress = null;
     emit('expose-released');
 });
-
 defineExpose(workspaceExpose);
 </script>

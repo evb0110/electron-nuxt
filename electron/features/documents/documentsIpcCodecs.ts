@@ -1,6 +1,6 @@
 import { isDocumentRevisionInfo } from '@contracts/documentRevision';
 import type {
-    IDocumentsMenuCapability,
+    IApplicationMenuDocumentState,
     IPdfNativeNoteTextSaveResult,
     IPdfNativeStagedCommitOptions,
     IPdfNativePagePreviewOptions,
@@ -83,6 +83,75 @@ const DOCUMENT_SAVE_FAILURE_REASONS = [
     'stale',
     'unknown',
 ] as const;
+
+const APPLICATION_MENU_OPTIONAL_BOOLEAN_FIELDS = [
+    'interactive',
+    'supportsSaveAs',
+    'canSaveAs',
+    'supportsRepairSave',
+    'canRepairSave',
+    'supportsOptimizePdf',
+    'canOptimizePdf',
+    'supportsPrint',
+    'canPrint',
+    'supportsExportDocx',
+    'canExportDocx',
+    'supportsRasterExport',
+    'canExportRaster',
+    'canUndo',
+    'canRedo',
+    'supportsPdfMutation',
+    'canMutatePages',
+    'supportsContinuousScroll',
+    'canContinuousScroll',
+    'continuousScroll',
+    'supportsViewMode',
+    'isActualSizeActive',
+    'isFitWidthActive',
+    'isFitHeightActive',
+    'canToggleAssistant',
+    'canCreatePane',
+    'canCloseTab',
+    'canTransferActiveTab',
+] as const satisfies ReadonlyArray<keyof IApplicationMenuDocumentState>;
+
+function decodeApplicationMenuDocumentState(value: unknown): IApplicationMenuDocumentState {
+    if (!isRecord(value) || typeof value.hasDocument !== 'boolean' || typeof value.canSave !== 'boolean') {
+        throw new Error('state must include boolean hasDocument and canSave fields');
+    }
+    for (const field of APPLICATION_MENU_OPTIONAL_BOOLEAN_FIELDS) {
+        if (value[field] !== undefined && typeof value[field] !== 'boolean') {
+            throw new Error(`state.${field} must be a boolean`);
+        }
+    }
+    for (const field of [
+        'selectedPageCount',
+        'totalPages',
+    ] as const) {
+        if (value[field] !== undefined && (
+            typeof value[field] !== 'number'
+            || !Number.isSafeInteger(value[field])
+            || value[field] < 0
+        )) {
+            throw new Error(`state.${field} must be a non-negative safe integer`);
+        }
+    }
+    if (
+        value.viewMode !== undefined
+        && !isOneOf([
+            'single',
+            'facing',
+            'facing-first-single',
+        ] as const, value.viewMode)
+    ) {
+        throw new Error('state.viewMode must be a supported PDF view mode');
+    }
+    return {
+        ...value,
+        hasDocument: value.hasDocument,
+        canSave: value.canSave,
+    };
+}
 
 function decodeOptionalObject<T>(value: unknown, fieldName: string): T | undefined {
     if (value === undefined || value === null) {
@@ -973,7 +1042,9 @@ export const DOCUMENTS_IPC_CODECS = {
         decodeResult: decodeBooleanResult,
     },
     [DOCUMENTS_CHANNELS.menuSetDocumentState]: {
-        decodeArgs: (args: readonly unknown[]) => [typeof args[0] === 'boolean' ? decodeBooleanArg(args, 0, 'state') : decodeRequiredObject<Parameters<IDocumentsMenuCapability['setMenuDocumentState']>[0]>(args[0], 'state')],
+        decodeArgs: (args: readonly unknown[]) => [typeof args[0] === 'boolean'
+            ? decodeBooleanArg(args, 0, 'state')
+            : decodeApplicationMenuDocumentState(args[0])],
         decodeResult: decodeUndefinedResult,
     },
     [DOCUMENTS_CHANNELS.menuSetTabCount]: {

@@ -276,6 +276,62 @@ describe('useAppShellDirectionalTabs', () => {
         expect(restoreWorkspacePayload).toHaveBeenCalledWith('tab-copy', createPayload());
     });
 
+    it('does not capture a tab payload when copy has no directional destination', async () => {
+        const pane = {
+            paneId: 'pane-1',
+            activeTabId: 'tab-1',
+            tabIds: ['tab-1'],
+        };
+        const tab: ITab = {
+            id: 'tab-1',
+            fileName: 'sample.pdf',
+            originalPath: '/tmp/sample.pdf',
+            isDirty: false,
+            isDjvu: false,
+        };
+        const captureWorkspacePayload = vi.fn(async () => createPayload());
+        const createTab = vi.fn();
+
+        const directionalTabs = useAppShellDirectionalTabs({
+            activePaneId: ref(pane.paneId),
+            panes: ref([pane]),
+            tabs: ref([tab]),
+            workspaceRefs: ref(new Map()),
+            getDocumentRecord: vi.fn(() => null),
+            isTabTransitionBusy: computed(() => false),
+            getPaneById: vi.fn((paneId: string | null | undefined) => paneId === pane.paneId ? pane : null),
+            getTabById: vi.fn((tabId: string | null | undefined) => tabId === tab.id ? tab : null),
+            findDirectionalPane: vi.fn(() => null),
+            focusPane: vi.fn(),
+            splitPane: vi.fn(),
+            moveTabToPane: vi.fn(),
+            createTab,
+            activatePane: vi.fn(),
+            activateTab: vi.fn(),
+            removeTabFromState: vi.fn(),
+            cleanupEmptyPanes: vi.fn(),
+            workspaceSplitCache: {
+                clear: vi.fn(),
+                consume: vi.fn(),
+                has: vi.fn(),
+                peek: vi.fn(),
+                set: vi.fn(() => 'cache-entry'),
+            },
+            isSingletonPlaceholderCloseBlocked: vi.fn(() => false),
+            enqueueTabTransition: vi.fn(async task => task()),
+            captureWorkspacePayload,
+            restoreWorkspacePayload: vi.fn(),
+            moveTabToNewWindow: vi.fn(),
+            moveTabToWindow: vi.fn(),
+            handleCloseTab: vi.fn(),
+        });
+
+        await directionalTabs.copyActiveTab('left');
+
+        expect(captureWorkspacePayload).not.toHaveBeenCalled();
+        expect(createTab).not.toHaveBeenCalled();
+    });
+
     it('gates existing-window transfer availability while tab transitions are busy', () => {
         vi.stubGlobal('window', { electronAPI: createElectronPlatformApiFixture() });
         const pane = {
