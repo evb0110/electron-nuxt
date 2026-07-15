@@ -1,5 +1,9 @@
 import { readFile } from 'node:fs/promises';
 import {
+    resolve,
+    sep,
+} from 'node:path';
+import {
     DOMMatrix,
     ImageData,
     Path2D,
@@ -27,7 +31,13 @@ export async function renderPdfCanvasFidelityMetrics(path: string): Promise<IPdf
     const documentParameters = cast<Parameters<typeof pdfjs.getDocument>[0]>({
         data: new Uint8Array(bytes),
         disableWorker: true,
-        useSystemFonts: true,
+        // Fidelity fixtures contain unembedded standard fonts. Resolve those
+        // from the same vendored PDF.js payload as the app so this corpus
+        // measures rendering rather than whichever Helvetica substitute is
+        // installed on the current macOS/Linux runner image.
+        standardFontDataUrl: `${resolve(process.cwd(), 'public/pdf/standard_fonts')}${sep}`,
+        useSystemFonts: false,
+        useWorkerFetch: false,
     });
     const document = await pdfjs.getDocument(documentParameters).promise;
     try {
