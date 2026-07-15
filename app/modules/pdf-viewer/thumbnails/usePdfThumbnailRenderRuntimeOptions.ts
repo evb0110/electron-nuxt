@@ -41,7 +41,6 @@ interface IPdfThumbnailRenderRuntimeLayout {
 
 interface IPdfThumbnailRenderRuntimeDom {
     getCanvas: (page: number) => HTMLCanvasElement | null;
-    isCanvasViewportVisible: (page: number, canvas: HTMLCanvasElement) => boolean;
     resolveVisibleContainer: (reason: string) => HTMLElement | null;
 }
 

@@ -1,8 +1,5 @@
-export const PACKAGED_DEVTOOLS_DIAGNOSTICS_ENV = 'EVB_ENABLE_PACKAGED_DEVTOOLS';
+export const PACKAGED_DEVTOOLS_MENU_AVAILABLE = true;
 
-export function shouldExposeDevToolsMenu(
-    isDev: boolean,
-    diagnosticsFlag = process.env[PACKAGED_DEVTOOLS_DIAGNOSTICS_ENV],
-) {
-    return isDev || diagnosticsFlag === '1';
+export function shouldExposeDevToolsMenu() {
+    return PACKAGED_DEVTOOLS_MENU_AVAILABLE;
 }

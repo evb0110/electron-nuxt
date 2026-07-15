@@ -1088,6 +1088,151 @@ describe('Electron E2E - Viewer Smoke', () => {
         )), JSON.stringify(visualSamples)).toBe(true);
     });
 
+    it('keeps physical macOS Control-wheel scrolling and reserves Command-wheel for zoom', async () => {
+        let session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-viewer-macos-wheel-modifiers-${Date.now()}`,
+        });
+        if (!session) {
+            return;
+        }
+
+        const isMac = await session.page.evaluate(() => /Mac|iPhone|iPad|iPod/i.test(navigator.platform));
+        if (!isMac) {
+            return;
+        }
+
+        await session.page.setViewport({
+            deviceScaleFactor: 2,
+            height: 900,
+            width: 1_400,
+        });
+        const fixturePath = process.env.EVB_E2E_WHEEL_STRESS_PDF
+            ?? await createMultiPageTextFixturePdf(
+                `viewer-macos-wheel-modifiers-${Date.now()}.pdf`,
+                12,
+            );
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        const point = await session.page.evaluate(() => {
+            const viewer = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host #pdf-viewer',
+            );
+            if (!viewer) {
+                return null;
+            }
+            viewer.scrollTop = 0;
+            const samples: Array<{
+                ctrlKey: boolean;
+                defaultPrevented: boolean;
+                metaKey: boolean;
+            }> = [];
+            const heartbeat = {
+                lastAt: performance.now(),
+                maxGapMs: 0,
+                sampleCount: 0,
+            };
+            const heartbeatTimer = window.setInterval(() => {
+                const now = performance.now();
+                heartbeat.maxGapMs = Math.max(heartbeat.maxGapMs, now - heartbeat.lastAt);
+                heartbeat.lastAt = now;
+                heartbeat.sampleCount += 1;
+            }, 25);
+            viewer.addEventListener('wheel', (event) => {
+                queueMicrotask(() => samples.push({
+                    ctrlKey: event.ctrlKey,
+                    defaultPrevented: event.defaultPrevented,
+                    metaKey: event.metaKey,
+                }));
+            });
+            const testWindow = window as Window & {
+                __macWheelHeartbeat?: typeof heartbeat;
+                __macWheelHeartbeatTimer?: number;
+                __macWheelModifierSamples?: typeof samples;
+            };
+            testWindow.__macWheelHeartbeat = heartbeat;
+            testWindow.__macWheelHeartbeatTimer = heartbeatTimer;
+            testWindow.__macWheelModifierSamples = samples;
+            const rect = viewer.getBoundingClientRect();
+            return {
+                x: Math.round(rect.left + rect.width / 2),
+                y: Math.round(rect.top + rect.height / 2),
+            };
+        });
+        expect(point).not.toBeNull();
+        if (!point) {
+            return;
+        }
+
+        const toolbarBefore = await getWorkspaceToolbarSnapshot(session.page);
+        expect(toolbarBefore?.effectiveZoom).toBeTypeOf('number');
+        await session.page.mouse.move(point.x, point.y);
+        const controlStressStartedAt = Date.now();
+        await session.page.keyboard.down('Control');
+        for (let index = 0; index < 40; index += 1) {
+            await session.page.mouse.wheel({deltaY: 240});
+        }
+        await session.page.keyboard.up('Control');
+        const controlStressElapsedMs = Date.now() - controlStressStartedAt;
+        await waitForFunctionInPage(session.page, () => (
+            (document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host #pdf-viewer',
+            )?.scrollTop ?? 0) > 20
+        ), {timeout: 5_000});
+        const toolbarAfterControl = await getWorkspaceToolbarSnapshot(session.page);
+
+        await session.page.keyboard.down('Meta');
+        await session.page.mouse.wheel({deltaY: -160});
+        await session.page.keyboard.up('Meta');
+        await waitForWorkspaceToolbarSnapshot(
+            session.page,
+            {minEffectiveZoom: (toolbarAfterControl?.effectiveZoom ?? 0) + 0.005},
+            {timeoutMs: 10_000},
+        );
+        const result = await session.page.evaluate(() => {
+            const testWindow = window as Window & {
+                __macWheelHeartbeat?: {
+                    lastAt: number;
+                    maxGapMs: number;
+                    sampleCount: number;
+                };
+                __macWheelHeartbeatTimer?: number;
+                __macWheelModifierSamples?: Array<{
+                    ctrlKey: boolean;
+                    defaultPrevented: boolean;
+                    metaKey: boolean;
+                }>;
+            };
+            if (testWindow.__macWheelHeartbeatTimer !== undefined) {
+                window.clearInterval(testWindow.__macWheelHeartbeatTimer);
+            }
+            return {
+                heartbeat: testWindow.__macWheelHeartbeat ?? null,
+                samples: testWindow.__macWheelModifierSamples ?? [],
+                scrollTop: document.querySelector<HTMLElement>(
+                    '.editor-pane.is-active .workspace-host #pdf-viewer',
+                )?.scrollTop ?? 0,
+            };
+        });
+
+        expect(toolbarAfterControl?.effectiveZoom).toBeCloseTo(toolbarBefore?.effectiveZoom ?? 0, 5);
+        expect(controlStressElapsedMs).toBeLessThan(10_000);
+        expect(result.heartbeat?.sampleCount ?? 0).toBeGreaterThan(0);
+        expect(result.heartbeat?.maxGapMs ?? Number.POSITIVE_INFINITY).toBeLessThan(1_500);
+        expect(result.scrollTop).toBeGreaterThan(20);
+        expect(result.samples.some(sample => (
+            sample.ctrlKey && !sample.metaKey && !sample.defaultPrevented
+        )), JSON.stringify(result.samples)).toBe(true);
+        expect(result.samples.some(sample => (
+            sample.metaKey && sample.defaultPrevented
+        )), JSON.stringify(result.samples)).toBe(true);
+    }, 120_000);
+
     it('keeps the PDF viewport scrollable, navigable, and scalable', async () => {
         let session = sessionFixture.getSession();
         if (!session) {
@@ -1650,6 +1795,13 @@ describe('Electron E2E - Viewer Smoke', () => {
                 throw new Error('PDF thumbnail rail was not found');
             }
 
+            const placeholder = rail.querySelector<HTMLElement>('.pdf-thumbnail-skeleton');
+            const placeholderStyle = placeholder ? getComputedStyle(placeholder) : null;
+            const placeholderPresentation = {
+                animationName: placeholderStyle?.animationName ?? null,
+                backgroundImage: placeholderStyle?.backgroundImage ?? null,
+            };
+
             const defaultCanvasPreservation: Array<{
                 height: number;
                 page: number;
@@ -1799,8 +1951,10 @@ describe('Electron E2E - Viewer Smoke', () => {
                 await new Promise(resolve => setTimeout(resolve, 20));
             }
 
+            const finalJumpAt = performance.now();
             const settleDeadline = performance.now() + 10_000;
             let settledItems = sampleVisibleItems();
+            let firstPaintElapsedMs: number | null = settledItems.some(item => item.painted) ? 0 : null;
             while (
                 performance.now() < settleDeadline
                 && (
@@ -1811,17 +1965,29 @@ describe('Electron E2E - Viewer Smoke', () => {
                 sampleFrame();
                 await new Promise(resolve => setTimeout(resolve, 50));
                 settledItems = sampleVisibleItems();
+                if (firstPaintElapsedMs === null && settledItems.some(item => item.painted)) {
+                    firstPaintElapsedMs = Math.round(performance.now() - finalJumpAt);
+                }
             }
             observer.disconnect();
             return {
                 blankExposures,
                 defaultCanvasPreservation,
+                firstPaintElapsedMs,
+                placeholderPresentation,
+                settledElapsedMs: Math.round(performance.now() - finalJumpAt),
                 settledItems,
             };
         });
 
         expect(visualContinuity.defaultCanvasPreservation).toEqual([]);
         expect(visualContinuity.blankExposures).toEqual([]);
+        expect(visualContinuity.placeholderPresentation.animationName).toBe('none');
+        expect(visualContinuity.placeholderPresentation.backgroundImage).toContain('linear-gradient');
+        expect(visualContinuity.placeholderPresentation.backgroundImage).not.toContain('repeating-linear-gradient');
+        expect(visualContinuity.firstPaintElapsedMs).not.toBeNull();
+        expect(visualContinuity.firstPaintElapsedMs ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(2_000);
+        expect(visualContinuity.settledElapsedMs).toBeLessThanOrEqual(5_000);
         expect(visualContinuity.settledItems.length).toBeGreaterThan(0);
         expect(
             visualContinuity.settledItems.every(item => item.painted),

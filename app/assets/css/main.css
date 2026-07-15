@@ -427,6 +427,8 @@
     --app-document-viewer-bg: var(--ui-bg-muted);
     --app-document-page-bg: var(--ui-bg);
     --app-document-thumbnails-background: var(--ui-bg-muted);
+    --app-thumbnail-placeholder-bg: color-mix(in oklab, var(--app-document-page-bg) 94%, var(--ui-bg-muted) 6%);
+    --app-thumbnail-placeholder-highlight: color-mix(in oklab, var(--app-document-page-bg) 82%, var(--ui-bg-muted) 18%);
     --app-document-page-shadow: 0 1px 4px color-mix(in srgb, var(--ui-bg-inverted) 18%, transparent);
     --app-pdf-viewer-bg: var(--app-document-viewer-bg);
     --app-pdf-page-bg: var(--app-document-page-bg);

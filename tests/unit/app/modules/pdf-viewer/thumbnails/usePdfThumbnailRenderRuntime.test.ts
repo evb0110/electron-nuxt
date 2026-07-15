@@ -98,7 +98,6 @@ describe('usePdfThumbnailRenderRuntime', () => {
         const runtime = usePdfThumbnailRenderRuntime({
             dom: {
                 getCanvas: () => canvas,
-                isCanvasViewportVisible: () => true,
                 resolveVisibleContainer: () => cast<HTMLElement>({ querySelectorAll: () => [] }),
             },
             effects: {
@@ -186,7 +185,6 @@ describe('usePdfThumbnailRenderRuntime', () => {
         const runtime = usePdfThumbnailRenderRuntime({
             dom: {
                 getCanvas: () => canvas,
-                isCanvasViewportVisible: () => true,
                 resolveVisibleContainer: () => cast<HTMLElement>({ querySelectorAll: () => [] }),
             },
             effects: {
@@ -286,7 +284,6 @@ describe('usePdfThumbnailRenderRuntime', () => {
         const runtime = usePdfThumbnailRenderRuntime({
             dom: {
                 getCanvas: () => canvas,
-                isCanvasViewportVisible: () => true,
                 resolveVisibleContainer: () => cast<HTMLElement>({ querySelectorAll: () => [] }),
             },
             effects: {

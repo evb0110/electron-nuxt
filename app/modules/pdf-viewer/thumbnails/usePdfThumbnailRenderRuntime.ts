@@ -69,6 +69,7 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
     const thumbnailRenderState = createThumbnailRenderState();
     const surfaceScopeId = `pdf-thumbnails:${++nextThumbnailSurfaceScopeId}`;
     let renderRunId = 0;
+    let renderQueueRunId = 0;
     let pendingInvalidation: number[] | null = null;
     let reloadTransition = false;
     let lastNavigationAtMs = Number.NEGATIVE_INFINITY;
@@ -80,14 +81,14 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
     const documentRenderEpoch = ref(0);
     const thumbnailKeySignal = ref(0);
 
-    function resolveThumbnailDemand(page: number, canvas: HTMLCanvasElement): TThumbnailSurfaceDemand {
+    function resolveThumbnailDemand(page: number): TThumbnailSurfaceDemand {
         if (!isThumbnailPaneActive()) {
             return 'inactive';
         }
         if (page === source.currentPage.value) {
             return 'current';
         }
-        if (dom.isCanvasViewportVisible(page, canvas)) {
+        if (layout.viewportPages.value.includes(page)) {
             return 'viewport';
         }
         return Math.abs(page - source.currentPage.value) <= IMMEDIATE_RENDER_RADIUS
@@ -110,10 +111,7 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
     const surfaceResidency = createThumbnailSurfaceResidency<HTMLCanvasElement>({
         budget: surfaceBudget,
         scopeId: surfaceScopeId,
-        resolveDemand: ({
-            page,
-            canvas,
-        }) => resolveThumbnailDemand(page, canvas),
+        resolveDemand: ({page}) => resolveThumbnailDemand(page),
         onEvict: ({
             page,
             canvas,
@@ -123,7 +121,7 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
             logPdfRenderTrace('thumbnail-surface-evicted', {
                 pageNumber: page,
                 currentPage: source.currentPage.value,
-                demand: resolveThumbnailDemand(page, canvas),
+                demand: resolveThumbnailDemand(page),
             });
         },
     });
@@ -298,6 +296,7 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
 
     function incrementRenderGeneration() {
         renderRunId += 1;
+        renderQueueRunId += 1;
     }
 
     function pruneDetachedThumbnailState() {
@@ -440,7 +439,7 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
             renderKey,
             renderedCount,
             admitted,
-            demand: resolveThumbnailDemand(pageNum, canvas),
+            demand: resolveThumbnailDemand(pageNum),
         });
         if (!admitted) {
             return;
@@ -788,13 +787,12 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
         pdfDocument: PDFDocumentProxy,
         pages: number[],
         runId: number,
+        queueRunId: number,
     ) {
         if (pages.length === 0) {
             return;
         }
-
         const queue = [...pages];
-
         const concurrency = resolveThumbnailRenderConcurrency({
             baseConcurrency: THUMBNAIL_RENDER_CONCURRENCY,
             lastNavigationAtMs,
@@ -813,10 +811,16 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
         });
         const workers = Array.from({length: Math.min(concurrency, queue.length)}, async () => {
             while (queue.length > 0) {
-                if (runId !== renderRunId || !isPdfDocumentUsable(pdfDocument)) {
+                if (
+                    runId !== renderRunId
+                    || queueRunId !== renderQueueRunId
+                    || !isPdfDocumentUsable(pdfDocument)
+                ) {
                     logPdfRenderTrace('thumbnail-queue-stop-stale', {
                         runId,
                         renderRunId,
+                        queueRunId,
+                        renderQueueRunId,
                         usableDocument: isPdfDocumentUsable(pdfDocument),
                         remaining: queue.length,
                     });
@@ -829,7 +833,6 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
                 await renderThumbnail(pdfDocument, pageNum, runId);
             }
         });
-
         await Promise.all(workers);
         const renderStateSnapshot = thumbnailRenderState.createSnapshot();
         logPdfRenderTrace('thumbnail-queue-end', {
@@ -838,20 +841,20 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
             renderedCount: renderStateSnapshot.renderedCount,
             activeTasks: renderStateSnapshot.activeTasks,
         });
-        scheduleDemandedThumbnailRetry(runId);
+        if (queueRunId === renderQueueRunId) {
+            scheduleDemandedThumbnailRetry(runId);
+        }
     }
 
     function scheduleDemandedThumbnailRetry(runId: number) {
         if (runId !== renderRunId || !isThumbnailPaneActive()) {
             return;
         }
-
         const mountedPages = new Set(layout.virtualPages.value);
         const demandedPages = new Set(layout.viewportPages.value);
         for (let distance = -IMMEDIATE_RENDER_RADIUS; distance <= IMMEDIATE_RENDER_RADIUS; distance += 1) {
             demandedPages.add(source.currentPage.value + distance);
         }
-
         const retryPages: number[] = [];
         const exhaustedPages: number[] = [];
         for (const page of demandedPages) {
@@ -901,7 +904,6 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
 
     const scheduleVisibleThumbnailRender = useDebounceFn(() => {
         const doc = source.pdfDocument.value;
-
         if (!doc || source.totalPages.value <= 0) {
             return;
         }
@@ -911,8 +913,8 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
         if (!dom.resolveVisibleContainer('schedule-visible-render')) {
             return;
         }
-
         const runId = renderRunId;
+        const queueRunId = ++renderQueueRunId;
         const pages = buildRenderQueue(source.totalPages.value);
         logPdfRenderTrace('thumbnail-schedule-visible-render-run', {
             runId,
@@ -924,7 +926,7 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
             hiddenAnnotationIdsSignature: visuals.hiddenAnnotationIdsSignature.value,
         });
 
-        runGuardedTask(() => renderThumbnailQueue(doc, pages, runId), {
+        runGuardedTask(() => renderThumbnailQueue(doc, pages, runId, queueRunId), {
             category: 'user-visible-operation',
             scope: PDF_THUMBNAIL_LOG_SECTION,
             message: 'Failed to render virtual thumbnail list',

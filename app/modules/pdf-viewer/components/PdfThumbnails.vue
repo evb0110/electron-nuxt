@@ -367,17 +367,6 @@ function getCanvas(pageNum: number): HTMLCanvasElement | null {
     return thumbnail?.querySelector('canvas') ?? null;
 }
 
-function isCanvasViewportVisible(page: number, canvas: HTMLCanvasElement) {
-    const container = containerRef.value;
-    const thumbnail = canvas.closest<HTMLElement>(`.pdf-thumbnail[data-page="${String(page)}"]`);
-    if (!container || !thumbnail || !isContainerVisible(container)) {
-        return false;
-    }
-    const containerRect = container.getBoundingClientRect();
-    const thumbnailRect = thumbnail.getBoundingClientRect();
-    return thumbnailRect.bottom > containerRect.top && thumbnailRect.top < containerRect.bottom;
-}
-
 function getThumbnailElement(pageNum: number) {
     if (!containerRef.value) {
         return null;
@@ -724,6 +713,14 @@ function updateViewportMetrics() {
     thumbnailRenderRuntime.reconcileSurfaceResidency();
 }
 
+function updateScrollPosition() {
+    const container = containerRef.value;
+    if (!container || !isThumbnailPaneActive()) {
+        return;
+    }
+    scrollTop.value = container.scrollTop;
+}
+
 function commitThumbnailRasterWidth() {
     const nextThumbnailRenderWidth = resolveThumbnailRasterWidth(thumbnailLayoutWidth.value);
     if (nextThumbnailRenderWidth === thumbnailRenderWidth.value) {
@@ -774,7 +771,7 @@ const measureThumbnailHeight = useDebounceFn(() => {
 }, 16);
 
 function handleContainerScroll() {
-    updateViewportMetrics();
+    updateScrollPosition();
     if (!isRecentProgrammaticScroll()) {
         markManualThumbnailScroll('scroll');
     }
@@ -836,7 +833,6 @@ function scheduleActivePaneRefresh(reason: string) {
 const thumbnailRenderRuntime = usePdfThumbnailRenderRuntime({
     dom: {
         getCanvas,
-        isCanvasViewportVisible,
         resolveVisibleContainer,
     },
     effects: {

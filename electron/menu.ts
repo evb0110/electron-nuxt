@@ -720,7 +720,7 @@ function getViewMenu(
                     },
                 ],
             },
-            ...(shouldExposeDevToolsMenu(config.isDev)
+            ...(shouldExposeDevToolsMenu()
                 ? [
                     { type: 'separator' as const },
                     { role: 'toggleDevTools' as const },

@@ -34,10 +34,12 @@ describe('usePdfViewerWheelZoom', () => {
         vi.clearAllMocks();
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-03-15T12:00:00Z'));
+        vi.spyOn(navigator, 'platform', 'get').mockReturnValue('Linux x86_64');
     });
 
     afterEach(() => {
         vi.useRealTimers();
+        vi.restoreAllMocks();
     });
 
     function createViewerContainer() {
@@ -189,6 +191,53 @@ describe('usePdfViewerWheelZoom', () => {
                 windowStart: 2,
                 windowEnd: 8,
             }));
+        } finally {
+            setup.scope.stop();
+        }
+    });
+
+    it('allows macOS Control-wheel packets to scroll without zooming even when keydown was missed', () => {
+        vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel');
+        const setup = setupWheelZoom();
+
+        try {
+            const event = createWheelEvent({
+                ctrlKey: true,
+                deltaY: 240,
+                clientX: 120,
+                clientY: 160,
+            });
+
+            setup.wheelZoom.handleViewerWheel(event);
+
+            expect(event.defaultPrevented).toBe(false);
+            expect(setup.emit).not.toHaveBeenCalled();
+            expect(setup.singlePageScroll.handleWheel).not.toHaveBeenCalled();
+            expect(setup.cancelPendingSearchScroll).toHaveBeenCalledOnce();
+            expect(setup.markUserViewportInteraction).toHaveBeenCalledOnce();
+        } finally {
+            setup.scope.stop();
+        }
+    });
+
+    it('uses Command-wheel for zoom on macOS', () => {
+        vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel');
+        const setup = setupWheelZoom();
+
+        try {
+            const event = createWheelEvent({
+                deltaY: -120,
+                metaKey: true,
+                clientX: 120,
+                clientY: 160,
+            });
+
+            setup.wheelZoom.handleViewerWheel(event);
+
+            expect(event.defaultPrevented).toBe(true);
+            expect(setup.emit).toHaveBeenCalledWith('update:zoomMode', 'custom');
+            expect(setup.emit).toHaveBeenCalledWith('update:effectiveZoom', expect.any(Number));
+            expect(setup.emit).toHaveBeenCalledWith('update:zoom', expect.any(Number));
         } finally {
             setup.scope.stop();
         }
