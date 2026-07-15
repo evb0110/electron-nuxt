@@ -29,6 +29,9 @@ export const browserUpdatesCapability = {
         });
         return Promise.resolve({ started: false });
     },
+    download() {
+        return Promise.resolve({ started: false });
+    },
     install() {
         return Promise.resolve({ started: false });
     },

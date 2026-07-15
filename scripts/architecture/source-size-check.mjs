@@ -115,7 +115,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Static audit Stage 15 - OCR admission calculation extraction',
     },
     'app/modules/workspace-shell/components/AppShellRoot.vue': {
-        maxLines: 921,
+        maxLines: 918,
         reason: 'app shell orchestration after scoped presentation styles were extracted',
         stage: 'Static audit Stage 15 - app shell style extraction',
     },

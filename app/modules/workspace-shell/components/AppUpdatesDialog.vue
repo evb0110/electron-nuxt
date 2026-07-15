@@ -16,12 +16,12 @@
                 <p class="text-sm text-muted">
                     {{ description }}
                 </p>
-                <AppProgressBar :value="progressPercent ?? null" />
+                <AppProgressBar v-if="!available" :value="progressPercent ?? null" />
             </div>
         </template>
 
         <template #footer="{ close }">
-            <template v-if="ready">
+            <template v-if="available || ready">
                 <UButton
                     :label="t('updates.deferAction')"
                     color="neutral"
@@ -35,9 +35,9 @@
                     @click="handleSkip"
                 />
                 <UButton
-                    :label="t('updates.installAction')"
+                    :label="available ? t('updates.downloadAction') : t('updates.installAction')"
                     color="primary"
-                    @click="handleInstall"
+                    @click="available ? handleDownload() : handleInstall()"
                 />
             </template>
             <template v-else>
@@ -60,12 +60,14 @@ defineProps<{
     title: string;
     description: string;
     progressPercent?: number | null;
+    available: boolean;
     ready: boolean;
 }>();
 
 const emit = defineEmits<{
     'update:open': [open: boolean];
     defer: [];
+    download: [];
     skip: [];
     install: [];
 }>();
@@ -82,6 +84,10 @@ function handleDefer() {
 
 function handleSkip() {
     emit('skip');
+}
+
+function handleDownload() {
+    emit('download');
 }
 
 function handleInstall() {

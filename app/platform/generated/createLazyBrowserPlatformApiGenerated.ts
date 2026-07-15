@@ -277,6 +277,7 @@ export function createLazyBrowserPlatformApiGenerated({
     const systemOnShutdownSaveFlushRequestMethod = lazyEvent(pathDescriptors.system.onShutdownSaveFlushRequest.path);
     const updatesGetStateMethod = lazyAsync(pathDescriptors.updates.getState.path);
     const updatesCheckMethod = lazyAsync(pathDescriptors.updates.check.path);
+    const updatesDownloadMethod = lazyAsync(pathDescriptors.updates.download.path);
     const updatesInstallMethod = lazyAsync(pathDescriptors.updates.install.path);
     const updatesDeferMethod = lazyAsync(pathDescriptors.updates.defer.path);
     const updatesSkipVersionMethod = lazyAsync(pathDescriptors.updates.skipVersion.path);
@@ -603,6 +604,7 @@ export function createLazyBrowserPlatformApiGenerated({
     updates: {
         getState: updatesGetStateMethod,
         check: updatesCheckMethod,
+        download: updatesDownloadMethod,
         install: updatesInstallMethod,
         defer: updatesDeferMethod,
         skipVersion: updatesSkipVersionMethod,

@@ -156,6 +156,7 @@ vi.mock('@electron/window/registry', () => ({
 }));
 vi.mock('@electron/updates', () => ({
     deferDownloadedUpdate: vi.fn(),
+    downloadAvailableUpdate: vi.fn(),
     getUpdateStatus: vi.fn(() => ({phase: 'idle'})),
     installDownloadedUpdate: vi.fn(),
     skipUpdateVersion: vi.fn(),

@@ -12,7 +12,7 @@ export type TStatusDialogPhase = Exclude<TAppUpdatePhase, 'idle' | 'downloaded'>
 
 export interface IUpdateDialogState {
     open: boolean;
-    kind: 'status' | 'ready';
+    kind: 'status' | 'available' | 'ready';
     phase: TStatusDialogPhase;
     version: string | null;
     percent: number | null;
@@ -75,12 +75,28 @@ function openReadyDialog(version: string | null) {
     };
 }
 
+function openAvailableDialog(version: string | null) {
+    dialog.value = {
+        open: true,
+        kind: 'available',
+        phase: 'available',
+        version,
+        percent: null,
+        message: null,
+    };
+}
+
 function closeDialog() {
     dialog.value.open = false;
 }
 
 function applyStatus(nextStatus: IAppUpdateStatus) {
     status.value = nextStatus;
+
+    if (nextStatus.phase === 'available') {
+        openAvailableDialog(nextStatus.version);
+        return;
+    }
 
     if (nextStatus.phase === 'downloaded') {
         openReadyDialog(nextStatus.version);
@@ -92,6 +108,22 @@ function applyStatus(nextStatus: IAppUpdateStatus) {
         && nextStatus.phase !== 'idle'
     ) {
         openStatusDialog(nextStatus);
+    }
+}
+
+async function downloadUpdate() {
+    try {
+        await getUpdatesCapability().download();
+    } catch (error) {
+        const message = toErrorMessage(error);
+        BrowserLogger.error('updates', 'Failed to download update', error);
+        applyStatus({
+            phase: 'error',
+            origin: 'manual',
+            version: status.value.version,
+            percent: null,
+            message,
+        });
     }
 }
 
@@ -241,6 +273,7 @@ export const useAppUpdates = () => {
         isUpdateSupported,
         ensureInitialized,
         checkForUpdates,
+        downloadUpdate,
         installUpdateNow,
         deferUpdate,
         skipUpdateVersion,

@@ -9,6 +9,7 @@ interface IUseAppShellUpdatesDialogOptions {
     updatesDialogVersion: ComputedRef<string | null | undefined>;
     closeUpdatesDialog: () => void;
     deferUpdate: () => Promise<void>;
+    downloadUpdate: () => Promise<void>;
     skipUpdateVersion: () => Promise<void>;
     installUpdateNow: () => Promise<void>;
 }
@@ -19,6 +20,9 @@ export const useAppShellUpdatesDialog = (options: IUseAppShellUpdatesDialogOptio
     const updatesDialogTitle = computed(() => {
         if (options.updatesDialog.value.kind === 'ready') {
             return t('updates.readyTitle');
+        }
+        if (options.updatesDialog.value.kind === 'available') {
+            return t('updates.availableTitle');
         }
 
         switch (options.updatesDialog.value.phase) {
@@ -42,6 +46,9 @@ export const useAppShellUpdatesDialog = (options: IUseAppShellUpdatesDialogOptio
 
         if (options.updatesDialog.value.kind === 'ready') {
             return t('updates.readyDescription', { version });
+        }
+        if (options.updatesDialog.value.kind === 'available') {
+            return t('updates.availableDescription', { version });
         }
 
         switch (options.updatesDialog.value.phase) {
@@ -69,6 +76,9 @@ export const useAppShellUpdatesDialog = (options: IUseAppShellUpdatesDialogOptio
         handleDeferUpdate() {
             options.closeUpdatesDialog();
             void options.deferUpdate();
+        },
+        handleDownloadUpdate() {
+            void options.downloadUpdate();
         },
         handleInstallUpdate() {
             void options.installUpdateNow();

@@ -27,6 +27,7 @@ import {
 } from '@electron/settings';
 import {
     deferDownloadedUpdate,
+    downloadAvailableUpdate,
     getUpdateStatus,
     installDownloadedUpdate,
     skipUpdateVersion,
@@ -350,6 +351,7 @@ export function registerCoreIpcHandlers(
 
     registrar.handle(CORE_IPC_CHANNELS.updatesGetState, () => getUpdateStatus());
     registrar.handle(CORE_IPC_CHANNELS.updatesCheck, () => triggerManualUpdateCheck());
+    registrar.handle(CORE_IPC_CHANNELS.updatesDownload, () => downloadAvailableUpdate());
     registrar.handle(CORE_IPC_CHANNELS.updatesInstall, () => installDownloadedUpdate());
     registrar.handle(CORE_IPC_CHANNELS.updatesDefer, () => deferDownloadedUpdate());
     registrar.handle(CORE_IPC_CHANNELS.updatesSkipVersion, (_event, version) => skipUpdateVersion(version));

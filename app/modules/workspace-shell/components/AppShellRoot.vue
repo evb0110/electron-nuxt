@@ -130,14 +130,16 @@
         />
         <AppUpdatesDialog
             :open="updatesDialog.open"
-            :title="updatesDialogTitle"
-            :description="updatesDialogDescription"
+            :title="updatesDialogBindings.updatesDialogTitle"
+            :description="updatesDialogBindings.updatesDialogDescription"
             :progress-percent="updatesDialog.phase === 'downloading' ? updatesDialog.percent : null"
+            :available="updatesDialog.kind === 'available'"
             :ready="updatesDialog.kind === 'ready'"
             @update:open="updatesDialog.open = $event"
-            @defer="handleDeferUpdate"
-            @skip="handleSkipUpdate"
-            @install="handleInstallUpdate"
+            @defer="updatesDialogBindings.handleDeferUpdate"
+            @download="updatesDialogBindings.handleDownloadUpdate"
+            @skip="updatesDialogBindings.handleSkipUpdate"
+            @install="updatesDialogBindings.handleInstallUpdate"
         />
     </div>
 </template>
@@ -308,6 +310,7 @@ const {
     deferUpdate,
     dialog: updatesDialog,
     dialogVersion: updatesDialogVersion,
+    downloadUpdate,
     ensureInitialized: ensureUpdatesInitialized,
     installUpdateNow,
     skipUpdateVersion,
@@ -571,21 +574,15 @@ useMenuSync({
     tabs,
     shellState,
 });
-
-const {
-    handleDeferUpdate,
-    handleInstallUpdate,
-    handleSkipUpdate,
-    updatesDialogDescription,
-    updatesDialogTitle,
-} = useAppShellUpdatesDialog({
+const updatesDialogBindings = reactive(useAppShellUpdatesDialog({
     updatesDialog,
     updatesDialogVersion,
     closeUpdatesDialog,
     deferUpdate,
+    downloadUpdate,
     skipUpdateVersion,
     installUpdateNow,
-});
+}));
 
 const {
     captureWorkspacePayload,

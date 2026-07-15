@@ -179,6 +179,10 @@ export const CORE_IPC_CODECS = {
         decodeArgs: decodeNoArgs,
         decodeResult: decodeStartedResult,
     },
+    [CORE_IPC_CHANNELS.updatesDownload]: {
+        decodeArgs: decodeNoArgs,
+        decodeResult: decodeStartedResult,
+    },
     [CORE_IPC_CHANNELS.updatesInstall]: {
         decodeArgs: decodeNoArgs,
         decodeResult: decodeStartedResult,

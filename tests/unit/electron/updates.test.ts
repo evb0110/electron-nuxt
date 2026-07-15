@@ -49,6 +49,7 @@ const mocks = vi.hoisted(() => {
         autoDownload: boolean;
         autoInstallOnAppQuit: boolean;
         checkForUpdates: ReturnType<typeof vi.fn>;
+        downloadUpdate: ReturnType<typeof vi.fn>;
         quitAndInstall: ReturnType<typeof vi.fn>;
         setFeedURL: ReturnType<typeof vi.fn>;
     };
@@ -56,6 +57,7 @@ const mocks = vi.hoisted(() => {
     autoUpdater.autoDownload = true;
     autoUpdater.autoInstallOnAppQuit = false;
     autoUpdater.checkForUpdates = vi.fn();
+    autoUpdater.downloadUpdate = vi.fn();
     autoUpdater.quitAndInstall = vi.fn();
     autoUpdater.setFeedURL = vi.fn();
 
@@ -166,6 +168,8 @@ describe('updates robustness', () => {
         vi.clearAllMocks();
         mocks.autoUpdater.removeAllListeners();
         mocks.autoUpdater.checkForUpdates.mockReset();
+        mocks.autoUpdater.downloadUpdate.mockReset();
+        mocks.autoUpdater.downloadUpdate.mockResolvedValue([]);
         mocks.autoUpdater.quitAndInstall.mockReset();
         mocks.autoUpdater.setFeedURL.mockReset();
         mocks.fetch.mockReset();
@@ -244,6 +248,39 @@ describe('updates robustness', () => {
             origin: 'auto',
             phase: 'idle',
             version: '1.0.0',
+        });
+    });
+
+    it('waits for explicit approval before downloading an available update', async () => {
+        mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
+        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
+            mocks.autoUpdater.emit('checking-for-update');
+            mocks.autoUpdater.emit('update-available', { version: '1.1.0' });
+        });
+
+        const updates = await loadUpdatesModule();
+        const statuses: Array<Record<string, unknown>> = [];
+        updates.initializeUpdates(status => statuses.push({ ...status }));
+
+        await updates.triggerManualUpdateCheck();
+        await flushPromises();
+
+        expect(mocks.autoUpdater.autoDownload).toBe(false);
+        expect(mocks.autoUpdater.downloadUpdate).not.toHaveBeenCalled();
+        expect(statuses.at(-1)).toMatchObject({
+            origin: 'manual',
+            phase: 'available',
+            version: '1.1.0',
+        });
+
+        expect(updates.downloadAvailableUpdate()).toEqual({started: true});
+        await flushPromises();
+        expect(mocks.autoUpdater.downloadUpdate).toHaveBeenCalledOnce();
+        expect(statuses.at(-1)).toMatchObject({
+            origin: 'manual',
+            phase: 'downloading',
+            percent: 0,
+            version: '1.1.0',
         });
     });
 
@@ -734,12 +771,14 @@ describe('updates robustness', () => {
         await updates.triggerManualUpdateCheck();
         await flushPromises();
 
+        expect(updates.downloadAvailableUpdate()).toEqual({started: true});
+
         mocks.autoUpdater.emit('download-progress', { percent: 10 });
         mocks.autoUpdater.emit('download-progress', { percent: 25 });
         mocks.autoUpdater.emit('download-progress', { percent: 50 });
         await flushPromises();
 
-        expect(statuses).toHaveLength(3);
+        expect(statuses).toHaveLength(4);
         expect(statuses.at(-1)).toMatchObject({
             phase: 'downloading',
             percent: 0,
@@ -747,11 +786,11 @@ describe('updates robustness', () => {
 
         await vi.advanceTimersByTimeAsync(249);
         await flushPromises();
-        expect(statuses).toHaveLength(3);
+        expect(statuses).toHaveLength(4);
 
         await vi.advanceTimersByTimeAsync(1);
         await flushPromises();
-        expect(statuses).toHaveLength(4);
+        expect(statuses).toHaveLength(5);
         expect(statuses.at(-1)).toMatchObject({
             phase: 'downloading',
             percent: 50,

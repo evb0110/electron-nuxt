@@ -72,6 +72,7 @@ function createUpdatesCapability(overrides: Partial<IUpdatesCapability> = {}): I
             });
             return { started: false };
         }),
+        download: vi.fn(async () => ({ started: false })),
         install: vi.fn(async () => ({ started: false })),
         defer: vi.fn(async () => {}),
         skipVersion: vi.fn(async () => {}),
@@ -174,6 +175,42 @@ describe('useAppUpdates', () => {
             kind: 'ready',
             version: '2.0.0',
         });
+    });
+
+    it('prompts before an automatic download and starts it only on request', async () => {
+        let statusListener: ((status: IAppUpdateStatus) => void) | null = null;
+        const download = vi.fn(async () => ({ started: true }));
+        const updatesCapability = createUpdatesCapability({
+            download,
+            onStatus: vi.fn((callback: (status: IAppUpdateStatus) => void) => {
+                statusListener = callback;
+                return () => {};
+            }),
+        });
+        getUpdatesCapabilityMock.mockReturnValue(updatesCapability);
+
+        const { useAppUpdates } = await import('@app/composables/useAppUpdates');
+        const updates = useAppUpdates();
+        await updates.ensureInitialized();
+
+        requireStatusListener(statusListener)({
+            phase: 'available',
+            origin: 'auto',
+            version: '2.0.0',
+            percent: null,
+            message: null,
+        });
+
+        expect(download).not.toHaveBeenCalled();
+        expect(updates.dialog.value).toMatchObject({
+            open: true,
+            kind: 'available',
+            phase: 'available',
+            version: '2.0.0',
+        });
+
+        await updates.downloadUpdate();
+        expect(download).toHaveBeenCalledOnce();
     });
 
     it('retries initialization after an initial state fetch failure', async () => {

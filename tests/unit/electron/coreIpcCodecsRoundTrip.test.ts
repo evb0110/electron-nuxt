@@ -92,6 +92,12 @@ const cases = [
         invalidArg: 'extra',
     },
     {
+        channel: CORE_IPC_CHANNELS.updatesDownload,
+        args: [],
+        result: {started: true},
+        invalidArg: 'extra',
+    },
+    {
         channel: CORE_IPC_CHANNELS.updatesInstall,
         args: [],
         result: {started: false},

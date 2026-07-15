@@ -276,6 +276,7 @@ export const browserPlatformPathDescriptorsGenerated = {
     updates: {
         getState: {kind: 'async', path: ["updates","getState"]},
         check: {kind: 'async', path: ["updates","check"]},
+        download: {kind: 'async', path: ["updates","download"]},
         install: {kind: 'async', path: ["updates","install"]},
         defer: {kind: 'async', path: ["updates","defer"]},
         skipVersion: {kind: 'async', path: ["updates","skipVersion"]},

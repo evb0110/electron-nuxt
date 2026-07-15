@@ -21,6 +21,7 @@ export const CORE_IPC_CHANNELS = {
     settingsSave: 'settings:save',
     updatesGetState: 'updates:getState',
     updatesCheck: 'updates:check',
+    updatesDownload: 'updates:download',
     updatesInstall: 'updates:install',
     updatesDefer: 'updates:defer',
     updatesSkipVersion: 'updates:skipVersion',
@@ -79,6 +80,10 @@ export interface ICoreInvokeMap {
         result: IAppUpdateStatus;
     };
     [CORE_IPC_CHANNELS.updatesCheck]: {
+        args: [];
+        result: {started: boolean};
+    };
+    [CORE_IPC_CHANNELS.updatesDownload]: {
         args: [];
         result: {started: boolean};
     };

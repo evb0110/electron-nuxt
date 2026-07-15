@@ -721,6 +721,10 @@ const otherMethodPaths = defineMethodPaths([
     ],
     [
         'updates',
+        'download',
+    ],
+    [
+        'updates',
         'install',
     ],
     [

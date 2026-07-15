@@ -518,6 +518,7 @@ export function createElectronApi(
         updates: {
             getState: () => invokeCore(CORE_IPC_CHANNELS.updatesGetState),
             check: () => invokeCore(CORE_IPC_CHANNELS.updatesCheck),
+            download: () => invokeCore(CORE_IPC_CHANNELS.updatesDownload),
             install: () => invokeCore(CORE_IPC_CHANNELS.updatesInstall),
             defer: () => invokeCore(CORE_IPC_CHANNELS.updatesDefer),
             skipVersion: (version) => invokeCore(CORE_IPC_CHANNELS.updatesSkipVersion, version),

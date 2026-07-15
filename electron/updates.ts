@@ -73,6 +73,7 @@ let emitStatus: (status: IAppUpdateStatus) => void = () => {};
 let initialized = false;
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
 let currentCheckPromise: Promise<void> | null = null;
+let currentDownloadPromise: Promise<void> | null = null;
 let currentCheckOrigin: TAppUpdateCheckOrigin = 'auto';
 let isShuttingDown = false;
 let downloadedVersion: string | null = null;
@@ -426,7 +427,7 @@ function setAutoUpdaterListeners() {
         return;
     }
     listenersRegistered = true;
-    autoUpdater.autoDownload = true;
+    autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = false;
 
     const onCheckingForUpdate = () => {
@@ -448,10 +449,10 @@ function setAutoUpdaterListeners() {
         const version = normalizedVersion.length > 0 ? normalizedVersion : pendingVersion;
         pendingVersion = version && version.length > 0 ? version : null;
         updateStatus({
-            phase: 'downloading',
+            phase: 'available',
             origin: currentCheckOrigin,
             version: version && version.length > 0 ? version : null,
-            percent: 0,
+            percent: null,
             message: null,
         });
     };
@@ -877,6 +878,42 @@ export function getUpdateStatus() {
     return status;
 }
 
+export function downloadAvailableUpdate() {
+    if (isShuttingDown || !pendingVersion || downloadedVersion || currentDownloadPromise) {
+        return { started: false };
+    }
+
+    const candidateVersion = pendingVersion;
+    currentCheckOrigin = 'manual';
+    updateStatus({
+        phase: 'downloading',
+        origin: 'manual',
+        version: candidateVersion,
+        percent: 0,
+        message: null,
+    });
+
+    currentDownloadPromise = Promise.resolve()
+        .then(() => autoUpdater.downloadUpdate())
+        .then(() => undefined)
+        .catch((error) => {
+            const message = getErrorMessage(error);
+            logger.error(`downloadUpdate failed: ${message}`);
+            updateStatus({
+                phase: 'error',
+                origin: 'manual',
+                version: candidateVersion,
+                percent: null,
+                message,
+            });
+        })
+        .finally(() => {
+            currentDownloadPromise = null;
+        });
+
+    return { started: true };
+}
+
 export async function installDownloadedUpdate() {
     if (!downloadedVersion) {
         return { started: false };
@@ -920,14 +957,15 @@ export async function installDownloadedUpdate() {
 }
 
 export function deferDownloadedUpdate() {
-    if (!downloadedVersion) {
+    const candidateVersion = downloadedVersion ?? pendingVersion;
+    if (!candidateVersion) {
         return;
     }
 
     updateStatus({
         phase: 'idle',
         origin: 'manual',
-        version: downloadedVersion,
+        version: candidateVersion,
         percent: null,
         message: null,
     });
