@@ -50,12 +50,14 @@ const mocks = vi.hoisted(() => {
         autoInstallOnAppQuit: boolean;
         checkForUpdates: ReturnType<typeof vi.fn>;
         quitAndInstall: ReturnType<typeof vi.fn>;
+        setFeedURL: ReturnType<typeof vi.fn>;
     };
 
     autoUpdater.autoDownload = true;
     autoUpdater.autoInstallOnAppQuit = false;
     autoUpdater.checkForUpdates = vi.fn();
     autoUpdater.quitAndInstall = vi.fn();
+    autoUpdater.setFeedURL = vi.fn();
 
     return {
         app: {
@@ -165,6 +167,7 @@ describe('updates robustness', () => {
         mocks.autoUpdater.removeAllListeners();
         mocks.autoUpdater.checkForUpdates.mockReset();
         mocks.autoUpdater.quitAndInstall.mockReset();
+        mocks.autoUpdater.setFeedURL.mockReset();
         mocks.fetch.mockReset();
         mocks.loadSettings.mockReset();
         mocks.markUpdateInstallPending.mockClear();
@@ -335,18 +338,10 @@ describe('updates robustness', () => {
         await flushPromises();
     });
 
-    it('does not let an older downloaded update mask a newer release forever', async () => {
+    it('downloads the rollout release directly instead of an older GitHub latest release', async () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.2.0'));
         mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
-            const callNumber = mocks.autoUpdater.checkForUpdates.mock.calls.length;
             mocks.autoUpdater.emit('checking-for-update');
-
-            if (callNumber === 1) {
-                mocks.autoUpdater.emit('update-available', { version: '1.1.0' });
-                mocks.autoUpdater.emit('update-downloaded', { version: '1.1.0' });
-                return;
-            }
-
             mocks.autoUpdater.emit('update-available', { version: '1.2.0' });
             mocks.autoUpdater.emit('update-downloaded', { version: '1.2.0' });
         });
@@ -361,21 +356,47 @@ describe('updates robustness', () => {
         await updates.triggerManualUpdateCheck();
         await flushPromises();
 
-        expect(statuses.at(-1)).toMatchObject({
-            phase: 'downloaded',
-            version: '1.1.0',
+        expect(mocks.autoUpdater.setFeedURL).toHaveBeenCalledWith({
+            provider: 'generic',
+            url: 'https://github.com/evb0110/evb-viewer/releases/download/v1.2.0',
+            useMultipleRangeRequest: false,
         });
-
-        await updates.triggerManualUpdateCheck();
-        await flushPromises();
-
-        expect(mocks.fetch).toHaveBeenCalledTimes(6);
-        expect(mocks.autoUpdater.checkForUpdates).toHaveBeenCalledTimes(2);
+        expect(mocks.autoUpdater.checkForUpdates).toHaveBeenCalledTimes(1);
         expect(statuses.at(-1)).toMatchObject({
             origin: 'manual',
             phase: 'downloaded',
             version: '1.2.0',
         });
+    });
+
+    it('restores the GitHub feed when the rollout endpoint becomes unavailable', async () => {
+        mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
+        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
+            mocks.autoUpdater.emit('checking-for-update');
+            mocks.autoUpdater.emit('update-not-available', { version: '1.0.0' });
+        });
+
+        const updates = await loadUpdatesModule();
+        updates.initializeUpdates(() => undefined);
+
+        await updates.triggerManualUpdateCheck();
+        await flushPromises();
+
+        mocks.fetch.mockRejectedValue(new Error('rollout endpoint unavailable'));
+        await updates.triggerManualUpdateCheck();
+        await flushPromises();
+
+        expect(mocks.autoUpdater.setFeedURL).toHaveBeenNthCalledWith(1, {
+            provider: 'generic',
+            url: 'https://github.com/evb0110/evb-viewer/releases/download/v1.1.0',
+            useMultipleRangeRequest: false,
+        });
+        expect(mocks.autoUpdater.setFeedURL).toHaveBeenNthCalledWith(2, {
+            owner: 'evb0110',
+            provider: 'github',
+            repo: 'evb-viewer',
+        });
+        expect(mocks.autoUpdater.checkForUpdates).toHaveBeenCalledTimes(2);
     });
 
     it('keeps a cached downloaded update when a newer release has no updater metadata', async () => {

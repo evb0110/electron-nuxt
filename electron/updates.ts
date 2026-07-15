@@ -51,7 +51,14 @@ const MIN_POLL_INTERVAL_MS = 60_000;
 const MAX_JITTER_RATIO = 0.12;
 const UPDATE_PROGRESS_BROADCAST_THROTTLE_MS = 250;
 const UPDATER_SHUTDOWN_CHECK_WAIT_TIMEOUT_MS = 3_000;
-const GITHUB_RELEASE_DOWNLOAD_BASE_URL = 'https://github.com/evb0110/evb-viewer/releases/download';
+const GITHUB_RELEASE_OWNER = 'evb0110';
+const GITHUB_RELEASE_REPOSITORY = 'evb-viewer';
+const GITHUB_RELEASE_DOWNLOAD_BASE_URL = `https://github.com/${GITHUB_RELEASE_OWNER}/${GITHUB_RELEASE_REPOSITORY}/releases/download`;
+
+interface IUpdaterCheckDecision {
+    shouldCheck: boolean;
+    targetVersion: string | null;
+}
 
 const defaultStatus: IAppUpdateStatus = {
     phase: 'idle',
@@ -245,14 +252,40 @@ function getUpdaterMetadataAssetName() {
     return null;
 }
 
+function getReleaseTag(version: string) {
+    return version.startsWith('v') ? version : `v${version}`;
+}
+
+function getUpdaterReleaseFeedUrl(version: string) {
+    return `${GITHUB_RELEASE_DOWNLOAD_BASE_URL}/${encodeURIComponent(getReleaseTag(version))}`;
+}
+
+function configureUpdaterFeed(targetVersion: string | null) {
+    if (targetVersion) {
+        autoUpdater.setFeedURL({
+            provider: 'generic',
+            url: getUpdaterReleaseFeedUrl(targetVersion),
+            // GitHub release downloads redirect through S3, whose responses do
+            // not support electron-updater's multi-range request format.
+            useMultipleRangeRequest: false,
+        });
+        return;
+    }
+
+    autoUpdater.setFeedURL({
+        provider: 'github',
+        owner: GITHUB_RELEASE_OWNER,
+        repo: GITHUB_RELEASE_REPOSITORY,
+    });
+}
+
 async function hasUpdaterMetadataForVersion(version: string) {
     const assetName = getUpdaterMetadataAssetName();
     if (!assetName) {
         return false;
     }
 
-    const tag = version.startsWith('v') ? version : `v${version}`;
-    const url = `${GITHUB_RELEASE_DOWNLOAD_BASE_URL}/${encodeURIComponent(tag)}/${assetName}`;
+    const url = `${getUpdaterReleaseFeedUrl(version)}/${assetName}`;
     const response = await fetch(url, {
         method: 'HEAD',
         signal: AbortSignal.timeout(METADATA_REQUEST_TIMEOUT_MS),
@@ -546,7 +579,7 @@ function setAutoUpdaterListeners() {
     });
 }
 
-async function shouldRunUpdaterCheck() {
+async function resolveUpdaterCheckDecision(): Promise<IUpdaterCheckDecision> {
     const currentVersion = normalizeVersion(resolveApplicationVersion(app));
     let latestVersion: string;
 
@@ -557,33 +590,48 @@ async function shouldRunUpdaterCheck() {
             ? 'Timed out while checking for updates.'
             : getErrorMessage(error);
         logger.warn(`Unable to query update metadata: ${message}`);
-        return true;
+        return {
+            shouldCheck: true,
+            targetVersion: null,
+        };
     }
 
     if (compareVersions(latestVersion, currentVersion) <= 0) {
         pendingVersion = null;
-        return false;
+        return {
+            shouldCheck: false,
+            targetVersion: null,
+        };
     }
 
     const suppressedVersion = await getSuppressedUpdateVersion(currentVersion);
     if (suppressedVersion === latestVersion) {
         logger.error(`Suppressing update ${latestVersion} after repeated startup failures; install a newer candidate or update manually`);
         pendingVersion = null;
-        return false;
+        return {
+            shouldCheck: false,
+            targetVersion: null,
+        };
     }
 
     try {
         if (!await hasUpdaterMetadataForVersion(latestVersion)) {
             logger.info(`Release ${latestVersion} has no ${getUpdaterMetadataAssetName()} updater feed; skipping in-app updater check`);
             pendingVersion = null;
-            return false;
+            return {
+                shouldCheck: false,
+                targetVersion: null,
+            };
         }
     } catch (error) {
         const message = isAbortError(error)
             ? 'Timed out while checking updater metadata.'
             : getErrorMessage(error);
         logger.warn(`Unable to verify updater metadata for ${latestVersion}: ${message}`);
-        return true;
+        return {
+            shouldCheck: true,
+            targetVersion: null,
+        };
     }
 
     const skippedVersion = await readSkippedVersion();
@@ -598,11 +646,17 @@ async function shouldRunUpdaterCheck() {
     if (skippedVersion && skippedVersion === latestVersion) {
         logger.info(`Skipping automatic prompt for ignored version ${latestVersion}`);
         pendingVersion = null;
-        return false;
+        return {
+            shouldCheck: false,
+            targetVersion: null,
+        };
     }
 
     pendingVersion = latestVersion;
-    return true;
+    return {
+        shouldCheck: true,
+        targetVersion: latestVersion,
+    };
 }
 
 async function checkForUpdates(origin: TAppUpdateCheckOrigin) {
@@ -678,8 +732,8 @@ async function checkForUpdates(origin: TAppUpdateCheckOrigin) {
 
         currentCheckOrigin = origin;
         currentCheckPromise = (async () => {
-            const shouldCheckBinary = await shouldRunUpdaterCheck();
-            if (!shouldCheckBinary) {
+            const decision = await resolveUpdaterCheckDecision();
+            if (!decision.shouldCheck) {
                 if (origin === 'manual') {
                     updateStatus({
                         phase: 'no-update',
@@ -695,6 +749,11 @@ async function checkForUpdates(origin: TAppUpdateCheckOrigin) {
             }
 
             try {
+                // The rollout endpoint is the source of truth for the eligible
+                // release. Point electron-updater at that release's directory
+                // so GitHub's independently mutable `latest` pointer cannot
+                // make a stale client download an intermediate version first.
+                configureUpdaterFeed(decision.targetVersion);
                 await autoUpdater.checkForUpdates();
             } catch (error) {
                 logger.error(`checkForUpdates failed: ${getErrorMessage(error)}`);
