@@ -97,6 +97,64 @@ describe('document open surface session', () => {
         });
     });
 
+    it('projects free scroll as observation and recovers a pending navigation without a skeleton state', () => {
+        const session = createDocumentOpenSurfaceSession();
+        const generation = session.begin({
+            documentId: 'scan.pdf',
+            documentRevision: 'revision-1',
+        });
+        session.metadataReady(20);
+        session.commitGeometry(generation, {
+            width: 612,
+            height: 792,
+            margin: 20,
+        });
+        const fence = session.createRenderFence({
+            generation,
+            documentRevision: 'revision-1',
+            renderVersion: 1,
+            requestId: 1,
+            pageNumber: 1,
+        })!;
+        session.commitCanvas(fence);
+        session.commitViewport(createViewportCommit(fence));
+        session.markReady(fence);
+
+        expect(session.observeViewportPage(6)).toBe(6);
+        expect(session.viewportSession.value).toMatchObject({
+            lifecycle: 'ready',
+            requestedPage: 1,
+            committedPage: 1,
+            observedPage: 6,
+        });
+
+        session.requestNavigation(12);
+        expect(session.viewportSession.value.lifecycle).toBe('transitioning');
+        const targetFence = session.createRenderFence({
+            generation,
+            documentRevision: 'revision-1',
+            renderVersion: 1,
+            requestId: 2,
+            pageNumber: 12,
+        })!;
+        expect(session.commitViewport(createViewportCommit(targetFence))).toBe(true);
+        expect(session.viewportSession.value.stagedViewportFence?.pageNumber).toBe(12);
+        expect(session.viewportSession.value.committedViewportFence?.pageNumber).toBe(1);
+        expect(session.observeViewportPage(8, {supersedeNavigation: true})).toBe(8);
+        expect(session.viewportSession.value).toMatchObject({
+            lifecycle: 'ready',
+            requestedPage: 1,
+            committedPage: 1,
+            observedPage: 8,
+            stagedRenderFence: null,
+            stagedViewportFence: null,
+        });
+        expect(session.snapshot.value).toMatchObject({
+            phase: 'ready',
+            presentation: 'committed',
+        });
+    });
+
     it('projects open, metadata, navigation debounce, and close through one viewport session', () => {
         vi.useFakeTimers();
         vi.setSystemTime(1_000);

@@ -24,7 +24,7 @@ import { usePdfViewerLoadLifecycleController } from '@app/modules/pdf-viewer/run
 import { isPdfInitialVisualCanvasReady } from '@app/modules/pdf-viewer/runtime/lifecycle/isPdfInitialVisualCanvasReady';
 import { resolvePdfPreparedOpeningFitScale } from '@app/modules/pdf-viewer/runtime/lifecycle/resolvePdfPreparedOpeningFitScale';
 import { usePdfInitialCanvasCommitCoordinator } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfInitialCanvasCommitCoordinator';
-import { commitPdfOpenSurfaceViewport } from '@app/modules/pdf-viewer/runtime/navigation/commitPdfOpenSurfaceViewport';
+import { createPdfOpenSurfaceViewportCallbacks } from '@app/modules/pdf-viewer/runtime/navigation/commitPdfOpenSurfaceViewport';
 import { usePdfTrustedOpenGeometryLifecycle } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfTrustedOpenGeometryLifecycle';
 import { usePdfViewerNavigationDiagnostics } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfViewerNavigationDiagnostics';
 import { usePdfViewerSourceChangeLifecycle } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfViewerSourceChangeLifecycle';
@@ -57,7 +57,6 @@ import type { IAnnotationModifiedPayload } from '@app/types/annotations';
 import type { IPageRange } from '@app/types/pdfUi';
 import {createEmptyPdfjsAnnotationEditorState} from '@app/modules/pdf-viewer/runtime/annotations/pdfjsAnnotationState';
 import type { IPdfjsAnnotationEditorState } from '@app/modules/pdf-viewer/runtime/annotations/pdfjsAnnotationState';
-
 let nextPdfPageSlotOwnerId = 0;
 
 export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdfViewerEmit) => {
@@ -546,25 +545,11 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
             pageSlots,
             requestedCurrentPage,
             cancelPendingSearchScroll,
-            onViewportPositionCommitted: (commit) => {
-                const surface = chassisAuthority?.openSurface;
-                // Project the authoritative navigation result into the shared
-                // chassis session before marking its viewport committed. If
-                // the request projection remains on the preceding page, the
-                // next zoom/fit transaction can correctly preserve page 7 in
-                // the renderer while the chassis still asks it to render page
-                // 1. The emit is synchronous; the chassis turns it into the
-                // session's requested page, after which the viewport commit
-                // completes the same page transition.
-                // Commit directly at the authority boundary; the component
-                // event remains a compatibility projection for outer UI state.
-                surface?.requestNavigation(commit.page);
-                viewerEvents.updateCurrentPage(commit.page);
-                if (!surface || !commitPdfOpenSurfaceViewport(surface, commit)) {
-                    return;
-                }
-                initialCanvasCommit.tryComplete(commit.page, commitInitialVisualReady);
-            },
+            ...createPdfOpenSurfaceViewportCallbacks(
+                chassisAuthority,
+                viewerEvents.updateCurrentPage,
+                page => initialCanvasCommit.tryComplete(page, commitInitialVisualReady),
+            ),
         },
         transactionOptions: {
             currentPage: viewerCurrentPage,

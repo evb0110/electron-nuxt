@@ -39,10 +39,13 @@ export function createEmptyDocumentViewportSession(
         lifecycle: 'empty',
         requestedPage: 1,
         committedPage: null,
+        observedPage: null,
         pageCount: null,
         visual: {kind: 'empty'},
         viewportIntent: null,
         renderFence: null,
+        stagedRenderFence: null,
+        stagedViewportFence: null,
         committedRenderFence: null,
         committedViewportFence: null,
         skeletonDelay: null,
@@ -56,6 +59,12 @@ function isPositivePage(value: number) {
 
 function clampPage(pageNumber: number, pageCount: number | null) {
     return pageCount === null ? pageNumber : Math.min(pageCount, pageNumber);
+}
+
+export function resolveDocumentViewportCurrentPage(state: IDocumentViewportSessionState) {
+    return state.lifecycle === 'ready'
+        ? state.observedPage ?? state.committedPage ?? state.requestedPage
+        : state.requestedPage;
 }
 
 function reject(state: IDocumentViewportSessionState): IDocumentViewportSessionTransition {
@@ -101,8 +110,8 @@ function fenceTargetsCurrentIntent(
 }
 
 function settleIfComplete(state: IDocumentViewportSessionState) {
-    const render = state.committedRenderFence;
-    const viewport = state.committedViewportFence;
+    const render = state.stagedRenderFence;
+    const viewport = state.stagedViewportFence;
     if (
         !render
         || !viewport
@@ -116,6 +125,11 @@ function settleIfComplete(state: IDocumentViewportSessionState) {
         ...state,
         lifecycle: 'ready' as const,
         committedPage: render.pageNumber,
+        observedPage: null,
+        stagedRenderFence: null,
+        stagedViewportFence: null,
+        committedRenderFence: render,
+        committedViewportFence: viewport,
         visual: {
             kind: 'page' as const,
             generation: state.generation,
@@ -167,6 +181,7 @@ function openRequested(
         lifecycle: 'opening',
         requestedPage,
         committedPage: null,
+        observedPage: null,
         pageCount,
         visual: {
             kind: 'page',
@@ -182,6 +197,8 @@ function openRequested(
             pageNumber: requestedPage,
         },
         renderFence: null,
+        stagedRenderFence: null,
+        stagedViewportFence: null,
         committedRenderFence: null,
         committedViewportFence: null,
         skeletonDelay: event.skeletonDelay ? {
@@ -233,6 +250,9 @@ function metadataReady(
     const next: IDocumentViewportSessionState = {
         ...state,
         requestedPage,
+        observedPage: state.observedPage === null
+            ? null
+            : clampPage(state.observedPage, event.pageCount),
         pageCount: event.pageCount,
         visual,
         viewportIntent,
@@ -276,6 +296,7 @@ function navigationRequested(
         ...state,
         lifecycle: state.lifecycle === 'opening' ? 'opening' : 'transitioning',
         requestedPage: pageNumber,
+        observedPage: null,
         visual,
         viewportIntent: {
             generation: state.generation,
@@ -283,8 +304,14 @@ function navigationRequested(
             pageNumber,
         },
         renderFence: null,
-        committedRenderFence: null,
-        committedViewportFence: null,
+        stagedRenderFence: null,
+        stagedViewportFence: null,
+        // Retain the previous committed canvas/viewport as the recovery point
+        // when real user input supersedes this command before its target has
+        // settled. Target matching keeps these fences from completing the new
+        // navigation intent.
+        committedRenderFence: state.committedRenderFence,
+        committedViewportFence: state.committedViewportFence,
         skeletonDelay: event.skeletonDelay ? {
             generation: state.generation,
             token: event.skeletonDelay.token,
@@ -322,16 +349,28 @@ function reduceCommit(
                 token: state.skeletonDelay.token,
             }]
             : [];
-        const next = settleIfComplete({
+        const next = state.lifecycle === 'ready' ? {
             ...state,
             committedRenderFence: event.fence,
+            stagedRenderFence: null,
+            skeletonDelay: null,
+        } : settleIfComplete({
+            ...state,
+            stagedRenderFence: event.fence,
             skeletonDelay: null,
         });
         return accept(next, effects);
     }
+    if (state.lifecycle === 'ready') {
+        return accept({
+            ...state,
+            committedViewportFence: event.fence,
+            stagedViewportFence: null,
+        });
+    }
     return accept(settleIfComplete({
         ...state,
-        committedViewportFence: event.fence,
+        stagedViewportFence: event.fence,
     }));
 }
 
@@ -350,6 +389,8 @@ export function reduceDocumentViewportSession(
                 || event.identity.revision.length === 0
                 || state.committedRenderFence !== null
                 || state.committedViewportFence !== null
+                || state.stagedRenderFence !== null
+                || state.stagedViewportFence !== null
             ) {
                 return reject(state);
             }
@@ -362,6 +403,59 @@ export function reduceDocumentViewportSession(
             return metadataReady(state, event);
         case 'navigation-requested':
             return navigationRequested(state, event);
+        case 'page-observed':
+            if (
+                event.generation !== state.generation
+                || state.lifecycle !== 'ready'
+                || !state.identity
+                || !isPositivePage(event.pageNumber)
+            ) {
+                return reject(state);
+            }
+            return accept({
+                ...state,
+                observedPage: clampPage(event.pageNumber, state.pageCount),
+            });
+        case 'navigation-superseded-by-user': {
+            const committedPage = state.committedPage;
+            const committedRenderFence = state.committedRenderFence;
+            const committedViewportFence = state.committedViewportFence;
+            if (
+                event.generation !== state.generation
+                || state.lifecycle !== 'transitioning'
+                || !state.identity
+                || !isPositivePage(event.pageNumber)
+                || committedPage === null
+                || committedRenderFence?.pageNumber !== committedPage
+                || committedViewportFence?.pageNumber !== committedPage
+            ) {
+                return reject(state);
+            }
+            const effects = state.skeletonDelay ? [{
+                type: 'cancel-skeleton-delay' as const,
+                token: state.skeletonDelay.token,
+            }] : [];
+            return accept({
+                ...state,
+                lifecycle: 'ready',
+                requestedPage: committedPage,
+                observedPage: clampPage(event.pageNumber, state.pageCount),
+                visual: {
+                    kind: 'page',
+                    generation: state.generation,
+                    pageNumber: committedPage,
+                    presentation: 'canvas',
+                    frameKey: null,
+                    error: null,
+                },
+                viewportIntent: null,
+                renderFence: null,
+                stagedRenderFence: null,
+                stagedViewportFence: null,
+                skeletonDelay: null,
+                failure: null,
+            }, effects);
+        }
         case 'render-started':
             if (!fenceTargetsCurrentIntent(state, event.fence)) {
                 return reject(state);

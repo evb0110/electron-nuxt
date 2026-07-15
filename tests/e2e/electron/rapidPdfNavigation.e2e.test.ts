@@ -65,10 +65,25 @@ const CONTINUOUS_SCROLL_TRACE_OUTPUT_PATH = resolve(
     '.devkit',
     'pdf-continuous-scroll-virtualization-trace.json',
 );
+const TRUSTED_FAST_SCROLL_TRACE_OUTPUT_PATH = resolve(
+    process.cwd(),
+    '.devkit',
+    'pdf-trusted-fast-scroll-trace.json',
+);
+const IN_FLIGHT_SCROLL_TRACE_OUTPUT_PATH = resolve(
+    process.cwd(),
+    '.devkit',
+    'pdf-in-flight-scroll-trace.json',
+);
 const NEXT_FIT_WIDTH_TRACE_OUTPUT_PATH = resolve(
     process.cwd(),
     '.devkit',
     'pdf-next-fit-width-visual-trace.json',
+);
+const LAST_PAGE_TRACE_OUTPUT_PATH = resolve(
+    process.cwd(),
+    '.devkit',
+    'pdf-last-page-navigation-trace.json',
 );
 interface IVisiblePageState {
     page: number | null;
@@ -373,6 +388,11 @@ async function clickPageNavigationButton(session: IElectronE2ESession, label: st
 
 async function waitForToolbarCurrentPage(session: IElectronE2ESession, pageNumber: number) {
     await session.page.waitForFunction((targetPageNumber: number) => {
+        const toolbarPage = (window as IRapidNavigationProbeWindow)
+            .__evbTestApi?.getActiveToolbarSnapshot?.()?.currentPage;
+        if (toolbarPage === targetPageNumber) {
+            return true;
+        }
         const isVisibleElement = (element: HTMLElement) => {
             const rect = element.getBoundingClientRect();
             const style = window.getComputedStyle(element);
@@ -528,6 +548,45 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         await openPdfInApp(session.page, pageJumpPdfPath, 45_000);
         pageJumpReady = true;
     }, 90_000);
+
+    it('keeps the toolbar on the final page after Last Page navigation settles', async () => {
+        const session = sessionFixture.getSession();
+        if (!session || !pageJumpReady) {
+            return;
+        }
+
+        await jumpToPageAndWaitForCanvas(session, 1);
+        await waitForToolbarCurrentPage(session, 1);
+        await session.page.waitForFunction(() => (
+            Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary'))
+                .some(element => element.textContent?.trim() === 'ii')
+        ), {timeout: 15_000}).catch(() => undefined);
+        const fitHeight = await callWorkspaceCommand(session.page, 'handleFitHeight');
+        expect(fitHeight.called).toBe(true);
+        await session.page.waitForFunction(() => (
+            (window as IRapidNavigationProbeWindow).__evbTestApi
+                ?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-height'
+        ), {timeout: 15_000});
+        const finalPage = (await getWorkspaceToolbarSnapshot(session.page))?.totalPages ?? 0;
+        expect(finalPage).toBeGreaterThan(1);
+        await clickPageNavigationButton(session, 'Last Page');
+        expect(await waitForVisiblePageCanvas(session, finalPage, 15_000)).toBe(true);
+
+        // Let delayed scroll/viewport projections drain. The regression
+        // rendered the final canvas correctly, then rewound only the toolbar
+        // projection to page 1 after the navigation had visually settled.
+        await delay(2_000);
+
+        const toolbarSnapshot = await getWorkspaceToolbarSnapshot(session.page);
+        writeTraceArtifact({
+            navigationControls: await collectNavigationControlState(session),
+            rapidNavigationDebug: await collectRapidNavigationDebug(session),
+            scenario: 'toolbar-last-page',
+            toolbarSnapshot,
+            trace: await collectTrace(session),
+        }, LAST_PAGE_TRACE_OUTPUT_PATH);
+        expect(toolbarSnapshot?.currentPage).toBe(finalPage);
+    }, 60_000);
 
     it('renders page 7 after toolbar next navigation to page 10 and previous navigation back', async () => {
         const session = sessionFixture.getSession();
@@ -778,6 +837,255 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             expect(pageGap.gap, JSON.stringify(pageGap)).toBeCloseTo(20, 0);
         }
     }, 90_000);
+
+    it('keeps trusted fast scroll, toolbar semantics, and subsequent navigation synchronized', async () => {
+        const session = sessionFixture.getSession();
+        if (!session || !pageJumpReady || !pageJumpPdfPath) {
+            return;
+        }
+
+        await jumpToPageAndWaitForCanvas(session, 1);
+        await waitForToolbarCurrentPage(session, 1);
+        const zoom = await callWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [5.33]);
+        expect(zoom.called).toBe(true);
+        await session.page.waitForFunction(() => (
+            (window as IRapidNavigationProbeWindow).__evbTestApi
+                ?.getActiveToolbarSnapshot?.()?.zoomMode === 'custom'
+        ), {timeout: 15_000});
+        expect(await waitForVisiblePageCanvas(session, 1, 15_000)).toBe(true);
+
+        const viewport = await session.page.evaluate(() => {
+            const element = document.querySelector<HTMLElement>('#pdf-viewer');
+            if (!element) {
+                return null;
+            }
+            const rect = element.getBoundingClientRect();
+            const testWindow = window as Window & {
+                __trustedFastScrollRaf?: number;
+                __trustedFastScrollSamples?: Array<Record<string, unknown>>;
+                __trustedFastScrollCount?: number;
+            };
+            testWindow.__trustedFastScrollSamples = [];
+            testWindow.__trustedFastScrollCount = 0;
+            element.addEventListener('scroll', event => {
+                if (event.isTrusted) testWindow.__trustedFastScrollCount = (testWindow.__trustedFastScrollCount ?? 0) + 1;
+            }, {passive: true});
+            const sample = () => {
+                const viewerRect = element.getBoundingClientRect();
+                const visiblePages = Array.from(element.querySelectorAll<HTMLElement>('.page_container[data-page]'))
+                    .filter(page => {
+                        const pageRect = page.getBoundingClientRect();
+                        return pageRect.bottom > viewerRect.top && pageRect.top < viewerRect.bottom;
+                    });
+                const occupied = visiblePages.some(page => {
+                    const canvas = page.querySelector<HTMLCanvasElement>('.page_canvas canvas');
+                    const skeleton = page.querySelector<HTMLElement>('.pdf-page-skeleton');
+                    const skeletonRect = skeleton?.getBoundingClientRect() ?? null;
+                    const skeletonStyle = skeleton ? getComputedStyle(skeleton) : null;
+                    return Boolean(
+                        canvas && canvas.width > 0 && canvas.height > 0
+                        || skeleton && skeletonStyle?.display !== 'none'
+                            && skeletonStyle?.visibility !== 'hidden'
+                            && (skeletonRect?.width ?? 0) > 0
+                            && (skeletonRect?.height ?? 0) > 0,
+                    );
+                });
+                const chassis = element.closest<HTMLElement>('.document-viewer-chassis');
+                testWindow.__trustedFastScrollSamples?.push({
+                    occupied,
+                    observedPage: Number(chassis?.dataset.viewportObservedPage ?? 0),
+                    requestedPage: Number(chassis?.dataset.viewportRequestedPage ?? 0),
+                    scrollTop: Math.round(element.scrollTop),
+                    toolbarPage: (testWindow as Window & IRapidNavigationProbeWindow)
+                        .__evbTestApi?.getActiveToolbarSnapshot?.()?.currentPage ?? null,
+                    visiblePages: visiblePages.map(page => Number(page.dataset.page)),
+                });
+                testWindow.__trustedFastScrollRaf = requestAnimationFrame(sample);
+            };
+            testWindow.__trustedFastScrollRaf = requestAnimationFrame(sample);
+            return {
+                maxScrollTop: Math.max(0, element.scrollHeight - element.clientHeight),
+                x: Math.round(rect.left + rect.width / 2),
+                y: Math.round(rect.top + rect.height / 2),
+            };
+        });
+        expect(viewport).not.toBeNull();
+        if (!viewport) {
+            return;
+        }
+
+        await session.page.mouse.move(viewport.x, viewport.y);
+        await session.page.mouse.wheel({deltaY: Math.round(viewport.maxScrollTop * 0.72)});
+        await session.page.waitForFunction(() => {
+            const toolbarPage = (window as IRapidNavigationProbeWindow)
+                .__evbTestApi?.getActiveToolbarSnapshot?.()?.currentPage ?? 0;
+            const chassis = document.querySelector<HTMLElement>('.document-viewer-chassis');
+            const observedPage = Number(chassis?.dataset.viewportObservedPage ?? 0);
+            return toolbarPage > 20 && observedPage === toolbarPage;
+        }, {timeout: 20_000});
+        await waitForVisibleMountedPdfCanvases(session.page, 20_000);
+        await waitForAnimationFrames(session.page, 8);
+
+        const beforeNext = (await getWorkspaceToolbarSnapshot(session.page))?.currentPage ?? 0;
+        expect(beforeNext).toBeGreaterThan(20);
+        const totalPages = (await getWorkspaceToolbarSnapshot(session.page))?.totalPages ?? 0;
+        expect(beforeNext).toBeLessThan(totalPages);
+        await clickPageNavigationButton(session, 'Next Page');
+        await waitForToolbarCurrentPage(session, beforeNext + 1);
+        expect(await waitForVisiblePageCanvas(session, beforeNext + 1, 20_000)).toBe(true);
+
+        const result = await session.page.evaluate(() => {
+            const testWindow = window as Window & {
+                __trustedFastScrollRaf?: number;
+                __trustedFastScrollSamples?: Array<{
+                    occupied: boolean;
+                    observedPage: number;
+                    requestedPage: number;
+                    scrollTop: number;
+                    toolbarPage: number | null;
+                    visiblePages: number[];
+                }>;
+                __trustedFastScrollCount?: number;
+            };
+            if (testWindow.__trustedFastScrollRaf !== undefined) {
+                cancelAnimationFrame(testWindow.__trustedFastScrollRaf);
+            }
+            return {
+                samples: testWindow.__trustedFastScrollSamples ?? [],
+                trustedScrollCount: testWindow.__trustedFastScrollCount ?? 0,
+            };
+        });
+        const movingSamples = result.samples.filter(sample => sample.scrollTop > 0);
+        const blankSamples = movingSamples.filter(sample => !sample.occupied || sample.visiblePages.length === 0);
+        const synchronizedSamples = movingSamples.filter(sample => (
+            sample.observedPage > 0 && sample.toolbarPage === sample.observedPage
+        ));
+        writeTraceArtifact({
+            beforeNext,
+            blankSamples,
+            result,
+            scenario: 'trusted-fast-scroll-at-533-percent',
+            synchronizedSamples,
+        }, TRUSTED_FAST_SCROLL_TRACE_OUTPUT_PATH);
+
+        expect(result.trustedScrollCount).toBeGreaterThan(0);
+        expect(movingSamples.length).toBeGreaterThan(0);
+        expect(blankSamples).toEqual([]);
+        expect(synchronizedSamples.length).toBeGreaterThan(0);
+        expect(synchronizedSamples.every(sample => sample.requestedPage === 1)).toBe(true);
+    }, 90_000);
+
+    it('recovers when trusted scroll supersedes an in-flight navigation', async () => {
+        const session = sessionFixture.getSession();
+        if (!session || !pageJumpReady || !pageJumpPdfPath) {
+            return;
+        }
+
+        await jumpToPageAndWaitForCanvas(session, 1);
+        await waitForToolbarCurrentPage(session, 1);
+        const fitWidth = await callWorkspaceCommand(session.page, 'handleFitWidth');
+        expect(fitWidth.called).toBe(true);
+        await session.page.waitForFunction(() => (
+            (window as IRapidNavigationProbeWindow).__evbTestApi
+                ?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-width'
+        ), {timeout: 15_000});
+
+        const totalPages = (await getWorkspaceToolbarSnapshot(session.page))?.totalPages ?? 0;
+        const targetPage = Math.max(2, Math.floor(totalPages * 0.72));
+        const viewport = await session.page.evaluate(() => {
+            const element = document.querySelector<HTMLElement>('#pdf-viewer');
+            if (!element) {
+                return null;
+            }
+            const rect = element.getBoundingClientRect();
+            return {
+                x: Math.round(rect.left + rect.width / 2),
+                y: Math.round(rect.top + rect.height / 2),
+            };
+        });
+        expect(viewport).not.toBeNull();
+        if (!viewport) {
+            throw new Error('PDF viewport disappeared before the half-commit interruption');
+        }
+        await session.page.mouse.move(viewport.x, viewport.y);
+        const client = await session.page.createCDPSession();
+        await client.send('Emulation.setCPUThrottlingRate', {rate: 50});
+        let inFlight: Record<string, string | undefined> = {};
+        let recovered: Record<string, string | undefined> = {};
+        try {
+            inFlight = await session.page.evaluate(async (target: number) => {
+                const api = (window as IRapidNavigationProbeWindow).__evbTestApi;
+                if (!api) {
+                    return {commandAvailable: 'false'};
+                }
+                // The command itself is synchronous. Do not await the wrapper:
+                // return control to CDP immediately after capturing the
+                // transition so the trusted wheel packet can race the render.
+                void api.callActiveWorkspaceCommand('handleGoToPage', [target]);
+                // Allow Vue's synchronous state projection to flush to the
+                // chassis attributes without yielding a compositor frame.
+                await Promise.resolve();
+                const chassis = document.querySelector<HTMLElement>('.document-viewer-chassis');
+                return {
+                    ...chassis?.dataset,
+                    commandAvailable: 'true',
+                };
+            }, targetPage);
+            await session.page.mouse.wheel({deltaY: 1_600});
+
+            await session.page.waitForFunction(() => {
+                const chassis = document.querySelector<HTMLElement>('.document-viewer-chassis');
+                const toolbarPage = (window as IRapidNavigationProbeWindow)
+                    .__evbTestApi?.getActiveToolbarSnapshot?.()?.currentPage ?? 0;
+                const observedPage = Number(chassis?.dataset.viewportObservedPage ?? 0);
+                return chassis?.dataset.viewportLifecycle === 'ready'
+                    && observedPage > 0
+                    && toolbarPage === observedPage
+                    && !chassis.dataset.viewportStagedViewportPage
+                    && !chassis.dataset.viewportStagedRenderPage;
+            }, {timeout: 10_000}).catch(() => undefined);
+            const evidence = await session.page.evaluate(() => {
+                const chassis = document.querySelector<HTMLElement>('.document-viewer-chassis');
+                const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
+                const toolbar = (window as IRapidNavigationProbeWindow)
+                    .__evbTestApi?.getActiveToolbarSnapshot?.();
+                return {recovered: {
+                    ...chassis?.dataset,
+                    scrollTop: String(viewport?.scrollTop ?? -1),
+                    toolbarPage: String(toolbar?.currentPage ?? 0),
+                }};
+            });
+            recovered = evidence.recovered;
+        } finally {
+            await client.send('Emulation.setCPUThrottlingRate', {rate: 1});
+            await client.detach();
+        }
+
+        expect(inFlight.commandAvailable).toBe('true');
+        expect(Number(inFlight.viewportRequestedPage), JSON.stringify(inFlight)).toBe(targetPage);
+        expect(Number(inFlight.viewportCommittedPage), JSON.stringify(inFlight)).toBe(1);
+        expect(inFlight.viewportLifecycle, JSON.stringify(inFlight)).toBe('transitioning');
+        expect(Number(recovered.viewportRequestedPage), JSON.stringify(recovered)).toBe(1);
+        expect(Number(recovered.viewportCommittedPage), JSON.stringify(recovered)).toBe(1);
+        const observedPage = Number(recovered.viewportObservedPage);
+        expect(observedPage, JSON.stringify(recovered)).toBeGreaterThan(0);
+        expect(Number(recovered.toolbarPage), JSON.stringify(recovered)).toBe(observedPage);
+        expect(recovered.viewportLifecycle, JSON.stringify(recovered)).toBe('ready');
+        expect(recovered.viewportStagedViewportPage, JSON.stringify(recovered)).toBe('');
+        expect(recovered.viewportStagedRenderPage, JSON.stringify(recovered)).toBe('');
+        expect(observedPage).toBeLessThan(totalPages);
+
+        await clickPageNavigationButton(session, 'Next Page');
+        await waitForToolbarCurrentPage(session, observedPage + 1);
+        expect(await waitForVisiblePageCanvas(session, observedPage + 1, 20_000)).toBe(true);
+        writeTraceArtifact({
+            inFlight,
+            observedPage,
+            recovered,
+            scenario: 'trusted-scroll-supersedes-in-flight-navigation',
+            targetPage,
+        }, IN_FLIGHT_SCROLL_TRACE_OUTPUT_PATH);
+    }, 120_000);
 
     it('never exposes a frame without a page skeleton or committed canvas during rapid Next then Fit Width', async () => {
         const session = sessionFixture.getSession();

@@ -3,6 +3,7 @@ import type { Ref } from 'vue';
 import {
     createEmptyDocumentViewportSession,
     reduceDocumentViewportSession,
+    resolveDocumentViewportCurrentPage,
     type IDocumentViewportSessionState,
     type TDocumentViewportSessionEffect,
     type TDocumentViewportSessionEvent,
@@ -126,6 +127,7 @@ export interface IDocumentOpenSurfaceSession {
     reset(): void;
     metadataReady(pageCount: number): boolean;
     requestNavigation(pageNumber: number, skeletonDelayMs?: number): number;
+    observeViewportPage(pageNumber: number, options?: {supersedeNavigation?: boolean}): number;
 }
 
 export function resolveDocumentOpenSurfaceViewportPolicy(snapshot: IDocumentOpenSurfaceSnapshot) {
@@ -276,17 +278,18 @@ function projectDocumentOpenSurfaceSnapshot(
             documentId: viewport.identity.documentId,
             documentRevision: viewport.identity.revision,
         };
-    const committedRender = viewport.committedRenderFence === null
+    const projectedRenderFence = viewport.stagedRenderFence ?? viewport.committedRenderFence;
+    const committedRender = projectedRenderFence === null
         ? null
         : {
             generation: viewport.generation,
-            documentRevision: viewport.committedRenderFence.revision,
-            viewportIntentId: viewport.committedRenderFence.viewportIntentId,
-            renderVersion: viewport.committedRenderFence.renderVersion,
-            requestId: viewport.committedRenderFence.requestId,
-            pageNumber: viewport.committedRenderFence.pageNumber,
+            documentRevision: projectedRenderFence.revision,
+            viewportIntentId: projectedRenderFence.viewportIntentId,
+            renderVersion: projectedRenderFence.renderVersion,
+            requestId: projectedRenderFence.requestId,
+            pageNumber: projectedRenderFence.pageNumber,
         };
-    const viewportFence = viewport.committedViewportFence;
+    const viewportFence = viewport.stagedViewportFence ?? viewport.committedViewportFence;
     const position = visual.committedViewportPosition;
     const committedViewport = viewportFence !== null
         && position?.viewportIntentId === viewportFence.viewportIntentId
@@ -940,6 +943,24 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 documentId: sessionState.value.viewport.identity?.documentId ?? null,
             });
             return sessionState.value.viewport.requestedPage;
+        },
+        observeViewportPage(pageNumber, options = {}) {
+            const current = sessionState.value.viewport;
+            const normalized = Math.max(1, Math.trunc(pageNumber));
+            if (!Number.isSafeInteger(normalized) || current.identity === null) {
+                return resolveDocumentViewportCurrentPage(current);
+            }
+            const supersede = options.supersedeNavigation === true
+                && current.lifecycle === 'transitioning';
+            dispatchViewport({
+                type: supersede ? 'navigation-superseded-by-user' : 'page-observed',
+                generation: current.generation,
+                pageNumber: normalized,
+            }, supersede ? visual => ({
+                ...visual,
+                presentation: 'committed',
+            }) : undefined);
+            return resolveDocumentViewportCurrentPage(sessionState.value.viewport);
         },
     };
 }

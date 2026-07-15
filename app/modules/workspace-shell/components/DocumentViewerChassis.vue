@@ -14,6 +14,10 @@
         :data-open-surface-has-viewport="chassisAuthority.openSurface.snapshot.value.committedViewport !== null"
         :data-viewport-requested-page="chassisAuthority.openSurface.viewportSession.value.requestedPage"
         :data-viewport-committed-page="chassisAuthority.openSurface.viewportSession.value.committedPage ?? ''"
+        :data-viewport-observed-page="chassisAuthority.openSurface.viewportSession.value.observedPage ?? ''"
+        :data-viewport-lifecycle="chassisAuthority.openSurface.viewportSession.value.lifecycle"
+        :data-viewport-staged-render-page="chassisAuthority.openSurface.viewportSession.value.stagedRenderFence?.pageNumber ?? ''"
+        :data-viewport-staged-viewport-page="chassisAuthority.openSurface.viewportSession.value.stagedViewportFence?.pageNumber ?? ''"
         :data-viewport-visual-kind="chassisAuthority.openSurface.viewportSession.value.visual.kind"
         :data-viewport-visual-page="chassisAuthority.openSurface.viewportSession.value.visual.kind === 'page' ? chassisAuthority.openSurface.viewportSession.value.visual.pageNumber : ''"
         :data-viewport-visual-presentation="chassisAuthority.openSurface.viewportSession.value.visual.kind === 'page' ? chassisAuthority.openSurface.viewportSession.value.visual.presentation : ''"
@@ -495,7 +499,7 @@ function handleCurrentPageUpdate(pageNumber: number) {
         chassisAuthority.openSurface.viewportSession.value,
         pageNumber,
     )) {
-        emit('update:current-page', chassisAuthority.navigate(pageNumber));
+        emit('update:current-page', pageNumber);
     }
 }
 

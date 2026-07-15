@@ -1359,6 +1359,12 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             );
             await openPdfInApp(session.page, fixturePath, PR_BLOCKING_SMOKE_TIMEOUT_MS);
             await waitForPdfLoaded(session.page, PR_BLOCKING_SMOKE_TIMEOUT_MS);
+            const fitHeight = await callWorkspaceCommand(session.page, 'handleFitHeight');
+            expect(fitHeight.called).toBe(true);
+            await waitForFunctionInPage(session.page, () => (
+                (window as IE2EWindow).__evbTestApi
+                    ?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-height'
+            ), {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS});
             const sidebarToggle = await callWorkspaceCommand(session.page, 'handleToggleSidebar');
             expect(sidebarToggle.called).toBe(true);
             await waitForWorkspaceToolbarSnapshot(
@@ -1390,6 +1396,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                 {showSidebar: false},
                 {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS},
             );
+            expect((await getWorkspaceToolbarSnapshot(session.page))?.zoomMode).toBe('fit-width');
             expect(rendererExceptions).toEqual([]);
         } catch (error) {
             throw new Error(`${String(error)}; rendererExceptions=${JSON.stringify(rendererExceptions)}`);

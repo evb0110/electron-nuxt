@@ -3,7 +3,10 @@ import {
     expect,
     it,
 } from 'vitest';
-import { commitPdfOpenSurfaceViewport } from '@app/modules/pdf-viewer/runtime/navigation/commitPdfOpenSurfaceViewport';
+import {
+    commitPdfOpenSurfaceViewport,
+    shouldProjectPdfViewportCommitPage,
+} from '@app/modules/pdf-viewer/runtime/navigation/commitPdfOpenSurfaceViewport';
 import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 
 describe('commitPdfOpenSurfaceViewport', () => {
@@ -30,6 +33,7 @@ describe('commitPdfOpenSurfaceViewport', () => {
 
         expect(commitPdfOpenSurfaceViewport(surface, {
             intentId: 'viewport-observed-1',
+            intentKind: 'user-scroll',
             documentRevision: 1,
             geometryRevision: 7,
             interactionEpoch: 0,
@@ -58,6 +62,7 @@ describe('commitPdfOpenSurfaceViewport', () => {
 
         expect(commitPdfOpenSurfaceViewport(surface, {
             intentId: 'stale-pdf-intent',
+            intentKind: 'fit',
             documentRevision: 1,
             geometryRevision: 7,
             interactionEpoch: 0,
@@ -97,6 +102,7 @@ describe('commitPdfOpenSurfaceViewport', () => {
 
         expect(commitPdfOpenSurfaceViewport(surface, {
             intentId: 'viewport-observed-2',
+            intentKind: 'user-scroll',
             documentRevision: 2,
             geometryRevision: 8,
             interactionEpoch: 0,
@@ -105,5 +111,36 @@ describe('commitPdfOpenSurfaceViewport', () => {
             top: 0,
         })).toBe(true);
         expect(surface.snapshot.value.committedViewport?.pageNumber).toBe(1);
+    });
+
+    it('rejects stale geometry commits but permits navigation to advance the shared page', () => {
+        const surface = createDocumentOpenSurfaceSession();
+        surface.begin({
+            documentId: 'scan.pdf',
+            documentRevision: 'load:1',
+        });
+        surface.requestNavigation(348, 0);
+        const baseCommit = {
+            intentId: 'viewport-state-1',
+            documentRevision: 1,
+            geometryRevision: 7,
+            interactionEpoch: 0,
+            page: 1,
+            left: 0,
+            top: 0,
+        } as const;
+
+        expect(shouldProjectPdfViewportCommitPage(surface, {
+            ...baseCommit,
+            intentKind: 'fit',
+        })).toBe(false);
+        expect(shouldProjectPdfViewportCommitPage(surface, {
+            ...baseCommit,
+            intentKind: 'user-scroll',
+        })).toBe(false);
+        expect(shouldProjectPdfViewportCommitPage(surface, {
+            ...baseCommit,
+            intentKind: 'navigate',
+        })).toBe(true);
     });
 });

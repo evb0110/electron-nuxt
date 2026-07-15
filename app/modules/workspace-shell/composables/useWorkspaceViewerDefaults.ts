@@ -78,7 +78,7 @@ export const useWorkspaceViewerDefaults = (options: IUseWorkspaceViewerDefaultsO
     const defaultsSourceKey = computed(() => options.documentSourceKey?.value ?? options.pdfSrc.value);
 
     watch(defaultsSourceKey, (nextSource, previousSource) => {
-        if (nextSource && !previousSource) {
+        if (Boolean(nextSource) !== Boolean(previousSource)) {
             applyWorkspaceViewerDefaults();
         }
     });

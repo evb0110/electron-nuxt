@@ -61,9 +61,11 @@ interface IBalancedScrollRegionGeometry {
 
 interface IDjvuWheelMetricSample {
     clientHeight: number;
+    committedPage: number;
     currentPage: number | null;
     imageCount: number;
     mountedRange: string;
+    observedPage: number;
     maxVisibleGapPx: number;
     pageNumbers: number[];
     scrollHeight: number;
@@ -76,6 +78,7 @@ interface IDjvuWheelMetricSample {
     visibleShellCount: number;
     visibleSkeletonCount: number;
     visibleUnloadedFraction: number;
+    requestedPage: number;
 }
 
 interface IDjvuWheelMetricSummary {
@@ -796,6 +799,7 @@ function readDjvuWheelMetricSampleFromPage(): IDjvuWheelMetricSample {
         }) ?? null;
     const surface = visibleHost?.querySelector<HTMLElement>('[data-testid="document-page-source-viewer"]') ?? null;
     const viewer = surface?.closest<HTMLElement>('[data-document-viewer-chassis-viewport]') ?? null;
+    const chassis = viewer?.closest<HTMLElement>('.document-viewer-chassis') ?? null;
     const viewerRect = viewer?.getBoundingClientRect() ?? null;
     // The opening-page shell is teleported beside the source surface while a
     // viewport transition commits. Count shells from the chassis viewport so
@@ -854,6 +858,7 @@ function readDjvuWheelMetricSampleFromPage(): IDjvuWheelMetricSample {
 
     return {
         clientHeight: Math.round(viewer?.clientHeight ?? 0),
+        committedPage: Number(chassis?.dataset.viewportCommittedPage ?? 0),
         currentPage: typeof toolbarCurrentPage === 'number' && Number.isFinite(toolbarCurrentPage)
             ? Math.trunc(toolbarCurrentPage)
             : Number.parseInt(
@@ -864,6 +869,7 @@ function readDjvuWheelMetricSampleFromPage(): IDjvuWheelMetricSample {
             ) || null,
         imageCount: viewer?.querySelectorAll('[data-testid="document-page-source-image"]').length ?? 0,
         mountedRange: pageNumbers.length > 0 ? `${pageNumbers[0]}-${pageNumbers.at(-1)}` : 'empty',
+        observedPage: Number(chassis?.dataset.viewportObservedPage ?? 0),
         maxVisibleGapPx: Math.round(maxVisibleGapPx),
         pageNumbers,
         scrollHeight: Math.round(viewer?.scrollHeight ?? 0),
@@ -878,6 +884,7 @@ function readDjvuWheelMetricSampleFromPage(): IDjvuWheelMetricSample {
         visibleUnloadedFraction: totalVisibleShellArea > 0
             ? unloadedVisibleShellArea / totalVisibleShellArea
             : 1,
+        requestedPage: Number(chassis?.dataset.viewportRequestedPage ?? 0),
     };
 }
 
@@ -3118,6 +3125,9 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         expect(summary.sampleCount, summaryDetail).toBeGreaterThan(40);
         expect(samples[0]?.currentPage ?? 0, summaryDetail).toBeGreaterThanOrEqual(DJVU_VIDEO_START_PAGE - 1);
         expect(summary.finalPage ?? 0, summaryDetail).toBeGreaterThanOrEqual(30);
+        expect(samples.at(-1)?.observedPage, summaryDetail).toBe(samples.at(-1)?.currentPage);
+        expect(samples.every(sample => sample.requestedPage === samples[0]?.committedPage), summaryDetail).toBe(true);
+        expect(samples.every(sample => sample.committedPage === samples[0]?.committedPage), summaryDetail).toBe(true);
         expect(samples.at(-1)!.scrollTop, summaryDetail).toBeGreaterThan(samples[0]!.scrollTop);
         expect(summary.monotonicScrollViolations, summaryDetail).toBe(0);
         expect(summary.virtualSpacerCount, summaryDetail).toBe(0);

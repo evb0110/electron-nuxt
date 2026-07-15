@@ -85,7 +85,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Static audit Stage 15 - workspace binding extraction',
     },
     'app/modules/workspace-shell/components/DocumentPageSourceFeaturePack.vue': {
-        maxLines: 1439,
+        maxLines: 1434,
         reason: 'page-source feature pack after shared chassis, retry, and committed-surface lifecycle integration',
         stage: 'Viewer core follow-up - page-source controller extraction',
     },
@@ -105,7 +105,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Future PDF rendering extraction',
     },
     'app/modules/pdf-viewer/runtime/usePdfViewerFeatureController.ts': {
-        maxLines: 1272,
+        maxLines: 1257,
         reason: 'PDF feature controller after render-demand and prepared opening-frame authority integration',
         stage: 'Viewer core follow-up - opening and render-demand orchestration extraction',
     },

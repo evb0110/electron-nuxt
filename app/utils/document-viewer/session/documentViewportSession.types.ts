@@ -60,10 +60,16 @@ export interface IDocumentViewportSessionState {
     /** Latest user intent. It is deliberately allowed to exceed an as-yet unknown page count. */
     readonly requestedPage: number;
     readonly committedPage: number | null;
+    /** Semantic page currently observed in a settled, freely scrolled viewport. */
+    readonly observedPage: number | null;
     readonly pageCount: number | null;
     readonly visual: TDocumentViewportVisualOwner;
     readonly viewportIntent: IDocumentViewportIntent | null;
     readonly renderFence: IDocumentViewportRenderFence | null;
+    /** Canvas commit for the active intent; promoted only when its viewport also commits. */
+    readonly stagedRenderFence: IDocumentViewportRenderFence | null;
+    /** Viewport commit for the active intent; promoted only when its canvas also commits. */
+    readonly stagedViewportFence: IDocumentViewportCommitFence | null;
     readonly committedRenderFence: IDocumentViewportRenderFence | null;
     readonly committedViewportFence: IDocumentViewportCommitFence | null;
     readonly skeletonDelay: IDocumentViewportSkeletonDelay | null;
@@ -106,6 +112,16 @@ export type TDocumentViewportSessionEvent =
             readonly token: string;
             readonly deadline: number
         };
+    }
+    | {
+        readonly type: 'page-observed';
+        readonly generation: number;
+        readonly pageNumber: number;
+    }
+    | {
+        readonly type: 'navigation-superseded-by-user';
+        readonly generation: number;
+        readonly pageNumber: number;
     }
     | {
         readonly type: 'render-started';

@@ -49,6 +49,7 @@ interface IUsePdfSinglePageNavigationControllerOptions extends IUsePdfSinglePage
     getDocumentRevision: () => number;
     getGeometryRevision: () => number;
     onViewportPositionCommitted?: ((commit: IPdfViewportPositionCommit) => void) | undefined;
+    onUserViewportPageObserved?: ((pageNumber: number) => void) | undefined;
 }
 
 function getRequestPage(request: IPdfNavigationRequest | undefined, fallback: number) {
@@ -655,6 +656,9 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
     }
 
     function observeNativeUserScroll() {
+        if (queuedNavigation !== null || retainedNavigationAnchorPage.value !== null) {
+            clearQueuedNavigation();
+        }
         const container = options.viewerContainer.value;
         const snapshot = refreshGeometry();
         const anchor = container && snapshot
@@ -665,6 +669,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             : getRequestAnchor(undefined, options.currentPage.value);
         viewportAuthority.observeUserScroll(anchor);
         if (container) options.viewportWritePort.observeUserScroll(container);
+        return anchor.page;
     }
 
     function captureCurrentSemanticAnchor() {
@@ -696,7 +701,11 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         return applied;
     }
 
-    function commitCurrentViewportPosition(pageNumber: number, intentId: string) {
+    function commitCurrentViewportPosition(
+        pageNumber: number,
+        intentId: string,
+        intentKind: TPdfViewportIntentKind = 'document-restore',
+    ) {
         const container = options.viewerContainer.value;
         const snapshot = refreshGeometry();
         if (!container || !snapshot || viewportAuthority.activeIntent.value !== null) {
@@ -712,6 +721,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         };
         return viewportAuthority.commitSettledPosition({
             intentId,
+            intentKind,
             documentRevision: options.getDocumentRevision(),
             geometryRevision: options.getGeometryRevision(),
             page,
@@ -747,7 +757,14 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             currentPage: viewportAuthority.currentPage.value,
         }));
         clearQueuedNavigation();
-        observeNativeUserScroll();
+        const page = observeNativeUserScroll();
+        // Physical input is authoritative even when the browser cannot move
+        // the viewport (for example, while a programmatic scroll and canvas
+        // commit are still settling). Publish the live anchor at the input
+        // boundary so the shared session cannot remain transitioning merely
+        // because no follow-up scroll event was emitted.
+        options.onUserViewportPageObserved?.(page);
+        return page;
     }
 
     function resetContinuousScrollState() {
@@ -817,9 +834,19 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             options.emitCurrentPage(viewportAuthority.currentPage.value);
             return;
         }
-        observeNativeUserScroll();
+        const page = observeNativeUserScroll();
         options.updateVisibleRange(container, options.numPages.value);
-        options.emitCurrentPage(viewportAuthority.currentPage.value);
+        // Semantic viewport observation must not depend on the position fence
+        // below. Fast scrolling can advance layout geometry between reading
+        // the live anchor and serializing its pixel position; rejecting that
+        // stale position must not also leave the toolbar/session page stale.
+        options.onUserViewportPageObserved?.(page);
+        commitCurrentViewportPosition(
+            page,
+            `native-user-scroll-${String(++intentSequence)}`,
+            'user-scroll',
+        );
+        options.emitCurrentPage(page);
     }
 
     function handleWheel(event: WheelEvent) {

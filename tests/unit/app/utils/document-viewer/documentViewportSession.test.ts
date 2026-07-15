@@ -322,6 +322,110 @@ describe('DocumentViewportSession', () => {
         });
     });
 
+    it('commits same-page ready refinements without leaving an unmatched staged fence', () => {
+        const harness = new SessionHarness();
+        harness.openPrepared();
+        harness.settleCurrentPage();
+        const previousRender = harness.state.committedRenderFence;
+        const refinementRender = renderFence(harness.state, {
+            renderVersion: 2,
+            requestId: 2,
+        });
+        const refinementViewport = viewportFence(harness.state, {geometryRevision: 2});
+
+        harness.dispatch({
+            type: 'render-started',
+            fence: refinementRender,
+        });
+        expect(harness.dispatch({
+            type: 'viewport-committed',
+            fence: refinementViewport,
+        }).accepted).toBe(true);
+        expect(harness.state.lifecycle).toBe('ready');
+        expect(harness.state.stagedViewportFence).toBeNull();
+        expect(harness.state.committedRenderFence).toEqual(previousRender);
+        expect(harness.state.committedViewportFence).toEqual(refinementViewport);
+
+        expect(harness.dispatch({
+            type: 'canvas-committed',
+            fence: refinementRender,
+        }).accepted).toBe(true);
+        expect(harness.state.stagedRenderFence).toBeNull();
+        expect(harness.state.stagedViewportFence).toBeNull();
+        expect(harness.state.committedRenderFence).toEqual(refinementRender);
+        expect(harness.state.committedViewportFence).toEqual(refinementViewport);
+    });
+
+    it('separates settled page observation from commands and lets user scroll supersede navigation', () => {
+        const harness = new SessionHarness();
+        harness.openPrepared(1, 20);
+        harness.settleCurrentPage();
+
+        expect(harness.dispatch({
+            type: 'page-observed',
+            generation: harness.state.generation,
+            pageNumber: 6,
+        }).accepted).toBe(true);
+        expect(harness.state).toMatchObject({
+            lifecycle: 'ready',
+            requestedPage: 1,
+            committedPage: 1,
+            observedPage: 6,
+        });
+
+        harness.dispatch({
+            type: 'navigation-requested',
+            pageNumber: 12,
+            viewportIntentId: 'nav-superseded',
+            skeletonDelay: {
+                token: 'delay-superseded',
+                deadline: Date.now() + 120,
+            },
+        });
+        expect(harness.state).toMatchObject({
+            lifecycle: 'transitioning',
+            requestedPage: 12,
+            committedPage: 1,
+            observedPage: null,
+        });
+        expect(harness.state.committedRenderFence?.pageNumber).toBe(1);
+        expect(harness.state.committedViewportFence?.pageNumber).toBe(1);
+
+        expect(harness.dispatch({
+            type: 'viewport-committed',
+            fence: viewportFence(harness.state),
+        }).accepted).toBe(true);
+        expect(harness.state.stagedViewportFence?.pageNumber).toBe(12);
+        expect(harness.state.committedViewportFence?.pageNumber).toBe(1);
+
+        const superseded = harness.dispatch({
+            type: 'navigation-superseded-by-user',
+            generation: harness.state.generation,
+            pageNumber: 8,
+        });
+        expect(superseded.accepted).toBe(true);
+        expect(superseded.effects).toEqual([{
+            type: 'cancel-skeleton-delay',
+            token: 'delay-superseded',
+        }]);
+        expect(harness.state).toMatchObject({
+            lifecycle: 'ready',
+            requestedPage: 1,
+            committedPage: 1,
+            observedPage: 8,
+            viewportIntent: null,
+            renderFence: null,
+            stagedRenderFence: null,
+            stagedViewportFence: null,
+            skeletonDelay: null,
+            visual: {
+                kind: 'page',
+                pageNumber: 1,
+                presentation: 'canvas',
+            },
+        });
+    });
+
     it('replaces the committed document with the replacement exact shell immediately', () => {
         const harness = new SessionHarness();
         harness.openPrepared();
@@ -463,6 +567,8 @@ describe('DocumentViewportSession', () => {
         }).accepted).toBe(false);
         expect(harness.state.committedRenderFence).toBeNull();
         expect(harness.state.committedViewportFence).toBeNull();
+        expect(harness.state.stagedRenderFence).toBeNull();
+        expect(harness.state.stagedViewportFence).toBeNull();
     });
 
     it('supersedes old generation commits when another document opens', () => {

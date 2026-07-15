@@ -34,6 +34,7 @@ interface IPdfViewportResolvedCommit {
 
 export interface IPdfViewportPositionCommit {
     intentId: string;
+    intentKind: TPdfViewportIntentKind;
     documentRevision: number;
     geometryRevision: number;
     interactionEpoch: number;
@@ -187,6 +188,7 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
                 : commit;
             const positionCommit = Object.freeze({
                 intentId: next.id,
+                intentKind: next.kind,
                 documentRevision: next.documentRevision,
                 geometryRevision: expectedGeometryRevision,
                 interactionEpoch: next.interactionEpoch,

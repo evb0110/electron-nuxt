@@ -22,7 +22,10 @@ import {
     createDocumentOpenSurfaceSession,
     type IDocumentOpenSurfaceSession,
 } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
-import type { IDocumentViewportSessionState } from '@app/utils/document-viewer/session/documentViewportSession';
+import {
+    type IDocumentViewportSessionState,
+    resolveDocumentViewportCurrentPage,
+} from '@app/utils/document-viewer/session/documentViewportSession';
 
 export interface IDocumentViewerChassisAuthority {
     readonly instanceId: string;
@@ -51,6 +54,7 @@ export interface IDocumentViewerChassisAuthority {
     bindViewportFeature(binding: IDocumentViewportFeatureBinding): () => void;
     dispatchViewportEvent(type: TDocumentViewportEventType, event?: Event): void;
     navigate(pageNumber: number): number;
+    observePage(pageNumber: number, options?: {supersedeNavigation?: boolean}): number;
 }
 
 export type TDocumentViewportEventType = 'scroll' | 'wheel' | 'mousedown' | 'mousemove' | 'mouseup'
@@ -100,7 +104,7 @@ export function shouldAcceptFeaturePackChassisPage(
     // Viewport commit boundaries request their page before emitting this
     // compatibility projection, so legitimate scroll/navigation updates still
     // match requestedPage while stale updates are rejected.
-    return session.requestedPage === normalizedPage;
+    return resolveDocumentViewportCurrentPage(session) === normalizedPage;
 }
 
 export function createDocumentViewerChassisAuthority(
@@ -110,7 +114,9 @@ export function createDocumentViewerChassisAuthority(
 ): IDocumentViewerChassisAuthority {
     const currentPage = ref(Math.max(
         1,
-        Math.trunc(sharedOpenSurface?.viewportSession.value.requestedPage ?? initialPage),
+        Math.trunc(sharedOpenSurface
+            ? resolveDocumentViewportCurrentPage(sharedOpenSurface.viewportSession.value)
+            : initialPage),
     ));
     const instanceId = `document-viewer-chassis-${String(++nextDocumentViewerChassisInstanceId)}`;
     const pageCount = ref(0);
@@ -146,7 +152,7 @@ export function createDocumentViewerChassisAuthority(
             // both the empty and opening sessions request page 1. Observing
             // only the numeric page would leave local pre-source state in
             // place when that number did not change.
-            currentPage.value = session.requestedPage;
+            currentPage.value = resolveDocumentViewportCurrentPage(session);
         },
         {flush: 'sync'},
     );
@@ -272,6 +278,10 @@ export function createDocumentViewerChassisAuthority(
                 return currentPage.value;
             }
             currentPage.value = boundedPage;
+            return currentPage.value;
+        },
+        observePage(pageNumber, options) {
+            currentPage.value = openSurface.observeViewportPage(pageNumber, options);
             return currentPage.value;
         },
     };

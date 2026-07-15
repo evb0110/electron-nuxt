@@ -262,7 +262,7 @@ onMounted(() => {
         getClass: () => 'document-viewer-viewport document-source-viewer app-scrollbar app-scroll-region--balanced',
         getStyle: () => ({}),
         events: {
-            scroll: () => handleScroll(),
+            scroll: event => handleScroll(event),
             wheel: event => handleWheel(event as WheelEvent),
         },
     }) ?? null;
@@ -891,7 +891,7 @@ const resizeLifecycle = useDocumentPageSourceResizeLifecycle({
     onResizeSettled: () => scheduleRender.schedule(),
 });
 
-function handleScroll() {
+function handleScroll(event?: Event) {
     if (!continuousScroll || !viewerContainer.value || resizeLifecycle.isResizeTransitionActive.value) {
         return;
     }
@@ -900,13 +900,7 @@ function handleScroll() {
     if (chassisAuthority?.viewportWritePort.consumeAuthorityScroll(viewerContainer.value)) {
         return;
     }
-    if (
-        chassisAuthority
-        && !shouldProjectDocumentViewportScroll(
-            chassisAuthority.openSurface.snapshot.value,
-            chassisAuthority.openSurface.viewportSession.value,
-        )
-    ) {
+    if (chassisAuthority && event?.isTrusted !== true) {
         return;
     }
     chassisAuthority?.viewportWritePort.observeUserScroll(viewerContainer.value);
@@ -921,7 +915,8 @@ function handleScroll() {
         viewportHeight: viewerContainer.value.clientHeight,
     });
     if (nearestPage && nearestPage !== currentPage) {
-        emit('update:currentPage', chassisAuthority?.navigate(nearestPage) ?? nearestPage);
+        const observedPage = chassisAuthority?.observePage(nearestPage, {supersedeNavigation: true}) ?? nearestPage;
+        emit('update:currentPage', observedPage);
     }
 }
 function handleWheel(event: WheelEvent) {

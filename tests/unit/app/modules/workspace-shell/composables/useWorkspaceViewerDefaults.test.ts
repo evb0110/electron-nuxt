@@ -191,4 +191,32 @@ describe('useWorkspaceViewerDefaults', () => {
             setup.stop();
         }
     });
+
+    it('restores configured defaults when a document source closes', async () => {
+        const setup = createDefaultsSetup({
+            defaultZoomPreset: '125',
+            defaultViewMode: 'single',
+            defaultContinuousScroll: true,
+        });
+
+        try {
+            await openPdf(setup.pdfSrc);
+            setup.zoom.value = 1.44;
+            setup.effectiveZoom.value = 1.44;
+            setup.zoomMode.value = 'fit-height';
+            setup.viewMode.value = 'facing';
+            setup.continuousScroll.value = false;
+
+            setup.pdfSrc.value = null;
+            await nextTick();
+
+            expect(setup.zoom.value).toBe(1.25);
+            expect(setup.effectiveZoom.value).toBe(1.25);
+            expect(setup.zoomMode.value).toBe('custom');
+            expect(setup.viewMode.value).toBe('single');
+            expect(setup.continuousScroll.value).toBe(true);
+        } finally {
+            setup.stop();
+        }
+    });
 });

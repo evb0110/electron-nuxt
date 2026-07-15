@@ -118,6 +118,7 @@ describe('ViewportAuthority', () => {
 
         const commit = authority.commitSettledPosition({
             intentId: 'reload-viewport-1-7',
+            intentKind: 'document-restore',
             documentRevision: 3,
             geometryRevision: 5,
             page: 7,
