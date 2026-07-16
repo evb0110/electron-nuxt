@@ -6,6 +6,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+source "$SCRIPT_DIR/lib/macos-dylib-bundle.sh"
 
 # Detect architecture
 ARCH="$(uname -m)"
@@ -165,132 +166,7 @@ echo "=========================================="
 echo "Resolving and fixing dylib dependencies..."
 echo "=========================================="
 
-copy_deps_recursive() {
-  local dest_lib="$1"
-  shift
-  local files=("$@")
-  local added=1
-
-  while [ "$added" -gt 0 ]; do
-    added=0
-    for file in "${files[@]}"; do
-      [ -f "$file" ] || continue
-      local deps
-      deps="$(otool -L "$file" 2>/dev/null | awk 'NR > 1 {print $1}' || true)"
-      for dep in $deps; do
-        case "$dep" in
-          /usr/lib/*|/System/*)
-            continue
-            ;;
-        esac
-
-        local dep_name
-        dep_name="$(basename "$dep")"
-
-        local dep_source=""
-        if [ -f "$dep" ]; then
-          dep_source="$dep"
-        else
-          dep_source="$(find "$BREW" -type f -name "$dep_name" -print -quit 2>/dev/null || true)"
-        fi
-
-        if [ -z "$dep_source" ]; then
-          continue
-        fi
-
-        if [ ! -f "$dest_lib/$dep_name" ]; then
-          cp -L "$dep_source" "$dest_lib/$dep_name"
-          echo "  Added dependency: $dep_name"
-          files+=("$dest_lib/$dep_name")
-          added=1
-        fi
-      done
-    done
-  done
-}
-
-fix_lib_paths() {
-  local lib="$1"
-  local lib_name
-  lib_name="$(basename "$lib")"
-
-  install_name_tool -id "@loader_path/$lib_name" "$lib" 2>/dev/null || true
-
-  local brew_deps
-  brew_deps="$(otool -L "$lib" 2>/dev/null | grep "$BREW/" | awk '{print $1}' || true)"
-  for dep in $brew_deps; do
-    local dep_name
-    dep_name="$(basename "$dep")"
-    install_name_tool -change "$dep" "@loader_path/$dep_name" "$lib" 2>/dev/null || true
-  done
-
-  local rpath_deps
-  rpath_deps="$(otool -L "$lib" 2>/dev/null | grep "@rpath" | awk '{print $1}' || true)"
-  for dep in $rpath_deps; do
-    local dep_name
-    dep_name="$(basename "$dep")"
-    install_name_tool -change "$dep" "@loader_path/$dep_name" "$lib" 2>/dev/null || true
-  done
-
-
-  local bundled_deps
-  bundled_deps="$(otool -L "$lib" 2>/dev/null | awk 'NR > 1 {print $1}' || true)"
-  for dep in $bundled_deps; do
-    local dep_name
-    dep_name="$(basename "$dep")"
-    if [ -f "$DEST/lib/$dep_name" ]; then
-      install_name_tool -change "$dep" "@loader_path/$dep_name" "$lib" 2>/dev/null || true
-    fi
-  done
-}
-
-fix_bin_paths() {
-  local bin="$1"
-
-  local brew_deps
-  brew_deps="$(otool -L "$bin" 2>/dev/null | grep "$BREW/" | awk '{print $1}' || true)"
-  for dep in $brew_deps; do
-    local dep_name
-    dep_name="$(basename "$dep")"
-    install_name_tool -change "$dep" "@executable_path/../lib/$dep_name" "$bin" 2>/dev/null || true
-  done
-
-  local rpath_deps
-  rpath_deps="$(otool -L "$bin" 2>/dev/null | grep "@rpath" | awk '{print $1}' || true)"
-  for dep in $rpath_deps; do
-    local dep_name
-    dep_name="$(basename "$dep")"
-    install_name_tool -change "$dep" "@executable_path/../lib/$dep_name" "$bin" 2>/dev/null || true
-  done
-
-
-  local bundled_deps
-  bundled_deps="$(otool -L "$bin" 2>/dev/null | awk 'NR > 1 {print $1}' || true)"
-  for dep in $bundled_deps; do
-    local dep_name
-    dep_name="$(basename "$dep")"
-    if [ -f "$DEST/lib/$dep_name" ]; then
-      install_name_tool -change "$dep" "@executable_path/../lib/$dep_name" "$bin" 2>/dev/null || true
-    fi
-  done
-}
-
-copy_deps_recursive "$DEST/lib" "$DEST/bin/unpaper" "$DEST/lib/"*.dylib
-
-for lib in "$DEST/lib/"*.dylib; do
-  [ -f "$lib" ] || continue
-  fix_lib_paths "$lib"
-done
-fix_bin_paths "$DEST/bin/unpaper"
-
-# Run one more pass after rewriting to catch newly-visible deps.
-copy_deps_recursive "$DEST/lib" "$DEST/bin/unpaper" "$DEST/lib/"*.dylib
-
-for lib in "$DEST/lib/"*.dylib; do
-  [ -f "$lib" ] || continue
-  fix_lib_paths "$lib"
-done
-fix_bin_paths "$DEST/bin/unpaper"
+macos_bundle_dylib_closure "$DEST/lib" "$BREW" "$DEST/bin/unpaper"
 
 unresolved="$(otool -L "$DEST/bin/unpaper" 2>/dev/null | grep -E "$BREW/|$FFMPEG_INSTALL_DIR/" || true)"
 if [ -n "$unresolved" ]; then

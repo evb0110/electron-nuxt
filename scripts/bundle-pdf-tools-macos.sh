@@ -6,6 +6,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 RESOURCES_DIR="${EVB_PDF_TOOLS_RESOURCES_DIR:-$PROJECT_ROOT/resources}"
+source "$SCRIPT_DIR/lib/macos-dylib-bundle.sh"
 
 # Detect architecture
 ARCH="$(uname -m)"
@@ -70,92 +71,6 @@ if [ -z "$qpdf_source_lib" ]; then
 fi
 
 # ==========================================
-# Shared helpers
-# ==========================================
-
-# Recursively copy all non-system dylib dependencies into dest/lib
-copy_deps_recursive() {
-    local dest_lib="$1"
-    shift
-    local files=("$@")
-
-    local added=1
-    while [ "$added" -gt 0 ]; do
-        added=0
-        for file in "${files[@]}"; do
-            [ -f "$file" ] || continue
-            local deps
-            deps="$(otool -L "$file" | grep "$BREW_PREFIX" | awk '{print $1}')" || true
-            for dep in $deps; do
-                local dep_name
-                dep_name="$(basename "$dep")"
-                if [ ! -f "$dest_lib/$dep_name" ]; then
-                    if [ -f "$dep" ]; then
-                        # Copy resolved file contents even when the source is a symlink.
-                        cp -L "$dep" "$dest_lib/$dep_name"
-                        echo "    Copied: $dep_name"
-                        files+=("$dest_lib/$dep_name")
-                        added=1
-                    else
-                        echo "Error: Homebrew dependency does not exist: $dep (referenced by $file)"
-                        exit 1
-                    fi
-                fi
-            done
-        done
-    done
-}
-
-# Fix all Homebrew and @rpath references in a library to use @loader_path
-fix_lib_paths() {
-    local lib="$1"
-    local lib_name
-    lib_name="$(basename "$lib")"
-
-    # Set the library's own ID
-    install_name_tool -id "@loader_path/$lib_name" "$lib"
-
-    # Fix Homebrew references
-    local brew_deps
-    brew_deps="$(otool -L "$lib" | grep "$BREW_PREFIX" | awk '{print $1}')" || true
-    for dep in $brew_deps; do
-        local dep_name
-        dep_name="$(basename "$dep")"
-        install_name_tool -change "$dep" "@loader_path/$dep_name" "$lib"
-    done
-
-    # Fix @rpath references
-    local rpath_deps
-    rpath_deps="$(otool -L "$lib" | grep "@rpath" | awk '{print $1}')" || true
-    for dep in $rpath_deps; do
-        local dep_name
-        dep_name="$(basename "$dep")"
-        install_name_tool -change "$dep" "@loader_path/$dep_name" "$lib"
-    done
-}
-
-# Fix all Homebrew and @rpath references in a binary to use @executable_path/../lib
-fix_bin_paths() {
-    local bin="$1"
-
-    local brew_deps
-    brew_deps="$(otool -L "$bin" | grep "$BREW_PREFIX" | awk '{print $1}')" || true
-    for dep in $brew_deps; do
-        local dep_name
-        dep_name="$(basename "$dep")"
-        install_name_tool -change "$dep" "@executable_path/../lib/$dep_name" "$bin"
-    done
-
-    local rpath_deps
-    rpath_deps="$(otool -L "$bin" | grep "@rpath" | awk '{print $1}')" || true
-    for dep in $rpath_deps; do
-        local dep_name
-        dep_name="$(basename "$dep")"
-        install_name_tool -change "$dep" "@executable_path/../lib/$dep_name" "$bin"
-    done
-}
-
-# ==========================================
 # Poppler
 # ==========================================
 echo ""
@@ -181,7 +96,7 @@ echo "Copying libraries..."
 for lib in "$poppler_source_lib"; do
     lib_name="$(basename "$lib")"
     if [ ! -f "$POPPLER_DIR/lib/$lib_name" ]; then
-        cp "$lib" "$POPPLER_DIR/lib/"
+        cp -L "$lib" "$POPPLER_DIR/lib/"
         echo "    Copied: $lib_name"
     fi
 done
@@ -189,26 +104,7 @@ done
 # Recursively discover and copy all dependencies
 echo ""
 echo "Resolving transitive dependencies..."
-all_files=("$POPPLER_DIR/bin"/* "$POPPLER_DIR/lib"/*.dylib)
-copy_deps_recursive "$POPPLER_DIR/lib" "${all_files[@]}"
-
-# Fix paths in all libraries
-echo ""
-echo "Fixing library paths..."
-for lib in "$POPPLER_DIR/lib"/*.dylib; do
-    [ -f "$lib" ] || continue
-    fix_lib_paths "$lib"
-    echo "  Fixed $(basename "$lib")"
-done
-
-# Fix paths in binaries
-echo ""
-echo "Fixing binary paths..."
-for bin in "$POPPLER_DIR/bin"/*; do
-    [ -f "$bin" ] || continue
-    fix_bin_paths "$bin"
-    echo "  Fixed $(basename "$bin")"
-done
+macos_bundle_dylib_closure "$POPPLER_DIR/lib" "$BREW_PREFIX" "$POPPLER_DIR/bin"/*
 
 # Codesign
 echo ""
@@ -238,7 +134,7 @@ echo "Copying libraries..."
 for lib in "$qpdf_source_lib"; do
     lib_name="$(basename "$lib")"
     if [ ! -f "$QPDF_DIR/lib/$lib_name" ]; then
-        cp "$lib" "$QPDF_DIR/lib/"
+        cp -L "$lib" "$QPDF_DIR/lib/"
         echo "    Copied: $lib_name"
     fi
 done
@@ -246,26 +142,7 @@ done
 # Recursively discover and copy all dependencies
 echo ""
 echo "Resolving transitive dependencies..."
-all_files=("$QPDF_DIR/bin"/* "$QPDF_DIR/lib"/*.dylib)
-copy_deps_recursive "$QPDF_DIR/lib" "${all_files[@]}"
-
-# Fix paths in all libraries
-echo ""
-echo "Fixing library paths..."
-for lib in "$QPDF_DIR/lib"/*.dylib; do
-    [ -f "$lib" ] || continue
-    fix_lib_paths "$lib"
-    echo "  Fixed $(basename "$lib")"
-done
-
-# Fix paths in binaries
-echo ""
-echo "Fixing binary paths..."
-for bin in "$QPDF_DIR/bin"/*; do
-    [ -f "$bin" ] || continue
-    fix_bin_paths "$bin"
-    echo "  Fixed $(basename "$bin")"
-done
+macos_bundle_dylib_closure "$QPDF_DIR/lib" "$BREW_PREFIX" "$QPDF_DIR/bin"/*
 
 # Codesign
 echo ""

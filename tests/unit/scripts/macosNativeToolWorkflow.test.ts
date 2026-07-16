@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import {
     chmodSync,
+    mkdirSync,
     mkdtempSync,
     writeFileSync,
 } from 'node:fs';
@@ -242,19 +243,99 @@ describe('macOS native tool workflow', () => {
         expect(bundleUnpaper).toContain('exit 1');
     });
 
-    it('derives the complete macOS DjVu dylib closure from Mach-O dependencies', async () => {
+    it('derives every comparable macOS native-tool dylib closure through one shared policy', async () => {
+        const dylibBundle = await readProjectFile('scripts/lib/macos-dylib-bundle.sh');
         const bundleDjvu = await readProjectFile('scripts/bundle-djvu-macos.sh');
+        const bundlePdfTools = await readProjectFile('scripts/bundle-pdf-tools-macos.sh');
+        const bundleTesseract = await readProjectFile('scripts/bundle-tesseract-macos.sh');
+        const bundleUnpaper = await readProjectFile('scripts/bundle-leptonica-unpaper-macos.sh');
 
-        expect(bundleDjvu).toContain('copy_deps_recursive()');
-        expect(bundleDjvu).toContain('dependencies="$(otool -L "$file"');
-        expect(bundleDjvu).toContain('resolve_dylib_source "$dependency"');
-        expect(bundleDjvu).toContain('copy_deps_recursive "$DEST/bin/"* "$DEST/lib/"*.dylib');
+        expect(dylibBundle).toContain('macos_copy_dylib_closure()');
+        expect(dylibBundle).toContain('macos_list_dylib_dependencies "$file"');
+        expect(dylibBundle).toContain('macos_resolve_dylib_source "$dependency" "$search_root"');
+        expect(dylibBundle).toContain('cp -L "$dependency_source"');
+        expect(dylibBundle).toContain('macos_verify_relocated_file()');
+        expect(dylibBundle).toContain('Bundled dependency closure is missing');
+        expect(dylibBundle).toContain('@loader_path/$dependency_name');
+        expect(dylibBundle).toContain('@executable_path/../lib/$dependency_name');
+
+        for (const bundler of [
+            bundleDjvu,
+            bundlePdfTools,
+            bundleTesseract,
+            bundleUnpaper,
+        ]) {
+            expect(bundler).toContain('source "$SCRIPT_DIR/lib/macos-dylib-bundle.sh"');
+            expect(bundler).toContain('macos_bundle_dylib_closure');
+            expect(bundler).not.toContain('copy_deps_recursive()');
+        }
+
         expect(bundleDjvu).not.toContain('DEPS=(');
-        expect(bundleDjvu).toContain('verify_dependency_closure()');
-        expect(bundleDjvu).toContain('Bundled dependency closure is missing');
         expect(bundleDjvu).toContain('assert-packaged-tool-smoke.mjs');
         expect(bundleDjvu).toContain('Error: Bundled ddjvu failed its smoke test');
         expect(bundleDjvu).not.toContain('Warning: ddjvu test failed');
+    });
+
+    it('copies a transitive @loader_path dylib that is absent from the seeded bundle', () => {
+        const root = mkdtempSync(join(tmpdir(), 'evb-macos-dylib-closure-'));
+        const fakeBin = join(root, 'fake-bin');
+        const brewRoot = join(root, 'brew');
+        const sourceLib = join(brewRoot, 'Cellar', 'webp', '1.0', 'lib');
+        const destinationBin = join(root, 'bundle', 'bin');
+        const destinationLib = join(root, 'bundle', 'lib');
+        const pdfinfo = join(destinationBin, 'pdfinfo');
+
+        for (const directory of [
+            fakeBin,
+            sourceLib,
+            destinationBin,
+            destinationLib,
+        ]) {
+            mkdirSync(directory, { recursive: true });
+        }
+        for (const filePath of [
+            pdfinfo,
+            join(sourceLib, 'libwebp.7.dylib'),
+            join(sourceLib, 'libsharpyuv.0.dylib'),
+            join(destinationLib, 'libwebp.7.dylib'),
+        ]) {
+            writeFileSync(filePath, 'fixture');
+        }
+
+        writeExecutable(join(fakeBin, 'otool'), [
+            '#!/bin/bash',
+            'file="$2"',
+            'echo "$file:"',
+            'case "$(basename "$file")" in',
+            '  pdfinfo) echo "  @rpath/libwebp.7.dylib (compatibility version 1.0.0)" ;;',
+            '  libwebp.7.dylib)',
+            '    echo "  @rpath/libwebp.7.dylib (compatibility version 1.0.0)"',
+            '    echo "  @loader_path/libsharpyuv.0.dylib (compatibility version 1.0.0)"',
+            '    ;;',
+            '  libsharpyuv.0.dylib)',
+            '    echo "  @rpath/libsharpyuv.0.dylib (compatibility version 1.0.0)"',
+            '    echo "  /usr/lib/libSystem.B.dylib (compatibility version 1.0.0)"',
+            '    ;;',
+            'esac',
+            '',
+        ].join('\n'));
+
+        execFileSync('/bin/bash', [
+            '-c',
+            [
+                'source "$1"',
+                'macos_copy_dylib_closure "$2" "$3" "$4" "$2/libwebp.7.dylib"',
+                'test -f "$2/libsharpyuv.0.dylib"',
+            ].join('; '),
+            'bash',
+            resolve(process.cwd(), 'scripts/lib/macos-dylib-bundle.sh'),
+            destinationLib,
+            brewRoot,
+            pdfinfo,
+        ], {env: {
+            ...process.env,
+            PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+        }});
     });
 
     it('keeps macOS packaged executables under Contents/MacOS/native-tools', async () => {

@@ -138,6 +138,6 @@ describe('macOS PDF tool bundler', () => {
         const result = runBundler(host);
 
         expect(result.status).not.toBe(0);
-        expect(`${result.stdout}${result.stderr}`).toContain('Unresolved Homebrew references remain');
+        expect(`${result.stdout}${result.stderr}`).toContain('Unrelocated dependency');
     });
 });
