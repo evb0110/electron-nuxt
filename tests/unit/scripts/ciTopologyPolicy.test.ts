@@ -189,11 +189,13 @@ describe('CI topology policy', () => {
         expect(workflowJob(workflow, 'pr_native_build_safety')).toContain('needs: pr_changed_areas');
         expect(workflowJob(workflow, 'pr_native_build_safety')).toContain('needs.pr_changed_areas.outputs.native_or_build == \'true\'');
         expect(workflowJob(workflow, 'pr_native_build_safety')).toContain('run: pnpm run test:rust');
+        expect(workflowJob(workflow, 'pr_native_build_safety')).toContain('run: rustup component add rustfmt clippy');
         expect(workflowJob(workflow, 'pr_native_build_safety')).toContain('run: pnpm run build:strict');
         expect(workflowJob(workflow, 'pr_native_build_safety')).not.toContain('run: pnpm run build:strict:no-wasm-check');
         expect(workflowJob(workflow, 'pr_native_build_safety')).not.toContain('run: pnpm run test:e2e');
         expect(workflow).toContain('name: Native Rust Tests');
         expect(workflowJob(workflow, 'manual_native')).toContain('if: ${{ github.event_name == \'workflow_dispatch\' }}');
+        expect(workflowJob(workflow, 'manual_native')).toContain('run: rustup component add rustfmt clippy');
         expect(workflowJob(workflow, 'manual_native')).toContain('run: pnpm run test:rust');
         expect(workflow).toContain('name: Landing Quality Gates');
         expect(workflow).toContain('name: Landing Quality Gates For Changed Sources');

@@ -147,7 +147,11 @@ impl<W: IoWrite> PdfWriter<W> {
         self.push_object(page_object, page_body.as_bytes())?;
         self.push_image_object(image_object, page, icc_object)?;
         if let (Some(object_number), Some(profile)) = (icc_object, page.icc_profile.as_ref()) {
-            let components = if page.color_space == "DeviceGray" { 1 } else { 3 };
+            let components = if page.color_space == "DeviceGray" {
+                1
+            } else {
+                3
+            };
             let dict = format!(
                 "<< /N {} /Alternate /{} /Length {} >>",
                 components,

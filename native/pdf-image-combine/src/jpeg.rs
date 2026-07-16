@@ -151,10 +151,16 @@ fn assemble_icc_profile(mut chunks: Vec<(u8, u8, Vec<u8>)>) -> Result<Option<Vec
         return Err("Incomplete JPEG ICC profile".into());
     }
     chunks.sort_by_key(|chunk| chunk.0);
-    if chunks.iter().enumerate().any(|(index, chunk)| chunk.0 as usize != index + 1) {
+    if chunks
+        .iter()
+        .enumerate()
+        .any(|(index, chunk)| chunk.0 as usize != index + 1)
+    {
         return Err("Invalid JPEG ICC profile sequence".into());
     }
-    let total_len = chunks.iter().try_fold(0usize, |total, chunk| total.checked_add(chunk.2.len()))
+    let total_len = chunks
+        .iter()
+        .try_fold(0usize, |total, chunk| total.checked_add(chunk.2.len()))
         .ok_or("JPEG ICC profile is too large")?;
     if total_len > 16 * 1024 * 1024 {
         return Err("JPEG ICC profile exceeds the 16 MiB safety limit".into());

@@ -89,16 +89,21 @@ pub(crate) fn parse_png_reader<R: Read>(mut reader: R, max_pixels: u64) -> Resul
                 }
                 let mut chunk_data = vec![0u8; length];
                 reader.read_exact(&mut chunk_data)?;
-                let name_end = chunk_data.iter().position(|byte| *byte == 0)
+                let name_end = chunk_data
+                    .iter()
+                    .position(|byte| *byte == 0)
                     .ok_or("Invalid PNG iCCP profile name")?;
                 if name_end == 0 || name_end > 79 || chunk_data.get(name_end + 1) != Some(&0) {
                     return Err("Invalid PNG iCCP profile header".into());
                 }
-                let compressed = chunk_data.get(name_end + 2..)
+                let compressed = chunk_data
+                    .get(name_end + 2..)
                     .ok_or("Invalid PNG iCCP payload")?;
                 let decoder = ZlibDecoder::new(compressed);
                 let mut profile = Vec::new();
-                decoder.take(16 * 1024 * 1024 + 1).read_to_end(&mut profile)?;
+                decoder
+                    .take(16 * 1024 * 1024 + 1)
+                    .read_to_end(&mut profile)?;
                 if profile.len() > 16 * 1024 * 1024 {
                     return Err("PNG ICC profile exceeds the 16 MiB safety limit".into());
                 }
