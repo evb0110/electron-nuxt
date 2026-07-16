@@ -8,6 +8,7 @@ interface IPdfPageRenderSlot {
     readonly requestId: number | null;
     readonly documentToken: string | null;
     readonly targetScale: number | null;
+    readonly targetOutputScale: number | null;
 }
 
 export interface IPdfPageNumberStateSet extends Iterable<number> {
@@ -42,6 +43,7 @@ const EMPTY_RENDER_SLOT: IPdfPageRenderSlot = {
     requestId: null,
     documentToken: null,
     targetScale: null,
+    targetOutputScale: null,
 };
 
 export function createPdfPageRenderState() {
@@ -234,6 +236,7 @@ export function createPdfPageRenderState() {
             requestId: number,
             documentToken: string,
             targetScale: number,
+            targetOutputScale = 1,
         ) {
             updateSlot(pageNumber, {
                 visual: 'none',
@@ -242,6 +245,7 @@ export function createPdfPageRenderState() {
                 requestId,
                 documentToken,
                 targetScale,
+                targetOutputScale,
             });
         },
         commitVisual(pageNumber: number, version: number, requestId: number) {

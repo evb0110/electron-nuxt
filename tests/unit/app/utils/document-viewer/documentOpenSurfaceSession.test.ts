@@ -1604,6 +1604,100 @@ describe('document open surface session', () => {
         expect(session.snapshot.value.committedRender).toEqual(newer);
     });
 
+    it('keeps render ordering monotonic when the renderer feature hot-swaps', () => {
+        const session = createDocumentOpenSurfaceSession();
+        const generation = session.begin({
+            documentId: 'a.pdf',
+            documentRevision: 'rev-a',
+        });
+        session.commitGeometry(generation, {
+            width: 612,
+            height: 792,
+            margin: 20,
+        });
+        const firstRenderer = session.claimRenderOwner();
+        for (let requestId = 1; requestId <= 3; requestId += 1) {
+            const fence = session.createOwnedRenderFence(firstRenderer, {
+                generation,
+                documentRevision: 'rev-a',
+                rendererVersion: 4,
+                rendererRequestId: requestId,
+                pageNumber: 1,
+            });
+            expect(fence).not.toBeNull();
+            expect(session.commitCanvas(fence!)).toBe(true);
+        }
+
+        const preHandoffFence = session.createOwnedRenderFence(firstRenderer, {
+            generation,
+            documentRevision: 'rev-a',
+            rendererVersion: 5,
+            rendererRequestId: 1,
+            pageNumber: 1,
+        })!;
+        const replacementRenderer = session.claimRenderOwner();
+        const replacementFence = session.createOwnedRenderFence(replacementRenderer, {
+            generation,
+            documentRevision: 'rev-a',
+            rendererVersion: 1,
+            rendererRequestId: 1,
+            pageNumber: 1,
+        });
+        expect(replacementFence).not.toBeNull();
+        expect(session.commitCanvas(preHandoffFence)).toBe(false);
+        expect(session.createOwnedRenderFence(firstRenderer, {
+            generation,
+            documentRevision: 'rev-a',
+            rendererVersion: 6,
+            rendererRequestId: 1,
+            pageNumber: 1,
+        })).toBeNull();
+        expect(session.commitCanvas(replacementFence!)).toBe(true);
+        expect(session.snapshot.value.committedRender).toEqual(replacementFence);
+
+        const latePreviousRendererFence = session.createOwnedRenderFence(firstRenderer, {
+            generation,
+            documentRevision: 'rev-a',
+            rendererVersion: 5,
+            rendererRequestId: 1,
+            pageNumber: 1,
+        });
+        expect(latePreviousRendererFence).toBeNull();
+        expect(session.snapshot.value.committedRender).toEqual(replacementFence);
+    });
+
+    it('adopts an older resident page canvas as a new commit for the current renderer owner', () => {
+        const session = createDocumentOpenSurfaceSession();
+        const generation = session.begin({
+            documentId: 'a.pdf',
+            documentRevision: 'rev-a',
+        });
+        session.commitGeometry(generation, {
+            width: 612,
+            height: 792,
+            margin: 20,
+        });
+        const owner = session.claimRenderOwner();
+        const newerRender = session.createOwnedRenderFence(owner, {
+            generation,
+            documentRevision: 'rev-a',
+            rendererVersion: 8,
+            rendererRequestId: 20,
+            pageNumber: 1,
+        })!;
+        expect(session.commitCanvas(newerRender)).toBe(true);
+
+        session.requestNavigation(2, 0);
+        const residentCanvas = session.createOwnedResidentRenderFence(owner, {
+            generation,
+            documentRevision: 'rev-a',
+            pageNumber: 2,
+        });
+        expect(residentCanvas).not.toBeNull();
+        expect(session.commitCanvas(residentCanvas!)).toBe(true);
+        expect(session.snapshot.value.committedRender).toEqual(residentCanvas);
+    });
+
     it('does not replace a current-generation canvas commit with a late failure', () => {
         const session = createDocumentOpenSurfaceSession();
         const generation = session.begin({

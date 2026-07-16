@@ -21,6 +21,10 @@ function createHarness() {
         start: 43,
         end: 43,
     });
+    const protectedVisibleRange = ref<{
+        start: number;
+        end: number;
+    } | null>(null);
     const mountedPages = ref([
         43,
         44,
@@ -39,6 +43,7 @@ function createHarness() {
     const reconcilePageCanvasResidency = vi.fn();
     const coordinator = scope.run(() => usePdfRenderDemandCoordinator({
         visibleRange,
+        getProtectedVisibleRange: () => protectedVisibleRange.value ?? visibleRange.value,
         pagesToRender: computed(() => mountedPages.value),
         bufferPages: computed(() => 4),
         maxBufferCanvasPixels: 100,
@@ -115,6 +120,7 @@ function createHarness() {
         rendering,
         scope,
         visibleRange,
+        protectedVisibleRange,
         watchdogCallbacks,
     };
 }
@@ -279,6 +285,44 @@ describe('usePdfRenderDemandCoordinator', () => {
                 end: 44,
             },
             expect.objectContaining({bufferOverride: 0}),
+        );
+        harness.scope.stop();
+    });
+
+    it('keeps the authoritative navigation target resident until its visual transaction settles', async () => {
+        const harness = createHarness();
+        harness.pageSlots.markMounted(43);
+        harness.pageSlots.markMounted(44);
+        harness.ready.add(43);
+        harness.protectedVisibleRange.value = {
+            start: 44,
+            end: 44,
+        };
+        harness.renderVisiblePages.mockImplementationOnce(async () => {
+            harness.ready.add(44);
+            // Canvas commit notifications are synchronous. Residency must use
+            // the navigation target here, before the semantic visible range
+            // is allowed to advance from page 43 to page 44.
+            harness.renderStateVersion.value += 1;
+        });
+
+        const authoritative = harness.coordinator?.requestMandatoryRender({
+            start: 44,
+            end: 44,
+        });
+        harness.flushFrame();
+        await authoritative;
+
+        expect(harness.visibleRange.value).toEqual({
+            start: 43,
+            end: 43,
+        });
+        expect(harness.reconcilePageCanvasResidency).toHaveBeenLastCalledWith(
+            expect.arrayContaining([44]),
+            {
+                start: 44,
+                end: 44,
+            },
         );
         harness.scope.stop();
     });

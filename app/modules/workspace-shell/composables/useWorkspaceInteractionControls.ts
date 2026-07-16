@@ -145,7 +145,15 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
         effectiveZoom,
         zoomMode,
         pdfSrc,
-        documentSourceKey: computed(() => pdfSrc.value ?? (djvuSourcePath.value ? `djvu:${djvuSourcePath.value}` : null)),
+        documentSourceKey: computed(() => {
+            if (isDjvuMode.value && djvuSourcePath.value) {
+                return `djvu:${djvuSourcePath.value}`;
+            }
+            if (workingCopyPath.value) {
+                return `pdf:${workingCopyPath.value}`;
+            }
+            return pdfSrc.value;
+        }),
     });
 
     function handleZoomIn() {

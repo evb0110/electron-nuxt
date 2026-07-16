@@ -1,4 +1,5 @@
 import {
+    beforeAll,
     describe,
     expect,
     it,
@@ -89,6 +90,11 @@ const LAST_PAGE_TRACE_OUTPUT_PATH = resolve(
     process.cwd(),
     '.devkit',
     'pdf-last-page-navigation-trace.json',
+);
+const PAGED_FIT_HEIGHT_WHEEL_TRACE_OUTPUT_PATH = resolve(
+    process.cwd(),
+    '.devkit',
+    'pdf-paged-fit-height-wheel-trace.json',
 );
 interface IVisiblePageState {
     page: number | null;
@@ -542,10 +548,10 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         timeoutMs: 180_000,
     });
 
-    it('opens the page-jump PDF for navigation checks', async () => {
+    beforeAll(async () => {
         const session = sessionFixture.getSession();
         if (!session) {
-            return;
+            throw new Error('PDF page-jump E2E session did not start');
         }
 
         pageJumpPdfPath = await resolvePageJumpPdfPath();
@@ -592,6 +598,210 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         }, LAST_PAGE_TRACE_OUTPUT_PATH);
         expect(toolbarSnapshot?.currentPage).toBe(finalPage);
     }, 60_000);
+
+    it('keeps paged fit-height wheel navigation visually committed during sustained scrolling', async () => {
+        const session = sessionFixture.getSession();
+        if (!session || !pageJumpReady || !pageJumpPdfPath) {
+            return;
+        }
+
+        await jumpToPageAndWaitForCanvas(session, 1);
+        await waitForToolbarCurrentPage(session, 1);
+        const fitHeight = await callWorkspaceCommand(session.page, 'handleFitHeight');
+        expect(fitHeight.called).toBe(true);
+        await session.page.waitForFunction(() => (
+            (window as IRapidNavigationProbeWindow).__evbTestApi
+                ?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-height'
+        ), {timeout: 15_000});
+        const beforePaged = await getWorkspaceToolbarSnapshot(session.page);
+        if (beforePaged?.continuousScroll !== false) {
+            const paged = await callWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
+            expect(paged.called).toBe(true);
+        }
+        await session.page.waitForFunction(() => (
+            (window as IRapidNavigationProbeWindow).__evbTestApi
+                ?.getActiveToolbarSnapshot?.()?.continuousScroll === false
+        ), {timeout: 15_000});
+        expect(await waitForVisiblePageCanvas(session, 1, 15_000)).toBe(true);
+
+        const viewportPoint = await session.page.evaluate(() => {
+            const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
+            if (!viewport) {
+                return null;
+            }
+            const rect = viewport.getBoundingClientRect();
+            return {
+                x: Math.round(rect.left + rect.width / 2),
+                y: Math.round(rect.top + rect.height / 2),
+            };
+        });
+        expect(viewportPoint).not.toBeNull();
+        if (!viewportPoint) {
+            return;
+        }
+
+        const collectPagedState = () => session.page.evaluate(() => {
+            const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
+            const chassis = viewport?.closest<HTMLElement>('.document-viewer-chassis') ?? null;
+            const toolbar = (window as IRapidNavigationProbeWindow).__evbTestApi
+                ?.getActiveToolbarSnapshot?.() ?? null;
+            const visible = Array.from(
+                viewport?.querySelectorAll<HTMLElement>('.page_container:not(.page_container--buffered)') ?? [],
+            ).find((page) => {
+                const rect = page.getBoundingClientRect();
+                const viewportRect = viewport?.getBoundingClientRect();
+                return Boolean(viewportRect && rect.bottom > viewportRect.top && rect.top < viewportRect.bottom);
+            }) ?? null;
+            const canvas = visible?.querySelector<HTMLCanvasElement>('.page_canvas canvas') ?? null;
+            return {
+                canvasReady: Boolean(
+                    visible?.classList.contains('page_container--rendered')
+                    && canvas
+                    && canvas.width > 0
+                    && canvas.height > 0
+                    && !visible.querySelector('.pdf-page-skeleton'),
+                ),
+                committedPage: Number(chassis?.dataset.viewportCommittedPage) || null,
+                currentPage: toolbar?.currentPage ?? 0,
+                lifecycle: chassis?.dataset.viewportLifecycle ?? null,
+                requestedPage: Number(chassis?.dataset.viewportRequestedPage) || null,
+                stagedRenderPage: Number(chassis?.dataset.viewportStagedRenderPage) || null,
+                stagedViewportPage: Number(chassis?.dataset.viewportStagedViewportPage) || null,
+                scrollTop: viewport?.scrollTop ?? -1,
+                visiblePage: Number(visible?.dataset.page) || null,
+                visualPage: Number(chassis?.dataset.viewportVisualPage) || null,
+                visualPresentation: chassis?.dataset.viewportVisualPresentation ?? null,
+            };
+        });
+        const expectPagedStateConverged = (sample: Awaited<ReturnType<typeof collectPagedState>>) => {
+            expect(sample.canvasReady, JSON.stringify(sample)).toBe(true);
+            expect(sample.visiblePage, JSON.stringify(sample)).toBe(sample.currentPage);
+            expect(sample.requestedPage, JSON.stringify(sample)).toBe(sample.currentPage);
+            expect(sample.committedPage, JSON.stringify(sample)).toBe(sample.currentPage);
+            expect(sample.lifecycle, JSON.stringify(sample)).toBe('ready');
+            expect(sample.visualPage, JSON.stringify(sample)).toBe(sample.currentPage);
+            expect(sample.visualPresentation, JSON.stringify(sample)).toBe('canvas');
+            expect(sample.stagedRenderPage, JSON.stringify(sample)).toBeNull();
+            expect(sample.stagedViewportPage, JSON.stringify(sample)).toBeNull();
+        };
+        const samples: Array<Awaited<ReturnType<typeof collectPagedState>>> = [];
+        await session.page.mouse.move(viewportPoint.x, viewportPoint.y);
+        for (let packet = 0; packet < 12; packet += 1) {
+            await session.page.mouse.wheel({deltaY: 180});
+            await delay(220);
+            samples.push(await collectPagedState());
+        }
+
+        await delay(1_000);
+        const forwardToolbar = await getWorkspaceToolbarSnapshot(session.page);
+        const forwardPage = forwardToolbar?.currentPage ?? 0;
+        const forwardCanvasReady = forwardPage > 1
+            && await waitForVisiblePageCanvas(session, forwardPage, 20_000);
+
+        const reverseSamples: Array<Awaited<ReturnType<typeof collectPagedState>>> = [];
+        for (let packet = 0; packet < 4; packet += 1) {
+            await session.page.mouse.wheel({deltaY: -180});
+            await delay(220);
+            reverseSamples.push(await collectPagedState());
+        }
+        const reverseToolbar = await getWorkspaceToolbarSnapshot(session.page);
+        const reversePage = reverseToolbar?.currentPage ?? 0;
+        const reverseCanvasReady = reversePage > 0
+            && await waitForVisiblePageCanvas(session, reversePage, 20_000);
+
+        await clickPageNavigationButton(session, 'First Page');
+        await waitForToolbarCurrentPage(session, 1);
+        const firstRecoveryCanvasReady = await waitForVisiblePageCanvas(session, 1, 20_000);
+        const firstRecoveryState = await collectPagedState();
+
+        for (let packet = 0; packet < 24; packet += 1) {
+            await session.page.mouse.wheel({deltaY: 180});
+            await delay(40);
+        }
+        await delay(1_000);
+        const fastToolbar = await getWorkspaceToolbarSnapshot(session.page);
+        const fastPage = fastToolbar?.currentPage ?? 0;
+        const fastCanvasReady = fastPage > 1
+            && await waitForVisiblePageCanvas(session, fastPage, 20_000);
+        const fastState = await collectPagedState();
+
+        await clickPageNavigationButton(session, 'First Page');
+        await waitForToolbarCurrentPage(session, 1);
+        const postFastFirstCanvasReady = await waitForVisiblePageCanvas(session, 1, 20_000);
+        const postFastFirstState = await collectPagedState();
+
+        const removedCurrentCanvas = await session.page.evaluate(() => {
+            const canvas = document.querySelector<HTMLCanvasElement>(
+                '#pdf-viewer .page_container[data-page="1"] .page_canvas canvas',
+            );
+            canvas?.remove();
+            return Boolean(canvas);
+        });
+        expect(removedCurrentCanvas).toBe(true);
+        const samePageRecoveryCommand = await callWorkspaceCommand(
+            session.page,
+            'handleGoToPage',
+            [1],
+        );
+        expect(samePageRecoveryCommand.called).toBe(true);
+        const samePageRecoveryCanvasReady = await waitForVisiblePageCanvas(session, 1, 20_000);
+        const samePageRecoveryState = await collectPagedState();
+        const trace = await collectTrace(session);
+        writeTraceArtifact({
+            fastCanvasReady,
+            fastState,
+            fastToolbar,
+            firstRecoveryCanvasReady,
+            firstRecoveryState,
+            forwardCanvasReady,
+            forwardToolbar,
+            pageJumpPdfPath,
+            postFastFirstCanvasReady,
+            postFastFirstState,
+            samePageRecoveryCanvasReady,
+            samePageRecoveryState,
+            reverseCanvasReady,
+            reverseSamples,
+            reverseToolbar,
+            samples,
+            scenario: 'paged-fit-height-wheel-and-first-page-recovery',
+            trace,
+        }, PAGED_FIT_HEIGHT_WHEEL_TRACE_OUTPUT_PATH);
+
+        expect(forwardPage).toBeGreaterThanOrEqual(12);
+        expect(forwardCanvasReady).toBe(true);
+        for (const [
+            index,
+            sample,
+        ] of samples.entries()) {
+            const previousPage = index === 0 ? 1 : samples[index - 1]!.currentPage;
+            expectPagedStateConverged(sample);
+            expect(sample.currentPage, JSON.stringify(sample)).toBeGreaterThanOrEqual(previousPage);
+            expect(sample.currentPage, JSON.stringify(sample)).toBeLessThanOrEqual(previousPage + 1);
+        }
+        expect(samples.at(-1)?.visiblePage).toBe(forwardPage);
+        expect(reversePage).toBeLessThanOrEqual(forwardPage - 4);
+        expect(reverseCanvasReady).toBe(true);
+        for (const [
+            index,
+            sample,
+        ] of reverseSamples.entries()) {
+            const previousPage = index === 0 ? forwardPage : reverseSamples[index - 1]!.currentPage;
+            expectPagedStateConverged(sample);
+            expect(sample.currentPage, JSON.stringify(sample)).toBeLessThanOrEqual(previousPage);
+            expect(sample.currentPage, JSON.stringify(sample)).toBeGreaterThanOrEqual(previousPage - 1);
+        }
+        expect(reverseSamples.at(-1)?.visiblePage).toBe(reversePage);
+        expect(firstRecoveryCanvasReady).toBe(true);
+        expectPagedStateConverged(firstRecoveryState);
+        expect(fastPage).toBeGreaterThanOrEqual(4);
+        expect(fastCanvasReady).toBe(true);
+        expectPagedStateConverged(fastState);
+        expect(postFastFirstCanvasReady).toBe(true);
+        expectPagedStateConverged(postFastFirstState);
+        expect(samePageRecoveryCanvasReady).toBe(true);
+        expectPagedStateConverged(samePageRecoveryState);
+    }, 90_000);
 
     it('renders page 7 after toolbar next navigation to page 10 and previous navigation back', async () => {
         const session = sessionFixture.getSession();

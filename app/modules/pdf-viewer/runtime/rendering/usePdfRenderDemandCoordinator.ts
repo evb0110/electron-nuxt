@@ -14,6 +14,7 @@ type TPdfPageVisualReadiness = 'unmounted' | 'queued' | 'rendering' | 'ready' | 
 
 interface IUsePdfRenderDemandCoordinatorOptions {
     visibleRange: Ref<IPageRange>;
+    getProtectedVisibleRange?: (() => IPageRange) | undefined;
     pagesToRender: ComputedRef<number[]>;
     bufferPages: ComputedRef<number>;
     maxBufferCanvasPixels: number;
@@ -83,7 +84,7 @@ export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordi
     let disposed = false;
 
     function resolveRasterResidencyPlan() {
-        const visibleRange = getClampedVisibleRange();
+        const visibleRange = getClampedProtectedVisibleRange();
         if (!options.isActive.value || options.pdfDocument.value === null || options.numPages.value <= 0) {
             return {
                 visiblePages: [],
@@ -103,7 +104,7 @@ export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordi
     }
 
     function reconcileRasterResidency() {
-        const visibleRange = getClampedVisibleRange();
+        const visibleRange = getClampedProtectedVisibleRange();
         const plan = resolveRasterResidencyPlan();
         options.reconcilePageCanvasResidency(plan.residentPages, visibleRange);
         return plan;
@@ -122,6 +123,17 @@ export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordi
         const pageCount = options.numPages.value;
         const start = Math.max(1, Math.min(pageCount, Math.trunc(options.visibleRange.value.start)));
         const end = Math.max(start, Math.min(pageCount, Math.trunc(options.visibleRange.value.end)));
+        return {
+            start,
+            end,
+        };
+    }
+
+    function getClampedProtectedVisibleRange() {
+        const requestedRange = options.getProtectedVisibleRange?.() ?? options.visibleRange.value;
+        const pageCount = options.numPages.value;
+        const start = Math.max(1, Math.min(pageCount, Math.trunc(requestedRange.start)));
+        const end = Math.max(start, Math.min(pageCount, Math.trunc(requestedRange.end)));
         return {
             start,
             end,

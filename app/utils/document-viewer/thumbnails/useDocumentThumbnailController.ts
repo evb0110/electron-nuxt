@@ -31,6 +31,8 @@ const RENDER_OVERSCAN_PX = 420;
 const CURRENT_NEIGHBOR_COUNT = 2;
 const SCROLL_SETTLE_MS = 160;
 const RESIZE_SETTLE_MS = 140;
+const AUTO_FOLLOW_INTERACTION_COOLDOWN_MS = 700;
+const PROGRAMMATIC_SCROLL_GUARD_MS = 160;
 
 export interface IDocumentThumbnailVirtualItem {
     aspectRatio: string;
@@ -95,6 +97,8 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
     let scheduledFrame: number | null = null;
     let resizeSettleTimer: ReturnType<typeof setTimeout> | null = null;
     let scrollSettleTimer: ReturnType<typeof setTimeout> | null = null;
+    let lastManualInteractionAtMs = 0;
+    let lastProgrammaticScrollAtMs = 0;
     let hasSourceAspectEstimate = false;
     let mounted = false;
 
@@ -305,6 +309,9 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
     function handleScroll() {
         isScrolling.value = true;
         viewportRevision.value += 1;
+        if ((Date.now() - lastProgrammaticScrollAtMs) >= PROGRAMMATIC_SCROLL_GUARD_MS) {
+            markManualInteraction();
+        }
         if (scrollSettleTimer) clearTimeout(scrollSettleTimer);
         scheduleRefresh();
         scrollSettleTimer = setTimeout(() => {
@@ -313,10 +320,24 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         }, SCROLL_SETTLE_MS);
     }
 
-    function revealCurrentPage() {
+    function markManualInteraction() {
+        lastManualInteractionAtMs = Date.now();
+    }
+
+    function isAutoFollowSuppressed() {
+        return (Date.now() - lastManualInteractionAtMs) < AUTO_FOLLOW_INTERACTION_COOLDOWN_MS;
+    }
+
+    function revealCurrentPage(optionsOverride: {force?: boolean} = {}) {
         const source = options.source.value;
         const root = options.scrollRoot.value;
-        if (!source || !root || !options.isActive.value || root.clientHeight <= 0) {
+        if (
+            !source
+            || !root
+            || !options.isActive.value
+            || root.clientHeight <= 0
+            || (!optionsOverride.force && isAutoFollowSuppressed())
+        ) {
             return;
         }
         const page = Math.min(source.pageCount, Math.max(1, options.currentPage.value));
@@ -324,7 +345,10 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
             root,
             resolveDocumentThumbnailPageBounds(page, layout),
         );
-        if (nextScrollTop !== null) root.scrollTop = nextScrollTop;
+        if (nextScrollTop !== null && Math.abs(root.scrollTop - nextScrollTop) >= 1) {
+            lastProgrammaticScrollAtMs = Date.now();
+            root.scrollTop = nextScrollTop;
+        }
     }
 
     const virtualItems = computed<IDocumentThumbnailVirtualItem[]>(() => {
@@ -358,6 +382,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
     watch(
         options.source,
         async source => {
+            lastManualInteractionAtMs = 0;
             scheduler.reset();
             states.clear();
             metricsCache.clear();
@@ -369,7 +394,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
             layoutRevision.value += 1;
             await nextTick();
             measureViewport();
-            revealCurrentPage();
+            revealCurrentPage({force: true});
             scheduleRefresh();
         },
         {immediate: true},
@@ -386,7 +411,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         }
         await nextTick();
         measureViewport();
-        revealCurrentPage();
+        revealCurrentPage({force: true});
         viewportRevision.value += 1;
         scheduleRefresh();
     });
@@ -406,14 +431,14 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         resizeObserver = new ResizeObserver(() => {
             const wasVisible = isVisible.value;
             measureViewport();
-            if (!wasVisible && isVisible.value && options.isActive.value) revealCurrentPage();
+            if (!wasVisible && isVisible.value && options.isActive.value) revealCurrentPage({force: true});
             scheduleRefresh();
             scheduleResizeSettle();
         });
         const root = options.scrollRoot.value;
         if (root) resizeObserver.observe(root);
         measureViewport();
-        revealCurrentPage();
+        revealCurrentPage({force: true});
         scheduleRefresh();
     });
     onBeforeUnmount(() => {
@@ -429,7 +454,9 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
 
     return {
         contentHeight,
+        handlePointerDown: markManualInteraction,
         handleScroll,
+        handleWheel: markManualInteraction,
         scheduleRefresh,
         states,
         virtualItems,

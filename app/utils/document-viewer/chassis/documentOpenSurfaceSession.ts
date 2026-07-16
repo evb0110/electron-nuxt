@@ -71,6 +71,8 @@ export interface IDocumentOpenSurfaceRenderFence {
     readonly pageNumber: number;
 }
 
+export interface IDocumentOpenSurfaceRenderOwner {readonly renderVersion: number;}
+
 export interface IDocumentOpenSurfaceViewportCommit {
     readonly generation: number;
     readonly documentRevision: string;
@@ -115,8 +117,20 @@ export interface IDocumentOpenSurfaceSession {
     commitOpeningPageFrame(generation: number, frame: IDocumentOpenSurfacePageFrame): boolean;
     clearOpeningPageFrame(generation: number, ownerId: string): boolean;
     commitGeometry(generation: number, geometry: IDocumentOpenSurfaceGeometry): boolean;
+    claimRenderOwner(): IDocumentOpenSurfaceRenderOwner;
     createRenderFence(
         input: Omit<IDocumentOpenSurfaceRenderFence, 'viewportIntentId'>,
+    ): IDocumentOpenSurfaceRenderFence | null;
+    createOwnedRenderFence(
+        owner: IDocumentOpenSurfaceRenderOwner,
+        input: Omit<IDocumentOpenSurfaceRenderFence, 'viewportIntentId' | 'renderVersion' | 'requestId'> & {
+            readonly rendererVersion: number;
+            readonly rendererRequestId: number;
+        },
+    ): IDocumentOpenSurfaceRenderFence | null;
+    createOwnedResidentRenderFence(
+        owner: IDocumentOpenSurfaceRenderOwner,
+        input: Omit<IDocumentOpenSurfaceRenderFence, 'viewportIntentId' | 'renderVersion' | 'requestId'>,
     ): IDocumentOpenSurfaceRenderFence | null;
     commitCanvas(fence: IDocumentOpenSurfaceRenderFence): boolean;
     commitViewport(commit: IDocumentOpenSurfaceViewportCommit): boolean;
@@ -348,6 +362,13 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
     ));
     const skeletonTimers = new Map<string, ReturnType<typeof setTimeout>>();
     let nextViewportIntent = 0;
+    let nextRenderOwnerVersion = 0;
+    const renderOwnerStates = new WeakMap<IDocumentOpenSurfaceRenderOwner, {
+        latestRendererVersion: number;
+        latestRendererRequestId: number;
+        nextSurfaceRequestId: number;
+    }>();
+    const ownedRenderFences = new WeakMap<IDocumentOpenSurfaceRenderFence, IDocumentOpenSurfaceRenderOwner>();
     const openingSkeletonDelayMs = 120;
 
     function cancelSkeletonTimer(token: string) {
@@ -484,6 +505,59 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             && current.generation === fence.generation
             && current.identity.documentRevision === fence.documentRevision
             && (canAcceptSameGenerationVisualCommit(current) || current.phase === 'ready');
+    }
+
+    function createRenderFence(
+        input: Omit<IDocumentOpenSurfaceRenderFence, 'viewportIntentId'>,
+    ): IDocumentOpenSurfaceRenderFence | null {
+        const current = snapshot.value;
+        const viewportState = sessionState.value.viewport;
+        const viewportIntentId = viewportState.viewportIntent?.id;
+        if (
+            current.identity === null
+            || !canAcceptSameGenerationVisualCommit(current) && current.phase !== 'ready'
+            || input.generation !== current.generation
+            || input.documentRevision !== current.identity.documentRevision
+            || viewportIntentId === undefined
+        ) {
+            return null;
+        }
+        const fence = Object.freeze({
+            ...input,
+            viewportIntentId,
+        });
+        const accepted = dispatchViewport({
+            type: 'render-started',
+            fence: {
+                generation: viewportState.generation,
+                revision: input.documentRevision,
+                pageNumber: input.pageNumber,
+                viewportIntentId,
+                renderVersion: input.renderVersion,
+                requestId: input.requestId,
+            },
+        });
+        return accepted ? fence : null;
+    }
+
+    function createRenderOwnerFence(
+        owner: IDocumentOpenSurfaceRenderOwner,
+        input: Omit<IDocumentOpenSurfaceRenderFence, 'viewportIntentId' | 'renderVersion' | 'requestId'>,
+    ) {
+        const state = renderOwnerStates.get(owner);
+        if (!state || owner.renderVersion !== nextRenderOwnerVersion) {
+            return null;
+        }
+        state.nextSurfaceRequestId += 1;
+        const fence = createRenderFence({
+            ...input,
+            renderVersion: owner.renderVersion,
+            requestId: state.nextSurfaceRequestId,
+        });
+        if (fence) {
+            ownedRenderFences.set(fence, owner);
+        }
+        return fence;
     }
 
     function shouldRetargetOwnedOpeningPageShell(pageNumber: number) {
@@ -697,40 +771,45 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             }));
             return true;
         },
-        createRenderFence(input) {
-            const current = snapshot.value;
-            const viewportState = sessionState.value.viewport;
-            const viewportIntentId = viewportState.viewportIntent?.id;
-            if (
-                current.identity === null
-                || !canAcceptSameGenerationVisualCommit(current) && current.phase !== 'ready'
-                || input.generation !== current.generation
-                || input.documentRevision !== current.identity.documentRevision
-                || viewportIntentId === undefined
-            ) {
+        claimRenderOwner() {
+            const owner = Object.freeze({renderVersion: ++nextRenderOwnerVersion});
+            renderOwnerStates.set(owner, {
+                latestRendererVersion: Number.NEGATIVE_INFINITY,
+                latestRendererRequestId: Number.NEGATIVE_INFINITY,
+                nextSurfaceRequestId: 0,
+            });
+            return owner;
+        },
+        createRenderFence,
+        createOwnedRenderFence(owner, input) {
+            const state = renderOwnerStates.get(owner);
+            if (!state) {
                 return null;
             }
-            const fence = Object.freeze({
-                ...input,
-                viewportIntentId,
+            const isOlderRendererRequest = input.rendererVersion < state.latestRendererVersion
+                || input.rendererVersion === state.latestRendererVersion
+                && input.rendererRequestId < state.latestRendererRequestId;
+            if (isOlderRendererRequest) {
+                return null;
+            }
+            state.latestRendererVersion = input.rendererVersion;
+            state.latestRendererRequestId = input.rendererRequestId;
+            return createRenderOwnerFence(owner, {
+                generation: input.generation,
+                documentRevision: input.documentRevision,
+                pageNumber: input.pageNumber,
             });
-            const accepted = dispatchViewport({
-                type: 'render-started',
-                fence: {
-                    generation: viewportState.generation,
-                    revision: input.documentRevision,
-                    pageNumber: input.pageNumber,
-                    viewportIntentId,
-                    renderVersion: input.renderVersion,
-                    requestId: input.requestId,
-                },
-            });
-            return accepted ? fence : null;
         },
+        createOwnedResidentRenderFence: createRenderOwnerFence,
         commitCanvas(fence) {
             const current = snapshot.value;
             const isReadyNavigation = current.phase === 'ready';
-            if (!isCurrentFence(fence) || !isReadyNavigation && current.geometry === null) {
+            const owner = ownedRenderFences.get(fence);
+            if (
+                owner && owner.renderVersion !== nextRenderOwnerVersion
+                || !isCurrentFence(fence)
+                || !isReadyNavigation && current.geometry === null
+            ) {
                 return false;
             }
             const previous = current.committedRender;

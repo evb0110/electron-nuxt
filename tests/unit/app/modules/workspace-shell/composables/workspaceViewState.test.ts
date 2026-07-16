@@ -402,7 +402,7 @@ describe('useWorkspaceViewState', () => {
         expect(scrollToPage).toHaveBeenCalledWith(3, scrollOptions);
     });
 
-    it('does not arm programmatic navigation for a duplicate page without an explicit target', () => {
+    it('forwards a same-page command so an evicted current canvas can recover', () => {
         const beginProgrammaticPageNavigation = vi.fn();
         const scrollToPage = vi.fn();
         const state = useWorkspaceViewState({
@@ -438,8 +438,8 @@ describe('useWorkspaceViewState', () => {
 
         state.handleGoToPage(3);
 
-        expect(beginProgrammaticPageNavigation).not.toHaveBeenCalled();
-        expect(scrollToPage).not.toHaveBeenCalled();
+        expect(beginProgrammaticPageNavigation).toHaveBeenCalledWith(3);
+        expect(scrollToPage).toHaveBeenCalledWith(3, undefined);
     });
 
     it('forwards a same-page request when it cancels a conflicting pending viewer target', () => {

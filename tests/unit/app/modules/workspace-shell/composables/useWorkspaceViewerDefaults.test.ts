@@ -219,4 +219,51 @@ describe('useWorkspaceViewerDefaults', () => {
             setup.stop();
         }
     });
+
+    it('restores defaults when one document identity replaces another without an empty state', async () => {
+        const setup = createDefaultsSetup({
+            defaultZoomPreset: '125',
+            defaultViewMode: 'single',
+            defaultContinuousScroll: true,
+        });
+
+        try {
+            setup.documentSourceKey.value = 'pdf:/docs/a.pdf';
+            await nextTick();
+            setup.zoom.value = 5.33;
+            setup.effectiveZoom.value = 5.33;
+            setup.zoomMode.value = 'custom';
+            setup.viewMode.value = 'facing';
+            setup.continuousScroll.value = false;
+
+            setup.documentSourceKey.value = 'djvu:/docs/b.djvu';
+            await nextTick();
+
+            expect(setup.zoom.value).toBe(1.25);
+            expect(setup.effectiveZoom.value).toBe(1.25);
+            expect(setup.zoomMode.value).toBe('custom');
+            expect(setup.viewMode.value).toBe('single');
+            expect(setup.continuousScroll.value).toBe(true);
+        } finally {
+            setup.stop();
+        }
+    });
+
+    it('preserves viewer state across a source refresh for the same document identity', async () => {
+        const setup = createDefaultsSetup({defaultZoomPreset: '125'});
+
+        try {
+            setup.documentSourceKey.value = 'pdf:/docs/a.pdf';
+            await nextTick();
+            setup.zoom.value = 1.44;
+            setup.effectiveZoom.value = 1.44;
+            setup.pdfSrc.value = new Blob(['refreshed'], {type: 'application/pdf'});
+            await nextTick();
+
+            expect(setup.zoom.value).toBe(1.44);
+            expect(setup.effectiveZoom.value).toBe(1.44);
+        } finally {
+            setup.stop();
+        }
+    });
 });

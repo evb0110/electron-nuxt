@@ -107,18 +107,12 @@ import { workspaceSurfaceBudgetController } from '@app/modules/workspace-shell/m
 import { injectDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
 import { shouldProjectDocumentViewportScroll } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import { createDocumentViewportWritePort } from '@app/utils/document-viewer/chassis/documentViewportWritePort';
-import { createWheelFlipGate } from '@app/utils/document-viewer/single-page-wheel/createWheelFlipGate';
 import {
     createColdOpenProvisionalDocumentPageMetrics,
     createProvisionalDocumentPageMetrics,
     hydrateRemainingDocumentPageMetrics,
     loadInitialDocumentPageMetric,
 } from '@app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics';
-import {
-    canScrollWithinPageBounds,
-    resolveWheelDirection,
-    resolveWheelTargetPage,
-} from '@app/utils/document-viewer/single-page-wheel/singlePageWheelNavigation';
 import {
     clampDocumentFitScale,
     clampDocumentManualZoom,
@@ -139,6 +133,7 @@ import {
 import { useDocumentPageSourceResizeLifecycle } from '@app/modules/workspace-shell/viewers/useDocumentPageSourceResizeLifecycle';
 import type { IDocumentSearchMatch } from '@app/utils/document-viewer/search/documentSearch';
 import DocumentPageSourceSearchLayer from '@app/modules/workspace-shell/components/DocumentPageSourceSearchLayer.vue';
+import {createPageSourcePagedWheelNavigation} from '@app/modules/workspace-shell/viewers/createPageSourcePagedWheelNavigation';
 
 interface IPageVisualState {
     generation: number;
@@ -204,8 +199,9 @@ const viewerContainer = ref<HTMLElement | null>(null);
 const containerWidth = ref(0);
 const containerHeight = ref(0);
 const viewportScrollTop = ref(0);
-const wheelFlipGate = createWheelFlipGate();
+const pagedWheelNavigation = createPageSourcePagedWheelNavigation(DOCUMENT_PAGE_GUTTER_PX);
 const chassisAuthority = injectDocumentViewerChassisAuthority();
+const openSurfaceRenderOwner = chassisAuthority?.openSurface.claimRenderOwner();
 const viewportWritePort = chassisAuthority?.viewportWritePort ?? createDocumentViewportWritePort();
 const renderSession = chassisAuthority?.renderCoordinator.createSession(
     `page-source-feature:${String(++nextSourcePageSlotOwnerId)}`,
@@ -229,6 +225,7 @@ let releaseViewportFeature: (() => void) | null = null;
 let deferredMetricHydration: (() => Promise<void>) | null = null;
 let activeOpenSurfaceGeneration: number | null = null;
 let activeOpenSurfaceRevision: string | null = null;
+let nextViewportRenderRequestId = 0;
 
 function supersedeActiveOpenSurfaceGeneration() {
     const openSurface = chassisAuthority?.openSurface;
@@ -434,11 +431,11 @@ function commitPageTerminalError(pageNumber: number) {
         && snapshot.generation === activeOpenSurfaceGeneration
     ) {
         if (viewportState.lifecycle === 'transitioning') {
-            const navigationFence = openSurface.createRenderFence({
+            const navigationFence = openSurfaceRenderOwner && openSurface.createOwnedRenderFence(openSurfaceRenderOwner, {
                 generation: activeOpenSurfaceGeneration,
                 documentRevision: snapshot.identity?.documentRevision ?? '',
-                renderVersion: loadGeneration.value,
-                requestId: state.generation,
+                rendererVersion: loadGeneration.value,
+                rendererRequestId: ++nextViewportRenderRequestId,
                 pageNumber,
             });
             if (navigationFence) openSurface.reject(navigationFence, message);
@@ -756,11 +753,11 @@ function commitReadyPageToViewportSession(pageNumber: number, state: IPageVisual
     ) {
         return false;
     }
-    const fence = openSurface.createRenderFence({
+    const fence = openSurfaceRenderOwner && openSurface.createOwnedRenderFence(openSurfaceRenderOwner, {
         generation: surfaceGeneration,
         documentRevision: snapshot.identity?.documentRevision ?? '',
-        renderVersion: loadGeneration.value,
-        requestId: state.generation,
+        rendererVersion: loadGeneration.value,
+        rendererRequestId: ++nextViewportRenderRequestId,
         pageNumber,
     });
     const viewport = viewerContainer.value;
@@ -911,41 +908,28 @@ function handleScroll(event?: Event) {
 }
 function handleWheel(event: WheelEvent) {
     if (!event.ctrlKey && !event.metaKey) {
-        if (continuousScroll || Math.abs(event.deltaY) < Math.abs(event.deltaX) || event.deltaY === 0) {
-            return;
-        }
-        const container = viewerContainer.value;
-        const layout = pageLayouts.value[currentPage - 1];
-        if (!container || !layout) {
-            return;
-        }
-        const direction = resolveWheelDirection(event.deltaY);
-        const bounds = {
-            min: 0,
-            max: Math.max(0, layout.height + DOCUMENT_PAGE_GUTTER_PX * 2 - container.clientHeight),
-        };
-        if (canScrollWithinPageBounds(container, bounds, direction)) {
-            wheelFlipGate.recordInteriorScroll();
-            return;
-        }
-        event.preventDefault();
-        const now = performance.now();
-        if (wheelFlipGate.shouldBlockFlip(direction, now, {
-            delta: event.deltaY,
-            requireGestureIdle: true,
-        })) {
-            return;
-        }
-        const target = resolveWheelTargetPage(currentPage, viewMode, source.value?.pageCount ?? 0, direction);
-        wheelFlipGate.recordFlip(direction, now, event.deltaY);
-        if (target !== currentPage) scrollToPage(target);
+        const target = pagedWheelNavigation.handle(event, {
+            container: viewerContainer.value,
+            continuousScroll,
+            currentPage,
+            pageCount: source.value?.pageCount ?? 0,
+            pageHeights: pageHeights.value,
+            viewMode,
+        });
+        if (target !== null) scrollToPage(target, 'wheel');
         return;
     }
     event.preventDefault();
     emit('update:zoomMode', 'custom');
     emit('update:zoom', clampDocumentManualZoom(effectiveZoom.value * Math.exp(-event.deltaY * 0.0016)));
 }
-function scrollToPage(pageNumber: number) {
+function scrollToPage(
+    pageNumber: number,
+    navigationSource: Parameters<IDocumentViewerExpose['scrollToPage']>[1] | 'wheel' = undefined,
+) {
+    if (navigationSource !== 'wheel') {
+        pagedWheelNavigation.reset();
+    }
     const normalized = chassisAuthority?.navigate(pageNumber)
         ?? Math.max(1, Math.min(source.value?.pageCount ?? 1, Math.trunc(pageNumber)));
     emit('update:currentPage', normalized);
@@ -1108,6 +1092,7 @@ watch(
 );
 
 watch(() => src, (documentRef, previousDocumentRef) => {
+    pagedWheelNavigation.reset();
     if (previousDocumentRef && previousDocumentRef !== documentRef) {
         supersedeActiveOpenSurfaceGeneration();
     }

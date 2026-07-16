@@ -76,6 +76,7 @@ describe('usePdfRendererSinglePageController', () => {
         const controller = usePdfRendererSinglePageController({
             isActive: true,
             effectiveScale: 1,
+            outputScale: 1,
             annotationUiManager: null,
             getContainerRoot: () => root,
             renderingPages,
@@ -157,6 +158,7 @@ describe('usePdfRendererSinglePageController', () => {
         const controller = usePdfRendererSinglePageController({
             isActive: true,
             effectiveScale: 1,
+            outputScale: 1,
             annotationUiManager: null,
             getContainerRoot: () => root,
             pageRenderState,
@@ -239,6 +241,7 @@ describe('usePdfRendererSinglePageController', () => {
         const controller = usePdfRendererSinglePageController({
             isActive: true,
             effectiveScale: 1,
+            outputScale: 1,
             annotationUiManager: null,
             getContainerRoot: () => root,
             pageRenderState,
@@ -323,6 +326,7 @@ describe('usePdfRendererSinglePageController', () => {
         const controller = usePdfRendererSinglePageController({
             isActive: true,
             effectiveScale: 1,
+            outputScale: 1,
             annotationUiManager: null,
             getContainerRoot: () => root,
             pageRenderState,
@@ -409,6 +413,7 @@ describe('usePdfRendererSinglePageController', () => {
         const controller = usePdfRendererSinglePageController({
             isActive: true,
             effectiveScale,
+            outputScale: 1,
             annotationUiManager: {},
             getContainerRoot: () => root,
             renderingPages: new Map(),
@@ -476,6 +481,7 @@ describe('usePdfRendererSinglePageController', () => {
         const controller = usePdfRendererSinglePageController({
             isActive: true,
             effectiveScale: 1,
+            outputScale: 1,
             annotationUiManager: {},
             getContainerRoot: () => root,
             renderingPages: new Map(),
@@ -541,6 +547,7 @@ describe('usePdfRendererSinglePageController', () => {
             const controller = usePdfRendererSinglePageController({
                 isActive: true,
                 effectiveScale: 1,
+                outputScale: 1,
                 annotationUiManager: {},
                 getContainerRoot: () => root,
                 renderingPages: new Map(),

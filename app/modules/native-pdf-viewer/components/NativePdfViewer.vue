@@ -89,7 +89,6 @@ import {
     captureDocumentZoomAnchor,
     resolveDocumentZoomAnchorScroll,
 } from '@app/utils/document-viewer/zoomAnchor';
-
 interface IProps {
     src: TDocumentRef | null;
     zoom?: number;
@@ -115,6 +114,7 @@ const {
     zoomMode: zoomModeProp = undefined,
 } = defineProps<IProps>();
 const chassisAuthority = injectDocumentViewerChassisAuthority();
+const openSurfaceRenderOwner = chassisAuthority?.openSurface.claimRenderOwner();
 const renderSession = chassisAuthority?.renderCoordinator.createSession(
     `native-pdf-feature:${String(++nextNativePageSlotOwnerId)}`,
 );
@@ -160,7 +160,6 @@ const viewerError = ref<string | null>(null);
 const isLoading = ref(Boolean(src));
 const isActive = computed(() => isActiveProp);
 let releaseViewportFeature: (() => void) | null = null;
-
 onMounted(() => {
     viewerContainer.value = chassisAuthority?.viewportElement.value ?? null;
     releaseViewportFeature = chassisAuthority?.bindViewportFeature({
@@ -182,6 +181,7 @@ const totalPages = computed(() => pageSizes.value.length);
 let activeSource: IPagePreviewSource | null = null;
 let boundPageSource: IDocumentPageSource | null = null;
 let loadGeneration = 0;
+let nextViewportRenderRequestId = 0;
 let pendingInitialVisualGeneration: number | null = null;
 let readyInitialVisualGeneration: number | null = null;
 let initialVisualSettlePromise: Promise<void> | null = null;
@@ -380,11 +380,11 @@ function commitPageVisualToViewportSession(generation: number, pageNumber: numbe
     })) {
         return false;
     }
-    const fence = openSurface.createRenderFence({
+    const fence = openSurfaceRenderOwner && openSurface.createOwnedRenderFence(openSurfaceRenderOwner, {
         generation: snapshot.generation,
         documentRevision: snapshot.identity.documentRevision,
-        renderVersion: generation,
-        requestId: pageState.token,
+        rendererVersion: generation,
+        rendererRequestId: ++nextViewportRenderRequestId,
         pageNumber,
     });
     if (!fence || !openSurface.commitCanvas(fence)) {

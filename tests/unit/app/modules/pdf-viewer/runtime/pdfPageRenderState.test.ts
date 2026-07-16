@@ -21,6 +21,7 @@ describe('pdfPageRenderState', () => {
             requestId: 11,
             documentToken: 'document-a',
             targetScale: 2,
+            targetOutputScale: 1,
         });
         expect(state.renderedPages.has(4)).toBe(false);
     });
@@ -51,6 +52,7 @@ describe('pdfPageRenderState', () => {
             requestId: 15,
             documentToken: 'document-a',
             targetScale: 2,
+            targetOutputScale: 1,
         });
     });
 

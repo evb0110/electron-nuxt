@@ -3151,6 +3151,171 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         }
     }, 120_000);
 
+    it('keeps paged fit-height DjVu wheel navigation committed through slow and rapid bursts', async () => {
+        let session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+        if (!djvuFixture.path) {
+            throw new Error(djvuFixture.reason);
+        }
+
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-djvu-paged-fit-height-scroll-${Date.now()}`,
+        });
+        if (!session) {
+            return;
+        }
+
+        await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
+        await openDjvuInApp(session.page, djvuFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForDjvuLoaded(session.page, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        expect((await callWorkspaceCommand(session.page, 'handleFitHeight')).called).toBe(true);
+        const initialToolbar = await getWorkspaceToolbarSnapshot(session.page);
+        if (initialToolbar?.continuousScroll) {
+            expect((await callWorkspaceCommand(session.page, 'handleToggleContinuousScroll')).called).toBe(true);
+        }
+        expect((await callWorkspaceCommand(session.page, 'handleGoToPage', [1])).called).toBe(true);
+        await waitForWorkspaceToolbarSnapshot(
+            session.page,
+            {
+                continuousScroll: false,
+                currentPage: 1,
+            },
+            {timeoutMs: 20_000},
+        );
+
+        const viewportPoint = await session.page.evaluate(() => {
+            const viewport = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-document-viewer-chassis-viewport]',
+            );
+            const rect = viewport?.getBoundingClientRect();
+            return rect ? {
+                x: Math.round(rect.left + rect.width / 2),
+                y: Math.round(rect.top + rect.height / 2),
+            } : null;
+        });
+        expect(viewportPoint).not.toBeNull();
+        if (!viewportPoint) {
+            return;
+        }
+        const waitForReadyCurrentPage = async (minimumPage: number) => {
+            await waitForFunctionInPage(session.page, (minPage: number) => {
+                const toolbar = (window as typeof window & IDjvuWheelMetricWindow)
+                    .__evbTestApi?.getActiveToolbarSnapshot?.();
+                const pageNumber = toolbar?.currentPage ?? 0;
+                const page = document.querySelector<HTMLElement>(
+                    `.editor-pane.is-active [data-testid="document-page-source-page"][data-page-number="${String(pageNumber)}"]`,
+                );
+                const chassis = page?.closest<HTMLElement>('.document-viewer-chassis') ?? null;
+                const image = page?.querySelector<HTMLImageElement>(
+                    ':scope > [data-testid="document-page-source-image"]',
+                );
+                return pageNumber >= minPage
+                    && page?.dataset.pageSourceVisual === 'fresh'
+                    && image?.complete
+                    && image.naturalWidth > 0
+                    && image.naturalHeight > 0
+                    && chassis?.dataset.viewportLifecycle === 'ready'
+                    && chassis.dataset.viewportRequestedPage === String(pageNumber)
+                    && chassis.dataset.viewportCommittedPage === String(pageNumber)
+                    && chassis.dataset.viewportVisualPage === String(pageNumber)
+                    && chassis.dataset.viewportVisualPresentation === 'canvas';
+            }, {timeout: 30_000}, minimumPage);
+            return (await getWorkspaceToolbarSnapshot(session.page))?.currentPage ?? 0;
+        };
+
+        await session.page.mouse.move(viewportPoint.x, viewportPoint.y);
+        const collectPagedState = () => session.page.evaluate(() => {
+            const toolbar = (window as typeof window & IDjvuWheelMetricWindow)
+                .__evbTestApi?.getActiveToolbarSnapshot?.();
+            const viewport = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-document-viewer-chassis-viewport]',
+            );
+            const chassis = viewport?.closest<HTMLElement>('.document-viewer-chassis') ?? null;
+            const pages = Array.from(viewport?.querySelectorAll<HTMLElement>(
+                '[data-testid="document-page-source-page"]',
+            ) ?? []);
+            return {
+                clientHeight: viewport?.clientHeight ?? 0,
+                currentPage: toolbar?.currentPage ?? 0,
+                openSurfaceGeneration: chassis?.dataset.openSurfaceGeneration,
+                openSurfacePhase: viewport?.dataset.openSurfacePhase,
+                pages: pages.map(page => ({
+                    display: getComputedStyle(page).display,
+                    height: Math.round(page.getBoundingClientRect().height),
+                    imageReady: (() => {
+                        const image = page.querySelector<HTMLImageElement>(
+                            ':scope > [data-testid="document-page-source-image"]',
+                        );
+                        return Boolean(
+                            image?.complete
+                            && image.naturalWidth > 0
+                            && image.naturalHeight > 0,
+                        );
+                    })(),
+                    pageNumber: Number(page.dataset.pageNumber),
+                    visual: page.dataset.pageSourceVisual,
+                })),
+                scrollHeight: viewport?.scrollHeight ?? 0,
+                scrollTop: viewport?.scrollTop ?? 0,
+                viewportCommittedPage: chassis?.dataset.viewportCommittedPage,
+                viewportLifecycle: chassis?.dataset.viewportLifecycle,
+                viewportRequestedPage: chassis?.dataset.viewportRequestedPage,
+                viewportStagedRenderPage: chassis?.dataset.viewportStagedRenderPage || null,
+                viewportStagedViewportPage: chassis?.dataset.viewportStagedViewportPage || null,
+                viewportVisualPage: chassis?.dataset.viewportVisualPage,
+                viewportVisualPresentation: chassis?.dataset.viewportVisualPresentation,
+            };
+        });
+        const slowSamples: Array<Awaited<ReturnType<typeof collectPagedState>>> = [];
+        for (let packet = 0; packet < 8; packet += 1) {
+            await session.page.mouse.wheel({deltaY: 180});
+            await new Promise(resolve => setTimeout(resolve, 220));
+            slowSamples.push(await collectPagedState());
+        }
+        const slowState = slowSamples.at(-1)!;
+        const slowDetail = JSON.stringify(slowState);
+        for (const [
+            index,
+            sample,
+        ] of slowSamples.entries()) {
+            const detail = JSON.stringify(sample);
+            const previousPage = index === 0 ? 1 : slowSamples[index - 1]!.currentPage;
+            expect(sample.currentPage, detail).toBeGreaterThanOrEqual(previousPage);
+            expect(sample.currentPage, detail).toBeLessThanOrEqual(previousPage + 1);
+            expect(sample.pages.find(page => page.pageNumber === sample.currentPage), detail).toMatchObject({
+                display: 'block',
+                imageReady: true,
+                visual: 'fresh',
+            });
+            expect(sample.viewportLifecycle, detail).toBe('ready');
+            expect(sample.viewportRequestedPage, detail).toBe(String(sample.currentPage));
+            expect(sample.viewportCommittedPage, detail).toBe(String(sample.currentPage));
+            expect(sample.viewportVisualPage, detail).toBe(String(sample.currentPage));
+            expect(sample.viewportVisualPresentation, detail).toBe('canvas');
+            expect(sample.viewportStagedRenderPage, detail).toBeNull();
+            expect(sample.viewportStagedViewportPage, detail).toBeNull();
+        }
+        expect(slowState.currentPage, slowDetail).toBeGreaterThanOrEqual(5);
+        expect(slowState.pages.find(page => page.pageNumber === slowState.currentPage), slowDetail).toMatchObject({
+            display: 'block',
+            imageReady: true,
+            visual: 'fresh',
+        });
+        const slowPage = await waitForReadyCurrentPage(5);
+        for (let packet = 0; packet < 24; packet += 1) {
+            await session.page.mouse.wheel({deltaY: 180});
+            await new Promise(resolve => setTimeout(resolve, 40));
+        }
+        const fastPage = await waitForReadyCurrentPage(slowPage + 1);
+        expect(fastPage).toBeGreaterThan(slowPage);
+
+        expect((await callWorkspaceCommand(session.page, 'handleGoToPage', [1])).called).toBe(true);
+        expect(await waitForReadyCurrentPage(1)).toBe(1);
+    }, 120_000);
+
     it('keeps the DjVu render window ahead of monotonic projected trackpad scrolling', async () => {
         let session = sessionFixture.getSession();
         if (!session) {

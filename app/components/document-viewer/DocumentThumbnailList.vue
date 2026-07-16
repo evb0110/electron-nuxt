@@ -4,6 +4,8 @@
         class="document-thumbnail-list"
         data-testid="document-thumbnail-list"
         @scroll.passive="handleScroll"
+        @wheel.passive="handleWheel"
+        @pointerdown="handlePointerDown"
     >
         <div class="document-thumbnail-list__content" :style="{height: contentHeight}">
             <DocumentThumbnailItem
@@ -59,7 +61,9 @@ function setScrollRoot(element: HTMLElement | null) {
 }
 const {
     contentHeight,
+    handlePointerDown,
     handleScroll,
+    handleWheel,
     states,
     virtualItems,
 } = useDocumentThumbnailController({

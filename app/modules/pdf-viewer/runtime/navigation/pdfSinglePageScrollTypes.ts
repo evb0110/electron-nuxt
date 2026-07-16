@@ -54,6 +54,7 @@ export interface IUsePdfSinglePageScrollOptions {
         renderOptions?: IRenderVisiblePagesOptions,
     ) => Promise<void>;
     ensurePageMetricsInRange?: ((startPage: number, endPage: number) => Promise<boolean>) | undefined;
+    preparePagedNavigationLayout?: ((pageNumber: number, signal: AbortSignal) => Promise<void>) | undefined;
     isPageFreshlyRenderedForNavigation?: ((pageNumber: number) => boolean) | undefined;
     visibleRange: Ref<{
         start: number;

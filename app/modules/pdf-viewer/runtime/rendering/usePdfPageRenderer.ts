@@ -707,6 +707,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     } = usePdfRendererSinglePageController<TCanvasRenderResult>({
         isActive,
         effectiveScale: options.effectiveScale,
+        outputScale,
         annotationUiManager: options.annotationUiManager ?? null,
         getContainerRoot: () => options.container.value,
         pageRenderState,
@@ -909,12 +910,16 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         isPageCanvasCommitted: (pageNumber: number) => {
             const slot = pageRenderState.getSlot(pageNumber);
             const currentScale = toValue(options.effectiveScale);
+            const currentOutputScale = toValue(outputScale);
             const scaleTolerance = Math.max(1, Math.abs(currentScale)) * Number.EPSILON * 8;
+            const outputScaleTolerance = Math.max(1, Math.abs(currentOutputScale)) * Number.EPSILON * 8;
             return (
                 slot.visual === 'ready'
                 && slot.documentToken === getRenderDocumentToken()
                 && slot.targetScale !== null
                 && Math.abs(slot.targetScale - currentScale) <= scaleTolerance
+                && slot.targetOutputScale !== null
+                && Math.abs(slot.targetOutputScale - currentOutputScale) <= outputScaleTolerance
                 && hasNonzeroMountedPageCanvas(pageNumber)
             );
         },

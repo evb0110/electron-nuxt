@@ -184,22 +184,10 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
             hasConflictingPendingNavigation,
             hasViewer: Boolean(deps.documentViewerRef.value),
         });
-        // A same-page request is not a duplicate when the viewer is still
-        // navigating toward another page; in that case it is a cancellation of
-        // the pending visual target and must reach scrollToPage.
-        const hasAuthoritativePageCount = deps.totalPages.value > 0;
-        if (
-            hasAuthoritativePageCount
-            && wasAlreadyCurrentPage
-            && !hasExplicitScrollTarget
-            && !hasConflictingPendingNavigation
-        ) {
-            logPdfRenderTrace('workspace-go-to-page-skip-scroll-duplicate', {
-                targetPage,
-                pendingNavigationTargetPage,
-            });
-            return;
-        }
+        // Workspace commands are user intent, not a current-page projection.
+        // Forward same-page commands as well: the semantic page can remain
+        // current while its virtual slot or canvas has been evicted, and an
+        // active thumbnail / First Page replay must be able to heal that state.
         if (options?.navigationSource !== 'bookmark') {
             deps.invalidateBookmarkNavigationRequests?.();
         }

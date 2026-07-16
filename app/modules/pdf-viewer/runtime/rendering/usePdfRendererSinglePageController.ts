@@ -53,6 +53,7 @@ type IPdfPageRenderLease = IPdfDocumentPageLease;
 interface IUsePdfRendererSinglePageControllerOptions<TRenderResult extends IPdfSinglePageRenderResult> {
     isActive: MaybeRefOrGetter<boolean>;
     effectiveScale: MaybeRefOrGetter<number>;
+    outputScale: MaybeRefOrGetter<number>;
     annotationUiManager: MaybeRefOrGetter<unknown>;
     getContainerRoot: () => HTMLElement | null;
     pageRenderState?: TPdfPageRenderState | undefined;
@@ -194,6 +195,7 @@ export const usePdfRendererSinglePageController = <TRenderResult extends IPdfSin
     const {
         isActive,
         effectiveScale,
+        outputScale,
         annotationUiManager: annotationUiManagerRef,
         getContainerRoot,
         renderingPages,
@@ -852,7 +854,14 @@ export const usePdfRendererSinglePageController = <TRenderResult extends IPdfSin
         });
         clearSelectionBeforePageLayerTeardown(pageNumber);
         clearPageVisual(pageNumber);
-        pageRenderState.beginRender(pageNumber, version, requestId, documentToken, scale);
+        pageRenderState.beginRender(
+            pageNumber,
+            version,
+            requestId,
+            documentToken,
+            scale,
+            toValue(outputScale),
+        );
         let pageLease: IPdfPageRenderLease | null = null;
         try {
             logPdfRenderTrace('renderer-page-load-begin', {

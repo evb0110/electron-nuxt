@@ -421,7 +421,6 @@ function waitForNextFrame() {
 function isThumbnailPaneActive() {
     return isActive !== false;
 }
-
 function isThumbnailLayoutStabilizing() {
     return (
         thumbnailAspectRatios.value.every(aspectRatio => !isValidThumbnailAspectRatio(aspectRatio))
@@ -786,7 +785,6 @@ function handleContainerWheel() {
 function handleContainerPointerDown() {
     markManualThumbnailScroll('pointerdown');
 }
-
 async function refreshVisibleThumbnailPane(reason: string) {
     if (!isThumbnailPaneActive()) {
         return;
@@ -800,7 +798,7 @@ async function refreshVisibleThumbnailPane(reason: string) {
             return;
         }
         updateViewportMetrics();
-        await syncCurrentPageIntoView(reason, {force: true});
+        await syncCurrentPageIntoView(reason);
         await nextTick();
         if (refreshRunId !== activePaneRefreshRunId || !isThumbnailPaneActive()) {
             return;
@@ -839,6 +837,8 @@ const thumbnailRenderRuntime = usePdfThumbnailRenderRuntime({
         measureThumbnailHeight,
         onSourceCycleStarted: () => {
             thumbnailSourceCycleId += 1;
+            lastUserInteractionAtMs = 0;
+            manualScrollSourceCycleId = -1;
         },
         refreshVisibleThumbnailPane,
         resetMeasurementState: () => {
