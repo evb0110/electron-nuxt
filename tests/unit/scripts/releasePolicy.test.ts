@@ -1035,6 +1035,35 @@ describe('release policy', () => {
         expect(isTransientGitHubAuthError(new Error('Timeout trying to log in to github.com account evb0110 (keyring)'))).toBe(true);
     });
 
+    it('accepts an authenticated GraphQL fallback when GitHub REST auth status stays unavailable', async () => {
+        const calls: string[][] = [];
+        const stderr: string[] = [];
+
+        await assertGitHubCliReady('Release', {
+            delayMs: 0,
+            runCommand: (_command: string, args: string[]) => {
+                calls.push(args);
+                if (args[0] === 'auth') {
+                    throw new Error('HTTP 503: 503 Service Unavailable (keyring)');
+                }
+                return 'evb0110';
+            },
+            sleepFn: async () => undefined,
+            stderr: { write: (message: string) => stderr.push(message) },
+        });
+
+        expect(calls.filter(args => args[0] === 'auth')).toHaveLength(3);
+        expect(calls.at(-1)).toEqual([
+            'api',
+            'graphql',
+            '--field',
+            'query=query { viewer { login } }',
+            '--jq',
+            '.data.viewer.login',
+        ]);
+        expect(stderr.join('')).toContain('authenticated GraphQL fallback succeeded');
+    });
+
     it('runs release checks under the supplied CI-mode environment', () => {
         const calls: Array<{
             args: string[];

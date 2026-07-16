@@ -82,6 +82,8 @@ export async function assertGitHubCliReady(context = 'Release', {
     sleepFn = sleep,
     stderr = process.stderr,
 } = {}) {
+    let finalTransientError = null;
+
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
         try {
             runCommand('gh', [
@@ -90,7 +92,9 @@ export async function assertGitHubCliReady(context = 'Release', {
             ]);
             return;
         } catch (error) {
-            if (attempt < attempts && isTransientGitHubAuthError(error)) {
+            const isTransient = isTransientGitHubAuthError(error);
+            if (attempt < attempts && isTransient) {
+                finalTransientError = error;
                 stderr.write(
                     'Transient GitHub CLI auth check failure '
                     + `(attempt ${attempt}/${attempts}); retrying in ${delayMs / 1000}s.\n`,
@@ -99,13 +103,38 @@ export async function assertGitHubCliReady(context = 'Release', {
                 continue;
             }
 
-            throw new Error(
-                `${context} requires an authenticated GitHub CLI session so this command `
-                + 'can dispatch the GitHub workflow. '
-                + 'Run `gh auth status` / `gh auth login`.',
-            );
+            finalTransientError = isTransient ? error : null;
+            break;
         }
     }
+
+    if (finalTransientError) {
+        try {
+            const login = runCommand('gh', [
+                'api',
+                'graphql',
+                '--field',
+                'query=query { viewer { login } }',
+                '--jq',
+                '.data.viewer.login',
+            ]);
+            if (!String(login).trim()) {
+                throw new Error('Authenticated GraphQL viewer login was empty');
+            }
+            stderr.write(
+                'GitHub CLI auth status remained unavailable; authenticated GraphQL fallback succeeded.\n',
+            );
+            return;
+        } catch {
+            // Report the standard actionable authentication error below.
+        }
+    }
+
+    throw new Error(
+        `${context} requires an authenticated GitHub CLI session so this command `
+        + 'can dispatch the GitHub workflow. '
+        + 'Run `gh auth status` / `gh auth login`.',
+    );
 }
 
 export function run(command, args, options = {}) {
