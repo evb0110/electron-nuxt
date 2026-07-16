@@ -1,6 +1,7 @@
 import type { IPdfViewportPositionCommit } from '@app/modules/pdf-viewer/runtime/viewport/createViewportAuthority';
 import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
+import { resolveDocumentViewportCurrentPage } from '@app/utils/document-viewer/session/documentViewportSession';
 
 function projectPdfUserViewportPage(
     authority: IDocumentViewerChassisAuthority | null | undefined,
@@ -21,31 +22,52 @@ export function createPdfOpenSurfaceViewportCallbacks(
             projectPdfUserViewportPage(authority, page, emitCurrentPage);
         },
         onViewportPositionCommitted: (commit: IPdfViewportPositionCommit) => {
-            if (
-                commit.intentKind !== 'user-scroll'
-                && projectPdfViewportPositionCommit(authority?.openSurface, commit, emitCurrentPage)
-            ) onNavigationViewportCommitted(commit.page);
+            if (commit.intentKind === 'user-scroll') {
+                return;
+            }
+            if (projectPdfViewportPositionCommit(authority?.openSurface, commit, emitCurrentPage)) {
+                onNavigationViewportCommitted(commit.page);
+                return;
+            }
+            projectPdfSettledProgrammaticPage(authority, commit, emitCurrentPage);
         },
     };
+}
+
+function projectPdfSettledProgrammaticPage(
+    authority: IDocumentViewerChassisAuthority | null | undefined,
+    commit: IPdfViewportPositionCommit,
+    emitCurrentPage: (page: number) => void,
+) {
+    const surface = authority?.openSurface;
+    if (
+        !surface
+        || surface.viewportSession.value.lifecycle !== 'ready'
+        || ![
+            'navigate',
+            'search',
+            'wheel-page',
+        ].includes(commit.intentKind)
+    ) {
+        return false;
+    }
+    const page = authority.observePage(commit.page);
+    emitCurrentPage(page);
+    return true;
 }
 
 export function shouldProjectPdfViewportCommitPage(
     surface: IDocumentOpenSurfaceSession,
     commit: IPdfViewportPositionCommit,
 ) {
-    if (surface.viewportSession.value.requestedPage === commit.page) {
-        return true;
-    }
-
-    // Navigation intents are allowed to advance the shared page authority.
-    // User scroll is projected through the chassis observation channel, never
-    // relabelled as a command here. Geometry-only intents must preserve the page that was
-    // current when they began: a delayed fit/zoom/resize commit otherwise
-    // rewinds a newer Last Page (or other navigation) command while its target
-    // canvas remains correctly visible.
-    return commit.intentKind === 'navigate'
-        || commit.intentKind === 'search'
-        || commit.intentKind === 'wheel-page';
+    const viewport = surface.viewportSession.value;
+    // The shared surface owns page commands. A PDF-local position commit may
+    // settle that command, but it must never create or retarget one: there is
+    // no shared intent id on this callback with which to distinguish a late
+    // commit from the live command. User scrolling is projected separately
+    // through the chassis observation channel.
+    return viewport.requestedPage === commit.page
+        && resolveDocumentViewportCurrentPage(viewport) === commit.page;
 }
 
 function projectPdfViewportPositionCommit(

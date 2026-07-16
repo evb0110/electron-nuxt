@@ -273,11 +273,10 @@ export function createDocumentViewerChassisAuthority(
                 currentPage.value = boundedPage;
                 return currentPage.value;
             }
-            if (openSurface.viewportSession.value.requestedPage !== boundedPage) {
-                currentPage.value = openSurface.requestNavigation(boundedPage);
-                return currentPage.value;
-            }
-            currentPage.value = boundedPage;
+            // The open-surface session owns lifecycle-aware command dedupe.
+            // requestedPage can intentionally lag the visible observed page
+            // after free scrolling, so it is not a valid duplicate key here.
+            currentPage.value = openSurface.requestNavigation(boundedPage);
             return currentPage.value;
         },
         observePage(pageNumber, options) {

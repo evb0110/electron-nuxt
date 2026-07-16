@@ -164,6 +164,10 @@ describe('usePdfRenderDemandCoordinator', () => {
             },
             {
                 bufferOverride: 0,
+                coordinatorDemand: {
+                    kind: 'required',
+                    renderGeneration: 1,
+                },
                 preserveInFlightRequiredPages: true,
                 preserveRenderedPages: true,
             },
@@ -194,6 +198,10 @@ describe('usePdfRenderDemandCoordinator', () => {
             },
             {
                 bufferOverride: 0,
+                coordinatorDemand: {
+                    kind: 'required',
+                    renderGeneration: 1,
+                },
                 preserveInFlightRequiredPages: true,
                 preserveRenderedPages: true,
             },
@@ -344,6 +352,10 @@ describe('usePdfRenderDemandCoordinator', () => {
                 end: 43,
             },
             {
+                coordinatorDemand: {
+                    kind: 'buffer',
+                    renderGeneration: 1,
+                },
                 maxCanvasPixels: 50,
                 preserveInFlightRequiredPages: true,
                 preserveRenderedPages: true,

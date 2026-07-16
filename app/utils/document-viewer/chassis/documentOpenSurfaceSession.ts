@@ -912,14 +912,20 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 return sessionState.value.viewport.requestedPage;
             }
             const current = sessionState.value.viewport;
-            if (current.requestedPage === normalized) {
+            const semanticCurrentPage = resolveDocumentViewportCurrentPage(current);
+            if (current.requestedPage === normalized && semanticCurrentPage === normalized) {
                 // Page projection and viewport commit callbacks may repeat the
-                // already-authoritative semantic page. Replacing its intent here
-                // would invalidate the in-flight render/viewport fences and let
-                // a fresh skeleton timer outlive the canvas it was meant to guard.
+                // already-authoritative semantic page. While a navigation is
+                // in flight, requestedPage is the semantic page; once ready,
+                // observedPage can diverge after free scrolling and an explicit
+                // command back to the same requested page must mint a new intent.
+                // Replacing a genuinely live intent here would invalidate the
+                // render/viewport fences and let a fresh skeleton timer outlive
+                // the canvas it was meant to guard.
                 logPdfRenderTrace('viewport-session-navigation-already-requested', {
                     pageNumber: normalized,
                     committedPage: current.committedPage,
+                    observedPage: current.observedPage,
                     visual: current.visual.kind === 'page'
                         ? current.visual.presentation
                         : current.visual.kind,

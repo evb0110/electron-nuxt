@@ -394,20 +394,11 @@ function getVisualError(pageNumber: number) {
 }
 
 function beginPagePresentationPending(
-    pageNumber: number,
+    _pageNumber: number,
     state: IPageVisualState,
 ) {
     state.error = null;
     state.ready = false;
-    const openSurface = chassisAuthority?.openSurface;
-    const viewportState = openSurface?.viewportSession.value;
-    if (
-        openSurface
-        && viewportState?.lifecycle === 'ready'
-        && viewportState.requestedPage === pageNumber
-    ) {
-        openSurface.requestNavigation(pageNumber);
-    }
 }
 
 function commitPageTerminalError(pageNumber: number) {
@@ -890,7 +881,6 @@ const resizeLifecycle = useDocumentPageSourceResizeLifecycle({
     ),
     onResizeSettled: () => scheduleRender.schedule(),
 });
-
 function handleScroll(event?: Event) {
     if (!continuousScroll || !viewerContainer.value || resizeLifecycle.isResizeTransitionActive.value) {
         return;

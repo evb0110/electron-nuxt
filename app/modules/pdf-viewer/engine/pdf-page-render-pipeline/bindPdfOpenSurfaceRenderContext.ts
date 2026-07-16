@@ -16,6 +16,10 @@ export interface IRenderVisiblePagesOptions {
     transactionRequest?: IPdfViewerTransactionRenderRequest;
     continuationPriority?: TPdfRenderContinuationPriority;
     maxCanvasPixels?: number;
+    coordinatorDemand?: {
+        kind: 'required' | 'buffer';
+        renderGeneration: number;
+    };
 }
 
 export type TPdfOpenSurfaceRenderContext = Pick<

@@ -290,6 +290,15 @@ export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordi
             pendingBufferRanges.unshift(activeDemand.bufferRange);
         }
         const demandId = ++nextDemandId;
+        const activeRenderOptions: IRenderVisiblePagesOptions = kind === 'automatic'
+            ? {
+                ...renderOptions,
+                coordinatorDemand: {
+                    kind: bufferRange ? 'buffer' : 'required',
+                    renderGeneration: options.getRenderGeneration(),
+                },
+            }
+            : renderOptions;
         activeDemand = {
             id: demandId,
             kind,
@@ -306,7 +315,7 @@ export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordi
             queuedPages: [...queuedPages.value],
             pendingBufferRanges: [...pendingBufferRanges],
             hasPendingAuthoritativeDemand: pendingAuthoritativeDemand !== null,
-            renderOptions,
+            renderOptions: activeRenderOptions,
         }));
         const settleDemand = () => {
             if (activeDemand?.id !== demandId) {
@@ -367,9 +376,9 @@ export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordi
             kind,
             signature,
             range,
-            renderOptions,
+            renderOptions: activeRenderOptions,
         });
-        void options.renderVisiblePages(range, renderOptions).then(settleDemand, settleDemand);
+        void options.renderVisiblePages(range, activeRenderOptions).then(settleDemand, settleDemand);
     }
 
     function reconcile() {

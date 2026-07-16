@@ -2,6 +2,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import { ref } from 'vue';
 import {
@@ -235,6 +236,20 @@ describe('document viewer chassis authority', () => {
         authority.pageCount.value = 8;
         expect(authority.navigate(20)).toBe(8);
         expect(authority.navigate(-4)).toBe(1);
+    });
+
+    it('delegates navigation dedupe to the owned open-surface session', () => {
+        const openSurface = createDocumentOpenSurfaceSession();
+        openSurface.begin({
+            documentId: 'scan.pdf',
+            documentRevision: 'open-intent:1',
+        });
+        const requestNavigation = vi.spyOn(openSurface, 'requestNavigation');
+        const authority = createDocumentViewerChassisAuthority(ref('pdf'), 1, openSurface);
+
+        expect(authority.navigate(1)).toBe(1);
+        expect(requestNavigation).toHaveBeenCalledOnce();
+        expect(requestNavigation).toHaveBeenCalledWith(1);
     });
 
     it('mounts on the latest opening-session intent instead of the stale initial page', () => {

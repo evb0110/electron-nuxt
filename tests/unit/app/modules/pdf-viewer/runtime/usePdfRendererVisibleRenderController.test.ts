@@ -311,6 +311,140 @@ describe('usePdfRendererVisibleRenderController', () => {
         }
     });
 
+    it('renders a generation-current coordinator requirement outside the semantic visible range additively', async () => {
+        const containerRoot = document.createElement('div');
+        for (const pageNumber of [
+            99,
+            100,
+        ]) {
+            const page = document.createElement('div');
+            page.className = 'page_container';
+            page.dataset.page = String(pageNumber);
+            containerRoot.append(page);
+        }
+        const renderingPages = new Map([[
+            100,
+            3,
+        ]]);
+        const renderingPageRequestIds = new Map([[
+            100,
+            7,
+        ]]);
+        const renderSingleVisiblePage = vi.fn(async () => undefined);
+        const cancelObsoleteInFlightRenders = vi.fn();
+        let visibleRenderRequestId = 7;
+        const renderVisiblePages = usePdfRendererVisibleRenderController({
+            container: ref(containerRoot),
+            currentPage: ref(100),
+            numPages: ref(120),
+            isActive: true,
+            bufferPages: 0,
+            renderConcurrency: 1,
+            effectiveScale: 1,
+            renderedPages: new Set<number>(),
+            renderingPages,
+            renderingPageRequestIds,
+            getRenderVersion: () => 3,
+            getRenderDocumentToken: () => 'doc-1',
+            getVisibleRenderRequestId: () => visibleRenderRequestId,
+            nextVisibleRenderRequestId: () => {
+                visibleRenderRequestId += 1;
+                return visibleRenderRequestId;
+            },
+            ensurePageMetricsInRange: vi.fn(async () => true),
+            setupPagePlaceholders: vi.fn(),
+            cleanupPage: vi.fn(),
+            cancelObsoleteInFlightRenders,
+            renderSingleVisiblePage,
+            isVisibleRenderRangeCurrent: range => range.start === 100 && range.end === 100,
+            scheduleMissingRenderTargetRetry: vi.fn(),
+            throttleMs: 0,
+        });
+
+        await renderVisiblePages({
+            start: 99,
+            end: 99,
+        }, {
+            preserveRenderedPages: true,
+            bufferOverride: 0,
+            coordinatorDemand: {
+                kind: 'required',
+                renderGeneration: 3,
+            },
+        });
+
+        expect(renderSingleVisiblePage).toHaveBeenCalledOnce();
+        expect(renderSingleVisiblePage).toHaveBeenCalledWith(
+            containerRoot,
+            99,
+            3,
+            1,
+            false,
+            8,
+            expect.any(Function),
+            new Set([99]),
+            {
+                start: 99,
+                end: 99,
+            },
+            expect.objectContaining({coordinatorDemand: {
+                kind: 'required',
+                renderGeneration: 3,
+            }}),
+        );
+        expect(cancelObsoleteInFlightRenders).toHaveBeenCalledWith(new Set([
+            99,
+            100,
+        ]), 8);
+    });
+
+    it('rejects a stale coordinator generation before acquiring renderer authority', async () => {
+        const nextVisibleRenderRequestId = vi.fn(() => 8);
+        const ensurePageMetricsInRange = vi.fn(async () => true);
+        const cancelObsoleteInFlightRenders = vi.fn();
+        const renderSingleVisiblePage = vi.fn(async () => undefined);
+        const renderVisiblePages = usePdfRendererVisibleRenderController({
+            container: ref(document.createElement('div')),
+            currentPage: ref(100),
+            numPages: ref(120),
+            isActive: true,
+            bufferPages: 0,
+            renderConcurrency: 1,
+            effectiveScale: 1,
+            renderedPages: new Set<number>(),
+            renderingPages: new Map<number, number>(),
+            renderingPageRequestIds: new Map<number, number>(),
+            getRenderVersion: () => 4,
+            getRenderDocumentToken: () => 'doc-1',
+            getVisibleRenderRequestId: () => 7,
+            nextVisibleRenderRequestId,
+            ensurePageMetricsInRange,
+            setupPagePlaceholders: vi.fn(),
+            cleanupPage: vi.fn(),
+            cancelObsoleteInFlightRenders,
+            renderSingleVisiblePage,
+            isVisibleRenderRangeCurrent: () => false,
+            scheduleMissingRenderTargetRetry: vi.fn(),
+            throttleMs: 0,
+        });
+
+        await renderVisiblePages({
+            start: 99,
+            end: 99,
+        }, {
+            preserveRenderedPages: true,
+            coordinatorDemand: {
+                kind: 'required',
+                renderGeneration: 3,
+            },
+        });
+
+        expect(nextVisibleRenderRequestId).not.toHaveBeenCalled();
+        expect(ensurePageMetricsInRange).not.toHaveBeenCalled();
+        expect(cancelObsoleteInFlightRenders).not.toHaveBeenCalled();
+        expect(renderSingleVisiblePage).not.toHaveBeenCalled();
+    });
+
     it('skips stale transaction render requests before scheduling work', async () => {
         const renderSingleVisiblePage = vi.fn(async () => undefined);
         const ensurePageMetricsInRange = vi.fn(async () => true);

@@ -272,10 +272,17 @@ export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVi
 
     function isRequestedRenderCurrent(
         visibleRange: IPageRange,
-        transactionRequest: IPdfViewerTransactionRenderRequest | undefined,
+        renderOptions: IRenderVisiblePagesOptions | undefined,
     ) {
-        return isRequestedVisibleRangeCurrent(visibleRange)
-            && isTransactionRenderRequestCurrent(transactionRequest);
+        const transactionRequest = renderOptions?.transactionRequest;
+        if (transactionRequest) {
+            return isRequestedVisibleRangeCurrent(visibleRange)
+                && isTransactionRenderRequestCurrent(transactionRequest);
+        }
+        if (renderOptions?.coordinatorDemand) {
+            return renderOptions.coordinatorDemand.renderGeneration === getRenderVersion();
+        }
+        return isRequestedVisibleRangeCurrent(visibleRange);
     }
 
     function createRenderOptionsForTransactionRequest(
@@ -301,11 +308,12 @@ export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVi
         requiredPagesToRender: number[],
         visibleRange: IPageRange,
         version: number,
+        renderOptions?: IRenderVisiblePagesOptions,
     ) {
         let pagesMissingMountedContainer: number[] = [];
 
         for (let attempt = 0; attempt < 4; attempt += 1) {
-            if (!isRequestedVisibleRangeCurrent(visibleRange)) {
+            if (!isRequestedRenderCurrent(visibleRange, renderOptions)) {
                 logPdfRenderTrace('renderer-visible-render-abort-stale-mounted-page-wait', {
                     visibleRange,
                     renderVersion: version,
@@ -325,7 +333,7 @@ export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVi
             await nextTick();
         }
 
-        if (!isRequestedVisibleRangeCurrent(visibleRange)) {
+        if (!isRequestedRenderCurrent(visibleRange, renderOptions)) {
             logPdfRenderTrace('renderer-visible-render-skip-stale-mounted-page-warning', {
                 pagesMissingMountedContainer,
                 visibleRange,
@@ -462,7 +470,7 @@ export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVi
             return;
         }
 
-        if (!isRequestedRenderCurrent(visibleRange, renderOptions?.transactionRequest)) {
+        if (!isRequestedRenderCurrent(visibleRange, renderOptions)) {
             logPdfRenderTrace('renderer-visible-render-skipped-stale-range', {
                 visibleRange,
                 renderOptions,
@@ -536,7 +544,7 @@ export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVi
             });
             return;
         }
-        if (!isRequestedRenderCurrent(visibleRange, transactionRequest)) {
+        if (!isRequestedRenderCurrent(visibleRange, activeRenderOptions)) {
             logPdfRenderTrace('renderer-visible-render-abort-stale-range', {
                 requestId,
                 activeRequestId: getVisibleRenderRequestId(),
@@ -567,6 +575,11 @@ export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVi
         }
 
         const pagesToKeep = new Set(range(renderStart, renderEnd + 1));
+        if (activeRenderOptions?.coordinatorDemand) {
+            for (const pageNumber of renderingPages.keys()) {
+                pagesToKeep.add(pageNumber);
+            }
+        }
         cancelObsoleteInFlightRenders(pagesToKeep, requestId);
         cleanupUnmountedTrackedPages(containerRoot);
 
@@ -625,6 +638,7 @@ export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVi
             requiredPagesToRender,
             visibleRange,
             version,
+            activeRenderOptions,
         );
         if (
             !mountedPageWaitStillCurrent
@@ -692,7 +706,7 @@ export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVi
                 getRenderVersion() === version
                 && requestId === getVisibleRenderRequestId()
                 && getRenderDocumentToken() === documentToken
-                && isTransactionRenderRequestCurrent(transactionRequest)
+                && isRequestedRenderCurrent(visibleRange, activeRenderOptions)
             ),
             activeRenderOptions,
         );

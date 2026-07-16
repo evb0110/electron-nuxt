@@ -155,6 +155,53 @@ describe('document open surface session', () => {
         });
     });
 
+    it('dispatches an explicit command back to the stale requested page after free scrolling', () => {
+        const session = createDocumentOpenSurfaceSession();
+        const generation = session.begin({
+            documentId: 'scan.djvu',
+            documentRevision: 'djvu:1',
+        });
+        session.metadataReady(20);
+        session.commitGeometry(generation, {
+            width: 612,
+            height: 792,
+            margin: 20,
+        });
+        const openingFence = session.createRenderFence({
+            generation,
+            documentRevision: 'djvu:1',
+            renderVersion: 1,
+            requestId: 1,
+            pageNumber: 1,
+        })!;
+        session.commitCanvas(openingFence);
+        session.commitViewport(createViewportCommit(openingFence));
+        session.markReady(openingFence);
+
+        expect(session.observeViewportPage(20)).toBe(20);
+        const previousIntentId = session.viewportSession.value.viewportIntent?.id;
+        expect(session.viewportSession.value).toMatchObject({
+            lifecycle: 'ready',
+            requestedPage: 1,
+            committedPage: 1,
+            observedPage: 20,
+        });
+
+        expect(session.requestNavigation(1, 0)).toBe(1);
+        expect(session.viewportSession.value).toMatchObject({
+            lifecycle: 'transitioning',
+            requestedPage: 1,
+            committedPage: 1,
+            observedPage: null,
+            visual: {
+                kind: 'page',
+                pageNumber: 1,
+                presentation: 'skeleton',
+            },
+        });
+        expect(session.viewportSession.value.viewportIntent?.id).not.toBe(previousIntentId);
+    });
+
     it('projects open, metadata, navigation debounce, and close through one viewport session', () => {
         vi.useFakeTimers();
         vi.setSystemTime(1_000);

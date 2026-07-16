@@ -170,52 +170,81 @@ export async function collectPdfVirtualizationSnapshot(page: Page): Promise<IPdf
 }
 
 export async function waitForVisibleMountedPdfCanvases(page: Page, timeoutMs = 15_000) {
-    await waitForFunctionInPage(page, (viewportSelector: string) => {
-        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter((host) => {
-                const rect = host.getBoundingClientRect();
-                const style = window.getComputedStyle(host);
-                return rect.width > 100
-                    && rect.height > 100
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                    && Number(style.opacity || '1') > 0;
+    await evaluateInPage(page, async ({
+        timeout,
+        viewportSelector,
+    }) => {
+        const deadline = performance.now() + timeout;
+        let stableFrameCount = 0;
+        let stableSignature = '';
+        while (performance.now() < deadline) {
+            await new Promise<void>(resolve => window.requestAnimationFrame(() => resolve()));
+            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+                .filter((host) => {
+                    const rect = host.getBoundingClientRect();
+                    const style = window.getComputedStyle(host);
+                    return rect.width > 100
+                        && rect.height > 100
+                        && style.display !== 'none'
+                        && style.visibility !== 'hidden'
+                        && Number(style.opacity || '1') > 0;
+                });
+            const preferredHost = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+            ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const activeHost = preferredHost && visibleHosts.includes(preferredHost)
+                ? preferredHost
+                : (visibleHosts.length === 1 ? visibleHosts[0] ?? null : null);
+            const viewport = activeHost?.querySelector<HTMLElement>(viewportSelector) ?? null;
+            if (!activeHost || !viewport) {
+                stableFrameCount = 0;
+                continue;
+            }
+            const viewportRect = viewport.getBoundingClientRect();
+            const visiblePages = Array.from(activeHost.querySelectorAll<HTMLElement>('.page_container[data-page]'))
+                .filter((container) => {
+                    const rect = container.getBoundingClientRect();
+                    return rect.bottom > viewportRect.top
+                        && rect.top < viewportRect.bottom
+                        && rect.right > viewportRect.left
+                        && rect.left < viewportRect.right;
+                });
+            const ready = visiblePages.length > 0 && visiblePages.every((container) => {
+                const canvas = container.querySelector<HTMLCanvasElement>('.page_canvas canvas');
+                const skeleton = container.querySelector<HTMLElement>('.pdf-page-skeleton');
+                const skeletonVisible = skeleton
+                    ? window.getComputedStyle(skeleton).display !== 'none'
+                        && window.getComputedStyle(skeleton).visibility !== 'hidden'
+                    : false;
+                return Boolean(
+                    canvas?.isConnected
+                    && canvas.width > 0
+                    && canvas.height > 0
+                    && container.classList.contains('page_container--rendered')
+                    && !skeletonVisible,
+                );
             });
-        const preferredHost = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-        ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const activeHost = preferredHost && visibleHosts.includes(preferredHost)
-            ? preferredHost
-            : (visibleHosts.length === 1 ? visibleHosts[0] ?? null : null);
-        const viewport = activeHost?.querySelector<HTMLElement>(viewportSelector) ?? null;
-        if (!activeHost || !viewport) {
-            return false;
+            const signature = ready
+                ? `${String(Math.round(viewport.scrollTop))}:${visiblePages
+                    .map(container => container.dataset.page ?? '')
+                    .sort()
+                    .join(',')}`
+                : '';
+            if (signature && signature === stableSignature) {
+                stableFrameCount += 1;
+                if (stableFrameCount >= 6) {
+                    return;
+                }
+            } else {
+                stableSignature = signature;
+                stableFrameCount = signature ? 1 : 0;
+            }
         }
-        const viewportRect = viewport.getBoundingClientRect();
-        const visiblePages = Array.from(activeHost.querySelectorAll<HTMLElement>('.page_container[data-page]'))
-            .filter((container) => {
-                const rect = container.getBoundingClientRect();
-                return rect.bottom > viewportRect.top
-                    && rect.top < viewportRect.bottom
-                    && rect.right > viewportRect.left
-                    && rect.left < viewportRect.right;
-            });
-        return visiblePages.length > 0 && visiblePages.every((container) => {
-            const canvas = container.querySelector<HTMLCanvasElement>('.page_canvas canvas');
-            const skeleton = container.querySelector<HTMLElement>('.pdf-page-skeleton');
-            const skeletonVisible = skeleton
-                ? window.getComputedStyle(skeleton).display !== 'none'
-                    && window.getComputedStyle(skeleton).visibility !== 'hidden'
-                : false;
-            return Boolean(
-                canvas?.isConnected
-                && canvas.width > 0
-                && canvas.height > 0
-                && container.classList.contains('page_container--rendered')
-                && !skeletonVisible,
-            );
-        });
-    }, {timeout: timeoutMs}, VIEWPORT_SELECTOR);
+        throw new Error(`Visible PDF canvases did not stabilize within ${String(timeout)}ms`);
+    }, {
+        timeout: timeoutMs,
+        viewportSelector: VIEWPORT_SELECTOR,
+    });
 }
 
 export async function waitForAnimationFrames(page: Page, frameCount: number) {
