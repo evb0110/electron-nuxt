@@ -209,7 +209,6 @@ describe('usePdfSinglePageNavigationController', () => {
                 1_400,
             ]) {
                 expect(controller.handleWheel({
-                    ctrlKey: false,
                     deltaX: 0,
                     deltaY: 180,
                     preventDefault,
@@ -231,7 +230,6 @@ describe('usePdfSinglePageNavigationController', () => {
             });
             expect(viewportWrites.writes).toHaveLength(1);
             expect(controller.handleWheel({
-                ctrlKey: false,
                 deltaX: 0,
                 deltaY: 0,
                 preventDefault,

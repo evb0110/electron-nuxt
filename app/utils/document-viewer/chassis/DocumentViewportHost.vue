@@ -4,7 +4,7 @@
         :ref="setViewportElement"
         data-document-viewer-chassis-viewport
         @scroll.passive="emit('scroll', $event)"
-        @wheel="emit('wheel', $event)"
+        @wheel="handleWheel"
         @mousedown="emit('mousedown', $event)"
         @mousemove="emit('mousemove', $event)"
         @mouseup="emit('mouseup', $event)"
@@ -20,6 +20,10 @@
 
 <script setup lang="ts">
 import type { ComponentPublicInstance } from 'vue';
+import {
+    resolveDocumentWheelInteraction,
+    type IDocumentWheelInteraction,
+} from '@app/utils/document-viewer/input/documentWheelInteraction';
 
 const {
     setViewport,
@@ -31,7 +35,7 @@ const {
 
 const emit = defineEmits<{
     scroll: [event: Event];
-    wheel: [event: WheelEvent];
+    wheel: [interaction: IDocumentWheelInteraction];
     mousedown: [event: MouseEvent];
     mousemove: [event: MouseEvent];
     mouseup: [event: MouseEvent];
@@ -42,7 +46,18 @@ const emit = defineEmits<{
     selectstart: [event: Event];
 }>();
 
+const viewportElement = shallowRef<HTMLElement | null>(null);
+
 function setViewportElement(element: Element | ComponentPublicInstance | null) {
-    setViewport(element instanceof HTMLElement ? element : null);
+    viewportElement.value = element instanceof HTMLElement ? element : null;
+    setViewport(viewportElement.value);
+}
+
+function handleWheel(event: WheelEvent) {
+    const viewport = viewportElement.value;
+    if (!viewport) {
+        return;
+    }
+    emit('wheel', resolveDocumentWheelInteraction(event, viewport));
 }
 </script>

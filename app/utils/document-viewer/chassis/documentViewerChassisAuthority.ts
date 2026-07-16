@@ -26,6 +26,7 @@ import {
     type IDocumentViewportSessionState,
     resolveDocumentViewportCurrentPage,
 } from '@app/utils/document-viewer/session/documentViewportSession';
+import type { IDocumentWheelInteraction } from '@app/utils/document-viewer/input/documentWheelInteraction';
 
 export interface IDocumentViewerChassisAuthority {
     readonly instanceId: string;
@@ -52,12 +53,13 @@ export interface IDocumentViewerChassisAuthority {
     ): boolean;
     bindViewportElement(element: HTMLElement | null): void;
     bindViewportFeature(binding: IDocumentViewportFeatureBinding): () => void;
+    dispatchViewportWheel(interaction: IDocumentWheelInteraction): void;
     dispatchViewportEvent(type: TDocumentViewportEventType, event?: Event): void;
     navigate(pageNumber: number): number;
     observePage(pageNumber: number, options?: {supersedeNavigation?: boolean}): number;
 }
 
-export type TDocumentViewportEventType = 'scroll' | 'wheel' | 'mousedown' | 'mousemove' | 'mouseup'
+export type TDocumentViewportEventType = 'scroll' | 'mousedown' | 'mousemove' | 'mouseup'
     | 'mouseleave' | 'click' | 'dblclick' | 'contextmenu' | 'selectstart';
 export type TDocumentOpeningPageVisual = 'none' | 'skeleton' | 'fresh';
 
@@ -65,6 +67,7 @@ export interface IDocumentViewportFeatureBinding {
     getClass: () => HTMLAttributes['class'];
     getStyle: () => StyleValue;
     events: Partial<Record<TDocumentViewportEventType, (event?: Event) => void>>;
+    wheel?: (interaction: IDocumentWheelInteraction) => void;
 }
 
 export const documentViewerChassisAuthorityKey = Symbol('document-viewer-chassis-authority') as InjectionKey<
@@ -257,6 +260,9 @@ export function createDocumentViewerChassisAuthority(
                     viewportFeature.value = null;
                 }
             };
+        },
+        dispatchViewportWheel(interaction) {
+            viewportFeature.value?.wheel?.(interaction);
         },
         dispatchViewportEvent(type, event) {
             viewportFeature.value?.events[type]?.(event);

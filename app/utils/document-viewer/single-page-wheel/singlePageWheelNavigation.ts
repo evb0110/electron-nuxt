@@ -5,6 +5,7 @@ import type {
     TPageSnapAnchor,
     TWheelDirection,
 } from '@app/utils/document-viewer/single-page-wheel/singlePageWheelTypes';
+import type { IDocumentWheelInteraction } from '@app/utils/document-viewer/input/documentWheelInteraction';
 
 const HORIZONTAL_INTENT_REJECT_RATIO = 1;
 const PAGE_SCROLL_EDGE_EPSILON = 1;
@@ -15,21 +16,21 @@ interface IPageScrollBounds {
 }
 
 export function shouldHandleSinglePageWheel(
-    event: WheelEvent,
+    interaction: IDocumentWheelInteraction,
     container: HTMLElement | null,
     hasPdfDocument: boolean,
     isContinuousScroll: boolean,
     isPdfLoading: boolean,
     pageCount: number,
 ) {
+    const { event } = interaction;
     if (
+        interaction.intent !== 'scroll' ||
         isContinuousScroll ||
         isPdfLoading ||
         !hasPdfDocument ||
         !container ||
-        pageCount === 0 ||
-        event.ctrlKey ||
-        event.metaKey
+        pageCount === 0
     ) {
         return false;
     }

@@ -80,15 +80,14 @@ import {
 } from '@app/utils/document-viewer/viewport/resolveDocumentContinuousScrollWindow';
 import { injectDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
 import { createDocumentViewportWritePort } from '@app/utils/document-viewer/chassis/documentViewportWritePort';
-import {
-    clampDocumentFitScale,
-    clampDocumentManualZoom,
-} from '@app/utils/document-viewer/zoomPolicy';
+import { clampDocumentManualZoom } from '@app/utils/document-viewer/zoomPolicy';
 import { DOCUMENT_PAGE_GUTTER_PX } from '@app/utils/document-viewer/layout/documentPageGutterPx';
 import {
     captureDocumentZoomAnchor,
     resolveDocumentZoomAnchorScroll,
 } from '@app/utils/document-viewer/zoomAnchor';
+import { createDocumentWheelZoomHandler } from '@app/utils/document-viewer/input/documentWheelInteraction';
+import { resolveNativePdfDisplayScale } from '@app/modules/native-pdf-viewer/runtime/resolveNativePdfDisplayScale';
 interface IProps {
     src: TDocumentRef | null;
     zoom?: number;
@@ -122,6 +121,8 @@ const pageSlots = renderSession?.pageSlots;
 const viewportWritePort = chassisAuthority?.viewportWritePort ?? createDocumentViewportWritePort();
 const emit = defineEmits<{
     'update:effectiveZoom': [value: number];
+    'update:zoom': [value: number];
+    'update:zoomMode': [value: 'custom' | 'fit-width' | 'fit-height'];
     'update:currentPage': [value: number];
     'update:totalPages': [value: number];
     'update:document': [value: null];
@@ -173,6 +174,7 @@ onMounted(() => {
         ],
         getStyle: () => ({}),
         events: {scroll: () => handleViewerScroll()},
+        wheel: handleWheel,
     }) ?? null;
 });
 const showInitialSurfacePlaceholder = computed(() => isActive.value && isLoading.value && !viewerError.value);
@@ -211,50 +213,26 @@ function fitHeightAvailable() {
     return Math.max(1, containerHeight.value - DOCUMENT_PAGE_GUTTER_PX * 2);
 }
 
-function resolveFitHeightZoomForPageSize(pageSize: IPdfNativePageSize | null | undefined) {
-    const baseHeight = pageSize?.height;
-    if (!baseHeight || baseHeight <= 0) {
-        return manualZoom.value;
-    }
-
-    return clampDocumentFitScale(fitHeightAvailable() / baseHeight);
-}
-
-function getPageDisplayScale(pageNumber: number) {
-    const pageSize = pageSizes.value[pageNumber - 1];
-    if (!pageSize) {
-        return 1;
-    }
-
-    if (zoomMode.value === 'fit-width' && pageSize.width > 0) {
-        return clampDocumentFitScale(fitWidthAvailable() / pageSize.width);
-    }
-    if (zoomMode.value === 'fit-height') {
-        return resolveFitHeightZoomForPageSize(pageSize);
-    }
-
-    return manualZoom.value;
+function resolvePageDisplayScale(pageSize: IPdfNativePageSize | null | undefined) {
+    return resolveNativePdfDisplayScale({
+        availableHeight: fitHeightAvailable(),
+        availableWidth: fitWidthAvailable(),
+        manualZoom: manualZoom.value,
+        pageSize,
+        zoomMode: zoomMode.value,
+    });
 }
 
 const effectiveZoom = computed(() => {
-    if (zoomMode.value === 'custom') {
-        return manualZoom.value;
-    }
-
     const pageSize = pageSizes.value[activePage.value - 1] ?? pageSizes.value[0] ?? null;
-    if (zoomMode.value === 'fit-height') {
-        return resolveFitHeightZoomForPageSize(pageSize);
-    }
-    if (!pageSize?.width) {
-        return manualZoom.value;
-    }
-    return clampDocumentFitScale(fitWidthAvailable() / pageSize.width);
+    return resolvePageDisplayScale(pageSize);
 });
 
+const handleWheel = createDocumentWheelZoomHandler(effectiveZoom, zoomMode, emit);
+
 const pageLayouts = computed<IPageLayout[]>(() => {
-    const dimensions = pageSizes.value.map((pageSize, index) => {
-        const pageNumber = index + 1;
-        const scale = getPageDisplayScale(pageNumber);
+    const dimensions = pageSizes.value.map((pageSize) => {
+        const scale = resolvePageDisplayScale(pageSize);
         return {
             width: Math.max(1, Math.round(pageSize.width * scale)),
             height: Math.max(1, Math.round(pageSize.height * scale)),

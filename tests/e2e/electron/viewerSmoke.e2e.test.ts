@@ -2398,6 +2398,108 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         expect(djvu.label).toEqual(pdf.label);
     }, 150_000);
 
+    it('uses the shared macOS Control-scroll and Command-zoom policy for DjVu', async () => {
+        let session = sessionFixture.getSession();
+        if (!session || !djvuFixture.path) {
+            return;
+        }
+
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-djvu-macos-wheel-modifiers-${Date.now()}`,
+        });
+        if (!session) {
+            return;
+        }
+        const isMac = await session.page.evaluate(() => /Mac|iPhone|iPad|iPod/i.test(navigator.platform));
+        if (!isMac) {
+            return;
+        }
+
+        await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
+        await openDjvuInApp(session.page, djvuFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForDjvuLoaded(session.page, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        const point = await session.page.evaluate(() => {
+            const surface = document.querySelector<HTMLElement>('[data-testid="document-page-source-viewer"]');
+            const viewport = surface?.closest<HTMLElement>('[data-document-viewer-chassis-viewport]');
+            if (!viewport) {
+                return null;
+            }
+            viewport.scrollTop = 0;
+            const samples: NonNullable<IMacWheelE2EWindow['__macWheelModifierSamples']> = [];
+            viewport.addEventListener('wheel', (event) => {
+                queueMicrotask(() => samples.push({
+                    ctrlKey: event.ctrlKey,
+                    defaultPrevented: event.defaultPrevented,
+                    metaKey: event.metaKey,
+                }));
+            });
+            (window as IMacWheelE2EWindow).__macWheelModifierSamples = samples;
+            const rect = viewport.getBoundingClientRect();
+            return {
+                x: Math.round(rect.left + rect.width / 2),
+                y: Math.round(rect.top + rect.height / 2),
+            };
+        });
+        expect(point).not.toBeNull();
+        if (!point) {
+            return;
+        }
+
+        const toolbarBefore = await getWorkspaceToolbarSnapshot(session.page);
+        await session.page.mouse.move(point.x, point.y);
+        await session.page.keyboard.down('Control');
+        for (let index = 0; index < 20; index += 1) {
+            await session.page.mouse.wheel({deltaY: 240});
+        }
+        await session.page.keyboard.up('Control');
+        await waitForFunctionInPage(session.page, () => {
+            const surface = document.querySelector<HTMLElement>('[data-testid="document-page-source-viewer"]');
+            return (surface?.closest<HTMLElement>('[data-document-viewer-chassis-viewport]')?.scrollTop ?? 0) > 20;
+        }, {timeout: 5_000});
+        const toolbarAfterControl = await getWorkspaceToolbarSnapshot(session.page);
+
+        await session.page.keyboard.down('Meta');
+        for (let index = 0; index < 12; index += 1) {
+            await session.page.mouse.wheel({deltaY: 18});
+        }
+        await session.page.keyboard.up('Meta');
+        await session.page.evaluate(async () => {
+            await new Promise(resolve => setTimeout(resolve, 500));
+        });
+        const modifierSamplesAfterMeta = await session.page.evaluate(() => (
+            (window as IMacWheelE2EWindow).__macWheelModifierSamples ?? []
+        ));
+        const toolbarAfterMetaInput = await getWorkspaceToolbarSnapshot(session.page);
+        const modifierDetail = JSON.stringify({
+            modifierSamplesAfterMeta,
+            toolbarAfterControl,
+            toolbarAfterMetaInput,
+        });
+        expect(modifierSamplesAfterMeta.some(sample => (
+            sample.metaKey && sample.defaultPrevented
+        )), modifierDetail).toBe(true);
+        expect(toolbarAfterMetaInput?.effectiveZoom ?? Number.POSITIVE_INFINITY, modifierDetail).toBeLessThan(
+            (toolbarAfterControl?.effectiveZoom ?? 0) - 0.005,
+        );
+        const result = await session.page.evaluate(() => {
+            const surface = document.querySelector<HTMLElement>('[data-testid="document-page-source-viewer"]');
+            return {
+                samples: (window as IMacWheelE2EWindow).__macWheelModifierSamples ?? [],
+                scrollTop: surface?.closest<HTMLElement>('[data-document-viewer-chassis-viewport]')?.scrollTop ?? 0,
+            };
+        });
+
+        expect(toolbarAfterControl?.effectiveZoom).toBeCloseTo(toolbarBefore?.effectiveZoom ?? 0, 5);
+        expect(result.scrollTop).toBeGreaterThan(20);
+        expect(result.samples.some(sample => (
+            sample.ctrlKey && !sample.metaKey && !sample.defaultPrevented
+        )), JSON.stringify(result.samples)).toBe(true);
+        expect(result.samples.some(sample => (
+            sample.metaKey && sample.defaultPrevented
+        )), modifierDetail).toBe(true);
+    }, 120_000);
+
     it('searches deterministic late-page native DjVu text through the common sidebar with visible result geometry', async (context) => {
         let session = sessionFixture.getSession();
         if (!session) {

@@ -32,7 +32,7 @@
             :style="chassisViewportStyle"
             :data-open-surface-phase="chassisAuthority.openSurface.snapshot.value.phase"
             @scroll="chassisAuthority.dispatchViewportEvent('scroll', $event)"
-            @wheel="handleViewportInteraction('wheel', $event)"
+            @wheel="handleViewportWheel"
             @mousedown="handleViewportInteraction('mousedown', $event)"
             @mousemove="chassisAuthority.dispatchViewportEvent('mousemove', $event)"
             @mouseup="chassisAuthority.dispatchViewportEvent('mouseup', $event)"
@@ -112,6 +112,7 @@ import {
     resolveDocumentViewportResizeAnchorPosition,
     type IDocumentViewportResizeAnchor,
 } from '@app/utils/document-viewer/chassis/documentViewportResizeAnchor';
+import type { IDocumentWheelInteraction } from '@app/utils/document-viewer/input/documentWheelInteraction';
 
 defineOptions({ inheritAttrs: false });
 
@@ -229,10 +230,19 @@ function scheduleResizeAnchorRelease() {
     }, RESIZE_ANCHOR_QUIET_MS);
 }
 
-function handleViewportInteraction(type: 'wheel' | 'mousedown', event: Event) {
+function releaseResizeAnchorForViewportInteraction() {
     if (retainedResizeAnchor.value && props.isResizing !== true) {
         releaseRetainedResizeAnchor();
     }
+}
+
+function handleViewportWheel(interaction: IDocumentWheelInteraction) {
+    releaseResizeAnchorForViewportInteraction();
+    chassisAuthority.dispatchViewportWheel(interaction);
+}
+
+function handleViewportInteraction(type: 'mousedown', event: Event) {
+    releaseResizeAnchorForViewportInteraction();
     chassisAuthority.dispatchViewportEvent(type, event);
 }
 function readNumericAttr(name: string, fallback: number) {

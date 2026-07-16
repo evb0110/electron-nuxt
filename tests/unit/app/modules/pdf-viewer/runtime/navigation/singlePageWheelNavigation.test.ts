@@ -13,20 +13,24 @@ import {
     resolveWheelTargetPage,
     shouldHandleSinglePageWheel,
 } from '@app/utils/document-viewer/single-page-wheel/singlePageWheelNavigation';
+import { resolveDocumentWheelInteraction } from '@app/utils/document-viewer/input/documentWheelInteraction';
 import { cast } from '@tests/helpers/cast';
 
-function createWheelEvent(options?: {
+function createWheelInteraction(options?: {
     ctrlKey?: boolean;
     deltaX?: number;
     deltaY?: number;
     metaKey?: boolean;
 }) {
-    return cast<WheelEvent>({
+    const event = cast<WheelEvent>({
         ctrlKey: options?.ctrlKey ?? false,
+        deltaMode: 0,
         deltaX: options?.deltaX ?? 0,
         deltaY: options?.deltaY ?? 120,
+        deltaZ: 0,
         metaKey: options?.metaKey ?? false,
     });
+    return resolveDocumentWheelInteraction(event, cast<HTMLElement>({clientHeight: 800}), false);
 }
 
 function createContainer(scrollTop = 0) {
@@ -36,7 +40,7 @@ function createContainer(scrollTop = 0) {
 describe('singlePageWheelNavigation', () => {
     describe('shouldHandleSinglePageWheel', () => {
         it('ignores wheel packets when single-page wheel handling is unavailable', () => {
-            const event = createWheelEvent();
+            const event = createWheelInteraction();
             const container = createContainer();
 
             expect(shouldHandleSinglePageWheel(event, container, true, true, false, 3)).toBe(false);
@@ -50,7 +54,7 @@ describe('singlePageWheelNavigation', () => {
             const container = createContainer();
 
             expect(shouldHandleSinglePageWheel(
-                createWheelEvent({ ctrlKey: true }),
+                createWheelInteraction({ ctrlKey: true }),
                 container,
                 true,
                 false,
@@ -58,7 +62,7 @@ describe('singlePageWheelNavigation', () => {
                 3,
             )).toBe(false);
             expect(shouldHandleSinglePageWheel(
-                createWheelEvent({ metaKey: true }),
+                createWheelInteraction({ metaKey: true }),
                 container,
                 true,
                 false,
@@ -66,7 +70,7 @@ describe('singlePageWheelNavigation', () => {
                 3,
             )).toBe(false);
             expect(shouldHandleSinglePageWheel(
-                createWheelEvent({ deltaY: 0 }),
+                createWheelInteraction({ deltaY: 0 }),
                 container,
                 true,
                 false,
@@ -79,7 +83,7 @@ describe('singlePageWheelNavigation', () => {
             const container = createContainer();
 
             expect(shouldHandleSinglePageWheel(
-                createWheelEvent({
+                createWheelInteraction({
                     deltaX: 150,
                     deltaY: 120,
                 }),
@@ -90,7 +94,7 @@ describe('singlePageWheelNavigation', () => {
                 3,
             )).toBe(false);
             expect(shouldHandleSinglePageWheel(
-                createWheelEvent({
+                createWheelInteraction({
                     deltaX: 120,
                     deltaY: 120,
                 }),
@@ -101,7 +105,7 @@ describe('singlePageWheelNavigation', () => {
                 3,
             )).toBe(true);
             expect(shouldHandleSinglePageWheel(
-                createWheelEvent({
+                createWheelInteraction({
                     deltaX: 80,
                     deltaY: 120,
                 }),

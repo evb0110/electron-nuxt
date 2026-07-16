@@ -13,6 +13,7 @@ import {
     ref,
 } from 'vue';
 import { ZOOM } from '@app/constants/pdfLayout';
+import { resolveDocumentWheelInteraction } from '@app/utils/document-viewer/input/documentWheelInteraction';
 
 vi.mock('@app/utils/browserLogger', () => {
     return { BrowserLogger: {
@@ -145,6 +146,13 @@ describe('usePdfViewerWheelZoom', () => {
         if (!wheelZoom) {
             throw new Error('Failed to create wheel zoom composable');
         }
+        const handleWheel = (event: WheelEvent) => {
+            const container = viewerContainer.value;
+            if (!container) {
+                throw new Error('Viewer container is unavailable');
+            }
+            wheelZoom.handleViewerWheel(resolveDocumentWheelInteraction(event, container));
+        };
 
         return {
             scope,
@@ -159,6 +167,7 @@ describe('usePdfViewerWheelZoom', () => {
             emit,
             submitZoomIntent,
             captureZoomVisualSnapshots,
+            handleWheel,
             wheelZoom,
         };
     }
@@ -174,7 +183,7 @@ describe('usePdfViewerWheelZoom', () => {
                 clientY: 160,
             });
 
-            setup.wheelZoom.handleViewerWheel(event);
+            setup.handleWheel(event);
 
             const emittedEffectiveZoom = setup.emit.mock.calls.find(
                 call => call[0] === 'update:effectiveZoom',
@@ -215,7 +224,7 @@ describe('usePdfViewerWheelZoom', () => {
                 clientY: 160,
             });
 
-            setup.wheelZoom.handleViewerWheel(event);
+            setup.handleWheel(event);
 
             expect(event.defaultPrevented).toBe(false);
             expect(setup.emit).not.toHaveBeenCalled();
@@ -239,7 +248,7 @@ describe('usePdfViewerWheelZoom', () => {
                 clientY: 160,
             });
 
-            setup.wheelZoom.handleViewerWheel(event);
+            setup.handleWheel(event);
 
             expect(event.defaultPrevented).toBe(true);
             expect(setup.emit).toHaveBeenCalledWith('update:zoomMode', 'custom');
@@ -265,7 +274,7 @@ describe('usePdfViewerWheelZoom', () => {
                 clientY: 160,
             });
 
-            setup.wheelZoom.handleViewerWheel(event);
+            setup.handleWheel(event);
 
             expect(setup.emit).toHaveBeenCalledWith('update:zoomMode', 'custom');
             expect(setup.emit).toHaveBeenCalledWith('update:effectiveZoom', ZOOM.MIN);
@@ -290,7 +299,7 @@ describe('usePdfViewerWheelZoom', () => {
                 clientY: 160,
             });
 
-            setup.wheelZoom.handleViewerWheel(zoomOutEvent);
+            setup.handleWheel(zoomOutEvent);
 
             expect(zoomOutEvent.defaultPrevented).toBe(true);
             expect(setup.emit).not.toHaveBeenCalledWith('update:zoomMode', 'custom');
@@ -306,7 +315,7 @@ describe('usePdfViewerWheelZoom', () => {
                 clientY: 160,
             });
 
-            setup.wheelZoom.handleViewerWheel(zoomInEvent);
+            setup.handleWheel(zoomInEvent);
 
             expect(zoomInEvent.defaultPrevented).toBe(true);
             expect(setup.emit).toHaveBeenCalledWith('update:zoomMode', 'custom');
@@ -327,14 +336,14 @@ describe('usePdfViewerWheelZoom', () => {
                 clientX: 120,
                 clientY: 160,
             });
-            setup.wheelZoom.handleViewerWheel(zoomEvent);
+            setup.handleWheel(zoomEvent);
 
             const plainWheelEvent = createWheelEvent({
                 deltaY: 80,
                 clientX: 130,
                 clientY: 180,
             });
-            setup.wheelZoom.handleViewerWheel(plainWheelEvent);
+            setup.handleWheel(plainWheelEvent);
 
             expect(plainWheelEvent.defaultPrevented).toBe(true);
             expect(setup.singlePageScroll.handleWheel).not.toHaveBeenCalled();
@@ -354,7 +363,7 @@ describe('usePdfViewerWheelZoom', () => {
                 clientX: 120,
                 clientY: 160,
             });
-            setup.wheelZoom.handleViewerWheel(zoomEvent);
+            setup.handleWheel(zoomEvent);
 
             vi.advanceTimersByTime(600);
 
@@ -363,7 +372,7 @@ describe('usePdfViewerWheelZoom', () => {
                 clientX: 130,
                 clientY: 180,
             });
-            setup.wheelZoom.handleViewerWheel(plainWheelEvent);
+            setup.handleWheel(plainWheelEvent);
 
             expect(plainWheelEvent.defaultPrevented).toBe(true);
             expect(setup.singlePageScroll.handleWheel).not.toHaveBeenCalled();
@@ -384,7 +393,7 @@ describe('usePdfViewerWheelZoom', () => {
                 clientX: 130,
                 clientY: 180,
             });
-            setup.wheelZoom.handleViewerWheel(plainWheelEvent);
+            setup.handleWheel(plainWheelEvent);
 
             expect(plainWheelEvent.defaultPrevented).toBe(false);
             expect(setup.cancelPendingSearchScroll).toHaveBeenCalledOnce();
@@ -405,7 +414,7 @@ describe('usePdfViewerWheelZoom', () => {
                 clientY: 160,
             });
 
-            setup.wheelZoom.handleViewerWheel(event);
+            setup.handleWheel(event);
 
             expect(setup.cancelPendingSearchScroll).toHaveBeenCalledOnce();
             expect(setup.singlePageScroll.cancelProgrammaticNavigation).toHaveBeenCalledOnce();
@@ -468,7 +477,7 @@ describe('usePdfViewerWheelZoom', () => {
                 clientY: 160,
             });
 
-            setup.wheelZoom.handleViewerWheel(event);
+            setup.handleWheel(event);
 
             expect(setup.cancelPendingSearchScroll).toHaveBeenCalledOnce();
             expect(setup.singlePageScroll.handleWheel).toHaveBeenCalledWith(event);
@@ -489,7 +498,7 @@ describe('usePdfViewerWheelZoom', () => {
                 clientX: 120,
                 clientY: 160,
             });
-            setup.wheelZoom.handleViewerWheel(zoomInToMax);
+            setup.handleWheel(zoomInToMax);
 
             expect(setup.emit).toHaveBeenCalledWith('update:effectiveZoom', ZOOM.MAX);
             expect(setup.emit).toHaveBeenCalledWith('update:zoom', ZOOM.MAX);
@@ -504,7 +513,7 @@ describe('usePdfViewerWheelZoom', () => {
                 clientX: 120,
                 clientY: 160,
             });
-            setup.wheelZoom.handleViewerWheel(smallZoomOut);
+            setup.handleWheel(smallZoomOut);
 
             const emittedEffectiveZoom = setup.emit.mock.calls.find(
                 call => call[0] === 'update:effectiveZoom',
@@ -526,7 +535,7 @@ describe('usePdfViewerWheelZoom', () => {
                 clientX: 120,
                 clientY: 160,
             });
-            setup.wheelZoom.handleViewerWheel(zoomOutToMin);
+            setup.handleWheel(zoomOutToMin);
 
             expect(setup.emit).toHaveBeenCalledWith('update:effectiveZoom', ZOOM.MIN);
             expect(setup.emit).toHaveBeenCalledWith('update:zoom', ZOOM.MIN);
@@ -541,7 +550,7 @@ describe('usePdfViewerWheelZoom', () => {
                 clientX: 120,
                 clientY: 160,
             });
-            setup.wheelZoom.handleViewerWheel(smallZoomIn);
+            setup.handleWheel(smallZoomIn);
 
             const emittedEffectiveZoom = setup.emit.mock.calls.find(
                 call => call[0] === 'update:effectiveZoom',
@@ -563,7 +572,7 @@ describe('usePdfViewerWheelZoom', () => {
                 clientX: 120,
                 clientY: 160,
             });
-            setup.wheelZoom.handleViewerWheel(zoomEvent);
+            setup.handleWheel(zoomEvent);
 
             expect(setup.submitZoomIntent).toHaveBeenCalledOnce();
             expect(setup.submitZoomIntent).toHaveBeenCalledWith({
@@ -586,7 +595,7 @@ describe('usePdfViewerWheelZoom', () => {
                 clientX: 120,
                 clientY: 160,
             });
-            setup.wheelZoom.handleViewerWheel(zoomEvent);
+            setup.handleWheel(zoomEvent);
 
             expect(setup.zoomVirtualizationFreeze.value).not.toBeNull();
 
@@ -608,7 +617,7 @@ describe('usePdfViewerWheelZoom', () => {
                 clientX: 120,
                 clientY: 160,
             });
-            setup.wheelZoom.handleViewerWheel(zoomEvent);
+            setup.handleWheel(zoomEvent);
             const emittedEffectiveZoom = setup.emit.mock.calls.find(
                 call => call[0] === 'update:effectiveZoom',
             )?.[1] as number | undefined;
@@ -623,7 +632,7 @@ describe('usePdfViewerWheelZoom', () => {
                 clientX: 120,
                 clientY: 160,
             });
-            setup.wheelZoom.handleViewerWheel(noChangeZoomEvent);
+            setup.handleWheel(noChangeZoomEvent);
 
             setup.zoom.value = 1.1;
             await nextTick();

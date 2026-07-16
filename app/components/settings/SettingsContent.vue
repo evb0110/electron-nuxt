@@ -89,6 +89,7 @@ import SettingsGeneralPanel from '@app/components/settings/SettingsGeneralPanel.
 import SettingsShortcutsPanel from '@app/components/settings/SettingsShortcutsPanel.vue';
 import SettingsUpdatesPanel from '@app/components/settings/SettingsUpdatesPanel.vue';
 import SettingsViewerDefaultsPanel from '@app/components/settings/SettingsViewerDefaultsPanel.vue';
+import { isMacClientPlatform } from '@app/utils/clientPlatform';
 
 const { isDesktopRuntime } = useRuntimeEnvironment();
 const LOCALE_FLAGS = {
@@ -243,7 +244,7 @@ const tabMemoryPolicyItems = computed(() => TAB_MEMORY_POLICY_OPTION_DEFINITIONS
     label: t(option.labelKey),
 })));
 
-const isMac = typeof navigator !== 'undefined' && /mac/i.test(navigator.platform);
+const isMac = isMacClientPlatform();
 const mod = isMac ? '\u2318' : 'Ctrl';
 const shift = isMac ? '\u21E7' : 'Shift';
 

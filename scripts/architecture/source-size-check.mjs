@@ -60,7 +60,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Document-format parity - shared thumbnail architecture',
     },
     'app/modules/native-pdf-viewer/components/NativePdfViewer.vue': {
-        maxLines: 1334,
+        maxLines: 1312,
         reason: 'native PDF viewer after committed-surface ownership and page-source lifecycle hardening',
         stage: 'Viewer core follow-up - native PDF presentation extraction',
     },

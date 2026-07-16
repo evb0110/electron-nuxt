@@ -4,8 +4,6 @@ import type {
 } from 'vue';
 import { clamp } from 'es-toolkit/math';
 import { summarizeViewerMetrics } from '@app/modules/pdf-viewer/engine/pdf-viewer-metrics/summarizeViewerMetrics';
-import { ZOOM } from '@app/constants/pdfLayout';
-import { clampPdfManualZoom } from '@app/modules/pdf-viewer/runtime/zoom/resolvePdfZoomScale';
 import type { TZoomMode } from '@app/types/pdfContracts';
 import type { TPdfSource } from '@app/types/pdfUi';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -16,12 +14,14 @@ import { wheelZoomGestureGraceMs } from '@app/modules/pdf-viewer/runtime/zoom/wh
 import { wheelZoomSessionIdleMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelZoomSessionIdleMs';
 import { wheelZoomSessionLockExtensionMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelZoomSessionLockExtensionMs';
 import { usePdfViewerWheelZoomSession } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerWheelZoomSession';
+import {
+    resolveDocumentWheelZoomTarget,
+    type IDocumentWheelInteraction,
+    type IDocumentWheelSourceEvent,
+} from '@app/utils/document-viewer/input/documentWheelInteraction';
 
-const WHEEL_ZOOM_SENSITIVITY = 0.0016;
-const WHEEL_LINE_DELTA_PX = 16;
 const WHEEL_DISPATCH_LOG_THROTTLE_MS = 420;
 const WHEEL_SCROLL_LOG_THROTTLE_MS = 420;
-const MAC_PLATFORM_PATTERN = /Mac|iPhone|iPad|iPod/i;
 
 interface IViewerRange {
     start: number;
@@ -49,7 +49,7 @@ interface IUsePdfViewerWheelZoomOptions {
     zoomVirtualizationFreeze: Ref<IZoomVirtualizationFreeze | null>;
     singlePageScroll: {
         suppressSnapFor: (ms: number) => void;
-        handleWheel: (event: WheelEvent) => boolean;
+        handleWheel: (event: IDocumentWheelSourceEvent) => boolean;
         handleScroll: (event?: Event, authorityScrollConsumed?: boolean) => void;
         consumeAuthorityScroll?: () => boolean;
         cancelProgrammaticNavigation: (reason?: string) => void;
@@ -121,23 +121,6 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
     let lastModifierWheelZoomAtMs = 0;
     let lastModifierWheelZoomEventId = 0;
 
-    function isMacLikePlatform() {
-        if (typeof navigator === 'undefined') {
-            return false;
-        }
-        const userAgentNavigator = navigator as Navigator & {userAgentData?: {platform?: string;};};
-        const platform = userAgentNavigator.userAgentData?.platform
-            ?? userAgentNavigator.platform
-            ?? '';
-        return MAC_PLATFORM_PATTERN.test(platform);
-    }
-
-    function isMacControlWheel(event: WheelEvent) {
-        return isMacLikePlatform()
-            && event.ctrlKey
-            && !event.metaKey;
-    }
-
     function summarizeViewerStateForLog() {
         return summarizeViewerMetrics(viewerContainer.value);
     }
@@ -167,57 +150,22 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         summarizeViewerStateForLog,
     });
 
-    function normalizeWheelZoomDelta(event: WheelEvent, container: HTMLElement) {
-        if (event.deltaMode === 1) {
-            return event.deltaY * WHEEL_LINE_DELTA_PX;
-        }
-        if (event.deltaMode === 2) {
-            return event.deltaY * Math.max(container.clientHeight, 1);
-        }
-        return event.deltaY;
-    }
-
-    function clampZoomLevel(level: number) {
-        return clampPdfManualZoom(level);
-    }
-
-    function resolveCumulativeDeltaForEffectiveZoom(startZoom: number, targetZoom: number) {
-        if (
-            !Number.isFinite(startZoom)
-            || startZoom <= 0
-            || !Number.isFinite(targetZoom)
-            || targetZoom <= 0
-        ) {
-            return null;
-        }
-
-        return -Math.log(targetZoom / startZoom) / WHEEL_ZOOM_SENSITIVITY;
-    }
-
-    function summarizeWheelEventForDebug(event: WheelEvent) {
+    function summarizeWheelEventForDebug(event: IDocumentWheelSourceEvent) {
         return {
-            ctrlKey: event.ctrlKey,
-            metaKey: event.metaKey,
-            altKey: event.altKey,
-            shiftKey: event.shiftKey,
-            deltaMode: event.deltaMode,
             deltaX: event.deltaX,
             deltaY: event.deltaY,
-            deltaZ: event.deltaZ,
             cancelable: event.cancelable,
             defaultPrevented: event.defaultPrevented,
         };
     }
 
-    function getModifierWheelIntent(event: WheelEvent, nowMs: number) {
+    function getModifierWheelIntent(interaction: IDocumentWheelInteraction, nowMs: number) {
         const activeSession = getActiveWheelZoomSession(nowMs);
         const isContinuationPacket = Boolean(
             activeSession
             && nowMs - activeSession.lastPacketAtMs <= wheelZoomGestureGraceMs,
         );
-        const hasModifierZoomSignal = (event.ctrlKey && !isMacControlWheel(event))
-            || event.metaKey
-            || Math.abs(event.deltaZ) > Number.EPSILON;
+        const hasModifierZoomSignal = interaction.intent === 'zoom';
 
         return {
             activeSession,
@@ -227,7 +175,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         };
     }
 
-    function getWheelZoomEventAnchor(event: WheelEvent, container: HTMLElement) {
+    function getWheelZoomEventAnchor(event: IDocumentWheelSourceEvent, container: HTMLElement) {
         const containerRect = container.getBoundingClientRect();
 
         return {
@@ -244,66 +192,20 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         };
     }
 
-    function normalizeFallbackWheelZoomDelta(event: WheelEvent, container: HTMLElement) {
-        if (event.deltaMode === 1) {
-            return event.deltaZ * WHEEL_LINE_DELTA_PX;
-        }
-        if (event.deltaMode === 2) {
-            return event.deltaZ * Math.max(container.clientHeight, 1);
-        }
-        return event.deltaZ;
-    }
-
-    function resolveWheelZoomDelta(event: WheelEvent, container: HTMLElement) {
-        const delta = normalizeWheelZoomDelta(event, container);
-        if (Math.abs(delta) >= Number.EPSILON || Math.abs(event.deltaZ) <= Number.EPSILON) {
-            return delta;
-        }
-
-        return normalizeFallbackWheelZoomDelta(event, container);
-    }
-
     function resolveWheelZoomTarget(
         delta: number,
         session: ReturnType<typeof ensureWheelZoomSession>['session'],
     ) {
-        session.cumulativeDelta += delta;
-        let zoomFactor = Math.exp(-session.cumulativeDelta * WHEEL_ZOOM_SENSITIVITY);
-        if (!Number.isFinite(zoomFactor) || zoomFactor <= 0) {
-            return {
-                valid: false as const,
-                zoomFactor,
-            };
-        }
-
-        const rawNextEffectiveZoom = session.startZoom * zoomFactor;
-        if (session.startZoom < ZOOM.MIN && rawNextEffectiveZoom <= session.startZoom) {
-            session.cumulativeDelta = 0;
+        const target = resolveDocumentWheelZoomTarget(
+            session.startZoom,
+            session.cumulativeDelta,
+            delta,
+        );
+        session.cumulativeDelta = target.cumulativeDelta;
+        if (!target.valid && target.reason === 'below-manual-min-zoom-out') {
             session.lastEmittedZoom = session.startZoom;
-            return {
-                valid: false as const,
-                zoomFactor: 1,
-                reason: 'below-manual-min-zoom-out' as const,
-            };
         }
-        const nextEffectiveZoom = clampZoomLevel(rawNextEffectiveZoom);
-        if (Math.abs(rawNextEffectiveZoom - nextEffectiveZoom) >= 0.001) {
-            const clampedCumulativeDelta = resolveCumulativeDeltaForEffectiveZoom(
-                session.startZoom,
-                nextEffectiveZoom,
-            );
-            if (clampedCumulativeDelta !== null) {
-                session.cumulativeDelta = clampedCumulativeDelta;
-                zoomFactor = nextEffectiveZoom / session.startZoom;
-            }
-        }
-
-        return {
-            valid: true as const,
-            nextEffectiveZoom,
-            nextZoom: nextEffectiveZoom,
-            zoomFactor,
-        };
+        return target;
     }
 
     function updateWheelZoomSessionAfterEmit(
@@ -392,7 +294,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         };
     }
 
-    function logWheelDispatch(event: WheelEvent, context: IWheelDispatchContext) {
+    function logWheelDispatch(event: IDocumentWheelSourceEvent, context: IWheelDispatchContext) {
         BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'wheel-dispatch', WHEEL_DISPATCH_LOG_THROTTLE_MS, '[wheel] dispatch', {
             recentZoomIntentId: context.recentZoomAnchor?.id ?? null,
             recentZoomAgeMs: context.recentZoomAgeMs,
@@ -410,7 +312,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         });
     }
 
-    function blockWheelForSnipMode(event: WheelEvent) {
+    function blockWheelForSnipMode(event: IDocumentWheelSourceEvent) {
         if (!isSnipActive()) {
             return false;
         }
@@ -420,28 +322,28 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         return true;
     }
 
-    function routePhysicalMacControlWheelToScroll(event: WheelEvent) {
-        if (!isMacControlWheel(event)) {
+    function routePlatformModifiedWheelToScroll(interaction: IDocumentWheelInteraction) {
+        if (interaction.intent !== 'platform-scroll') {
             return false;
         }
 
         cleanupWheelZoomSession();
         BrowserLogger.diagnosticThrottled(
             'pdf-zoom-debug',
-            'wheel-routed-physical-mac-control-to-scroll',
+            'wheel-routed-platform-modifier-to-scroll',
             wheelDetailLogThrottleMs,
-            '[wheel] allowed physical macOS Control wheel to scroll',
+            '[wheel] allowed platform-modified wheel to scroll',
             {
                 viewer: summarizeViewerStateForLog(),
-                wheel: summarizeWheelEventForDebug(event),
+                wheel: summarizeWheelEventForDebug(interaction.event),
             },
         );
         cancelPendingSearchScroll();
         return true;
     }
 
-    function routeModifierWheelZoom(event: WheelEvent) {
-        if (!handleViewerModifierWheelZoom(event)) {
+    function routeModifierWheelZoom(interaction: IDocumentWheelInteraction) {
+        if (!handleViewerModifierWheelZoom(interaction)) {
             return false;
         }
 
@@ -464,7 +366,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         );
     }
 
-    function suppressWheelDuringActiveZoom(event: WheelEvent, context: IWheelDispatchContext) {
+    function suppressWheelDuringActiveZoom(event: IDocumentWheelSourceEvent, context: IWheelDispatchContext) {
         if (!hasWheelZoomSuppressionContext(context)) {
             return false;
         }
@@ -557,10 +459,11 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         );
     }
 
-    function handleViewerModifierWheelZoom(event: WheelEvent) {
+    function handleViewerModifierWheelZoom(interaction: IDocumentWheelInteraction) {
+        const { event } = interaction;
         const nowMs = Date.now();
         const debugId = ++zoomDebugWheelEventId;
-        const wheelIntent = getModifierWheelIntent(event, nowMs);
+        const wheelIntent = getModifierWheelIntent(interaction, nowMs);
         BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'wheel-zoom-received', wheelDetailLogThrottleMs, `[wheel-zoom] received id=${debugId}`, {
             id: debugId,
             hasModifierZoomSignal: wheelIntent.hasModifierZoomSignal,
@@ -623,7 +526,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         const anchorX = session.anchorX;
         const anchorY = session.anchorY;
 
-        const delta = resolveWheelZoomDelta(event, container);
+        const delta = interaction.deltaPx;
         if (Math.abs(delta) < Number.EPSILON) {
             BrowserLogger.diagnosticThrottled(
                 'pdf-zoom-debug',
@@ -721,7 +624,8 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         return true;
     }
 
-    function handleViewerWheel(event: WheelEvent) {
+    function handleViewerWheel(interaction: IDocumentWheelInteraction) {
+        const { event } = interaction;
         const context = createWheelDispatchContext();
         logWheelDispatch(event, context);
 
@@ -738,8 +642,8 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         }
 
         if (
-            routePhysicalMacControlWheelToScroll(event)
-            || routeModifierWheelZoom(event)
+            routePlatformModifiedWheelToScroll(interaction)
+            || routeModifierWheelZoom(interaction)
             || suppressWheelDuringActiveZoom(event, context)
         ) {
             markWheelViewportInteraction();

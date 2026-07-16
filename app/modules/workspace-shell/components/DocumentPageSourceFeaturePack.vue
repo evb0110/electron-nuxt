@@ -134,6 +134,10 @@ import { useDocumentPageSourceResizeLifecycle } from '@app/modules/workspace-she
 import type { IDocumentSearchMatch } from '@app/utils/document-viewer/search/documentSearch';
 import DocumentPageSourceSearchLayer from '@app/modules/workspace-shell/components/DocumentPageSourceSearchLayer.vue';
 import {createPageSourcePagedWheelNavigation} from '@app/modules/workspace-shell/viewers/createPageSourcePagedWheelNavigation';
+import {
+    createDocumentWheelZoomHandler,
+    type IDocumentWheelInteraction,
+} from '@app/utils/document-viewer/input/documentWheelInteraction';
 
 interface IPageVisualState {
     generation: number;
@@ -258,10 +262,8 @@ onMounted(() => {
     releaseViewportFeature = chassisAuthority?.bindViewportFeature({
         getClass: () => 'document-viewer-viewport document-source-viewer app-scrollbar app-scroll-region--balanced',
         getStyle: () => ({}),
-        events: {
-            scroll: event => handleScroll(event),
-            wheel: event => handleWheel(event as WheelEvent),
-        },
+        events: {scroll: event => handleScroll(event)},
+        wheel: handleWheel,
     }) ?? null;
 });
 
@@ -287,6 +289,7 @@ const effectiveZoom = computed(() => {
     }
     return widthScale;
 });
+const handleWheelZoom = createDocumentWheelZoomHandler(effectiveZoom, toRef(() => zoomMode), emit);
 const pageHeights = computed(() => pageMetrics.value.map(metric => metric.heightPoints * effectiveZoom.value));
 const pageTops = computed(() => {
     let top = DOCUMENT_PAGE_GUTTER_PX;
@@ -906,22 +909,19 @@ function handleScroll(event?: Event) {
         emit('update:currentPage', observedPage);
     }
 }
-function handleWheel(event: WheelEvent) {
-    if (!event.ctrlKey && !event.metaKey) {
-        const target = pagedWheelNavigation.handle(event, {
-            container: viewerContainer.value,
-            continuousScroll,
-            currentPage,
-            pageCount: source.value?.pageCount ?? 0,
-            pageHeights: pageHeights.value,
-            viewMode,
-        });
-        if (target !== null) scrollToPage(target, 'wheel');
+function handleWheel(interaction: IDocumentWheelInteraction) {
+    if (interaction.intent === 'platform-scroll' || handleWheelZoom(interaction)) {
         return;
     }
-    event.preventDefault();
-    emit('update:zoomMode', 'custom');
-    emit('update:zoom', clampDocumentManualZoom(effectiveZoom.value * Math.exp(-event.deltaY * 0.0016)));
+    const target = pagedWheelNavigation.handle(interaction.event, {
+        container: viewerContainer.value,
+        continuousScroll,
+        currentPage,
+        pageCount: source.value?.pageCount ?? 0,
+        pageHeights: pageHeights.value,
+        viewMode,
+    });
+    if (target !== null) scrollToPage(target, 'wheel');
 }
 function scrollToPage(
     pageNumber: number,

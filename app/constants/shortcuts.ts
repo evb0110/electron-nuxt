@@ -1,3 +1,7 @@
+import { isMacClientPlatform } from '@app/utils/clientPlatform';
+
+export { isMacPlatformHint } from '@app/utils/clientPlatform';
+
 type TModifier = 'mod' | 'shift';
 
 interface IShortcutDef {
@@ -108,23 +112,6 @@ function createShortcutRecord<TValue>(createValue: (name: TShortcutName, def: IS
     return Object.fromEntries(entries) as {[TName in TShortcutName]: TValue};
 }
 
-export function isMacPlatformHint(value: string) {
-    return /mac|macintosh|mac os|macos|darwin/iu.test(value);
-}
-
-function isMacPlatform() {
-    if (typeof navigator === 'undefined') {
-        return false;
-    }
-
-    const userAgentNavigator = navigator as Navigator & {userAgentData?: {platform?: string;};};
-    return [
-        userAgentNavigator.userAgentData?.platform,
-        userAgentNavigator.platform,
-        userAgentNavigator.userAgent,
-    ].some(value => typeof value === 'string' && isMacPlatformHint(value));
-}
-
 function resolveModifierLabel(m: TModifier, isMac: boolean): string {
     if (m === 'mod') {
         return isMac ? '\u2318' : 'Ctrl';
@@ -158,14 +145,14 @@ function formatShortcutLabel(def: IShortcutDef, isMac: boolean) {
     return parts.join('');
 }
 
-export function getShortcutLabels(isMac = isMacPlatform()) {
+export function getShortcutLabels(isMac = isMacClientPlatform()) {
     return createShortcutRecord((_, def) => formatShortcutLabel(def, isMac));
 }
 
 export const useShortcutLabels = () => {
     const isMac = ref(false);
     onMounted(() => {
-        isMac.value = isMacPlatform();
+        isMac.value = isMacClientPlatform();
     });
     return computed(() => getShortcutLabels(isMac.value));
 };

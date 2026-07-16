@@ -55,7 +55,6 @@ interface IUsePdfSinglePageNavigationControllerOptions extends IUsePdfSinglePage
 }
 
 interface IPdfSinglePageWheelEvent {
-    ctrlKey: boolean;
     deltaX: number;
     deltaY: number;
     timeStamp: number;
@@ -961,8 +960,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
 
     function handleWheel(event: IPdfSinglePageWheelEvent) {
         if (
-            event.ctrlKey
-            || event.deltaY === 0
+            event.deltaY === 0
             || options.continuousScroll.value
             || Math.abs(event.deltaY) < Math.abs(event.deltaX)
         ) {

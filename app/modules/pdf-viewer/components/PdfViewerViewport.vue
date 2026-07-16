@@ -7,7 +7,7 @@
         :style="containerStyle"
         data-pdf-page-track
         @scroll.passive="!chassisAuthority && emit('scroll', $event)"
-        @wheel="!chassisAuthority && emit('wheel', $event)"
+        @wheel="!chassisAuthority && handleStandaloneWheel($event)"
         @mousedown="!chassisAuthority && emit('mousedown', $event)"
         @mousemove="!chassisAuthority && emit('mousemove', $event)"
         @mouseup="!chassisAuthority && emit('mouseup', $event)"
@@ -64,6 +64,10 @@ import type {
     IPdfImagePlacementRectUpdate,
 } from '@app/types/pdfImagePlacement';
 import type { IPdfVirtualPageSegment } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
+import {
+    resolveDocumentWheelInteraction,
+    type IDocumentWheelInteraction,
+} from '@app/utils/document-viewer/input/documentWheelInteraction';
 
 interface IProps {
     setViewerContainer: (element: HTMLElement | null) => void;
@@ -111,7 +115,7 @@ const {
 
 const emit = defineEmits<{
     scroll: [event: Event];
-    wheel: [event: WheelEvent];
+    wheel: [interaction: IDocumentWheelInteraction];
     mousedown: [event: MouseEvent];
     mousemove: [event: MouseEvent];
     mouseup: [event: MouseEvent];
@@ -155,6 +159,14 @@ function setViewerContainerElement(element: Element | ComponentPublicInstance | 
         ?? (element instanceof HTMLElement ? element : null));
 }
 
+function handleStandaloneWheel(event: WheelEvent) {
+    const container = event.currentTarget;
+    if (!(container instanceof HTMLElement)) {
+        return;
+    }
+    emit('wheel', resolveDocumentWheelInteraction(event, container));
+}
+
 onMounted(() => {
     if (!chassisAuthority) {
         return;
@@ -170,7 +182,6 @@ onMounted(() => {
         getStyle: () => ({}),
         events: {
             scroll: event => emit('scroll', event as Event),
-            wheel: event => emit('wheel', event as WheelEvent),
             mousedown: event => emit('mousedown', event as MouseEvent),
             mousemove: event => emit('mousemove', event as MouseEvent),
             mouseup: event => emit('mouseup', event as MouseEvent),
@@ -180,6 +191,7 @@ onMounted(() => {
             contextmenu: event => emit('contextmenu', event as MouseEvent),
             selectstart: event => emit('selectstart', event as Event),
         },
+        wheel: interaction => emit('wheel', interaction),
     });
 });
 

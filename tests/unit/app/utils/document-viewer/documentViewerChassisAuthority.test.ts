@@ -194,14 +194,21 @@ describe('document viewer chassis authority', () => {
             scrollTop: 0,
         } as HTMLElement;
         const received: string[] = [];
+        const interaction = {
+            deltaPx: 120,
+            event: cast<WheelEvent>({preventDefault: vi.fn()}),
+            intent: 'platform-scroll' as const,
+        };
         authority.bindViewportElement(container);
 
         const releasePdf = authority.bindViewportFeature({
             getClass: () => 'pdfViewer',
             getStyle: () => ({zoom: 2}),
             events: {scroll: () => received.push('pdf')},
+            wheel: value => received.push(`pdf-${value.intent}`),
         });
         authority.dispatchViewportEvent('scroll');
+        authority.dispatchViewportWheel(interaction);
         expect(authority.viewportElement.value).toBe(container);
         expect(authority.viewportClass.value).toBe('pdfViewer');
 
@@ -210,14 +217,18 @@ describe('document viewer chassis authority', () => {
             getClass: () => 'document-source-viewer',
             getStyle: () => ({}),
             events: {scroll: () => received.push('djvu')},
+            wheel: value => received.push(`djvu-${value.intent}`),
         });
         authority.dispatchViewportEvent('scroll');
+        authority.dispatchViewportWheel(interaction);
 
         expect(authority.viewportElement.value).toBe(container);
         expect(authority.viewportClass.value).toBe('document-source-viewer');
         expect(received).toEqual([
             'pdf',
+            'pdf-platform-scroll',
             'djvu',
+            'djvu-platform-scroll',
         ]);
     });
 
