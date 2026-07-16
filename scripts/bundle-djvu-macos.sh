@@ -5,7 +5,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-RESOURCES_DIR="$PROJECT_ROOT/resources"
+RESOURCES_DIR="${EVB_DJVU_RESOURCES_DIR:-$PROJECT_ROOT/resources}"
 
 # Detect architecture
 ARCH="$(uname -m)"
@@ -26,6 +26,13 @@ if ! command -v brew &> /dev/null; then
   echo "Error: Homebrew is required. Install from https://brew.sh"
   exit 1
 fi
+
+for required_command in otool install_name_tool codesign; do
+  if ! command -v "$required_command" &> /dev/null; then
+    echo "Error: Required macOS bundling command not found: $required_command"
+    exit 1
+  fi
+done
 
 # Install/update djvulibre
 echo ""
@@ -65,27 +72,76 @@ echo "Copying libraries..."
 DJVU_OPT="$BREW_PREFIX/opt/djvulibre"
 
 # Core DjVuLibre library
-cp "$DJVU_OPT/lib/libdjvulibre.21.dylib" "$DEST/lib/"
+cp -L "$DJVU_OPT/lib/libdjvulibre.21.dylib" "$DEST/lib/"
 echo "  Copied libdjvulibre.21.dylib"
 
-# DjVuLibre dependencies
-DEPS=(
-  "jpeg-turbo/lib/libjpeg.8.dylib"
-  "xz/lib/liblzma.5.dylib"
-  "libtiff/lib/libtiff.6.dylib"
-  "zstd/lib/libzstd.1.dylib"
-)
+copy_dylib() {
+  local source="$1"
+  local name
+  name="$(basename "$source")"
 
-for dep in "${DEPS[@]}"; do
-  lib_path="$BREW_PREFIX/opt/$dep"
-  if [ -f "$lib_path" ]; then
-    lib_name="$(basename "$lib_path")"
-    cp "$lib_path" "$DEST/lib/"
-    echo "  Copied $lib_name"
-  else
-    echo "  Warning: Not found: $lib_path"
+  if [ ! -f "$DEST/lib/$name" ]; then
+    cp -L "$source" "$DEST/lib/$name"
+    echo "  Copied transitive dependency: $name"
   fi
-done
+}
+
+resolve_dylib_source() {
+  local dependency="$1"
+  local dependency_name
+  dependency_name="$(basename "$dependency")"
+
+  if [ -f "$dependency" ]; then
+    echo "$dependency"
+    return
+  fi
+
+  find "$BREW_PREFIX" \( -type f -o -type l \) -name "$dependency_name" -print -quit 2>/dev/null || true
+}
+
+# Homebrew formulas gain and lose transitive dependencies independently of
+# DjVuLibre. Derive the complete non-system closure from the installed Mach-O
+# files instead of maintaining another formula snapshot here.
+copy_deps_recursive() {
+  local files=("$@")
+  local added=1
+
+  while [ "$added" -gt 0 ]; do
+    added=0
+    for file in "${files[@]}"; do
+      [ -f "$file" ] || continue
+
+      local dependencies
+      dependencies="$(otool -L "$file" 2>/dev/null | awk 'NR > 1 {print $1}' || true)"
+      for dependency in $dependencies; do
+        case "$dependency" in
+          /usr/lib/*|/System/*)
+            continue
+            ;;
+        esac
+
+        local dependency_name
+        dependency_name="$(basename "$dependency")"
+        if [ -f "$DEST/lib/$dependency_name" ]; then
+          continue
+        fi
+
+        local dependency_source
+        dependency_source="$(resolve_dylib_source "$dependency")"
+        if [ -z "$dependency_source" ]; then
+          echo "Error: Unable to resolve non-system dependency $dependency (referenced by $file)"
+          exit 1
+        fi
+
+        copy_dylib "$dependency_source"
+        files+=("$DEST/lib/$dependency_name")
+        added=1
+      done
+    done
+  done
+}
+
+copy_deps_recursive "$DEST/bin/"* "$DEST/lib/"*.dylib
 
 # ==========================================
 # Fix library paths
@@ -138,6 +194,33 @@ for bin in "$DEST/bin/"*; do
   echo "  Fixed $bin_name"
 done
 
+verify_dependency_closure() {
+  local files=("$@")
+
+  for file in "${files[@]}"; do
+    [ -f "$file" ] || continue
+
+    local dependencies
+    dependencies="$(otool -L "$file" 2>/dev/null | awk 'NR > 1 {print $1}' || true)"
+    for dependency in $dependencies; do
+      case "$dependency" in
+        /usr/lib/*|/System/*)
+          continue
+          ;;
+      esac
+
+      local dependency_name
+      dependency_name="$(basename "$dependency")"
+      if [ ! -f "$DEST/lib/$dependency_name" ]; then
+        echo "Error: Bundled dependency closure is missing $dependency_name (referenced by $file)"
+        exit 1
+      fi
+    done
+  done
+}
+
+verify_dependency_closure "$DEST/bin/"* "$DEST/lib/"*.dylib
+
 # ==========================================
 # Codesign
 # ==========================================
@@ -174,10 +257,22 @@ otool -L "$DEST/lib/libdjvulibre.21.dylib"
 # Test run
 echo ""
 echo "Testing ddjvu..."
-if "$DEST/bin/ddjvu" --help > /dev/null 2>&1; then
+smoke_output="$(mktemp)"
+smoke_exit_code=0
+if "$DEST/bin/ddjvu" --help > "$smoke_output" 2>&1; then
+  smoke_exit_code=0
+else
+  smoke_exit_code=$?
+fi
+if node "$PROJECT_ROOT/scripts/release/assert-packaged-tool-smoke.mjs" \
+  ddjvu "$smoke_exit_code" "$smoke_output"; then
+  rm -f "$smoke_output"
   echo "  ddjvu runs successfully"
 else
-  echo "  Warning: ddjvu test failed — check dependencies above"
+  cat "$smoke_output"
+  rm -f "$smoke_output"
+  echo "Error: Bundled ddjvu failed its smoke test"
+  exit 1
 fi
 
 echo ""

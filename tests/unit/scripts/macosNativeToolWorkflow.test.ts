@@ -242,6 +242,21 @@ describe('macOS native tool workflow', () => {
         expect(bundleUnpaper).toContain('exit 1');
     });
 
+    it('derives the complete macOS DjVu dylib closure from Mach-O dependencies', async () => {
+        const bundleDjvu = await readProjectFile('scripts/bundle-djvu-macos.sh');
+
+        expect(bundleDjvu).toContain('copy_deps_recursive()');
+        expect(bundleDjvu).toContain('dependencies="$(otool -L "$file"');
+        expect(bundleDjvu).toContain('resolve_dylib_source "$dependency"');
+        expect(bundleDjvu).toContain('copy_deps_recursive "$DEST/bin/"* "$DEST/lib/"*.dylib');
+        expect(bundleDjvu).not.toContain('DEPS=(');
+        expect(bundleDjvu).toContain('verify_dependency_closure()');
+        expect(bundleDjvu).toContain('Bundled dependency closure is missing');
+        expect(bundleDjvu).toContain('assert-packaged-tool-smoke.mjs');
+        expect(bundleDjvu).toContain('Error: Bundled ddjvu failed its smoke test');
+        expect(bundleDjvu).not.toContain('Warning: ddjvu test failed');
+    });
+
     it('keeps macOS packaged executables under Contents/MacOS/native-tools', async () => {
         const afterPack = await readProjectFile('scripts/afterPack.cjs');
         const afterSign = await readProjectFile('scripts/afterSign.cjs');
