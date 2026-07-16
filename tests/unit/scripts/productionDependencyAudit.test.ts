@@ -1,5 +1,6 @@
 import {
     assertProductionAuditIsClean,
+    shouldUseBulkAuditFallback,
     summarizeProductionAuditReport,
 } from '@scripts/checkProductionDependencyAudit';
 import {
@@ -30,6 +31,11 @@ function createAuditReport(overrides: {
 }
 
 describe('production dependency audit policy', () => {
+    it('uses the bulk-audit client only for the retired pnpm audit endpoint', () => {
+        expect(shouldUseBulkAuditFallback('{"error":{"code":"ERR_PNPM_AUDIT_BAD_RESPONSE","message":"The audit endpoint is being retired"}}')).toBe(true);
+        expect(shouldUseBulkAuditFallback('{"error":{"code":"ERR_PNPM_AUDIT_BAD_RESPONSE","message":"registry unavailable"}}')).toBe(false);
+    });
+
     it('accepts a complete zero-vulnerability pnpm report', () => {
         expect(assertProductionAuditIsClean(createAuditReport(), 'root')).toEqual({
             counts: {

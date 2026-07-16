@@ -3,6 +3,7 @@ import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 
 const PROJECT_ROOT = path.resolve(import.meta.dirname, '..');
+const BULK_AUDIT_PNPM_VERSION = '11.13.1';
 const AUDIT_SEVERITIES = [
     'info',
     'low',
@@ -41,6 +42,11 @@ function parseAuditReport(source: string, label: string) {
     }
 
     return report;
+}
+
+export function shouldUseBulkAuditFallback(source: string) {
+    return source.includes('ERR_PNPM_AUDIT_BAD_RESPONSE')
+        && source.includes('endpoint is being retired');
 }
 
 export function summarizeProductionAuditReport(report: unknown, label = 'project'): IAuditSummary {
@@ -94,7 +100,7 @@ export function assertProductionAuditIsClean(report: unknown, label = 'project')
 }
 
 function runProjectAudit(project: IAuditProject) {
-    const result = spawnSync('pnpm', [
+    let result = spawnSync('pnpm', [
         'audit',
         '--prod',
         '--json',
@@ -104,6 +110,21 @@ function runProjectAudit(project: IAuditProject) {
         maxBuffer: 16 * 1024 * 1024,
         shell: process.platform === 'win32',
     });
+
+    if (shouldUseBulkAuditFallback(result.stdout)) {
+        result = spawnSync('corepack', [
+            `pnpm@${BULK_AUDIT_PNPM_VERSION}`,
+            '--pm-on-fail=ignore',
+            'audit',
+            '--prod',
+            '--json',
+        ], {
+            cwd: project.cwd,
+            encoding: 'utf8',
+            maxBuffer: 16 * 1024 * 1024,
+            shell: process.platform === 'win32',
+        });
+    }
 
     if (result.error !== undefined) {
         throw new Error(`${project.label} pnpm audit could not start.`, {cause: result.error});

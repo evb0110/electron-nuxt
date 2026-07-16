@@ -346,6 +346,7 @@ describe('CI topology policy', () => {
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm run check:wasm:portable');
         expectSplitQualitySteps(workflowJob(workflow, 'nightly_maintenance'));
         expect(workflow).toContain('run: pnpm run test:rust');
+        expect(workflowJob(workflow, 'nightly_rust_fuzz')).toContain('cargo install cargo-fuzz --version 0.13.1 --locked');
         expect(workflow).toContain('run: pnpm run test:coverage');
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm run check:static:assets');
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm run check:production-dependency-audit');

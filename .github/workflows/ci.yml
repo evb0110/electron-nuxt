@@ -358,7 +358,7 @@ jobs:
       - name: Install cargo-fuzz
         run: |
           rustup toolchain install nightly --profile minimal
-          cargo install cargo-fuzz --locked
+          cargo install cargo-fuzz --version 0.13.1 --locked
 
       - name: Fuzz image decoders
         run: |
