@@ -144,6 +144,8 @@ process.env.CODEX_CLI_PATH = fakeCodexPath;
 rmSync(sessionDir(SCOPED_SESSION_NAME), {
     recursive: true,
     force: true,
+    maxRetries: 10,
+    retryDelay: 100,
 });
 mkdirSync(electronUserDataPath(SCOPED_SESSION_NAME), {recursive: true});
 writeFileSync(
@@ -167,6 +169,8 @@ afterAll(() => {
     rmSync(sessionDir(SCOPED_SESSION_NAME), {
         recursive: true,
         force: true,
+        maxRetries: 10,
+        retryDelay: 100,
     });
 });
 

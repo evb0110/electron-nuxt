@@ -5,6 +5,7 @@ use flate2::read::ZlibDecoder;
 use crate::{binary::read_u32_be, image::assert_pixel_limit, Result, METERS_PER_INCH};
 
 const PNG_SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
+const MAX_PNG_ICC_PROFILE_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Debug)]
 pub(crate) struct PngData {
@@ -87,6 +88,9 @@ pub(crate) fn parse_png_reader<R: Read>(mut reader: R, max_pixels: u64) -> Resul
                 if icc_profile.is_some() {
                     return Err("Duplicate PNG iCCP profile".into());
                 }
+                if length > MAX_PNG_ICC_PROFILE_BYTES {
+                    return Err("PNG compressed ICC profile exceeds the 16 MiB safety limit".into());
+                }
                 let mut chunk_data = vec![0u8; length];
                 reader.read_exact(&mut chunk_data)?;
                 let name_end = chunk_data
@@ -102,9 +106,9 @@ pub(crate) fn parse_png_reader<R: Read>(mut reader: R, max_pixels: u64) -> Resul
                 let decoder = ZlibDecoder::new(compressed);
                 let mut profile = Vec::new();
                 decoder
-                    .take(16 * 1024 * 1024 + 1)
+                    .take(MAX_PNG_ICC_PROFILE_BYTES as u64 + 1)
                     .read_to_end(&mut profile)?;
-                if profile.len() > 16 * 1024 * 1024 {
+                if profile.len() > MAX_PNG_ICC_PROFILE_BYTES {
                     return Err("PNG ICC profile exceeds the 16 MiB safety limit".into());
                 }
                 icc_profile = Some(profile);
@@ -391,6 +395,19 @@ mod tests {
         assert!(error
             .to_string()
             .contains("PNG compressed image data exceeds"));
+    }
+
+    #[test]
+    fn rejects_declared_near_four_gib_icc_profile_without_allocating_it() {
+        let mut bytes = png_header(1, 1, 0);
+        bytes.extend_from_slice(&u32::MAX.to_be_bytes());
+        bytes.extend_from_slice(b"iCCP");
+
+        let error = parse_png_reader(Cursor::new(bytes), 1).unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("PNG compressed ICC profile exceeds"));
     }
 
     #[test]
