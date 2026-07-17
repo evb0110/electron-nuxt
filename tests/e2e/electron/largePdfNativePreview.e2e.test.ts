@@ -386,7 +386,7 @@ largePdfDescribe('Electron E2E - Large PDF Native Preview', () => {
                 return chassis?.dataset.viewportRequestedPage === String(pageNumber)
                     && chassis.dataset.viewportCommittedPage === String(pageNumber)
                     && viewport?.dataset.openSurfacePhase === 'ready'
-                    && shell?.querySelector('.native-pdf-page-content--committed') !== null
+                    && shell?.querySelector('.document-page-visual--committed') !== null
                     && image?.complete === true
                     && (image.naturalWidth ?? 0) > 0
                     && shellRect !== null
@@ -411,7 +411,7 @@ largePdfDescribe('Electron E2E - Large PDF Native Preview', () => {
                     skeletons: host?.querySelectorAll('.native-pdf-page-shell .document-page-skeleton').length ?? 0,
                     shells: shells.map(shell => ({
                         pageNumber: shell.dataset.pageNumber ?? null,
-                        committed: shell.querySelector('.native-pdf-page-content--committed') !== null,
+                        committed: shell.querySelector('.document-page-visual--committed') !== null,
                         hasImage: shell.querySelector<HTMLImageElement>('.native-pdf-page-image')?.complete ?? false,
                         rectTop: shell.getBoundingClientRect().top,
                     })),

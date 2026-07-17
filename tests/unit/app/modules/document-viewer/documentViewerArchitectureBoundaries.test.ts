@@ -59,7 +59,10 @@ describe('document viewer architecture boundaries', () => {
         const sharedSkeleton = read(sharedSkeletonPath);
 
         expect(sharedSkeleton).toContain('class="document-page-skeleton"');
+        expect(sharedSkeleton).toContain('<USkeleton');
         expect(sharedSkeleton).toContain('var(--app-z-document-page-skeleton)');
+        expect(sharedSkeleton).not.toContain('document-page-skeleton__progress');
+        expect(sharedSkeleton).not.toContain('document-page-skeleton__sheen');
         expect(sharedSkeleton).not.toMatch(/var\(--app-(?:z-)?pdf/u);
 
         for (const path of [
@@ -72,6 +75,16 @@ describe('document viewer architecture boundaries', () => {
             expect(read(path), path).toContain(
                 '@app/components/document-viewer/DocumentPageSkeleton.vue',
             );
+        }
+
+        const sharedStyles = read('app/assets/css/main.css');
+        expect(sharedStyles).not.toContain('@keyframes document-page-visual-commit');
+        for (const path of [
+            'app/modules/pdf-viewer/components/PdfViewerPage.vue',
+            'app/modules/native-pdf-viewer/components/NativePdfPageContent.vue',
+            'app/modules/workspace-shell/components/DocumentPageSourceFeaturePack.vue',
+        ]) {
+            expect(read(path), path).toContain('document-page-visual--committed');
         }
     });
 

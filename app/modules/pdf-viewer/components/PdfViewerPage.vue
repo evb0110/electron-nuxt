@@ -13,7 +13,10 @@
         :style="placeholderStyle ?? undefined"
     >
         <div class="page_canvas">
-            <div class="page_canvas__render-layer canvasWrapper"></div>
+            <div
+                class="page_canvas__render-layer canvasWrapper"
+                :class="{'document-page-visual--committed': rendered}"
+            ></div>
             <DocumentPageSkeleton
                 v-if="showPageSkeleton && !rendered && !renderFailed"
                 :padding="pageSkeletonPadding"

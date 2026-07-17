@@ -9,6 +9,7 @@ interface IConversionState {isConverting: boolean;}
 
 interface IDjvuConversionBannerPresentation {
     conversionUiAvailable: boolean;
+    documentOpenReady: boolean;
     initialDocumentVisualReady: boolean;
     showDjvuBanner: boolean;
     showDjvuSource: boolean;
@@ -18,6 +19,7 @@ interface IUseDocumentWorkspaceViewerPresentationOptions {
     activeViewerCapabilities: Readonly<Ref<IViewerCapabilities | null>>;
     canUseDjvu: boolean;
     conversionState: Readonly<Ref<IConversionState>>;
+    documentOpenReady: Readonly<Ref<boolean>>;
     djvuOpeningPath: Readonly<Ref<unknown>>;
     djvuShowBanner: Readonly<Ref<boolean>>;
     initialDocumentVisualReady: Readonly<Ref<boolean>>;
@@ -31,6 +33,7 @@ export function shouldShowDjvuConversionBanner(
     presentation: IDjvuConversionBannerPresentation,
 ) {
     return presentation.conversionUiAvailable
+        && presentation.documentOpenReady
         && presentation.showDjvuSource
         && presentation.initialDocumentVisualReady
         && presentation.showDjvuBanner;
@@ -56,6 +59,7 @@ export const useDocumentWorkspaceViewerPresentation = (
     ));
     const showDjvuConversionBanner = computed(() => shouldShowDjvuConversionBanner({
         conversionUiAvailable: showDjvuConversionUi.value,
+        documentOpenReady: options.documentOpenReady.value,
         initialDocumentVisualReady: options.initialDocumentVisualReady.value,
         showDjvuBanner: options.djvuShowBanner.value,
         showDjvuSource: options.showDjvuSource.value,

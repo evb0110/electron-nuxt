@@ -2,7 +2,7 @@
     <div
         v-if="pageState?.objectUrl"
         class="native-pdf-page-content"
-        :class="{'native-pdf-page-content--committed': visualCommitted}"
+        :class="{'document-page-visual--committed': visualCommitted}"
     >
         <img
             :src="pageState.objectUrl"
@@ -146,7 +146,7 @@ function handleImageError(objectUrl: string | null) {
     background: var(--ui-bg);
 }
 
-.native-pdf-page-content--committed {
+.native-pdf-page-content.document-page-visual--committed {
     visibility: visible;
 }
 

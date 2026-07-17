@@ -25,7 +25,7 @@
                         :key="getSurface(pageNumber)!"
                         :src="getSurface(pageNumber)!"
                         class="document-source-viewer__image"
-                        :class="{'document-source-viewer__image--committed': getVisual(pageNumber) === 'fresh'}"
+                        :class="{'document-page-visual--committed': getVisual(pageNumber) === 'fresh'}"
                         alt=""
                         draggable="false"
                         data-testid="document-page-source-image"
@@ -76,7 +76,7 @@
                         :key="getSurface(pageNumber)!"
                         :src="getSurface(pageNumber)!"
                         class="document-source-viewer__image"
-                        :class="{'document-source-viewer__image--committed': getVisual(pageNumber) === 'fresh'}"
+                        :class="{'document-page-visual--committed': getVisual(pageNumber) === 'fresh'}"
                         alt=""
                         draggable="false"
                         data-testid="document-page-source-image"
@@ -1372,7 +1372,7 @@ defineExpose<IDocumentViewerExpose & {
     visibility: hidden;
 }
 
-.document-source-viewer__image--committed {
+.document-source-viewer__image.document-page-visual--committed {
     visibility: visible;
 }
 

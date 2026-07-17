@@ -1037,6 +1037,7 @@ const {
     activeViewerCapabilities: computed(() => activeViewerCapabilities.value ?? null),
     canUseDjvu,
     conversionState,
+    documentOpenReady: computed(() => documentOpenSurface.snapshot.value.phase === 'ready'),
     djvuOpeningPath,
     djvuShowBanner,
     initialDocumentVisualReady,

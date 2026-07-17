@@ -1,5 +1,5 @@
 <template>
-    <div class="document-page-skeleton" :style="paddingStyle">
+    <div class="document-page-skeleton" :style="paddingStyle" aria-hidden="true">
         <div class="inner flex flex-col">
             <div class="header flex flex-col gap-2">
                 <USkeleton class="title-line" />

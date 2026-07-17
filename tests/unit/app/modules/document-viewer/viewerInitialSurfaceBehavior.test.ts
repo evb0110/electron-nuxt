@@ -85,6 +85,7 @@ describe('viewer initial-surface behavior', () => {
         expect(shell?.style.height).toBe('792px');
         expect(shell?.querySelector('.document-page-skeleton')).not.toBeNull();
         expect(shell?.querySelector<HTMLElement>('.document-page-skeleton')?.style.padding).toBe('56px');
+        expect(shell?.querySelectorAll('[data-ui-skeleton]').length).toBeGreaterThan(0);
 
         harness.unmount();
     });
@@ -119,7 +120,7 @@ describe('viewer initial-surface behavior', () => {
         expect(image).not.toBeNull();
         expect(harness.host.querySelector('.document-page-skeleton')).not.toBeNull();
         expect(harness.host.querySelector('.native-pdf-page-content')?.classList.contains(
-            'native-pdf-page-content--committed',
+            'document-page-visual--committed',
         )).toBe(false);
 
         image?.dispatchEvent(new Event('load'));
@@ -133,7 +134,7 @@ describe('viewer initial-surface behavior', () => {
         await nextTick();
         expect(harness.host.querySelector('.document-page-skeleton')).toBeNull();
         expect(harness.host.querySelector('.native-pdf-page-content')?.classList.contains(
-            'native-pdf-page-content--committed',
+            'document-page-visual--committed',
         )).toBe(true);
         expect(harness.host.querySelector('.native-pdf-page-number')?.textContent).toContain('4');
 
