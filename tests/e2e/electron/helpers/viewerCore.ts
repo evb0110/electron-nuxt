@@ -350,12 +350,16 @@ export async function waitForDjvuLoaded(page: Page, timeoutMs = DEFAULT_TIMEOUT_
                 const image = pageElement.querySelector<HTMLImageElement>(
                     ':scope > [data-testid="document-page-source-image"]',
                 );
+                const imageStyle = image ? window.getComputedStyle(image) : null;
                 return pageElement.dataset.pageSourceVisual === 'fresh'
                     && !pageElement.querySelector('.document-source-viewer__skeleton')
                     && Boolean(
                         image?.complete
                         && image.naturalWidth > 0
-                        && image.naturalHeight > 0,
+                        && image.naturalHeight > 0
+                        && image.classList.contains('document-page-visual--committed')
+                        && image.dataset.documentPageVisual === 'committed'
+                        && imageStyle?.visibility === 'visible',
                     );
             });
         }, {timeout: timeoutMs});

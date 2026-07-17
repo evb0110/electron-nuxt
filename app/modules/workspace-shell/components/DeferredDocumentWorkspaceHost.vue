@@ -1063,6 +1063,14 @@ onMounted(() => {
     });
 });
 
+onBeforeUnmount(() => {
+    // A cold-tab lifecycle update can remove this host in the same parent
+    // render that changes its active props, so the deactivation watcher is not
+    // guaranteed to observe an inactive frame. Capture while the mounted
+    // workspace and its renderer-neutral toolbar projection are still live.
+    emitCurrentViewSessionState();
+});
+
 onUnmounted(() => {
     isHostUnmounted = true;
     openingPageFrameAuthority.value = null;

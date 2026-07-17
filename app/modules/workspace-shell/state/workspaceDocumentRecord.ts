@@ -101,7 +101,12 @@ export function createPendingWorkspaceDocumentRecord(
     return createWorkspaceDocumentRecord({
         tab: tabState,
         toolbarSnapshot,
-        viewState: previousViewState,
+        // View preferences survive replacement, but page position belongs to
+        // the document being replaced and must not leak into the new open.
+        viewState: {
+            ...previousViewState,
+            currentPage: 1,
+        },
     });
 }
 

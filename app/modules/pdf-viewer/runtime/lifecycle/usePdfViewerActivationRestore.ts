@@ -9,6 +9,7 @@ import type {
 } from '@app/types/pdfContracts';
 import type { IPageRange } from '@app/types/pdfUi';
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
+import { createDocumentViewerActivationRunGuard } from '@app/utils/document-viewer/lifecycle/createDocumentViewerActivationRunGuard';
 
 interface IUsePdfViewerActivationRestoreOptions {
     viewerContainer: Ref<HTMLElement | null>;
@@ -34,14 +35,16 @@ interface IUsePdfViewerActivationRestoreOptions {
  * the normal renderer; this adapter neither polls the DOM nor starts recovery.
  */
 export const usePdfViewerActivationRestore = (options: IUsePdfViewerActivationRestoreOptions) => {
-    let activeRunId = 0;
+    const activationRun = createDocumentViewerActivationRunGuard(() => (
+        options.isActive.value && !options.isLoading.value
+    ));
 
     function nextActivationRestoreRunId() {
-        return ++activeRunId;
+        return activationRun.begin();
     }
 
     function isActivationRunCurrent(runId: number) {
-        return runId === activeRunId && options.isActive.value && !options.isLoading.value;
+        return activationRun.isCurrent(runId);
     }
 
     function currentRow(): IPageRange {

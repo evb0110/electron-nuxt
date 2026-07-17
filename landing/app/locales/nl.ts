@@ -89,6 +89,13 @@ export default {
             downloadSelected: 'Geselecteerde installer downloaden',
             noArtifacts: 'Geen installerartefacten gevonden in de nieuwste release.',
             recommended: 'Aanbevolen',
+            store: {
+                title: 'Microsoft Store',
+                detail: 'Door Microsoft ondertekende Windows-app',
+                meta: 'Automatische updates via de Store',
+                ariaLabel: 'EVB Viewer downloaden uit de Microsoft Store',
+                directDownloads: 'Directe downloads',
+            },
             macArchHint: 'Kies Apple Silicon voor nieuwere Macs, Intel voor oudere modellen.',
             packageSize: '{package} · {size}',
             platformHint: {

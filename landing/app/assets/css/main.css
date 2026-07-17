@@ -849,6 +849,34 @@ a {
   background: color-mix(in srgb, var(--landing-ink) 4%, transparent);
 }
 
+.installer-item-store {
+  background: var(--landing-accent-tint);
+  text-decoration: none;
+}
+
+.installer-item-store:hover {
+  background: color-mix(in srgb, var(--landing-accent) 12%, var(--landing-surface));
+}
+
+.installer-item-store .installer-item-chip {
+  background: var(--landing-accent);
+  border-color: var(--landing-accent);
+  color: var(--landing-on-accent);
+}
+
+.installer-direct-label {
+  padding: 0.5rem 1.0625rem;
+  border-top: 1px solid var(--landing-border);
+  border-bottom: 1px solid var(--landing-border);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-align: left;
+  text-transform: uppercase;
+  color: var(--landing-muted);
+}
+
 .installer-item-recommended {
   background: var(--landing-accent-tint);
 }
@@ -1404,6 +1432,29 @@ a {
 
   .installer-platforms {
     max-width: none;
+  }
+
+  .installer-item-store {
+    height: auto;
+    min-height: var(--installer-row-height);
+  }
+
+  .installer-item-store .installer-item-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .installer-item-store .installer-item-variant {
+    overflow: visible;
+    text-overflow: clip;
+  }
+
+  .installer-item-store .installer-item-detail,
+  .installer-item-store .installer-item-meta {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
   }
 
   .site-footer {

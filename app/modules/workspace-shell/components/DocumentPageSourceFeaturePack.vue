@@ -16,33 +16,20 @@
                     v-if="getChassisOpeningShellTarget(pageNumber)"
                     :to="getChassisOpeningShellTarget(pageNumber)!"
                 >
-                    <div
-                        v-if="getVisual(pageNumber) === 'none'"
-                        class="document-source-viewer__pending-frame"
+                    <DocumentPageSourcePageVisual
+                        :content-height="pageLayouts[pageNumber - 1]?.height ?? 760"
+                        :current-search-result-index="currentSearchResultIndex"
+                        :document-load-generation="loadGeneration"
+                        :error-message="getVisualError(pageNumber)"
+                        :open-surface-generation="activeOpenSurfaceGeneration"
+                        :page-number="pageNumber"
+                        :render-generation="getRenderGeneration(pageNumber)"
+                        :search-results="searchResults"
+                        :surface="getSurface(pageNumber)"
+                        :visual="getVisual(pageNumber)"
+                        @surface-load="(surface, event) => handleSurfaceLoad(pageNumber, surface, event)"
+                        @surface-error="surface => handleSurfaceError(pageNumber, surface)"
                     />
-                    <img
-                        v-if="getSurface(pageNumber)"
-                        :key="getSurface(pageNumber)!"
-                        :src="getSurface(pageNumber)!"
-                        class="document-source-viewer__image"
-                        :class="{'document-page-visual--committed': getVisual(pageNumber) === 'fresh'}"
-                        alt=""
-                        draggable="false"
-                        data-testid="document-page-source-image"
-                        :data-page-render-generation="getRenderGeneration(pageNumber)"
-                        :data-document-load-generation="loadGeneration"
-                        :data-open-surface-generation="activeOpenSurfaceGeneration ?? ''"
-                        @load="handleSurfaceLoad(pageNumber, getSurface(pageNumber)!, $event)"
-                        @error="handleSurfaceError(pageNumber, getSurface(pageNumber)!)"
-                    >
-                    <DocumentPageSourceSearchLayer v-if="getVisual(pageNumber) === 'fresh'" :page-number="pageNumber" :results="searchResults" :current-result-index="currentSearchResultIndex" />
-                    <div
-                        v-if="getVisual(pageNumber) === 'error'"
-                        class="document-source-viewer__error"
-                        role="alert"
-                    >
-                        {{ getVisualError(pageNumber) }}
-                    </div>
                 </Teleport>
                 <section
                     v-else
@@ -54,39 +41,20 @@
                     :data-page-source-visual="getVisual(pageNumber)"
                     data-testid="document-page-source-page"
                 >
-                    <div
-                        v-if="getVisual(pageNumber) === 'skeleton'"
-                        class="document-source-viewer__skeleton"
-                        aria-hidden="true"
-                    >
-                        <DocumentPageSkeleton
-                            :padding="DOCUMENT_PAGE_SKELETON_PADDING"
-                            :content-height="pageLayouts[pageNumber - 1]?.height ?? 760"
-                        />
-                    </div>
-                    <div
-                        v-else-if="getVisual(pageNumber) === 'error'"
-                        class="document-source-viewer__error"
-                        role="alert"
-                    >
-                        {{ getVisualError(pageNumber) }}
-                    </div>
-                    <img
-                        v-if="getSurface(pageNumber)"
-                        :key="getSurface(pageNumber)!"
-                        :src="getSurface(pageNumber)!"
-                        class="document-source-viewer__image"
-                        :class="{'document-page-visual--committed': getVisual(pageNumber) === 'fresh'}"
-                        alt=""
-                        draggable="false"
-                        data-testid="document-page-source-image"
-                        :data-page-render-generation="getRenderGeneration(pageNumber)"
-                        :data-document-load-generation="loadGeneration"
-                        :data-open-surface-generation="activeOpenSurfaceGeneration ?? ''"
-                        @load="handleSurfaceLoad(pageNumber, getSurface(pageNumber)!, $event)"
-                        @error="handleSurfaceError(pageNumber, getSurface(pageNumber)!)"
-                    >
-                    <DocumentPageSourceSearchLayer v-if="getVisual(pageNumber) === 'fresh'" :page-number="pageNumber" :results="searchResults" :current-result-index="currentSearchResultIndex" />
+                    <DocumentPageSourcePageVisual
+                        :content-height="pageLayouts[pageNumber - 1]?.height ?? 760"
+                        :current-search-result-index="currentSearchResultIndex"
+                        :document-load-generation="loadGeneration"
+                        :error-message="getVisualError(pageNumber)"
+                        :open-surface-generation="activeOpenSurfaceGeneration"
+                        :page-number="pageNumber"
+                        :render-generation="getRenderGeneration(pageNumber)"
+                        :search-results="searchResults"
+                        :surface="getSurface(pageNumber)"
+                        :visual="getVisual(pageNumber)"
+                        @surface-load="(surface, event) => handleSurfaceLoad(pageNumber, surface, event)"
+                        @surface-error="surface => handleSurfaceError(pageNumber, surface)"
+                    />
                 </section>
             </template>
         </div>
@@ -128,8 +96,9 @@ import { createDocumentPageSourceVisualRetryState } from '@app/modules/workspace
 import { resolveNearestDocumentPageToViewportCenter } from '@app/utils/document-viewer/viewport/resolveDocumentContinuousScrollWindow';
 import { DOCUMENT_PAGE_GUTTER_PX } from '@app/utils/document-viewer/layout/documentPageGutterPx';
 import { resolveDocumentPageSourceRenderDemand } from '@app/modules/workspace-shell/viewers/resolveDocumentPageSourceRenderDemand';
+import { resolveDocumentPageSourceRenderQueue } from '@app/modules/workspace-shell/viewers/resolveDocumentPageSourceRenderQueue';
+import { restoreDocumentPageSourceActivePresentation } from '@app/modules/workspace-shell/viewers/restoreDocumentPageSourceActivePresentation';
 import {
-    DOCUMENT_PAGE_SKELETON_PADDING,
     findConnectedDocumentPageImage,
     hasHigherDocumentRenderPriority,
     isOwnedConnectedDocumentPageImage,
@@ -140,13 +109,14 @@ import {
 } from '@app/modules/workspace-shell/viewers/documentPageSourcePresentation';
 import { useDocumentPageSourceResizeLifecycle } from '@app/modules/workspace-shell/viewers/useDocumentPageSourceResizeLifecycle';
 import type { IDocumentSearchMatch } from '@app/utils/document-viewer/search/documentSearch';
-import DocumentPageSourceSearchLayer from '@app/modules/workspace-shell/components/DocumentPageSourceSearchLayer.vue';
+import DocumentPageSourcePageVisual from '@app/modules/workspace-shell/components/DocumentPageSourcePageVisual.vue';
 import {createPageSourcePagedWheelNavigation} from '@app/modules/workspace-shell/viewers/createPageSourcePagedWheelNavigation';
 import {
     createDocumentWheelZoomHandler,
     type IDocumentWheelInteraction,
 } from '@app/utils/document-viewer/input/documentWheelInteraction';
-import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSkeleton.vue';
+import { getPerformanceProfile } from '@app/utils/performanceProfile';
+import { createDocumentViewerActivationRunGuard } from '@app/utils/document-viewer/lifecycle/createDocumentViewerActivationRunGuard';
 
 interface IPageVisualState {
     generation: number;
@@ -212,6 +182,7 @@ const viewerContainer = ref<HTMLElement | null>(null);
 const containerWidth = ref(0);
 const containerHeight = ref(0);
 const viewportScrollTop = ref(0);
+const viewportScrollDirection = ref<-1 | 0 | 1>(0);
 const pagedWheelNavigation = createPageSourcePagedWheelNavigation(DOCUMENT_PAGE_GUTTER_PX);
 const chassisAuthority = injectDocumentViewerChassisAuthority();
 const openSurfaceRenderOwner = chassisAuthority?.openSurface.claimRenderOwner();
@@ -222,7 +193,13 @@ const renderSession = chassisAuthority?.renderCoordinator.createSession(
 const openingPageFrameOwnerId = `page-source:${String(nextSourcePageSlotOwnerId)}`;
 const pageSlots = renderSession?.pageSlots;
 const surfaceBudget = chassisAuthority?.surfaceBudget ?? workspaceSurfaceBudgetController;
+const rasterBufferProfile = getPerformanceProfile();
 const source = shallowRef<IDocumentPageSource | null>(null);
+const activationRun = createDocumentViewerActivationRunGuard(() => (
+    isActive
+    && source.value !== null
+    && loadController?.signal.aborted !== true
+));
 const pageMetrics = shallowRef<IDocumentPageMetrics[]>([]);
 const exactPageMetricNumbers = new Set<number>();
 const exactPageMetricLoads = new Map<number, Promise<IDocumentPageMetrics>>();
@@ -231,13 +208,14 @@ const renderControllers = new Map<number, AbortController>();
 const DOCUMENT_SOURCE_VISUAL_ERROR_MAX_RETRIES = 2;
 const visualRetryState = createDocumentPageSourceVisualRetryState(DOCUMENT_SOURCE_VISUAL_ERROR_MAX_RETRIES);
 const DOCUMENT_SOURCE_CONTINUOUS_MOUNT_RADIUS = 12;
+const DOCUMENT_SOURCE_RENDER_CONCURRENCY = 2;
 const loadGeneration = ref(0);
 let loadSettled = Promise.resolve();
 let loadController: AbortController | null = null;
 let releaseViewportFeature: (() => void) | null = null;
 let deferredMetricHydration: (() => Promise<void>) | null = null;
-let activeOpenSurfaceGeneration: number | null = null;
-let activeOpenSurfaceRevision: string | null = null;
+const activeOpenSurfaceGeneration = ref<number | null>(null);
+const activeOpenSurfaceRevision = ref<string | null>(null);
 let nextViewportRenderRequestId = 0;
 
 function supersedeActiveOpenSurfaceGeneration() {
@@ -246,8 +224,8 @@ function supersedeActiveOpenSurfaceGeneration() {
     if (
         !openSurface
         || !snapshot
-        || activeOpenSurfaceGeneration === null
-        || snapshot.generation !== activeOpenSurfaceGeneration
+        || activeOpenSurfaceGeneration.value === null
+        || snapshot.generation !== activeOpenSurfaceGeneration.value
         || snapshot.openingPageFrame?.ownerId !== openingPageFrameOwnerId
         || ![
             'pending',
@@ -256,13 +234,13 @@ function supersedeActiveOpenSurfaceGeneration() {
             'viewport-committed',
         ].includes(snapshot.phase)
     ) {
-        activeOpenSurfaceGeneration = null;
-        activeOpenSurfaceRevision = null;
+        activeOpenSurfaceGeneration.value = null;
+        activeOpenSurfaceRevision.value = null;
         return;
     }
     openSurface.supersede();
-    activeOpenSurfaceGeneration = null;
-    activeOpenSurfaceRevision = null;
+    activeOpenSurfaceGeneration.value = null;
+    activeOpenSurfaceRevision.value = null;
 }
 
 onMounted(() => {
@@ -339,8 +317,22 @@ const mountedPages = computed(() => {
     }) ?? [];
 });
 const renderDemand = computed(() => resolveDocumentPageSourceRenderDemand({
+    bufferRadius: continuousScroll && effectiveZoom.value < 1
+        ? DOCUMENT_SOURCE_CONTINUOUS_MOUNT_RADIUS
+        : rasterBufferProfile.pdfBufferPages,
     continuousScroll,
     currentPage,
+    estimatePagePixels: (pageNumber) => {
+        const layout = pageLayouts.value[pageNumber - 1];
+        const pixelRatio = window.devicePixelRatio || 1;
+        return layout ? layout.width * layout.height * pixelRatio * pixelRatio : 1;
+    },
+    maxBufferPixels: rasterBufferProfile.maxBufferCanvasPixels,
+    minimumBufferPages: continuousScroll && effectiveZoom.value < 1
+        ? DOCUMENT_SOURCE_CONTINUOUS_MOUNT_RADIUS
+        : 2,
+    preferredDirection: viewportScrollDirection.value,
+    mountedPages: mountedPages.value,
     pageCount: source.value?.pageCount ?? pageMetrics.value.length,
     pageHeights: pageHeights.value,
     pageTops: pageTops.value,
@@ -429,12 +421,12 @@ function commitPageTerminalError(pageNumber: number) {
         openSurface
         && snapshot
         && viewportState?.requestedPage === pageNumber
-        && activeOpenSurfaceGeneration !== null
-        && snapshot.generation === activeOpenSurfaceGeneration
+        && activeOpenSurfaceGeneration.value !== null
+        && snapshot.generation === activeOpenSurfaceGeneration.value
     ) {
         if (viewportState.lifecycle === 'transitioning') {
             const navigationFence = openSurfaceRenderOwner && openSurface.createOwnedRenderFence(openSurfaceRenderOwner, {
-                generation: activeOpenSurfaceGeneration,
+                generation: activeOpenSurfaceGeneration.value,
                 documentRevision: snapshot.identity?.documentRevision ?? '',
                 rendererVersion: loadGeneration.value,
                 rendererRequestId: ++nextViewportRenderRequestId,
@@ -446,7 +438,7 @@ function commitPageTerminalError(pageNumber: number) {
             if (committedFence?.pageNumber === pageNumber) {
                 openSurface.reject(committedFence, message);
             } else {
-                openSurface.fail(activeOpenSurfaceGeneration, message);
+                openSurface.fail(activeOpenSurfaceGeneration.value, message);
             }
         }
     }
@@ -555,10 +547,14 @@ async function renderPage(pageNumber: number) {
     if (!activeSource || !signal || !isActive) {
         return;
     }
+    const isLeadingBufferPage = continuousScroll
+        && viewportScrollDirection.value !== 0
+        && renderDemand.value.bufferPages.includes(pageNumber)
+        && Math.sign(pageNumber - currentPage) === viewportScrollDirection.value;
+    const priority: TDocumentRenderPriority = pageNumber === currentPage
+        ? 'navigation'
+        : renderDemand.value.visiblePages.includes(pageNumber) || isLeadingBufferPage ? 'visible' : 'nearby';
     if (!exactPageMetricNumbers.has(pageNumber)) {
-        if (pageNumber !== currentPage) {
-            return;
-        }
         try {
             await ensureExactPageMetric(activeSource, generation, pageNumber, signal);
             await nextTick();
@@ -583,9 +579,6 @@ async function renderPage(pageNumber: number) {
         return;
     }
     const previous = pageStates.get(pageNumber);
-    const priority: TDocumentRenderPriority = pageNumber === currentPage
-        ? 'navigation'
-        : renderDemand.value.visiblePages.includes(pageNumber) ? 'visible' : 'nearby';
     const widthPx = Math.max(1, Math.round(
         metric.widthPoints * effectiveZoom.value * (window.devicePixelRatio || 1),
     ));
@@ -601,7 +594,11 @@ async function renderPage(pageNumber: number) {
             }
             return;
         }
-        if (activeController && (previous.priority === 'navigation' || priority !== 'navigation')) {
+        if (activeController) {
+            // Leading guard-band work enters the native broker at visible
+            // priority. Let it finish as the viewport catches up; restarting
+            // the same page for every priority transition causes cancellation
+            // churn and prevents either native worker lane from completing.
             return;
         }
     }
@@ -709,6 +706,7 @@ async function renderPage(pageNumber: number) {
     } finally {
         if (renderControllers.get(pageNumber) === controller) {
             renderControllers.delete(pageNumber);
+            scheduleRender.schedule();
         }
     }
 }
@@ -735,7 +733,7 @@ function commitReadyPageToViewportSession(pageNumber: number, state: IPageVisual
     const openSurface = chassisAuthority?.openSurface;
     const snapshot = openSurface?.snapshot.value;
     const viewportState = openSurface?.viewportSession.value;
-    const surfaceGeneration = activeOpenSurfaceGeneration;
+    const surfaceGeneration = activeOpenSurfaceGeneration.value;
     const image = getConnectedPageImage(pageNumber, state);
     if (
         !state.ready
@@ -781,12 +779,19 @@ function commitReadyPageToViewportSession(pageNumber: number, state: IPageVisual
     );
 }
 
+function markConnectedPageSurfaceReady(pageNumber: number, state: IPageVisualState) {
+    state.ready = true;
+    state.error = null;
+    visualRetryState.markReady(pageNumber);
+    return commitReadyPageToViewportSession(pageNumber, state);
+}
+
 async function handleSurfaceLoad(pageNumber: number, surface: string, event: Event) {
     let state = pageStates.get(pageNumber);
     const image = event.currentTarget;
     const signal = loadController?.signal;
     const expectedLoadGeneration = loadGeneration.value;
-    const expectedOpenSurfaceGeneration = activeOpenSurfaceGeneration;
+    const expectedOpenSurfaceGeneration = activeOpenSurfaceGeneration.value;
     const expectedRenderGeneration = state?.generation ?? null;
     if (
         !(image instanceof HTMLImageElement)
@@ -806,7 +811,7 @@ async function handleSurfaceLoad(pageNumber: number, surface: string, event: Eve
     if (
         signal.aborted
         || expectedLoadGeneration !== loadGeneration.value
-        || expectedOpenSurfaceGeneration !== activeOpenSurfaceGeneration
+        || expectedOpenSurfaceGeneration !== activeOpenSurfaceGeneration.value
         || state?.generation !== expectedRenderGeneration
         || state.lease?.surface !== surface
         || !image.isConnected
@@ -814,11 +819,8 @@ async function handleSurfaceLoad(pageNumber: number, surface: string, event: Eve
     ) {
         return;
     }
-    state.ready = true;
-    state.error = null;
-    visualRetryState.markReady(pageNumber);
     const isInitialOpenTransition = chassisAuthority?.openSurface.viewportSession.value.lifecycle === 'opening';
-    if (!commitReadyPageToViewportSession(pageNumber, state)) {
+    if (!markConnectedPageSurfaceReady(pageNumber, state)) {
         return;
     }
     // markReady may detach this image on the next tick. The successful paint
@@ -851,13 +853,45 @@ async function renderMountedPages() {
         return;
     }
     await nextTick();
-    const mountedPageSet = new Set(mountedPages.value);
-    const pagesByViewportPriority = renderDemand.value.residentPages
-        .filter(pageNumber => mountedPageSet.has(pageNumber))
-        .sort((left, right) => Math.abs(left - currentPage) - Math.abs(right - currentPage));
-    await Promise.all(pagesByViewportPriority.map(renderPage));
+    const renderQueue = resolveDocumentPageSourceRenderQueue({
+        bufferPages: renderDemand.value.bufferPages,
+        concurrency: DOCUMENT_SOURCE_RENDER_CONCURRENCY,
+        currentPage,
+        guardRadius: DOCUMENT_SOURCE_CONTINUOUS_MOUNT_RADIUS,
+        inFlightPages: [...renderControllers.keys()],
+        mountedPages: mountedPages.value,
+        needsRender: (pageNumber) => {
+            const state = pageStates.get(pageNumber);
+            const metric = pageMetrics.value[pageNumber - 1];
+            return !state?.lease || !metric || state.widthPx !== Math.max(1, Math.round(
+                metric.widthPoints * effectiveZoom.value * (window.devicePixelRatio || 1),
+            ));
+        },
+        preferredDirection: viewportScrollDirection.value,
+        residentPages: renderDemand.value.residentPages,
+        visiblePages: renderDemand.value.visiblePages,
+    });
+    renderQueue.pagesToAbort.forEach(pageNumber => renderControllers.get(pageNumber)?.abort());
+    await Promise.all(renderQueue.pagesToRender.map(renderPage));
 }
 const scheduleRender = createRafCoalescedCallback(() => void renderMountedPages());
+
+async function restoreActivePagePresentation(runId: number) {
+    await restoreDocumentPageSourceActivePresentation({
+        beginPending: beginPagePresentationPending,
+        getState: pageNumber => pageStates.get(pageNumber),
+        hasDecodedConnectedSurface: (pageNumber, state) => {
+            const image = getConnectedPageImage(pageNumber, state);
+            return Boolean(image?.complete && image.naturalWidth > 0);
+        },
+        isCurrent: () => activationRun.isCurrent(runId),
+        markReady: markConnectedPageSurfaceReady,
+        measureViewport,
+        nextRenderTick: nextTick,
+        renderMountedPages,
+        residentPages: renderDemand.value.residentPages,
+    });
+}
 const resizeLifecycle = useDocumentPageSourceResizeLifecycle({
     viewerContainer,
     pageLayouts,
@@ -884,7 +918,12 @@ function handleScroll(event?: Event) {
     if (!continuousScroll || !viewerContainer.value || resizeLifecycle.isResizeTransitionActive.value) {
         return;
     }
-    viewportScrollTop.value = viewerContainer.value.scrollTop;
+    const nextScrollTop = viewerContainer.value.scrollTop;
+    const scrollDelta = nextScrollTop - viewportScrollTop.value;
+    if (Math.abs(scrollDelta) > 1) {
+        viewportScrollDirection.value = scrollDelta > 0 ? 1 : -1;
+    }
+    viewportScrollTop.value = nextScrollTop;
     scheduleRender.schedule();
     if (chassisAuthority?.viewportWritePort.consumeAuthorityScroll(viewerContainer.value)) {
         return;
@@ -1091,19 +1130,20 @@ watch(
 );
 
 watch(() => src, (documentRef, previousDocumentRef) => {
+    activationRun.invalidate();
     pagedWheelNavigation.reset();
     if (previousDocumentRef && previousDocumentRef !== documentRef) {
         supersedeActiveOpenSurfaceGeneration();
     }
     const generation = ++loadGeneration.value;
-    activeOpenSurfaceRevision = documentRef
+    activeOpenSurfaceRevision.value = documentRef
         ? String(documentRevisionToken ?? `page-source:${String(generation)}`)
         : null;
-    activeOpenSurfaceGeneration = documentRef && chassisAuthority
+    activeOpenSurfaceGeneration.value = documentRef && chassisAuthority
         ? chassisAuthority.openSurface.claim({
             documentId: chassisAuthority.openSurface.snapshot.value.identity?.documentId
                 ?? String(documentRef),
-            documentRevision: activeOpenSurfaceRevision ?? '',
+            documentRevision: activeOpenSurfaceRevision.value ?? '',
         })
         : null;
     loadController?.abort();
@@ -1222,7 +1262,7 @@ watch(() => src, (documentRef, previousDocumentRef) => {
                     }
                 }
             };
-            if (!await commitInitialPageShell(initialPage, generation, activeOpenSurfaceGeneration)) {
+            if (!await commitInitialPageShell(initialPage, generation, activeOpenSurfaceGeneration.value)) {
                 throw new Error('Unable to commit the initial document page shell');
             }
             await renderPage(initialPage);
@@ -1257,12 +1297,12 @@ watch(
             generation === null
             || !documentRef
             || documentId !== String(documentRef)
-            || documentRevision !== activeOpenSurfaceRevision
+            || documentRevision !== activeOpenSurfaceRevision.value
             || chassisAuthority?.openSurface.snapshot.value.openingPageFrame === null
         ) {
             return;
         }
-        activeOpenSurfaceGeneration = generation;
+        activeOpenSurfaceGeneration.value = generation;
     },
     {flush: 'sync'},
 );
@@ -1271,16 +1311,13 @@ watch(effectiveZoom, (value) => {
     if (!isResizing) scheduleRender.schedule();
 });
 watch(() => isActive, (active) => {
+    const runId = activationRun.begin();
     if (!active) {
         return;
     }
-    // Inactive tab pressure can evict every page-source lease while this
-    // feature pack remains mounted. Reactivation does not otherwise change
-    // geometry or render demand, so explicitly repopulate the live window.
-    void nextTick(() => {
-        measureViewport();
-        scheduleRender.schedule();
-    });
+    // Resume is a proof-producing lifecycle step: remeasure demand, repair any
+    // logical-ready/painted-surface disagreement, then repopulate residency.
+    void restoreActivePagePresentation(runId);
 });
 watch(mountedPages, (pages) => {
     const retainedPages = new Set(pages);
@@ -1301,6 +1338,7 @@ watch(() => renderDemand.value.residentPages, (pages) => {
     scheduleRender.schedule();
 });
 onBeforeUnmount(() => {
+    activationRun.invalidate();
     supersedeActiveOpenSurfaceGeneration();
     releaseViewportFeature?.();
     scheduleRender.cancel();
@@ -1362,47 +1400,6 @@ defineExpose<IDocumentViewerExpose & {
     background: var(--app-document-page-bg);
     box-shadow: var(--app-document-page-shadow);
     border-radius: var(--app-document-page-radius);
-}
-
-.document-source-viewer__image {
-    display: block;
-    width: 100%;
-    height: 100%;
-    object-fit: fill;
-    visibility: hidden;
-}
-
-.document-source-viewer__image.document-page-visual--committed {
-    visibility: visible;
-}
-
-.document-source-viewer__pending-frame {
-    position: absolute;
-    z-index: var(--app-z-local-overlay);
-    inset: 0;
-    background: var(--app-document-page-bg);
-    border-radius: inherit;
-}
-
-.document-source-viewer__skeleton {
-    position: absolute;
-    inset: 0;
-    background: var(--app-document-page-bg);
-    box-shadow: none;
-    border-radius: inherit;
-}
-
-.document-source-viewer__error {
-    position: absolute;
-    z-index: var(--app-z-local-overlay);
-    inset: 0;
-    display: grid;
-    place-items: center;
-    padding: var(--app-document-page-error-padding);
-    color: var(--ui-error);
-    text-align: center;
-    background: var(--app-document-page-bg);
-    border-radius: inherit;
 }
 
 </style>

@@ -70,7 +70,7 @@ describe('document viewer architecture boundaries', () => {
             'app/modules/pdf-viewer/components/PdfInitialSurfacePlaceholder.vue',
             'app/modules/native-pdf-viewer/components/NativePdfPageContent.vue',
             'app/modules/workspace-shell/components/DocumentViewerChassis.vue',
-            'app/modules/workspace-shell/components/DocumentPageSourceFeaturePack.vue',
+            'app/modules/workspace-shell/components/DocumentPageSourcePageVisual.vue',
         ]) {
             expect(read(path), path).toContain(
                 '@app/components/document-viewer/DocumentPageSkeleton.vue',
@@ -82,7 +82,7 @@ describe('document viewer architecture boundaries', () => {
         for (const path of [
             'app/modules/pdf-viewer/components/PdfViewerPage.vue',
             'app/modules/native-pdf-viewer/components/NativePdfPageContent.vue',
-            'app/modules/workspace-shell/components/DocumentPageSourceFeaturePack.vue',
+            'app/modules/workspace-shell/components/DocumentPageSourcePageVisual.vue',
         ]) {
             expect(read(path), path).toContain('document-page-visual--committed');
         }

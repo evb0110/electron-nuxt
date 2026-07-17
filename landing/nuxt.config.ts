@@ -144,6 +144,7 @@ export default defineNuxtConfig({
         'circle-flags:br',
         'circle-flags:nl',
         'simple-icons:github',
+        'simple-icons:microsoft',
     ]}},
 
     compatibilityDate: '2025-01-15',

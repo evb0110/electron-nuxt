@@ -92,4 +92,46 @@ describe('resolveDocumentPageSourceRenderDemand', () => {
             ],
         });
     });
+
+    it('uses the shared pixel budget to keep an affordable wider guard band', () => {
+        expect(resolveDocumentPageSourceRenderDemand({
+            bufferRadius: 2,
+            continuousScroll: true,
+            currentPage: 3,
+            estimatePagePixels: () => 10,
+            maxBufferPixels: 40,
+            mountedPages: [
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+            ],
+            pageCount: pageTops.length,
+            pageHeights,
+            pageTops,
+            scrollTop: 2500,
+            viewportHeight: 900,
+        })).toEqual({
+            visiblePages: [
+                3,
+                4,
+            ],
+            bufferPages: [
+                1,
+                2,
+                5,
+                6,
+            ],
+            residentPages: [
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+            ],
+        });
+    });
 });

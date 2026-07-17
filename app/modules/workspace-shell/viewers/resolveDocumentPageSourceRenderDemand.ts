@@ -1,3 +1,5 @@
+import { resolveDocumentRasterResidencyPlan } from '@app/utils/document-viewer/rendering/resolveDocumentRasterResidencyPlan';
+
 export interface IDocumentPageSourceRenderDemandOptions {
     bufferRadius?: number;
     continuousScroll: boolean;
@@ -7,6 +9,11 @@ export interface IDocumentPageSourceRenderDemandOptions {
     pageTops: readonly number[];
     scrollTop: number;
     viewportHeight: number;
+    mountedPages?: readonly number[];
+    maxBufferPixels?: number;
+    minimumBufferPages?: number;
+    preferredDirection?: -1 | 0 | 1;
+    estimatePagePixels?: ((pageNumber: number) => number) | undefined;
 }
 export interface IDocumentPageSourceRenderDemand {
     bufferPages: number[];
@@ -51,25 +58,25 @@ export function resolveDocumentPageSourceRenderDemand(
         visiblePages.sort((left, right) => left - right);
     }
 
-    const visibleSet = new Set(visiblePages);
-    const bufferSet = new Set<number>();
-    const bufferRadius = Math.max(0, Math.trunc(options.bufferRadius ?? 1));
-    for (const pageNumber of visiblePages) {
-        for (let distance = 1; distance <= bufferRadius; distance += 1) {
-            const before = pageNumber - distance;
-            const after = pageNumber + distance;
-            if (before >= 1 && !visibleSet.has(before)) bufferSet.add(before);
-            if (after <= pageCount && !visibleSet.has(after)) bufferSet.add(after);
-        }
-    }
-    const bufferPages = [...bufferSet].sort((left, right) => left - right);
+    const plan = resolveDocumentRasterResidencyPlan({
+        mountedPages: options.mountedPages
+            ?? Array.from({length: pageCount}, (_, index) => index + 1),
+        visiblePages,
+        bufferRadius: options.bufferRadius ?? 1,
+        maxBufferPixels: options.maxBufferPixels ?? Number.POSITIVE_INFINITY,
+        ...(options.minimumBufferPages === undefined
+            ? {}
+            : {minimumBufferPages: options.minimumBufferPages}),
+        ...(options.preferredDirection === undefined
+            ? {}
+            : {preferredDirection: options.preferredDirection}),
+        estimatePagePixels: options.estimatePagePixels ?? (() => 1),
+    });
+    const bufferPages = plan.bufferPages.toSorted((left, right) => left - right);
 
     return {
         bufferPages,
-        residentPages: [
-            ...visiblePages,
-            ...bufferPages,
-        ].sort((left, right) => left - right),
-        visiblePages,
+        residentPages: plan.residentPages.toSorted((left, right) => left - right),
+        visiblePages: plan.visiblePages,
     };
 }

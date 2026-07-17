@@ -29,6 +29,52 @@ export const DOCUMENT_PAGE_SKELETON_PADDING = Object.freeze({
 
 export type TDocumentPageSourceVisual = 'none' | 'skeleton' | 'fresh' | 'error';
 
+export interface IDocumentPageSourceVisualPresentation {
+    error: boolean;
+    fresh: boolean;
+    pendingFrame: boolean;
+    skeleton: boolean;
+}
+
+export function resolveDocumentPageSourceVisualPresentation(
+    visual: TDocumentPageSourceVisual,
+): IDocumentPageSourceVisualPresentation {
+    switch (visual) {
+        case 'none':
+            return {
+                error: false,
+                fresh: false,
+                pendingFrame: true,
+                skeleton: false,
+            };
+        case 'skeleton':
+            return {
+                error: false,
+                fresh: false,
+                pendingFrame: false,
+                skeleton: true,
+            };
+        case 'fresh':
+            return {
+                error: false,
+                fresh: true,
+                pendingFrame: false,
+                skeleton: false,
+            };
+        case 'error':
+            return {
+                error: true,
+                fresh: false,
+                pendingFrame: false,
+                skeleton: false,
+            };
+        default: {
+            const exhaustive: never = visual;
+            throw new Error(`Unknown document page visual: ${String(exhaustive)}`);
+        }
+    }
+}
+
 interface IDocumentPageSourceVisualState {
     error: string | null;
     ready: boolean;

@@ -3,6 +3,7 @@ import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tab
 
 export function createTabViewSessionState(snapshot: IWorkspaceToolbarSnapshot): ITabViewSessionState {
     return {
+        currentPage: Math.max(1, Math.trunc(snapshot.currentPage)),
         zoom: snapshot.zoom,
         effectiveZoom: snapshot.effectiveZoom,
         zoomMode: snapshot.zoomMode,

@@ -9,6 +9,8 @@ import type { TDocumentSidebarTab } from '@app/utils/document-viewer/sidebar/doc
 export type TTabTemperature = 'hot' | 'warm' | 'cold';
 
 export interface ITabViewSessionState {
+    /** Optional for checkpoints written before page continuity was persisted. */
+    currentPage?: number;
     zoom: number;
     effectiveZoom: number;
     zoomMode: TZoomMode;

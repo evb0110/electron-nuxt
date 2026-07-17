@@ -117,7 +117,7 @@ export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState
         }
     }, {flush: 'sync'});
     const viewMode = ref<TPdfViewMode>(initialState?.viewMode ?? 'single');
-    const currentPage = ref(1);
+    const currentPage = ref(Math.max(1, Math.trunc(initialState?.currentPage ?? 1)));
     const totalPages = ref(0);
     const pdfDocument = shallowRef<PDFDocumentProxy | null>(null);
 

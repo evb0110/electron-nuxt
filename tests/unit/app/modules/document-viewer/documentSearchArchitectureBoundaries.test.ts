@@ -54,12 +54,14 @@ describe('document search architecture boundaries', () => {
 
     it('projects workspace-owned source search geometry into inert page overlays', () => {
         const featurePack = read('app/modules/workspace-shell/components/DocumentPageSourceFeaturePack.vue');
+        const pageVisual = read('app/modules/workspace-shell/components/DocumentPageSourcePageVisual.vue');
         const searchLayer = read('app/modules/workspace-shell/components/DocumentPageSourceSearchLayer.vue');
         const binding = read('app/modules/workspace-shell/viewers/useWorkspaceViewerAdapterBinding.ts');
 
         expect(binding).toContain('searchResults: options.documentSourceSearchResults.value');
         expect(binding).toContain('currentSearchResultIndex: options.documentSourceCurrentResultIndex.value');
-        expect(featurePack).toContain('<DocumentPageSourceSearchLayer');
+        expect(featurePack).toContain('<DocumentPageSourcePageVisual');
+        expect(pageVisual).toContain('<DocumentPageSourceSearchLayer');
         expect(searchLayer).toContain('resolveDocumentPageSourceSearchHighlights');
         expect(searchLayer).toContain('data-testid="document-page-source-search-highlight"');
         expect(searchLayer).toContain('aria-hidden="true"');

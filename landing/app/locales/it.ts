@@ -89,6 +89,13 @@ export default {
             downloadSelected: 'Scarica installer selezionato',
             noArtifacts: 'Nessun artefatto installer trovato nell’ultima release.',
             recommended: 'Consigliato',
+            store: {
+                title: 'Microsoft Store',
+                detail: 'App Windows firmata da Microsoft',
+                meta: 'Aggiornamenti automatici tramite Store',
+                ariaLabel: 'Scarica EVB Viewer da Microsoft Store',
+                directDownloads: 'Download diretti',
+            },
             macArchHint: 'Scegli Apple Silicon per i Mac più recenti, Intel per i modelli più vecchi.',
             packageSize: '{package} · {size}',
             platformHint: {

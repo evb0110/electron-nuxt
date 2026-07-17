@@ -103,6 +103,30 @@ async function waitForActiveDjvuImages(session: IElectronE2ESession) {
     }, { timeout: 20_000 });
 }
 
+async function waitForActiveDjvuCommittedPage(session: IElectronE2ESession, pageNumber: number) {
+    await session.page.waitForFunction((expectedPage: number) => {
+        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const viewport = host?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]');
+        const page = viewport?.querySelector<HTMLElement>(
+            `[data-testid="document-page-source-page"][data-page-number="${String(expectedPage)}"]`,
+        );
+        const image = page?.querySelector<HTMLImageElement>(
+            ':scope > [data-testid="document-page-source-image"]',
+        );
+        const style = image ? window.getComputedStyle(image) : null;
+        return Boolean(
+            page?.dataset.pageSourceVisual === 'fresh'
+            && !page.querySelector('.document-source-viewer__skeleton')
+            && image?.complete
+            && image.naturalWidth > 0
+            && image.naturalHeight > 0
+            && image.classList.contains('document-page-visual--committed')
+            && image.dataset.documentPageVisual === 'committed'
+            && style?.visibility === 'visible',
+        );
+    }, {timeout: DJVU_E2E_TIMEOUT_MS}, pageNumber);
+}
+
 async function waitForVisibleDjvuImageHosts(session: IElectronE2ESession, expectedCount: number) {
     await session.page.waitForFunction((expected: number) => {
         const isVisible = (element: HTMLElement) => {
@@ -164,6 +188,8 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
         await openDjvuInApp(session.page, djvuFixture.path, DJVU_E2E_TIMEOUT_MS);
         await waitForDjvuLoaded(session.page, DJVU_E2E_TIMEOUT_MS);
         await waitForActiveDjvuImages(session);
+        await goToPageViaToolbar(session.page, 18);
+        await waitForActiveDjvuCommittedPage(session, 18);
 
         const afterDjvuOpen = await session.page.evaluate(readDjvuPressureFromPage);
         expect(afterDjvuOpen).toHaveLength(1);
@@ -183,6 +209,7 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
         await activateTab(session, 0);
         await waitForDjvuLoaded(session.page);
         await waitForActiveDjvuImages(session);
+        await waitForActiveDjvuCommittedPage(session, 18);
 
         const afterDjvuReactivation = await session.page.evaluate(readDjvuPressureFromPage);
         const activeAfterDjvuReactivation = afterDjvuReactivation.find(host => host.active);

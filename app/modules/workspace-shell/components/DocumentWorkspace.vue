@@ -372,6 +372,7 @@ import { useWorkspaceOrchestration } from '@app/modules/workspace-shell/useWorks
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
 import { useWorkspaceViewerVisibility } from '@app/modules/workspace-shell/composables/useWorkspaceViewerVisibility';
+import { useDocumentWorkspacePageSessionRestore } from '@app/modules/workspace-shell/composables/useDocumentWorkspacePageSessionRestore';
 import { useDocumentWorkspaceViewerPresentation } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceViewerPresentation';
 import { useDocumentWorkspaceVisualOpeningState } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceVisualOpeningState';
 import { useDocumentOpenSurfaceLifecycle } from '@app/modules/workspace-shell/composables/useDocumentOpenSurfaceLifecycle';
@@ -844,19 +845,17 @@ const {
     pdfSrc,
     showSidebar,
 });
-watch(activeViewerAdapter, (adapter) => {
-    if (!adapter) {
-        currentPage.value = 1;
-        totalPages.value = 0;
-        isLoading.value = false;
-    }
+useDocumentWorkspacePageSessionRestore({
+    activeViewerAdapter,
+    currentPage,
+    documentViewerRef,
+    initialPage: initialViewState?.currentPage,
+    isLoading,
+    onRestore: handleGoToPage,
+    totalPages,
 });
 useWorkspaceSourceCapabilityProjection(activeViewerAdapter, documentSourceCapabilities);
-// Keep the actual PDF chassis and feature pack mounted under the empty state.
-// Opening a PDF then changes presentation and data, not component ownership.
-const mountedViewerAdapter = computed(() => (
-    activeViewerAdapter.value ?? getWorkspaceViewerAdapter('pdf')
-));
+const mountedViewerAdapter = computed(() => activeViewerAdapter.value ?? getWorkspaceViewerAdapter('pdf'));
 
 const {
     scheduleStartupOpenVisualReady,

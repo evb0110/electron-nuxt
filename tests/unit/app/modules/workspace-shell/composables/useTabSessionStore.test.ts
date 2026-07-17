@@ -28,7 +28,7 @@ function pane(id: string, activeTabId: string, tabIds: string[]): IEditorPaneSta
 }
 
 describe('tab session memory policy', () => {
-    it('does not persist document page position in tab view state', () => {
+    it('persists document page position in tab view state', () => {
         const state = createTabViewSessionState({
             hasPdf: true,
             initialVisualReady: true,
@@ -73,7 +73,7 @@ describe('tab session memory policy', () => {
             totalPages: 100,
         });
 
-        expect(state).not.toHaveProperty('currentPage');
+        expect(state.currentPage).toBe(42);
         expect(state.sidebarTab).toBe('search');
         expect(state.sidebarWidth).toBe(384);
     });

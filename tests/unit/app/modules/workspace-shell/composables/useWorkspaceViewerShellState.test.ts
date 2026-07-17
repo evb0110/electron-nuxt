@@ -8,6 +8,7 @@ import { useWorkspaceViewerShellState } from '@app/modules/workspace-shell/compo
 describe('workspace viewer zoom state', () => {
     it('derives compatibility modes from one authoritative discriminated state', () => {
         const state = useWorkspaceViewerShellState({
+            currentPage: 42,
             zoom: 1.5,
             effectiveZoom: 1.5,
             zoomMode: 'fit-width',
@@ -25,6 +26,7 @@ describe('workspace viewer zoom state', () => {
         });
         expect(state.fitMode.value).toBe('width');
         expect(state.sidebarTab.value).toBe('search');
+        expect(state.currentPage.value).toBe(42);
 
         state.zoomMode.value = 'custom';
         state.zoom.value = 2;

@@ -48,7 +48,8 @@ describe('prioritized document page metrics', () => {
 
         expect(featurePack).toContain('const exactPageMetricNumbers = new Set<number>();');
         expect(featurePack).toContain('if (!exactPageMetricNumbers.has(pageNumber))');
-        expect(featurePack).toContain('if (pageNumber !== currentPage)');
+        expect(featurePack).toContain('await ensureExactPageMetric(activeSource, generation, pageNumber, signal);');
+        expect(featurePack).not.toContain('if (pageNumber !== currentPage)');
         expect(featurePack).toContain('onMetric: () => scheduleRender.schedule(),');
     });
 

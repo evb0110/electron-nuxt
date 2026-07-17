@@ -116,6 +116,43 @@
 
             <div class="installer-list-slot">
               <div class="installer-list">
+                <a
+                  v-if="selectedInstallerTab === 'windows'"
+                  class="installer-item installer-item-store"
+                  :href="MICROSOFT_STORE_URL"
+                  target="_blank"
+                  rel="noreferrer"
+                  :aria-label="t('home.installers.store.ariaLabel')"
+                >
+                  <div class="installer-item-info">
+                    <div class="installer-item-header">
+                      <span class="installer-item-variant">{{ t('home.installers.store.title') }}</span>
+                      <span class="installer-badge">
+                        {{ t('home.installers.recommended') }}
+                      </span>
+                    </div>
+                    <span class="installer-item-detail">
+                      {{ t('home.installers.store.detail') }}
+                    </span>
+                    <span class="installer-item-meta">
+                      {{ t('home.installers.store.meta') }}
+                    </span>
+                  </div>
+                  <span class="installer-item-chip">
+                    <UIcon
+                      name="i-simple-icons-microsoft"
+                      class="installer-item-icon"
+                    />
+                  </span>
+                </a>
+
+                <div
+                  v-if="selectedInstallerTab === 'windows'"
+                  class="installer-direct-label"
+                >
+                  {{ t('home.installers.store.directDownloads') }}
+                </div>
+
                 <button
                   v-for="installer in installersForSelectedPlatform"
                   :key="installer.id"
@@ -228,6 +265,8 @@ interface INavigatorUADataLike {
 const { t } = useTypedI18n();
 const localePath = useLocalePath();
 const runtimeConfig = useRuntimeConfig();
+
+const MICROSOFT_STORE_URL = 'https://apps.microsoft.com/detail/9N3MB1WJGX1L';
 
 const webAppUrl = computed(() => runtimeConfig.public.webAppUrl?.trim() || '');
 const pageDescription = computed(() => t('home.seo.ogDescription'));

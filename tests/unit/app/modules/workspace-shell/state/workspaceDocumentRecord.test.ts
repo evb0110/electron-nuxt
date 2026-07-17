@@ -31,5 +31,6 @@ describe('workspace document record opening view state', () => {
 
         expect(pending.toolbarSnapshot.continuousScroll).toBe(false);
         expect(pending.viewState.continuousScroll).toBe(false);
+        expect(pending.viewState.currentPage).toBe(1);
     });
 });
