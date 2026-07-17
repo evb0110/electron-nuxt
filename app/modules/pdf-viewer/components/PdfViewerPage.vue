@@ -14,7 +14,7 @@
     >
         <div class="page_canvas">
             <div class="page_canvas__render-layer canvasWrapper"></div>
-            <PdfPageSkeleton
+            <DocumentPageSkeleton
                 v-if="showPageSkeleton && !rendered && !renderFailed"
                 :padding="pageSkeletonPadding"
                 :content-height="pageSkeletonContentHeight"
@@ -64,7 +64,7 @@
 
 <script setup lang="ts">
 
-import PdfPageSkeleton from '@app/modules/pdf-viewer/components/PdfPageSkeleton.vue';
+import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSkeleton.vue';
 import PdfImagePlacementOverlay from '@app/modules/pdf-viewer/components/PdfImagePlacementOverlay.vue';
 import PdfShapeOverlay from '@app/modules/pdf-viewer/components/PdfShapeOverlay.vue';
 import { clearPdfSelectionForLayerTeardown } from '@app/modules/pdf-viewer/engine/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';

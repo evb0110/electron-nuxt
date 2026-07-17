@@ -80,12 +80,12 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Worker 6 - Diagnostic trace analysis extraction',
     },
     'app/modules/workspace-shell/components/DocumentWorkspace.vue': {
-        maxLines: 1496,
+        maxLines: 1482,
         reason: 'workspace component after deferred-search and component-binding extraction',
         stage: 'Static audit Stage 15 - workspace binding extraction',
     },
     'app/modules/workspace-shell/components/DocumentPageSourceFeaturePack.vue': {
-        maxLines: 1409,
+        maxLines: 1408,
         reason: 'page-source feature pack after shared chassis, retry, and committed-surface lifecycle integration',
         stage: 'Viewer core follow-up - page-source controller extraction',
     },

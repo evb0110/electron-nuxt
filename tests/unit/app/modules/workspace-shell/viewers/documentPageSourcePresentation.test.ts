@@ -9,6 +9,7 @@ import {
     hasHigherDocumentRenderPriority,
     isOwnedConnectedDocumentPageImage,
     prepareDocumentPageSurface,
+    resolveDocumentPageSourceVisual,
     waitForDocumentPageImagePaint,
 } from '@app/modules/workspace-shell/viewers/documentPageSourcePresentation';
 
@@ -21,6 +22,67 @@ describe('documentPageSourcePresentation', () => {
         expect(hasHigherDocumentRenderPriority('visible', 'nearby')).toBe(true);
         expect(hasHigherDocumentRenderPriority('nearby', 'visible')).toBe(false);
         expect(hasHigherDocumentRenderPriority('navigation', 'visible')).toBe(true);
+    });
+
+    it('uses the shared skeleton for every pending mounted page once a source is active', () => {
+        expect(resolveDocumentPageSourceVisual({
+            pageNumber: 4,
+            presentPendingAsSkeleton: true,
+        })).toBe('skeleton');
+        expect(resolveDocumentPageSourceVisual({
+            pageNumber: 4,
+            presentPendingAsSkeleton: false,
+        })).toBe('none');
+        expect(resolveDocumentPageSourceVisual({
+            pageNumber: 4,
+            presentPendingAsSkeleton: true,
+            state: {
+                error: null,
+                ready: true,
+            },
+        })).toBe('fresh');
+        expect(resolveDocumentPageSourceVisual({
+            pageNumber: 4,
+            presentPendingAsSkeleton: true,
+            state: {
+                error: 'render failed',
+                ready: false,
+            },
+        })).toBe('error');
+    });
+
+    it('honors the shared opening viewport visual before ordinary page state', () => {
+        expect(resolveDocumentPageSourceVisual({
+            pageNumber: 4,
+            presentPendingAsSkeleton: true,
+            state: {
+                error: null,
+                ready: true,
+            },
+            viewportVisual: {
+                kind: 'page',
+                pageNumber: 4,
+                presentation: 'skeleton',
+            },
+        })).toBe('skeleton');
+        expect(resolveDocumentPageSourceVisual({
+            pageNumber: 4,
+            presentPendingAsSkeleton: true,
+            viewportVisual: {
+                kind: 'page',
+                pageNumber: 4,
+                presentation: 'canvas',
+            },
+        })).toBe('skeleton');
+        expect(resolveDocumentPageSourceVisual({
+            pageNumber: 4,
+            presentPendingAsSkeleton: true,
+            viewportVisual: {
+                kind: 'page',
+                pageNumber: 4,
+                presentation: 'prepared-shell',
+            },
+        })).toBe('none');
     });
 
     it('finds only the connected image owned by the requested page generation', () => {

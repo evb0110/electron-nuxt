@@ -20,16 +20,13 @@
         :ui="{ title: 'sr-only' }"
     />
 
-    <DjvuBanner
-        v-if="showDjvuConversionUi || djvuPendingOpen || djvuOpening"
-        :visible="djvuOpening || djvuShowBanner || djvuPendingOpen"
-        :is-opening="djvuOpening || djvuPendingOpen"
-        :is-loading-pages="djvuIsLoadingPages"
-        :loading-current="djvuLoadingCurrent"
-        :loading-total="djvuLoadingTotal"
-        @convert="handleConvert"
-        @dismiss="handleDismiss"
-    />
+    <Transition name="document-status">
+        <DjvuBanner
+            v-if="showDjvuBanner"
+            @convert="handleConvert"
+            @dismiss="handleDismiss"
+        />
+    </Transition>
 </template>
 
 <script setup lang="ts">
@@ -38,13 +35,8 @@ import { DjvuBanner } from '@app/modules/djvu-viewer/public/component-exports/dj
 defineProps<{
     pdfError: unknown;
     showDjvuConversionUi: boolean;
-    djvuPendingOpen: boolean;
-    djvuOpening: boolean;
     djvuError: unknown;
-    djvuShowBanner: boolean;
-    djvuIsLoadingPages: boolean;
-    djvuLoadingCurrent: number;
-    djvuLoadingTotal: number;
+    showDjvuBanner: boolean;
 }>();
 
 const emit = defineEmits<{

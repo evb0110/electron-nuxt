@@ -426,7 +426,7 @@ async function emptyCurrentTabAndOpenRecentOnFirstFrame(
                     recentRowVisible: isVisible(getRecentRow()),
                     shellVisible: getExactPageShell() !== null,
                     skeletonVisible: Boolean(
-                        getExactPageShell()?.querySelector('.pdf-page-skeleton'),
+                        getExactPageShell()?.querySelector('.document-page-skeleton'),
                     ),
                 };
             }
@@ -612,7 +612,7 @@ describe('Electron E2E - Recent Files', () => {
             const track = document.querySelector<HTMLElement>('[data-pdf-page-track]');
             return {
                 found: true,
-                hasSkeleton: shell.querySelector('.pdf-page-skeleton') !== null,
+                hasSkeleton: shell.querySelector('.document-page-skeleton') !== null,
                 rect: {
                     height: rect.height,
                     left: rect.left,
@@ -641,7 +641,7 @@ describe('Electron E2E - Recent Files', () => {
         await delay(130);
         const debouncedSkeletonVisible = await evaluateInPage(session.page, () => {
             const shell = document.querySelector<HTMLElement>('[data-e2e-recent-opening-shell="stable"]');
-            return shell?.querySelector('.pdf-page-skeleton') !== null;
+            return shell?.querySelector('.document-page-skeleton') !== null;
         });
         const sourceReleased = await evaluateInPage(session.page, (path: string) => (
             window.__releaseDocumentOpenForAutomation?.(path) ?? false
@@ -708,7 +708,7 @@ describe('Electron E2E - Recent Files', () => {
                 },
                 borderRadius: style.borderRadius,
                 boxShadow: style.boxShadow,
-                hasSkeleton: shell.querySelector('.pdf-page-skeleton') !== null,
+                hasSkeleton: shell.querySelector('.document-page-skeleton') !== null,
                 diagnostics: {
                     hostClientWidth: host?.clientWidth ?? 0,
                     viewportClientWidth: viewport?.clientWidth ?? 0,

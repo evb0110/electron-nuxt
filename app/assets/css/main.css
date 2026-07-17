@@ -109,6 +109,7 @@
     --app-z-floating-chrome: 40;
     --app-z-progress: 50;
     --app-z-modal: 60;
+    --app-z-document-status: 65;
     --app-z-preview: 70;
     --app-z-popover: 80;
     --app-z-menu: 90;
@@ -124,7 +125,7 @@
 
     /* PDF page-local layer order. Keep page content below interaction tools. */
     --app-z-pdf-canvas-layer: var(--app-z-local-base);
-    --app-z-pdf-native-pending-image: var(--app-z-local-raised);
+    --app-z-document-pending-image: var(--app-z-local-raised);
     --app-z-pdf-text-layer: var(--app-z-local-raised);
     --app-z-pdf-link-layer: 2;
     --app-z-pdf-annotation-editor-layer: 3;
@@ -132,7 +133,7 @@
     --app-z-pdf-comment-tooltip: 5;
     --app-z-pdf-shape-layer: 6;
     --app-z-pdf-comment-popup: var(--app-z-pdf-shape-layer);
-    --app-z-pdf-page-skeleton: 7;
+    --app-z-document-page-skeleton: 7;
     --app-z-pdf-image-placement: 8;
     --app-z-pdf-debug-layer: var(--app-z-local-sticky);
     --app-z-pdf-selection-overlay: var(--app-z-progress);
@@ -609,19 +610,19 @@
     --app-pdf-image-placement-rotate-stem-height: 1.9rem;
     --app-pdf-image-placement-controls-offset: 0.6rem;
     --app-pdf-image-placement-action-padding: 0.28rem var(--app-space-8xl);
-    --app-pdf-page-skeleton-radius: 2px;
-    --app-pdf-page-skeleton-gap: 0.9rem;
-    --app-pdf-page-skeleton-header-margin: 0.5rem;
-    --app-pdf-page-skeleton-title-height: 1.2rem;
-    --app-pdf-page-skeleton-subtitle-height: 0.95rem;
-    --app-pdf-page-skeleton-paragraph-gap: 0.65rem;
-    --app-pdf-page-skeleton-line-tall-height: 1.05rem;
-    --app-pdf-page-skeleton-line-height: 0.95rem;
-    --app-pdf-page-skeleton-line-short-height: 0.85rem;
-    --app-pdf-page-skeleton-formula-margin: 0.55rem;
-    --app-pdf-page-skeleton-formula-height: 1.3rem;
-    --app-pdf-page-skeleton-inline-gap: 0.55rem;
-    --app-pdf-page-skeleton-inline-margin: 0.45rem;
+    --app-document-page-skeleton-radius: 2px;
+    --app-document-page-skeleton-gap: 0.9rem;
+    --app-document-page-skeleton-header-margin: 0.5rem;
+    --app-document-page-skeleton-title-height: 1.2rem;
+    --app-document-page-skeleton-subtitle-height: 0.95rem;
+    --app-document-page-skeleton-paragraph-gap: 0.65rem;
+    --app-document-page-skeleton-line-tall-height: 1.05rem;
+    --app-document-page-skeleton-line-height: 0.95rem;
+    --app-document-page-skeleton-line-short-height: 0.85rem;
+    --app-document-page-skeleton-formula-margin: 0.55rem;
+    --app-document-page-skeleton-formula-height: 1.3rem;
+    --app-document-page-skeleton-inline-gap: 0.55rem;
+    --app-document-page-skeleton-inline-margin: 0.45rem;
     --app-pdf-note-title-gap: var(--app-space-3xl);
     --app-pdf-note-title-padding: var(--app-space-xl) var(--app-space-3xl) var(--app-space-md);
     --app-pdf-note-title-main-gap: 0.12rem;
@@ -1045,6 +1046,28 @@
     overflow-anchor: none;
     scroll-behavior: auto;
     background: var(--app-document-viewer-bg);
+}
+
+.document-status-enter-active {
+    transition:
+        opacity var(--app-transition-standard),
+        transform var(--app-transition-standard);
+}
+
+.document-status-enter-from {
+    opacity: 0;
+    transform: translateY(calc(var(--app-space-sm) * -1));
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .document-status-enter-active {
+        transition: none;
+    }
+
+    .document-status-enter-from {
+        opacity: 1;
+        transform: none;
+    }
 }
 
 .app-scrollbar {

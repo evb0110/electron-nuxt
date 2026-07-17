@@ -54,6 +54,42 @@ describe('document viewer architecture boundaries', () => {
             .not.toMatch(/--app-pdf-(?:viewer|page)/u);
     });
 
+    it('owns pending page presentation in the shared document layer', () => {
+        const sharedSkeletonPath = 'app/components/document-viewer/DocumentPageSkeleton.vue';
+        const sharedSkeleton = read(sharedSkeletonPath);
+
+        expect(sharedSkeleton).toContain('class="document-page-skeleton"');
+        expect(sharedSkeleton).toContain('var(--app-z-document-page-skeleton)');
+        expect(sharedSkeleton).not.toMatch(/var\(--app-(?:z-)?pdf/u);
+
+        for (const path of [
+            'app/modules/pdf-viewer/components/PdfViewerPage.vue',
+            'app/modules/pdf-viewer/components/PdfInitialSurfacePlaceholder.vue',
+            'app/modules/native-pdf-viewer/components/NativePdfPageContent.vue',
+            'app/modules/workspace-shell/components/DocumentViewerChassis.vue',
+            'app/modules/workspace-shell/components/DocumentPageSourceFeaturePack.vue',
+        ]) {
+            expect(read(path), path).toContain(
+                '@app/components/document-viewer/DocumentPageSkeleton.vue',
+            );
+        }
+    });
+
+    it('keeps document status above the shared opening transition layer', () => {
+        const sharedStyles = read('app/assets/css/main.css');
+        const banner = read('app/modules/djvu-viewer/components/DjvuBanner.vue');
+        const alerts = read('app/modules/workspace-shell/components/WorkspaceDocumentAlerts.vue');
+
+        expect(sharedStyles).toContain('--app-z-document-status: 65');
+        expect(sharedStyles).toContain('--app-workspace-transition-overlay-z-index: var(--app-z-modal)');
+        expect(sharedStyles).toContain('.document-status-enter-active');
+        expect(sharedStyles).toContain('@media (prefers-reduced-motion: reduce)');
+        expect(banner).toContain('z-index: var(--app-z-document-status)');
+        expect(banner).not.toContain('z-index: var(--app-z-banner)');
+        expect(banner).not.toMatch(/Opening DjVu|isOpening|aria-busy|AppSpinner/u);
+        expect(alerts).toContain('<Transition name="document-status">');
+    });
+
     it('treats tab transitions as semantic viewer layout resizes', () => {
         const workspace = read('app/modules/workspace-shell/components/DocumentWorkspace.vue');
 

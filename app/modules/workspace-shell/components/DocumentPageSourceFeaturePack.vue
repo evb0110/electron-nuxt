@@ -57,7 +57,13 @@
                     <div
                         v-if="getVisual(pageNumber) === 'skeleton'"
                         class="document-source-viewer__skeleton"
-                    />
+                        aria-hidden="true"
+                    >
+                        <DocumentPageSkeleton
+                            :padding="DOCUMENT_PAGE_SKELETON_PADDING"
+                            :content-height="pageLayouts[pageNumber - 1]?.height ?? 760"
+                        />
+                    </div>
                     <div
                         v-else-if="getVisual(pageNumber) === 'error'"
                         class="document-source-viewer__error"
@@ -123,10 +129,12 @@ import { resolveNearestDocumentPageToViewportCenter } from '@app/utils/document-
 import { DOCUMENT_PAGE_GUTTER_PX } from '@app/utils/document-viewer/layout/documentPageGutterPx';
 import { resolveDocumentPageSourceRenderDemand } from '@app/modules/workspace-shell/viewers/resolveDocumentPageSourceRenderDemand';
 import {
+    DOCUMENT_PAGE_SKELETON_PADDING,
     findConnectedDocumentPageImage,
     hasHigherDocumentRenderPriority,
     isOwnedConnectedDocumentPageImage,
     prepareDocumentPageSurface,
+    resolveDocumentPageSourceVisual,
     resolveDocumentPageSourcePageStyle,
     waitForDocumentPageImagePaint,
 } from '@app/modules/workspace-shell/viewers/documentPageSourcePresentation';
@@ -138,6 +146,7 @@ import {
     createDocumentWheelZoomHandler,
     type IDocumentWheelInteraction,
 } from '@app/utils/document-viewer/input/documentWheelInteraction';
+import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSkeleton.vue';
 
 interface IPageVisualState {
     generation: number;
@@ -339,7 +348,6 @@ const renderDemand = computed(() => resolveDocumentPageSourceRenderDemand({
     viewportHeight: containerHeight.value,
 }));
 const surfaceStyle = computed(() => ({height: continuousScroll ? `${Math.max(1, totalHeight.value)}px` : '100%'}));
-
 function getPageStyle(pageNumber: number) {
     const metrics = pageMetrics.value[pageNumber - 1];
     return metrics ? resolveDocumentPageSourcePageStyle(metrics, effectiveZoom.value, pageTops.value[pageNumber - 1], DOCUMENT_PAGE_GUTTER_PX, continuousScroll, pageNumber === currentPage) : {};
@@ -368,21 +376,12 @@ function getChassisOpeningShellTarget(pageNumber: number) {
         : null;
 }
 function getVisual(pageNumber: number) {
-    const state = pageStates.get(pageNumber);
-    const viewportVisual = chassisAuthority?.openSurface.viewportSession.value.visual;
-    if (viewportVisual?.kind === 'page' && viewportVisual.pageNumber === pageNumber) {
-        if (viewportVisual.presentation === 'skeleton') {
-            return 'skeleton';
-        }
-        if (viewportVisual.presentation === 'error') {
-            return 'error';
-        }
-        if (viewportVisual.presentation === 'canvas') {
-            return state?.ready ? 'fresh' : 'none';
-        }
-        return 'none';
-    }
-    return state?.error ? 'error' : state?.ready ? 'fresh' : 'none';
+    return resolveDocumentPageSourceVisual({
+        pageNumber,
+        presentPendingAsSkeleton: source.value !== null,
+        state: pageStates.get(pageNumber),
+        viewportVisual: chassisAuthority?.openSurface.viewportSession.value.visual,
+    });
 }
 function getVisualError(pageNumber: number) {
     const viewportVisual = chassisAuthority?.openSurface.viewportSession.value.visual;

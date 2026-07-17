@@ -85,7 +85,7 @@ export async function readNativePdfPreviewState(page: Page) {
             imageCountPerShell: Array.from(container?.querySelectorAll<HTMLElement>('.native-pdf-page-shell') ?? [])
                 .map(shell => shell.querySelectorAll('img').length),
             shellCount: container?.querySelectorAll('.native-pdf-page-shell').length ?? 0,
-            skeletonCount: host?.querySelectorAll('.native-pdf-page-shell .pdf-page-skeleton').length ?? 0,
+            skeletonCount: host?.querySelectorAll('.native-pdf-page-shell .document-page-skeleton').length ?? 0,
             standardPdfViewerVisible: isElementVisible(standardPdfViewer),
             transitionSurfaceCount: host?.querySelectorAll('.document-viewer-chassis__opening-page').length ?? 0,
         };
@@ -169,8 +169,8 @@ export async function readNativePdfPreviewLoadingState(page: Page) {
         const statusMetricTexts = Array.from(statusBar?.querySelectorAll<HTMLElement>('.status-bar-item') ?? [])
             .map(element => (element.textContent ?? '').trim())
             .filter(Boolean);
-        const pageSkeletons = Array.from(host?.querySelectorAll<HTMLElement>('.native-pdf-page-shell .pdf-page-skeleton') ?? []);
-        const transitionSkeletons = Array.from(host?.querySelectorAll<HTMLElement>('.document-viewer-chassis__opening-page .pdf-page-skeleton') ?? []);
+        const pageSkeletons = Array.from(host?.querySelectorAll<HTMLElement>('.native-pdf-page-shell .document-page-skeleton') ?? []);
+        const transitionSkeletons = Array.from(host?.querySelectorAll<HTMLElement>('.document-viewer-chassis__opening-page .document-page-skeleton') ?? []);
         const pageShells = Array.from(host?.querySelectorAll<HTMLElement>('.native-pdf-page-shell') ?? []);
         const firstVisiblePageShell = pageShells.find(isElementVisible) ?? null;
         const pageImages = Array.from(container?.querySelectorAll<HTMLImageElement>('.native-pdf-page-shell img') ?? []);

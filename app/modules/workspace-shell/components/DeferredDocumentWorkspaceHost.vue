@@ -532,7 +532,7 @@ watch(loaderVariant, (nextVariant, previousVariant) => {
         tabId: tabId,
         previousVariant,
         nextVariant,
-        surface: 'pdf-page-skeleton',
+        surface: 'document-page-skeleton',
         isDocumentOpenInFlight: isDocumentOpenInFlight.value,
         workspaceRequested: workspaceRequested.value,
         hasMountedWorkspace: hasMountedWorkspace.value,

@@ -37,7 +37,7 @@
         v-else-if="!visualCommitted && showSkeleton"
         aria-hidden="true"
     >
-        <PdfPageSkeleton
+        <DocumentPageSkeleton
             :padding="skeletonPadding"
             :content-height="skeletonContentHeight"
         />
@@ -56,7 +56,7 @@
 </template>
 
 <script setup lang="ts">
-import { PdfPageSkeleton } from '@app/modules/pdf-viewer/public/component-exports/pdfPageSkeleton';
+import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSkeleton.vue';
 import type { IDocumentPreviewPageState } from '@app/utils/document-viewer/pagePreviewSource';
 
 const props = defineProps<{

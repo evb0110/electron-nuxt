@@ -288,7 +288,7 @@ async function installBlinkSampler(page: Awaited<ReturnType<typeof startElectron
             const visiblePages = Array.from(document.querySelectorAll<HTMLElement>('.page_container'))
                 .map((container) => {
                     const rect = container.getBoundingClientRect();
-                    const skeleton = container.querySelector<HTMLElement>('.pdf-page-skeleton');
+                    const skeleton = container.querySelector<HTMLElement>('.document-page-skeleton');
                     const skeletonStyle = skeleton ? window.getComputedStyle(skeleton) : null;
                     const skeletonRect = skeleton?.getBoundingClientRect() ?? null;
                     const canvases = Array.from(container.querySelectorAll<HTMLCanvasElement>('.page_canvas canvas'));
@@ -456,12 +456,12 @@ async function installBlinkSampler(page: Awaited<ReturnType<typeof startElectron
                 const pageContainer = target?.closest?.('.page_container') as HTMLElement | null;
                 const important = pageContainer !== null
                     || Array.from(mutation.addedNodes).some(node => node instanceof HTMLElement && (
-                        node.matches('.page_container, .pdf-page-skeleton, canvas')
-                        || Boolean(node.querySelector?.('.page_container, .pdf-page-skeleton, canvas'))
+                        node.matches('.page_container, .document-page-skeleton, canvas')
+                        || Boolean(node.querySelector?.('.page_container, .document-page-skeleton, canvas'))
                     ))
                     || Array.from(mutation.removedNodes).some(node => node instanceof HTMLElement && (
-                        node.matches('.page_container, .pdf-page-skeleton, canvas')
-                        || Boolean(node.querySelector?.('.page_container, .pdf-page-skeleton, canvas'))
+                        node.matches('.page_container, .document-page-skeleton, canvas')
+                        || Boolean(node.querySelector?.('.page_container, .document-page-skeleton, canvas'))
                     ));
                 if (!important) {
                     continue;

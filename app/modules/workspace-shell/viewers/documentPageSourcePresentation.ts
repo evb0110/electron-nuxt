@@ -20,6 +20,54 @@ interface IConnectedPageImageQuery {
     viewerContainer: HTMLElement | null;
 }
 
+export const DOCUMENT_PAGE_SKELETON_PADDING = Object.freeze({
+    bottom: 56,
+    left: 56,
+    right: 56,
+    top: 56,
+});
+
+export type TDocumentPageSourceVisual = 'none' | 'skeleton' | 'fresh' | 'error';
+
+interface IDocumentPageSourceVisualState {
+    error: string | null;
+    ready: boolean;
+}
+
+interface IDocumentPageSourceViewportVisual {
+    kind: 'empty' | 'page' | 'failed';
+    pageNumber?: number;
+    presentation?: 'cold-shell' | 'prepared-shell' | 'skeleton' | 'canvas' | 'error';
+}
+
+export function resolveDocumentPageSourceVisual(options: {
+    pageNumber: number;
+    presentPendingAsSkeleton: boolean;
+    state?: IDocumentPageSourceVisualState | undefined;
+    viewportVisual?: IDocumentPageSourceViewportVisual | undefined;
+}): TDocumentPageSourceVisual {
+    const pendingVisual: TDocumentPageSourceVisual = options.presentPendingAsSkeleton
+        ? 'skeleton'
+        : 'none';
+    const viewportVisual = options.viewportVisual;
+    if (viewportVisual?.kind === 'page' && viewportVisual.pageNumber === options.pageNumber) {
+        if (viewportVisual.presentation === 'skeleton') {
+            return 'skeleton';
+        }
+        if (viewportVisual.presentation === 'error') {
+            return 'error';
+        }
+        if (viewportVisual.presentation === 'canvas') {
+            return options.state?.ready ? 'fresh' : pendingVisual;
+        }
+        return 'none';
+    }
+    if (options.state?.error) {
+        return 'error';
+    }
+    return options.state?.ready ? 'fresh' : pendingVisual;
+}
+
 export function hasHigherDocumentRenderPriority(
     next: TDocumentRenderPriority,
     previous: TDocumentRenderPriority,

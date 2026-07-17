@@ -184,7 +184,7 @@ async function collectVisiblePageState(session: IElectronE2ESession) {
         return Array.from(document.querySelectorAll<HTMLElement>('.page_container'))
             .map((container): IVisiblePageState => {
                 const rect = container.getBoundingClientRect();
-                const skeleton = container.querySelector<HTMLElement>('.pdf-page-skeleton');
+                const skeleton = container.querySelector<HTMLElement>('.document-page-skeleton');
                 const style = window.getComputedStyle(container);
                 const intersectionLeft = Math.max(viewportRect.left, rect.left);
                 const intersectionRight = Math.min(viewportRect.right, rect.right);
@@ -323,7 +323,7 @@ async function collectCommittedCanvasQuality(
             luminanceVariance,
             marker: canvas.dataset.e2eCommittedCanvasMarker ?? '',
             rendered: page.classList.contains('page_container--rendered'),
-            skeletonVisible: Array.from(page.querySelectorAll<HTMLElement>('.pdf-page-skeleton'))
+            skeletonVisible: Array.from(page.querySelectorAll<HTMLElement>('.document-page-skeleton'))
                 .some(skeleton => window.getComputedStyle(skeleton).display !== 'none'),
         };
     }, {
@@ -659,7 +659,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
                     && canvas
                     && canvas.width > 0
                     && canvas.height > 0
-                    && !visible.querySelector('.pdf-page-skeleton'),
+                    && !visible.querySelector('.document-page-skeleton'),
                 ),
                 committedPage: Number(chassis?.dataset.viewportCommittedPage) || null,
                 currentPage: toolbar?.currentPage ?? 0,
@@ -1096,7 +1096,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
                     });
                 const occupied = visiblePages.some(page => {
                     const canvas = page.querySelector<HTMLCanvasElement>('.page_canvas canvas');
-                    const skeleton = page.querySelector<HTMLElement>('.pdf-page-skeleton');
+                    const skeleton = page.querySelector<HTMLElement>('.document-page-skeleton');
                     const skeletonRect = skeleton?.getBoundingClientRect() ?? null;
                     const skeletonStyle = skeleton ? getComputedStyle(skeleton) : null;
                     return Boolean(

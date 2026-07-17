@@ -59,7 +59,7 @@
                     :data-page-source-visual="chassisAuthority.openingPageVisual.value"
                     data-testid="document-page-source-page"
                 >
-                    <PdfPageSkeleton
+                    <DocumentPageSkeleton
                         v-if="chassisAuthority.openingPageVisual.value === 'skeleton'"
                         :padding="openingSkeletonPadding"
                         :content-height="chassisOpeningPageShell.height"
@@ -106,7 +106,7 @@ import {
 import { readPrevalidatedTrustedPdfOpenGeometry } from '@app/modules/pdf-viewer/public';
 import { readPrevalidatedTrustedDjvuOpenGeometry } from '@app/modules/djvu-viewer/public';
 import { resolveDocumentPageSourceOpeningFrame } from '@app/modules/workspace-shell/viewers/resolveDocumentPageSourceOpeningFrame';
-import { PdfPageSkeleton } from '@app/modules/pdf-viewer/public/component-exports/pdfPageSkeleton';
+import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSkeleton.vue';
 import {
     captureDocumentViewportResizeAnchor,
     resolveDocumentViewportResizeAnchorPosition,

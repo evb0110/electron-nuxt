@@ -488,7 +488,7 @@ describe('usePdfSinglePageNavigationController', () => {
             page.dataset.page = String(pageNumber);
             page.innerHTML = pageNumber === 1
                 ? '<div class="page_canvas"><canvas width="600" height="800"></canvas></div>'
-                : '<div class="pdf-page-skeleton"></div>';
+                : '<div class="document-page-skeleton"></div>';
             viewer.append(page);
         }
         const pageSlots = createPdfPageSlotRegistry();
@@ -507,7 +507,7 @@ describe('usePdfSinglePageNavigationController', () => {
             const target = viewer.querySelector<HTMLElement>(
                 `.page_container[data-page="${String(range.start)}"]`,
             );
-            target?.querySelector('.pdf-page-skeleton')?.remove();
+            target?.querySelector('.document-page-skeleton')?.remove();
             const layer = document.createElement('div');
             layer.className = 'page_canvas';
             const canvas = document.createElement('canvas');
@@ -587,7 +587,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 targetPage: 2,
             });
             expect(viewer.querySelector('[data-page="1"] canvas')).not.toBeNull();
-            expect(viewer.querySelector('[data-page="2"] .pdf-page-skeleton')).not.toBeNull();
+            expect(viewer.querySelector('[data-page="2"] .document-page-skeleton')).not.toBeNull();
 
             expect(controller.scrollToPage(3)).toBe(true);
             await vi.waitFor(() => {
@@ -596,7 +596,7 @@ describe('usePdfSinglePageNavigationController', () => {
             expect(controller.viewportAuthority.currentPage.value).toBe(3);
             expect(controller.navigationState.value.status).toBe('idle');
             expect(freshPages.has(3)).toBe(true);
-            expect(viewer.querySelector('[data-page="3"] .pdf-page-skeleton')).toBeNull();
+            expect(viewer.querySelector('[data-page="3"] .document-page-skeleton')).toBeNull();
             expect(viewer.querySelector('[data-page="3"] canvas')).not.toBeNull();
 
             firstPreparation.resolve();
@@ -634,7 +634,7 @@ describe('usePdfSinglePageNavigationController', () => {
             const target = viewerRef.value?.querySelector<HTMLElement>(
                 `.page_container[data-page="${String(range.start)}"]`,
             );
-            target?.querySelector('.pdf-page-skeleton')?.remove();
+            target?.querySelector('.document-page-skeleton')?.remove();
             const layer = document.createElement('div');
             layer.className = 'page_canvas';
             const canvas = document.createElement('canvas');
@@ -720,7 +720,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 const page = document.createElement('div');
                 page.className = 'page_container';
                 page.dataset.page = String(pageNumber);
-                page.innerHTML = '<div class="pdf-page-skeleton"></div>';
+                page.innerHTML = '<div class="document-page-skeleton"></div>';
                 viewer.append(page);
             }
             layout = buildPageLayoutMetrics({

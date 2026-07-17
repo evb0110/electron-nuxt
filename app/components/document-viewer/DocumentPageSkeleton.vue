@@ -1,5 +1,5 @@
 <template>
-    <div class="pdf-page-skeleton" :style="paddingStyle">
+    <div class="document-page-skeleton" :style="paddingStyle">
         <div class="inner flex flex-col">
             <div class="header flex flex-col gap-2">
                 <USkeleton class="title-line" />
@@ -28,7 +28,7 @@
 
             <div
                 v-for="i in repeatParagraphs"
-                :key="`pdf-page-skeleton-paragraph-${i}`"
+                :key="`document-page-skeleton-paragraph-${i}`"
                 class="paragraph flex flex-col"
             >
                 <USkeleton class="line" />
@@ -40,7 +40,6 @@
 </template>
 
 <script setup lang="ts">
-
 interface IPadding {
     top: number;
     right: number;
@@ -76,30 +75,22 @@ const paddingStyle = computed(() => ({padding: `${resolvedPadding.value.top}px $
 const repeatParagraphs = computed(() => {
     const height = contentHeight ?? 0;
     const REM = 16;
-
     const gapInner = 0.9;
-
     const headerHeight = 1.2 + 0.5 + 0.95;
     const headerMarginBottom = 0.5;
-
     const paragraphHeight = 1.05 + 0.65 + 0.95 + 0.65 + 0.85;
-
     const formulaBlockMarginTop = 0.55;
     const formulaBlockHeight = 1.3 + 0.45 + 0.95;
-
-    const fixedReservedRem =
-        headerHeight +
-        headerMarginBottom +
-        gapInner +
-        paragraphHeight +
-        gapInner +
-        paragraphHeight +
-        gapInner +
-        formulaBlockMarginTop +
-        formulaBlockHeight;
-
+    const fixedReservedRem = headerHeight
+        + headerMarginBottom
+        + gapInner
+        + paragraphHeight
+        + gapInner
+        + paragraphHeight
+        + gapInner
+        + formulaBlockMarginTop
+        + formulaBlockHeight;
     const strideRem = gapInner + paragraphHeight;
-
     const paddingY = (padding?.top ?? 0) + (padding?.bottom ?? 0);
     const availableHeight = Math.max(
         height - paddingY - fixedReservedRem * REM,
@@ -112,38 +103,38 @@ const repeatParagraphs = computed(() => {
 </script>
 
 <style scoped>
-.pdf-page-skeleton {
+.document-page-skeleton {
     position: absolute;
     inset: 0;
-    border-radius: inherit;
-    background: inherit;
+    z-index: var(--app-z-document-page-skeleton);
     display: flex;
-    justify-content: center;
+    box-sizing: border-box;
     align-items: flex-start;
+    justify-content: center;
     overflow: hidden;
     pointer-events: none;
-    box-sizing: border-box;
-    z-index: var(--app-z-pdf-page-skeleton);
+    background: inherit;
+    border-radius: inherit;
 }
 
 .inner {
     position: relative;
-    gap: var(--app-pdf-page-skeleton-gap);
+    gap: var(--app-document-page-skeleton-gap);
     width: 100%;
     max-width: 100%;
     height: 100%;
     padding: 0;
     box-sizing: border-box;
-    animation: pdf-page-skeleton-pulse 1s ease-in-out infinite;
+    animation: document-page-skeleton-pulse 1s ease-in-out infinite;
 }
 
 .inner > * {
     position: relative;
-    z-index: var(--app-z-pdf-native-pending-image);
+    z-index: var(--app-z-document-pending-image);
 }
 
 .header {
-    margin-bottom: var(--app-pdf-page-skeleton-header-margin);
+    margin-bottom: var(--app-document-page-skeleton-header-margin);
 }
 
 .title-line,
@@ -157,35 +148,35 @@ const repeatParagraphs = computed(() => {
 
 .title-line {
     width: 60%;
-    height: var(--app-pdf-page-skeleton-title-height);
+    height: var(--app-document-page-skeleton-title-height);
     background: color-mix(in oklab, var(--ui-text-muted) 24%, var(--ui-bg-muted) 76%);
 }
 
 .subtitle-line {
     width: 42%;
-    height: var(--app-pdf-page-skeleton-subtitle-height);
+    height: var(--app-document-page-skeleton-subtitle-height);
     opacity: 0.8;
 }
 
 .paragraph {
-    gap: var(--app-pdf-page-skeleton-paragraph-gap);
+    gap: var(--app-document-page-skeleton-paragraph-gap);
 }
 
 .line {
     width: 100%;
-    height: var(--app-pdf-page-skeleton-line-height);
+    height: var(--app-document-page-skeleton-line-height);
 }
 
 .paragraph .line:nth-child(1) {
-    height: var(--app-pdf-page-skeleton-line-tall-height);
+    height: var(--app-document-page-skeleton-line-tall-height);
 }
 
 .paragraph .line:nth-child(2) {
-    height: var(--app-pdf-page-skeleton-line-height);
+    height: var(--app-document-page-skeleton-line-height);
 }
 
 .paragraph .line:nth-child(3) {
-    height: var(--app-pdf-page-skeleton-line-short-height);
+    height: var(--app-document-page-skeleton-line-short-height);
 }
 
 .is-short {
@@ -193,26 +184,26 @@ const repeatParagraphs = computed(() => {
 }
 
 .formula-block {
-    margin-top: var(--app-pdf-page-skeleton-formula-margin);
+    margin-top: var(--app-document-page-skeleton-formula-margin);
 }
 
 .formula {
     width: 100%;
-    height: var(--app-pdf-page-skeleton-formula-height);
+    height: var(--app-document-page-skeleton-formula-height);
 }
 
 .formula-inline-row {
     display: flex;
-    gap: var(--app-pdf-page-skeleton-inline-gap);
-    margin-top: var(--app-pdf-page-skeleton-inline-margin);
+    gap: var(--app-document-page-skeleton-inline-gap);
+    margin-top: var(--app-document-page-skeleton-inline-margin);
 }
 
 .formula-inline {
     flex: 1;
-    height: var(--app-pdf-page-skeleton-line-height);
+    height: var(--app-document-page-skeleton-line-height);
 }
 
-@keyframes pdf-page-skeleton-pulse {
+@keyframes document-page-skeleton-pulse {
     0%,
     100% {
         opacity: 0.72;

@@ -28,11 +28,11 @@
     justify-self: stretch;
 }
 
-.pdfViewer .page_container--rendered .pdf-page-skeleton {
+.pdfViewer .page_container--rendered .document-page-skeleton {
     display: none;
 }
 
-.pdfViewer .page_container--resize-visual-snapshot .pdf-page-skeleton {
+.pdfViewer .page_container--resize-visual-snapshot .document-page-skeleton {
     display: none;
 }
 
@@ -87,7 +87,7 @@
 .pdf-page-render-error {
     position: absolute;
     inset: 0;
-    z-index: var(--app-z-pdf-page-skeleton);
+    z-index: var(--app-z-document-page-skeleton);
     display: grid;
     place-items: center;
     padding: var(--app-document-page-error-padding);

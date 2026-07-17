@@ -950,7 +950,7 @@ export async function installCommittedSurfaceSampler(page: Page) {
                 const canvasRect = canvas?.getBoundingClientRect() ?? null;
                 const pageSourceImageRect = pageSourceImage?.getBoundingClientRect() ?? null;
                 const skeletons = Array.from(host?.querySelectorAll<HTMLElement>(
-                    '.pdf-page-skeleton, .document-source-viewer__skeleton',
+                    '.document-page-skeleton, .document-source-viewer__skeleton',
                 ) ?? [])
                     .filter(isVisible);
                 const viewportRect = viewport?.getBoundingClientRect() ?? null;
@@ -1173,7 +1173,7 @@ export async function installCommittedSurfaceSampler(page: Page) {
                     topElementPath: describeElementPath(topElement),
                     targetPageCanvasDiagnostic: {
                         connected: targetCanvas?.isConnected ?? false,
-                        hasSkeleton: Boolean(targetPage?.querySelector('.pdf-page-skeleton')),
+                        hasSkeleton: Boolean(targetPage?.querySelector('.document-page-skeleton')),
                         pageNumber: requestedTargetPage,
                         rect: targetCanvasRect && targetCanvasRect.width > 0 && targetCanvasRect.height > 0
                             ? toRect(targetCanvas)

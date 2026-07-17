@@ -80,13 +80,8 @@
         <WorkspaceDocumentAlerts
             :pdf-error="pdfError"
             :show-djvu-conversion-ui="showDjvuConversionUi"
-            :djvu-pending-open="pendingDjvuDocumentOpen"
-            :djvu-opening="djvuBannerOpening"
             :djvu-error="djvuError"
-            :djvu-show-banner="djvuShowBanner"
-            :djvu-is-loading-pages="djvuIsLoadingPages"
-            :djvu-loading-current="djvuLoadingProgress.current"
-            :djvu-loading-total="djvuLoadingProgress.total"
+            :show-djvu-banner="showDjvuConversionBanner"
             @convert="openConvertDialog"
             @dismiss="djvuDismissBanner"
         />
@@ -542,7 +537,6 @@ const {
     djvuSourcePath,
     conversionState,
     djvuIsLoadingPages,
-    djvuLoadingProgress,
     djvuShowBanner,
     djvuError,
     djvuOpeningPath,
@@ -1036,24 +1030,16 @@ const {
     t,
 });
 const {
-    djvuBannerOpening,
+    showDjvuConversionBanner,
     showDjvuConversionUi,
     showWorkspaceViewerDocument: showWorkspaceViewerDocumentFromAdapter,
 } = useDocumentWorkspaceViewerPresentation({
-    activeViewerAdapter,
     activeViewerCapabilities: computed(() => activeViewerCapabilities.value ?? null),
     canUseDjvu,
     conversionState,
-    djvuError,
     djvuOpeningPath,
-    djvuSourcePath,
-    documentViewerRef,
+    djvuShowBanner,
     initialDocumentVisualReady,
-    isDjvuMode,
-    isDocumentOpenPlaceholderVisible,
-    nativePdfSourcePath,
-    pdfError,
-    pdfSrc,
     pendingDjvuDocumentOpen,
     showDjvuSource,
     showNativePdfViewer,

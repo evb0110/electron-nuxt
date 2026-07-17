@@ -212,7 +212,7 @@ async function collectNavigationDiagnosticsSnapshot(session: IElectronE2ESession
                     className: container.className,
                     rendered: container.classList.contains('page_container--rendered'),
                     buffered: container.classList.contains('page_container--buffered'),
-                    hasSkeleton: Boolean(container.querySelector('.pdf-page-skeleton')),
+                    hasSkeleton: Boolean(container.querySelector('.document-page-skeleton')),
                     hasCanvas: canvasCount + previewCount > 0,
                     hasPreview: previewCount > 0,
                     canvasCount,
@@ -569,7 +569,7 @@ async function sampleNavigation(
             });
             const pageNumber = (container: HTMLElement) => Number(container.dataset.page) || 0;
             const skeletonPages = visiblePageContainers
-                .filter(container => Boolean(container.querySelector('.pdf-page-skeleton')))
+                .filter(container => Boolean(container.querySelector('.document-page-skeleton')))
                 .map(pageNumber);
             const renderedPages = visiblePageContainers
                 .filter(container => container.classList.contains('page_container--rendered'))

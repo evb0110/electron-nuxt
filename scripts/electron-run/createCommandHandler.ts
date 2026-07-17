@@ -574,7 +574,7 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
                 renderedPageContainers: pageContainers.length,
                 renderedCanvasCount: host.querySelectorAll('.page_container .page_canvas canvas').length,
                 renderedTextSpanCount: host.querySelectorAll('.page_container .text-layer span, .page_container .textLayer span').length,
-                visibleSkeletonCount: Array.from(host.querySelectorAll('.page_container .pdf-page-skeleton'))
+                visibleSkeletonCount: Array.from(host.querySelectorAll('.page_container .document-page-skeleton'))
                     .filter(node => isElementVisible(node as HTMLElement))
                     .length,
                 visibleLoadingCount,

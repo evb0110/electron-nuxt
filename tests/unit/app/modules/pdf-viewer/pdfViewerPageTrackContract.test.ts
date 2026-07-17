@@ -63,7 +63,7 @@ describe('PDF physical page-track contract', () => {
     it('atomically swaps the pending skeleton for the committed canvas', () => {
         const css = read('app/assets/css/pdf-viewer.scss');
 
-        expect(css).toMatch(/\.page_container--rendered \.pdf-page-skeleton\s*\{[^}]*display:\s*none;/su);
+        expect(css).toMatch(/\.page_container--rendered \.document-page-skeleton\s*\{[^}]*display:\s*none;/su);
         expect(css).toMatch(/\.page_container:not\(\.page_container--rendered\) \.page_canvas__render-layer\s*\{[^}]*visibility:\s*hidden;/su);
     });
 

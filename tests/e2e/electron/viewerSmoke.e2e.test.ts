@@ -75,8 +75,10 @@ interface IDjvuWheelMetricSample {
     virtualSpacerHeight: number;
     visibleImageCount: number;
     visiblePageNumbers: number[];
+    visiblePendingWithoutSkeletonCount: number;
     visibleShellCount: number;
     visibleSkeletonCount: number;
+    visibleUnoccupiedCount: number;
     visibleUnloadedFraction: number;
     requestedPage: number;
 }
@@ -813,7 +815,9 @@ function readDjvuWheelMetricSampleFromPage(): IDjvuWheelMetricSample {
     let totalVisibleShellArea = 0;
     let unloadedVisibleShellArea = 0;
     let visibleImageCount = 0;
+    let visiblePendingWithoutSkeletonCount = 0;
     let visibleSkeletonCount = 0;
+    let visibleUnoccupiedCount = 0;
     const visiblePageNumbers: number[] = [];
     const visibleIntervals: IDjvuVisibleInterval[] = [];
 
@@ -837,13 +841,23 @@ function readDjvuWheelMetricSampleFromPage(): IDjvuWheelMetricSample {
             });
             const visibleArea = visibleHeight * Math.max(1, Math.min(rect.width, viewerRect.width));
             totalVisibleShellArea += visibleArea;
-            if (pageElement.querySelector('img')) {
+            const hasImage = Boolean(pageElement.querySelector('img'));
+            if (hasImage) {
                 visibleImageCount += 1;
             } else {
                 unloadedVisibleShellArea += visibleArea;
             }
-            if (pageElement.querySelector('.document-source-viewer__skeleton')) {
+            const hasDocumentSkeleton = Boolean(pageElement.querySelector(
+                '.document-source-viewer__skeleton .document-page-skeleton',
+            ));
+            if (hasDocumentSkeleton) {
                 visibleSkeletonCount += 1;
+            }
+            if (!hasImage && !hasDocumentSkeleton) {
+                visibleUnoccupiedCount += 1;
+            }
+            if (pageElement.dataset.pageSourceVisual === 'skeleton' && !hasDocumentSkeleton) {
+                visiblePendingWithoutSkeletonCount += 1;
             }
         }
 
@@ -879,8 +893,10 @@ function readDjvuWheelMetricSampleFromPage(): IDjvuWheelMetricSample {
         virtualSpacerHeight: Math.round(virtualSpacers.reduce((total, spacer) => total + spacer.getBoundingClientRect().height, 0)),
         visibleImageCount,
         visiblePageNumbers,
+        visiblePendingWithoutSkeletonCount,
         visibleShellCount: visiblePageNumbers.length,
         visibleSkeletonCount,
+        visibleUnoccupiedCount,
         visibleUnloadedFraction: totalVisibleShellArea > 0
             ? unloadedVisibleShellArea / totalVisibleShellArea
             : 1,
@@ -2030,7 +2046,7 @@ describe('Electron E2E - Viewer Smoke', () => {
                     const canvas = Array.from(page.querySelectorAll<HTMLCanvasElement>(
                         '.page_canvas__render-layer canvas, .pdf-resize-canvas-snapshot',
                     )).find(candidate => candidate.width > 0 && candidate.height > 0);
-                    const skeleton = page.querySelector<HTMLElement>('.pdf-page-skeleton');
+                    const skeleton = page.querySelector<HTMLElement>('.document-page-skeleton');
                     const skeletonRect = skeleton?.getBoundingClientRect() ?? null;
                     return Boolean(canvas || (
                         skeleton
@@ -2378,8 +2394,54 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             return;
         }
         await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
-        await openDjvuInApp(session.page, djvuFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await triggerOpenPathInApp(session.page, djvuFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForFunctionInPage(session.page, () => {
+            const banner = document.querySelector<HTMLElement>('.editor-pane.is-active .djvu-banner');
+            const openingPage = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .document-viewer-chassis__opening-page',
+            );
+            const skeleton = openingPage?.querySelector<HTMLElement>('.document-page-skeleton');
+            return Boolean(
+                !banner
+                && skeleton
+                && (openingPage?.getBoundingClientRect().height ?? 0) > 0,
+            );
+        }, {timeout: DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS});
+        const openingPresentation = await session.page.evaluate(() => {
+            const banner = document.querySelector<HTMLElement>('.editor-pane.is-active .djvu-banner');
+            const openingPage = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .document-viewer-chassis__opening-page',
+            );
+            const skeleton = openingPage?.querySelector<HTMLElement>('.document-page-skeleton') ?? null;
+            const viewport = openingPage?.closest<HTMLElement>('[data-open-surface-phase]') ?? null;
+            if (!openingPage || !skeleton || !viewport) {
+                throw new Error('DjVu opening presentation was not found');
+            }
+            const openingRect = openingPage.getBoundingClientRect();
+            return {
+                bannerPresent: Boolean(banner),
+                openingHeight: Math.round(openingRect.height),
+                phase: viewport.dataset.openSurfacePhase ?? null,
+                skeletonHeight: Math.round(skeleton.getBoundingClientRect().height),
+            };
+        });
+        expect(openingPresentation.bannerPresent, JSON.stringify(openingPresentation)).toBe(false);
+        expect(openingPresentation.phase, JSON.stringify(openingPresentation)).not.toBe('ready');
+        expect(openingPresentation.openingHeight, JSON.stringify(openingPresentation)).toBeGreaterThan(0);
+        expect(openingPresentation.skeletonHeight, JSON.stringify(openingPresentation)).toBeGreaterThan(0);
         await waitForDjvuLoaded(session.page, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForFunctionInPage(session.page, () => {
+            const banner = document.querySelector<HTMLElement>('.editor-pane.is-active .djvu-banner');
+            const chassis = document.querySelector<HTMLElement>('.editor-pane.is-active .document-viewer-chassis');
+            const viewport = chassis?.querySelector<HTMLElement>('[data-open-surface-phase]') ?? null;
+            return Boolean(
+                banner
+                && viewport?.dataset.openSurfacePhase === 'ready'
+                && chassis?.dataset.openSurfacePresentation === 'committed'
+                && chassis.dataset.openSurfaceHasRender === 'true'
+                && chassis.dataset.openSurfaceHasViewport === 'true',
+            );
+        }, {timeout: DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS});
         const djvu = await captureDocumentThumbnailParitySnapshot(session, 18);
 
         for (const snapshot of [
@@ -3211,12 +3273,14 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         }
 
         await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
-        await openDjvuInApp(session.page, djvuFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await triggerOpenPathInApp(session.page, djvuFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await waitForDjvuLoaded(session.page, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await waitForFunctionInPage(session.page, () => {
             const banner = document.querySelector<HTMLElement>('.editor-pane.is-active .djvu-banner');
-            const openingText = banner?.textContent?.includes('Opening DjVu') ?? false;
-            return !openingText && banner?.getAttribute('aria-busy') !== 'true';
+            const viewport = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-document-viewer-chassis-viewport]',
+            );
+            return Boolean(banner && viewport?.dataset.openSurfacePhase === 'ready');
         }, {timeout: 10_000});
         await configureDjvuWheelMetricStart(session);
 
@@ -3242,14 +3306,18 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         expect(summary.maxMountedPages, summaryDetail).toBeLessThanOrEqual(40);
         expect(summary.rangeTransitions, summaryDetail).toBeGreaterThan(3);
         expect(summary.maxVisibleGapPx, summaryDetail).toBeLessThanOrEqual(240);
-        expect(summary.maxVisibleUnloadedFraction, summaryDetail).toBeLessThanOrEqual(0.85);
+        expect(Math.max(...samples.map(sample => sample.visibleSkeletonCount)), summaryDetail)
+            .toBeGreaterThan(0);
+        expect(samples.every(sample => sample.visiblePendingWithoutSkeletonCount === 0), summaryDetail)
+            .toBe(true);
+        expect(samples.every(sample => sample.visibleUnoccupiedCount === 0), summaryDetail)
+            .toBe(true);
         for (const sample of samples) {
             expect(sample.visibleShellCount, summaryDetail).toBeGreaterThan(0);
-            expect(sample.visibleImageCount, summaryDetail).toBeGreaterThan(0);
             expect(sample.pageNumbers).toEqual([...sample.pageNumbers].sort((left, right) => left - right));
             // Mounted pages are the union of current and outgoing destination
             // windows and need not be contiguous. Visible continuity is
-            // asserted directly through gap and loaded-image metrics above.
+            // asserted directly through gap and occupied-shell metrics above.
         }
     }, 120_000);
 

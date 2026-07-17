@@ -114,7 +114,7 @@ export async function collectPdfVirtualizationSnapshot(page: Page): Promise<IPdf
             .map((container): IPdfVirtualPageSnapshot => {
                 const rect = container.getBoundingClientRect();
                 const canvas = container.querySelector<HTMLCanvasElement>('.page_canvas canvas');
-                const skeleton = container.querySelector<HTMLElement>('.pdf-page-skeleton');
+                const skeleton = container.querySelector<HTMLElement>('.document-page-skeleton');
                 return {
                     canvasConnected: canvas?.isConnected ?? false,
                     canvasHeight: canvas?.height ?? 0,
@@ -211,7 +211,7 @@ export async function waitForVisibleMountedPdfCanvases(page: Page, timeoutMs = 1
                 });
             const ready = visiblePages.length > 0 && visiblePages.every((container) => {
                 const canvas = container.querySelector<HTMLCanvasElement>('.page_canvas canvas');
-                const skeleton = container.querySelector<HTMLElement>('.pdf-page-skeleton');
+                const skeleton = container.querySelector<HTMLElement>('.document-page-skeleton');
                 const skeletonVisible = skeleton
                     ? window.getComputedStyle(skeleton).display !== 'none'
                         && window.getComputedStyle(skeleton).visibility !== 'hidden'

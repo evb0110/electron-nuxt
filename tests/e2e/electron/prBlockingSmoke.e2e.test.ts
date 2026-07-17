@@ -173,7 +173,7 @@ async function collectPdfStageDiagnostics(
                         height: rect.height,
                         top: rect.top,
                         width: rect.width,
-                        hasSkeleton: pageContainer.querySelector('.pdf-page-skeleton') !== null,
+                        hasSkeleton: pageContainer.querySelector('.document-page-skeleton') !== null,
                         canvas: canvas ? {
                             height: canvas.height,
                             width: canvas.width,
@@ -304,7 +304,7 @@ async function waitForVisuallyPresentedPdfPage(
             || !canvas
             || canvas.width <= 0
             || canvas.height <= 0
-            || target.querySelector('.pdf-page-skeleton') !== null
+            || target.querySelector('.document-page-skeleton') !== null
             || window.getComputedStyle(viewer).visibility === 'hidden'
             || window.getComputedStyle(target).visibility === 'hidden'
         ) {
@@ -338,7 +338,7 @@ async function readCommittedPdfCanvasPixelSize(
         const canvas = target?.querySelector<HTMLCanvasElement>('.page_canvas canvas') ?? null;
         return {
             height: canvas?.height ?? 0,
-            skeletonVisible: target?.querySelector('.pdf-page-skeleton') !== null,
+            skeletonVisible: target?.querySelector('.document-page-skeleton') !== null,
             width: canvas?.width ?? 0,
         };
     }, pageNumber);
@@ -373,7 +373,7 @@ async function waitForCommittedFitHeightGeometry(
             || !canvas
             || canvas.width <= 0
             || canvas.height <= 0
-            || pageContainer.querySelector('.pdf-page-skeleton') !== null
+            || pageContainer.querySelector('.document-page-skeleton') !== null
             ) {
                 return false;
             }
@@ -487,7 +487,7 @@ async function waitForCommittedFitHeightGeometry(
                     left: pageRect.left,
                     top: pageRect.top,
                     width: pageRect.width,
-                    hasSkeleton: pageContainer?.querySelector('.pdf-page-skeleton') !== null,
+                    hasSkeleton: pageContainer?.querySelector('.document-page-skeleton') !== null,
                 } : null,
                 canvas: canvasRect ? {
                     cssHeight: canvasRect.height,
@@ -1448,7 +1448,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                 const pageCanvasRect = pageCanvas?.getBoundingClientRect() ?? null;
                 const pageCanvasStyle = pageCanvas ? window.getComputedStyle(pageCanvas) : null;
                 const pageSkeletons = Array.from(
-                    currentPage?.querySelectorAll<HTMLElement>('.pdf-page-skeleton') ?? [],
+                    currentPage?.querySelectorAll<HTMLElement>('.document-page-skeleton') ?? [],
                 );
                 const sampleCanvasPixels = (canvas: HTMLCanvasElement | null) => {
                     if (!canvas || canvas.width <= 0 || canvas.height <= 0) {
@@ -1544,7 +1544,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                         : null,
                     hostLoaderCount: visibleHostLoaders.length,
                     hostLoaderSkeletonCount: visibleHostLoaders.reduce((count, loader) => (
-                        count + loader.querySelectorAll('.pdf-page-skeleton').length
+                        count + loader.querySelectorAll('.document-page-skeleton').length
                     ), 0),
                     hostLoaderSpinnerCount: visibleHostLoaders.reduce((count, loader) => (
                         count + loader.querySelectorAll('.animate-spin').length
@@ -1567,7 +1567,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                     pageSkeletonWidth: pageSkeletonRect ? Math.round(pageSkeletonRect.width) : null,
                     openSurfaceCount: visibleOpenSurfaces.length,
                     openSurfaceSkeletonCount: visibleOpenSurfaces.reduce((count, surface) => (
-                        count + surface.querySelectorAll('.pdf-page-skeleton').length
+                        count + surface.querySelectorAll('.document-page-skeleton').length
                     ), 0),
                     openSurfaceSpinnerCount: visibleOpenSurfaces.reduce((count, surface) => (
                         count + surface.querySelectorAll('.animate-spin').length
@@ -1696,7 +1696,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                     '.workspace-host-document-open-fallback',
                 )).filter(isVisible).length,
                 visibleSkeletonCount: Array.from(
-                    viewer?.querySelectorAll('.pdf-page-skeleton') ?? [],
+                    viewer?.querySelectorAll('.document-page-skeleton') ?? [],
                 ).filter(isVisible).length,
             };
             return {
@@ -2015,7 +2015,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                 && canvas.height > 0
                 && canvas.getBoundingClientRect().width > 0
                 && page?.classList.contains('page_container--rendered')
-                && !page.querySelector('.pdf-page-skeleton')
+                && !page.querySelector('.document-page-skeleton')
                 && pageRect
                 && viewportCenter !== null
                 && pageRect.top <= viewportCenter
@@ -2052,7 +2052,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                     viewer
                     && viewer.scrollWidth > viewer.clientWidth + 20
                     && page?.classList.contains('page_container--rendered')
-                    && !page.querySelector('.pdf-page-skeleton')
+                    && !page.querySelector('.document-page-skeleton')
                     && canvas
                     && canvas.width > 0
                     && canvas.height > 0

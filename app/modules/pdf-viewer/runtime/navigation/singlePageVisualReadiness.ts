@@ -91,7 +91,7 @@ export function getMountedPageVisualState(
         ? (selector: string) => pageElement.querySelector(selector)
         : () => null;
 
-    const skeleton = queryPageElement('.pdf-page-skeleton');
+    const skeleton = queryPageElement('.document-page-skeleton');
 
     return {
         buffered: pageElement.classList?.contains('page_container--buffered') === true,

@@ -21,7 +21,7 @@ function createSkeleton(options?: {
     width?: number;
 }) {
     const skeleton = document.createElement('div');
-    skeleton.className = 'pdf-page-skeleton';
+    skeleton.className = 'document-page-skeleton';
     skeleton.style.display = options?.display ?? '';
     skeleton.style.opacity = options?.opacity ?? '';
     skeleton.style.visibility = options?.visibility ?? '';

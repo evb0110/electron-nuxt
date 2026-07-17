@@ -8,5 +8,5 @@ export const pdfViewerDomClasses = {
     annotationLayerPdfjs: 'annotationLayer',
     annotationEditorLayer: 'annotation-editor-layer',
     annotationEditorLayerPdfjs: 'annotationEditorLayer',
-    pageSkeleton: 'pdf-page-skeleton',
+    pageSkeleton: 'document-page-skeleton',
 } as const;

@@ -393,7 +393,7 @@ largePdfDescribe('Electron E2E - Large PDF Native Preview', () => {
                     && viewportRect !== null
                     && shellRect.bottom > viewportRect.top
                     && shellRect.top < viewportRect.bottom
-                    && host?.querySelectorAll('.native-pdf-page-shell .pdf-page-skeleton').length === 0;
+                    && host?.querySelectorAll('.native-pdf-page-shell .document-page-skeleton').length === 0;
             }, {timeout: 30_000}, targetPage);
         } catch (error) {
             const navigationState = await session.page.evaluate((pageNumber) => {
@@ -408,7 +408,7 @@ largePdfDescribe('Electron E2E - Large PDF Native Preview', () => {
                     committedPage: chassis?.dataset.viewportCommittedPage ?? null,
                     phase: viewport?.dataset.openSurfacePhase ?? null,
                     scrollTop: viewport?.scrollTop ?? null,
-                    skeletons: host?.querySelectorAll('.native-pdf-page-shell .pdf-page-skeleton').length ?? 0,
+                    skeletons: host?.querySelectorAll('.native-pdf-page-shell .document-page-skeleton').length ?? 0,
                     shells: shells.map(shell => ({
                         pageNumber: shell.dataset.pageNumber ?? null,
                         committed: shell.querySelector('.native-pdf-page-content--committed') !== null,

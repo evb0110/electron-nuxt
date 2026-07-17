@@ -7,25 +7,33 @@ interface IViewerCapabilities {
 
 interface IConversionState {isConverting: boolean;}
 
+interface IDjvuConversionBannerPresentation {
+    conversionUiAvailable: boolean;
+    initialDocumentVisualReady: boolean;
+    showDjvuBanner: boolean;
+    showDjvuSource: boolean;
+}
+
 interface IUseDocumentWorkspaceViewerPresentationOptions {
-    activeViewerAdapter: Readonly<Ref<unknown | null>>;
     activeViewerCapabilities: Readonly<Ref<IViewerCapabilities | null>>;
     canUseDjvu: boolean;
     conversionState: Readonly<Ref<IConversionState>>;
-    djvuError: Readonly<Ref<unknown>>;
     djvuOpeningPath: Readonly<Ref<unknown>>;
-    djvuSourcePath: Readonly<Ref<unknown>>;
-    documentViewerRef: Readonly<Ref<unknown | null>>;
+    djvuShowBanner: Readonly<Ref<boolean>>;
     initialDocumentVisualReady: Readonly<Ref<boolean>>;
-    isDjvuMode: Readonly<Ref<boolean>>;
-    isDocumentOpenPlaceholderVisible: Readonly<Ref<boolean>>;
-    nativePdfSourcePath: Readonly<Ref<unknown>>;
-    pdfError: Readonly<Ref<unknown>>;
-    pdfSrc: Readonly<Ref<unknown>>;
     pendingDjvuDocumentOpen: Readonly<Ref<boolean>>;
     showDjvuSource: Readonly<Ref<boolean>>;
     showNativePdfViewer: Readonly<Ref<boolean>>;
     showStandardPdfViewer: Readonly<Ref<boolean>>;
+}
+
+export function shouldShowDjvuConversionBanner(
+    presentation: IDjvuConversionBannerPresentation,
+) {
+    return presentation.conversionUiAvailable
+        && presentation.showDjvuSource
+        && presentation.initialDocumentVisualReady
+        && presentation.showDjvuBanner;
 }
 
 export const useDocumentWorkspaceViewerPresentation = (
@@ -35,22 +43,6 @@ export const useDocumentWorkspaceViewerPresentation = (
         options.showStandardPdfViewer.value
         || options.showNativePdfViewer.value
         || options.showDjvuSource.value
-    ));
-    const hasDjvuBannerOpeningContext = computed(() => (
-        options.pendingDjvuDocumentOpen.value
-        || Boolean(options.djvuOpeningPath.value)
-        || options.isDjvuMode.value
-        || options.showDjvuSource.value
-    ));
-    const djvuBannerOpening = computed(() => (
-        hasDjvuBannerOpeningContext.value
-        && !options.djvuError.value
-        && (
-            options.pendingDjvuDocumentOpen.value
-            || Boolean(options.djvuOpeningPath.value)
-            || options.isDocumentOpenPlaceholderVisible.value
-            || options.showDjvuSource.value && !options.initialDocumentVisualReady.value
-        )
     ));
     const showDjvuConversionUi = computed(() => (
         options.canUseDjvu
@@ -62,9 +54,15 @@ export const useDocumentWorkspaceViewerPresentation = (
             || options.conversionState.value.isConverting
         )
     ));
+    const showDjvuConversionBanner = computed(() => shouldShowDjvuConversionBanner({
+        conversionUiAvailable: showDjvuConversionUi.value,
+        initialDocumentVisualReady: options.initialDocumentVisualReady.value,
+        showDjvuBanner: options.djvuShowBanner.value,
+        showDjvuSource: options.showDjvuSource.value,
+    }));
 
     return {
-        djvuBannerOpening,
+        showDjvuConversionBanner,
         showDjvuConversionUi,
         showWorkspaceViewerDocument,
     };

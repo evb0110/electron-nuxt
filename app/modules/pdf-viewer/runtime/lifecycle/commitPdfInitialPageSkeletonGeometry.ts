@@ -55,7 +55,7 @@ export function diagnosePdfPageSkeletonGeometry(
     const pageContainer = container.querySelector<HTMLElement>(
         `.page_container[data-page="${String(pageNumber)}"]`,
     ) ?? null;
-    const pageSkeleton = pageContainer?.querySelector<HTMLElement>('.pdf-page-skeleton') ?? null;
+    const pageSkeleton = pageContainer?.querySelector<HTMLElement>('.document-page-skeleton') ?? null;
     if (
         !pageContainer?.isConnected
         || requireVisibleSkeleton && !pageSkeleton?.isConnected

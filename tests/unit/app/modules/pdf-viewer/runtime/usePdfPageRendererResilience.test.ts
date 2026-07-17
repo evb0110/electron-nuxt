@@ -265,7 +265,7 @@ function createPageContainer(overrides?: {
             mountedCanvas,
         ],
         [
-            '.pdf-page-skeleton',
+            '.document-page-skeleton',
             skeleton,
         ],
         [

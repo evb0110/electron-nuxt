@@ -99,7 +99,7 @@ export const usePdfRendererCleanupController = (options: IUsePdfRendererCleanupC
 
         annotationLayerRenderer.cleanupEditorLayer(pageNumber);
         if (containerRoot) {
-            const skeleton = container?.querySelector<HTMLElement>('.pdf-page-skeleton');
+            const skeleton = container?.querySelector<HTMLElement>('.document-page-skeleton');
             const canvasHost = container?.querySelector<HTMLDivElement>('.page_canvas__render-layer');
             const textLayerDiv = container?.querySelector<HTMLDivElement>('.text-layer');
             const annotationLayerDiv = container?.querySelector<HTMLElement>('.annotation-layer');

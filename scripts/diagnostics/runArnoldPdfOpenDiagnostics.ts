@@ -622,9 +622,9 @@ async function collectOpenSnapshot(page: Page, label: string, startedAtMs: numbe
                 visibleViewers: visibleViewers.length,
                 pageContainers: pageContainers.length,
                 renderedPages: viewer?.querySelectorAll('.page_container--rendered').length ?? 0,
-                pageSkeletons: viewer?.querySelectorAll('.pdf-page-skeleton').length ?? 0,
+                pageSkeletons: viewer?.querySelectorAll('.document-page-skeleton').length ?? 0,
                 visiblePageSkeletons: Array.from(
-                    viewer?.querySelectorAll<HTMLElement>('.pdf-page-skeleton') ?? [],
+                    viewer?.querySelectorAll<HTMLElement>('.document-page-skeleton') ?? [],
                 ).filter(intersectsViewport).length,
                 canvases: viewer?.querySelectorAll('.page_canvas canvas').length ?? 0,
                 textSpans: viewer?.querySelectorAll('.text-layer span, .textLayer span').length ?? 0,
@@ -658,10 +658,10 @@ async function collectOpenSnapshot(page: Page, label: string, startedAtMs: numbe
             // page frame itself and record skeleton presence separately.
             initialPlaceholderPageRect: rectSnapshot(legacyInitialPageFrame),
             ownedPageFrameRect: rectSnapshot(ownedPageFrame),
-            ownedPageFrameHasSkeleton: Boolean(ownedPageFrame?.querySelector('.pdf-page-skeleton')),
+            ownedPageFrameHasSkeleton: Boolean(ownedPageFrame?.querySelector('.document-page-skeleton')),
             pages: pagesToSample.map((pageContainer) => {
                 const canvas = pageContainer.querySelector<HTMLCanvasElement>('.page_canvas canvas');
-                const skeleton = pageContainer.querySelector<HTMLElement>('.pdf-page-skeleton');
+                const skeleton = pageContainer.querySelector<HTMLElement>('.document-page-skeleton');
                 const pageCanvas = pageContainer.querySelector<HTMLElement>('.page_canvas');
                 return {
                     page: Number(pageContainer.dataset.page ?? pageContainer.getAttribute('data-page-number') ?? 0),

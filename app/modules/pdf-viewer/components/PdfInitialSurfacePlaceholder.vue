@@ -9,7 +9,7 @@
             :class="{ 'pdf-initial-surface-placeholder__page-shell--measured': pageStyle != null }"
             :style="pageStyle ?? undefined"
         >
-            <PdfPageSkeleton
+            <DocumentPageSkeleton
                 :padding="skeletonPadding"
                 :content-height="skeletonContentHeight"
             />
@@ -19,7 +19,7 @@
 
 <script setup lang="ts">
 import type { StyleValue } from 'vue';
-import PdfPageSkeleton from '@app/modules/pdf-viewer/components/PdfPageSkeleton.vue';
+import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSkeleton.vue';
 
 defineProps<{ pageStyle?: StyleValue | null }>();
 
