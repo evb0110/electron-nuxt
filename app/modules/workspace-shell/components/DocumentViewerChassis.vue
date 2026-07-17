@@ -163,7 +163,7 @@ if (!documentOpenSurface) {
 }
 const chassisAuthority = createDocumentViewerChassisAuthority(
     sourceKind,
-    1,
+    props.currentPage ?? 1,
     documentOpenSurface,
 );
 function applyRetainedResizeAnchor(reason: string) {

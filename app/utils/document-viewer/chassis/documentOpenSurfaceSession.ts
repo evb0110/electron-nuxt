@@ -992,7 +992,12 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             }
             const current = sessionState.value.viewport;
             const semanticCurrentPage = resolveDocumentViewportCurrentPage(current);
-            if (current.requestedPage === normalized && semanticCurrentPage === normalized) {
+            const retargetOpeningShell = shouldRetargetOwnedOpeningPageShell(normalized);
+            if (
+                current.requestedPage === normalized
+                && semanticCurrentPage === normalized
+                && !retargetOpeningShell
+            ) {
                 // Page projection and viewport commit callbacks may repeat the
                 // already-authoritative semantic page. While a navigation is
                 // in flight, requestedPage is the semantic page; once ready,
@@ -1011,7 +1016,6 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 });
                 return current.requestedPage;
             }
-            const retargetOpeningShell = shouldRetargetOwnedOpeningPageShell(normalized);
             dispatchNavigation(normalized, skeletonDelayMs, retargetOpeningShell
                 ? visual => ({
                     ...visual,

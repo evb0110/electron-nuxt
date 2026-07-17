@@ -169,7 +169,6 @@
                     @go-to-page="handleGoToPage"
                 />
             </template>
-
             <WorkspaceViewerHost
                 :has-document="showWorkspaceViewerDocument"
                 :keep-document-layout-mounted="suppressEmptyStateProp"
@@ -284,7 +283,6 @@
             @text-markup-color-update="annotationSession.handleTextMarkupColorUpdate"
             @text-markup-close="annotationSession.closeTextMarkupProperties"
         />
-
         <DjvuConversionOverlay
             v-if="showDjvuConversionUi"
             :is-converting="conversionState.isConverting && !djvuIsLoadingPages"
@@ -292,7 +290,6 @@
             :percent="conversionState.percent"
             @cancel="handleDjvuCancel"
         />
-
         <WorkspaceSaveDialogHost
             :export-scope-dialog-open="exportScopeDialogOpen"
             :export-scope-dialog-mode="exportScopeDialogMode"
@@ -504,6 +501,9 @@ const orchestration = useWorkspaceOrchestration({
     analyticsDocumentScope,
     isActive: isActiveRef,
     initialViewState,
+    preserveInitialStateForFirstSource: Boolean(initialViewState
+        && documentSession?.snapshot.value.phase === 'ready'
+        && documentSession.snapshot.value.toolbarSnapshot.initialVisualReady),
     openSurface: documentOpenSurface,
     pendingDocumentPath: pendingDocumentStatusPath,
     sourceCapabilities: documentSourceCapabilities,

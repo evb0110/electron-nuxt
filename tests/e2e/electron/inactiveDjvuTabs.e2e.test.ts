@@ -24,6 +24,10 @@ import {
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {waitForTabCount} from '@tests/e2e/electron/helpers/viewerTabs';
 import {
+    callWorkspaceCommand,
+    waitForWorkspaceToolbarSnapshot,
+} from '@tests/e2e/electron/helpers/workspaceExpose';
+import {
     expectSplitPaneCloseContinuity,
     runSplitPaneCloseContinuity,
 } from '@tests/e2e/electron/helpers/splitPaneCloseContinuity';
@@ -35,6 +39,22 @@ interface IWorkspaceDjvuPressure {
     pageShells: number;
     images: number;
 }
+
+interface IDjvuActivationOccupancyFrame {
+    canonicalShellCount: number;
+    elapsedMs: number;
+    effectiveZoom: number | null;
+    shellVisuals: string[];
+    visibleShellCount: number;
+}
+
+interface IDjvuActivationOccupancyProbe {
+    frames: IDjvuActivationOccupancyFrame[];
+    startedAt: number;
+    animationFrame: number;
+}
+
+interface IDjvuActivationOccupancyWindow extends Window {__djvuActivationOccupancyProbe?: IDjvuActivationOccupancyProbe;}
 
 const DJVU_E2E_TIMEOUT_MS = 90_000;
 
@@ -80,6 +100,88 @@ async function activateTab(session: IElectronE2ESession, tabIndex: number) {
         const tabs = Array.from(document.querySelectorAll<HTMLElement>('.tab-list .tab[data-tab-id]'));
         tabs[index]?.click();
     }, tabIndex);
+}
+
+async function installDjvuActivationOccupancyProbe(session: IElectronE2ESession) {
+    await session.page.evaluate(() => {
+        const probeWindow = window as IDjvuActivationOccupancyWindow;
+        if (probeWindow.__djvuActivationOccupancyProbe) {
+            cancelAnimationFrame(probeWindow.__djvuActivationOccupancyProbe.animationFrame);
+        }
+        const probe: IDjvuActivationOccupancyProbe = {
+            animationFrame: 0,
+            frames: [],
+            startedAt: performance.now(),
+        };
+        const isVisible = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = getComputedStyle(element);
+            return style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && Number(style.opacity || '1') > 0
+                && rect.width > 100
+                && rect.height > 100;
+        };
+        const sample = () => {
+            const host = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+                .find(candidate => (
+                    isVisible(candidate)
+                    && candidate.querySelector('[data-testid="document-page-source-viewer"]')
+                ));
+            const viewport = host?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]') ?? null;
+            if (viewport) {
+                const viewportRect = viewport.getBoundingClientRect();
+                const visibleShells = Array.from(viewport.querySelectorAll<HTMLElement>(
+                    '[data-testid="document-page-source-page"]',
+                )).filter((shell) => {
+                    const rect = shell.getBoundingClientRect();
+                    return rect.bottom > viewportRect.top + 1
+                        && rect.top < viewportRect.bottom - 1
+                        && rect.right > viewportRect.left + 1
+                        && rect.left < viewportRect.right - 1;
+                });
+                const canonicalShellCount = visibleShells.filter((shell) => {
+                    const skeleton = shell.querySelector<HTMLElement>('.document-page-skeleton');
+                    if (skeleton && getComputedStyle(skeleton).display !== 'none') {
+                        return true;
+                    }
+                    const image = shell.querySelector<HTMLImageElement>(
+                        ':scope > [data-testid="document-page-source-image"]',
+                    );
+                    return Boolean(
+                        image?.complete
+                        && image.naturalWidth > 0
+                        && image.naturalHeight > 0
+                        && getComputedStyle(image).visibility === 'visible',
+                    );
+                }).length;
+                probe.frames.push({
+                    canonicalShellCount,
+                    elapsedMs: performance.now() - probe.startedAt,
+                    effectiveZoom: (window as IE2EWindow)
+                        .__evbTestApi?.getActiveToolbarSnapshot?.()?.effectiveZoom ?? null,
+                    shellVisuals: visibleShells.map(shell => shell.dataset.pageSourceVisual ?? ''),
+                    visibleShellCount: visibleShells.length,
+                });
+            }
+            probe.animationFrame = requestAnimationFrame(sample);
+        };
+        probeWindow.__djvuActivationOccupancyProbe = probe;
+        probe.animationFrame = requestAnimationFrame(sample);
+    });
+}
+
+async function stopDjvuActivationOccupancyProbe(session: IElectronE2ESession) {
+    return session.page.evaluate(() => {
+        const probeWindow = window as IDjvuActivationOccupancyWindow;
+        const probe = probeWindow.__djvuActivationOccupancyProbe;
+        if (!probe) {
+            return [] as IDjvuActivationOccupancyFrame[];
+        }
+        cancelAnimationFrame(probe.animationFrame);
+        delete probeWindow.__djvuActivationOccupancyProbe;
+        return probe.frames;
+    });
 }
 
 async function splitActiveDocument(session: IElectronE2ESession, direction: 'right' | 'down' = 'right') {
@@ -190,6 +292,17 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
         await waitForActiveDjvuImages(session);
         await goToPageViaToolbar(session.page, 18);
         await waitForActiveDjvuCommittedPage(session, 18);
+        expect((await callWorkspaceCommand(
+            session.page,
+            'setCustomZoomFromDisplay',
+            [4.3],
+        )).called).toBe(true);
+        await waitForWorkspaceToolbarSnapshot(
+            session.page,
+            {minEffectiveZoom: 4.295},
+            {timeoutMs: DJVU_E2E_TIMEOUT_MS},
+        );
+        await waitForActiveDjvuCommittedPage(session, 18);
 
         const afterDjvuOpen = await session.page.evaluate(readDjvuPressureFromPage);
         expect(afterDjvuOpen).toHaveLength(1);
@@ -206,16 +319,37 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
         expect(afterPdfOpen.length).toBeLessThanOrEqual(2);
         expect(afterPdfOpen.filter(host => !host.active).every(host => host.images === 0)).toBe(true);
 
+        await installDjvuActivationOccupancyProbe(session);
         await activateTab(session, 0);
         await waitForDjvuLoaded(session.page);
         await waitForActiveDjvuImages(session);
         await waitForActiveDjvuCommittedPage(session, 18);
+        const restoredSnapshot = await waitForWorkspaceToolbarSnapshot(
+            session.page,
+            {
+                currentPage: 18,
+                minEffectiveZoom: 4.295,
+            },
+            {timeoutMs: DJVU_E2E_TIMEOUT_MS},
+        );
+        expect(restoredSnapshot.zoomMode).toBe('custom');
+        expect(restoredSnapshot.zoom).toBeCloseTo(4.3, 3);
+        expect(restoredSnapshot.effectiveZoom).toBeCloseTo(4.3, 3);
+        const activationFrames = await stopDjvuActivationOccupancyProbe(session);
+        expect(activationFrames.length, JSON.stringify(activationFrames)).toBeGreaterThan(5);
+        expect(
+            activationFrames.every(frame => (
+                frame.visibleShellCount > 0
+                && frame.canonicalShellCount > 0
+            )),
+            JSON.stringify(activationFrames),
+        ).toBe(true);
 
         const afterDjvuReactivation = await session.page.evaluate(readDjvuPressureFromPage);
         const activeAfterDjvuReactivation = afterDjvuReactivation.find(host => host.active);
         expect(activeAfterDjvuReactivation?.images).toBeGreaterThan(0);
         expect(afterDjvuReactivation.filter(host => !host.active).every(host => host.images === 0)).toBe(true);
-    });
+    }, 120_000);
 
     it('keeps independently opened visible split-pane DjVu documents rendered', async () => {
         const session = sessionFixture.getSession();

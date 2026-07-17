@@ -86,6 +86,7 @@ interface IWorkspaceInteractionControlsOptions {
         kind: TDocumentOperationKind,
         operation: () => Promise<T>,
     ) => Promise<T>;
+    preserveInitialStateForFirstSource?: boolean | undefined;
 }
 
 export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionControlsOptions) => {
@@ -145,6 +146,7 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
         effectiveZoom,
         zoomMode,
         pdfSrc,
+        preserveInitialStateForFirstSource: options.preserveInitialStateForFirstSource,
         documentSourceKey: computed(() => {
             if (isDjvuMode.value && djvuSourcePath.value) {
                 return `djvu:${djvuSourcePath.value}`;

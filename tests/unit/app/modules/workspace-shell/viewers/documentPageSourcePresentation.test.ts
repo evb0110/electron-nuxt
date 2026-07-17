@@ -3,7 +3,10 @@ import {
     expect,
     it,
 } from 'vitest';
-import { resolveDocumentPageSourceVisualPresentation } from '@app/modules/workspace-shell/viewers/documentPageSourcePresentation';
+import {
+    resolveDocumentPageSourceVisual,
+    resolveDocumentPageSourceVisualPresentation,
+} from '@app/modules/workspace-shell/viewers/documentPageSourcePresentation';
 
 describe('document page-source visual presentation', () => {
     it.each([
@@ -32,5 +35,20 @@ describe('document page-source visual presentation', () => {
             .map(([flag]) => flag);
 
         expect(visibleFlags).toEqual([expectedFlag]);
+    });
+
+    it.each([
+        'cold-shell',
+        'prepared-shell',
+    ] as const)('uses the canonical pending visual for %s viewport pages', (viewportPresentation) => {
+        expect(resolveDocumentPageSourceVisual({
+            pageNumber: 7,
+            presentPendingAsSkeleton: true,
+            viewportVisual: {
+                kind: 'page',
+                pageNumber: 7,
+                presentation: viewportPresentation,
+            },
+        })).toBe('skeleton');
     });
 });

@@ -106,7 +106,7 @@ export function resolveDocumentPageSourceVisual(options: {
         if (viewportVisual.presentation === 'canvas') {
             return options.state?.ready ? 'fresh' : pendingVisual;
         }
-        return 'none';
+        return pendingVisual;
     }
     if (options.state?.error) {
         return 'error';

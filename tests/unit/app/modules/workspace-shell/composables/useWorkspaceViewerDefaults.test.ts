@@ -22,7 +22,10 @@ import {
     sanitizeSettings,
 } from '@contracts/settings';
 
-function createDefaultsSetup(settings: Partial<ISettingsData> = {}) {
+function createDefaultsSetup(
+    settings: Partial<ISettingsData> = {},
+    options: {preserveInitialStateForFirstSource?: boolean} = {},
+) {
     const scope = effectScope();
     const appSettings = ref<ISettingsData>(sanitizeSettings({
         ...DEFAULT_SETTINGS,
@@ -57,6 +60,7 @@ function createDefaultsSetup(settings: Partial<ISettingsData> = {}) {
         zoomMode,
         pdfSrc,
         documentSourceKey,
+        preserveInitialStateForFirstSource: options.preserveInitialStateForFirstSource,
     }));
 
     if (!defaults) {
@@ -262,6 +266,34 @@ describe('useWorkspaceViewerDefaults', () => {
 
             expect(setup.zoom.value).toBe(1.44);
             expect(setup.effectiveZoom.value).toBe(1.44);
+        } finally {
+            setup.stop();
+        }
+    });
+
+    it('preserves restored viewer state when the first source is reacquired', async () => {
+        const setup = createDefaultsSetup(
+            {defaultZoomPreset: 'fit-width'},
+            {preserveInitialStateForFirstSource: true},
+        );
+
+        try {
+            setup.zoom.value = 4.3;
+            setup.effectiveZoom.value = 4.3;
+            setup.zoomMode.value = 'custom';
+            setup.documentSourceKey.value = 'djvu:/docs/restored.djvu';
+            await nextTick();
+
+            expect(setup.zoom.value).toBe(4.3);
+            expect(setup.effectiveZoom.value).toBe(4.3);
+            expect(setup.zoomMode.value).toBe('custom');
+
+            setup.documentSourceKey.value = 'pdf:/docs/replacement.pdf';
+            await nextTick();
+
+            expect(setup.zoom.value).toBe(1);
+            expect(setup.effectiveZoom.value).toBe(1);
+            expect(setup.zoomMode.value).toBe('fit-width');
         } finally {
             setup.stop();
         }

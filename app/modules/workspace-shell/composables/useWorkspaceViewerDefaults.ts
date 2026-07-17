@@ -20,6 +20,7 @@ interface IUseWorkspaceViewerDefaultsOptions {
     zoomMode: Ref<TZoomMode>;
     pdfSrc: Ref<TPdfSource | null>;
     documentSourceKey?: Ref<unknown>;
+    preserveInitialStateForFirstSource?: boolean | undefined;
 }
 
 export const useWorkspaceViewerDefaults = (options: IUseWorkspaceViewerDefaultsOptions) => {
@@ -76,8 +77,15 @@ export const useWorkspaceViewerDefaults = (options: IUseWorkspaceViewerDefaultsO
     }
 
     const defaultsSourceKey = computed(() => options.documentSourceKey?.value ?? options.pdfSrc.value);
+    let shouldPreserveInitialState = options.preserveInitialStateForFirstSource === true;
 
-    watch(defaultsSourceKey, () => applyWorkspaceViewerDefaults());
+    watch(defaultsSourceKey, (sourceKey) => {
+        if (sourceKey && shouldPreserveInitialState) {
+            shouldPreserveInitialState = false;
+            return;
+        }
+        applyWorkspaceViewerDefaults();
+    });
 
     return {
         resolveDisplayZoom,

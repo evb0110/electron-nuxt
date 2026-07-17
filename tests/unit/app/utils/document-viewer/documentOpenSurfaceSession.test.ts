@@ -404,6 +404,47 @@ describe('document open surface session', () => {
             },
         });
     });
+
+    it('retargets a stale opening frame even when the destination was already requested', () => {
+        const session = createDocumentOpenSurfaceSession();
+        const generation = session.begin({
+            documentId: 'scan.djvu',
+            documentRevision: 'open-intent:1',
+        });
+
+        expect(session.requestNavigation(18)).toBe(18);
+        expect(session.commitOpeningPageGeometry(generation, {
+            documentId: 'scan.djvu',
+            pageNumber: 1,
+            pageCount: 100,
+            width: 600,
+            height: 800,
+            rotation: 0,
+        })).toBe(true);
+        expect(session.commitOpeningPageFrame(generation, {
+            generation,
+            ownerId: 'late-frame-owner',
+            pageNumber: 1,
+            intentKey: 'fit-width:1',
+            style: {
+                width: '600px',
+                height: '800px',
+            },
+        })).toBe(true);
+
+        const previousIntent = session.viewportSession.value.viewportIntent?.id;
+        expect(session.requestNavigation(18)).toBe(18);
+        expect(session.viewportSession.value.viewportIntent?.id).not.toBe(previousIntent);
+        expect(session.snapshot.value.openingPageGeometry).toBeNull();
+        expect(session.snapshot.value.openingPageFrame).toBeNull();
+        expect(session.viewportSession.value).toMatchObject({
+            requestedPage: 18,
+            visual: {
+                kind: 'page',
+                pageNumber: 18,
+            },
+        });
+    });
     it('accepts authoritative transient page geometry without a cache fingerprint', () => {
         const session = createDocumentOpenSurfaceSession();
         const generation = session.begin({

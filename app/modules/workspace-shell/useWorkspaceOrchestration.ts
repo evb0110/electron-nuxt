@@ -58,6 +58,7 @@ interface IWorkspaceOrchestrationDeps {
     initialViewState?: ITabViewSessionState | null;
     pendingDocumentPath?: TReadableRef<TDocumentRef | null> | undefined;
     openSurface?: IDocumentOpenSurfaceSession | undefined;
+    preserveInitialStateForFirstSource?: boolean | undefined;
     sourceCapabilities: Ref<IDocumentSourceCapabilities>;
     emit: {
         (e: 'open-in-new-tab', result: TDocumentRef | TOpenFileResult): void;
@@ -953,6 +954,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         openFileWithViewerLifecycle,
         waitForPdfReload,
         loadPdfFromPath,
+        preserveInitialStateForFirstSource: deps.preserveInitialStateForFirstSource,
         runWithDocumentOperationLease: documentOperationLease.runExclusive,
     });
     useWorkspaceDocumentLifecycleEffects({

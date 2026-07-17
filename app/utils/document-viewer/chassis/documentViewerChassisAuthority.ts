@@ -137,10 +137,10 @@ export function createDocumentViewerChassisAuthority(
     watch(
         () => openSurface.viewportSession.value.visual,
         (visual) => {
-            openingPageVisual.value = visual.kind === 'page' && visual.presentation === 'skeleton'
-                ? 'skeleton'
-                : visual.kind === 'page' && visual.presentation === 'canvas'
-                    ? 'fresh'
+            openingPageVisual.value = visual.kind === 'page' && visual.presentation === 'canvas'
+                ? 'fresh'
+                : visual.kind === 'page' && visual.presentation !== 'error'
+                    ? 'skeleton'
                     : 'none';
         },
         {

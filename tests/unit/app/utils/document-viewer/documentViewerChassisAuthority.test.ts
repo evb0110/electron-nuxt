@@ -73,14 +73,14 @@ describe('document viewer chassis authority', () => {
 
         expect(authority.commitOpeningPageVisual(generation - 1, 3, 'fresh')).toBe(false);
         expect(authority.commitOpeningPageVisual(generation, 2, 'fresh')).toBe(false);
-        expect(authority.openingPageVisual.value).toBe('none');
+        expect(authority.openingPageVisual.value).toBe('skeleton');
         expect(authority.commitOpeningPageVisual(generation, 3, 'fresh')).toBe(true);
         expect(authority.openingPageVisual.value).toBe('fresh');
         authority.openSurface.begin({
             documentId: '/documents/next.djvu',
             documentRevision: 'revision-2',
         });
-        expect(authority.openingPageVisual.value).toBe('none');
+        expect(authority.openingPageVisual.value).toBe('skeleton');
     });
 
     it('keeps one navigation, page-slot, and surface-budget authority across PDF and DjVu sources', async () => {

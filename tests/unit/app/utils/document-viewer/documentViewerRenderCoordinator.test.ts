@@ -42,6 +42,52 @@ describe('document viewer render coordinator', () => {
         ]);
     });
 
+    it('admits viewport pages independently of a stale semantic page', () => {
+        const session = createDocumentViewerRenderCoordinator(createDocumentPageSlotRegistry())
+            .createSession('djvu:viewport-authority');
+        const pages = session.resolveMountedPages({
+            currentPage: 17,
+            pageCount: 1_532,
+            radius: 2,
+            viewportPages: [
+                910,
+                911,
+                912,
+            ],
+        });
+
+        expect(pages).toEqual([
+            15,
+            16,
+            17,
+            18,
+            19,
+            910,
+            911,
+            912,
+        ]);
+    });
+
+    it('caps disjoint semantic and viewport windows without evicting their owners', () => {
+        const session = createDocumentViewerRenderCoordinator(createDocumentPageSlotRegistry())
+            .createSession('djvu:bounded-viewport-authority');
+        const viewportPages = Array.from({length: 25}, (_, index) => 900 + index);
+        const pages = session.resolveMountedPages({
+            currentPage: 17,
+            destinationPage: 1_200,
+            maxPages: 40,
+            pageCount: 1_532,
+            radius: 12,
+            viewportPages,
+        });
+
+        expect(pages).toHaveLength(40);
+        expect(pages).toEqual([...pages].sort((left, right) => left - right));
+        expect(pages).toEqual(expect.arrayContaining(viewportPages));
+        expect(pages).toContain(17);
+        expect(pages).toContain(1_200);
+    });
+
     it('owns render scheduling and rejects a completion after session replacement', async () => {
         const coordinator = createDocumentViewerRenderCoordinator(createDocumentPageSlotRegistry());
         const outgoing = coordinator.createSession('pdf:render-old');

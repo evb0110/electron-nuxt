@@ -20,8 +20,10 @@ export interface IDocumentViewerRenderSession {
     resolveMountedPages(options: {
         currentPage: number;
         destinationPage?: number | undefined;
+        maxPages?: number | undefined;
         pageCount: number;
         radius?: number | undefined;
+        viewportPages?: readonly number[] | undefined;
     }): number[];
     dispose(): void;
 }
@@ -83,10 +85,20 @@ export function createDocumentViewerRenderCoordinator(pageSlots: IDocumentPageSl
             resolveMountedPages({
                 currentPage,
                 destinationPage,
+                maxPages,
                 pageCount,
                 radius = 3,
+                viewportPages = [],
             }) {
-                const pages = new Set<number>();
+                const normalizePage = (pageNumber: number) => Math.max(
+                    1,
+                    Math.min(pageCount, Math.trunc(pageNumber)),
+                );
+                const normalizedViewportPages = [...new Set(viewportPages
+                    .filter(Number.isFinite)
+                    .map(normalizePage))]
+                    .sort((left, right) => left - right);
+                const semanticPages = new Set<number>();
                 for (const anchor of [
                     currentPage,
                     destinationPage,
@@ -96,9 +108,47 @@ export function createDocumentViewerRenderCoordinator(pageSlots: IDocumentPageSl
                         let page = Math.max(1, anchor - radius);
                         page <= Math.min(pageCount, anchor + radius);
                         page += 1
-                    ) pages.add(page);
+                    ) semanticPages.add(page);
                 }
-                return [...pages].sort((left, right) => left - right);
+                const candidates = new Set([
+                    ...normalizedViewportPages,
+                    ...semanticPages,
+                ]);
+                const normalizedMaxPages = maxPages === undefined
+                    ? Number.POSITIVE_INFINITY
+                    : Math.max(1, Math.trunc(maxPages));
+                if (candidates.size <= normalizedMaxPages) {
+                    return [...candidates].sort((left, right) => left - right);
+                }
+
+                const viewportCenter = normalizedViewportPages.length > 0
+                    ? (normalizedViewportPages[0]! + normalizedViewportPages.at(-1)!) / 2
+                    : normalizePage(destinationPage ?? currentPage);
+                const destination = destinationPage === undefined
+                    ? null
+                    : normalizePage(destinationPage);
+                const requiredPages = new Set<number>(normalizedViewportPages);
+                if (destination !== null) requiredPages.add(destination);
+                requiredPages.add(normalizePage(currentPage));
+                const ranked = [...candidates].sort((left, right) => {
+                    const leftRequired = requiredPages.has(left) ? 0 : 1;
+                    const rightRequired = requiredPages.has(right) ? 0 : 1;
+                    if (leftRequired !== rightRequired) {
+                        return leftRequired - rightRequired;
+                    }
+                    const leftDistance = Math.min(
+                        Math.abs(left - viewportCenter),
+                        destination === null ? Number.POSITIVE_INFINITY : Math.abs(left - destination),
+                    );
+                    const rightDistance = Math.min(
+                        Math.abs(right - viewportCenter),
+                        destination === null ? Number.POSITIVE_INFINITY : Math.abs(right - destination),
+                    );
+                    return leftDistance - rightDistance || left - right;
+                });
+                return ranked
+                    .slice(0, normalizedMaxPages)
+                    .sort((left, right) => left - right);
             },
             dispose() {
                 if (disposed) {
