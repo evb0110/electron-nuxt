@@ -39,7 +39,7 @@
 
 - `pnpm build`
 - `vercel build`
-- `vc-private --prod`
+- `pnpm run deploy:web:prod`
 
 ## Production Database Migrations
 
@@ -51,11 +51,10 @@
 ## Private Email CLI Deploys
 
 - Keep Git commits authored with the GitHub no-reply address to avoid leaking a personal email in public repositories.
-- Use `vc-private --prod` instead of `vercel --prod` for local CLI deploys. The global wrapper copies the source tree into a temporary directory without `.git`, preserves `.vercel/project.json`, and runs a normal remote `vercel deploy` from that clean source tree.
-- The wrapper passes `--archive=tgz` by default so Vercel receives a tarball upload instead of counting each source file against the direct upload item limit.
-- The wrapper's temporary source copy omits local-only directories before upload and removes `.vercelignore` entries that point at omitted paths, which avoids Vercel archive-mode `ENOENT` failures.
-- The local `vp` alias already expands to `vc-private --prod --logs`; use plain `vp` for the normal production deploy.
+- Never invoke `vercel`, `vercel deploy`, or `vercel --prod` directly from this checkout. Use `pnpm run deploy:web:prod` for production or `pnpm run deploy:web` for previews.
+- The repository-owned deploy command copies the source tree into a temporary directory without `.git`, preserves `.vercel/project.json`, and runs a normal remote `vercel deploy` from that clean source tree.
+- It passes `--archive=tgz` by default so Vercel receives a tarball upload instead of counting each source file against the direct upload item limit.
+- Its temporary source copy omits local-only directories and environment files before upload and removes `.vercelignore` entries that point at omitted paths, which avoids Vercel archive-mode `ENOENT` failures.
 - This avoids sending the commit author email in Vercel CLI Git metadata, which prevents Vercel from treating the GitHub no-reply address as a separate team collaborator.
 - Because Vercel still performs the build remotely, Production/Preview environment variables and normal alias behavior match dashboard or Git-backed deploys.
-- Use `vc-private` for a preview deployment.
-- If an upload fails due to a transient network error, rerun the same `vc-private` command.
+- If an upload fails due to a transient network error, rerun the same package command.

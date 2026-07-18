@@ -22,6 +22,8 @@
     "dev:nuxt": "pnpm exec nuxi dev --host 127.0.0.1",
     "dev:nuxt:vm": "pnpm exec nuxi dev --host 0.0.0.0 --port 3235",
     "dev:web": "pnpm exec nuxi dev --host 127.0.0.1 --port 3235",
+    "deploy:web": "node scripts/deployVercelPrivate.mjs",
+    "deploy:web:prod": "node scripts/deployVercelPrivate.mjs --prod --logs",
     "build": "pnpm exec nuxi build && node scripts/prune-build-artifacts.mjs && node scripts/check-web-deploy-assets.mjs",
     "build:desktop": "pnpm run check:wasm:portable && pnpm run build:desktop:no-wasm-check",
     "build:desktop:no-wasm-check": "pnpm run build && pnpm run build:electron && pnpm run build:pdf-image-combine && pnpm run build:pdf-page-ops && pnpm run build:pdf-search",
