@@ -45,7 +45,7 @@ const EXCLUDED_PATH_SEGMENTS = new Set([
 
 export const SOURCE_SIZE_ALLOWLIST = {
     'app/modules/agent-panel/components/AgentAssistantPanel.vue': {
-        maxLines: 789,
+        maxLines: 781,
         reason: 'assistant panel entrypoint after extracting turn status and markdown segment rendering',
         stage: 'Assistant overhaul - presentation component extraction',
     },

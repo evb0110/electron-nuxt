@@ -67,6 +67,7 @@ export default {
         'sendSteer': 'Send steer',
         'stop': 'Stopp',
         'copyMessage': 'Nachricht kopieren',
+        'reportResponse': 'Diese KI-Antwort melden',
         'copyMessageCopied': 'Kopiert',
         'startingTurn': 'Wird gestartet',
         'working': 'Arbeitet',

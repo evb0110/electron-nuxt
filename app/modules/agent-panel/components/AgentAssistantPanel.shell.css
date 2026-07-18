@@ -505,17 +505,6 @@
     border-top-color: color-mix(in oklab, var(--ui-error) 24%, transparent);
 }
 
-.agent-assistant-message-copy {
-    flex: 0 0 auto;
-    width: var(--app-assistant-inline-action-size);
-    min-width: var(--app-assistant-inline-action-size);
-    height: var(--app-assistant-inline-action-size);
-    min-height: var(--app-assistant-inline-action-size);
-    margin-top: 0.15rem;
-    color: var(--ui-text-muted);
-    user-select: none;
-}
-
 .agent-assistant-turn-progress {
     display: inline-flex;
     align-items: center;

@@ -28,6 +28,11 @@
                     to that provider under your account and are governed by that provider's terms and privacy
                     policy. EVB Viewer does not sell this information.
                 </p>
+                <p>
+                    Every assistant response includes a report control for inappropriate AI-generated
+                    content. It opens the EVB Viewer issue form, but does not copy or submit the response;
+                    you decide what to include and must avoid private or sensitive information.
+                </p>
             </section>
 
             <section>

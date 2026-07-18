@@ -302,10 +302,14 @@ describe('assistant completion finalization', () => {
             const sendButton = panel
                 ? panel.querySelector<HTMLButtonElement>('button[aria-label="Send"]')
                 : null;
+            const reportLink = panel
+                ? panel.querySelector<HTMLAnchorElement>('a[aria-label="Report this AI response"]')
+                : null;
             return {
                 hasAssistantReply: text.includes('Done before turn response'),
                 composerDisabled: composer?.disabled ?? null,
                 hasPendingMessage: Boolean(panel?.querySelector('.agent-assistant-message.is-pending')),
+                reportHref: reportLink?.href ?? null,
                 hasStopButton: stopButton !== null,
                 sendDisabled: sendButton?.disabled ?? null,
             };
@@ -314,6 +318,7 @@ describe('assistant completion finalization', () => {
             hasAssistantReply: true,
             composerDisabled: false,
             hasPendingMessage: false,
+            reportHref: expect.stringMatching(/^https:\/\/github\.com\/evb0110\/evb-viewer\/issues\/new\?/u),
             hasStopButton: false,
             sendDisabled: true,
         });

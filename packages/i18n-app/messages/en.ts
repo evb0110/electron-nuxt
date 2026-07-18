@@ -67,6 +67,7 @@ export default {
         'sendSteer': 'Send steer',
         'stop': 'Stop',
         'copyMessage': 'Copy message',
+        'reportResponse': 'Report this AI response',
         'copyMessageCopied': 'Copied',
         'startingTurn': 'Starting',
         'working': 'Working',

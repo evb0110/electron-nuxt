@@ -374,22 +374,13 @@
                                         {{ t('assistant.working') }}
                                     </p>
                                 </div>
-                                <AppTooltip
+                                <AssistantMessageActions
                                     v-if="message.text"
-                                    :text="copyMessageTooltip(message.id)"
-                                    :delay-duration="300"
-                                >
-                                    <UButton
-                                        class="agent-assistant-message-copy"
-                                        :aria-label="copyMessageTooltip(message.id)"
-                                        :icon="copyMessageIcon(message.id)"
-                                        color="neutral"
-                                        variant="ghost"
-                                        size="xs"
-                                        type="button"
-                                        @click="handleCopyMessageText(message.id, message.text)"
-                                    />
-                                </AppTooltip>
+                                    :copy-icon="copyMessageIcon(message.id)"
+                                    :copy-tooltip="copyMessageTooltip(message.id)"
+                                    :role="message.role"
+                                    @copy="handleCopyMessageText(message.id, message.text)"
+                                />
                             </div>
                         </article>
 
@@ -676,6 +667,7 @@ import AssistantEffortSwitcher from '@app/modules/agent-panel/components/Assista
 import AssistantModelSwitcher from '@app/modules/agent-panel/components/AssistantModelSwitcher.vue';
 import AssistantSpeedSwitcher from '@app/modules/agent-panel/components/AssistantSpeedSwitcher.vue';
 import AssistantMessageSegments from '@app/modules/agent-panel/components/AssistantMessageSegments.vue';
+import AssistantMessageActions from '@app/modules/agent-panel/components/AssistantMessageActions.vue';
 import AssistantHighlightedCode from '@app/modules/agent-panel/components/AssistantHighlightedCode.vue';
 import AssistantTurnStatus from '@app/modules/agent-panel/components/AssistantTurnStatus.vue';
 import { createAgentAssistantPanelControllerProps } from '@app/modules/agent-panel/composables/createAgentAssistantPanelControllerProps';
