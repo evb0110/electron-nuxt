@@ -10,7 +10,7 @@ import {
 import {
     assembleSearchablePageText,
     buildPdfSearchExcerpt,
-    findPdfSearchMatches,
+    iteratePdfSearchMatches,
     PDF_SEARCH_PROGRESS_RESULT_BATCH_LIMIT,
     validateSearchQuery,
     type IResolvedSearchMatchOptions,
@@ -552,11 +552,8 @@ export async function searchDjvuText(
         onPage(page) {
             processed = page.pageNumber;
             options.onPageProcessed?.(processed);
-            const pageMatches = findPdfSearchMatches(page.text, options.query, options.matchOptions);
-            for (const [
-                pageMatchIndex,
-                match,
-            ] of pageMatches.entries()) {
+            let pageMatchIndex = 0;
+            for (const match of iteratePdfSearchMatches(page.text, options.query, options.matchOptions)) {
                 if (results.length >= SEARCH_RESULT_LIMIT) {
                     truncated = true;
                     break;
@@ -584,6 +581,7 @@ export async function searchDjvuText(
                 results.push(result);
                 pendingProgressResults.push(result);
                 emitProgress();
+                pageMatchIndex += 1;
             }
             emitProgress(truncated);
             return truncated ? false : undefined;

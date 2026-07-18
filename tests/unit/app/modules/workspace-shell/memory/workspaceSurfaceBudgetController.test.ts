@@ -90,6 +90,83 @@ describe('workspace surface budget controller', () => {
         });
     });
 
+    it('rejects a provisional reservation when protected surfaces exhaust the budget', () => {
+        const controller = createWorkspaceSurfaceBudgetController(1_000);
+        controller.reserve({
+            scopeId: 'visible',
+            category: 'pdf-page-canvas',
+            bytes: 800,
+            canEvict: () => false,
+        });
+
+        const rejected = controller.tryReserve({
+            scopeId: 'pending',
+            category: 'pdf-page-canvas',
+            bytes: 300,
+            canEvict: () => false,
+        });
+
+        expect(rejected).toBeNull();
+        expect(controller.getSnapshot()).toMatchObject({
+            reservedBytes: 800,
+            leaseCount: 1,
+        });
+    });
+
+    it('does not evict live surfaces when a provisional reservation cannot fit', () => {
+        const controller = createWorkspaceSurfaceBudgetController(1_000);
+        const evicted: string[] = [];
+        controller.reserve({
+            scopeId: 'thumbnail',
+            category: 'pdf-thumbnail-canvas',
+            bytes: 400,
+            evict: () => evicted.push('thumbnail'),
+        });
+
+        const rejected = controller.tryReserve({
+            scopeId: 'oversized',
+            category: 'pdf-page-canvas',
+            bytes: 1_200,
+            canEvict: () => false,
+        });
+
+        expect(rejected).toBeNull();
+        expect(evicted).toEqual([]);
+        expect(controller.getSnapshot()).toMatchObject({
+            reservedBytes: 400,
+            leaseCount: 1,
+        });
+    });
+
+    it('admits a provisional reservation after reclaiming a lower-priority surface', () => {
+        const controller = createWorkspaceSurfaceBudgetController(1_000);
+        const evicted: string[] = [];
+        controller.reserve({
+            scopeId: 'thumbnail',
+            category: 'pdf-thumbnail-canvas',
+            bytes: 400,
+            evict: () => evicted.push('thumbnail'),
+        });
+        controller.reserve({
+            scopeId: 'visible',
+            category: 'pdf-page-canvas',
+            bytes: 400,
+            canEvict: () => false,
+        });
+
+        const admitted = controller.tryReserve({
+            scopeId: 'pending',
+            category: 'pdf-page-canvas',
+            bytes: 400,
+            canEvict: () => false,
+            priority: 100,
+        });
+
+        expect(admitted).not.toBeNull();
+        expect(evicted).toEqual(['thumbnail']);
+        expect(controller.getSnapshot().reservedBytes).toBe(800);
+    });
+
     it('counts canvas backing stores at four bytes per physical pixel', () => {
         expect(estimateCanvasSurfaceBytes({
             width: 1200,

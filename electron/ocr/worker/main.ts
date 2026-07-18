@@ -33,11 +33,7 @@ import {
     writeFile,
 } from 'fs/promises';
 import { join } from 'path';
-import {
-    limitAsync,
-    sortBy,
-    uniq,
-} from 'es-toolkit/array';
+import {uniq} from 'es-toolkit/array';
 import { PDFDocument } from 'pdf-lib';
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import type {
@@ -490,43 +486,14 @@ async function processOcrPages(
         { phase: 'processing' },
     );
 
-    const processPageWithLimit = limitAsync(async (page: IOcrPdfPageRequest) => {
-        const result = await processOcrPage(page, context);
-        processedCount += 1;
-        sendProgress(
-            jobId,
-            getSequentialProgressPage(targetPages, processedCount),
-            processedCount,
-            targetPages.length,
-            { phase: 'processing' },
-        );
-        return {
-            pageNumber: page.pageNumber,
-            result,
-        };
-    }, concurrency);
-
-    const settledPageResults = await Promise.allSettled(targetPages.map(page => processPageWithLimit(page)));
-    const rejectedResult = settledPageResults.find(result => result.status === 'rejected');
-    if (rejectedResult?.status === 'rejected') {
-        throw rejectedResult.reason instanceof Error
-            ? rejectedResult.reason
-            : new Error('OCR page processing failed');
-    }
-    const pageResults = settledPageResults.map((result) => {
-        if (result.status === 'rejected') {
-            throw result.reason instanceof Error
-                ? result.reason
-                : new Error('OCR page processing failed');
-        }
-        return result.value;
-    });
-
     const errors: string[] = [];
     const ocrPageData: IOcrPageWithWords[] = [];
-    const effectiveDpis: number[] = [];
+    const ocrPdfMap = new Map<number, string>();
+    let effectiveRenderDpi = context.extractionDpi;
     const diagnostics: IOcrDiagnostic[] = [];
-    for (const { result } of pageResults) {
+    let nextPageIndex = 0;
+
+    const aggregateResult = (pageNumber: number, result: Awaited<ReturnType<typeof processOcrPage>>) => {
         if (result.error) {
             errors.push(result.error);
         }
@@ -534,29 +501,43 @@ async function processOcrPages(
             ocrPageData.push(result.pageData);
         }
         if (typeof result.effectiveDpi === 'number') {
-            effectiveDpis.push(result.effectiveDpi);
+            effectiveRenderDpi = Math.min(effectiveRenderDpi, result.effectiveDpi);
+        }
+        if (result.pdfPath) {
+            ocrPdfMap.set(pageNumber, result.pdfPath);
         }
         diagnostics.push(...(result.diagnostics ?? []));
-    }
+    };
+
+    const runWorker = async () => {
+        while (nextPageIndex < targetPages.length) {
+            const page = targetPages[nextPageIndex];
+            nextPageIndex += 1;
+            if (!page) {
+                continue;
+            }
+            const result = await processOcrPage(page, context);
+            aggregateResult(page.pageNumber, result);
+            processedCount += 1;
+            sendProgress(
+                jobId,
+                getSequentialProgressPage(targetPages, processedCount),
+                processedCount,
+                targetPages.length,
+                { phase: 'processing' },
+            );
+        }
+    };
+    await Promise.all(Array.from(
+        {length: Math.min(concurrency, targetPages.length)},
+        () => runWorker(),
+    ));
 
     return {
         errors,
-        ocrPageData: sortBy(
-            ocrPageData,
-            [pageData => pageData.pageNumber],
-        ),
-        ocrPdfMap: new Map(pageResults.flatMap(({
-            pageNumber,
-            result,
-        }) => (
-            result.pdfPath
-                ? [[
-                    pageNumber,
-                    result.pdfPath,
-                ] as const]
-                : []
-        ))),
-        effectiveRenderDpi: Math.min(context.extractionDpi, ...effectiveDpis),
+        ocrPageData: ocrPageData.sort((left, right) => left.pageNumber - right.pageNumber),
+        ocrPdfMap,
+        effectiveRenderDpi,
         diagnostics,
     };
 }

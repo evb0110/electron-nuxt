@@ -33,11 +33,14 @@ import { acquireNativePdfPreviewAdmission } from '@electron/features/documents/m
 const PDFINFO_TIMEOUT_MS = 20_000;
 const PDF_RENDER_TIMEOUT_MS = 30_000;
 const PDFINFO_DETAILED_PAGE_LIMIT = 5_000;
+const PDF_NATIVE_MAX_PAGE_COUNT = 100_000;
 const PDFINFO_BASE_STDOUT_BYTES = 256 * 1024;
 const PDFINFO_PER_PAGE_STDOUT_BYTES = 512;
 const PDF_RENDER_DEFAULT_TARGET_WIDTH_PX = 1_200;
 const PDF_RENDER_MIN_TARGET_WIDTH_PX = 64;
 const PDF_RENDER_MAX_TARGET_WIDTH_PX = 4_096;
+const PDF_RENDER_MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
+const PDF_RENDER_MAX_OUTPUT_PIXELS = 64 * 1024 * 1024;
 const logger = createLogger('native-pdf-preview');
 
 const PAGE_COUNT_RE = /^Pages:\s+(\d+)\s*$/imu;
@@ -67,6 +70,9 @@ function normalizePageCount(pdfInfoOutput: string) {
     const count = Number.parseInt(PAGE_COUNT_RE.exec(pdfInfoOutput)?.[1] ?? '', 10);
     if (!Number.isSafeInteger(count) || count < 1) {
         throw new Error('Unable to determine PDF page count for native preview');
+    }
+    if (count > PDF_NATIVE_MAX_PAGE_COUNT) {
+        throw new RangeError(`Native PDF preview supports at most ${PDF_NATIVE_MAX_PAGE_COUNT.toLocaleString()} pages`);
     }
     return count;
 }
@@ -545,7 +551,7 @@ async function runPdfNativePagePreview(
                 perOwnerLimit: 2,
                 resources: {
                     cpuTokens: 1,
-                    estimatedResidentBytes: Math.max(16 * 1024 * 1024, targetWidthPx * targetWidthPx * 16),
+                    estimatedResidentBytes: Math.max(16 * 1024 * 1024, PDF_RENDER_MAX_OUTPUT_BYTES * 2),
                     nativeProcesses: 1,
                     ioWeight: 1,
                 },
@@ -592,11 +598,18 @@ async function runPdfNativePagePreview(
                 cancelGroup,
             }),
         );
+        const outputStat = await stat(outputPath);
+        if (outputStat.size > PDF_RENDER_MAX_OUTPUT_BYTES) {
+            throw new RangeError('Native PDF preview exceeds the 64 MiB output limit');
+        }
         const bytes = new Uint8Array(await readFile(outputPath));
         const {
             width,
             height,
         } = readPngDimensions(bytes);
+        if (width * height > PDF_RENDER_MAX_OUTPUT_PIXELS) {
+            throw new RangeError('Native PDF preview exceeds the 64-megapixel surface limit');
+        }
         requestOutcome = 'completed';
         return {
             bytes,

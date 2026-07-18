@@ -27,6 +27,7 @@ interface IUsePdfRendererCanvasControllerOptions {
     getPage: (pageNumber: number) => Promise<IPdfDocumentPageLease>;
     cancelActiveRenderTask: (pageNumber: number) => void;
     cancelActiveRenderTaskIfCurrent: (pageNumber: number, version: number, requestId: number) => void;
+    reservePendingPageCanvasSurface?: ((bytes: number) => IWorkspaceSurfaceLease | null) | undefined;
     reservePageCanvasSurface?: ((
         pageNumber: number,
         canvas: HTMLCanvasElement,
@@ -48,6 +49,7 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
         getPage,
         cancelActiveRenderTask,
         cancelActiveRenderTaskIfCurrent,
+        reservePendingPageCanvasSurface,
         reservePageCanvasSurface = () => ({
             bytes: 0,
             category: 'pdf-page-canvas',
@@ -293,6 +295,9 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
         ) {
             canvasRenderOptions.maxCanvasPixels = renderOptions.maxCanvasPixels;
         }
+        if (reservePendingPageCanvasSurface) {
+            canvasRenderOptions.reserveSurface = reservePendingPageCanvasSurface;
+        }
         let prepareStageTimedOut = false;
         const prepareCanvasRenderPromise = canvasRenderer.prepareCanvasRender(
             pdfPage,
@@ -412,6 +417,8 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
             userUnit,
         );
         const previousCanvas = pageCanvases.get(pageNumber);
+        renderResult.surfaceReservation?.release();
+        renderResult.surfaceReservation = undefined;
         const surfaceLease = reservePageCanvasSurface(
             pageNumber,
             canvas,

@@ -219,4 +219,43 @@ describe('JobBroker', () => {
             queued: 0,
         });
     });
+
+    it('bounds queued jobs globally before allocating more queue metadata', async () => {
+        const broker = new JobBroker({
+            ...CAPACITY,
+            cpuTokens: 1,
+        }, 5_000, Date.now, 2, 2);
+        const blocker = await broker.acquire(createRequest());
+        const firstQueued = broker.acquire(createRequest({ownerId: 'owner-1'}));
+        const secondQueued = broker.acquire(createRequest({ownerId: 'owner-2'}));
+
+        await expect(broker.acquire(createRequest({ownerId: 'owner-3'})))
+            .rejects.toThrow('queue is full (2 jobs)');
+        expect(broker.getSnapshot().queued).toBe(2);
+
+        blocker.release();
+        const firstLease = await firstQueued;
+        firstLease.release();
+        const secondLease = await secondQueued;
+        secondLease.release();
+    });
+
+    it('bounds queued jobs per owner without blocking other owners', async () => {
+        const broker = new JobBroker({
+            ...CAPACITY,
+            cpuTokens: 1,
+        }, 5_000, Date.now, 4, 1);
+        const blocker = await broker.acquire(createRequest());
+        const queued = broker.acquire(createRequest({ownerId: 'owner-1'}));
+
+        await expect(broker.acquire(createRequest({ownerId: 'owner-1'})))
+            .rejects.toThrow('owner queue is full (1 jobs for owner-1)');
+        const otherOwner = broker.acquire(createRequest({ownerId: 'owner-2'}));
+
+        blocker.release();
+        const queuedLease = await queued;
+        queuedLease.release();
+        const otherLease = await otherOwner;
+        otherLease.release();
+    });
 });

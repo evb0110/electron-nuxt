@@ -43,6 +43,7 @@ import {
 export const PDF_NATIVE_MUTATION_LIMITS = {
     noteTextUpdates: 256,
     noteChanges: 256,
+    noteTextLength: 64 * 1024,
     pageLabelRanges: 2_048,
     bookmarkItems: 5_000,
     bookmarkDepth: 64,
@@ -235,6 +236,9 @@ function normalizeFreeTextNotes(
         }
         if (typeof note.text !== 'string') {
             fail(`${label}[${index}].text must be a string`, options);
+        }
+        if (note.text.length > PDF_NATIVE_MUTATION_LIMITS.noteTextLength) {
+            fail(`${label}[${index}].text must contain at most ${PDF_NATIVE_MUTATION_LIMITS.noteTextLength} characters`, options);
         }
         return {
             pageIndex: requirePageIndex(note.pageIndex),
@@ -959,6 +963,9 @@ export function normalizePdfNativeNoteTextUpdates(
         }
         if (typeof text !== 'string') {
             fail(`${label}[${index}].text must be a string`, options);
+        }
+        if (text.length > PDF_NATIVE_MUTATION_LIMITS.noteTextLength) {
+            fail(`${label}[${index}].text must contain at most ${PDF_NATIVE_MUTATION_LIMITS.noteTextLength} characters`, options);
         }
         return {
             objectNumber,

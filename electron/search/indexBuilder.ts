@@ -47,7 +47,7 @@ import type {
 } from '@electron/search/searchIndexTypes';
 import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
 import { assertWorkingCopyRevisionSidecarCurrent } from '@electron/file-access/documentRevisionSidecar';
-import {resolveDocumentTextCatalogSnapshot} from '@electron/ocr/documentTextCatalog';
+import {visitDocumentOcrCatalogPages} from '@electron/ocr/documentTextCatalog';
 
 export type {
     IPageIndex,
@@ -71,13 +71,9 @@ const SEARCH_PDFJS_FIRST_MAX_PAGES = (() => {
     }
     return Math.min(parsed, 10_000);
 })();
-const PARTIAL_OCR_DIRECT_TEXT_PAGE_LIMIT = (() => {
-    const parsed = Number.parseInt(process.env.EVB_SEARCH_PARTIAL_OCR_DIRECT_TEXT_PAGE_LIMIT ?? '200', 10);
-    if (!Number.isFinite(parsed) || parsed < 1) {
-        return 200;
-    }
-    return Math.min(parsed, 10_000);
-})();
+const SEARCH_PDFTOTEXT_PAGE_WINDOW = 64;
+const SEARCH_RESIDENT_GEOMETRY_MAX_WORDS = 250_000;
+const SEARCH_LEGACY_JSON_INDEX_MAX_BYTES = 128 * 1024 * 1024;
 interface IBuildSearchIndexOptions {
     documentRevision: TDocumentRevisionToken;
     pageCount?: number;
@@ -99,6 +95,8 @@ interface IPageDataInput {
     pageHeight?: number;
     rotation?: TOcrIndexRotation;
 }
+
+interface ISearchGeometryBudget {remainingWords: number;}
 
 function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) {
@@ -184,6 +182,24 @@ function parseSearchIndexPages(pages: unknown[]): IPageIndex[] | null {
         normalizedPages.push(normalizedPage);
     }
     return sortBy(normalizedPages, ['pageNumber']);
+}
+
+function applySearchGeometryBudget(
+    page: IPageIndex,
+    budget: ISearchGeometryBudget,
+): IPageIndex {
+    const wordCount = page.words?.length ?? 0;
+    if (wordCount === 0) {
+        return page;
+    }
+    if (wordCount > budget.remainingWords) {
+        return {
+            pageNumber: page.pageNumber,
+            text: page.text,
+        };
+    }
+    budget.remainingWords -= wordCount;
+    return page;
 }
 
 function parseSearchIndexPayload(
@@ -410,32 +426,20 @@ function shouldExtractPdfText(
     return false;
 }
 
-function shouldUsePartialOcrCorpus(
-    ocrPages: Map<number, IPageIndex> | undefined,
-    expectedCount: number | undefined,
-) {
-    return !!ocrPages
-        && ocrPages.size > 0
-        && isPositiveInteger(expectedCount)
-        && ocrPages.size < expectedCount
-        && expectedCount > PARTIAL_OCR_DIRECT_TEXT_PAGE_LIMIT;
-}
-
 function applyExtractedTexts(
     pagesByNumber: Map<number, IPageIndex>,
     pageTexts: IExtractedPageText[],
     signal?: AbortSignal,
     preservePageNumbers: ReadonlySet<number> = new Set(),
 ): Map<number, IPageIndex> {
-    const nextPages = new Map(pagesByNumber);
     for (const pt of pageTexts) {
         throwIfAborted(signal);
-        const entry = nextPages.get(pt.pageNumber);
+        const entry = pagesByNumber.get(pt.pageNumber);
         if (entry && preservePageNumbers.has(pt.pageNumber)) {
             continue;
         }
         if (!entry) {
-            nextPages.set(pt.pageNumber, {
+            pagesByNumber.set(pt.pageNumber, {
                 pageNumber: pt.pageNumber,
                 text: pt.text,
             });
@@ -443,13 +447,13 @@ function applyExtractedTexts(
         }
 
         if (!entry.text && pt.text) {
-            nextPages.set(pt.pageNumber, {
+            pagesByNumber.set(pt.pageNumber, {
                 ...entry,
                 text: pt.text,
             });
         }
     }
-    return nextPages;
+    return pagesByNumber;
 }
 
 function applyExtractedPages(
@@ -458,17 +462,16 @@ function applyExtractedPages(
     signal?: AbortSignal,
     preservePageNumbers: ReadonlySet<number> = new Set(),
 ): Map<number, IPageIndex> {
-    const nextPages = new Map(pagesByNumber);
     for (const extractedPage of extractedPages) {
         throwIfAborted(signal);
-        const previous = nextPages.get(extractedPage.pageNumber);
+        const previous = pagesByNumber.get(extractedPage.pageNumber);
         if (previous && preservePageNumbers.has(extractedPage.pageNumber)) {
             continue;
         }
         const text = extractedPage.text.length > 0
             ? extractedPage.text
             : previous?.text ?? '';
-        nextPages.set(extractedPage.pageNumber, {
+        pagesByNumber.set(extractedPage.pageNumber, {
             pageNumber: extractedPage.pageNumber,
             text,
             ...(extractedPage.pageWidth !== undefined ? { pageWidth: extractedPage.pageWidth } : {}),
@@ -477,7 +480,7 @@ function applyExtractedPages(
             ...(extractedPage.words !== undefined ? { words: extractedPage.words } : {}),
         });
     }
-    return nextPages;
+    return pagesByNumber;
 }
 
 async function seedFromPdfjsWordBoxes(
@@ -487,6 +490,7 @@ async function seedFromPdfjsWordBoxes(
     signal?: AbortSignal,
     onPageIndexed?: (page: IPageIndex) => void,
     preservePageNumbers: ReadonlySet<number> = new Set(),
+    geometryBudget: ISearchGeometryBudget = {remainingWords: SEARCH_RESIDENT_GEOMETRY_MAX_WORDS},
 ): Promise<{
     pagesByNumber: Map<number, IPageIndex>;
     hasText: boolean;
@@ -499,7 +503,8 @@ async function seedFromPdfjsWordBoxes(
             collectPages: false,
             onPageText: (pageText) => {
                 hasText ||= pageText.text.length > 0;
-                nextPagesByNumber = applyExtractedPages(nextPagesByNumber, [pageText], signal, preservePageNumbers);
+                const boundedPage = applySearchGeometryBudget(pageText, geometryBudget);
+                nextPagesByNumber = applyExtractedPages(nextPagesByNumber, [boundedPage], signal, preservePageNumbers);
                 const page = nextPagesByNumber.get(pageText.pageNumber);
                 if (page && !preservePageNumbers.has(pageText.pageNumber)) {
                     onPageIndexed?.(page);
@@ -587,22 +592,52 @@ async function seedFromPdftotext(
 }> {
     try {
         log.debug(`Falling back to pdftotext (pageCount=${expectedCount ?? 'unknown'})`);
-        const extractOptions: Parameters<typeof extractTextFromPdf>[1] = {};
-        if (expectedCount !== undefined) {
-            extractOptions.pageCount = expectedCount;
-        }
-        if (signal !== undefined) {
-            extractOptions.signal = signal;
-        }
-        const pageTexts = await extractTextFromPdf(pdfPath, extractOptions);
-        const hasText = pageTexts.some(pageText => pageText.text.length > 0);
-        const nextPagesByNumber = applyExtractedTexts(pagesByNumber, pageTexts, signal, preservePageNumbers);
-        pageTexts.forEach((pageText) => {
-            const page = nextPagesByNumber.get(pageText.pageNumber);
-            if (page && !preservePageNumbers.has(pageText.pageNumber)) {
-                onPageIndexed?.(page);
+        let hasText = false;
+        let nextPagesByNumber = pagesByNumber;
+        const runWindow = async (pages?: number[]) => {
+            const extractOptions: Parameters<typeof extractTextFromPdf>[1] = {};
+            if (expectedCount !== undefined) {
+                extractOptions.pageCount = expectedCount;
             }
-        });
+            if (signal !== undefined) {
+                extractOptions.signal = signal;
+            }
+            if (pages !== undefined) {
+                extractOptions.pages = pages;
+            }
+            const pageTexts = await extractTextFromPdf(pdfPath, extractOptions);
+            hasText ||= pageTexts.some(pageText => pageText.text.length > 0);
+            nextPagesByNumber = applyExtractedTexts(
+                nextPagesByNumber,
+                pageTexts,
+                signal,
+                preservePageNumbers,
+            );
+            pageTexts.forEach((pageText) => {
+                const page = nextPagesByNumber.get(pageText.pageNumber);
+                if (page && !preservePageNumbers.has(pageText.pageNumber)) {
+                    onPageIndexed?.(page);
+                }
+            });
+        };
+
+        if (isPositiveInteger(expectedCount)) {
+            for (let firstPage = 1; firstPage <= expectedCount; firstPage += SEARCH_PDFTOTEXT_PAGE_WINDOW) {
+                throwIfAborted(signal);
+                const lastPage = Math.min(expectedCount, firstPage + SEARCH_PDFTOTEXT_PAGE_WINDOW - 1);
+                const pages: number[] = [];
+                for (let pageNumber = firstPage; pageNumber <= lastPage; pageNumber += 1) {
+                    if (!preservePageNumbers.has(pageNumber)) {
+                        pages.push(pageNumber);
+                    }
+                }
+                if (pages.length > 0) {
+                    await runWindow(pages);
+                }
+            }
+        } else {
+            await runWindow();
+        }
         return {
             pagesByNumber: nextPagesByNumber,
             hasText,
@@ -809,18 +844,12 @@ export async function buildSearchIndex(
     }
     throwIfAborted(signal);
 
-    const catalogSnapshot = await resolveDocumentTextCatalogSnapshot(
-        pdfPath,
-        documentRevision,
-        expectedCount,
-    ).catch((error) => {
-        log.debug(`DocumentTextCatalog is unavailable for this revision: ${getErrorMessage(error)}`);
-        return null;
-    });
-    const ocrIndex = catalogSnapshot ? {
-        pageCount: catalogSnapshot.pageCount,
-        pagesByNumber: new Map(catalogSnapshot.pages.map(page => {
-            const indexedPage: IPageIndex = {
+    const geometryBudget: ISearchGeometryBudget = {remainingWords: SEARCH_RESIDENT_GEOMETRY_MAX_WORDS};
+    const ocrPages = new Map<number, IPageIndex>();
+    const ocrCatalog = await visitDocumentOcrCatalogPages(pdfPath, documentRevision, {
+        ...(signal ? {signal} : {}),
+        onPage: (page) => {
+            const indexedPage = applySearchGeometryBudget({
                 pageNumber: page.pageNumber,
                 text: page.text,
                 ...(page.words && page.words.length > 0 ? {words: page.words} : {}),
@@ -828,19 +857,21 @@ export async function buildSearchIndex(
                     pageWidth: page.render.imagePx.w,
                     pageHeight: page.render.imagePx.h,
                 } : {}),
-            };
+            }, geometryBudget);
             onPageIndexed?.(indexedPage);
-            return [
-                page.pageNumber,
-                indexedPage,
-            ] as const;
-        })),
-    } : null;
-    const ocrPages = ocrIndex?.pagesByNumber;
+            ocrPages.set(page.pageNumber, indexedPage);
+        },
+    }).catch((error) => {
+        if (isAbortError(error)) {
+            throw error;
+        }
+        log.debug(`OCR page catalog is unavailable for this revision: ${getErrorMessage(error)}`);
+        return null;
+    });
     const effectiveExpectedCount = isPositiveInteger(expectedCount)
         ? expectedCount
-        : ocrIndex?.pageCount;
-    if (ocrPages && ocrPages.size > 0 && hasCompleteExpectedCoverage(ocrPages, effectiveExpectedCount, signal)) {
+        : ocrCatalog?.pageCount;
+    if (ocrPages.size > 0 && hasCompleteExpectedCoverage(ocrPages, effectiveExpectedCount, signal)) {
         return buildIndexFromOcrPages(
             pdfPath,
             documentRevision,
@@ -855,19 +886,12 @@ export async function buildSearchIndex(
     const existing = await loadSearchIndex(pdfPath, documentRevision);
     throwIfAborted(signal);
 
-    let pagesByNumber = ocrPages && ocrPages.size > 0
+    let pagesByNumber = ocrPages.size > 0
         ? new Map(ocrPages)
         : seedFromExistingIndex(existing);
-    const preservedOcrPages = new Set(ocrPages?.keys() ?? []);
-    const usePartialOcrCorpus = shouldUsePartialOcrCorpus(ocrPages, effectiveExpectedCount);
+    const preservedOcrPages = new Set(ocrPages.keys());
 
-    if (usePartialOcrCorpus) {
-        log.debug(
-            `Using partial OCR corpus for large search index (${ocrPages?.size ?? 0}/${
-                effectiveExpectedCount ?? 'unknown'
-            } pages); skipping full PDF text extraction`,
-        );
-    } else if (shouldExtractPdfText(pagesByNumber, existing, effectiveExpectedCount)) {
+    if (shouldExtractPdfText(pagesByNumber, existing, effectiveExpectedCount)) {
         pagesByNumber = await seedPagesFromPdfText(
             pdfPath,
             pagesByNumber,
@@ -913,6 +937,11 @@ export async function loadSearchIndex(
     const indexPath = getIndexPath(pdfPath);
 
     try {
+        const indexStat = await stat(indexPath);
+        if (indexStat.size > SEARCH_LEGACY_JSON_INDEX_MAX_BYTES) {
+            log.warn(`Search index exceeds ${SEARCH_LEGACY_JSON_INDEX_MAX_BYTES} bytes; ignoring ${indexPath}`);
+            return null;
+        }
         const content = await readFile(indexPath, 'utf-8');
         const parsed: unknown = JSON.parse(content);
         const index = parseSearchIndexPayload(parsed, pdfPath, expectedRevision);

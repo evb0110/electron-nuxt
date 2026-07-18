@@ -29,6 +29,10 @@ const BROWSER_PRINT_RESOLUTION_DPI = 300;
 const PDF_POINTS_PER_INCH = 72;
 const BROWSER_PRINT_RENDER_SCALE = BROWSER_PRINT_RESOLUTION_DPI / PDF_POINTS_PER_INCH;
 const BROWSER_PRINT_PAGE_SIZE_TOLERANCE_PT = 0.5;
+const BROWSER_PRINT_MAX_INPUT_BYTES = 256 * 1024 * 1024;
+const BROWSER_PRINT_MAX_RESIDENT_CANVAS_BYTES = 256 * 1024 * 1024;
+const BROWSER_PRINT_MAX_CANVAS_PIXELS = 64 * 1024 * 1024;
+const BROWSER_PRINT_MAX_CANVAS_DIMENSION = 32_767;
 
 function createBrowserPrintAbortError() {
     const error = new Error('Print preparation was canceled');
@@ -162,6 +166,12 @@ export async function renderPdfPagesForBrowserPrint(
     root.replaceChildren();
 
     const pdfjsLib = await getPdfjsPrintLib();
+    if (printablePdf instanceof Blob && printablePdf.size > BROWSER_PRINT_MAX_INPUT_BYTES) {
+        throw new RangeError('Browser print input exceeds 256 MiB; use native printing');
+    }
+    if (printablePdf instanceof Uint8Array && printablePdf.byteLength > BROWSER_PRINT_MAX_INPUT_BYTES) {
+        throw new RangeError('Browser print input exceeds 256 MiB; use native printing');
+    }
     const pdfData = printablePdf instanceof Blob
         ? new Uint8Array(await printablePdf.arrayBuffer())
         : clonePdfBytes(printablePdf);
@@ -222,69 +232,90 @@ async function renderPdfPageNumbersForBrowserPrint(
         width: number;
         height: number;
     } | null = null;
+    let residentCanvasBytes = 0;
 
-    for (const pageNumber of pageNumbers) {
-        throwIfBrowserPrintAborted(options.signal);
-        const page = await getPage(pageNumber);
-
-        try {
+    try {
+        for (const pageNumber of pageNumbers) {
             throwIfBrowserPrintAborted(options.signal);
-            const displayViewport = page.getViewport({ scale: 1 });
-            if (!firstPageSize) {
-                firstPageSize = {
-                    width: displayViewport.width,
-                    height: displayViewport.height,
-                };
-                setBrowserPrintPageSize(targetDocument, displayViewport.width, displayViewport.height);
-            } else {
-                assertBrowserPrintPageMatchesFirstPage(
-                    pageNumber,
-                    displayViewport.width,
-                    displayViewport.height,
-                    firstPageSize,
-                );
-            }
+            const page = await getPage(pageNumber);
 
-            const renderViewport = page.getViewport({ scale: BROWSER_PRINT_RENDER_SCALE });
-            const pageContainer = createBrowserPrintPageContainer(targetDocument);
-            pageContainer.className = 'browser-print-page';
-
-            const canvas = createBrowserPrintCanvas(targetDocument);
-            canvas.width = Math.max(1, Math.ceil(renderViewport.width));
-            canvas.height = Math.max(1, Math.ceil(renderViewport.height));
-            canvas.style.width = formatPdfPointSizeAsCssInches(displayViewport.width);
-            canvas.style.height = formatPdfPointSizeAsCssInches(displayViewport.height);
-
-            const context = canvas.getContext('2d', { alpha: false });
-            if (!context) {
-                throw new Error('Failed to create browser print canvas');
-            }
-
-            const renderTask = page.render({
-                canvas: context.canvas,
-                canvasContext: context,
-                viewport: renderViewport,
-            });
-            const abortRender = () => renderTask.cancel();
-            options.signal?.addEventListener('abort', abortRender, { once: true });
             try {
                 throwIfBrowserPrintAborted(options.signal);
-                await renderTask.promise;
-                throwIfBrowserPrintAborted(options.signal);
-            } catch (error) {
-                throwIfBrowserPrintAborted(options.signal);
-                throw error;
-            } finally {
-                options.signal?.removeEventListener('abort', abortRender);
-            }
+                const displayViewport = page.getViewport({ scale: 1 });
+                if (!firstPageSize) {
+                    firstPageSize = {
+                        width: displayViewport.width,
+                        height: displayViewport.height,
+                    };
+                    setBrowserPrintPageSize(targetDocument, displayViewport.width, displayViewport.height);
+                } else {
+                    assertBrowserPrintPageMatchesFirstPage(
+                        pageNumber,
+                        displayViewport.width,
+                        displayViewport.height,
+                        firstPageSize,
+                    );
+                }
 
-            pageContainer.append(canvas);
-            root.append(pageContainer);
-        } finally {
-            if (typeof page.cleanup === 'function') {
-                page.cleanup();
+                const renderViewport = page.getViewport({ scale: BROWSER_PRINT_RENDER_SCALE });
+                const pageContainer = createBrowserPrintPageContainer(targetDocument);
+                pageContainer.className = 'browser-print-page';
+
+                const canvas = createBrowserPrintCanvas(targetDocument);
+                const canvasWidth = Math.max(1, Math.ceil(renderViewport.width));
+                const canvasHeight = Math.max(1, Math.ceil(renderViewport.height));
+                const canvasPixels = canvasWidth * canvasHeight;
+                if (
+                    canvasWidth > BROWSER_PRINT_MAX_CANVAS_DIMENSION
+                || canvasHeight > BROWSER_PRINT_MAX_CANVAS_DIMENSION
+                || canvasPixels > BROWSER_PRINT_MAX_CANVAS_PIXELS
+                ) {
+                    throw new RangeError(`Page ${pageNumber} exceeds the browser print surface limit; use native printing`);
+                }
+                const canvasBytes = canvasPixels * 4;
+                if (residentCanvasBytes + canvasBytes > BROWSER_PRINT_MAX_RESIDENT_CANVAS_BYTES) {
+                    throw new RangeError('Browser print pages exceed the 256 MiB canvas budget; use native printing');
+                }
+                residentCanvasBytes += canvasBytes;
+                canvas.width = canvasWidth;
+                canvas.height = canvasHeight;
+                canvas.style.width = formatPdfPointSizeAsCssInches(displayViewport.width);
+                canvas.style.height = formatPdfPointSizeAsCssInches(displayViewport.height);
+
+                const context = canvas.getContext('2d', { alpha: false });
+                if (!context) {
+                    throw new Error('Failed to create browser print canvas');
+                }
+
+                const renderTask = page.render({
+                    canvas: context.canvas,
+                    canvasContext: context,
+                    viewport: renderViewport,
+                });
+                const abortRender = () => renderTask.cancel();
+                options.signal?.addEventListener('abort', abortRender, { once: true });
+                try {
+                    throwIfBrowserPrintAborted(options.signal);
+                    await renderTask.promise;
+                    throwIfBrowserPrintAborted(options.signal);
+                } catch (error) {
+                    throwIfBrowserPrintAborted(options.signal);
+                    throw error;
+                } finally {
+                    options.signal?.removeEventListener('abort', abortRender);
+                }
+
+                pageContainer.append(canvas);
+                root.append(pageContainer);
+            } finally {
+                if (typeof page.cleanup === 'function') {
+                    page.cleanup();
+                }
             }
         }
+    } catch (error) {
+        root.replaceChildren();
+        throw error;
     }
 }
 

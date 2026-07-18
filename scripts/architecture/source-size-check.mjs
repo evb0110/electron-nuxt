@@ -105,7 +105,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Future PDF rendering extraction',
     },
     'app/modules/pdf-viewer/runtime/usePdfViewerFeatureController.ts': {
-        maxLines: 1258,
+        maxLines: 1216,
         reason: 'PDF feature controller after render-demand and prepared opening-frame authority integration',
         stage: 'Viewer core follow-up - opening and render-demand orchestration extraction',
     },

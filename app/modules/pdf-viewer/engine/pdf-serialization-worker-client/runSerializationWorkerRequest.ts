@@ -19,7 +19,28 @@ const SERIALIZATION_WORKER_IDLE_TTL_MS = 15_000;
 // reply within this window we assume it is wedged (silent throw, lost
 // postMessage, deadlock) and reject the renderer's await so the save flow
 // surfaces an error instead of an indefinite spinner.
-const SERIALIZATION_WORKER_REQUEST_TIMEOUT_MS = 30_000;
+const SERIALIZATION_WORKER_BASE_REQUEST_TIMEOUT_MS = 30_000;
+const SERIALIZATION_WORKER_MAX_REQUEST_TIMEOUT_MS = 10 * 60_000;
+const SERIALIZATION_WORKER_TIMEOUT_BYTES_PER_STEP = 8 * 1024 * 1024;
+const SERIALIZATION_WORKER_TIMEOUT_STEP_MS = 5_000;
+const SERIALIZATION_WORKER_COPY_CHUNK_BYTES = 8 * 1024 * 1024;
+const SERIALIZATION_WORKER_MAX_INPUT_BYTES = 512 * 1024 * 1024;
+const SERIALIZATION_WORKER_MAX_QUEUED_REQUESTS = 4;
+let serializationRequestTail = Promise.resolve();
+let serializationRequestCount = 0;
+
+function resolveSerializationWorkerRequestTimeoutMs(request: TSerializationWorkerRequest) {
+    const payload = isRecord(request.payload) ? request.payload : null;
+    const inputBytes = payload?.data instanceof Uint8Array ? payload.data.byteLength : 0;
+    const extraSteps = Math.max(
+        0,
+        Math.ceil(inputBytes / SERIALIZATION_WORKER_TIMEOUT_BYTES_PER_STEP) - 1,
+    );
+    return Math.min(
+        SERIALIZATION_WORKER_MAX_REQUEST_TIMEOUT_MS,
+        SERIALIZATION_WORKER_BASE_REQUEST_TIMEOUT_MS + extraSteps * SERIALIZATION_WORKER_TIMEOUT_STEP_MS,
+    );
+}
 
 class PdfSerializationWorkerOperationError extends Error {
     public constructor(message: string) {
@@ -121,20 +142,31 @@ function decodeCanonicalIdentityBindingWorkerResult(
     };
 }
 
-function toTransferableUint8Array(data: Uint8Array): Uint8Array<ArrayBuffer> {
+async function toTransferableUint8Array(data: Uint8Array): Promise<Uint8Array<ArrayBuffer>> {
     // Never transfer the caller's live buffer into the worker. The save path
     // can pass reactive PDF state here, and transferring that buffer would
     // detach it on the main thread before the save completes.
-    return data.slice();
+    if (data.byteLength > SERIALIZATION_WORKER_MAX_INPUT_BYTES) {
+        throw new RangeError('PDF serialization input exceeds the 512 MiB worker limit');
+    }
+    const copy = new Uint8Array(data.byteLength);
+    for (let offset = 0; offset < data.byteLength; offset += SERIALIZATION_WORKER_COPY_CHUNK_BYTES) {
+        copy.set(
+            data.subarray(offset, Math.min(data.byteLength, offset + SERIALIZATION_WORKER_COPY_CHUNK_BYTES)),
+            offset,
+        );
+        if (offset > 0) await yieldToBrowser();
+    }
+    return copy;
 }
 
-function buildWorkerRequestWithTransfers(
+async function buildWorkerRequestWithTransfers(
     request: TSerializationWorkerRequest,
 ) {
     switch (request.type) {
         case 'save': {
             const payload = request.payload;
-            const transferableData = toTransferableUint8Array(payload.data);
+            const transferableData = await toTransferableUint8Array(payload.data);
             return {
                 request: {
                     ...request,
@@ -148,7 +180,7 @@ function buildWorkerRequestWithTransfers(
         }
         case 'updateEmbeddedText': {
             const payload = request.payload;
-            const transferableData = toTransferableUint8Array(payload.data);
+            const transferableData = await toTransferableUint8Array(payload.data);
             return {
                 request: {
                     ...request,
@@ -162,7 +194,7 @@ function buildWorkerRequestWithTransfers(
         }
         case 'deleteEmbeddedAnnotation': {
             const payload = request.payload;
-            const transferableData = toTransferableUint8Array(payload.data);
+            const transferableData = await toTransferableUint8Array(payload.data);
             return {
                 request: {
                     ...request,
@@ -176,7 +208,7 @@ function buildWorkerRequestWithTransfers(
         }
         case 'bindCanonicalAnnotationIdentities': {
             const payload = request.payload;
-            const transferableData = toTransferableUint8Array(payload.data);
+            const transferableData = await toTransferableUint8Array(payload.data);
             return {
                 request: {
                     ...request,
@@ -198,7 +230,7 @@ function buildWorkerRequestWithTransfers(
 
 const serializationWorkerClient = new BrowserWorkerClient<IPendingBrowserWorkerRequest>({
     idleTtlMs: SERIALIZATION_WORKER_IDLE_TTL_MS,
-    requestTimeoutMs: SERIALIZATION_WORKER_REQUEST_TIMEOUT_MS,
+    requestTimeoutMs: SERIALIZATION_WORKER_BASE_REQUEST_TIMEOUT_MS,
     createWorker: () => new Worker(
         new URL('../pdfSerialization.worker.ts', import.meta.url),
         { type: 'module' },
@@ -270,7 +302,7 @@ async function runDirectWithYield(
     return result;
 }
 
-export async function runSerializationWorkerRequest<K extends TSerializationWorkerRequestType>(
+async function runSerializationWorkerRequestInternal<K extends TSerializationWorkerRequestType>(
     type: K,
     payload: ISerializationWorkerRequestMap[K],
 ): Promise<ISerializationWorkerResultMap[K]> {
@@ -292,6 +324,8 @@ export async function runSerializationWorkerRequest<K extends TSerializationWork
         return runDirectWithYield(typedRequest) as Promise<ISerializationWorkerResultMap[K]>;
     }
 
+    const workerRequest = await buildWorkerRequestWithTransfers(typedRequest);
+    const requestTimeoutMs = resolveSerializationWorkerRequestTimeoutMs(typedRequest);
     return new Promise<ISerializationWorkerResultMap[K]>((resolve, reject) => {
         serializationWorkerClient.clearIdleTerminateTimer();
 
@@ -315,11 +349,10 @@ export async function runSerializationWorkerRequest<K extends TSerializationWork
             },
             reject,
         }, () => new PdfSerializationWorkerTimeoutError(
-            `PDF serialization worker did not reply within ${SERIALIZATION_WORKER_REQUEST_TIMEOUT_MS}ms (type=${request.type})`,
-        ));
+            `PDF serialization worker did not reply within ${requestTimeoutMs}ms (type=${request.type})`,
+        ), requestTimeoutMs);
 
         try {
-            const workerRequest = buildWorkerRequestWithTransfers(typedRequest);
             worker.postMessage(workerRequest.request, workerRequest.transfer);
         } catch (error) {
             serializationWorkerClient.cancelPendingRequest(
@@ -346,4 +379,26 @@ export async function runSerializationWorkerRequest<K extends TSerializationWork
             throw error;
         }) as Promise<ISerializationWorkerResultMap[K]>;
     });
+}
+
+export async function runSerializationWorkerRequest<K extends TSerializationWorkerRequestType>(
+    type: K,
+    payload: ISerializationWorkerRequestMap[K],
+): Promise<ISerializationWorkerResultMap[K]> {
+    if (serializationRequestCount >= SERIALIZATION_WORKER_MAX_QUEUED_REQUESTS) {
+        throw new Error('PDF serialization queue is full; wait for the active save to finish');
+    }
+    serializationRequestCount += 1;
+    const predecessor = serializationRequestTail;
+    let releaseQueueSlot!: () => void;
+    serializationRequestTail = new Promise<void>((resolve) => {
+        releaseQueueSlot = resolve;
+    });
+    await predecessor;
+    try {
+        return await runSerializationWorkerRequestInternal(type, payload);
+    } finally {
+        serializationRequestCount -= 1;
+        releaseQueueSlot();
+    }
 }

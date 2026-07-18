@@ -76,6 +76,7 @@ interface IPdfDocumentPageLeaseOwner {leasePage: (
 ) => Promise<IPdfDocumentPageLease>;}
 
 const pdfDocumentPageLeaseOwners = new WeakMap<PDFDocumentProxy, IPdfDocumentPageLeaseOwner>();
+const PDFJS_MAX_SUPPORTED_PAGE_COUNT = 100_000;
 
 export async function leasePdfDocumentPage(
     document: PDFDocumentProxy,
@@ -391,6 +392,14 @@ export const usePdfDocument = () => {
             destroyPdfDocument(document, 'Failed to destroy stale PDF document', lifecycleKey);
             return null;
         }
+        if (
+            !Number.isSafeInteger(document.numPages)
+            || document.numPages < 1
+            || document.numPages > PDFJS_MAX_SUPPORTED_PAGE_COUNT
+        ) {
+            destroyPdfDocument(document, 'Failed to destroy PDF document after page-count rejection', lifecycleKey);
+            throw new RangeError(`PDF.js viewer supports at most ${PDFJS_MAX_SUPPORTED_PAGE_COUNT.toLocaleString()} pages`);
+        }
 
         activeLifecycleKey = lifecycleKey;
         loadState.value = {
@@ -658,6 +667,11 @@ export const usePdfDocument = () => {
         version: number,
         lifecycleKey: string,
     ) {
+        if (src.size >= PDFJS_NATIVE_PREVIEW_MIN_BYTES) {
+            throw new RangeError(
+                `Blob-backed PDF is ${src.size} bytes; PDF.js blob loading is capped at ${PDFJS_NATIVE_PREVIEW_MIN_BYTES} bytes`,
+            );
+        }
         if (version !== getRenderVersion()) {
             return null;
         }

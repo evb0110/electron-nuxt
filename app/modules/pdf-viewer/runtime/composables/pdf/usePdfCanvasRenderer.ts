@@ -21,6 +21,7 @@ interface ICanvasRenderResult {
     wasClamped: boolean;
     userUnit: number;
     totalScaleFactor: number;
+    surfaceReservation?: {release: () => void;} | undefined;
 }
 
 
@@ -31,6 +32,7 @@ interface IRenderCanvasOptions {
     sourceMaxPixels?: number;
     onRenderTask?: (task: ICancelableRenderTask) => void;
     hiddenAnnotationIds?: Set<string>;
+    reserveSurface?: ((bytes: number) => {release: () => void;} | null) | undefined;
     pageRenderCoordination?: {
         owner: string;
         priority: number;
@@ -77,6 +79,9 @@ export const usePdfCanvasRenderer = (deps: {
     }
 
     function cleanupCanvasRenderResult(renderResult: Pick<ICanvasRenderResult, 'canvas' | 'annotationCanvasMap'>) {
+        const resultWithReservation = renderResult as Pick<ICanvasRenderResult, 'canvas' | 'annotationCanvasMap' | 'surfaceReservation'>;
+        resultWithReservation.surfaceReservation?.release();
+        resultWithReservation.surfaceReservation = undefined;
         cleanupCanvas(renderResult.canvas);
         renderResult.annotationCanvasMap.forEach((annotationCanvas) => {
             if (annotationCanvas !== renderResult.canvas) {
@@ -257,12 +262,22 @@ export const usePdfCanvasRenderer = (deps: {
         if (!shouldContinueCanvasPreparation(options)) {
             return null;
         }
+        const surfaceReservation = options?.reserveSurface?.(pixelSize.grantedPixels * 4);
+        if (options?.reserveSurface && !surfaceReservation) {
+            throw new RangeError(`PDF page ${pdfPage.pageNumber} canvas exceeds the available workspace surface budget`);
+        }
         const canvas = document.createElement('canvas');
         const context = canvas.getContext('2d');
         if (!context) {
+            surfaceReservation?.release();
             return null;
         }
-        setupCanvas(canvas, cssWidth, cssHeight, pixelSize);
+        try {
+            setupCanvas(canvas, cssWidth, cssHeight, pixelSize);
+        } catch (error) {
+            surfaceReservation?.release();
+            throw error;
+        }
 
         const renderContext = {
             canvasContext: context,
@@ -288,6 +303,7 @@ export const usePdfCanvasRenderer = (deps: {
             wasClamped: pixelSize.wasClamped,
             userUnit,
             totalScaleFactor,
+            surfaceReservation: surfaceReservation ?? undefined,
             startRender: () => (pdfPage.render(renderContext)),
         };
     }

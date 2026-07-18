@@ -130,10 +130,18 @@ export function collectSearchMatchWords(
     const matchWords: IOcrWord[] = [];
     let cursor = 0;
 
-    pageWords.forEach((word, index) => {
+    for (let index = 0; index < pageWords.length; index += 1) {
+        const word = pageWords[index];
+        if (!word) {
+            continue;
+        }
         const wordText = buildOcrTextLayerItemText(word);
         const wordStart = cursor;
         const wordEnd = wordStart + word.text.length;
+
+        if (wordStart >= endOffset) {
+            break;
+        }
 
         if (wordStart < endOffset && wordEnd > startOffset) {
             const relativeStart = Math.max(0, startOffset - wordStart);
@@ -148,7 +156,7 @@ export function collectSearchMatchWords(
         if (isLastOcrWordInLine(pageWords, index)) {
             cursor += 1;
         }
-    });
+    }
 
     return matchWords.length > 0 ? matchWords : undefined;
 }

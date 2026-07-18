@@ -16,6 +16,8 @@ interface IRestoreWorkspaceCheckpointOptions {
     activateTab: (tabId: string) => void;
 }
 
+const WORKSPACE_RESTORE_CONCURRENCY = 2;
+
 function getRestoreTarget(tab: IWorkspaceCheckpointTab): TDocumentRef | TOpenFileResult | null {
     if (tab.isDjvu) {
         return tab.sourceRef;
@@ -97,19 +99,27 @@ export async function restoreWorkspaceCheckpoint(
     options.restoreGraph(checkpoint);
     await nextTick();
     const failedPaths: TDocumentRef[] = [];
-    await Promise.all(checkpoint.tabs.map(async (tab) => {
-        const restoreTarget = getRestoreTarget(tab);
-        if (!restoreTarget) {
-            return;
-        }
-        try {
-            if (!await options.openPathInReservedTab(tab.tabId, restoreTarget)) {
-                failedPaths.push(tab.sourceRef ?? tab.workingCopyRef!);
+    let nextTabIndex = 0;
+    const restoreWorkers = Array.from(
+        {length: Math.min(WORKSPACE_RESTORE_CONCURRENCY, checkpoint.tabs.length)},
+        async () => {
+            while (nextTabIndex < checkpoint.tabs.length) {
+                const tab = checkpoint.tabs[nextTabIndex++]!;
+                const restoreTarget = getRestoreTarget(tab);
+                if (!restoreTarget) {
+                    continue;
+                }
+                try {
+                    if (!await options.openPathInReservedTab(tab.tabId, restoreTarget)) {
+                        failedPaths.push(tab.sourceRef ?? tab.workingCopyRef!);
+                    }
+                } catch {
+                    failedPaths.push(tab.sourceRef ?? tab.workingCopyRef!);
+                }
             }
-        } catch {
-            failedPaths.push(tab.sourceRef ?? tab.workingCopyRef!);
-        }
-    }));
+        },
+    );
+    await Promise.all(restoreWorkers);
     await nextTick();
     const activeCheckpointTab = checkpoint.tabs.find(tab => tab.tabId === checkpoint.activeTabId) ?? null;
     let restoredActiveTabId: string | null = null;

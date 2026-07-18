@@ -796,6 +796,44 @@ describe('serializedPdfPersistence', () => {
         });
     });
 
+    it('rejects a sender that floods more persistence frames than the negotiated window can bound', async () => {
+        const targetPath = join(tempRoot, 'flooded-stream.pdf');
+        const tempPath = `${targetPath}.tmp`;
+        const sender = new FakeSender();
+        const port = new FakeMessagePort();
+        const {
+            attachSerializedPdfPersistencePort,
+            beginSerializedPdfSaveAs,
+        } = await importSerializedPdfPersistence();
+
+        const beginResult = await beginSerializedPdfSaveAs(
+            createInvokeEvent(sender),
+            join(tempRoot, 'working.pdf'),
+            6,
+            targetPath,
+            undefined,
+            SERIALIZED_TEST_REVISION_OPTIONS,
+        );
+        attachSerializedPdfPersistencePort(createPortEvent(sender, port), beginResult.sessionId);
+
+        for (let seq = 0; seq < 5; seq += 1) {
+            port.emit('message', {data: {
+                type: 'chunk',
+                seq,
+                bytes: Buffer.from('x'),
+            }});
+        }
+
+        await expect(port.nextMessage(message => isPortMessage(message, 'error'))).resolves.toMatchObject({
+            type: 'error',
+            phase: 'streaming',
+            error: expect.stringContaining('queued message limit'),
+        });
+        await waitForCondition(() => {
+            expect(existsSync(tempPath)).toBe(false);
+        });
+    });
+
     it('accepts Electron MessagePortMain message events with transferred-port metadata', async () => {
         const workingPath = join(tempRoot, 'working.pdf');
         const targetPath = join(tempRoot, 'electron-message-event.pdf');

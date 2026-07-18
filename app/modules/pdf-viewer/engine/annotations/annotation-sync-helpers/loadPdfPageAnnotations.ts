@@ -27,6 +27,8 @@ type TLeasePdfAnnotationPage = (
 
 interface IPdfPageAnnotationLeaseOptions { leasePage?: TLeasePdfAnnotationPage }
 
+const MAX_BACKGROUND_PDF_ANNOTATIONS_PER_PAGE = 10_000;
+
 function attachPdfAnnotationNames(
     annotations: IPdfAnnotationRecord[],
     annotationNamesById: ReadonlyMap<string, string> | null | undefined,
@@ -117,6 +119,16 @@ export async function loadPdfPageAnnotations(
             page = await doc.getPage(pageNumber);
         }
         const rawAnnotations: unknown = await page.getAnnotations();
+        if (
+            Array.isArray(rawAnnotations)
+            && rawAnnotations.length > MAX_BACKGROUND_PDF_ANNOTATIONS_PER_PAGE
+        ) {
+            BrowserLogger.warn(
+                'annotations',
+                `Skipping background annotation inventory for page ${pageNumber}: ${rawAnnotations.length} records exceed the ${MAX_BACKGROUND_PDF_ANNOTATIONS_PER_PAGE} record limit`,
+            );
+            return null;
+        }
         const annotations = attachPdfAnnotationNames(
             Array.isArray(rawAnnotations)
                 ? rawAnnotations as IPdfAnnotationRecord[]

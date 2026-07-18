@@ -108,9 +108,10 @@ export class BrowserWorkerClient<
         requestId: number,
         pendingRequest: TPendingRequest,
         createTimeoutError: () => Error,
+        requestTimeoutMs?: number,
     ) {
         this.clearIdleTerminateTimer();
-        const timeoutMs = this.options.requestTimeoutMs;
+        const timeoutMs = requestTimeoutMs ?? this.options.requestTimeoutMs;
         if (typeof timeoutMs === 'number' && timeoutMs > 0) {
             pendingRequest.timeoutTimer = setTimeout(() => {
                 if (!this.pendingRequests.delete(requestId)) {

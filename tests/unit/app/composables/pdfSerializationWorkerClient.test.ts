@@ -209,6 +209,7 @@ describe('pdfSerializationWorkerClient', () => {
     it('terminates the idle worker after the TTL elapses', async () => {
         vi.useFakeTimers();
         const terminateSpy = vi.spyOn(FakeWorker.prototype, 'terminate');
+        terminateSpy.mockClear();
         const { serializePdfEditsOffThread } = await import('@app/modules/pdf-viewer/engine/pdf-serialization-worker-client/serializePdfEditsOffThread');
 
         const data = new Uint8Array([
@@ -303,7 +304,61 @@ describe('pdfSerializationWorkerClient', () => {
         }
     });
 
-    it('rejects sibling serialization requests when the active worker times out', async () => {
+    it('allows a legitimate large serialization request more time to finish', async () => {
+        vi.useFakeTimers();
+        const terminateSpy = vi.spyOn(FakeWorker.prototype, 'terminate');
+        terminateSpy.mockClear();
+        const originalPostMessage = FakeWorker.prototype.postMessage;
+        FakeWorker.prototype.postMessage = function silentPostMessage(
+            message: unknown,
+            transfer,
+        ) {
+            this.postMessageCalls.push({
+                message,
+                transfer,
+            });
+        };
+
+        try {
+            const { serializePdfEditsOffThread } = await import('@app/modules/pdf-viewer/engine/pdf-serialization-worker-client/serializePdfEditsOffThread');
+            const payload: IPdfSerializationSavePayload = {
+                markupSubtypeOverrides: [],
+                markupSubtypeHints: [],
+                rewriteShapeState: false,
+                shapes: [],
+                deletedShapeAnnotationIds: [],
+                deletedShapeStableKeys: [],
+                freeTextComments: [],
+                annotationComments: [],
+                pendingEmbeddedTextUpdates: [],
+                pendingEmbeddedAnnotationDeletes: [],
+                pageLabelsDirty: false,
+                pageLabelRanges: [],
+                totalPages: 0,
+                bookmarksDirty: false,
+                bookmarkItems: [],
+                untitledBookmarkLabel: '',
+                placedImage: null,
+            };
+            const data = new Uint8Array(8 * 1024 * 1024 + 1);
+            const pending = serializePdfEditsOffThread(data, payload);
+            const outcome = pending.then(
+                () => null,
+                (error: unknown) => error,
+            );
+
+            await vi.advanceTimersByTimeAsync(30_000);
+            expect(terminateSpy).not.toHaveBeenCalled();
+
+            await vi.advanceTimersByTimeAsync(5_000);
+            await expect(outcome).resolves.toMatchObject({message: expect.stringContaining('within 35000ms')});
+            expect(terminateSpy).toHaveBeenCalled();
+        } finally {
+            FakeWorker.prototype.postMessage = originalPostMessage;
+        }
+    });
+
+    it('starts a queued serialization request only after the active worker times out', async () => {
         vi.useFakeTimers();
         const terminateSpy = vi.spyOn(FakeWorker.prototype, 'terminate');
         const originalPostMessage = FakeWorker.prototype.postMessage;
@@ -350,6 +405,7 @@ describe('pdfSerializationWorkerClient', () => {
             await vi.advanceTimersByTimeAsync(29_000);
 
             await firstRejection;
+            await vi.advanceTimersByTimeAsync(30_000);
             await secondRejection;
             expect(serializePdfEditsMock).not.toHaveBeenCalled();
             expect(yieldToBrowserMock).not.toHaveBeenCalled();

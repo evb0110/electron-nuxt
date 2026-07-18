@@ -25,7 +25,7 @@ import {
 import {
     assembleSearchablePageText,
     buildPdfSearchExcerpt,
-    findPdfSearchMatches,
+    iteratePdfSearchMatches,
     PDF_SEARCH_PROGRESS_RESULT_BATCH_LIMIT,
     validateSearchQuery,
     type IResolvedSearchMatchOptions,
@@ -263,12 +263,9 @@ export async function searchDjvuWorkerText(
         ]);
         options.signal.throwIfAborted();
         const searchable = buildBrowserDjvuSearchPage(text, zones);
-        const pageMatches = findPdfSearchMatches(searchable.text, options.query, options.matchOptions);
         const progressResults: IPdfSearchResponse['results'] = [];
-        for (const [
-            pageMatchIndex,
-            match,
-        ] of pageMatches.entries()) {
+        let pageMatchIndex = 0;
+        for (const match of iteratePdfSearchMatches(searchable.text, options.query, options.matchOptions)) {
             if (results.length >= SEARCH_RESULT_LIMIT) {
                 truncated = true;
                 break;
@@ -300,6 +297,7 @@ export async function searchDjvuWorkerText(
             };
             results.push(result);
             progressResults.push(result);
+            pageMatchIndex += 1;
         }
         if (progressResults.length === 0) {
             options.onProgress?.({

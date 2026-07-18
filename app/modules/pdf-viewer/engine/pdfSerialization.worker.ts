@@ -60,37 +60,41 @@ async function handleRequest(
     }
 }
 
+let requestChain = Promise.resolve();
+
 self.addEventListener('message', async (event: MessageEvent<TSerializationWorkerRequest>) => {
     const request = event.data;
-
-    try {
-        const data = await handleRequest(request);
-        const transferableData = data instanceof Uint8Array
-            ? toTransferableUint8Array(data)
-            : data === null
-                ? null
-                : toTransferableUint8Array(data.data);
-        const responseData = data === null || data instanceof Uint8Array
-            ? transferableData
-            : {
-                ...data,
-                data: transferableData!,
-            };
-        const response = {
-            id: request.id,
-            ok: true,
-            data: responseData,
-        } satisfies TSerializationWorkerResponse;
-        self.postMessage(
-            response,
-            transferableData ? [transferableData.buffer] : [],
-        );
-    } catch (error) {
-        const response = {
-            id: request.id,
-            ok: false,
-            error: getErrorMessage(error),
-        } satisfies TSerializationWorkerResponse;
-        self.postMessage(response);
-    }
+    requestChain = requestChain.then(async () => {
+        try {
+            const data = await handleRequest(request);
+            const transferableData = data instanceof Uint8Array
+                ? toTransferableUint8Array(data)
+                : data === null
+                    ? null
+                    : toTransferableUint8Array(data.data);
+            const responseData = data === null || data instanceof Uint8Array
+                ? transferableData
+                : {
+                    ...data,
+                    data: transferableData!,
+                };
+            const response = {
+                id: request.id,
+                ok: true,
+                data: responseData,
+            } satisfies TSerializationWorkerResponse;
+            self.postMessage(
+                response,
+                transferableData ? [transferableData.buffer] : [],
+            );
+        } catch (error) {
+            const response = {
+                id: request.id,
+                ok: false,
+                error: getErrorMessage(error),
+            } satisfies TSerializationWorkerResponse;
+            self.postMessage(response);
+        }
+    });
+    await requestChain;
 });

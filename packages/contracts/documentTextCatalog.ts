@@ -50,6 +50,7 @@ export interface IDocumentOcrPageSnapshot {
 
 export const MAX_DOCUMENT_TEXT_CATALOG_PAGE_WORDS = 100_000;
 export const MAX_DOCUMENT_TEXT_CATALOG_PAGE_TEXT_LENGTH = 16 * 1024 * 1024;
+export const MAX_DOCUMENT_TEXT_SNAPSHOT_TOTAL_TEXT_LENGTH = 8 * 1024 * 1024;
 
 const DOCUMENT_TEXT_SOURCES = [
     'pdf-native',
@@ -140,9 +141,14 @@ export function decodeDocumentTextSnapshot(value: unknown): IDocumentTextSnapsho
 
     const pages: IDocumentTextCatalogPage[] = [];
     const pageNumbers = new Set<number>();
+    let totalTextLength = 0;
     for (const candidate of value.pages) {
         const page = decodeDocumentTextCatalogPage(candidate, value.pageCount, pageNumbers);
         if (!page) {
+            return null;
+        }
+        totalTextLength += page.text.length;
+        if (totalTextLength > MAX_DOCUMENT_TEXT_SNAPSHOT_TOTAL_TEXT_LENGTH) {
             return null;
         }
         pages.push(page);

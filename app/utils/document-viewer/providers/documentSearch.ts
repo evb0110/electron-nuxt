@@ -5,7 +5,7 @@ import {
 } from '@contracts/search';
 import {
     buildPdfSearchExcerpt,
-    findPdfSearchMatches,
+    iteratePdfSearchMatches,
     validateSearchQuery,
 } from '@pdf-core';
 import type { IDocumentTextProvider } from '@app/utils/document-viewer/source/documentPageSource';
@@ -50,12 +50,8 @@ export async function searchDocumentTextProvider(options: {
         options.signal.throwIfAborted();
         const text = await options.provider.getPageText(pageNumber, options.signal);
         options.signal.throwIfAborted();
-        const pageMatches = findPdfSearchMatches(text, query, options.matchOptions);
-
-        for (const [
-            pageMatchIndex,
-            match,
-        ] of pageMatches.entries()) {
+        let pageMatchIndex = 0;
+        for (const match of iteratePdfSearchMatches(text, query, options.matchOptions)) {
             if (results.length >= SEARCH_RESULT_LIMIT) {
                 return {
                     results,
@@ -75,6 +71,7 @@ export async function searchDocumentTextProvider(options: {
                     SEARCH_EXCERPT_CONTEXT_CHARS,
                 ),
             });
+            pageMatchIndex += 1;
         }
 
         options.onProgress?.({

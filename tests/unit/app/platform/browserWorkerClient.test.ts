@@ -75,4 +75,24 @@ describe('BrowserWorkerClient', () => {
         expect(client.hasWorker()).toBe(false);
         expect(FakeWorker.terminateCount).toBe(1);
     });
+
+    it('supports a longer timeout for an individual large request', async () => {
+        const client = createWorkerClient();
+        client.getWorker();
+        const reject = vi.fn();
+
+        client.registerPendingRequest(
+            1,
+            { reject },
+            () => new Error('large request timed out'),
+            2_000,
+        );
+
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(reject).not.toHaveBeenCalled();
+        expect(client.hasPendingRequest(1)).toBe(true);
+
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(reject).toHaveBeenCalledOnce();
+    });
 });

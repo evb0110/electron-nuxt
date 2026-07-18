@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
     persistCompactSearchIndexBestEffort: vi.fn(),
     assertWorkingCopyRevisionCurrent: vi.fn(),
     resolveDocumentTextCatalogSnapshot: vi.fn(),
+    visitDocumentOcrCatalogPages: vi.fn(),
 }));
 
 const DOCUMENT_REVISION = requireDocumentRevisionToken('revision-token');
@@ -57,7 +58,10 @@ vi.mock('@electron/search/searchIndexSidecar', () => ({
     persistCompactSearchIndexBestEffort: mocks.persistCompactSearchIndexBestEffort,
 }));
 vi.mock('@electron/file-access/documentRevisionSidecar', () => ({assertWorkingCopyRevisionSidecarCurrent: mocks.assertWorkingCopyRevisionCurrent}));
-vi.mock('@electron/ocr/documentTextCatalog', () => ({resolveDocumentTextCatalogSnapshot: mocks.resolveDocumentTextCatalogSnapshot}));
+vi.mock('@electron/ocr/documentTextCatalog', () => ({
+    resolveDocumentTextCatalogSnapshot: mocks.resolveDocumentTextCatalogSnapshot,
+    visitDocumentOcrCatalogPages: mocks.visitDocumentOcrCatalogPages,
+}));
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
@@ -88,7 +92,7 @@ interface IPdfjsMockPageText {
 interface IPdfjsMockOptions { onPageText?: (pageText: IPdfjsMockPageText) => void; }
 
 function mockCatalog(pageCount: number, pages: Array<Record<string, unknown>>) {
-    mocks.resolveDocumentTextCatalogSnapshot.mockResolvedValue({
+    const catalog = {
         documentRevision: DOCUMENT_REVISION,
         pageCount,
         contentDigest: 'catalog',
@@ -97,6 +101,18 @@ function mockCatalog(pageCount: number, pages: Array<Record<string, unknown>>) {
             contentDigest: `page-${String(page.pageNumber)}`,
             ...page,
         })),
+    };
+    mocks.resolveDocumentTextCatalogSnapshot.mockResolvedValue(catalog);
+    mocks.visitDocumentOcrCatalogPages.mockImplementation(async (
+        _path: string,
+        _revision: string,
+        options: {onPage: (page: Record<string, unknown>) => void},
+    ) => {
+        catalog.pages.forEach(options.onPage);
+        return {
+            pageCount,
+            visitedPages: catalog.pages.length,
+        };
     });
 }
 
@@ -113,8 +129,10 @@ describe('buildSearchIndex cancellation', () => {
         mocks.persistCompactSearchIndex.mockResolvedValue(undefined);
         mocks.persistCompactSearchIndexBestEffort.mockResolvedValue(undefined);
         mocks.assertWorkingCopyRevisionCurrent.mockResolvedValue(undefined);
+        mocks.extractTextFromPdf.mockResolvedValue([]);
         mocks.extractTextWithPdfjsWordBoxes.mockResolvedValue([]);
         mocks.resolveDocumentTextCatalogSnapshot.mockRejectedValue(new Error('catalog unavailable'));
+        mocks.visitDocumentOcrCatalogPages.mockRejectedValue(new Error('catalog unavailable'));
     });
 
     it('forwards signal to PDF text extractors', async () => {
@@ -143,6 +161,7 @@ describe('buildSearchIndex cancellation', () => {
         });
         expect(mocks.extractTextFromPdf).toHaveBeenCalledWith('/tmp/file.pdf', {
             pageCount: 1,
+            pages: [1],
             signal: controller.signal,
         });
         expect(result.pages).toEqual([expect.objectContaining({
@@ -195,8 +214,10 @@ describe('buildSearchIndex assembly', () => {
         mocks.loadCompactSearchIndex.mockResolvedValue(null);
         mocks.persistCompactSearchIndexBestEffort.mockResolvedValue(undefined);
         mocks.assertWorkingCopyRevisionCurrent.mockResolvedValue(undefined);
+        mocks.extractTextFromPdf.mockResolvedValue([]);
         mocks.extractTextWithPdfjsWordBoxes.mockResolvedValue([]);
         mocks.resolveDocumentTextCatalogSnapshot.mockRejectedValue(new Error('catalog unavailable'));
+        mocks.visitDocumentOcrCatalogPages.mockRejectedValue(new Error('catalog unavailable'));
     });
 
     it('skips PDF text extraction when existing index already covers expected pages', async () => {
@@ -310,7 +331,10 @@ describe('buildSearchIndex assembly', () => {
             pageCount: 1,
         });
 
-        expect(mocks.extractTextFromPdf).toHaveBeenCalledWith('/tmp/file.pdf', {pageCount: 1});
+        expect(mocks.extractTextFromPdf).toHaveBeenCalledWith('/tmp/file.pdf', {
+            pageCount: 1,
+            pages: [1],
+        });
         expect(mocks.extractTextWithPdfjsWordBoxes).not.toHaveBeenCalled();
         expect(mocks.extractTextWithPdfjs).not.toHaveBeenCalled();
         expect(result.pages).toEqual([expect.objectContaining({
@@ -332,7 +356,12 @@ describe('buildSearchIndex assembly', () => {
             pageCount: 2136,
         });
 
-        expect(mocks.extractTextFromPdf).toHaveBeenCalledWith('/tmp/file.pdf', {pageCount: 2136});
+        expect(mocks.extractTextFromPdf).toHaveBeenCalledTimes(34);
+        expect(mocks.extractTextFromPdf.mock.calls.every(([
+            , options,
+        ]) => (
+            Array.isArray(options.pages) && options.pages.length <= 64
+        ))).toBe(true);
         expect(mocks.extractTextWithPdfjsWordBoxes).not.toHaveBeenCalled();
         expect(mocks.extractTextWithPdfjs).not.toHaveBeenCalled();
         expect(result.pageCount).toBe(2136);
@@ -934,7 +963,7 @@ describe('buildSearchIndex assembly', () => {
         expect(result.pageCount).toBe(2);
     });
 
-    it('does not extract full PDF text to complete large partial OCR sidecars', async () => {
+    it('fills large partial OCR sidecars through bounded pdftotext windows', async () => {
         const { buildSearchIndex } = await import('@electron/search/indexBuilder');
         mockCatalog(2136, [{
             pageNumber: 7,
@@ -980,12 +1009,24 @@ describe('buildSearchIndex assembly', () => {
             }
             throw new Error(`Unexpected read: ${path}`);
         });
+        mocks.extractTextFromPdf.mockImplementation(async (
+            _path: string,
+            options: {pages?: number[]},
+        ) => (options.pages ?? []).map(pageNumber => ({
+            pageNumber,
+            text: pageNumber === 8 ? 'bounded page eight' : '',
+        })));
 
         const result = await buildSearchIndex('/tmp/large.pdf', [], {documentRevision: DOCUMENT_REVISION});
 
         expect(mocks.extractTextWithPdfjsWordBoxes).not.toHaveBeenCalled();
         expect(mocks.extractTextWithPdfjs).not.toHaveBeenCalled();
-        expect(mocks.extractTextFromPdf).not.toHaveBeenCalled();
+        expect(mocks.extractTextFromPdf).toHaveBeenCalled();
+        expect(mocks.extractTextFromPdf.mock.calls.every(([
+            , options,
+        ]) => (
+            Array.isArray(options.pages) && options.pages.length <= 64
+        ))).toBe(true);
         expect(result.pageCount).toBe(2136);
         expect(result.pages).toHaveLength(2136);
         expect(result.pages[6]).toMatchObject({
@@ -995,6 +1036,10 @@ describe('buildSearchIndex assembly', () => {
         expect(result.pages[0]).toMatchObject({
             pageNumber: 1,
             text: '',
+        });
+        expect(result.pages[7]).toMatchObject({
+            pageNumber: 8,
+            text: 'bounded page eight',
         });
     });
 
@@ -1130,7 +1175,7 @@ describe('buildSearchIndex assembly', () => {
         });
 
         expect(mocks.loadCompactSearchIndex).not.toHaveBeenCalled();
-        expect(mocks.resolveDocumentTextCatalogSnapshot).toHaveBeenCalledOnce();
+        expect(mocks.visitDocumentOcrCatalogPages).toHaveBeenCalledOnce();
         expect(mocks.extractTextWithPdfjs).not.toHaveBeenCalled();
         expect(mocks.extractTextFromPdf).not.toHaveBeenCalled();
         expect(result.pages).toEqual([

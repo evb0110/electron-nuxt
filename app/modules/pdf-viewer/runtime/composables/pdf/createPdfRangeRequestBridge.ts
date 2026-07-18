@@ -6,6 +6,7 @@ import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
 const PDF_RANGE_SUBREAD_BYTES = 8 * 1024 * 1024;
 const MAX_AGGREGATE_PDF_RANGE_BYTES = 64 * 1024 * 1024;
+const MAX_QUEUED_PDF_RANGE_REQUESTS = 32;
 
 export interface IPdfPreloadedRange {
     begin: number;
@@ -21,6 +22,8 @@ export function createPdfRangeRequestBridge({
     getRenderVersion,
     onRangeReadFailure,
 }: IPdfRangeRequestBridgeOptions) {
+    let rangeReadTail = Promise.resolve();
+    let queuedRangeReads = 0;
     function createRangeReadFailureHandler() {
         let rejectRangeReadFailure: ((error: Error) => void) | null = null;
         const rangeReadFailure = new Promise<never>((_resolve, reject) => {
@@ -72,6 +75,9 @@ export function createPdfRangeRequestBridge({
         }
         if (totalLength > MAX_AGGREGATE_PDF_RANGE_BYTES) {
             throw new Error(`PDF range request ${begin}..${end} exceeds ${MAX_AGGREGATE_PDF_RANGE_BYTES} byte limit`);
+        }
+        if (version !== getRenderVersion()) {
+            return;
         }
 
         const preloadedRange = preloadedRanges.find((range) => {
@@ -186,7 +192,20 @@ export function createPdfRangeRequestBridge({
                     length: end - begin,
                     version,
                 });
+                if (queuedRangeReads >= MAX_QUEUED_PDF_RANGE_REQUESTS) {
+                    const error = new Error('PDF range request queue is full');
+                    failRangeRead(error);
+                    onRangeReadFailure(error, version);
+                    return;
+                }
+                queuedRangeReads += 1;
+                const predecessor = rangeReadTail;
+                let releaseQueueSlot!: () => void;
+                rangeReadTail = new Promise<void>((resolve) => {
+                    releaseQueueSlot = resolve;
+                });
                 try {
+                    await predecessor;
                     await fulfillPdfRangeRequest(
                         transport,
                         src,
@@ -213,6 +232,9 @@ export function createPdfRangeRequestBridge({
                     );
                     failRangeRead(error);
                     onRangeReadFailure(error, version);
+                } finally {
+                    queuedRangeReads -= 1;
+                    releaseQueueSlot();
                 }
             })();
         };

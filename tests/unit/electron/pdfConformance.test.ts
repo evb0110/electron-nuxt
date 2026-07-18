@@ -345,6 +345,20 @@ describe('validatePdfFile', () => {
         expect(mocks.readFile).not.toHaveBeenCalled();
     });
 
+    it('scales qpdf validation time for a legitimate large PDF', async () => {
+        mocks.stat.mockResolvedValueOnce({
+            isFile: () => true,
+            size: 1024 * 1024 * 1024,
+        });
+
+        await validatePdfFile('/tmp/large.pdf');
+
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledWith('/mock/qpdf', [
+            '--check',
+            '/tmp/large.pdf',
+        ], expect.objectContaining({ timeoutMs: 90_000 }));
+    });
+
     it('accepts a qpdf timeout when structural fallback can load the PDF', async () => {
         mocks.runNativeToolCommand.mockRejectedValueOnce(new Error('qpdf(validate-pdf) timed out after 30000ms'));
 

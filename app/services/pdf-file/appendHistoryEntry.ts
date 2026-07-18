@@ -7,10 +7,17 @@ interface IAppendHistoryResult {
 }
 
 function getHistoryBytes(entries: readonly TPdfHistoryEntry[]) {
-    return entries.reduce(
-        (total, entry) => total + (entry.kind === 'bytes' ? entry.snapshot.byteLength : 0),
-        0,
-    );
+    return entries.reduce((totals, entry) => {
+        if (entry.kind === 'bytes') {
+            totals.memory += entry.snapshot.byteLength;
+        } else {
+            totals.disk += entry.size;
+        }
+        return totals;
+    }, {
+        memory: 0,
+        disk: 0,
+    });
 }
 
 function trimHistoryByLimits(
@@ -18,15 +25,24 @@ function trimHistoryByLimits(
     limits: {
         maxEntries: number;
         maxBytes: number;
+        maxPathBytes?: number;
     },
 ) {
     const entryTrimmedHistory = entries.slice(-limits.maxEntries);
-    let totalBytes = getHistoryBytes(entryTrimmedHistory);
+    const totalBytes = getHistoryBytes(entryTrimmedHistory);
     const byteTrimmedHistory = [...entryTrimmedHistory];
+    const maxPathBytes = limits.maxPathBytes ?? limits.maxBytes;
 
-    while (byteTrimmedHistory.length > 1 && totalBytes > limits.maxBytes) {
+    while (
+        byteTrimmedHistory.length > 1
+        && (totalBytes.memory > limits.maxBytes || totalBytes.disk > maxPathBytes)
+    ) {
         const [firstEntry] = byteTrimmedHistory;
-        totalBytes -= firstEntry?.kind === 'bytes' ? firstEntry.snapshot.byteLength : 0;
+        if (firstEntry?.kind === 'bytes') {
+            totalBytes.memory -= firstEntry.snapshot.byteLength;
+        } else if (firstEntry) {
+            totalBytes.disk -= firstEntry.size;
+        }
         byteTrimmedHistory.shift();
     }
 
@@ -43,6 +59,7 @@ export function appendHistoryEntry(state: {
 }, entry: TPdfHistoryEntry, limits: {
     maxEntries: number;
     maxBytes: number;
+    maxPathBytes?: number;
 }): IAppendHistoryResult {
     if (state.history.length === 0) {
         return {

@@ -278,7 +278,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         expect(mocks.ensureTessdataLanguages).not.toHaveBeenCalled();
     });
 
-    it('admits all-page OCR jobs using bounded resident work accounting', async () => {
+    it('rejects all-page OCR jobs whose true work exceeds the document cap', async () => {
         const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
         const pages = Array.from({length: 2_136}, (_value, index) => ({
             pageNumber: index + 1,
@@ -300,28 +300,12 @@ describe('ocr job manager preparing-stage robustness', () => {
         );
 
         expect(result).toMatchObject({
-            started: true,
+            started: false,
             jobId: 'job-dictionary',
+            error: 'OCR queue is full (document page-work cap 96 reached)',
         });
-        expect(mocks.ensureTessdataLanguages).toHaveBeenCalledWith(
-            [
-                'kmr',
-                'tur',
-            ],
-            expect.any(Object),
-        );
-        expect(mocks.workerInstances).toHaveLength(1);
-        expect(mocks.workerInstances[0]?.postMessage).toHaveBeenCalledWith(expect.objectContaining({
-            type: 'start',
-            jobId: 'job-dictionary',
-            data: expect.objectContaining({
-                pages,
-                options: {
-                    qualityProfile: 'accurate',
-                    preprocessingMode: 'clean',
-                },
-            }),
-        }));
+        expect(mocks.ensureTessdataLanguages).not.toHaveBeenCalled();
+        expect(mocks.workerInstances).toHaveLength(0);
     });
 
     it('aborts preparing jobs on cancel and frees the slot for a later job', async () => {

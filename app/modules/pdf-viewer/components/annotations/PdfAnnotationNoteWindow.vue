@@ -44,6 +44,7 @@
             ref="noteInputRef"
             class="note-window__textarea app-scrollbar app-scroll-region--balanced"
             :value="text"
+            :maxlength="PDF_NATIVE_MUTATION_LIMITS.noteTextLength"
             rows="8"
             :placeholder="t('noteWindow.writeNote')"
             @keydown.esc.stop.prevent="minimizeNote"
@@ -69,6 +70,7 @@ import type { IAnnotationNoteWindowBounds } from '@app/modules/pdf-viewer/engine
 import { clampAnnotationNoteWindowPosition } from '@app/modules/pdf-viewer/engine/annotation-note-window-bounds/clampAnnotationNoteWindowPosition';
 import { clampAnnotationNoteWindowSize } from '@app/modules/pdf-viewer/engine/annotation-note-window-bounds/clampAnnotationNoteWindowSize';
 import { createRafCoalescedCallback } from '@app/utils/createRafCoalescedCallback';
+import { PDF_NATIVE_MUTATION_LIMITS } from '@contracts/nativePdfMutations';
 
 interface IProps {
     annotationId: string;

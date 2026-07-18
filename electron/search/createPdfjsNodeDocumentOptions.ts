@@ -8,6 +8,8 @@ import type { DocumentInitParameters } from 'pdfjs-dist/types/src/display/api';
 
 interface IPdfjsRuntimeWithVerbosity { VerbosityLevel?: {ERRORS?: number;}; }
 
+const PDFJS_NODE_MAX_INTERMEDIATE_CANVAS_BYTES = 128 * 1024 * 1024;
+
 let pdfjsAssetRoot: string | null = null;
 
 function getElectronResourcesPath() {
@@ -73,5 +75,6 @@ export function createPdfjsNodeDocumentOptions(
         iccUrl: resolvePdfjsAssetDirUrl('iccs'),
         useSystemFonts: false,
         useWorkerFetch: false,
+        canvasMaxAreaInBytes: PDFJS_NODE_MAX_INTERMEDIATE_CANVAS_BYTES,
     } satisfies Partial<DocumentInitParameters>;
 }

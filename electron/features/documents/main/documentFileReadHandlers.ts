@@ -29,6 +29,8 @@ const RANGE_READ_HANDLE_CACHE_LIMIT = 6;
 const RANGE_READ_HANDLE_IDLE_MS = 30_000;
 const RANGE_READ_GLOBAL_IN_FLIGHT_BYTES = 32 * 1024 * 1024;
 const RANGE_READ_PER_DOCUMENT_IN_FLIGHT_BYTES = 8 * 1024 * 1024;
+const RANGE_READ_MAX_WAITERS = 256;
+const RANGE_READ_WAITER_TIMEOUT_MS = 30_000;
 
 interface IRangeReadHandleCacheEntry {
     handle: FileHandle;
@@ -57,6 +59,8 @@ const rangeReadBudgetWaiters: Array<{
     path: string;
     bytes: number;
     resolve: () => void;
+    reject: (error: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
 }> = [];
 
 function canReserveRangeRead(path: string, bytes: number) {
@@ -77,6 +81,7 @@ function pumpRangeReadBudgetWaiters() {
             continue;
         }
         rangeReadBudgetWaiters.splice(index, 1);
+        clearTimeout(waiter.timer);
         reserveRangeRead(waiter.path, waiter.bytes);
         waiter.resolve();
     }
@@ -84,12 +89,24 @@ function pumpRangeReadBudgetWaiters() {
 
 async function acquireRangeReadBudget(path: string, bytes: number) {
     if (!canReserveRangeRead(path, bytes)) {
-        await new Promise<void>((resolve) => {
-            rangeReadBudgetWaiters.push({
+        if (rangeReadBudgetWaiters.length >= RANGE_READ_MAX_WAITERS) {
+            throw new Error('PDF range read queue is full; retry after active reads finish');
+        }
+        await new Promise<void>((resolve, reject) => {
+            const waiter = {
                 path,
                 bytes,
                 resolve,
-            });
+                reject,
+                timer: setTimeout(() => {
+                    const index = rangeReadBudgetWaiters.indexOf(waiter);
+                    if (index >= 0) {
+                        rangeReadBudgetWaiters.splice(index, 1);
+                    }
+                    reject(new Error('Timed out waiting for PDF range read capacity'));
+                }, RANGE_READ_WAITER_TIMEOUT_MS),
+            };
+            rangeReadBudgetWaiters.push(waiter);
         });
     } else {
         reserveRangeRead(path, bytes);

@@ -267,6 +267,16 @@ export const usePdfRendererPageRegistry = (options: IUsePdfRendererPageRegistryO
         return compositeLease;
     }
 
+    function reservePendingPageCanvasSurface(bytes: number) {
+        return workspaceSurfaceBudgetController.tryReserve({
+            scopeId: surfaceScopeId,
+            category: 'pdf-page-canvas',
+            bytes,
+            priority: 100,
+            canEvict: () => false,
+        });
+    }
+
     const pendingSurfaceLeaseCommits = new WeakMap<IWorkspaceSurfaceLease, () => void>();
 
     function replacePageCanvasSurfaceLease(pageNumber: number, lease: IWorkspaceSurfaceLease) {
@@ -307,6 +317,7 @@ export const usePdfRendererPageRegistry = (options: IUsePdfRendererPageRegistryO
         missingRenderTargetRetries,
         activeRenderTasks,
         pageCanvases,
+        reservePendingPageCanvasSurface,
         reservePageCanvasSurface,
         replacePageCanvasSurfaceLease,
         markPageCanvasSurfaceEvictable,

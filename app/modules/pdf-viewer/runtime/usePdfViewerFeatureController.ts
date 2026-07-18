@@ -55,6 +55,7 @@ import type { IAnnotationModifiedPayload } from '@app/types/annotations';
 import type { IPageRange } from '@app/types/pdfUi';
 import {createEmptyPdfjsAnnotationEditorState} from '@app/modules/pdf-viewer/runtime/annotations/pdfjsAnnotationState';
 import type { IPdfjsAnnotationEditorState } from '@app/modules/pdf-viewer/runtime/annotations/pdfjsAnnotationState';
+import {renderPdfDocumentPageSource} from '@app/modules/pdf-viewer/runtime/renderPdfDocumentPageSource';
 let nextPdfPageSlotOwnerId = 0;
 
 export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdfViewerEmit) => {
@@ -1085,55 +1086,12 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         const pageSource = createPdfPageSource({
             documentRef: workingCopyRef ?? (typeof sourceRef === 'string' ? sourceRef : 'memory://pdf'),
             pdfDocument: documentProxy,
-            async renderPage(request) {
-                request.signal.throwIfAborted();
-                const page = await documentProxy.getPage(request.pageNumber);
-                const baseViewport = page.getViewport({scale: 1});
-                const scale = request.widthPx / Math.max(1, baseViewport.width);
-                const viewport = page.getViewport({scale});
-                const canvas = window.document.createElement('canvas');
-                canvas.width = Math.max(1, Math.round(viewport.width));
-                canvas.height = Math.max(1, Math.round(viewport.height));
-                const canvasContext = canvas.getContext('2d');
-                if (!canvasContext) {
-                    throw new Error('PDF page-source canvas context is unavailable');
-                }
-                const renderTask = page.render({
-                    canvas,
-                    canvasContext,
-                    viewport,
-                });
-                const cancelRender = () => renderTask.cancel();
-                request.signal.addEventListener('abort', cancelRender, {once: true});
-                try {
-                    await renderTask.promise;
-                    request.signal.throwIfAborted();
-                } finally {
-                    request.signal.removeEventListener('abort', cancelRender);
-                }
-                const bytes = canvas.width * canvas.height * 4;
-                const budgetLease = chassisAuthority.surfaceBudget.reserve({
-                    scopeId: `pdf-page-source:${String(workingCopyRef ?? sourceRef ?? 'memory')}`,
-                    category: 'pdf-page-canvas',
-                    bytes,
-                    priority: request.priority === 'navigation' ? 100 : 50,
-                });
-                let released = false;
-                return {
-                    widthPx: canvas.width,
-                    heightPx: canvas.height,
-                    bytes,
-                    surface: canvas,
-                    release() {
-                        if (!released) {
-                            released = true;
-                            budgetLease.release();
-                            canvas.width = 0;
-                            canvas.height = 0;
-                        }
-                    },
-                };
-            },
+            renderPage: request => renderPdfDocumentPageSource({
+                document: documentProxy,
+                request,
+                surfaceBudget: chassisAuthority.surfaceBudget,
+                scopeId: `pdf-page-source:${String(workingCopyRef ?? sourceRef ?? 'memory')}`,
+            }),
         });
         chassisAuthority.bindSource(pageSource);
         onCleanup(() => {

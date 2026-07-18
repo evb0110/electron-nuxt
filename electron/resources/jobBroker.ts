@@ -7,6 +7,8 @@ import { clamp } from 'es-toolkit/math';
 const MIB = 1024 * 1024;
 const GIB = 1024 * MIB;
 const DEFAULT_AGING_INTERVAL_MS = 5_000;
+const DEFAULT_JOB_BROKER_MAX_QUEUED_JOBS = 256;
+const DEFAULT_JOB_BROKER_MAX_QUEUED_JOBS_PER_OWNER = 64;
 
 export const MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES: Readonly<IJobResourceVector> = {
     cpuTokens: 2,
@@ -96,8 +98,16 @@ export class JobBroker {
         private readonly capacity: IJobResourceVector,
         private readonly agingIntervalMs = DEFAULT_AGING_INTERVAL_MS,
         private readonly now: () => number = Date.now,
+        private readonly maxQueuedJobs = DEFAULT_JOB_BROKER_MAX_QUEUED_JOBS,
+        private readonly maxQueuedJobsPerOwner = DEFAULT_JOB_BROKER_MAX_QUEUED_JOBS_PER_OWNER,
     ) {
         validateResourceVector(capacity);
+        if (!Number.isSafeInteger(maxQueuedJobs) || maxQueuedJobs < 1) {
+            throw new TypeError('Job broker queue limit must be a positive safe integer');
+        }
+        if (!Number.isSafeInteger(maxQueuedJobsPerOwner) || maxQueuedJobsPerOwner < 1) {
+            throw new TypeError('Job broker per-owner queue limit must be a positive safe integer');
+        }
     }
 
     acquire(request: IJobBrokerRequest): Promise<IJobBrokerLease> {
@@ -107,6 +117,18 @@ export class JobBroker {
         }
         if (request.signal?.aborted) {
             return Promise.reject(createAbortError(request.signal));
+        }
+        if (this.queue.length >= this.maxQueuedJobs) {
+            return Promise.reject(new RangeError(`Job broker queue is full (${this.maxQueuedJobs} jobs)`));
+        }
+        const ownerQueuedJobs = this.queue.reduce(
+            (count, queued) => count + Number(queued.request.ownerId === request.ownerId),
+            0,
+        );
+        if (ownerQueuedJobs >= this.maxQueuedJobsPerOwner) {
+            return Promise.reject(new RangeError(
+                `Job broker owner queue is full (${this.maxQueuedJobsPerOwner} jobs for ${request.ownerId})`,
+            ));
         }
         return new Promise<IJobBrokerLease>((resolve, reject) => {
             const id = ++this.counter;
@@ -163,17 +185,11 @@ export class JobBroker {
 
     private dispatch() {
         while (this.queue.length > 0) {
-            const grantable = this.queue
-                .map((item, index) => ({
-                    item,
-                    index,
-                }))
-                .filter(({item}) => this.canGrant(item.request))
-                .sort((left, right) => this.compareQueued(left.item, right.item))[0];
-            if (!grantable) {
+            const grantableIndex = this.findNextGrantableIndex();
+            if (grantableIndex < 0) {
                 return;
             }
-            const [next] = this.queue.splice(grantable.index, 1);
+            const [next] = this.queue.splice(grantableIndex, 1);
             if (!next) {
                 return;
             }
@@ -196,6 +212,21 @@ export class JobBroker {
                 },
             });
         }
+    }
+
+    private findNextGrantableIndex() {
+        let bestIndex = -1;
+        for (let index = 0; index < this.queue.length; index += 1) {
+            const candidate = this.queue[index];
+            if (!candidate || !this.canGrant(candidate.request)) {
+                continue;
+            }
+            const best = bestIndex >= 0 ? this.queue[bestIndex] : undefined;
+            if (!best || this.compareQueued(candidate, best) < 0) {
+                bestIndex = index;
+            }
+        }
+        return bestIndex;
     }
 
     private compareQueued(left: IQueuedJob, right: IQueuedJob) {

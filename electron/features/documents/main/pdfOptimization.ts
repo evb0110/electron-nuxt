@@ -55,6 +55,12 @@ const PDF_OPTIMIZE_MERGE_TIMEOUT_MS = parseIntegerEnv(
     30 * 60 * 1000,
     10_000,
 );
+const PDF_OPTIMIZE_MAX_RASTER_PAGES = parseIntegerEnv(
+    'EVB_PDF_OPTIMIZE_MAX_RASTER_PAGES',
+    2_000,
+    1,
+    10_000,
+);
 
 interface IPdfRasterOptimizePreset {
     dpi: number;
@@ -353,6 +359,9 @@ export async function optimizePdfToFile(
     const pageCount = normalizedOptions.preset === 'lossless'
         ? null
         : await getPdfPageCount(inputPath);
+    if (pageCount !== null && pageCount > PDF_OPTIMIZE_MAX_RASTER_PAGES) {
+        throw new RangeError(`Raster PDF optimization is capped at ${PDF_OPTIMIZE_MAX_RASTER_PAGES} pages`);
+    }
     const tempOutputPath = makeSiblingTempPath(outputPath);
     let replaced = false;
 

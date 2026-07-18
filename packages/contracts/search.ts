@@ -117,6 +117,7 @@ function decodeSearchResponse(value: unknown, pageCount?: number): IPdfSearchRes
     if (
         !isRecord(value)
         || !Array.isArray(value.results)
+        || value.results.length > SEARCH_RESULT_LIMIT
         || typeof value.truncated !== 'boolean'
         || (value.canceled !== undefined && typeof value.canceled !== 'boolean')
     ) {
@@ -423,13 +424,25 @@ export function assembleSearchablePageText(
         startOffset,
         endOffset: retainedSourceEnds[index] ?? startOffset,
     }));
+    const itemStarts = new Int32Array(items.length).fill(-1);
+    const itemEnds = new Int32Array(items.length).fill(-1);
+    for (let offset = 0; offset < finalOwners.length; offset += 1) {
+        const owner = finalOwners[offset];
+        if (owner === undefined || owner < 0 || owner >= items.length) {
+            continue;
+        }
+        if (itemStarts[owner] === -1) {
+            itemStarts[owner] = offset;
+        }
+        itemEnds[owner] = offset + 1;
+    }
     const itemOffsets = items.map((_item, itemIndex): ISearchablePageTextItemOffset => {
-        const startOffset = finalOwners.indexOf(itemIndex);
-        const lastOffset = finalOwners.lastIndexOf(itemIndex);
+        const startOffset = itemStarts[itemIndex] ?? -1;
+        const endOffset = itemEnds[itemIndex] ?? -1;
         return {
             itemIndex,
             startOffset: startOffset < 0 ? 0 : startOffset,
-            endOffset: lastOffset < 0 ? 0 : lastOffset + 1,
+            endOffset: endOffset < 0 ? 0 : endOffset,
         };
     });
 

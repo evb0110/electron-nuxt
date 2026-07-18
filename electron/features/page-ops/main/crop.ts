@@ -14,7 +14,6 @@ import {
 import { createLogger } from '@electron/utils/createLogger';
 import { measureElectronPerfAsync } from '@electron/utils/measureElectronPerfAsync';
 import {
-    assertCropMarginsFitSelectedPages,
     cropPagesLocal,
     getPageGeometryLocal,
     removeCropFromPagesLocal,
@@ -116,6 +115,11 @@ async function runCropWorkerTask<T>(
         timeoutMs: CROP_WORKER_TIMEOUT_MS,
         ...(signal ? { signal } : {}),
         createCancelMessage: () => ({type: 'cancel'}),
+        resourceLimits: {
+            maxOldGenerationSizeMb: 512,
+            maxYoungGenerationSizeMb: 64,
+            stackSizeMb: 8,
+        },
         decodeResult,
     }), {
         thresholdMs: 25,
@@ -158,7 +162,6 @@ export async function cropPages(
     signal?: AbortSignal,
 ) {
     await ensureManagedWorkingCopy(workingCopyPath, senderWebContentsId);
-    await assertCropMarginsFitSelectedPages(workingCopyPath, pages, margins, signal);
     try {
         await runCropWorkerTask<undefined>({
             type: 'crop',

@@ -69,6 +69,7 @@ export async function selectOcrPagesForSupersession(input: {
     const visibility = await inspectPdfPageTextVisibility(
         input.sourcePdfPath,
         input.pages.map(page => page.pageNumber),
+        input.signal,
     ).catch(() => new Map<number, IOcrPdfTextVisibility>());
     const pages: IOcrPdfPageRequest[] = [];
     const warnings: string[] = [];

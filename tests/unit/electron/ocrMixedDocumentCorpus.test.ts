@@ -24,6 +24,7 @@ vi.mock('node:fs/promises', () => ({
         throw new Error('ENOENT');
     }),
     rename: vi.fn(),
+    stat: vi.fn(async () => ({size: 1})),
     writeFile: vi.fn(),
 }));
 vi.mock('@electron/search/extractTextWithPdfjs', () => ({extractTextWithPdfjsWordBoxes: vi.fn(async () => mixedEmbeddedTextPages)}));

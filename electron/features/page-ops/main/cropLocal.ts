@@ -67,7 +67,7 @@ async function mutatePdfPages(
     await savePdfAtomically(pdfDoc, workingCopyPath);
 }
 
-export async function assertCropMarginsFitSelectedPages(
+async function assertCropMarginsFitSelectedPages(
     workingCopyPath: string,
     pages: number[],
     margins: ICropMargins,

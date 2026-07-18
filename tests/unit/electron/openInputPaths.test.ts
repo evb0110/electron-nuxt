@@ -28,12 +28,14 @@ const mocks = vi.hoisted(() => ({
     mkdtemp: vi.fn(async (_prefix: string) => '/tmp/pdf-combine-open-test'),
     requireOpenPath: vi.fn((path: string, _owner?: unknown) => path),
     rm: vi.fn(async (_path: string, _options?: unknown) => undefined),
+    stat: vi.fn(async (_path: string) => ({size: 8 * 1024 * 1024})),
 }));
 
 vi.mock('fs', () => ({existsSync: (path: string) => mocks.existsSync(path)}));
 vi.mock('fs/promises', () => ({
     mkdtemp: (...args: [string]) => mocks.mkdtemp(...args),
     rm: (...args: [string, unknown]) => mocks.rm(...args),
+    stat: (...args: [string]) => mocks.stat(...args),
 }));
 vi.mock('@electron/image/pdfConversion', () => ({
     buildCombinedPdfOutputPath: (...args: [string[]]) => mocks.buildCombinedPdfOutputPath(...args),

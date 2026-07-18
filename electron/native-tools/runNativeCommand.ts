@@ -56,6 +56,99 @@ const DEFAULT_NATIVE_COMMAND_TIMEOUT_MS = parseIntegerEnv(
     15 * 60 * 1_000,
     1_000,
 );
+const MAX_CONCURRENT_NATIVE_COMMANDS = parseIntegerEnv('EVB_NATIVE_COMMAND_MAX_CONCURRENCY', 8, 1);
+const MAX_QUEUED_NATIVE_COMMANDS = parseIntegerEnv('EVB_NATIVE_COMMAND_MAX_QUEUED', 128, 1);
+const NATIVE_COMMAND_ADMISSION_TIMEOUT_MS = parseIntegerEnv(
+    'EVB_NATIVE_COMMAND_ADMISSION_TIMEOUT_MS',
+    30_000,
+    1_000,
+);
+
+interface INativeCommandAdmissionWaiter {
+    resolve: (release: () => void) => void;
+    reject: (error: Error) => void;
+    signal?: AbortSignal | undefined;
+    abort?: (() => void) | undefined;
+    timeout: NodeJS.Timeout;
+}
+
+let activeNativeCommandAdmissions = 0;
+const nativeCommandAdmissionWaiters: INativeCommandAdmissionWaiter[] = [];
+
+function createNativeCommandAdmissionRelease() {
+    let released = false;
+    return () => {
+        if (released) {
+            return;
+        }
+        released = true;
+        activeNativeCommandAdmissions = Math.max(0, activeNativeCommandAdmissions - 1);
+        pumpNativeCommandAdmissionWaiters();
+    };
+}
+
+function admitNativeCommandNow() {
+    activeNativeCommandAdmissions += 1;
+    return createNativeCommandAdmissionRelease();
+}
+
+function cleanupNativeCommandAdmissionWaiter(waiter: INativeCommandAdmissionWaiter) {
+    clearTimeout(waiter.timeout);
+    if (waiter.signal && waiter.abort) {
+        waiter.signal.removeEventListener('abort', waiter.abort);
+    }
+}
+
+function pumpNativeCommandAdmissionWaiters() {
+    while (
+        activeNativeCommandAdmissions < MAX_CONCURRENT_NATIVE_COMMANDS
+        && nativeCommandAdmissionWaiters.length > 0
+    ) {
+        const waiter = nativeCommandAdmissionWaiters.shift()!;
+        cleanupNativeCommandAdmissionWaiter(waiter);
+        if (waiter.signal?.aborted) {
+            waiter.reject(abortErrorFromSignal(waiter.signal));
+            continue;
+        }
+        waiter.resolve(admitNativeCommandNow());
+    }
+}
+
+function acquireNativeCommandAdmission(signal?: AbortSignal) {
+    if (signal?.aborted) {
+        return Promise.reject(abortErrorFromSignal(signal));
+    }
+    if (activeNativeCommandAdmissions < MAX_CONCURRENT_NATIVE_COMMANDS) {
+        return admitNativeCommandNow();
+    }
+    if (nativeCommandAdmissionWaiters.length >= MAX_QUEUED_NATIVE_COMMANDS) {
+        return Promise.reject(new Error('Native command queue is full; retry after active work finishes'));
+    }
+    return new Promise<() => void>((resolve, reject) => {
+        const waiter: INativeCommandAdmissionWaiter = {
+            resolve,
+            reject,
+            signal,
+            timeout: setTimeout(() => {
+                const index = nativeCommandAdmissionWaiters.indexOf(waiter);
+                if (index >= 0) nativeCommandAdmissionWaiters.splice(index, 1);
+                cleanupNativeCommandAdmissionWaiter(waiter);
+                reject(new Error('Timed out waiting for native command capacity'));
+            }, NATIVE_COMMAND_ADMISSION_TIMEOUT_MS),
+        };
+        if (signal) {
+            waiter.abort = () => {
+                const index = nativeCommandAdmissionWaiters.indexOf(waiter);
+                if (index >= 0) nativeCommandAdmissionWaiters.splice(index, 1);
+                cleanupNativeCommandAdmissionWaiter(waiter);
+                reject(abortErrorFromSignal(signal));
+            };
+            signal.addEventListener('abort', waiter.abort, {once: true});
+        }
+        waiter.timeout.unref?.();
+        nativeCommandAdmissionWaiters.push(waiter);
+    });
+}
 
 type TNativeProcess = ReturnType<typeof spawn>;
 type TCancelGroupHandler = () => void;
@@ -195,6 +288,10 @@ export async function runNativeCommand(
     args: string[],
     options: IRunCommandOptions = {},
 ): Promise<IProcessResult> {
+    const admission = acquireNativeCommandAdmission(options.signal);
+    const releaseAdmission = typeof admission === 'function'
+        ? admission
+        : await admission;
     const {
         cwd,
         env,
@@ -216,7 +313,7 @@ export async function runNativeCommand(
         terminationGraceMs = DEFAULT_TERMINATION_GRACE_MS,
     } = options;
 
-    return new Promise((resolve, reject) => {
+    return new Promise<IProcessResult>((resolve, reject) => {
         if (signal?.aborted) {
             reject(abortErrorFromSignal(signal));
             return;
@@ -482,7 +579,7 @@ export async function runNativeCommand(
             });
         };
         proc.on('close', processCloseHandler);
-    });
+    }).finally(releaseAdmission);
 }
 
 function registerCancelGroupHandler(cancelGroup: string, handler: TCancelGroupHandler) {

@@ -1,6 +1,7 @@
 import {
     readFile,
     rename,
+    stat,
     writeFile,
 } from 'node:fs/promises';
 import {
@@ -22,12 +23,31 @@ import type {
 import {
     MAX_DOCUMENT_TEXT_CATALOG_PAGE_TEXT_LENGTH,
     MAX_DOCUMENT_TEXT_CATALOG_PAGE_WORDS,
+    MAX_DOCUMENT_TEXT_SNAPSHOT_TOTAL_TEXT_LENGTH,
 } from '@contracts/documentTextCatalog';
 import type { IOcrIndexV3Manifest } from '@contracts/ocrIndex';
 import {assembleSearchablePageText} from '@contracts/search';
 import {buildOcrTextLayerIndexText} from '@contracts/ocrText';
+import {extractTextFromPdf} from '@electron/search/extractTextFromPdf';
 import {extractTextWithPdfjsWordBoxes} from '@electron/search/extractTextWithPdfjs';
 import {assertWorkingCopyRevisionSidecarCurrent} from '@electron/file-access/documentRevisionSidecar';
+
+interface IVisitDocumentOcrCatalogOptions {
+    signal?: AbortSignal;
+    onPage: (page: IDocumentTextCatalogPage) => void;
+}
+
+const DOCUMENT_TEXT_EXPORT_PAGE_WINDOW = 64;
+const DOCUMENT_TEXT_EXPORT_PDFJS_MAX_PAGES = 200;
+const DOCUMENT_TEXT_EXPORT_PDFJS_MAX_BYTES = 96 * 1024 * 1024;
+
+function throwIfAborted(signal?: AbortSignal) {
+    if (signal?.aborted) {
+        throw signal.reason instanceof Error
+            ? signal.reason
+            : new DOMException('The operation was aborted.', 'AbortError');
+    }
+}
 
 function temporaryPath(path: string) {
     return `${path}.${process.pid}.${randomUUID()}.tmp`;
@@ -159,6 +179,51 @@ export async function resolveDocumentOcrPage(
     };
 }
 
+/**
+ * Visits OCR sidecar pages without repeatedly parsing the manifest or creating
+ * one all-document payload. This is the bounded internal projection used by
+ * search indexing; renderer IPC remains page-scoped through resolveDocumentOcrPage.
+ */
+export async function visitDocumentOcrCatalogPages(
+    workingCopyPath: string,
+    documentRevision: TDocumentRevisionToken,
+    options: IVisitDocumentOcrCatalogOptions,
+) {
+    throwIfAborted(options.signal);
+    await assertWorkingCopyRevisionSidecarCurrent(workingCopyPath, documentRevision);
+    const manifest = await loadCurrentOcrManifest(workingCopyPath, documentRevision);
+    if (!manifest) {
+        return {
+            pageCount: 0,
+            visitedPages: 0,
+        };
+    }
+
+    let visitedPages = 0;
+    const pageNumbers = Object.keys(manifest.pages)
+        .map(Number)
+        .filter(Number.isSafeInteger)
+        .sort((left, right) => left - right);
+    for (const pageNumber of pageNumbers) {
+        throwIfAborted(options.signal);
+        const page = await loadEvbOcrCatalogPage(
+            workingCopyPath,
+            documentRevision,
+            manifest,
+            pageNumber,
+        );
+        if (!page) {
+            continue;
+        }
+        options.onPage(page);
+        visitedPages += 1;
+    }
+    return {
+        pageCount: manifest.pageCount,
+        visitedPages,
+    };
+}
+
 /** Main-process canonical per-page text authority for viewer/search/export projections. */
 export async function resolveDocumentTextCatalogSnapshot(
     workingCopyPath: string,
@@ -166,8 +231,30 @@ export async function resolveDocumentTextCatalogSnapshot(
     pageCount?: number,
 ): Promise<IDocumentTextSnapshot> {
     await assertWorkingCopyRevisionSidecarCurrent(workingCopyPath, documentRevision);
-    const embeddedPages = await extractTextWithPdfjsWordBoxes(workingCopyPath);
     const currentManifest = await loadCurrentOcrManifest(workingCopyPath, documentRevision);
+    const shouldUseBoundedTextOnlyExtraction = Boolean(
+        pageCount && pageCount > DOCUMENT_TEXT_EXPORT_PDFJS_MAX_PAGES,
+    ) || await stat(workingCopyPath).then(
+        fileStat => fileStat.size > DOCUMENT_TEXT_EXPORT_PDFJS_MAX_BYTES,
+        () => false,
+    );
+    const embeddedPages: Array<
+        Awaited<ReturnType<typeof extractTextFromPdf>>[number]
+        | Awaited<ReturnType<typeof extractTextWithPdfjsWordBoxes>>[number]
+    > = [];
+    if (!shouldUseBoundedTextOnlyExtraction) {
+        embeddedPages.push(...await extractTextWithPdfjsWordBoxes(workingCopyPath));
+    } else if (pageCount) {
+        for (let firstPage = 1; firstPage <= pageCount; firstPage += DOCUMENT_TEXT_EXPORT_PAGE_WINDOW) {
+            const lastPage = Math.min(pageCount, firstPage + DOCUMENT_TEXT_EXPORT_PAGE_WINDOW - 1);
+            embeddedPages.push(...await extractTextFromPdf(workingCopyPath, {
+                pageCount,
+                pages: Array.from({length: lastPage - firstPage + 1}, (_, index) => firstPage + index),
+            }));
+        }
+    } else {
+        embeddedPages.push(...await extractTextFromPdf(workingCopyPath));
+    }
     const resolvedPageCount = pageCount ?? Math.max(embeddedPages.length, currentManifest?.pageCount ?? 0);
     const canonicalByPage = new Map<number, IDocumentTextCatalogPage>();
 
@@ -177,9 +264,13 @@ export async function resolveDocumentTextCatalogSnapshot(
         }
         const page: IDocumentTextCatalogPage = {
             pageNumber: embedded.pageNumber,
-            text: buildOcrTextLayerIndexText(embedded.words),
-            words: embedded.words,
-            source: embedded.hasInvisibleText ? 'foreign-ocr' : 'pdf-native',
+            text: 'words' in embedded
+                ? buildOcrTextLayerIndexText(embedded.words)
+                : embedded.text,
+            ...('words' in embedded ? {words: embedded.words} : {}),
+            source: 'hasInvisibleText' in embedded && embedded.hasInvisibleText
+                ? 'foreign-ocr'
+                : 'pdf-native',
             contentDigest: '',
         };
         page.contentDigest = digestCanonicalPage(page);
@@ -201,11 +292,22 @@ export async function resolveDocumentTextCatalogSnapshot(
             if (!page) {
                 continue;
             }
-            canonicalByPage.set(pageNumber, page);
+            const {
+                words: _words,
+                ...textOnlyPage
+            } = page;
+            canonicalByPage.set(pageNumber, textOnlyPage);
         }
     }
 
     const pages = Array.from(canonicalByPage.values()).sort((left, right) => left.pageNumber - right.pageNumber);
+    let totalTextLength = 0;
+    for (const page of pages) {
+        totalTextLength += page.text.length;
+        if (totalTextLength > MAX_DOCUMENT_TEXT_SNAPSHOT_TOTAL_TEXT_LENGTH) {
+            throw new RangeError('Document text export exceeds the 8 MiB aggregate text budget');
+        }
+    }
     return {
         documentRevision,
         pageCount: resolvedPageCount,

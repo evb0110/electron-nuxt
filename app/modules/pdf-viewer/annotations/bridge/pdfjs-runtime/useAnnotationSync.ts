@@ -108,6 +108,8 @@ interface ISharedPdfAnnotationSnapshot {
 }
 
 const MAX_SHARED_PDF_ANNOTATION_SNAPSHOTS = 8;
+const MAX_BACKGROUND_PDF_ANNOTATION_PAGES = 5_000;
+const MAX_BACKGROUND_PDF_ANNOTATION_RECORDS = 25_000;
 const sharedPdfAnnotationSnapshots = new Map<string, ISharedPdfAnnotationSnapshot>();
 const sourcePdfAnnotationSnapshots = new WeakMap<PDFDocumentProxy, ISharedPdfAnnotationSnapshot>();
 
@@ -190,10 +192,18 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         return null;
     }
 
-    function getVisibleFirstPageOrder(pageCount: number) {
+    function* getVisibleFirstPageOrder(pageCount: number) {
         const visiblePage = Math.min(pageCount, Math.max(1, Math.trunc(currentPage.value)));
-        return Array.from({length: pageCount}, (_, index) => index + 1)
-            .sort((left, right) => Math.abs(left - visiblePage) - Math.abs(right - visiblePage));
+        yield visiblePage;
+        for (let distance = 1; distance < pageCount; distance += 1) {
+            const before = visiblePage - distance;
+            const after = visiblePage + distance;
+            if (before >= 1) yield before;
+            if (after <= pageCount) yield after;
+            if (before < 1 && after > pageCount) {
+                return;
+            }
+        }
     }
 
     function waitForAnnotationSyncIdleOpportunity() {
@@ -461,7 +471,8 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         );
         const annotationNamesByPage = await collectPdfAnnotationNamesByPage(
             doc,
-            { allowFullRead: shouldCollectPdfAnnotationNames?.() ?? true },
+            {allowFullRead: pageCount <= 512
+                    && (shouldCollectPdfAnnotationNames?.() ?? true)},
         ).catch((error: unknown) => {
             BrowserLogger.debug(
                 'annotations',
@@ -475,13 +486,24 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         let completedPages = 0;
         tracePdfAnnotationSaveEvent('annotation-sync:inventory-start', {
             pageCount,
-            firstPage: pageOrder[0] ?? null,
+            firstPage: Math.min(pageCount, Math.max(1, Math.trunc(currentPage.value))),
             generation: localToken,
         });
-        for (const [
-            orderIndex,
-            pageNumber,
-        ] of pageOrder.entries()) {
+        let orderIndex = 0;
+        for (const pageNumber of pageOrder) {
+            if (
+                completedPages >= MAX_BACKGROUND_PDF_ANNOTATION_PAGES
+                || comments.length + links.length >= MAX_BACKGROUND_PDF_ANNOTATION_RECORDS
+            ) {
+                tracePdfAnnotationSaveEvent('annotation-sync:inventory-truncated', {
+                    completedPages,
+                    pageCount,
+                    commentCount: comments.length,
+                    linkCount: links.length,
+                    generation: localToken,
+                });
+                break;
+            }
             if (localToken !== syncToken) {
                 tracePdfAnnotationSaveEvent('annotation-sync:inventory-cancelled', {
                     completedPages,
@@ -502,6 +524,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
                     return null;
                 }
             }
+            orderIndex += 1;
 
             const pageBundle = await loadPdfPageAnnotations(
                 doc,

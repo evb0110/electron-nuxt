@@ -2,6 +2,7 @@ import { existsSync } from 'fs';
 import {
     mkdtemp,
     rm,
+    stat,
 } from 'fs/promises';
 import { tmpdir } from 'os';
 import {
@@ -206,7 +207,26 @@ export async function openInputPaths(
         const sourceCriticalStartedAt = performance.now();
         const originalPath = normalizedPaths[0]!;
         logger.debug(`openInputPaths creating working copy for PDF: ${originalPath}`);
-        const workingPath = await createWorkingCopy(requireOpenPath(originalPath, owner), getOwnerWebContentsId(owner));
+        const inputBytes = await stat(originalPath).then(fileStat => fileStat.size, () => 0);
+        const openLease = await mainJobBroker.acquire({
+            ownerId: `pdf-open:${getOwnerWebContentsId(owner) ?? 'main'}`,
+            kind: 'pdf-working-copy',
+            priority: 'foreground',
+            perOwnerLimit: 1,
+            ...(options.signal ? {signal: options.signal} : {}),
+            resources: {
+                cpuTokens: 0,
+                estimatedResidentBytes: Math.min(64 * 1024 * 1024, Math.max(4 * 1024 * 1024, inputBytes / 64)),
+                nativeProcesses: 0,
+                ioWeight: 4,
+            },
+        });
+        let workingPath: string;
+        try {
+            workingPath = await createWorkingCopy(requireOpenPath(originalPath, owner), getOwnerWebContentsId(owner));
+        } finally {
+            openLease.release();
+        }
         persistRecentInputsAfterOpen([originalPath], owner);
         logger.debug(`openInputPaths PDF source-critical timings: ${JSON.stringify({
             recentPersistence: 'background',

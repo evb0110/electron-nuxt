@@ -32,6 +32,7 @@ interface IPdfjsVendoredAssetVersionOptions {
 }
 
 const PDFJS_VENDORED_VERSION_STAMP_URL = '/pdf/.pdfjs-version';
+const PDFJS_MAX_INTERMEDIATE_CANVAS_BYTES = 128 * 1024 * 1024;
 
 const DEFAULT_ANNOTATION_EDITOR_TYPE = {
     DISABLE: -1,
@@ -376,6 +377,9 @@ export function createPdfjsDocumentOptions(runtime: IPdfjsBrowserRuntime = pdfjs
         wasmUrl: getPdfjsAssetDir('wasm'),
         iccUrl: getPdfjsAssetDir('iccs'),
         useSystemFonts: false,
+        // PDF.js uses this to proportionally downscale oversized intermediate
+        // image canvases. Do not use maxImageSize: that option drops images.
+        canvasMaxAreaInBytes: PDFJS_MAX_INTERMEDIATE_CANVAS_BYTES,
     } satisfies Partial<TPdfjsDocumentInit>;
 }
 

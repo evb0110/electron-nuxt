@@ -41,17 +41,16 @@ import {
 import { createThumbnailRenderFrameScheduler } from '@app/modules/pdf-viewer/thumbnails/createThumbnailRenderFrameScheduler';
 import { shouldPreserveThumbnailBitmap } from '@app/modules/pdf-viewer/thumbnails/shouldPreserveThumbnailBitmap';
 import { usePdfThumbnailRasterReadiness } from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailRasterReadiness';
+import { resolveBoundedRasterDimensions } from '@app/utils/document-viewer/resolveBoundedRasterDimensions';
 
 export const PDF_THUMBNAIL_LOG_SECTION = 'pdf-thumbnails';
 const THUMBNAIL_RENDER_CONCURRENCY = getPerformanceProfile().thumbnailBaseConcurrency;
-
 const THUMBNAIL_NAVIGATION_CONCURRENCY_COOLDOWN_MS = 250;
 const IMMEDIATE_RENDER_RADIUS = 2;
 const PREFETCH_RENDER_RADIUS = 4;
 const MAX_DEMAND_RENDER_RETRIES = 3;
 const MAX_THUMBNAIL_OUTPUT_SCALE = 2;
 let nextThumbnailSurfaceScopeId = 0;
-
 export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRuntimeOptions) => {
     const {
         dom,
@@ -336,15 +335,19 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
         const scale = layout.thumbnailRenderWidth.value / viewport.width;
         const scaledViewport = page.getViewport({ scale });
         const outputScale = resolveThumbnailOutputScale();
-        const pixelWidth = Math.max(1, Math.round(scaledViewport.width * outputScale));
-        const pixelHeight = Math.max(1, Math.round(scaledViewport.height * outputScale));
+        const dimensions = resolveBoundedRasterDimensions({
+            width: scaledViewport.width * outputScale,
+            height: scaledViewport.height * outputScale,
+            maxPixels: 4 * 1024 * 1024,
+            maxDimension: 16_384,
+        });
 
         return {
             scaledViewport,
-            pixelWidth,
-            pixelHeight,
-            scaleX: pixelWidth / scaledViewport.width,
-            scaleY: pixelHeight / scaledViewport.height,
+            pixelWidth: dimensions.width,
+            pixelHeight: dimensions.height,
+            scaleX: dimensions.width / scaledViewport.width,
+            scaleY: dimensions.height / scaledViewport.height,
         };
     }
 

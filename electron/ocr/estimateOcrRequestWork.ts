@@ -1,7 +1,3 @@
-import {
-    OCR_QUEUE_MAX_DOCUMENT_PAGE_WORK,
-    OCR_QUEUE_MAX_GLOBAL_PAGE_WORK,
-} from '@electron/ocr/jobManager.config';
 import type { IOcrSearchablePdfOptions } from '@contracts/electronApiOcr';
 import type { IOcrPdfPageRequest } from '@electron/ocr/worker/types';
 import { getOcrConcurrency } from '@electron/utils/concurrency';
@@ -24,10 +20,9 @@ export function estimateOcrRequestWork(
     const totalPageWork = pages.length * pageWeight;
     return {
         bytes: peakRenderedPageCount * perPageBytes,
-        pageWork: Math.min(
-            totalPageWork,
-            OCR_QUEUE_MAX_DOCUMENT_PAGE_WORK,
-            OCR_QUEUE_MAX_GLOBAL_PAGE_WORK,
-        ),
+        // Admission must see the true amount of requested work. Clamping here
+        // turns a request above the configured cap into one that appears to fit
+        // it exactly, allowing multi-thousand-page jobs into the bounded queue.
+        pageWork: totalPageWork,
     };
 }

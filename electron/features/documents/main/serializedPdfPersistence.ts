@@ -130,6 +130,8 @@ interface ISerializedPdfPersistenceSession {
     maxChunkBytes: number;
     portAttached: boolean;
     isCommitting: boolean;
+    pendingPortMessages: number;
+    portQueueOverflowed: boolean;
     handle: FileHandle;
     timeout: NodeJS.Timeout;
     queue: Promise<void>;
@@ -399,6 +401,8 @@ async function createSession(options: {
         maxChunkBytes: SERIALIZED_PDF_MAX_CHUNK_BYTES,
         portAttached: false,
         isCommitting: false,
+        pendingPortMessages: 0,
+        portQueueOverflowed: false,
         handle,
         timeout,
         queue: Promise.resolve(),
@@ -618,9 +622,25 @@ export function attachSerializedPdfPersistencePort(event: IpcMainEvent, rawSessi
     session.portAttached = true;
 
     port.on('message', (messageEvent) => {
+        const maxQueuedMessages = SERIALIZED_PDF_MAX_IN_FLIGHT_CHUNKS + 2;
+        if (session.portQueueOverflowed || sessions.get(session.id) !== session) {
+            return;
+        }
+        if (session.pendingPortMessages >= maxQueuedMessages) {
+            session.portQueueOverflowed = true;
+            return;
+        }
+        session.pendingPortMessages += 1;
+        const processMessage = async () => {
+            try {
+                await handlePortMessage(session, port, messageEvent);
+            } finally {
+                session.pendingPortMessages = Math.max(0, session.pendingPortMessages - 1);
+            }
+        };
         session.queue = session.queue.then(
-            () => handlePortMessage(session, port, messageEvent),
-            () => handlePortMessage(session, port, messageEvent),
+            processMessage,
+            processMessage,
         );
     });
     port.once('close', () => {
@@ -640,6 +660,14 @@ async function handlePortMessage(
     let errorPhase: TPdfPersistenceErrorPhase = 'streaming';
     let errorSeq: number | undefined;
     try {
+        if (sessions.get(session.id) !== session) {
+            return;
+        }
+        if (session.portQueueOverflowed) {
+            throw new Error(
+                `PDF persistence stream exceeded queued message limit (${SERIALIZED_PDF_MAX_IN_FLIGHT_CHUNKS + 2})`,
+            );
+        }
         if (session.lifecycleOperation.signal.aborted && !session.isCommitting) {
             throw new Error('PDF persistence stream canceled during shutdown');
         }

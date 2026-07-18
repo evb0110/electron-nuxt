@@ -76,7 +76,7 @@
             </DocumentSidebarPagesPanel>
 
             <PdfOutline
-                v-show="effectiveTab === 'bookmarks'"
+                v-if="isOpen && effectiveTab === 'bookmarks'"
                 :pdf-document="pdfDocument"
                 :current-page="currentPage"
                 :is-edit-mode="bookmarkEditMode"

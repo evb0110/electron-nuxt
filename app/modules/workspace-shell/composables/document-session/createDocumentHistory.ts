@@ -63,6 +63,7 @@ interface ICreateDocumentHistoryDeps {
 const MAX_HISTORY_ENTRIES = 20;
 // Annotation commands use the other 16 MiB half of the app-wide 32 MiB undo cap.
 const MAX_FILE_HISTORY_BYTES = 16 * 1024 * 1024;
+const MAX_FILE_HISTORY_PATH_BYTES = 2 * 1024 * 1024 * 1024;
 const MAX_IN_MEMORY_HISTORY_SNAPSHOT_BYTES = 8 * 1024 * 1024;
 
 function createDocumentMutationRevisionOptions(
@@ -420,6 +421,7 @@ export function createDocumentHistory(
         }, entry, {
             maxEntries: MAX_HISTORY_ENTRIES,
             maxBytes: MAX_FILE_HISTORY_BYTES,
+            maxPathBytes: MAX_FILE_HISTORY_PATH_BYTES,
         });
 
         replaceHistory(nextState.history, nextState.historyIndex, nextState.historyCleanIndex);

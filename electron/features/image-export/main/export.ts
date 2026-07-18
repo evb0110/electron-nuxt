@@ -60,6 +60,16 @@ import {
 } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
 import { getErrorMessage } from '@electron/utils/error';
 import { createManagedScratchTempDir } from '@electron/utils/managedScratchTemp';
+import {
+    addStagedImageFileBytes,
+    IMAGE_EXPORT_MAX_RENDER_DIMENSION,
+    validateRenderedImagePageFiles,
+} from '@electron/features/image-export/main/imageExportResourceLimits';
+import {
+    buildImageExportOutputPaths,
+    buildMultiPageTiffOutputPaths,
+    resolveOutputPathConflicts,
+} from '@electron/features/image-export/main/imageExportPathPlanning';
 
 type TImageExportFormat = 'png' | 'jpeg' | 'tiff';
 type TPageRenderFormat = TImageExportFormat | 'ppm';
@@ -591,6 +601,8 @@ async function renderPdfToTempPages(
             ...toPdftoppmFormatArgs(renderFormat),
             '-r',
             String(renderDpi),
+            '-scale-to',
+            String(IMAGE_EXPORT_MAX_RENDER_DIMENSION),
             '-f',
             String(pageRange.firstPage),
             '-l',
@@ -626,6 +638,8 @@ async function renderPdfToTempPages(
                 pageFile.path = await convertRenderedPpmToPng(pageFile.path, signal, cancelGroup);
             }
         }
+
+        await validateRenderedImagePageFiles(pageFiles);
 
         return pageFiles;
     } catch (error) {
@@ -664,50 +678,6 @@ function getRenderedPageTempDir(pageFiles: IRenderedPageFile[]) {
         throw new Error('No page images were generated from the PDF');
     }
     return dirname(firstPageFile.path);
-}
-
-function buildImageExportOutputPaths(
-    normalizedPath: string,
-    pageCount: number,
-    outputStem: string,
-    outputExtension: string,
-) {
-    if (pageCount === 1) {
-        return [normalizedPath];
-    }
-
-    const outputDirectory = dirname(normalizedPath);
-    return range(1, pageCount + 1).map(outputIndex =>
-        join(
-            outputDirectory,
-            `${outputStem}-${String(outputIndex).padStart(3, '0')}${outputExtension}`,
-        ),
-    );
-}
-
-function buildNonConflictingOutputPath(targetPath: string, reservedPaths: Set<string>) {
-    const outputDirectory = dirname(targetPath);
-    const outputExtension = extname(targetPath);
-    const outputStem = basename(targetPath, outputExtension);
-    let candidatePath = targetPath;
-    let suffix = 1;
-
-    while (reservedPaths.has(candidatePath) || existsSync(candidatePath)) {
-        candidatePath = join(outputDirectory, `${outputStem}-${suffix}${outputExtension}`);
-        suffix += 1;
-    }
-
-    reservedPaths.add(candidatePath);
-    return candidatePath;
-}
-
-function resolveOutputPathConflicts(targetPaths: string[], allowSingleOverwrite = true) {
-    if (targetPaths.length === 1 && allowSingleOverwrite) {
-        return targetPaths;
-    }
-
-    const reservedPaths = new Set<string>();
-    return targetPaths.map(targetPath => buildNonConflictingOutputPath(targetPath, reservedPaths));
 }
 
 function formatPageList(pageNumbers: number[]) {
@@ -854,6 +824,7 @@ export async function exportPdfPagesAsImages(
             targetExisted: boolean;
         }> = [];
         let processedPages = 0;
+        let stagedBytes = 0;
         emitExportProgress(options, {
             phase: 'rendering',
             processed: 0,
@@ -884,6 +855,11 @@ export async function exportPdfPagesAsImages(
 
                         throwIfAborted(options.signal);
                         await moveFile(source.path, stagedPath);
+                        stagedBytes = await addStagedImageFileBytes(
+                            stagedBytes,
+                            stagedPath,
+                            'Image export exceeds the 2 GiB staged-output limit',
+                        );
                         stagedFiles.push({
                             stagedPath,
                             targetPath,
@@ -956,23 +932,6 @@ function getTiffCombineFallbackDisabledError() {
     const maxMb = Math.floor(TIFF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES / (1024 * 1024));
     return new Error(
         `TIFF combine worker unavailable and local fallback is disabled for exports larger than ${TIFF_COMBINE_LOCAL_FALLBACK_MAX_PAGES} pages or ${maxMb}MB`,
-    );
-}
-
-function buildMultiPageTiffOutputPaths(targetPath: string, partCount: number) {
-    if (partCount <= 1) {
-        return [targetPath];
-    }
-
-    const outputDirectory = dirname(targetPath);
-    const outputExtension = extname(targetPath) || '.tiff';
-    const outputStem = basename(targetPath, outputExtension);
-
-    return range(1, partCount + 1).map(partNumber =>
-        join(
-            outputDirectory,
-            `${outputStem}-part-${String(partNumber).padStart(3, '0')}${outputExtension}`,
-        ),
     );
 }
 
@@ -1102,6 +1061,7 @@ export async function exportPdfAsMultiPageTiff(
         });
         assertExportPageCountWithinLimit(pageCount);
         const pageFiles: IRenderedPageFile[] = [];
+        let stagedPageBytes = 0;
         let renderedPageCount = 0;
         emitExportProgress(options, {
             phase: 'rendering',
@@ -1120,6 +1080,13 @@ export async function exportPdfAsMultiPageTiff(
                     options.signal,
                     options.cancelGroup,
                 );
+                for (const renderedPageFile of renderedPageFiles) {
+                    stagedPageBytes = await addStagedImageFileBytes(
+                        stagedPageBytes,
+                        renderedPageFile.path,
+                        'Multi-page TIFF export exceeds the 2 GiB scratch limit',
+                    );
+                }
                 pageFiles.push(...renderedPageFiles);
                 renderedPageCount += renderedPageFiles.length;
                 emitExportProgress(options, {
