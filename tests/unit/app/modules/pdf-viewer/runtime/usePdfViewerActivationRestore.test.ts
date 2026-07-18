@@ -26,8 +26,13 @@ function createHarness() {
     const renderVisiblePages = vi.fn(async () => {});
     const scrollToPage = vi.fn();
     const applySearchHighlights = vi.fn();
+    const viewerContainer = document.createElement('div');
+    Object.defineProperties(viewerContainer, {
+        clientHeight: {value: 700},
+        clientWidth: {value: 900},
+    });
     const restore = usePdfViewerActivationRestore({
-        viewerContainer: ref(document.createElement('div')),
+        viewerContainer: ref(viewerContainer),
         pdfDocument,
         isActive: computed(() => isActive.value),
         isLoading: ref(false),
@@ -76,6 +81,7 @@ describe('usePdfViewerActivationRestore', () => {
         }));
         const oldRun = harness.restore.nextActivationRestoreRunId();
         const pending = harness.restore.renderActiveDocumentAfterActivation(oldRun);
+        await vi.waitFor(() => expect(harness.renderVisiblePages).toHaveBeenCalledOnce());
         harness.restore.nextActivationRestoreRunId();
         finish();
         await pending;

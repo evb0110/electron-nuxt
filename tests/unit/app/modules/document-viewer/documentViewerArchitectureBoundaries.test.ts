@@ -111,6 +111,19 @@ describe('document viewer architecture boundaries', () => {
         );
     });
 
+    it('sequences every renderer activation through the shared visible-layout barrier', () => {
+        for (const path of [
+            'app/modules/pdf-viewer/runtime/lifecycle/usePdfViewerActivationRestore.ts',
+            'app/modules/workspace-shell/viewers/restoreDocumentPageSourceActivePresentation.ts',
+        ]) {
+            const source = read(path);
+            expect(source, path).toContain('runDocumentViewerActivationPresentation');
+            expect(source, path).toContain('waitForDocumentViewerVisibleLayout');
+        }
+        expect(read('app/modules/workspace-shell/components/DocumentPageSourceFeaturePack.vue'))
+            .toContain('restoreDocumentPageSourceActivePresentation');
+    });
+
     it('owns resize anchoring in the shared chassis with neutral page markers', () => {
         const chassis = read('app/modules/workspace-shell/components/DocumentViewerChassis.vue');
         const pdfPage = read('app/modules/pdf-viewer/components/PdfViewerPage.vue');

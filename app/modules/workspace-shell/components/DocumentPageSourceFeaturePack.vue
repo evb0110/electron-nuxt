@@ -98,6 +98,7 @@ import {
     hasHigherDocumentRenderPriority,
     isOwnedConnectedDocumentPageImage,
     prepareDocumentPageSurface,
+    resolveDocumentPageSourceRenderWidthPx,
     resolveDocumentPageSourceVisual,
     resolveDocumentPageSourcePageStyle,
     waitForDocumentPageImagePaint,
@@ -559,9 +560,11 @@ async function renderPage(pageNumber: number) {
         return;
     }
     const previous = pageStates.get(pageNumber);
-    const widthPx = Math.max(1, Math.round(
-        metric.widthPoints * effectiveZoom.value * (window.devicePixelRatio || 1),
-    ));
+    const widthPx = resolveDocumentPageSourceRenderWidthPx(
+        metric,
+        effectiveZoom.value,
+        window.devicePixelRatio || 1,
+    );
     const activeController = renderControllers.get(pageNumber);
     if (previous?.widthPx === widthPx) {
         if (previous.lease) {
@@ -843,9 +846,11 @@ async function renderMountedPages() {
         needsRender: (pageNumber) => {
             const state = pageStates.get(pageNumber);
             const metric = pageMetrics.value[pageNumber - 1];
-            return !state?.lease || !metric || state.widthPx !== Math.max(1, Math.round(
-                metric.widthPoints * effectiveZoom.value * (window.devicePixelRatio || 1),
-            ));
+            return !state?.lease || !metric || state.widthPx !== resolveDocumentPageSourceRenderWidthPx(
+                metric,
+                effectiveZoom.value,
+                window.devicePixelRatio || 1,
+            );
         },
         preferredDirection: viewportScrollDirection.value,
         residentPages: renderDemand.value.residentPages,
@@ -857,19 +862,22 @@ async function renderMountedPages() {
 const scheduleRender = createRafCoalescedCallback(() => void renderMountedPages());
 
 async function restoreActivePagePresentation(runId: number) {
+    const isCurrent = () => activationRun.isCurrent(runId);
     await restoreDocumentPageSourceActivePresentation({
         beginPending: beginPagePresentationPending,
+        getConnectedImage: getConnectedPageImage,
+        getCurrentPage: () => currentPage,
+        getEffectiveZoom: () => effectiveZoom.value,
+        getMetric: pageNumber => pageMetrics.value[pageNumber - 1],
+        getPixelRatio: () => window.devicePixelRatio || 1,
         getState: pageNumber => pageStates.get(pageNumber),
-        hasDecodedConnectedSurface: (pageNumber, state) => {
-            const image = getConnectedPageImage(pageNumber, state);
-            return Boolean(image?.complete && image.naturalWidth > 0);
-        },
-        isCurrent: () => activationRun.isCurrent(runId),
+        isCurrent,
         markReady: markConnectedPageSurfaceReady,
         measureViewport,
-        nextRenderTick: nextTick,
+        readElement: () => viewerContainer.value,
+        readResidentPages: () => renderDemand.value.residentPages,
         renderMountedPages,
-        residentPages: renderDemand.value.residentPages,
+        renderPage,
     });
 }
 const resizeLifecycle = useDocumentPageSourceResizeLifecycle({

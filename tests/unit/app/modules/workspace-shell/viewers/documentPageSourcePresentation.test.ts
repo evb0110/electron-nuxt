@@ -4,6 +4,7 @@ import {
     it,
 } from 'vitest';
 import {
+    isDocumentPageSourceRasterCurrentForLayout,
     resolveDocumentPageSourceVisual,
     resolveDocumentPageSourceVisualPresentation,
 } from '@app/modules/workspace-shell/viewers/documentPageSourcePresentation';
@@ -50,5 +51,26 @@ describe('document page-source visual presentation', () => {
                 presentation: viewportPresentation,
             },
         })).toBe('skeleton');
+    });
+
+    it('keys raster freshness to the current page layout width', () => {
+        const metrics = {
+            widthPoints: 612,
+            heightPoints: 792,
+            rotation: 0 as const,
+        };
+
+        expect(isDocumentPageSourceRasterCurrentForLayout(
+            {widthPx: 3960},
+            metrics,
+            6.47,
+            1,
+        )).toBe(true);
+        expect(isDocumentPageSourceRasterCurrentForLayout(
+            {widthPx: 2632},
+            metrics,
+            6.47,
+            1,
+        )).toBe(false);
     });
 });

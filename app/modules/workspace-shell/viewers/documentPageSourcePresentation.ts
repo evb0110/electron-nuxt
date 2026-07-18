@@ -121,6 +121,27 @@ export function hasHigherDocumentRenderPriority(
     return DOCUMENT_RENDER_PRIORITY_RANK[next] > DOCUMENT_RENDER_PRIORITY_RANK[previous];
 }
 
+export function resolveDocumentPageSourceRenderWidthPx(
+    metrics: IDocumentPageMetrics,
+    effectiveZoom: number,
+    pixelRatio: number,
+) {
+    return Math.max(1, Math.round(metrics.widthPoints * effectiveZoom * pixelRatio));
+}
+
+export function isDocumentPageSourceRasterCurrentForLayout(
+    state: {widthPx: number},
+    metrics: IDocumentPageMetrics,
+    effectiveZoom: number,
+    pixelRatio: number,
+) {
+    return state.widthPx === resolveDocumentPageSourceRenderWidthPx(
+        metrics,
+        effectiveZoom,
+        pixelRatio,
+    );
+}
+
 export function isOwnedConnectedDocumentPageImage(
     image: HTMLImageElement,
     pageNumber: number,

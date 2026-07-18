@@ -10,6 +10,10 @@ import type {
 import type { IPageRange } from '@app/types/pdfUi';
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 import { createDocumentViewerActivationRunGuard } from '@app/utils/document-viewer/lifecycle/createDocumentViewerActivationRunGuard';
+import {
+    runDocumentViewerActivationPresentation,
+    waitForDocumentViewerVisibleLayout,
+} from '@app/utils/document-viewer/lifecycle/documentViewerActivationPresentation';
 
 interface IUsePdfViewerActivationRestoreOptions {
     viewerContainer: Ref<HTMLElement | null>;
@@ -61,30 +65,40 @@ export const usePdfViewerActivationRestore = (options: IUsePdfViewerActivationRe
 
     async function renderActiveDocumentAfterActivation(runId: number) {
         const document = options.pdfDocument.value;
-        if (!document || !options.viewerContainer.value || !isActivationRunCurrent(runId)) {
+        if (!document || !isActivationRunCurrent(runId)) {
             return;
         }
-
-        const measured = options.getVisiblePageRange?.(
-            options.viewerContainer.value,
-            options.numPages.value,
+        const isCurrent = () => (
+            isActivationRunCurrent(runId)
+            && options.pdfDocument.value === document
         );
-        if (measured) {
-            options.visibleRange.value = measured;
-        } else {
-            options.updateVisibleRange(options.viewerContainer.value, options.numPages.value);
-        }
-
-        const row = currentRow();
-        if (options.currentPage.value < options.visibleRange.value.start
-            || options.currentPage.value > options.visibleRange.value.end) {
-            options.scrollToPage(options.currentPage.value);
-        }
-        await options.renderVisiblePages(row, {preserveRenderedPages: true});
-        if (!isActivationRunCurrent(runId) || options.pdfDocument.value !== document) {
-            return;
-        }
-        options.applySearchHighlights();
+        await runDocumentViewerActivationPresentation({
+            isCurrent,
+            waitForVisibleLayout: () => waitForDocumentViewerVisibleLayout(
+                () => options.viewerContainer.value,
+                {isCurrent},
+            ),
+            measure: () => {
+                const measured = options.getVisiblePageRange?.(
+                    options.viewerContainer.value,
+                    options.numPages.value,
+                );
+                if (measured) {
+                    options.visibleRange.value = measured;
+                } else {
+                    options.updateVisibleRange(options.viewerContainer.value, options.numPages.value);
+                }
+            },
+            reconcile: async () => {
+                const row = currentRow();
+                if (options.currentPage.value < options.visibleRange.value.start
+                    || options.currentPage.value > options.visibleRange.value.end) {
+                    options.scrollToPage(options.currentPage.value);
+                }
+                await options.renderVisiblePages(row, {preserveRenderedPages: true});
+                if (isCurrent()) options.applySearchHighlights();
+            },
+        });
     }
 
     return {

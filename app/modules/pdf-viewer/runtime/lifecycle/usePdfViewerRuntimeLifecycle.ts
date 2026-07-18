@@ -628,11 +628,10 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         }
     });
 
-    watch(isActive, async (active) => {
+    watch(isActive, (active) => {
         const runId = nextActivationRestoreRunId();
         if (active) {
             viewerResidencyState = 'active';
-            await nextTick();
             if (!isActivationRunCurrent(runId)) {
                 return;
             }

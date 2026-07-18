@@ -99,6 +99,10 @@ async function flushActivationRendering() {
 
 function createViewerContainerStub(queryResult: Element | null) {
     const container: HTMLElement = Object.create(null);
+    Object.defineProperties(container, {
+        clientHeight: {value: 600},
+        clientWidth: {value: 800},
+    });
     container.querySelector = vi.fn(() => queryResult);
     container.getBoundingClientRect = vi.fn(() => ({
         bottom: 600,
