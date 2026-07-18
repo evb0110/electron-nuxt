@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import {
     describe,
     expect,
@@ -13,6 +14,7 @@ const HYDRATION_CONSOLE_MAX_WAIT_MS = 10_000;
 const TOOLBAR_STARTUP_SAMPLE_WINDOW_MS = 1_800;
 const TOOLBAR_MIN_VISIBLE_HEIGHT_PX = 40;
 const TOOLBAR_MAX_STARTUP_SHIFT_PX = 2;
+const AGENTATION_CLIPBOARD_TEXT = 'Agentation E2E clipboard permission';
 
 interface IConsoleCommandResult { messages: Array<{
     type: string;
@@ -201,5 +203,64 @@ describe('Electron E2E - Startup Hydration', () => {
         const finalSample = shellSamples.at(-1);
         expect(finalSample?.toolbarVisible).toBe(true);
         expect(finalSample?.toolbar).not.toBeNull();
+    });
+
+    it('copies Agentation feedback and auto-clears it after a successful clipboard write', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+
+        const originalMacClipboard = process.platform === 'darwin'
+            ? execFileSync('pbpaste', {encoding: 'utf8'})
+            : null;
+
+        try {
+            const annotationStorageKey = await session.page.evaluate((feedbackText) => {
+                const pagePath = window.location.hash.startsWith('#')
+                    ? window.location.hash.replace(/^#!?/u, '') || '/'
+                    : window.location.pathname;
+                const storageKey = `feedback-annotations-${pagePath}`;
+                localStorage.setItem('feedback-toolbar-settings', JSON.stringify({autoClearAfterCopy: true}));
+                localStorage.setItem(storageKey, JSON.stringify([{
+                    id: 'agentation-clipboard-e2e',
+                    x: 50,
+                    y: 120,
+                    comment: feedbackText,
+                    element: 'start page',
+                    elementPath: '.app-shell-root',
+                    timestamp: Date.now(),
+                    boundingBox: {
+                        x: 20,
+                        y: 20,
+                        width: 200,
+                        height: 100,
+                    },
+                }]));
+                return storageKey;
+            }, AGENTATION_CLIPBOARD_TEXT);
+
+            await session.page.reload({waitUntil: 'domcontentloaded'});
+            await waitForHydrationConsoleQuiet(session);
+            await session.page.click('[data-feedback-toolbar] > div');
+            await session.page.waitForSelector('[data-annotation-marker]');
+            await session.page.waitForSelector(
+                '[data-feedback-toolbar] button[aria-label="Copy as markdown"]:not([disabled])',
+            );
+            await session.page.click('[data-feedback-toolbar] button[aria-label="Copy as markdown"]');
+            await session.page.waitForFunction((storageKey) => (
+                localStorage.getItem(storageKey) === null
+                && document.querySelector('[data-annotation-marker]') === null
+            ), {timeout: 5_000}, annotationStorageKey);
+
+            if (process.platform === 'darwin') {
+                const clipboardText = execFileSync('pbpaste', {encoding: 'utf8'});
+                expect(clipboardText).toContain(AGENTATION_CLIPBOARD_TEXT);
+            }
+        } finally {
+            if (originalMacClipboard !== null) {
+                execFileSync('pbcopy', {input: originalMacClipboard});
+            }
+        }
     });
 });

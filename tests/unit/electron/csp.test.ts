@@ -16,16 +16,21 @@ import {
 
 const mocks = vi.hoisted(() => ({
     onHeadersReceived: vi.fn(),
+    setPermissionCheckHandler: vi.fn(),
     setPermissionRequestHandler: vi.fn(),
 }));
 
 vi.mock('electron', () => ({session: {defaultSession: {
+    setPermissionCheckHandler: mocks.setPermissionCheckHandler,
     setPermissionRequestHandler: mocks.setPermissionRequestHandler,
     webRequest: {onHeadersReceived: mocks.onHeadersReceived},
 }}}));
 vi.mock('@electron/config', () => ({config: {
     isDev: false,
-    renderer: {staticRoot: '/missing/nuxt-output/public'},
+    renderer: {
+        staticRoot: '/missing/nuxt-output/public',
+        trustedUrl: 'evb-viewer://app/electron',
+    },
 }}));
 
 const {
@@ -176,15 +181,56 @@ describe('buildContentSecurityPolicy', () => {
         }
     });
 
-    it('denies runtime permission prompts by default', () => {
+    it('allows clipboard writes from the trusted main renderer and denies other permissions', () => {
         setupContentSecurityPolicy();
 
-        const handler = mocks.setPermissionRequestHandler.mock.calls[0]?.[0];
-        expect(handler).toBeTypeOf('function');
-        const callback = vi.fn();
-        handler?.({}, 'media', callback, {});
+        const checkHandler = mocks.setPermissionCheckHandler.mock.calls[0]?.[0];
+        const requestHandler = mocks.setPermissionRequestHandler.mock.calls[0]?.[0];
+        expect(checkHandler).toBeTypeOf('function');
+        expect(requestHandler).toBeTypeOf('function');
 
-        expect(callback).toHaveBeenCalledWith(false);
+        expect(checkHandler?.(
+            {getURL: () => 'evb-viewer://app/electron'},
+            'clipboard-sanitized-write',
+            'evb-viewer://app',
+            {
+                isMainFrame: true,
+                requestingUrl: 'evb-viewer://app/electron',
+            },
+        )).toBe(true);
+        expect(checkHandler?.(
+            {getURL: () => 'https://untrusted.example/'},
+            'clipboard-sanitized-write',
+            'https://untrusted.example',
+            {
+                isMainFrame: true,
+                requestingUrl: 'https://untrusted.example/',
+            },
+        )).toBe(false);
+
+        const trustedClipboardCallback = vi.fn();
+        requestHandler?.(
+            {getURL: () => 'evb-viewer://app/electron'},
+            'clipboard-sanitized-write',
+            trustedClipboardCallback,
+            {
+                isMainFrame: true,
+                requestingUrl: 'evb-viewer://app/electron',
+            },
+        );
+        expect(trustedClipboardCallback).toHaveBeenCalledWith(true);
+
+        const deniedMediaCallback = vi.fn();
+        requestHandler?.(
+            {getURL: () => 'evb-viewer://app/electron'},
+            'media',
+            deniedMediaCallback,
+            {
+                isMainFrame: true,
+                requestingUrl: 'evb-viewer://app/electron',
+            },
+        );
+        expect(deniedMediaCallback).toHaveBeenCalledWith(false);
     });
 
     it('authorizes the Nuxt UI SPA color cleanup without allowing arbitrary inline scripts', () => {

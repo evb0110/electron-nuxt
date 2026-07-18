@@ -6,6 +6,7 @@ import {
 import { join } from 'node:path';
 import { session } from 'electron';
 import { config } from '@electron/config';
+import { isTrustedRendererUrl } from '@electron/security/isTrustedRendererUrl';
 import { createLogger } from '@electron/utils/createLogger';
 
 let isCspConfigured = false;
@@ -14,6 +15,7 @@ const logger = createLogger('content-security-policy');
 const PRODUCTION_CSP_HTML_ENTRYPOINTS = ['electron/index.html'];
 const CSP_SHA256_SOURCE_PATTERN = /^'sha256-[A-Za-z0-9+/]+={0,2}'$/u;
 const NUXT_UI_SPA_COLOR_CLEANUP_SCRIPT = 'document.head.removeChild(document.querySelector(\'[data-nuxt-ui-colors]\'))';
+const CLIPBOARD_WRITE_PERMISSION = 'clipboard-sanitized-write';
 
 interface IBuildContentSecurityPolicyOptions { inlineScriptHashes?: readonly string[]; }
 
@@ -103,6 +105,17 @@ export function buildContentSecurityPolicy(
     ].join('; ');
 }
 
+function isTrustedClipboardWriteRequest(
+    permission: string,
+    requestingUrl: string | undefined,
+    isMainFrame: boolean,
+) {
+    return permission === CLIPBOARD_WRITE_PERMISSION
+        && isMainFrame
+        && typeof requestingUrl === 'string'
+        && isTrustedRendererUrl(requestingUrl, config.renderer.trustedUrl);
+}
+
 export function setupContentSecurityPolicy() {
     if (isCspConfigured) {
         return;
@@ -119,8 +132,19 @@ export function setupContentSecurityPolicy() {
         logger.warn('Production CSP found no static inline script hashes; renderer bootstrap will fail if Nuxt output contains inline scripts');
     }
     const csp = buildContentSecurityPolicy(config.isDev, {inlineScriptHashes});
-    session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
-        callback(false);
+    session.defaultSession.setPermissionCheckHandler((webContents, permission, _requestingOrigin, details) => {
+        return isTrustedClipboardWriteRequest(
+            permission,
+            details.requestingUrl ?? webContents?.getURL(),
+            details.isMainFrame,
+        );
+    });
+    session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+        callback(isTrustedClipboardWriteRequest(
+            permission,
+            details.requestingUrl ?? webContents.getURL(),
+            details.isMainFrame,
+        ));
     });
 
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {

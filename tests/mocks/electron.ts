@@ -122,6 +122,7 @@ export const session = {defaultSession: {
     clearCache: noopAsync,
     protocol: {registerFileProtocol: noop},
     setDisplayMediaRequestHandler: noop,
+    setPermissionCheckHandler: noop,
     setPermissionRequestHandler: noop,
     webRequest: {
         onBeforeSendHeaders: noop,
