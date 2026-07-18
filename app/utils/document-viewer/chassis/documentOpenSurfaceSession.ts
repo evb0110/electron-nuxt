@@ -103,6 +103,7 @@ export interface IDocumentOpenSurfaceSession {
     begin(
         identity: IDocumentOpenSurfaceIdentity,
         openingPageGeometry?: IDocumentOpenSurfacePageGeometry | null,
+        initialPage?: number,
     ): number;
     beginPrepared(
         identity: IDocumentOpenSurfaceIdentity,
@@ -454,6 +455,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             current: IDocumentOpenSurfaceVisualState,
             viewport: IDocumentViewportSessionState,
         ) => IDocumentOpenSurfaceVisualState,
+        initialPage = openingPageGeometry?.pageNumber ?? preparedFrame?.pageNumber ?? 1,
     ) {
         const opened = dispatchViewport({
             type: 'open-requested',
@@ -462,7 +464,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 revision: identity.documentRevision,
             },
             viewportIntentId: createViewportIntentId('open'),
-            initialPage: openingPageGeometry?.pageNumber ?? preparedFrame?.pageNumber ?? 1,
+            initialPage: Math.max(1, Math.trunc(initialPage)),
             skeletonDelay: {
                 token: createViewportIntentId('skeleton'),
                 deadline: Date.now() + openingSkeletonDelayMs,
@@ -579,10 +581,18 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
     return {
         snapshot: readonly(snapshot),
         viewportSession,
-        begin(identity, openingPageGeometry = null) {
+        begin(identity, openingPageGeometry = null, initialPage) {
             const normalizedOpeningPageGeometry = normalizeOpeningPageGeometry(openingPageGeometry);
-            const ownedOpeningPageGeometry = normalizedOpeningPageGeometry?.documentId === identity.documentId
+            const identityOwnedOpeningPageGeometry = normalizedOpeningPageGeometry?.documentId === identity.documentId
                 ? normalizedOpeningPageGeometry
+                : null;
+            const normalizedInitialPage = initialPage === undefined
+                ? identityOwnedOpeningPageGeometry?.pageNumber ?? 1
+                : Math.max(1, Math.trunc(initialPage));
+            const ownedOpeningPageGeometry = (
+                identityOwnedOpeningPageGeometry?.pageNumber === normalizedInitialPage
+            )
+                ? identityOwnedOpeningPageGeometry
                 : null;
             beginViewportSession(identity, ownedOpeningPageGeometry, undefined, () => ({
                 // The transaction phase transfers center-surface ownership away
@@ -593,7 +603,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 openingPageGeometry: ownedOpeningPageGeometry,
                 openingPageFrame: null,
                 committedViewportPosition: null,
-            }));
+            }), normalizedInitialPage);
             return sessionState.value.viewport.generation;
         },
         beginPrepared(identity, preparedFrame) {
@@ -699,7 +709,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 openingPageGeometry: current.openingPageGeometry,
                 openingPageFrame: null,
                 committedViewportPosition: null,
-            }));
+            }), sessionState.value.viewport.requestedPage);
             return opened ? sessionState.value.viewport.generation : null;
         },
         commitOpeningPageFrame(generation, frame) {

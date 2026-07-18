@@ -708,14 +708,23 @@ function beginDocumentOpenTransaction(intent: IDocumentOpenIntent) {
             documentId,
             intent.preparedOpeningGeometry,
         ) ?? cachedRecentGeometry;
-        const preparedOpeningFrame = preparedOpeningGeometry
-            ? openingPageFrameAuthority.value?.draftOpeningPageFrame(preparedOpeningGeometry) ?? null
+        const restoredInitialPage = intent.action.toLowerCase().includes('restore')
+            ? Math.max(1, Math.trunc(initialViewState?.currentPage ?? 1))
+            : null;
+        const exactOpeningGeometry = preparedOpeningGeometry ?? readRecentOpenExactGeometry(documentId);
+        const ownedOpeningGeometry = restoredInitialPage === null
+            || exactOpeningGeometry?.pageNumber === restoredInitialPage
+            ? exactOpeningGeometry
+            : null;
+        const preparedOpeningFrame = ownedOpeningGeometry
+            ? openingPageFrameAuthority.value?.draftOpeningPageFrame(ownedOpeningGeometry) ?? null
             : null;
         const generation = preparedOpeningFrame
             ? documentOpenSurface.beginPrepared(identity, preparedOpeningFrame)
             : documentOpenSurface.begin(
                 identity,
-                preparedOpeningGeometry ?? readRecentOpenExactGeometry(documentId),
+                ownedOpeningGeometry,
+                restoredInitialPage ?? ownedOpeningGeometry?.pageNumber ?? 1,
             );
         if (generation === null) {
             activeDocumentSession.value.finishTransaction(sessionTransaction.id, 'failed');

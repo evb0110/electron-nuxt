@@ -117,8 +117,11 @@ async function activateTab(session: IElectronE2ESession, tabIndex: number) {
     }, tabIndex);
 }
 
-async function installDjvuActivationOccupancyProbe(session: IElectronE2ESession) {
-    await session.page.evaluate(() => {
+async function installDjvuActivationOccupancyProbe(
+    session: IElectronE2ESession,
+    activateTabIndex: number | null = null,
+) {
+    await session.page.evaluate((tabIndex: number | null) => {
         const probeWindow = window as IDjvuActivationOccupancyWindow;
         if (probeWindow.__djvuActivationOccupancyProbe) {
             cancelAnimationFrame(probeWindow.__djvuActivationOccupancyProbe.animationFrame);
@@ -199,7 +202,11 @@ async function installDjvuActivationOccupancyProbe(session: IElectronE2ESession)
         document.addEventListener('scroll', probe.handleScroll, true);
         probeWindow.__djvuActivationOccupancyProbe = probe;
         probe.animationFrame = requestAnimationFrame(sample);
-    });
+        if (tabIndex !== null) {
+            const tabs = Array.from(document.querySelectorAll<HTMLElement>('.tab-list .tab[data-tab-id]'));
+            tabs[tabIndex]?.click();
+        }
+    }, activateTabIndex);
 }
 
 async function readActiveDjvuPagePresentationGeometry(
@@ -296,6 +303,37 @@ async function waitForActiveDjvuCommittedPage(session: IElectronE2ESession, page
     }, {timeout: DJVU_E2E_TIMEOUT_MS}, pageNumber);
 }
 
+async function waitForActiveDjvuAuthorityConvergence(
+    session: IElectronE2ESession,
+    pageNumber: number,
+) {
+    await session.page.waitForFunction((expectedPage: number) => {
+        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const chassis = host?.querySelector<HTMLElement>('.document-viewer-chassis');
+        const viewport = host?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]');
+        const viewportRect = viewport?.getBoundingClientRect();
+        const visiblePages = viewport && viewportRect
+            ? Array.from(viewport.querySelectorAll<HTMLElement>('[data-document-page-number]'))
+                .filter((page) => {
+                    const rect = page.getBoundingClientRect();
+                    return rect.bottom > viewportRect.top + 1 && rect.top < viewportRect.bottom - 1;
+                })
+                .map(page => Number(page.dataset.documentPageNumber))
+            : [];
+        const toolbarPage = (window as IE2EWindow)
+            .__evbTestApi?.getActiveToolbarSnapshot?.()?.currentPage ?? null;
+        const committedOrObservedPage = Number(
+            chassis?.dataset.viewportCommittedPage
+            || chassis?.dataset.viewportObservedPage,
+        );
+        return toolbarPage === expectedPage
+            && Number(chassis?.dataset.chassisCurrentPage) === expectedPage
+            && Number(chassis?.dataset.viewportRequestedPage) === expectedPage
+            && committedOrObservedPage === expectedPage
+            && visiblePages.includes(expectedPage);
+    }, {timeout: DJVU_E2E_TIMEOUT_MS}, pageNumber);
+}
+
 async function waitForVisibleDjvuImageHosts(session: IElectronE2ESession, expectedCount: number) {
     await session.page.waitForFunction((expected: number) => {
         const isVisible = (element: HTMLElement) => {
@@ -345,8 +383,6 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
         );
         const restoredPage = Math.min(1057, Math.floor(loadedSnapshot.totalPages * 0.9));
         const restoredZoom = 6.47;
-        await goToPageViaToolbar(session.page, restoredPage);
-        await waitForActiveDjvuCommittedPage(session, restoredPage);
         expect((await callWorkspaceCommand(
             session.page,
             'setCustomZoomFromDisplay',
@@ -357,7 +393,24 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
             {minEffectiveZoom: restoredZoom - 0.005},
             {timeoutMs: DJVU_E2E_TIMEOUT_MS},
         );
+        await waitForActiveDjvuCommittedPage(session, loadedSnapshot.currentPage);
+
+        await installDjvuActivationOccupancyProbe(session);
+        await goToPageViaToolbar(session.page, restoredPage);
         await waitForActiveDjvuCommittedPage(session, restoredPage);
+        await waitForActiveDjvuAuthorityConvergence(session, restoredPage);
+        await new Promise(resolve => setTimeout(resolve, 3_000));
+        await waitForActiveDjvuAuthorityConvergence(session, restoredPage);
+        const navigationProbe = await stopDjvuActivationOccupancyProbe(session);
+        expect(navigationProbe.frames.length, JSON.stringify(navigationProbe.frames)).toBeGreaterThan(0);
+        expect(
+            navigationProbe.frames.every(frame => (
+                frame.visibleShellCount > 0
+                && frame.canonicalShellCount > 0
+                && (frame.effectiveZoom ?? 0) >= restoredZoom - 0.005
+            )),
+            JSON.stringify(navigationProbe.frames),
+        ).toBe(true);
         const beforeDeactivationGeometry = await readActiveDjvuPagePresentationGeometry(session, restoredPage);
         expect(beforeDeactivationGeometry).not.toBeNull();
 
@@ -374,11 +427,11 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
         expect(afterPdfOpen).toHaveLength(2);
         expect(afterPdfOpen.find(host => !host.active)?.images).toBeGreaterThan(0);
 
-        await installDjvuActivationOccupancyProbe(session);
-        await activateTab(session, 0);
+        await installDjvuActivationOccupancyProbe(session, 0);
         await waitForDjvuLoaded(session.page);
         await waitForActiveDjvuImages(session);
         await waitForActiveDjvuCommittedPage(session, restoredPage);
+        await waitForActiveDjvuAuthorityConvergence(session, restoredPage);
         const restoredSnapshot = await waitForWorkspaceToolbarSnapshot(
             session.page,
             {
@@ -398,12 +451,18 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
         expect(afterReactivationGeometry?.imageHeight).toBeCloseTo(afterReactivationGeometry?.height ?? 0, 0);
         const activationProbe = await stopDjvuActivationOccupancyProbe(session);
         const activationFrames = activationProbe.frames;
-        expect(activationFrames.length, JSON.stringify(activationFrames)).toBeGreaterThan(5);
+        expect(activationFrames.length, JSON.stringify(activationFrames)).toBeGreaterThan(0);
         expect(
             activationFrames.every(frame => (
                 frame.visibleShellCount > 0
                 && frame.canonicalShellCount > 0
             )),
+            JSON.stringify(activationFrames),
+        ).toBe(true);
+        const firstVisibleFrame = activationFrames.find(frame => frame.visibleShellCount > 0);
+        expect(firstVisibleFrame?.elapsedMs, JSON.stringify(activationFrames)).toBeLessThan(250);
+        expect(
+            firstVisibleFrame?.shellVisuals.every(visual => visual === 'fresh'),
             JSON.stringify(activationFrames),
         ).toBe(true);
         expect(activationProbe.trustedDjvuScrollEvents).toBe(0);

@@ -103,9 +103,10 @@ import {
     resolveDocumentPageSourcePageStyle,
     waitForDocumentPageImagePaint,
 } from '@app/modules/workspace-shell/viewers/documentPageSourcePresentation';
-import { useDocumentPageSourceResizeLifecycle } from '@app/modules/workspace-shell/viewers/useDocumentPageSourceResizeLifecycle';
+import { useDocumentViewportLayoutLifecycle } from '@app/utils/document-viewer/lifecycle/useDocumentViewportLayoutLifecycle';
 import DocumentPageSourcePageVisual from '@app/modules/workspace-shell/components/DocumentPageSourcePageVisual.vue';
 import {createPageSourcePagedWheelNavigation} from '@app/modules/workspace-shell/viewers/createPageSourcePagedWheelNavigation';
+import { createDocumentPageMetricPublication } from '@app/modules/workspace-shell/viewers/createDocumentPageMetricPublication';
 import {
     createDocumentWheelZoomHandler,
     type IDocumentWheelInteraction,
@@ -486,12 +487,18 @@ function publishExactPageMetric(
     ) {
         return false;
     }
-    const nextMetrics = pageMetrics.value.slice();
-    nextMetrics[pageNumber - 1] = metric;
-    pageMetrics.value = nextMetrics;
+    metricPublication.enqueue(pageNumber, metric);
     exactPageMetricNumbers.add(pageNumber);
     return true;
 }
+
+const metricPublication = createDocumentPageMetricPublication({
+    readMetrics: () => pageMetrics.value,
+    commitMetrics: metrics => layoutLifecycle.preserveLayoutMutation(() => {
+        pageMetrics.value = metrics;
+    }),
+    onPublished: () => scheduleRender.schedule(),
+});
 
 function ensureExactPageMetric(
     activeSource: IDocumentPageSource,
@@ -538,6 +545,7 @@ async function renderPage(pageNumber: number) {
     if (!exactPageMetricNumbers.has(pageNumber)) {
         try {
             await ensureExactPageMetric(activeSource, generation, pageNumber, signal);
+            metricPublication.flush();
             await nextTick();
         } catch (error) {
             if (!(error instanceof DOMException && error.name === 'AbortError')) {
@@ -548,6 +556,9 @@ async function renderPage(pageNumber: number) {
             }
             return;
         }
+    }
+    if (metricPublication.hasPending(pageNumber)) {
+        metricPublication.flush();
     }
     const metric = pageMetrics.value[pageNumber - 1];
     if (
@@ -880,13 +891,14 @@ async function restoreActivePagePresentation(runId: number) {
         renderPage,
     });
 }
-const resizeLifecycle = useDocumentPageSourceResizeLifecycle({
+const layoutLifecycle = useDocumentViewportLayoutLifecycle({
     viewerContainer,
     pageLayouts,
     isResizing: toRef(() => isResizing),
     captureRestoreEpoch: () => chassisAuthority?.openSurface.snapshot.value.generation ?? null,
     canRestore: epoch => !chassisAuthority || (
-        chassisAuthority.openSurface.snapshot.value.generation === epoch
+        isActive
+        && chassisAuthority.openSurface.snapshot.value.generation === epoch
         && shouldProjectDocumentViewportScroll(
             chassisAuthority.openSurface.snapshot.value,
             chassisAuthority.openSurface.viewportSession.value,
@@ -903,7 +915,7 @@ const resizeLifecycle = useDocumentPageSourceResizeLifecycle({
     onResizeSettled: () => scheduleRender.schedule(),
 });
 function handleScroll(event?: Event) {
-    if (!continuousScroll || !viewerContainer.value || resizeLifecycle.isResizeTransitionActive.value) {
+    if (!continuousScroll || !viewerContainer.value || layoutLifecycle.isResizeTransitionActive.value) {
         return;
     }
     const nextScrollTop = viewerContainer.value.scrollTop;
@@ -914,12 +926,14 @@ function handleScroll(event?: Event) {
     viewportScrollTop.value = nextScrollTop;
     scheduleRender.schedule();
     if (chassisAuthority?.viewportWritePort.consumeAuthorityScroll(viewerContainer.value)) {
+        layoutLifecycle.refreshLayoutTransactionAnchor();
         return;
     }
     if (chassisAuthority && event?.isTrusted !== true) {
         return;
     }
     chassisAuthority?.viewportWritePort.observeUserScroll(viewerContainer.value);
+    layoutLifecycle.refreshLayoutTransactionAnchor();
     const nearestPage = resolveNearestDocumentPageToViewportCenter({
         geometry: {
             pageHeights: pageHeights.value,
@@ -995,6 +1009,7 @@ function scrollToPage(
                     )
                     : 0,
             });
+            layoutLifecycle.refreshLayoutTransactionAnchor();
         }
         scheduleRender.schedule();
     });
@@ -1141,6 +1156,7 @@ watch(() => src, (documentRef, previousDocumentRef) => {
     renderControllers.clear();
     exactPageMetricNumbers.clear();
     exactPageMetricLoads.clear();
+    metricPublication.clear();
     visualRetryState.beginSourceGeneration();
     const previousSource = source.value;
     previousSource?.dispose();
@@ -1222,6 +1238,7 @@ watch(() => src, (documentRef, previousDocumentRef) => {
             emit('loading', false);
             scrollToPage(initialPage);
             deferredMetricHydration = async () => {
+                layoutLifecycle.beginLayoutTransaction();
                 try {
                     const metrics = await hydrateRemainingDocumentPageMetrics({
                         source: nextSource,
@@ -1248,12 +1265,17 @@ watch(() => src, (documentRef, previousDocumentRef) => {
                     if (!metrics) {
                         return;
                     }
-                    pageMetrics.value = metrics;
+                    metricPublication.clear();
+                    layoutLifecycle.preserveLayoutMutation(() => {
+                        pageMetrics.value = metrics;
+                    });
                     scheduleRender.schedule();
                 } catch (error) {
                     if (!(error instanceof DOMException && error.name === 'AbortError')) {
                         emit('loadError', error);
                     }
+                } finally {
+                    await layoutLifecycle.endLayoutTransaction();
                 }
             };
             if (!await commitInitialPageShell(initialPage, generation, activeOpenSurfaceGeneration.value)) {
@@ -1309,14 +1331,6 @@ watch(() => isActive, (active) => {
         return;
     }
     activationRun.invalidate();
-    for (const [
-        pageNumber,
-        state,
-    ] of pageStates) {
-        if (state.lease) {
-            beginPagePresentationPending(pageNumber, state);
-        }
-    }
 }, {flush: 'sync'});
 watch(() => isActive, (active) => {
     if (!active) {
@@ -1350,6 +1364,7 @@ onBeforeUnmount(() => {
     supersedeActiveOpenSurfaceGeneration();
     releaseViewportFeature?.();
     scheduleRender.cancel();
+    metricPublication.dispose();
     renderSession?.dispose();
     if (chassisOpeningSlotPage !== null) {
         pageSlots?.markUnmounted(chassisOpeningSlotPage);
@@ -1390,24 +1405,4 @@ defineExpose<IDocumentViewerExpose & {
 });
 </script>
 
-<style scoped>
-.document-source-feature-pack {
-    position: relative;
-    min-width: 100%;
-    min-height: 100%;
-}
-
-.document-source-viewer__surface {
-    position: relative;
-    min-width: 100%;
-}
-
-.document-source-viewer__page {
-    position: absolute;
-    overflow: hidden;
-    background: var(--app-document-page-bg);
-    box-shadow: var(--app-document-page-shadow);
-    border-radius: var(--app-document-page-radius);
-}
-
-</style>
+<style scoped src="./DocumentPageSourceFeaturePack.css"></style>

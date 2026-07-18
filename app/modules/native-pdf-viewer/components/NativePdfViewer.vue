@@ -82,10 +82,7 @@ import { injectDocumentViewerChassisAuthority } from '@app/utils/document-viewer
 import { createDocumentViewportWritePort } from '@app/utils/document-viewer/chassis/documentViewportWritePort';
 import { clampDocumentManualZoom } from '@app/utils/document-viewer/zoomPolicy';
 import { DOCUMENT_PAGE_GUTTER_PX } from '@app/utils/document-viewer/layout/documentPageGutterPx';
-import {
-    captureDocumentZoomAnchor,
-    resolveDocumentZoomAnchorScroll,
-} from '@app/utils/document-viewer/zoomAnchor';
+import { useDocumentViewportLayoutLifecycle } from '@app/utils/document-viewer/lifecycle/useDocumentViewportLayoutLifecycle';
 import { createDocumentWheelZoomHandler } from '@app/utils/document-viewer/input/documentWheelInteraction';
 import { resolveNativePdfDisplayScale } from '@app/modules/native-pdf-viewer/runtime/resolveNativePdfDisplayScale';
 interface IProps {
@@ -1083,23 +1080,26 @@ watch(effectiveZoom, (value) => {
     emit('update:effectiveZoom', value);
 }, { immediate: true });
 
-watch(pageLayouts, async (layouts, previousLayouts) => {
-    const container = viewerContainer.value;
-    if (!container || layouts.length === 0 || previousLayouts.length !== layouts.length) {
-        return;
-    }
-    const anchor = captureDocumentZoomAnchor(container, previousLayouts);
-    await nextTick();
-    const restored = resolveDocumentZoomAnchorScroll(container, layouts, anchor);
-    if (restored) {
+useDocumentViewportLayoutLifecycle({
+    viewerContainer,
+    pageLayouts,
+    captureRestoreEpoch: () => loadGeneration,
+    canRestore: epoch => epoch === loadGeneration
+        && isActive.value
+        && chassisAuthority?.openSurface.viewportSession.value.identity !== null,
+    applyRestoredScroll: restored => {
+        const container = viewerContainer.value;
+        if (!container) {
+            return;
+        }
         viewportWritePort.apply(container, {
             intent: viewportWritePort.beginIntent(`native-preview-zoom-anchor:${String(loadGeneration)}`),
             reason: 'zoom-anchor-restoration',
             ...restored,
         });
-    }
-    scrollTop.value = Math.max(0, container.scrollTop);
-}, {flush: 'post'});
+        scrollTop.value = Math.max(0, container.scrollTop);
+    },
+});
 
 watch(pageLayouts, () => {
     if (activeSource && pageStates.value.length > 0) {

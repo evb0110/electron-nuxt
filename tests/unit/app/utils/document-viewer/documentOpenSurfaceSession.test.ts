@@ -48,6 +48,29 @@ describe('document open surface session', () => {
         expect(session.viewportSession.value.viewportIntent?.pageNumber).toBe(1);
     });
 
+    it('starts a restored open transaction at its semantic page and rejects mismatched cached geometry', () => {
+        const session = createDocumentOpenSurfaceSession();
+        const generation = session.begin({
+            documentId: 'scan.djvu',
+            documentRevision: 'open-intent:restore',
+        }, {
+            documentId: 'scan.djvu',
+            pageNumber: 1,
+            pageCount: 1532,
+            width: 612,
+            height: 792,
+            rotation: 0,
+        }, 880);
+
+        expect(session.viewportSession.value).toMatchObject({
+            generation,
+            lifecycle: 'opening',
+            requestedPage: 880,
+            viewportIntent: {pageNumber: 880},
+        });
+        expect(session.snapshot.value.openingPageGeometry).toBeNull();
+    });
+
     it('clears unclaimed navigation when the surface resets', () => {
         const session = createDocumentOpenSurfaceSession();
         session.requestNavigation(6);

@@ -1,0 +1,20 @@
+.document-source-feature-pack {
+    position: relative;
+    min-width: 100%;
+    min-height: 100%;
+}
+
+.document-source-viewer__surface {
+    position: relative;
+    min-width: 100%;
+}
+
+.document-source-viewer__page {
+    position: absolute;
+    overflow: hidden;
+    contain: strict;
+    content-visibility: auto;
+    background: var(--app-document-page-bg);
+    box-shadow: var(--app-document-page-shadow);
+    border-radius: var(--app-document-page-radius);
+}
