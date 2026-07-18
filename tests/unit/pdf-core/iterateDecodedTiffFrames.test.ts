@@ -72,20 +72,59 @@ describe('iterateDecodedTiffFrames', () => {
         expect(utifMock.toRGBA8).not.toHaveBeenCalled();
     });
 
+    it('preflights a valid TIFF IFD chain before asking UTIF to parse every frame', () => {
+        const bytes = new Uint8Array(20);
+        const view = new DataView(bytes.buffer);
+        bytes.set([
+            0x49,
+            0x49,
+        ], 0);
+        view.setUint16(2, 42, true);
+        view.setUint32(4, 8, true);
+        view.setUint16(8, 0, true);
+        view.setUint32(10, 14, true);
+        view.setUint16(14, 0, true);
+        view.setUint32(16, 0, true);
+
+        expect(() => [...iterateDecodedTiffFrames(bytes, {
+            maxFrames: 1,
+            sourceLabel: 'ifd-chain.tif',
+        })]).toThrow('TIFF frame count is capped at 1: ifd-chain.tif');
+        expect(utifMock.decode).not.toHaveBeenCalled();
+    });
+
     it('rejects oversized decoded dimensions before allocating RGBA output', () => {
-        const frame = {};
+        const frame = {
+            width: 10_000,
+            height: 10_000,
+        };
         utifMock.decode.mockReturnValue([frame]);
-        utifMock.decodeImage.mockImplementation(() => {
-            Object.assign(frame, {
-                width: 10_000,
-                height: 10_000,
-            });
-        });
 
         expect(() => [...iterateDecodedTiffFrames(new Uint8Array([1]), {
             maxPixels: 80_000_000,
             sourceLabel: 'huge.tif',
         })]).toThrow('TIFF frame dimensions are too large to decode safely: huge.tif');
+        expect(utifMock.decodeImage).not.toHaveBeenCalled();
         expect(utifMock.toRGBA8).not.toHaveBeenCalled();
+    });
+
+    it('rejects aggregate frame pixels before decoding any frame', () => {
+        utifMock.decode.mockReturnValue([
+            {
+                width: 10,
+                height: 10,
+            },
+            {
+                width: 10,
+                height: 10,
+            },
+        ]);
+
+        expect(() => [...iterateDecodedTiffFrames(new Uint8Array([1]), {
+            maxPixels: 100,
+            maxTotalPixels: 150,
+            sourceLabel: 'many.tif',
+        })]).toThrow('TIFF aggregate decoded pixels are capped at 150: many.tif');
+        expect(utifMock.decodeImage).not.toHaveBeenCalled();
     });
 });

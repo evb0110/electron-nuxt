@@ -17,6 +17,7 @@ export interface IDocumentViewerRenderSession {
         value: T
     }>;
     getPageVisual(pageNumber: number): TDocumentPageVisual;
+    releasePage(pageNumber: number): void;
     resolveMountedPages(options: {
         currentPage: number;
         destinationPage?: number | undefined;
@@ -82,6 +83,9 @@ export function createDocumentViewerRenderCoordinator(pageSlots: IDocumentPageSl
                 }
             },
             getPageVisual: pageNumber => visuals.get(pageNumber)?.visual ?? 'skeleton',
+            releasePage(pageNumber) {
+                visuals.delete(pageNumber);
+            },
             resolveMountedPages({
                 currentPage,
                 destinationPage,

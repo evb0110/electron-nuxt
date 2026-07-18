@@ -75,6 +75,23 @@ describe('usePdfImagePlacement', () => {
             selector === '.page_container[data-page="1"]' ? pageContainer : null) });
     }
 
+    async function probeImageForTest(file: File) {
+        const bitmap = await createImageBitmap(file);
+        try {
+            return {
+                bytes: new Uint8Array(await file.arrayBuffer()),
+                width: bitmap.width,
+                height: bitmap.height,
+                frameCount: 1,
+                mimeType: file.type,
+            };
+        } finally {
+            bitmap.close();
+        }
+    }
+
+    const createPreviewForTest = async () => new Blob(['preview'], {type: 'image/png'});
+
     it('clamps the initial placement rect to page bounds', () => {
         expect(getInitialImagePlacementRect({
             pageNumber: 2,
@@ -108,6 +125,8 @@ describe('usePdfImagePlacement', () => {
             numPages: ref(4),
             effectiveScale: ref(2),
             emitFinalize: finalized,
+            probeImage: probeImageForTest,
+            createPreview: createPreviewForTest,
         }));
 
         if (!imagePlacement) {
@@ -155,6 +174,8 @@ describe('usePdfImagePlacement', () => {
             numPages: ref(4),
             effectiveScale: ref(2),
             emitFinalize: finalized,
+            probeImage: probeImageForTest,
+            createPreview: createPreviewForTest,
         }));
 
         if (!imagePlacement) {
@@ -206,6 +227,8 @@ describe('usePdfImagePlacement', () => {
             numPages: ref(4),
             effectiveScale: ref(2),
             emitFinalize: finalized,
+            probeImage: probeImageForTest,
+            createPreview: createPreviewForTest,
         }));
 
         if (!imagePlacement) {
@@ -264,6 +287,8 @@ describe('usePdfImagePlacement', () => {
             numPages: ref(4),
             effectiveScale: ref(2),
             emitFinalize: finalized,
+            probeImage: probeImageForTest,
+            createPreview: createPreviewForTest,
         }));
 
         if (!imagePlacement) {
@@ -314,6 +339,8 @@ describe('usePdfImagePlacement', () => {
             numPages: ref(4),
             effectiveScale: ref(2),
             emitFinalize: vi.fn(),
+            probeImage: probeImageForTest,
+            createPreview: createPreviewForTest,
         }));
 
         if (!imagePlacement) {

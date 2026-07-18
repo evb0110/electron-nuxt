@@ -10,6 +10,7 @@ export interface IBrowserRasterImageMetadata {
 const DEFAULT_DPI = 72;
 const METERS_PER_INCH = 0.0254;
 const CM_PER_INCH = 2.54;
+export const BROWSER_RASTER_MAX_ICC_PROFILE_BYTES = 16 * 1024 * 1024;
 
 function u16be(data: Uint8Array, offset: number) {
     return (data[offset]! << 8) | data[offset + 1]!;
@@ -76,6 +77,9 @@ function readPng(data: Uint8Array): IBrowserRasterImageMetadata | null {
 
 export async function resolveBrowserRasterIccProfile(metadata: IBrowserRasterImageMetadata) {
     if (metadata.iccProfile) {
+        if (metadata.iccProfile.byteLength === 0 || metadata.iccProfile.byteLength > BROWSER_RASTER_MAX_ICC_PROFILE_BYTES) {
+            throw new Error('ERR_BROWSER_PDF_COMBINE_ICC_PROFILE_TOO_LARGE');
+        }
         return metadata.iccProfile;
     }
     if (!metadata.compressedIccProfile) {
@@ -87,9 +91,32 @@ export async function resolveBrowserRasterIccProfile(metadata: IBrowserRasterIma
     const stream = new Blob([metadata.compressedIccProfile as BlobPart])
         .stream()
         .pipeThrough(new DecompressionStream('deflate'));
-    const profile = new Uint8Array(await new Response(stream).arrayBuffer());
-    if (profile.byteLength === 0 || profile.byteLength > 16 * 1024 * 1024) {
+    const reader = stream.getReader();
+    const chunks: Uint8Array[] = [];
+    let profileBytes = 0;
+    while (true) {
+        const {
+            done,
+            value,
+        } = await reader.read();
+        if (done) {
+            break;
+        }
+        profileBytes += value.byteLength;
+        if (profileBytes > BROWSER_RASTER_MAX_ICC_PROFILE_BYTES) {
+            await reader.cancel('ICC profile exceeds browser combine resource limit');
+            throw new Error('ERR_BROWSER_PDF_COMBINE_ICC_PROFILE_TOO_LARGE');
+        }
+        chunks.push(value);
+    }
+    if (profileBytes === 0) {
         throw new Error('ERR_BROWSER_PDF_COMBINE_ICC_PROFILE_TOO_LARGE');
+    }
+    const profile = new Uint8Array(profileBytes);
+    let profileOffset = 0;
+    for (const chunk of chunks) {
+        profile.set(chunk, profileOffset);
+        profileOffset += chunk.byteLength;
     }
     return profile;
 }
@@ -176,11 +203,23 @@ function readJpeg(data: Uint8Array): IBrowserRasterImageMetadata | null {
     }
     const expectedChunks = iccChunks[0]?.total ?? 0;
     const orderedChunks = [...iccChunks].sort((a, b) => a.sequence - b.sequence);
-    const iccProfile = expectedChunks > 0
+    let iccProfile: Uint8Array | undefined;
+    if (
+        expectedChunks > 0
         && orderedChunks.length === expectedChunks
         && orderedChunks.every((chunk, index) => chunk.total === expectedChunks && chunk.sequence === index + 1)
-        ? Uint8Array.from(orderedChunks.flatMap(chunk => [...chunk.data]))
-        : undefined;
+    ) {
+        const profileBytes = orderedChunks.reduce((total, chunk) => total + chunk.data.byteLength, 0);
+        if (profileBytes > BROWSER_RASTER_MAX_ICC_PROFILE_BYTES) {
+            throw new Error('ERR_BROWSER_PDF_COMBINE_ICC_PROFILE_TOO_LARGE');
+        }
+        iccProfile = new Uint8Array(profileBytes);
+        let profileOffset = 0;
+        for (const chunk of orderedChunks) {
+            iccProfile.set(chunk.data, profileOffset);
+            profileOffset += chunk.data.byteLength;
+        }
+    }
     return width > 0 && height > 0 ? {
         width,
         height,

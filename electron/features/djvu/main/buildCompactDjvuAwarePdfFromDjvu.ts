@@ -280,6 +280,9 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
     try {
         const s = await stat(options.outputPath);
         emitProgress(PROGRESS_COMBINE_CAP);
+        await checkpointJob.cleanup?.().catch((cleanupError: unknown) => {
+            logger.debug(`Failed to cleanup successful compact DjVu artifacts: ${getErrorMessage(cleanupError)}`);
+        });
         return {
             success: true,
             outputPath: options.outputPath,

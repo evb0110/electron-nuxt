@@ -284,6 +284,9 @@ async function _convertDjvuToPdfWithRanges(
             if (options.onProgress) {
                 options.onProgress(PROGRESS_CAP + 5);
             }
+            await artifactJob.cleanup?.().catch((error: unknown) => {
+                logger.debug(`Failed to cleanup successful DjVu range artifacts: ${getErrorMessage(error)}`);
+            });
             return {
                 success: true,
                 outputPath,

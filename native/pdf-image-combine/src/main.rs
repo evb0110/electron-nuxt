@@ -71,6 +71,12 @@ fn run() -> Result<()> {
         1_000_000,
         u64::MAX,
     );
+    let max_total_pixels = read_limit(
+        "EVB_PDF_COMBINE_MAX_TOTAL_PIXELS",
+        512_000_000,
+        1_000_000,
+        u64::MAX,
+    );
 
     if config.output_format == OutputFormat::Tiff {
         combine_tiff_paths(
@@ -100,6 +106,13 @@ fn run() -> Result<()> {
                 default_dpi: config.dpi,
                 max_pages: read_limit("EVB_PDF_COMBINE_MAX_PAGES", 500, 1, 10_000) as usize,
                 max_pixels,
+                max_total_pixels,
+                max_output_bytes: read_limit(
+                    "EVB_PDF_COMBINE_MAX_OUTPUT_BYTES",
+                    512 * 1024 * 1024,
+                    1024 * 1024,
+                    u64::MAX,
+                ),
                 max_tiff_frames: read_limit("EVB_PDF_COMBINE_MAX_TIFF_FRAMES", 250, 1, 5_000)
                     as usize,
             },
@@ -120,6 +133,13 @@ fn run() -> Result<()> {
             default_dpi: config.dpi,
             max_pages: read_limit("EVB_PDF_COMBINE_MAX_PAGES", 500, 1, 10_000) as usize,
             max_pixels,
+            max_total_pixels,
+            max_output_bytes: read_limit(
+                "EVB_PDF_COMBINE_MAX_OUTPUT_BYTES",
+                512 * 1024 * 1024,
+                1024 * 1024,
+                u64::MAX,
+            ),
             max_tiff_frames: read_limit("EVB_PDF_COMBINE_MAX_TIFF_FRAMES", 250, 1, 5_000) as usize,
         },
         |processed| {

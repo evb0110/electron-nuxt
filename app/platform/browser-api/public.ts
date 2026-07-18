@@ -13,5 +13,13 @@ export { createBrowserSearchCapability } from '@app/platform/browser-api/createB
 export { createDjvuPagePreviewSourceFromPath } from '@app/platform/browser-api/createDjvuWorkerFromPath';
 export { createNativePdfPreviewSourceFromPath } from '@app/platform/browser-api/createNativePdfPreviewSourceFromPath';
 export { decodeBrowserImageBlob } from '@app/platform/browser-api/decodeBrowserImageBlob';
+export {
+    ASSISTANT_IMAGE_RESOURCE_LIMITS,
+    createStaticBrowserImagePreview,
+    PDF_IMAGE_PLACEMENT_RESOURCE_LIMITS,
+    probeBrowserImageFile,
+    readBlobAsDataUrl,
+} from '@app/platform/browser-api/browserImageResourcePolicy';
+export type { IProbedBrowserImage } from '@app/platform/browser-api/browserImageResourcePolicy';
 export { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
 export type { IPendingBrowserWorkerRequest } from '@app/platform/browser-api/settleBrowserWorkerResult';

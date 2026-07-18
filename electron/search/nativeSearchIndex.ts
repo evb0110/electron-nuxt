@@ -67,6 +67,7 @@ async function shouldRewriteNativeSearchIndex(
     return !await loadCompactSearchIndex(pdfPath, {
         documentRevision,
         expectedPageCount: index.pageCount ?? index.pages.length,
+        metadataOnly: true,
     });
 }
 

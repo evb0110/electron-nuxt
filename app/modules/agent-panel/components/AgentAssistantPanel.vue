@@ -286,7 +286,7 @@
                                 >
                                     <img
                                         class="agent-assistant-message-image"
-                                        :src="attachment.dataUrl"
+                                        :src="getAssistantImagePreviewUrl(attachment)"
                                         :alt="attachment.name"
                                         draggable="false"
                                     >
@@ -447,7 +447,7 @@
                                     >
                                         <img
                                             class="agent-assistant-composer-attachment-image"
-                                            :src="image.dataUrl"
+                                            :src="getAssistantImagePreviewUrl(image)"
                                             :alt="image.name"
                                             draggable="false"
                                         >
@@ -680,7 +680,7 @@ import AssistantHighlightedCode from '@app/modules/agent-panel/components/Assist
 import AssistantTurnStatus from '@app/modules/agent-panel/components/AssistantTurnStatus.vue';
 import { createAgentAssistantPanelControllerProps } from '@app/modules/agent-panel/composables/createAgentAssistantPanelControllerProps';
 import { useAgentAssistantPanelController } from '@app/modules/agent-panel/composables/useAgentAssistantPanelController';
-
+import { getAssistantImagePreviewUrl } from '@app/modules/agent-panel/utils/assistantImageAttachments';
 const {
     activeDocumentName = null,
     chatScope = null,

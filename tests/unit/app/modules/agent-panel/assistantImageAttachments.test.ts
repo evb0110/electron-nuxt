@@ -11,6 +11,7 @@ import {
     buildComposerImageAttachments,
     buildExpandedImagePreview,
     getClipboardImageFiles,
+    getAssistantImagePreviewUrl,
     navigateExpandedImagePreview,
 } from '@app/modules/agent-panel/utils/assistantImageAttachments';
 import { cast } from '@tests/helpers/cast';
@@ -53,6 +54,14 @@ describe('assistantImageAttachments', () => {
             fallbackName: index => `Image ${index + 1}`,
             createId: () => 'generated-id',
             readFile: async file => `data:${file.type.toLowerCase()};base64,abc`,
+            probeFile: async file => ({
+                bytes: new Uint8Array(file.size),
+                width: 100,
+                height: 50,
+                frameCount: 1,
+                mimeType: file.type.toLowerCase(),
+            }),
+            buildPreview: async () => 'data:image/png;base64,preview',
         });
 
         expect(result.error).toBeNull();
@@ -64,6 +73,7 @@ describe('assistantImageAttachments', () => {
                 mimeType: 'image/png',
                 sizeBytes: 100,
                 dataUrl: 'data:image/png;base64,abc',
+                previewDataUrl: 'data:image/png;base64,preview',
             },
             {
                 type: 'image',
@@ -72,6 +82,7 @@ describe('assistantImageAttachments', () => {
                 mimeType: 'image/jpeg',
                 sizeBytes: 100,
                 dataUrl: 'data:image/jpeg;base64,abc',
+                previewDataUrl: 'data:image/png;base64,preview',
             },
         ]);
     });
@@ -93,6 +104,14 @@ describe('assistantImageAttachments', () => {
             fallbackName: index => `Image ${index + 1}`,
             createId: () => 'ok-id',
             readFile: async () => 'data:image/png;base64,abc',
+            probeFile: async file => ({
+                bytes: new Uint8Array(file.size),
+                width: 100,
+                height: 50,
+                frameCount: 1,
+                mimeType: file.type.toLowerCase(),
+            }),
+            buildPreview: async () => 'data:image/png;base64,preview',
         });
 
         expect(result.images).toHaveLength(1);
@@ -114,6 +133,14 @@ describe('assistantImageAttachments', () => {
             existingImages,
             fallbackName: index => `Image ${index + 1}`,
             readFile: async () => 'data:image/png;base64,abc',
+            probeFile: async file => ({
+                bytes: new Uint8Array(file.size),
+                width: 100,
+                height: 50,
+                frameCount: 1,
+                mimeType: file.type.toLowerCase(),
+            }),
+            buildPreview: async () => 'data:image/png;base64,preview',
         });
 
         expect(result.images).toHaveLength(ASSISTANT_MAX_IMAGE_ATTACHMENTS);
@@ -196,5 +223,15 @@ describe('assistantImageAttachments', () => {
         expect(navigateExpandedImagePreview(preview, 1)?.index).toBe(0);
         expect(navigateExpandedImagePreview(preview, -1)?.index).toBe(0);
         expect(buildExpandedImagePreview([], 'missing')).toBeNull();
+    });
+
+    it('uses a bounded static preview without changing the original payload', () => {
+        const image = createImageAttachment({
+            dataUrl: 'data:image/gif;base64,animated',
+            previewDataUrl: 'data:image/png;base64,static',
+        });
+
+        expect(getAssistantImagePreviewUrl(image)).toBe('data:image/png;base64,static');
+        expect(image.dataUrl).toBe('data:image/gif;base64,animated');
     });
 });

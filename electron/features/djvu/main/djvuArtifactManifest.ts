@@ -35,6 +35,7 @@ export interface IDjvuArtifactJob {
     directory: string;
     manifestPath: string;
     manifest: IDjvuArtifactManifest;
+    cleanup?(): Promise<void>;
     updateRange(index: number, update: Partial<IDjvuArtifactRange>): Promise<void>;
 }
 
@@ -151,6 +152,13 @@ export async function openDjvuArtifactJob(
         directory,
         manifestPath,
         manifest,
+        async cleanup() {
+            await writeChain;
+            await rm(directory, {
+                force: true,
+                recursive: true,
+            });
+        },
         async updateRange(index, update) {
             const range = manifest.ranges[index];
             if (!range) throw new Error(`Unknown DjVu artifact range ${index}`);
@@ -165,7 +173,12 @@ export async function openDjvuArtifactJob(
 export async function pruneStaleDjvuArtifactJobs(now = Date.now()) {
     const { readdir } = await import('node:fs/promises');
     const entries = await readdir(JOB_ROOT, {withFileTypes: true}).catch(() => []);
-    await Promise.all(entries.filter(entry => entry.isDirectory()).map(async (entry) => {
+    const jobDirectories = entries.filter(entry => entry.isDirectory());
+    const retained: Array<{
+        directory: string;
+        mtimeMs: number
+    }> = [];
+    await Promise.all(jobDirectories.map(async (entry) => {
         const directory = join(JOB_ROOT, entry.name);
         const info = await stat(join(directory, 'manifest.json')).catch(() => null);
         if (!info || now - info.mtimeMs > STALE_JOB_MS) {
@@ -173,6 +186,16 @@ export async function pruneStaleDjvuArtifactJobs(now = Date.now()) {
                 force: true,
                 recursive: true,
             });
+            return;
         }
+        retained.push({
+            directory,
+            mtimeMs: info.mtimeMs,
+        });
     }));
+    retained.sort((left, right) => right.mtimeMs - left.mtimeMs);
+    await Promise.all(retained.slice(32).map(entry => rm(entry.directory, {
+        force: true,
+        recursive: true,
+    })));
 }

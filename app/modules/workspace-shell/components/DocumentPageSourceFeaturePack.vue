@@ -182,6 +182,7 @@ const DOCUMENT_SOURCE_VISUAL_ERROR_MAX_RETRIES = 2;
 const visualRetryState = createDocumentPageSourceVisualRetryState(DOCUMENT_SOURCE_VISUAL_ERROR_MAX_RETRIES);
 const DOCUMENT_SOURCE_CONTINUOUS_MOUNT_RADIUS = 12;
 const DOCUMENT_SOURCE_MAX_MOUNTED_PAGES = 40;
+const DOCUMENT_SOURCE_MAX_RESIDENT_PAGES = 5;
 const DOCUMENT_SOURCE_RENDER_CONCURRENCY = 2;
 const loadGeneration = ref(0);
 let loadSettled = Promise.resolve();
@@ -191,7 +192,6 @@ let deferredMetricHydration: (() => Promise<void>) | null = null;
 const activeOpenSurfaceGeneration = ref<number | null>(null);
 const activeOpenSurfaceRevision = ref<string | null>(null);
 let nextViewportRenderRequestId = 0;
-
 function supersedeActiveOpenSurfaceGeneration() {
     const openSurface = chassisAuthority?.openSurface;
     const snapshot = openSurface?.snapshot.value;
@@ -216,7 +216,6 @@ function supersedeActiveOpenSurfaceGeneration() {
     activeOpenSurfaceGeneration.value = null;
     activeOpenSurfaceRevision.value = null;
 }
-
 onMounted(() => {
     viewerContainer.value = chassisAuthority?.viewportElement.value ?? null;
     measureViewport();
@@ -309,6 +308,7 @@ const renderDemand = computed(() => resolveDocumentPageSourceRenderDemand({
         return layout ? layout.width * layout.height * pixelRatio * pixelRatio : 1;
     },
     maxBufferPixels: rasterBufferProfile.maxBufferCanvasPixels,
+    maximumResidentPages: DOCUMENT_SOURCE_MAX_RESIDENT_PAGES,
     minimumBufferPages: continuousScroll && effectiveZoom.value < 1
         ? DOCUMENT_SOURCE_CONTINUOUS_MOUNT_RADIUS
         : 2,
@@ -372,7 +372,6 @@ function beginPagePresentationPending(
     state.error = null;
     state.ready = false;
 }
-
 function commitPageTerminalError(pageNumber: number) {
     let state = pageStates.get(pageNumber);
     if (!state) {
@@ -471,7 +470,6 @@ watch(
         immediate: true,
     },
 );
-
 function publishExactPageMetric(
     activeSource: IDocumentPageSource,
     generation: number,
@@ -490,7 +488,6 @@ function publishExactPageMetric(
     exactPageMetricNumbers.add(pageNumber);
     return true;
 }
-
 const metricPublication = createDocumentPageMetricPublication({
     readMetrics: () => pageMetrics.value,
     commitMetrics: metrics => layoutLifecycle.preserveLayoutMutation(() => {
@@ -538,7 +535,7 @@ async function renderPage(pageNumber: number) {
         && viewportScrollDirection.value !== 0
         && renderDemand.value.bufferPages.includes(pageNumber)
         && Math.sign(pageNumber - currentPage) === viewportScrollDirection.value;
-    const priority: TDocumentRenderPriority = pageNumber === currentPage
+    const priority: TDocumentRenderPriority = pageNumber === (chassisAuthority?.openSurface.viewportSession.value.requestedPage ?? currentPage)
         ? 'navigation'
         : renderDemand.value.visiblePages.includes(pageNumber) || isLeadingBufferPage ? 'visible' : 'nearby';
     if (!exactPageMetricNumbers.has(pageNumber)) {
@@ -598,6 +595,7 @@ async function renderPage(pageNumber: number) {
     }
     activeController?.abort();
     const preserveExistingVisual = Boolean(previous?.lease && previous.ready);
+    if (previous && preserveExistingVisual && priority === 'navigation') commitReadyPageToViewportSession(pageNumber, previous);
     if (previous && !preserveExistingVisual) {
         previous.unsubscribeInvalidation?.();
         previous.lease?.release();
@@ -972,6 +970,8 @@ function scrollToPage(
     }
     const normalized = chassisAuthority?.navigate(pageNumber)
         ?? Math.max(1, Math.min(source.value?.pageCount ?? 1, Math.trunc(pageNumber)));
+    const readyState = pageStates.get(normalized);
+    if (readyState?.ready) void nextTick(() => commitReadyPageToViewportSession(normalized, readyState));
     emit('update:currentPage', normalized);
     const intent = chassisAuthority?.viewportWritePort.beginIntent(
         `page-source-navigation:${String(normalized)}:${String(loadGeneration.value)}`,
@@ -1022,8 +1022,8 @@ function releasePageState(pageNumber: number) {
     state?.lease?.release();
     pageStates.delete(pageNumber);
     visualRetryState.releasePage(pageNumber);
+    renderSession?.releasePage(pageNumber);
 }
-
 async function commitInitialPageShell(
     pageNumber: number,
     generation: number,

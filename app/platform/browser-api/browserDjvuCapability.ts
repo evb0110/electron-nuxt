@@ -50,6 +50,7 @@ import {
     resolveBrowserDjvuPdfRenderSettings,
     type IBrowserDjvuPageMetrics as IDjvuPageMetrics,
 } from '@app/platform/browser-api/browserDjvuConversionPolicy';
+import { assertBrowserDjvuRasterDimensions } from '@app/platform/browser-api/assertBrowserDjvuRasterDimensions';
 export {
     resolveBrowserDjvuCompactExportPlan,
     resolveBrowserDjvuConversionPreflight,
@@ -175,6 +176,12 @@ async function withDjvuWorker<T>(
     }
 }
 
+async function assertWorkerDjvuRasterBudget(worker: IDjvuWorker, pageNumber: number) {
+    const pageSize = (await worker.doc.getPagesSizes().run())[pageNumber - 1];
+    if (!pageSize) throw new RangeError(`DjVu page ${pageNumber} is outside the document`);
+    assertBrowserDjvuRasterDimensions(pageSize.width, pageSize.height, `DjVu page ${pageNumber}`);
+}
+
 async function renderDjvuPageFromImageData(
     worker: IDjvuWorker,
     pageNumber: number,
@@ -248,6 +255,9 @@ async function renderDjvuPageFromPngObject(
     signal?: AbortSignal,
 ): Promise<IRenderedDjvuPage> {
     throwIfCanceled(signal);
+    const pageSize = (await worker.doc.getPagesSizes().run())[pageNumber - 1];
+    if (!pageSize) throw new RangeError(`DjVu page ${pageNumber} is outside the document`);
+    assertBrowserDjvuRasterDimensions(pageSize.width, pageSize.height, `DjVu page ${pageNumber}`);
     const pngObject = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
     throwIfCanceled(signal);
     const targetWidth = Math.max(1, Math.round(pngObject.width / Math.max(1, subsample)));
@@ -301,6 +311,7 @@ async function renderDjvuPage(
     jpegQuality: number,
     signal?: AbortSignal,
 ): Promise<IRenderedDjvuPage> {
+    await assertWorkerDjvuRasterBudget(worker, pageNumber);
     try {
         return await renderDjvuPageFromImageData(
             worker,
@@ -437,6 +448,9 @@ async function renderDjvuPageAsPpmFromPngObject(
     signal?: AbortSignal,
 ) {
     throwIfCanceled(signal);
+    const pageSize = (await worker.doc.getPagesSizes().run())[pageNumber - 1];
+    if (!pageSize) throw new RangeError(`DjVu page ${pageNumber} is outside the document`);
+    assertBrowserDjvuRasterDimensions(pageSize.width, pageSize.height, `DjVu page ${pageNumber}`);
     const pngObject = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
     throwIfCanceled(signal);
     const canvas = createCanvas(targetWidth, targetHeight);
@@ -472,6 +486,7 @@ async function renderDjvuPageAsPpm(
     pageSize: IDjvuPageMetrics,
     signal?: AbortSignal,
 ): Promise<IRenderedDjvuPpmPage> {
+    await assertWorkerDjvuRasterBudget(worker, pageNumber);
     const targetSize = compactPhotoTargetSize(pageSize);
     let data: Uint8Array;
     try {
@@ -1142,6 +1157,9 @@ export const browserDjvuCapability: IDjvuCapability = {
     },
     renderPagePreview(djvuPath, pageNumber, _options) {
         return withDjvuWorker(djvuPath, async (worker) => {
+            const pageSize = (await worker.doc.getPagesSizes().run())[pageNumber - 1];
+            if (!pageSize) throw new RangeError(`DjVu page ${pageNumber} is outside the document`);
+            assertBrowserDjvuRasterDimensions(pageSize.width, pageSize.height, `DjVu page ${pageNumber}`);
             const pageObject = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
             try {
                 const response = await fetch(pageObject.url);

@@ -148,7 +148,13 @@ function isAgentAssistantImageAttachment(attachment: unknown): attachment is IAg
         && attachment.sizeBytes <= ASSISTANT_MAX_IMAGE_BYTES
         && typeof attachment.dataUrl === 'string'
         && attachment.dataUrl.length <= ASSISTANT_MAX_IMAGE_DATA_URL_LENGTH
-        && ASSISTANT_IMAGE_DATA_URL_PREFIX_RE.test(attachment.dataUrl);
+        && ASSISTANT_IMAGE_DATA_URL_PREFIX_RE.test(attachment.dataUrl)
+        && (
+            attachment.previewDataUrl === undefined
+            || typeof attachment.previewDataUrl === 'string'
+            && attachment.previewDataUrl.length <= ASSISTANT_MAX_IMAGE_DATA_URL_LENGTH
+            && ASSISTANT_IMAGE_DATA_URL_PREFIX_RE.test(attachment.previewDataUrl)
+        );
 }
 
 function isAgentAssistantImageAttachmentList(attachments: unknown): attachments is IAgentAssistantImageAttachment[] {

@@ -154,4 +154,35 @@ describe('document raster residency planning', () => {
             14,
         ]);
     });
+
+    it('caps retained buffers independently from a generous byte budget', () => {
+        const plan = resolveDocumentRasterResidencyPlan({
+            mountedPages: [
+                6,
+                7,
+                8,
+                9,
+                10,
+                11,
+                12,
+                13,
+            ],
+            visiblePages: [
+                9,
+                10,
+            ],
+            bufferRadius: 4,
+            maxBufferPixels: Number.MAX_SAFE_INTEGER,
+            maximumResidentPages: 5,
+            minimumBufferPages: 4,
+            estimatePagePixels: () => 1,
+        });
+
+        expect(plan.visiblePages).toEqual([
+            9,
+            10,
+        ]);
+        expect(plan.bufferPages).toHaveLength(3);
+        expect(plan.residentPages).toHaveLength(5);
+    });
 });

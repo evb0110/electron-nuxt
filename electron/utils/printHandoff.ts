@@ -42,7 +42,13 @@ export const PRINT_DJVU_TEMP_PREFIX = 'print-djvu-';
 const MAX_PRINT_PDF_BYTES = parseIntegerEnv('EVB_PRINT_PDF_MAX_MB', 256, 1, 2048) * 1024 * 1024;
 const PRINT_RASTER_DPI = parseIntegerEnv('EVB_PRINT_RASTER_DPI', 180, 72, 300);
 const PRINT_RASTER_CHUNK_PAGES = parseIntegerEnv('EVB_PRINT_RASTER_CHUNK_PAGES', 50, 1, 100);
-const PRINT_RASTER_MAX_PAGES = parseIntegerEnv('EVB_PRINT_RASTER_MAX_PAGES', 2000, 1, 10000);
+const PRINT_RASTER_MAX_PAGES = parseIntegerEnv('EVB_PRINT_RASTER_MAX_PAGES', 100, 1, 1000);
+const PRINT_RASTER_MAX_TOTAL_PIXELS = parseIntegerEnv(
+    'EVB_PRINT_RASTER_MAX_TOTAL_PIXELS',
+    64_000_000,
+    1_000_000,
+    1_000_000_000,
+);
 const PRINT_RASTER_RENDER_TIMEOUT_MS = parseIntegerEnv('EVB_PRINT_RASTER_TIMEOUT_MS', 3 * 60 * 1000, 5_000);
 const PRINT_RASTER_IMAGE_LOAD_TIMEOUT_MS = parseIntegerEnv('EVB_PRINT_RASTER_IMAGE_LOAD_TIMEOUT_MS', 30_000, 1_000);
 const PDF_HEADER_SCAN_BYTES = 1024;
@@ -234,9 +240,15 @@ async function readPdfPrintLayout(path: string): Promise<IPdfPrintLayout> {
     }
 
     const firstPage = pdfDocument.getPage(0);
+    const firstPageSize = normalizePdfPageSize(firstPage.getSize());
+    const pagePixels = Math.ceil(firstPageSize.width * PRINT_RASTER_DPI / 72)
+        * Math.ceil(firstPageSize.height * PRINT_RASTER_DPI / 72);
+    if (pagePixels * pageCount > PRINT_RASTER_MAX_TOTAL_PIXELS) {
+        throw new Error(`Raster print is capped at ${PRINT_RASTER_MAX_TOTAL_PIXELS} decoded pixels`);
+    }
     return {
         pageCount,
-        firstPageSize: normalizePdfPageSize(firstPage.getSize()),
+        firstPageSize,
     };
 }
 

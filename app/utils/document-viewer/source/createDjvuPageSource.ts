@@ -28,6 +28,17 @@ export interface IDjvuSurfaceBudget {
         promotePriority?(priority: number): void;
         release(): void
     };
+    tryReserve?(options: {
+        scopeId: string;
+        category: 'djvu-preview';
+        bytes: number;
+        priority: number;
+        evict?: (() => void) | undefined;
+        canEvict?: (() => boolean) | undefined;
+    }): {
+        promotePriority?(priority: number): void;
+        release(): void
+    } | null;
     releaseScope(scopeId: string): void;
 }
 
@@ -97,27 +108,49 @@ export async function createDjvuPageSource(
         request.signal.throwIfAborted();
         nextRenderRequestId += 1;
         const previewRequestId = `${scopeId}:${request.pageNumber}:${nextRenderRequestId}`;
-        const pageSizePromise = getPageSize(request.pageNumber);
+        const pageSize = await getPageSize(request.pageNumber);
+        request.signal.throwIfAborted();
+        const transientWidthPx = previewSource.fullResolutionDecodeBeforeScale
+            ? Math.max(1, pageSize.width)
+            : Math.max(1, Math.min(pageSize.width, request.widthPx));
+        const transientHeightPx = Math.max(1, Math.round(
+            transientWidthPx * Math.max(1, pageSize.height) / Math.max(1, pageSize.width),
+        ));
+        const transientBytes = transientWidthPx * transientHeightPx * 4;
+        const transientPriority = previewPriorityByClass[request.priority];
+        const transientLease = surfaceBudget.tryReserve?.({
+            scopeId,
+            category: 'djvu-preview',
+            bytes: transientBytes,
+            priority: transientPriority,
+            canEvict: () => false,
+        }) ?? (surfaceBudget.tryReserve ? null : surfaceBudget.reserve({
+            scopeId,
+            category: 'djvu-preview',
+            bytes: transientBytes,
+            priority: transientPriority,
+            canEvict: () => false,
+        }));
+        if (!transientLease) {
+            throw new RangeError('DjVu preview exceeds the available raster surface budget');
+        }
         const cancelPreview = () => previewSource.cancelPagePreview?.(request.pageNumber, previewRequestId);
         request.signal.addEventListener('abort', cancelPreview, {once: true});
         let rendered;
         try {
-            [rendered] = await Promise.all([
-                previewSource.renderPageObjectUrl(request.pageNumber, {
-                    previewPriority: previewPriorityByClass[request.priority],
-                    previewRequestId,
-                    targetWidthPx: request.widthPx,
-                }),
-                pageSizePromise,
-            ]);
+            rendered = await previewSource.renderPageObjectUrl(request.pageNumber, {
+                previewPriority: transientPriority,
+                previewRequestId,
+                targetWidthPx: request.widthPx,
+            });
         } finally {
             request.signal.removeEventListener('abort', cancelPreview);
+            transientLease.release();
         }
         if (request.signal.aborted) {
             releaseUrl(rendered.objectUrl);
             request.signal.throwIfAborted();
         }
-        const pageSize = await pageSizePromise;
         const heightPx = Math.max(1, Math.round(
             rendered.renderedPx * Math.max(1, pageSize.height) / Math.max(1, pageSize.width),
         ));
@@ -131,7 +164,7 @@ export async function createDjvuPageSource(
         };
         let priority = previewPriorityByClass[request.priority];
         urlLeases.set(rendered.objectUrl, leaseEntry);
-        leaseEntry.lease = surfaceBudget.reserve({
+        leaseEntry.lease = surfaceBudget.tryReserve?.({
             scopeId,
             category: 'djvu-preview',
             bytes,
@@ -144,7 +177,25 @@ export async function createDjvuPageSource(
                 leaseEntry.invalidationListeners.clear();
                 releaseUrl(rendered.objectUrl);
             },
-        });
+        }) ?? (surfaceBudget.tryReserve ? null : surfaceBudget.reserve({
+            scopeId,
+            category: 'djvu-preview',
+            bytes,
+            priority,
+            canEvict: () => priority < previewPriorityByClass.visible,
+            evict: () => {
+                for (const listener of leaseEntry.invalidationListeners) {
+                    listener();
+                }
+                leaseEntry.invalidationListeners.clear();
+                releaseUrl(rendered.objectUrl);
+            },
+        }));
+        if (!leaseEntry.lease) {
+            urlLeases.delete(rendered.objectUrl);
+            previewSource.revokeObjectURL(rendered.objectUrl);
+            throw new RangeError('DjVu preview exceeds the available raster surface budget');
+        }
         if (!urlLeases.has(rendered.objectUrl)) {
             leaseEntry.lease.release();
             throw new Error('DjVu preview evicted under memory pressure');

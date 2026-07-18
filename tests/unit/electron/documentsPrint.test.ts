@@ -339,6 +339,27 @@ describe('documents print', () => {
         expect(mocks.unlink).toHaveBeenCalledWith(sourcePdfPath);
     });
 
+    it('rejects a raster print whose decoded page surfaces exceed the aggregate budget', async () => {
+        mocks.pdfPageCount = 100;
+        mocks.pdfPageSize = {
+            width: 612,
+            height: 792,
+        };
+
+        await expect(printManagedTempPdfPath(
+            windowContext,
+            sourcePdfPath,
+            'large-book.djvu',
+            {surface: 'rasterized-html'},
+        )).resolves.toEqual({
+            success: false,
+            error: 'Raster print is capped at 64000000 decoded pixels',
+        });
+
+        expect(mocks.runNativeToolCommand).not.toHaveBeenCalled();
+        expect(mocks.unlink).toHaveBeenCalledWith(sourcePdfPath);
+    });
+
     it('cleans up managed temp PDFs when size validation fails before handoff', async () => {
         mocks.stat.mockResolvedValueOnce({
             ctimeMs: 0,

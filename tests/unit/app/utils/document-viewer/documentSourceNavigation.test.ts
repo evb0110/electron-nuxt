@@ -9,6 +9,12 @@ import {
     getDocumentBookmarkActivePath,
 } from '@app/utils/document-viewer/bookmarks/documentBookmarks';
 
+interface ITestOutlineItem {
+    title: string;
+    pageNumber: number;
+    children: ITestOutlineItem[];
+}
+
 describe('document source navigation providers', () => {
     it('preserves nested source outlines as stable common bookmark trees', () => {
         const tree = createDocumentBookmarkTree([{
@@ -58,5 +64,26 @@ describe('document source navigation providers', () => {
             'document-bookmark-0-0',
         ]);
         expect(getDocumentBookmarkActivePath(tree, 2)).toEqual([]);
+    });
+
+    it('handles deeply nested but legitimate bookmark trees without recursive traversal', () => {
+        let children: ITestOutlineItem[] = [];
+        for (let index = 127; index >= 0; index -= 1) {
+            children = [{
+                title: `Level ${index}`,
+                pageNumber: index + 1,
+                children,
+            }];
+        }
+
+        const tree = createDocumentBookmarkTree(children);
+        const deepestId = Array.from(
+            {length: 128},
+            () => '0',
+        ).join('-');
+        const targetId = `document-bookmark-${deepestId}`;
+
+        expect(findDocumentBookmark(tree, targetId)?.title).toBe('Level 127');
+        expect(getDocumentBookmarkActivePath(tree, 128)).toHaveLength(128);
     });
 });

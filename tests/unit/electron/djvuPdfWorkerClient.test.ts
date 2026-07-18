@@ -35,6 +35,11 @@ describe('DjVu PDF worker client', () => {
 
         expect(mocks.startStreamingWorkerTask).toHaveBeenCalledWith(expect.objectContaining({
             createCancelMessage: expect.any(Function),
+            resourceLimits: {
+                maxOldGenerationSizeMb: 256,
+                maxYoungGenerationSizeMb: 64,
+                stackSizeMb: 4,
+            },
             signal: controller.signal,
         }));
         const options = mocks.startStreamingWorkerTask.mock.calls[0]?.[0];

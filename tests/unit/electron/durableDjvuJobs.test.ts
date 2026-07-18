@@ -12,6 +12,7 @@ import {
     awaitDurableDjvuConvertJob,
     awaitDurableDjvuOpenJob,
     cancelDurableDjvuJob,
+    clearDurableDjvuJobsForTests,
     startDurableDjvuConvertJob,
     startDurableDjvuOpenJob,
 } from '@electron/features/djvu/main/durableDjvuJobs';
@@ -40,6 +41,7 @@ const context = {senderId: 42} as IDjvuOperationContext;
 
 describe('durable DjVu jobs', () => {
     afterEach(() => {
+        clearDurableDjvuJobsForTests();
         documentOutputService.clearForTests();
         viewingMocks.adoptDjvuViewingPath.mockReset();
         openPathMocks.allowOpenPath.mockReset();
@@ -114,5 +116,22 @@ describe('durable DjVu jobs', () => {
             jobId: 'djvu-convert-reload',
         });
         expect(openPathMocks.allowOpenPath).toHaveBeenCalledWith('/tmp/output.pdf', context.sender);
+    });
+
+    it('retains at most 64 completed jobs', async () => {
+        for (let index = 0; index < 65; index += 1) {
+            const jobId = `bounded-convert-${index}`;
+            startDurableDjvuConvertJob(jobId, async () => ({
+                success: true,
+                jobId,
+                pdfPath: `/tmp/${jobId}.pdf`,
+            }));
+        }
+        await new Promise(resolve => setImmediate(resolve));
+
+        await expect(awaitDurableDjvuConvertJob(context, 'bounded-convert-0'))
+            .rejects.toThrow('Unknown or expired');
+        await expect(awaitDurableDjvuConvertJob(context, 'bounded-convert-64'))
+            .resolves.toMatchObject({success: true});
     });
 });

@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => {
     return {
         StartupError: MockDjvuPdfWorkerStartupError,
         getDjvuResolution: vi.fn(),
+        getDjvuPageSizeForViewing: vi.fn(),
         cancelConversion: vi.fn(),
         convertDjvuPageToImage: vi.fn(),
         createDjvuPdfEstimateTask: vi.fn(),
@@ -24,6 +25,7 @@ const mocks = vi.hoisted(() => {
         te: vi.fn((key: string) => key),
         mkdtemp: vi.fn(),
         rm: vi.fn(),
+        stat: vi.fn(),
         randomUUID: vi.fn(),
         loggerWarn: vi.fn(),
         loggerDebug: vi.fn(),
@@ -35,6 +37,7 @@ vi.mock('electron', () => ({app: {getPath: vi.fn(() => '/tmp')}}));
 vi.mock('fs/promises', () => ({
     mkdtemp: mocks.mkdtemp,
     rm: mocks.rm,
+    stat: mocks.stat,
 }));
 
 vi.mock('node:crypto', () => ({randomUUID: mocks.randomUUID}));
@@ -50,6 +53,7 @@ vi.mock('@electron/features/djvu/main/pdfWorkerClient', () => ({
 }));
 
 vi.mock('@electron/djvu/metadata', () => ({getDjvuResolution: mocks.getDjvuResolution}));
+vi.mock('@electron/features/djvu/main/pagePreview', () => ({getDjvuPageSizeForViewing: mocks.getDjvuPageSizeForViewing}));
 vi.mock('@electron/djvu/buildOptimizedPdf', () => ({buildOptimizedPdf: mocks.buildOptimizedPdf}));
 vi.mock('@electron/te', () => ({te: mocks.te}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
@@ -80,8 +84,17 @@ describe('estimateSizes', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.getDjvuResolution.mockResolvedValue(400);
+        mocks.getDjvuPageSizeForViewing.mockResolvedValue({
+            width: 2_400,
+            height: 3_200,
+            dpi: 400,
+        });
         mocks.mkdtemp.mockResolvedValue('/tmp/djvu-estimate-test');
         mocks.rm.mockResolvedValue(undefined);
+        mocks.stat.mockResolvedValue({
+            isFile: () => true,
+            size: 1_024,
+        });
         mocks.randomUUID.mockReturnValue('estimate-job');
         mocks.convertDjvuPageToImage.mockResolvedValue({success: true});
         mocks.buildOptimizedPdf.mockResolvedValue(new Uint8Array([
@@ -108,6 +121,31 @@ describe('estimateSizes', () => {
         expect(mocks.createDjvuPdfEstimateTask).toHaveBeenCalledTimes(3);
         expect(mocks.buildOptimizedPdf).not.toHaveBeenCalled();
         expect(mocks.loggerWarn).not.toHaveBeenCalled();
+        expect(mocks.convertDjvuPageToImage).toHaveBeenNthCalledWith(
+            1,
+            '/tmp/worker-success.djvu',
+            '/tmp/djvu-estimate-test/sample-s1.ppm',
+            3,
+            'estimate-estimate-job-1',
+            expect.objectContaining({
+                targetHeightPx: 3_200,
+                targetWidthPx: 2_400,
+            }),
+        );
+    });
+
+    it('caps a large full-quality estimate sample before native rendering', async () => {
+        mocks.getDjvuPageSizeForViewing.mockResolvedValue({
+            width: 20_000,
+            height: 20_000,
+            dpi: 400,
+        });
+
+        await estimateSizes('/tmp/large-estimate.djvu', 10);
+
+        const firstOptions = mocks.convertDjvuPageToImage.mock.calls[0]?.[4];
+        expect(firstOptions.targetWidthPx * firstOptions.targetHeightPx).toBeLessThanOrEqual(12_000_000);
+        expect(firstOptions).not.toHaveProperty('subsample');
     });
 
     it('falls back to in-process PDF building when worker startup fails', async () => {

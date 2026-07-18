@@ -8,6 +8,7 @@ const COLD_OPEN_PROVISIONAL_PAGE_METRIC: IDocumentPageMetrics = Object.freeze({
     heightPoints: 792,
     rotation: 0,
 });
+const METRIC_HYDRATION_YIELD_INTERVAL = 128;
 
 export async function loadInitialDocumentPageMetric(
     source: IDocumentPageSource,
@@ -60,7 +61,7 @@ export async function hydrateRemainingDocumentPageMetrics(options: {
         getPriorityPage = () => initialPage,
         loadMetric = (pageNumber, activeSignal) => source.getPageMetrics(pageNumber, activeSignal),
         onMetric,
-        concurrency = 8,
+        concurrency = 4,
     } = options;
     const metrics = createProvisionalDocumentPageMetrics(source.pageCount, initialMetric);
     const remainingPages = new Set(
@@ -69,6 +70,7 @@ export async function hydrateRemainingDocumentPageMetrics(options: {
     );
     let queuedPriorityPage: number | null = null;
     let prioritizedPages: number[] = [];
+    let hydratedMetricCount = 0;
     const takeNextPage = () => {
         if (remainingPages.size === 0) {
             return null;
@@ -115,6 +117,10 @@ export async function hydrateRemainingDocumentPageMetrics(options: {
                 }
                 metrics[pageNumber - 1] = metric;
                 onMetric?.(pageNumber, metric);
+                hydratedMetricCount += 1;
+                if (hydratedMetricCount % METRIC_HYDRATION_YIELD_INTERVAL === 0) {
+                    await new Promise<void>(resolve => setTimeout(resolve, 0));
+                }
             }
         },
     );

@@ -49,6 +49,11 @@ interface IDjvuPreviewSourceForTest {
         renderedPx: number;
     }>;
     revokeObjectURL(url: string): void;
+    terminate(): void;
+    getPageSizes?(): Promise<Array<{
+        height: number;
+        width: number;
+    }>>;
     searchText?(request: {
         requestId: string;
         pageCount: number;
@@ -197,6 +202,33 @@ describe('createDjvuWorkerFromPath', () => {
             call[0].processed === 1
             && call[0].results.length <= 64
         ))).toBe(true);
+    });
+
+    it('rejects a browser DjVu page whose searchable text exceeds the interactive budget', async () => {
+        const {searchDjvuWorkerText} =
+            await import('@app/platform/browser-api/createDjvuWorkerFromPath');
+        const worker = {doc: {
+            getPagesSizes: () => ({run: async () => [{
+                width: 100,
+                height: 200,
+            }]}),
+            getPage: () => ({
+                getText: () => ({run: async () => 'x'.repeat(8 * 1024 * 1024 + 1)}),
+                getNormalizedTextZones: () => ({run: async () => null}),
+            }),
+        }};
+
+        await expect(searchDjvuWorkerText(worker as never, {
+            requestId: 'oversized-page-text',
+            pageCount: 1,
+            query: 'x',
+            matchOptions: {
+                matchCase: false,
+                wholeWord: false,
+                useRegex: false,
+            },
+            signal: new AbortController().signal,
+        })).rejects.toThrow('page text exceeds');
     });
 
     it('reads DjVu bytes through the active platform document capability', async () => {
@@ -603,6 +635,16 @@ describe('createDjvuWorkerFromPath', () => {
     });
 
     it('keeps concurrent browser fallback consumers of the same page independent', async () => {
+        mocks.getPagesSizes.mockResolvedValue([
+            {
+                width: 100,
+                height: 200,
+            },
+            {
+                width: 100,
+                height: 200,
+            },
+        ]);
         const firstRender = Promise.withResolvers<{
             height: number;
             url: string;
@@ -656,6 +698,24 @@ describe('createDjvuWorkerFromPath', () => {
             1,
             1,
         ]);
+    });
+
+    it('rejects browser DjVu documents above the interactive page-count cap', async () => {
+        mocks.getPagesSizes.mockResolvedValue(Array.from(
+            {length: 10_001},
+            () => ({
+                width: 100,
+                height: 200,
+            }),
+        ));
+        const { createDjvuPagePreviewSourceFromPath } =
+            await import('@app/platform/browser-api/createDjvuWorkerFromPath');
+        const source = await createDjvuPagePreviewSourceFromPath(
+            'browser://documents/source/too-many-pages.djvu',
+        ) as IDjvuPreviewSourceForTest;
+
+        await expect(source.getPageSizes!()).rejects.toThrow('capped at 10000 pages');
+        source.terminate();
     });
 
     it('revokes stale browser fallback preview URLs created after cancellation', async () => {

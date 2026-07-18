@@ -76,6 +76,11 @@ const NATIVE_PDF_IMAGE_COMBINE_MAX_STDOUT_BUFFER_BYTES = 64 * 1024;
 const NATIVE_PDF_IMAGE_COMBINE_TEST_ENABLE_ENV = 'EVB_PDF_IMAGE_COMBINE_ENABLE';
 const PDF_HEADER_SCAN_BYTES = 1024;
 const PDF_EOF_SCAN_BYTES = 1024 * 1024;
+const JPEG_ORIENTATION_SCAN_MAX_BYTES = 4 * 1024 * 1024;
+const NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_PDF_COMBINE_MAX_OUTPUT_MB ?? '512', 10);
+    return (Number.isFinite(parsed) && parsed >= 1 ? parsed : 512) * 1024 * 1024;
+})();
 
 function getBinaryName() {
     return process.platform === 'win32'
@@ -196,6 +201,16 @@ async function readValidatedNativePdfOutput(outputPath: string) {
     let fallbackDetail: string | null = null;
     let fallbackCause: unknown;
 
+    const outputHandle = await open(outputPath, 'r');
+    try {
+        const outputStat = await outputHandle.stat();
+        if (outputStat.size > NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES) {
+            throw new Error('Combined PDF output is too large to return safely');
+        }
+    } finally {
+        await outputHandle.close();
+    }
+
     try {
         if (await isStructurallyPlausiblePdfFile(outputPath)) {
             return new Uint8Array(await readFile(outputPath));
@@ -261,7 +276,7 @@ export async function tryCreatePdfWithNativeImageCombiner(
     if (!canUseNativePdfImageCombine(inputPaths, SUPPORTED_NATIVE_BITMAP_EXTENSIONS)) {
         return null;
     }
-    if (await hasOrientedJpegInput(inputPaths)) {
+    if (await hasOrientedJpegInput(inputPaths, options?.signal)) {
         return null;
     }
 
@@ -276,18 +291,70 @@ export async function tryWritePdfWithNativeImageCombiner(
     if (!canUseNativePdfImageCombine(inputPaths, SUPPORTED_NATIVE_BITMAP_EXTENSIONS)) {
         return false;
     }
-    if (await hasOrientedJpegInput(inputPaths)) {
+    if (await hasOrientedJpegInput(inputPaths, options?.signal)) {
         return false;
     }
 
     return writePdfWithNativeImageCombiner(inputPaths, outputPath, options);
 }
 
-async function hasOrientedJpegInput(inputPaths: string[]) {
+function hasCompleteJpegMetadataPrefix(bytes: Uint8Array) {
+    if (bytes.byteLength < 2 || bytes[0] !== 0xff || bytes[1] !== 0xd8) {
+        return true;
+    }
+    let offset = 2;
+    while (offset < bytes.byteLength) {
+        while (offset < bytes.byteLength && bytes[offset] === 0xff) offset += 1;
+        if (offset >= bytes.byteLength) {
+            return false;
+        }
+        const marker = bytes[offset]!;
+        offset += 1;
+        if (marker === 0xda || marker === 0xd9) {
+            return true;
+        }
+        if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) continue;
+        if (offset + 2 > bytes.byteLength) {
+            return false;
+        }
+        const segmentLength = (bytes[offset]! << 8) | bytes[offset + 1]!;
+        if (segmentLength < 2 || offset + segmentLength > bytes.byteLength) {
+            return false;
+        }
+        offset += segmentLength;
+    }
+    return false;
+}
+
+async function readBoundedJpegMetadata(inputPath: string, signal?: AbortSignal) {
+    const handle = await open(inputPath, 'r');
+    try {
+        const fileStat = await handle.stat();
+        if (!fileStat.isFile()) {
+            throw new Error(`Input path is not a regular file: ${inputPath}`);
+        }
+        const byteLength = Math.min(fileStat.size, JPEG_ORIENTATION_SCAN_MAX_BYTES);
+        const bytes = Buffer.alloc(byteLength);
+        let bytesRead = 0;
+        while (bytesRead < byteLength) {
+            if (signal?.aborted) throw abortErrorFromSignal(signal);
+            const result = await handle.read(bytes, bytesRead, byteLength - bytesRead, bytesRead);
+            if (result.bytesRead <= 0) break;
+            bytesRead += result.bytesRead;
+        }
+        return bytes.subarray(0, bytesRead);
+    } finally {
+        await handle.close();
+    }
+}
+
+async function hasOrientedJpegInput(inputPaths: string[], signal?: AbortSignal) {
     for (const inputPath of inputPaths) {
+        if (signal?.aborted) throw abortErrorFromSignal(signal);
         const extension = extname(inputPath).toLowerCase();
         if (extension !== '.jpg' && extension !== '.jpeg') continue;
-        if (readJpegExifOrientation(new Uint8Array(await readFile(inputPath))) !== 1) {
+        const metadata = await readBoundedJpegMetadata(inputPath, signal);
+        if (!hasCompleteJpegMetadataPrefix(metadata) || readJpegExifOrientation(metadata) !== 1) {
             return true;
         }
     }
@@ -423,15 +490,14 @@ async function runNativePdfImageCombine(
         args.push('--', ...inputPaths);
     }
     const maxPages = normalizeMaxPagesForEnv(options?.maxPages);
-    const env = maxPages
-        ? {
-            ...process.env,
-            EVB_PDF_COMBINE_MAX_PAGES: maxPages,
-        }
-        : undefined;
+    const env = {
+        ...process.env,
+        EVB_PDF_COMBINE_MAX_OUTPUT_BYTES: String(NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES),
+        ...(maxPages ? {EVB_PDF_COMBINE_MAX_PAGES: maxPages} : {}),
+    };
 
     await verifyNativeToolProtocol(binaryPath, {
-        ...(env ? { env } : {}),
+        env,
         ...(options?.signal ? { signal: options.signal } : {}),
     });
     if (options?.signal?.aborted) {
@@ -440,7 +506,7 @@ async function runNativePdfImageCombine(
 
     return new Promise<boolean>((resolve, reject) => {
         const proc = spawn(binaryPath, args, createDetachedChildProcessSpawnOptions({
-            ...(env ? { env } : {}),
+            env,
             shell: false,
             windowsHide: true,
             stdio: [

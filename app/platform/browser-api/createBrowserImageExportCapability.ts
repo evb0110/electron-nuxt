@@ -37,6 +37,7 @@ import {
 } from '@pdf-core';
 import type { ITiffImageDescriptor } from '@pdf-core';
 import { createDjvuWorkerFromPath } from '@app/platform/browser-api/createDjvuWorkerFromPath';
+import { assertBrowserDjvuRasterDimensions } from '@app/platform/browser-api/assertBrowserDjvuRasterDimensions';
 
 type TBrowserImageExportFormat = 'jpeg' | 'png' | 'tiff';
 type TBrowserImageExportProgressPayload = Omit<IImageExportProgress, 'format' | 'requestId'>;
@@ -474,6 +475,9 @@ async function exportBrowserDjvuPagesAsImages(
             index,
             pageNumber,
         ] of targetPages.entries()) {
+            const pageSize = sizes[pageNumber - 1];
+            if (!pageSize) throw new RangeError(`DjVu page ${pageNumber} is outside the document`);
+            assertBrowserDjvuRasterDimensions(pageSize.width, pageSize.height, `DjVu page ${pageNumber}`);
             const rendered = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
             try {
                 const response = await fetch(rendered.url);
@@ -550,10 +554,18 @@ async function exportBrowserDjvuAsTiff(
             width: number;
             height: number
         }> = [];
+        let estimatedRgbaBytes = 0;
         for (const [
             index,
             pageNumber,
         ] of targetPages.entries()) {
+            const pageSize = sizes[pageNumber - 1];
+            if (!pageSize) throw new RangeError(`DjVu page ${pageNumber} is outside the document`);
+            assertBrowserDjvuRasterDimensions(pageSize.width, pageSize.height, `DjVu page ${pageNumber}`);
+            estimatedRgbaBytes += pageSize.width * pageSize.height * 4;
+            if (estimatedRgbaBytes > BROWSER_INLINE_TIFF_EXPORT_MAX_RGBA_BYTES) {
+                throw new Error('Browser DjVu TIFF export exceeds the 64MB decoded-image limit');
+            }
             const rendered = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
             try {
                 const response = await fetch(rendered.url);

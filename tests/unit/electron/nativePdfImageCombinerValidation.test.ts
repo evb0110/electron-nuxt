@@ -64,25 +64,35 @@ describe('native PDF image combiner output validation', () => {
         mocks.openData = Buffer.from('%PDF-1.7\n%%EOF\n');
         mocks.readFile.mockReset();
         mocks.readFile.mockImplementation(async () => Buffer.from(mocks.openData));
-        mocks.open.mockImplementation(async () => ({
-            stat: vi.fn(async () => ({
-                isFile: () => true,
-                size: mocks.openData.byteLength,
-            })),
-            read: vi.fn(async (
-                buffer: Buffer,
-                offset: number,
-                length: number,
-                position: number,
-            ) => {
-                mocks.openData.copy(buffer, offset, position, position + length);
-                return {
-                    bytesRead: length,
-                    buffer,
-                };
-            }),
-            close: vi.fn(async () => undefined),
-        }));
+        mocks.open.mockImplementation(async (path: string) => {
+            const openData = path.endsWith('.jpg')
+                ? Buffer.from([
+                    0xff,
+                    0xd8,
+                    0xff,
+                    0xda,
+                ])
+                : mocks.openData;
+            return {
+                stat: vi.fn(async () => ({
+                    isFile: () => true,
+                    size: openData.byteLength,
+                })),
+                read: vi.fn(async (
+                    buffer: Buffer,
+                    offset: number,
+                    length: number,
+                    position: number,
+                ) => {
+                    openData.copy(buffer, offset, position, position + length);
+                    return {
+                        bytesRead: Math.min(length, Math.max(0, openData.byteLength - position)),
+                        buffer,
+                    };
+                }),
+                close: vi.fn(async () => undefined),
+            };
+        });
         mocks.spawn.mockImplementation(() => {
             const proc = new MockProcess();
             queueMicrotask(() => {
@@ -158,7 +168,7 @@ describe('native PDF image combiner output validation', () => {
         await expect(pending).rejects.toBe(abortError);
         expect(mocks.spawn).toHaveBeenCalledWith('/native/evb-pdf-image-combine', expect.any(Array), expect.objectContaining({detached: true}));
         expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(proc, 1_000);
-        expect(mocks.readFile).toHaveBeenCalledWith('/tmp/input.jpg');
+        expect(mocks.readFile).not.toHaveBeenCalledWith('/tmp/input.jpg');
         expect(mocks.rm).toHaveBeenCalledWith('/tmp/pdf-image-combine-test', {
             recursive: true,
             force: true,
@@ -172,7 +182,7 @@ describe('native PDF image combiner output validation', () => {
         const { tryCreatePdfWithNativeImageCombiner } = await import('@electron/image/tryCreatePdfWithNativeImageCombiner');
 
         await expect(tryCreatePdfWithNativeImageCombiner(['/tmp/input.png'])).resolves.toEqual(new Uint8Array(validPdf));
-        expect(mocks.verifyNativeToolProtocol).toHaveBeenCalledWith('/native/evb-pdf-image-combine', {});
+        expect(mocks.verifyNativeToolProtocol).toHaveBeenCalledWith('/native/evb-pdf-image-combine', {env: expect.objectContaining({EVB_PDF_COMBINE_MAX_OUTPUT_BYTES: String(512 * 1024 * 1024)})});
         expect(mocks.verifyNativeToolProtocol.mock.invocationCallOrder[0]!)
             .toBeLessThan(mocks.spawn.mock.invocationCallOrder[0]!);
     });
@@ -183,8 +193,40 @@ describe('native PDF image combiner output validation', () => {
 
         await expect(tryWritePdfWithNativeImageCombiner(['/tmp/input.jpg'], '/tmp/output.pdf')).resolves.toBe(true);
 
-        expect(mocks.readFile).toHaveBeenCalledWith('/tmp/input.jpg');
+        expect(mocks.readFile).not.toHaveBeenCalledWith('/tmp/input.jpg');
         expect(mocks.open).toHaveBeenCalledWith('/tmp/output.pdf', 'r');
+    });
+
+    it('rejects oversized native PDF output before reading it into memory', async () => {
+        mocks.open.mockImplementation(async (path: string) => {
+            const data = path.endsWith('.jpg')
+                ? Buffer.from([
+                    0xff,
+                    0xd8,
+                    0xff,
+                    0xda,
+                ])
+                : mocks.openData;
+            return {
+                stat: vi.fn(async () => ({
+                    isFile: () => true,
+                    size: path.endsWith('.pdf') ? 513 * 1024 * 1024 : data.byteLength,
+                })),
+                read: vi.fn(async (buffer: Buffer, offset: number, length: number, position: number) => {
+                    data.copy(buffer, offset, position, position + length);
+                    return {
+                        bytesRead: Math.min(length, Math.max(0, data.byteLength - position)),
+                        buffer,
+                    };
+                }),
+                close: vi.fn(async () => undefined),
+            };
+        });
+        const { tryCreatePdfWithNativeImageCombiner } = await import('@electron/image/tryCreatePdfWithNativeImageCombiner');
+
+        await expect(tryCreatePdfWithNativeImageCombiner(['/tmp/input.png']))
+            .rejects.toThrow('Combined PDF output is too large to return safely');
+        expect(mocks.readFile).not.toHaveBeenCalled();
     });
 
     it('rejects before spawning when protocol verification fails', async () => {

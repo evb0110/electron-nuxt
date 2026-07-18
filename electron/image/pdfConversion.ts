@@ -131,6 +131,10 @@ const PDF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES = (() => {
     }
     return Math.min(parsed, 256) * 1024 * 1024;
 })();
+const PDF_COMBINE_MAX_OUTPUT_BYTES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_PDF_COMBINE_MAX_OUTPUT_MB ?? '512', 10);
+    return (Number.isFinite(parsed) && parsed >= 1 ? parsed : 512) * 1024 * 1024;
+})();
 const WORKER_SUPPORTED_IMAGE_EXTENSIONS = new Set<string>(
     [
         '.png',
@@ -411,6 +415,10 @@ function assertMemoryCombineInputResourceLimits(resourceUsage: ICombineInputReso
     if (resourceUsage.totalBytes > PDF_COMBINE_MAX_TOTAL_INPUT_BYTES) {
         throw new Error('Combined input files are too large to combine safely');
     }
+    const estimatedMinimumOutputBytes = Math.ceil(resourceUsage.totalBytes * 1.25);
+    if (estimatedMinimumOutputBytes > PDF_COMBINE_MAX_OUTPUT_BYTES) {
+        throw new Error('Combined PDF is estimated to exceed the in-memory output limit; use file-backed conversion');
+    }
 }
 
 function canUseLocalWorkerStartupFallback(totalBytes: number) {
@@ -546,6 +554,10 @@ function createPdfFromInputPathsWorker(
                     const data = decodeWorkerPdfBytes(payload.data);
                     if (!data) {
                         reject(new Error('Image combine worker returned invalid PDF data'));
+                        return;
+                    }
+                    if (data.byteLength > PDF_COMBINE_MAX_OUTPUT_BYTES) {
+                        reject(new Error('Combined PDF output is too large to return safely'));
                         return;
                     }
 

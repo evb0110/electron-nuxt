@@ -57,4 +57,19 @@ describe('DjVu artifact manifests', () => {
             'pending',
         ]);
     });
+
+    it('removes a completed artifact job on explicit cleanup', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'evb-djvu-manifest-cleanup-test-'));
+        directories.push(directory);
+        const sourcePath = join(directory, 'source.djvu');
+        writeFileSync(sourcePath, 'djvu-source');
+        const job = await openDjvuArtifactJob(sourcePath, [{
+            startPage: 1,
+            endPage: 1,
+        }], {});
+
+        await job.cleanup?.();
+
+        expect(() => writeFileSync(job.manifestPath, 'gone', {flag: 'r+'})).toThrow();
+    });
 });

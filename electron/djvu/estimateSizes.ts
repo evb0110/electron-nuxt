@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import {
     mkdtemp,
     rm,
+    stat,
 } from 'fs/promises';
 import { sortBy } from 'es-toolkit/array';
 import {
@@ -11,6 +12,7 @@ import {
     convertDjvuPageToImage,
     createDjvuPdfEstimateTask,
     DjvuPdfWorkerStartupError,
+    getDjvuPageSizeForViewing,
 } from '@electron/features/djvu/public';
 import { getDjvuResolution } from '@electron/djvu/metadata';
 import { buildOptimizedPdf } from '@electron/djvu/buildOptimizedPdf';
@@ -21,6 +23,9 @@ import type { IDjvuSizeEstimate } from '@contracts/electronApiDjvu';
 import { abortErrorFromSignal } from '@electron/utils/abort';
 
 const logger = createLogger('djvu-estimate');
+const DJVU_ESTIMATE_MAX_SAMPLE_PIXELS = 12_000_000;
+const DJVU_ESTIMATE_MAX_SAMPLE_BYTES = 48 * 1024 * 1024;
+const DJVU_ESTIMATE_LOCAL_FALLBACK_MAX_BYTES = 8 * 1024 * 1024;
 const DJVU_ESTIMATE_CACHE_MAX_ENTRIES = (() => {
     const parsed = Number.parseInt(process.env.EVB_DJVU_ESTIMATE_CACHE_MAX_ENTRIES ?? '64', 10);
     if (!Number.isFinite(parsed) || parsed < 1) {
@@ -61,6 +66,10 @@ async function estimatePdfSizeBytes(
 ) {
     return measureElectronPerfAsync('djvu:estimate-pdf-size', async () => {
         throwIfAborted(signal);
+        const imageStat = await stat(imagePath);
+        if (!imageStat.isFile() || imageStat.size > DJVU_ESTIMATE_MAX_SAMPLE_BYTES) {
+            throw new Error('DjVu estimate sample exceeds the bounded worker input limit');
+        }
         try {
             const task = createDjvuPdfEstimateTask(imagePath, dpi, { signal });
             return await task.promise;
@@ -70,6 +79,10 @@ async function estimatePdfSizeBytes(
             }
             throwIfAborted(signal);
 
+            if (imageStat.size > DJVU_ESTIMATE_LOCAL_FALLBACK_MAX_BYTES) {
+                throw new Error('DjVu estimate worker unavailable and the sample is too large for main-process fallback');
+            }
+
             logger.warn(`DjVu PDF worker unavailable, falling back to in-process estimate build: ${error.message}`);
             const pdfBytes = await buildOptimizedPdf([imagePath], dpi, undefined, { signal });
             return pdfBytes.length;
@@ -78,6 +91,28 @@ async function estimatePdfSizeBytes(
         thresholdMs: 25,
         details: { dpi },
     });
+}
+
+function resolveEstimateRenderPlan(
+    width: number,
+    height: number,
+    presetSubsample: number,
+) {
+    const requestedWidth = Math.max(1, Math.round(width / presetSubsample));
+    const requestedHeight = Math.max(1, Math.round(height / presetSubsample));
+    const requestedPixels = requestedWidth * requestedHeight;
+    const scale = requestedPixels > DJVU_ESTIMATE_MAX_SAMPLE_PIXELS
+        ? Math.sqrt(DJVU_ESTIMATE_MAX_SAMPLE_PIXELS / requestedPixels)
+        : 1;
+    const targetWidthPx = Math.max(1, Math.floor(requestedWidth * scale));
+    const targetHeightPx = Math.max(1, Math.floor(requestedHeight * scale));
+    const renderedPixels = targetWidthPx * targetHeightPx;
+
+    return {
+        pixelExpansion: requestedPixels / renderedPixels,
+        targetHeightPx,
+        targetWidthPx,
+    };
 }
 
 function pruneEstimateCache(now = Date.now()) {
@@ -180,6 +215,10 @@ async function computeEstimateSizes(
     // Sample a page from the middle third of the document for accurate estimation.
     // First/last pages (covers, end matter) are typically much smaller than content pages.
     const samplePage = Math.max(1, Math.floor(pageCount * 0.33));
+    const samplePageSize = await getDjvuPageSizeForViewing(djvuPath, samplePage, {signal});
+    if (!samplePageSize) {
+        throw new Error(`Unable to determine DjVu estimate sample dimensions for page ${samplePage}`);
+    }
 
     const presets = [
         {
@@ -217,6 +256,11 @@ async function computeEstimateSizes(
             const imagePath = join(tempDir, `sample-s${preset.subsample}.ppm`);
             const effectiveDpi = Math.round(sourceDpi / preset.subsample);
             const estimateJobId = `${estimateJobIdPrefix}-${preset.subsample}`;
+            const renderPlan = resolveEstimateRenderPlan(
+                samplePageSize.width,
+                samplePageSize.height,
+                preset.subsample,
+            );
 
             try {
                 activeEstimateJobIds.add(estimateJobId);
@@ -226,9 +270,10 @@ async function computeEstimateSizes(
                     samplePage,
                     estimateJobId,
                     {
-                        ...(preset.subsample > 1 ? { subsample: preset.subsample } : {}),
                         format: 'ppm',
                         signal,
+                        targetHeightPx: renderPlan.targetHeightPx,
+                        targetWidthPx: renderPlan.targetWidthPx,
                     },
                 );
                 activeEstimateJobIds.delete(estimateJobId);
@@ -240,7 +285,11 @@ async function computeEstimateSizes(
                         label: preset.label,
                         description: preset.description,
                         resultingDpi: effectiveDpi,
-                        estimatedBytes: Math.round((await estimatePdfSizeBytes(imagePath, effectiveDpi, signal)) * pageCount),
+                        estimatedBytes: Math.round(
+                            (await estimatePdfSizeBytes(imagePath, effectiveDpi, signal))
+                            * pageCount
+                            * renderPlan.pixelExpansion,
+                        ),
                     });
                 } else {
                     estimates.push({

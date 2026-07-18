@@ -148,10 +148,19 @@ export class DocumentThumbnailLayout {
     }
 
     snapshot(): IDocumentThumbnailLayoutSnapshot {
+        let top = 0;
+        const heights: number[] = [];
+        const tops: number[] = [];
+        for (let page = 1; page <= this.pageCount; page += 1) {
+            const height = this.getPageHeight(page);
+            heights.push(height);
+            tops.push(top);
+            top += height + (page < this.pageCount ? this.itemGap : 0);
+        }
         return {
-            heights: Array.from({length: this.pageCount}, (_, index) => this.getPageHeight(index + 1)),
-            tops: Array.from({length: this.pageCount}, (_, index) => this.getPageTop(index + 1)),
-            totalHeight: this.getTotalHeight(),
+            heights,
+            tops,
+            totalHeight: top,
         };
     }
 
@@ -230,7 +239,13 @@ export class DocumentThumbnailLayout {
         for (let page = 1; page <= this.pageCount; page += 1) {
             const height = this.resolvePageHeight(page);
             this.heights[page - 1] = height;
-            this.add(page, height + (page < this.pageCount ? this.itemGap : 0));
+            this.tree[page] = height + (page < this.pageCount ? this.itemGap : 0);
+        }
+        for (let page = 1; page <= this.pageCount; page += 1) {
+            const parent = page + (page & -page);
+            if (parent <= this.pageCount) {
+                this.tree[parent] = (this.tree[parent] ?? 0) + (this.tree[page] ?? 0);
+            }
         }
     }
 

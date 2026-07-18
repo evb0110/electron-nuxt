@@ -4,6 +4,7 @@ import {
     getDocumentPickerCapability,
     getDocumentWorkingCopyCapability,
 } from '@app/utils/platformDocuments';
+import { PDF_IMAGE_PLACEMENT_RESOURCE_LIMITS } from '@app/platform/browser-api/public';
 
 function mimeTypeFromPath(path: string) {
     const normalized = path.toLowerCase();
@@ -68,14 +69,20 @@ export async function pickPageAnnotationImageFile() {
 
     try {
         const documentFiles = getDocumentFilesCapability();
+        const {size} = await documentFiles.statFile(imagePath);
+        if (size <= 0 || size > PDF_IMAGE_PLACEMENT_RESOURCE_LIMITS.maxEncodedBytes) {
+            throw new RangeError('ERR_BROWSER_IMAGE_ENCODED_SIZE_TOO_LARGE');
+        }
+        const bytes = await documentFiles.readFile(imagePath);
+        if (bytes.byteLength !== size || bytes.byteLength > PDF_IMAGE_PLACEMENT_RESOURCE_LIMITS.maxEncodedBytes) {
+            throw new RangeError('ERR_BROWSER_IMAGE_ENCODED_SIZE_TOO_LARGE');
+        }
         const nativeSourceHandle = typeof documentFiles.createManagedTempFileHandle === 'function'
             ? await documentFiles.createManagedTempFileHandle(imagePath).catch(() => null)
             : null;
-        const bytes = await documentFiles.readFile(imagePath);
-        const fileBytes = Uint8Array.from(bytes);
         const mimeType = mimeTypeFromPath(imagePath);
         const fileName = imagePath.split(/[\\/]/).pop() ?? `image.${extensionForMimeType(mimeType)}`;
-        const file = new File([fileBytes], fileName, {
+        const file = new File([bytes as BlobPart], fileName, {
             type: mimeType,
             lastModified: Date.now(),
         });

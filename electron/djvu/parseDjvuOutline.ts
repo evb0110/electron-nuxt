@@ -1,4 +1,9 @@
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
+import {
+    DJVU_OUTLINE_MAX_DEPTH,
+    DJVU_OUTLINE_MAX_NODES,
+    DJVU_OUTLINE_MAX_TITLE_CHARS,
+} from '@contracts/djvuResourceLimits';
 
 /**
  * Parse DjVu S-expression outline into bookmark entries.
@@ -135,46 +140,34 @@ function tokenize(input: string): string[] {
 
 function parseTokens(tokens: string[]): TSexpToken[] {
     const result: TSexpToken[] = [];
-    let pos = 0;
-
-    function parseList(): TSexpToken[] {
-        const items: TSexpToken[] = [];
-        pos++; // skip '('
-
-        while (pos < tokens.length) {
-            const token = tokens[pos]!;
-            if (token === ')') {
-                pos++;
-                return items;
-            }
-            if (token === '(') {
-                items.push(parseList());
-            } else {
-                // Strip quotes from strings
-                if (token.startsWith('"') && token.endsWith('"')) {
-                    items.push(token.slice(1, -1));
-                } else {
-                    items.push(token);
-                }
-                pos++;
-            }
-        }
-
-        return items;
-    }
-
-    while (pos < tokens.length) {
-        const token = tokens[pos]!;
+    const stack: TSexpToken[][] = [result];
+    let atomCount = 0;
+    let listCount = 0;
+    for (const token of tokens) {
         if (token === '(') {
-            result.push(parseList());
-        } else {
-            if (token.startsWith('"') && token.endsWith('"')) {
-                result.push(token.slice(1, -1));
-            } else {
-                result.push(token);
+            if (stack.length > DJVU_OUTLINE_MAX_DEPTH) {
+                throw new Error(`DjVu outline nesting is capped at ${DJVU_OUTLINE_MAX_DEPTH}`);
             }
-            pos++;
+            listCount += 1;
+            if (listCount > DJVU_OUTLINE_MAX_NODES) {
+                throw new Error('DjVu outline node count exceeds the supported limit');
+            }
+            const list: TSexpToken[] = [];
+            stack.at(-1)!.push(list);
+            stack.push(list);
+            continue;
         }
+        if (token === ')') {
+            if (stack.length > 1) stack.pop();
+            continue;
+        }
+        atomCount += 1;
+        if (atomCount > DJVU_OUTLINE_MAX_NODES * 3) {
+            throw new Error('DjVu outline token count exceeds the supported limit');
+        }
+        stack.at(-1)!.push(token.startsWith('"') && token.endsWith('"')
+            ? token.slice(1, -1)
+            : token);
     }
 
     return result;
@@ -204,7 +197,7 @@ function parseBookmarkNode(node: TSexpToken): IPdfBookmarkEntry | null {
     });
 
     return {
-        title,
+        title: title.slice(0, DJVU_OUTLINE_MAX_TITLE_CHARS),
         pageIndex,
         namedDest: null,
         bold: false,

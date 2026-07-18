@@ -66,6 +66,7 @@ import {
 } from '@electron/utils/abort';
 import { optimizeGeneratedPdfForInteraction } from '@electron/features/documents/public/pdfSaveAsOptimization';
 import {
+    assertPdfPathWithinSizeLimit,
     PRINT_DJVU_TEMP_PREFIX,
     printManagedTempPdfPath,
 } from '@electron/utils/printHandoff';
@@ -695,6 +696,7 @@ export async function handleDjvuPrintPath(
 
             let printablePdfPath = convertedPdfPath;
             if (!shouldPrintConvertedPdfDirectly) {
+                await assertPdfPathWithinSizeLimit(convertedPdfPath);
                 const sourceData = await readFile(convertedPdfPath);
                 const printableData = await buildPrintablePdfData(
                     new Uint8Array(sourceData),
@@ -711,7 +713,7 @@ export async function handleDjvuPrintPath(
                         error: 'Failed to prepare printable DjVu PDF data',
                     };
                 }
-                await writeFile(finalPdfPath, Buffer.from(printableData));
+                await writeFile(finalPdfPath, printableData);
                 printablePdfPath = finalPdfPath;
             }
 

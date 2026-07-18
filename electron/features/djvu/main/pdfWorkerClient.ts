@@ -19,6 +19,11 @@ import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBun
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DJVU_PDF_WORKER_FILENAME = WORKER_BUNDLES_BY_ID['djvu-pdf'].fileName;
 const DJVU_PDF_WORKER_TIMEOUT_MS = 2 * 60 * 1000;
+const DJVU_PDF_WORKER_RESOURCE_LIMITS = {
+    maxOldGenerationSizeMb: 256,
+    maxYoungGenerationSizeMb: 64,
+    stackSizeMb: 4,
+};
 
 export class DjvuPdfWorkerStartupError extends Error {
     constructor(message: string) {
@@ -68,6 +73,7 @@ function createDjvuPdfWorkerTask<T>(
         createStartupError: (message) => new DjvuPdfWorkerStartupError(`DjVu PDF worker startup failed: ${message}`),
         createWorkerExitError: (code) => new Error(`DjVu PDF worker exited with code ${code}`),
         timeoutMs: DJVU_PDF_WORKER_TIMEOUT_MS,
+        resourceLimits: DJVU_PDF_WORKER_RESOURCE_LIMITS,
         ...(options.signal ? { signal: options.signal } : {}),
         createCancelMessage: () => ({ type: 'cancel' }),
         cooperativeCancelDelayMs: 5_000,

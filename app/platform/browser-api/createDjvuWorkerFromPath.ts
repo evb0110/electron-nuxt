@@ -32,6 +32,16 @@ import {
 } from '@pdf-core';
 import type { IOcrWord } from '@contracts/shared';
 import { createNativeDjvuTextSearchBridge } from '@app/platform/browser-api/createNativeDjvuTextSearchBridge';
+import { resolveDjvuPreviewResolutionPlan } from '@app/utils/djvuPreviewResolution';
+import { assertBrowserDjvuRasterDimensions } from '@app/platform/browser-api/assertBrowserDjvuRasterDimensions';
+import {
+    DJVU_INTERACTIVE_MAX_PAGES,
+    DJVU_OUTLINE_MAX_DEPTH,
+    DJVU_OUTLINE_MAX_NODES,
+    DJVU_OUTLINE_MAX_TITLE_CHARS,
+    DJVU_SEARCH_MAX_PAGE_TEXT_CHARS,
+    DJVU_SEARCH_MAX_PAGE_ZONES,
+} from '@contracts/djvuResourceLimits';
 
 const DJVU_READ_CHUNK_BYTES = 4 * 1024 * 1024;
 const DJVU_BROWSER_WORKER_MAX_SOURCE_BYTES = 192 * 1024 * 1024;
@@ -210,6 +220,9 @@ function buildBrowserDjvuSearchPage(
     text: string,
     zones: IDjvuNormalizedTextZone[] | null,
 ) {
+    if (text.length > DJVU_SEARCH_MAX_PAGE_TEXT_CHARS) {
+        throw new Error(`DjVu page text exceeds the ${DJVU_SEARCH_MAX_PAGE_TEXT_CHARS}-character search limit`);
+    }
     if (!zones || zones.length === 0) {
         return {
             text,
@@ -219,6 +232,16 @@ function buildBrowserDjvuSearchPage(
             }>,
             words: [] as IOcrWord[],
         };
+    }
+    if (zones.length > DJVU_SEARCH_MAX_PAGE_ZONES) {
+        throw new Error(`DjVu page text zones exceed the ${DJVU_SEARCH_MAX_PAGE_ZONES}-zone search limit`);
+    }
+    let zoneTextChars = 0;
+    for (const zone of zones) {
+        zoneTextChars += zone.text.length;
+        if (zoneTextChars > DJVU_SEARCH_MAX_PAGE_TEXT_CHARS) {
+            throw new Error(`DjVu page text zones exceed the ${DJVU_SEARCH_MAX_PAGE_TEXT_CHARS}-character search limit`);
+        }
     }
     const assembled = assembleSearchablePageText(zones.map(zone => ({
         text: zone.text,
@@ -240,12 +263,37 @@ function buildBrowserDjvuSearchPage(
     };
 }
 
+function getSearchMatchWords(
+    searchable: ReturnType<typeof buildBrowserDjvuSearchPage>,
+    startOffset: number,
+    endOffset: number,
+) {
+    let low = 0;
+    let high = searchable.offsets.length;
+    while (low < high) {
+        const middle = Math.floor((low + high) / 2);
+        if (searchable.offsets[middle]!.endOffset <= startOffset) low = middle + 1;
+        else high = middle;
+    }
+    const words: IOcrWord[] = [];
+    for (let index = low; index < searchable.offsets.length && words.length < 256; index += 1) {
+        const offset = searchable.offsets[index]!;
+        if (offset.startOffset >= endOffset) break;
+        const word = searchable.words[index];
+        if (word) words.push(word);
+    }
+    return words;
+}
+
 export async function searchDjvuWorkerText(
     worker: TBrowserDjvuWorker,
     options: IDjvuWorkerTextSearchOptions,
 ): Promise<IPdfSearchResponse> {
     validateSearchQuery(options.query, options.matchOptions);
     const pageSizes = await worker.doc.getPagesSizes().run();
+    if (pageSizes.length > DJVU_INTERACTIVE_MAX_PAGES) {
+        throw new Error(`DjVu viewing is capped at ${DJVU_INTERACTIVE_MAX_PAGES} pages`);
+    }
     const pageCount = Math.min(options.pageCount, pageSizes.length);
     const results: IPdfSearchResponse['results'] = [];
     let truncated = false;
@@ -270,11 +318,7 @@ export async function searchDjvuWorkerText(
                 truncated = true;
                 break;
             }
-            const words = searchable.offsets.flatMap((offset, index) => (
-                offset.endOffset > match.startOffset && offset.startOffset < match.endOffset
-                    ? searchable.words[index] ? [searchable.words[index]] : []
-                    : []
-            )).slice(0, 256);
+            const words = getSearchMatchWords(searchable, match.startOffset, match.endOffset);
             const pageSize = pageSizes[pageNumber - 1];
             const result: IPdfSearchResponse['results'][number] = {
                 pageNumber: pageNumber as IPdfSearchResponse['results'][number]['pageNumber'],
@@ -447,7 +491,11 @@ function resolveScaledDjvuTargetWidth(
     targetWidthPx: number | undefined,
 ) {
     if (Number.isFinite(targetWidthPx) && targetWidthPx !== undefined && targetWidthPx > 0) {
-        return Math.max(1, Math.round(targetWidthPx));
+        return resolveDjvuPreviewResolutionPlan({
+            nativeWidth: pageObject.width,
+            neededDevicePx: targetWidthPx,
+            headroom: 1,
+        }).targetPx;
     }
     const normalizedSubsample = Math.max(1, Math.trunc(subsample ?? 1));
     return Math.max(1, Math.round(pageObject.width / normalizedSubsample));
@@ -658,17 +706,54 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
             throw new Error('DjVu conversion canceled');
         }
     };
-    const mapOutline = async (items: IDjvuContentsItem[]): Promise<IPagePreviewOutlineItem[]> => Promise.all(
-        items.map(async item => ({
-            title: item.description,
-            pageNumber: await worker.doc.getPageNumberByUrl(item.url).run(),
-            children: await mapOutline(item.children ?? []),
-        })),
-    );
+    const mapOutline = async (items: IDjvuContentsItem[]): Promise<IPagePreviewOutlineItem[]> => {
+        const result: IPagePreviewOutlineItem[] = [];
+        const stack = items.toReversed().map(item => ({
+            depth: 1,
+            item,
+            target: result,
+        }));
+        let nodeCount = 0;
+        let titleChars = 0;
+        while (stack.length > 0) {
+            const entry = stack.pop()!;
+            nodeCount += 1;
+            titleChars += entry.item.description.length;
+            if (
+                entry.depth > DJVU_OUTLINE_MAX_DEPTH
+                || nodeCount > DJVU_OUTLINE_MAX_NODES
+                || titleChars > DJVU_OUTLINE_MAX_TITLE_CHARS
+            ) {
+                throw new Error('DjVu outline exceeds the interactive structure limit');
+            }
+            const mapped: IPagePreviewOutlineItem = {
+                title: entry.item.description,
+                pageNumber: await worker.doc.getPageNumberByUrl(entry.item.url).run(),
+                children: [],
+            };
+            entry.target.push(mapped);
+            const children = entry.item.children ?? [];
+            for (let index = children.length - 1; index >= 0; index -= 1) {
+                stack.push({
+                    depth: entry.depth + 1,
+                    item: children[index]!,
+                    target: mapped.children,
+                });
+            }
+            if (nodeCount % 64 === 0) await new Promise<void>(resolve => setTimeout(resolve, 0));
+        }
+        return result;
+    };
 
-    const pageSizesPromise = worker.doc.getPagesSizes().run();
+    const pageSizesPromise = worker.doc.getPagesSizes().run().then((sizes) => {
+        if (sizes.length > DJVU_INTERACTIVE_MAX_PAGES) {
+            throw new Error(`DjVu viewing is capped at ${DJVU_INTERACTIVE_MAX_PAGES} pages`);
+        }
+        return sizes;
+    });
 
     return {
+        fullResolutionDecodeBeforeScale: true,
         cancelPagePreview(pageNumber: number, requestId?: string) {
             const pageRequestIds = activePreviewRequestIdsByPage.get(pageNumber);
             const requestIds = requestId ? [requestId] : [...pageRequestIds ?? []];
@@ -712,6 +797,11 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
             if (terminated) {
                 throw new Error('DjVu conversion canceled');
             }
+            const pageSize = (await pageSizesPromise)[pageNumber - 1];
+            if (!pageSize) {
+                throw new RangeError(`DjVu page ${pageNumber} is outside the document`);
+            }
+            assertBrowserDjvuRasterDimensions(pageSize.width, pageSize.height, `DjVu page ${pageNumber}`);
             const previewRequestId = createFallbackPreviewRequestId(pageNumber, options);
             activePreviewRequestIds.add(previewRequestId);
             const pageRequestIds = activePreviewRequestIdsByPage.get(pageNumber) ?? new Set<string>();

@@ -3,6 +3,7 @@ export interface IDocumentRasterResidencyPlanOptions {
     visiblePages: readonly number[];
     bufferRadius: number;
     maxBufferPixels: number;
+    maximumResidentPages?: number;
     minimumBufferPages?: number;
     preferredDirection?: -1 | 0 | 1;
     estimatePagePixels: (pageNumber: number) => number;
@@ -75,9 +76,14 @@ export function resolveDocumentRasterResidencyPlan(
     const maxBufferPixels = Number.isFinite(options.maxBufferPixels)
         ? Math.max(0, Math.trunc(options.maxBufferPixels))
         : Number.MAX_SAFE_INTEGER;
+    const maximumResidentPages = options.maximumResidentPages === undefined
+        ? Number.MAX_SAFE_INTEGER
+        : Math.max(0, Math.trunc(options.maximumResidentPages));
+    const maximumBufferPages = Math.max(0, maximumResidentPages - visiblePages.length);
     const guaranteedNeighborCount = Math.min(
         Math.max(0, Math.trunc(options.minimumBufferPages ?? 2)),
         candidates.length,
+        maximumBufferPages,
     );
     const maxPixelsPerBufferSurface = guaranteedNeighborCount > 0
         ? Math.max(1, Math.floor(maxBufferPixels / guaranteedNeighborCount))
@@ -86,6 +92,9 @@ export function resolveDocumentRasterResidencyPlan(
     let estimatedBufferPixels = 0;
 
     for (const pageNumber of candidates) {
+        if (bufferPages.length >= maximumBufferPages) {
+            break;
+        }
         const estimatedPixels = Math.min(
             normalizePixels(options.estimatePagePixels(pageNumber)),
             maxPixelsPerBufferSurface,

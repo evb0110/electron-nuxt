@@ -1,4 +1,11 @@
 import type { IAgentAssistantImageAttachment } from '@contracts/agent';
+import {
+    ASSISTANT_IMAGE_RESOURCE_LIMITS,
+    createStaticBrowserImagePreview,
+    probeBrowserImageFile,
+    readBlobAsDataUrl,
+    type IProbedBrowserImage,
+} from '@app/platform/browser-api/public';
 
 export const ASSISTANT_MAX_IMAGE_ATTACHMENTS = 8;
 export const ASSISTANT_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -39,6 +46,8 @@ interface IBuildComposerImageAttachmentsOptions {
     fallbackName: (index: number) => string;
     createId?: () => string;
     readFile?: (file: File) => Promise<string>;
+    probeFile?: (file: File) => Promise<IProbedBrowserImage>;
+    buildPreview?: (image: IProbedBrowserImage) => Promise<string>;
 }
 
 function createAssistantImageAttachmentId() {
@@ -83,6 +92,14 @@ function readImageFileAsDataUrl(file: File) {
     });
 }
 
+async function probeAssistantImageFile(file: File) {
+    return probeBrowserImageFile(file, ASSISTANT_IMAGE_RESOURCE_LIMITS);
+}
+
+async function buildAssistantImagePreview(image: IProbedBrowserImage) {
+    return readBlobAsDataUrl(await createStaticBrowserImagePreview(image, 1_024));
+}
+
 function normalizeImageName(file: File, index: number, fallbackName: (index: number) => string) {
     return file.name.trim() || fallbackName(index);
 }
@@ -93,6 +110,8 @@ export async function buildComposerImageAttachments({
     fallbackName,
     createId = createAssistantImageAttachmentId,
     readFile = readImageFileAsDataUrl,
+    probeFile = probeAssistantImageFile,
+    buildPreview = buildAssistantImagePreview,
 }: IBuildComposerImageAttachmentsOptions) {
     const nextImages = [...existingImages];
     let error: TAssistantComposerImageError | null = null;
@@ -123,13 +142,17 @@ export async function buildComposerImageAttachments({
         }
 
         try {
+            const probedImage = await probeFile(file);
+            const dataUrl = await readFile(file);
+            const previewDataUrl = await buildPreview(probedImage);
             nextImages.push({
                 type: 'image',
                 id: createId(),
                 name,
                 mimeType: file.type.toLowerCase(),
                 sizeBytes: file.size,
-                dataUrl: await readFile(file),
+                dataUrl,
+                previewDataUrl,
             });
         } catch {
             error = {
@@ -150,10 +173,10 @@ export function buildExpandedImagePreview(
     selectedImageId: string,
 ): IExpandedImagePreview | null {
     const previewableImages = images
-        .filter(image => image.dataUrl.startsWith('data:image/'))
+        .filter(image => getAssistantImagePreviewUrl(image).startsWith('data:image/'))
         .map(image => ({
             id: image.id,
-            src: image.dataUrl,
+            src: getAssistantImagePreviewUrl(image),
             name: image.name,
         }));
     if (previewableImages.length === 0) {
@@ -170,6 +193,10 @@ export function buildExpandedImagePreview(
         })),
         index: selectedIndex,
     };
+}
+
+export function getAssistantImagePreviewUrl(image: IAgentAssistantImageAttachment) {
+    return image.previewDataUrl ?? image.dataUrl;
 }
 
 export function navigateExpandedImagePreview(

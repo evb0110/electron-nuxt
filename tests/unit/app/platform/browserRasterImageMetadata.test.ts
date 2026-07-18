@@ -4,8 +4,10 @@ import {
     it,
 } from 'vitest';
 import {
+    BROWSER_RASTER_MAX_ICC_PROFILE_BYTES,
     readBrowserRasterImageMetadata,
     readBrowserTiffFrameDpi,
+    resolveBrowserRasterIccProfile,
 } from '@app/platform/browser-api/browserRasterImageMetadata';
 import {
     assertBrowserCombinedPdfOutputBytes,
@@ -134,5 +136,15 @@ describe('browserRasterImageMetadata', () => {
         };
         expect(() => consumeBrowserDecodedWorkingSet(budget, 4, 4, 'next.png'))
             .toThrow('ERR_BROWSER_PDF_COMBINE_DECODED_WORKING_SET_TOO_LARGE:next.png');
+    });
+
+    it('rejects a direct ICC profile before downstream embedding when it exceeds the limit', async () => {
+        await expect(resolveBrowserRasterIccProfile({
+            width: 1,
+            height: 1,
+            dpi: 72,
+            orientation: 1,
+            iccProfile: new Uint8Array(BROWSER_RASTER_MAX_ICC_PROFILE_BYTES + 1),
+        })).rejects.toThrow('ERR_BROWSER_PDF_COMBINE_ICC_PROFILE_TOO_LARGE');
     });
 });

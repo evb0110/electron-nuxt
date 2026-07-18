@@ -14,7 +14,10 @@ import {
 } from 'node:path';
 import type { IImageExportProgress } from '@contracts/electronApiDocuments';
 import { getDjvuPageCount } from '@electron/djvu/metadata';
-import {convertDjvuPageToImage} from '@electron/features/djvu/public';
+import {
+    convertDjvuPageToImage,
+    getDjvuPageSizesForViewing,
+} from '@electron/features/djvu/public';
 import { convertRenderedPpmToPng } from '@electron/features/image-export/main/export';
 import { tryCombinePagesWithNativeTiffCombiner } from '@electron/features/image-export/main/tryCombinePagesWithNativeTiffCombiner';
 import {
@@ -31,6 +34,12 @@ interface IDjvuImageExportOptions {
     onProgress?: (progress: Pick<IImageExportProgress, 'phase' | 'processed' | 'total' | 'percent'>) => void;
 }
 
+const DJVU_EXPORT_MAX_EDGE_PIXELS = 8_192;
+const DJVU_EXPORT_MAX_PAGE_PIXELS = 80_000_000;
+const DJVU_PNG_EXPORT_MAX_TOTAL_PIXELS = 2_000_000_000;
+const DJVU_TIFF_EXPORT_MAX_TOTAL_PIXELS = 256_000_000;
+const DJVU_EXPORT_MAX_STAGED_BYTES = 2 * 1024 * 1024 * 1024;
+
 function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) throw abortErrorFromSignal(signal);
 }
@@ -41,7 +50,37 @@ async function resolvePages(path: string, requested: number[] | undefined, signa
     if (pages.some(page => !Number.isSafeInteger(page) || page < 1 || page > pageCount)) {
         throw new Error(`DjVu export page numbers must be between 1 and ${pageCount}`);
     }
-    return pages;
+    return {
+        pageCount,
+        pages,
+    };
+}
+
+async function assertDjvuExportRasterBudget(
+    djvuPath: string,
+    pageCount: number,
+    pages: readonly number[],
+    maxTotalPixels: number,
+    signal?: AbortSignal,
+) {
+    const sizes = await getDjvuPageSizesForViewing(djvuPath, pageCount, signal ? {signal} : {});
+    let totalPixels = 0;
+    for (const page of pages) {
+        const size = sizes[page - 1];
+        if (!size) throw new Error(`DjVu page ${page} dimensions are unavailable`);
+        const pixels = size.width * size.height;
+        if (
+            size.width > DJVU_EXPORT_MAX_EDGE_PIXELS
+            || size.height > DJVU_EXPORT_MAX_EDGE_PIXELS
+            || pixels > DJVU_EXPORT_MAX_PAGE_PIXELS
+        ) {
+            throw new Error(`DjVu page ${page} exceeds the image export raster limit`);
+        }
+        totalPixels += pixels;
+        if (totalPixels > maxTotalPixels) {
+            throw new Error(`DjVu image export exceeds the ${maxTotalPixels} aggregate-pixel limit`);
+        }
+    }
 }
 
 function buildPngOutputPaths(templatePath: string, pages: number[]) {
@@ -61,10 +100,7 @@ async function renderDjvuPngPages(
     options: IDjvuImageExportOptions,
 ) {
     const tempDirectory = await mkdtemp(join(tmpdir(), 'djvu-image-export-'));
-    const staged: Array<{
-        tempPath: string;
-        outputPath: string
-    }> = [];
+    let stagedBytes = 0;
     try {
         options.onProgress?.({
             phase: 'rendering',
@@ -102,26 +138,30 @@ async function renderDjvuPngPages(
                     },
                 );
                 if (!render.success) throw new Error(render.error ?? `Failed to render DjVu page ${page}`);
+                stagedBytes += render.fileSize;
+                if (stagedBytes > DJVU_EXPORT_MAX_STAGED_BYTES) {
+                    throw new Error('DjVu PNG export exceeds the staged-byte limit');
+                }
                 return convertRenderedPpmToPng(ppmPath, options.signal, options.cancelGroup);
             })().finally(() => brokerLease.release());
             const outputPath = outputPaths[index];
             if (!outputPath) throw new Error('DjVu image export target is missing');
-            staged.push({
-                tempPath: pngPath,
-                outputPath,
-            });
+            await mkdir(dirname(outputPath), {recursive: true});
+            const sibling = makeSiblingTempPath(outputPath);
+            try {
+                await copyFile(pngPath, sibling);
+                await atomicReplace(sibling, outputPath);
+            } finally {
+                await rm(sibling, {force: true}).catch(() => undefined);
+                await rm(ppmPath, {force: true}).catch(() => undefined);
+                await rm(pngPath, {force: true}).catch(() => undefined);
+            }
             options.onProgress?.({
                 phase: 'rendering',
                 processed: index + 1,
                 total: pages.length,
                 percent: ((index + 1) / pages.length) * 100,
             });
-        }
-        for (const file of staged) {
-            await mkdir(dirname(file.outputPath), {recursive: true});
-            const sibling = makeSiblingTempPath(file.outputPath);
-            await copyFile(file.tempPath, sibling);
-            await atomicReplace(sibling, file.outputPath);
         }
         return outputPaths;
     } finally {
@@ -137,7 +177,17 @@ export async function exportDjvuPagesAsPng(
     outputTemplatePath: string,
     options: IDjvuImageExportOptions = {},
 ) {
-    const pages = await resolvePages(djvuPath, options.pageNumbers, options.signal);
+    const {
+        pageCount,
+        pages,
+    } = await resolvePages(djvuPath, options.pageNumbers, options.signal);
+    await assertDjvuExportRasterBudget(
+        djvuPath,
+        pageCount,
+        pages,
+        DJVU_PNG_EXPORT_MAX_TOTAL_PIXELS,
+        options.signal,
+    );
     return renderDjvuPngPages(djvuPath, buildPngOutputPaths(outputTemplatePath, pages), pages, options);
 }
 
@@ -146,10 +196,21 @@ export async function exportDjvuAsMultiPageTiff(
     outputPath: string,
     options: IDjvuImageExportOptions = {},
 ) {
-    const pages = await resolvePages(djvuPath, options.pageNumbers, options.signal);
+    const {
+        pageCount,
+        pages,
+    } = await resolvePages(djvuPath, options.pageNumbers, options.signal);
+    await assertDjvuExportRasterBudget(
+        djvuPath,
+        pageCount,
+        pages,
+        DJVU_TIFF_EXPORT_MAX_TOTAL_PIXELS,
+        options.signal,
+    );
     const tempDirectory = await mkdtemp(join(tmpdir(), 'djvu-tiff-export-'));
     try {
         const pagePaths: string[] = [];
+        let stagedBytes = 0;
         for (const [
             index,
             page,
@@ -173,6 +234,10 @@ export async function exportDjvuAsMultiPageTiff(
                 ...(options.signal ? {signal: options.signal} : {}),
             }).finally(() => brokerLease.release());
             if (!render.success) throw new Error(render.error ?? `Failed to render DjVu page ${page}`);
+            stagedBytes += render.fileSize;
+            if (stagedBytes > DJVU_EXPORT_MAX_STAGED_BYTES) {
+                throw new Error('DjVu TIFF export exceeds the staged-byte limit');
+            }
             pagePaths.push(ppmPath);
             options.onProgress?.({
                 phase: 'rendering',

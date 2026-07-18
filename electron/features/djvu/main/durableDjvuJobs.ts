@@ -9,15 +9,57 @@ import { documentOutputService } from '@electron/output/documentOutputService';
 import { adoptDjvuViewingPath } from '@electron/features/djvu/main/viewing';
 
 const RETENTION_MS = 60 * 60 * 1_000;
+const MAX_TERMINAL_JOBS = 64;
 const convertJobs = new Map<string, Promise<IDjvuConvertResult>>();
 const openJobs = new Map<string, {
     path: TOpenPath;
     promise: Promise<IDjvuOpenResult>;
 }>();
+interface ITerminalDjvuJob {
+    kind: 'convert' | 'open';
+    promise: Promise<IDjvuConvertResult> | Promise<IDjvuOpenResult>;
+    timer: ReturnType<typeof setTimeout>;
+}
+const terminalJobs = new Map<string, ITerminalDjvuJob>();
 
-function retainUntilExpired<T>(store: Map<string, T>, jobId: string) {
-    const timer = setTimeout(() => store.delete(jobId), RETENTION_MS);
+function deleteTerminalJob(
+    jobId: string,
+    expectedPromise?: Promise<IDjvuConvertResult> | Promise<IDjvuOpenResult>,
+) {
+    const terminal = terminalJobs.get(jobId);
+    if (!terminal || expectedPromise && terminal.promise !== expectedPromise) {
+        return;
+    }
+    clearTimeout(terminal.timer);
+    terminalJobs.delete(jobId);
+    if (terminal.kind === 'convert' && convertJobs.get(jobId) === terminal.promise) {
+        convertJobs.delete(jobId);
+    }
+    if (terminal.kind === 'open' && openJobs.get(jobId)?.promise === terminal.promise) {
+        openJobs.delete(jobId);
+    }
+}
+
+function retainTerminalJob(
+    jobId: string,
+    kind: ITerminalDjvuJob['kind'],
+    promise: ITerminalDjvuJob['promise'],
+) {
+    deleteTerminalJob(jobId);
+    const timer = setTimeout(() => deleteTerminalJob(jobId, promise), RETENTION_MS);
     timer.unref?.();
+    terminalJobs.set(jobId, {
+        kind,
+        promise,
+        timer,
+    });
+    while (terminalJobs.size > MAX_TERMINAL_JOBS) {
+        const oldestJobId = terminalJobs.keys().next().value;
+        if (!oldestJobId) {
+            break;
+        }
+        deleteTerminalJob(oldestJobId);
+    }
 }
 
 export function startDurableDjvuConvertJob(
@@ -34,8 +76,12 @@ export function startDurableDjvuConvertJob(
         sourceKind: 'djvu',
         initialPhase: 'queued',
     });
-    convertJobs.set(jobId, Promise.resolve().then(run));
-    retainUntilExpired(convertJobs, jobId);
+    const promise = Promise.resolve().then(run);
+    convertJobs.set(jobId, promise);
+    void promise.then(
+        () => retainTerminalJob(jobId, 'convert', promise),
+        () => retainTerminalJob(jobId, 'convert', promise),
+    );
 }
 
 export async function awaitDurableDjvuConvertJob(context: IDjvuOperationContext, jobId: string) {
@@ -107,7 +153,10 @@ export function startDurableDjvuOpenJob(
         path,
         promise,
     });
-    retainUntilExpired(openJobs, jobId);
+    void promise.then(
+        () => retainTerminalJob(jobId, 'open', promise),
+        () => retainTerminalJob(jobId, 'open', promise),
+    );
 }
 
 export async function awaitDurableDjvuOpenJob(context: IDjvuOperationContext, jobId: string) {
@@ -135,4 +184,13 @@ export async function awaitDurableDjvuOpenJob(context: IDjvuOperationContext, jo
 
 export function cancelDurableDjvuJob(jobId: string, reason = 'DjVu operation canceled') {
     return documentOutputService.cancel(jobId, reason);
+}
+
+export function clearDurableDjvuJobsForTests() {
+    for (const terminal of terminalJobs.values()) {
+        clearTimeout(terminal.timer);
+    }
+    terminalJobs.clear();
+    convertJobs.clear();
+    openJobs.clear();
 }

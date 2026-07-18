@@ -548,6 +548,7 @@ export interface IAgentAssistantImageAttachment {
     mimeType: string;
     sizeBytes: number;
     dataUrl: string;
+    previewDataUrl?: string;
 }
 
 export interface IAgentAssistantState {

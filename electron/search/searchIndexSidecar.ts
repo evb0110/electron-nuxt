@@ -47,7 +47,7 @@ export type {
 const MAX_UINT16 = 0xFFFF;
 const MAX_COMPACT_SEARCH_INDEX_PAGE_RECORDS = 1_000_000;
 const MAX_COMPACT_SEARCH_INDEX_PAGE_TEXT_BYTES = 32 * 1024 * 1024;
-const MAX_COMPACT_SEARCH_INDEX_TOTAL_TEXT_BYTES = 1024 * 1024 * 1024;
+const MAX_COMPACT_SEARCH_INDEX_TOTAL_TEXT_BYTES = 256 * 1024 * 1024;
 const log = createLogger('search-index-sidecar');
 
 export interface ICompactSearchIndex {
@@ -62,6 +62,8 @@ interface ILoadCompactSearchIndexOptions {
     expectedPageCount?: number;
     minSourceMtimeMs?: number;
     requiredTextSource?: ICompactSearchIndexTextSource;
+    metadataOnly?: boolean;
+    maxTotalTextBytes?: number;
     signal?: AbortSignal;
 }
 
@@ -288,14 +290,17 @@ function coversExpectedPages(
     return pageCount >= expectedPageCount && pageRecordCount >= expectedPageCount;
 }
 
-function recordsFitLoadBudget(records: readonly ICompactSearchIndexPageRecord[]) {
+function recordsFitLoadBudget(
+    records: readonly ICompactSearchIndexPageRecord[],
+    maxTotalTextBytes: number,
+) {
     let totalTextBytes = BigInt(0);
     for (const record of records) {
         if (record.byteLength > BigInt(MAX_COMPACT_SEARCH_INDEX_PAGE_TEXT_BYTES)) {
             return false;
         }
         totalTextBytes += record.byteLength;
-        if (totalTextBytes > BigInt(MAX_COMPACT_SEARCH_INDEX_TOTAL_TEXT_BYTES)) {
+        if (totalTextBytes > BigInt(maxTotalTextBytes)) {
             return false;
         }
     }
@@ -345,6 +350,8 @@ export async function loadCompactSearchIndex(
         documentRevision,
         expectedPageCount,
         minSourceMtimeMs,
+        metadataOnly,
+        maxTotalTextBytes = MAX_COMPACT_SEARCH_INDEX_TOTAL_TEXT_BYTES,
         requiredTextSource,
         signal,
     } = options;
@@ -415,8 +422,20 @@ export async function loadCompactSearchIndex(
             }
 
             const records = parsePageRecords(table, indexStat.size, textDataOffset);
-            if (!records || !recordsFitLoadBudget(records)) {
+            if (!records || !recordsFitLoadBudget(records, Math.min(
+                MAX_COMPACT_SEARCH_INDEX_TOTAL_TEXT_BYTES,
+                Math.max(0, Math.floor(maxTotalTextBytes)),
+            ))) {
                 return null;
+            }
+
+            if (metadataOnly) {
+                return {
+                    documentRevision,
+                    pageCount: metadata.pageCount,
+                    pages: [],
+                    textSource: metadata.textSource,
+                };
             }
 
             const pages = await readPages(file, records, signal);

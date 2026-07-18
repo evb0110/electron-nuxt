@@ -38,6 +38,7 @@ export interface IPagePreviewOutlineItem {
 }
 
 export interface IPagePreviewSource {
+    readonly fullResolutionDecodeBeforeScale?: boolean;
     cancelPagePreview?(pageNumber: number, requestId?: string): void;
     getPageSizes(): Promise<IPreviewPageSize[]>;
     getPageSize?(pageNumber: number): Promise<IPreviewPageSize>;

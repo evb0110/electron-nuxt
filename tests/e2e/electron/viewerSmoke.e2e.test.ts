@@ -3321,6 +3321,115 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         }
     }, 120_000);
 
+    it('settles on a fresh bounded surface after repeatedly pressing DjVu next', async () => {
+        let session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+        if (!djvuFixture.path) {
+            throw new Error(djvuFixture.reason);
+        }
+
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-djvu-rapid-next-${Date.now()}`,
+        });
+        if (!session) {
+            return;
+        }
+
+        await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
+        await openDjvuInApp(session.page, djvuFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForDjvuLoaded(session.page, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        const initialToolbar = await getWorkspaceToolbarSnapshot(session.page);
+        if (initialToolbar?.continuousScroll) {
+            expect((await callWorkspaceCommand(session.page, 'handleToggleContinuousScroll')).called).toBe(true);
+        }
+        expect((await callWorkspaceCommand(session.page, 'handleGoToPage', [1])).called).toBe(true);
+        await waitForWorkspaceToolbarSnapshot(
+            session.page,
+            {
+                continuousScroll: false,
+                currentPage: 1,
+            },
+            {timeoutMs: 20_000},
+        );
+
+        const clickSummary = await session.page.evaluate(async (clickCount: number) => {
+            let clicks = 0;
+            let maxImages = 0;
+            let maxMountedPages = 0;
+            for (let index = 0; index < clickCount; index += 1) {
+                const pageControls = Array.from(document.querySelectorAll<HTMLElement>('.page-controls'))
+                    .find((controls) => {
+                        const rect = controls.getBoundingClientRect();
+                        const style = getComputedStyle(controls);
+                        return rect.width > 0
+                            && rect.height > 0
+                            && style.display !== 'none'
+                            && style.visibility !== 'hidden';
+                    });
+                const buttons = Array.from(
+                    pageControls?.querySelectorAll<HTMLButtonElement>('button.toolbar-btn') ?? [],
+                );
+                const nextButton = buttons[2];
+                if (!nextButton || nextButton.disabled) {
+                    break;
+                }
+                nextButton.click();
+                clicks += 1;
+                await new Promise(resolve => setTimeout(resolve, 4));
+                const viewport = document.querySelector<HTMLElement>(
+                    '.editor-pane.is-active [data-document-viewer-chassis-viewport]',
+                );
+                maxImages = Math.max(
+                    maxImages,
+                    viewport?.querySelectorAll('[data-testid="document-page-source-image"]').length ?? 0,
+                );
+                maxMountedPages = Math.max(
+                    maxMountedPages,
+                    viewport?.querySelectorAll('[data-testid="document-page-source-page"]').length ?? 0,
+                );
+            }
+            return {
+                clicks,
+                maxImages,
+                maxMountedPages,
+            };
+        }, 75);
+        const expectedPage = Math.min(
+            initialToolbar?.totalPages ?? 1,
+            clickSummary.clicks + 1,
+        );
+        await waitForWorkspaceToolbarSnapshot(
+            session.page,
+            {currentPage: expectedPage},
+            {timeoutMs: 30_000},
+        );
+        await waitForFunctionInPage(session.page, (pageNumber: number) => {
+            const page = document.querySelector<HTMLElement>(
+                `.editor-pane.is-active [data-testid="document-page-source-page"][data-page-number="${String(pageNumber)}"]`,
+            );
+            const image = page?.querySelector<HTMLImageElement>(
+                ':scope > [data-testid="document-page-source-image"]',
+            );
+            const runtimeError = document.querySelector<HTMLElement>('.runtime-error-reports');
+            const workspaceError = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-testid="workspace-document-djvu-error"]',
+            );
+            return page?.dataset.pageSourceVisual === 'fresh'
+                && image?.complete
+                && image.naturalWidth > 0
+                && image.naturalHeight > 0
+                && !runtimeError?.textContent?.trim()
+                && !workspaceError?.textContent?.trim();
+        }, {timeout: 30_000}, expectedPage);
+
+        expect(clickSummary.clicks).toBeGreaterThanOrEqual(50);
+        expect(clickSummary.maxMountedPages).toBeLessThanOrEqual(8);
+        expect(clickSummary.maxImages).toBeLessThanOrEqual(5);
+    }, 120_000);
+
     it('keeps paged fit-height DjVu wheel navigation committed through slow and rapid bursts', async () => {
         let session = sessionFixture.getSession();
         if (!session) {

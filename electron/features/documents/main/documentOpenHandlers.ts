@@ -1,5 +1,5 @@
 import { dialog } from 'electron';
-import { readdir } from 'fs/promises';
+import { opendir } from 'fs/promises';
 import {
     basename,
     join,
@@ -42,6 +42,31 @@ import type {
 const logger = createLogger('documents-dialogs');
 const MAX_DIRECT_OPEN_BATCH_PATHS = 512;
 const activeBatchCombines = new Map<string, AbortController>();
+
+export async function collectSupportedFolderPaths(folderPath: string) {
+    const supportedPaths: string[] = [];
+    const directory = await opendir(folderPath);
+    for await (const entry of directory) {
+        if (!entry.isFile()) {
+            continue;
+        }
+        const path = join(folderPath, entry.name);
+        if (!isSupportedOpenPath(path)) {
+            continue;
+        }
+        supportedPaths.push(path);
+        if (supportedPaths.length > MAX_DIRECT_OPEN_BATCH_PATHS) {
+            throw new Error(`Open batch exceeds maximum size (${MAX_DIRECT_OPEN_BATCH_PATHS})`);
+        }
+    }
+    return sortBy(
+        supportedPaths.map(path => ({
+            path,
+            name: basename(path),
+        })),
+        ['name'],
+    ).map(entry => entry.path);
+}
 
 function isSinglePdfPath(paths: readonly string[]) {
     return paths.length === 1 && /\.pdf$/iu.test(paths[0] ?? '');
@@ -243,24 +268,13 @@ export async function handleOpenFolderDialog(context: IDocumentsDialogContext): 
 
     const folderPath = result.filePaths[0]!;
 
-    let entries: string[];
+    let sortedSupportedPaths: string[];
     try {
-        entries = await readdir(folderPath);
+        sortedSupportedPaths = await collectSupportedFolderPaths(folderPath);
     } catch (err) {
         logger.error(`Failed to read folder contents: ${getErrorMessage(err)}`);
         throw errorWithDetails(te('errors.file.open'), err);
     }
-
-    const supportedPaths = entries
-        .map(entry => join(folderPath, entry))
-        .filter(path => isSupportedOpenPath(path));
-    const sortedSupportedPaths = sortBy(
-        supportedPaths.map(path => ({
-            path,
-            name: basename(path),
-        })),
-        ['name'],
-    ).map(entry => entry.path);
 
     if (sortedSupportedPaths.length === 0) {
         throw new Error(te('errors.file.folderEmpty'));

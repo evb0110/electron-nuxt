@@ -128,7 +128,10 @@ function installSplitImagePickerPlatform(imagePath: string, options: { cleanupEr
             : Promise.resolve()
     ));
     const documentPicker = { openImageDialog: vi.fn(() => Promise.resolve(imagePath)) };
-    const documentFiles = { readFile: vi.fn(() => Promise.resolve(imageBytes)) };
+    const documentFiles = {
+        readFile: vi.fn(() => Promise.resolve(imageBytes)),
+        statFile: vi.fn(() => Promise.resolve({size: imageBytes.byteLength})),
+    };
     const documentWorkingCopy = { cleanupFile };
 
     vi.stubGlobal('window', {
@@ -839,6 +842,7 @@ describe('usePageAnnotationActions', () => {
             },
         );
         expect(documentPicker.openImageDialog).toHaveBeenCalledOnce();
+        expect(documentFiles.statFile).toHaveBeenCalledWith('/tmp/test.png');
         expect(documentFiles.readFile).toHaveBeenCalledWith('/tmp/test.png');
         expect(documentWorkingCopy.cleanupFile).not.toHaveBeenCalled();
         expect(legacyDocuments.openImageDialog).not.toHaveBeenCalled();
@@ -866,6 +870,7 @@ describe('usePageAnnotationActions', () => {
         expect(placedFile.name).toBe('test.webp');
         expect(placedFile.type).toBe('image/webp');
         expect(documentPicker.openImageDialog).toHaveBeenCalledOnce();
+        expect(documentFiles.statFile).toHaveBeenCalledWith(imagePath);
         expect(documentFiles.readFile).toHaveBeenCalledWith(imagePath);
         expect(documentWorkingCopy.cleanupFile).toHaveBeenCalledWith(imagePath);
         expect(legacyDocuments.openImageDialog).not.toHaveBeenCalled();

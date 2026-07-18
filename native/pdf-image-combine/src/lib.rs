@@ -87,6 +87,8 @@ pub struct PdfBuildOptions {
     pub default_dpi: Option<u32>,
     pub max_pages: usize,
     pub max_pixels: u64,
+    pub max_total_pixels: u64,
+    pub max_output_bytes: u64,
     pub max_tiff_frames: usize,
 }
 
@@ -96,6 +98,8 @@ impl Default for PdfBuildOptions {
             default_dpi: None,
             max_pages: 500,
             max_pixels: 80_000_000,
+            max_total_pixels: 512_000_000,
+            max_output_bytes: 512 * 1024 * 1024,
             max_tiff_frames: 250,
         }
     }
@@ -227,9 +231,10 @@ fn write_pdf_from_validated_image_paths_with_progress(
     mut on_processed: impl FnMut(usize),
 ) -> Result<()> {
     let mut page_count = 0;
+    let mut total_pixels = 0u64;
 
     write_atomically(output_path, |output| {
-        let writer = BufWriter::new(output);
+        let writer = OutputLimitWriter::new(BufWriter::new(output), options.max_output_bytes);
         let mut writer = write_pdf_to_writer(writer, |pdf| {
             for (index, input_path) in input_paths.iter().enumerate() {
                 visit_image_pages_from_file(
@@ -240,6 +245,11 @@ fn write_pdf_from_validated_image_paths_with_progress(
                     options.max_tiff_frames,
                     |page| {
                         page_count = next_page_count_with_limit(page_count, 1, options.max_pages)?;
+                        total_pixels = next_pixel_count_with_limit(
+                            total_pixels,
+                            u64::from(page.width) * u64::from(page.height),
+                            options.max_total_pixels,
+                        )?;
                         pdf.add_page(&page)
                     },
                 )?;
@@ -250,6 +260,40 @@ fn write_pdf_from_validated_image_paths_with_progress(
         writer.flush()?;
         Ok(())
     })
+}
+
+struct OutputLimitWriter<W: Write> {
+    inner: W,
+    max_bytes: u64,
+    written: u64,
+}
+
+impl<W: Write> OutputLimitWriter<W> {
+    fn new(inner: W, max_bytes: u64) -> Self {
+        Self {
+            inner,
+            max_bytes,
+            written: 0,
+        }
+    }
+}
+
+impl<W: Write> Write for OutputLimitWriter<W> {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        let requested = u64::try_from(buffer.len()).unwrap_or(u64::MAX);
+        if self.written.saturating_add(requested) > self.max_bytes {
+            return Err(std::io::Error::other(
+                "Combined PDF output exceeds the configured byte limit",
+            ));
+        }
+        let written = self.inner.write(buffer)?;
+        self.written = self.written.saturating_add(written as u64);
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
 }
 
 pub fn build_pdf_from_image_bytes_inputs(
@@ -612,6 +656,22 @@ fn next_page_count_with_limit(
     Ok(next_pages)
 }
 
+fn next_pixel_count_with_limit(
+    current_pixels: u64,
+    added_pixels: u64,
+    max_total_pixels: u64,
+) -> Result<u64> {
+    let next_pixels = current_pixels
+        .checked_add(added_pixels)
+        .ok_or("Combined PDF aggregate pixel count overflow")?;
+    if next_pixels > max_total_pixels {
+        return Err(
+            format!("Combined PDF aggregate pixels are capped at {max_total_pixels}").into(),
+        );
+    }
+    Ok(next_pixels)
+}
+
 fn guardrail_for_page(
     enabled: bool,
     page: usize,
@@ -830,6 +890,57 @@ mod tests {
 
         let _ = fs::remove_file(first_path);
         let _ = fs::remove_file(second_path);
+        let _ = fs::remove_file(output_path);
+    }
+
+    #[test]
+    fn rejects_aggregate_pixels_before_decoding_the_next_page() {
+        let first_path = temp_path("aggregate-first").with_extension("ppm");
+        let second_path = temp_path("aggregate-second").with_extension("ppm");
+        let output_path = temp_path("aggregate-output").with_extension("pdf");
+        fs::write(&first_path, b"P6\n1 1\n255\n\xff\0\0").unwrap();
+        fs::write(&second_path, b"P6\n1 1\n255\n\0\xff\0").unwrap();
+        fs::write(&output_path, b"old-output").unwrap();
+
+        let error = write_pdf_from_image_paths(
+            &[first_path.clone(), second_path.clone()],
+            &output_path,
+            &PdfBuildOptions {
+                max_total_pixels: 1,
+                ..PdfBuildOptions::default()
+            },
+        )
+        .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("aggregate pixels are capped at 1"));
+        assert_eq!(fs::read(&output_path).unwrap(), b"old-output");
+        let _ = fs::remove_file(first_path);
+        let _ = fs::remove_file(second_path);
+        let _ = fs::remove_file(output_path);
+    }
+
+    #[test]
+    fn stops_file_backed_pdf_writes_at_the_output_limit() {
+        let input_path = temp_path("output-limit-input").with_extension("ppm");
+        let output_path = temp_path("output-limit-output").with_extension("pdf");
+        fs::write(&input_path, b"P6\n1 1\n255\n\xff\0\0").unwrap();
+        fs::write(&output_path, b"old-output").unwrap();
+
+        let error = write_pdf_from_image_paths(
+            std::slice::from_ref(&input_path),
+            &output_path,
+            &PdfBuildOptions {
+                max_output_bytes: 32,
+                ..PdfBuildOptions::default()
+            },
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("configured byte limit"));
+        assert_eq!(fs::read(&output_path).unwrap(), b"old-output");
+        let _ = fs::remove_file(input_path);
         let _ = fs::remove_file(output_path);
     }
 

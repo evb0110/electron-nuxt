@@ -104,6 +104,37 @@ describe('compact search index sidecar', () => {
                 },
             ],
         });
+
+        await expect(loadCompactSearchIndex(pdfPath, {
+            documentRevision: DOCUMENT_REVISION,
+            expectedPageCount: 2,
+            metadataOnly: true,
+        })).resolves.toEqual({
+            documentRevision: DOCUMENT_REVISION,
+            pageCount: 2,
+            textSource: {
+                kind: COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER,
+                version: OCR_TEXT_LAYER_INDEX_VERSION,
+            },
+            pages: [],
+        });
+    });
+
+    it('applies a caller-specific aggregate text budget before allocating page strings', async () => {
+        const pdfPath = join(tempDir, 'caller-budget.pdf');
+        await persistCompactSearchIndex(pdfPath, {
+            documentRevision: DOCUMENT_REVISION,
+            pageCount: 1,
+            pages: [{
+                pageNumber: 1,
+                text: 'bounded text',
+            }],
+        });
+
+        await expect(loadCompactSearchIndex(pdfPath, {
+            documentRevision: DOCUMENT_REVISION,
+            maxTotalTextBytes: 4,
+        })).resolves.toBeNull();
     });
 
     it('rejects stale sidecars when the source mtime is newer', async () => {

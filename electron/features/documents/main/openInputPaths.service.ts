@@ -251,6 +251,9 @@ export async function openInputPaths(
             options.signal,
         );
         const { signal } = lifecycle;
+        const combinedInputBytes = await Promise.all(normalizedPaths.map(path => stat(path)
+            .then(fileStat => fileStat.size, () => 0)))
+            .then(sizes => sizes.reduce((total, size) => total + size, 0));
         brokerLease = await mainJobBroker.acquire({
             ownerId: `pdf-combine:${getOwnerWebContentsId(owner) ?? 'main'}`,
             kind: 'pdf-combine',
@@ -258,13 +261,13 @@ export async function openInputPaths(
             perOwnerLimit: 1,
             signal,
             resources: {
-                // Admission lease only. Conversion sub-pipelines acquire the
-                // concrete CPU/memory/native resources they need, avoiding a
-                // nested-lease deadlock on minimum-capacity hosts.
-                cpuTokens: 0,
-                estimatedResidentBytes: 0,
-                nativeProcesses: 0,
-                ioWeight: 0,
+                cpuTokens: 1,
+                estimatedResidentBytes: Math.min(
+                    256 * 1024 * 1024,
+                    Math.max(32 * 1024 * 1024, Math.ceil(combinedInputBytes / 2)),
+                ),
+                nativeProcesses: 1,
+                ioWeight: 4,
             },
         });
         const tempOutputPath = join(tempDir, basename(outputPath));

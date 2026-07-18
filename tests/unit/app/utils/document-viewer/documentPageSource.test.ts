@@ -208,8 +208,9 @@ describe('document page sources', () => {
         expect(previewSource.terminate).toHaveBeenCalledOnce();
     });
 
-    it('revokes a DjVu decoded surface immediately when it cannot be admitted under pressure', async () => {
+    it('does not start a full-resolution browser DjVu decode without a transient reservation', async () => {
         const previewSource = {
+            fullResolutionDecodeBeforeScale: true,
             getPageSizes: vi.fn().mockResolvedValue([{
                 width: 1_200,
                 height: 1_800,
@@ -233,8 +234,45 @@ describe('document page sources', () => {
             widthPx: 200,
             priority: 'prefetch',
             signal: new AbortController().signal,
-        })).rejects.toThrow('DjVu preview evicted under memory pressure');
-        expect(previewSource.revokeObjectURL).toHaveBeenCalledWith('blob:oversized-page');
+        })).rejects.toThrow('DjVu preview exceeds the available raster surface budget');
+        expect(previewSource.renderPageObjectUrl).not.toHaveBeenCalled();
+        expect(previewSource.revokeObjectURL).not.toHaveBeenCalled();
+        source.dispose();
+    });
+
+    it('revokes a decoded DjVu surface when its retained reservation is refused', async () => {
+        const previewSource = {
+            getPageSizes: vi.fn().mockResolvedValue([{
+                width: 1_200,
+                height: 1_800,
+                dpi: 300,
+            }]),
+            renderPageObjectUrl: vi.fn().mockResolvedValue({
+                objectUrl: 'blob:retained-budget-refused',
+                renderedPx: 200,
+            }),
+            revokeObjectURL: vi.fn(),
+            terminate: vi.fn(),
+        } satisfies IPagePreviewSource;
+        const transientRelease = vi.fn();
+        const tryReserve = vi.fn()
+            .mockReturnValueOnce({release: transientRelease})
+            .mockReturnValueOnce(null);
+        const source = await createDjvuPageSource('book.djvu', previewSource, {
+            reserve: vi.fn(),
+            tryReserve,
+            releaseScope: vi.fn(),
+        });
+
+        await expect(source.renderPage({
+            pageNumber: 1,
+            widthPx: 200,
+            priority: 'prefetch',
+            signal: new AbortController().signal,
+        })).rejects.toThrow('DjVu preview exceeds the available raster surface budget');
+        expect(transientRelease).toHaveBeenCalledOnce();
+        expect(previewSource.renderPageObjectUrl).toHaveBeenCalledOnce();
+        expect(previewSource.revokeObjectURL).toHaveBeenCalledWith('blob:retained-budget-refused');
         source.dispose();
     });
 
@@ -266,6 +304,7 @@ describe('document page sources', () => {
             signal: controller.signal,
         });
 
+        await vi.waitFor(() => expect(previewSource.renderPageObjectUrl).toHaveBeenCalledOnce());
         controller.abort();
 
         await expect(render).rejects.toThrow('canceled');

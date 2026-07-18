@@ -123,4 +123,17 @@ describe('document viewer render coordinator', () => {
         expect(session.failPageRender(4, replacementGeneration)).toBe(true);
         expect(session.getPageVisual(4)).toBe('skeleton');
     });
+
+    it('forgets visual state when a page leaves residency', () => {
+        const session = createDocumentViewerRenderCoordinator(createDocumentPageSlotRegistry())
+            .createSession('djvu:release-page');
+        const generation = session.beginPageRender(8);
+        expect(session.commitPageRender(8, generation)).toBe(true);
+        expect(session.getPageVisual(8)).toBe('fresh');
+
+        session.releasePage(8);
+
+        expect(session.getPageVisual(8)).toBe('skeleton');
+        expect(session.commitPageRender(8, generation)).toBe(false);
+    });
 });

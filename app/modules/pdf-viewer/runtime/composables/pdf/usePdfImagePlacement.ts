@@ -10,6 +10,11 @@ import type {
     IPdfPlacedImageFinalizePayload,
 } from '@app/types/pdfImagePlacement';
 import type {IManagedTempFileHandle} from '@contracts/electronApiDocuments';
+import {
+    createStaticBrowserImagePreview,
+    PDF_IMAGE_PLACEMENT_RESOURCE_LIMITS,
+    probeBrowserImageFile,
+} from '@app/platform/browser-api/public';
 
 interface IUsePdfImagePlacementOptions {
     viewerContainer: Ref<HTMLElement | null>;
@@ -17,6 +22,8 @@ interface IUsePdfImagePlacementOptions {
     numPages: Ref<number>;
     effectiveScale: Ref<number>;
     emitFinalize: (payload: IPdfPlacedImageFinalizePayload) => void;
+    probeImage?: typeof probeBrowserImageFile;
+    createPreview?: typeof createStaticBrowserImagePreview;
 }
 
 function resolveDevicePixelRatio() {
@@ -48,45 +55,9 @@ function resolvePlacedImageTargetPixels(options: {
     };
 }
 
-async function getImageIntrinsicSize(file: File) {
-    if (typeof createImageBitmap === 'function') {
-        const bitmap = await createImageBitmap(file);
-        try {
-            return {
-                width: bitmap.width,
-                height: bitmap.height,
-            };
-        } finally {
-            bitmap.close();
-        }
-    }
-
-    const imageUrl = URL.createObjectURL(file);
-    try {
-        const dimensions = await new Promise<{
-            width: number;
-            height: number;
-        }>((resolve, reject) => {
-            const image = new Image();
-            image.onload = () => {
-                resolve({
-                    width: image.naturalWidth,
-                    height: image.naturalHeight,
-                });
-            };
-            image.onerror = () => {
-                reject(new Error('Failed to decode image dimensions'));
-            };
-            image.src = imageUrl;
-        });
-        return dimensions;
-    } finally {
-        URL.revokeObjectURL(imageUrl);
-    }
-}
-
-async function getInitialImagePlacementDimensions(
-    file: File,
+function getInitialImagePlacementDimensions(
+    imageWidth: number,
+    imageHeight: number,
     pageWidthPx: number | null,
     pageHeightPx: number | null,
 ) {
@@ -99,10 +70,6 @@ async function getInitialImagePlacementDimensions(
         return null;
     }
 
-    const {
-        width: imageWidth,
-        height: imageHeight,
-    } = await getImageIntrinsicSize(file);
     if (imageWidth <= 0 || imageHeight <= 0) {
         return null;
     }
@@ -147,11 +114,14 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
         numPages,
         effectiveScale,
         emitFinalize,
+        probeImage = probeBrowserImageFile,
+        createPreview = createStaticBrowserImagePreview,
     } = options;
 
     const pendingImagePlacement = ref<IPdfImagePlacementDraft | null>(null);
     const isPendingImagePlacementFinalizing = ref(false);
     let latestImagePlacementRequestId = 0;
+    let imagePlacementAbortController: AbortController | null = null;
 
     function revokePendingImagePlacementPreview() {
         const previewUrl = pendingImagePlacement.value?.previewUrl;
@@ -163,6 +133,8 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
     function clearPendingImagePlacement(options: {invalidatePendingStarts?: boolean;} = {}) {
         if (options.invalidatePendingStarts !== false) {
             latestImagePlacementRequestId += 1;
+            imagePlacementAbortController?.abort(new Error('Image placement superseded'));
+            imagePlacementAbortController = null;
         }
         revokePendingImagePlacementPreview();
         pendingImagePlacement.value = null;
@@ -209,16 +181,33 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
     ) {
         const requestId = latestImagePlacementRequestId + 1;
         latestImagePlacementRequestId = requestId;
+        imagePlacementAbortController?.abort(new Error('Image placement superseded'));
+        const abortController = new AbortController();
+        imagePlacementAbortController = abortController;
         const target = getImagePlacementTarget(optionsOverride);
         let initialDimensions: IImagePlacementDimensions | null;
+        let bytes: Uint8Array;
+        let previewBlob: Blob;
         try {
-            initialDimensions = await getInitialImagePlacementDimensions(
+            const image = await probeImage(
                 file,
+                PDF_IMAGE_PLACEMENT_RESOURCE_LIMITS,
+                abortController.signal,
+            );
+            initialDimensions = getInitialImagePlacementDimensions(
+                image.width,
+                image.height,
                 target.pageWidthPx,
                 target.pageHeightPx,
             );
+            bytes = image.bytes;
+            previewBlob = await createPreview(image, 2_048, abortController.signal);
         } catch {
             return false;
+        } finally {
+            if (imagePlacementAbortController === abortController) {
+                imagePlacementAbortController = null;
+            }
         }
         if (!initialDimensions) {
             return false;
@@ -227,11 +216,7 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
             return false;
         }
 
-        const bytes = new Uint8Array(await file.arrayBuffer());
-        if (requestId !== latestImagePlacementRequestId) {
-            return false;
-        }
-        const previewUrl = URL.createObjectURL(new Blob([bytes], { type: file.type || 'image/png' }));
+        const previewUrl = URL.createObjectURL(previewBlob);
         const placementRect = getInitialImagePlacementRect(target, initialDimensions);
 
         clearPendingImagePlacement({ invalidatePendingStarts: false });
