@@ -102,7 +102,7 @@
     "test:e2e:electron:visible-window:no-build": "vitest run --project e2e-visible-window --reporter verbose",
     "test:e2e:electron:regression": "pnpm run build:electron && pnpm run test:e2e:electron:regression:no-build",
     "test:e2e:electron:regression:no-build": "vitest run --project e2e-regression --reporter verbose",
-    "test:e2e:electron:headless": "EVB_AUTOMATION_DISABLE_SANDBOX=1 EVB_AUTOMATION_HIDE_WINDOW=0 xvfb-run -a pnpm run test:e2e:electron",
+    "test:e2e:electron:headless": "bash scripts/test-electron-e2e-headless.sh",
     "test:e2e:electron:watch": "vitest --project e2e-regression --reporter verbose",
     "electron:run": "tsx scripts/electronRun.ts",
     "electron:run:headless": "bash scripts/electron-run-headless.sh",

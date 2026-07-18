@@ -314,6 +314,9 @@ describe('package scripts', () => {
             'pnpm run build:electron',
             'pnpm run test:e2e:electron:regression:no-build',
         ]);
+        expect(scripts['test:e2e:electron:headless']).toBe(
+            'bash scripts/test-electron-e2e-headless.sh',
+        );
         expect(scriptCommands(packageJson, 'test:e2e:electron:regression')).toEqual([
             'pnpm run build:electron',
             'pnpm run test:e2e:electron:regression:no-build',
@@ -340,6 +343,23 @@ describe('package scripts', () => {
             'pnpm run test:e2e:electron:visible-window:no-build',
         ]);
         expect(scripts['test:e2e:electron:visible-window:no-build']).toBe('vitest run --project e2e-visible-window --reporter verbose');
+
+        const headlessE2ELauncher = await readFile(
+            path.join(process.cwd(), 'scripts/test-electron-e2e-headless.sh'),
+            'utf8',
+        );
+        const headlessSessionLauncher = await readFile(
+            path.join(process.cwd(), 'scripts/electron-run-headless.sh'),
+            'utf8',
+        );
+        for (const launcher of [
+            headlessE2ELauncher,
+            headlessSessionLauncher,
+        ]) {
+            expect(launcher).toContain('export EVB_AUTOMATION_NO_FOCUS=1');
+            expect(launcher).toContain('export EVB_AUTOMATION_HIDE_WINDOW=1');
+            expect(launcher).toContain('export EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE=1');
+        }
         expect(scriptCommands(packageJson, 'diag:pdf-navigation-blink-trace')).toEqual([
             'pnpm run build:electron',
             'pnpm exec tsx scripts/diagnostics/pdfNavigationBlinkTrace.ts',

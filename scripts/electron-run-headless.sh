@@ -11,7 +11,14 @@ if [ "${1:-}" = "--" ]; then
   shift
 fi
 
-if [ "$(uname -s)" != "Linux" ] || [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; then
+platform="$(uname -s)"
+
+if [ "$platform" != "Linux" ]; then
+  export EVB_AUTOMATION_NO_FOCUS=1
+  export EVB_AUTOMATION_HIDE_WINDOW=1
+  if [ "$platform" = "Darwin" ]; then
+    export EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE=1
+  fi
   exec pnpm electron:run "$@"
 fi
 
