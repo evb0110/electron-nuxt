@@ -18,6 +18,8 @@ export const OCR_CHANNELS = {
     acknowledgeResultFile: 'ocr:ackResultFile',
     getLanguages: 'ocr:getLanguages',
     resolveDocumentTextCatalog: 'ocr:resolveDocumentTextCatalog',
+    resolveDocumentOcrAvailability: 'ocr:resolveDocumentOcrAvailability',
+    resolveDocumentOcrPage: 'ocr:resolveDocumentOcrPage',
     validateTools: 'ocr:validateTools',
     preprocessingValidate: 'preprocessing:validate',
     preprocessingPreprocessPage: 'preprocessing:preprocessPage',
@@ -73,6 +75,14 @@ export interface IOcrInvokeMap {
     [OCR_CHANNELS.resolveDocumentTextCatalog]: {
         args: Parameters<IOcrCapability['resolveDocumentTextCatalog']>;
         result: Awaited<ReturnType<IOcrCapability['resolveDocumentTextCatalog']>>;
+    };
+    [OCR_CHANNELS.resolveDocumentOcrAvailability]: {
+        args: Parameters<NonNullable<IOcrCapability['resolveDocumentOcrAvailability']>>;
+        result: Awaited<ReturnType<NonNullable<IOcrCapability['resolveDocumentOcrAvailability']>>>;
+    };
+    [OCR_CHANNELS.resolveDocumentOcrPage]: {
+        args: Parameters<NonNullable<IOcrCapability['resolveDocumentOcrPage']>>;
+        result: Awaited<ReturnType<NonNullable<IOcrCapability['resolveDocumentOcrPage']>>>;
     };
     [OCR_CHANNELS.validateTools]: {
         args: [];

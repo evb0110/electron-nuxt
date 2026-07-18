@@ -13,6 +13,8 @@ import type {
     IOcrOperationContext,
     IOcrService,
 } from '@electron/features/ocr/ports';
+import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 
 export type TOcrIpcMainRegistrar = IContractIpcMainRegistrar<IOcrInvokeMap, IpcMainInvokeEvent>;
 
@@ -52,6 +54,28 @@ export function registerOcrIpcAdapter(
             workingCopyPath,
             documentRevision,
             pageCount,
+        ));
+    registrar.handle(OCR_CHANNELS.resolveDocumentOcrAvailability, (
+        event: IpcMainInvokeEvent,
+        workingCopyPath: TDocumentRef,
+        documentRevision: TDocumentRevisionToken,
+    ) =>
+        service.resolveDocumentOcrAvailability(
+            createOcrOperationContext(event),
+            workingCopyPath,
+            documentRevision,
+        ));
+    registrar.handle(OCR_CHANNELS.resolveDocumentOcrPage, (
+        event: IpcMainInvokeEvent,
+        workingCopyPath: TDocumentRef,
+        documentRevision: TDocumentRevisionToken,
+        pageNumber: number,
+    ) =>
+        service.resolveDocumentOcrPage(
+            createOcrOperationContext(event),
+            workingCopyPath,
+            documentRevision,
+            pageNumber,
         ));
     registrar.handle(OCR_CHANNELS.validateTools, (event) =>
         service.validateTools(createOcrOperationContext(event)));

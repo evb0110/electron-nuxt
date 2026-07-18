@@ -349,6 +349,21 @@ describe('feature validated IPC decoders', () => {
                     ],
                 },
                 {
+                    channel: OCR_CHANNELS.resolveDocumentOcrAvailability,
+                    validArgs: [
+                        '/tmp/a.pdf',
+                        'drt1:test',
+                    ],
+                },
+                {
+                    channel: OCR_CHANNELS.resolveDocumentOcrPage,
+                    validArgs: [
+                        '/tmp/a.pdf',
+                        'drt1:test',
+                        1,
+                    ],
+                },
+                {
                     channel: OCR_CHANNELS.validateTools,
                     validArgs: [],
                 },

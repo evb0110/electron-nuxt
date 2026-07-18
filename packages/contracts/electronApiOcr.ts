@@ -1,7 +1,11 @@
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { IOcrLanguage } from '@contracts/shared';
-import type { IDocumentTextSnapshot } from '@contracts/documentTextCatalog';
+import type {
+    IDocumentOcrAvailability,
+    IDocumentOcrPageSnapshot,
+    IDocumentTextSnapshot,
+} from '@contracts/documentTextCatalog';
 
 export type TOcrErrorCode =
     | 'OCR_INVALID_PAYLOAD'
@@ -243,6 +247,15 @@ export interface IOcrCapability {
         documentRevision: TDocumentRevisionToken,
         pageCount?: number,
     ) => Promise<IDocumentTextSnapshot>;
+    resolveDocumentOcrAvailability?: (
+        workingCopyPath: TDocumentRef,
+        documentRevision: TDocumentRevisionToken,
+    ) => Promise<IDocumentOcrAvailability>;
+    resolveDocumentOcrPage?: (
+        workingCopyPath: TDocumentRef,
+        documentRevision: TDocumentRevisionToken,
+        pageNumber: number,
+    ) => Promise<IDocumentOcrPageSnapshot>;
     validateTools: () => Promise<IOcrToolValidationResult>;
     installLanguages: (languages: string[], requestId: string) => Promise<IOcrJobStartResult>;
     acknowledgeResultFile: (requestId: string, pdfPath?: TDocumentRef) => Promise<IOcrResultFileAckResult>;

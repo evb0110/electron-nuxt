@@ -20,7 +20,9 @@ const mocks = vi.hoisted(() => ({
     extractTextWithPdfjsWordBoxes: vi.fn(async () => []),
     persistCompactSearchIndexBestEffort: vi.fn(async () => undefined),
     ensureNativeSearchIndexBestEffort: vi.fn(async () => undefined),
+    resolveAvailabilityViaCapability: vi.fn(),
     resolveCatalogViaCapability: vi.fn(),
+    resolvePageViaCapability: vi.fn(),
 }));
 
 function relativeArtifactPath(path: string) {
@@ -41,7 +43,11 @@ vi.mock('fs/promises', () => ({
     writeFile: vi.fn(async () => undefined),
 }));
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {warn: vi.fn()}}));
-vi.mock('@app/utils/getOcrCapability', () => ({getOcrCapability: () => ({resolveDocumentTextCatalog: (...args: unknown[]) => mocks.resolveCatalogViaCapability(...args)})}));
+vi.mock('@app/utils/getOcrCapability', () => ({getOcrCapability: () => ({
+    resolveDocumentOcrAvailability: (...args: unknown[]) => mocks.resolveAvailabilityViaCapability(...args),
+    resolveDocumentOcrPage: (...args: unknown[]) => mocks.resolvePageViaCapability(...args),
+    resolveDocumentTextCatalog: (...args: unknown[]) => mocks.resolveCatalogViaCapability(...args),
+})}));
 vi.mock('@electron/search/extractTextFromPdf', () => ({extractTextFromPdf: mocks.extractTextFromPdf}));
 vi.mock('@electron/search/extractTextWithPdfjs', () => ({
     extractTextWithPdfjs: mocks.extractTextWithPdfjs,
@@ -69,7 +75,11 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
 const {loadDocumentTextCatalogPages} = await import('@app/utils/ocr/loadOcrText');
 const {useOcrTextContent} = await import('@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent');
 const {buildSearchIndex} = await import('@electron/search/indexBuilder');
-const {resolveDocumentTextCatalogSnapshot} = await import('@electron/ocr/documentTextCatalog');
+const {
+    resolveDocumentOcrAvailability,
+    resolveDocumentOcrPage,
+    resolveDocumentTextCatalogSnapshot,
+} = await import('@electron/ocr/documentTextCatalog');
 
 function createViewport(): PageViewport {
     return {
@@ -131,7 +141,34 @@ describe('DocumentTextCatalog reader agreement', () => {
         vi.clearAllMocks();
         state.artifacts.clear();
         useOcrTextContent().clearCache();
+        mocks.resolveAvailabilityViaCapability.mockImplementation(resolveDocumentOcrAvailability);
         mocks.resolveCatalogViaCapability.mockImplementation(resolveDocumentTextCatalogSnapshot);
+        mocks.resolvePageViaCapability.mockImplementation(resolveDocumentOcrPage);
+    });
+
+    it('serves a representative large viewer document without extracting all-page PDF geometry', async () => {
+        const fixture = createOcrDocumentTextCatalogFixture(Array.from(
+            {length: 406},
+            (_value, index) => ({
+                pageNumber: index + 1,
+                text: `page ${index + 1}`,
+            }),
+        ));
+        state.artifacts = new Map(fixture.artifacts);
+
+        const viewer = useOcrTextContent();
+        await expect(viewer.hasPageOcrData(fixture.path, fixture.revision, 406)).resolves.toBe(true);
+        await expect(viewer.getOcrTextContent(
+            fixture.path,
+            fixture.revision,
+            406,
+            createViewport(),
+        )).resolves.not.toBeNull();
+
+        expect(mocks.resolveAvailabilityViaCapability).toHaveBeenCalledOnce();
+        expect(mocks.resolvePageViaCapability).toHaveBeenCalledOnce();
+        expect(mocks.resolveCatalogViaCapability).not.toHaveBeenCalled();
+        expect(mocks.extractTextWithPdfjsWordBoxes).not.toHaveBeenCalled();
     });
 
     it('returns identical page text through viewer, search, and export readers', async () => {

@@ -374,6 +374,11 @@ const optionalDocumentMethodNames = new Set<string>([
     'showItemInFolderStructured',
 ]);
 
+const optionalHotReloadCompatibleMethodPaths = new Set([
+    'ocr.resolveDocumentOcrAvailability',
+    'ocr.resolveDocumentOcrPage',
+]);
+
 function resolveMethodKind(path: readonly string[]): TPlatformMethodKind {
     const methodName = path.at(-1);
     if (methodName?.startsWith('on')) {
@@ -410,6 +415,10 @@ function isOptionalDocumentPath(path: readonly string[]) {
     return methodName !== undefined && optionalDocumentMethodNames.has(methodName);
 }
 
+function isOptionalMethodPath(path: readonly string[]) {
+    return isOptionalDocumentPath(path) || optionalHotReloadCompatibleMethodPaths.has(path.join('.'));
+}
+
 function createMethodDescriptor(
     path: readonly string[],
     overrides: Partial<Omit<IPlatformMethodDescriptor, 'path' | 'kind' | 'browserLazy' | 'aliasOf'>> & { aliasOf?: TPlatformPath } = {},
@@ -417,8 +426,8 @@ function createMethodDescriptor(
     return {
         path,
         kind: resolveMethodKind(path),
-        required: isOptionalDocumentPath(path) ? optionalEverywhere : requiredEverywhere,
-        ...(isOptionalDocumentPath(path) ? {optionalWhenImplemented: true} : {}),
+        required: isOptionalMethodPath(path) ? optionalEverywhere : requiredEverywhere,
+        ...(isOptionalMethodPath(path) ? {optionalWhenImplemented: true} : {}),
         browserLazy: isDirectBrowserMethod(path) ? 'direct' : 'forwarded',
         ...overrides,
     };
@@ -532,6 +541,14 @@ const otherMethodPaths = defineMethodPaths([
     [
         'ocr',
         'resolveDocumentTextCatalog',
+    ],
+    [
+        'ocr',
+        'resolveDocumentOcrAvailability',
+    ],
+    [
+        'ocr',
+        'resolveDocumentOcrPage',
     ],
     [
         'ocr',

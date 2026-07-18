@@ -6,7 +6,7 @@ import type { TOcrIndexRotation } from '@contracts/ocrIndex';
 import type { IDocumentTextCatalogPage } from '@contracts/documentTextCatalog';
 import { createWordBoxOverlays } from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/createWordBoxOverlays';
 import { isOcrDebugEnabled } from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/isOcrDebugEnabled';
-import { loadSharedDocumentTextCatalog } from '@app/modules/pdf-viewer/engine/document-text-catalog/sharedDocumentTextCatalogCache';
+import { loadSharedDocumentOcrPage } from '@app/modules/pdf-viewer/engine/document-text-catalog/sharedDocumentTextCatalogCache';
 import { transformOcrWordToViewport } from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformOcrWordToViewport';
 import { transformWordBox } from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformWordBox';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -98,8 +98,7 @@ export const usePdfWordBoxes = () => {
         documentRevisionToken: TDocumentRevisionToken,
         pageNumber: number,
     ): Promise<IDocumentTextCatalogPage | null> {
-        const snapshot = await loadSharedDocumentTextCatalog(workingCopyPath, documentRevisionToken);
-        return snapshot?.pages.find(page => page.pageNumber === pageNumber && page.source === 'evb-ocr') ?? null;
+        return loadSharedDocumentOcrPage(workingCopyPath, documentRevisionToken, pageNumber);
     }
 
     async function renderOcrDebugBoxes(

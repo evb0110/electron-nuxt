@@ -7,6 +7,8 @@ import {
     handleSubscribeOcrJob,
     handleOcrRecognize,
     handleOcrRecognizeBatch,
+    handleResolveDocumentOcrAvailability,
+    handleResolveDocumentOcrPage,
     handleResolveDocumentTextCatalog,
     handleOcrValidateTools,
     subscribePlainOcrProgress,
@@ -60,6 +62,8 @@ export function createOcrService(): IOcrService {
         acknowledgeResultFile: handleOcrAcknowledgeResultFileValidated,
         getLanguages: handleOcrGetLanguages,
         resolveDocumentTextCatalog: handleResolveDocumentTextCatalog,
+        resolveDocumentOcrAvailability: handleResolveDocumentOcrAvailability,
+        resolveDocumentOcrPage: handleResolveDocumentOcrPage,
         validateTools: handleOcrValidateTools,
         preprocessingValidate: handlePreprocessingValidate,
         preprocessPage: (context, imageData, usePreprocessing) =>

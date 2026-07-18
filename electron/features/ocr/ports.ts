@@ -55,6 +55,14 @@ export interface IOcrService {
         context: IOcrOperationContext,
         ...args: Parameters<TOcrApi['resolveDocumentTextCatalog']>
     ) => TPromiseOrValue<Awaited<ReturnType<TOcrApi['resolveDocumentTextCatalog']>>>;
+    resolveDocumentOcrAvailability: (
+        context: IOcrOperationContext,
+        ...args: Parameters<NonNullable<TOcrApi['resolveDocumentOcrAvailability']>>
+    ) => TPromiseOrValue<Awaited<ReturnType<NonNullable<TOcrApi['resolveDocumentOcrAvailability']>>>>;
+    resolveDocumentOcrPage: (
+        context: IOcrOperationContext,
+        ...args: Parameters<NonNullable<TOcrApi['resolveDocumentOcrPage']>>
+    ) => TPromiseOrValue<Awaited<ReturnType<NonNullable<TOcrApi['resolveDocumentOcrPage']>>>>;
     validateTools: (
         context: IOcrOperationContext,
         ...args: Parameters<TOcrApi['validateTools']>

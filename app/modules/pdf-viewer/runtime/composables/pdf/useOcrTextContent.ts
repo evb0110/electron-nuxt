@@ -11,7 +11,8 @@ import {
 } from '@contracts/ocrText';
 import {
     clearSharedDocumentTextCatalog,
-    loadSharedDocumentTextCatalog,
+    loadSharedDocumentOcrAvailability,
+    loadSharedDocumentOcrPage,
 } from '@app/modules/pdf-viewer/engine/document-text-catalog/sharedDocumentTextCatalogCache';
 
 type TOcrTextDirection = 'ltr' | 'rtl';
@@ -193,8 +194,11 @@ export const useOcrTextContent = () => {
         pageNumber: number,
         viewport: PageViewport,
     ) {
-        const snapshot = await loadSharedDocumentTextCatalog(workingCopyPath, documentRevisionToken);
-        const pageData = snapshot?.pages.find(page => page.pageNumber === pageNumber && page.source === 'evb-ocr');
+        const pageData = await loadSharedDocumentOcrPage(
+            workingCopyPath,
+            documentRevisionToken,
+            pageNumber,
+        );
         if (!pageData?.render || !pageData.words?.length) {
             return null;
         }
@@ -240,8 +244,8 @@ export const useOcrTextContent = () => {
         workingCopyPath: TDocumentRef,
         documentRevisionToken: TDocumentRevisionToken,
     ) {
-        const snapshot = await loadSharedDocumentTextCatalog(workingCopyPath, documentRevisionToken);
-        return snapshot?.pages.some(page => page.source === 'evb-ocr') === true;
+        const availability = await loadSharedDocumentOcrAvailability(workingCopyPath, documentRevisionToken);
+        return availability !== null && availability.pageNumbers.length > 0;
     }
 
     /**
@@ -256,8 +260,8 @@ export const useOcrTextContent = () => {
         documentRevisionToken: TDocumentRevisionToken,
         pageNumber: number,
     ) {
-        const snapshot = await loadSharedDocumentTextCatalog(workingCopyPath, documentRevisionToken);
-        return snapshot?.pages.some(page => page.pageNumber === pageNumber && page.source === 'evb-ocr') === true;
+        const availability = await loadSharedDocumentOcrAvailability(workingCopyPath, documentRevisionToken);
+        return availability?.pageNumbers.includes(pageNumber) === true;
     }
 
     /**

@@ -12,7 +12,10 @@ import {
     OCR_PROGRESS_PHASES,
 } from '@contracts/electronApiOcr';
 import type { TDocumentRef } from '@contracts/documentRef';
-import { parseDocumentRevisionToken } from '@contracts/documentRevision';
+import {
+    parseDocumentRevisionToken,
+    type TDocumentRevisionToken,
+} from '@contracts/documentRevision';
 import {
     isFiniteNumber,
     isOneOf,
@@ -45,6 +48,8 @@ const OCR_INVOKE_TIMEOUT_MS_BY_CHANNEL = {
     [OCR_CHANNELS.subscribeJob]: OCR_NATIVE_IPC_TIMEOUT_MS,
     [OCR_CHANNELS.reconnectJob]: OCR_NATIVE_IPC_TIMEOUT_MS,
     [OCR_CHANNELS.resolveDocumentTextCatalog]: OCR_NATIVE_IPC_TIMEOUT_MS,
+    [OCR_CHANNELS.resolveDocumentOcrAvailability]: OCR_NATIVE_IPC_TIMEOUT_MS,
+    [OCR_CHANNELS.resolveDocumentOcrPage]: OCR_NATIVE_IPC_TIMEOUT_MS,
     [OCR_CHANNELS.validateTools]: OCR_NATIVE_IPC_TIMEOUT_MS,
     [OCR_CHANNELS.preprocessingValidate]: OCR_NATIVE_IPC_TIMEOUT_MS,
     [OCR_CHANNELS.preprocessingPreprocessPage]: OCR_NATIVE_IPC_TIMEOUT_MS,
@@ -298,6 +303,41 @@ export function createOcrPreloadClient(ipcRenderer: IpcRenderer): IOcrCapability
                 assertAbsolutePath(workingCopyPath, 'resolveDocumentTextCatalog.workingCopyPath'),
                 checkedRevision,
                 pageCount,
+            );
+        },
+
+        resolveDocumentOcrAvailability: (
+            workingCopyPath: TDocumentRef,
+            documentRevision: TDocumentRevisionToken,
+        ) => {
+            const checkedRevision = parseDocumentRevisionToken(documentRevision);
+            if (checkedRevision === null) {
+                throw new TypeError('resolveDocumentOcrAvailability.documentRevision must be a valid revision token');
+            }
+            return invoke(
+                OCR_CHANNELS.resolveDocumentOcrAvailability,
+                assertAbsolutePath(workingCopyPath, 'resolveDocumentOcrAvailability.workingCopyPath'),
+                checkedRevision,
+            );
+        },
+
+        resolveDocumentOcrPage: (
+            workingCopyPath: TDocumentRef,
+            documentRevision: TDocumentRevisionToken,
+            pageNumber: number,
+        ) => {
+            const checkedRevision = parseDocumentRevisionToken(documentRevision);
+            if (checkedRevision === null) {
+                throw new TypeError('resolveDocumentOcrPage.documentRevision must be a valid revision token');
+            }
+            if (!Number.isSafeInteger(pageNumber) || pageNumber < 1) {
+                throw new TypeError('resolveDocumentOcrPage.pageNumber must be a positive safe integer');
+            }
+            return invoke(
+                OCR_CHANNELS.resolveDocumentOcrPage,
+                assertAbsolutePath(workingCopyPath, 'resolveDocumentOcrPage.workingCopyPath'),
+                checkedRevision,
+                pageNumber,
             );
         },
 

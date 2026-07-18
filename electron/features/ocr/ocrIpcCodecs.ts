@@ -12,7 +12,11 @@ import {
 } from '@contracts/electronApiOcr';
 import type { TIpcCodecMap } from '@contracts/ipcMain';
 import { decodeOcrLanguages } from '@contracts/ocrLanguages';
-import { decodeDocumentTextSnapshot } from '@contracts/documentTextCatalog';
+import {
+    decodeDocumentOcrAvailability,
+    decodeDocumentOcrPageSnapshot,
+    decodeDocumentTextSnapshot,
+} from '@contracts/documentTextCatalog';
 import { parseDocumentRevisionToken } from '@contracts/documentRevision';
 import {
     isFiniteNumber,
@@ -550,6 +554,43 @@ export const OCR_IPC_CODECS = {
             value,
             decodeDocumentTextSnapshot,
             'DocumentTextCatalog snapshot',
+        ),
+    },
+    [OCR_CHANNELS.resolveDocumentOcrAvailability]: {
+        decodeArgs: (args: readonly unknown[]) => {
+            requireArgs(args, 2);
+            const documentRevision = parseDocumentRevisionToken(args[1]);
+            if (documentRevision === null) {
+                throw new Error('documentRevision must be a valid revision token');
+            }
+            return [
+                decodeStringArg(args, 0, 'workingCopyPath'),
+                documentRevision,
+            ];
+        },
+        decodeResult: (value: unknown) => requireDecoded(
+            value,
+            decodeDocumentOcrAvailability,
+            'document OCR availability',
+        ),
+    },
+    [OCR_CHANNELS.resolveDocumentOcrPage]: {
+        decodeArgs: (args: readonly unknown[]) => {
+            requireArgs(args, 3);
+            const documentRevision = parseDocumentRevisionToken(args[1]);
+            if (documentRevision === null) {
+                throw new Error('documentRevision must be a valid revision token');
+            }
+            return [
+                decodeStringArg(args, 0, 'workingCopyPath'),
+                documentRevision,
+                decodeSafeIntegerArg(args, 2, 'pageNumber', 1),
+            ];
+        },
+        decodeResult: (value: unknown) => requireDecoded(
+            value,
+            decodeDocumentOcrPageSnapshot,
+            'document OCR page',
         ),
     },
     [OCR_CHANNELS.validateTools]: {

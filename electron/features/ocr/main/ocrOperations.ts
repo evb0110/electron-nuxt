@@ -32,7 +32,11 @@ import {
 } from '@electron/ocr/paths';
 import { runOcr } from '@electron/ocr/runOcr';
 import { createLogger } from '@electron/utils/createLogger';
-import { resolveDocumentTextCatalogSnapshot } from '@electron/ocr/documentTextCatalog';
+import {
+    resolveDocumentOcrAvailability,
+    resolveDocumentOcrPage,
+    resolveDocumentTextCatalogSnapshot,
+} from '@electron/ocr/documentTextCatalog';
 import { getOcrLanguageModelStates } from '@electron/ocr/languageModels';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import {
@@ -438,6 +442,25 @@ export async function handleResolveDocumentTextCatalog(
 ) {
     const resolvedPath = await validateOcrSourcePdfPath(workingCopyPath, context.senderId);
     return resolveDocumentTextCatalogSnapshot(resolvedPath, documentRevision, pageCount);
+}
+
+export async function handleResolveDocumentOcrAvailability(
+    context: IOcrOperationContext,
+    workingCopyPath: string,
+    documentRevision: TDocumentRevisionToken,
+) {
+    const resolvedPath = await validateOcrSourcePdfPath(workingCopyPath, context.senderId);
+    return resolveDocumentOcrAvailability(resolvedPath, documentRevision);
+}
+
+export async function handleResolveDocumentOcrPage(
+    context: IOcrOperationContext,
+    workingCopyPath: string,
+    documentRevision: TDocumentRevisionToken,
+    pageNumber: number,
+) {
+    const resolvedPath = await validateOcrSourcePdfPath(workingCopyPath, context.senderId);
+    return resolveDocumentOcrPage(resolvedPath, documentRevision, pageNumber);
 }
 
 export async function handleOcrValidateTools() {

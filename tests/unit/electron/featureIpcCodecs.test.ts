@@ -251,6 +251,11 @@ describe('feature IPC codec maps', () => {
             [0],
         ])).toThrow();
         expect(() => OCR_IPC_CODECS[OCR_CHANNELS.recognize].decodeArgs([{pageNumber: 0}])).toThrow();
+        expect(() => OCR_IPC_CODECS[OCR_CHANNELS.resolveDocumentOcrPage].decodeArgs([
+            '/tmp/a.pdf',
+            'drt1:test',
+            0,
+        ])).toThrow();
         expect(() => SEARCH_IPC_CODECS[SEARCH_CHANNELS.search].decodeArgs([null])).toThrow();
     });
 

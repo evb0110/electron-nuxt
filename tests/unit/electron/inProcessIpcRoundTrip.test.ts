@@ -312,12 +312,39 @@ describe('in-process preload to validated IPC round trips', () => {
         );
     });
 
-    it('round-trips OCR cancellation and preserves its validated reason', async () => {
+    it('round-trips OCR cancellation and page-scoped catalog reads', async () => {
+        const documentRevision = requireDocumentRevisionToken('drt1:ocr-page-round-trip');
         const cancel = vi.fn(async () => ({
             canceled: false,
             reason: 'not-found' as const,
         }));
-        const service = cast<IOcrService>({cancel});
+        const resolveDocumentOcrAvailability = vi.fn(async () => ({
+            documentRevision,
+            pageCount: 406,
+            pageNumbers: [406],
+        }));
+        const resolveDocumentOcrPage = vi.fn(async () => ({
+            documentRevision,
+            pageCount: 406,
+            page: {
+                pageNumber: 406,
+                text: 'requested page',
+                source: 'evb-ocr' as const,
+                words: [{
+                    text: 'requested',
+                    x: 1,
+                    y: 1,
+                    width: 10,
+                    height: 10,
+                }],
+                contentDigest: 'page-digest',
+            },
+        }));
+        const service = cast<IOcrService>({
+            cancel,
+            resolveDocumentOcrAvailability,
+            resolveDocumentOcrPage,
+        });
         const harness = createInProcessIpcRoundTripHarness<IOcrInvokeMap, IOcrService, ReturnType<typeof createOcrPreloadClient>>({
             channels: OCR_CHANNELS,
             codecs: OCR_IPC_CODECS,
@@ -333,6 +360,27 @@ describe('in-process preload to validated IPC round trips', () => {
         expect(cancel).toHaveBeenCalledWith(
             expect.objectContaining({senderId: 7}),
             'ocr-request-1',
+        );
+
+        await expect(harness.client.resolveDocumentOcrAvailability!(
+            '/tmp/working-copy.pdf',
+            documentRevision,
+        )).resolves.toMatchObject({pageNumbers: [406]});
+        await expect(harness.client.resolveDocumentOcrPage!(
+            '/tmp/working-copy.pdf',
+            documentRevision,
+            406,
+        )).resolves.toMatchObject({page: {pageNumber: 406}});
+        expect(resolveDocumentOcrAvailability).toHaveBeenCalledWith(
+            expect.objectContaining({senderId: 7}),
+            '/tmp/working-copy.pdf',
+            documentRevision,
+        );
+        expect(resolveDocumentOcrPage).toHaveBeenCalledWith(
+            expect.objectContaining({senderId: 7}),
+            '/tmp/working-copy.pdf',
+            documentRevision,
+            406,
         );
     });
 });

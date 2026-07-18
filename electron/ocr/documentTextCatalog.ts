@@ -14,9 +14,16 @@ import {
     parseOcrIndexV3Manifest,
 } from '@contracts/ocrIndex';
 import type {
+    IDocumentOcrAvailability,
+    IDocumentOcrPageSnapshot,
     IDocumentTextCatalogPage,
     IDocumentTextSnapshot,
 } from '@contracts/documentTextCatalog';
+import {
+    MAX_DOCUMENT_TEXT_CATALOG_PAGE_TEXT_LENGTH,
+    MAX_DOCUMENT_TEXT_CATALOG_PAGE_WORDS,
+} from '@contracts/documentTextCatalog';
+import type { IOcrIndexV3Manifest } from '@contracts/ocrIndex';
 import {assembleSearchablePageText} from '@contracts/search';
 import {buildOcrTextLayerIndexText} from '@contracts/ocrText';
 import {extractTextWithPdfjsWordBoxes} from '@electron/search/extractTextWithPdfjs';
@@ -72,6 +79,86 @@ function digestCanonicalPage(page: Omit<IDocumentTextCatalogPage, 'contentDigest
     return createHash('sha256').update(JSON.stringify(page)).digest('hex');
 }
 
+async function loadCurrentOcrManifest(
+    workingCopyPath: string,
+    documentRevision: TDocumentRevisionToken,
+) {
+    const catalogDir = `${workingCopyPath}.ocr`;
+    const manifest = await readFile(join(catalogDir, 'manifest.json'), 'utf8')
+        .then(raw => parseOcrIndexV3Manifest(JSON.parse(raw), 'strict'))
+        .catch(() => null);
+    return manifest?.documentRevision.token === documentRevision ? manifest : null;
+}
+
+async function loadEvbOcrCatalogPage(
+    workingCopyPath: string,
+    documentRevision: TDocumentRevisionToken,
+    manifest: IOcrIndexV3Manifest,
+    pageNumber: number,
+): Promise<IDocumentTextCatalogPage | null> {
+    const mapping = manifest.pages[pageNumber];
+    if (!mapping) {
+        return null;
+    }
+    const ocrPage = await readFile(join(`${workingCopyPath}.ocr`, mapping.path), 'utf8')
+        .then(raw => decodeOcrPage(JSON.parse(raw), pageNumber, documentRevision, 'strict'))
+        .catch(() => null);
+    if (!ocrPage) {
+        return null;
+    }
+    if (
+        ocrPage.words.length > MAX_DOCUMENT_TEXT_CATALOG_PAGE_WORDS
+        || ocrPage.text.length > MAX_DOCUMENT_TEXT_CATALOG_PAGE_TEXT_LENGTH
+    ) {
+        return null;
+    }
+    const page: IDocumentTextCatalogPage = {
+        pageNumber,
+        text: ocrPage.words.length > 0
+            ? buildOcrTextLayerIndexText(ocrPage.words)
+            : assembleSearchablePageText([{text: ocrPage.text}]).text,
+        words: ocrPage.words,
+        source: 'evb-ocr',
+        ...(ocrPage.canonicalText?.generation ? {generation: ocrPage.canonicalText.generation} : {}),
+        render: ocrPage.render,
+        languages: [...manifest.ocr.languages],
+        contentDigest: ocrPage.canonicalText?.contentDigest ?? '',
+    };
+    page.contentDigest ||= digestCanonicalPage(page);
+    return page;
+}
+
+export async function resolveDocumentOcrAvailability(
+    workingCopyPath: string,
+    documentRevision: TDocumentRevisionToken,
+): Promise<IDocumentOcrAvailability> {
+    await assertWorkingCopyRevisionSidecarCurrent(workingCopyPath, documentRevision);
+    const manifest = await loadCurrentOcrManifest(workingCopyPath, documentRevision);
+    return {
+        documentRevision,
+        pageCount: manifest?.pageCount ?? 0,
+        pageNumbers: manifest
+            ? Object.keys(manifest.pages).map(Number).sort((left, right) => left - right)
+            : [],
+    };
+}
+
+export async function resolveDocumentOcrPage(
+    workingCopyPath: string,
+    documentRevision: TDocumentRevisionToken,
+    pageNumber: number,
+): Promise<IDocumentOcrPageSnapshot> {
+    await assertWorkingCopyRevisionSidecarCurrent(workingCopyPath, documentRevision);
+    const manifest = await loadCurrentOcrManifest(workingCopyPath, documentRevision);
+    return {
+        documentRevision,
+        pageCount: manifest?.pageCount ?? 0,
+        page: manifest && pageNumber <= manifest.pageCount
+            ? await loadEvbOcrCatalogPage(workingCopyPath, documentRevision, manifest, pageNumber)
+            : null,
+    };
+}
+
 /** Main-process canonical per-page text authority for viewer/search/export projections. */
 export async function resolveDocumentTextCatalogSnapshot(
     workingCopyPath: string,
@@ -80,11 +167,7 @@ export async function resolveDocumentTextCatalogSnapshot(
 ): Promise<IDocumentTextSnapshot> {
     await assertWorkingCopyRevisionSidecarCurrent(workingCopyPath, documentRevision);
     const embeddedPages = await extractTextWithPdfjsWordBoxes(workingCopyPath);
-    const catalogDir = `${workingCopyPath}.ocr`;
-    const manifest = await readFile(join(catalogDir, 'manifest.json'), 'utf8')
-        .then(raw => parseOcrIndexV3Manifest(JSON.parse(raw), 'strict'))
-        .catch(() => null);
-    const currentManifest = manifest?.documentRevision.token === documentRevision ? manifest : null;
+    const currentManifest = await loadCurrentOcrManifest(workingCopyPath, documentRevision);
     const resolvedPageCount = pageCount ?? Math.max(embeddedPages.length, currentManifest?.pageCount ?? 0);
     const canonicalByPage = new Map<number, IDocumentTextCatalogPage>();
 
@@ -104,33 +187,20 @@ export async function resolveDocumentTextCatalogSnapshot(
     }
 
     if (currentManifest) {
-        for (const [
-            rawPageNumber,
-            mapping,
-        ] of Object.entries(currentManifest.pages)) {
+        for (const [rawPageNumber] of Object.entries(currentManifest.pages)) {
             const pageNumber = Number(rawPageNumber);
             if (pageNumber > resolvedPageCount) {
                 continue;
             }
-            const ocrPage = await readFile(join(catalogDir, mapping.path), 'utf8')
-                .then(raw => decodeOcrPage(JSON.parse(raw), pageNumber, documentRevision, 'strict'))
-                .catch(() => null);
-            if (!ocrPage) {
+            const page = await loadEvbOcrCatalogPage(
+                workingCopyPath,
+                documentRevision,
+                currentManifest,
+                pageNumber,
+            );
+            if (!page) {
                 continue;
             }
-            const page: IDocumentTextCatalogPage = {
-                pageNumber,
-                text: ocrPage.words.length > 0
-                    ? buildOcrTextLayerIndexText(ocrPage.words)
-                    : assembleSearchablePageText([{text: ocrPage.text}]).text,
-                words: ocrPage.words,
-                source: 'evb-ocr',
-                ...(ocrPage.canonicalText?.generation ? {generation: ocrPage.canonicalText.generation} : {}),
-                render: ocrPage.render,
-                languages: [...currentManifest.ocr.languages],
-                contentDigest: ocrPage.canonicalText?.contentDigest ?? '',
-            };
-            page.contentDigest ||= digestCanonicalPage(page);
             canonicalByPage.set(pageNumber, page);
         }
     }
