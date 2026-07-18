@@ -275,6 +275,7 @@ function bootIpc(
         readyWindowIds,
         registerIpcHandlers,
     } = options;
+    const rendererReadyFocusHandled = new WeakSet<WebContents>();
     registerIpcHandlers({
         onRendererReady: (event) => {
             const window = getWindowFromWebContents(event.sender);
@@ -282,13 +283,17 @@ function bootIpc(
                 return;
             }
 
+            const shouldFocusForInitialReady = !rendererReadyFocusHandled.has(event.sender);
+            rendererReadyFocusHandled.add(event.sender);
             readyWindowIds.add(window.id);
             markWindowTabTransferReady(window.id);
 
             externalOpenManager.scheduleFlushPendingFiles();
             markWindowRendererReady(window.id);
             if (window.id === getMainWindow()?.id) {
-                focusMainWindow();
+                if (shouldFocusForInitialReady) {
+                    focusMainWindow();
+                }
                 logStartupPhase(`${PACKAGED_STARTUP_READY_MARKER} Main renderer signaled ready (windowId=${window.id})`);
                 maybePromptForDefaultViewer();
             }

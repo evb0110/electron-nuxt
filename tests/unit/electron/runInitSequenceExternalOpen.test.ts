@@ -185,6 +185,15 @@ describe('runInitSequence external open IPC', () => {
         expect(harness.focusMainWindow).toHaveBeenCalledTimes(1);
     });
 
+    it('does not refocus the main window when the existing renderer signals ready after a reload', async () => {
+        const harness = await createHarness();
+
+        harness.capturedHandlers.onRendererReady?.({sender: harness.mainWindow.webContents});
+        harness.capturedHandlers.onRendererReady?.({sender: harness.mainWindow.webContents});
+
+        expect(harness.focusMainWindow).toHaveBeenCalledTimes(1);
+    });
+
     it('acknowledges failed startup opens only from the claiming WebContents and claimed paths', async () => {
         const harness = await createHarness();
 
