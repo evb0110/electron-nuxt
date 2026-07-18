@@ -25,6 +25,7 @@ if [ ! -d "$app_path" ]; then
 fi
 app_path="$(cd "$app_path" && pwd -P)"
 app_exec="$app_path/Contents/MacOS/EVB Viewer"
+lsregister="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 if [ ! -x "$app_exec" ]; then
   echo "Error: Could not find executable packaged app bundle: $app_path"
   exit 1
@@ -96,6 +97,12 @@ cleanup() {
       kill -0 "$app_pid" >/dev/null 2>&1 || break
       sleep 0.1
     done
+  fi
+  # The verifier launches a workspace build through LaunchServices. Remove
+  # only that exact registration so retained release artifacts do not become
+  # extra PDF/DjVu handlers in Finder's Open With menu.
+  if [ -x "$lsregister" ] && [ -d "$app_path" ]; then
+    "$lsregister" -u "$app_path" >/dev/null 2>&1 || true
   fi
   if [ "$passed" -ne 1 ]; then
     print_evidence

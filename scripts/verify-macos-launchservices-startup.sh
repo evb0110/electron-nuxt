@@ -43,6 +43,7 @@ install_dir="$user_data_dir/install"
 quarantined_dmg="$user_data_dir/candidate.dmg"
 app_path="$install_dir/EVB Viewer.app"
 app_exec="$app_path/Contents/MacOS/EVB Viewer"
+lsregister="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 artifact_root="${EVB_LAUNCHSERVICES_ARTIFACT_DIR:-.devkit/test/macos-launchservices-startup}"
 artifact_dir="$artifact_root/$token"
 mkdir -p "$artifact_dir"
@@ -56,6 +57,14 @@ open_pid=""
 app_pid=""
 mounted=0
 passed=0
+source_app=""
+
+unregister_bundle() {
+  local bundle_path="$1"
+  if [ -n "$bundle_path" ] && [ -x "$lsregister" ] && [ -d "$bundle_path" ]; then
+    "$lsregister" -u "$bundle_path" >/dev/null 2>&1 || true
+  fi
+}
 
 capture_diagnostics() {
   ps -axo pid=,ppid=,command= \
@@ -85,13 +94,14 @@ cleanup() {
   if [ -n "$open_pid" ] && kill -0 "$open_pid" >/dev/null 2>&1; then
     kill "$open_pid" >/dev/null 2>&1 || true
   fi
+  # Mounting a DMG registers its source app independently of the disposable
+  # install copy. Unregister it while the volume still exists so LaunchServices
+  # does not retain a dead /Volumes/... entry after detach.
+  unregister_bundle "$source_app"
   if [ "$mounted" -eq 1 ]; then
     hdiutil detach "$mount_point" -force >/dev/null 2>&1 || true
   fi
-  lsregister="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
-  if [ -x "$lsregister" ] && [ -d "$app_path" ]; then
-    "$lsregister" -u "$app_path" >/dev/null 2>&1 || true
-  fi
+  unregister_bundle "$app_path"
   rm -rf "$user_data_dir"
   if [ "$passed" -eq 1 ]; then
     rm -rf "$artifact_dir"
@@ -114,6 +124,7 @@ if [ -z "$source_app" ]; then
   exit 1
 fi
 ditto "$source_app" "$app_path"
+unregister_bundle "$source_app"
 hdiutil detach "$mount_point" >/dev/null
 mounted=0
 

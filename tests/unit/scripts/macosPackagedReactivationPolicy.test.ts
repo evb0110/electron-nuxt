@@ -26,6 +26,7 @@ describe('macOS packaged-reactivation diagnostic policy', () => {
         expect(script).toContain('artifact_dir="$(cd "$artifact_dir" && pwd -P)"');
         expect(script).toContain('index($0, executable) && index($0, token)');
         expect(script).toContain('if is_tokenized_canary; then');
+        expect(script).toContain('"$lsregister" -u "$app_path"');
         expect(script).not.toMatch(/\/Applications\/EVB Viewer\.app/u);
         expect(script).not.toMatch(/\bkillall\b|\bpkill\b/u);
     });

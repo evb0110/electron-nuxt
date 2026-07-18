@@ -40,6 +40,8 @@ describe('macOS LaunchServices packaged-startup policy', () => {
         expect(script).toContain('immediately preceding');
         expect(script).not.toMatch(/\bkillall\b|\bpkill\b/u);
         expect(script).not.toContain('/Applications/EVB Viewer.app');
-        expect(script).toContain('"$lsregister" -u "$app_path"');
+        expect(script).toContain('unregister_bundle "$app_path"');
+        expect(script).toContain('unregister_bundle "$source_app"');
+        expect(script).toMatch(/unregister_bundle "\$source_app"\s+hdiutil detach "\$mount_point"/u);
     });
 });
