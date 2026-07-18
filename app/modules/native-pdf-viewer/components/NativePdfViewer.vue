@@ -84,7 +84,7 @@ import { clampDocumentManualZoom } from '@app/utils/document-viewer/zoomPolicy';
 import { DOCUMENT_PAGE_GUTTER_PX } from '@app/utils/document-viewer/layout/documentPageGutterPx';
 import { useDocumentViewportLayoutLifecycle } from '@app/utils/document-viewer/lifecycle/useDocumentViewportLayoutLifecycle';
 import { createDocumentWheelZoomHandler } from '@app/utils/document-viewer/input/documentWheelInteraction';
-import { resolveNativePdfDisplayScale } from '@app/modules/native-pdf-viewer/runtime/resolveNativePdfDisplayScale';
+import * as documentPageDisplayLayout from '@app/utils/document-viewer/layout/resolveDocumentPageDisplayLayout';
 interface IProps {
     src: TDocumentRef | null;
     zoom?: number;
@@ -211,7 +211,7 @@ function fitHeightAvailable() {
 }
 
 function resolvePageDisplayScale(pageSize: IPdfNativePageSize | null | undefined) {
-    return resolveNativePdfDisplayScale({
+    return documentPageDisplayLayout.resolveDocumentPageDisplayScale({
         availableHeight: fitHeightAvailable(),
         availableWidth: fitWidthAvailable(),
         manualZoom: manualZoom.value,
@@ -228,12 +228,12 @@ const effectiveZoom = computed(() => {
 const handleWheel = createDocumentWheelZoomHandler(effectiveZoom, zoomMode, emit);
 
 const pageLayouts = computed<IPageLayout[]>(() => {
-    const dimensions = pageSizes.value.map((pageSize) => {
-        const scale = resolvePageDisplayScale(pageSize);
-        return {
-            width: Math.max(1, Math.round(pageSize.width * scale)),
-            height: Math.max(1, Math.round(pageSize.height * scale)),
-        };
+    const dimensions = documentPageDisplayLayout.resolveDocumentPageDisplayLayouts({
+        availableHeight: fitHeightAvailable(),
+        availableWidth: fitWidthAvailable(),
+        manualZoom: manualZoom.value,
+        pageSizes: pageSizes.value,
+        zoomMode: zoomMode.value,
     });
     const geometry = resolveDocumentContinuousScrollGeometry({
         pageGapPx: DOCUMENT_PAGE_GUTTER_PX,

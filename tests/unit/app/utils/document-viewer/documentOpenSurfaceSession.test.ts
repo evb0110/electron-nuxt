@@ -1575,6 +1575,45 @@ describe('document open surface session', () => {
         expect(session.snapshot.value.openingPageFrame?.ownerId).toBe('page-source:1');
     });
 
+    it('atomically retires the opening frame when the committed surface becomes ready', () => {
+        const session = createDocumentOpenSurfaceSession();
+        const generation = session.begin({
+            documentId: 'scan.djvu',
+            documentRevision: 'open-intent:ready',
+        });
+        expect(session.commitOpeningPageFrame(generation, {
+            generation,
+            ownerId: 'page-source:1',
+            pageNumber: 1,
+            intentKey: 'page-source:fit-width:1',
+            style: {
+                height: '792px',
+                width: '612px',
+            },
+        })).toBe(true);
+        expect(session.commitGeometry(generation, {
+            height: 792,
+            margin: 16,
+            width: 612,
+        })).toBe(true);
+        const fence = session.createRenderFence({
+            generation,
+            documentRevision: 'open-intent:ready',
+            renderVersion: 1,
+            requestId: 1,
+            pageNumber: 1,
+        })!;
+        expect(session.commitCanvas(fence)).toBe(true);
+        expect(session.commitViewport(createViewportCommit(fence))).toBe(true);
+
+        expect(session.markReady(fence)).toBe(true);
+        expect(session.snapshot.value).toMatchObject({
+            openingPageFrame: null,
+            phase: 'ready',
+            presentation: 'committed',
+        });
+    });
+
     it('presents the canonical shell when its owned frame arrives after geometry', () => {
         const session = createDocumentOpenSurfaceSession();
         const generation = session.begin({

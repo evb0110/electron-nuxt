@@ -82,10 +82,8 @@ import {
     hydrateRemainingDocumentPageMetrics,
     loadInitialDocumentPageMetric,
 } from '@app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics';
-import {
-    clampDocumentFitScale,
-    clampDocumentManualZoom,
-} from '@app/utils/document-viewer/zoomPolicy';
+import { clampDocumentManualZoom } from '@app/utils/document-viewer/zoomPolicy';
+import { resolveDocumentPageDisplayLayouts } from '@app/utils/document-viewer/layout/resolveDocumentPageDisplayLayout';
 import { resolveDocumentPageSourceOpeningFrame } from '@app/modules/workspace-shell/viewers/resolveDocumentPageSourceOpeningFrame';
 import { createDocumentPageSourceVisualRetryState } from '@app/modules/workspace-shell/viewers/createDocumentPageSourceVisualRetryState';
 import { resolveNearestDocumentPageToViewportCenter } from '@app/utils/document-viewer/viewport/resolveDocumentContinuousScrollWindow';
@@ -237,23 +235,19 @@ function measureViewport() {
 }
 useResizeObserver(viewerContainer, measureViewport);
 
-const effectiveZoom = computed(() => {
-    const metric = pageMetrics.value[currentPage - 1];
-    if (zoomMode === 'custom' || !metric) {
-        return clampDocumentManualZoom(zoom);
-    }
-    const widthScale = clampDocumentFitScale(
-        (containerWidth.value - DOCUMENT_PAGE_GUTTER_PX * 2) / metric.widthPoints,
-    );
-    if (zoomMode === 'fit-height') {
-        return clampDocumentFitScale(
-            (containerHeight.value - DOCUMENT_PAGE_GUTTER_PX * 2) / metric.heightPoints,
-        );
-    }
-    return widthScale;
-});
+const pageDisplayLayouts = computed(() => resolveDocumentPageDisplayLayouts({
+    availableHeight: Math.max(1, containerHeight.value - DOCUMENT_PAGE_GUTTER_PX * 2),
+    availableWidth: Math.max(1, containerWidth.value - DOCUMENT_PAGE_GUTTER_PX * 2),
+    manualZoom: clampDocumentManualZoom(zoom),
+    pageSizes: pageMetrics.value.map(metric => ({
+        height: metric.heightPoints,
+        width: metric.widthPoints,
+    })),
+    zoomMode,
+}));
+const effectiveZoom = computed(() => pageDisplayLayouts.value[currentPage - 1]?.scale ?? clampDocumentManualZoom(zoom));
 const handleWheelZoom = createDocumentWheelZoomHandler(effectiveZoom, toRef(() => zoomMode), emit);
-const pageHeights = computed(() => pageMetrics.value.map(metric => metric.heightPoints * effectiveZoom.value));
+const pageHeights = computed(() => pageDisplayLayouts.value.map(layout => layout.height));
 const pageTops = computed(() => {
     let top = DOCUMENT_PAGE_GUTTER_PX;
     return pageHeights.value.map((height) => {
@@ -271,12 +265,12 @@ const totalHeight = computed(() => Math.max(
         + (pageHeights.value[currentPage - 1] ?? 0)
         + DOCUMENT_PAGE_GUTTER_PX,
 ));
-const pageLayouts = computed(() => pageMetrics.value.map((metric, index) => ({
+const pageLayouts = computed(() => pageDisplayLayouts.value.map((layout, index) => ({
     top: continuousScroll
         ? pageTops.value[index] ?? DOCUMENT_PAGE_GUTTER_PX
         : DOCUMENT_PAGE_GUTTER_PX,
-    width: metric.widthPoints * effectiveZoom.value,
-    height: metric.heightPoints * effectiveZoom.value,
+    width: layout.width,
+    height: layout.height,
 })));
 const mountedPages = computed(() => {
     const pageCount = source.value?.pageCount
@@ -285,7 +279,12 @@ const mountedPages = computed(() => {
     return resolveDocumentPageSourceMountedPages({
         continuousScroll,
         currentPage,
-        destinationPage: chassisAuthority?.openSurface.snapshot.value.openingPageFrame?.pageNumber,
+        destinationPage: [
+            'opening',
+            'transitioning',
+        ].includes(chassisAuthority?.openSurface.viewportSession.value.lifecycle ?? '')
+            ? chassisAuthority?.openSurface.snapshot.value.openingPageFrame?.pageNumber
+            : undefined,
         maxPages: DOCUMENT_SOURCE_MAX_MOUNTED_PAGES,
         mountRadius: DOCUMENT_SOURCE_CONTINUOUS_MOUNT_RADIUS,
         pageCount,
@@ -323,8 +322,8 @@ const renderDemand = computed(() => resolveDocumentPageSourceRenderDemand({
 }));
 const surfaceStyle = computed(() => ({height: continuousScroll ? `${Math.max(1, totalHeight.value)}px` : '100%'}));
 function getPageStyle(pageNumber: number) {
-    const metrics = pageMetrics.value[pageNumber - 1];
-    return metrics ? resolveDocumentPageSourcePageStyle(metrics, effectiveZoom.value, pageTops.value[pageNumber - 1], DOCUMENT_PAGE_GUTTER_PX, continuousScroll, pageNumber === currentPage) : {};
+    const layout = pageLayouts.value[pageNumber - 1];
+    return layout ? resolveDocumentPageSourcePageStyle(layout, pageTops.value[pageNumber - 1], DOCUMENT_PAGE_GUTTER_PX, continuousScroll, pageNumber === currentPage) : {};
 }
 function isChassisOpeningPage(pageNumber: number) {
     const snapshot = chassisAuthority?.openSurface.snapshot.value;
@@ -571,9 +570,10 @@ async function renderPage(pageNumber: number) {
         return;
     }
     const previous = pageStates.get(pageNumber);
+    const pageScale = pageDisplayLayouts.value[pageNumber - 1]?.scale ?? effectiveZoom.value;
     const widthPx = resolveDocumentPageSourceRenderWidthPx(
         metric,
-        effectiveZoom.value,
+        pageScale,
         window.devicePixelRatio || 1,
     );
     const activeController = renderControllers.get(pageNumber);
@@ -859,7 +859,7 @@ async function renderMountedPages() {
             const metric = pageMetrics.value[pageNumber - 1];
             return !state?.lease || !metric || state.widthPx !== resolveDocumentPageSourceRenderWidthPx(
                 metric,
-                effectiveZoom.value,
+                pageDisplayLayouts.value[pageNumber - 1]?.scale ?? effectiveZoom.value,
                 window.devicePixelRatio || 1,
             );
         },
@@ -878,7 +878,7 @@ async function restoreActivePagePresentation(runId: number) {
         beginPending: beginPagePresentationPending,
         getConnectedImage: getConnectedPageImage,
         getCurrentPage: () => currentPage,
-        getEffectiveZoom: () => effectiveZoom.value,
+        getPageScale: pageNumber => pageDisplayLayouts.value[pageNumber - 1]?.scale ?? effectiveZoom.value,
         getMetric: pageNumber => pageMetrics.value[pageNumber - 1],
         getPixelRatio: () => window.devicePixelRatio || 1,
         getState: pageNumber => pageStates.get(pageNumber),

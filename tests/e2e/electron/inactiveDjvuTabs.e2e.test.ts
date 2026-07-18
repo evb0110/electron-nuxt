@@ -61,6 +61,15 @@ interface IDjvuPagePresentationGeometry {
     width: number;
 }
 
+interface IDjvuFitWidthState {
+    currentPage: number;
+    hasOpeningFrame: boolean;
+    mountedPages: number[];
+    pageWidth: number;
+    viewportWidth: number;
+    zoomMode: string | null;
+}
+
 interface IDjvuActivationOccupancyProbe {
     frames: IDjvuActivationOccupancyFrame[];
     startedAt: number;
@@ -354,6 +363,29 @@ async function waitForVisibleDjvuImageHosts(session: IElectronE2ESession, expect
     }, { timeout: DJVU_E2E_TIMEOUT_MS }, expectedCount);
 }
 
+async function readActiveDjvuFitWidthState(session: IElectronE2ESession): Promise<IDjvuFitWidthState> {
+    return session.page.evaluate(() => {
+        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const chassis = host?.querySelector<HTMLElement>('.document-viewer-chassis');
+        const viewport = host?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]');
+        const toolbar = (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot?.();
+        const currentPage = toolbar?.currentPage ?? 0;
+        const page = viewport?.querySelector<HTMLElement>(
+            `[data-testid="document-page-source-page"][data-page-number="${String(currentPage)}"]`,
+        );
+        return {
+            currentPage,
+            hasOpeningFrame: chassis?.dataset.openSurfaceHasOpeningFrame === 'true',
+            mountedPages: Array.from(viewport?.querySelectorAll<HTMLElement>(
+                '[data-testid="document-page-source-page"]',
+            ) ?? []).map(element => Number(element.dataset.pageNumber)),
+            pageWidth: page?.getBoundingClientRect().width ?? 0,
+            viewportWidth: viewport?.clientWidth ?? 0,
+            zoomMode: toolbar?.zoomMode ?? null,
+        };
+    });
+}
+
 const djvuFixture = resolveDjvuFixturePath();
 const runOrSkip = selectFixtureDescribe(describe, djvuFixture);
 
@@ -361,6 +393,47 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
     let pdfFixturePath = '';
 
     const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-inactive-djvu-tabs-${Date.now()}`});
+
+    it('keeps fit-width geometry scroll-invariant and retires opening destinations', async () => {
+        let session = sessionFixture.getSession();
+        if (!session || !djvuFixture.path) {
+            return;
+        }
+
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-djvu-fit-width-layout-${Date.now()}`,
+        });
+        if (!session) {
+            return;
+        }
+        await openDjvuInApp(session.page, djvuFixture.path, DJVU_E2E_TIMEOUT_MS);
+        await waitForDjvuLoaded(session.page, DJVU_E2E_TIMEOUT_MS);
+        expect((await callWorkspaceCommand(session.page, 'handleFitWidth')).called).toBe(true);
+        const snapshot = await waitForWorkspaceToolbarSnapshot(
+            session.page,
+            {minTotalPages: 40},
+            {timeoutMs: DJVU_E2E_TIMEOUT_MS},
+        );
+        const firstTarget = Math.min(40, snapshot.totalPages);
+        const secondTarget = Math.min(firstTarget + 1, snapshot.totalPages);
+
+        for (const target of [
+            firstTarget,
+            secondTarget,
+        ]) {
+            await goToPageViaToolbar(session.page, target);
+            await waitForActiveDjvuCommittedPage(session, target);
+            await waitForActiveDjvuAuthorityConvergence(session, target);
+            const state = await readActiveDjvuFitWidthState(session);
+            expect(state.zoomMode, JSON.stringify(state)).toBe('fit-width');
+            expect(state.currentPage, JSON.stringify(state)).toBe(target);
+            expect(state.hasOpeningFrame, JSON.stringify(state)).toBe(false);
+            expect(state.pageWidth, JSON.stringify(state)).toBeGreaterThan(state.viewportWidth - 50);
+            expect(state.pageWidth, JSON.stringify(state)).toBeLessThanOrEqual(state.viewportWidth);
+            expect(state.mountedPages, JSON.stringify(state)).not.toContain(1);
+        }
+    }, 120_000);
 
     it('restores a warm high-zoom DjVu presentation without scroll input', async () => {
         const session = sessionFixture.getSession();

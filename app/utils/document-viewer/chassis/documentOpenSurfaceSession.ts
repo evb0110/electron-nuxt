@@ -901,6 +901,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             }
             commitVisual(visual => ({
                 ...visual,
+                openingPageFrame: null,
                 presentation: 'committed',
             }));
             return true;

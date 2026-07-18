@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { resolveNativePdfDisplayScale } from '@app/modules/native-pdf-viewer/runtime/resolveNativePdfDisplayScale';
+import { resolveDocumentPageDisplayScale } from '@app/utils/document-viewer/layout/resolveDocumentPageDisplayLayout';
 
 const pageSize = {
     height: 1_000,
@@ -12,21 +12,21 @@ const pageSize = {
 
 describe('native PDF zoom presentation', () => {
     it('resolves custom and fit scales from one page presentation policy', () => {
-        expect(resolveNativePdfDisplayScale({
+        expect(resolveDocumentPageDisplayScale({
             availableHeight: 500,
             availableWidth: 600,
             manualZoom: 1.25,
             pageSize,
             zoomMode: 'custom',
         })).toBe(1.25);
-        expect(resolveNativePdfDisplayScale({
+        expect(resolveDocumentPageDisplayScale({
             availableHeight: 500,
             availableWidth: 600,
             manualZoom: 1,
             pageSize,
             zoomMode: 'fit-width',
         })).toBe(0.75);
-        expect(resolveNativePdfDisplayScale({
+        expect(resolveDocumentPageDisplayScale({
             availableHeight: 500,
             availableWidth: 600,
             manualZoom: 1,
@@ -36,7 +36,7 @@ describe('native PDF zoom presentation', () => {
     });
 
     it('falls back to clamped manual zoom when page geometry is unavailable', () => {
-        expect(resolveNativePdfDisplayScale({
+        expect(resolveDocumentPageDisplayScale({
             availableHeight: 500,
             availableWidth: 600,
             manualZoom: 1.5,

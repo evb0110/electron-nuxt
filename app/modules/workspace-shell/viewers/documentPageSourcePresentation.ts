@@ -219,15 +219,19 @@ export async function prepareDocumentPageSurface(
 }
 
 export function resolveDocumentPageSourcePageStyle(
-    metrics: IDocumentPageMetrics,
-    effectiveZoom: number,
+    layout: {
+        height: number;
+        width: number
+    },
     pageTop: number | undefined,
     gutterPx: number,
     continuousScroll: boolean,
     isCurrentPage: boolean,
 ) {
-    const width = metrics.widthPoints * effectiveZoom;
-    const height = metrics.heightPoints * effectiveZoom;
+    const {
+        height,
+        width,
+    } = layout;
     return {
         width: `${String(width)}px`,
         height: `${String(height)}px`,

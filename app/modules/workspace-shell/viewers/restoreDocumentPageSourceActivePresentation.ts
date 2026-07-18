@@ -15,7 +15,7 @@ interface IRestoreDocumentPageSourceActivePresentationOptions<TState extends IRe
     beginPending: (pageNumber: number, state: TState) => void;
     getConnectedImage: (pageNumber: number, state: TState) => HTMLImageElement | null;
     getCurrentPage: () => number;
-    getEffectiveZoom: () => number;
+    getPageScale: (pageNumber: number) => number;
     getMetric: (pageNumber: number) => IDocumentPageMetrics | undefined;
     getPixelRatio: () => number;
     getState: (pageNumber: number) => TState | undefined;
@@ -58,7 +58,7 @@ export async function restoreDocumentPageSourceActivePresentation<TState extends
                     && isDocumentPageSourceRasterCurrentForLayout(
                         state,
                         metric,
-                        options.getEffectiveZoom(),
+                        options.getPageScale(pageNumber),
                         options.getPixelRatio(),
                     )
                 ) {
