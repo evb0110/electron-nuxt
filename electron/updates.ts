@@ -78,6 +78,7 @@ let currentCheckOrigin: TAppUpdateCheckOrigin = 'auto';
 let isShuttingDown = false;
 let downloadedVersion: string | null = null;
 let pendingVersion: string | null = null;
+let approvedDownloadAndInstallVersion: string | null = null;
 let codeSignatureCheckPromise: Promise<boolean> | null = null;
 let codeSignatureValid: boolean | null = null;
 let listenersRegistered = false;
@@ -314,6 +315,9 @@ function clearDownloadedCandidate(version: string) {
     if (pendingVersion === version) {
         pendingVersion = null;
     }
+    if (approvedDownloadAndInstallVersion === version) {
+        approvedDownloadAndInstallVersion = null;
+    }
 }
 
 function discardDownloadedCandidateIfNotNewer(context: string) {
@@ -496,6 +500,7 @@ function setAutoUpdaterListeners() {
     });
 
     const onUpdaterError = (error: unknown) => {
+        approvedDownloadAndInstallVersion = null;
         logger.error(`Updater error: ${getErrorMessage(error)}`);
         if (currentCheckOrigin !== 'manual') {
             pendingVersion = null;
@@ -553,6 +558,30 @@ function setAutoUpdaterListeners() {
                     percent: null,
                     message: null,
                 });
+                return;
+            }
+
+            if (approvedDownloadAndInstallVersion) {
+                const approvedVersion = approvedDownloadAndInstallVersion;
+                approvedDownloadAndInstallVersion = null;
+
+                if (version !== approvedVersion) {
+                    if (version) {
+                        clearDownloadedCandidate(version);
+                    }
+                    const message = `Downloaded update ${version ?? 'unknown'} did not match approved version ${approvedVersion}`;
+                    logger.error(message);
+                    updateStatus({
+                        phase: 'error',
+                        origin: 'manual',
+                        version: approvedVersion,
+                        percent: null,
+                        message,
+                    });
+                    return;
+                }
+
+                await installDownloadedUpdate();
                 return;
             }
 
@@ -884,6 +913,7 @@ export function downloadAvailableUpdate() {
     }
 
     const candidateVersion = pendingVersion;
+    approvedDownloadAndInstallVersion = candidateVersion;
     currentCheckOrigin = 'manual';
     updateStatus({
         phase: 'downloading',
@@ -897,6 +927,9 @@ export function downloadAvailableUpdate() {
         .then(() => autoUpdater.downloadUpdate())
         .then(() => undefined)
         .catch((error) => {
+            if (approvedDownloadAndInstallVersion === candidateVersion) {
+                approvedDownloadAndInstallVersion = null;
+            }
             const message = getErrorMessage(error);
             logger.error(`downloadUpdate failed: ${message}`);
             updateStatus({
@@ -962,6 +995,8 @@ export function deferDownloadedUpdate() {
         return;
     }
 
+    approvedDownloadAndInstallVersion = null;
+
     updateStatus({
         phase: 'idle',
         origin: 'manual',
@@ -978,6 +1013,7 @@ export async function skipUpdateVersion(version: string) {
     }
 
     await writeSkippedVersion(normalized);
+    approvedDownloadAndInstallVersion = null;
     downloadedVersion = null;
     pendingVersion = null;
     updateStatus({
@@ -991,6 +1027,7 @@ export async function skipUpdateVersion(version: string) {
 
 export async function shutdownUpdates() {
     isShuttingDown = true;
+    approvedDownloadAndInstallVersion = null;
     if (pollTimer) {
         clearTimeout(pollTimer);
         pollTimer = null;

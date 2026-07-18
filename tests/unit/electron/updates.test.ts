@@ -755,7 +755,7 @@ describe('updates robustness', () => {
         expect(mocks.autoUpdater.quitAndInstall).toHaveBeenCalledWith(false, true);
     });
 
-    it('throttles download progress broadcasts but still flushes the terminal update immediately', async () => {
+    it('throttles download progress and installs after the approved download completes', async () => {
         mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
             mocks.autoUpdater.emit('checking-for-update');
             mocks.autoUpdater.emit('update-available', { version: '1.1.0' });
@@ -763,6 +763,10 @@ describe('updates robustness', () => {
 
         const updates = await loadUpdatesModule();
         const statuses: Array<Record<string, unknown>> = [];
+        const installAfterCleanup: Array<() => void> = [];
+        updates.configureUpdateInstallShutdown((install) => {
+            installAfterCleanup.push(install);
+        });
 
         updates.initializeUpdates((status) => {
             statuses.push({ ...status });
@@ -798,12 +802,14 @@ describe('updates robustness', () => {
 
         mocks.autoUpdater.emit('update-downloaded', { version: '1.1.0' });
         await flushPromises();
+        await flushPromises();
 
-        expect(statuses.at(-1)).toMatchObject({
-            phase: 'downloaded',
-            percent: 100,
-            version: '1.1.0',
-        });
+        expect(mocks.markUpdateInstallPending).toHaveBeenCalledWith('1.1.0');
+        expect(installAfterCleanup).toHaveLength(1);
+        expect(mocks.autoUpdater.quitAndInstall).not.toHaveBeenCalled();
+
+        installAfterCleanup[0]?.();
+        expect(mocks.autoUpdater.quitAndInstall).toHaveBeenCalledWith(false, true);
     });
 });
 
