@@ -56,13 +56,12 @@ function matchesAt(
 }
 
 function containsEmbeddedShapeCandidateBytes(data: Uint8Array, allowTerminalMatch: boolean) {
-    for (let offset = 0; offset < data.byteLength; offset += 1) {
-        if (data[offset] !== 0x2F) {
-            continue;
-        }
+    let offset = data.indexOf(0x2F);
+    while (offset !== -1) {
         if (CANDIDATE_BYTES.some(candidate => matchesAt(data, offset, candidate, allowTerminalMatch))) {
             return true;
         }
+        offset = data.indexOf(0x2F, offset + 1);
     }
     return false;
 }
