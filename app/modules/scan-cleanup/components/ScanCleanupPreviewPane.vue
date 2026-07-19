@@ -72,7 +72,14 @@
             </div>
         </header>
 
-        <div class="preview-surface" :class="{'is-actual': effectiveZoomMode === 'actual'}" aria-live="polite">
+        <div
+            class="preview-surface"
+            :class="[
+                {'is-actual': effectiveZoomMode === 'actual'},
+                effectiveZoomMode === 'actual' && 'app-scrollbar app-scroll-region--balanced',
+            ]"
+            aria-live="polite"
+        >
             <template v-if="result">
                 <div v-if="effectiveViewMode === 'original'" class="raw-preview" :class="{'is-actual': effectiveZoomMode === 'actual'}">
                     <img

@@ -155,6 +155,7 @@ describe('package scripts', () => {
             'build:pdf-image-combine',
             'build:pdf-page-ops',
             'build:pdf-search',
+            'build:scan-cleanup',
         ]);
         expect(scripts['build:strict']).toBe('node scripts/run-build-strict.mjs');
         expect(scripts['build:strict:no-wasm-check']).toBe('node scripts/run-build-strict.mjs --skip-wasm-check');

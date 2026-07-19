@@ -120,7 +120,7 @@ async function handleTerminalState(state: TScanCleanupJobState) {
     }
 }
 
-export function acceptScanCleanupJobState(state: TScanCleanupJobState) {
+function acceptScanCleanupJobState(state: TScanCleanupJobState) {
     if (scanCleanupRun.activeJobId && state.jobId !== scanCleanupRun.activeJobId) {
         return;
     }
@@ -134,7 +134,7 @@ export function acceptScanCleanupJobState(state: TScanCleanupJobState) {
     }
 }
 
-export function requestScanCleanupDialog() {
+function requestScanCleanupDialog() {
     scanCleanupRun.openRequestRevision += 1;
 }
 

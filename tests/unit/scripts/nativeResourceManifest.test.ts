@@ -94,6 +94,7 @@ describe('native resource manifest', () => {
             'pdf-image-combine',
             'pdf-page-ops',
             'pdf-search',
+            'scan-cleanup',
         ]);
         for (const tool of GENERATED_NATIVE_TOOL_RESOURCES) {
             expect(familyIds.has(tool.familyId)).toBe(true);
@@ -105,6 +106,7 @@ describe('native resource manifest', () => {
             '.tmp/pdf-image-combine',
             '.tmp/pdf-page-ops',
             '.tmp/pdf-search',
+            '.tmp/scan-cleanup',
         ]);
     });
 

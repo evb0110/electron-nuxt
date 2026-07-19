@@ -49,7 +49,6 @@
                 @update:zoom-mode="shellToolbarZoomMode = $event"
                 @update:fit-mode="shellToolbarFitMode = $event"
                 @update:view-mode="shellToolbarViewMode = $event"
-                @update:current-page="shellToolbarCurrentPage = $event"
                 @open-file="handleFallbackToolbarOpenFile"
                 @open-settings="openSettingsPage"
                 @combine-files="openCombinePage"
@@ -188,10 +187,7 @@ import { useWindowTabTransfers } from '@app/modules/workspace-shell/composables/
 import { useBrowserInstallHint } from '@app/modules/workspace-shell/composables/useBrowserInstallHint';
 import { useDirectOpenAutomationDispatcherShell } from '@app/modules/workspace-shell/automation/directOpenAutomationDispatcher';
 import { resolveTabLifecycleStates } from '@app/modules/workspace-shell/tabs/resolveTabLifecycleStates';
-import {
-    installScanCleanupRunCoordinator,
-    pruneScanCleanupOutputs,
-} from '@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator';
+import { useScanCleanupRunCoordinator } from '@app/modules/workspace-shell/composables/useScanCleanupRunCoordinator';
 import { pruneStartSectionByTabId } from '@app/modules/workspace-shell/tabs/pruneStartSectionByTabId';
 import type { TPdfViewMode } from '@contracts/shared';
 import type { IAgentAssistantChatScope } from '@contracts/agent';
@@ -201,10 +197,7 @@ import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { getHostCapability } from '@app/utils/getHostCapability';
 import { waitForDesktopPlatformBridge } from '@app/utils/platform';
-import {
-    getDocumentOpenCapability,
-    getDocumentWindowCapability,
-} from '@app/utils/platformDocuments';
+import { getDocumentWindowCapability } from '@app/utils/platformDocuments';
 import { resolveDocumentRefBackend } from '@app/utils/documentRef';
 import {
     invokeWorkspaceExposeCommand,
@@ -552,7 +545,6 @@ onUnmounted(() => {
 
 const {
     shellToolbarAppMenuOpen,
-    shellToolbarCurrentPage,
     shellToolbarEffectiveZoom,
     shellToolbarFitMode,
     shellToolbarHasPdf,
@@ -641,28 +633,7 @@ const {
     moveTabToWindow,
     mergeWindowInto,
 });
-const scanCleanupToast = useToast();
-const cleanupScanCleanupCoordinator = installScanCleanupRunCoordinator({
-    getOpenPdfPaths: () => tabs.value
-        .map(tab => tab.originalPath)
-        .filter((path): path is string => typeof path === 'string' && path.length > 0),
-    openGeneratedPdf: async (path) => {
-        const result = await getDocumentOpenCapability().openDocumentDirect(path);
-        return result?.kind === 'pdf'
-            ? handleOpenInNewTab({
-                ...result,
-                isGenerated: true,
-            })
-            : false;
-    },
-    saveActiveDocumentAs: async () => activeWorkspace.value?.handleSaveAs() ?? false,
-    t,
-    toast: scanCleanupToast,
-});
-onUnmounted(cleanupScanCleanupCoordinator);
-watch(isStartupOpenClaimPending, (pending) => {
-    if (!pending) void pruneScanCleanupOutputs().catch(() => undefined);
-}, {immediate: true});
+useScanCleanupRunCoordinator(activeWorkspace, handleOpenInNewTab, isStartupOpenClaimPending, t, tabs);
 function createTabInPane(paneId: string) {
     createTabInPaneFromRouting(paneId);
 }

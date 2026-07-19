@@ -2,6 +2,7 @@ export { browserAgentCapability } from '@app/platform/browser-api/browserAgentCa
 export { browserDjvuCapability } from '@app/platform/browser-api/browserDjvuCapability';
 export { browserHostCapability } from '@app/platform/browser-api/browserHostCapability';
 export { browserOcrCapability } from '@app/platform/browser-api/browserOcrCapability';
+export { browserScanCleanupCapability } from '@app/platform/browser-api/browserScanCleanupCapability';
 export { browserSettingsCapability } from '@app/platform/browser-api/browserSettingsCapability';
 export { browserUpdatesCapability } from '@app/platform/browser-api/browserUpdatesCapability';
 export {

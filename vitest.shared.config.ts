@@ -88,6 +88,7 @@ function createUnitTestProject(
             ...(autoImport ? [createUnitAutoImportPlugin()] : []),
         ],
         resolve: vitestResolveConfig,
+        ...(name === vitestProjectNames.unitCore ? {esbuild: {tsconfigRaw: '{}'}} : {}),
         test: {
             name,
             include,

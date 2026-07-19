@@ -37,7 +37,7 @@
 
         <template #body>
             <div class="scan-cleanup-workspace" :aria-busy="isRunning">
-                <fieldset class="scan-cleanup-options-rail" :disabled="isRunning">
+                <fieldset class="scan-cleanup-options-rail app-scrollbar app-scroll-region--balanced" :disabled="isRunning">
                     <div v-if="inlineError" class="scan-cleanup-error" role="alert">{{ inlineError }}</div>
 
                     <section class="scan-cleanup-option-group">
@@ -561,7 +561,7 @@ onBeforeUnmount(() => {
 }
 
 .scan-cleanup-option-group + .scan-cleanup-option-group {
-    border-block-start: 1px solid var(--ui-border-muted);
+    border-block-start: 1px solid var(--ui-border);
     padding-block-start: var(--app-space-12xl);
 }
 

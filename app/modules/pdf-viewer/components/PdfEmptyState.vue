@@ -344,8 +344,6 @@ const emit = defineEmits<{
     'remove-recent': [file: IRecentFile];
     'reveal-recent': [file: IRecentFile];
     'clear-recent': [];
-    'open-settings': [];
-    'combine-files': [];
 }>();
 
 const { t } = useTypedI18n();

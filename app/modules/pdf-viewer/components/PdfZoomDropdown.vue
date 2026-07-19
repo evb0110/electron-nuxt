@@ -273,6 +273,7 @@ function handleSetZoom(level: number) {
 }
 
 function handleSetFitMode(mode: TFitMode) {
+    emit('update:fitMode', mode);
     if (mode === 'height') {
         emit('fit-height');
     } else {

@@ -59,8 +59,6 @@
                 @remove-recent="handleRemoveRecentFromPlaceholder"
                 @reveal-recent="handleRevealRecentFromPlaceholder"
                 @clear-recent="handleClearRecentFromPlaceholder"
-                @open-settings="handleOpenSettings"
-                @combine-files="handleOpenCombine"
             />
         </div>
 

@@ -37,7 +37,6 @@
                 @update:zoom-mode="zoomMode = $event"
                 @update:fit-mode="fitMode = $event"
                 @update:view-mode="viewMode = $event"
-                @update:current-page="currentPage = $event"
                 @update:ocr-running="isOcrRunning = $event"
                 @open-file="documentControls.handleOpenFileFromUi"
                 @open-settings="workspaceCommandBindings.handleOpenSettings"
@@ -200,8 +199,6 @@
                         @remove-recent="removeRecentFile"
                         @reveal-recent="revealRecentFile"
                         @clear-recent="clearRecentFiles"
-                        @open-settings="workspaceCommandBindings.handleOpenSettings"
-                        @combine-files="workspaceCommandBindings.handleOpenCombine"
                     />
                 </template>
             </WorkspaceViewerHost>

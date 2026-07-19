@@ -25,6 +25,7 @@
         "electron/features/image-export/main/tiffCombineWorker.ts",
         "electron/features/page-ops/main/cropWorker.ts",
         "electron/ocr/worker/main.ts",
+        "electron/features/scan-cleanup/worker/main.ts",
         "electron/search/worker.ts",
         "packages/*/index.ts",
         "scripts/**/*.{ts,mjs,cjs}",
@@ -44,9 +45,11 @@
         "app/assets/css/*.scss",
         "landing/**",
         "nuxt-output/**",
-        "public/**"
+        "public/**",
+        "dist-electron/**"
     ],
     "ignoreDependencies": [
+        "@aws-sdk/client-s3",
         "@iconify-json/circle-flags",
         "@iconify-json/ph",
         "@iconify-json/lucide",
@@ -75,8 +78,11 @@
         "eslint-plugin-import",
         "hookable",
         "iron-webcrypto",
-        "node-mock-http",
+        "@napi-rs/canvas",
         "@playwright/test",
+        "node-mock-http",
+        "nuxt",
+        "puppeteer-core",
         "radix3",
         "sass-embedded",
         "source-map-js",
@@ -85,7 +91,8 @@
         "ufo",
         "uncrypto",
         "unhead",
-        "vue-bundle-renderer"
+        "vue-bundle-renderer",
+        "yaml-eslint-parser"
     ],
     "ignoreUnresolvedImports": [
         "@app/assets/css/settings-panel-shared",

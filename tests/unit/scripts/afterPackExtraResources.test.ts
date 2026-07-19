@@ -302,6 +302,13 @@ describe('afterPack extraResources preflight', () => {
                 tag: 'darwin-arm64',
                 type: 'directory',
             }),
+            expect.objectContaining({
+                label: 'Scan cleanup native tool (darwin-arm64)',
+                sourcePath: path.join('/repo', '.tmp', 'scan-cleanup', 'darwin-arm64'),
+                stagedPath: path.join('/app/EVB Viewer.app/Contents/Resources', 'scan-cleanup', 'darwin-arm64'),
+                tag: 'darwin-arm64',
+                type: 'directory',
+            }),
         ]);
         expect(entries.map(entry => entry.sourcePath).join('\n')).not.toContain('page-processing');
     });

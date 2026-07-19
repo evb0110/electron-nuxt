@@ -120,10 +120,8 @@ describe('useShellWorkspaceToolbar', () => {
         const toolbar = useShellWorkspaceToolbar(createToolbarOptions({ activeDocumentRecord }));
 
         toolbar.shellToolbarZoom.value = 3;
-        toolbar.shellToolbarCurrentPage.value = 9;
 
         expect(toolbar.shellToolbarZoom.value).toBe(1.25);
-        expect(toolbar.shellToolbarCurrentPage.value).toBe(5);
         expect(activeDocumentRecord.value?.toolbarSnapshot.zoom).toBe(1.25);
     });
 

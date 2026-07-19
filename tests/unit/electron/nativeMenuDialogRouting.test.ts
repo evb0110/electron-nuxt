@@ -2,6 +2,7 @@ import type {
     IpcMainInvokeEvent,
     IpcRendererEvent,
 } from 'electron';
+import { BrowserWindow } from 'electron';
 import {
     describe,
     expect,
@@ -9,7 +10,16 @@ import {
     vi,
 } from 'vitest';
 import { ref } from 'vue';
+import { registerTabsMenuBindings } from '@app/modules/workspace-shell/menu/registerTabsMenuBindings';
 import type { IDocumentsService } from '@electron/features/documents/documentsService';
+import { createDocumentsPreloadClient } from '@electron/features/documents/createDocumentsPreloadClient';
+import { handleOpenPdfDialog } from '@electron/features/documents/main/documentOpenHandlers';
+import { handleSavePdfDialog } from '@electron/features/documents/main/documentSaveDialogHandlers';
+import { registerDocumentsIpcAdapter } from '@electron/features/documents/registerDocumentsIpcAdapter';
+import {
+    setMenuDocumentState,
+    setupMenu,
+} from '@electron/menu';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { cast } from '@tests/helpers/cast';
 
@@ -127,7 +137,7 @@ describe('native menu and dialog routing', () => {
     it('routes native menu commands through preload, workspace, IPC codecs, and the OS dialog boundary', async () => {
         const invokeHandlers = new Map<string, TInvokeHandler>();
         const listeners = new Map<string, Set<TRendererListener>>();
-        const window = new (await import('electron')).BrowserWindow(42 as never);
+        const window = new BrowserWindow(42 as never);
         mocks.focusedWindow = window;
 
         const ipcRenderer = cast<Electron.IpcRenderer>({
@@ -156,20 +166,16 @@ describe('native menu and dialog routing', () => {
             }
         };
 
-        const {handleOpenPdfDialog} = await import('@electron/features/documents/main/documentOpenHandlers');
-        const {handleSavePdfDialog} = await import('@electron/features/documents/main/documentSaveDialogHandlers');
         const service = cast<IDocumentsService>({
             openDocumentDialog: handleOpenPdfDialog,
             savePdfDialog: handleSavePdfDialog,
         });
-        const {registerDocumentsIpcAdapter} = await import('@electron/features/documents/registerDocumentsIpcAdapter');
         registerDocumentsIpcAdapter(
             {handle: (channel: string, handler: TInvokeHandler) => invokeHandlers.set(channel, handler)} as never,
             service,
             {eventRegistrar: {on: vi.fn()}},
         );
 
-        const {createDocumentsPreloadClient} = await import('@electron/features/documents/createDocumentsPreloadClient');
         const documents = createDocumentsPreloadClient(ipcRenderer);
         let saveDialogResult: string | null = null;
         const print = vi.fn(async () => undefined);
@@ -182,7 +188,6 @@ describe('native menu and dialog routing', () => {
                 return saveDialogResult !== null;
             },
         });
-        const {registerTabsMenuBindings} = await import('@app/modules/workspace-shell/menu/registerTabsMenuBindings');
         registerTabsMenuBindings(cast<Parameters<typeof registerTabsMenuBindings>[0]>({
             documentMenu: documents,
             djvu: {},
@@ -197,10 +202,6 @@ describe('native menu and dialog routing', () => {
             },
         }));
 
-        const {
-            setMenuDocumentState,
-            setupMenu,
-        } = await import('@electron/menu');
         setupMenu();
         setMenuDocumentState(window.id, true);
 

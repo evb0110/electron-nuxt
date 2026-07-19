@@ -38,7 +38,6 @@ export const useShellWorkspaceToolbar = (options: IUseShellWorkspaceToolbarOptio
             runCommand(getWorkspaceViewModeCommandName(mode));
         },
         shellToolbarAppMenuOpen,
-        shellToolbarCurrentPage: createSnapshotFieldModel('currentPage'),
         shellToolbarEffectiveZoom: createSnapshotFieldModel('effectiveZoom'),
         shellToolbarFitMode: createSnapshotFieldModel('fitMode'),
         shellToolbarHasPdf,

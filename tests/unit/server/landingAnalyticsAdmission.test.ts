@@ -1,3 +1,4 @@
+/* eslint-disable custom/no-relative-imports -- This test intentionally exercises the standalone landing project. */
 import {
     describe,
     expect,
@@ -9,11 +10,11 @@ import {
     LANDING_ANALYTICS_ADMISSION_DEFAULTS,
     LANDING_ANALYTICS_ADMISSION_REJECTED_SQLSTATE,
     resolveLandingAnalyticsAdmissionPolicy,
-} from '@tests/../landing/server/utils/analytics';
+} from '../../../landing/server/utils/analytics';
 import {
     decodeBoundedLandingAnalyticsJsonStream,
     parseLandingAnalyticsContentLength,
-} from '@tests/../landing/server/utils/analyticsRequestBody';
+} from '../../../landing/server/utils/analyticsRequestBody';
 
 function createBodyStream(body: string) {
     const bytes = new TextEncoder().encode(body);

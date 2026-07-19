@@ -605,11 +605,18 @@ describe('DocumentViewportSession', () => {
     it('closes to an atomically empty, recent-open-ready session and fences late work', () => {
         const harness = new SessionHarness();
         harness.openPrepared();
+        harness.settleCurrentPage();
+        expect(harness.dispatch({
+            type: 'page-observed',
+            generation: harness.state.generation,
+            pageNumber: 6,
+        }).accepted).toBe(true);
         const closingGeneration = harness.state.generation;
         expect(canOpenRecentDocument(harness.state)).toBe(false);
 
         const closing = harness.dispatch({type: 'close-requested'});
         expect(closing.effects).toEqual([]);
+        expect(harness.state.observedPage).toBeNull();
         expect(canOpenRecentDocument(harness.state)).toBe(false);
         const closed = harness.dispatch({
             type: 'close-committed',

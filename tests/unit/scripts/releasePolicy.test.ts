@@ -829,6 +829,7 @@ describe('release policy', () => {
             'build:pdf-image-combine',
             'build:pdf-page-ops',
             'build:pdf-search',
+            'build:scan-cleanup',
             'check:generated-native-resources:host',
             'check:resources:matrix',
             'check:wasm:portable',

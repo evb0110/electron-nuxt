@@ -492,6 +492,7 @@ export function reduceDocumentViewportSession(
             return accept({
                 ...state,
                 lifecycle: 'failed',
+                observedPage: null,
                 visual: {
                     kind: 'page',
                     generation: state.generation,
@@ -542,6 +543,7 @@ export function reduceDocumentViewportSession(
             return accept({
                 ...state,
                 lifecycle: 'failed',
+                observedPage: null,
                 visual: {
                     kind: 'failed',
                     generation: state.generation,
@@ -563,6 +565,7 @@ export function reduceDocumentViewportSession(
             return accept({
                 ...state,
                 lifecycle: 'closing',
+                observedPage: null,
                 renderFence: null,
                 skeletonDelay: null,
             }, effects);

@@ -24,7 +24,6 @@
         @update:zoom-mode="handleZoomModeUpdate"
         @update:fit-mode="handleFitModeUpdate"
         @update:view-mode="handleViewModeUpdate"
-        @update:current-page="handleCurrentPageUpdate"
         @open-file="handleOpenFile"
         @open-settings="handleOpenSettings"
         @save="handleSave"
@@ -103,7 +102,6 @@ const emit = defineEmits<{
     'update:zoomMode': [mode: IWorkspaceToolbarSnapshot['zoomMode']];
     'update:fitMode': [mode: IWorkspaceToolbarSnapshot['fitMode']];
     'update:viewMode': [mode: IWorkspaceToolbarSnapshot['viewMode']];
-    'update:currentPage': [page: number];
     'open-file': [];
     'open-settings': [];
     'save': [];
@@ -179,10 +177,6 @@ function handleFitModeUpdate(mode: IWorkspaceToolbarSnapshot['fitMode']) {
 
 function handleViewModeUpdate(mode: IWorkspaceToolbarSnapshot['viewMode']) {
     emit('update:viewMode', mode);
-}
-
-function handleCurrentPageUpdate(page: number) {
-    emit('update:currentPage', page);
 }
 
 function handleOpenFile() {

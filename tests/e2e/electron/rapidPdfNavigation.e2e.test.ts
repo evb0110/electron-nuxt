@@ -96,6 +96,11 @@ const PAGED_FIT_HEIGHT_WHEEL_TRACE_OUTPUT_PATH = resolve(
     '.devkit',
     'pdf-paged-fit-height-wheel-trace.json',
 );
+const PAGED_FIT_HEIGHT_BACKWARD_WHEEL_TRACE_OUTPUT_PATH = resolve(
+    process.cwd(),
+    '.devkit',
+    'pdf-paged-fit-height-backward-wheel-trace.json',
+);
 interface IVisiblePageState {
     page: number | null;
     renderedClass: boolean;
@@ -397,6 +402,146 @@ async function clickPageNavigationButton(session: IElectronE2ESession, label: st
     }
 }
 
+async function clickVisibleButtonByAriaLabel(
+    session: IElectronE2ESession,
+    selector: string,
+    label: string,
+) {
+    await session.page.waitForFunction((targetSelector: string, targetLabel: string) => {
+        return Array.from(document.querySelectorAll<HTMLButtonElement>(targetSelector))
+            .some((candidate) => {
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return candidate.getAttribute('aria-label') === targetLabel
+                    && !candidate.disabled
+                    && rect.width > 8
+                    && rect.height > 8
+                    && style.display !== 'none'
+                    && style.visibility !== 'hidden';
+            });
+    }, {timeout: 15_000}, selector, label);
+
+    const point = await session.page.evaluate((targetSelector: string, targetLabel: string) => {
+        const candidate = Array.from(document.querySelectorAll<HTMLButtonElement>(targetSelector))
+            .find((button) => {
+                const rect = button.getBoundingClientRect();
+                const style = window.getComputedStyle(button);
+                return button.getAttribute('aria-label') === targetLabel
+                    && !button.disabled
+                    && rect.width > 8
+                    && rect.height > 8
+                    && style.display !== 'none'
+                    && style.visibility !== 'hidden';
+            });
+        if (!candidate) {
+            return null;
+        }
+        const rect = candidate.getBoundingClientRect();
+        return {
+            x: Math.round(rect.left + rect.width / 2),
+            y: Math.round(rect.top + rect.height / 2),
+        };
+    }, selector, label);
+    if (!point) {
+        throw new Error(`Unable to find visible ${label} button`);
+    }
+    await session.page.mouse.click(point.x, point.y);
+}
+
+async function clickVisibleElementByText(
+    session: IElectronE2ESession,
+    selector: string,
+    text: string,
+) {
+    await session.page.waitForFunction((targetSelector: string, targetText: string) => {
+        return Array.from(document.querySelectorAll<HTMLElement>(targetSelector))
+            .some((candidate) => {
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return candidate.textContent?.trim() === targetText
+                    && !candidate.hasAttribute('disabled')
+                    && rect.width > 8
+                    && rect.height > 8
+                    && style.display !== 'none'
+                    && style.visibility !== 'hidden';
+            });
+    }, {timeout: 15_000}, selector, text);
+
+    const point = await session.page.evaluate((targetSelector: string, targetText: string) => {
+        const candidate = Array.from(document.querySelectorAll<HTMLElement>(targetSelector))
+            .find((element) => {
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+                return element.textContent?.trim() === targetText
+                    && !element.hasAttribute('disabled')
+                    && rect.width > 8
+                    && rect.height > 8
+                    && style.display !== 'none'
+                    && style.visibility !== 'hidden';
+            });
+        if (!candidate) {
+            return null;
+        }
+        const rect = candidate.getBoundingClientRect();
+        return {
+            x: Math.round(rect.left + rect.width / 2),
+            y: Math.round(rect.top + rect.height / 2),
+        };
+    }, selector, text);
+    if (!point) {
+        throw new Error(`Unable to find visible ${text} control`);
+    }
+    await session.page.mouse.click(point.x, point.y);
+}
+
+async function clickFirstVisibleElement(session: IElectronE2ESession, selector: string) {
+    const point = await session.page.waitForFunction((targetSelector: string) => {
+        const candidate = Array.from(document.querySelectorAll<HTMLElement>(targetSelector))
+            .find((element) => {
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+                return !element.hasAttribute('disabled')
+                    && rect.width > 8
+                    && rect.height > 8
+                    && style.display !== 'none'
+                    && style.visibility !== 'hidden';
+            });
+        if (!candidate) {
+            return null;
+        }
+        const rect = candidate.getBoundingClientRect();
+        return {
+            x: Math.round(rect.left + rect.width / 2),
+            y: Math.round(rect.top + rect.height / 2),
+        };
+    }, {timeout: 15_000}, selector);
+    const coordinates = await point.jsonValue();
+    if (!coordinates) {
+        throw new Error(`Unable to find visible ${selector} control`);
+    }
+    await session.page.mouse.click(coordinates.x, coordinates.y);
+}
+
+async function hasVisibleButtonByAriaLabel(
+    session: IElectronE2ESession,
+    selector: string,
+    label: string,
+) {
+    return session.page.evaluate((targetSelector: string, targetLabel: string) => (
+        Array.from(document.querySelectorAll<HTMLButtonElement>(targetSelector))
+            .some((candidate) => {
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return candidate.getAttribute('aria-label') === targetLabel
+                    && !candidate.disabled
+                    && rect.width > 8
+                    && rect.height > 8
+                    && style.display !== 'none'
+                    && style.visibility !== 'hidden';
+            })
+    ), selector, label);
+}
+
 async function waitForToolbarCurrentPage(session: IElectronE2ESession, pageNumber: number) {
     await session.page.waitForFunction((targetPageNumber: number) => {
         const toolbarPage = (window as IRapidNavigationProbeWindow)
@@ -538,6 +683,151 @@ async function jumpToPageAndWaitForCanvas(session: IElectronE2ESession, pageNumb
 
     await delay(1_000);
 }
+
+describe('Electron E2E - paged fit-height backward wheel regression', () => {
+    let pdfPath: string | null = null;
+    const sessionFixture = createElectronE2ESessionFixture({
+        sessionName: () => `e2e-pdf-paged-fit-height-backward-${Date.now()}`,
+        timeoutMs: 180_000,
+    });
+
+    beforeAll(async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            throw new Error('Paged fit-height backward-wheel E2E session did not start');
+        }
+        pdfPath = await resolvePageJumpPdfPath();
+        await enableBufferedPdfTrace(session);
+        await openPdfInApp(session.page, pdfPath, 45_000);
+    }, 90_000);
+
+    it('returns from page 6 to page 1 and closes cleanly using only mouse input', async () => {
+        const session = sessionFixture.getSession();
+        if (!session || !pdfPath) {
+            return;
+        }
+        const states: unknown[] = [];
+        const collectState = () => session.page.evaluate(() => {
+            const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
+            const chassis = viewport?.closest<HTMLElement>('.document-viewer-chassis') ?? null;
+            const currentPage = (window as IRapidNavigationProbeWindow).__evbTestApi
+                ?.getActiveToolbarSnapshot?.()?.currentPage ?? null;
+            const page = currentPage === null
+                ? null
+                : viewport?.querySelector<HTMLElement>(`.page_container[data-page="${String(currentPage)}"]`) ?? null;
+            const canvas = page?.querySelector<HTMLCanvasElement>('.page_canvas canvas') ?? null;
+            return {
+                canvasReady: Boolean(
+                    page?.classList.contains('page_container--rendered')
+                    && canvas
+                    && canvas.width > 0
+                    && canvas.height > 0
+                    && !page.querySelector('.document-page-skeleton'),
+                ),
+                currentPage,
+                lifecycle: chassis?.dataset.viewportLifecycle ?? null,
+                requestedPage: Number(chassis?.dataset.viewportRequestedPage) || null,
+                skeletonVisible: Boolean(page?.querySelector('.document-page-skeleton')),
+                visualPage: Number(chassis?.dataset.viewportVisualPage) || null,
+                visualPresentation: chassis?.dataset.viewportVisualPresentation ?? null,
+            };
+        });
+
+        const initialToolbar = await getWorkspaceToolbarSnapshot(session.page);
+        if (initialToolbar?.zoomMode !== 'fit-height') {
+            await clickFirstVisibleElement(session, '.zoom-controls-display');
+            await clickVisibleElementByText(session, '.zoom-toggle-btn', 'Fit Height');
+        }
+        await session.page.waitForFunction(() => (
+            (window as IRapidNavigationProbeWindow).__evbTestApi
+                ?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-height'
+        ), {timeout: 15_000});
+        const fitHeightToolbar = await getWorkspaceToolbarSnapshot(session.page);
+        if (fitHeightToolbar?.continuousScroll !== false) {
+            const continuousScrollIsInline = await hasVisibleButtonByAriaLabel(
+                session,
+                '.toolbar-btn[aria-label]',
+                'Continuous Scroll',
+            );
+            if (continuousScrollIsInline) {
+                await clickVisibleButtonByAriaLabel(session, '.toolbar-btn[aria-label]', 'Continuous Scroll');
+            } else {
+                await clickVisibleButtonByAriaLabel(session, 'button[aria-label]', 'More tools');
+                await clickVisibleElementByText(session, '.overflow-menu-item', 'Continuous Scroll');
+            }
+        }
+        await session.page.waitForFunction(() => (
+            (window as IRapidNavigationProbeWindow).__evbTestApi
+                ?.getActiveToolbarSnapshot?.()?.continuousScroll === false
+        ), {timeout: 15_000});
+        await waitForToolbarCurrentPage(session, 1);
+        expect(await waitForVisiblePageCanvas(session, 1, 20_000)).toBe(true);
+
+        const viewportPoint = await session.page.evaluate(() => {
+            const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
+            if (!viewport) {
+                return null;
+            }
+            const rect = viewport.getBoundingClientRect();
+            return {
+                x: Math.round(rect.left + rect.width / 2),
+                y: Math.round(rect.top + rect.height / 2),
+            };
+        });
+        expect(viewportPoint).not.toBeNull();
+        if (!viewportPoint) {
+            return;
+        }
+
+        await session.page.mouse.move(viewportPoint.x, viewportPoint.y);
+        for (let targetPage = 2; targetPage <= 6; targetPage += 1) {
+            await session.page.mouse.wheel({deltaY: 180});
+            await waitForToolbarCurrentPage(session, targetPage);
+            await delay(450);
+            states.push(await collectState());
+        }
+        expect(await waitForVisiblePageCanvas(session, 6, 20_000)).toBe(true);
+
+        for (let targetPage = 5; targetPage >= 1; targetPage -= 1) {
+            await session.page.mouse.wheel({deltaY: -180});
+            await waitForToolbarCurrentPage(session, targetPage);
+            await delay(450);
+            states.push(await collectState());
+        }
+        const firstPageCanvasReady = await waitForVisiblePageCanvas(session, 1, 20_000);
+        const settledState = await collectState();
+        states.push(settledState);
+        expect(firstPageCanvasReady, JSON.stringify(settledState)).toBe(true);
+        expect(settledState).toMatchObject({
+            canvasReady: true,
+            currentPage: 1,
+            lifecycle: 'ready',
+            requestedPage: 1,
+            skeletonVisible: false,
+            visualPage: 1,
+            visualPresentation: 'canvas',
+        });
+
+        const trace = await collectTrace(session);
+        await clickVisibleButtonByAriaLabel(session, '.tab.is-active .tab-close', 'Close Tab');
+        await delay(1_000);
+        const closeState = await session.page.evaluate(() => ({
+            bodyText: document.body.innerText,
+            title: document.title,
+        }));
+        writeTraceArtifact({
+            closeState,
+            pdfPath,
+            scenario: 'paged-fit-height-backward-wheel-and-close',
+            settledState,
+            states,
+            trace,
+        }, PAGED_FIT_HEIGHT_BACKWARD_WHEEL_TRACE_OUTPUT_PATH);
+        expect(closeState.title).not.toContain('500');
+        expect(closeState.bodyText).not.toContain('Invalid document viewport session');
+        expect(closeState.bodyText).not.toContain('Internal Server Error');
+    }, 90_000);
+});
 
 describe('Electron E2E - PDF Page Jump Rendering', () => {
     let pageJumpPdfPath: string | null = null;

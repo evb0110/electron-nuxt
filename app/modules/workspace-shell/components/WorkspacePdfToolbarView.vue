@@ -327,7 +327,6 @@ const emit = defineEmits<{
     'update:zoomMode': [mode: TZoomMode];
     'update:fitMode': [mode: TFitMode];
     'update:viewMode': [mode: TPdfViewMode];
-    'update:currentPage': [page: number];
     'update:ocrRunning': [running: boolean];
     'open-file': [];
     'open-settings': [];
