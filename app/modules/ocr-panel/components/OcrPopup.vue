@@ -3,7 +3,7 @@
         v-model:open="isOpen"
         :title="t('ocr.runTitle')"
         :dismissible="!progress.isRunning"
-        :ui="{ content: 'sm:max-w-md', footer: 'justify-end gap-2' }"
+        :ui="{ content: 'sm:max-w-lg', footer: 'justify-end gap-2' }"
     >
         <template #description>
             <span class="sr-only">
@@ -76,7 +76,10 @@
                             :legend="t('ocr.pages')"
                             :items="pageRangeOptions"
                             value-key="value"
-                            :ui="listRadioGroupUi"
+                            variant="table"
+                            orientation="horizontal"
+                            indicator="hidden"
+                            :ui="segmentedRadioGroupUi"
                         />
                         <div
                             class="custom-range-reveal"
@@ -100,11 +103,21 @@
                         <URadioGroup
                             v-model="settings.supersessionPolicy"
                             name="ocrSupersessionPolicy"
-                            :legend="t('ocr.supersession.label')"
                             :items="supersessionPolicyItems"
                             value-key="value"
                             :ui="listRadioGroupUi"
-                        />
+                        >
+                            <template #legend>
+                                {{ t('ocr.supersession.label') }}
+                                <OcrSettingHelpTooltip
+                                    :trigger-label="t('ocr.settingHelpAria', { setting: t('ocr.supersession.label') })"
+                                    :options="supersessionPolicyHelpItems"
+                                />
+                            </template>
+                        </URadioGroup>
+                        <p class="policy-hint" aria-live="polite">
+                            {{ selectedSupersessionDescription }}
+                        </p>
                         <div
                             v-if="settings.supersessionPolicy === 'replace-all'"
                             class="supersession-acknowledgement"
@@ -142,98 +155,74 @@
                     </div>
 
                     <!-- OCR tuning -->
-                    <div
-                        class="section"
-                    >
-                        <URadioGroup
-                            v-model="settings.preprocessingMode"
-                            name="ocrPreprocessingMode"
-                            :legend="t('ocr.preprocessing.label')"
-                            :items="preprocessingModeItems"
-                            value-key="value"
-                            variant="table"
-                            orientation="horizontal"
-                            indicator="hidden"
-                            :ui="segmentedRadioGroupUi"
-                        >
-                            <template #legend>
-                                {{ t('ocr.preprocessing.label') }}
-                                <OcrSettingHelpTooltip
-                                    :trigger-label="t('ocr.settingHelpAria', { setting: t('ocr.preprocessing.label') })"
-                                    :options="preprocessingModeHelpItems"
-                                />
-                            </template>
-                        </URadioGroup>
-                    </div>
-
-                    <div class="section">
-                        <UFormField
-                            :label="t('ocr.pageSegmentation.label')"
-                            :ui="formFieldUi"
-                        >
-                            <template #label>
-                                {{ t('ocr.pageSegmentation.label') }}
-                                <OcrSettingHelpTooltip
-                                    :trigger-label="t('ocr.settingHelpAria', { setting: t('ocr.pageSegmentation.label') })"
-                                    :options="pageSegmentationHelpItems"
-                                />
-                            </template>
-                            <USelect
-                                id="ocr-page-segmentation-mode"
-                                v-model="pageSegmentationModeSelectValue"
-                                :items="pageSegmentationItems"
+                    <div class="section-row">
+                        <div class="section">
+                            <URadioGroup
+                                v-model="settings.preprocessingMode"
+                                name="ocrPreprocessingMode"
+                                :legend="t('ocr.preprocessing.label')"
+                                :items="preprocessingModeItems"
                                 value-key="value"
-                                class="w-full"
-                                size="sm"
-                            />
-                        </UFormField>
+                                variant="table"
+                                orientation="horizontal"
+                                indicator="hidden"
+                                :ui="segmentedRadioGroupUi"
+                            >
+                                <template #legend>
+                                    {{ t('ocr.preprocessing.label') }}
+                                    <OcrSettingHelpTooltip
+                                        :trigger-label="t('ocr.settingHelpAria', { setting: t('ocr.preprocessing.label') })"
+                                        :options="preprocessingModeHelpItems"
+                                    />
+                                </template>
+                            </URadioGroup>
+                        </div>
+
+                        <div class="section">
+                            <UFormField
+                                :label="t('ocr.pageSegmentation.label')"
+                                :ui="formFieldUi"
+                            >
+                                <template #label>
+                                    {{ t('ocr.pageSegmentation.label') }}
+                                    <OcrSettingHelpTooltip
+                                        :trigger-label="t('ocr.settingHelpAria', { setting: t('ocr.pageSegmentation.label') })"
+                                        :options="pageSegmentationHelpItems"
+                                    />
+                                </template>
+                                <USelect
+                                    id="ocr-page-segmentation-mode"
+                                    v-model="pageSegmentationModeSelectValue"
+                                    :items="pageSegmentationItems"
+                                    value-key="value"
+                                    class="w-full"
+                                    size="sm"
+                                />
+                            </UFormField>
+                        </div>
                     </div>
 
                     <!-- Language Selection -->
-                    <div
-                        class="section"
-                        role="group"
-                        :aria-label="t('ocr.languages')"
-                    >
-                        <div class="label">{{ t('ocr.languages') }}</div>
-                        <div class="flex flex-col gap-3">
-                            <div
-                                v-if="latinCyrillicLanguages.length > 0"
-                                class="flex flex-col gap-1"
-                            >
-                                <UCheckboxGroup
-                                    v-model="selectedLanguagesModel"
-                                    :items="latinCyrillicLanguageItems"
-                                    value-key="value"
-                                    size="sm"
-                                    :ui="languageCheckboxGroupUi"
-                                />
-                            </div>
-                            <div
-                                v-if="greekLanguages.length > 0"
-                                class="flex flex-col gap-1"
-                            >
-                                <UCheckboxGroup
-                                    v-model="selectedLanguagesModel"
-                                    :items="greekLanguageItems"
-                                    value-key="value"
-                                    size="sm"
-                                    :ui="languageCheckboxGroupUi"
-                                />
-                            </div>
-                            <div
-                                v-if="rtlLanguages.length > 0"
-                                class="flex flex-col gap-1"
-                            >
-                                <UCheckboxGroup
-                                    v-model="selectedLanguagesModel"
-                                    :items="rtlLanguageItems"
-                                    value-key="value"
-                                    size="sm"
-                                    :ui="languageCheckboxGroupUi"
-                                />
-                            </div>
-                        </div>
+                    <div class="section">
+                        <UCheckboxGroup
+                            v-model="selectedLanguagesModel"
+                            :legend="t('ocr.languages')"
+                            :items="languageChipItems"
+                            value-key="value"
+                            size="sm"
+                            variant="card"
+                            orientation="horizontal"
+                            indicator="hidden"
+                            :ui="languageChipGroupUi"
+                        >
+                            <template #label="{ item }">
+                                <span class="chip-name">{{ item.label }}</span>
+                                <span
+                                    v-if="item.stateLabel"
+                                    class="chip-state"
+                                >{{ item.stateLabel }}</span>
+                            </template>
+                        </UCheckboxGroup>
                     </div>
                 </template>
 
@@ -407,7 +396,7 @@ const ocrPageSegmentationOptions = [
 const formFieldUi = { label: 'label ocr-setting-legend' } as const;
 const listRadioGroupUi = {
     fieldset: 'gap-y-1.5',
-    legend: 'label',
+    legend: 'label ocr-setting-legend',
     item: 'items-center',
     label: 'font-normal',
 } as const;
@@ -417,10 +406,11 @@ const segmentedRadioGroupUi = {
     item: 'flex-1 cursor-pointer justify-center px-2 py-1.5',
     label: 'w-full truncate text-center text-xs font-medium',
 } as const;
-const languageCheckboxGroupUi = {
-    fieldset: 'language-checkboxes',
-    item: 'min-w-0',
-    label: 'min-w-0 font-normal',
+const languageChipGroupUi = {
+    fieldset: 'w-full flex-wrap gap-1.5',
+    legend: 'label',
+    item: 'language-chip',
+    label: 'language-chip-label font-normal text-xs',
 } as const;
 
 interface IProps {
@@ -548,12 +538,18 @@ const preprocessingModeItems = computed<Array<{
 const supersessionPolicyItems = computed<Array<{
     value: TOcrTextSupersessionPolicy;
     label: string;
-    description: string;
 }>>(() => ocrSupersessionPolicies.map(policy => ({
     value: policy,
     label: t(getSupersessionLabelKey(policy), undefined),
+})));
+const supersessionPolicyHelpItems = computed(() => ocrSupersessionPolicies.map(policy => ({
+    label: t(getSupersessionLabelKey(policy), undefined),
     description: t(getSupersessionDescriptionKey(policy), undefined),
 })));
+const selectedSupersessionDescription = computed(() => t(
+    getSupersessionDescriptionKey(settings.value.supersessionPolicy),
+    undefined,
+));
 const pageSegmentationItems = computed<Array<{
     value: string;
     label: string;
@@ -575,17 +571,14 @@ const pageSegmentationHelpItems = computed(() => ocrPageSegmentationOptions.map(
     label: t(option.labelKey, undefined),
     description: t(option.helpKey, undefined),
 })));
-const latinCyrillicLanguageItems = computed(() => latinCyrillicLanguages.value.map(lang => ({
+const languageChipItems = computed(() => [
+    ...latinCyrillicLanguages.value,
+    ...greekLanguages.value,
+    ...rtlLanguages.value,
+].map(lang => ({
     value: lang.code,
-    label: translateLanguageLabel(lang),
-})));
-const greekLanguageItems = computed(() => greekLanguages.value.map(lang => ({
-    value: lang.code,
-    label: translateLanguageLabel(lang),
-})));
-const rtlLanguageItems = computed(() => rtlLanguages.value.map(lang => ({
-    value: lang.code,
-    label: translateLanguageLabel(lang),
+    label: translateLanguageName(lang.code),
+    stateLabel: translateLanguageStateLabel(lang),
 })));
 
 function getLanguageNameKey(code: string): TOcrLanguageTranslationKey {
@@ -596,13 +589,16 @@ function translateLanguageName(code: string) {
     return t(getLanguageNameKey(code), undefined);
 }
 
-function translateLanguageLabel(language: {
+function translateLanguageStateLabel(language: {
     code: string;
     modelState?: 'installed' | 'downloading' | 'missing'
 }) {
     const state = language.modelState ?? 'missing';
+    if (state === 'installed') {
+        return undefined;
+    }
     const stateKey = `ocr.languageModelState.${state}` as TOcrLanguageModelStateKey;
-    return `${translateLanguageName(language.code)} — ${t(stateKey, undefined)}`;
+    return t(stateKey, undefined);
 }
 
 function getQualityProfileLabelKey(profile: TOcrQualityProfile): TOcrQualityProfileLabelKey {
@@ -700,15 +696,55 @@ defineExpose<IOcrPopupAgentExpose>({
     background: color-mix(in srgb, var(--ui-warning) 8%, transparent);
 }
 
-:deep(.language-checkboxes) {
+.section-row {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(12rem, 100%), 1fr));
-    gap: var(--app-space-sm) var(--app-space-3xl);
-    padding-left: var(--app-space-sm);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: var(--app-space-12xl);
+    align-items: start;
 }
 
-:deep(.language-checkboxes [data-slot="label"]) {
-    overflow-wrap: anywhere;
+.policy-hint {
+    margin-top: var(--app-space-3xl);
+    padding-inline-start: var(--app-space-6xl);
+    border-inline-start: 2px solid var(--ui-border);
+    font-size: var(--app-text-size-kicker);
+    line-height: 1.4;
+    color: var(--ui-text-muted);
+}
+
+:deep(.language-chip) {
+    flex: none;
+    width: auto;
+    padding: var(--app-space-xs) var(--app-space-8xl);
+    border-radius: var(--app-radius-full);
+    transition:
+        border-color 0.12s ease,
+        background-color 0.12s ease;
+}
+
+:deep(.language-chip:hover) {
+    border-color: color-mix(in oklab, var(--ui-border) 60%, var(--ui-text-muted));
+}
+
+:deep(.language-chip:has([data-state="checked"])) {
+    border-color: var(--ui-primary);
+    background: color-mix(in srgb, var(--ui-primary) 8%, transparent);
+}
+
+:deep(.language-chip:has([data-state="checked"]) .language-chip-label) {
+    color: var(--ui-primary);
+}
+
+:deep(.language-chip-label) {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--app-space-sm);
+    white-space: nowrap;
+}
+
+.chip-state {
+    font-size: var(--app-text-size-micro);
+    color: var(--ui-text-muted);
 }
 
 .ocr-progress-panel {
