@@ -8,6 +8,7 @@ import {
     basename,
     join,
 } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
     DeleteObjectsCommand,
     HeadObjectCommand,
@@ -21,101 +22,108 @@ const CHANNEL_KEY = 'evb-viewer/channels/stable.json';
 const RELEASE_TAG_PATTERN = /^v\d+\.\d+\.\d+(?:[-.][0-9A-Za-z][0-9A-Za-z.-]*)?$/;
 const RETAINED_RELEASE_COUNT = 4;
 
-const [
+export async function publishReleaseMirror({
     artifactDirectory,
     releaseTag,
-] = process.argv.slice(2);
-
-if (!artifactDirectory || !releaseTag) {
-    throw new Error('Usage: publish-release-mirror.mjs <artifact-directory> <release-tag>');
-}
-if (!RELEASE_TAG_PATTERN.test(releaseTag)) {
-    throw new Error(`Invalid release tag: ${releaseTag}`);
-}
-
-const endpoint = requireEnvironment('MIRROR_S3_ENDPOINT');
-const bucket = requireEnvironment('MIRROR_S3_BUCKET');
-const client = new S3Client({
-    endpoint,
-    region: process.env.MIRROR_S3_REGION || 'ru-central1',
-    // Yandex implements the S3 API but not every optional AWS checksum mode.
-    requestChecksumCalculation: 'WHEN_REQUIRED',
-    responseChecksumValidation: 'WHEN_REQUIRED',
-    credentials: {
-        accessKeyId: requireEnvironment('MIRROR_S3_ACCESS_KEY_ID'),
-        secretAccessKey: requireEnvironment('MIRROR_S3_SECRET_KEY'),
-    },
-});
-
-const artifactNames = (await readdir(artifactDirectory))
-    .filter(name => !name.startsWith('.'))
-    .sort((left, right) => left.localeCompare(right));
-
-if (artifactNames.length === 0) {
-    throw new Error(`No release artifacts found in ${artifactDirectory}`);
-}
-
-const assets = [];
-for (const name of artifactNames) {
-    const filePath = join(artifactDirectory, name);
-    const fileStat = await stat(filePath);
-    if (!fileStat.isFile()) {
-        continue;
+    environment = process.env,
+    client: providedClient,
+}) {
+    if (!artifactDirectory || !releaseTag) {
+        throw new Error('Usage: publish-release-mirror.mjs <artifact-directory> <release-tag>');
+    }
+    if (!RELEASE_TAG_PATTERN.test(releaseTag)) {
+        throw new Error(`Invalid release tag: ${releaseTag}`);
     }
 
-    const sha256 = await hashFile(filePath);
-    const key = `${RELEASE_PREFIX}${releaseTag}/${name}`;
-    if (await uploadMatches(key, fileStat.size, sha256)) {
-        console.log(`Already verified ${name} (${fileStat.size} bytes)`);
-    } else {
-        console.log(`Uploading ${name} (${fileStat.size} bytes)`);
-        await client.send(new PutObjectCommand({
-            Bucket: bucket,
-            Key: key,
-            Body: createReadStream(filePath),
-            ContentLength: fileStat.size,
-            ContentType: contentTypeFor(name),
-            CacheControl: 'public, max-age=31536000, immutable',
-            Metadata: { sha256 },
-        }));
-        await verifyUpload(key, fileStat.size, sha256);
-    }
-    assets.push({
-        name,
-        size: fileStat.size,
-        sha256,
+    const endpoint = requireEnvironment(environment, 'MIRROR_S3_ENDPOINT');
+    const bucket = requireEnvironment(environment, 'MIRROR_S3_BUCKET');
+    const client = providedClient ?? new S3Client({
+        endpoint,
+        region: environment.MIRROR_S3_REGION || 'ru-central1',
+        // Yandex implements the S3 API but not every optional AWS checksum mode.
+        requestChecksumCalculation: 'WHEN_REQUIRED',
+        responseChecksumValidation: 'WHEN_REQUIRED',
+        credentials: {
+            accessKeyId: requireEnvironment(environment, 'MIRROR_S3_ACCESS_KEY_ID'),
+            secretAccessKey: requireEnvironment(environment, 'MIRROR_S3_SECRET_KEY'),
+        },
     });
+
+    const artifactNames = (await readdir(artifactDirectory))
+        .filter(name => !name.startsWith('.'))
+        .sort((left, right) => left.localeCompare(right));
+
+    if (artifactNames.length === 0) {
+        throw new Error(`No release artifacts found in ${artifactDirectory}`);
+    }
+
+    const assets = [];
+    for (const name of artifactNames) {
+        const filePath = join(artifactDirectory, name);
+        const fileStat = await stat(filePath);
+        if (!fileStat.isFile()) {
+            continue;
+        }
+
+        const sha256 = await hashFile(filePath);
+        const key = `${RELEASE_PREFIX}${releaseTag}/${name}`;
+        if (await uploadMatches(client, bucket, key, fileStat.size, sha256)) {
+            console.log(`Already verified ${name} (${fileStat.size} bytes)`);
+        } else {
+            console.log(`Uploading ${name} (${fileStat.size} bytes)`);
+            await client.send(new PutObjectCommand({
+                Bucket: bucket,
+                Key: key,
+                Body: createReadStream(filePath),
+                ContentLength: fileStat.size,
+                ContentType: contentTypeFor(name),
+                CacheControl: 'public, max-age=31536000, immutable',
+                Metadata: { sha256 },
+            }));
+            await verifyUpload(client, bucket, key, fileStat.size, sha256);
+        }
+        assets.push({
+            name,
+            size: fileStat.size,
+            sha256,
+        });
+    }
+
+    if (assets.length === 0) {
+        throw new Error(`No regular release artifact files found in ${artifactDirectory}`);
+    }
+
+    const manifest = JSON.stringify({
+        schemaVersion: 1,
+        release: { tag: releaseTag },
+        assets,
+    }, null, 2);
+    await putJson(client, bucket, `${RELEASE_PREFIX}${releaseTag}/manifest.json`, manifest, 'public, max-age=31536000, immutable');
+
+    // Publish the mutable channel pointer last, after every immutable object has
+    // been uploaded and verified. Clients can never discover a partial release.
+    await putJson(client, bucket, CHANNEL_KEY, manifest, 'no-cache, no-store, must-revalidate');
+
+    const prunedTags = await pruneOldReleases(client, bucket);
+    console.log(`Mirror published ${releaseTag}; retained ${RETAINED_RELEASE_COUNT} releases${
+        prunedTags.length ? ` and pruned ${prunedTags.join(', ')}` : ''
+    }`);
+    return {
+        assets,
+        manifest,
+        prunedTags,
+    };
 }
 
-if (assets.length === 0) {
-    throw new Error(`No regular release artifact files found in ${artifactDirectory}`);
-}
-
-const manifest = JSON.stringify({
-    schemaVersion: 1,
-    release: { tag: releaseTag },
-    assets,
-}, null, 2);
-await putJson(`${RELEASE_PREFIX}${releaseTag}/manifest.json`, manifest, 'public, max-age=31536000, immutable');
-
-// Publish the mutable channel pointer last, after every immutable object has
-// been uploaded and verified. Clients can never discover a partial release.
-await putJson(CHANNEL_KEY, manifest, 'no-cache, no-store, must-revalidate');
-
-const prunedTags = await pruneOldReleases();
-console.log(`Mirror published ${releaseTag}; retained ${RETAINED_RELEASE_COUNT} releases${
-    prunedTags.length ? ` and pruned ${prunedTags.join(', ')}` : ''
-}`);
-
-function requireEnvironment(name) {
-    const value = process.env[name]?.trim();
+export function requireEnvironment(environment, name) {
+    const value = environment[name]?.trim();
     if (!value) {
         throw new Error(`Missing required environment variable: ${name}`);
     }
     return value;
 }
 
-async function hashFile(filePath) {
+export async function hashFile(filePath) {
     const hash = createHash('sha256');
     for await (const chunk of createReadStream(filePath)) {
         hash.update(chunk);
@@ -123,7 +131,7 @@ async function hashFile(filePath) {
     return hash.digest('hex');
 }
 
-async function verifyUpload(key, expectedSize, expectedSha256) {
+async function verifyUpload(client, bucket, key, expectedSize, expectedSha256) {
     const result = await client.send(new HeadObjectCommand({
         Bucket: bucket,
         Key: key,
@@ -133,7 +141,7 @@ async function verifyUpload(key, expectedSize, expectedSha256) {
     }
 }
 
-async function uploadMatches(key, expectedSize, expectedSha256) {
+async function uploadMatches(client, bucket, key, expectedSize, expectedSha256) {
     try {
         const result = await client.send(new HeadObjectCommand({
             Bucket: bucket,
@@ -149,7 +157,7 @@ async function uploadMatches(key, expectedSize, expectedSha256) {
     }
 }
 
-async function putJson(key, body, cacheControl) {
+async function putJson(client, bucket, key, body, cacheControl) {
     const sha256 = createHash('sha256').update(body).digest('hex');
     await client.send(new PutObjectCommand({
         Bucket: bucket,
@@ -160,11 +168,11 @@ async function putJson(key, body, cacheControl) {
         CacheControl: cacheControl,
         Metadata: { sha256 },
     }));
-    await verifyUpload(key, Buffer.byteLength(body), sha256);
+    await verifyUpload(client, bucket, key, Buffer.byteLength(body), sha256);
 }
 
-async function pruneOldReleases() {
-    const objects = await listAllReleaseObjects();
+async function pruneOldReleases(client, bucket) {
+    const objects = await listAllReleaseObjects(client, bucket);
     const tags = [...new Set(objects.map(object => object.Key?.slice(RELEASE_PREFIX.length).split('/')[0]).filter(Boolean))]
         .filter(tag => RELEASE_TAG_PATTERN.test(tag))
         .sort(compareReleaseTags)
@@ -187,7 +195,7 @@ async function pruneOldReleases() {
     return staleTags;
 }
 
-async function listAllReleaseObjects() {
+async function listAllReleaseObjects(client, bucket) {
     const objects = [];
     let continuationToken;
     do {
@@ -202,7 +210,7 @@ async function listAllReleaseObjects() {
     return objects;
 }
 
-function compareReleaseTags(left, right) {
+export function compareReleaseTags(left, right) {
     const leftParts = versionParts(left);
     const rightParts = versionParts(right);
     for (let index = 0; index < 3; index++) {
@@ -214,11 +222,11 @@ function compareReleaseTags(left, right) {
     return left.localeCompare(right);
 }
 
-function versionParts(tag) {
+export function versionParts(tag) {
     return tag.slice(1).split(/[.-]/, 3).map(part => Number.parseInt(part, 10));
 }
 
-function contentTypeFor(filename) {
+export function contentTypeFor(filename) {
     const extension = basename(filename).toLowerCase().split('.').at(-1);
     return ({
         appimage: 'application/octet-stream',
@@ -230,4 +238,15 @@ function contentTypeFor(filename) {
         yml: 'text/yaml; charset=utf-8',
         zip: 'application/zip',
     })[extension] ?? 'application/octet-stream';
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+    const [
+        artifactDirectory,
+        releaseTag,
+    ] = process.argv.slice(2);
+    await publishReleaseMirror({
+        artifactDirectory,
+        releaseTag,
+    });
 }
