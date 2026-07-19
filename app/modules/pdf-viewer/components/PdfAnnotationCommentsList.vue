@@ -3,30 +3,39 @@
         <div class="notes-list-header">
             <span class="notes-list-title">{{ t('annotations.annotations') }}</span>
             <span class="notes-count">({{ filteredComments.length }})</span>
-            <button
+            <UButton
                 type="button"
-                class="notes-header-btn"
+                class="notes-header-btn notes-header-btn--place"
+                color="neutral"
+                variant="ghost"
+                size="xs"
+                square
+                icon="i-ph-chat-circle-dots"
                 :aria-label="t('annotations.placeNoteOnPage')"
                 @click="placeNote"
-            >
-                <UIcon name="i-ph-chat-circle-dots" />
-            </button>
-            <button
+            />
+            <UButton
                 type="button"
                 class="notes-header-btn"
+                color="neutral"
+                variant="ghost"
+                size="xs"
+                square
+                icon="i-ph-magnifying-glass"
                 :aria-label="t('annotations.searchAnnotations')"
                 @click="onSearchButtonClick"
-            >
-                <UIcon name="i-ph-magnifying-glass" />
-            </button>
+            />
         </div>
 
-        <input
+        <UInput
             v-if="searchVisible"
             ref="searchInputRef"
             v-model.trim="query"
             type="search"
             class="notes-search"
+            color="neutral"
+            variant="outline"
+            size="xs"
             :placeholder="t('annotations.searchAnnotations')"
             @keydown.stop
             @keyup.stop
@@ -187,7 +196,7 @@ const emit = defineEmits<{
 
 const query = ref('');
 const searchVisible = ref(false);
-const searchInputRef = ref<HTMLInputElement | null>(null);
+const searchInputRef = ref<{ inputRef: HTMLInputElement | null } | null>(null);
 
 const timeFormatter = new Intl.DateTimeFormat(undefined, {
     dateStyle: 'medium',
@@ -221,7 +230,7 @@ async function onSearchButtonClick() {
         await nextTick();
     }
 
-    searchInputRef.value?.focus();
+    searchInputRef.value?.inputRef?.focus();
 }
 
 function commentTypeLabel(comment: IAnnotationCommentSummary) {
@@ -483,36 +492,15 @@ function placeNote() {
 }
 
 .notes-header-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: var(--app-sidebar-action-size);
-    height: var(--app-sidebar-action-size);
-    border: none;
-    border-radius: 0.35rem;
-    background: transparent;
-    color: var(--ui-text-muted);
-    font-size: var(--app-icon-size-sm);
-    cursor: pointer;
+    flex: 0 0 auto;
 }
 
-.notes-header-btn:first-of-type {
+.notes-header-btn--place {
     margin-left: auto;
-}
-
-.notes-header-btn:hover {
-    background: color-mix(in srgb, var(--ui-border) 40%, transparent);
-    color: var(--ui-text-highlighted);
 }
 
 .notes-search {
     width: 100%;
-    border: 1px solid var(--ui-border);
-    border-radius: 0.5rem;
-    background: var(--ui-bg);
-    color: var(--ui-text-highlighted);
-    font-size: var(--app-sidebar-row-font-size);
-    padding: var(--app-sidebar-row-padding-block) var(--app-sidebar-row-padding-inline);
 }
 
 .notes-list {

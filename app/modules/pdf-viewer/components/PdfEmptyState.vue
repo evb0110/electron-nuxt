@@ -78,15 +78,17 @@
                                 {{ t('emptyState.recentFiles') }}
                             </h3>
                             <div class="recent-controls">
-                                <label class="recent-search">
-                                    <UIcon name="i-ph-magnifying-glass" class="recent-search-icon" />
-                                    <input
-                                        v-model="recentSearch"
-                                        type="search"
-                                        :placeholder="t('emptyState.searchPlaceholder')"
-                                        :aria-label="t('emptyState.searchRecentFiles')"
-                                    >
-                                </label>
+                                <UInput
+                                    v-model="recentSearch"
+                                    class="recent-search"
+                                    color="neutral"
+                                    variant="outline"
+                                    size="sm"
+                                    type="search"
+                                    icon="i-ph-magnifying-glass"
+                                    :placeholder="t('emptyState.searchPlaceholder')"
+                                    :aria-label="t('emptyState.searchRecentFiles')"
+                                />
                                 <UButton
                                     class="recent-clear"
                                     color="neutral"
@@ -259,7 +261,7 @@
         <UModal
             :open="clearHistoryDialogOpen"
             :title="t('emptyState.clearHistoryConfirmTitle')"
-            :ui="{ footer: 'justify-end' }"
+            :ui="{ footer: 'justify-end gap-2' }"
             @update:open="clearHistoryDialogOpen = $event"
         >
             <template #description>
@@ -714,44 +716,7 @@ watch(() => startSection, (section) => {
 }
 
 .recent-search {
-    display: flex;
-    align-items: center;
-    gap: var(--app-start-control-gap);
     width: var(--app-start-search-width);
-    height: var(--app-control-height-sm);
-    padding: 0 var(--app-start-control-padding-x);
-    border: 1px solid var(--ui-border);
-    border-radius: var(--app-control-radius);
-    background: var(--ui-bg);
-    color: var(--ui-text-muted);
-    transition:
-        border-color var(--app-transition-quick),
-        box-shadow var(--app-transition-quick);
-}
-
-.recent-search:focus-within {
-    border-color: var(--app-toolbar-focus-ring);
-    box-shadow: 0 0 0 2px color-mix(in oklab, var(--app-toolbar-focus-ring) 18%, transparent);
-}
-
-.recent-search-icon {
-    width: var(--app-icon-size-sm);
-    height: var(--app-icon-size-sm);
-    flex: 0 0 auto;
-}
-
-.recent-search input {
-    width: 100%;
-    min-width: 0;
-    border: 0;
-    outline: 0;
-    background: transparent;
-    color: var(--ui-text);
-    font-size: var(--app-text-size-body-sm);
-}
-
-.recent-search input::placeholder {
-    color: var(--ui-text-dimmed);
 }
 
 .recent-table {

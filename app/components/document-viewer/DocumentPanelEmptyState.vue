@@ -28,7 +28,7 @@ defineProps<{
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 0.5rem;
+    gap: var(--app-space-3xl);
     padding: var(--app-panel-empty-padding);
     text-align: center;
     color: var(--ui-text-muted);
@@ -55,6 +55,6 @@ defineProps<{
 }
 
 .document-panel-empty-state__action {
-    margin-top: 0.25rem;
+    margin-top: var(--app-space-sm);
 }
 </style>

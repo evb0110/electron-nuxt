@@ -58,7 +58,7 @@
         <template #footer>
             <UButton
                 color="neutral"
-                variant="ghost"
+                variant="outline"
                 :label="t('common.cancel')"
                 :disabled="isRunning"
                 @click="open = false"

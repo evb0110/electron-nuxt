@@ -590,7 +590,7 @@ watch(
     justify-content: center;
     gap: var(--app-sidebar-row-gap);
     border: 1px solid var(--ui-border);
-    border-radius: 0.375rem;
+    border-radius: var(--app-radius-md);
     background: transparent;
     color: var(--ui-text);
     padding: var(--app-sidebar-row-padding-block) var(--app-sidebar-row-padding-inline);
@@ -623,7 +623,7 @@ watch(
 
 .pdf-sidebar-pages-editor {
     gap: var(--app-sidebar-row-gap);
-    padding-top: 0.375rem;
+    padding-top: var(--app-space-lg);
 }
 
 .pdf-sidebar-pages-title {

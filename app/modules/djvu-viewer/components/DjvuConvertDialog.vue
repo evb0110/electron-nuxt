@@ -4,6 +4,12 @@
         :title="t('djvu.convertDialog.title')"
         :ui="{ footer: 'justify-end gap-2' }"
     >
+        <template #description>
+            <span class="sr-only">
+                {{ t('djvu.convertDialog.description') }}
+            </span>
+        </template>
+
         <template #body>
             <div class="flex flex-col gap-4">
                 <div class="flex flex-col gap-1">

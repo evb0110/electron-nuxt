@@ -21,6 +21,7 @@
                     variant="ghost"
                     color="neutral"
                     size="xs"
+                    :aria-label="t('common.close')"
                     class="djvu-banner-close"
                     @click="dismiss"
                 />

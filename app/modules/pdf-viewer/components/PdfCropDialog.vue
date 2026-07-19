@@ -74,12 +74,16 @@
                             :ui="verticalRadioGroupUi"
                         />
 
-                        <UInput
+                        <UFormField
                             v-if="scope === 'range'"
-                            v-model="rangeInput"
-                            :placeholder="t('crop.rangePlaceholder')"
                             class="mt-1"
-                        />
+                            :ui="rangeFieldUi"
+                        >
+                            <UInput
+                                v-model="rangeInput"
+                                :placeholder="t('crop.rangePlaceholder')"
+                            />
+                        </UFormField>
                     </div>
                 </template>
             </div>
@@ -88,7 +92,7 @@
         <template #footer>
             <UButton
                 color="neutral"
-                variant="ghost"
+                variant="outline"
                 :label="t('crop.removeCrop')"
                 :disabled="loading || cropPages.length === 0"
                 @click="handleRemoveCrop"
@@ -96,7 +100,7 @@
             <div class="flex gap-2">
                 <UButton
                     color="neutral"
-                    variant="ghost"
+                    variant="outline"
                     :label="t('common.cancel')"
                     @click="open = false"
                 />
@@ -185,6 +189,8 @@ const verticalRadioGroupUi = {
     item: 'items-center',
     label: 'font-normal',
 } as const;
+
+const rangeFieldUi = { error: 'mt-1 text-xs' } as const;
 
 const margins = reactive<ICropMargins>({
     top: 0,

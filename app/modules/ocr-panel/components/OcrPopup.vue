@@ -5,31 +5,35 @@
         :dismissible="!progress.isRunning"
         :ui="{ content: 'sm:max-w-md', footer: 'justify-end gap-2' }"
     >
+        <template #description>
+            <span class="sr-only">
+                {{ t('ocr.dialogDescription') }}
+            </span>
+        </template>
+
         <AppTooltip
             v-if="!hideTrigger"
             :text="triggerTooltip"
             :delay-duration="1200"
         >
-            <button
+            <UButton
                 :class="[
                     'ocr-trigger',
                     {
                         'is-active': isOpen || progress.isRunning,
-                        'is-loading': progress.isRunning,
                     },
                 ]"
                 :disabled="disabled && !progress.isRunning"
+                color="neutral"
+                variant="ghost"
+                size="md"
+                square
+                :icon="triggerButtonIcon"
                 :aria-label="triggerTooltip"
+                :aria-pressed="isOpen || progress.isRunning"
                 type="button"
-            >
-                <Icon
-                    v-if="!progress.isRunning && !showSuccessState"
-                    :name="getReaderCommandToolbarIcon('ocr')"
-                    class="size-5"
-                />
-                <Icon v-else-if="!progress.isRunning" :name="triggerIcon" class="size-5" />
-                <AppSpinner v-else size="md" tone="inherit" />
-            </button>
+                :ui="{ leadingIcon: progress.isRunning ? 'size-5 animate-spin' : 'size-5' }"
+            />
         </AppTooltip>
         <span v-else class="hidden-trigger" aria-hidden="true" />
 
@@ -288,7 +292,7 @@
                 <UButton
                     v-if="viewState === 'running'"
                     color="neutral"
-                    variant="soft"
+                    variant="outline"
                     icon="i-ph-x"
                     :label="t('ocr.cancel')"
                     :disabled="progress.status === 'cancel-requested'"
@@ -297,8 +301,7 @@
             </template>
             <template v-else-if="viewState === 'results'">
                 <UButton
-                    variant="ghost"
-                    color="neutral"
+                    color="primary"
                     icon="i-ph-file-text"
                     :label="t('ocr.exportDocx')"
                     :loading="isExporting"
@@ -306,15 +309,16 @@
                     @click="handleExportDocx"
                 />
                 <UButton
-                    color="primary"
+                    color="neutral"
+                    variant="outline"
                     :label="t('common.close')"
                     @click="handleCloseResults"
                 />
             </template>
             <template v-else>
                 <UButton
-                    variant="ghost"
                     color="neutral"
+                    variant="outline"
                     :label="t('common.cancel')"
                     @click="isOpen = false"
                 />
@@ -340,7 +344,6 @@ import type {
 } from '@contracts/electronApiOcr';
 import type { TTranslationKey } from '@i18n-app';
 import AppProgressBar from '@app/components/AppProgressBar.vue';
-import AppSpinner from '@app/components/AppSpinner.vue';
 import OcrSettingHelpTooltip from '@app/modules/ocr-panel/components/OcrSettingHelpTooltip.vue';
 import type { IOcrPopupAgentExpose } from '@app/types/ocrAgent';
 import { OCR_PAGE_SEGMENTATION_AUTOMATIC_VALUE } from '@app/modules/ocr-panel/runtime/ocrPopupSettings';
@@ -508,6 +511,9 @@ const {
 const triggerIcon = computed(() => (
     showSuccessState.value ? 'ph:check-circle' : getReaderCommandToolbarIcon('ocr')
 ));
+const triggerButtonIcon = computed(() => (
+    progress.value.isRunning ? 'ph:circle-notch' : triggerIcon.value
+));
 const pageRangeOptions = computed<Array<{
     value: TOcrPageRange;
     label: string;
@@ -641,62 +647,14 @@ defineExpose<IOcrPopupAgentExpose>({
 }
 
 .ocr-trigger {
-    display: flex;
-    align-items: center;
-    justify-content: center;
     width: var(--toolbar-control-height, var(--app-toolbar-control-size));
     height: var(--toolbar-control-height, var(--app-toolbar-control-size));
-    padding: var(--app-toolbar-button-padding);
-    border: 1px solid transparent;
-    border-radius: var(--app-toolbar-control-radius);
-    background: transparent;
-    color: var(--app-toolbar-control-inactive-fg);
-    cursor: pointer;
-    transition: background-color 0.1s ease, border-color 0.1s ease, color 0.1s ease, opacity 0.1s ease;
-}
-
-.ocr-trigger:hover {
-    background: var(--app-toolbar-control-hover-bg);
-    border-color: var(--app-toolbar-control-hover-border);
-    color: var(--app-toolbar-control-hover-fg);
 }
 
 .ocr-trigger.is-active {
     background: var(--app-toolbar-control-active-bg);
     border-color: var(--app-toolbar-control-active-border);
     color: var(--app-toolbar-control-hover-fg);
-}
-
-.ocr-trigger.is-active:hover {
-    background: var(--app-toolbar-control-active-hover-bg);
-    border-color: var(--app-toolbar-control-active-hover-border);
-}
-
-.ocr-trigger:focus {
-    outline: none;
-}
-
-.ocr-trigger:focus-visible {
-    box-shadow: inset 0 0 0 1px var(--app-toolbar-focus-ring);
-    position: relative;
-    z-index: var(--app-z-local-raised);
-}
-
-.ocr-trigger:disabled {
-    opacity: var(--app-toolbar-control-disabled-opacity);
-    color: var(--app-toolbar-control-disabled-fg);
-}
-
-.ocr-trigger:disabled:hover {
-    background: transparent;
-    border-color: transparent;
-    color: var(--app-toolbar-control-disabled-fg);
-}
-
-.ocr-trigger:disabled.is-loading {
-    opacity: 1;
-    color: var(--ui-text-muted);
-    cursor: wait;
 }
 
 .label,

@@ -48,14 +48,17 @@
                 >
                     <div class="annotation-style-popover-header">
                         <span class="annotation-style-popover-title">{{ stylePopoverLabel }}</span>
-                        <button
+                        <UButton
                             type="button"
                             class="annotation-style-popover-close"
+                            color="neutral"
+                            variant="ghost"
+                            size="xs"
+                            square
+                            icon="i-ph-x"
                             :aria-label="t('annotationProperties.close', undefined)"
                             @click="stylePopoverOpen = false"
-                        >
-                            <UIcon name="i-ph-x" class="annotation-style-popover-close-icon" />
-                        </button>
+                        />
                     </div>
 
                     <PdfAnnotationStyleEditor
@@ -330,27 +333,6 @@ function placeNote() {
 }
 
 .annotation-style-popover-close {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
     flex: 0 0 auto;
-    width: var(--app-sidebar-action-size);
-    height: var(--app-sidebar-action-size);
-    border: 1px solid transparent;
-    border-radius: 0.35rem;
-    background: transparent;
-    color: var(--ui-text-muted);
-    cursor: pointer;
-}
-
-.annotation-style-popover-close:hover {
-    border-color: var(--app-control-active-hover-border);
-    background: var(--app-sidebar-control-hover-bg);
-    color: var(--ui-text);
-}
-
-.annotation-style-popover-close-icon {
-    width: var(--app-icon-size-xs);
-    height: var(--app-icon-size-xs);
 }
 </style>

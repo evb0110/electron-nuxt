@@ -7,7 +7,7 @@
             <p class="text-sm text-[var(--ui-text-muted)]">{{ description }}</p>
             <div class="flex items-center gap-2">
                 <UButton color="neutral" variant="outline" :label="t('common.retry')" @click="emit('retry')" />
-                <UButton color="neutral" variant="ghost" :label="t('common.close')" @click="emit('close')" />
+                <UButton color="neutral" variant="outline" :label="t('common.close')" @click="emit('close')" />
             </div>
         </div>
     </div>

@@ -29,8 +29,7 @@
                 >
             </label>
 
-            <label v-if="shape.type === 'rectangle' || shape.type === 'circle' || shape.type === 'polygon'" class="annotation-properties-field">
-                <span class="annotation-properties-label">{{ t('annotationProperties.fill') }}</span>
+            <div v-if="shape.type === 'rectangle' || shape.type === 'circle' || shape.type === 'polygon'" class="annotation-properties-field">
                 <div class="annotation-properties-fill-row">
                     <input
                         type="color"
@@ -47,7 +46,7 @@
                         :label="t('annotationProperties.fill')"
                     />
                 </div>
-            </label>
+            </div>
 
             <label class="annotation-properties-field">
                 <span class="annotation-properties-label">{{ t('annotationProperties.stroke') }}</span>
@@ -86,7 +85,7 @@
                 class="annotation-properties-delete"
                 icon="i-ph-trash"
                 color="error"
-                variant="ghost"
+                variant="soft"
                 size="sm"
                 block
                 :label="t('annotationProperties.delete')"
@@ -319,7 +318,7 @@ const opacityModel = computed({
 }
 
 .annotation-properties-delete:focus-visible {
-    outline: 2px solid color-mix(in oklab, var(--ui-error) 55%, white 45%);
+    outline: 2px solid color-mix(in oklab, var(--ui-error) 55%, var(--ui-bg) 45%);
     outline-offset: 2px;
 }
 

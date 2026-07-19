@@ -309,6 +309,7 @@ export default {
     },
     'ocr': {
         'button': 'OCR',
+        'dialogDescription': 'Configura il riconoscimento ottico dei caratteri e visualizzane i risultati.',
         'runTitle': 'Esegui OCR',
         'pages': 'Pagine',
         'allPages': 'Tutte le pagine ({total})',
@@ -426,6 +427,7 @@ export default {
         'documentFallback': 'documento',
         'pdfFallback': 'PDF',
         'convertDialog': {
+            'description': 'Scegli come convertire questo documento DjVu in PDF.',
             'title': 'Converti DjVu in PDF',
             'file': 'File',
             'pages': 'Pagine',

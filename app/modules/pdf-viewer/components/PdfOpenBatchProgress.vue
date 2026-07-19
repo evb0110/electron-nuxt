@@ -38,7 +38,7 @@ const batchEtaText = computed(() => formatEtaDuration(progress.estimatedRemainin
 
 <style scoped>
 .batch-progress {
-    width: min(100%, 38rem);
+    width: min(100%, var(--app-content-width-md));
     margin: var(--app-empty-state-margin) auto;
     border: 1px solid var(--ui-border);
     border-radius: var(--app-radius-2xl);

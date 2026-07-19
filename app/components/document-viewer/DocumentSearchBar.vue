@@ -189,7 +189,7 @@ defineExpose<IDocumentSearchBarExpose>({ focus });
     align-items: stretch;
     height: var(--app-control-height-xs);
     border: 1px solid var(--ui-border);
-    border-radius: 0.375rem;
+    border-radius: var(--app-radius-md);
     overflow: hidden;
 }
 

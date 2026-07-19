@@ -231,8 +231,8 @@ function removeBookmark(id: string) {
 }
 
 .bookmarks-style-toggle-icon {
-    width: 0.95rem;
-    height: 0.95rem;
+    width: var(--app-icon-size-sm);
+    height: var(--app-icon-size-sm);
 }
 
 .bookmarks-style-toggle-letter {

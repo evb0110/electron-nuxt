@@ -4,14 +4,18 @@
         :delay-duration="150"
         class="ocr-setting-help"
     >
-        <button
+        <UButton
             type="button"
             class="ocr-setting-help-trigger"
+            color="neutral"
+            variant="ghost"
+            size="xs"
+            square
+            icon="i-ph-info"
+            :ui="{ leadingIcon: 'size-3.5' }"
             :aria-label="triggerLabel"
             @click.stop.prevent
-        >
-            <UIcon name="i-ph-info" class="ocr-setting-help-icon" />
-        </button>
+        />
 
         <template #content>
             <dl class="ocr-setting-help-options">
@@ -47,35 +51,7 @@ const {
 
 <style scoped>
 .ocr-setting-help-trigger {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    border: none;
-    border-radius: var(--app-radius-xs);
-    background: transparent;
-    color: var(--ui-text-dimmed);
-    line-height: 0;
     cursor: help;
-    transition: color 0.1s ease;
-}
-
-.ocr-setting-help-trigger:hover,
-.ocr-setting-help-trigger:focus-visible {
-    color: var(--ui-text-muted);
-}
-
-.ocr-setting-help-trigger:focus {
-    outline: none;
-}
-
-.ocr-setting-help-trigger:focus-visible {
-    box-shadow: 0 0 0 2px var(--app-toolbar-focus-ring);
-}
-
-.ocr-setting-help-icon {
-    width: 0.8125rem;
-    height: 0.8125rem;
 }
 
 .ocr-setting-help-options {

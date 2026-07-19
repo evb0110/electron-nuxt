@@ -309,6 +309,7 @@ export default {
     },
     'ocr': {
         'button': 'OCR',
+        'dialogDescription': 'Configureer optische tekenherkenning en bekijk de resultaten.',
         'runTitle': 'OCR uitvoeren',
         'pages': 'Pagina\'s',
         'allPages': 'Alle pagina\'s ({total})',
@@ -426,6 +427,7 @@ export default {
         'documentFallback': 'document',
         'pdfFallback': 'PDF',
         'convertDialog': {
+            'description': 'Kies hoe je dit DjVu-document naar PDF wilt converteren.',
             'title': 'DjVu converteren naar PDF',
             'file': 'Bestand',
             'pages': 'Pagina\'s',

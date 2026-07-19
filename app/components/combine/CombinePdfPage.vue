@@ -93,7 +93,7 @@
                     <UButton
                         v-if="files.length > 0"
                         color="neutral"
-                        variant="ghost"
+                        variant="outline"
                         icon="i-ph-trash"
                         :label="t('combinePdf.clear')"
                         :disabled="queueMutationLocked"

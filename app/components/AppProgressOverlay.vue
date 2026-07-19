@@ -20,7 +20,7 @@
             <UButton
                 v-if="cancelLabel"
                 :label="cancelLabel"
-                variant="ghost"
+                variant="outline"
                 color="neutral"
                 size="sm"
                 @click="emit('cancel')"

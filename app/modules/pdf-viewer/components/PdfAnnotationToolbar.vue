@@ -13,6 +13,7 @@
                     class="tool-button"
                     :class="{ 'is-active': tool === toolItem.id }"
                     :data-tool="toolItem.id"
+                    :aria-label="toolItem.label"
                     :aria-pressed="tool === toolItem.id"
                     :aria-haspopup="toolItem.hasStyleControls ? 'dialog' : undefined"
                     :aria-expanded="toolItem.hasStyleControls && tool === toolItem.id ? stylePopoverOpen : undefined"
@@ -163,10 +164,10 @@ defineExpose<IPdfAnnotationToolbarExpose>({ getButtonEl });
     align-items: center;
     justify-content: center;
     border: 1px solid transparent;
-    border-radius: 0.375rem;
+    border-radius: var(--app-radius-md);
     background: transparent;
     color: var(--ui-text-muted);
-    flex: 0 0 2.5rem;
+    flex: 0 0 var(--app-control-height-lg);
     width: var(--app-control-height-lg);
     height: var(--app-control-height-lg);
     cursor: pointer;

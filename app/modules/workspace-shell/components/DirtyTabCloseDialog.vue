@@ -26,7 +26,7 @@
             />
             <UButton
                 :label="t('tabs.closeTab')"
-                color="primary"
+                color="error"
                 @click="handleConfirm"
             />
         </template>
