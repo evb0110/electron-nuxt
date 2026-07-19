@@ -54,6 +54,8 @@ export default defineNuxtConfig({
         githubOwner: process.env.NUXT_GITHUB_OWNER || 'evb0110',
         githubRepo: process.env.NUXT_GITHUB_REPO || 'evb-viewer',
         githubToken: process.env.NUXT_GITHUB_TOKEN || '',
+        releaseMirrorBaseUrl: process.env.NUXT_RELEASE_MIRROR_BASE_URL
+            || 'https://vps-420c0bae.vps.ovh.net/api/mss-backend/api/evb-viewer/releases',
         releaseStableTags: process.env.NUXT_RELEASE_STABLE_TAGS || '',
         releaseWithdrawnTags: process.env.NUXT_RELEASE_WITHDRAWN_TAGS || '',
         releaseCanaryTag: process.env.NUXT_RELEASE_CANARY_TAG || '',

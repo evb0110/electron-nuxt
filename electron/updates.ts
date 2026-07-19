@@ -54,6 +54,7 @@ const UPDATER_SHUTDOWN_CHECK_WAIT_TIMEOUT_MS = 3_000;
 const GITHUB_RELEASE_OWNER = 'evb0110';
 const GITHUB_RELEASE_REPOSITORY = 'evb-viewer';
 const GITHUB_RELEASE_DOWNLOAD_BASE_URL = `https://github.com/${GITHUB_RELEASE_OWNER}/${GITHUB_RELEASE_REPOSITORY}/releases/download`;
+let resolvedReleaseFeedBaseUrl = GITHUB_RELEASE_DOWNLOAD_BASE_URL;
 
 interface IUpdaterCheckDecision {
     shouldCheck: boolean;
@@ -227,21 +228,33 @@ async function writeSkippedVersion(version: string | null) {
 }
 
 async function fetchLatestMetadataVersion() {
-    const response = await fetch(config.updates.metadataUrl, {
-        headers: {accept: 'application/json'},
-        signal: AbortSignal.timeout(METADATA_REQUEST_TIMEOUT_MS),
-    });
+    const errors: string[] = [];
+    for (const metadataUrl of [
+        config.updates.metadataUrl,
+        config.updates.mirrorMetadataUrl,
+    ]) {
+        try {
+            const response = await fetch(metadataUrl, {
+                headers: {accept: 'application/json'},
+                signal: AbortSignal.timeout(METADATA_REQUEST_TIMEOUT_MS),
+            });
 
-    if (!response.ok) {
-        throw new Error(`Metadata endpoint responded with ${response.status}`);
+            if (!response.ok) {
+                throw new Error(`Metadata endpoint responded with ${response.status}`);
+            }
+
+            const payload: unknown = await response.json();
+            const latestTag = normalizeVersion(decodeLatestReleaseTag(payload));
+            if (!latestTag) {
+                throw new Error('Metadata endpoint did not return release.tag');
+            }
+            return latestTag;
+        } catch (error) {
+            errors.push(`${metadataUrl}: ${getErrorMessage(error)}`);
+        }
     }
 
-    const payload: unknown = await response.json();
-    const latestTag = normalizeVersion(decodeLatestReleaseTag(payload));
-    if (!latestTag) {
-        throw new Error('Metadata endpoint did not return release.tag');
-    }
-    return latestTag;
+    throw new Error(`All update metadata sources failed (${errors.join('; ')})`);
 }
 
 function getUpdaterMetadataAssetName() {
@@ -258,8 +271,8 @@ function getReleaseTag(version: string) {
     return version.startsWith('v') ? version : `v${version}`;
 }
 
-function getUpdaterReleaseFeedUrl(version: string) {
-    return `${GITHUB_RELEASE_DOWNLOAD_BASE_URL}/${encodeURIComponent(getReleaseTag(version))}`;
+function getUpdaterReleaseFeedUrl(version: string, baseUrl = resolvedReleaseFeedBaseUrl) {
+    return `${baseUrl}/${encodeURIComponent(getReleaseTag(version))}`;
 }
 
 function configureUpdaterFeed(targetVersion: string | null) {
@@ -287,18 +300,33 @@ async function hasUpdaterMetadataForVersion(version: string) {
         return false;
     }
 
-    const url = `${getUpdaterReleaseFeedUrl(version)}/${assetName}`;
-    const response = await fetch(url, {
-        method: 'HEAD',
-        signal: AbortSignal.timeout(METADATA_REQUEST_TIMEOUT_MS),
-    });
-    if (response.status === 404) {
-        return false;
+    const errors: string[] = [];
+    for (const baseUrl of [
+        GITHUB_RELEASE_DOWNLOAD_BASE_URL,
+        config.updates.mirrorReleaseBaseUrl,
+    ]) {
+        try {
+            const url = `${getUpdaterReleaseFeedUrl(version, baseUrl)}/${assetName}`;
+            const response = await fetch(url, {
+                method: 'HEAD',
+                signal: AbortSignal.timeout(METADATA_REQUEST_TIMEOUT_MS),
+            });
+            if (response.status === 404) {
+                continue;
+            }
+            if (!response.ok) {
+                throw new Error(`Updater metadata probe responded with ${response.status}`);
+            }
+            resolvedReleaseFeedBaseUrl = baseUrl;
+            return true;
+        } catch (error) {
+            errors.push(`${baseUrl}: ${getErrorMessage(error)}`);
+        }
     }
-    if (!response.ok) {
-        throw new Error(`Updater metadata probe responded with ${response.status}`);
+    if (errors.length === 2) {
+        throw new Error(`All updater feeds failed (${errors.join('; ')})`);
     }
-    return true;
+    return false;
 }
 
 function validateDownloadedUpdateForInstall(version: string) {
@@ -612,6 +640,7 @@ function setAutoUpdaterListeners() {
 async function resolveUpdaterCheckDecision(): Promise<IUpdaterCheckDecision> {
     const currentVersion = normalizeVersion(resolveApplicationVersion(app));
     let latestVersion: string;
+    resolvedReleaseFeedBaseUrl = GITHUB_RELEASE_DOWNLOAD_BASE_URL;
 
     try {
         latestVersion = await fetchLatestMetadataVersion();

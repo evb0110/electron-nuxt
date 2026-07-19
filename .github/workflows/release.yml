@@ -362,6 +362,53 @@ jobs:
           set -euo pipefail
           gh release upload "$RELEASE_TAG" artifacts/* --clobber
 
+  publish_mirror:
+    name: Publish Regional Release Mirror
+    needs:
+      - prepare
+      - publish
+      - publish_mac_intel
+      - publish_win7_legacy
+    if: ${{ always() && needs.publish.result == 'success' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout target
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.target_sha }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install mirror publisher dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Download every published GitHub release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir artifacts
+          gh release download "$RELEASE_TAG" --dir artifacts
+
+      - name: Upload, verify, and retain four releases
+        env:
+          MIRROR_S3_ENDPOINT: ${{ secrets.MIRROR_S3_ENDPOINT }}
+          MIRROR_S3_BUCKET: ${{ secrets.MIRROR_S3_BUCKET }}
+          MIRROR_S3_ACCESS_KEY_ID: ${{ secrets.MIRROR_S3_ACCESS_KEY_ID }}
+          MIRROR_S3_SECRET_KEY: ${{ secrets.MIRROR_S3_SECRET_KEY }}
+        run: node scripts/release/publish-release-mirror.mjs artifacts "${{ needs.prepare.outputs.tag }}"
+
   publish_store:
     name: Package and Submit Microsoft Store AppX
     needs:

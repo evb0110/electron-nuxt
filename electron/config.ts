@@ -135,6 +135,12 @@ export const config = {
         metadataUrl: process.env.EVB_UPDATES_METADATA_URL?.length
             ? process.env.EVB_UPDATES_METADATA_URL
             : 'https://evb-viewer.com/api/releases/latest',
+        mirrorMetadataUrl: process.env.EVB_UPDATES_MIRROR_METADATA_URL?.length
+            ? process.env.EVB_UPDATES_MIRROR_METADATA_URL
+            : 'https://vps-420c0bae.vps.ovh.net/api/mss-backend/api/evb-viewer/channels/stable.json',
+        mirrorReleaseBaseUrl: process.env.EVB_UPDATES_MIRROR_RELEASE_BASE_URL?.length
+            ? process.env.EVB_UPDATES_MIRROR_RELEASE_BASE_URL.replace(/\/+$/, '')
+            : 'https://vps-420c0bae.vps.ovh.net/api/mss-backend/api/evb-viewer/releases',
         pollIntervalMs: parsePositiveInt(process.env.EVB_UPDATES_POLL_INTERVAL_MS, 6 * 60 * 60 * 1000),
         initialDelayMs: parsePositiveInt(process.env.EVB_UPDATES_INITIAL_DELAY_MS, 2 * 60 * 1000),
     },

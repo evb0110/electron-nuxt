@@ -35,13 +35,14 @@ interface IGithubRelease {
     assets: IGithubReleaseAsset[]
 }
 
-function toInstallers(release: IGithubRelease): IReleaseInstaller[] {
+function toInstallers(release: IGithubRelease, mirrorBaseUrl: string): IReleaseInstaller[] {
     const installers = (release.assets || [])
         .filter(asset => isInstallerAsset(asset.name))
         .map<IReleaseInstaller>(asset => ({
             id: asset.id,
             name: asset.name,
             downloadUrl: asset.browser_download_url,
+            mirrorDownloadUrl: `${mirrorBaseUrl}/${encodeURIComponent(release.tag_name)}/${encodeURIComponent(asset.name)}`,
             size: asset.size,
             updatedAt: asset.updated_at,
             contentType: asset.content_type,
@@ -60,6 +61,7 @@ export default defineEventHandler(async (event): Promise<ILatestReleaseResponse>
     const githubOwner = String(config.githubOwner || 'evb0110');
     const githubRepo = String(config.githubRepo || 'evb-viewer');
     const githubToken = String(config.githubToken || '');
+    const releaseMirrorBaseUrl = String(config.releaseMirrorBaseUrl).replace(/\/+$/, '');
 
     const headers: Record<string, string> = {
         'accept': 'application/vnd.github+json',
@@ -102,7 +104,7 @@ export default defineEventHandler(async (event): Promise<ILatestReleaseResponse>
     try {
         releaseResult = await fetchLatestReleaseWithRetry({
             fetchRelease: fetchLatestRelease,
-            toInstallers,
+            toInstallers: release => toInstallers(release, releaseMirrorBaseUrl),
         });
     } catch (error) {
         console.error('Unable to fetch latest release', {

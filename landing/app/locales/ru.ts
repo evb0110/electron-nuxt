@@ -89,6 +89,7 @@ export default {
             downloadSelected: 'Скачать выбранный установщик',
             noArtifacts: 'В последнем релизе не найдены артефакты установщиков.',
             recommended: 'Рекомендуется',
+            mirror: 'Зеркало',
             store: {
                 title: 'Microsoft Store',
                 detail: 'Приложение Windows с подписью Microsoft',

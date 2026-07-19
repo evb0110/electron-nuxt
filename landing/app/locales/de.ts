@@ -89,6 +89,7 @@ export default {
             downloadSelected: 'Ausgewählten Installer herunterladen',
             noArtifacts: 'In der neuesten Version wurden keine Installer-Artefakte gefunden.',
             recommended: 'Empfohlen',
+            mirror: 'Spiegel',
             store: {
                 title: 'Microsoft Store',
                 detail: 'Von Microsoft signierte Windows-App',

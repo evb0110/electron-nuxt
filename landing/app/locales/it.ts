@@ -89,6 +89,7 @@ export default {
             downloadSelected: 'Scarica installer selezionato',
             noArtifacts: 'Nessun artefatto installer trovato nell’ultima release.',
             recommended: 'Consigliato',
+            mirror: 'Mirror',
             store: {
                 title: 'Microsoft Store',
                 detail: 'App Windows firmata da Microsoft',

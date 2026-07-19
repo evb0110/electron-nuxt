@@ -153,39 +153,52 @@
                   {{ t('home.installers.store.directDownloads') }}
                 </div>
 
-                <button
+                <div
                   v-for="installer in installersForSelectedPlatform"
                   :key="installer.id"
-                  type="button"
-                  class="installer-item"
-                  :class="{ 'installer-item-recommended': isRecommendedInstaller(installer) }"
-                  :aria-label="downloadAriaLabel(installer)"
-                  @click="downloadInstaller(installer)"
+                  class="installer-row"
                 >
-                  <div class="installer-item-info">
-                    <div class="installer-item-header">
-                      <span class="installer-item-variant">{{ installerLabel(installer) }}</span>
-                      <span
-                        v-if="isRecommendedInstaller(installer)"
-                        class="installer-badge"
-                      >
-                        {{ t('home.installers.recommended') }}
+                  <button
+                    type="button"
+                    class="installer-item"
+                    :class="{ 'installer-item-recommended': isRecommendedInstaller(installer) }"
+                    :aria-label="downloadAriaLabel(installer)"
+                    @click="downloadInstaller(installer)"
+                  >
+                    <div class="installer-item-info">
+                      <div class="installer-item-header">
+                        <span class="installer-item-variant">{{ installerLabel(installer) }}</span>
+                        <span
+                          v-if="isRecommendedInstaller(installer)"
+                          class="installer-badge"
+                        >
+                          {{ t('home.installers.recommended') }}
+                        </span>
+                      </div>
+                      <span class="installer-item-detail">
+                        {{ installerDetail(installer) }}
+                      </span>
+                      <span class="installer-item-meta">
+                        {{ installerMeta(installer) }}
                       </span>
                     </div>
-                    <span class="installer-item-detail">
-                      {{ installerDetail(installer) }}
+                    <span class="installer-item-chip">
+                      <UIcon
+                        name="i-ph-download"
+                        class="installer-item-icon"
+                      />
                     </span>
-                    <span class="installer-item-meta">
-                      {{ installerMeta(installer) }}
-                    </span>
-                  </div>
-                  <span class="installer-item-chip">
-                    <UIcon
-                      name="i-ph-download"
-                      class="installer-item-icon"
-                    />
-                  </span>
-                </button>
+                  </button>
+                  <a
+                    v-if="installer.mirrorDownloadUrl"
+                    class="installer-mirror-link"
+                    :href="installer.mirrorDownloadUrl"
+                    :aria-label="mirrorDownloadAriaLabel(installer)"
+                    @click="trackInstallerDownload(installer)"
+                  >
+                    {{ t('home.installers.mirror') }}
+                  </a>
+                </div>
               </div>
             </div>
 
@@ -615,6 +628,10 @@ function installerMeta(installer: IReleaseInstaller): string {
 
 function downloadAriaLabel(installer: IReleaseInstaller): string {
     return t('home.hero.downloadInstaller', {installerLabel: `${installerLabel(installer)} ${packageLabel(installer)}`});
+}
+
+function mirrorDownloadAriaLabel(installer: IReleaseInstaller): string {
+    return `${t('home.installers.mirror')}: ${downloadAriaLabel(installer)}`;
 }
 
 async function refreshReleaseData() {

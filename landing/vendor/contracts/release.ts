@@ -24,6 +24,7 @@ export interface IReleaseInstaller {
     id: number;
     name: string;
     downloadUrl: string;
+    mirrorDownloadUrl?: string;
     size: number;
     updatedAt: string;
     contentType: string;

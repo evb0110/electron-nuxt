@@ -96,6 +96,8 @@ vi.mock('electron-updater', () => ({default: {autoUpdater: mocks.autoUpdater}}))
 vi.mock('@electron/config', () => ({config: {updates: {
     initialDelayMs: 1_000,
     metadataUrl: 'https://updates.example.test/latest',
+    mirrorMetadataUrl: 'https://mirror.example.test/channels/stable.json',
+    mirrorReleaseBaseUrl: 'https://mirror.example.test/releases',
     pollIntervalMs: 60_000,
 }}}));
 
@@ -434,6 +436,40 @@ describe('updates robustness', () => {
             repo: 'evb-viewer',
         });
         expect(mocks.autoUpdater.checkForUpdates).toHaveBeenCalledTimes(2);
+    });
+
+    it('uses the mirror when the landing page and GitHub are unavailable', async () => {
+        mocks.fetch.mockImplementation(async (url: string, init?: { method?: string }) => {
+            if (url === 'https://updates.example.test/latest') {
+                throw new Error('landing blocked');
+            }
+            if (url === 'https://mirror.example.test/channels/stable.json') {
+                return createMetadataResponse('1.1.0');
+            }
+            if (init?.method === 'HEAD' && url.startsWith('https://github.com/')) {
+                throw new Error('github blocked');
+            }
+            if (init?.method === 'HEAD' && url === 'https://mirror.example.test/releases/v1.1.0/latest.yml') {
+                return createEmptyResponse(200);
+            }
+            throw new Error(`Unexpected request: ${url}`);
+        });
+        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
+            mocks.autoUpdater.emit('checking-for-update');
+            mocks.autoUpdater.emit('update-available', { version: '1.1.0' });
+        });
+
+        const updates = await loadUpdatesModule();
+        updates.initializeUpdates(() => undefined);
+        await updates.triggerManualUpdateCheck();
+        await flushPromises();
+
+        expect(mocks.autoUpdater.setFeedURL).toHaveBeenCalledWith({
+            provider: 'generic',
+            url: 'https://mirror.example.test/releases/v1.1.0',
+            useMultipleRangeRequest: false,
+        });
+        expect(mocks.autoUpdater.checkForUpdates).toHaveBeenCalledTimes(1);
     });
 
     it('keeps a cached downloaded update when a newer release has no updater metadata', async () => {

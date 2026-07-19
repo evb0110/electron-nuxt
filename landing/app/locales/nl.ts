@@ -89,6 +89,7 @@ export default {
             downloadSelected: 'Geselecteerde installer downloaden',
             noArtifacts: 'Geen installerartefacten gevonden in de nieuwste release.',
             recommended: 'Aanbevolen',
+            mirror: 'Mirror',
             store: {
                 title: 'Microsoft Store',
                 detail: 'Door Microsoft ondertekende Windows-app',

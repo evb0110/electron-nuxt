@@ -89,6 +89,7 @@ export default {
             downloadSelected: 'Transferir instalador selecionado',
             noArtifacts: 'Não foram encontrados artefactos de instalador na versão mais recente.',
             recommended: 'Recomendado',
+            mirror: 'Espelho',
             store: {
                 title: 'Microsoft Store',
                 detail: 'Aplicação Windows assinada pela Microsoft',

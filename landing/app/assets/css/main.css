@@ -841,8 +841,37 @@ a {
   color: inherit;
 }
 
-.installer-item + .installer-item {
+.installer-row {
+  display: flex;
+  width: 100%;
+}
+
+.installer-row + .installer-row,
+.installer-direct-label + .installer-row {
   border-top: 1px solid var(--landing-border);
+}
+
+.installer-row .installer-item {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.installer-mirror-link {
+  display: flex;
+  flex: 0 0 4.5rem;
+  align-items: center;
+  justify-content: center;
+  border-left: 1px solid var(--landing-border);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--landing-muted);
+  text-decoration: none;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.installer-mirror-link:hover {
+  background: color-mix(in srgb, var(--landing-ink) 4%, transparent);
+  color: var(--landing-ink);
 }
 
 .installer-item:hover {
