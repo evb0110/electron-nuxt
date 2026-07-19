@@ -61,7 +61,8 @@ export interface IScanCleanupPreviewResult {
 
 export interface IScanCleanupStartRequest {
     sourcePdfPath: string;
-    outputPdfPath: string;
+    /** @deprecated Ignored. Generated output paths are always managed by the main process. */
+    outputPdfPath?: string;
     options: IScanCleanupOptions;
 }
 
@@ -105,6 +106,7 @@ export type TScanCleanupJobState =
 export interface IScanCleanupStartResult {
     started: boolean;
     jobId: string;
+    outputPdfPath?: string;
     error?: string;
     errorCode?: TScanCleanupErrorCode;
 }
@@ -117,5 +119,6 @@ export interface IScanCleanupCapability {
     getJobState: (jobId: string) => Promise<TScanCleanupJobState | null>;
     subscribeJob: (jobId: string) => Promise<TScanCleanupJobState | null>;
     reconnectJob: (jobId: string) => Promise<TScanCleanupJobState | null>;
+    pruneGeneratedOutputs: (openPdfPaths: string[]) => Promise<number>;
     onJobState: (callback: (state: TScanCleanupJobState) => void) => () => void;
 }

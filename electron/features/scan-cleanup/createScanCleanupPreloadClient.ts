@@ -26,6 +26,7 @@ export function createScanCleanupPreloadClient(ipcRenderer: IpcRenderer): IScanC
         getJobState: jobId => invoke(SCAN_CLEANUP_CHANNELS.getJobState, jobId),
         subscribeJob: jobId => invoke(SCAN_CLEANUP_CHANNELS.subscribeJob, jobId),
         reconnectJob: jobId => invoke(SCAN_CLEANUP_CHANNELS.reconnectJob, jobId),
+        pruneGeneratedOutputs: openPdfPaths => invoke(SCAN_CLEANUP_CHANNELS.pruneGeneratedOutputs, openPdfPaths),
         onJobState: callback => events.onDecodedPayload(
             SCAN_CLEANUP_EVENT_CHANNELS.state,
             value => {

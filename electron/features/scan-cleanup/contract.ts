@@ -13,6 +13,7 @@ export const SCAN_CLEANUP_CHANNELS = {
     getJobState: 'scan-cleanup:job:get-state',
     subscribeJob: 'scan-cleanup:job:subscribe',
     reconnectJob: 'scan-cleanup:job:reconnect',
+    pruneGeneratedOutputs: 'scan-cleanup:output:prune',
 } as const;
 
 export const SCAN_CLEANUP_EVENT_CHANNELS = {state: 'scan-cleanup:job:state'} as const;
@@ -45,6 +46,10 @@ export interface IScanCleanupInvokeMap {
     [SCAN_CLEANUP_CHANNELS.reconnectJob]: {
         args: [jobId: string];
         result: TScanCleanupJobState | null;
+    };
+    [SCAN_CLEANUP_CHANNELS.pruneGeneratedOutputs]: {
+        args: [openPdfPaths: string[]];
+        result: number;
     };
 }
 

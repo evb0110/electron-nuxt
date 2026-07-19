@@ -616,6 +616,10 @@ const otherMethodPaths = defineMethodPaths([
     ],
     [
         'scanCleanup',
+        'pruneGeneratedOutputs',
+    ],
+    [
+        'scanCleanup',
         'onJobState',
     ],
     [
