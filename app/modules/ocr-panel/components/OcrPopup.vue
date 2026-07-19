@@ -3,7 +3,7 @@
         v-model:open="isOpen"
         :title="t('ocr.runTitle')"
         :dismissible="!progress.isRunning"
-        :ui="{ content: 'sm:max-w-lg', footer: 'justify-end gap-2' }"
+        :ui="{ content: 'sm:max-w-lg top-16 translate-y-0 max-h-[calc(100dvh-5rem)]', footer: 'justify-end gap-2' }"
     >
         <template #description>
             <span class="sr-only">
@@ -118,15 +118,21 @@
                         <p class="policy-hint" aria-live="polite">
                             {{ selectedSupersessionDescription }}
                         </p>
-                        <div
-                            v-if="settings.supersessionPolicy === 'replace-all'"
-                            class="supersession-acknowledgement"
-                        >
-                            <UCheckbox
-                                v-model="settings.replaceAllAcknowledged"
-                                :label="t('ocr.supersession.replaceAllAcknowledgement')"
-                            />
-                        </div>
+                        <Transition name="reveal">
+                            <div
+                                v-if="settings.supersessionPolicy === 'replace-all'"
+                                class="acknowledgement-reveal"
+                            >
+                                <div class="acknowledgement-reveal-inner">
+                                    <div class="supersession-acknowledgement">
+                                        <UCheckbox
+                                            v-model="settings.replaceAllAcknowledged"
+                                            :label="t('ocr.supersession.replaceAllAcknowledgement')"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        </Transition>
                     </div>
 
                     <!-- Quality Profile Selection -->
@@ -688,6 +694,26 @@ defineExpose<IOcrPopupAgentExpose>({
     width: 100%;
 }
 
+.acknowledgement-reveal {
+    display: grid;
+    grid-template-rows: 1fr;
+}
+
+.reveal-enter-active,
+.reveal-leave-active {
+    transition: grid-template-rows 0.18s ease;
+}
+
+.reveal-enter-from,
+.reveal-leave-to {
+    grid-template-rows: 0fr;
+}
+
+.acknowledgement-reveal-inner {
+    overflow: hidden;
+    min-height: 0;
+}
+
 .supersession-acknowledgement {
     margin-top: var(--app-space-3xl);
     padding: var(--app-space-lg);
@@ -704,6 +730,7 @@ defineExpose<IOcrPopupAgentExpose>({
 }
 
 .policy-hint {
+    min-height: 2lh;
     margin-top: var(--app-space-3xl);
     padding-inline-start: var(--app-space-6xl);
     border-inline-start: 2px solid var(--ui-border);
