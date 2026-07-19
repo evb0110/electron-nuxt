@@ -65,17 +65,21 @@ for (const name of artifactNames) {
 
     const sha256 = await hashFile(filePath);
     const key = `${RELEASE_PREFIX}${releaseTag}/${name}`;
-    console.log(`Uploading ${name} (${fileStat.size} bytes)`);
-    await client.send(new PutObjectCommand({
-        Bucket: bucket,
-        Key: key,
-        Body: createReadStream(filePath),
-        ContentLength: fileStat.size,
-        ContentType: contentTypeFor(name),
-        CacheControl: 'public, max-age=31536000, immutable',
-        Metadata: { sha256 },
-    }));
-    await verifyUpload(key, fileStat.size, sha256);
+    if (await uploadMatches(key, fileStat.size, sha256)) {
+        console.log(`Already verified ${name} (${fileStat.size} bytes)`);
+    } else {
+        console.log(`Uploading ${name} (${fileStat.size} bytes)`);
+        await client.send(new PutObjectCommand({
+            Bucket: bucket,
+            Key: key,
+            Body: createReadStream(filePath),
+            ContentLength: fileStat.size,
+            ContentType: contentTypeFor(name),
+            CacheControl: 'public, max-age=31536000, immutable',
+            Metadata: { sha256 },
+        }));
+        await verifyUpload(key, fileStat.size, sha256);
+    }
     assets.push({
         name,
         size: fileStat.size,
@@ -126,6 +130,22 @@ async function verifyUpload(key, expectedSize, expectedSha256) {
     }));
     if (result.ContentLength !== expectedSize || result.Metadata?.sha256 !== expectedSha256) {
         throw new Error(`Mirror verification failed for ${key}`);
+    }
+}
+
+async function uploadMatches(key, expectedSize, expectedSha256) {
+    try {
+        const result = await client.send(new HeadObjectCommand({
+            Bucket: bucket,
+            Key: key,
+        }));
+        return result.ContentLength === expectedSize
+            && result.Metadata?.sha256 === expectedSha256;
+    } catch (error) {
+        if (error?.$metadata?.httpStatusCode === 404 || error?.name === 'NotFound') {
+            return false;
+        }
+        throw error;
     }
 }
 
