@@ -197,6 +197,8 @@ jobs:
       - prepare
       - build_artifacts
     runs-on: ubuntu-latest
+    outputs:
+      already_public: ${{ steps.draft_release.outputs.already_public }}
 
     steps:
       - name: Checkout target
@@ -235,26 +237,39 @@ jobs:
         run: |
           set -euo pipefail
 
+          echo "already_public=false" >> "$GITHUB_OUTPUT"
+
           # Prefer the GitHub CLI here so the release publish path tracks the
           # runner's current Node/LTS stack instead of a separately versioned
           # JavaScript action runtime.
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            is_draft="$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)"
+          release_view_error="$RUNNER_TEMP/release-view-error.txt"
+          if release_json="$(gh release view "$RELEASE_TAG" --json isDraft,targetCommitish 2> "$release_view_error")"; then
+            is_draft="$(jq -r .isDraft <<< "$release_json")"
             if [ "$is_draft" != "true" ]; then
-              echo "::error::Release $RELEASE_TAG is already public; refusing to replace public assets outside the draft promotion flow."
-              exit 1
+              release_target="$(jq -r .targetCommitish <<< "$release_json")"
+              if [ "$release_target" != "$TARGET_SHA" ]; then
+                echo "::error::Public release $RELEASE_TAG targets $release_target instead of $TARGET_SHA; refusing to reuse it."
+                exit 1
+              fi
+              echo "already_public=true" >> "$GITHUB_OUTPUT"
+              echo "::notice::Release $RELEASE_TAG is already public at the expected commit; verifying its assets without replacing them."
+            else
+              gh release upload "$RELEASE_TAG" artifacts/* --clobber
             fi
-            gh release upload "$RELEASE_TAG" artifacts/* --clobber
-          else
+          elif grep -Fq 'release not found' "$release_view_error"; then
             gh release create "$RELEASE_TAG" artifacts/* --draft --generate-notes --target "$TARGET_SHA"
+          else
+            cat "$release_view_error" >&2
+            exit 1
           fi
 
-      - name: Verify uploaded release assets
+      - name: Verify published release assets
         id: uploaded_assets
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          ALREADY_PUBLIC: ${{ steps.draft_release.outputs.already_public }}
           EVB_RELEASE_HAS_MAC_SIGNING: ${{ secrets.CSC_LINK != '' && secrets.CSC_KEY_PASSWORD != '' }}
           EVB_RELEASE_HAS_WINDOWS_SIGNING: ${{ secrets.WIN_CSC_LINK != '' && secrets.WIN_CSC_KEY_PASSWORD != '' }}
         shell: bash
@@ -271,14 +286,19 @@ jobs:
               echo "::error::Uploaded release asset is missing after download: $name"
               exit 1
             fi
-            if [ "$(sha256sum "$source" | cut -d' ' -f1)" != "$(sha256sum "$downloaded" | cut -d' ' -f1)" ]; then
+            if [ "$ALREADY_PUBLIC" != "true" ] && [ "$(sha256sum "$source" | cut -d' ' -f1)" != "$(sha256sum "$downloaded" | cut -d' ' -f1)" ]; then
               echo "::error::Uploaded release asset hash mismatch: $name"
               exit 1
             fi
           done
 
+          if [ "$ALREADY_PUBLIC" = "true" ]; then
+            echo "::notice::Existing public assets passed presence and updater integrity checks; immutable assets were not compared with rebuilt signed artifacts."
+          fi
+
       - name: Promote verified draft release
         id: promote_release
+        if: ${{ steps.draft_release.outputs.already_public != 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -294,6 +314,7 @@ jobs:
           DRAFT_RELEASE_OUTCOME: ${{ steps.draft_release.outcome }}
           UPLOADED_ASSETS_OUTCOME: ${{ steps.uploaded_assets.outcome }}
           PROMOTE_RELEASE_OUTCOME: ${{ steps.promote_release.outcome }}
+          ALREADY_PUBLIC: ${{ steps.draft_release.outputs.already_public }}
         run: |
           {
             echo '## GitHub release gate outcomes'
@@ -302,7 +323,8 @@ jobs:
             echo '| --- | --- |'
             echo "| Updater metadata path policy | $METADATA_POLICY_OUTCOME |"
             echo "| Draft release creation/upload | $DRAFT_RELEASE_OUTCOME |"
-            echo "| Downloaded asset presence and SHA-256 parity | $UPLOADED_ASSETS_OUTCOME |"
+            echo "| Published asset presence and integrity | $UPLOADED_ASSETS_OUTCOME |"
+            echo "| Existing public release reused | ${ALREADY_PUBLIC:-false} |"
             echo "| Verified draft promotion | $PROMOTE_RELEASE_OUTCOME |"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -332,7 +354,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gh release upload "$RELEASE_TAG" artifacts/* --clobber
+          existing_assets="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')"
+          for source in artifacts/*; do
+            name="$(basename "$source")"
+            if grep -Fqx "$name" <<< "$existing_assets"; then
+              echo "::notice::Public release asset already exists and will not be replaced: $name"
+            else
+              gh release upload "$RELEASE_TAG" "$source"
+            fi
+          done
 
   publish_win7_legacy:
     name: Attach Windows 7 Legacy Release Asset
@@ -360,7 +390,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gh release upload "$RELEASE_TAG" artifacts/* --clobber
+          existing_assets="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')"
+          for source in artifacts/*; do
+            name="$(basename "$source")"
+            if grep -Fqx "$name" <<< "$existing_assets"; then
+              echo "::notice::Public release asset already exists and will not be replaced: $name"
+            else
+              gh release upload "$RELEASE_TAG" "$source"
+            fi
+          done
 
   publish_mirror:
     name: Publish Regional Release Mirror
@@ -414,6 +452,7 @@ jobs:
     needs:
       - prepare
       - publish
+    if: ${{ needs.publish.outputs.already_public != 'true' }}
     uses: ./.github/workflows/store-appx.yml
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}
