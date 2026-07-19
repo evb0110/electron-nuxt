@@ -55,3 +55,4 @@ tests/fixtures/electron/large-pdf-fixtures/*
 !tests/fixtures/electron/large-pdf-fixtures/README.md
 /output/
 .env*
+.pnpm-store/

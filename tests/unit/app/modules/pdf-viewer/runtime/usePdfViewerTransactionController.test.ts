@@ -10,7 +10,7 @@ import {
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { usePdfViewerTransactionController } from '@app/modules/pdf-viewer/runtime/transactions/usePdfViewerTransactionController';
-import type { IPdfNavigationState } from '@app/modules/pdf-viewer/runtime/navigation/navigationMachine';
+import type { IPdfNavigationState } from '@app/modules/pdf-viewer/runtime/navigation/createPdfNavigationMachineState';
 import { cast } from '@tests/helpers/cast';
 
 function createNavigationState(overrides: Partial<IPdfNavigationState> = {}) {

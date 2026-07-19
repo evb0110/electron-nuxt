@@ -53,7 +53,6 @@
     --app-toolbar-control-size: 2.25rem;
     --app-toolbar-row-height: calc(var(--app-toolbar-control-size) + var(--app-space-3xl) + var(--app-space-3xl) + 2px);
     --app-toolbar-icon-size: 1.125rem;
-    --app-toolbar-control-radius: 0.5rem;
     --app-toolbar-control-padding-x: 0.625rem;
     --app-toolbar-button-radius: 0.4375rem;
     --app-toolbar-button-padding: 0.32rem;
@@ -75,14 +74,11 @@
     --app-tabbar-height: 2.375rem;
     --app-tab-close-size: 1.25rem;
     --app-tab-dirty-dot-size: 0.4375rem;
-    --app-tab-min-padding-x: 1.875rem;
     --app-tab-new-width: 3rem;
     --app-tab-new-block-inset: 0.125rem;
     --app-tab-new-radius: 0.75rem;
     --app-tab-max-width: 12.5rem;
     --app-tab-active-overlap: -1px;
-    --app-statusbar-button-size: 1.75rem;
-    --app-statusbar-icon-size: 0.95rem;
     --app-statusbar-height: 1.9rem;
     --app-statusbar-gap: 0.75rem;
     --app-statusbar-padding: 0.3rem 0.75rem;
@@ -98,13 +94,10 @@
     --app-statusbar-folder-icon-size: 0.82rem;
     --app-statusbar-save-dot-size: 0.56rem;
     --app-statusbar-pulse-opacity: 0.72;
-    --app-outline-toolbar-button-size: 1.75rem;
 
     /* Global layer scale. Component-internal stacking stays local and is never
        compared with these application-chrome layers. */
     --app-z-base: 0;
-    --app-z-raised: 10;
-    --app-z-banner: 20;
     --app-z-workspace-overlay: 30;
     --app-z-floating-chrome: 40;
     --app-z-progress: 50;
@@ -113,7 +106,6 @@
     --app-z-preview: 70;
     --app-z-popover: 80;
     --app-z-menu: 90;
-    --app-z-toast: 100;
 
     /* Component-local slots. These values are meaningful only inside an
        isolated/positioned component stacking context. */
@@ -231,29 +223,22 @@
     --app-annotation-list-min-height: 5rem;
     --app-annotation-editor-height: 6.5rem;
     --app-annotation-editor-margin: var(--app-space-3xl);
-    --app-annotation-small-action-size: 1.35rem;
     --app-annotation-preview-height: 4.7rem;
     --app-annotation-color-control-size: var(--app-control-height-xs);
     --app-annotation-color-swatch-size: 0.875rem;
     --app-annotation-action-size: 1.75rem;
     --app-annotation-input-min-height: 1.9rem;
-    --app-annotation-touch-target-min-width: 2.75rem;
     --app-outline-loading-icon-height: 1.125rem;
-    --app-outline-row-gap: var(--app-space-sm);
     --app-outline-row-radius: var(--app-radius-md);
     --app-outline-row-inset: var(--app-space-sm);
     --app-outline-drop-indicator-radius: var(--app-radius-full);
     --app-outline-expand-icon-width: var(--app-space-9xl);
-    --app-outline-action-size: var(--app-space-15xl);
     --app-outline-action-radius: var(--app-radius-xs);
-    --app-outline-action-padding: var(--app-space-xs);
     --app-outline-row-indent: var(--app-space-12xl);
     --app-thumbnail-row-gap: var(--app-space-sm);
     --app-thumbnail-frame-inset: var(--app-space-md);
     --app-thumbnail-selection-offset: calc(var(--app-sidebar-row-padding-block) + var(--app-thumbnail-frame-inset) + 1px);
     --app-thumbnail-row-radius: var(--app-radius-xs);
-    --app-thumbnail-badge-size: var(--app-space-15xl);
-    --app-thumbnail-badge-radius: var(--app-space-3xs);
     --app-thumbnail-min-label-height: 1rem;
     --app-thumbnail-drop-offset: var(--app-space-md);
     --app-thumbnail-drop-inset: var(--app-space-3xl);
@@ -291,10 +276,6 @@
     --app-sidebar-row-font-size: var(--app-text-size-body-sm);
     --app-sidebar-caption-font-size: var(--app-text-size-caption);
     --app-sidebar-outline-depth-indent: var(--app-space-12xl);
-    --app-sidebar-min-viewer-width: 20rem;
-    --app-document-source-sidebar-width: 16.25rem;
-    --app-document-source-thumbnail-width: 8.25rem;
-    --app-document-source-thumbnail-min-height: 4.5rem;
     --app-tooltip-max-inline-size: min(22rem, var(--app-floating-panel-viewport-width));
     --app-overlay-viewport-gutter: 2rem;
     --app-overlay-viewport-width: calc(100vw - var(--app-overlay-viewport-gutter));
@@ -327,8 +308,6 @@
     --app-zoom-control-min-height: 1.875rem;
     --app-zoom-icon-size: var(--app-space-12xl);
     --app-annotation-context-swatch-size: 1.35rem;
-    --app-document-source-badge-radius: var(--app-radius-xs);
-    --app-workspace-transition-content-offset: var(--app-space-12xl);
     --app-editor-sash-width: var(--app-editor-sash-size);
     --app-privacy-page-padding: 3rem;
     --app-privacy-inline-padding: 1.25rem;
@@ -424,7 +403,6 @@
     --app-status-save-dot-clean-ring: oklch(44% 0.11 147);
     --app-status-save-dot-saving-bg: oklch(61% 0.18 259);
     --app-status-save-dot-saving-ring: oklch(43% 0.10 259);
-    --app-toolbar-group-tint: transparent;
     --app-document-viewer-bg: var(--ui-bg-muted);
     --app-document-page-bg: var(--ui-bg);
     --app-document-thumbnails-background: var(--ui-bg-muted);
@@ -437,15 +415,12 @@
 
     /* Start / landing screen */
     --app-start-bg: color-mix(in oklab, var(--ui-bg) 88%, var(--ui-bg-muted) 12%);
-    --app-start-rail-bg: color-mix(in oklab, var(--ui-bg) 70%, var(--ui-bg-muted) 30%);
-    --app-start-rail-border: color-mix(in oklab, var(--ui-border) 80%, transparent);
     --app-start-rail-item-active-bg: var(--app-nav-bg-active);
     --app-start-rail-item-active-fg: var(--ui-text);
     --app-start-rail-item-active-border: var(--app-nav-border-active);
     --app-start-rail-item-active-hover-bg: var(--app-nav-bg-active-hover);
     --app-start-rail-item-hover-bg: var(--app-nav-bg-hover);
     --app-start-rail-item-fg: color-mix(in oklab, var(--ui-text) 78%, var(--ui-text-muted) 22%);
-    --app-start-rail-section-fg: var(--ui-text-dimmed);
     --app-start-card-bg: var(--ui-bg);
     --app-start-card-border: color-mix(in oklab, var(--ui-border) 88%, transparent);
     --app-start-dropzone-border: color-mix(in oklab, var(--ui-border) 78%, var(--ui-primary) 22%);
@@ -456,10 +431,6 @@
     --app-start-row-remove-hover-bg: color-mix(in oklab, var(--ui-bg) 78%, var(--ui-text) 22%);
     --app-start-row-remove-fg: var(--ui-text-dimmed);
     --app-start-row-remove-hover-fg: var(--ui-text);
-    --app-start-primary-grad-from: oklch(58% 0.16 248);
-    --app-start-primary-grad-to: oklch(48% 0.18 252);
-    --app-start-primary-shadow: 0 1px 2px color-mix(in srgb, var(--ui-primary) 35%, transparent), 0 4px 12px color-mix(in srgb, var(--ui-primary) 18%, transparent);
-    --app-start-primary-fg: oklch(100% 0 0);
     --app-start-shell-rail-width: 15.5rem;
     --app-start-shell-gap: var(--app-space-16xl);
     --app-start-shell-padding: var(--app-space-10xl) clamp(var(--app-space-9xl), 2vw, var(--app-space-16xl)) var(--app-space-12xl);
@@ -487,7 +458,6 @@
     --app-start-recent-header-padding: var(--app-space-10xl) var(--app-space-13xl) var(--app-space-9xl);
     --app-start-recent-controls-gap: var(--app-space-4xl);
     --app-start-control-gap: var(--app-space-2xl);
-    --app-start-control-padding-x: var(--app-space-7xl);
     --app-start-row-actions-padding-right: var(--app-space-8xl);
     --app-start-table-time-width: 5.5rem;
     --app-start-table-time-width-compact: 5.25rem;
@@ -546,7 +516,6 @@
     --app-combine-compact-dropzone-icon-size: 1.15rem;
     --app-combine-compact-copy-gap: 0.05rem;
     --app-combine-compact-title-size: var(--app-text-size-ui);
-    --app-combine-compact-text-size: var(--app-text-size-fine);
     --app-combine-small-row-columns: var(--app-combine-drag-handle-width) 1.5rem 1.75rem minmax(0, 1fr);
     --app-tab-context-menu-min-width: 13.125rem;
     --app-assistant-panel-default-width: 24rem;
@@ -594,7 +563,6 @@
     --app-pdf-initial-surface-z-index: var(--app-z-progress);
     --app-workspace-transition-overlay-z-index: var(--app-z-modal);
     --app-pdf-zoom-menu-width: 22rem;
-    --app-pdf-note-window-viewport-gutter: 18px;
     --app-z-pdf-image-placement-virtual-cursor: 2147483647;
     --app-native-pdf-placeholder-gap: var(--app-space-9xl);
     --app-native-pdf-page-number-offset: var(--app-space-9xl);
@@ -610,7 +578,6 @@
     --app-pdf-image-placement-rotate-stem-height: 1.9rem;
     --app-pdf-image-placement-controls-offset: 0.6rem;
     --app-pdf-image-placement-action-padding: 0.28rem var(--app-space-8xl);
-    --app-document-page-skeleton-radius: 2px;
     --app-document-page-skeleton-gap: 0.9rem;
     --app-document-page-skeleton-header-margin: 0.5rem;
     --app-document-page-skeleton-title-height: 1.2rem;
@@ -781,9 +748,7 @@
     --app-search-highlight-bg: rgb(255 230 0 / 32%);
     --app-search-highlight-current-bg: rgb(255 150 0 / 42%);
     --app-search-highlight-current-outline: rgb(255 100 0 / 72%);
-    --app-debug-word-box-border: rgb(0 100 255 / 40%);
     --app-debug-word-box-bg: rgb(0 100 255 / 10%);
-    --app-debug-word-box-current-border: rgb(0 150 255 / 80%);
     --app-debug-word-box-current-bg: rgb(0 150 255 / 25%);
     --app-debug-ocr-box-border: rgb(255 140 0 / 70%);
     --app-debug-ocr-box-bg: rgb(255 140 0 / 15%);
@@ -916,7 +881,6 @@
     --app-status-save-dot-clean-ring: oklch(53% 0.10 147);
     --app-status-save-dot-saving-bg: oklch(68% 0.16 259);
     --app-status-save-dot-saving-ring: oklch(51% 0.10 259);
-    --app-toolbar-group-tint: transparent;
     --app-document-viewer-bg: color-mix(in oklab, var(--ui-bg-muted) 88%, var(--ui-text) 12%);
     --app-document-page-bg: var(--ui-bg);
     --app-document-thumbnails-background: var(--ui-bg-muted);
@@ -924,15 +888,12 @@
 
     /* Start / landing screen — dark */
     --app-start-bg: color-mix(in oklab, var(--ui-bg) 92%, black 8%);
-    --app-start-rail-bg: color-mix(in oklab, var(--ui-bg) 80%, var(--ui-bg-elevated) 20%);
-    --app-start-rail-border: color-mix(in oklab, var(--ui-border) 88%, transparent);
     --app-start-rail-item-active-bg: var(--app-nav-bg-active);
     --app-start-rail-item-active-fg: var(--ui-text);
     --app-start-rail-item-active-border: var(--app-nav-border-active);
     --app-start-rail-item-active-hover-bg: var(--app-nav-bg-active-hover);
     --app-start-rail-item-hover-bg: var(--app-nav-bg-hover);
     --app-start-rail-item-fg: color-mix(in oklab, var(--ui-text) 78%, var(--ui-text-muted) 22%);
-    --app-start-rail-section-fg: var(--ui-text-dimmed);
     --app-start-card-bg: var(--ui-bg);
     --app-start-card-border: color-mix(in oklab, var(--ui-border) 88%, transparent);
     --app-start-dropzone-border: color-mix(in oklab, var(--ui-border) 70%, var(--ui-primary) 30%);
@@ -943,10 +904,6 @@
     --app-start-row-remove-hover-bg: color-mix(in oklab, var(--ui-bg) 70%, var(--ui-text) 30%);
     --app-start-row-remove-fg: var(--ui-text-dimmed);
     --app-start-row-remove-hover-fg: var(--ui-text);
-    --app-start-primary-grad-from: oklch(64% 0.16 248);
-    --app-start-primary-grad-to: oklch(54% 0.18 252);
-    --app-start-primary-shadow: 0 1px 2px color-mix(in srgb, black 30%, transparent), 0 6px 16px color-mix(in srgb, black 20%, transparent);
-    --app-start-primary-fg: oklch(100% 0 0);
 
     /* File-type badge palette — dark */
     --app-file-icon-pdf-fill: oklch(28% 0.012 30);

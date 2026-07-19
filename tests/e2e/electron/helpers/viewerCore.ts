@@ -1,6 +1,6 @@
 import type { Page } from 'puppeteer-core';
 import {realpath} from 'node:fs/promises';
-import type { IE2EWindow } from '@tests/e2e/electron/helpers/getE2EWindow';
+import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import { delay } from 'es-toolkit/promise';
 import {collectDocumentOpenDiagnostics} from '@tests/e2e/electron/helpers/collectDocumentOpenDiagnostics';
 import {
@@ -1382,86 +1382,7 @@ export async function waitForToolbarCurrentPage(
     }, {timeout: timeoutMs}, expectedPage);
 }
 
-export async function waitForActiveThumbnailInView(
-    page: Page,
-    expectedPage: number,
-    timeoutMs = DEFAULT_TIMEOUT_MS,
-) {
-    await page.waitForFunction((targetPage: number) => {
-        const isVisibleHost = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
-        };
 
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const host = (activeHost && isVisibleHost(activeHost))
-            ? activeHost
-            : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-                .find(isVisibleHost);
-        if (!host) {
-            return false;
-        }
-
-        const container = host.querySelector<HTMLElement>('.pdf-sidebar-pages-thumbnails .pdf-thumbnails');
-        const activeThumbnail = host.querySelector<HTMLElement>(`.pdf-thumbnail.is-active[data-page="${targetPage}"]`);
-        if (!container || !activeThumbnail) {
-            return false;
-        }
-
-        const containerRect = container.getBoundingClientRect();
-        const thumbnailRect = activeThumbnail.getBoundingClientRect();
-        const margin = 8;
-
-        return (
-            thumbnailRect.top >= containerRect.top + margin
-            && thumbnailRect.bottom <= containerRect.bottom - margin
-        );
-    }, { timeout: timeoutMs }, expectedPage);
-}
-
-export async function resizeSidebarBy(page: Page, deltaX: number, steps = 12) {
-    await ensureSidebarOpen(page);
-    await waitForActiveWorkspaceHost(page);
-
-    const resizerPoint = await page.evaluate(() => {
-        const isVisibleHost = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
-        };
-
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const host = (activeHost && isVisibleHost(activeHost))
-            ? activeHost
-            : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-                .find(isVisibleHost);
-        if (!host) {
-            return null;
-        }
-
-        const resizer = host.querySelector<HTMLElement>('.sidebar-resizer');
-        if (!resizer) {
-            return null;
-        }
-
-        const rect = resizer.getBoundingClientRect();
-        return {
-            x: Math.round(rect.left + rect.width / 2),
-            y: Math.round(rect.top + rect.height / 2),
-        };
-    });
-
-    if (!resizerPoint) {
-        throw new Error('Sidebar resizer not found');
-    }
-
-    await page.mouse.move(resizerPoint.x, resizerPoint.y);
-    await page.mouse.down();
-    await page.mouse.move(resizerPoint.x + deltaX, resizerPoint.y, { steps });
-    await page.mouse.up();
-    await delay(150);
-}
 
 export async function saveViaWindowHandle(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
     const saveBaselineEventId = await getLatestAutomationEventId(page);

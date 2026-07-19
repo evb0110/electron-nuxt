@@ -411,26 +411,6 @@ describe('usePdfHistory', () => {
         expect(scrollToPage).toHaveBeenCalledWith(5);
     });
 
-    it('uses page-only reload restoration consistently', async () => {
-        const deps = createMockDeps();
-        const scrollToPage = vi.fn();
-        deps.pdfViewerRef.value = {
-            scrollToPage,
-            undoAnnotation: vi.fn(),
-            redoAnnotation: vi.fn(),
-        };
-        const { waitForPdfReload } = usePdfHistory(deps);
-
-        const promise = waitForPdfReload(5);
-
-        deps.pdfDocument.value = { numPages: 10 } as PDFDocumentProxy;
-        await nextTick();
-        await vi.advanceTimersByTimeAsync(32);
-        await promise;
-
-        expect(scrollToPage).toHaveBeenCalledWith(5);
-    });
-
     it('does not call scrollToPage if doc reference stays the same', async () => {
         const doc = cast<PDFDocumentProxy>({ numPages: 3 });
         const deps = createMockDeps({ pdfDocument: cast<Ref<PDFDocumentProxy | null>>(ref(doc)) });

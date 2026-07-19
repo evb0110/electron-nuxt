@@ -1,5 +1,4 @@
 import type { Page } from 'puppeteer-core';
-import { clamp } from 'es-toolkit/math';
 import { delay } from 'es-toolkit/promise';
 import { readPdfAnnotationSummary } from '@tests/e2e/electron/helpers/fixtures';
 import {
@@ -7,7 +6,6 @@ import {
     findVisiblePointInActiveHost,
 } from '@tests/e2e/electron/helpers/viewerDom';
 import {
-    clickToolbarButtonWhenEnabled,
     openAnnotationsTab,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
@@ -181,65 +179,26 @@ async function waitForAnnotationEditorMode(
     });
 }
 
-async function getLatestFreeTextHitPoints(page: Page) {
+async function getActiveToolLabel(page: Page) {
     return page.evaluate(() => {
+        const isVisibleHost = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return (
+                style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && Number(style.opacity || '1') > 0
+                && rect.width > 100
+                && rect.height > 100
+            );
+        };
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter((candidate) => {
-                const rect = candidate.getBoundingClientRect();
-                const style = window.getComputedStyle(candidate);
-                return (
-                    style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                    && Number(style.opacity || '1') > 0
-                    && rect.width > 100
-                    && rect.height > 100
-                );
-            });
+            .filter(isVisibleHost);
         const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector('.freeTextEditor'));
-        const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
-            ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
-            ?? (visibleHosts.length === 1 ? visibleHosts[0] : null);
-        const editors = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? [])
-            .filter((editor) => {
-                const rect = editor.getBoundingClientRect();
-                return rect.width > 0 && rect.height > 0;
-            });
-        const editor = editors[editors.length - 1];
-        if (!editor) {
-            return [] as Array<{
-                x: number;
-                y: number;
-            }>;
-        }
-
-        const overlay = editor.querySelector<HTMLElement>('.overlay');
-        const targetRect = (overlay ?? editor).getBoundingClientRect();
-        const clampInset = (size: number, inset: number) => clamp(inset, 4, size - 4);
-        const candidates = [
-            {
-                x: Math.round(targetRect.left + clampInset(targetRect.width, 8)),
-                y: Math.round(targetRect.top + clampInset(targetRect.height, 8)),
-            },
-            {
-                x: Math.round(targetRect.left + clampInset(targetRect.width, targetRect.width / 2)),
-                y: Math.round(targetRect.top + clampInset(targetRect.height, targetRect.height / 2)),
-            },
-            {
-                x: Math.round(targetRect.left + clampInset(targetRect.width, targetRect.width - 8)),
-                y: Math.round(targetRect.top + clampInset(targetRect.height, 8)),
-            },
-        ];
-
-        const seen = new Set<string>();
-        return candidates.filter((candidate) => {
-            const key = `${candidate.x}:${candidate.y}`;
-            if (seen.has(key)) {
-                return false;
-            }
-            seen.add(key);
-            return true;
-        });
+        const host = (activeHost && visibleHosts.includes(activeHost))
+            ? activeHost
+            : (visibleHosts.length === 1 ? visibleHosts[0] : null);
+        return host?.querySelector('.notes-panel .tool-button.is-active')?.getAttribute('data-tool') ?? null;
     });
 }
 
@@ -308,28 +267,6 @@ export async function setAnnotationColor(page: Page, colorHex: string) {
     });
 }
 
-export async function getActiveToolLabel(page: Page) {
-    return page.evaluate(() => {
-        const isVisibleHost = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return (
-                style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && Number(style.opacity || '1') > 0
-                && rect.width > 100
-                && rect.height > 100
-            );
-        };
-        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const host = (activeHost && visibleHosts.includes(activeHost))
-            ? activeHost
-            : (visibleHosts.length === 1 ? visibleHosts[0] : null);
-        return host?.querySelector('.notes-panel .tool-button.is-active')?.getAttribute('data-tool') ?? null;
-    });
-}
 
 export async function getFreeTextEditorCount(page: Page) {
     return page.evaluate(() => {
@@ -362,7 +299,8 @@ export async function getHighlightEditorCount(page: Page) {
     });
 }
 
-export async function getVisibleHighlightEditorCounts(page: Page) {
+
+async function getVisibleHighlightEditorCounts(page: Page) {
     return page.evaluate(() => {
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
             .filter((candidate) => {
@@ -745,71 +683,6 @@ export async function collectStickyNoteDebugState(page: Page) {
     };
 }
 
-export async function clickPageAtRatio(
-    page: Page,
-    ratio: {
-        x: number;
-        y: number;
-    },
-    pageNumber?: number,
-) {
-    await waitForViewerInteractive(page);
-
-    const point = await page.evaluate(({
-        xRatio,
-        yRatio,
-        targetPageNumber,
-    }) => {
-        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter((candidate) => {
-                const rect = candidate.getBoundingClientRect();
-                const style = window.getComputedStyle(candidate);
-                return (
-                    style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                    && Number(style.opacity || '1') > 0
-                    && rect.width > 100
-                    && rect.height > 100
-                );
-            });
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const pageSelector = targetPageNumber
-            ? `.page_container[data-page="${targetPageNumber}"]`
-            : '.page_container';
-        const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector(pageSelector));
-        const host = (
-            activeHost
-            && visibleHosts.includes(activeHost)
-            && activeHost.querySelector(pageSelector)
-        )
-            ? activeHost
-            : ((matchingHosts.length === 1 ? matchingHosts[0] : null) ?? (visibleHosts.length === 1 ? visibleHosts[0] : null));
-        if (!host) {
-            return null;
-        }
-
-        const pageContainer = host.querySelector<HTMLElement>(pageSelector);
-        if (!pageContainer) {
-            return null;
-        }
-
-        const rect = pageContainer.getBoundingClientRect();
-        return {
-            x: Math.round(rect.left + rect.width * xRatio),
-            y: Math.round(rect.top + rect.height * yRatio),
-        };
-    }, {
-        xRatio: ratio.x,
-        yRatio: ratio.y,
-        targetPageNumber: pageNumber ?? null,
-    });
-
-    if (!point) {
-        throw new Error(`Target page not found${pageNumber ? ` (page ${pageNumber})` : ''}`);
-    }
-
-    await page.mouse.click(point.x, point.y);
-}
 
 async function resolveAnnotationLayerPoint(
     page: Page,
@@ -875,6 +748,72 @@ async function resolveAnnotationLayerPoint(
         yRatio: ratio.y,
         targetPageNumber: pageNumber ?? null,
     });
+}
+
+async function clickPageAtRatio(
+    page: Page,
+    ratio: {
+        x: number;
+        y: number;
+    },
+    pageNumber?: number,
+) {
+    await waitForViewerInteractive(page);
+
+    const point = await page.evaluate(({
+        xRatio,
+        yRatio,
+        targetPageNumber,
+    }) => {
+        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+            .filter((candidate) => {
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return (
+                    style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && Number(style.opacity || '1') > 0
+                    && rect.width > 100
+                    && rect.height > 100
+                );
+            });
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const pageSelector = targetPageNumber
+            ? `.page_container[data-page="${targetPageNumber}"]`
+            : '.page_container';
+        const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector(pageSelector));
+        const host = (
+            activeHost
+            && visibleHosts.includes(activeHost)
+            && activeHost.querySelector(pageSelector)
+        )
+            ? activeHost
+            : ((matchingHosts.length === 1 ? matchingHosts[0] : null) ?? (visibleHosts.length === 1 ? visibleHosts[0] : null));
+        if (!host) {
+            return null;
+        }
+
+        const pageContainer = host.querySelector<HTMLElement>(pageSelector);
+        if (!pageContainer) {
+            return null;
+        }
+
+        const rect = pageContainer.getBoundingClientRect();
+        return {
+            x: Math.round(rect.left + rect.width * xRatio),
+            y: Math.round(rect.top + rect.height * yRatio),
+        };
+    }, {
+        xRatio: ratio.x,
+        yRatio: ratio.y,
+        targetPageNumber: pageNumber ?? null,
+    });
+
+    if (!point) {
+        throw new Error(`Target page not found${pageNumber ? ` (page ${pageNumber})` : ''}`);
+    }
+
+    await page.mouse.click(point.x, point.y);
 }
 
 async function synthesizeAnnotationCreationClick(
@@ -1433,292 +1372,4 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
     }
 
     return getFreeTextEditorCount(page);
-}
-
-export async function deleteLatestFreeTextAnnotation(page: Page) {
-    const before = await getFreeTextEditorCount(page);
-    if (before === 0) {
-        return 0;
-    }
-
-    await waitForViewerInteractive(page);
-
-    const editorPoints = await getLatestFreeTextHitPoints(page);
-    if (editorPoints.length === 0) {
-        return before;
-    }
-
-    const waitForCountDrop = async (timeoutMs: number) => {
-        await page.waitForFunction((previousCount: number) => {
-            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-                .filter((candidate) => {
-                    const rect = candidate.getBoundingClientRect();
-                    const style = window.getComputedStyle(candidate);
-                    return (
-                        style.display !== 'none'
-                        && style.visibility !== 'hidden'
-                        && Number(style.opacity || '1') > 0
-                        && rect.width > 100
-                        && rect.height > 100
-                    );
-                });
-            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-            const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector('.freeTextEditor'));
-            const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
-                ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
-                ?? (visibleHosts.length === 1 ? visibleHosts[0] : null);
-            return (host?.querySelectorAll('.freeTextEditor').length ?? 0) < previousCount;
-        }, {timeout: timeoutMs}, before);
-    };
-
-    // The E2E path creates a committed FreeText editor immediately before
-    // deleting it. Reverting the latest annotation history entry is the most
-    // reliable headless-safe way to remove that just-created editor.
-    try {
-        await clickAnnotationTool(page, 'Select');
-        await clickToolbarButtonWhenEnabled(page, 'Undo', Math.min(DEFAULT_TIMEOUT_MS, 4_000));
-        await waitForCountDrop(Math.min(DEFAULT_TIMEOUT_MS, 4_000));
-        return await getFreeTextEditorCount(page);
-    } catch {
-        // Fall back to selection-based deletion below.
-    }
-
-    // In NONE idle mode the editor layer is disabled (pointer-events: none),
-    // so we must activate the FreeText tool to make editors interactive.
-    // Clicking an editor in FREETEXT mode enters editing; Escape exits editing
-    // while keeping the editor selected, then Delete removes it.
-    let lastError: Error | null = null;
-    for (const editorPoint of editorPoints) {
-        await clickAnnotationTool(page, 'Text');
-        await page.mouse.click(editorPoint.x, editorPoint.y);
-        await page.keyboard.press('Escape');
-        await page.keyboard.press('Delete');
-
-        try {
-            await waitForCountDrop(Math.min(DEFAULT_TIMEOUT_MS, 3_500));
-            await clickAnnotationTool(page, 'Select');
-            return await getFreeTextEditorCount(page);
-        } catch {
-            // Escape+Delete didn't work — try programmatic removal via PDF.js
-            await installWorkspaceExposeProbe(page);
-            const removalResult = await page.evaluate(() => {
-                const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host')
-                    ?? document.querySelector<HTMLElement>('.workspace-host')
-                    ?? null;
-                const target = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? []).at(-1) ?? null;
-                if (!host || !target) {
-                    return {
-                        removed: false,
-                        reason: 'missing-host-or-target',
-                    };
-                }
-
-                const uiManager = (window as IWorkspaceExposeProbeWindow).__evbFindWorkspaceExpose?.({ requiredMethods: ['getEditors'] });
-                if (!uiManager) {
-                    return {
-                        removed: false,
-                        reason: 'missing-ui-manager',
-                    };
-                }
-
-                const getEditors = (uiManager as {getEditors?: (pageIndex: number) => Iterable<{div?: HTMLElement | null;}>;} | null)?.getEditors;
-                const setSelected = (uiManager as {setSelected?: (editor: unknown) => void;} | null)?.setSelected;
-                const deleteSelection = (uiManager as {delete?: () => void;} | null)?.delete;
-                if (
-                    typeof getEditors !== 'function'
-                    || typeof setSelected !== 'function'
-                    || typeof deleteSelection !== 'function'
-                ) {
-                    return {
-                        removed: false,
-                        reason: 'missing-delete-api',
-                    };
-                }
-
-                const pageCount = Math.max(1, host.querySelectorAll('.page_container').length);
-                const editors = Array.from({ length: pageCount }, (_, pageIndex) => (
-                    Array.from(getEditors.call(uiManager, pageIndex) ?? [])
-                )).flat();
-                const matchingEditor = editors.find((editor) => {
-                    const div = editor.div ?? null;
-                    return div === target || Boolean(div?.contains(target)) || Boolean(target.contains(div));
-                }) ?? editors.find((editor) => editor.div?.classList.contains('freeTextEditor')) ?? null;
-
-                if (!matchingEditor) {
-                    return {
-                        removed: false,
-                        reason: `no-matching-editor:${editors.length}`,
-                    };
-                }
-
-                setSelected.call(uiManager, matchingEditor);
-                deleteSelection.call(uiManager);
-                return {
-                    removed: true,
-                    reason: `deleted:${editors.length}`,
-                };
-            });
-
-            if (removalResult.removed) {
-                try {
-                    await waitForCountDrop(DEFAULT_TIMEOUT_MS);
-                    await clickAnnotationTool(page, 'Select');
-                    return await getFreeTextEditorCount(page);
-                } catch {
-                    continue;
-                }
-            }
-            lastError = new Error(`Programmatic delete failed (${removalResult.reason})`);
-            continue;
-        }
-    }
-
-    try {
-        await clickAnnotationTool(page, 'Select');
-        await clickToolbarButtonWhenEnabled(page, 'Undo', Math.min(DEFAULT_TIMEOUT_MS, 4_000));
-        await waitForCountDrop(DEFAULT_TIMEOUT_MS);
-        return await getFreeTextEditorCount(page);
-    } catch (error) {
-        lastError = error instanceof Error ? error : new Error(String(error));
-    }
-
-    throw new Error(`Unable to delete the latest FreeText annotation from any hit target${lastError ? ` (${lastError.message})` : ''}`);
-}
-
-export async function createHighlightFromVisibleText(page: Page) {
-    const before = await getHighlightEditorCount(page);
-    await clickAnnotationTool(page, 'Highlight');
-
-    const dragPoints = await page.evaluate(() => {
-        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host')
-            ?? null;
-        if (!host) {
-            return null;
-        }
-
-        const spans = Array.from(host.querySelectorAll<HTMLElement>('.page_container .text-layer span, .page_container .textLayer span'))
-            .filter((span) => (span.textContent ?? '').trim().length > 0);
-        if (spans.length < 2) {
-            return null;
-        }
-
-        const first = spans[0]?.getBoundingClientRect();
-        const second = spans[1]?.getBoundingClientRect();
-        if (!first || !second) {
-            return null;
-        }
-
-        return {
-            x1: Math.round(first.left + 2),
-            y1: Math.round(first.top + first.height / 2),
-            x2: Math.round(second.right - 2),
-            y2: Math.round(second.top + second.height / 2),
-        };
-    });
-
-    if (!dragPoints) {
-        throw new Error('Unable to locate visible text spans for highlight creation');
-    }
-
-    await page.mouse.move(dragPoints.x1, dragPoints.y1);
-    await page.mouse.down();
-    await page.mouse.move(dragPoints.x2, dragPoints.y2, { steps: 8 });
-    await page.mouse.up();
-
-    await page.waitForFunction((previousCount: number) => {
-        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host')
-            ?? null;
-        return (host?.querySelectorAll('.highlightEditor').length ?? 0) > previousCount;
-    }, {timeout: DEFAULT_TIMEOUT_MS}, before);
-
-    return getHighlightEditorCount(page);
-}
-
-export async function openContextMenuOnLatestFreeText(page: Page) {
-    const points = await getLatestFreeTextHitPoints(page);
-    if (points.length === 0) {
-        return {
-            visible: false,
-            items: [] as string[],
-        };
-    }
-
-    let opened = false;
-    for (const point of points) {
-        await clickAnnotationTool(page, 'Select');
-        await page.mouse.click(point.x, point.y, { button: 'right' });
-
-        opened = await page.waitForFunction(() => (
-            Boolean(document.querySelector('.annotation-context-menu .pdf-context-menu__action--danger'))
-        ), {timeout: 2_500})
-            .then(() => true)
-            .catch(() => false);
-
-        if (opened) {
-            break;
-        }
-
-        await page.keyboard.press('Escape').catch(() => {});
-    }
-
-    if (!opened) {
-        return {
-            visible: false,
-            items: [] as string[],
-        };
-    }
-
-    return page.evaluate(() => {
-        const menu = document.querySelector('.annotation-context-menu');
-        const items = Array.from(document.querySelectorAll('.annotation-context-menu button, .annotation-context-menu [role="menuitem"]'))
-            .map(item => (item.textContent ?? '').trim())
-            .filter(Boolean);
-        return {
-            visible: Boolean(menu),
-            items,
-        };
-    });
-}
-
-export async function countFreeTextEditorsOnPage(page: Page, pageNumber: number) {
-    return page.evaluate((targetPageNumber: number) => {
-        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter((candidate) => {
-                const rect = candidate.getBoundingClientRect();
-                const style = window.getComputedStyle(candidate);
-                return (
-                    style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                    && Number(style.opacity || '1') > 0
-                    && rect.width > 100
-                    && rect.height > 100
-                );
-            });
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const pageSelector = `.page_container[data-page="${targetPageNumber}"]`;
-        const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector(pageSelector));
-        const host = (
-            activeHost
-            && visibleHosts.includes(activeHost)
-            && activeHost.querySelector(pageSelector)
-        )
-            ? activeHost
-            : ((matchingHosts.length === 1 ? matchingHosts[0] : null) ?? (visibleHosts.length === 1 ? visibleHosts[0] : null));
-        if (!host) {
-            return 0;
-        }
-        return host.querySelectorAll(`${pageSelector} .freeTextEditor`).length;
-    }, pageNumber);
-}
-
-export async function getFirstFreeTextComputedColor(page: Page) {
-    return page.evaluate(() => {
-        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host')
-            ?? null;
-        const editor = host?.querySelector<HTMLElement>('.freeTextEditor [contenteditable], .freeTextEditor');
-        if (!editor) {
-            return null;
-        }
-        return window.getComputedStyle(editor).color;
-    });
 }

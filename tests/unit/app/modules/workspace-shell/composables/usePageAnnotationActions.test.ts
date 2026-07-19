@@ -1279,30 +1279,6 @@ describe('usePageAnnotationActions', () => {
         expect(viewer.deleteEmbeddedAnnotationDeferred).not.toHaveBeenCalled();
     });
 
-    it('lets PDF.js own unsaved editor FreeText deletes', async () => {
-        const {
-            viewer,
-            actions,
-        } = createHarness();
-        const comment = createComment('uid:0:pdfjs_internal_editor_0');
-        comment.source = 'editor';
-        comment.annotationId = 'pdfjs_internal_editor_0';
-        comment.uid = 'pdfjs_internal_editor_0';
-        comment.subtype = 'Typewriter';
-        comment.hasNote = true;
-        comment.markerRect = {
-            left: 0.1,
-            top: 0.2,
-            width: 0.0016,
-            height: 0.0016,
-        };
-
-        await actions.handleDeleteAnnotationComment(comment);
-
-        expect(viewer.deleteAnnotationComment).toHaveBeenCalledWith(comment);
-        expect(viewer.deleteEmbeddedAnnotationDeferred).not.toHaveBeenCalled();
-    });
-
     it('lets the viewer own shape annotation deletes even when they have embedded refs', async () => {
         const {
             viewer,

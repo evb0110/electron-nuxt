@@ -20,8 +20,6 @@ import {
 } from 'node:path';
 import {
     PDFDocument,
-    PDFName,
-    PDFString,
     StandardFonts,
     rgb,
 } from 'pdf-lib';
@@ -380,18 +378,9 @@ function resolveProjectFixturePath(sourceFilename: string) {
     throw new Error(`Fixture does not exist in any known location: ${candidatePaths.join(', ')}`);
 }
 
-export function copyDevkitFixture(sourceRelativePath: string, targetFilename?: string) {
-    ensureFixtureDir();
-    const sourcePath = resolve(PROJECT_ROOT_FIXTURE_DIR, sourceRelativePath);
-    if (!existsSync(sourcePath)) {
-        throw new Error(`Fixture does not exist: ${sourcePath}`);
-    }
-    const targetPath = join(getFixtureDir(), targetFilename ?? basename(sourcePath));
-    writeFileSync(targetPath, readFileSync(sourcePath));
-    return targetPath;
-}
 
-export function resolveLargePdfFixturePath() {
+
+function resolveLargePdfFixturePath() {
     const overridePath = process.env[LARGE_PDF_FIXTURE_ENV_VAR]?.trim();
     const candidatePaths = overridePath
         ? [resolve(overridePath)]
@@ -444,62 +433,6 @@ export function copyLargePdfFixture(targetFilename?: string) {
     return targetPath;
 }
 
-export async function createLinkOverlayFixturePdf(filename: string, url: string) {
-    ensureFixtureDir();
-    const filePath = join(getFixtureDir(), filename);
-
-    const doc = await PDFDocument.create();
-    const font = await doc.embedFont(StandardFonts.Helvetica);
-    const page = doc.addPage([
-        612,
-        792,
-    ]);
-
-    const text = 'Open external link';
-    const size = 22;
-    const x = 80;
-    const y = 650;
-    const textWidth = font.widthOfTextAtSize(text, size);
-
-    page.drawText(text, {
-        x,
-        y,
-        size,
-        font,
-        color: rgb(0.1, 0.22, 0.9),
-    });
-
-    const action = doc.context.obj({
-        Type: PDFName.of('Action'),
-        S: PDFName.of('URI'),
-        URI: PDFString.of(url),
-    });
-    const actionRef = doc.context.register(action);
-
-    const linkAnnotation = doc.context.obj({
-        Type: PDFName.of('Annot'),
-        Subtype: PDFName.of('Link'),
-        Rect: [
-            x,
-            y - 4,
-            x + textWidth,
-            y + size + 6,
-        ],
-        Border: [
-            0,
-            0,
-            0,
-        ],
-        A: actionRef,
-    });
-    const linkAnnotationRef = doc.context.register(linkAnnotation);
-    page.node.set(PDFName.of('Annots'), doc.context.obj([linkAnnotationRef]));
-
-    const bytes = await doc.save();
-    writeFileSync(filePath, bytes);
-
-    return filePath;
-}
 
 export async function createMultiPageTextFixturePdf(filename: string, pageCount = 3) {
     ensureFixtureDir();
@@ -535,61 +468,6 @@ export async function createMultiPageTextFixturePdf(filename: string, pageCount 
     return filePath;
 }
 
-export async function createLargeMultiPageTextFixturePdf(
-    filename: string,
-    pageCount = 431,
-    attachmentSizeBytes = 28 * 1024 * 1024,
-) {
-    ensureFixtureDir();
-    const filePath = join(getFixtureDir(), filename);
-
-    const doc = await PDFDocument.create();
-    const font = await doc.embedFont(StandardFonts.Helvetica);
-
-    for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
-        const page = doc.addPage([
-            612,
-            792,
-        ]);
-        page.drawText(`E2E Large PDF Fixture ${pageNumber}/${pageCount}`, {
-            x: 70,
-            y: 710,
-            size: 24,
-            font,
-            color: rgb(0.13, 0.13, 0.13),
-        });
-        for (let line = 0; line < 96; line += 1) {
-            page.drawText(
-                `Dense text layer page ${pageNumber} row ${line + 1} token ${pageNumber * 10_000 + line}`,
-                {
-                    x: 36,
-                    y: 680 - (line * 6.5),
-                    size: 5,
-                    font,
-                    color: rgb(0.2, 0.2, 0.2),
-                },
-            );
-        }
-    }
-
-    const attachment = new Uint8Array(attachmentSizeBytes);
-    let randomState = 0x6d2b79f5;
-    for (let index = 0; index < attachment.length; index += 1) {
-        randomState ^= randomState << 13;
-        randomState ^= randomState >>> 17;
-        randomState ^= randomState << 5;
-        attachment[index] = randomState & 0xff;
-    }
-    await doc.attach(attachment, 'deterministic-render-pressure.bin', {
-        mimeType: 'application/octet-stream',
-        description: 'Deterministic payload for large-PDF Electron rendering coverage',
-        creationDate: new Date('2026-01-01T00:00:00.000Z'),
-        modificationDate: new Date('2026-01-01T00:00:00.000Z'),
-    });
-
-    writeFileSync(filePath, await doc.save());
-    return filePath;
-}
 
 export async function createLargeScannedFixturePdf(
     filename: string,
@@ -782,13 +660,7 @@ export async function readPdfPageSnapshots(filePath: string): Promise<IPdfPageSn
     return pages;
 }
 
-export function findDjvuFixturePath() {
-    return resolveDjvuFixturePath().path;
-}
 
-export function isDjvuFixtureRequired() {
-    return true;
-}
 
 function getGeneratedDjvuFixturePath() {
     return join(FIXTURE_ROOT_DIR, 'generated', GENERATED_DJVU_FIXTURE_FILENAME);
@@ -888,6 +760,10 @@ function describeGeneratedDjvuFixtureFailure(error: unknown) {
         return error.message;
     }
     return String(error);
+}
+
+function isDjvuFixtureRequired() {
+    return true;
 }
 
 export function resolveDjvuFixturePath(options: IDjvuFixtureAvailabilityOptions = {}) {

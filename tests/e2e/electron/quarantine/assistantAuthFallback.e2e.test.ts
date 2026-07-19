@@ -23,7 +23,7 @@ import {
 } from '@tests/e2e/electron/helpers/viewerCore';
 import { waitForFunctionInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 import { waitForWorkspaceToolbarSnapshot } from '@tests/e2e/electron/helpers/workspaceExpose';
-import type { IE2EWindow } from '@tests/e2e/electron/helpers/getE2EWindow';
+import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import {
     electronUserDataPath,
     sessionDir,

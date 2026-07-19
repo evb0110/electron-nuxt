@@ -317,34 +317,6 @@ export function createPdfNoteComment(overrides: Partial<IAnnotationCommentSummar
     };
 }
 
-export function createMarkupComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
-    return {
-        id: overrides.id ?? '44R',
-        stableKey: overrides.stableKey ?? 'ann:0:44R',
-        sortIndex: null,
-        pageIndex: 0,
-        pageNumber: 1,
-        text: '',
-        kindLabel: 'Highlight',
-        subtype: overrides.subtype ?? 'Highlight',
-        author: null,
-        modifiedAt: null,
-        color: overrides.color ?? '#22c55e',
-        colorEdited: overrides.colorEdited ?? true,
-        uid: null,
-        annotationId: overrides.annotationId ?? '44R',
-        source: overrides.source ?? 'pdf',
-        hasNote: false,
-        markerRect: overrides.markerRect ?? {
-            left: 0.1,
-            top: 0.2,
-            width: 0.3,
-            height: 0.2,
-        },
-        ...overrides,
-    };
-}
-
 export function createEditorFreeTextNote(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
     return {
         id: overrides.id ?? 'pdfjs_internal_editor_0',

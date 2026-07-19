@@ -1,5 +1,5 @@
 import type { Page } from 'puppeteer-core';
-import type { IE2EWindow } from '@tests/e2e/electron/helpers/getE2EWindow';
+import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 import {
     callWorkspaceCommand,
@@ -29,24 +29,6 @@ export async function assertOcrPdfSemanticOutput(pdfPath: string, expectedText: 
     return recognizedText;
 }
 
-export async function createWorkingCopyFromPath(page: Page, sourcePath: string, originalPath?: string) {
-    return evaluateInPage(page, async ({
-        source,
-        original,
-    }) => {
-        const api = (window as IE2EWindow & {electronAPI?: {documents?: {createWorkingCopyFromPath?: (sourcePath: string, originalPath?: string) => Promise<string>;};};}).electronAPI;
-
-        const createWorkingCopy = api?.documents?.createWorkingCopyFromPath;
-        if (typeof createWorkingCopy !== 'function') {
-            throw new Error('electronAPI.documents.createWorkingCopyFromPath is unavailable');
-        }
-
-        return createWorkingCopy(source, original);
-    }, {
-        source: sourcePath,
-        original: originalPath,
-    });
-}
 
 export async function getActiveWorkspaceWorkingCopyPath(page: Page) {
     const { workingCopyPath } = await readWorkspaceStateValues<{workingCopyPath?: string | null}>(page, ['workingCopyPath']);
@@ -187,43 +169,7 @@ export async function runOcrSearchablePdf(
     };
 }
 
-export async function acknowledgeOcrResult(page: Page, requestId: string, pdfPath: string) {
-    return evaluateInPage(page, async ({
-        id,
-        path,
-    }) => {
-        const api = (window as IE2EWindow & {electronAPI?: {ocr?: {acknowledgeResultFile?: (requestId: string, pdfPath?: string) => Promise<{
-            cleaned: boolean;
-            error?: string
-        }>;};};}).electronAPI;
 
-        if (!api?.ocr?.acknowledgeResultFile) {
-            return {
-                cleaned: false,
-                error: 'acknowledgeResultFile unavailable',
-            };
-        }
-
-        return api.ocr.acknowledgeResultFile(id, path);
-    }, {
-        id: requestId,
-        path: pdfPath,
-    });
-}
-
-export async function applyOcrResultToActiveWorkspace(page: Page, pdfPath: string) {
-    const workingCopyPath = await getActiveWorkspaceWorkingCopyPath(page);
-    const result = await callWorkspaceCommand(page, 'handleOcrComplete', [{
-        requestId: `e2e-ocr-${Date.now()}`,
-        pdfPath,
-        requiresCleanupAck: false,
-        sourceWorkingCopyPath: workingCopyPath,
-    }]);
-    if (!result.called) {
-        throw new Error('handleOcrComplete is unavailable on the active workspace');
-    }
-    return true;
-}
 
 export async function consumeOcrResultIntoActiveWorkspace(
     page: Page,
@@ -272,62 +218,3 @@ export async function rotatePages(page: Page, workingCopyPath: string, pages: nu
     });
 }
 
-export async function reorderPages(page: Page, workingCopyPath: string, newOrder: number[]) {
-    return evaluateInPage(page, async ({
-        workingPath,
-        order,
-    }) => {
-        const api = (window as IE2EWindow).electronAPI;
-
-        const reorder = api?.pageOps?.reorder;
-        const getDocumentRevision = api?.documents?.getDocumentRevision;
-        if (!reorder || !getDocumentRevision) {
-            throw new Error('electronAPI page reorder capability is unavailable');
-        }
-        const revision = await getDocumentRevision(workingPath);
-        return reorder(workingPath, order, {expectedDocumentRevisionToken: revision.token});
-    }, {
-        workingPath: workingCopyPath,
-        order: newOrder,
-    });
-}
-
-export async function deletePages(page: Page, workingCopyPath: string, pages: number[], totalPages: number) {
-    return evaluateInPage(page, async ({
-        workingPath,
-        targetPages,
-        pageCount,
-    }) => {
-        const api = (window as IE2EWindow).electronAPI;
-
-        const remove = api?.pageOps?.delete;
-        const getDocumentRevision = api?.documents?.getDocumentRevision;
-        if (!remove || !getDocumentRevision) {
-            throw new Error('electronAPI page deletion capability is unavailable');
-        }
-        const revision = await getDocumentRevision(workingPath);
-        return remove(workingPath, targetPages, pageCount, {expectedDocumentRevisionToken: revision.token});
-    }, {
-        workingPath: workingCopyPath,
-        targetPages: pages,
-        pageCount: totalPages,
-    });
-}
-
-export async function openDjvuForViewing(page: Page, djvuPath: string) {
-    return evaluateInPage(page, async (sourcePath: string) => {
-        const api = (window as IE2EWindow & {electronAPI?: {djvu?: {openForViewing?: (path: string) => Promise<{
-            success: boolean;
-            pdfPath?: string;
-            pageCount?: number;
-            error?: string
-        }>;};};}).electronAPI;
-
-        const openForViewing = api?.djvu?.openForViewing;
-        if (!openForViewing) {
-            throw new Error('electronAPI.djvu.openForViewing is unavailable');
-        }
-
-        return openForViewing(sourcePath);
-    }, djvuPath);
-}

@@ -15,7 +15,7 @@ import {
     getCapturedIpcHandler,
 } from '@tests/unit/electron/helpers/validatedIpcRegistrarHarness';
 
-export interface IIpcRoundTripInvokeCall {
+interface IIpcRoundTripInvokeCall {
     args: unknown[];
     channel: string;
 }

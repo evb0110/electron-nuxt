@@ -2,17 +2,9 @@ import {
     describe,
     expect,
     it,
-    vi,
 } from 'vitest';
-import {
-    nextTick,
-    ref,
-} from 'vue';
-import { useWorkspaceUiSyncWatchers } from '@app/modules/workspace-shell/composables/useWorkspaceUiSyncWatchers';
 import { resolveWorkspaceTabUpdate } from '@app/modules/workspace-shell/state/resolveWorkspaceTabUpdate';
 import { resolveWorkspaceWindowTitle } from '@app/modules/workspace-shell/state/resolveWorkspaceWindowTitle';
-
-type TWorkspaceUiSyncDeps = Parameters<typeof useWorkspaceUiSyncWatchers>[0];
 
 describe('resolveWorkspaceWindowTitle', () => {
     it('prefers DjVu source filename when in DjVu mode', () => {
@@ -105,26 +97,5 @@ describe('resolveWorkspaceTabUpdate', () => {
             isDirty: false,
             isDjvu: false,
         });
-    });
-});
-
-function createWatcherDeps(overrides: Partial<TWorkspaceUiSyncDeps> = {}): TWorkspaceUiSyncDeps {
-    return {
-        showSettings: ref(false),
-        emitOpenSettings: (vi.fn() as TWorkspaceUiSyncDeps['emitOpenSettings']),
-        ...overrides,
-    };
-}
-
-describe('useWorkspaceUiSyncWatchers', () => {
-    it('forwards settings requests and clears the local flag', async () => {
-        const deps = createWatcherDeps();
-        useWorkspaceUiSyncWatchers(deps);
-
-        deps.showSettings.value = true;
-        await nextTick();
-
-        expect(deps.emitOpenSettings).toHaveBeenCalledTimes(1);
-        expect(deps.showSettings.value).toBe(false);
     });
 });

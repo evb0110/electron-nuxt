@@ -61,8 +61,6 @@ import {
     selectOrphanedProjectNuxtRootCleanupTargets,
     selectStaleNuxtPortOwnerCleanupTargets,
 } from '@scripts/electron-run/sessionManager';
-import { shouldWaitForExternalDevServer } from '@electron/shouldWaitForExternalDevServer';
-
 const rootPackage = JSON.parse(await readFile('package.json', 'utf8')) as {version: string};
 
 describe('sessionManager automation launch args', () => {
@@ -367,32 +365,6 @@ describe('sessionManager automation launch args', () => {
             platform: 'darwin',
             rootDir: '/repo',
         })).toBe('/repo/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron');
-    });
-
-    it('waits for an external dev server only for fixed-port dev automation', () => {
-        expect(shouldWaitForExternalDevServer({
-            isDev: true,
-            hasFixedServerPort: true,
-            waitForExternalDevServer: true,
-        })).toBe(true);
-
-        expect(shouldWaitForExternalDevServer({
-            isDev: false,
-            hasFixedServerPort: true,
-            waitForExternalDevServer: true,
-        })).toBe(false);
-
-        expect(shouldWaitForExternalDevServer({
-            isDev: true,
-            hasFixedServerPort: false,
-            waitForExternalDevServer: true,
-        })).toBe(false);
-
-        expect(shouldWaitForExternalDevServer({
-            isDev: true,
-            hasFixedServerPort: true,
-            waitForExternalDevServer: false,
-        })).toBe(false);
     });
 
     it('reuses only Nuxt-looking dev server responses', () => {

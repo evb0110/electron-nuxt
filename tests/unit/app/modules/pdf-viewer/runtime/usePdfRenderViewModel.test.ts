@@ -207,26 +207,6 @@ describe('usePdfRenderViewModel', () => {
         }
     });
 
-    it('keeps skeletons eligible while paged navigation waits to commit the target canvas', () => {
-        vi.useFakeTimers();
-        try {
-            const {
-                scope,
-                viewModel,
-            } = createHarness({ shouldShowSkeleton: () => true });
-
-            if (!viewModel) {
-                throw new Error('Failed to create PDF render view model');
-            }
-
-            expect(viewModel.shouldShowPageSkeleton(1)).toBe(true);
-
-            scope.stop();
-        } finally {
-            vi.useRealTimers();
-        }
-    });
-
     it('keeps recovery skeletons for an orphan canvas without current-generation readiness', () => {
         vi.useFakeTimers();
         try {

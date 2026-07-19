@@ -34,7 +34,7 @@ import {
     createE2ERunScopedSessionName,
 } from '@scripts/electron-run/electronRunRunId';
 import type { TElectronRunCommand } from '@scripts/electron-run/electronRunProtocol';
-import type { IE2EWindow } from '@tests/e2e/electron/helpers/getE2EWindow';
+import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import {
     startSessionDetached,
     stopSingleSession,

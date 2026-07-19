@@ -1,6 +1,6 @@
 import {tryOnScopeDispose} from '@vueuse/core';
 import {clamp} from 'es-toolkit/math';
-import {createPdfNavigationMachineState} from '@app/modules/pdf-viewer/runtime/navigation/navigationMachine';
+import {createPdfNavigationMachineState} from '@app/modules/pdf-viewer/runtime/navigation/createPdfNavigationMachineState';
 import type {IUsePdfSinglePageScrollOptions} from '@app/modules/pdf-viewer/runtime/navigation/pdfSinglePageScrollTypes';
 import type {IScrollToPageOptions} from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/scrollToPageOptions';
 import type {IPdfPageSlotRegistry} from '@app/modules/pdf-viewer/runtime/page-slots/pdfPageSlotRegistry';

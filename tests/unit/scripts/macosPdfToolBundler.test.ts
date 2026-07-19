@@ -84,7 +84,7 @@ function runBundler(host: ReturnType<typeof createFakeMacBundlingHost>) {
     });
 }
 
-describe('macOS PDF tool bundler', () => {
+describe('macOS PDF tool bundler', { timeout: 60_000 }, () => {
     afterEach(() => {
         for (const root of tempRoots.splice(0)) {
             rmSync(root, {

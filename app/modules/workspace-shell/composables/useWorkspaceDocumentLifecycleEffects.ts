@@ -2,7 +2,6 @@ import type { Ref } from 'vue';
 import { tryOnScopeDispose } from '@vueuse/core';
 import { useDocumentTransitions } from '@app/modules/workspace-shell/composables/useDocumentTransitions';
 import type { IDocumentTransitionDeps } from '@app/modules/workspace-shell/composables/useDocumentTransitions';
-import { useWorkspaceUiSyncWatchers } from '@app/modules/workspace-shell/composables/useWorkspaceUiSyncWatchers';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type {
     IDocumentRevisionInfo,
@@ -110,9 +109,13 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         unsubscribeDocumentRevision?.();
     });
 
-    useWorkspaceUiSyncWatchers({
-        showSettings,
-        emitOpenSettings,
+    watch(showSettings, (value) => {
+        if (!value) {
+            return;
+        }
+
+        emitOpenSettings();
+        showSettings.value = false;
     });
 
     useDocumentTransitions({

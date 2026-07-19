@@ -9,6 +9,8 @@ export class MemoryStorage {
         this.data.clear();
     }
 
+    // Required by the Storage-shaped object consumed structurally by the browser capabilities.
+    // fallow-ignore-next-line unused-class-member
     public getItem(key: string) {
         return this.data.get(key) ?? null;
     }
@@ -134,6 +136,8 @@ class FakeDatabase {
 export class FakeIndexedDbFactory {
     private readonly databases = new Map<string, FakeDatabase>();
 
+    // Required by the IDBFactory-shaped object consumed structurally by the browser document store.
+    // fallow-ignore-next-line unused-class-member
     public open(name: string, _version: number) {
         const request = new FakeIdbRequest<IDBDatabase>();
         queueMicrotask(() => {

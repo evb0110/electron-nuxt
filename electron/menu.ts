@@ -31,7 +31,7 @@ import {
     getWindowByIdFromRegistry,
 } from '@electron/window/registry';
 import { getErrorMessage } from '@electron/utils/error';
-import { shouldExposeDevToolsMenu } from '@electron/menuDevToolsPolicy';
+import { shouldExposeDevToolsMenu } from '@electron/shouldExposeDevToolsMenu';
 
 const logger = createLogger('menu');
 const MENU_REBUILD_DEBOUNCE_MS = 40;

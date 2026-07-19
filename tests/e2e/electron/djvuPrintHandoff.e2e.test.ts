@@ -24,7 +24,7 @@ import {
     selectFixtureDescribe,
 } from '@tests/e2e/electron/helpers/fixtures';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import type { IE2EWindow } from '@tests/e2e/electron/helpers/getE2EWindow';
+import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import { openDjvuInApp } from '@tests/e2e/electron/helpers/viewerCore';
 
 const execFileAsync = promisify(execFile);

@@ -4,13 +4,10 @@ import {
     it,
 } from 'vitest';
 import { buildPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/buildPageLayoutMetrics';
-import { getLeadingSpacerHeight } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getLeadingSpacerHeight';
 import { getLeadingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getLeadingSpacerHeightForPage';
-import { getTrailingSpacerHeight } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getTrailingSpacerHeight';
 import { getTrailingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getTrailingSpacerHeightForPage';
 import { normalizePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
 import { resolveDocumentBaseMetric } from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolveDocumentBaseMetric';
-import { resolveSpreadBaseWidth } from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolveSpreadBaseWidth';
 import type { IPdfPageMetric } from '@app/types/pdfUi';
 
 describe('pdfPageLayout', () => {
@@ -51,41 +48,6 @@ describe('pdfPageLayout', () => {
             400,
             240,
         ]);
-    });
-
-    it('computes spacer heights from the real hidden-page heights', () => {
-        const layout = buildPageLayoutMetrics({
-            pageMetrics: [
-                {
-                    width: 400,
-                    height: 100,
-                },
-                {
-                    width: 400,
-                    height: 300,
-                },
-                {
-                    width: 400,
-                    height: 150,
-                },
-                {
-                    width: 400,
-                    height: 250,
-                },
-            ],
-            totalPages: 4,
-            viewMode: 'single',
-            scale: 1,
-            gap: 20,
-            paddingTop: 20,
-            paddingBottom: 20,
-            fallbackWidth: 400,
-            fallbackHeight: 100,
-        });
-
-        expect(layout).not.toBeNull();
-        expect(getLeadingSpacerHeight(layout!, 2)).toBe(420);
-        expect(getTrailingSpacerHeight(layout!, 1)).toBe(250);
     });
 
     it('groups facing pages into spread rows and keeps row spacer math aligned', () => {
@@ -157,7 +119,7 @@ describe('pdfPageLayout', () => {
         expect(getTrailingSpacerHeightForPage(layout!, 2)).toBe(290);
     });
 
-    it('resolves document and spread base dimensions from mixed page sizes', () => {
+    it('resolves document base dimensions from mixed page sizes', () => {
         const pageMetrics = [
             {
                 width: 300,
@@ -179,9 +141,6 @@ describe('pdfPageLayout', () => {
 
         expect(resolveDocumentBaseMetric(pageMetrics, 'width')).toBe(700);
         expect(resolveDocumentBaseMetric(pageMetrics, 'height')).toBe(900);
-        expect(resolveSpreadBaseWidth(pageMetrics, 'single', 4)).toBe(700);
-        expect(resolveSpreadBaseWidth(pageMetrics, 'facing', 4)).toBe(980);
-        expect(resolveSpreadBaseWidth(pageMetrics, 'facing-first-single', 4)).toBe(1020);
     });
 
     it('estimates missing page metrics from nearest known pages instead of the widest fallback', () => {

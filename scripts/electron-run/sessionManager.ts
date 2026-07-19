@@ -218,7 +218,6 @@ function buildElectronRuntimeEnv(cdpPort: number, mainJs: string, initialOpenPat
         EVB_ALLOW_MULTI_AUTOMATION_SESSIONS: '1',
         EVB_SERVER_PORT: String(getNuxtPort()),
         EVB_SERVER_PATH: ELECTRON_SERVER_PATH,
-        EVB_WAIT_FOR_EXTERNAL_DEV_SERVER: '1',
         EVB_WAIT_RENDERER_READY: resolveAutomationRendererReadyEnv(process.env, automationWindowEnv),
         ...automationWindowEnv,
         EVB_AUTOMATION_USER_DATA_DIR: automationUserDataDir,

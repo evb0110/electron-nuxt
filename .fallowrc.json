@@ -28,7 +28,11 @@
         "electron/search/worker.ts",
         "packages/*/index.ts",
         "scripts/**/*.{ts,mjs,cjs}",
-        "tests/fixtures/ocr/*.mjs"
+        "tests/fixtures/ocr/*.mjs",
+        "tests/setup.ts",
+        "tests/e2e/electron/globalSetup.ts",
+        "tests/mocks/**/*.ts",
+        "tests/types/**/*.ts"
     ],
     "ignorePatterns": [
         "app/types/*.d.ts",

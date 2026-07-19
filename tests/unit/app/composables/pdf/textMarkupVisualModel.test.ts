@@ -4,51 +4,9 @@ import {
     it,
 } from 'vitest';
 import { createTextMarkupDrawLayerVisualPlan } from '@app/modules/pdf-viewer/engine/text-markup-visual-model/createTextMarkupDrawLayerVisualPlan';
-import { createTextMarkupLiveVisualPlan } from '@app/modules/pdf-viewer/engine/text-markup-visual-model/createTextMarkupLiveVisualPlan';
 import { pdfTextMarkupNativeAppearance } from '@app/modules/pdf-viewer/engine/text-markup-visual-model/pdfTextMarkupNativeAppearance';
 
 describe('textMarkupVisualModel', () => {
-    it('derives live underline and strikeout geometry from the native PDF.js contract', () => {
-        const box = {
-            x: 0.1,
-            y: 0.2,
-            width: 0.4,
-            height: 0.1,
-        };
-        const editorRect = {
-            left: 0.1,
-            top: 0.2,
-            width: 0.4,
-            height: 0.1,
-        };
-        const pageDimensions = [
-            600,
-            800,
-        ] as const;
-
-        const underline = createTextMarkupLiveVisualPlan({
-            boxes: [box],
-            editorRect,
-            pageDimensions,
-            subtype: 'Underline',
-        });
-        const strikeout = createTextMarkupLiveVisualPlan({
-            boxes: [box],
-            editorRect,
-            pageDimensions,
-            subtype: 'StrikeOut',
-        });
-
-        expect(underline?.paths).toEqual([{
-            d: 'M 0 0.098375 L 0.4 0.098375',
-            strokeWidthPdfUnits: pdfTextMarkupNativeAppearance.underlineStrokeWidth,
-        }]);
-        expect(strikeout?.paths).toEqual([{
-            d: 'M 0 0.05 L 0.4 0.05',
-            strokeWidthPdfUnits: pdfTextMarkupNativeAppearance.strikeOutStrokeWidth,
-        }]);
-    });
-
     it('derives draw-layer subtype geometry from normalized page boxes', () => {
         const box = {
             x: 0.1,

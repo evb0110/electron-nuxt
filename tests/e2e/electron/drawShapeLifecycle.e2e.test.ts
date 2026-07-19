@@ -1,5 +1,5 @@
 import type { Page } from 'puppeteer-core';
-import type { IE2EWindow } from '@tests/e2e/electron/helpers/getE2EWindow';
+import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import {
     afterEach,
     describe,

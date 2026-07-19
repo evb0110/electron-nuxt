@@ -1,12 +1,8 @@
 import type { Page } from 'puppeteer-core';
 import { sumBy } from 'es-toolkit/math';
-import {
-    evaluateInPage,
-    waitForFunctionInPage,
-} from '@tests/e2e/electron/helpers/pageRuntime';
-import { DEFAULT_TIMEOUT_MS } from '@tests/e2e/electron/helpers/viewerDom';
+import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 
-export interface IWorkspacePressureSnapshot {
+interface IWorkspacePressureSnapshot {
     index: number;
     active: boolean;
     visible: boolean;
@@ -21,7 +17,7 @@ export interface IWorkspacePressureSnapshot {
     emptyPlaceholders: number;
 }
 
-export async function readWorkspacePressure(page: Page): Promise<IWorkspacePressureSnapshot[]> {
+async function readWorkspacePressure(page: Page): Promise<IWorkspacePressureSnapshot[]> {
     return evaluateInPage(page, () => {
         const isVisible = (element: HTMLElement) => {
             const rect = element.getBoundingClientRect();
@@ -58,7 +54,7 @@ export async function readWorkspacePressure(page: Page): Promise<IWorkspacePress
     });
 }
 
-export function summarizeInactivePressure(snapshots: IWorkspacePressureSnapshot[]) {
+function summarizeInactivePressure(snapshots: IWorkspacePressureSnapshot[]) {
     const inactive = snapshots.filter(host => !host.active);
     return {
         inactiveCanvases: sumBy(inactive, host => host.canvases),
@@ -67,48 +63,6 @@ export function summarizeInactivePressure(snapshots: IWorkspacePressureSnapshot[
         inactiveTextSpans: sumBy(inactive, host => host.textSpans),
         inactiveDjvuImages: sumBy(inactive, host => host.djvuImages),
     };
-}
-
-export async function waitForInactiveDocumentPressureToRelease(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
-    await waitForFunctionInPage(page, () => {
-        const isVisible = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return (
-                style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && Number(style.opacity || '1') > 0
-                && rect.width > 100
-                && rect.height > 100
-            );
-        };
-
-        const hosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .map((host) => {
-                const active = isVisible(host);
-                return {
-                    active,
-                    hasActiveContent: (
-                        host.querySelectorAll('canvas').length > 0
-                        || host.querySelectorAll('[data-testid="document-page-source-image"]').length > 0
-                    ),
-                    canvases: host.querySelectorAll('canvas').length,
-                    renderedPages: host.querySelectorAll('.page_container--rendered').length,
-                    textSpans: host.querySelectorAll('.text-layer span, .textLayer span').length,
-                    djvuImages: host.querySelectorAll('[data-testid="document-page-source-image"]').length,
-                };
-            });
-
-        return hosts.some(host => host.active && host.hasActiveContent)
-            && hosts
-                .filter(host => !host.active)
-                .every(host => (
-                    host.canvases === 0
-                    && host.renderedPages === 0
-                    && host.textSpans === 0
-                    && host.djvuImages === 0
-                ));
-    }, { timeout: timeoutMs });
 }
 
 export async function assertInactiveDocumentPressureReleased(page: Page) {

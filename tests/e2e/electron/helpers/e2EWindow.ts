@@ -7,7 +7,3 @@ export interface IE2EWindow extends Window {
     __openFileDirect?: (path: TDocumentRef) => Promise<boolean>;
     electronAPI?: IPlatformApi;
 }
-
-export function getE2EWindow(win: Window) {
-    return win as IE2EWindow;
-}

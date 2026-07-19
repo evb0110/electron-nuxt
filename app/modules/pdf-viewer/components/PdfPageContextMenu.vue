@@ -107,20 +107,17 @@
 <script setup lang="ts">
 import PdfContextMenuBase from '@app/modules/pdf-viewer/components/PdfContextMenuBase.vue';
 import type { IPageContextMenuState } from '@app/types/pdfContextMenu';
-import { formatPageIndicatorWithOptions } from '@app/utils/pdfPageLabels';
 
 const {
     isDjvuMode = false,
     isOperationInProgress,
     menu,
-    pageLabels = undefined,
     style,
 } = defineProps<{
     menu: IPageContextMenuState;
     style: Record<string, string>;
     isOperationInProgress: boolean;
     isDjvuMode?: boolean;
-    pageLabels?: string[] | null | undefined;
 }>();
 
 const emit = defineEmits<{
@@ -152,18 +149,10 @@ function getRenderedPageIndicator(page: number) {
     return renderedLabel;
 }
 
-function getPageIndicator(page: number) {
-    if (pageLabels) {
-        return formatPageIndicatorWithOptions(page, pageLabels);
-    }
-
-    return getRenderedPageIndicator(page);
-}
-
 const menuTitle = computed(() => {
     const [page] = menu.pages;
     if (menu.pages.length === 1 && page !== undefined) {
-        return t('pageOps.pageTarget', { page: getPageIndicator(page) });
+        return t('pageOps.pageTarget', { page: getRenderedPageIndicator(page) });
     }
 
     return t('pageOps.pagesSelected', menu.pages.length);

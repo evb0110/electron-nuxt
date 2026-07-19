@@ -6,7 +6,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TFitMode } from '@app/types/pdfContracts';
 import type { TPdfViewMode } from '@contracts/shared';
 import type { IPageRange } from '@app/types/pdfUi';
-import type { IPdfNavigationState } from '@app/modules/pdf-viewer/runtime/navigation/navigationMachine';
+import type { IPdfNavigationState } from '@app/modules/pdf-viewer/runtime/navigation/createPdfNavigationMachineState';
 import type {
     IPdfViewerTransaction,
     IPdfViewerTransactionBeginEvent,

@@ -103,31 +103,3 @@ export async function findVisiblePointInActiveHost(page: Page, selector: string,
         targetText: text ?? null,
     });
 }
-
-export async function getRenderedPageCount(page: Page) {
-    await waitForActiveWorkspaceHost(page);
-
-    return evaluateInPage(page, (minHostSizePx: number) => {
-        const isVisibleHost = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return (
-                style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && Number(style.opacity || '1') > 0
-                && rect.width > minHostSizePx
-                && rect.height > minHostSizePx
-            );
-        };
-
-        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-        ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const host = (activeHost && visibleHosts.includes(activeHost))
-            ? activeHost
-            : (visibleHosts.length === 1 ? visibleHosts[0] : null);
-        return host?.querySelectorAll('.page_container canvas').length ?? 0;
-    }, MIN_HOST_SIZE_PX);
-}

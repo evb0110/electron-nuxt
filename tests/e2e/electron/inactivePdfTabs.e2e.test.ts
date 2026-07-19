@@ -6,8 +6,8 @@ import {
 import { createMultiPageTextFixturePdf } from '@tests/e2e/electron/helpers/fixtures';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
-import type { IE2EWindow } from '@tests/e2e/electron/helpers/getE2EWindow';
-import {assertInactiveDocumentPressureReleased} from '@tests/e2e/electron/helpers/viewerPressure';
+import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
+import {assertInactiveDocumentPressureReleased} from '@tests/e2e/electron/helpers/assertInactiveDocumentPressureReleased';
 import {waitForWorkspaceToolbarSnapshot} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
     goToPageViaToolbar,
@@ -17,7 +17,7 @@ import {
     setTabMemoryPolicyForE2E,
     waitForPdfLoaded,
 } from '@tests/e2e/electron/helpers/viewerCore';
-import {waitForTabCount} from '@tests/e2e/electron/helpers/viewerTabs';
+import {waitForTabCount} from '@tests/e2e/electron/helpers/waitForTabCount';
 import {
     expectSplitPaneCloseContinuity,
     runSplitPaneCloseContinuity,

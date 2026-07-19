@@ -19,7 +19,7 @@ import {
     resolvePathFixtureAvailability,
 } from '@tests/e2e/electron/helpers/fixtures';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
-import type { IE2EWindow } from '@tests/e2e/electron/helpers/getE2EWindow';
+import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import { openPdfInApp } from '@tests/e2e/electron/helpers/viewerCore';
 import {
     callWorkspaceCommand,
