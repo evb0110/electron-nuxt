@@ -9,6 +9,7 @@ import {
     parseCssPixelValue,
     resolveHorizontalInset,
     resolveSeededThumbnailMetrics,
+    resolveThumbnailItemChromeHeightFromStyles,
     resolveThumbnailRasterWidth,
     resolveThumbnailRenderWidthFromStyles,
     roundMetric,
@@ -59,6 +60,19 @@ describe('pdfThumbnailRenderMetrics', () => {
                 'padding-right': '8px',
             }),
         })).toBe(218);
+    });
+
+    it('resolves virtual row chrome from the rendered thumbnail CSS', () => {
+        expect(resolveThumbnailItemChromeHeightFromStyles({
+            labelHeight: 16,
+            thumbnailStyle: style({
+                'border-bottom-width': '1px',
+                'border-top-width': '1px',
+                'padding-bottom': '7.2px',
+                'padding-top': '7.2px',
+                'row-gap': '4px',
+            }),
+        })).toBeCloseTo(36.4);
     });
 
     it('clamps render width to the minimum thumbnail width', () => {

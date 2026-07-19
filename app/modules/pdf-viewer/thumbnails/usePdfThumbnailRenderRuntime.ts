@@ -22,9 +22,12 @@ import { createThumbnailRenderState } from '@app/modules/pdf-viewer/thumbnails/c
 import { isThumbnailRenderGenerationCurrent as isThumbnailRenderGenerationSnapshotCurrent } from '@app/modules/pdf-viewer/thumbnails/isThumbnailRenderGenerationCurrent';
 import {
     buildThumbnailRenderTransform,
-    resolveThumbnailRenderWidthFromStyles,
     roundMetric,
 } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailRenderMetrics';
+import {
+    resolvePdfThumbnailItemChromeHeight,
+    resolvePdfThumbnailRenderWidth,
+} from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailDomMetrics';
 import { drawEditedTextMarkupThumbnailVisuals } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailTextMarkupVisuals';
 import { resolveThumbnailItemHeightFromAspect } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailLayout';
 import { resolveThumbnailRenderConcurrency } from '@app/modules/pdf-viewer/thumbnails/resolveThumbnailRenderConcurrency';
@@ -164,20 +167,6 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
             page: pageNum,
             canvas,
             renderKey,
-        });
-    }
-
-    function resolveThumbnailRenderWidth(container: HTMLElement) {
-        const containerStyle = window.getComputedStyle(container);
-        const thumbnail = container.querySelector<HTMLElement>('.pdf-thumbnail');
-        const thumbnailStyle = thumbnail
-            ? window.getComputedStyle(thumbnail)
-            : null;
-        return resolveThumbnailRenderWidthFromStyles({
-            containerClientWidth: container.clientWidth,
-            containerStyle,
-            minWidth: THUMBNAIL_WIDTH,
-            thumbnailStyle,
         });
     }
 
@@ -1194,7 +1183,8 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
         getThumbnailRenderKey,
         hasRenderedThumbnails: () => thumbnailRenderState.renderedCount > 0,
         reconcileSurfaceResidency: surfaceResidency.reconcile,
-        resolveThumbnailRenderWidth,
+        resolveThumbnailItemChromeHeight: resolvePdfThumbnailItemChromeHeight,
+        resolveThumbnailRenderWidth: resolvePdfThumbnailRenderWidth,
         scheduleVisibleThumbnailRender,
     };
 };

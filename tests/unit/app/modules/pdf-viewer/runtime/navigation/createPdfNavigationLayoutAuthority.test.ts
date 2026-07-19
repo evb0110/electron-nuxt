@@ -38,7 +38,7 @@ describe('createPdfNavigationLayoutAuthority', () => {
             end: 2,
         })).toBe(false);
 
-        await authority.preparePagedNavigationLayout(4, new AbortController().signal);
+        await authority.prepareNavigationLayout(4, new AbortController().signal);
 
         expect(ensurePageMetricsInRange).toHaveBeenCalledWith(3, 4);
         expect(computeFitScale).toHaveBeenCalledWith(4);
@@ -65,7 +65,7 @@ describe('createPdfNavigationLayoutAuthority', () => {
 
         const controller = new AbortController();
         controller.abort();
-        await authority.preparePagedNavigationLayout(5, controller.signal);
+        await authority.prepareNavigationLayout(5, controller.signal);
 
         expect(ensurePageMetricsInRange).toHaveBeenCalledWith(5, 5);
         expect(computeFitScale).not.toHaveBeenCalled();

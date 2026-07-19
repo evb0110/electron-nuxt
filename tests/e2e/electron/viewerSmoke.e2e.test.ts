@@ -5,6 +5,7 @@ import {
 } from 'vitest';
 import {
     createLargeScannedFixturePdf,
+    createMixedSizeTextFixturePdf,
     createNativeDjvuLatePageSearchFixture,
     createMultiPageTextFixturePdf,
     createPngFixture,
@@ -1816,6 +1817,84 @@ describe('Electron E2E - Viewer Smoke', () => {
         expect(firstOpenProbe.sampleCount, JSON.stringify(firstOpenProbe)).toBeGreaterThan(0);
         expect(firstOpenProbe.firstPresented, JSON.stringify(firstOpenProbe)).not.toBeNull();
         expect(firstOpenProbe.underResolution, JSON.stringify(firstOpenProbe)).toEqual([]);
+    });
+
+    it('fits explicitly navigated mixed-size pages without thumbnail overlap', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+
+        await session.page.setViewport({
+            deviceScaleFactor: 1,
+            height: 1_000,
+            width: 1_300,
+        });
+        const fixturePath = await createMixedSizeTextFixturePdf(
+            `viewer-mixed-size-pages-${Date.now()}.pdf`,
+        );
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await ensureSidebarOpen(session.page);
+        await openDocumentSidebarTab(session.page, 'Pages');
+        await callWorkspaceCommand(session.page, 'handleViewModeSingle');
+        const initialSnapshot = await getWorkspaceToolbarSnapshot(session.page);
+        if (initialSnapshot?.continuousScroll !== true) {
+            await callWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
+            await waitForWorkspaceToolbarSnapshot(session.page, {continuousScroll: true});
+        }
+        await callWorkspaceCommand(session.page, 'handleFitWidth');
+        await waitForFunctionInPage(session.page, () => {
+            const first = document.querySelector<HTMLCanvasElement>(
+                '.editor-pane.is-active .pdf-thumbnail[data-page="1"] .pdf-thumbnail-canvas',
+            );
+            const fourth = document.querySelector<HTMLCanvasElement>(
+                '.editor-pane.is-active .pdf-thumbnail[data-page="4"] .pdf-thumbnail-canvas',
+            );
+            return first?.dataset.thumbnailRendered === 'true'
+                && fourth?.dataset.thumbnailRendered === 'true';
+        }, {timeout: 15_000});
+
+        const pageOneSnapshot = await waitForWorkspaceToolbarSnapshot(session.page, {currentPage: 1});
+        const thumbnailGeometry = await session.page.evaluate(() => {
+            const items = Array.from(document.querySelectorAll<HTMLElement>(
+                '.editor-pane.is-active .pdf-thumbnail[data-page]',
+            )).sort((left, right) => Number(left.dataset.page) - Number(right.dataset.page));
+            const rows = items.map((item) => {
+                const rect = item.getBoundingClientRect();
+                return {
+                    bottom: rect.bottom,
+                    page: Number(item.dataset.page),
+                    top: rect.top,
+                };
+            });
+            return {
+                overlaps: rows.slice(1).filter((row, index) => row.top < rows[index]!.bottom - 0.5),
+                rows,
+            };
+        });
+        expect(thumbnailGeometry.rows).toHaveLength(4);
+        expect(thumbnailGeometry.overlaps, JSON.stringify(thumbnailGeometry)).toEqual([]);
+
+        await session.page.click('.editor-pane.is-active .pdf-thumbnail[data-page="2"]');
+        const pageTwoSnapshot = await waitForWorkspaceToolbarSnapshot(
+            session.page,
+            {currentPage: 2},
+            {timeoutMs: 15_000},
+        );
+        await waitForFunctionInPage(session.page, () => {
+            const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer');
+            const page = viewer?.querySelector<HTMLElement>('.page_container[data-page="2"]') ?? null;
+            const canvas = page?.querySelector<HTMLCanvasElement>('.page_canvas canvas, canvas') ?? null;
+            if (!viewer || !page || !canvas || canvas.width <= 0 || canvas.height <= 0) {
+                return false;
+            }
+            return Math.abs(page.getBoundingClientRect().width - (viewer.clientWidth - 40)) <= 2;
+        }, {timeout: 15_000});
+
+        expect(pageOneSnapshot.zoomMode).toBe('fit-width');
+        expect(pageTwoSnapshot.zoomMode).toBe('fit-width');
+        expect(Math.abs(pageTwoSnapshot.effectiveZoom - pageOneSnapshot.effectiveZoom)).toBeGreaterThan(0.2);
     });
 
     it('keeps the visible thumbnail triplet painted through sustained raster pressure', async () => {

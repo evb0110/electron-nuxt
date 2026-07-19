@@ -244,8 +244,8 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 intent.anchor?.page ?? options.currentPage.value,
             );
             await metricHydrator.ensure(page, signal);
-            if (!options.continuousScroll.value) {
-                await options.preparePagedNavigationLayout?.(page, signal);
+            if (!options.continuousScroll.value || intent.navigation) {
+                await options.prepareNavigationLayout?.(page, signal);
             }
             refreshGeometry();
             return options.getGeometryRevision();

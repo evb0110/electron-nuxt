@@ -40,7 +40,10 @@ export function createPdfNavigationLayoutAuthority(
         });
     }
 
-    async function preparePagedNavigationLayout(pageNumber: number, signal: AbortSignal) {
+    async function prepareNavigationLayout(
+        pageNumber: number,
+        signal: AbortSignal,
+    ) {
         const range = getPageRowBoundsForViewMode({
             pageNumber,
             viewMode: options.viewMode.value,
@@ -58,6 +61,6 @@ export function createPdfNavigationLayoutAuthority(
     return {
         getProtectedVisibleRange,
         isVisibleRenderRangeCurrent,
-        preparePagedNavigationLayout,
+        prepareNavigationLayout,
     };
 }

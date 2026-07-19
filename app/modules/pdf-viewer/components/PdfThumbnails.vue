@@ -107,10 +107,8 @@ import { createThumbnailMeasurementDiagnostics } from '@app/modules/pdf-viewer/t
 import {createDocumentThumbnailResizeAnchorLifecycle} from '@app/utils/document-viewer/thumbnails/createDocumentThumbnailResizeAnchorLifecycle';
 import DocumentThumbnailItem from '@app/components/document-viewer/DocumentThumbnailItem.vue';
 import DocumentThumbnailRail from '@app/components/document-viewer/DocumentThumbnailRail.vue';
-import {
-    DocumentThumbnailLayout,
-    type IDocumentThumbnailLayoutAnchor,
-} from '@app/utils/document-viewer/thumbnails/documentThumbnailLayout';
+import type {IDocumentThumbnailLayoutAnchor} from '@app/utils/document-viewer/thumbnails/documentThumbnailLayout';
+import {usePdfThumbnailVirtualLayout} from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailVirtualLayout';
 import {
     getDocumentThumbnailComfortPadding,
     getDocumentThumbnailMaxScrollTop,
@@ -163,9 +161,7 @@ let manualScrollSourceCycleId = -1;
 let activePaneRefreshRunId = 0;
 const scrollTop = ref(0);
 const viewportHeight = ref(0);
-const thumbnailLayoutWidth = ref(THUMBNAIL_WIDTH);
 const thumbnailRenderWidth = ref(THUMBNAIL_WIDTH);
-const thumbnailAspectRatios = shallowRef<Array<number | null>>([]);
 const thumbnailMeasurementDiagnostics = createThumbnailMeasurementDiagnostics({
     currentPage: () => currentPage,
     describeContainerGeometry,
@@ -187,60 +183,22 @@ const editedTextMarkupVisualSignature = computed(() => createEditedTextMarkupThu
     editedTextMarkupComments.value,
     annotationSettings,
 ));
-function getThumbnailTop(page: number) {
-    return thumbnailLayout.value.getPageTop(page);
-}
-
-const thumbnailLayoutRevision = ref(0);
-const thumbnailLayout = shallowRef(new DocumentThumbnailLayout({
-    adoptFirstAspectAsEstimate: true,
-    pageCount: totalPages,
-    renderWidth: thumbnailLayoutWidth.value,
-}));
-function updateThumbnailAspectRatio(page: number, aspectRatio: number | null) {
-    const anchor = captureThumbnailLayoutAnchor();
-    thumbnailAspectRatios.value[page - 1] = aspectRatio;
-    triggerRef(thumbnailAspectRatios);
-    if (thumbnailLayout.value.updatePageAspect(page, aspectRatio)) {
-        thumbnailLayoutRevision.value += 1;
-        scheduleThumbnailLayoutReaction(anchor);
-    }
-}
-function clearThumbnailAspectRatios() {
-    const anchor = captureThumbnailLayoutAnchor();
-    thumbnailAspectRatios.value = [];
-    thumbnailLayout.value.resetDocument({
-        pageCount: totalPages,
-        renderWidth: thumbnailLayoutWidth.value,
-    });
-    thumbnailLayoutRevision.value += 1;
-    scheduleThumbnailLayoutReaction(anchor);
-}
-watch([
-    () => totalPages,
-    thumbnailLayoutWidth,
-], () => {
-    const anchor = captureThumbnailLayoutAnchor();
-    thumbnailLayout.value.reset({
-        pageCount: totalPages,
-        renderWidth: thumbnailLayoutWidth.value,
-    });
-    thumbnailLayoutRevision.value += 1;
-    scheduleThumbnailLayoutReaction(anchor);
+const {
+    aspectRatios: thumbnailAspectRatios,
+    clearAspectRatios: clearThumbnailAspectRatios,
+    contentHeight: thumbnailContentHeight,
+    getPageTop: getThumbnailTop,
+    itemChromeHeight: thumbnailItemChromeHeight,
+    layout: thumbnailLayout,
+    layoutWidth: thumbnailLayoutWidth,
+    resolveInsertionIndex,
+    resolvePageAtOffset: resolvePageAtScrollOffset,
+    updateAspectRatio: updateThumbnailAspectRatio,
+} = usePdfThumbnailVirtualLayout({
+    captureAnchor: captureThumbnailLayoutAnchor,
+    pageCount: computed(() => totalPages),
+    scheduleReaction: scheduleThumbnailLayoutReaction,
 });
-const thumbnailContentHeight = computed(() => {
-    void thumbnailLayoutRevision.value;
-    return thumbnailLayout.value.getTotalHeight();
-});
-function resolvePageAtScrollOffset(offset: number) {
-    void thumbnailLayoutRevision.value;
-    return thumbnailLayout.value.resolvePageAtOffset(offset);
-}
-
-function resolveInsertionIndex(offset: number) {
-    void thumbnailLayoutRevision.value;
-    return thumbnailLayout.value.resolveInsertionIndex(offset);
-}
 
 const viewportStartIndex = computed(() => {
     if (totalPages <= 0) {
@@ -699,6 +657,20 @@ function updateViewportMetrics() {
             geometry: describeContainerGeometry(container),
         });
     }
+    const nextThumbnailItemChromeHeight = thumbnailRenderRuntime.resolveThumbnailItemChromeHeight(container);
+    if (
+        nextThumbnailItemChromeHeight !== null
+        && Math.abs(nextThumbnailItemChromeHeight - thumbnailItemChromeHeight.value) >= 0.5
+    ) {
+        const previousThumbnailItemChromeHeight = thumbnailItemChromeHeight.value;
+        thumbnailItemChromeHeight.value = nextThumbnailItemChromeHeight;
+        BrowserLogger.diagnostic(PDF_THUMBNAIL_LOG_SECTION, 'Thumbnail item chrome height changed', {
+            previousThumbnailItemChromeHeight: roundMetric(previousThumbnailItemChromeHeight),
+            nextThumbnailItemChromeHeight: roundMetric(nextThumbnailItemChromeHeight),
+            currentPage,
+            totalPages,
+        });
+    }
     if (Math.abs(previousViewportHeight - viewportHeight.value) >= 1) {
         BrowserLogger.diagnostic(PDF_THUMBNAIL_LOG_SECTION, 'Thumbnail viewport height changed', {
             previousViewportHeight: roundMetric(previousViewportHeight),
@@ -882,6 +854,19 @@ watch(
         void syncCurrentPageIntoView('container-ref');
     },
     { immediate: true },
+);
+
+watch(
+    virtualPages,
+    async () => {
+        await nextTick();
+        await waitForNextFrame();
+        updateViewportMetrics();
+    },
+    {
+        flush: 'post',
+        immediate: true,
+    },
 );
 
 useResizeObserver(containerRef, () => {

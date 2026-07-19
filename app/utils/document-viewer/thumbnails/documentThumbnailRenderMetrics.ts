@@ -7,6 +7,11 @@ export interface IResolveThumbnailRenderWidthOptions {
     thumbnailStyle: IThumbnailStyleLike | null;
 }
 
+export interface IResolveThumbnailItemChromeHeightOptions {
+    labelHeight: number;
+    thumbnailStyle: IThumbnailStyleLike;
+}
+
 export interface IResolveSeededThumbnailMetricsOptions {
     cssWidth: number;
     outputScale: number;
@@ -30,6 +35,25 @@ export function resolveHorizontalInset(style: IThumbnailStyleLike, ...properties
         const value = style.getPropertyValue(property);
         return total + parseCssPixelValue(value);
     }, 0);
+}
+
+export function resolveThumbnailItemChromeHeightFromStyles({
+    labelHeight,
+    thumbnailStyle,
+}: IResolveThumbnailItemChromeHeightOptions) {
+    const verticalInset = resolveHorizontalInset(
+        thumbnailStyle,
+        'padding-top',
+        'padding-bottom',
+        'border-top-width',
+        'border-bottom-width',
+    );
+    const rowGap = parseCssPixelValue(
+        thumbnailStyle.getPropertyValue('row-gap')
+        || thumbnailStyle.getPropertyValue('gap'),
+    );
+
+    return Math.max(0, verticalInset + rowGap + Math.max(0, labelHeight));
 }
 
 export function resolveThumbnailRenderWidthFromStyles({

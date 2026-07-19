@@ -133,4 +133,28 @@ describe('DocumentThumbnailLayout', () => {
         expect(layout.updatePageAspect(1, null)).toBe(true);
         expect(layout.getPageAspect(1)).toBe(1.5);
     });
+
+    it('does not apply the first adopted aspect delta twice', () => {
+        const layout = new DocumentThumbnailLayout({
+            adoptFirstAspectAsEstimate: true,
+            itemChromeHeight: 30,
+            pageCount: 3,
+            renderWidth: 120,
+        });
+
+        expect(layout.updatePageAspect(1, 1.5)).toBe(true);
+        expect(layout.snapshot()).toEqual({
+            heights: [
+                210,
+                210,
+                210,
+            ],
+            tops: [
+                0,
+                218,
+                436,
+            ],
+            totalHeight: 646,
+        });
+    });
 });

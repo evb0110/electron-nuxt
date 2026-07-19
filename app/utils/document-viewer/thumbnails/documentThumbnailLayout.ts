@@ -1,4 +1,4 @@
-const DEFAULT_ITEM_CHROME_HEIGHT = 30;
+export const DEFAULT_DOCUMENT_THUMBNAIL_ITEM_CHROME_HEIGHT = 30;
 const DEFAULT_ITEM_GAP = 8;
 
 export const DEFAULT_DOCUMENT_THUMBNAIL_ASPECT_RATIO = 297 / 210;
@@ -55,7 +55,10 @@ export class DocumentThumbnailLayout {
             options.estimatedAspectRatio ?? DEFAULT_DOCUMENT_THUMBNAIL_ASPECT_RATIO,
             DEFAULT_DOCUMENT_THUMBNAIL_ASPECT_RATIO,
         );
-        this.itemChromeHeight = Math.max(0, options.itemChromeHeight ?? DEFAULT_ITEM_CHROME_HEIGHT);
+        this.itemChromeHeight = Math.max(
+            0,
+            options.itemChromeHeight ?? DEFAULT_DOCUMENT_THUMBNAIL_ITEM_CHROME_HEIGHT,
+        );
         this.itemGap = Math.max(0, options.itemGap ?? DEFAULT_ITEM_GAP);
         this.rebuild();
     }
@@ -118,7 +121,9 @@ export class DocumentThumbnailLayout {
                 && this.estimatedAspectRatio !== normalized
             ) {
                 this.estimatedAspectRatio = normalized;
+                this.exactAspectRatios.set(page, normalized);
                 this.rebuild();
+                return true;
             }
             this.exactAspectRatios.set(page, normalized);
         }

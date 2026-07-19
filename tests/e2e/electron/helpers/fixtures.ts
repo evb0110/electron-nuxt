@@ -469,6 +469,63 @@ export async function createMultiPageTextFixturePdf(filename: string, pageCount 
     return filePath;
 }
 
+export async function createMixedSizeTextFixturePdf(filename: string) {
+    ensureFixtureDir();
+    const filePath = join(getFixtureDir(), filename);
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const pageSizes = [
+        {
+            height: 792,
+            width: 612,
+        },
+        {
+            height: 420,
+            width: 920,
+        },
+        {
+            height: 920,
+            width: 420,
+        },
+        {
+            height: 610,
+            width: 760,
+        },
+    ] as const;
+
+    for (const [
+        index,
+        pageSize,
+    ] of pageSizes.entries()) {
+        const {
+            height,
+            width,
+        } = pageSize;
+        const page = doc.addPage([
+            width,
+            height,
+        ]);
+        page.drawText(`Mixed-size page ${index + 1}`, {
+            x: 40,
+            y: height - 70,
+            size: 28,
+            font,
+            color: rgb(0.13, 0.13, 0.13),
+        });
+        page.drawRectangle({
+            x: 32,
+            y: 32,
+            width: width - 64,
+            height: height - 64,
+            borderWidth: 4,
+            borderColor: rgb(0.2 + index * 0.1, 0.35, 0.65 - index * 0.1),
+        });
+    }
+
+    writeFileSync(filePath, await doc.save());
+    return filePath;
+}
+
 
 export async function createLargeScannedFixturePdf(
     filename: string,

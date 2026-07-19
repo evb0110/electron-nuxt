@@ -183,7 +183,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 updateVisibleRange: vi.fn(),
                 updateCurrentPage: vi.fn(() => 1),
                 renderVisiblePages: vi.fn(async () => undefined),
-                preparePagedNavigationLayout: async () => preparation.promise,
+                prepareNavigationLayout: async () => preparation.promise,
                 isPageFreshlyRenderedForNavigation: vi.fn(() => true),
                 visibleRange: ref({
                     start: 1,
@@ -402,6 +402,7 @@ describe('usePdfSinglePageNavigationController', () => {
             await metricPreparation.promise;
             return false;
         });
+        const prepareNavigationLayout = vi.fn(async () => undefined);
 
         try {
             const controller = scope.run(() => usePdfSinglePageNavigationController({
@@ -433,6 +434,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 cancelPendingSearchScroll: vi.fn(),
                 pageSlots,
                 ensurePageMetricsInRange,
+                prepareNavigationLayout,
                 getDocumentRevision: () => 1,
                 getGeometryRevision: () => 1,
             }));
@@ -467,6 +469,10 @@ describe('usePdfSinglePageNavigationController', () => {
                     .toBe('cancelled');
             });
             expect(viewportWrites.writes).toHaveLength(1);
+            expect(prepareNavigationLayout).toHaveBeenCalledWith(
+                2,
+                expect.any(AbortSignal),
+            );
             expect(controller.viewportAuthority.currentPage.value).toBe(2);
             expect(emittedCurrentPage.value).toBe(2);
         } finally {

@@ -529,7 +529,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
             commitVisibleRange: (range, options) => transactionController?.commitVisibleRange(range, options),
             renderVisiblePages: requestMandatoryPdfRender,
             ensurePageMetricsInRange: pdfDocumentResult.ensurePageMetricsInRange,
-            preparePagedNavigationLayout: navigationLayoutAuthority.preparePagedNavigationLayout,
+            prepareNavigationLayout: navigationLayoutAuthority.prepareNavigationLayout,
             isPageFreshlyRenderedForNavigation,
             visibleRange,
             emitCurrentPage: viewerEvents.updateCurrentPage,

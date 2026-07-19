@@ -5,10 +5,12 @@ import type {
     IDocumentSurfaceLease,
 } from '@app/utils/document-viewer/source/documentPageSource';
 import {
+    DEFAULT_DOCUMENT_THUMBNAIL_ITEM_CHROME_HEIGHT,
     DocumentThumbnailLayout,
     type IDocumentThumbnailVirtualRange,
 } from '@app/utils/document-viewer/thumbnails/documentThumbnailLayout';
 import {
+    resolveThumbnailItemChromeHeightFromStyles,
     resolveThumbnailOutputScale,
     resolveThumbnailRasterWidth,
     resolveThumbnailRenderWidthFromStyles,
@@ -87,9 +89,11 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
     const isScrolling = ref(false);
     const isVisible = ref(false);
     const cssWidth = ref(MIN_CSS_WIDTH);
+    const itemChromeHeight = ref(DEFAULT_DOCUMENT_THUMBNAIL_ITEM_CHROME_HEIGHT);
     const settledCssWidth = ref(MIN_CSS_WIDTH);
     const metricsCache = new Map<number, Promise<IDocumentPageMetrics>>();
     const layout = new DocumentThumbnailLayout({
+        itemChromeHeight: itemChromeHeight.value,
         pageCount: 0,
         renderWidth: MIN_CSS_WIDTH,
     });
@@ -189,6 +193,11 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
             return null;
         }
         const item = root.querySelector<HTMLElement>('.document-thumbnail-list__item');
+        const frame = item?.querySelector<HTMLElement>('[data-document-thumbnail-frame]') ?? null;
+        const renderedFrameWidth = frame?.getBoundingClientRect().width ?? 0;
+        if (Number.isFinite(renderedFrameWidth) && renderedFrameWidth > 0) {
+            return renderedFrameWidth;
+        }
         return resolveThumbnailRenderWidthFromStyles({
             containerClientWidth: root.clientWidth,
             containerStyle: getComputedStyle(root),
@@ -197,15 +206,31 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         });
     }
 
-    function updateLayoutWidth(nextWidth: number) {
-        if (nextWidth === cssWidth.value) {
+    function measureItemChromeHeight() {
+        const root = options.scrollRoot.value;
+        const item = root?.querySelector<HTMLElement>('.document-thumbnail-list__item') ?? null;
+        const label = item?.querySelector<HTMLElement>('[data-document-thumbnail-label]') ?? null;
+        if (!item || !label) {
+            return null;
+        }
+
+        return resolveThumbnailItemChromeHeightFromStyles({
+            labelHeight: label.getBoundingClientRect().height,
+            thumbnailStyle: getComputedStyle(item),
+        });
+    }
+
+    function updateLayoutGeometry(nextWidth: number, nextItemChromeHeight: number) {
+        if (nextWidth === cssWidth.value && nextItemChromeHeight === itemChromeHeight.value) {
             return;
         }
         const root = options.scrollRoot.value;
         const anchor = resizeAnchorLifecycle.read()
             ?? (root ? layout.captureAnchor(root.scrollTop) : null);
         cssWidth.value = nextWidth;
+        itemChromeHeight.value = nextItemChromeHeight;
         layout.reset({
+            itemChromeHeight: nextItemChromeHeight,
             pageCount: options.source.value?.pageCount ?? 0,
             renderWidth: nextWidth,
         });
@@ -220,7 +245,10 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         isVisible.value = nextVisible;
         const measuredWidth = measureCssWidth();
         if (measuredWidth !== null) {
-            updateLayoutWidth(measuredWidth);
+            updateLayoutGeometry(
+                measuredWidth,
+                measureItemChromeHeight() ?? itemChromeHeight.value,
+            );
             if (settledCssWidth.value === MIN_CSS_WIDTH && measuredWidth !== MIN_CSS_WIDTH) {
                 settledCssWidth.value = measuredWidth;
             }
@@ -380,6 +408,16 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
     });
 
     watch(
+        virtualItems,
+        async () => {
+            await nextTick();
+            measureViewport();
+            scheduleRefresh();
+        },
+        {flush: 'post'},
+    );
+
+    watch(
         options.source,
         async source => {
             lastManualInteractionAtMs = 0;
@@ -388,6 +426,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
             metricsCache.clear();
             hasSourceAspectEstimate = false;
             layout.resetDocument({
+                itemChromeHeight: itemChromeHeight.value,
                 pageCount: source?.pageCount ?? 0,
                 renderWidth: cssWidth.value,
             });

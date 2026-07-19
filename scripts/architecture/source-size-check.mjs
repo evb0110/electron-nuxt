@@ -55,7 +55,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Static audit Stage 15 - assistant controller domain extraction',
     },
     'app/modules/pdf-viewer/components/PdfThumbnails.vue': {
-        maxLines: 930,
+        maxLines: 915,
         reason: 'PDF thumbnail augmentation after shared rail, chrome, geometry, and component-contract extraction',
         stage: 'Document-format parity - shared thumbnail architecture',
     },
