@@ -10,8 +10,7 @@ pub mod png;
 pub mod split;
 
 // The exact squared Euclidean distance transform in `scan-primitives::distance`
-// is intentionally shipped as shared groundwork for future rule/text separation.
-// The current cleanup stages use connected-component geometry instead.
+// supports content scoring and thick scan-bed artifact rejection.
 
 use serde::{Deserialize, Serialize};
 
@@ -40,8 +39,34 @@ pub enum LayoutMode {
     #[serde(rename = "force-single", alias = "single")]
     Single,
     PageWithOffcut,
+    KeepLeft,
+    KeepRight,
     #[serde(rename = "force-two-page", alias = "two-page")]
     TwoPage,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq)]
+pub enum OrthogonalRotation {
+    #[default]
+    #[serde(rename = "0")]
+    None,
+    #[serde(rename = "90")]
+    Clockwise90,
+    #[serde(rename = "180")]
+    Clockwise180,
+    #[serde(rename = "270")]
+    Clockwise270,
+}
+
+impl OrthogonalRotation {
+    pub fn degrees(self) -> u16 {
+        match self {
+            Self::None => 0,
+            Self::Clockwise90 => 90,
+            Self::Clockwise180 => 180,
+            Self::Clockwise270 => 270,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq)]
@@ -50,6 +75,7 @@ pub enum OutputMode {
     #[default]
     Bw,
     Grayscale,
+    Color,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq)]
@@ -111,6 +137,9 @@ pub struct CleanupOptions {
     pub margins_pixels: Option<[f64; 4]>,
     pub dewarp: Option<DewarpOptions>,
     pub experimental_auto_dewarp: bool,
+    pub rotation: OrthogonalRotation,
+    pub excluded: bool,
+    pub skip_blank_pages: bool,
     pub max_pixels: u64,
     pub max_dimension: u32,
 }
@@ -134,6 +163,9 @@ impl Default for CleanupOptions {
             margins_pixels: None,
             dewarp: None,
             experimental_auto_dewarp: false,
+            rotation: OrthogonalRotation::None,
+            excluded: false,
+            skip_blank_pages: false,
             max_pixels: DEFAULT_MAX_PIXELS,
             max_dimension: DEFAULT_MAX_DIMENSION,
         }

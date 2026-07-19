@@ -100,6 +100,7 @@
             <ScanCleanupPopup
                 v-model:open="scanCleanupPopupOpen"
                 :source-path="ocrWorkingCopyPath"
+                :document-key="scanCleanupDocumentKey"
                 :current-page="snapshot.currentPage"
                 :total-pages="snapshot.totalPages"
                 :disabled="toolbarControlsDisabled || snapshot.isAnySaving || snapshot.isHistoryBusy"
@@ -274,6 +275,7 @@ const {
     ocrPdfDocument = null,
     ocrPopupOpen,
     ocrWorkingCopyPath = null,
+    scanCleanupDocumentKey = null,
     overflowMenuOpen,
     pageDropdownOpen,
     pageDropdownTotalPages: pageDropdownTotalPagesProp = undefined,
@@ -307,6 +309,7 @@ const {
     } | null | undefined;
     ocrPdfDocument?: PDFDocumentProxy | null | undefined;
     ocrWorkingCopyPath?: TDocumentRef | null | undefined;
+    scanCleanupDocumentKey?: string | null | undefined;
     ocrExternalError?: string | null | undefined;
     ocrIsExportingDocx?: boolean | undefined;
     ocrPopupOpen: boolean;

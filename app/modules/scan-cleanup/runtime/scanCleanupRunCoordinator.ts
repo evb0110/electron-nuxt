@@ -41,6 +41,7 @@ interface IScanCleanupToast {add: (options: {
 
 export interface IScanCleanupCoordinatorDependencies {
     openGeneratedPdf: (path: string) => Promise<boolean>;
+    runOcrOnActiveDocument: () => Promise<boolean>;
     saveActiveDocumentAs: () => Promise<unknown>;
     getOpenPdfPaths: () => string[];
     t: TTranslateFn;
@@ -78,10 +79,13 @@ async function handleTerminalState(state: TScanCleanupJobState) {
 
     if (state.status === 'completed') {
         const opened = await dependencies.openGeneratedPdf(state.outputPdfPath);
+        const ocrStarted = opened && state.runOcrAfterCleanup
+            ? await dependencies.runOcrOnActiveDocument().catch(() => false)
+            : false;
         dependencies.toast.add({
             color: opened ? 'success' : 'error',
             title: opened
-                ? dependencies.t('scanCleanup.completedTitle')
+                ? dependencies.t(ocrStarted ? 'scanCleanup.completedAndOcrTitle' : 'scanCleanup.completedTitle')
                 : dependencies.t('scanCleanup.openResultFailed'),
             description: opened ? summaryText(state) : state.outputPdfPath,
             ...(opened ? {actions: [{

@@ -5,8 +5,9 @@ use crate::{
     content::detect_content_and_margins,
     deskew::{detect_skew, DeskewResult},
     dewarp::{rasterize_inverse_area, DewarpModel},
+    png::RgbImage,
     split::{detect_split, LayoutClassification, SplitResult},
-    CleanupOptions, OutputMode,
+    CleanupOptions, OrthogonalRotation, OutputMode,
 };
 use scan_primitives::{Affine, GrayImage, Point, Polygon, Rect};
 use serde::{Deserialize, Serialize};
@@ -59,12 +60,16 @@ pub struct CleanupMetadata {
     pub input_height: usize,
     pub output_width: usize,
     pub output_height: usize,
+    pub rotation: OrthogonalRotation,
+    pub resample_passes: usize,
     pub warnings: Vec<String>,
 }
 
 pub struct CleanupResult {
     pub image: GrayImage,
+    pub color_image: Option<RgbImage>,
     pub metadata: CleanupMetadata,
+    effectively_blank: bool,
 }
 
 pub struct PageCleanupResult {
@@ -72,6 +77,9 @@ pub struct PageCleanupResult {
     pub classification: LayoutClassification,
     pub layout_confidence: f64,
     pub cutter_x: Option<f64>,
+    pub blank_outputs_skipped: usize,
+    pub excluded: bool,
+    pub rotation: OrthogonalRotation,
 }
 
 pub fn clean_page(
@@ -79,11 +87,33 @@ pub fn clean_page(
     options: &CleanupOptions,
     source_page_index: usize,
 ) -> Result<PageCleanupResult, String> {
+    clean_page_with_color(source, None, options, source_page_index)
+}
+
+pub fn clean_page_with_color(
+    source: &GrayImage,
+    color_source: Option<&RgbImage>,
+    options: &CleanupOptions,
+    source_page_index: usize,
+) -> Result<PageCleanupResult, String> {
     options.validate()?;
+    if options.excluded {
+        return Ok(PageCleanupResult {
+            outputs: Vec::new(),
+            classification: LayoutClassification::SingleUncutPage,
+            layout_confidence: 1.0,
+            cutter_x: None,
+            blank_outputs_skipped: 0,
+            excluded: true,
+            rotation: options.rotation,
+        });
+    }
+    let (rotated, original_to_rotated) = rotate_orthogonal(source, options.rotation);
+    let rotated_color = color_source.map(|image| rotate_rgb_orthogonal(image, options.rotation));
     let normalized = if options.normalize_illumination {
-        normalize_illumination(source, options.dpi)
+        normalize_illumination(&rotated, options.dpi)
     } else {
-        source.clone()
+        rotated
     };
     let (analysis_binary, _) = binarize_normalized(&normalized, options);
     let split = if options.ocr_mode {
@@ -104,28 +134,48 @@ pub fn clean_page(
         )
     };
     drop(analysis_binary);
-    let regions = output_regions(source.width(), source.height(), &split);
+    let regions = output_regions(
+        normalized.width(),
+        normalized.height(),
+        &split,
+        options.layout,
+    );
     let mut outputs = Vec::with_capacity(regions.len());
     for (region, half) in regions {
         outputs.push(clean_region(
             source,
             &normalized,
+            rotated_color.as_ref(),
             options,
             source_page_index,
             &split,
             region,
             half,
+            original_to_rotated,
         )?);
     }
+    let before_blank_filter = outputs.len();
+    if options.skip_blank_pages {
+        outputs.retain(|output| !output.effectively_blank);
+    }
+    let blank_outputs_skipped = before_blank_filter - outputs.len();
     Ok(PageCleanupResult {
         outputs,
         classification: split.classification,
         layout_confidence: split.confidence,
         cutter_x: split.cutter_x,
+        blank_outputs_skipped,
+        excluded: false,
+        rotation: options.rotation,
     })
 }
 
-fn output_regions(width: usize, height: usize, split: &SplitResult) -> Vec<(Rect, PageHalf)> {
+fn output_regions(
+    width: usize,
+    height: usize,
+    split: &SplitResult,
+    layout: crate::LayoutMode,
+) -> Vec<(Rect, PageHalf)> {
     let full = Rect::new(0.0, 0.0, width as f64, height as f64);
     let Some(cutter) = split.cutter_x else {
         return vec![(full, PageHalf::Full)];
@@ -138,7 +188,9 @@ fn output_regions(width: usize, height: usize, split: &SplitResult) -> Vec<(Rect
             vec![(left, PageHalf::Left), (right, PageHalf::Right)]
         }
         LayoutClassification::PageWithOffcut => {
-            if left.width >= right.width {
+            if matches!(layout, crate::LayoutMode::KeepLeft)
+                || !matches!(layout, crate::LayoutMode::KeepRight) && left.width >= right.width
+            {
                 vec![(left, PageHalf::Left)]
             } else {
                 vec![(right, PageHalf::Right)]
@@ -152,11 +204,13 @@ fn output_regions(width: usize, height: usize, split: &SplitResult) -> Vec<(Rect
 fn clean_region(
     source: &GrayImage,
     normalized: &GrayImage,
+    color_source: Option<&RgbImage>,
     options: &CleanupOptions,
     source_page_index: usize,
     split: &SplitResult,
     region: Rect,
     half: PageHalf,
+    original_to_rotated: Affine,
 ) -> Result<CleanupResult, String> {
     let working = crop_gray(normalized, region);
     let deskew = detect_skew(&working, options.dpi);
@@ -189,10 +243,14 @@ fn clean_region(
     let output_height = output_rect.height.ceil().max(1.0) as usize;
     let local_forward = deskew_transform(working.width(), working.height(), deskew)
         .then(Affine::translation(-output_rect.x, -output_rect.y));
-    let source_forward = Affine::translation(-region.x, -region.y).then(local_forward);
-    let inverse = source_forward
+    let rotated_forward = Affine::translation(-region.x, -region.y).then(local_forward);
+    let source_forward = original_to_rotated.then(rotated_forward);
+    let render_inverse = rotated_forward
         .inverse()
         .ok_or("Cleanup transform is not invertible")?;
+    let source_inverse = source_forward
+        .inverse()
+        .ok_or("Cleanup source transform is not invertible")?;
 
     let (rendered_gray, forward_transform, inverse_transform, dewarp_mapping) =
         if let Some(dewarp) = &effective_dewarp {
@@ -202,18 +260,24 @@ fn clean_region(
             (gray, None, None, Some(grid))
         } else {
             (
-                render_affine_gray(normalized, output_width, output_height, inverse),
+                render_affine_gray(normalized, output_width, output_height, render_inverse),
                 Some(source_forward),
-                Some(inverse),
+                Some(source_inverse),
                 None,
             )
         };
-    let (image, binarization_mode) = match options.output_mode {
+    let effectively_blank = is_effectively_blank(&rendered_gray, options.dpi);
+    let (image, color_image, binarization_mode) = match options.output_mode {
         OutputMode::Bw => {
             let (binary, mode) = binarize_normalized(&rendered_gray, options);
-            (binary_to_gray(&binary), Some(mode))
+            (binary_to_gray(&binary), None, Some(mode))
         }
-        OutputMode::Grayscale => (rendered_gray, None),
+        OutputMode::Grayscale => (rendered_gray, None, None),
+        OutputMode::Color => {
+            let color = color_source
+                .map(|color| render_affine_rgb(color, output_width, output_height, render_inverse));
+            (rendered_gray, color, None)
+        }
     };
     let mut warnings = if deskew.accepted || effective_dewarp.is_some() {
         Vec::new()
@@ -236,6 +300,8 @@ fn clean_region(
     }
     Ok(CleanupResult {
         image,
+        color_image,
+        effectively_blank,
         metadata: CleanupMetadata {
             source_page_index,
             half,
@@ -266,9 +332,85 @@ fn clean_region(
             input_height: source.height(),
             output_width,
             output_height,
+            rotation: options.rotation,
+            resample_passes: 1,
             warnings,
         },
     })
+}
+
+fn rotate_rgb_orthogonal(source: &RgbImage, rotation: OrthogonalRotation) -> RgbImage {
+    let (width, height) = (source.width(), source.height());
+    let (output_width, output_height) = match rotation {
+        OrthogonalRotation::None | OrthogonalRotation::Clockwise180 => (width, height),
+        OrthogonalRotation::Clockwise90 | OrthogonalRotation::Clockwise270 => (height, width),
+    };
+    let mut output = RgbImage::new(output_width, output_height, [255; 3]);
+    for y in 0..height {
+        for x in 0..width {
+            let (target_x, target_y) = match rotation {
+                OrthogonalRotation::None => (x, y),
+                OrthogonalRotation::Clockwise90 => (height - 1 - y, x),
+                OrthogonalRotation::Clockwise180 => (width - 1 - x, height - 1 - y),
+                OrthogonalRotation::Clockwise270 => (y, width - 1 - x),
+            };
+            output.set(target_x, target_y, source.get(x, y));
+        }
+    }
+    output
+}
+
+fn rotate_orthogonal(source: &GrayImage, rotation: OrthogonalRotation) -> (GrayImage, Affine) {
+    let (width, height) = (source.width(), source.height());
+    let (output_width, output_height, forward) = match rotation {
+        OrthogonalRotation::None => (width, height, Affine::IDENTITY),
+        OrthogonalRotation::Clockwise90 => (
+            height,
+            width,
+            Affine {
+                matrix: [[0.0, -1.0, height as f64], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]],
+            },
+        ),
+        OrthogonalRotation::Clockwise180 => (
+            width,
+            height,
+            Affine {
+                matrix: [
+                    [-1.0, 0.0, width as f64],
+                    [0.0, -1.0, height as f64],
+                    [0.0, 0.0, 1.0],
+                ],
+            },
+        ),
+        OrthogonalRotation::Clockwise270 => (
+            height,
+            width,
+            Affine {
+                matrix: [[0.0, 1.0, 0.0], [-1.0, 0.0, width as f64], [0.0, 0.0, 1.0]],
+            },
+        ),
+    };
+    let mut output = GrayImage::new(output_width, output_height, 255);
+    for y in 0..height {
+        for x in 0..width {
+            let (target_x, target_y) = match rotation {
+                OrthogonalRotation::None => (x, y),
+                OrthogonalRotation::Clockwise90 => (height - 1 - y, x),
+                OrthogonalRotation::Clockwise180 => (width - 1 - x, height - 1 - y),
+                OrthogonalRotation::Clockwise270 => (y, width - 1 - x),
+            };
+            output.set(target_x, target_y, source.get(x, y));
+        }
+    }
+    (output, forward)
+}
+
+fn is_effectively_blank(image: &GrayImage, dpi: f64) -> bool {
+    let ink = image.data().iter().filter(|&&value| value < 224).count();
+    let dpi_floor = (24.0 * (dpi / 300.0).powi(2)).round().max(6.0) as usize;
+    let coverage_floor =
+        (image.width().saturating_mul(image.height()) as f64 * 0.00002).round() as usize;
+    ink <= dpi_floor.max(coverage_floor)
 }
 
 fn crop_gray(source: &GrayImage, rect: Rect) -> GrayImage {
@@ -315,6 +457,65 @@ fn render_affine_gray(
             }
             output.set(x, y, (sum / 16) as u8);
         }
+    }
+    output
+}
+
+fn render_affine_rgb(source: &RgbImage, width: usize, height: usize, inverse: Affine) -> RgbImage {
+    let mut output = RgbImage::new(width, height, [255; 3]);
+    let offsets = [0.125, 0.375, 0.625, 0.875];
+    for y in 0..height {
+        for x in 0..width {
+            let mut sum = [0u32; 3];
+            for &oy in &offsets {
+                for &ox in &offsets {
+                    let mapped = inverse.apply(Point::new(x as f64 + ox, y as f64 + oy));
+                    let sample = sample_bilinear_rgb_white(source, mapped.x, mapped.y);
+                    for channel in 0..3 {
+                        sum[channel] += u32::from(sample[channel]);
+                    }
+                }
+            }
+            output.set(
+                x,
+                y,
+                [
+                    (sum[0] / 16) as u8,
+                    (sum[1] / 16) as u8,
+                    (sum[2] / 16) as u8,
+                ],
+            );
+        }
+    }
+    output
+}
+
+fn sample_bilinear_rgb_white(source: &RgbImage, x: f64, y: f64) -> [u8; 3] {
+    let x = x - 0.5;
+    let y = y - 0.5;
+    let x0 = x.floor() as isize;
+    let y0 = y.floor() as isize;
+    let fx = x - x0 as f64;
+    let fy = y - y0 as f64;
+    let sample = |sx: isize, sy: isize| -> [u8; 3] {
+        if sx < 0 || sy < 0 || sx as usize >= source.width() || sy as usize >= source.height() {
+            [255; 3]
+        } else {
+            source.get(sx as usize, sy as usize)
+        }
+    };
+    let samples = [
+        sample(x0, y0),
+        sample(x0 + 1, y0),
+        sample(x0, y0 + 1),
+        sample(x0 + 1, y0 + 1),
+    ];
+    let mut output = [0u8; 3];
+    for (channel, target) in output.iter_mut().enumerate() {
+        let top = f64::from(samples[0][channel]) * (1.0 - fx) + f64::from(samples[1][channel]) * fx;
+        let bottom =
+            f64::from(samples[2][channel]) * (1.0 - fx) + f64::from(samples[3][channel]) * fx;
+        *target = (top * (1.0 - fy) + bottom * fy).round().clamp(0.0, 255.0) as u8;
     }
     output
 }
@@ -562,6 +763,51 @@ mod tests {
     }
 
     #[test]
+    fn color_output_preserves_hue_and_uses_grayscale_geometry() {
+        let mut gray = GrayImage::new(120, 90, 245);
+        let mut color = RgbImage::new(120, 90, [245; 3]);
+        for y in 24..66 {
+            for x in 30..90 {
+                gray.set(x, y, 90);
+                color.set(x, y, [220, 35, 45]);
+            }
+        }
+        let base = CleanupOptions {
+            normalize_illumination: false,
+            crop_content: false,
+            layout: crate::LayoutMode::Single,
+            match_page_size: false,
+            ..CleanupOptions::default()
+        };
+        let grayscale = clean_page(
+            &gray,
+            &CleanupOptions {
+                output_mode: OutputMode::Grayscale,
+                ..base.clone()
+            },
+            0,
+        )
+        .unwrap();
+        let colored = clean_page_with_color(
+            &gray,
+            Some(&color),
+            &CleanupOptions {
+                output_mode: OutputMode::Color,
+                ..base
+            },
+            0,
+        )
+        .unwrap();
+        assert_eq!(
+            colored.outputs[0].metadata.forward_transform,
+            grayscale.outputs[0].metadata.forward_transform
+        );
+        assert_eq!(colored.outputs[0].metadata.resample_passes, 1);
+        let patch = colored.outputs[0].color_image.as_ref().unwrap().get(60, 45);
+        assert!(patch[0] > 180 && patch[0] > patch[1] * 3 && patch[0] > patch[2] * 3);
+    }
+
+    #[test]
     fn auto_spread_renders_two_independently_cropped_outputs() {
         let source = spread_fixture();
         let result = clean_page(
@@ -635,5 +881,87 @@ mod tests {
         assert_eq!(offcut.outputs.len(), 1);
         assert_eq!(offcut.outputs[0].metadata.half, PageHalf::Left);
         assert_eq!(offcut.outputs[0].metadata.source_region.width, 280.0);
+    }
+
+    #[test]
+    fn exclusion_rotation_and_manual_cutter_are_authoritative() {
+        let source = spread_fixture();
+        let excluded = clean_page(
+            &source,
+            &CleanupOptions {
+                excluded: true,
+                ..CleanupOptions::default()
+            },
+            7,
+        )
+        .unwrap();
+        assert!(excluded.outputs.is_empty());
+        assert!(excluded.excluded);
+
+        let rotated = clean_page(
+            &source,
+            &CleanupOptions {
+                rotation: OrthogonalRotation::Clockwise90,
+                layout: crate::LayoutMode::TwoPage,
+                manual_split_x: Some(73.0),
+                normalize_illumination: false,
+                crop_content: false,
+                ..CleanupOptions::default()
+            },
+            7,
+        )
+        .unwrap();
+        assert_eq!(rotated.cutter_x, Some(73.0));
+        assert_eq!(rotated.outputs.len(), 2);
+        let metadata = &rotated.outputs[0].metadata;
+        assert_eq!(metadata.rotation, OrthogonalRotation::Clockwise90);
+        assert_eq!(metadata.resample_passes, 1);
+        assert_eq!((metadata.input_width, metadata.input_height), (320, 200));
+        let source_point = Point::new(32.5, 44.5);
+        let restored = metadata
+            .inverse_transform
+            .unwrap()
+            .apply(metadata.forward_transform.unwrap().apply(source_point));
+        assert!((restored.x - source_point.x).abs() < 1e-8);
+        assert!((restored.y - source_point.y).abs() < 1e-8);
+    }
+
+    #[test]
+    fn skip_blank_pages_filters_only_effectively_blank_outputs() {
+        let blank = GrayImage::new(180, 120, 255);
+        let skipped = clean_page(
+            &blank,
+            &CleanupOptions {
+                skip_blank_pages: true,
+                crop_content: false,
+                layout: crate::LayoutMode::Single,
+                ..CleanupOptions::default()
+            },
+            0,
+        )
+        .unwrap();
+        assert!(skipped.outputs.is_empty());
+        assert_eq!(skipped.blank_outputs_skipped, 1);
+
+        let mut inked = blank;
+        for y in 45..55 {
+            for x in 40..140 {
+                inked.set(x, y, 0);
+            }
+        }
+        let retained = clean_page(
+            &inked,
+            &CleanupOptions {
+                skip_blank_pages: true,
+                normalize_illumination: false,
+                crop_content: false,
+                layout: crate::LayoutMode::Single,
+                ..CleanupOptions::default()
+            },
+            0,
+        )
+        .unwrap();
+        assert_eq!(retained.outputs.len(), 1);
+        assert_eq!(retained.blank_outputs_skipped, 0);
     }
 }

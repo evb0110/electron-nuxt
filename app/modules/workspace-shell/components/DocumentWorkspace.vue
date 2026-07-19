@@ -20,6 +20,7 @@
                 :navigation-command="navigationCommand"
                 :ocr-pdf-document="pdfDocument"
                 :ocr-working-copy-path="workingCopyPath"
+                :scan-cleanup-document-key="documentRevisionInfo?.documentRef ?? originalPath ?? workingCopyPath"
                 :ocr-external-error="docxExportError"
                 :ocr-is-exporting-docx="isExportingDocx"
                 :ocr-popup-open="ocrPopupOpen"

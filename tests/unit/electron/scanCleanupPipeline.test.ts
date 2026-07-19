@@ -15,6 +15,7 @@ import {
 import type { IScanCleanupOptions } from '@contracts/electronApiScanCleanup';
 import { classifyScanCleanupError } from '@electron/features/scan-cleanup/createScanCleanupService';
 import {
+    mapScanCleanupRasterPages,
     runScanCleanupPipeline,
     type IRunScanCleanupPipelineDependencies,
 } from '@electron/features/scan-cleanup/worker/runScanCleanupPipeline';
@@ -28,12 +29,16 @@ interface ICleanupOutput {
 const options: IScanCleanupOptions = {
     layoutMode: 'auto',
     outputMode: 'bw',
+    readingOrder: 'ltr',
     thickness: 0,
     crop: true,
     matchPageSize: true,
     pageAlignment: 'top-center',
     marginsMm: 5,
     despeckle: true,
+    skipBlankPages: false,
+    straightenCurvedLines: false,
+    pageOverrides: {},
 };
 
 async function setup() {
@@ -120,21 +125,70 @@ afterEach(async () => {
 });
 
 describe('scan cleanup pipeline', () => {
+    it('rasterizes with a bound of three while preserving source order', async () => {
+        let active = 0;
+        let peak = 0;
+        const resolvers: Array<() => void> = [];
+        const resultPromise = mapScanCleanupRasterPages([
+            1,
+            2,
+            3,
+            4,
+            5,
+        ], 3, async value => {
+            active += 1;
+            peak = Math.max(peak, active);
+            await new Promise<void>(resolve => resolvers.push(resolve));
+            active -= 1;
+            return value * 10;
+        });
+        await vi.waitFor(() => expect(resolvers).toHaveLength(3));
+        resolvers.splice(0).forEach(resolve => resolve());
+        await vi.waitFor(() => expect(resolvers).toHaveLength(2));
+        resolvers.splice(0).forEach(resolve => resolve());
+        await expect(resultPromise).resolves.toEqual([
+            10,
+            20,
+            30,
+            40,
+            50,
+        ]);
+        expect(peak).toBe(3);
+    });
+
     it('turns a spread into two pages, preserves the original, and publishes only the staged PDF', async () => {
         const fixture = await setup();
         let cleanupManifest: {pages: Array<{
+            pageMetadataPath: string;
             options: IScanCleanupOptions & Record<string, unknown>;
             outputs: ICleanupOutput[]
         }>} | null = null;
         let combineManifest = '';
         const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
             const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+                pageMetadataPath: string;
                 options: IScanCleanupOptions & Record<string, unknown>;
                 outputs: ICleanupOutput[]
             }>};
             cleanupManifest = manifest;
+            await writeFile(manifest.pages[0]!.pageMetadataPath, JSON.stringify({
+                layoutClassification: 'two-page-spread',
+                cutterX: 500,
+                rotation: 0,
+                excluded: false,
+                blankOutputsSkipped: 0,
+                outputCount: 2,
+            }));
             await writeCleanupOutput(manifest.pages[0]!.outputs[0]!, 'two-page-spread');
             await writeCleanupOutput(manifest.pages[0]!.outputs[1]!, 'two-page-spread');
+            await writeFile(manifest.pages[1]!.pageMetadataPath, JSON.stringify({
+                layoutClassification: 'single-uncut-page',
+                cutterX: null,
+                rotation: 0,
+                excluded: false,
+                blankOutputsSkipped: 0,
+                outputCount: 1,
+            }));
             await writeCleanupOutput(manifest.pages[1]!.outputs[0]!, 'single-uncut-page', false);
             onProgress({
                 event: 'page-complete',

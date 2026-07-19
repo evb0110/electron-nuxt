@@ -81,47 +81,74 @@
             aria-live="polite"
         >
             <template v-if="result">
-                <div v-if="effectiveViewMode === 'original'" class="raw-preview" :class="{'is-actual': effectiveZoomMode === 'actual'}">
-                    <img
-                        :src="rawUrl"
-                        :alt="t('scanCleanup.preview.originalAlt', {page: pageNumber})"
-                        :style="effectiveZoomMode === 'actual' ? {width: `${result.rawWidth}px`, maxWidth: 'none', maxHeight: 'none'} : undefined"
-                    >
+                <div v-if="result.outputs.length === 0 && effectiveViewMode === 'cleaned'" class="preview-message">
+                    <span>{{ result.pageMetadata.excluded
+                        ? t('scanCleanup.preview.excluded')
+                        : t('scanCleanup.preview.blankSkipped') }}</span>
                 </div>
-                <div v-else class="cleaned-outputs" :class="{'is-spread': result.outputs.length > 1, 'is-actual': effectiveZoomMode === 'actual'}">
-                    <div
-                        v-for="(output, index) in renderedOutputs"
-                        :key="`${result.pageNumber}-${output.metadata.half}`"
-                        class="output-column"
-                    >
-                        <span v-if="result.outputs.length > 1" class="half-label">
-                            {{ output.metadata.half === 'left'
-                                ? t('scanCleanup.preview.leftPage')
-                                : t('scanCleanup.preview.rightPage') }}
-                        </span>
-                        <div
-                            class="uniform-canvas"
-                            :class="{'has-uniform-canvas': matchPageSize, 'is-actual': effectiveZoomMode === 'actual'}"
-                            :style="{
-                                aspectRatio: `${output.placement.canvasWidth} / ${output.placement.canvasHeight}`,
-                                ...(effectiveZoomMode === 'actual' ? {width: `${output.placement.canvasWidth}px`} : {}),
-                            }"
+                <div v-else ref="cutterStage" class="cutter-stage">
+                    <div v-if="effectiveViewMode === 'original'" class="raw-preview" :class="{'is-actual': effectiveZoomMode === 'actual'}">
+                        <img
+                            :src="rawUrl"
+                            :alt="t('scanCleanup.preview.originalAlt', {page: pageNumber})"
+                            :style="effectiveZoomMode === 'actual' ? {width: `${result.rawWidth}px`, maxWidth: 'none', maxHeight: 'none'} : undefined"
                         >
-                            <img
-                                class="cleaned-image"
-                                :src="cleanedUrls[index]"
-                                :alt="t('scanCleanup.preview.cleanedAlt', {page: pageNumber})"
-                                :style="output.imageStyle"
+                    </div>
+                    <div v-else class="cleaned-outputs" :class="{'is-spread': result.outputs.length > 1, 'is-actual': effectiveZoomMode === 'actual'}">
+                        <div
+                            v-for="(output, index) in renderedOutputs"
+                            :key="`${result.pageNumber}-${output.metadata.half}-${index}`"
+                            class="output-column"
+                        >
+                            <span v-if="result.outputs.length > 1" class="half-label">
+                                {{ output.metadata.half === 'left'
+                                    ? t('scanCleanup.preview.leftPage')
+                                    : t('scanCleanup.preview.rightPage') }}
+                            </span>
+                            <div
+                                class="uniform-canvas"
+                                :class="{'has-uniform-canvas': matchPageSize, 'is-actual': effectiveZoomMode === 'actual'}"
+                                :style="{
+                                    aspectRatio: `${output.placement.canvasWidth} / ${output.placement.canvasHeight}`,
+                                    ...(effectiveZoomMode === 'actual' ? {width: `${output.placement.canvasWidth}px`} : {}),
+                                }"
                             >
-                            <span class="margin-overlay" :style="output.imageStyle" aria-hidden="true" />
-                            <span
-                                v-if="output.contentStyle"
-                                class="content-overlay"
-                                :style="output.contentStyle"
-                                aria-hidden="true"
-                            />
+                                <img
+                                    class="cleaned-image"
+                                    :src="output.url"
+                                    :alt="t('scanCleanup.preview.cleanedAlt', {page: pageNumber})"
+                                    :style="output.imageStyle"
+                                >
+                                <span class="margin-overlay" :style="output.imageStyle" aria-hidden="true" />
+                                <span
+                                    v-if="output.contentStyle"
+                                    class="content-overlay"
+                                    :style="output.contentStyle"
+                                    aria-hidden="true"
+                                />
+                            </div>
                         </div>
                     </div>
+                    <button
+                        v-if="showCutter"
+                        class="cutter-control"
+                        type="button"
+                        :style="cutterStyle"
+                        :aria-label="t('scanCleanup.preview.cutter')"
+                        aria-describedby="scan-cleanup-cutter-hint"
+                        @pointerdown="startCutterDrag"
+                        @pointermove="dragCutter"
+                        @pointerup="finishCutterDrag"
+                        @pointercancel="finishCutterDrag"
+                        @dblclick.prevent="$emit('update:manualSplitX', null)"
+                        @keydown.left.prevent="nudgeCutter(-1, $event.shiftKey)"
+                        @keydown.right.prevent="nudgeCutter(1, $event.shiftKey)"
+                    >
+                        <span aria-hidden="true" />
+                    </button>
+                    <span id="scan-cleanup-cutter-hint" class="sr-only">
+                        {{ t('scanCleanup.preview.cutterHint') }}
+                    </span>
                 </div>
                 <div v-if="loading || error" class="refresh-indicator" :class="{'is-error': error}">
                     <UIcon :name="error ? 'i-ph-warning-circle' : 'i-ph-circle-notch'" class="size-4" :class="{'is-spinning': !error}" />
@@ -159,6 +186,9 @@ import type {
 import {
     resolvePreviewCanvasSize,
     resolvePreviewPlacement,
+    scanCleanupAnalysisWidth,
+    scanCleanupCutterRatio,
+    scanCleanupCutterXFromRatio,
     toPreviewStyleRect,
     transformPreviewContentBox,
 } from '@app/modules/scan-cleanup/utils/scanCleanupPreviewGeometry';
@@ -175,6 +205,8 @@ const props = defineProps<{
     alignment: TScanCleanupPageAlignment;
     pageNumber: number;
     totalPages: number;
+    manualSplitX: number | null;
+    readingOrder: 'ltr' | 'rtl';
 }>();
 
 const emit = defineEmits<{
@@ -182,11 +214,14 @@ const emit = defineEmits<{
     next: [];
     'update:viewMode': [value: 'original' | 'cleaned'];
     'update:zoomMode': [value: 'fit' | 'actual'];
+    'update:manualSplitX': [value: number | null];
 }>();
 
 const {t} = useTypedI18n();
 const rawUrl = ref('');
 const cleanedUrls = ref<string[]>([]);
+const cutterStage = ref<HTMLElement | null>(null);
+const draggingCutter = ref(false);
 const effectiveViewMode = computed(() => props.viewMode ?? (props.showBefore ? 'original' : 'cleaned'));
 const effectiveZoomMode = computed(() => props.zoomMode ?? 'fit');
 const viewModes = computed(() => [
@@ -199,10 +234,58 @@ const viewModes = computed(() => [
         label: t('scanCleanup.preview.cleaned'),
     },
 ]);
+const analysisWidth = computed(() => {
+    const metadata = props.result?.pageMetadata;
+    if (!metadata || !props.result) {
+        return 1;
+    }
+    return scanCleanupAnalysisWidth(metadata, props.result.rawWidth, props.result.rawHeight);
+});
+const cutterX = computed(() => props.manualSplitX ?? props.result?.pageMetadata.cutterX ?? analysisWidth.value / 2);
+const showCutter = computed(() => Boolean(props.result)
+    && (props.manualSplitX !== null
+        || props.result?.pageMetadata.layoutClassification !== 'single-uncut-page'));
+const cutterStyle = computed(() => ({insetInlineStart: `${scanCleanupCutterRatio(cutterX.value, analysisWidth.value) * 100}%`}));
 
 function navigateFromKeyboard(direction: 'previous' | 'next') {
     if (direction === 'previous' && props.pageNumber > 1) emit('previous');
     if (direction === 'next' && props.pageNumber < props.totalPages) emit('next');
+}
+
+function updateCutterFromClientX(clientX: number) {
+    const rect = cutterStage.value?.getBoundingClientRect();
+    if (!rect || rect.width <= 0) {
+        return;
+    }
+    const ratio = (clientX - rect.left) / rect.width;
+    emit('update:manualSplitX', scanCleanupCutterXFromRatio(ratio, analysisWidth.value));
+}
+
+function startCutterDrag(event: PointerEvent) {
+    draggingCutter.value = true;
+    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+    updateCutterFromClientX(event.clientX);
+}
+
+function dragCutter(event: PointerEvent) {
+    if (draggingCutter.value) updateCutterFromClientX(event.clientX);
+}
+
+function finishCutterDrag(event: PointerEvent) {
+    if (!draggingCutter.value) {
+        return;
+    }
+    draggingCutter.value = false;
+    const target = event.currentTarget as HTMLElement;
+    if (target.hasPointerCapture(event.pointerId)) target.releasePointerCapture(event.pointerId);
+}
+
+function nudgeCutter(direction: -1 | 1, coarse: boolean) {
+    const step = analysisWidth.value * (coarse ? 0.05 : 0.01);
+    emit('update:manualSplitX', Math.min(
+        analysisWidth.value * 0.98,
+        Math.max(analysisWidth.value * 0.02, cutterX.value + direction * step),
+    ));
 }
 
 function revokeUrls() {
@@ -235,7 +318,7 @@ const renderedOutputs = computed(() => {
         props.result.outputs.map(output => output.metadata),
         props.matchPageSize,
     );
-    return props.result.outputs.map(output => {
+    const outputs = props.result.outputs.map((output, index) => {
         const metadata = output.metadata;
         const placement = resolvePreviewPlacement(
             metadata.outputWidth,
@@ -253,11 +336,13 @@ const renderedOutputs = computed(() => {
         const content = transformPreviewContentBox(metadata);
         return {
             metadata,
+            url: cleanedUrls.value[index] ?? '',
             placement,
             imageStyle,
             contentStyle: content ? toPreviewStyleRect(content, placement) : null,
         };
     });
+    return props.readingOrder === 'rtl' && outputs.length > 1 ? outputs.reverse() : outputs;
 });
 </script>
 
@@ -337,13 +422,55 @@ const renderedOutputs = computed(() => {
     overflow: auto;
 }
 
-.raw-preview,
-.cleaned-outputs {
+.raw-preview {
     display: flex;
     width: 100%;
     height: 100%;
     min-height: 0;
     align-items: center;
+    justify-content: center;
+}
+
+.cutter-stage {
+    position: relative;
+    display: flex;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+}
+
+.cutter-control {
+    position: absolute;
+    inset-block: 0;
+    z-index: var(--app-z-local-raised);
+    width: var(--app-space-9xl);
+    border: 0;
+    background: transparent;
+    cursor: col-resize;
+    transform: translateX(-50%);
+}
+
+.cutter-control > span {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: 50%;
+    width: var(--app-space-xs);
+    background: var(--ui-primary);
+    box-shadow: 0 0 0 1px var(--ui-bg);
+}
+
+.cutter-control:focus-visible {
+    outline: 2px solid var(--ui-primary);
+    outline-offset: var(--app-space-xs);
+}
+
+.cleaned-outputs {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    align-items: stretch;
     justify-content: center;
 }
 
@@ -370,6 +497,7 @@ const renderedOutputs = computed(() => {
 .output-column {
     display: flex;
     min-width: 0;
+    min-height: 0;
     max-width: 100%;
     flex: 1;
     flex-direction: column;
@@ -384,9 +512,10 @@ const renderedOutputs = computed(() => {
 
 .uniform-canvas {
     position: relative;
-    width: min(100%, var(--app-scan-preview-page-width));
+    width: auto;
+    min-height: 0;
     max-width: 100%;
-    max-height: 100%;
+    flex: 1 1 0;
     border: 1px dashed transparent;
     background: var(--ui-bg);
     box-shadow: var(--app-document-page-shadow);

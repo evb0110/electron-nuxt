@@ -33,6 +33,11 @@ export const useScanCleanupRunCoordinator = (
                 })
                 : false;
         },
+        runOcrOnActiveDocument: async () => {
+            await nextTick();
+            const result = await activeWorkspace.value?.runAgentAction('ocr.start', {});
+            return result?.ok === true;
+        },
         saveActiveDocumentAs: async () => activeWorkspace.value?.handleSaveAs() ?? false,
         t,
         toast,

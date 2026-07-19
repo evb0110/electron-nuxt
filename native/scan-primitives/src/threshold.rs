@@ -1,4 +1,5 @@
 use crate::{BinaryImage, GrayImage};
+use std::collections::VecDeque;
 
 /// Otsu threshold using dark `< threshold`; tied best-score plateaus use their midpoint.
 pub fn otsu_threshold(image: &GrayImage) -> u8 {
@@ -79,76 +80,105 @@ pub fn threshold_local_biased(
 ) -> BinaryImage {
     let width = image.width();
     let height = image.height();
-    let pitch = width + 1;
-    let mut sum = vec![0u64; (width + 1) * (height + 1)];
-    let mut square = vec![0u64; sum.len()];
-    let mut global_min = u8::MAX;
-    for y in 0..height {
-        for x in 0..width {
-            let value = u64::from(image.get(x, y));
-            global_min = global_min.min(value as u8);
-            let index = (y + 1) * pitch + x + 1;
-            sum[index] = value + sum[index - 1] + sum[index - pitch] - sum[index - pitch - 1];
-            square[index] = value * value + square[index - 1] + square[index - pitch]
-                - square[index - pitch - 1];
-        }
-    }
+    let global_min = image.data().iter().copied().min().unwrap_or(u8::MAX);
     let mut max_deviation = 1.0f64;
-    for y in 0..height {
-        for x in 0..width {
-            let x0 = x.saturating_sub(radius);
-            let y0 = y.saturating_sub(radius);
-            let x1 = (x + radius + 1).min(width);
-            let y1 = (y + radius + 1).min(height);
-            let count = ((x1 - x0) * (y1 - y0)) as f64;
-            let area_sum = rectangle_sum(&sum, pitch, x0, y0, x1, y1) as f64;
-            let area_square = rectangle_sum(&square, pitch, x0, y0, x1, y1) as f64;
-            let mean = area_sum / count;
-            let deviation = (area_square / count - mean * mean).max(0.0).sqrt();
-            max_deviation = max_deviation.max(deviation);
-        }
-    }
+    for_each_local_stat(image, radius, |_x, _y, _mean, deviation| {
+        max_deviation = max_deviation.max(deviation);
+    });
     let mut output = BinaryImage::new(width, height);
-    for y in 0..height {
-        for x in 0..width {
-            let x0 = x.saturating_sub(radius);
-            let y0 = y.saturating_sub(radius);
-            let x1 = (x + radius + 1).min(width);
-            let y1 = (y + radius + 1).min(height);
-            let count = ((x1 - x0) * (y1 - y0)) as f64;
-            let area_sum = rectangle_sum(&sum, pitch, x0, y0, x1, y1) as f64;
-            let area_square = rectangle_sum(&square, pitch, x0, y0, x1, y1) as f64;
-            let mean = area_sum / count;
-            let deviation = (area_square / count - mean * mean).max(0.0).sqrt();
-            let threshold = match method {
-                LocalThreshold::Sauvola { k } => mean * (1.0 + k * (deviation / 128.0 - 1.0)),
-                LocalThreshold::Wolf { k, deviation_floor } => {
-                    let normalized =
-                        deviation.max(deviation_floor) / max_deviation.max(deviation_floor);
-                    mean - k * (1.0 - normalized) * (mean - f64::from(global_min))
-                }
-            };
-            output.set(
-                x,
-                y,
-                f64::from(image.get(x, y)) < (threshold + f64::from(bias)).clamp(0.0, 255.0),
-            );
-        }
-    }
+    for_each_local_stat(image, radius, |x, y, mean, deviation| {
+        let threshold = match method {
+            LocalThreshold::Sauvola { k } => mean * (1.0 + k * (deviation / 128.0 - 1.0)),
+            LocalThreshold::Wolf { k, deviation_floor } => {
+                let normalized = deviation.max(deviation_floor) / max_deviation.max(deviation_floor);
+                mean - k * (1.0 - normalized) * (mean - f64::from(global_min))
+            }
+        };
+        output.set(
+            x,
+            y,
+            f64::from(image.get(x, y)) < (threshold + f64::from(bias)).clamp(0.0, 255.0),
+        );
+    });
     output
 }
 
-fn rectangle_sum(
-    integral: &[u64],
-    pitch: usize,
-    x0: usize,
-    y0: usize,
-    x1: usize,
-    y1: usize,
-) -> u64 {
-    integral[y1 * pitch + x1] + integral[y0 * pitch + x0]
-        - integral[y0 * pitch + x1]
-        - integral[y1 * pitch + x0]
+fn horizontal_window_stats(image: &GrayImage, y: usize, radius: usize) -> (Vec<u32>, Vec<u32>) {
+    let mut sums = vec![0u32; image.width()];
+    let mut squares = vec![0u32; image.width()];
+    let mut sum = 0u32;
+    let mut square = 0u32;
+    for x in 0..image.width() {
+        if x == 0 {
+            for sx in 0..=(radius.min(image.width().saturating_sub(1))) {
+                let value = u32::from(image.get(sx, y));
+                sum += value;
+                square += value * value;
+            }
+        } else {
+            let entering = x.saturating_add(radius).min(image.width().saturating_sub(1));
+            if entering > (x - 1).saturating_add(radius).min(image.width().saturating_sub(1)) {
+                let value = u32::from(image.get(entering, y));
+                sum += value;
+                square += value * value;
+            }
+            if x > radius {
+                let leaving = x - radius - 1;
+                let value = u32::from(image.get(leaving, y));
+                sum -= value;
+                square -= value * value;
+            }
+        }
+        sums[x] = sum;
+        squares[x] = square;
+    }
+    (sums, squares)
+}
+
+fn for_each_local_stat(
+    image: &GrayImage,
+    radius: usize,
+    mut visit: impl FnMut(usize, usize, f64, f64),
+) {
+    if image.width() == 0 || image.height() == 0 {
+        return;
+    }
+    let mut rows = VecDeque::<(usize, Vec<u32>, Vec<u32>)>::new();
+    let mut vertical_sum = vec![0u64; image.width()];
+    let mut vertical_square = vec![0u64; image.width()];
+    let mut next_row = 0usize;
+    for y in 0..image.height() {
+        let first_row = y.saturating_sub(radius);
+        let last_row = y.saturating_add(radius).min(image.height() - 1);
+        while rows.front().is_some_and(|row| row.0 < first_row) {
+            let (_, sums, squares) = rows.pop_front().unwrap();
+            for x in 0..image.width() {
+                vertical_sum[x] -= u64::from(sums[x]);
+                vertical_square[x] -= u64::from(squares[x]);
+            }
+        }
+        while next_row <= last_row {
+            let (sums, squares) = horizontal_window_stats(image, next_row, radius);
+            for x in 0..image.width() {
+                vertical_sum[x] += u64::from(sums[x]);
+                vertical_square[x] += u64::from(squares[x]);
+            }
+            rows.push_back((next_row, sums, squares));
+            next_row += 1;
+        }
+        let vertical_count = last_row - first_row + 1;
+        for x in 0..image.width() {
+            let horizontal_count = x.saturating_add(radius).min(image.width() - 1)
+                - x.saturating_sub(radius)
+                + 1;
+            let count = (horizontal_count * vertical_count) as f64;
+            let mean = vertical_sum[x] as f64 / count;
+            let deviation = (vertical_square[x] as f64 / count - mean * mean)
+                .max(0.0)
+                .sqrt();
+            visit(x, y, mean, deviation);
+        }
+    }
 }
 
 #[cfg(test)]

@@ -166,6 +166,7 @@ export function createScanCleanupService(): IScanCleanupService {
                         status: 'completed',
                         outputPdfPath,
                         summary,
+                        runOcrAfterCleanup: request.runOcrAfterCleanup === true,
                         progress: {
                             phase: 'handoff',
                             processedCount: summary.inputPages,

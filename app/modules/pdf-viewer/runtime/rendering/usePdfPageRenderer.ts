@@ -44,6 +44,7 @@ import type {
 } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 import type { IPdfViewerTransactionRenderRequest } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
 import { bindPdfOpenSurfaceRenderContext } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext';
+import { isRenderingCancelledError } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/isRenderingCancelledError';
 import {
     createPdfRenderSupervisor,
     type IArmPdfRenderSupervisorTimerOptions,
@@ -369,6 +370,9 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         stage: string,
         error: unknown,
     ) {
+        if (isRenderingCancelledError(error)) {
+            return;
+        }
         BrowserLogger.error(
             'pdf-renderer',
             `Failed to render ${stage} for page ${pageNumber}`,

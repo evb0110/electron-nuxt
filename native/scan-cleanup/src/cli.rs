@@ -1,6 +1,7 @@
 use crate::{
-    pipeline::{clean_page, CleanupMetadata},
-    png, CleanupOptions, PROTOCOL_VERSION,
+    pipeline::{clean_page_with_color, CleanupMetadata},
+    png::{self, RgbImage},
+    CleanupOptions, OrthogonalRotation, OutputMode, PROTOCOL_VERSION,
 };
 use evb_native_support::{NativeError, NativeErrorCode};
 use scan_primitives::{Affine, GrayImage, Point};
@@ -23,6 +24,8 @@ struct PageJob {
     outputs: Vec<PageOutputJob>,
     #[serde(default)]
     source_page_index: Option<usize>,
+    #[serde(default)]
+    page_metadata_path: Option<PathBuf>,
     #[serde(default)]
     options: Option<CleanupOptions>,
 }
@@ -56,6 +59,23 @@ struct WrittenOutput {
     output_path: PathBuf,
     metadata_path: PathBuf,
     options: CleanupOptions,
+    is_color: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PageResultMetadata {
+    source_page_index: usize,
+    layout_classification: crate::split::LayoutClassification,
+    cutter_x: Option<f64>,
+    rotation: OrthogonalRotation,
+    excluded: bool,
+    blank_outputs_skipped: usize,
+    output_count: usize,
+}
+
+struct PageRunResult {
+    outputs: Vec<WrittenOutput>,
 }
 
 pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), Box<dyn Error>> {
@@ -97,6 +117,7 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), Box<dyn Error>>
             metadata_path: Some(metadata),
             outputs: Vec::new(),
             source_page_index: Some(0),
+            page_metadata_path: None,
             options: Some(options),
         },
         None,
@@ -122,12 +143,13 @@ fn run_manifest(path: &Path) -> Result<(), Box<dyn Error>> {
     );
     let mut written_outputs = Vec::new();
     for (index, page) in manifest.pages.iter().enumerate() {
-        let page_outputs = run_page(page, Some(&manifest.shared_options), index)?;
-        let output_paths = page_outputs
+        let page_result = run_page(page, Some(&manifest.shared_options), index)?;
+        let output_paths = page_result
+            .outputs
             .iter()
             .map(|output| output.output_path.clone())
             .collect::<Vec<_>>();
-        written_outputs.extend(page_outputs);
+        written_outputs.extend(page_result.outputs);
         println!(
             "{}",
             serde_json::to_string(&Progress {
@@ -155,37 +177,75 @@ fn run_page(
     job: &PageJob,
     shared: Option<&CleanupOptions>,
     fallback_page_index: usize,
-) -> Result<Vec<WrittenOutput>, Box<dyn Error>> {
+) -> Result<PageRunResult, Box<dyn Error>> {
     let options = job.options.as_ref().or(shared).cloned().unwrap_or_default();
     options.validate().map_err(invalid)?;
-    let input = png::read_gray(&job.input_path, options.max_pixels, options.max_dimension)
-        .map_err(map_image_error)?;
-    let result = clean_page(
-        &input,
+    let color_input = if options.output_mode == OutputMode::Color {
+        Some(
+            png::read_image(&job.input_path, options.max_pixels, options.max_dimension)
+                .map_err(map_image_error)?,
+        )
+    } else {
+        None
+    };
+    let gray_input = if color_input.is_none() {
+        Some(
+            png::read_gray(&job.input_path, options.max_pixels, options.max_dimension)
+                .map_err(map_image_error)?,
+        )
+    } else {
+        None
+    };
+    let input_gray = color_input
+        .as_ref()
+        .map(|input| &input.gray)
+        .or(gray_input.as_ref())
+        .expect("cleanup input is initialized");
+    let result = clean_page_with_color(
+        input_gray,
+        color_input.as_ref().map(|input| &input.rgb),
         &options,
         job.source_page_index.unwrap_or(fallback_page_index),
     )
     .map_err(invalid)?;
     if options.ocr_mode
         && (result.outputs.len() != 1
-            || result.outputs[0].image.width() != input.width()
-            || result.outputs[0].image.height() != input.height())
+            || result.outputs[0].image.width() != input_gray.width()
+            || result.outputs[0].image.height() != input_gray.height())
     {
         return Err(invalid("OCR mode changed output dimensions").into());
     }
+    let page_metadata = PageResultMetadata {
+        source_page_index: job.source_page_index.unwrap_or(fallback_page_index),
+        layout_classification: result.classification,
+        cutter_x: result.cutter_x,
+        rotation: result.rotation,
+        excluded: result.excluded,
+        blank_outputs_skipped: result.blank_outputs_skipped,
+        output_count: result.outputs.len(),
+    };
     let destinations = resolve_destinations(job, result.outputs.len())?;
     let mut written = Vec::with_capacity(result.outputs.len());
     for (output, destination) in result.outputs.iter().zip(&destinations) {
-        png::write_gray_atomic(&destination.output_path, &output.image)
-            .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
+        if let Some(color) = &output.color_image {
+            png::write_rgb_atomic(&destination.output_path, color)
+                .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
+        } else {
+            png::write_gray_atomic(&destination.output_path, &output.image)
+                .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
+        }
         write_json_atomic(&destination.metadata_path, &output.metadata)?;
         written.push(WrittenOutput {
             output_path: destination.output_path.clone(),
             metadata_path: destination.metadata_path.clone(),
             options: options.clone(),
+            is_color: output.color_image.is_some(),
         });
     }
-    Ok(written)
+    if let Some(path) = &job.page_metadata_path {
+        write_json_atomic(path, &page_metadata)?;
+    }
+    Ok(PageRunResult { outputs: written })
 }
 
 fn match_page_sizes(outputs: &[WrittenOutput]) -> Result<(), Box<dyn Error>> {
@@ -235,9 +295,22 @@ fn match_page_sizes(outputs: &[WrittenOutput]) -> Result<(), Box<dyn Error>> {
         translate_metadata(&mut metadata, left, top, target_width, target_height);
 
         if available_width != 0 || available_height != 0 {
-            let canvas = place_on_white_canvas(&image, target_width, target_height, left, top);
-            png::write_gray_atomic(&output.output_path, &canvas)
-                .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
+            if output.is_color {
+                let image = png::read_image(
+                    &output.output_path,
+                    output.options.max_pixels,
+                    output.options.max_dimension,
+                )?
+                .rgb;
+                let canvas =
+                    place_rgb_on_white_canvas(&image, target_width, target_height, left, top);
+                png::write_rgb_atomic(&output.output_path, &canvas)
+                    .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
+            } else {
+                let canvas = place_on_white_canvas(&image, target_width, target_height, left, top);
+                png::write_gray_atomic(&output.output_path, &canvas)
+                    .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
+            }
         }
         write_json_atomic(&output.metadata_path, &metadata)?;
     }
@@ -272,6 +345,22 @@ fn place_on_white_canvas(
     top: usize,
 ) -> GrayImage {
     let mut canvas = GrayImage::new(width, height, 255);
+    for y in 0..source.height() {
+        for x in 0..source.width() {
+            canvas.set(left + x, top + y, source.get(x, y));
+        }
+    }
+    canvas
+}
+
+fn place_rgb_on_white_canvas(
+    source: &RgbImage,
+    width: usize,
+    height: usize,
+    left: usize,
+    top: usize,
+) -> RgbImage {
+    let mut canvas = RgbImage::new(width, height, [255; 3]);
     for y in 0..source.height() {
         for x in 0..source.width() {
             canvas.set(left + x, top + y, source.get(x, y));

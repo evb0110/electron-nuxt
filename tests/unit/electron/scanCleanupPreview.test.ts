@@ -28,12 +28,16 @@ const request: IScanCleanupPreviewRequest = {
     options: {
         layoutMode: 'auto',
         outputMode: 'bw',
+        readingOrder: 'ltr',
         thickness: 0,
         crop: true,
         matchPageSize: true,
         pageAlignment: 'top-center',
         marginsMm: 5,
         despeckle: true,
+        skipBlankPages: false,
+        straightenCurvedLines: false,
+        pageOverrides: {},
     },
 };
 
@@ -50,11 +54,23 @@ function dependencies(dir: string): IScanCleanupPreviewDependencies {
             await writeFile(outputPath, PNG);
         }),
         runSidecar: vi.fn(async (_binary, manifestPath) => {
-            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{outputs: Array<{
-                outputPath: string;
-                metadataPath: string
-            }>}>};
-            const output = manifest.pages[0]!.outputs[0]!;
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+                pageMetadataPath: string;
+                outputs: Array<{
+                    outputPath: string;
+                    metadataPath: string
+                }>
+            }>};
+            const page = manifest.pages[0]!;
+            const output = page.outputs[0]!;
+            await writeFile(page.pageMetadataPath, JSON.stringify({
+                layoutClassification: 'single-uncut-page',
+                cutterX: null,
+                rotation: 0,
+                excluded: false,
+                blankOutputsSkipped: 0,
+                outputCount: 1,
+            }));
             await writeFile(output.outputPath, PNG);
             await writeFile(output.metadataPath, JSON.stringify({
                 half: 'full',
@@ -79,6 +95,11 @@ function dependencies(dir: string): IScanCleanupPreviewDependencies {
                 ],
                 outputWidth: 1,
                 outputHeight: 1,
+                cutterX: null,
+                inputWidth: 1,
+                inputHeight: 1,
+                rotation: 0,
+                resamplePasses: 1,
                 forwardTransform: {matrix: [
                     [
                         1,

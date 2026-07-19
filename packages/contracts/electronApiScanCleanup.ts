@@ -1,11 +1,23 @@
 export type TScanCleanupLayoutMode = 'auto' | 'force-single' | 'force-two-page';
-export type TScanCleanupOutputMode = 'bw' | 'grayscale';
+export type TScanCleanupOutputMode = 'bw' | 'grayscale' | 'color';
+export type TScanCleanupReadingOrder = 'ltr' | 'rtl';
+export type TScanCleanupPageRotation = 0 | 90 | 180 | 270;
+export type TScanCleanupPageLayoutOverride = 'auto' | 'single' | 'spread' | 'keep-left' | 'keep-right';
 export type TScanCleanupPageAlignment =
     | 'top-left' | 'top-center' | 'top-right'
     | 'center-left' | 'center' | 'center-right'
     | 'bottom-left' | 'bottom-center' | 'bottom-right';
 export type TScanCleanupPhase = 'queued' | 'normalizing' | 'rasterizing' | 'cleaning' | 'assembling' | 'handoff';
 export type TScanCleanupErrorCode = 'invalid-request' | 'tools-unavailable' | 'sidecar-failed' | 'canceled' | 'internal';
+
+export interface IScanCleanupPageOverride {
+    rotation: TScanCleanupPageRotation;
+    layoutOverride: TScanCleanupPageLayoutOverride;
+    excluded: boolean;
+    manualSplitX: number | null;
+}
+
+export type TScanCleanupPageOverrides = Record<string, IScanCleanupPageOverride>;
 
 export interface IScanCleanupOptions {
     layoutMode: TScanCleanupLayoutMode;
@@ -16,6 +28,10 @@ export interface IScanCleanupOptions {
     pageAlignment: TScanCleanupPageAlignment;
     marginsMm: number;
     despeckle: boolean;
+    readingOrder: TScanCleanupReadingOrder;
+    skipBlankPages: boolean;
+    straightenCurvedLines: boolean;
+    pageOverrides: TScanCleanupPageOverrides;
 }
 
 export interface IScanCleanupPreviewRequest {
@@ -42,7 +58,20 @@ export interface IScanCleanupPreviewMetadata {
     outputWidth: number;
     outputHeight: number;
     forwardTransform: IScanCleanupPreviewAffine | null;
+    cutterX: number | null;
+    inputWidth: number;
+    inputHeight: number;
+    rotation: TScanCleanupPageRotation;
+    resamplePasses: number;
     warnings: string[];
+}
+
+export interface IScanCleanupPreviewPageMetadata {
+    layoutClassification: IScanCleanupPreviewMetadata['layoutClassification'];
+    cutterX: number | null;
+    rotation: TScanCleanupPageRotation;
+    excluded: boolean;
+    blankOutputsSkipped: number;
 }
 
 export interface IScanCleanupPreviewOutput {
@@ -56,6 +85,7 @@ export interface IScanCleanupPreviewResult {
     rawImageData: Uint8Array;
     rawWidth: number;
     rawHeight: number;
+    pageMetadata: IScanCleanupPreviewPageMetadata;
     outputs: IScanCleanupPreviewOutput[];
 }
 
@@ -64,6 +94,7 @@ export interface IScanCleanupStartRequest {
     /** @deprecated Ignored. Generated output paths are always managed by the main process. */
     outputPdfPath?: string;
     options: IScanCleanupOptions;
+    runOcrAfterCleanup?: boolean;
 }
 
 export interface IScanCleanupSummary {
@@ -73,6 +104,8 @@ export interface IScanCleanupSummary {
     offcutsDiscarded: number;
     deskewSkipped: number;
     cropSkipped: number;
+    excludedPages: number;
+    blankPagesSkipped: number;
     warnings: string[];
 }
 
@@ -94,7 +127,8 @@ export type TScanCleanupJobState =
     | IScanCleanupJobBase & {
         status: 'completed';
         outputPdfPath: string;
-        summary: IScanCleanupSummary
+        summary: IScanCleanupSummary;
+        runOcrAfterCleanup: boolean
     }
     | IScanCleanupJobBase & {status: 'canceled'}
     | IScanCleanupJobBase & {

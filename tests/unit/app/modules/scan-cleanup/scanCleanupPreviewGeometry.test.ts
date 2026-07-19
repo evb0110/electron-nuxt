@@ -8,6 +8,9 @@ import type {IScanCleanupPreviewMetadata} from '@contracts/electronApiScanCleanu
 import {
     resolvePreviewCanvasSize,
     resolvePreviewPlacement,
+    scanCleanupAnalysisWidth,
+    scanCleanupCutterRatio,
+    scanCleanupCutterXFromRatio,
     toPreviewStyleRect,
     transformPreviewContentBox,
 } from '@app/modules/scan-cleanup/utils/scanCleanupPreviewGeometry';
@@ -36,6 +39,11 @@ function metadata(overrides: Partial<IScanCleanupPreviewMetadata> = {}): IScanCl
         ],
         outputWidth: 230,
         outputHeight: 330,
+        cutterX: null,
+        inputWidth: 600,
+        inputHeight: 640,
+        rotation: 0,
+        resamplePasses: 1,
         forwardTransform: {matrix: [
             [
                 1,
@@ -110,6 +118,14 @@ describe('scan cleanup preview geometry', () => {
         });
     });
 
+    it('round-trips a rotated manual cutter through preview coordinates', () => {
+        const analysisWidth = scanCleanupAnalysisWidth({rotation: 90}, 1200, 800);
+        expect(analysisWidth).toBe(800);
+        const sourceX = 317;
+        const ratio = scanCleanupCutterRatio(sourceX, analysisWidth);
+        expect(scanCleanupCutterXFromRatio(ratio, analysisWidth)).toBeCloseTo(sourceX, 8);
+    });
+
     it('keeps comparison, spread rendering, cancellation, debounce, and cleaned-cache wiring in the dialog', () => {
         const pane = readFileSync('app/modules/scan-cleanup/components/ScanCleanupPreviewPane.vue', 'utf8');
         const dialog = readFileSync('app/modules/scan-cleanup/components/ScanCleanupDialog.vue', 'utf8');
@@ -125,6 +141,7 @@ describe('scan cleanup preview geometry', () => {
         expect(dialog).toContain('}, 250);');
         expect(dialog).toContain('sequence !== previewSequence');
         expect(dialog.match(/scan-cleanup-dialog-shell/gu)).toHaveLength(1);
+        expect(dialog).not.toContain('@click="isOpen = true"');
         expect(dialog).not.toContain('state === \'complete\'');
         expect(dialog).not.toContain('savePdfDialog');
         expect(tokens).toContain('--app-scan-dialog-width: 90vw');

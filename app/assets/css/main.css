@@ -145,6 +145,7 @@
     --app-scan-dialog-max-width: 76rem;
     --app-scan-dialog-height: 85vh;
     --app-scan-dialog-rail-width: 17.5rem;
+    --app-scan-page-list-width: 14rem;
     --app-scan-details-width: 22rem;
     --app-scan-progress-card-width: 20rem;
     --app-scan-disabled-opacity: 0.58;

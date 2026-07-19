@@ -1,4 +1,5 @@
 import type {
+    IScanCleanupPreviewPageMetadata,
     IScanCleanupPreviewMetadata,
     IScanCleanupPreviewRect,
     TScanCleanupPageAlignment,
@@ -10,6 +11,22 @@ export interface IScanCleanupPreviewPlacement {
     canvasHeight: number;
     left: number;
     top: number;
+}
+
+export function scanCleanupAnalysisWidth(
+    metadata: Pick<IScanCleanupPreviewPageMetadata, 'rotation'>,
+    rawWidth: number,
+    rawHeight: number,
+) {
+    return metadata.rotation === 90 || metadata.rotation === 270 ? rawHeight : rawWidth;
+}
+
+export function scanCleanupCutterRatio(cutterX: number, analysisWidth: number) {
+    return Math.min(0.98, Math.max(0.02, cutterX / Math.max(1, analysisWidth)));
+}
+
+export function scanCleanupCutterXFromRatio(ratio: number, analysisWidth: number) {
+    return Math.min(0.98, Math.max(0.02, ratio)) * Math.max(1, analysisWidth);
 }
 
 function alignmentFactor(alignment: TScanCleanupPageAlignment) {

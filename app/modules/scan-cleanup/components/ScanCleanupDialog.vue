@@ -5,7 +5,7 @@
         dismissible
         :ui="{
             content: 'scan-cleanup-dialog-shell w-[var(--app-scan-dialog-width)] sm:max-w-[var(--app-scan-dialog-max-width)] h-[var(--app-scan-dialog-height)] max-h-[var(--app-scan-dialog-height)] flex flex-col',
-            body: 'scan-cleanup-dialog-body p-0',
+            body: 'scan-cleanup-dialog-body flex-1 min-h-0 flex flex-col overflow-hidden p-0',
             footer: 'scan-cleanup-dialog-footer',
         }"
     >
@@ -26,7 +26,6 @@
                     :aria-label="triggerTooltip"
                     :aria-pressed="isOpen || isRunning"
                     type="button"
-                    @click="isOpen = true"
                 >
                     <ScanCleanupScissorsIcon class="size-5" />
                 </UButton>
@@ -36,7 +35,11 @@
         </AppTooltip>
 
         <template #body>
-            <div class="scan-cleanup-workspace" :aria-busy="isRunning">
+            <div
+                class="scan-cleanup-workspace"
+                :class="{'is-page-list-collapsed': pageListCollapsed}"
+                :aria-busy="isRunning"
+            >
                 <fieldset class="scan-cleanup-options-rail app-scrollbar app-scroll-region--balanced" :disabled="isRunning">
                     <div v-if="inlineError" class="scan-cleanup-error" role="alert">{{ inlineError }}</div>
 
@@ -44,6 +47,9 @@
                         <h3>{{ t('scanCleanup.groups.layout') }}</h3>
                         <UFormField :label="t('scanCleanup.layout.label')">
                             <USelect v-model="settings.layoutMode" :items="layoutItems" value-key="value" class="w-full" />
+                        </UFormField>
+                        <UFormField :label="t('scanCleanup.layout.readingOrder')">
+                            <USelect v-model="settings.readingOrder" :items="readingOrderItems" value-key="value" class="w-full" />
                         </UFormField>
                     </section>
 
@@ -95,6 +101,7 @@
                             <UInput v-model.number="settings.marginsMm" type="number" :min="0" :max="25" :step="1" />
                         </UFormField>
                         <UCheckbox v-model="settings.matchPageSize" :label="t('scanCleanup.pageSize.match')" />
+                        <UCheckbox v-model="settings.skipBlankPages" :label="t('scanCleanup.crop.skipBlank')" />
                         <UFormField v-if="settings.matchPageSize" :label="t('scanCleanup.pageSize.alignment')">
                             <div class="scan-cleanup-alignment-grid" role="radiogroup" :aria-label="t('scanCleanup.pageSize.alignment')">
                                 <UButton
@@ -133,6 +140,17 @@
                     </div>
                 </fieldset>
 
+                <ScanCleanupPageList
+                    v-model:page-number="previewPage"
+                    v-model:collapsed="pageListCollapsed"
+                    :total-pages="previewTotalPages"
+                    :overrides="settings.pageOverrides"
+                    :classifications="previewClassifications"
+                    :disabled="isRunning"
+                    @update:override="updatePageOverride"
+                    @reset="resetPageOverrides"
+                />
+
                 <div class="scan-cleanup-preview-hero">
                     <ScanCleanupPreviewPane
                         :result="previewResult"
@@ -144,10 +162,13 @@
                         :alignment="settings.pageAlignment"
                         :page-number="previewPage"
                         :total-pages="previewTotalPages"
+                        :manual-split-x="currentPageOverride.manualSplitX"
+                        :reading-order="settings.readingOrder"
                         @previous="navigatePreview(-1)"
                         @next="navigatePreview(1)"
                         @update:view-mode="previewViewMode = $event"
                         @update:zoom-mode="previewZoomMode = $event"
+                        @update:manual-split-x="updateCurrentManualSplit"
                     />
                     <div v-if="isRunning" class="scan-cleanup-progress-overlay" role="status" aria-live="polite">
                         <div class="scan-cleanup-progress-card">
@@ -161,7 +182,14 @@
         </template>
 
         <template #footer>
-            <div class="scan-cleanup-estimate">{{ isRunning ? '' : outputEstimate }}</div>
+            <div class="scan-cleanup-footer-info">
+                <div class="scan-cleanup-estimate">{{ isRunning ? '' : outputEstimate }}</div>
+                <UCheckbox
+                    v-if="!isRunning"
+                    v-model="runOcrAfterCleanup"
+                    :label="t('scanCleanup.runOcrAfterCleanup')"
+                />
+            </div>
             <div class="scan-cleanup-footer-actions">
                 <UButton
                     v-if="isRunning"
@@ -195,13 +223,26 @@ import type {
 import type {TDocumentRef} from '@contracts/documentRef';
 import AppProgressBar from '@app/components/AppProgressBar.vue';
 import ScanCleanupPreviewPane from '@app/modules/scan-cleanup/components/ScanCleanupPreviewPane.vue';
+import ScanCleanupPageList from '@app/modules/scan-cleanup/components/ScanCleanupPageList.vue';
 import ScanCleanupScissorsIcon from '@app/modules/scan-cleanup/components/ScanCleanupScissorsIcon.vue';
+import {
+    estimateScanCleanupOutputPages,
+    getScanCleanupPageOverride,
+    setScanCleanupPageOverride,
+} from '@contracts/scanCleanupPageOverrides';
 import {
     cancelScanCleanup,
     isScanCleanupRunning,
     scanCleanupRun,
     startScanCleanup,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator';
+import {
+    loadScanCleanupDocumentOverrides,
+    loadScanCleanupPreferences,
+    resetScanCleanupDocumentOverrides,
+    saveScanCleanupDocumentOverrides,
+    saveScanCleanupPreferences,
+} from '@app/modules/scan-cleanup/runtime/scanCleanupPreferences';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
 
 const {t} = useTypedI18n();
@@ -211,12 +252,14 @@ const {
     hideTrigger = false,
     currentPage = 1,
     totalPages = 1,
+    documentKey = null,
 } = defineProps<{
     sourcePath: TDocumentRef | null;
     disabled?: boolean;
     hideTrigger?: boolean;
     currentPage?: number;
     totalPages?: number;
+    documentKey?: string | null;
 }>();
 
 const isOpen = defineModel<boolean>('open', {default: false});
@@ -226,22 +269,24 @@ const previewLoading = ref(false);
 const previewError = ref('');
 const previewViewMode = ref<'original' | 'cleaned'>('cleaned');
 const previewZoomMode = ref<'fit' | 'actual'>('fit');
+const pageListCollapsed = ref(false);
+const persistedPreferences = loadScanCleanupPreferences();
+const {
+    runOcrAfterCleanup: persistedRunOcrAfterCleanup,
+    ...persistedSettings
+} = persistedPreferences;
+const runOcrAfterCleanup = ref(persistedRunOcrAfterCleanup);
 const cancelRequested = ref(false);
 const previewCache = new Map<string, IScanCleanupPreviewResult>();
-const previewClassifications = new Map<number, IScanCleanupPreviewResult['outputs'][number]['metadata']['layoutClassification']>();
+const previewClassifications = reactive(new Map<number, IScanCleanupPreviewResult['pageMetadata']['layoutClassification']>());
 let previewSequence = 0;
 let previewTimer: ReturnType<typeof setTimeout> | null = null;
 
 const settings = reactive<IScanCleanupOptions>({
-    layoutMode: 'auto',
-    outputMode: 'bw',
-    thickness: 0,
-    crop: true,
-    matchPageSize: true,
-    pageAlignment: 'top-center',
-    marginsMm: 5,
-    despeckle: true,
+    ...persistedSettings,
+    pageOverrides: {},
 });
+const preferenceDocumentKey = computed(() => documentKey ?? sourcePath);
 
 const layoutItems = computed(() => [
     {
@@ -257,6 +302,16 @@ const layoutItems = computed(() => [
         label: t('scanCleanup.layout.twoPage'),
     },
 ]);
+const readingOrderItems = computed(() => [
+    {
+        value: 'ltr' as const,
+        label: t('scanCleanup.layout.leftToRight'),
+    },
+    {
+        value: 'rtl' as const,
+        label: t('scanCleanup.layout.rightToLeft'),
+    },
+]);
 const outputItems = computed(() => [
     {
         value: 'bw' as const,
@@ -265,6 +320,10 @@ const outputItems = computed(() => [
     {
         value: 'grayscale' as const,
         label: t('scanCleanup.output.grayscale'),
+    },
+    {
+        value: 'color' as const,
+        label: t('scanCleanup.output.color'),
     },
 ]);
 const alignmentIcons: Array<{
@@ -325,6 +384,8 @@ const alignmentItems = computed(() => alignmentIcons.map(item => ({
 
 const isRunning = isScanCleanupRunning;
 const inlineError = computed(() => isOpen.value ? scanCleanupRun.lastError : '');
+const hasIncludedPage = computed(() => Array.from({length: Math.max(1, totalPages)}, (_, index) => index + 1)
+    .some(page => !getScanCleanupPageOverride(settings.pageOverrides, page).excluded));
 const jobProgress = computed(() => scanCleanupRun.jobState?.progress ?? {
     phase: 'queued' as const,
     processedCount: 0,
@@ -333,10 +394,12 @@ const jobProgress = computed(() => scanCleanupRun.jobState?.progress ?? {
 });
 const canRun = computed(() => Boolean(sourcePath)
     && !isRunning.value
+    && hasIncludedPage.value
     && settings.marginsMm >= 0
     && settings.marginsMm <= 25
     && getScanCleanupCapability() !== null);
 const previewTotalPages = computed(() => previewResult.value?.totalPages ?? Math.max(1, totalPages));
+const currentPageOverride = computed(() => getScanCleanupPageOverride(settings.pageOverrides, previewPage.value));
 const thicknessLabel = computed(() => settings.thickness > 0 ? `+${settings.thickness}` : String(settings.thickness));
 const progressText = computed(() => t('scanCleanup.progress', {
     processed: jobProgress.value.processedCount,
@@ -355,31 +418,37 @@ const triggerTooltip = computed(() => {
     });
 });
 const outputEstimate = computed(() => {
-    if (settings.layoutMode === 'force-single') {
-        return t('scanCleanup.estimateExact', {
-            input: totalPages,
-            output: totalPages,
-        });
-    }
-    if (settings.layoutMode === 'force-two-page') {
-        return t('scanCleanup.estimateExact', {
-            input: totalPages,
-            output: totalPages * 2,
-        });
-    }
-    if (previewClassifications.size === 0) {
-        return '';
-    }
-    let previewedOutputs = 0;
-    for (const classification of previewClassifications.values()) {
-        previewedOutputs += classification === 'two-page-spread' ? 2 : 1;
-    }
-    const estimate = Math.max(1, Math.round(totalPages * previewedOutputs / previewClassifications.size));
-    return t('scanCleanup.estimateAbout', {
+    const estimate = estimateScanCleanupOutputPages(totalPages, settings, previewClassifications);
+    return t(estimate.exact ? 'scanCleanup.estimateExact' : 'scanCleanup.estimateAbout', {
         input: totalPages,
-        output: estimate,
+        output: estimate.outputPages,
     });
 });
+
+function updatePageOverride(page: number, value: Parameters<typeof setScanCleanupPageOverride>[2]) {
+    const previous = getScanCleanupPageOverride(settings.pageOverrides, page);
+    if (
+        previous.rotation !== value.rotation
+        || previous.layoutOverride !== value.layoutOverride
+        || previous.manualSplitX !== value.manualSplitX
+    ) {
+        previewClassifications.delete(page);
+    }
+    setScanCleanupPageOverride(settings.pageOverrides, page, value);
+}
+
+function updateCurrentManualSplit(value: number | null) {
+    updatePageOverride(previewPage.value, {
+        ...currentPageOverride.value,
+        manualSplitX: value,
+    });
+}
+
+function resetPageOverrides() {
+    settings.pageOverrides = {};
+    previewClassifications.clear();
+    resetScanCleanupDocumentOverrides(preferenceDocumentKey.value);
+}
 
 function handleThicknessInput(value: number | number[]) {
     settings.thickness = Array.isArray(value) ? (value[0] ?? 0) : value;
@@ -440,8 +509,7 @@ function schedulePreview() {
             previewCache.set(key, result);
             previewResult.value = result;
             previewPage.value = result.pageNumber;
-            const classification = result.outputs[0]?.metadata.layoutClassification;
-            if (classification) previewClassifications.set(result.pageNumber, classification);
+            previewClassifications.set(result.pageNumber, result.pageMetadata.layoutClassification);
         } catch (error) {
             if (sequence !== previewSequence || (error instanceof Error && error.name === 'AbortError')) {
                 return;
@@ -467,6 +535,7 @@ async function run() {
     const result = await startScanCleanup({
         sourcePdfPath: sourcePath,
         options: {...settings},
+        runOcrAfterCleanup: runOcrAfterCleanup.value,
     });
     if (!result.started) scanCleanupRun.lastError = result.error ?? t('scanCleanup.failed');
 }
@@ -489,7 +558,31 @@ watch(isOpen, (open) => {
         cancelPreview();
     }
 }, {immediate: true});
+watch(preferenceDocumentKey, key => {
+    previewCache.clear();
+    previewClassifications.clear();
+    previewResult.value = null;
+    settings.pageOverrides = loadScanCleanupDocumentOverrides(key);
+}, {immediate: true});
+watch(() => ({
+    layoutMode: settings.layoutMode,
+    outputMode: settings.outputMode,
+    readingOrder: settings.readingOrder,
+    thickness: settings.thickness,
+    crop: settings.crop,
+    matchPageSize: settings.matchPageSize,
+    pageAlignment: settings.pageAlignment,
+    marginsMm: settings.marginsMm,
+    despeckle: settings.despeckle,
+    skipBlankPages: settings.skipBlankPages,
+    straightenCurvedLines: settings.straightenCurvedLines,
+    runOcrAfterCleanup: runOcrAfterCleanup.value,
+}), preferences => saveScanCleanupPreferences(preferences), {deep: true});
+watch(() => settings.pageOverrides, overrides => {
+    saveScanCleanupDocumentOverrides(preferenceDocumentKey.value, overrides);
+}, {deep: true});
 watch(() => scanCleanupRun.openRequestRevision, () => { isOpen.value = true; });
+watch(() => settings.layoutMode, () => previewClassifications.clear());
 watch(() => [
     sourcePath,
     previewPage.value,
@@ -538,8 +631,13 @@ onBeforeUnmount(() => {
     display: grid;
     min-height: 0;
     flex: 1;
-    grid-template-columns: var(--app-scan-dialog-rail-width) minmax(0, 1fr);
+    grid-template-columns: var(--app-scan-dialog-rail-width) minmax(3rem, var(--app-scan-page-list-width)) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
     overflow: hidden;
+}
+
+.scan-cleanup-workspace.is-page-list-collapsed {
+    grid-template-columns: var(--app-scan-dialog-rail-width) 3rem minmax(0, 1fr);
 }
 
 .scan-cleanup-options-rail {
@@ -575,7 +673,7 @@ onBeforeUnmount(() => {
 
 .scan-cleanup-segmented {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(3, 1fr);
 }
 
 .scan-cleanup-segmented > * {
@@ -667,9 +765,16 @@ onBeforeUnmount(() => {
     font-size: var(--app-text-size-body-sm);
 }
 
-.scan-cleanup-estimate {
+.scan-cleanup-footer-info {
+    display: flex;
     min-width: 0;
     flex: 1;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--app-space-9xl);
+}
+
+.scan-cleanup-estimate {
     color: var(--ui-text-muted);
     font-size: var(--app-text-size-body-sm);
 }

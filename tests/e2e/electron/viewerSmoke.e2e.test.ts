@@ -1056,6 +1056,50 @@ async function collectDjvuProjectedScrollMetricSamples(session: IElectronE2ESess
 describe('Electron E2E - Viewer Smoke', () => {
     const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-viewer-smoke-${Date.now()}`});
 
+    it('keeps Scan Cleanup open after one toolbar click', async () => {
+        let session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-viewer-scan-cleanup-dialog-${Date.now()}`,
+        });
+        if (!session) {
+            return;
+        }
+
+        await session.page.setViewport({
+            deviceScaleFactor: 1,
+            height: 900,
+            width: 1_440,
+        });
+        const fixturePath = await createMultiPageTextFixturePdf(
+            `viewer-scan-cleanup-dialog-${Date.now()}.pdf`,
+            2,
+        );
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+
+        await clickVisibleToolbarButton(session.page, 'Scan cleanup');
+        await session.page.waitForSelector('[role="dialog"]', {
+            timeout: 10_000,
+            visible: true,
+        });
+        await session.page.evaluate(async () => {
+            await new Promise(resolve => setTimeout(resolve, 600));
+        });
+
+        const dialogTitle = await session.page.$eval('[role="dialog"]', dialog => dialog.textContent ?? '');
+        expect(dialogTitle).toContain('Scan cleanup');
+        await session.page.keyboard.press('Escape');
+        await session.page.waitForSelector('[role="dialog"]', {
+            hidden: true,
+            timeout: 10_000,
+        });
+    });
+
     it('keeps crop and screenshot selection overlays attached to the visible scrolled viewport', async () => {
         let session = sessionFixture.getSession();
         if (!session) {

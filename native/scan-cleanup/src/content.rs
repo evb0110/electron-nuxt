@@ -1,5 +1,6 @@
 use crate::bw::despeckle_connected;
 use scan_primitives::{
+    distance::squared_euclidean_distance,
     morphology::{open, reconstruct_binary},
     threshold::{threshold_local, LocalThreshold},
     ComponentMap, GrayImage, Rect,
@@ -47,6 +48,7 @@ pub fn detect_content_and_margins(
     });
     let cleaned = despeckle_connected(&binary.subtract(&borders), 150.0);
     let map = ComponentMap::from_binary(&cleaned);
+    let distance_to_white = squared_euclidean_distance(&cleaned.invert());
     let mut bounds: Option<(usize, usize, usize, usize)> = None;
     for component in map.components() {
         let width = component.right - component.left + 1;
@@ -57,7 +59,34 @@ pub fn detect_content_and_margins(
             || component.top == 0
             || component.right + 1 == working.width()
             || component.bottom + 1 == working.height();
+        let center_x = (component.left + component.right) / 2;
+        let center_y = (component.top + component.bottom) / 2;
+        let nearby_components = map
+            .components()
+            .iter()
+            .filter(|other| {
+                if other.label == component.label {
+                    return false;
+                }
+                let other_x = (other.left + other.right) / 2;
+                let other_y = (other.top + other.bottom) / 2;
+                center_x.abs_diff(other_x) <= 40 && center_y.abs_diff(other_y) <= 24
+            })
+            .count();
+        let mut maximum_inscribed_radius_squared = 0u32;
+        for y in component.top..=component.bottom {
+            for x in component.left..=component.right {
+                if map.label_at(x, y) == component.label {
+                    maximum_inscribed_radius_squared = maximum_inscribed_radius_squared
+                        .max(distance_to_white[y * working.width() + x]);
+                }
+            }
+        }
+        let isolated_thick_dirt = nearby_components == 0
+            && maximum_inscribed_radius_squared > 36
+            && component.area < working.width().saturating_mul(working.height()) / 20;
         if solid_rule
+            || isolated_thick_dirt
             || (border_attached && component.area > working.width().max(working.height()) / 3)
         {
             continue;
@@ -140,6 +169,37 @@ mod tests {
             iou(result.content.unwrap(), expected) > 0.82,
             "actual={:?}",
             result.content
+        );
+    }
+
+    #[test]
+    fn sedm_scoring_rejects_isolated_scan_bed_dirt_without_losing_marginalia() {
+        let mut image = GrayImage::new(320, 220, 245);
+        for y in (55..170).step_by(15) {
+            for x in 72..245 {
+                if x % 28 < 20 {
+                    image.set(x, y, 20);
+                    image.set(x, y + 1, 20);
+                    image.set(x, y + 2, 20);
+                }
+            }
+        }
+        for y in 80..100 {
+            for x in 18..21 {
+                image.set(x, y, 25);
+            }
+        }
+        for y in 190..205 {
+            for x in 290..305 {
+                image.set(x, y, 5);
+            }
+        }
+        let result = detect_content_and_margins(&image, 150.0, None, Some([0.0; 4]));
+        let bounds = result.content.unwrap();
+        assert!(bounds.x <= 21.0, "marginalia was lost: {bounds:?}");
+        assert!(
+            bounds.right() < 270.0,
+            "isolated dirt expanded crop: {bounds:?}"
         );
     }
 }

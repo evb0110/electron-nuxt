@@ -55,6 +55,8 @@ function decodeSummary(value: unknown): IScanCleanupSummary | null {
             value.offcutsDiscarded,
             value.deskewSkipped,
             value.cropSkipped,
+            value.excludedPages,
+            value.blankPagesSkipped,
         ].every(item => typeof item === 'number' && Number.isSafeInteger(item) && item >= 0)
         || !Array.isArray(value.warnings)
         || value.warnings.some(item => typeof item !== 'string')
@@ -68,6 +70,8 @@ function decodeSummary(value: unknown): IScanCleanupSummary | null {
         offcutsDiscarded: value.offcutsDiscarded as number,
         deskewSkipped: value.deskewSkipped as number,
         cropSkipped: value.cropSkipped as number,
+        excludedPages: value.excludedPages as number,
+        blankPagesSkipped: value.blankPagesSkipped as number,
         warnings: value.warnings.filter((item): item is string => typeof item === 'string'),
     };
 }

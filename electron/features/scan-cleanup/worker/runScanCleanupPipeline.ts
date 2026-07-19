@@ -17,6 +17,11 @@ import type {
     IScanCleanupProgress,
     IScanCleanupSummary,
 } from '@contracts/electronApiScanCleanup';
+import {
+    getScanCleanupPageOverride,
+    resolveScanCleanupPageLayout,
+} from '@contracts/scanCleanupPageOverrides';
+import type { TScanCleanupResolvedPageLayout } from '@contracts/scanCleanupPageOverrides';
 import { getPdfPageCount } from '@electron/pdf/pdfPageCount';
 import { detectSourceDpiDetails } from '@electron/pdf/sourceDpiDetection';
 import {
@@ -51,6 +56,15 @@ interface ICleanupMetadata {
     warnings?: string[];
 }
 
+interface ICleanupPageMetadata {
+    layoutClassification: ICleanupMetadata['layoutClassification'];
+    cutterX: number | null;
+    rotation: IScanCleanupOptions['pageOverrides'][string]['rotation'];
+    excluded: boolean;
+    blankOutputsSkipped: number;
+    outputCount: number;
+}
+
 interface ICleanupOutputJob {
     outputPath: string;
     metadataPath: string;
@@ -59,9 +73,10 @@ interface ICleanupOutputJob {
 interface ICleanupPageJob {
     inputPath: string;
     sourcePageIndex: number;
+    pageMetadataPath: string;
     options: {
         dpi: number;
-        layout: IScanCleanupOptions['layoutMode'];
+        layout: TScanCleanupResolvedPageLayout;
         cropContent: boolean;
         matchPageSize: boolean;
         pageAlignment: IScanCleanupOptions['pageAlignment'];
@@ -69,6 +84,11 @@ interface ICleanupPageJob {
         outputMode: IScanCleanupOptions['outputMode'];
         thickness: number;
         despeckle: boolean;
+        rotation: IScanCleanupOptions['pageOverrides'][string]['rotation'];
+        excluded: boolean;
+        skipBlankPages: boolean;
+        experimentalAutoDewarp: boolean;
+        manualSplitX: number | null;
     };
     outputs: ICleanupOutputJob[];
 }
@@ -110,6 +130,24 @@ function emitProgress(
     });
 }
 
+export async function mapScanCleanupRasterPages<T, R>(
+    values: readonly T[],
+    concurrency: number,
+    task: (value: T, index: number) => Promise<R>,
+) {
+    const results = new Array<R>(values.length);
+    let nextIndex = 0;
+    const workers = Array.from({length: Math.min(Math.max(1, concurrency), values.length)}, async () => {
+        while (nextIndex < values.length) {
+            const index = nextIndex;
+            nextIndex += 1;
+            results[index] = await task(values[index]!, index);
+        }
+    });
+    await Promise.all(workers);
+    return results;
+}
+
 export async function runScanCleanupPipeline(
     request: IRunScanCleanupPipelineRequest,
     paths: IScanCleanupWorkerPaths,
@@ -148,16 +186,18 @@ export async function runScanCleanupPipeline(
             pageNumbers,
         );
         const documentDpi = clampDpi(dpiDetails.documentDpi);
-        const pages: ICleanupPageJob[] = [];
         const pageDpi = new Map<number, number>();
-        for (const pageNumber of pageNumbers) {
+        let rasterizedCount = 0;
+        const pages = await mapScanCleanupRasterPages(pageNumbers, 3, async pageNumber => {
+            if (signal.aborted) throw signal.reason;
             const dpi = clampDpi(dpiDetails.pageDpiByNumber.get(pageNumber) ?? documentDpi);
             pageDpi.set(pageNumber, dpi);
             const inputPath = join(scratch, `source-${pageNumber}.png`);
             await dependencies.renderPage(paths, log, pageNumber, prepared.pdfPath, inputPath, dpi, undefined, signal);
+            const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, pageNumber);
             const pageOptions = {
                 dpi,
-                layout: request.options.layoutMode,
+                layout: resolveScanCleanupPageLayout(request.options.layoutMode, pageOverride.layoutOverride),
                 cropContent: request.options.crop,
                 matchPageSize: request.options.matchPageSize,
                 pageAlignment: request.options.pageAlignment,
@@ -170,10 +210,16 @@ export async function runScanCleanupPipeline(
                 outputMode: request.options.outputMode,
                 thickness: request.options.thickness,
                 despeckle: request.options.outputMode === 'bw' && request.options.despeckle,
+                rotation: pageOverride.rotation,
+                excluded: pageOverride.excluded,
+                skipBlankPages: request.options.skipBlankPages,
+                experimentalAutoDewarp: request.options.straightenCurvedLines,
+                manualSplitX: pageOverride.manualSplitX,
             };
-            pages.push({
+            const page: ICleanupPageJob = {
                 inputPath,
                 sourcePageIndex: pageNumber - 1,
+                pageMetadataPath: join(scratch, `clean-${pageNumber}-page.json`),
                 options: pageOptions,
                 outputs: [
                     0,
@@ -182,9 +228,11 @@ export async function runScanCleanupPipeline(
                     outputPath: join(scratch, `clean-${pageNumber}-${outputIndex}.png`),
                     metadataPath: join(scratch, `clean-${pageNumber}-${outputIndex}.json`),
                 })),
-            });
-            emitProgress(onProgress, 'rasterizing', pageNumber, pageCount, 5 + (25 * pageNumber / pageCount));
-        }
+            };
+            rasterizedCount += 1;
+            emitProgress(onProgress, 'rasterizing', rasterizedCount, pageCount, 5 + (25 * rasterizedCount / pageCount));
+            return page;
+        });
         const manifestPath = join(scratch, 'cleanup-manifest.json');
         await writeFile(manifestPath, JSON.stringify({
             sharedOptions: {},
@@ -205,6 +253,8 @@ export async function runScanCleanupPipeline(
             offcutsDiscarded: 0,
             deskewSkipped: 0,
             cropSkipped: 0,
+            excludedPages: 0,
+            blankPagesSkipped: 0,
             warnings: [...prepared.warnings],
         };
         for (const [
@@ -212,13 +262,18 @@ export async function runScanCleanupPipeline(
             page,
         ] of pages.entries()) {
             const {outputs} = page;
-            let pageClassification: ICleanupMetadata['layoutClassification'] | null = null;
+            const pageMetadata = JSON.parse(await readFile(page.pageMetadataPath, 'utf8')) as ICleanupPageMetadata;
+            if (pageMetadata.excluded) {
+                summary.excludedPages += 1;
+                continue;
+            }
+            summary.blankPagesSkipped += pageMetadata.blankOutputsSkipped;
+            const pageOutputPages: typeof outputPages = [];
             for (const output of outputs) {
                 try {
                     const metadata = JSON.parse(await readFile(output.metadataPath, 'utf8')) as ICleanupMetadata;
                     await stat(output.outputPath);
-                    pageClassification = metadata.layoutClassification;
-                    outputPages.push({
+                    pageOutputPages.push({
                         path: output.outputPath,
                         dpi: request.options.matchPageSize
                             ? documentDpi
@@ -232,8 +287,12 @@ export async function runScanCleanupPipeline(
                     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
                 }
             }
-            if (pageClassification === 'two-page-spread') summary.spreadsSplit += 1;
-            if (pageClassification === 'page-with-offcut') summary.offcutsDiscarded += 1;
+            if (request.options.readingOrder === 'rtl' && pageMetadata.layoutClassification === 'two-page-spread') {
+                pageOutputPages.reverse();
+            }
+            outputPages.push(...pageOutputPages);
+            if (pageMetadata.layoutClassification === 'two-page-spread') summary.spreadsSplit += 1;
+            if (pageMetadata.layoutClassification === 'page-with-offcut') summary.offcutsDiscarded += 1;
         }
         summary.outputPages = outputPages.length;
         if (outputPages.length === 0) throw new Error('evb-scan-cleanup produced no output pages');

@@ -1,6 +1,7 @@
 import type { TIpcCodecMap } from '@contracts/ipcMain';
 import { isRecord } from '@contracts/runtimeGuards';
 import type {
+    IScanCleanupPageOverride,
     IScanCleanupProgress,
     IScanCleanupPreviewMetadata,
     IScanCleanupPreviewRequest,
@@ -49,6 +50,55 @@ function decodeOpenPdfPaths(args: readonly unknown[]) {
     return [args[0]] as [string[]];
 }
 
+function decodePageOverride(value: unknown): IScanCleanupPageOverride {
+    if (
+        !isRecord(value)
+        || ![
+            0,
+            90,
+            180,
+            270,
+        ].includes(Number(value.rotation))
+        || ![
+            'auto',
+            'single',
+            'spread',
+            'keep-left',
+            'keep-right',
+        ].includes(String(value.layoutOverride))
+        || typeof value.excluded !== 'boolean'
+        || !(value.manualSplitX === null
+            || typeof value.manualSplitX === 'number'
+                && Number.isFinite(value.manualSplitX)
+                && value.manualSplitX > 0)
+    ) throw new Error('invalid scan-cleanup page override');
+    return {
+        rotation: value.rotation as IScanCleanupPageOverride['rotation'],
+        layoutOverride: value.layoutOverride as IScanCleanupPageOverride['layoutOverride'],
+        excluded: value.excluded,
+        manualSplitX: value.manualSplitX,
+    };
+}
+
+function decodePageOverrides(value: unknown) {
+    if (!isRecord(value)) throw new Error('invalid scan-cleanup page overrides');
+    const entries = Object.entries(value);
+    if (entries.length > 100_000) throw new Error('too many scan-cleanup page overrides');
+    return Object.fromEntries(entries.map(([
+        key,
+        override,
+    ]) => {
+        const pageNumber = Number(key);
+        if (!Number.isSafeInteger(pageNumber) || pageNumber < 1) {
+            throw new Error('invalid scan-cleanup page override number');
+        }
+        return [
+            String(pageNumber),
+            decodePageOverride(override),
+        ];
+    }));
+}
+
 function decodeOptions(options: unknown): IScanCleanupStartRequest['options'] {
     if (!isRecord(options)) throw new Error('invalid scan-cleanup options');
     if (
@@ -60,6 +110,7 @@ function decodeOptions(options: unknown): IScanCleanupStartRequest['options'] {
         || ![
             'bw',
             'grayscale',
+            'color',
         ].includes(String(options.outputMode))
         || typeof options.thickness !== 'number'
         || !Number.isSafeInteger(options.thickness)
@@ -83,6 +134,12 @@ function decodeOptions(options: unknown): IScanCleanupStartRequest['options'] {
         || !Number.isFinite(options.marginsMm)
         || options.marginsMm < 0
         || options.marginsMm > 25
+        || ![
+            'ltr',
+            'rtl',
+        ].includes(String(options.readingOrder))
+        || typeof options.skipBlankPages !== 'boolean'
+        || typeof options.straightenCurvedLines !== 'boolean'
     ) throw new Error('invalid scan-cleanup options');
     return {
         layoutMode: options.layoutMode as IScanCleanupStartRequest['options']['layoutMode'],
@@ -93,6 +150,10 @@ function decodeOptions(options: unknown): IScanCleanupStartRequest['options'] {
         pageAlignment: options.pageAlignment as IScanCleanupStartRequest['options']['pageAlignment'],
         marginsMm: options.marginsMm,
         despeckle: options.despeckle,
+        readingOrder: options.readingOrder as IScanCleanupStartRequest['options']['readingOrder'],
+        skipBlankPages: options.skipBlankPages,
+        straightenCurvedLines: options.straightenCurvedLines,
+        pageOverrides: decodePageOverrides(options.pageOverrides),
     };
 }
 
@@ -103,6 +164,7 @@ function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
     return {
         sourcePdfPath: value.sourcePdfPath,
         options: decodeOptions(value.options),
+        ...(typeof value.runOcrAfterCleanup === 'boolean' ? {runOcrAfterCleanup: value.runOcrAfterCleanup} : {}),
     };
 }
 
@@ -198,6 +260,12 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
         || value.appliedMargins.some(item => typeof item !== 'number' || !Number.isFinite(item) || item < 0)
         || !Array.isArray(value.warnings)
         || value.warnings.some(item => typeof item !== 'string')
+        || ![
+            0,
+            90,
+            180,
+            270,
+        ].includes(Number(value.rotation))
     ) throw new Error('invalid scan-cleanup preview metadata');
     return {
         half: value.half as IScanCleanupPreviewMetadata['half'],
@@ -208,6 +276,11 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
         outputWidth: decodePositiveInteger(value.outputWidth, 'output width'),
         outputHeight: decodePositiveInteger(value.outputHeight, 'output height'),
         forwardTransform: decodePreviewAffine(value.forwardTransform),
+        cutterX: value.cutterX === null ? null : decodeFiniteNumber(value.cutterX, 'cutter x'),
+        inputWidth: decodePositiveInteger(value.inputWidth, 'input width'),
+        inputHeight: decodePositiveInteger(value.inputHeight, 'input height'),
+        rotation: value.rotation as IScanCleanupPreviewMetadata['rotation'],
+        resamplePasses: decodePositiveInteger(value.resamplePasses, 'resample passes'),
         warnings: value.warnings as string[],
     };
 }
@@ -216,7 +289,6 @@ export function decodeScanCleanupPreviewResult(value: unknown): IScanCleanupPrev
     if (
         !isRecord(value)
         || !Array.isArray(value.outputs)
-        || value.outputs.length < 1
         || value.outputs.length > 2
     ) throw new Error('invalid scan-cleanup preview result');
     const rawImageData = decodePreviewBytes(value.rawImageData, 'raw image');
@@ -240,7 +312,34 @@ export function decodeScanCleanupPreviewResult(value: unknown): IScanCleanupPrev
         rawImageData,
         rawWidth: decodePositiveInteger(value.rawWidth, 'raw width'),
         rawHeight: decodePositiveInteger(value.rawHeight, 'raw height'),
+        pageMetadata: decodePreviewPageMetadata(value.pageMetadata),
         outputs,
+    };
+}
+
+function decodePreviewPageMetadata(value: unknown): IScanCleanupPreviewResult['pageMetadata'] {
+    if (
+        !isRecord(value)
+        || ![
+            'single-uncut-page',
+            'page-with-offcut',
+            'two-page-spread',
+        ].includes(String(value.layoutClassification))
+        || !(value.cutterX === null || typeof value.cutterX === 'number' && Number.isFinite(value.cutterX))
+        || ![
+            0,
+            90,
+            180,
+            270,
+        ].includes(Number(value.rotation))
+        || typeof value.excluded !== 'boolean'
+    ) throw new Error('invalid scan-cleanup preview page metadata');
+    return {
+        layoutClassification: value.layoutClassification as IScanCleanupPreviewResult['pageMetadata']['layoutClassification'],
+        cutterX: value.cutterX,
+        rotation: value.rotation as IScanCleanupPreviewResult['pageMetadata']['rotation'],
+        excluded: value.excluded,
+        blankOutputsSkipped: decodeNonNegativeInteger(value.blankOutputsSkipped, 'blank outputs skipped'),
     };
 }
 
@@ -323,6 +422,8 @@ function decodeSummary(value: unknown): IScanCleanupSummary {
         offcutsDiscarded: decodeNonNegativeInteger(value.offcutsDiscarded, 'offcutsDiscarded'),
         deskewSkipped: decodeNonNegativeInteger(value.deskewSkipped, 'deskewSkipped'),
         cropSkipped: decodeNonNegativeInteger(value.cropSkipped, 'cropSkipped'),
+        excludedPages: decodeNonNegativeInteger(value.excludedPages, 'excludedPages'),
+        blankPagesSkipped: decodeNonNegativeInteger(value.blankPagesSkipped, 'blankPagesSkipped'),
         warnings: value.warnings.filter((item): item is string => typeof item === 'string'),
     };
 }
@@ -357,6 +458,7 @@ export function decodeScanCleanupJobState(value: unknown): TScanCleanupJobState 
             status: 'completed',
             outputPdfPath: value.outputPdfPath,
             summary: decodeSummary(value.summary),
+            runOcrAfterCleanup: value.runOcrAfterCleanup === true,
         };
     }
     if (value.status === 'failed') {

@@ -13,6 +13,10 @@ import type {
     IScanCleanupPreviewRequest,
     IScanCleanupPreviewResult,
 } from '@contracts/electronApiScanCleanup';
+import {
+    getScanCleanupPageOverride,
+    resolveScanCleanupPageLayout,
+} from '@contracts/scanCleanupPageOverrides';
 import {getPdfPageCount} from '@electron/pdf/pdfPageCount';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {renderPdfPageToPng} from '@electron/ocr/worker/popplerStage';
@@ -139,14 +143,17 @@ async function runPreview(
             metadataPath: join(scratch, `clean-${index}.json`),
         }));
         const manifestPath = join(scratch, 'manifest.json');
+        const pageMetadataPath = join(scratch, 'page.json');
+        const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, request.pageNumber);
         await writeFile(manifestPath, JSON.stringify({
             sharedOptions: {},
             pages: [{
                 inputPath,
                 sourcePageIndex: request.pageNumber - 1,
+                pageMetadataPath,
                 options: {
                     dpi: PREVIEW_DPI,
-                    layout: request.options.layoutMode,
+                    layout: resolveScanCleanupPageLayout(request.options.layoutMode, pageOverride.layoutOverride),
                     cropContent: request.options.crop,
                     marginsMm: [
                         request.options.marginsMm,
@@ -159,6 +166,11 @@ async function runPreview(
                     despeckle: request.options.outputMode === 'bw' && request.options.despeckle,
                     matchPageSize: false,
                     pageAlignment: request.options.pageAlignment,
+                    rotation: pageOverride.rotation,
+                    excluded: pageOverride.excluded,
+                    skipBlankPages: request.options.skipBlankPages,
+                    experimentalAutoDewarp: request.options.straightenCurvedLines,
+                    manualSplitX: pageOverride.manualSplitX,
                 },
                 outputs,
             }],
@@ -175,13 +187,14 @@ async function runPreview(
                 if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
             }
         }
-        if (cleaned.length === 0) throw new Error('Scan cleanup preview produced no output');
+        const pageMetadata = JSON.parse(await readFile(pageMetadataPath, 'utf8')) as IScanCleanupPreviewResult['pageMetadata'];
         return {
             pageNumber: request.pageNumber,
             totalPages: raw.totalPages,
             rawImageData: raw.bytes,
             rawWidth: raw.width,
             rawHeight: raw.height,
+            pageMetadata,
             outputs: cleaned,
         };
     } finally {

@@ -1737,6 +1737,49 @@ describe('usePdfPageRenderer resilience', () => {
         );
     });
 
+    it('does not report a superseded annotation render as a failure', async () => {
+        const { pageContainer } = createPageContainer();
+        const containerRoot = createContainerRoot(pageContainer);
+        const documentState = {
+            pdfDocument: shallowRef({} as object),
+            numPages: ref(1),
+            basePageWidth: ref(100),
+            basePageHeight: ref(100),
+            isLoading: ref(false),
+            leasePage: vi.fn(async () => createPageLease({render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() }))})),
+            evictPage: vi.fn(),
+            cleanupPageCache: vi.fn(),
+        };
+
+        canvasRendererMock.renderCanvas.mockResolvedValue(createRenderResult());
+        textLayerRendererMock.renderTextLayer.mockResolvedValue(undefined);
+        annotationLayerRendererMock.renderAnnotationLayer.mockRejectedValue(
+            Object.assign(new Error('Page render stage was aborted'), {name: 'AbortError'}),
+        );
+
+        const renderer = usePdfPageRenderer({
+            container: ref(containerRoot),
+            document: documentState as never,
+            currentPage: ref(1),
+            effectiveScale: ref(1),
+            bufferPages: ref(0),
+            showAnnotations: ref(true),
+            annotationUiManager: ref(null),
+            annotationL10n: ref(null),
+            searchPageMatches: ref(new Map()),
+            currentSearchMatch: ref(null),
+            workingCopyPath: ref(null),
+        });
+
+        await renderer.renderVisiblePages({
+            start: 1,
+            end: 1,
+        });
+
+        expect(renderer.isPageRendered(1)).toBe(true);
+        expect(loggerError).not.toHaveBeenCalled();
+    });
+
     it('times out a stalled annotation layer and still reveals the rendered page', async () => {
         vi.useFakeTimers();
         const { pageContainer } = createPageContainer();
