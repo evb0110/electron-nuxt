@@ -230,6 +230,16 @@ export const browserPlatformPathDescriptorsGenerated = {
             preprocessPage: {kind: 'async', path: ["ocr","preprocessing","preprocessPage"]},
         },
     },
+    scanCleanup: {
+        preview: {kind: 'async', path: ["scanCleanup","preview"]},
+        cancelPreview: {kind: 'async', path: ["scanCleanup","cancelPreview"]},
+        start: {kind: 'async', path: ["scanCleanup","start"]},
+        cancel: {kind: 'async', path: ["scanCleanup","cancel"]},
+        getJobState: {kind: 'async', path: ["scanCleanup","getJobState"]},
+        subscribeJob: {kind: 'async', path: ["scanCleanup","subscribeJob"]},
+        reconnectJob: {kind: 'async', path: ["scanCleanup","reconnectJob"]},
+        onJobState: {kind: 'event', path: ["scanCleanup","onJobState"]},
+    },
     search: {
         run: {kind: 'async', path: ["search","run"]},
         warmIndex: {kind: 'async', path: ["search","warmIndex"]},

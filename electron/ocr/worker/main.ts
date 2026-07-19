@@ -54,7 +54,7 @@ import type {
     IOcrPdfPageRequest,
     TWorkerLog,
 } from '@electron/ocr/worker/types';
-import { detectSourceDpiDetails } from '@electron/ocr/worker/dpiDetection';
+import { detectSourceDpiDetails } from '@electron/pdf/sourceDpiDetection';
 import { clampDpi } from '@electron/image/imageDpi';
 import {
     getPngDimensionsFromFile,
@@ -330,6 +330,7 @@ async function processOcrPage(
 
     const pageImagePath = context.trackTempFile(join(paths.tempDir, `${context.sessionId}-page-${page.pageNumber}.png`));
     const preprocessedImagePath = context.trackTempFile(join(paths.tempDir, `${context.sessionId}-page-${page.pageNumber}-clean.png`));
+    const preprocessMetadataPath = context.trackTempFile(join(paths.tempDir, `${context.sessionId}-page-${page.pageNumber}-clean.json`));
     let resourceToken: string | null = null;
     const diagnostics: IOcrDiagnostic[] = [];
 
@@ -382,6 +383,9 @@ async function processOcrPage(
                     ...diagnostic,
                     pageNumber: page.pageNumber,
                 }),
+                paths.scanCleanupBinary,
+                preprocessMetadataPath,
+                effectiveDpi,
             );
             if (candidateOcrImagePath !== pageImagePath) {
                 const candidateDims = await readPngDimensions(candidateOcrImagePath);

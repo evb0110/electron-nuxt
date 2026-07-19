@@ -25,6 +25,11 @@ export const GENERATED_NATIVE_TOOLS = [
         crateName: 'pdf-search',
         stagingName: 'pdf-search',
     },
+    {
+        binaryName: 'evb-scan-cleanup',
+        crateName: 'scan-cleanup',
+        stagingName: 'scan-cleanup',
+    },
 ];
 
 const sourceFileNames = new Set([

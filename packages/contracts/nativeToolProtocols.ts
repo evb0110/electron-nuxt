@@ -2,7 +2,7 @@ export interface IGeneratedRustNativeToolProtocol {
     binaryName: string;
     crateName: string;
     protocolVersion: number;
-    resourceFamilyId: 'pdf-image-combine' | 'pdf-page-ops' | 'pdf-search';
+    resourceFamilyId: 'pdf-image-combine' | 'pdf-page-ops' | 'pdf-search' | 'scan-cleanup';
     stagingName: string;
 }
 
@@ -27,6 +27,13 @@ export const GENERATED_RUST_NATIVE_TOOL_PROTOCOLS = [
         protocolVersion: 1,
         resourceFamilyId: 'pdf-search',
         stagingName: 'pdf-search',
+    },
+    {
+        binaryName: 'evb-scan-cleanup',
+        crateName: 'scan-cleanup',
+        protocolVersion: 1,
+        resourceFamilyId: 'scan-cleanup',
+        stagingName: 'scan-cleanup',
     },
 ] as const satisfies readonly IGeneratedRustNativeToolProtocol[];
 

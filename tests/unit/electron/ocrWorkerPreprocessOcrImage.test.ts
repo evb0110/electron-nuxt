@@ -8,11 +8,13 @@ import {
 
 const mocks = vi.hoisted(() => ({
     runOcrCommand: vi.fn(),
+    runNativeToolCommand: vi.fn(),
     stat: vi.fn(),
     log: vi.fn(),
 }));
 
 vi.mock('@electron/ocr/worker/runOcrCommand', () => ({runOcrCommand: mocks.runOcrCommand}));
+vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runNativeToolCommand}));
 vi.mock('fs/promises', () => ({stat: mocks.stat}));
 
 describe('tryPreprocessOcrImage', () => {
@@ -23,7 +25,42 @@ describe('tryPreprocessOcrImage', () => {
             stdout: '',
             stderr: '',
         });
+        mocks.runNativeToolCommand.mockResolvedValue({
+            stdout: '',
+            stderr: '',
+        });
         mocks.stat.mockResolvedValue({ size: 1024 });
+    });
+
+    it('prefers native scan cleanup and does not invoke unpaper after success', async () => {
+        const { tryPreprocessOcrImage } = await import('@electron/ocr/worker/tryPreprocessOcrImage');
+        const controller = new AbortController();
+
+        await expect(tryPreprocessOcrImage(
+            '/bin/unpaper',
+            '/tmp/raw.png',
+            '/tmp/clean.png',
+            mocks.log,
+            controller.signal,
+            undefined,
+            '/bin/evb-scan-cleanup',
+            '/tmp/clean.json',
+            288,
+        )).resolves.toBe('/tmp/clean.png');
+
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
+            '/bin/evb-scan-cleanup',
+            expect.arrayContaining([
+                '--ocr-mode',
+                '--metadata',
+                '/tmp/clean.json',
+            ]),
+            expect.objectContaining({
+                commandLabel: 'evb-scan-cleanup(ocr-preprocess)',
+                signal: controller.signal,
+            }),
+        );
+        expect(mocks.runOcrCommand).not.toHaveBeenCalled();
     });
 
     it('returns the cleaned image path when unpaper succeeds', async () => {

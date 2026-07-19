@@ -7,6 +7,7 @@ export type * from '@contracts/documentRevision';
 export type * from '@contracts/electronApiCommon';
 export type * from '@contracts/electronApiDocuments';
 export type * from '@contracts/electronApiOcr';
+export type * from '@contracts/electronApiScanCleanup';
 export type * from '@contracts/electronApiUpdates';
 export type * from '@contracts/electronApiWindowTabs';
 export type * from '@contracts/electronApiDjvu';

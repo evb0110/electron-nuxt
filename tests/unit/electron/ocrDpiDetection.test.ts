@@ -12,7 +12,7 @@ import {
 
 const mocks = vi.hoisted(() => ({runOcrCommand: vi.fn()}));
 
-vi.mock('@electron/ocr/worker/runOcrCommand', () => ({runOcrCommand: mocks.runOcrCommand}));
+vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runOcrCommand}));
 
 describe('ocr dpi detection', () => {
     beforeEach(() => {

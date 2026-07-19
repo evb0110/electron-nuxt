@@ -94,6 +94,8 @@ mac:
       to: pdf-page-ops/darwin-${arch}
     - from: .tmp/pdf-search/darwin-${arch}
       to: pdf-search/darwin-${arch}
+    - from: .tmp/scan-cleanup/darwin-${arch}
+      to: scan-cleanup/darwin-${arch}
 
 win:
   icon: resources/icon.ico
@@ -122,6 +124,8 @@ win:
       to: pdf-page-ops/win32-${arch}
     - from: .tmp/pdf-search/win32-${arch}
       to: pdf-search/win32-${arch}
+    - from: .tmp/scan-cleanup/win32-${arch}
+      to: scan-cleanup/win32-${arch}
 
 appx:
   artifactName: "EVB-Viewer-${version}-${arch}-store.${ext}"
@@ -175,6 +179,8 @@ linux:
       to: pdf-page-ops/linux-${arch}
     - from: .tmp/pdf-search/linux-${arch}
       to: pdf-search/linux-${arch}
+    - from: .tmp/scan-cleanup/linux-${arch}
+      to: scan-cleanup/linux-${arch}
 
 nsis:
   oneClick: false

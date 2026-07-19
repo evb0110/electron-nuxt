@@ -97,4 +97,15 @@ describe('workspace PDF toolbar wiring', () => {
         expect(toolbar).toContain('isCommandInline(\'settings\') && !isCollapsed(5)');
         expect(toolbar).toContain('<AssistantToolbarToggle v-if="!isCollapsed(5)"');
     });
+
+    it('reserves scan cleanup and OCR as separate toolbar actions', () => {
+        const presenter = readWorkspaceFile('app/modules/workspace-shell/components/WorkspacePdfToolbarView.vue');
+        const toolbar = readWorkspaceFile('app/modules/pdf-viewer/components/PdfToolbar.vue');
+
+        expect(presenter).toContain('#scan-cleanup="{ isCollapsed }"');
+        expect(presenter).toContain('#ocr="{ isCollapsed }"');
+        expect(toolbar).toContain('toolbar-action--scan-cleanup');
+        expect(toolbar).toContain('toolbar-action--ocr');
+        expect(toolbar).not.toContain('<slot name="ocr"><slot');
+    });
 });

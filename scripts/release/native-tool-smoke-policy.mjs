@@ -19,6 +19,14 @@ const MAC_PACKAGED_TOOL_SMOKE_POLICY = {
         allowedExitCodes: new Set([0]),
         expectedOutputTokens: ['evb-pdf-search'],
     },
+    'evb-scan-cleanup': {
+        allowedExitCodes: new Set([0]),
+        expectedOutputTokens: ['evb-scan-cleanup'],
+    },
+    'evb-scan-cleanup-protocol': {
+        allowedExitCodes: new Set([0]),
+        expectedOutputTokens: ['1'],
+    },
     ddjvu: {
         allowedExitCodes: new Set([
             0,

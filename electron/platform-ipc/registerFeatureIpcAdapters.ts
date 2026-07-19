@@ -15,6 +15,8 @@ import {IMAGE_EXPORT_CHANNELS} from '@electron/features/image-export/contract';
 import { IMAGE_EXPORT_IPC_CODECS } from '@electron/features/image-export/imageExportIpcCodecs';
 import {OCR_CHANNELS} from '@electron/features/ocr/contract';
 import { OCR_IPC_CODECS } from '@electron/features/ocr/ocrIpcCodecs';
+import {SCAN_CLEANUP_CHANNELS} from '@electron/features/scan-cleanup/contract';
+import {SCAN_CLEANUP_IPC_CODECS} from '@electron/features/scan-cleanup/scanCleanupIpcCodecs';
 import {SEARCH_CHANNELS} from '@electron/features/search/contract';
 import { SEARCH_IPC_CODECS } from '@electron/features/search/searchIpcCodecs';
 import {DJVU_CHANNELS} from '@electron/features/djvu/contract';
@@ -94,6 +96,10 @@ export function registerFeatureIpcAdapters(
     registerLazyValidatedFeature(ipcMain, OCR_CHANNELS, OCR_IPC_CODECS, async registrar => {
         const {registerOcrIpcAdapter} = await import('@electron/features/ocr/registerOcrIpcAdapter');
         registerOcrIpcAdapter(registrar as never);
+    });
+    registerLazyValidatedFeature(ipcMain, SCAN_CLEANUP_CHANNELS, SCAN_CLEANUP_IPC_CODECS, async registrar => {
+        const {registerScanCleanupIpcAdapter} = await import('@electron/features/scan-cleanup/registerScanCleanupIpcAdapter');
+        registerScanCleanupIpcAdapter(registrar as never);
     });
     registerLazyValidatedFeature(ipcMain, SEARCH_CHANNELS, SEARCH_IPC_CODECS, async registrar => {
         const {registerSearchIpcAdapter} = await import('@electron/features/search/registerSearchIpcAdapter');

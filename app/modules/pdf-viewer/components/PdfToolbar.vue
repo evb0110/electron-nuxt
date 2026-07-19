@@ -223,9 +223,20 @@
             </div>
 
             <div
-                v-if="!isCollapsed(1) && (isCommandInline('ocr') || isCommandInline('export-docx'))"
+                v-if="!isCollapsed(1) && (hasScanCleanupAction || isCommandInline('ocr') || isCommandInline('export-docx'))"
                 class="toolbar-cluster"
             >
+                <div
+                    v-if="hasScanCleanupAction"
+                    class="toolbar-action toolbar-action--scan-cleanup"
+                >
+                    <slot
+                        name="scan-cleanup"
+                        :collapse-tier="collapseTier"
+                        :has-overflow-items="hasOverflowItems"
+                        :is-collapsed="isCollapsed"
+                    />
+                </div>
                 <div class="toolbar-action toolbar-action--ocr">
                     <slot
                         v-if="isCommandInline('ocr')"
@@ -300,6 +311,7 @@ const {
     isOpeningDocument = false,
     isFullscreen = false,
     fullscreenSupported = true,
+    hasScanCleanupAction = false,
     canPrint = true,
     canSaveAs = true,
     canToggleContinuousScroll = true,
@@ -313,6 +325,7 @@ const {
     isFullscreen?: boolean;
     fullscreenSupported?: boolean;
     hasOcrAction?: boolean;
+    hasScanCleanupAction?: boolean;
     canToggleSidebar?: boolean;
     canPrint?: boolean;
     canSaveAs?: boolean;
@@ -518,6 +531,11 @@ function handleToolbarCommand(command: TToolbarCommand) {
 }
 
 .toolbar--has-ocr-action .toolbar-action--ocr {
+    inline-size: var(--toolbar-control-height, var(--app-toolbar-control-size));
+    min-inline-size: var(--toolbar-control-height, var(--app-toolbar-control-size));
+}
+
+.toolbar-action--scan-cleanup {
     inline-size: var(--toolbar-control-height, var(--app-toolbar-control-size));
     min-inline-size: var(--toolbar-control-height, var(--app-toolbar-control-size));
 }

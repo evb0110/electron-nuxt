@@ -17,7 +17,8 @@ export type TDocumentOutputOperation =
     | 'image-export'
     | 'multipage-tiff'
     | 'ocr-projection'
-    | 'save-as-pdf';
+    | 'save-as-pdf'
+    | 'scan-cleanup';
 
 export type TDocumentOutputSourceKind = 'pdf' | 'djvu';
 

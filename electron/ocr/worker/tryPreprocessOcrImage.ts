@@ -1,5 +1,6 @@
 import { stat } from 'fs/promises';
 import { runOcrCommand } from '@electron/ocr/worker/runOcrCommand';
+import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import type { TWorkerLog } from '@electron/ocr/worker/types';
 import { getErrorMessage } from '@electron/utils/error';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
@@ -77,9 +78,42 @@ export async function tryPreprocessOcrImage(
     log: TWorkerLog,
     signal: AbortSignal,
     onDiagnostic?: (diagnostic: IOcrDiagnostic) => void,
+    scanCleanupBinary?: string,
+    metadataPath = `${outputPath}.json`,
+    dpi = 300,
 ) {
+    if (scanCleanupBinary) {
+        try {
+            await runNativeToolCommand(scanCleanupBinary, [
+                '--input',
+                inputPath,
+                '--output',
+                outputPath,
+                '--metadata',
+                metadataPath,
+                '--ocr-mode',
+                '--options',
+                JSON.stringify({dpi}),
+            ], {
+                timeoutMs: OCR_PREPROCESS_TIMEOUT_MS,
+                commandLabel: 'evb-scan-cleanup(ocr-preprocess)',
+                signal,
+                log: createOptionalPreprocessingLog(log),
+            });
+            if (await isNonEmptyFile(outputPath)) {
+                return outputPath;
+            }
+            log('warn', 'Native scan cleanup produced no usable image; trying unpaper fallback');
+        } catch (error) {
+            if (signal.aborted) {
+                throw error;
+            }
+            log('warn', `Native scan cleanup failed; trying unpaper fallback: ${getErrorMessage(error)}`);
+        }
+    }
+
     if (!unpaperBinary) {
-        const message = 'OCR preprocessing requested, but unpaper is not bundled for this platform';
+        const message = 'OCR preprocessing requested, but unpaper is not bundled and scan cleanup is unavailable for this platform';
         log('warn', message);
         onDiagnostic?.({
             code: 'OCR_PREPROCESSING_UNAVAILABLE',

@@ -25,12 +25,13 @@ export const NATIVE_TOOL_RESOURCE_FAMILY_IDS = [
     'pdf-image-combine',
     'pdf-page-ops',
     'pdf-search',
+    'scan-cleanup',
 ] as const;
 
 export type TNativeToolResourceFamilyId = typeof NATIVE_TOOL_RESOURCE_FAMILY_IDS[number];
 export type TGeneratedNativeToolResourceFamilyId = Extract<
     TNativeToolResourceFamilyId,
-    'pdf-image-combine' | 'pdf-page-ops' | 'pdf-search'
+    'pdf-image-combine' | 'pdf-page-ops' | 'pdf-search' | 'scan-cleanup'
 >;
 
 export interface INativeResourceTarget {
@@ -166,6 +167,16 @@ export const NATIVE_TOOL_RESOURCE_FAMILIES = [
             'pdf-search',
         ],
         stagedRootSegments: ['pdf-search'],
+    },
+    {
+        id: 'scan-cleanup',
+        label: 'Scan cleanup native tool',
+        sourceKind: 'generated',
+        sourceRootSegments: [
+            '.tmp',
+            'scan-cleanup',
+        ],
+        stagedRootSegments: ['scan-cleanup'],
     },
 ] as const satisfies readonly INativeToolResourceFamily[];
 

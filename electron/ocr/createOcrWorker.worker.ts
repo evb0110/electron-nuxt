@@ -16,6 +16,7 @@ import { getAppTempDir } from '@electron/utils/appTempDir';
 import { resolveUnpackedWorkerPath } from '@electron/utils/workerTask';
 import { resolveNativePageOpsPath } from '@electron/features/page-ops/public';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
+import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -26,6 +27,16 @@ const OCR_WORKER_RESOURCE_LIMITS: ResourceLimits = {
     maxYoungGenerationSizeMb: parseIntegerEnv('EVB_OCR_WORKER_MAX_YOUNG_MB', 64, 16, 256),
     stackSizeMb: parseIntegerEnv('EVB_OCR_WORKER_STACK_MB', 8, 2, 64),
 };
+
+function resolveScanCleanupPath() {
+    return resolveNativeToolPath({
+        binaryName: process.platform === 'win32' ? 'evb-scan-cleanup.exe' : 'evb-scan-cleanup',
+        crateName: 'scan-cleanup',
+        currentDir: __dirname,
+        envOverridePath: process.env.EVB_SCAN_CLEANUP_PATH,
+        isPackaged: __dirname.includes('app.asar'),
+    });
+}
 
 function getOcrWorkerPath() {
     const defaultPath = join(__dirname, WORKER_BUNDLES_BY_ID.ocr.fileName);
@@ -70,6 +81,7 @@ export function createOcrWorker(): Worker {
             popplerFontConfigDir: paths.popplerFontConfigDir,
             qpdfBinary: paths.qpdf,
             pdfPageOpsBinary: resolveNativePageOpsPath() ?? undefined,
+            scanCleanupBinary: resolveScanCleanupPath() ?? undefined,
             unpaperBinary: paths.unpaper,
             tempDir: getAppTempDir(),
         },

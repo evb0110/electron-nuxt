@@ -14,6 +14,7 @@ import type {
 } from '@contracts/electronApiDocuments';
 import type { IHostCapability } from '@contracts/electronApiHost';
 import type { IOcrCapability } from '@contracts/electronApiOcr';
+import type { IScanCleanupCapability } from '@contracts/electronApiScanCleanup';
 import type { IPageOpsCapability } from '@contracts/electronApiPageOps';
 import type { ISystemCapability } from '@contracts/electronApiSystem';
 import type { IUpdatesCapability } from '@contracts/electronApiUpdates';
@@ -48,6 +49,7 @@ interface IPlatformApiShape {
     pageOps: IPageOpsCapability;
     imageExport: IImageExportCapability;
     ocr: IOcrCapability;
+    scanCleanup?: IScanCleanupCapability;
     search: ISearchCapability;
     djvu: IDjvuCapability;
     settings: ISettingsCapability;
@@ -585,6 +587,38 @@ const otherMethodPaths = defineMethodPaths([
         'preprocessPage',
     ],
     [
+        'scanCleanup',
+        'preview',
+    ],
+    [
+        'scanCleanup',
+        'cancelPreview',
+    ],
+    [
+        'scanCleanup',
+        'start',
+    ],
+    [
+        'scanCleanup',
+        'cancel',
+    ],
+    [
+        'scanCleanup',
+        'getJobState',
+    ],
+    [
+        'scanCleanup',
+        'subscribeJob',
+    ],
+    [
+        'scanCleanup',
+        'reconnectJob',
+    ],
+    [
+        'scanCleanup',
+        'onJobState',
+    ],
+    [
         'search',
         'run',
     ],
@@ -972,6 +1006,10 @@ export const PLATFORM_API_DESCRIPTOR = {
             path,
             required: requiredEverywhere,
         })),
+        {
+            path: ['scanCleanup'],
+            required: requiredInElectron,
+        },
         {
             path: ['updates'],
             required: requiredInElectron,

@@ -133,6 +133,14 @@
     --app-progress-card-gap: var(--app-space-9xl);
     --app-progress-card-padding: 2rem 3rem;
     --app-progress-card-radius: var(--app-radius-3xl);
+    --app-scan-preview-page-label-width: 7rem;
+    --app-scan-preview-surface-height: 24rem;
+    --app-scan-preview-content-height: 21rem;
+    --app-scan-preview-page-width: 14rem;
+    --app-scan-preview-message-width: 22rem;
+    --app-scan-preview-skeleton-height: 18rem;
+    --app-scan-preview-compact-surface-height: 18rem;
+    --app-scan-preview-compact-content-height: 15rem;
     --app-progress-bar-width: 15rem;
     --app-progress-chip-offset-low: 3rem;
     --app-progress-chip-offset-high: 7rem;

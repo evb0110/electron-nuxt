@@ -1,6 +1,8 @@
 import { plural } from '@i18n-core';
+import en from '@evb/i18n-app/messages/en';
 
 export default {
+    'scanCleanup': en.scanCleanup,
     'app': {
         'title': 'EVB Viewer',
         'webTitle': 'EVB Viewer Web',

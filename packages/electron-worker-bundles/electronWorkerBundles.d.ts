@@ -3,6 +3,7 @@ export type TWorkerBundleId =
     | 'pdf-conformance'
     | 'document-save-utility'
     | 'ocr'
+    | 'scan-cleanup'
     | 'search'
     | 'page-ops-crop'
     | 'image-export-tiff'

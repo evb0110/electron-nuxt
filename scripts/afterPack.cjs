@@ -92,6 +92,15 @@ const REQUIRED_PLATFORM_EXTRA_RESOURCE_ROOTS = [
         ],
         stagedRootSegments: ['pdf-search'],
     },
+    {
+        binaryName: 'evb-scan-cleanup',
+        label: 'Scan cleanup native tool',
+        sourceRootSegments: [
+            '.tmp',
+            'scan-cleanup',
+        ],
+        stagedRootSegments: ['scan-cleanup'],
+    },
 ];
 const SUPPORTED_CHROMIUM_LOCALES = {
     darwin: new Set([
@@ -365,6 +374,7 @@ function moveMacNativeToolResources(context) {
         'pdf-image-combine',
         'pdf-page-ops',
         'pdf-search',
+        'scan-cleanup',
         'poppler',
         'qpdf',
         'tesseract',

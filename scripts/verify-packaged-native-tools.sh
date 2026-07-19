@@ -203,6 +203,7 @@ check_file "$native_tool_root/djvulibre/$platform_arch/bin/djvudump$exe_suffix" 
 check_file "$native_tool_root/pdf-image-combine/$platform_arch/bin/evb-pdf-image-combine$exe_suffix" "pdf image combine binary"
 check_file "$native_tool_root/pdf-page-ops/$platform_arch/bin/evb-pdf-page-ops$exe_suffix" "pdf page ops binary"
 check_file "$native_tool_root/pdf-search/$platform_arch/bin/evb-pdf-search$exe_suffix" "pdf search binary"
+check_file "$native_tool_root/scan-cleanup/$platform_arch/bin/evb-scan-cleanup$exe_suffix" "scan cleanup binary"
 
 find_tool_files() {
   local tag="$1"
@@ -213,6 +214,7 @@ find_tool_files() {
     "$native_tool_root/pdf-image-combine/$tag/$kind"
     "$native_tool_root/pdf-page-ops/$tag/$kind"
     "$native_tool_root/pdf-search/$tag/$kind"
+    "$native_tool_root/scan-cleanup/$tag/$kind"
     "$native_tool_root/qpdf/$tag/$kind"
     "$native_tool_root/djvulibre/$tag/$kind"
   )
@@ -495,6 +497,8 @@ if [ "$platform" = "mac" ]; then
   run_macos_packaged_tool_smoke "evb-pdf-image-combine-compact-manifest" "$native_tool_root/pdf-image-combine/$platform_arch/bin/evb-pdf-image-combine" --compact-manifest
   run_macos_packaged_tool_smoke "evb-pdf-page-ops" "$native_tool_root/pdf-page-ops/$platform_arch/bin/evb-pdf-page-ops" --version
   run_macos_packaged_tool_smoke "evb-pdf-search" "$native_tool_root/pdf-search/$platform_arch/bin/evb-pdf-search" --version
+  run_macos_packaged_tool_smoke "evb-scan-cleanup" "$native_tool_root/scan-cleanup/$platform_arch/bin/evb-scan-cleanup" --version
+  run_macos_packaged_tool_smoke "evb-scan-cleanup-protocol" "$native_tool_root/scan-cleanup/$platform_arch/bin/evb-scan-cleanup" --protocol-version
   run_macos_packaged_tool_smoke "tesseract" "$native_tool_root/tesseract/$platform_arch/bin/tesseract" --version
   run_macos_packaged_tool_smoke "unpaper" "$native_tool_root/tesseract/$platform_arch/bin/unpaper" --help
 fi

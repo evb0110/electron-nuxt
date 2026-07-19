@@ -21,6 +21,7 @@ export interface IWorkerPaths {
     popplerFontConfigDir?: string;
     qpdfBinary: string;
     pdfPageOpsBinary?: string;
+    scanCleanupBinary?: string;
     unpaperBinary?: string;
     tempDir: string;
 }

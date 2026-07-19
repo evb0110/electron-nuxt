@@ -14,6 +14,7 @@ import type {
 } from '@contracts/electronApiDocuments';
 import type { IHostCapability } from '@contracts/electronApiHost';
 import type { IOcrCapability } from '@contracts/electronApiOcr';
+import type { IScanCleanupCapability } from '@contracts/electronApiScanCleanup';
 import type { IPageOpsCapability } from '@contracts/electronApiPageOps';
 import type { ISearchCapability } from '@contracts/searchCapability';
 import type { ISettingsCapability } from '@contracts/settingsCapability';
@@ -49,6 +50,7 @@ export interface IPlatformApi {
     pageOps: IPageOpsCapability;
     imageExport: IImageExportCapability;
     ocr: IOcrCapability;
+    scanCleanup?: IScanCleanupCapability;
     search: ISearchCapability;
     djvu: IDjvuCapability;
     settings: ISettingsCapability;
@@ -76,6 +78,7 @@ export type * from '@contracts/electronApiDocuments';
 export type * from '@contracts/electronApiDjvu';
 export type * from '@contracts/electronApiHost';
 export type * from '@contracts/electronApiOcr';
+export type * from '@contracts/electronApiScanCleanup';
 export type * from '@contracts/electronApiPageOps';
 export type * from '@contracts/electronApiSystem';
 export type * from '@contracts/electronApiUpdates';

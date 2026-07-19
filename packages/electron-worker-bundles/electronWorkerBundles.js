@@ -1,5 +1,5 @@
 /**
- * @typedef {'pdf-combine' | 'pdf-conformance' | 'document-save-utility' | 'ocr' | 'search' | 'page-ops-crop' | 'image-export-tiff' | 'djvu-pdf'} TWorkerBundleId
+ * @typedef {'pdf-combine' | 'pdf-conformance' | 'document-save-utility' | 'ocr' | 'scan-cleanup' | 'search' | 'page-ops-crop' | 'image-export-tiff' | 'djvu-pdf'} TWorkerBundleId
  */
 
 /**
@@ -39,6 +39,13 @@ export const WORKER_BUNDLES = [
         id: 'ocr',
         entryPoint: 'electron/ocr/worker/main.ts',
         fileName: 'ocr-worker.js',
+        format: 'esm',
+        unpacked: true,
+    },
+    {
+        id: 'scan-cleanup',
+        entryPoint: 'electron/features/scan-cleanup/worker/main.ts',
+        fileName: 'scan-cleanup-worker.js',
         format: 'esm',
         unpacked: true,
     },

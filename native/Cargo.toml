@@ -4,6 +4,8 @@ members = [
     "pdf-image-combine",
     "pdf-page-ops",
     "pdf-search",
+    "scan-cleanup",
+    "scan-primitives",
 ]
 resolver = "2"
 

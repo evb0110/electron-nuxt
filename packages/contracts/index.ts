@@ -43,6 +43,7 @@ export type {
     IImageExportCapability,
     IPageOpsCapability,
     IOcrCapability,
+    IScanCleanupCapability,
     IPlatformApi,
     IPlatformApiDescriptor,
     IPlatformCapabilityDescriptor,

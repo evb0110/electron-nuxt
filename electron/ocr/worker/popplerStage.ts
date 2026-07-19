@@ -20,7 +20,7 @@ export interface IPreparedPopplerPdf {
 }
 
 export async function renderPdfPageToPng(
-    paths: IWorkerPaths,
+    paths: Pick<IWorkerPaths, 'pdftoppmBinary'>,
     log: TWorkerLog,
     pageNumber: number,
     sourcePdfPath: string,
@@ -57,7 +57,7 @@ export async function renderPdfPageToPng(
 }
 
 export async function preparePdfForPoppler(
-    paths: IWorkerPaths,
+    paths: Pick<IWorkerPaths, 'qpdfBinary' | 'tempDir'>,
     log: TWorkerLog,
     sourcePdfPath: string,
     sessionId: string,

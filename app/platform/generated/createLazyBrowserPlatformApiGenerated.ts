@@ -239,6 +239,14 @@ export function createLazyBrowserPlatformApiGenerated({
     const ocrOnCompleteMethod = lazyEvent(pathDescriptors.ocr.onComplete.path);
     const ocrPreprocessingValidateMethod = lazyAsync(pathDescriptors.ocr.preprocessing.validate.path);
     const ocrPreprocessingPreprocessPageMethod = lazyAsync(pathDescriptors.ocr.preprocessing.preprocessPage.path);
+    const scanCleanupPreviewMethod = lazyAsync(pathDescriptors.scanCleanup.preview.path);
+    const scanCleanupCancelPreviewMethod = lazyAsync(pathDescriptors.scanCleanup.cancelPreview.path);
+    const scanCleanupStartMethod = lazyAsync(pathDescriptors.scanCleanup.start.path);
+    const scanCleanupCancelMethod = lazyAsync(pathDescriptors.scanCleanup.cancel.path);
+    const scanCleanupGetJobStateMethod = lazyAsync(pathDescriptors.scanCleanup.getJobState.path);
+    const scanCleanupSubscribeJobMethod = lazyAsync(pathDescriptors.scanCleanup.subscribeJob.path);
+    const scanCleanupReconnectJobMethod = lazyAsync(pathDescriptors.scanCleanup.reconnectJob.path);
+    const scanCleanupOnJobStateMethod = lazyEvent(pathDescriptors.scanCleanup.onJobState.path);
     const searchRunMethod = lazyAsync(pathDescriptors.search.run.path);
     const searchWarmIndexMethod = lazyAsync(pathDescriptors.search.warmIndex.path);
     const searchCancelMethod = lazyAsync(pathDescriptors.search.cancel.path);
@@ -556,6 +564,16 @@ export function createLazyBrowserPlatformApiGenerated({
             validate: ocrPreprocessingValidateMethod,
             preprocessPage: ocrPreprocessingPreprocessPageMethod,
         },
+    },
+    scanCleanup: {
+        preview: scanCleanupPreviewMethod,
+        cancelPreview: scanCleanupCancelPreviewMethod,
+        start: scanCleanupStartMethod,
+        cancel: scanCleanupCancelMethod,
+        getJobState: scanCleanupGetJobStateMethod,
+        subscribeJob: scanCleanupSubscribeJobMethod,
+        reconnectJob: scanCleanupReconnectJobMethod,
+        onJobState: scanCleanupOnJobStateMethod,
     },
     search: {
         run: searchRunMethod,

@@ -28,6 +28,7 @@
         :is-placing-page-note="snapshot.isPlacingPageNote"
         :document-busy="toolbarDocumentBusy"
         :has-ocr-action="canUseOcr"
+        :has-scan-cleanup-action="canUseOcr && isDesktopRuntime"
         :surface="surface"
         :is-fullscreen="isFullscreen"
         :fullscreen-supported="fullscreenSupported"
@@ -93,6 +94,16 @@
                 @rotate-cw="handleRotateCw"
                 @rotate-ccw="handleRotateCcw"
                 @insert-pages="handleInsertPages"
+            />
+        </template>
+        <template v-if="canUseOcr && isDesktopRuntime" #scan-cleanup="{ isCollapsed }">
+            <ScanCleanupPopup
+                v-model:open="scanCleanupPopupOpen"
+                :source-path="ocrWorkingCopyPath"
+                :current-page="snapshot.currentPage"
+                :total-pages="snapshot.totalPages"
+                :disabled="toolbarControlsDisabled || snapshot.isAnySaving || snapshot.isHistoryBusy"
+                :hide-trigger="isCollapsed(3)"
             />
         </template>
         <template v-if="canUseOcr" #ocr="{ isCollapsed }">
@@ -239,6 +250,10 @@ const OcrPopup = defineAsyncComponent(
     () => import('@app/modules/ocr-panel/public')
         .then(componentModule => componentModule.OcrPopup),
 );
+const ScanCleanupPopup = defineAsyncComponent(
+    () => import('@app/modules/scan-cleanup/public').then(module => module.ScanCleanupPopup),
+);
+const scanCleanupPopupOpen = ref(false);
 
 const {
     appMenuOpen,

@@ -33,6 +33,7 @@ import {
     type IDocumentsInvokeMap,
 } from '@electron/features/documents/contract';
 import {createOcrPreloadClient} from '@electron/features/ocr/createOcrPreloadClient';
+import {createScanCleanupPreloadClient} from '@electron/features/scan-cleanup/createScanCleanupPreloadClient';
 import {createSearchPreloadClient} from '@electron/features/search/createSearchPreloadClient';
 import {createDjvuPreloadClient} from '@electron/features/djvu/createDjvuPreloadClient';
 import {
@@ -486,6 +487,7 @@ export function createElectronApi(
         imageExport,
 
         ocr: createOcrPreloadClient(ipcRenderer),
+        scanCleanup: createScanCleanupPreloadClient(ipcRenderer),
 
         search: createSearchPreloadClient(ipcRenderer),
 

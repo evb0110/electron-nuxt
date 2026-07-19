@@ -1,0 +1,19 @@
+[package]
+name = "evb-scan-cleanup"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+experimental-auto-dewarp = []
+
+[dependencies]
+crc32fast = "1.5.0"
+evb-native-support = { version = "0.1.0", path = "../evb-native-support" }
+flate2 = { version = "1.1.9", default-features = false, features = ["zlib-rs"] }
+scan-primitives = { version = "0.1.0", path = "../scan-primitives" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+

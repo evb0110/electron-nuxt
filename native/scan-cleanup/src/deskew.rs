@@ -1,0 +1,157 @@
+use scan_primitives::{
+    morphology::{open, reconstruct_binary},
+    threshold::{otsu_threshold, threshold_global},
+    BinaryImage, GrayImage,
+};
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DeskewResult {
+    pub angle_degrees: f64,
+    pub confidence: f64,
+    pub accepted: bool,
+}
+
+pub fn detect_skew(source: &GrayImage, dpi: f64) -> DeskewResult {
+    let scale = (150.0 / dpi.max(1.0)).min(1.0);
+    let max_width = (source.width() as f64 * scale).round().max(1.0) as usize;
+    let max_height = (source.height() as f64 * scale).round().max(1.0) as usize;
+    let working = source.downscale_to_fit(max_width, max_height);
+    let binary = threshold_global(&working, otsu_threshold(&working));
+    let shadow_seed = open(&binary, 75, 5);
+    let without_shadows = binary.subtract(&reconstruct_binary(&shadow_seed, &binary));
+    score_skew(&without_shadows)
+}
+
+pub fn score_skew(binary: &BinaryImage) -> DeskewResult {
+    if binary.count_black() < 32 {
+        return DeskewResult::default();
+    }
+    let coarse: Vec<(f64, f64)> = (-7..=7)
+        .map(|angle| (f64::from(angle), projection_score(binary, f64::from(angle))))
+        .collect();
+    let average = coarse.iter().map(|entry| entry.1).sum::<f64>() / coarse.len() as f64;
+    let &(mut best_angle, mut best_score) = coarse
+        .iter()
+        .max_by(|left, right| left.1.total_cmp(&right.1))
+        .unwrap();
+    let mut step = 0.5;
+    for _ in 0..10 {
+        for candidate in [best_angle - step, best_angle + step] {
+            if !(-7.0..=7.0).contains(&candidate) {
+                continue;
+            }
+            let score = projection_score(binary, candidate);
+            if score > best_score {
+                best_angle = candidate;
+                best_score = score;
+            }
+        }
+        step *= 0.5;
+    }
+    let confidence = if average > 0.0 {
+        best_score / average
+    } else {
+        0.0
+    };
+    DeskewResult {
+        angle_degrees: if confidence >= 2.0 { -best_angle } else { 0.0 },
+        confidence,
+        accepted: confidence >= 2.0,
+    }
+}
+
+fn projection_score(binary: &BinaryImage, correction_degrees: f64) -> f64 {
+    let tangent = correction_degrees.to_radians().tan();
+    let center_x = binary.width() as f64 * 0.5;
+    let padding = (binary.width() as f64 * 7.0f64.to_radians().tan()).ceil() as isize + 2;
+    let mut profile = vec![0u32; binary.height() + (padding * 2) as usize];
+    for y in 0..binary.height() {
+        for x in 0..binary.width() {
+            if binary.get(x, y) {
+                let shifted =
+                    (y as f64 + tangent * (x as f64 - center_x)).round() as isize + padding;
+                if shifted >= 0 && shifted < profile.len() as isize {
+                    profile[shifted as usize] += 1;
+                }
+            }
+        }
+    }
+    profile
+        .windows(2)
+        .map(|rows| {
+            let difference = f64::from(rows[1]) - f64::from(rows[0]);
+            difference * difference
+        })
+        .sum()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn text_page(width: usize, height: usize) -> BinaryImage {
+        let mut page = BinaryImage::new(width, height);
+        for line in 0..10 {
+            let top = 20 + line * 18;
+            for word in 0..6 {
+                let left = 16 + word * 28 + line % 3;
+                let word_width = 17 + (word * 7 + line) % 9;
+                for y in top..top + 5 {
+                    for x in left..(left + word_width).min(width - 5) {
+                        page.set(x, y, true);
+                    }
+                }
+            }
+        }
+        page
+    }
+
+    fn rotate(source: &BinaryImage, angle_degrees: f64) -> BinaryImage {
+        let mut output = BinaryImage::new(source.width(), source.height());
+        let angle = angle_degrees.to_radians();
+        let (sine, cosine) = angle.sin_cos();
+        let cx = source.width() as f64 * 0.5;
+        let cy = source.height() as f64 * 0.5;
+        for y in 0..output.height() {
+            for x in 0..output.width() {
+                let dx = x as f64 - cx;
+                let dy = y as f64 - cy;
+                let sx = cosine * dx + sine * dy + cx;
+                let sy = -sine * dx + cosine * dy + cy;
+                if sx >= 0.0
+                    && sy >= 0.0
+                    && sx < source.width() as f64
+                    && sy < source.height() as f64
+                {
+                    output.set(
+                        x,
+                        y,
+                        source.get(
+                            sx.round().min((source.width() - 1) as f64) as usize,
+                            sy.round().min((source.height() - 1) as f64) as usize,
+                        ),
+                    );
+                }
+            }
+        }
+        output
+    }
+
+    #[test]
+    fn recovers_known_rotation_with_high_confidence() {
+        let result = score_skew(&rotate(&text_page(220, 220), 3.25));
+        assert!(result.accepted, "confidence={}", result.confidence);
+        assert!(
+            (result.angle_degrees - 3.25).abs() <= 0.15,
+            "angle={}",
+            result.angle_degrees
+        );
+    }
+
+    #[test]
+    fn rejects_low_information_page() {
+        let result = score_skew(&BinaryImage::new(100, 100));
+        assert!(!result.accepted);
+        assert_eq!(result.angle_degrees, 0.0);
+    }
+}

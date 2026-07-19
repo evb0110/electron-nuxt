@@ -199,6 +199,7 @@ app/utils/getShellCapability.ts
 app/utils/getSettingsCapability.ts
 app/utils/getDjvuCapability.ts
 app/utils/getOcrCapability.ts
+app/utils/getScanCleanupCapability.ts
 app/utils/getSearchCapability.ts
 app/utils/platformUpdates.ts
 app/utils/platformWindowTabs.ts
