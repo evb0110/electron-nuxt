@@ -55,6 +55,14 @@ function parseJson(raw: string | null) {
     }
 }
 
+function cloneJsonValue<T>(value: T): T {
+    return JSON.parse(JSON.stringify(value)) as T;
+}
+
+export function toPlainScanCleanupOptions(options: IScanCleanupOptions): IScanCleanupOptions {
+    return cloneJsonValue(options);
+}
+
 export function loadScanCleanupPreferences(
     storage: IScanCleanupPreferenceStorage = browserStorage,
 ): IScanCleanupGlobalPreferences {
@@ -147,7 +155,7 @@ export function saveScanCleanupDocumentOverrides(
     const entries = loadDocumentEntries(storage);
     entries[documentKey] = {
         updatedAt: Date.now(),
-        overrides: structuredClone(overrides),
+        overrides: cloneJsonValue(overrides),
     } satisfies IDocumentOverrideEntry;
     const bounded = Object.fromEntries(Object.entries(entries)
         .sort((left, right) => Number(record(right[1])?.updatedAt ?? 0) - Number(record(left[1])?.updatedAt ?? 0))

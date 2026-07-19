@@ -625,6 +625,15 @@ defineExpose(createDocumentViewerExposeForwarder(sourceViewerRef, {
     box-shadow: var(--app-document-page-shadow);
 }
 
+/* The opening shell is the sole visible page-frame owner until commit. The
+   renderer still mounts underneath so it can prepare pixels, but its matching
+   shadow must not composite through the opening shell's translucent shadow. */
+.document-viewer-chassis[data-open-surface-presentation='page-shell'] :deep(.page_canvas),
+.document-viewer-chassis[data-open-surface-presentation='page-shell'] :deep(.native-pdf-page-shell),
+.document-viewer-chassis[data-open-surface-presentation='page-shell'] :deep(.document-source-viewer__page) {
+    box-shadow: none;
+}
+
 .document-viewer-chassis__opening-layer {
     position: sticky;
     top: 0;

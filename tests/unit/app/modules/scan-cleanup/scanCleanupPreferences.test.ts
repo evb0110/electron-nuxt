@@ -3,6 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
+import {reactive} from 'vue';
 import {
     DEFAULT_SCAN_CLEANUP_PREFERENCES,
     loadScanCleanupDocumentOverrides,
@@ -49,6 +50,25 @@ describe('scan cleanup preferences', () => {
         expect(loadScanCleanupDocumentOverrides('document-b', storage)).toEqual({});
         resetScanCleanupDocumentOverrides('document-a', storage);
         expect(loadScanCleanupDocumentOverrides('document-a', storage)).toEqual({});
+    });
+
+    it('persists Vue-reactive page overrides as plain JSON data', () => {
+        const storage = memoryStorage();
+        const pageOverride = {
+            rotation: 90 as const,
+            layoutOverride: 'spread' as const,
+            excluded: false,
+            manualSplitX: 480,
+        };
+        const overrides = reactive({'2': pageOverride});
+
+        expect(() => saveScanCleanupDocumentOverrides('document-a', overrides, storage)).not.toThrow();
+        expect(loadScanCleanupDocumentOverrides('document-a', storage)).toEqual({'2': {
+            rotation: 90,
+            layoutOverride: 'spread',
+            excluded: false,
+            manualSplitX: 480,
+        }});
     });
 
     it('falls back safely from malformed persisted values', () => {

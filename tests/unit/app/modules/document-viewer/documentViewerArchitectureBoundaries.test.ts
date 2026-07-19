@@ -57,6 +57,7 @@ describe('document viewer architecture boundaries', () => {
     it('owns pending page presentation in the shared document layer', () => {
         const sharedSkeletonPath = 'app/components/document-viewer/DocumentPageSkeleton.vue';
         const sharedSkeleton = read(sharedSkeletonPath);
+        const chassis = read('app/modules/workspace-shell/components/DocumentViewerChassis.vue');
 
         expect(sharedSkeleton).toContain('class="document-page-skeleton"');
         expect(sharedSkeleton).toContain('<USkeleton');
@@ -79,6 +80,16 @@ describe('document viewer architecture boundaries', () => {
 
         const sharedStyles = read('app/assets/css/main.css');
         expect(sharedStyles).not.toContain('@keyframes document-page-visual-commit');
+        expect(chassis).toContain(
+            '.document-viewer-chassis[data-open-surface-presentation=\'page-shell\'] :deep(.page_canvas)',
+        );
+        expect(chassis).toContain(
+            '.document-viewer-chassis[data-open-surface-presentation=\'page-shell\'] :deep(.native-pdf-page-shell)',
+        );
+        expect(chassis).toContain(
+            '.document-viewer-chassis[data-open-surface-presentation=\'page-shell\'] :deep(.document-source-viewer__page)',
+        );
+        expect(chassis).not.toContain('<Transition name="document-opening-page">');
         for (const path of [
             'app/modules/pdf-viewer/components/PdfViewerPage.vue',
             'app/modules/native-pdf-viewer/components/NativePdfPageContent.vue',

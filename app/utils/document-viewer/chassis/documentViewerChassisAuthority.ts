@@ -139,7 +139,7 @@ export function createDocumentViewerChassisAuthority(
         (visual) => {
             openingPageVisual.value = visual.kind === 'page' && visual.presentation === 'canvas'
                 ? 'fresh'
-                : visual.kind === 'page' && visual.presentation !== 'error'
+                : visual.kind === 'page' && visual.presentation === 'skeleton'
                     ? 'skeleton'
                     : 'none';
         },

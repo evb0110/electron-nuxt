@@ -601,11 +601,15 @@ describe('Electron E2E - Recent Files', () => {
                     rect: null,
                     borderRadius: '',
                     boxShadow: '',
+                    livePageBoxShadow: '',
                 };
             }
             shell.dataset.e2eRecentOpeningShell = 'stable';
             const rect = shell.getBoundingClientRect();
             const style = window.getComputedStyle(shell);
+            const livePage = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active #pdf-viewer .page_canvas',
+            );
             const viewport = document.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]');
             const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
             const workspace = document.querySelector<HTMLElement>('.workspace-main-shell');
@@ -621,6 +625,7 @@ describe('Electron E2E - Recent Files', () => {
                 },
                 borderRadius: style.borderRadius,
                 boxShadow: style.boxShadow,
+                livePageBoxShadow: livePage ? window.getComputedStyle(livePage).boxShadow : '',
                 diagnostics: {
                     frameOwner: shell.dataset.openSurfaceFrameOwner ?? '',
                     hostClientWidth: host?.clientWidth ?? 0,
@@ -638,6 +643,7 @@ describe('Electron E2E - Recent Files', () => {
         });
         expect(openingShellState.found).toBe(true);
         expect(openingShellState.rect).not.toBeNull();
+        expect(openingShellState.livePageBoxShadow).toBe('none');
         await delay(130);
         const debouncedSkeletonVisible = await evaluateInPage(session.page, () => {
             const shell = document.querySelector<HTMLElement>('[data-e2e-recent-opening-shell="stable"]');
