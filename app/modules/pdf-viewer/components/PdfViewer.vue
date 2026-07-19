@@ -1,7 +1,7 @@
 <template>
     <div
         ref="viewerHost"
-        class="relative h-full w-full"
+        class="relative min-h-full w-full"
         data-pdf-viewer-host
         :class="{
             'pdf-viewer-container--dark': props.invertColors === true,

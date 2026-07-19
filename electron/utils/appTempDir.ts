@@ -1,4 +1,5 @@
-import { app } from 'electron';
+import type { App } from 'electron';
+import * as electron from 'electron';
 import {
     chmodSync,
     lstatSync,
@@ -8,12 +9,16 @@ import {
     join,
     win32,
 } from 'path';
+import { tmpdir } from 'os';
 import { isErrnoException } from '@contracts/runtimeGuards';
 
 const APP_TEMP_DIR_NAME = 'evb-viewer';
 
 export function getAppTempDirPath() {
-    const tempDir = app.getPath('temp');
+    // Electron is unavailable inside Node worker_threads. Keep this utility
+    // worker-safe because native document operations use it for managed
+    // scratch output before publishing changes to a working copy.
+    const tempDir = (electron as {app?: Pick<App, 'getPath'>}).app?.getPath('temp') ?? tmpdir();
     return /^[a-zA-Z]:[\\/]/.test(tempDir) || tempDir.startsWith('\\\\')
         ? win32.join(tempDir, APP_TEMP_DIR_NAME)
         : join(tempDir, APP_TEMP_DIR_NAME);

@@ -1055,6 +1055,118 @@ async function collectDjvuProjectedScrollMetricSamples(session: IElectronE2ESess
 describe('Electron E2E - Viewer Smoke', () => {
     const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-viewer-smoke-${Date.now()}`});
 
+    it('keeps crop and screenshot selection overlays attached to the visible scrolled viewport', async () => {
+        let session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-viewer-region-selection-overlay-${Date.now()}`,
+        });
+        if (!session) {
+            return;
+        }
+
+        await session.page.setViewport({
+            deviceScaleFactor: 1,
+            height: 900,
+            width: 1_440,
+        });
+        const fixturePath = await createMultiPageTextFixturePdf(
+            `viewer-region-selection-overlay-${Date.now()}.pdf`,
+            12,
+        );
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await goToPageViaToolbar(session.page, 10);
+        await waitForToolbarCurrentPage(session.page, 10, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+
+        for (const tool of [
+            {
+                label: 'Screenshot',
+                overlaySelector: '.snip-overlay.is-active',
+                selectionSelector: '.snip-selection',
+            },
+            {
+                label: 'Crop Pages',
+                overlaySelector: '.crop-overlay.is-active',
+                selectionSelector: '.crop-selection',
+            },
+        ]) {
+            await clickVisibleToolbarButton(session.page, tool.label);
+            await session.page.waitForSelector(tool.overlaySelector, {timeout: 10_000});
+            const drag = await session.page.evaluate((overlaySelector: string) => {
+                const viewport = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer');
+                const visiblePage = Array.from(document.querySelectorAll<HTMLElement>(
+                    '.editor-pane.is-active .page_container[data-page]',
+                )).find((page) => {
+                    const viewportRect = viewport?.getBoundingClientRect();
+                    const pageRect = page.getBoundingClientRect();
+                    return Boolean(
+                        viewportRect
+                        && Math.min(viewportRect.bottom, pageRect.bottom)
+                            - Math.max(viewportRect.top, pageRect.top) > 100,
+                    );
+                });
+                const pageRect = visiblePage?.getBoundingClientRect();
+                if (!viewport || !pageRect) {
+                    return null;
+                }
+                const start = {
+                    x: pageRect.left + Math.min(80, pageRect.width * 0.2),
+                    y: Math.max(pageRect.top, viewport.getBoundingClientRect().top) + 80,
+                };
+                const end = {
+                    x: Math.min(pageRect.right - 20, start.x + 180),
+                    y: Math.min(pageRect.bottom - 20, start.y + 140),
+                };
+                return {
+                    end,
+                    overlayOwnsStart: Boolean(
+                        document.elementFromPoint(start.x, start.y)?.closest(overlaySelector),
+                    ),
+                    start,
+                };
+            }, tool.overlaySelector);
+            expect(drag, `${tool.label} drag geometry`).not.toBeNull();
+            expect(drag?.overlayOwnsStart, `${tool.label} overlay must own the visible page pointer`).toBe(true);
+            if (!drag) {
+                continue;
+            }
+
+            await session.page.mouse.move(drag.start.x, drag.start.y);
+            await session.page.mouse.down();
+            await session.page.mouse.move(drag.end.x, drag.end.y, {steps: 6});
+            const selectionRect = await session.page.$eval(tool.selectionSelector, (selection) => {
+                const rect = selection.getBoundingClientRect();
+                return {
+                    height: rect.height,
+                    width: rect.width,
+                };
+            });
+            expect(selectionRect.width, `${tool.label} selection width`).toBeGreaterThan(100);
+            expect(selectionRect.height, `${tool.label} selection height`).toBeGreaterThan(80);
+            if (tool.label === 'Screenshot') {
+                await session.page.mouse.up();
+                await session.page.waitForSelector('.snip-flash', {timeout: 10_000});
+            } else {
+                await session.page.mouse.up();
+                await session.page.waitForFunction(() => (
+                    document.querySelector<HTMLElement>('[role="dialog"]')
+                        ?.textContent
+                        ?.includes('Crop Pages') === true
+                ), {timeout: 10_000});
+                await session.page.keyboard.press('Escape');
+            }
+            await session.page.waitForSelector(tool.overlaySelector, {
+                hidden: true,
+                timeout: 10_000,
+            });
+        }
+    });
+
     it('keeps disabled selected toolbar controls visually selected on hover', async () => {
         let session = sessionFixture.getSession();
         if (!session) {
