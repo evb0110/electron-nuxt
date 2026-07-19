@@ -1,0 +1,76 @@
+import {randomUUID} from 'crypto';
+import {
+    mkdir,
+    readdir,
+    rm,
+    stat,
+} from 'fs/promises';
+import {
+    basename,
+    extname,
+    join,
+    resolve,
+} from 'path';
+import {getAppTempDir} from '@electron/utils/appTempDir';
+
+export const SCAN_CLEANUP_OUTPUT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+export function getScanCleanupOutputRoot(appTempDir = getAppTempDir()) {
+    return join(appTempDir, 'scan-cleanup', 'output');
+}
+
+function humanOutputName(sourcePdfPath: string) {
+    const sourceName = basename(sourcePdfPath, extname(sourcePdfPath)).trim() || 'document';
+    return `${sourceName} — cleaned.pdf`;
+}
+
+export async function createScanCleanupGeneratedOutputPath(
+    sourcePdfPath: string,
+    appTempDir = getAppTempDir(),
+) {
+    const outputDirectory = join(getScanCleanupOutputRoot(appTempDir), randomUUID());
+    await mkdir(outputDirectory, {
+        recursive: true,
+        mode: 0o700,
+    });
+    return join(outputDirectory, humanOutputName(sourcePdfPath));
+}
+
+export async function pruneScanCleanupGeneratedOutputs(options: {
+    appTempDir?: string;
+    openPdfPaths: readonly string[];
+    nowMs?: number;
+}) {
+    const outputRoot = getScanCleanupOutputRoot(options.appTempDir);
+    const resolvedRoot = resolve(outputRoot);
+    const openPaths = new Set(options.openPdfPaths.map(path => resolve(path)));
+    const nowMs = options.nowMs ?? Date.now();
+    let entries;
+    try {
+        entries = await readdir(outputRoot, {withFileTypes: true});
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+            return 0;
+        }
+        throw error;
+    }
+
+    let removed = 0;
+    for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const directoryPath = join(outputRoot, entry.name);
+        const resolvedDirectory = resolve(directoryPath);
+        if (!resolvedDirectory.startsWith(`${resolvedRoot}${process.platform === 'win32' ? '\\' : '/'}`)) continue;
+        const files = await readdir(directoryPath, {withFileTypes: true}).catch(() => []);
+        const containsOpenPdf = files.some(file => file.isFile() && openPaths.has(resolve(directoryPath, file.name)));
+        if (containsOpenPdf) continue;
+        const metadata = await stat(directoryPath).catch(() => null);
+        if (!metadata || nowMs - metadata.mtimeMs < SCAN_CLEANUP_OUTPUT_MAX_AGE_MS) continue;
+        await rm(directoryPath, {
+            recursive: true,
+            force: true,
+        });
+        removed += 1;
+    }
+    return removed;
+}

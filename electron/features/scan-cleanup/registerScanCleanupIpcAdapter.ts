@@ -26,4 +26,5 @@ export function registerScanCleanupIpcAdapter(
     registrar.handle(SCAN_CLEANUP_CHANNELS.getJobState, (_event, jobId) => service.getState(jobId));
     registrar.handle(SCAN_CLEANUP_CHANNELS.subscribeJob, (event, jobId) => service.subscribe(event.sender, jobId));
     registrar.handle(SCAN_CLEANUP_CHANNELS.reconnectJob, (event, jobId) => service.subscribe(event.sender, jobId));
+    registrar.handle(SCAN_CLEANUP_CHANNELS.pruneGeneratedOutputs, (_event, openPdfPaths) => service.pruneGeneratedOutputs(openPdfPaths));
 }

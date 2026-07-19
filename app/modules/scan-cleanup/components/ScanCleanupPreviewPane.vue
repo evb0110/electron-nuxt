@@ -1,5 +1,11 @@
 <template>
-    <section class="preview-pane" :aria-label="t('scanCleanup.preview.title')">
+    <section
+        class="preview-pane"
+        :aria-label="t('scanCleanup.preview.title')"
+        tabindex="0"
+        @keydown.left.prevent="navigateFromKeyboard('previous')"
+        @keydown.right.prevent="navigateFromKeyboard('next')"
+    >
         <header class="preview-header">
             <div class="page-navigation">
                 <UButton
@@ -26,24 +32,56 @@
                     @click="$emit('next')"
                 />
             </div>
-            <UButton
-                type="button"
-                color="neutral"
-                :variant="showBefore ? 'soft' : 'ghost'"
-                size="sm"
-                :icon="showBefore ? 'i-ph-eye-slash' : 'i-ph-eye'"
-                :label="showBefore ? t('scanCleanup.preview.showCleaned') : t('scanCleanup.preview.showOriginal')"
-                :aria-pressed="showBefore"
-                @click="$emit('update:showBefore', !showBefore)"
-            />
+            <div class="preview-controls">
+                <div class="preview-segmented" role="radiogroup" :aria-label="t('scanCleanup.preview.comparison')">
+                    <UButton
+                        v-for="mode in viewModes"
+                        :key="mode.value"
+                        type="button"
+                        color="neutral"
+                        size="sm"
+                        :variant="effectiveViewMode === mode.value ? 'soft' : 'ghost'"
+                        :aria-checked="effectiveViewMode === mode.value"
+                        role="radio"
+                        :label="mode.label"
+                        @click="$emit('update:viewMode', mode.value)"
+                    />
+                </div>
+                <div class="preview-segmented" role="radiogroup" :aria-label="t('scanCleanup.preview.zoom')">
+                    <UButton
+                        type="button"
+                        color="neutral"
+                        size="sm"
+                        :variant="effectiveZoomMode === 'fit' ? 'soft' : 'ghost'"
+                        :aria-checked="effectiveZoomMode === 'fit'"
+                        role="radio"
+                        :label="t('scanCleanup.preview.fit')"
+                        @click="$emit('update:zoomMode', 'fit')"
+                    />
+                    <UButton
+                        type="button"
+                        color="neutral"
+                        size="sm"
+                        :variant="effectiveZoomMode === 'actual' ? 'soft' : 'ghost'"
+                        :aria-checked="effectiveZoomMode === 'actual'"
+                        role="radio"
+                        label="100%"
+                        @click="$emit('update:zoomMode', 'actual')"
+                    />
+                </div>
+            </div>
         </header>
 
-        <div class="preview-surface" aria-live="polite">
+        <div class="preview-surface" :class="{'is-actual': effectiveZoomMode === 'actual'}" aria-live="polite">
             <template v-if="result">
-                <div v-if="showBefore" class="raw-preview">
-                    <img :src="rawUrl" :alt="t('scanCleanup.preview.originalAlt', {page: pageNumber})">
+                <div v-if="effectiveViewMode === 'original'" class="raw-preview" :class="{'is-actual': effectiveZoomMode === 'actual'}">
+                    <img
+                        :src="rawUrl"
+                        :alt="t('scanCleanup.preview.originalAlt', {page: pageNumber})"
+                        :style="effectiveZoomMode === 'actual' ? {width: `${result.rawWidth}px`, maxWidth: 'none', maxHeight: 'none'} : undefined"
+                    >
                 </div>
-                <div v-else class="cleaned-outputs" :class="{'is-spread': result.outputs.length > 1}">
+                <div v-else class="cleaned-outputs" :class="{'is-spread': result.outputs.length > 1, 'is-actual': effectiveZoomMode === 'actual'}">
                     <div
                         v-for="(output, index) in renderedOutputs"
                         :key="`${result.pageNumber}-${output.metadata.half}`"
@@ -56,8 +94,11 @@
                         </span>
                         <div
                             class="uniform-canvas"
-                            :class="{'has-uniform-canvas': matchPageSize}"
-                            :style="{aspectRatio: `${output.placement.canvasWidth} / ${output.placement.canvasHeight}`}"
+                            :class="{'has-uniform-canvas': matchPageSize, 'is-actual': effectiveZoomMode === 'actual'}"
+                            :style="{
+                                aspectRatio: `${output.placement.canvasWidth} / ${output.placement.canvasHeight}`,
+                                ...(effectiveZoomMode === 'actual' ? {width: `${output.placement.canvasWidth}px`} : {}),
+                            }"
                         >
                             <img
                                 class="cleaned-image"
@@ -76,8 +117,8 @@
                     </div>
                 </div>
                 <div v-if="loading || error" class="refresh-indicator" :class="{'is-error': error}">
-                    <UIcon :name="error ? 'i-ph-warning-circle' : 'i-ph-clock'" class="size-4" />
-                    {{ error || t('scanCleanup.preview.refreshing') }}
+                    <UIcon :name="error ? 'i-ph-warning-circle' : 'i-ph-circle-notch'" class="size-4" :class="{'is-spinning': !error}" />
+                    <span class="sr-only">{{ error || t('scanCleanup.preview.refreshing') }}</span>
                 </div>
             </template>
             <div v-else-if="loading" class="preview-loading" role="status">
@@ -95,7 +136,7 @@
             </div>
         </div>
 
-        <div v-if="!showBefore" class="overlay-legend" :aria-label="t('scanCleanup.preview.legend')">
+        <div v-if="effectiveViewMode === 'cleaned'" class="overlay-legend" :aria-label="t('scanCleanup.preview.legend')">
             <span><i class="legend-swatch is-content" />{{ t('scanCleanup.preview.contentBox') }}</span>
             <span><i class="legend-swatch is-margin" />{{ t('scanCleanup.preview.marginBox') }}</span>
             <span v-if="matchPageSize"><i class="legend-swatch is-canvas" />{{ t('scanCleanup.preview.canvas') }}</span>
@@ -119,22 +160,43 @@ const props = defineProps<{
     result: IScanCleanupPreviewResult | null;
     loading: boolean;
     error: string;
-    showBefore: boolean;
+    viewMode?: 'original' | 'cleaned';
+    zoomMode?: 'fit' | 'actual';
+    /** @deprecated Compatibility for the superseded popup. */
+    showBefore?: boolean;
     matchPageSize: boolean;
     alignment: TScanCleanupPageAlignment;
     pageNumber: number;
     totalPages: number;
 }>();
 
-defineEmits<{
+const emit = defineEmits<{
     previous: [];
     next: [];
-    'update:showBefore': [value: boolean];
+    'update:viewMode': [value: 'original' | 'cleaned'];
+    'update:zoomMode': [value: 'fit' | 'actual'];
 }>();
 
 const {t} = useTypedI18n();
 const rawUrl = ref('');
 const cleanedUrls = ref<string[]>([]);
+const effectiveViewMode = computed(() => props.viewMode ?? (props.showBefore ? 'original' : 'cleaned'));
+const effectiveZoomMode = computed(() => props.zoomMode ?? 'fit');
+const viewModes = computed(() => [
+    {
+        value: 'original' as const,
+        label: t('scanCleanup.preview.original'),
+    },
+    {
+        value: 'cleaned' as const,
+        label: t('scanCleanup.preview.cleaned'),
+    },
+]);
+
+function navigateFromKeyboard(direction: 'previous' | 'next') {
+    if (direction === 'previous' && props.pageNumber > 1) emit('previous');
+    if (direction === 'next' && props.pageNumber < props.totalPages) emit('next');
+}
 
 function revokeUrls() {
     if (rawUrl.value) URL.revokeObjectURL(rawUrl.value);
@@ -195,13 +257,23 @@ const renderedOutputs = computed(() => {
 <style scoped>
 .preview-pane {
     display: flex;
+    height: 100%;
     min-width: 0;
+    min-height: 0;
     flex-direction: column;
     gap: var(--app-space-3xl);
 }
 
+.preview-pane:focus-visible {
+    border-radius: var(--app-radius-lg);
+    outline: 2px solid var(--ui-primary);
+    outline-offset: var(--app-space-xs);
+}
+
 .preview-header,
 .page-navigation,
+.preview-controls,
+.preview-segmented,
 .overlay-legend,
 .refresh-indicator {
     display: flex;
@@ -218,6 +290,17 @@ const renderedOutputs = computed(() => {
     gap: var(--app-space-3xl);
 }
 
+.preview-controls {
+    gap: var(--app-space-9xl);
+}
+
+.preview-segmented {
+    border: 1px solid var(--ui-border);
+    border-radius: var(--app-radius-md);
+    padding: var(--app-space-xs);
+    background: var(--ui-bg);
+}
+
 .page-navigation {
     gap: var(--app-space-sm);
 }
@@ -232,7 +315,8 @@ const renderedOutputs = computed(() => {
 .preview-surface {
     position: relative;
     display: grid;
-    min-height: var(--app-scan-preview-surface-height);
+    min-height: 0;
+    flex: 1;
     place-items: center;
     overflow: hidden;
     padding: var(--app-space-9xl);
@@ -241,20 +325,33 @@ const renderedOutputs = computed(() => {
     background: var(--ui-bg-muted);
 }
 
+.preview-surface.is-actual {
+    place-items: start;
+    overflow: auto;
+}
+
 .raw-preview,
 .cleaned-outputs {
     display: flex;
     width: 100%;
     height: 100%;
-    min-height: var(--app-scan-preview-content-height);
+    min-height: 0;
     align-items: center;
     justify-content: center;
+}
+
+.raw-preview.is-actual,
+.cleaned-outputs.is-actual {
+    width: max-content;
+    height: max-content;
+    align-items: flex-start;
+    justify-content: flex-start;
 }
 
 .raw-preview img {
     display: block;
     max-width: 100%;
-    max-height: var(--app-scan-preview-content-height);
+    max-height: 100%;
     object-fit: contain;
     box-shadow: var(--app-document-page-shadow);
 }
@@ -282,10 +379,16 @@ const renderedOutputs = computed(() => {
     position: relative;
     width: min(100%, var(--app-scan-preview-page-width));
     max-width: 100%;
-    max-height: var(--app-scan-preview-content-height);
+    max-height: 100%;
     border: 1px dashed transparent;
     background: var(--ui-bg);
     box-shadow: var(--app-document-page-shadow);
+}
+
+.uniform-canvas.is-actual {
+    max-width: none;
+    max-height: none;
+    flex: none;
 }
 
 .uniform-canvas.has-uniform-canvas {
@@ -345,7 +448,7 @@ const renderedOutputs = computed(() => {
 .refresh-indicator {
     position: absolute;
     right: var(--app-space-3xl);
-    bottom: var(--app-space-3xl);
+    top: var(--app-space-3xl);
     gap: var(--app-space-sm);
     padding: var(--app-space-sm) var(--app-space-3xl);
     border: 1px solid var(--ui-border);
@@ -353,6 +456,16 @@ const renderedOutputs = computed(() => {
     background: var(--ui-bg);
     color: var(--ui-text-muted);
     font-size: var(--app-text-size-kicker);
+}
+
+.is-spinning {
+    animation: scan-preview-spin 1s linear infinite;
+}
+
+@keyframes scan-preview-spin {
+    to {
+        transform: rotate(1turn);
+    }
 }
 
 .overlay-legend {
@@ -390,13 +503,8 @@ const renderedOutputs = computed(() => {
 }
 
 @media (width <= 48rem) {
-    .preview-surface {
-        min-height: var(--app-scan-preview-compact-surface-height);
-    }
-
-    .raw-preview,
-    .cleaned-outputs {
-        min-height: var(--app-scan-preview-compact-content-height);
+    .preview-controls {
+        gap: var(--app-space-sm);
     }
 }
 </style>

@@ -112,14 +112,22 @@ describe('scan cleanup preview geometry', () => {
 
     it('keeps comparison, spread rendering, cancellation, debounce, and cleaned-cache wiring in the dialog', () => {
         const pane = readFileSync('app/modules/scan-cleanup/components/ScanCleanupPreviewPane.vue', 'utf8');
-        const popup = readFileSync('app/modules/scan-cleanup/components/ScanCleanupPopup.vue', 'utf8');
+        const dialog = readFileSync('app/modules/scan-cleanup/components/ScanCleanupDialog.vue', 'utf8');
+        const tokens = readFileSync('app/assets/css/main.css', 'utf8');
 
-        expect(pane).toContain('v-if="showBefore"');
+        expect(pane).toContain('effectiveViewMode === \'original\'');
+        expect(pane).toContain('@keydown.left.prevent');
+        expect(pane).toContain('effectiveZoomMode === \'actual\'');
         expect(pane).toContain('v-for="(output, index) in renderedOutputs"');
         expect(pane).toContain('transformPreviewContentBox(metadata)');
-        expect(popup).toContain('const previewCache = new Map');
-        expect(popup).toContain('cancelPreview(sourcePath)');
-        expect(popup).toContain('}, 250);');
-        expect(popup).toContain('sequence !== previewSequence');
+        expect(dialog).toContain('const previewCache = new Map');
+        expect(dialog).toContain('cancelPreview(sourcePath)');
+        expect(dialog).toContain('}, 250);');
+        expect(dialog).toContain('sequence !== previewSequence');
+        expect(dialog.match(/scan-cleanup-dialog-shell/gu)).toHaveLength(1);
+        expect(dialog).not.toContain('state === \'complete\'');
+        expect(dialog).not.toContain('savePdfDialog');
+        expect(tokens).toContain('--app-scan-dialog-width: 90vw');
+        expect(tokens).toContain('--app-scan-dialog-height: 85vh');
     });
 });

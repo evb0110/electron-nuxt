@@ -238,6 +238,7 @@ export const browserPlatformPathDescriptorsGenerated = {
         getJobState: {kind: 'async', path: ["scanCleanup","getJobState"]},
         subscribeJob: {kind: 'async', path: ["scanCleanup","subscribeJob"]},
         reconnectJob: {kind: 'async', path: ["scanCleanup","reconnectJob"]},
+        pruneGeneratedOutputs: {kind: 'async', path: ["scanCleanup","pruneGeneratedOutputs"]},
         onJobState: {kind: 'event', path: ["scanCleanup","onJobState"]},
     },
     search: {

@@ -1,8 +1,8 @@
 import { randomUUID } from 'crypto';
+import {rm} from 'fs/promises';
 import {
     dirname,
     isAbsolute,
-    resolve,
 } from 'path';
 import { fileURLToPath } from 'url';
 import type { WebContents } from 'electron';
@@ -21,6 +21,10 @@ import { getAppTempDir } from '@electron/utils/appTempDir';
 import { getErrorMessage } from '@electron/utils/error';
 import { SCAN_CLEANUP_EVENT_CHANNELS } from '@electron/features/scan-cleanup/contract';
 import { runScanCleanupWorkerTask } from '@electron/features/scan-cleanup/runScanCleanupWorkerTask';
+import {
+    createScanCleanupGeneratedOutputPath,
+    pruneScanCleanupGeneratedOutputs,
+} from '@electron/features/scan-cleanup/scanCleanupGeneratedOutputs';
 
 interface IScanCleanupJob {
     abortController: AbortController;
@@ -67,24 +71,26 @@ export interface IScanCleanupService {
     cancel: (jobId: string) => boolean;
     getState: (jobId: string) => TScanCleanupJobState | null;
     subscribe: (sender: WebContents, jobId: string) => TScanCleanupJobState | null;
+    pruneGeneratedOutputs: (openPdfPaths: string[]) => Promise<number>;
 }
 
 export function createScanCleanupService(): IScanCleanupService {
     return {
-        start(sender, request) {
+        async start(sender, request) {
             const jobId = `scan-cleanup-${randomUUID()}`;
-            if (
-                !isAbsolute(request.sourcePdfPath)
-                || !isAbsolute(request.outputPdfPath)
-                || resolve(request.sourcePdfPath) === resolve(request.outputPdfPath)
-            ) {
-                return Promise.resolve({
+            if (!isAbsolute(request.sourcePdfPath)) {
+                return {
                     started: false,
                     jobId,
-                    error: 'Source and output must be distinct absolute paths',
+                    error: 'Source must be an absolute path',
                     errorCode: 'invalid-request',
-                });
+                };
             }
+            const outputPdfPath = await createScanCleanupGeneratedOutputPath(request.sourcePdfPath);
+            const workerRequest = {
+                ...request,
+                outputPdfPath,
+            };
             const abortController = new AbortController();
             const progress = {
                 phase: 'queued' as const,
@@ -130,7 +136,7 @@ export function createScanCleanupService(): IScanCleanupService {
                     const pdfImageCombineBinary = resolveNativePdfImageCombinePath();
                     if (!scanCleanupBinary || !pdfImageCombineBinary) throw new Error('Scan cleanup native tools are unavailable');
                     const summary = await runScanCleanupWorkerTask(
-                        request,
+                        workerRequest,
                         {
                             qpdfBinary: pdfPaths.qpdf,
                             pdftoppmBinary: pdfPaths.pdftoppm,
@@ -158,7 +164,7 @@ export function createScanCleanupService(): IScanCleanupService {
                     const completed: TScanCleanupJobState = {
                         jobId,
                         status: 'completed',
-                        outputPdfPath: request.outputPdfPath,
+                        outputPdfPath,
                         summary,
                         progress: {
                             phase: 'handoff',
@@ -169,11 +175,15 @@ export function createScanCleanupService(): IScanCleanupService {
                         updatedAtMs: Date.now(),
                     };
                     publish(job, completed);
-                    documentOutputService.handoff(jobId, request.outputPdfPath);
+                    documentOutputService.handoff(jobId, outputPdfPath);
                     documentOutputService.finish(jobId, 'completed');
                 } catch (error) {
                     const aborted = abortController.signal.aborted;
                     const errorCode = classifyScanCleanupError(error, aborted);
+                    await rm(dirname(outputPdfPath), {
+                        recursive: true,
+                        force: true,
+                    }).catch(() => undefined);
                     if (aborted) {
                         publish(job, {
                             ...job.state,
@@ -196,10 +206,11 @@ export function createScanCleanupService(): IScanCleanupService {
                     lease?.release();
                 }
             })();
-            return Promise.resolve({
+            return {
                 started: true,
                 jobId,
-            });
+                outputPdfPath,
+            };
         },
         cancel(jobId) {
             const job = jobs.get(jobId);
@@ -224,6 +235,9 @@ export function createScanCleanupService(): IScanCleanupService {
             }
             job.subscribers.add(sender);
             return job.state;
+        },
+        pruneGeneratedOutputs(openPdfPaths) {
+            return pruneScanCleanupGeneratedOutputs({openPdfPaths});
         },
     };
 }

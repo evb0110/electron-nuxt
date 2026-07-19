@@ -1,1 +1,1 @@
-export {default as ScanCleanupPopup} from '@app/modules/scan-cleanup/components/ScanCleanupPopup.vue';
+export {default as ScanCleanupPopup} from '@app/modules/scan-cleanup/components/ScanCleanupDialog.vue';

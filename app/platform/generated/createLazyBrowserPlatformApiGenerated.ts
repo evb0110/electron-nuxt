@@ -246,6 +246,7 @@ export function createLazyBrowserPlatformApiGenerated({
     const scanCleanupGetJobStateMethod = lazyAsync(pathDescriptors.scanCleanup.getJobState.path);
     const scanCleanupSubscribeJobMethod = lazyAsync(pathDescriptors.scanCleanup.subscribeJob.path);
     const scanCleanupReconnectJobMethod = lazyAsync(pathDescriptors.scanCleanup.reconnectJob.path);
+    const scanCleanupPruneGeneratedOutputsMethod = lazyAsync(pathDescriptors.scanCleanup.pruneGeneratedOutputs.path);
     const scanCleanupOnJobStateMethod = lazyEvent(pathDescriptors.scanCleanup.onJobState.path);
     const searchRunMethod = lazyAsync(pathDescriptors.search.run.path);
     const searchWarmIndexMethod = lazyAsync(pathDescriptors.search.warmIndex.path);
@@ -573,6 +574,7 @@ export function createLazyBrowserPlatformApiGenerated({
         getJobState: scanCleanupGetJobStateMethod,
         subscribeJob: scanCleanupSubscribeJobMethod,
         reconnectJob: scanCleanupReconnectJobMethod,
+        pruneGeneratedOutputs: scanCleanupPruneGeneratedOutputsMethod,
         onJobState: scanCleanupOnJobStateMethod,
     },
     search: {

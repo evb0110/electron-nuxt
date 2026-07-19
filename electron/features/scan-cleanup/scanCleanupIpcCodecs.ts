@@ -38,6 +38,17 @@ function decodeJobId(args: readonly unknown[]) {
     return [value] as [string];
 }
 
+function decodeOpenPdfPaths(args: readonly unknown[]) {
+    requireIpcArgumentCount(args, {
+        min: 1,
+        max: 1,
+    });
+    if (!Array.isArray(args[0]) || args[0].some(path => typeof path !== 'string')) {
+        throw new Error('invalid scan-cleanup open PDF paths');
+    }
+    return [args[0]] as [string[]];
+}
+
 function decodeOptions(options: unknown): IScanCleanupStartRequest['options'] {
     if (!isRecord(options)) throw new Error('invalid scan-cleanup options');
     if (
@@ -86,12 +97,11 @@ function decodeOptions(options: unknown): IScanCleanupStartRequest['options'] {
 }
 
 function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
-    if (!isRecord(value) || typeof value.sourcePdfPath !== 'string' || typeof value.outputPdfPath !== 'string') {
+    if (!isRecord(value) || typeof value.sourcePdfPath !== 'string') {
         throw new Error('invalid scan-cleanup request');
     }
     return {
         sourcePdfPath: value.sourcePdfPath,
-        outputPdfPath: value.outputPdfPath,
         options: decodeOptions(value.options),
     };
 }
@@ -247,6 +257,7 @@ function decodeStartResult(value: unknown) {
     return {
         started: value.started,
         jobId: value.jobId,
+        ...(typeof value.outputPdfPath === 'string' ? {outputPdfPath: value.outputPdfPath} : {}),
         ...(typeof value.error === 'string' ? {error: value.error} : {}),
         ...(typeof value.errorCode === 'string' ? {errorCode: value.errorCode as NonNullable<IScanCleanupInvokeMap[typeof SCAN_CLEANUP_CHANNELS.start]['result']['errorCode']>} : {}),
     };
@@ -396,5 +407,12 @@ export const SCAN_CLEANUP_IPC_CODECS = {
     [SCAN_CLEANUP_CHANNELS.reconnectJob]: {
         decodeArgs: decodeJobId,
         decodeResult: decodeScanCleanupJobState,
+    },
+    [SCAN_CLEANUP_CHANNELS.pruneGeneratedOutputs]: {
+        decodeArgs: decodeOpenPdfPaths,
+        decodeResult: (value: unknown) => {
+            if (!Number.isSafeInteger(value) || Number(value) < 0) throw new Error('invalid scan-cleanup prune result');
+            return Number(value);
+        },
     },
 } satisfies TIpcCodecMap<IScanCleanupInvokeMap>;
