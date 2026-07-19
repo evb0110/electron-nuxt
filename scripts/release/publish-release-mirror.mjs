@@ -38,6 +38,9 @@ const bucket = requireEnvironment('MIRROR_S3_BUCKET');
 const client = new S3Client({
     endpoint,
     region: process.env.MIRROR_S3_REGION || 'ru-central1',
+    // Yandex implements the S3 API but not every optional AWS checksum mode.
+    requestChecksumCalculation: 'WHEN_REQUIRED',
+    responseChecksumValidation: 'WHEN_REQUIRED',
     credentials: {
         accessKeyId: requireEnvironment('MIRROR_S3_ACCESS_KEY_ID'),
         secretAccessKey: requireEnvironment('MIRROR_S3_SECRET_KEY'),
