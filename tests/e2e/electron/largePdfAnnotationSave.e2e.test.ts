@@ -478,6 +478,7 @@ async function placePageNote(page: Page, text: string) {
                         x: visibleX,
                         y: visibleY,
                         branch: 'comment-at-point-placement',
+                        textApplied: false,
                     };
                 }
             }

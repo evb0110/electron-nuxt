@@ -265,7 +265,11 @@ describe('package scripts', () => {
             'typecheck:packages',
             'typecheck:server',
         ]);
+        expect(scripts['typecheck:electron']).toBe('node scripts/run-ts7-typecheck.mjs -p electron/tsconfig.json');
+        expect(scripts['typecheck:tests']).toBe('node scripts/run-ts7-typecheck.mjs -p tests/tsconfig.json');
+        expect(scripts['typecheck:scripts']).toBe('node scripts/run-ts7-typecheck.mjs -p tsconfig.scripts.json');
         expect(scripts['typecheck:packages']).toBe('node scripts/run-workspace-package-typecheck.mjs');
+        expect(scripts['typecheck:server']).toBe('node scripts/run-ts7-typecheck.mjs -p server/tsconfig.json');
         expect(scripts['test:coverage']).toBe('pnpm run test:coverage:run && pnpm run check:coverage:ratchet && pnpm run check:coverage:zero-execution');
         expect(scripts['release:verify']).toBe('node scripts/release/verify-local.mjs');
         expectSelectsSplitUnitProjects(packageJson, 'test');

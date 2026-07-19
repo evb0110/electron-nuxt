@@ -29,12 +29,11 @@ export function getWorkspacePackageTypecheckPlan({projectRoot = process.cwd()} =
         if (existsSync(path.join(projectRoot, tsconfigPath))) {
             commands.push({
                 args: [
-                    'exec',
-                    'tsc',
+                    'scripts/run-ts7-typecheck.mjs',
                     '-p',
                     tsconfigPath,
                 ],
-                command: 'pnpm',
+                command: 'node',
             });
             continue;
         }

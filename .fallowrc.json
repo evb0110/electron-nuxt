@@ -81,6 +81,7 @@
         "sass-embedded",
         "source-map-js",
         "type-coverage",
+        "typescript7",
         "ufo",
         "uncrypto",
         "unhead",

@@ -59,7 +59,10 @@ async function writeProjectFile(projectRoot: string, filePath: string, text = ''
 describe('workspace package typecheck helper', () => {
     it('typechecks repo workspace packages and skips the checked-in JS-only exemption', () => {
         const plan = getWorkspacePackageTypecheckPlan();
-        const tsconfigTargets = plan.commands.map(command => command.args[3]);
+        const tsconfigTargets = plan.commands.map((command) => {
+            const projectArgumentIndex = command.args.indexOf('-p');
+            return command.args[projectArgumentIndex + 1];
+        });
 
         expect(tsconfigTargets).toEqual(expect.arrayContaining([
             'packages/contracts/tsconfig.json',
@@ -130,12 +133,11 @@ describe('workspace package typecheck helper', () => {
 
             expect(calls).toEqual([{
                 args: [
-                    'exec',
-                    'tsc',
+                    'scripts/run-ts7-typecheck.mjs',
                     '-p',
                     'packages/contracts/tsconfig.json',
                 ],
-                command: 'pnpm',
+                command: 'node',
                 cwd: projectRoot,
                 stdio: 'inherit',
             }]);

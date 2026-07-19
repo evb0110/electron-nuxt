@@ -478,7 +478,7 @@ export async function createLargeScannedFixturePdf(
     ensureFixtureDir();
     const filePath = join(getFixtureDir(), filename);
     const cacheKey = createHash('sha256')
-        .update(`large-scanned-v2:${pageCount}:${attachmentSizeBytes}`)
+        .update(`large-scanned-v3:${pageCount}:${attachmentSizeBytes}`)
         .digest('hex');
     const cachePath = join(FIXTURE_CACHE_DIR, `${cacheKey}.pdf`);
     if (existsSync(cachePath)) {
@@ -528,8 +528,12 @@ export async function createLargeScannedFixturePdf(
     }
 
     const attachment = new Uint8Array(attachmentSizeBytes);
+    let attachmentState = 0x6d2b79f5;
     for (let index = 0; index < attachment.length; index += 1) {
-        attachment[index] = (index * 31 + 17) & 0xff;
+        attachmentState ^= attachmentState << 13;
+        attachmentState ^= attachmentState >>> 17;
+        attachmentState ^= attachmentState << 5;
+        attachment[index] = attachmentState >>> 24;
     }
     await doc.attach(attachment, 'scanned-source-payload.bin', {
         mimeType: 'application/octet-stream',
