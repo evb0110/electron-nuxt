@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { randomFillSync } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import {
     copyFileSync,
     existsSync,
@@ -33,6 +33,7 @@ import { prependDirectoryToPath } from '@electron/native-tools/toolRegistry';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
 
 const FIXTURE_ROOT_DIR = resolve(process.cwd(), '.devkit', 'tmp', 'e2e-fixtures');
+const FIXTURE_CACHE_DIR = resolve(process.cwd(), '.devkit', 'tmp', 'e2e-fixture-cache');
 const TRACKED_PROJECT_FIXTURE_DIR = resolve(process.cwd(), 'tests', 'fixtures', 'electron');
 const LEGACY_PROJECT_FIXTURE_DIR = resolve(process.cwd(), '.devkit', 'test-pdfs');
 const PROJECT_ROOT_FIXTURE_DIR = resolve(process.cwd(), '.devkit');
@@ -476,6 +477,14 @@ export async function createLargeScannedFixturePdf(
 ) {
     ensureFixtureDir();
     const filePath = join(getFixtureDir(), filename);
+    const cacheKey = createHash('sha256')
+        .update(`large-scanned-v2:${pageCount}:${attachmentSizeBytes}`)
+        .digest('hex');
+    const cachePath = join(FIXTURE_CACHE_DIR, `${cacheKey}.pdf`);
+    if (existsSync(cachePath)) {
+        copyFileSync(cachePath, filePath);
+        return filePath;
+    }
 
     const canvas = createCanvas(1224, 1584);
     const context = canvas.getContext('2d');
@@ -519,7 +528,9 @@ export async function createLargeScannedFixturePdf(
     }
 
     const attachment = new Uint8Array(attachmentSizeBytes);
-    randomFillSync(attachment);
+    for (let index = 0; index < attachment.length; index += 1) {
+        attachment[index] = (index * 31 + 17) & 0xff;
+    }
     await doc.attach(attachment, 'scanned-source-payload.bin', {
         mimeType: 'application/octet-stream',
         description: 'Native-speed payload for large scanned-PDF Electron rendering coverage',
@@ -527,7 +538,10 @@ export async function createLargeScannedFixturePdf(
         modificationDate: new Date('2026-01-01T00:00:00.000Z'),
     });
 
-    writeFileSync(filePath, await doc.save());
+    const bytes = await doc.save();
+    mkdirSync(FIXTURE_CACHE_DIR, {recursive: true});
+    writeFileSync(cachePath, bytes);
+    copyFileSync(cachePath, filePath);
     return filePath;
 }
 

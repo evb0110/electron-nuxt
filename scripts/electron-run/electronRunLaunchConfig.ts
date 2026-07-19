@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import {
+    existsSync,
     mkdirSync,
     readFileSync,
     rmSync,
@@ -284,6 +285,9 @@ export function prepareMacOSHiddenAppBundle(options: {
     destinationRoot: string;
 }) {
     const bundlePaths = buildMacOSHiddenAppBundlePaths(options);
+    if (existsSync(bundlePaths.executablePath) && existsSync(bundlePaths.infoPlistPath)) {
+        return bundlePaths;
+    }
     rmSync(bundlePaths.appPath, {
         recursive: true,
         force: true,

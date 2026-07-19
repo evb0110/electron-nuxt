@@ -21,6 +21,7 @@ interface IElectronE2ESessionFixtureControls {
     getSession: () => IElectronE2ESession | null;
     start: (options?: Pick<IElectronE2ESessionRestartOptions, 'sessionName' | 'clean' | 'windowMode'>) => Promise<IElectronE2ESession | null>;
     restart: (options?: IElectronE2ESessionRestartOptions) => Promise<IElectronE2ESession | null>;
+    resetForE2E: () => Promise<IElectronE2ESession | null>;
     stop: (options?: { preserveArtifacts?: boolean }) => Promise<void>;
 }
 
@@ -92,6 +93,10 @@ export function createElectronE2ESessionFixture(options: IElectronE2ESessionFixt
 
             try {
                 const clean = restartOptions.clean ?? true;
+                if (clean) {
+                    await previousSession.resetForE2E();
+                    return previousSession;
+                }
                 const keepNuxt = restartOptions.keepNuxt ?? false;
                 await previousSession.browser.disconnect();
                 if (clean) {
@@ -117,6 +122,14 @@ export function createElectronE2ESessionFixture(options: IElectronE2ESessionFixt
                 bootFailure = createInfraError('Electron E2E session restart failed.', error);
                 throw bootFailure;
             }
+        },
+        resetForE2E: async () => {
+            const currentSession = controls.getSession();
+            if (!currentSession) {
+                return null;
+            }
+            await currentSession.resetForE2E();
+            return currentSession;
         },
         stop: async (stopOptions = {}) => {
             await session?.stop(stopOptions);
@@ -151,14 +164,11 @@ export function createElectronE2ESessionFixture(options: IElectronE2ESessionFixt
     });
 
     beforeEach(async () => {
-        if (!options.restartBeforeEach) {
+        if (options.restartBeforeEach === false) {
             return;
         }
         if (testExecutionCount > 0) {
-            await controls.restart({
-                clean: true,
-                sessionName: options.sessionName,
-            });
+            await controls.resetForE2E();
         }
         testExecutionCount += 1;
     }, options.timeoutMs);

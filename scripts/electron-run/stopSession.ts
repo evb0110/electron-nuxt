@@ -19,7 +19,6 @@ import {
 } from '@scripts/electron-run/electronRunProcessIdentity';
 import {
     cleanupSessionStartingAttempt,
-    cleanupStaleSessionArtifacts,
     clearSessionStarting,
     getSessionInfo,
     getSessionStartingInfo,
@@ -207,7 +206,6 @@ function retainSessionStopArtifacts(name: string, info: ISessionInfo) {
 }
 
 export async function stopSingleSession(name: string, options: {keepNuxt?: boolean} = {}) {
-    await cleanupStaleSessionArtifacts(name);
     const info = getSessionInfo(name);
     const starting = getSessionStartingInfo(name);
     if (!info && !starting) {
@@ -262,7 +260,6 @@ export async function stopSingleSession(name: string, options: {keepNuxt?: boole
     await cleanupSessionStartingAttempt(name, {killNuxt: options.keepNuxt !== true});
     clearSessionStarting(name);
     clearAutomationWorkspaceCrashCheckpoint(name);
-    await delay(options.keepNuxt ? 1000 : 250);
     console.log(`Session '${name}' stopped.`);
 }
 

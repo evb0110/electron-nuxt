@@ -264,7 +264,13 @@ function buildElectronLaunchPlan(cdpPort: number, mainJs: string, initialOpenPat
     const hiddenAutomationBundlePaths = launchViaHiddenMacApp
         ? prepareMacOSHiddenAppBundle({
             sourceAppPath: electronAppPath,
-            destinationRoot: join(sessionDir(), 'automation-electron-app'),
+            destinationRoot: join(
+                projectRoot,
+                '.devkit',
+                'tmp',
+                'electron-e2e-hidden-app',
+                process.env[E2E_RUN_ID_ENV] ?? getCurrentSessionName(),
+            ),
         })
         : null;
     const launchCommand = launchViaHiddenMacApp

@@ -34,6 +34,7 @@ import {
     createE2ERunScopedSessionName,
 } from '@scripts/electron-run/electronRunRunId';
 import type { TElectronRunCommand } from '@scripts/electron-run/electronRunProtocol';
+import {DEFAULT_SETTINGS} from '@contracts/settings';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import {
     startSessionDetached,
@@ -58,6 +59,7 @@ export interface IElectronE2ESession {
     page: Page;
     command: <T = unknown>(command: TElectronRunCommand, args?: unknown[], timeoutMs?: number) => Promise<T>;
     captureFailureArtifacts: (label: string) => Promise<IElectronE2EFailureArtifacts>;
+    resetForE2E: () => Promise<void>;
     stop: (options?: IElectronE2ESessionStopOptions) => Promise<void>;
 }
 
@@ -396,12 +398,41 @@ export async function startElectronE2ESession(sessionName: string, options?: {
         }
     };
 
+    const resetForE2E = async () => {
+        cleanupSessionFixtures(scopedSessionName);
+        rmSync(join(sessionDir(scopedSessionName), 'electron-user-data', 'workspace-checkpoint.json'), {force: true});
+        await page.evaluate(async (defaultSettings) => {
+            const target = window as IE2EWindow;
+            await target.electronAPI?.documentRecentFiles?.recentFiles.clear();
+            await target.electronAPI?.settings.save(defaultSettings);
+
+            localStorage.clear();
+            sessionStorage.clear();
+            await Promise.all((await caches.keys()).map(cacheName => caches.delete(cacheName)));
+        }, DEFAULT_SETTINGS);
+        const client = await page.createCDPSession();
+        try {
+            const origin = new URL(page.url()).origin;
+            await client.send('Storage.clearDataForOrigin', {
+                origin,
+                storageTypes: 'all',
+            });
+            await client.send('Network.clearBrowserCache');
+        } finally {
+            await client.detach();
+        }
+        await page.reload({waitUntil: 'domcontentloaded'});
+        await installPageEvaluationShims(page);
+        await waitForRendererReady(page);
+    };
+
     return {
         name: scopedSessionName,
         browser,
         page,
         command,
         captureFailureArtifacts: label => captureFailureArtifacts(scopedSessionName, page, label),
+        resetForE2E,
         stop,
     };
 }
